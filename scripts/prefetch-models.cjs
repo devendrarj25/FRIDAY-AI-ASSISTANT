@@ -1119,8 +1119,9 @@ async function prefetch(
           deps: {
             signed: async (file) =>
               require("../electron/download-safety.cjs").authenticodeStatus(file),
-            // The downloaded GGUF is the light model only; a bigger tier must never be registered from it.
             ramGb,
+            skipOptional: env.FRIDAY_PREFETCH_CHAT_SMART,
+            // The downloaded GGUF is the light model only; a bigger tier must never be registered from it.
             localGguf: (model) =>
               model?.tag === OLLAMA_MODELS[0]?.tag ? firstGguf(chatJob(root).ready) : "",
             ...(existing.exe ? { ollamaExe: existing.exe } : {}),

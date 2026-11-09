@@ -1265,3 +1265,50 @@ describe("the light model must also answer, not only be pulled", () => {
     expect(down).toMatchObject({ ok: false, error: "connection refused" });
   });
 });
+
+describe("a renamed speech repository still downloads", () => {
+  it("lists the renamed turbo repository as a second source and no other size gets one", () => {
+    const jobs = prefetch.prefetchPlan("/friday", { FRIDAY_PREFETCH: "1" }, "win32", {});
+    const turbo = jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo");
+    expect(turbo.job.sources.map((s: { repo: string }) => s.repo)).toEqual([
+      "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "dropbox-dash/faster-whisper-large-v3-turbo",
+    ]);
+    for (const id of ["stt-tiny", "stt-base", "stt-small", "stt-medium", "stt-large-v3"]) {
+      expect(jobs.find((j: { id: string }) => j.id === id).job.sources).toHaveLength(1);
+    }
+  });
+});
+
+describe("the opt-outs given to prefetch reach the Ollama step", () => {
+  it("leaves the smart model out when the env passed to prefetch says so", async () => {
+    const pulled: string[] = [];
+    await prefetch.prefetch("C:/friday", {
+      env: {
+        CI: "",
+        GITHUB_ACTIONS: "",
+        FRIDAY_SETUP_UPDATE: "0",
+        FRIDAY_AUTO_INSTALL: "1",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+        FRIDAY_PREFETCH_MOONSHINE: "0",
+        FRIDAY_PREFETCH_CHAT_SMART: "0",
+      },
+      platform: "win32",
+      log: () => {},
+      download: async () => ({ ok: true }),
+      latest: async () => null,
+      totalGb: 32,
+      ollama: {
+        find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.15" }),
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        skipAnswerCheck: true,
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(pulled).toEqual(["qwen2.5:1.5b"]);
+  });
+});

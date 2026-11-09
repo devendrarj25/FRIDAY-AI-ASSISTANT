@@ -15,6 +15,15 @@ const STT_REPOS = {
   "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 };
 
+/**
+ * Where a size is fetched from if its first repository stops answering. The turbo repository was renamed
+ * from `mobiuslabsgmbh` to `dropbox-dash` (Hugging Face redirects the old name today, checked 2026-11-09), so the
+ * new name is the second source: the same files, the same MIT licence, used only when the first fails.
+ */
+const STT_FALLBACK_REPOS = {
+  "large-v3-turbo": ["dropbox-dash/faster-whisper-large-v3-turbo"],
+};
+
 const STT_FILES = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"];
 
 const PINNED = [
@@ -51,7 +60,14 @@ function sttPlan(model, root) {
     dir,
     files: STT_FILES,
     sha256: null,
-    sources: [{ kind: "hf-repo", repo: STT_REPOS[size], label: "Hugging Face" }],
+    sources: [
+      { kind: "hf-repo", repo: STT_REPOS[size], label: "Hugging Face" },
+      ...(STT_FALLBACK_REPOS[size] || []).map((repo) => ({
+        kind: "hf-repo",
+        repo,
+        label: "Hugging Face (renamed repository)",
+      })),
+    ],
   };
 }
 
@@ -213,6 +229,7 @@ async function ensureSttWeights(model, root, deps = {}) {
 
 module.exports = {
   STT_REPOS,
+  STT_FALLBACK_REPOS,
   STT_CATALOG,
   sttPlan,
   voiceModelsOnDisk,
