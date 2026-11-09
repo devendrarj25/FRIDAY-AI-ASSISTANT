@@ -115,6 +115,10 @@ function Invoke-EraseAll {
       Get-ChildItem -LiteralPath $rootDir -Recurse -Force -ErrorAction SilentlyContinue |
         Select-Object -First 40 -ExpandProperty FullName | ForEach-Object { Write-Host "    left: $_" }
       foreach ($hit in @(Get-OwnedProcesses)) { Write-Host "    running: $($hit.Name) pid $($hit.ProcessId) $($hit.ExecutablePath)" }
+      # A process outside the folder can still stand in it: name every one that mentions the folder.
+      foreach ($hit in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($rootDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 })) {
+        Write-Host "    mentions the folder: $($hit.Name) pid $($hit.ProcessId) $($hit.CommandLine)"
+      }
       throw "Erase-all uninstall left the FRIDAY folder behind: $rootDir"
     }
     if (Test-Path -LiteralPath $sentinel) { throw "Erase-all uninstall left the data sentinel behind." }

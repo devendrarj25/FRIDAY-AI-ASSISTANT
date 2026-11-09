@@ -314,7 +314,7 @@ From source, packing a new EXE and running that Setup is an upgrade of `<root>\A
 
 1. Windows Settings → Apps → Installed apps → FRIDAY (Official) or FRIDAY Test.
 2. Default (keep-data): only `<root>\App` is removed. Database, models, memory, library, and the rest of the root stay.
-3. Tick **Delete all FRIDAY data and resources** to remove the whole root (`$FridayUnMode == "delete"`). `nsis.deleteAppDataOnUninstall` is `false` in `electron-builder.yml`, so Windows will not silently wipe the root.
+3. Tick **Delete all FRIDAY data and resources** to remove the whole root (`$FridayUnMode == "delete"`). `nsis.deleteAppDataOnUninstall` is `false` in `electron-builder.yml`, so Windows will not silently wipe the root. Before the program folder is removed, Setup and Uninstall close the installed FRIDAY tree and also any Python or Node process started on a file inside the program folder (its executable can sit outside it, and it stands in that folder), never the process that started the closer; a detached helper then removes `<root>\App` and `<root>` for about a minute and a half. Keep-data removes `<root>\App` only.
 4. Portable: delete the extracted folder yourself; there is no Apps & Features row.
 
 Typed plans: `installer/uninstall/index.ts`. Contract: [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).

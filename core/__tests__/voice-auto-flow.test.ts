@@ -233,14 +233,16 @@ describe("a consequential command waits for a yes", () => {
     drive.handleHeard("no don't");
     expect(sent).toEqual([]);
     expect(drive.state.pending).toBeNull();
-    expect(spoken.join(" ")).toMatch(/nothing (was executed|ran|was done)|kuch .*nahi|कुछ नहीं/i);
+    expect(spoken.join(" ")).toMatch(
+      /nothing (was executed|ran|was done|happened)|kuch .*nahi|कुछ नहीं/i,
+    );
   });
 
   it("lets a yes expire, so a late yes approves nothing", () => {
     ask("delete the old reports", 10 * 60_000);
     drive.handleHeard("yes");
     expect(sent).toEqual([]);
-    expect(spoken.join(" ")).toMatch(/expire|timed out|timeout|समाप्त|समय निकल/i);
+    expect(spoken.join(" ")).toMatch(/expire|timed out|timeout|nikal gaya|समाप्त|समय निकल/i);
   });
 
   it("is not swallowed into a note while it waits", () => {

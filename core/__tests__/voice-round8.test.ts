@@ -134,3 +134,26 @@ describe("the voice check does not load a second speech model", () => {
     expect(mode).toContain("loadModel: options.loadModel !== false");
   });
 });
+
+describe("every wording of a cancel and an expiry still says what happened", () => {
+  it("each variant, in every register, says nothing ran or that the approval ran out", async () => {
+    const { vary, resetAntiRepeat } = await import("../../src/lib/friday/brain/anti-repeat");
+    const cancelled = /nothing (was executed|ran|was done|happened)|kuch .*nahi|कुछ नहीं/i;
+    const expired = /expire|timed out|timeout|nikal gaya|समाप्त|समय निकल/i;
+    for (const register of ["en", "hinglish", "hi"] as const) {
+      for (let step = 0; step < 12; step += 1) {
+        resetAntiRepeat();
+        const roll = step / 12;
+        expect(
+          vary("cancelled", { register, chance: () => roll }),
+          `cancelled ${register} ${step}`,
+        ).toMatch(cancelled);
+        resetAntiRepeat();
+        expect(
+          vary("expired", { register, chance: () => roll }),
+          `expired ${register} ${step}`,
+        ).toMatch(expired);
+      }
+    }
+  });
+});

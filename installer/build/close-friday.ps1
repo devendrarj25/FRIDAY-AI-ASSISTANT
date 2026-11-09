@@ -9,11 +9,40 @@ $ErrorActionPreference = 'SilentlyContinue'
 $installRoot = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 $fridayExe = Join-Path $installRoot 'FRIDAY.exe'
 
+# Setup or the uninstaller started this script, so it and every process above it are never selected.
+function Get-AncestorIds {
+  $ids = @{}
+  $id = $PID
+  for ($i = 0; $i -lt 8 -and $id; $i++) {
+    $ids[[int]$id] = $true
+    $row = Get-CimInstance Win32_Process -Filter "ProcessId=$id" | Select-Object -First 1
+    if (-not $row) { break }
+    $id = [int]$row.ParentProcessId
+    if ($ids.ContainsKey($id)) { break }
+  }
+  return $ids
+}
+$ancestors = Get-AncestorIds
+$programPrefix = "$installRoot\"
+# Interpreters FRIDAY starts on its own files. Their executable can live outside the program folder (a system
+# Python or Node), but their command line names a file inside it, and they start with the program folder as their
+# current directory, which keeps an empty "<root>\App" alive after an uninstall.
+$workerNames = @('python', 'pythonw', 'node')
+
+function Test-FridayWorker($Process) {
+  if (-not $Process.CommandLine) { return $false }
+  if ($ancestors.ContainsKey([int]$Process.ProcessId)) { return $false }
+  $base = [IO.Path]::GetFileNameWithoutExtension([string]$Process.Name).ToLowerInvariant()
+  if ($workerNames -notcontains $base) { return $false }
+  return $Process.CommandLine.IndexOf($programPrefix, [StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
 function Get-FridayProcesses {
   @(Get-CimInstance Win32_Process | Where-Object {
-    $_.ExecutablePath -and
+    ($_.ExecutablePath -and
     ([string]::Equals([IO.Path]::GetFullPath($_.ExecutablePath), $fridayExe, [StringComparison]::OrdinalIgnoreCase) -or
-      [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith("$installRoot\", [StringComparison]::OrdinalIgnoreCase))
+      [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith("$installRoot\", [StringComparison]::OrdinalIgnoreCase))) -or
+    (Test-FridayWorker $_)
   })
 }
 
@@ -56,8 +85,8 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 250
 }
 
-# Only trees rooted at the installed FRIDAY.exe are forced; unrelated Electron,
-# Python, Node and browser processes are never selected by this script.
+# Only trees rooted at the installed FRIDAY.exe, and Python or Node started on a file inside the program folder,
+# are forced; unrelated Electron, Python, Node and browser processes are never selected by this script.
 Stop-FridayTrees $true
 $deadline = (Get-Date).AddSeconds($ForceSeconds)
 while ((Get-Date) -lt $deadline) {
