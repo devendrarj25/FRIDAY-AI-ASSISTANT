@@ -48,11 +48,35 @@ function resetBroken() {
 }
 const CACHE_DIR = path.join(".cache", "huggingface");
 
+/**
+ * The client's own byte count, one tab-separated line at most four times a second:
+ *   FRIDAYBYTES <bar name> <bytes so far> <bytes in all>
+ * A Xet download writes its file late and in a jump (the disk shows nothing for minutes on a big file), so the
+ * folder cannot say whether the client is alive; the client's progress bar can. The bar draws into a sink, so
+ * nothing else is printed.
+ */
 const SCRIPT = [
-  "import json, sys",
+  "import io, json, sys, time",
+  "from tqdm.auto import tqdm",
   "from huggingface_hub import snapshot_download",
   "repo, dest, files = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])",
-  "snapshot_download(repo_id=repo, local_dir=dest, allow_patterns=files)",
+  "class Beat(tqdm):",
+  "    def __init__(self, *a, **k):",
+  "        k['disable'] = False",
+  "        k['file'] = io.StringIO()",
+  "        super().__init__(*a, **k)",
+  "        self._beat = 0.0",
+  "    def update(self, n=1):",
+  "        out = super().update(n)",
+  "        if getattr(self, 'unit', '') == 'B' and self.total:",
+  "            now = time.time()",
+  "            if now - self._beat >= 0.25 or self.n >= self.total:",
+  "                self._beat = now",
+  "                name = str(self.desc or '').replace('\\t', ' ')",
+  "                sys.stdout.write('FRIDAYBYTES\\t%s\\t%d\\t%d\\n' % (name, self.n, self.total))",
+  "                sys.stdout.flush()",
+  "        return out",
+  "snapshot_download(repo_id=repo, local_dir=dest, allow_patterns=files, tqdm_class=Beat)",
 ].join("\n");
 
 /** Which engine to use: auto (this one first), hub (this one only) or own (the built-in one). */
@@ -223,7 +247,8 @@ async function download({
     ...env,
     HF_XET_HIGH_PERFORMANCE: "1",
     HF_HUB_DISABLE_TELEMETRY: "1",
-    HF_HUB_DISABLE_PROGRESS_BARS: "1",
+    HF_HUB_DISABLE_PROGRESS_BARS: "0", // the client reports its bytes through the bar (see SCRIPT)
+    HF_XET_CACHE: path.join(dest, CACHE_DIR, "xet"), // inside the folder that is cleaned up afterwards
     HF_HUB_DISABLE_SYMLINKS_WARNING: "1",
     PYTHONIOENCODING: "utf-8",
   };
@@ -244,10 +269,32 @@ async function download({
       return;
     }
     let log = "";
-    child.stdout?.on("data", (chunk) => (log = (log + chunk).slice(-2000)));
+    child.stdout?.on("data", (chunk) => {
+      log = (log + chunk).slice(-2000);
+      feed(String(chunk));
+    });
     child.stderr?.on("data", (chunk) => (log = (log + chunk).slice(-2000)));
     let best = 0;
     let lastMove = Date.now();
+    // The client's own bytes: what it says it has downloaded, and when that last grew.
+    let clientDone = 0;
+    let pending = "";
+    const barTop = new Map();
+    const feed = (text) => {
+      pending += text;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("FRIDAYBYTES\t")) continue;
+        const [, bar, count] = line.split("\t");
+        const bytes = Number(count) || 0;
+        if (bytes > (barTop.get(bar) || 0)) {
+          barTop.set(bar, bytes);
+          lastMove = Math.max(lastMove, Date.now());
+          if (/^download/i.test(bar) && bytes > clientDone) clientDone = bytes;
+        }
+      }
+    };
     const samples = [];
     const stop = (why) => {
       failure = why;
@@ -259,7 +306,9 @@ async function download({
     };
     const timer = setInterval(() => {
       if (signal?.aborted) return stop(String(signal.reason || "cancelled"));
-      const { done, touched } = bytesOnDisk(dest, wanted);
+      const onDisk = bytesOnDisk(dest, wanted);
+      const touched = onDisk.touched;
+      const done = total > 0 ? Math.min(total, Math.max(onDisk.done, clientDone)) : onDisk.done;
       const moved = done > best || touched > lastMove;
       if (moved) lastMove = Date.now();
       best = Math.max(best, done);
@@ -283,7 +332,12 @@ async function download({
       });
       if (best === 0 && now - started > firstByteMs && now - lastMove > firstByteMs) {
         stop(`no byte in the first ${Math.round(firstByteMs / 1000)}s`);
-      } else if (now - lastMove > stallMs) stop(`no byte for ${Math.round(stallMs / 1000)}s`);
+      } else {
+        // Once every byte has arrived the client still assembles and hashes the file: give that more time.
+        const limit =
+          total > 0 && clientDone >= total * 0.999 ? Math.max(stallMs, 180_000) : stallMs;
+        if (now - lastMove > limit) stop(`no byte for ${Math.round(limit / 1000)}s`);
+      }
     }, pollMs);
     child.on("error", (err) => {
       clearInterval(timer);

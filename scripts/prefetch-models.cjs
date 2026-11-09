@@ -417,7 +417,10 @@ async function ollamaAnswers(tag, fetchImpl, timeoutMs = 240000) {
         model: tag,
         prompt: "Reply with the single word: ready",
         stream: false,
-        options: { num_predict: 8, temperature: 0 },
+        // Qwen3 is a thinking model: left to think, a short reply budget is spent on the thinking and the
+        // answer comes back empty. The check wants an answer, so thinking is off for it.
+        think: false,
+        options: { num_predict: 32, temperature: 0 },
         keep_alive: "30s",
       }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -425,7 +428,9 @@ async function ollamaAnswers(tag, fetchImpl, timeoutMs = 240000) {
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const body = await res.json();
     if (typeof body?.response !== "string") return { ok: false, error: "no answer field" };
-    return { ok: body.response.trim().length > 0, error: "empty answer" };
+    // A model that only produced thinking is alive and answering; an empty body is not.
+    const spoke = body.response.trim().length > 0 || String(body.thinking || "").trim().length > 0;
+    return { ok: spoke, error: "empty answer" };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) };
   }
