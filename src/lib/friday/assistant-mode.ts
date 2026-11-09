@@ -72,7 +72,7 @@ import {
   voiceTurn,
   whereItStopped,
 } from "./voice-turn-trace";
-import { registerVoiceHealth } from "./voice-health";
+import { registerVoiceHealth, registerVoiceRepair } from "./voice-health";
 import { preferences } from "./preferences";
 import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
 import { createStreamingSpeak } from "./voice-engine/streaming-speak";
@@ -86,8 +86,9 @@ import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
 import { preferSpoken, socialRegister } from "./conversation-style";
-import { vary, type RepeatBucket } from "./brain/anti-repeat";
+import { chooseFresh, vary, type RepeatBucket } from "./brain/anti-repeat";
 import { diagnoseVoice, problemLine, type SelfCheckResult } from "./voice-selfcheck";
+import { SUPERVISOR_COOLDOWN_MS, superviseVoice } from "./voice-supervisor";
 import {
   activeVoiceSettings,
   lastSpeechRoute,
@@ -721,6 +722,7 @@ class AssistantModeStore {
       this.applyVoiceHeal("mic-no-device", false);
     });
     voiceGate.subscribe(() => {
+      this.superviseTick();
       if (this.state.mode !== "auto" || this.quietHealSent) return;
       if (!voiceGate.quietNotice()) return;
       this.quietHealSent = true;
@@ -1403,6 +1405,11 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    this.interventions = 0;
+    this.lastIntervention = "";
+    this.reportedStuck = false;
+    this.announcedReady = false;
+    this.supervisedAt.clear();
     if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
     this.autoCheckTimer = null;
     if (this.downloadTimer) clearTimeout(this.downloadTimer);
@@ -1530,6 +1537,8 @@ class AssistantModeStore {
         this.markHealFixed();
         this.state.supported = true;
         this.startDesktopDictation();
+        // The microphone may have opened before the engine was known ready; say it now if so.
+        if (this.state.voiceState === "LISTENING") this.announceReady();
       })
       .finally(() => {
         this.recognitionPending = false;
@@ -1588,6 +1597,107 @@ class AssistantModeStore {
     void this.selfCheckVoice(true);
   }
 
+  private announcedReady = false;
+
+  /**
+   * Once per Auto session, when the microphone is really open and the speech engine is ready, one short
+   * line so the owner hears that she is up. Never while muted, never again until Auto is turned off and on.
+   */
+  private announceReady() {
+    if (this.announcedReady || this.state.mode !== "auto" || this.state.muted || this.state.paused)
+      return;
+    if (!this.state.stt.ready) return;
+    this.announcedReady = true;
+    const line = this.variedLine("ready", this.lastOwnerLine);
+    this.caption("friday", line);
+    this.speak(line);
+  }
+
+  /** When the session entered its present state, for the supervisor. */
+  private stateSince = Date.now();
+  private supervisedAt = new Map<string, number>();
+  private lastSupervisorTick = 0;
+  /** How many times she has pulled herself out of a stuck state this session, and the last one. */
+  private interventions = 0;
+  private lastIntervention = "";
+  private reportedStuck = false;
+
+  /**
+   * The supervisor's turn, run from the microphone analyser's own beat (no timer of its own): if the session
+   * has sat in one state longer than that state can last, mend it through the one heal policy, quietly.
+   */
+  private superviseTick() {
+    const now = Date.now();
+    if (now - this.lastSupervisorTick < 5000) return;
+    this.lastSupervisorTick = now;
+    const verdict = superviseVoice({
+      mode: this.state.mode,
+      paused: this.state.paused,
+      state: this.state.voiceState,
+      ageMs: now - this.stateSince,
+      brainActive: Boolean(brain.getSnapshot().activeRunId),
+      speechQueued: this.speechQueue.length > 0,
+      speaking: voiceGate.isSpeakingGuarded(),
+      downloading: Boolean(this.state.download && this.state.download.stage === "download"),
+    });
+    if (!verdict.act) return;
+    if (now - (this.supervisedAt.get(verdict.state) ?? 0) < SUPERVISOR_COOLDOWN_MS) return;
+    this.supervisedAt.set(verdict.state, now);
+    this.interventions += 1;
+    this.lastIntervention = `${verdict.state}: ${verdict.reason}`;
+    this.trace("heal", `supervisor: ${verdict.reason}`);
+    if (verdict.remedy === "self-check") {
+      void this.selfCheckVoice(false);
+      return;
+    }
+    if (verdict.remedy === "reopen-mic" || verdict.remedy === "restart-speech") {
+      this.applyVoiceHeal(verdict.fault, false);
+    }
+    this.forceListening(verdict.reason);
+    // Never fail silently: the first few are mended quietly, a run of them is said once.
+    if (this.interventions >= 3 && !this.reportedStuck) {
+      this.reportedStuck = true;
+      const line = chooseFresh(
+        `stuck:${socialRegister(this.lastOwnerLine)}`,
+        socialRegister(this.lastOwnerLine) === "en"
+          ? [
+              "I keep getting stuck and recovering. If it goes on, open Voice diagnostics.",
+              "My voice pipeline has stalled a few times and I reset it each time. Voice diagnostics shows where.",
+            ]
+          : [
+              "Main baar baar atak rahi hoon, har baar khud theek kar leti hoon. Rukta rahe to Voice diagnostics dekhna.",
+              "Meri voice pipeline kuch baar ruki, maine har baar reset ki. Kahan ruki, Voice diagnostics me dikhega.",
+            ],
+      );
+      this.caption("friday", line);
+      this.emit();
+    }
+  }
+
+  /** Let go of a stuck state: back to listening with nothing half-done left behind. */
+  private forceListening(reason: string) {
+    this.clearHoldLines();
+    this.state.interim = "";
+    this.state.voiceState = "LISTENING";
+    this.state.listening = true;
+    this.state.speaking = false;
+    this.state.status = statusWithVoice(stateLabel("LISTENING"));
+    this.stateSince = Date.now();
+    this.trace("segment", `back to listening — ${reason}`);
+    this.emit();
+  }
+
+  private lastCheck: { at: number; ok: boolean; faults: string[] } | null = null;
+  interventionCount(): number {
+    return this.interventions;
+  }
+  lastInterventionText(): string {
+    return this.lastIntervention;
+  }
+  lastCheckSummary() {
+    return this.lastCheck;
+  }
+
   private selfChecking = false;
   private autoCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1632,6 +1742,7 @@ class AssistantModeStore {
         probes: verified.checks,
       });
       this.trace("heal", `self-check: ${result.ok ? "all good" : result.faults.join(", ")}`);
+      this.lastCheck = { at: Date.now(), ok: result.ok, faults: [...result.faults] };
       if (result.ok) {
         if (manual) {
           const line = vary("allGood", { register });
@@ -1968,8 +2079,10 @@ class AssistantModeStore {
         this.handleHeard(text, meta?.wake ?? null);
       },
       onStateChange: (listening) => {
-        if (listening === "listening") this.to("mic-opened");
-        else if (listening === "thinking") this.to("transcribe-start");
+        if (listening === "listening") {
+          this.to("mic-opened");
+          this.announceReady();
+        } else if (listening === "thinking") this.to("transcribe-start");
         // listening / status come from `to()`. Do not resurrect "Listening…"
         // (or clear a real error) when the machine stayed in ERROR/PAUSED.
         if (listening === "listening" && this.state.voiceState !== "ERROR") {
@@ -2126,6 +2239,7 @@ class AssistantModeStore {
     }
     if (event === "transcribe-start" || event === "transcript" || event === "session-stop")
       this.stopLiveWords();
+    if (next !== from) this.stateSince = Date.now();
     this.state.voiceState = next;
     this.state.listening = stateIsListening(next);
     this.state.speaking = stateIsSpeaking(next);
@@ -4001,7 +4115,25 @@ registerVoiceHealth(() => {
     ttsError: live.tts.lastError || "",
     turnLine: turnTraceLine(voiceTurn()),
     stoppedAt: whereItStopped(voiceTurn()),
+    wakeEngine: live.wakeEngine.engine,
+    voiceState: live.voiceState,
+    download: live.download
+      ? `${live.download.label}${live.download.percent == null ? "" : ` ${live.download.percent}%`}`
+      : "",
+    interventions: assistantMode.interventionCount(),
+    lastIntervention: assistantMode.lastInterventionText(),
+    lastCheck: assistantMode.lastCheckSummary(),
   };
+});
+
+// A spoken "fix your voice" runs the same check-and-mend as the Fix voice button and says what it found.
+registerVoiceRepair(async () => {
+  const result = await assistantMode.selfCheckVoice(true);
+  if (!result) return "My voice repair runs in the installed app. Open FRIDAY and ask again.";
+  if (result.ok)
+    return "I checked my microphone, speech recognition and voice. All of it is working.";
+  const broken = result.parts.filter((part) => !part.ok && !part.optional);
+  return `I found a problem with ${broken.map((part) => `${part.label} (${part.detail})`).join("; ")} and started the repair. Give it a moment, then ask me again.`;
 });
 
 bindVoiceSurface(() => {

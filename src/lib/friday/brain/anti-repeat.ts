@@ -21,7 +21,8 @@ export type RepeatBucket =
   | "cancelled"
   | "expired"
   | "checking"
-  | "allGood";
+  | "allGood"
+  | "ready";
 
 /** The language the owner is speaking, so a short line is not Hindi in an English talk. */
 export type LineRegister = "en" | "hinglish" | "hi";
@@ -37,6 +38,7 @@ const LAST: Record<RepeatBucket, string[]> = {
   expired: [],
   checking: [],
   allGood: [],
+  ready: [],
 };
 
 const KEEP = 5;
@@ -62,7 +64,7 @@ const CANCELLED: Pools = {
   en: [
     "Cancelled. Nothing was executed.",
     "Okay, dropped it. Nothing ran.",
-    "Stopped before it ran. All clear.",
+    "Stopped before it ran. Nothing happened.",
     "Scrapped. Nothing was done.",
   ],
   hinglish: [
@@ -112,6 +114,26 @@ const CHECKING: Pools = {
     "अपना माइक, सुनना और बोलना जाँच रही हूँ।",
     "एक पल, अपनी आवाज़ की सेटिंग देख रही हूँ।",
     "जल्दी जाँच कर रही हूँ।",
+  ],
+};
+
+const READY: Pools = {
+  en: [
+    "Auto mode is on. I'm listening.",
+    "I'm up and listening.",
+    "Ready when you are.",
+    "Listening. Go ahead whenever.",
+  ],
+  hinglish: [
+    "Auto mode on hai, main sun rahi hoon.",
+    "Taiyaar hoon, bolo.",
+    "Main sun rahi hoon, jab chaaho bolo.",
+    "Sab ready hai, batao.",
+  ],
+  hi: [
+    "ऑटो मोड चालू है, मैं सुन रही हूँ।",
+    "तैयार हूँ, बोलिए।",
+    "मैं सुन रही हूँ, जब चाहें बोलिए।",
   ],
 };
 
@@ -170,6 +192,8 @@ function pool(bucket: RepeatBucket, address: string, register: LineRegister): st
       return fromPools(CHECKING, register);
     case "allGood":
       return fromPools(ALL_GOOD, register);
+    case "ready":
+      return fromPools(READY, register);
     case "ack":
       return [
         "Got it.",

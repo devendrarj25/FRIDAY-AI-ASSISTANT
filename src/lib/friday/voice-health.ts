@@ -27,7 +27,40 @@ export type VoiceHealth = {
   /** "heard ✓ … → routed –" from the turn trace. */
   turnLine: string;
   stoppedAt: { stage: string; reason: string } | null;
+  /** Which wake detector is really listening, and whether the wake word is required. */
+  wakeEngine?: string;
+  /** What the voice state machine says now ("LISTENING", "SPEAKING", …). */
+  voiceState?: string;
+  /** A speech model or the speech engine being fetched, as the bar shows it ("" when nothing is). */
+  download?: string;
+  /** Times she pulled herself out of a stuck state this session, and the last one. */
+  interventions?: number;
+  lastIntervention?: string;
+  /** Her own last check of her voice: when, and what was wrong (empty when all was fine). */
+  lastCheck?: { at: number; ok: boolean; faults: string[] } | null;
 };
+
+/** Auto mode registers how to repair the voice; a spoken "fix your voice" runs it. */
+let voiceRepair: (() => Promise<string>) | null = null;
+
+export function registerVoiceRepair(repair: () => Promise<string>): () => void {
+  voiceRepair = repair;
+  return () => {
+    if (voiceRepair === repair) voiceRepair = null;
+  };
+}
+
+/** Run the voice check-and-mend and say what happened. Without a live session, say that instead. */
+export async function repairVoice(): Promise<string> {
+  if (!voiceRepair) {
+    return "My voice repair runs in the installed app, in Auto mode. Switch to Auto and ask again.";
+  }
+  try {
+    return await voiceRepair();
+  } catch (error) {
+    return `The voice check itself failed: ${String((error as Error)?.message || error).slice(0, 160)}`;
+  }
+}
 
 let voiceHealthProvider: (() => VoiceHealth | null) | null = null;
 
@@ -132,6 +165,22 @@ export function problemsFromVoiceHealth(health: VoiceHealth | null): {
       detail: health.ttsError,
       fix: "Run speak test in Voice diagnostics; install a voice in Install Manager if none speaks.",
     });
+  }
+  facts.push(
+    `Hearing with ${health.sttModel || "no speech model yet"}; wake ${health.wakeEngine || "unknown"}; state ${health.voiceState || "unknown"}.`,
+  );
+  if (health.download) facts.push(`Fetching now: ${health.download}.`);
+  if (health.interventions) {
+    facts.push(
+      `I pulled myself out of a stuck state ${health.interventions} time${health.interventions === 1 ? "" : "s"} this session (last: ${health.lastIntervention || "unknown"}).`,
+    );
+  }
+  if (health.lastCheck) {
+    facts.push(
+      health.lastCheck.ok
+        ? "My last check of my own voice found nothing wrong."
+        : `My last check of my own voice found: ${health.lastCheck.faults.join(", ") || "a fault"}.`,
+    );
   }
   if (health.stoppedAt) {
     facts.push(
