@@ -73,6 +73,14 @@ function fakeApi(openResult: { ok: boolean; error?: string } = { ok: true }) {
 
 const META = { sequence: 1, sampleStart: 0 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
+/** Wait for a condition instead of a fixed number of ticks: a slow runner needs more turns of the event loop. */
+const until = async (condition: () => boolean, tries = 400) => {
+  for (let i = 0; i < tries && !condition(); i += 1) await tick();
+};
+type Rig = ReturnType<typeof fakeApi>;
+/** How many units have been sent on a socket (a unit is a text and a flush). */
+const flushes = (rig: Rig, id: string) =>
+  rig.sent.filter((m) => m.id === id && m.message["type"] === "flush").length;
 
 describe("turn and generation guards", () => {
   it("hands one final transcript on exactly once", () => {
@@ -445,6 +453,7 @@ describe("streaming speak (clip source)", () => {
 
   async function rigStream(
     rest = async () => ({ ok: true, audioBase64: "REST", mime: "audio/wav" }),
+    timeoutMs = 5000,
   ) {
     const { createStreamingSpeak } =
       await import("../../src/lib/friday/voice-engine/streaming-speak");
@@ -454,7 +463,7 @@ describe("streaming speak (clip source)", () => {
       api: rig.api as never,
       rest,
       note: (l) => notes.push(l),
-      timeoutMs: 20,
+      timeoutMs,
       setTimer: (fn, ms) => setTimeout(fn, ms),
     });
     return { rig, speaker, notes };
@@ -467,13 +476,13 @@ describe("streaming speak (clip source)", () => {
     await tick();
     const id = rig.opens[0]!.id;
     rig.open(id);
-    await tick();
+    await until(() => flushes(rig, id) >= 1);
     rig.emit(id, { type: "audio", audioBase64: b64("AB"), mime: "audio/mp3" });
     rig.emit(id, { type: "audio", audioBase64: b64("CD"), mime: "audio/mp3" });
     rig.emit(id, { type: "complete" });
     expect(await first).toEqual({ ok: true, audioBase64: b64("ABCD"), mime: "audio/mp3" });
     const second = speaker.speak("sarvam", { ...request, text: "दूसरा।" });
-    await tick();
+    await until(() => flushes(rig, id) >= 2);
     rig.emit(id, { type: "audio", audioBase64: b64("EF"), mime: "audio/mp3" });
     rig.emit(id, { type: "complete" });
     expect((await second).audioBase64).toBe(b64("EF"));
@@ -485,12 +494,12 @@ describe("streaming speak (clip source)", () => {
     const request = { text: "पहला।", language: "hi-IN", speaker: "aparna_hi_customer" };
     const first = speaker.speak("sarvam", request);
     const second = speaker.speak("sarvam", { ...request, text: "दूसरा।" });
-    await tick();
+    await until(() => rig.opens.length >= 1);
     await tick();
     expect(rig.opens).toHaveLength(1); // not two sockets, the second orphaning the first
     rig.open(rig.opens[0]!.id);
-    await tick();
     const id = rig.opens[0]!.id;
+    await until(() => flushes(rig, id) >= 2);
     rig.emit(id, { type: "audio", audioBase64: b64("ONE"), mime: "audio/mp3" });
     rig.emit(id, { type: "complete" });
     rig.emit(id, { type: "audio", audioBase64: b64("TWO"), mime: "audio/mp3" });
@@ -506,7 +515,7 @@ describe("streaming speak (clip source)", () => {
     await tick();
     const id = rig.opens[0]!.id;
     rig.open(id);
-    await tick();
+    await until(() => flushes(rig, id) >= 1);
     rig.emit(id, { type: "audio", audioBase64: b64("HI"), mime: "audio/mp3" });
     rig.emit(id, { type: "complete" });
     await first;
@@ -515,8 +524,7 @@ describe("streaming speak (clip source)", () => {
       text: "Your report is ready.",
       language: "en-IN",
     });
-    await tick();
-    await tick();
+    await until(() => flushes(rig, id) >= 2);
     expect(rig.opens).toHaveLength(1); // the same socket
     expect(rig.sent.map((m) => m.message["type"])).toEqual([
       "text",
@@ -536,19 +544,18 @@ describe("streaming speak (clip source)", () => {
     const run = (speakerName: string) =>
       speaker.speak("sarvam", { text: "x", language: "hi-IN", speaker: speakerName });
     const a = run("aparna_hi_customer");
-    await tick();
+    await until(() => rig.opens.length >= 1);
     rig.open(rig.opens[0]!.id);
-    await tick();
+    await until(() => flushes(rig, rig.opens[0]!.id) >= 1);
     rig.emit(rig.opens[0]!.id, { type: "audio", audioBase64: b64("A"), mime: "audio/mp3" });
     rig.emit(rig.opens[0]!.id, { type: "complete" });
     await a;
     const b = run("ritu_hi_customer");
-    await tick();
-    await tick();
+    await until(() => rig.opens.length >= 2);
     expect(rig.opens).toHaveLength(2);
     expect(rig.closes).toHaveLength(1);
     rig.open(rig.opens[1]!.id);
-    await tick();
+    await until(() => flushes(rig, rig.opens[1]!.id) >= 1);
     rig.emit(rig.opens[1]!.id, { type: "audio", audioBase64: b64("B"), mime: "audio/mp3" });
     rig.emit(rig.opens[1]!.id, { type: "complete" });
     expect((await b).audioBase64).toBe(b64("B"));
@@ -582,13 +589,13 @@ describe("streaming speak (clip source)", () => {
     ).toBe("REST");
     expect(refused.notes.join(" ")).toMatch(/not opened/);
 
-    const silent = await rigStream();
+    const silent = await rigStream(undefined, 40); // the short clip timeout is the point of this case
     const run = silent.speaker.speak("sarvam", {
       text: "hi",
       language: "hi-IN",
       speaker: "aparna_hi_customer",
     });
-    await tick();
+    await until(() => silent.rig.opens.length >= 1);
     silent.rig.open(silent.rig.opens[0]!.id);
     expect((await run).audioBase64).toBe("REST"); // timed out with no frame
     expect(silent.notes.join(" ")).toMatch(/did not answer/);
