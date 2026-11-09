@@ -19,6 +19,8 @@
  *   4. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
  *   5. main process    scripts/verify-deps.cjs: every module the app requires ships
  *   6. registry        scripts/env-registry.cjs repair: the persistent component list
+ *   7. pinned runners  scripts/runners-status.cjs: Ollama and llama.cpp against the newest official
+ *                      release (information only: it never fails the run and never changes a pin)
  *
  * Exit 0 only when every step passed.
  */
@@ -83,6 +85,7 @@ const STEPS = [
   { name: "runtime folders and database", run: node("init-runtime.cjs") },
   { name: "main-process dependencies", run: node("verify-deps.cjs") },
   { name: "environment registry", run: node("env-registry.cjs", ["repair"]) },
+  { name: "pinned local runners against the newest release", run: node("runners-status.cjs") },
 ];
 
 /** Run every step in order (later steps still run after a failure, so one pass reports everything). */

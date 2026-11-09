@@ -1,5 +1,5 @@
 {
-  "checked": "2026-10-14",
+  "checked": "2026-11-09",
   "runners": [
     {
       "id": "ollama",
@@ -14,11 +14,11 @@
       "catalogNote": "Ollama publishes no machine-readable list of the whole library. Pull is the local daemon POST /api/pull. The library page is the official list.",
       "release": {
         "repo": "ollama/ollama",
-        "tag": "v0.40.4",
+        "tag": "v0.40.15",
         "asset": "OllamaSetup.exe",
-        "url": "https://github.com/ollama/ollama/releases/download/v0.40.4/OllamaSetup.exe",
-        "bytes": 1581967176,
-        "sha256": "45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde"
+        "url": "https://github.com/ollama/ollama/releases/download/v0.40.15/OllamaSetup.exe",
+        "bytes": 1689667936,
+        "sha256": "106ef3d2a02437810fba6f574914b1413c512ea84ddd4f184c8e7f434b6f5564"
       },
       "start": ["ollama", ["serve"]],
       "stopHint": "Quit the Ollama tray app.",
@@ -139,11 +139,11 @@
       "catalogNote": "llama.cpp publishes release binaries, not a model library. Import a GGUF or use a Hugging Face file.",
       "release": {
         "repo": "ggml-org/llama.cpp",
-        "tag": "b11609",
-        "asset": "llama-b11609-bin-win-cpu-x64.zip",
-        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11609/llama-b11609-bin-win-cpu-x64.zip",
-        "bytes": 19518618,
-        "sha256": "8708a7b81842333927f6377ac3f17ff8bba4dbe1ee0cf28dfd5e7a32e3a46b38"
+        "tag": "b12230",
+        "asset": "llama-b12230-bin-win-cpu-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-win-cpu-x64.zip",
+        "bytes": 24898046,
+        "sha256": "a787fb94d48e6d93aa5809133f5f984360a5713b20d2f9ee1ccc4b22cd9cce56"
       },
       "start": null,
       "stopHint": "Stop the llama-server process.",

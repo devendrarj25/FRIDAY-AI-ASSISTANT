@@ -267,7 +267,7 @@ describe("local library parsers", () => {
     });
     expect(gpt.canRun).toBe(false);
     expect(gpt.reason).toMatch(/sha256/i);
-    const card = library.launcherCard(ollama, { now: Date.parse("2026-10-16T00:00:00Z") });
+    const card = library.launcherCard(ollama, { now: Date.parse("2026-11-11T00:00:00Z") });
     expect(card.detected).toBe(false);
     expect(card.nextStep).toMatch(/Not installed/);
     expect(card.pinAgeLabel).toBe("Pin age: 2 days");
@@ -276,7 +276,7 @@ describe("local library parsers", () => {
 
   it("reports a newer official release without installing or replacing an unpublished checksum", async () => {
     const ollama = library.runnerById("ollama");
-    const now = Date.parse("2026-10-16T00:00:00Z");
+    const now = Date.parse("2026-11-11T00:00:00Z");
     const pinned = ollama.release.sha256;
     const newer = await library.checkRunnerRelease("ollama", {
       now,

@@ -94,6 +94,7 @@ describe("npm run doctor checks, repairs and checks again", () => {
       "runtime folders and database",
       "main-process dependencies",
       "environment registry",
+      "pinned local runners against the newest release",
     ]);
     const source = read("scripts/doctor.cjs");
     expect(source).toContain('node("check-environment.cjs", ["--fix"])');
