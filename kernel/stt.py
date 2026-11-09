@@ -1295,10 +1295,13 @@ def _heard(payload: dict, hearing: dict | None, pass_row: dict, hint: str, passe
     return payload
 
 
+# Ask which recognisers are installed. Do NOT create System.Speech.Recognition.SpeechRecognizer here: that is the
+# shared Windows recogniser, which starts sapisvr.exe and, on a PC where Speech Recognition was never set up, opens
+# the "Set up Speech Recognition" wizard (SpeechUXWiz.exe) on the owner's desktop and leaves both running.
 WINDOWS_SPEECH_PROBE = (
     "Add-Type -AssemblyName System.Speech; "
-    "$r = New-Object System.Speech.Recognition.SpeechRecognizer; "
-    "if ($r) { 'installed' } else { 'missing' }"
+    "if ([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers().Count -gt 0) "
+    "{ 'installed' } else { 'missing' }"
 )
 
 _windows_speech: bool | None = None
@@ -1321,6 +1324,8 @@ def windows_speech_ready() -> bool:
             text=True,
             timeout=8,
             check=False,
+            # Never inherit the program folder as the current directory: a child that stands there keeps it alive.
+            cwd=tempfile.gettempdir(),
         )
         _windows_speech = "installed" in (done.stdout or "")
     except Exception:
@@ -1353,6 +1358,7 @@ def transcribe_windows(audio: str) -> str | None:
             text=True,
             timeout=20,
             check=False,
+            cwd=tempfile.gettempdir(),
         )
     except Exception:
         return None
@@ -1634,6 +1640,7 @@ def synth_speech_clip(phrase: str = HEARING_PHRASE):
                 check=True,
                 capture_output=True,
                 timeout=60,
+                cwd=tempfile.gettempdir(),
             )
             clip = decode_foreign(raw)
             if clip is not None and len(clip):

@@ -57,3 +57,21 @@ describe("the uninstall contract stays", () => {
     expect(nsh).toContain('Nothing of FRIDAY survives a "delete" uninstall.');
   });
 });
+
+describe("what the speech probe starts must not outlive or hold the program folder", () => {
+  it("asks which recognisers are installed instead of creating the shared Windows recogniser", () => {
+    const stt = read("kernel/stt.py");
+    const probe = stt.slice(
+      stt.indexOf("WINDOWS_SPEECH_PROBE = ("),
+      stt.indexOf("_windows_speech: bool"),
+    );
+    expect(probe).toContain("SpeechRecognitionEngine]::InstalledRecognizers()");
+    expect(probe).not.toContain("New-Object System.Speech.Recognition.SpeechRecognizer");
+  });
+
+  it("starts the speech worker and its helpers outside the program folder", () => {
+    const stt = read("electron/stt.cjs");
+    expect(stt).toContain("cwd: os.tmpdir(),");
+    expect(stt.match(/cwd: os\.tmpdir\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+});

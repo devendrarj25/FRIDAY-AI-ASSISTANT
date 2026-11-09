@@ -240,6 +240,8 @@ function run(exe, args, timeout = 120000) {
         timeout,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
+        // Never the program folder: a child that stands in it keeps it alive after an uninstall.
+        cwd: os.tmpdir(),
         env: { ...process.env, FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" },
       },
       (error, stdout, stderr) =>
@@ -555,6 +557,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   const child = spawn(py[0], [...py[1], scriptPath(), "--serve"], {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
+    // The worker and everything it starts (the Windows speech probe included) must not stand in the program folder.
+    cwd: os.tmpdir(),
     env: {
       ...process.env,
       PYTHONUNBUFFERED: "1",
