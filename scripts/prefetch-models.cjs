@@ -35,7 +35,11 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_STT_MAX=0 the 3 GB large-v3 size, FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_CHAT_SMART=0 the bigger Ollama chat models, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_CHAT_SMART=0 the smart Ollama chat model,
+ * FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * install and pulls. The big speech sizes are NOT part of setup (they are large and slow on a normal line);
+ * FRIDAY fetches them from inside the app when a size is chosen. FRIDAY_PREFETCH_STT_LARGE=1 adds medium,
+ * FRIDAY_PREFETCH_STT_BIG=1 large-v3-turbo and FRIDAY_PREFETCH_STT_MAX=1 large-v3 to setup.
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -110,6 +114,11 @@ const CHAT_MODEL = {
 
 function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
+}
+
+/** Off unless the owner asks for it with the value 1: the big speech sizes are fetched from inside FRIDAY later. */
+function optedIn(env, key) {
+  return String(env[key] ?? "0").trim() === "1";
 }
 
 const findOllama = localLibrary.findInstalledOllama;
@@ -260,9 +269,9 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       },
     });
   }
-  // The optional larger speech size is the biggest piece and nothing waits on it, so it goes last:
-  // everything FRIDAY needs to listen, speak and chat is already in place while it downloads.
-  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  // The larger speech sizes are opt-in (FRIDAY_PREFETCH_STT_LARGE, _MAX and _BIG = 1): they are big and slow on a
+  // normal line, so FRIDAY fetches them from inside the app when the owner picks one. Asked for, they go last.
+  if (optedIn(env, "FRIDAY_PREFETCH_STT_LARGE")) {
     const plan = voiceWeights.sttPlan(STT_LARGE.size, root);
     jobs.push({
       id: plan.id,
@@ -273,7 +282,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
-  if (enabled(env, "FRIDAY_PREFETCH_STT_MAX") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  if (optedIn(env, "FRIDAY_PREFETCH_STT_MAX")) {
     const plan = voiceWeights.sttPlan(STT_MAX.size, root);
     jobs.push({
       id: plan.id,
@@ -284,7 +293,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
-  if (enabled(env, "FRIDAY_PREFETCH_STT_BIG") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  if (optedIn(env, "FRIDAY_PREFETCH_STT_BIG")) {
     const plan = voiceWeights.sttPlan(STT_BIG.size, root);
     jobs.push({
       id: plan.id,
@@ -838,7 +847,7 @@ async function fetchMoonshine(root, { env = process.env, log = console.log, run 
     log("[friday] ok       moonshine-en verified on disk; not downloaded again");
     return { id: "moonshine-en", ok: true, downloaded: false };
   }
-  const python = String(env.FRIDAY_PYTHON || "").trim();
+  const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
   if (!python) {
     log(
       "[friday] INFO     moonshine-en skipped: no Python runtime yet (npm run setup:python fetches it)",
@@ -1273,6 +1282,16 @@ if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
+  // A FRIDAY_PYTHON that points nowhere is dropped; the kernel virtual environment is used instead.
+  require("./explicit-python.cjs").dropStalePython(process.env);
+  if (!process.env.FRIDAY_PYTHON) {
+    try {
+      const venv = require("./python-runtime.cjs").resolveVenvPython();
+      if (venv && require("node:fs").existsSync(venv)) process.env.FRIDAY_PYTHON = venv;
+    } catch {
+      /* Moonshine is then skipped with a note, as before */
+    }
+  }
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
   // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
   // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".

@@ -37,9 +37,8 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(has("ollama release pin")).toBe(true);
     // llama.cpp is added later from Install Manager, so setup must not plan it.
     expect(has("llamacpp-runtime")).toBe(false);
-    expect(rows.find((r) => r.name === "big speech sizes in the plan")?.detail).toContain(
-      "stt-medium",
-    );
+    // The big speech sizes are not part of setup; FRIDAY fetches them from inside the app.
+    expect(rows.find((r) => r.name === "big speech sizes in the plan")?.detail).toContain("none");
     expect(rows.some((r) => r.layer === "speech" && r.name.startsWith("kernel/stt.py"))).toBe(true);
   });
 
@@ -54,7 +53,6 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(disk.every((r) => r.state === "FAIL" || r.state === "INFO")).toBe(true);
     expect(disk.filter((r) => r.state === "FAIL").length).toBeGreaterThan(5);
     expect(disk.find((r) => r.name === "stt-small")?.state).toBe("FAIL");
-    expect(disk.find((r) => r.name === "stt-large-v3")?.state).toBe("INFO");
   });
 
   it("reads package names from a requirements file and finds a banned one", () => {

@@ -53,7 +53,7 @@ function renderOverall(total) {
 }
 
 class DownloadBoard {
-  constructor({ stream = process.stdout, tty, now = Date.now, intervalMs = 100, log } = {}) {
+  constructor({ stream = process.stdout, tty, now = Date.now, intervalMs = 250, log } = {}) {
     this.stream = stream;
     this.tty = tty ?? Boolean(stream && stream.isTTY);
     this.now = now;
@@ -181,17 +181,48 @@ class DownloadBoard {
     this.drawn = 0;
   }
 
+  /** Columns of the terminal right now (it can be resized while a download runs). */
+  width() {
+    const columns = Number(this.stream && this.stream.columns);
+    return columns > 20 ? columns : 100;
+  }
+
+  /**
+   * The lines to draw. Every line is cut to the terminal width, because a line that wraps takes two rows and
+   * the cursor then moves up one row too few, leaving a stale copy of the first row behind on every redraw.
+   * When the board is taller than the terminal can hold, only the running and failed rows and the overall line
+   * are drawn, so the cursor can always reach the top.
+   */
+  frame() {
+    const rows = this.order.map((id) => this.rows.get(id));
+    const high = Number(this.stream && this.stream.rows) || 0;
+    const room = high > 6 ? high - 3 : Infinity;
+    let shown = rows;
+    if (rows.length + 1 > room) {
+      shown = rows
+        .filter((row) => row.state === "running" || row.state === "failed")
+        .slice(0, room - 2);
+    }
+    const fit = this.width() - 1;
+    return [...shown.map((row) => renderRow(row)), renderOverall(this.total())].map((line) =>
+      line.length > fit ? line.slice(0, fit) : line,
+    );
+  }
+
+  /**
+   * Redraw in place: go up to the first row, overwrite each row and clear only the rest of that row (no screen
+   * wipe, so there is no flicker), and erase below only when the board got shorter.
+   */
   draw(force = false) {
     if (!this.tty || this.stopped) return;
     const at = this.now();
     if (!force && at - this.lastDraw < this.intervalMs) return;
     this.lastDraw = at;
-    const lines = [
-      ...this.order.map((id) => renderRow(this.rows.get(id))),
-      renderOverall(this.total()),
-    ];
-    this.clear();
-    this.stream.write(lines.map((line) => `${line}\x1b[K`).join("\n") + "\n");
+    const lines = this.frame();
+    let out = this.drawn > 0 ? `\x1b[${this.drawn}A` : "";
+    out += lines.map((line) => `${line}\x1b[K`).join("\n") + "\n";
+    if (this.drawn > lines.length) out += "\x1b[J";
+    this.stream.write(out);
     this.drawn = lines.length;
   }
 

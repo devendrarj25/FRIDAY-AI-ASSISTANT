@@ -63,6 +63,15 @@ const incomplete = [];
 const updatePolicy = require("./update-policy.cjs");
 const upgradeDue = updatePolicy.due("python-packages");
 let upgradeTried = false;
+{
+  // A FRIDAY_PYTHON left over from an older install must not win over the Python this setup creates.
+  const stale = require("./explicit-python.cjs").dropStalePython(process.env);
+  if (stale) {
+    console.log(
+      `[friday] NOTE FRIDAY_PYTHON points at ${stale}, which does not exist; ignoring it and using the Python this setup prepares. Remove that variable (Windows: Settings, System, About, Advanced system settings, Environment Variables) so it stops appearing.`,
+    );
+  }
+}
 const run = (exe, args, opts = {}) =>
   spawnSync(exe, args, { stdio: "inherit", shell: false, cwd: root, ...opts });
 const capture = (exe, args, opts = {}) =>
@@ -401,7 +410,8 @@ function fetchModelsAndProbe() {
       env: {
         ...process.env,
         FRIDAY_ROOT: picked.root,
-        FRIDAY_PYTHON: process.env.FRIDAY_PYTHON || python,
+        FRIDAY_PYTHON:
+          require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON) || python,
       },
       timeout: 4 * 3600 * 1000,
     });

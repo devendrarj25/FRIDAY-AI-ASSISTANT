@@ -166,7 +166,12 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     );
   }
   const bigStt = [...planned].filter((id) => /^stt-(medium|large)/.test(id));
-  row("setup", "big speech sizes in the plan", "INFO", bigStt.length ? bigStt.join(", ") : "none");
+  row(
+    "setup",
+    "big speech sizes in the plan",
+    "INFO",
+    bigStt.length ? bigStt.join(", ") : "none (fetched from inside FRIDAY when chosen)",
+  );
 
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------
   if (root) {

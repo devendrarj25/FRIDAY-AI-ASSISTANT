@@ -25,7 +25,7 @@ const quiet = {
 };
 
 describe("build-time model prefetch", () => {
-  it("plans the pinned voice files first, then speech base and small, her voice, a small chat model, and the big size last", () => {
+  it("plans the pinned voice files first, then speech base, small and tiny, her voice and a small chat model; the big sizes are not in setup", () => {
     const jobs = prefetch.prefetchPlan("/friday", quiet, "linux");
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
       "smart-turn",
@@ -35,18 +35,31 @@ describe("build-time model prefetch", () => {
       "stt-tiny", // the lite fallback for a weak or busy PC
       "supertonic-3",
       "qwen2.5-1.5b-instruct",
-      "stt-medium", // the optional larger size is the biggest piece, so it goes last
-      "stt-large-v3", // the most accurate size, only with 24 GB, optional
-      "stt-large-v3-turbo", // the big size, only for a PC with the memory, after everything else
     ]);
-    const small = jobs[3];
-    expect(jobs[7]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
-    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 15, optional: true });
-    expect(jobs[9]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 15 });
-    expect(jobs[9].job.sources[0]).toMatchObject({
+    // Asked for with 1, the big sizes follow everything else: medium, the 3 GB large-v3, then turbo.
+    const big = prefetch.prefetchPlan(
+      "/friday",
+      {
+        ...quiet,
+        FRIDAY_PREFETCH_STT_LARGE: "1",
+        FRIDAY_PREFETCH_STT_MAX: "1",
+        FRIDAY_PREFETCH_STT_BIG: "1",
+      },
+      "linux",
+    );
+    expect(big.map((row: { id: string }) => row.id).slice(7)).toEqual([
+      "stt-medium",
+      "stt-large-v3",
+      "stt-large-v3-turbo",
+    ]);
+    expect(big[7]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
+    expect(big[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 15, optional: true });
+    expect(big[9]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 15 });
+    expect(big[9].job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     });
+    const small = jobs[3];
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
@@ -73,15 +86,19 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(10);
+    ).toBe(7);
     // the big size can be left out on its own, and by the switch that leaves out every larger size
     const ids = (env: Record<string, string>) =>
       prefetch
         .prefetchPlan("/friday", { ...quiet, ...env }, "linux")
         .map((row: { id: string }) => row.id);
+    expect(ids({})).not.toContain("stt-large-v3-turbo");
+    expect(ids({})).not.toContain("stt-medium");
+    expect(ids({})).not.toContain("stt-large-v3");
+    expect(ids({ FRIDAY_PREFETCH_STT_BIG: "1" })).toContain("stt-large-v3-turbo");
+    expect(ids({ FRIDAY_PREFETCH_STT_BIG: "1" })).not.toContain("stt-medium");
+    expect(ids({ FRIDAY_PREFETCH_STT_LARGE: "1" })).toContain("stt-medium");
     expect(ids({ FRIDAY_PREFETCH_STT_BIG: "0" })).not.toContain("stt-large-v3-turbo");
-    expect(ids({ FRIDAY_PREFETCH_STT_BIG: "0" })).toContain("stt-medium");
-    expect(ids({ FRIDAY_PREFETCH_STT_LARGE: "0" })).not.toContain("stt-large-v3-turbo");
     expect(
       prefetch
         .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_TTS: "0" }, "linux")
@@ -781,8 +798,8 @@ describe("one local chat model, and nothing downloaded twice", () => {
       });
       // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
       expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
-      // tiny, base, small, the voice, the chat model, and the three larger sizes skipped for lack of memory.
-      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(8);
+      // tiny, base, small, the voice and the chat model are on disk; the big sizes are not part of setup.
+      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(5);
       expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -841,9 +858,13 @@ describe("speech sizes", () => {
       }
       return { fetched, log: lines.join("\n") };
     };
-    const roomy = await run(16);
+    const bigEnv = { FRIDAY_PREFETCH_STT_LARGE: "1" };
+    const none = await run(16);
+    expect(none.fetched).toEqual(expect.arrayContaining(["base", "small"]));
+    expect(none.fetched).not.toContain("medium"); // setup keeps the big sizes for later, from inside FRIDAY
+    const roomy = await run(16, bigEnv);
     expect(roomy.fetched).toEqual(expect.arrayContaining(["base", "small", "medium"]));
-    const tight = await run(4);
+    const tight = await run(4, bigEnv);
     expect(tight.fetched).toEqual(expect.arrayContaining(["base", "small"]));
     expect(tight.fetched).not.toContain("medium");
     expect(tight.log).toContain("stt-medium skipped: needs 8 GB RAM");
@@ -1107,6 +1128,72 @@ describe("the live download board", () => {
     expect(first).toBeGreaterThan(1);
   });
 
+  it("cuts every line to the terminal width, so a wrapped line cannot leave a stale row behind", () => {
+    let out = "";
+    const stream = {
+      isTTY: true,
+      columns: 50,
+      rows: 40,
+      write: (text: string) => void (out += text),
+    };
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({ stream, tty: true, now: clockAt, intervalMs: 0 });
+    ui.start([
+      { id: "smart-turn", approxBytes: 9 * 1024 ** 2 },
+      { id: "stt-small", approxBytes: 464 * 1024 ** 2 },
+    ]);
+    ui.update("stt-small", {
+      progress: 40,
+      bytesDone: 180 * 1024 ** 2,
+      bytesTotal: 464 * 1024 ** 2,
+      speedMbps: 12.5,
+      etaSeconds: 40,
+      connections: 8,
+    });
+    ui.draw(true);
+    const plain = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+    for (const line of plain.split("\n")) expect(line.length).toBeLessThanOrEqual(49);
+    ui.stop();
+  });
+
+  it("redraws in place without wiping the screen each frame, so it does not flicker", () => {
+    let out = "";
+    const stream = { isTTY: true, columns: 120, rows: 40, write: (t: string) => void (out += t) };
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({ stream, tty: true, now: clockAt, intervalMs: 0 });
+    ui.start([{ id: "a", approxBytes: 10 * 1024 ** 2 }]);
+    out = "";
+    for (let i = 1; i <= 5; i += 1) {
+      ui.update("a", { progress: i * 10, bytesDone: i * 1024 ** 2, bytesTotal: 10 * 1024 ** 2 });
+      ui.draw(true);
+    }
+    // Five frames: each moves up over the 2 rows it drew (a row and the overall line) and never clears below.
+    expect(out.match(/\x1b\[2A/g)?.length).toBe(5);
+    expect(out).not.toContain("\x1b[J");
+    ui.stop();
+  });
+
+  it("draws only the running rows when the board is taller than the terminal", () => {
+    let out = "";
+    const stream = { isTTY: true, columns: 120, rows: 8, write: (t: string) => void (out += t) };
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({ stream, tty: true, now: clockAt, intervalMs: 0 });
+    ui.start(
+      Array.from({ length: 12 }, (_, i) => ({ id: `file-${i}`, approxBytes: 5 * 1024 ** 2 })),
+    );
+    ui.update("file-3", { progress: 10, bytesDone: 1024 ** 2, bytesTotal: 5 * 1024 ** 2 });
+    out = "";
+    ui.draw(true);
+    const plain = out
+      .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+      .trim()
+      .split("\n");
+    expect(plain.length).toBeLessThanOrEqual(5);
+    expect(plain.some((line) => line.includes("file-3"))).toBe(true);
+    expect(plain.some((line) => line.includes("ALL"))).toBe(true);
+    ui.stop();
+  });
+
   it("a real run builds the board, feeds it, and a test run with its own downloader stays plain", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "friday-board-"));
     try {
@@ -1138,10 +1225,24 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
       .map((job: { id: string }) => job.id);
 
   it("plans the lite tiny size for every PC and the 3 GB large-v3 only with enough memory", () => {
-    const jobs = prefetch.prefetchPlan("/friday", { FRIDAY_PREFETCH: "1" }, "win32", {});
+    const jobs = prefetch.prefetchPlan(
+      "/friday",
+      {
+        FRIDAY_PREFETCH: "1",
+        FRIDAY_PREFETCH_STT_LARGE: "1",
+        FRIDAY_PREFETCH_STT_MAX: "1",
+        FRIDAY_PREFETCH_STT_BIG: "1",
+      },
+      "win32",
+      {},
+    );
     expect(jobs.map((j: { id: string }) => j.id)).toEqual(
       expect.arrayContaining(["stt-tiny", "stt-large-v3-turbo", "stt-large-v3"]),
     );
+    // Without the opt-in, none of the big sizes is in setup.
+    expect(plan()).not.toEqual(expect.arrayContaining(["stt-large-v3"]));
+    expect(plan()).not.toContain("stt-large-v3-turbo");
+    expect(plan()).not.toContain("stt-medium");
     const tiny = jobs.find((j: { id: string }) => j.id === "stt-tiny");
     expect(tiny.minRamGb).toBeUndefined();
     const max = jobs.find((j: { id: string }) => j.id === "stt-large-v3");
@@ -1152,7 +1253,7 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
   it("lets the owner leave the lite and max sizes out", () => {
     expect(plan({ FRIDAY_PREFETCH_STT_LITE: "0" })).not.toContain("stt-tiny");
     expect(plan({ FRIDAY_PREFETCH_STT_MAX: "0" })).not.toContain("stt-large-v3");
-    expect(plan({ FRIDAY_PREFETCH_STT_LARGE: "0" })).not.toContain("stt-large-v3");
+    expect(plan({ FRIDAY_PREFETCH_STT_MAX: "1" })).toContain("stt-large-v3");
   });
 
   it("skips the smart model below 7 GB and never fails on it, since it is optional", async () => {
@@ -1268,7 +1369,17 @@ describe("the light model must also answer, not only be pulled", () => {
 
 describe("a renamed speech repository still downloads", () => {
   it("lists the renamed turbo repository as a second source and no other size gets one", () => {
-    const jobs = prefetch.prefetchPlan("/friday", { FRIDAY_PREFETCH: "1" }, "win32", {});
+    const jobs = prefetch.prefetchPlan(
+      "/friday",
+      {
+        FRIDAY_PREFETCH: "1",
+        FRIDAY_PREFETCH_STT_LARGE: "1",
+        FRIDAY_PREFETCH_STT_MAX: "1",
+        FRIDAY_PREFETCH_STT_BIG: "1",
+      },
+      "win32",
+      {},
+    );
     const turbo = jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo");
     expect(turbo.job.sources.map((s: { repo: string }) => s.repo)).toEqual([
       "mobiuslabsgmbh/faster-whisper-large-v3-turbo",

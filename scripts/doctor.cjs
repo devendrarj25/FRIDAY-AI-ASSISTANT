@@ -67,7 +67,7 @@ function dependencies() {
 
 /** The speech, voice and chat weights: Doctor used to pass without ever looking for them. */
 function models() {
-  let python = process.env.FRIDAY_PYTHON || "";
+  let python = require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON);
   if (!python) {
     try {
       python = require("./python-runtime.cjs").resolveVenvPython() || "";
