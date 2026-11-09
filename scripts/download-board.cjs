@@ -25,6 +25,45 @@ const bar = (fraction) => {
   return `${"#".repeat(filled)}${"-".repeat(BAR - filled)}`;
 };
 
+/** ANSI colours for a terminal board. NO_COLOR turns them off; FORCE_COLOR turns them on. */
+function colourWanted(stream, env = process.env) {
+  if (String(env.NO_COLOR ?? "") !== "") return false;
+  if (String(env.FORCE_COLOR ?? "") !== "" && String(env.FORCE_COLOR) !== "0") return true;
+  if (String(env.TERM || "") === "dumb") return false;
+  return Boolean(stream && stream.isTTY);
+}
+const paintWith = (code) => (text) => (text === "" ? text : `\x1b[${code}m${text}\x1b[0m`);
+const dim = paintWith("2");
+const bold = paintWith("1");
+const red = paintWith("31");
+const green = paintWith("32");
+const yellow = paintWith("33");
+const blue = paintWith("34");
+const magenta = paintWith("35");
+const cyan = paintWith("36");
+
+/**
+ * Colour a line that has already been cut to the terminal width (so the width never counts the colour codes):
+ * the bar in the colour of its state, sizes in blue, speed in magenta, time left in yellow, FAILED in red.
+ */
+function paint(line, state = "running") {
+  const barColour = state === "failed" ? red : state === "done" ? green : cyan;
+  return line
+    .replace(/^\[friday\]/, dim("[friday]"))
+    .replace(/\[([#!]*)(-*)\]/, (_all, filled, rest) => `[${barColour(filled)}${dim(rest)}]`)
+    .replace(/FAILED/, red(bold("FAILED")))
+    .replace(/waiting/, yellow("waiting"))
+    .replace(
+      /(\d+(?:\.\d+)? (?:MB|GB))\/(\d+(?:\.\d+)? (?:MB|GB))/,
+      (_all, a, b) => `${blue(a)}/${blue(b)}`,
+    )
+    .replace(/(\d+(?:\.\d+)? MB\/s)/g, (v) => magenta(v))
+    .replace(/(\d+m?\d*s left)/, (v) => yellow(v))
+    .replace(/ (\d+)%/, (_all, n) => ` ${Number(n) === 100 ? green(`${n}%`) : bold(`${n}%`)}`)
+    .replace(/(\d+\/\d+ ready)/, (v) => bold(v))
+    .replace(/(ready|average in \d+s|in \d+m?\d*s)\s*$/, (v) => (state === "done" ? green(v) : v));
+}
+
 /** One row. `row` is { id, state, percent, bytesDone, bytesTotal, speed, eta, connections, note, seconds }. */
 function renderRow(row, idWidth = 16) {
   const id = String(row.id).padEnd(idWidth);
@@ -53,9 +92,18 @@ function renderOverall(total) {
 }
 
 class DownloadBoard {
-  constructor({ stream = process.stdout, tty, now = Date.now, intervalMs = 100, log } = {}) {
+  constructor({
+    stream = process.stdout,
+    tty,
+    now = Date.now,
+    intervalMs = 250,
+    log,
+    color,
+    env,
+  } = {}) {
     this.stream = stream;
     this.tty = tty ?? Boolean(stream && stream.isTTY);
+    this.color = color ?? (this.tty && colourWanted(stream, env || process.env));
     this.now = now;
     this.intervalMs = intervalMs;
     this.log = log || ((line) => stream.write(`${line}\n`));
@@ -181,17 +229,53 @@ class DownloadBoard {
     this.drawn = 0;
   }
 
+  /** Columns of the terminal right now (it can be resized while a download runs). */
+  width() {
+    const columns = Number(this.stream && this.stream.columns);
+    return columns > 20 ? columns : 100;
+  }
+
+  /**
+   * The lines to draw. Every line is cut to the terminal width, because a line that wraps takes two rows and
+   * the cursor then moves up one row too few, leaving a stale copy of the first row behind on every redraw.
+   * When the board is taller than the terminal can hold, only the running and failed rows and the overall line
+   * are drawn, so the cursor can always reach the top.
+   */
+  frame() {
+    const rows = this.order.map((id) => this.rows.get(id));
+    const high = Number(this.stream && this.stream.rows) || 0;
+    const room = high > 6 ? high - 3 : Infinity;
+    let shown = rows;
+    if (rows.length + 1 > room) {
+      shown = rows
+        .filter((row) => row.state === "running" || row.state === "failed")
+        .slice(0, room - 2);
+    }
+    const fit = this.width() - 1;
+    const cut = (line) => (line.length > fit ? line.slice(0, fit) : line);
+    const lines = shown.map((row) => {
+      const plain = cut(renderRow(row));
+      return this.color ? paint(plain, row.state) : plain;
+    });
+    const overall = cut(renderOverall(this.total()));
+    lines.push(this.color ? paint(overall, "running") : overall);
+    return lines;
+  }
+
+  /**
+   * Redraw in place: go up to the first row, overwrite each row and clear only the rest of that row (no screen
+   * wipe, so there is no flicker), and erase below only when the board got shorter.
+   */
   draw(force = false) {
     if (!this.tty || this.stopped) return;
     const at = this.now();
     if (!force && at - this.lastDraw < this.intervalMs) return;
     this.lastDraw = at;
-    const lines = [
-      ...this.order.map((id) => renderRow(this.rows.get(id))),
-      renderOverall(this.total()),
-    ];
-    this.clear();
-    this.stream.write(lines.map((line) => `${line}\x1b[K`).join("\n") + "\n");
+    const lines = this.frame();
+    let out = this.drawn > 0 ? `\x1b[${this.drawn}A` : "";
+    out += lines.map((line) => `${line}\x1b[K`).join("\n") + "\n";
+    if (this.drawn > lines.length) out += "\x1b[J";
+    this.stream.write(out);
     this.drawn = lines.length;
   }
 
@@ -205,4 +289,4 @@ class DownloadBoard {
   }
 }
 
-module.exports = { DownloadBoard, renderRow, renderOverall, mb, clock };
+module.exports = { DownloadBoard, renderRow, renderOverall, mb, clock, paint, colourWanted };

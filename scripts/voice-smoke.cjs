@@ -98,7 +98,7 @@ if (require.main === module) {
     console.log("[friday] voice smoke test: skipped (the voice models are staged on Windows)");
     process.exitCode = 0;
   } else {
-    let python = process.env.FRIDAY_PYTHON || "";
+    let python = require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON);
     if (!python) {
       try {
         python = require("./python-runtime.cjs").resolveVenvPython() || "";

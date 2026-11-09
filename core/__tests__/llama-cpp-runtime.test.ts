@@ -205,10 +205,10 @@ describe("the llama-server FRIDAY installed", () => {
   });
 
   it("uses the chat model setup downloaded when several GGUF files are present, and guesses nothing else", () => {
-    const mine = "/m/qwen2.5-1.5b-instruct-q4_k_m.gguf";
+    const mine = "/m/Qwen3-4B-Q4_K_M.gguf";
     expect(llama.preferred(["/m/other.gguf", mine])).toBe(mine);
     expect(llama.preferred(["/m/a.gguf", "/m/b.gguf"])).toBeNull();
-    expect(llama.preferred([mine, "/m/Qwen2.5-1.5B-Instruct-Q8_0.gguf"])).toBeNull(); // two of them: still a guess
+    expect(llama.preferred([mine, "/m/Qwen3-4B-Q8_0.gguf"])).toBeNull(); // two of them: still a guess
     expect(llama.preferred([])).toBeNull();
   });
 });

@@ -25,14 +25,8 @@
       "uninstallHint": "Windows Settings, Add or remove programs, Ollama. A custom OLLAMA_MODELS folder is left in place.",
       "models": [
         {
-          "tag": "qwen2.5:1.5b",
-          "role": "fast replies and voice turns"
-        },
-        {
           "tag": "qwen3:4b",
-          "role": "the one smart model: fast, tools, thinking, Hindi and translation",
-          "minRamGb": 7,
-          "optional": true
+          "role": "the one Qwen model: replies, voice turns, tools, thinking, Hindi and translation"
         }
       ]
     },

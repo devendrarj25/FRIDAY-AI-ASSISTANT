@@ -165,7 +165,7 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       `${job.id} has no digest`,
     );
   }
-  const bigStt = [...planned].filter((id) => /^stt-(medium|large)/.test(id));
+  const bigStt = [...planned].filter((id) => /^stt-(medium|large-v3$)/.test(id));
   row("setup", "big speech sizes in the plan", "INFO", bigStt.length ? bigStt.join(", ") : "none");
 
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------

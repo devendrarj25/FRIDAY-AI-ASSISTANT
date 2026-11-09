@@ -289,8 +289,9 @@ describe("Hugging Face official client", () => {
     expect(source).toContain('listing.host === "https://huggingface.co"');
     expect(source).toContain("using FRIDAY's own downloader");
     expect(read("electron/hf-hub-download.cjs")).toContain('HF_XET_HIGH_PERFORMANCE: "1"');
-    expect(read("scripts/setup-python.cjs")).toContain(
-      "FRIDAY_PYTHON: process.env.FRIDAY_PYTHON || python",
+    // Setup hands the model step its own Python, and an owner's FRIDAY_PYTHON only while that file exists.
+    expect(read("scripts/setup-python.cjs")).toMatch(
+      /FRIDAY_PYTHON:\s*require\("\.\/explicit-python\.cjs"\)\.explicitPython\(process\.env\.FRIDAY_PYTHON\)\s*\|\|\s*python/,
     );
   });
 });

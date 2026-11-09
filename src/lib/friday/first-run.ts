@@ -30,7 +30,7 @@ import type { ProviderId } from "./model-catalog";
  * pulls through Ollama, so a first run on a built PC finds it and downloads
  * nothing. Long, hard work goes to the larger models the router picks.
  */
-export const BOOTSTRAP_MODEL_ID = "qwen2.5-1.5b";
+export const BOOTSTRAP_MODEL_ID = "qwen3-4b";
 
 /** The voice engines Auto Mode actually needs, as named in the catalog. */
 export const BOOTSTRAP_VOICE_PACKAGES = ["faster-whisper", "edge-tts"] as const;

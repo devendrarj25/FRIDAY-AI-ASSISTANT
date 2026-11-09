@@ -35,7 +35,10 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_STT_MAX=0 the 3 GB large-v3 size, FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_CHAT_SMART=0 the bigger Ollama chat models, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_STT_LARGE=0 the medium and large-v3 sizes,
+ * FRIDAY_PREFETCH_STT_MAX=0 only large-v3, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech,
+ * FRIDAY_PREFETCH_OLLAMA=0 the Ollama install and the Qwen pull. The large-v3-turbo speech size is not part of
+ * setup (FRIDAY fetches it from inside the app when it is chosen); FRIDAY_PREFETCH_STT_BIG=1 adds it.
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -63,7 +66,7 @@ const APPROX_BYTES = {
   "stt-large-v3-turbo": 1620 * 1024 ** 2,
   "stt-large-v3": 3100 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
-  "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
+  "qwen3-4b": 2500 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
 };
 
@@ -95,13 +98,13 @@ const TTS_MODEL = {
   sources: [{ kind: "hf-repo", repo: "Supertone/supertonic-3", label: "Hugging Face (Supertone)" }],
 };
 
-/** A small, fast, Apache-2.0 local chat model from the publisher's own GGUF repo. */
+/** The same Qwen3 4B as the one Ollama pulls, from the publisher's own GGUF repo (Apache-2.0): the file copy used when Ollama's registry cannot be reached. */
 const CHAT_MODEL = {
-  id: "qwen2.5-1.5b-instruct",
+  id: "qwen3-4b",
   sources: [
     {
       kind: "hf-gguf",
-      repo: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      repo: "Qwen/Qwen3-4B-GGUF",
       match: ["q4_k_m", "q5_k_m", "q8_0"],
       label: "Hugging Face (Qwen official)",
     },
@@ -110,6 +113,11 @@ const CHAT_MODEL = {
 
 function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
+}
+
+/** Off unless the owner asks for it with the value 1: the big speech sizes are fetched from inside FRIDAY later. */
+function optedIn(env, key) {
+  return String(env[key] ?? "0").trim() === "1";
 }
 
 const findOllama = localLibrary.findInstalledOllama;
@@ -260,8 +268,8 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       },
     });
   }
-  // The optional larger speech size is the biggest piece and nothing waits on it, so it goes last:
-  // everything FRIDAY needs to listen, speak and chat is already in place while it downloads.
+  // The larger speech sizes (medium, large-v3) go last, so everything needed to listen, speak and chat is in place
+  // first. large-v3-turbo is not part of setup: FRIDAY fetches it from inside the app (FRIDAY_PREFETCH_STT_BIG=1 adds it).
   if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
     const plan = voiceWeights.sttPlan(STT_LARGE.size, root);
     jobs.push({
@@ -273,7 +281,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
-  if (enabled(env, "FRIDAY_PREFETCH_STT_MAX") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE") && enabled(env, "FRIDAY_PREFETCH_STT_MAX")) {
     const plan = voiceWeights.sttPlan(STT_MAX.size, root);
     jobs.push({
       id: plan.id,
@@ -284,7 +292,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
-  if (enabled(env, "FRIDAY_PREFETCH_STT_BIG") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  if (optedIn(env, "FRIDAY_PREFETCH_STT_BIG")) {
     const plan = voiceWeights.sttPlan(STT_BIG.size, root);
     jobs.push({
       id: plan.id,
@@ -838,7 +846,7 @@ async function fetchMoonshine(root, { env = process.env, log = console.log, run 
     log("[friday] ok       moonshine-en verified on disk; not downloaded again");
     return { id: "moonshine-en", ok: true, downloaded: false };
   }
-  const python = String(env.FRIDAY_PYTHON || "").trim();
+  const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
   if (!python) {
     log(
       "[friday] INFO     moonshine-en skipped: no Python runtime yet (npm run setup:python fetches it)",
@@ -1273,6 +1281,16 @@ if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
+  // A FRIDAY_PYTHON that points nowhere is dropped; the kernel virtual environment is used instead.
+  require("./explicit-python.cjs").dropStalePython(process.env);
+  if (!process.env.FRIDAY_PYTHON) {
+    try {
+      const venv = require("./python-runtime.cjs").resolveVenvPython();
+      if (venv && require("node:fs").existsSync(venv)) process.env.FRIDAY_PYTHON = venv;
+    } catch {
+      /* Moonshine is then skipped with a note, as before */
+    }
+  }
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
   // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
   // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".

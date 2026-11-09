@@ -361,6 +361,49 @@ function Ensure-Tool(
   throw "$Label could not be installed by any official method. Install it manually from the official source (see INSTALL.md) and run setup again."
 }
 
+# A click inside a Windows console turns on text selection (QuickEdit) and freezes the program that is printing
+# until a key is pressed, so a setup that downloads for minutes looks stuck. QuickEdit is switched off for the
+# length of the setup and the previous console mode is put back at the end. Best effort: no console, no change.
+function Disable-ConsoleQuickEdit {
+  try {
+    if (-not ('FridayConsoleMode' -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class FridayConsoleMode {
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GetStdHandle(int nStdHandle);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetConsoleMode(IntPtr handle, out uint mode);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetConsoleMode(IntPtr handle, uint mode);
+  public static long DisableQuickEdit() {
+    IntPtr handle = GetStdHandle(-10);
+    uint mode;
+    if (!GetConsoleMode(handle, out mode)) return -1;
+    uint next = (mode | 0x80u) & ~0x40u;
+    if (next == mode) return -1;
+    return SetConsoleMode(handle, next) ? (long)mode : -1;
+  }
+  public static void Restore(long mode) {
+    if (mode < 0) return;
+    SetConsoleMode(GetStdHandle(-10), (uint)mode);
+  }
+}
+'@
+    }
+    return [FridayConsoleMode]::DisableQuickEdit()
+  } catch {
+    return -1
+  }
+}
+
+function Restore-ConsoleQuickEdit([long]$Mode) {
+  try {
+    if ($Mode -ge 0 -and ('FridayConsoleMode' -as [type])) { [FridayConsoleMode]::Restore($Mode) }
+  } catch {
+    # The console mode is a convenience; a failure here changes nothing for the setup.
+  }
+}
+
+$script:ConsoleModeBefore = Disable-ConsoleQuickEdit
 Push-Location $Root
 try {
   Refresh-Path
@@ -534,5 +577,6 @@ try {
   Write-Host "[FRIDAY] SETUP FAIL - $($_.Exception.Message)" -ForegroundColor Red
   exit 1
 } finally {
+  Restore-ConsoleQuickEdit $script:ConsoleModeBefore
   Pop-Location
 }
