@@ -230,7 +230,7 @@ describe("realtime voice session", () => {
 });
 
 describe("realtime voice recovery", () => {
-  function recoverable(starts: ("ok" | "fail")[]) {
+  function recoverable(starts: ("ok" | "fail")[], extra: Partial<RealtimeVoiceDeps> = {}) {
     const stops: string[] = [];
     const waits: number[] = [];
     const handles: { stopped: boolean }[] = [];
@@ -271,6 +271,7 @@ describe("realtime voice recovery", () => {
       ledger,
       now: () => 0,
       recovery: { max: 2, baseMs: 100, sleep: async (ms) => void waits.push(ms) },
+      ...extra,
     });
     const request: RealtimeVoiceRequest = {
       gate,
@@ -309,6 +310,48 @@ describe("realtime voice recovery", () => {
     await new Promise((res) => setTimeout(res, 5));
     expect(r.stops.at(-1)).toMatch(/reconnect refused: offline/);
     expect(r.voice.stats().running).toBe(false);
+  });
+
+  it("renews the session before the provider's limit through the same router check", async () => {
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const r = recoverable(["ok", "ok"], {
+      renewal: {
+        afterMs: 55 * 60_000,
+        setTimer: (fn, ms) => {
+          timers.push({ fn, ms });
+          return timers.length;
+        },
+        clearTimer: () => undefined,
+      },
+    });
+    await r.voice.start(r.request);
+    expect(timers.map((t) => t.ms)).toEqual([55 * 60_000]);
+    timers[0]!.fn(); // 55 minutes have passed
+    await new Promise((res) => setTimeout(res, 5));
+    expect(r.handles.map((h) => h.stopped)).toEqual([true, false]); // the old socket closed, a new one opened
+    expect(r.voice.stats().running).toBe(true);
+    expect(r.ledger.usage("openai").day).toBe(2); // each connection is one request
+    expect(r.stops).toEqual([]); // not reported as a failure
+    expect(timers).toHaveLength(2); // the new session is renewed in its turn
+  });
+
+  it("does not renew a session the owner stopped", async () => {
+    const timers: Array<() => void> = [];
+    let cleared = 0;
+    const r = recoverable(["ok", "ok"], {
+      renewal: {
+        afterMs: 1000,
+        setTimer: (fn) => {
+          timers.push(fn);
+          return 1;
+        },
+        clearTimer: () => void (cleared += 1),
+      },
+    });
+    await r.voice.start(r.request);
+    await r.voice.stop("owner stopped");
+    expect(cleared).toBe(1);
+    expect(r.handles).toHaveLength(1);
   });
 
   it("does not reconnect when the owner stopped it", async () => {

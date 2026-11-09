@@ -50,7 +50,7 @@ const CORRECTION =
   /\b(?:no no|not that|wrong|actually|instead|i meant|i mean|galat|nahi nahi|maine kaha|mera matlab)\b/i;
 
 const WEEKDAY =
-  /\b(?:on|this|next|last|every|coming|until|by|before|after)\s+friday\b|\bfriday\s+(?:morning|evening|night|afternoon|week|ko|ke|ki|par|pe|tak)\b|\bsee you\b[^.?]{0,24}\bfriday\b|\bfriday ko\b/i;
+  /\b(?:on|this|next|last|every|coming|until|by|before|after)\s+friday\b|\bfriday\s+(?:morning|evening|night|afternoon|week|ko|ke|ki|par|pe|tak)\b|\bsee you\b[^.?]{0,24}\bfriday\b|\bfriday ko\b|\b(?:it s|its|it is|is|was|today|tomorrow|happy|thank god it s)\s+friday\b|\bfriday s\b|\btgif\b/i;
 
 const DIRECTED =
   /\b(open|close|set|remind|show|play|stop|start|turn|send|read|check|batao|bata|karo|kholo|band|sunao|yaad|schedule|kal|aaj|what|who|why|how|when|kya|kaun|kyun|kab)\b/i;
@@ -155,8 +155,15 @@ export function decideAddressing(input: {
   mode?: AddressMode;
   wakeWord?: string;
   followUpOpen?: boolean;
+  /**
+   * The wake word was just heard by the live wake scorer (the name was said, even if the transcript lacks it). The
+   * line then counts as addressed to her, whatever the address mode, unless it is her own echo or a dismissal.
+   */
+  wakeHeard?: boolean;
   lastSpoken?: string;
   recentlySpeaking?: boolean;
+  /** She is speaking right now (not only in the short tail after she finished). */
+  speaking?: boolean;
   /** What FRIDAY just answered or worked on, for "meant for me" without her name. */
   recentWork?: string;
 }): AddressDecision {
@@ -164,7 +171,15 @@ export function decideAddressing(input: {
   const mode = input.mode ?? "conversation";
   const wakeWord = input.wakeWord || "friday";
   const norm = normalizeTranscript(text);
-  if (input.recentlySpeaking && input.lastSpoken && isSelfEchoTranscript(text, input.lastSpoken)) {
+  if (
+    input.recentlySpeaking &&
+    input.lastSpoken &&
+    isSelfEchoTranscript(
+      text,
+      input.lastSpoken,
+      input.speaking === undefined ? {} : { speaking: input.speaking },
+    )
+  ) {
     return {
       tag: "self",
       answer: false,
@@ -192,6 +207,16 @@ export function decideAddressing(input: {
       confidence: 0.9,
       tools: false,
       closeFollowUp: true,
+    };
+  }
+  if (input.wakeHeard) {
+    return {
+      tag: "addressed",
+      answer: true,
+      reason: "wake-word-heard",
+      confidence: 0.9,
+      tools: true,
+      closeFollowUp: false,
     };
   }
   if (OTHER_PERSON.test(norm) && !named(text, wakeWord)) {

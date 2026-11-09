@@ -35,7 +35,7 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -49,14 +49,17 @@ const localRunners = require("../config/local-runners.json");
 const { DownloadBoard } = require("./download-board.cjs");
 const localLibrary = require("../electron/local-library.cjs");
 const updatePolicy = require("./update-policy.cjs");
+const llamaRuntime = require("../electron/llama-runtime.cjs");
 
 /** About how large each piece is, for the plan and the overall bar before the real sizes are known. */
 const APPROX_BYTES = {
   "silero-vad": 2.3 * 1024 ** 2,
   "smart-turn": 8.7 * 1024 ** 2,
+  "llamacpp-runtime": 18.6 * 1024 ** 2,
   "stt-base": 141 * 1024 ** 2,
   "stt-small": 464 * 1024 ** 2,
   "stt-medium": 1457 * 1024 ** 2,
+  "stt-large-v3-turbo": 1620 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
   "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
@@ -75,6 +78,8 @@ const STT_SIZES = ["base", "small"];
  * it needs a PC with the RAM to hold it and can be skipped.
  */
 const STT_LARGE = { size: "medium", minRamGb: 8 };
+/** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. */
+const STT_BIG = { size: "large-v3-turbo", minRamGb: 16 };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
@@ -115,6 +120,15 @@ function prefetchParallelism(env = process.env) {
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
 
 /** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
+/** llama.cpp's Windows release is installed by setup unless FRIDAY_PREFETCH_LLAMACPP=0 or it is a hosted run. */
+function llamaCppWanted(env, platform) {
+  return (
+    platform === "win32" &&
+    enabled(env, "FRIDAY_PREFETCH_LLAMACPP") &&
+    enabled(env, "FRIDAY_AUTO_INSTALL")
+  );
+}
+
 function ollamaServesChat(env, platform) {
   return (
     platform === "win32" &&
@@ -165,8 +179,35 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
-  if (enabled(env, "FRIDAY_PREFETCH_CHAT") && !ollamaServesChat(env, platform)) {
+  // llama.cpp is installed beside Ollama and serves the same small chat model from its GGUF file, so the file is
+  // fetched even when Ollama serves chat too.
+  const llamaWanted = llamaCppWanted(env, platform);
+  if (enabled(env, "FRIDAY_PREFETCH_CHAT") && (!ollamaServesChat(env, platform) || llamaWanted)) {
     jobs.push(chatJob(root));
+  }
+  const llamaRelease = (localRunners.runners || []).find((row) => row.id === "llamacpp")?.release;
+  if (llamaWanted && llamaRelease?.url) {
+    const dir = path.join(root, "runtime", "installers", "llamacpp");
+    jobs.push({
+      id: "llamacpp-runtime",
+      kind: "archive",
+      root,
+      ready: path.join(dir, llamaRelease.asset),
+      tag: llamaRelease.tag,
+      job: {
+        modelId: "llamacpp",
+        dir,
+        sources: [
+          {
+            kind: "url",
+            url: llamaRelease.url,
+            sha256: llamaRelease.sha256,
+            bytes: llamaRelease.bytes,
+            label: `llama.cpp ${llamaRelease.tag} (official release)`,
+          },
+        ],
+      },
+    });
   }
   const release = (localRunners.runners || []).find((row) => row.id === "ollama")?.release;
   if (
@@ -214,6 +255,17 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
+  // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
+  if (enabled(env, "FRIDAY_PREFETCH_STT_BIG") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+    const plan = voiceWeights.sttPlan(STT_BIG.size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      minRamGb: STT_BIG.minRamGb,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  }
   return jobs;
 }
 
@@ -241,6 +293,8 @@ function chatJob(root) {
 function alreadyThere(row) {
   if (!row.ready) return false;
   if (row.kind === "stt") return voiceWeights.weightsReady(row.ready, fs.existsSync);
+  // The zip is kept only as the installer: the piece is here when the server it holds is unpacked.
+  if (row.kind === "archive") return llamaRuntime.installed(row.root);
   if (row.kind === "chat") {
     try {
       return fs.readdirSync(row.ready).some((name) => name.toLowerCase().endsWith(".gguf"));
@@ -761,6 +815,7 @@ async function prefetch(
     policyRoot,
     moonshine,
     board,
+    llama,
   } = {},
 ) {
   const rows = [];
@@ -947,6 +1002,25 @@ async function prefetch(
   if (ui) ui.stop();
   uiRef.current = null;
   rows.push(...outcomes);
+  // llama.cpp: the zip is downloaded and checked above; here it is unpacked into FRIDAY's engines folder.
+  const llamaJob = jobs.find((row) => row.kind === "archive");
+  if (llamaJob) {
+    const fetched = outcomes.find((row) => row.id === llamaJob.id);
+    if (fetched && !fetched.ok) {
+      /* the download failure is already in the rows */
+    } else if (llamaRuntime.installed(root)) {
+      log(`[friday] ok       llama.cpp already installed at ${llamaRuntime.findServer(root)}`);
+    } else {
+      const put = await llamaRuntime.installFromZip(root, llamaJob.ready, llamaJob.tag, {
+        ...(llama?.extract ? { run: llama.extract } : {}),
+        ...(env.FRIDAY_PYTHON ? { python: env.FRIDAY_PYTHON } : {}),
+      });
+      if (put.ok) log(`[friday] ok       llama.cpp ${llamaJob.tag} installed (${put.server})`);
+      else log(`[friday] FAIL     llama.cpp was not installed (${put.error})`);
+      const at = rows.findIndex((row) => row.id === llamaJob.id);
+      if (!put.ok && at >= 0) rows[at] = { id: llamaJob.id, ok: false, error: put.error };
+    }
+  }
   let ollamaRows = [];
   const small = OLLAMA_MODELS[0]?.tag;
   if (wantOllama && enabled(env, "FRIDAY_AUTO_INSTALL")) {

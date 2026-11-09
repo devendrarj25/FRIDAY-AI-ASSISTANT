@@ -54,6 +54,16 @@ export type RealtimeVoiceDeps = {
    * (seconds) into the millisecond clock the microphone frames use. Off when omitted.
    */
   echo?: { contextToMono: (contextSeconds: number) => number };
+  /**
+   * A provider session has a limit (OpenAI Realtime: 60 minutes). Before it, the session is closed and opened
+   * again through the same router and quota check, so a long talk is not cut off by the provider mid-sentence.
+   * The caller's text continuity is the caller's job; this only renews the connection. Off when omitted.
+   */
+  renewal?: {
+    afterMs: number;
+    setTimer?: (fn: () => void, ms: number) => unknown;
+    clearTimer?: (handle: unknown) => void;
+  };
 };
 
 export type RealtimeVoiceRequest = {
@@ -112,9 +122,18 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
   const OWNER_STOPS = new Set(["owner stopped", "stopped", "settings closed"]);
   let reconnecting = false;
   let attemptsMade = 0;
+  let renewalTimer: unknown = null;
+  const clearRenewal = () => {
+    if (renewalTimer === null) return;
+    (
+      deps.renewal?.clearTimer ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>))
+    )(renewalTimer);
+    renewalTimer = null;
+  };
 
   const finish = async (reason: string, request?: RealtimeVoiceRequest) => {
     if (!running) return;
+    clearRenewal();
     const recovery = deps.recovery;
     if (
       recovery &&
@@ -208,6 +227,14 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
         return { ok: false, reasons: result.reasons };
       }
       handle = result.handle;
+      if (deps.renewal && deps.renewal.afterMs > 0) {
+        const set = deps.renewal.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+        renewalTimer = set(() => {
+          renewalTimer = null;
+          attemptsMade = 0; // a renewal is not a failure: it gets the full set of tries
+          void finish("session renewal", request);
+        }, deps.renewal.afterMs);
+      }
       // One request is counted when the session opens; audio minutes are added when it ends.
       deps.ledger.record(provider, 0);
       deps.persistLedger?.();

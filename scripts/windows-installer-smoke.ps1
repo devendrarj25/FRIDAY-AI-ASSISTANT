@@ -115,6 +115,24 @@ function Invoke-EraseAll {
       Get-ChildItem -LiteralPath $rootDir -Recurse -Force -ErrorAction SilentlyContinue |
         Select-Object -First 40 -ExpandProperty FullName | ForEach-Object { Write-Host "    left: $_" }
       foreach ($hit in @(Get-OwnedProcesses)) { Write-Host "    running: $($hit.Name) pid $($hit.ProcessId) $($hit.ExecutablePath)" }
+      # Try the removal by hand, once, and say what Windows answers: "in use" names a holder, "not empty" a file
+      # that appeared, and success means the detached helper had stopped (or never ran) rather than a holder.
+      foreach ($left in @(Get-ChildItem -LiteralPath $rootDir -Force -ErrorAction SilentlyContinue)) {
+        try {
+          Remove-Item -LiteralPath $left.FullName -Recurse -Force -ErrorAction Stop
+          Write-Host "    by hand: removing $($left.FullName) worked now, so nothing held it at this point"
+        } catch {
+          Write-Host "    by hand: removing $($left.FullName) failed: $($_.Exception.Message)"
+        }
+      }
+      # Every running process, short, so an unexpected helper stands out (name, id, parent, program).
+      foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object -First 160)) {
+        Write-Host "    process: $($proc.Name) pid $($proc.ProcessId) parent $($proc.ParentProcessId) $($proc.ExecutablePath)"
+      }
+      # A process outside the folder can still stand in it: name every one that mentions the folder.
+      foreach ($hit in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($rootDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 })) {
+        Write-Host "    mentions the folder: $($hit.Name) pid $($hit.ProcessId) $($hit.CommandLine)"
+      }
       throw "Erase-all uninstall left the FRIDAY folder behind: $rootDir"
     }
     if (Test-Path -LiteralPath $sentinel) { throw "Erase-all uninstall left the data sentinel behind." }

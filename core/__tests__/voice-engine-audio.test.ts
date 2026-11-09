@@ -14,6 +14,8 @@ import {
   type SourceLike,
 } from "../../src/lib/friday/voice-engine/playback-scheduler";
 import {
+  captureCounters,
+  resetCaptureRing,
   captureTapCount,
   noteCaptureFrame,
   subscribeCaptureFrames,
@@ -186,6 +188,31 @@ describe("capture tap on the one microphone", () => {
     noteCaptureFrame(new Float32Array(64), 2, 48_000);
     expect(heard).toEqual([128]);
     bad();
+  });
+
+  it("numbers every frame and keeps a sample clock that only goes up", () => {
+    resetCaptureRing();
+    const seen: Array<{ sequence: number; sampleStart: number }> = [];
+    const off = subscribeCaptureFrames((_s, _r, _t, meta) => seen.push(meta));
+    noteCaptureFrame(new Float32Array(128), 1, 48_000);
+    noteCaptureFrame(new Float32Array(256), 2, 48_000);
+    noteCaptureFrame(new Float32Array(0), 3, 48_000); // an empty frame is not a frame
+    noteCaptureFrame(new Float32Array(64), 4, 48_000);
+    off();
+    expect(seen).toEqual([
+      { sequence: 1, sampleStart: 0 },
+      { sequence: 2, sampleStart: 128 },
+      { sequence: 3, sampleStart: 384 },
+    ]);
+    expect(captureCounters()).toMatchObject({ frames: 3, samples: 448, tapsDropped: 0 });
+    const bad = subscribeCaptureFrames(() => {
+      throw new Error("boom");
+    });
+    noteCaptureFrame(new Float32Array(8), 5, 48_000);
+    expect(captureCounters().tapsDropped).toBe(1);
+    bad();
+    resetCaptureRing();
+    expect(captureCounters()).toEqual({ frames: 0, samples: 0, tapsDropped: 0 });
   });
 
   it("allows only a few listeners", () => {

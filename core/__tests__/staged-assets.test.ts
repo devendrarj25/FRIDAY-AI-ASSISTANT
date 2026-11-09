@@ -65,6 +65,21 @@ describe("staged build downloads", () => {
     expect(fs.existsSync(staged.pointerPath(env))).toBe(false);
   });
 
+  it("moves the unpacked llama.cpp engine with its zip, so the chosen folder can start it", async () => {
+    const dev = path.join(temp, "checkout", ".friday-dev");
+    write(dev, "runtime/installers/llamacpp/llama-b1-bin-win-cpu-x64.zip", "zip");
+    write(dev, "runtime/engines/llama.cpp/b1/llama-server.exe", "exe");
+    expect(staged.recordStaging(dev, { env })).toBe(true);
+    const report = await staged.adopt(root, { env });
+    expect(report.failed).toEqual([]);
+    expect(
+      fs.existsSync(path.join(root, "runtime", "engines", "llama.cpp", "b1", "llama-server.exe")),
+    ).toBe(true);
+    expect(require("../../electron/llama-runtime.cjs").installed(root)).toBe(
+      process.platform === "win32",
+    );
+  });
+
   it("finds .friday-dev inside the chosen folder without any pointer", async () => {
     write(root, ".friday-dev/cache/stt/base/model.bin", "weights");
     write(root, ".friday-dev/cache/stt/base/config.json", "{}");

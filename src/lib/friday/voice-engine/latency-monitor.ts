@@ -82,3 +82,79 @@ export class LatencyMonitor {
 }
 
 export const voiceLatency = new LatencyMonitor();
+
+/** The stages one spoken turn passes through, in the order a turn meets them. Each is stamped at most once. */
+export const VOICE_STAGES = [
+  "micSpeechStart",
+  "wakeDetected",
+  "sttAudioFirstSent",
+  "sttPartialFirstReceived",
+  "sttFinalReceived",
+  "brainRequestStarted",
+  "brainFirstToken",
+  "firstSpeakableSentence",
+  "ttsRequestStarted",
+  "ttsFirstAudioReceived",
+  "audioFirstDecoded",
+  "playbackFirstSample",
+  "interruptCandidate",
+  "interruptConfirmed",
+  "playbackLastAudibleSample",
+] as const;
+export type VoiceStage = (typeof VOICE_STAGES)[number];
+
+/** The named gaps between two stages. Both ends must have been stamped for a gap to count. */
+const STAGE_GAPS: Array<[string, VoiceStage, VoiceStage]> = [
+  ["wakeToFirstAudioSent", "wakeDetected", "sttAudioFirstSent"],
+  ["sttFirstPartial", "sttAudioFirstSent", "sttPartialFirstReceived"],
+  ["sttFinal", "sttAudioFirstSent", "sttFinalReceived"],
+  ["brainFirstToken", "brainRequestStarted", "brainFirstToken"],
+  ["firstSpeakable", "brainRequestStarted", "firstSpeakableSentence"],
+  ["ttsFirstChunk", "ttsRequestStarted", "ttsFirstAudioReceived"],
+  ["ttsDecode", "ttsFirstAudioReceived", "audioFirstDecoded"],
+  ["firstAudible", "ttsRequestStarted", "playbackFirstSample"],
+  ["finalToFirstAudible", "sttFinalReceived", "playbackFirstSample"],
+  ["audibleStop", "interruptCandidate", "playbackLastAudibleSample"],
+  ["interruptConfirm", "interruptCandidate", "interruptConfirmed"],
+];
+
+/**
+ * Monotonic stage stamps for one turn. "Requested" and "audible" are different stages: a request time is never
+ * reported as the first sound. `finish` feeds each gap that really happened into a monitor, and returns them.
+ */
+export class StageClock {
+  private readonly stamps = new Map<VoiceStage, number>();
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  /** Stamp a stage the first time it happens in this turn. Returns false when it was already stamped. */
+  mark(stage: VoiceStage, at: number = this.now()): boolean {
+    if (this.stamps.has(stage)) return false;
+    this.stamps.set(stage, at);
+    return true;
+  }
+
+  at(stage: VoiceStage): number | null {
+    return this.stamps.get(stage) ?? null;
+  }
+
+  durations(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [name, from, to] of STAGE_GAPS) {
+      const a = this.stamps.get(from);
+      const b = this.stamps.get(to);
+      if (a !== undefined && b !== undefined && b >= a) out[name] = Math.round(b - a);
+    }
+    return out;
+  }
+
+  finish(monitor: LatencyMonitor = voiceLatency): Record<string, number> {
+    const out = this.durations();
+    for (const [name, ms] of Object.entries(out)) monitor.record(name, ms);
+    return out;
+  }
+
+  reset(): void {
+    this.stamps.clear();
+  }
+}

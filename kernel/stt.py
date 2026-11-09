@@ -102,7 +102,7 @@ def select_model(ram_gb: float, gpu: bool, battery: bool, auto: bool, requested:
 def owner_model(size: str, requested: str) -> str:
     """An owner-chosen size wins. Auto tiering stays for the auto setting."""
     locked = (size or "").strip().lower()
-    known = {"tiny", "base", "small", "medium", "large-v3"}
+    known = {"tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"}
     if locked in known:
         return select_model(0.0, False, False, False, locked)
     return resolve_model_name(requested)
@@ -200,6 +200,18 @@ def choose_stt_device(cuda_ready: bool) -> dict:
     }
 
 
+def cpu_threads() -> int:
+    """Threads for the CPU engine. CTranslate2 uses 4 unless told otherwise, which leaves most of a modern PC idle.
+
+    `FRIDAY_STT_THREADS` sets it; otherwise about half the logical processors (the physical cores on most PCs),
+    never fewer than 4 or more than 8, since a larger count stops helping one short utterance.
+    """
+    raw = os.environ.get("FRIDAY_STT_THREADS", "").strip()
+    if raw.isdigit() and 1 <= int(raw) <= 64:
+        return int(raw)
+    return max(4, min(8, (os.cpu_count() or 4) // 2))
+
+
 def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
     """The worker opens a local folder. It does not download weights."""
     target = (model_path or "").strip() or (name or DEFAULT_MODEL)
@@ -211,6 +223,7 @@ def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
         "reason": device["reason"],
         "download_root": cache_dir(),
         "local_files_only": True,
+        "cpu_threads": cpu_threads(),
     }
 
 
@@ -223,6 +236,8 @@ def open_whisper(cls, wanted: str, spec: dict):
             compute_type=spec["compute_type"],
             download_root=spec["download_root"],
             local_files_only=spec["local_files_only"],
+            # Only the CPU engine takes the thread count; the GPU path keeps its defaults.
+            **({"cpu_threads": spec.get("cpu_threads", 0)} if spec["device"] == "cpu" else {}),
         ), spec["device"]
     except Exception:  # noqa: BLE001 — a failed CUDA load must fall back to CPU
         if spec["device"] == "cpu":
@@ -233,6 +248,7 @@ def open_whisper(cls, wanted: str, spec: dict):
             compute_type="int8",
             download_root=spec["download_root"],
             local_files_only=spec["local_files_only"],
+            cpu_threads=spec.get("cpu_threads", 0),
         ), "cpu"
 
 
@@ -1279,10 +1295,13 @@ def _heard(payload: dict, hearing: dict | None, pass_row: dict, hint: str, passe
     return payload
 
 
+# Ask which recognisers are installed. Do NOT create System.Speech.Recognition.SpeechRecognizer here: that is the
+# shared Windows recogniser, which starts sapisvr.exe and, on a PC where Speech Recognition was never set up, opens
+# the "Set up Speech Recognition" wizard (SpeechUXWiz.exe) on the owner's desktop and leaves both running.
 WINDOWS_SPEECH_PROBE = (
     "Add-Type -AssemblyName System.Speech; "
-    "$r = New-Object System.Speech.Recognition.SpeechRecognizer; "
-    "if ($r) { 'installed' } else { 'missing' }"
+    "if ([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers().Count -gt 0) "
+    "{ 'installed' } else { 'missing' }"
 )
 
 _windows_speech: bool | None = None
@@ -1305,6 +1324,8 @@ def windows_speech_ready() -> bool:
             text=True,
             timeout=8,
             check=False,
+            # Never inherit the program folder as the current directory: a child that stands there keeps it alive.
+            cwd=tempfile.gettempdir(),
         )
         _windows_speech = "installed" in (done.stdout or "")
     except Exception:
@@ -1337,6 +1358,7 @@ def transcribe_windows(audio: str) -> str | None:
             text=True,
             timeout=20,
             check=False,
+            cwd=tempfile.gettempdir(),
         )
     except Exception:
         return None
@@ -1618,6 +1640,7 @@ def synth_speech_clip(phrase: str = HEARING_PHRASE):
                 check=True,
                 capture_output=True,
                 timeout=60,
+                cwd=tempfile.gettempdir(),
             )
             clip = decode_foreign(raw)
             if clip is not None and len(clip):

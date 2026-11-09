@@ -40,6 +40,8 @@ export function realtimeVoiceSession(): {
       ledger,
       persistLedger: () => saveLedger(storage(), ledger),
       recovery: { max: 3, baseMs: 1000 },
+      // OpenAI Realtime ends a session at 60 minutes (official guide, read 2026-11-08): renew at 55.
+      renewal: { afterMs: 55 * 60_000 },
       echo: { contextToMono },
     });
     live = { voice, close: () => void context.close().catch(() => undefined) };

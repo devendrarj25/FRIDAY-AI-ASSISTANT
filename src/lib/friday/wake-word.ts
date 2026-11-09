@@ -95,10 +95,10 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
 
   // Only carriers ("hey", "okay") may precede the name for a leading match.
   const leading = tokens.slice(0, index).every((t) => CARRIERS.has(t));
-  const rest = tokens
-    .slice(index + 1)
-    .join(" ")
-    .trim();
+  // "Friday's open notepad" normalises to "friday s open notepad": the lone "s" is the possessive, not a word.
+  const after = tokens.slice(index + 1);
+  if (after[0] === "s") after.shift();
+  const rest = after.join(" ").trim();
   const token = tokens[index] ?? "";
   return {
     matched: true,
@@ -114,18 +114,105 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
 const STOP =
   /^(?:friday[\s,]*)?(stop|stop it|cancel|quiet|shut up|enough|be quiet|nevermind|never mind|wait|hold on|ruko|ruk jao|ruk ja|bas|chup|बस|रुक|रुको|रुक जाओ|चुप)$/i;
 
-export function isStopCommand(text: string): boolean {
+/** Words around a stop that do not change it: "please stop", "ok stop", "nahi ruko", "ruko yaar". */
+const STOP_FILLER = new Set(
+  "friday please plz ok okay hey achha accha haan han ji yaar now ab abhi nahi no bhai फ्राइडे कृपया प्लीज अब अभी नहीं जी".split(
+    " ",
+  ),
+);
+
+/**
+ * The whole phrase must be one of these, so "stop the music", "stop recording" and "the bus stop" stay requests.
+ * Hindi, Hinglish and English; each one ends her speech only, never a task (`classifyVoiceControl` names a task).
+ */
+const STOP_PHRASES = new Set(
+  [
+    "stop it",
+    "stop talking",
+    "stop speaking",
+    "stop reading",
+    "stop right there",
+    "stop there",
+    "stop stop",
+    "cancel that",
+    "cancel it",
+    "enough now",
+    "that s enough",
+    "that is enough",
+    "wait a second",
+    "wait a minute",
+    "hold it",
+    "hold up",
+    "pause",
+    "ruko zara",
+    "zara ruko",
+    "thoda ruko",
+    "ruk",
+    "rukiye",
+    "ruk jaiye",
+    "ek minute",
+    "ek second",
+    "ek sec",
+    "bas karo",
+    "bas kar do",
+    "bas kar",
+    "bas itna",
+    "bas bas",
+    "chup raho",
+    "chup ho jao",
+    "chup kar",
+    "chup karo",
+    "band karo",
+    "band kar do",
+    "mat bolo",
+    "mat bol",
+    "बस करो",
+    "बस कर दो",
+    "रुकिए",
+    "ठहरो",
+    "थोड़ा रुको",
+    "एक मिनट",
+    "चुप हो जाओ",
+    "चुप रहो",
+    "बंद करो",
+    "बंद कर दो",
+  ].map((p) => p.normalize("NFC")),
+);
+
+/** The short words that always stop her, named or not: "stop", "ruko", "bas", "wait". */
+export function isPlainStop(text: string): boolean {
   return STOP.test(normalizeTranscript(text));
+}
+
+export function isStopCommand(text: string): boolean {
+  const norm = normalizeTranscript(text);
+  if (STOP.test(norm)) return true;
+  const tokens = norm.split(" ").filter(Boolean);
+  let from = 0;
+  let to = tokens.length;
+  while (from < to && STOP_FILLER.has(tokens[from] ?? "")) from += 1;
+  while (to > from && STOP_FILLER.has(tokens[to - 1] ?? "")) to -= 1;
+  const core = tokens.slice(from, to).join(" ").normalize("NFC");
+  return core.length > 0 && (STOP.test(core) || STOP_PHRASES.has(core));
 }
 
 /**
  * True when the recognised text is FRIDAY's own TTS coming back through the
  * microphone. Caller must also check that she was recently speaking.
  */
-export function isSelfEchoTranscript(heard: string, spoken: string): boolean {
+export function isSelfEchoTranscript(
+  heard: string,
+  spoken: string,
+  options: { speaking?: boolean } = {},
+): boolean {
   const h = normalizeTranscript(heard);
   const s = normalizeTranscript(spoken);
   if (!h || !s || h.length < 3) return false;
+  // After she has finished (only the tail of the room's sound is left), a few words that sit inside what she said
+  // are far more likely the owner answering her ("open it" after "Do you want me to open it now?") than an echo.
+  // Only her last words count as an echo then. While she is speaking, any part of her sentence can come back.
+  const tail = options.speaking === false;
+  if (tail && h.split(" ").length <= 4) return s.endsWith(h);
   if (s.includes(h)) return true;
   const prefix = s.slice(0, Math.min(s.length, Math.max(24, h.length)));
   if (prefix.length >= 8 && h.includes(prefix)) return true;

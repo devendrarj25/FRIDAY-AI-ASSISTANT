@@ -171,5 +171,193 @@ class WakeWordProbeTests(unittest.TestCase):
                     proc.kill()
 
 
+class WakeEngineManifestTests(unittest.TestCase):
+    """The engine comes from what the model says it is, not from its file name."""
+
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import importlib
+
+        import wake_word
+
+        self.wake = importlib.reload(wake_word)
+
+    def test_a_real_model_named_friday_is_not_taken_for_the_linear_scorer(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "friday.onnx"
+            model.write_bytes(b"\0" * 200_000)  # a real model is far larger than the bundled scorer
+            (Path(tmp) / "friday-wake.json").write_text(json.dumps({"kind": "friday-linear-v1"}), encoding="utf-8")
+            self.assertEqual(self.wake.engine_for_path(str(model)), "openwakeword")
+
+    def test_the_bundled_scorer_is_still_the_linear_engine(self):
+        bundled = KERNEL.parent / "resources" / "wake" / "friday.onnx"
+        self.assertEqual(self.wake.engine_for_path(str(bundled)), "friday-linear")
+
+    def test_a_recorded_hash_must_match_the_file(self):
+        import hashlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "friday.onnx"
+            model.write_bytes(b"abc")
+            good = hashlib.sha256(b"abc").hexdigest()
+            manifest = Path(tmp) / "friday-wake.json"
+            manifest.write_text(json.dumps({"kind": "friday-linear-v1", "modelSha256": good}), encoding="utf-8")
+            self.assertEqual(self.wake.engine_for_path(str(model)), "friday-linear")
+            manifest.write_text(json.dumps({"kind": "friday-linear-v1", "modelSha256": "0" * 64}), encoding="utf-8")
+            self.assertEqual(self.wake.engine_for_path(str(model)), "openwakeword")
+
+    def test_a_sidecar_names_the_engine_outright(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "hey-friday.onnx"
+            model.write_bytes(b"x")
+            (Path(tmp) / "hey-friday.wake.json").write_text(json.dumps({"engine": "friday-linear"}), encoding="utf-8")
+            self.assertEqual(self.wake.engine_for_path(str(model)), "friday-linear")
+
+    def test_no_path_is_no_engine(self):
+        self.assertIsNone(self.wake.engine_for_path(None))
+
+
+class WakeFrameScorerTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import importlib
+
+        import wake_word
+
+        self.wake = importlib.reload(wake_word)
+
+    def scorer(self, scores, **kw):
+        it = iter(scores)
+        return self.wake.WakeFrameScorer(lambda _frame: next(it, 0.0), **kw)
+
+    def frame(self):
+        return [0] * self.wake.FRAME_SAMPLES
+
+    def test_chunks_of_any_size_are_cut_into_80_ms_frames(self):
+        s = self.scorer([0.0, 0.0])
+        out = s.feed([0] * 1000)
+        self.assertEqual(out["frames"], 0)
+        out = s.feed([0] * 1560)  # 2560 samples in all = two frames
+        self.assertEqual(out["frames"], 2)
+        self.assertEqual(len(s.pending), 0)
+
+    def test_it_needs_consecutive_hot_frames_and_fires_once(self):
+        s = self.scorer([0.9, 0.1, 0.9, 0.9, 0.9, 0.9], min_frames=2, cooldown_ms=0)
+        fired = [s.feed(self.frame())["detected"] for _ in range(6)]
+        self.assertEqual(fired, [False, False, False, True, False, False])
+
+    def test_it_stays_latched_until_the_score_falls_and_the_cooldown_passes(self):
+        s = self.scorer([0.9, 0.9] + [0.9] * 3 + [0.0, 0.0, 0.9, 0.9], min_frames=2, cooldown_ms=240)
+        results = [s.feed(self.frame())["detected"] for _ in range(9)]
+        self.assertEqual(results.count(True), 2)
+        self.assertTrue(results[1])  # first phrase
+        self.assertTrue(results[8])  # second phrase only after the release
+
+    def test_reset_clears_the_state(self):
+        s = self.scorer([0.9, 0.9])
+        s.feed(self.frame())
+        s.feed(self.frame())
+        s.reset()
+        self.assertFalse(s.latched)
+        self.assertEqual(s.pending, [])
+
+    def test_frame_op_needs_an_openwakeword_model_and_valid_audio(self):
+        import base64
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                directory = Path(tmp) / "models" / "wake"
+                directory.mkdir(parents=True)
+                (directory / "friday.onnx").write_bytes(b"\0" * 100_000)
+                self.wake._frame_scorers.clear()
+                predictor = lambda _path: lambda _frame: 0.9  # noqa: E731
+                chunk = base64.b64encode(b"\0\0" * 1280).decode()
+                req = {"op": "frame", "session": "a", "pcm": chunk, "minFrames": 1}
+                first = self.wake.frame_op(req, "friday", None, 0.5, make_predictor=predictor)
+                self.assertTrue(first["ok"])
+                self.assertTrue(first["detected"])
+                again = self.wake.frame_op(req, "friday", None, 0.5, make_predictor=predictor)
+                self.assertFalse(again["detected"])  # latched: one phrase, one trigger
+                odd = self.wake.frame_op({**req, "pcm": base64.b64encode(b"\0").decode()}, "friday", None, 0.5)
+                self.assertEqual(odd["reason"], "bad-request")
+                cleared = self.wake.frame_op({"session": "a", "reset": True}, "friday", None, 0.5)
+                self.assertTrue(cleared["ok"])
+                # the bundled linear scorer cannot score live frames
+                (directory / "friday.onnx").write_bytes(b"\0" * 100)
+                (directory / "friday-wake.json").write_text(json.dumps({"kind": "friday-linear-v1"}), encoding="utf-8")
+                linear = self.wake.frame_op({**req, "session": "b"}, "friday", None, 0.5)
+                self.assertEqual(linear["reason"], "frame-unsupported")
+            finally:
+                os.environ.pop("FRIDAY_ROOT", None)
+                self.wake._frame_scorers.clear()
+
+
+class WakeEvaluationTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import importlib
+
+        import wake_word
+
+        self.wake = importlib.reload(wake_word)
+
+    def predictor(self):
+        # A stand-in model: a frame that starts with 1000 is "the wake phrase", anything else is not.
+        return lambda frame: 0.9 if frame[0] == 1000 else 0.05
+
+    def clip(self, hot_frames, total_frames):
+        n = self.wake.FRAME_SAMPLES
+        out = []
+        for i in range(total_frames):
+            out.extend([1000 if i in hot_frames else 0] * n)
+        return out
+
+    def test_reports_rejections_accepts_per_hour_and_delay(self):
+        positives = [self.clip({3, 4, 5}, 8), self.clip({2, 3, 4}, 8), self.clip(set(), 8)]  # the last is missed
+        negatives = [self.clip(set(), 2250), self.clip({100, 101}, 2250)]  # two clips of three minutes each
+        report = self.wake.evaluate_wake(positives, negatives, self.predictor, cooldown_ms=0)
+        self.assertEqual(report["positives"], 3)
+        self.assertAlmostEqual(report["falseRejectionRate"], 0.3333, places=3)
+        self.assertEqual(report["negativeHours"], 0.1)
+        self.assertEqual(report["falseAcceptsPerHour"], 10.0)  # one trigger in six minutes
+        self.assertIsNotNone(report["triggerDelaySeconds"]["median"])
+        self.assertFalse(report["meetsTargets"])  # 33 % rejection is far over the 5 % target
+
+    def test_meets_targets_only_when_both_rates_are_under_the_limit(self):
+        positives = [self.clip({2, 3}, 6) for _ in range(30)]
+        negatives = [self.clip(set(), 2250)]
+        report = self.wake.evaluate_wake(positives, negatives, self.predictor, cooldown_ms=0)
+        self.assertEqual(report["falseRejectionRate"], 0.0)
+        self.assertEqual(report["falseAcceptsPerHour"], 0.0)
+        self.assertTrue(report["meetsTargets"])
+
+    def test_no_clips_never_claims_the_targets_are_met(self):
+        report = self.wake.evaluate_wake([], [], self.predictor)
+        self.assertIsNone(report["falseRejectionRate"])
+        self.assertIsNone(report["falseAcceptsPerHour"])
+        self.assertFalse(report["meetsTargets"])
+
+    def test_the_folder_run_refuses_without_an_openwakeword_model(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                out = self.wake.evaluate_directories(tmp, tmp, "friday", None, 0.5)
+                self.assertFalse(out["ok"])
+                self.assertEqual(out["reason"], "no-model")
+            finally:
+                os.environ.pop("FRIDAY_ROOT", None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -306,9 +306,11 @@ export const FLOW_REGISTRY = {
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.listenStyle",
+    "voice.liveWake",
     "voice.liveWords",
     "voice.localVoiceStyle",
     "voice.models",
+    "voice.notesRetentionDays",
     "voice.pauseDuringCalls",
     "voice.pitch",
     "voice.privacyMode",
@@ -2094,6 +2096,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice-stream:close",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-stream:open",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-stream:send",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:duck",
       file: "electron/main.cjs",
     },
@@ -2171,6 +2185,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:wake-detect",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:wake-frames",
       file: "electron/main.cjs",
     },
     {
@@ -4128,6 +4146,12 @@ export const FLOW_REGISTRY = {
       id: "faster-whisper-base",
       kind: "model",
       name: "Faster Whisper base",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-large-v3-turbo",
+      kind: "model",
+      name: "Faster Whisper large v3 turbo",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9329,16 +9353,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 130,
-      total: 130,
+      mapped: 132,
+      total: 132,
     },
     capabilities: {
-      mapped: 1102,
-      total: 1102,
+      mapped: 1103,
+      total: 1103,
     },
     ipc: {
-      mapped: 482,
-      total: 482,
+      mapped: 486,
+      total: 486,
     },
     kernel: {
       mapped: 14,

@@ -299,3 +299,74 @@ describe("the persona is the same for every model", () => {
     expect(read("kernel/router.py")).toContain("friday_persona()");
   });
 });
+
+describe("the day of the week is not her name", () => {
+  const not = (text: string) => decideAddressing({ text, wakeWord: "friday" });
+
+  it("lets a sentence about the day pass", () => {
+    for (const line of [
+      "thank god it's friday",
+      "today is friday",
+      "it is friday already",
+      "happy friday everyone",
+      "friday's report is ready",
+      "TGIF friday plans anyone",
+      "see you on friday",
+      "friday evening we are going out",
+    ])
+      expect(not(line), line).toMatchObject({ answer: false, reason: "weekday" });
+  });
+
+  it("still answers when she is called by name", () => {
+    for (const line of [
+      "Friday what is the weather",
+      "hey friday it's late, set an alarm",
+      "friday ji chrome kholo",
+      "ok friday open the calculator",
+      "friday, remind me about the invoice",
+    ])
+      expect(not(line), line).toMatchObject({ tag: "addressed", answer: true });
+  });
+});
+
+describe("a wake word heard live addresses the next line", () => {
+  it("counts a line with no name as addressed to her, even when the owner wants the name every time", () => {
+    const line = "weather kaisa hai aaj";
+    const without = decideAddressing({ text: line, mode: "name-only", wakeWord: "friday" });
+    expect(without.answer).toBe(false);
+    const heard = decideAddressing({
+      text: line,
+      mode: "name-only",
+      wakeWord: "friday",
+      wakeHeard: true,
+    });
+    expect(heard).toMatchObject({
+      tag: "addressed",
+      answer: true,
+      tools: true,
+      reason: "wake-word-heard",
+    });
+  });
+
+  it("never lets a live wake pass her own echo, a dismissal or an empty line", () => {
+    const echo = decideAddressing({
+      text: "the report is ready",
+      wakeWord: "friday",
+      wakeHeard: true,
+      recentlySpeaking: true,
+      lastSpoken: "the report is ready",
+    });
+    expect(echo.tag).toBe("self");
+    expect(decideAddressing({ text: "", wakeWord: "friday", wakeHeard: true }).answer).toBe(false);
+    expect(
+      decideAddressing({ text: "never mind", wakeWord: "friday", wakeHeard: true }).answer,
+    ).toBe(false);
+  });
+
+  it("is spent by the first accepted line and expires", () => {
+    const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    expect(mode).toContain("wakeHeard: Date.now() - this.liveWakeAt < LIVE_WAKE_MS");
+    expect(mode).toContain("if (accepted) this.liveWakeAt = 0;");
+    expect(mode).toMatch(/this\.liveWakeAt = Date\.now\(\);\s*this\.setAwake\(\)/);
+  });
+});

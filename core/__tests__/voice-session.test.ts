@@ -17,6 +17,7 @@ import {
   replyLanguage,
   spokenReplyAllowed,
   spokenRouteError,
+  clarifyPrompt,
   takeSpeakable,
 } from "../../src/lib/friday/voice-session";
 
@@ -74,6 +75,53 @@ describe("microphone and speech stay in Auto mode", () => {
     });
     expect(takeSpeakable("version v1.2 is next", false).spoken).toBe("");
     expect(takeSpeakable("version v1.2 is next", true).spoken).toBe("version v1.2 is next");
+  });
+
+  it("asks which one is meant only when there is no conversation to resolve it", () => {
+    expect(clarifyPrompt("open it")).toBe("Which one do you mean?");
+    expect(clarifyPrompt("open it", true)).toBe("");
+    expect(clarifyPrompt("what is that")).toBe(""); // a question is never held up
+    expect(clarifyPrompt("open the invoice")).toBe("");
+  });
+
+  it("tells a rewritten answer from more text by what was already spoken", () => {
+    expect(nextSpokenCursor(13, 40)).toEqual({ cursor: 13, rewritten: false });
+    expect(nextSpokenCursor(13, 5)).toEqual({ cursor: 0, rewritten: true }); // shorter than the spoken part
+    const spoken = { prefix: "First draft. ", text: "First draft. Second part grows" };
+    expect(nextSpokenCursor(13, 30, spoken).rewritten).toBe(false);
+    // same length or longer, but the spoken part is no longer its start
+    expect(
+      nextSpokenCursor(13, 28, { prefix: "First draft. ", text: "Completely new answer. Next" })
+        .rewritten,
+    ).toBe(true);
+    // a change of spaces or markdown marks is not a rewrite
+    expect(
+      nextSpokenCursor(13, 40, { prefix: "First draft. ", text: "**First** draft.  Second part" })
+        .rewritten,
+    ).toBe(false);
+  });
+
+  it("never cuts a sentence after an abbreviation, an initial or a list number", () => {
+    const wait = (text: string) => expect(takeSpeakable(text, false).spoken, text).toBe("");
+    wait("Please ask Dr. Singh about it");
+    wait("Call at 5 p.m. tomorrow, ok");
+    wait("Use e.g. this one");
+    wait("Meet Mr. Rao and Mrs. Iyer");
+    wait("1. First item\n2. Second item\n3. Third");
+    // the sentence that really ends is still spoken, abbreviations inside it kept whole
+    expect(takeSpeakable("Please ask Dr. Singh about it. Then call me back", false).spoken).toBe(
+      "Please ask Dr. Singh about it.",
+    );
+    expect(takeSpeakable("J. K. Rowling wrote it. Yes", false).spoken).toBe(
+      "J. K. Rowling wrote it.",
+    );
+    expect(takeSpeakable("I am here. I said it", false).spoken).toBe("I am here.");
+    // and the tail is always spoken when the answer is final
+    expect(takeSpeakable("Please ask Dr. Singh about it", true).spoken).toBe(
+      "Please ask Dr. Singh about it",
+    );
+    // a number split across two streamed pieces is not a sentence end
+    expect(takeSpeakable("The total is 3.", false).spoken).toBe("");
   });
 
   it("speaks a route failure as one sentence and keeps the chat text intact", () => {
@@ -231,9 +279,22 @@ describe("a larger speech size, suggested only on repeated doubt", () => {
   it("respects the PC's ceiling, the largest size and the battery", () => {
     const three = (m: string) => [doubtful(m), doubtful(m), doubtful(m)];
     expect(suggestLargerSpeech({ recent: three("medium") }).suggest).toBeNull();
+    // the ladder now has the big turbo size between medium and large-v3: one step at a time
     expect(suggestLargerSpeech({ recent: three("medium"), maxSize: "large-v3" }).suggest).toBe(
-      "large-v3",
+      "large-v3-turbo",
     );
+    expect(
+      suggestLargerSpeech({ recent: three("medium"), maxSize: "large-v3-turbo" }).suggest,
+    ).toBe("large-v3-turbo");
+    expect(
+      suggestLargerSpeech({ recent: three("large-v3-turbo"), maxSize: "large-v3" }).suggest,
+    ).toBe("large-v3");
+    expect(
+      suggestLargerSpeech({ recent: three("large-v3-turbo"), maxSize: "large-v3-turbo" }).suggest,
+    ).toBeNull();
+    expect(
+      suggestLargerSpeech({ recent: three("medium"), battery: true, maxSize: "large-v3" }).suggest,
+    ).toBeNull();
     expect(suggestLargerSpeech({ recent: three("large-v3"), maxSize: "large-v3" }).reason).toMatch(
       /largest/,
     );

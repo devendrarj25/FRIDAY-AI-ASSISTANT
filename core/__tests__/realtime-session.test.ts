@@ -132,6 +132,28 @@ describe("cloud realtime connection (provider table, key stays in the main proce
     expect(seen[0]?.path).toBe("/v1/realtime?model=my-model");
   });
 
+  it("sends the beta header only for a preview model, and only the Bearer key otherwise", () => {
+    const made: Array<{ url: string; headers: Record<string, string> }> = [];
+    class Fake {
+      constructor(url: string, options: { headers: Record<string, string> }) {
+        made.push({ url, headers: options.headers });
+      }
+      addEventListener() {}
+      close() {}
+    }
+    const sessions = createRealtimeSessions({ WebSocketImpl: Fake });
+    expect(sessions.startCloud("g", "openai", "gpt-realtime", "sk-a", handlers).ok).toBe(true);
+    sessions.close("g");
+    expect(sessions.startCloud("p", "openai", "gpt-4o-realtime-preview", "sk-b", handlers).ok).toBe(
+      true,
+    );
+    expect(made[0]?.headers).toEqual({ Authorization: "Bearer sk-a" });
+    expect(made[1]?.headers).toEqual({
+      Authorization: "Bearer sk-b",
+      "OpenAI-Beta": "realtime=v1",
+    });
+  });
+
   it("refuses an unknown provider, an unnamed model, a missing key and a second session", () => {
     const made: unknown[] = [];
     class Fake {

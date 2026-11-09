@@ -255,17 +255,36 @@ let ring = new PcmRing();
 let lastFrameMono = 0;
 let lastFrameWall = 0;
 let workletOn = false;
+let frameSequence = 0;
+let sampleClock = 0;
+let tapsDropped = 0;
+
+/** Counters of the one capture: frames and samples seen, and listeners removed because they threw. */
+export function captureCounters(): { frames: number; samples: number; tapsDropped: number } {
+  return { frames: frameSequence, samples: sampleClock, tapsDropped };
+}
 
 export function resetCaptureRing(): void {
+  frameSequence = 0;
+  sampleClock = 0;
+  tapsDropped = 0;
   ring = new PcmRing();
   lastFrameMono = 0;
   lastFrameWall = 0;
   workletOn = false;
 }
 
-export type CaptureTap = (samples: ArrayLike<number>, fromRate: number, atMono: number) => void;
+/** Where a frame sits in the capture: a number that only goes up, and the sample index it starts at. */
+export type CaptureFrameMeta = { sequence: number; sampleStart: number };
 
-const MAX_TAPS = 4;
+export type CaptureTap = (
+  samples: ArrayLike<number>,
+  fromRate: number,
+  atMono: number,
+  meta: CaptureFrameMeta,
+) => void;
+
+const MAX_TAPS = 6;
 const taps = new Set<CaptureTap>();
 
 /**
@@ -293,11 +312,14 @@ export function noteCaptureFrame(
   ring.push(samples, atMono, fromRate);
   lastFrameMono = atMono;
   if (wall) lastFrameWall = wall;
+  const meta: CaptureFrameMeta = { sequence: (frameSequence += 1), sampleStart: sampleClock };
+  sampleClock += samples.length;
   for (const tap of taps) {
     try {
-      tap(samples, fromRate, atMono);
+      tap(samples, fromRate, atMono, meta);
     } catch {
       taps.delete(tap);
+      tapsDropped += 1;
     }
   }
 }

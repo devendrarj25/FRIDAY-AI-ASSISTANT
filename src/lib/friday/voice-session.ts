@@ -9,6 +9,7 @@
  * execution.
  */
 
+import { endsInOpenDot } from "./voice-engine/language-segmenter";
 import { socialLine } from "./conversation-style";
 
 export type VoiceSurface = "auto" | "manual";
@@ -151,11 +152,18 @@ export function duplicateFinalUtterance(
  * When a live answer shrinks, the spoken cursor restarts on the replacement.
  * A longer answer keeps the characters already handed to speech.
  */
+/** The words only: spaces and markdown marks do not make two versions of a text different. */
+const squash = (text: string) => text.replace(/[\s*_`#>~-]+/g, "");
+
 export function nextSpokenCursor(
   voicedChars: number,
   nextLength: number,
+  /** What was already spoken and the text as it is now. When the spoken part is no longer its start, it was rewritten. */
+  spoken?: { prefix: string; text: string },
 ): { cursor: number; rewritten: boolean } {
   if (nextLength < voicedChars) return { cursor: 0, rewritten: true };
+  if (spoken && voicedChars > 0 && !squash(spoken.text).startsWith(squash(spoken.prefix)))
+    return { cursor: 0, rewritten: true };
   return { cursor: voicedChars, rewritten: false };
 }
 
@@ -178,6 +186,29 @@ export function wakeOnCooldown(
   cooldownMs = WAKE_COOLDOWN_MS,
 ): boolean {
   return lastAcceptAt > 0 && now - lastAcceptAt < cooldownMs;
+}
+
+/**
+ * A spoken answer to "should I go ahead?": yes, no, or neither. A no always beats a yes, so "okay cancel that",
+ * "haan nahi" and "ok mat karo" stop the action instead of approving it. Hindi and Hinglish count: "ha kar do",
+ * "theek hai kar do", "kar do" are yes; "mat karo", "ruko", "rehne do", "nahi" are no. The particle "na"
+ * ("kar do na", please do it) is a no only when it is the whole answer.
+ */
+const NO_WORDS =
+  /\b(no|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|rehne do|rahne do|chhod do|chod do|wait|hold on|never ?mind|leave it|forget it)\b/i;
+const YES_WORDS =
+  /\b(yes|yeah|yep|yup|sure|confirm(?:ed)?|do it|go ahead|proceed|haan|haa|han|ha|ji|jee|bilkul|theek hai|thik hai|ok|okay|kar do|kar de|karo|chalao|chala do)\b/i;
+
+export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
+  const value = String(text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!value) return "unclear";
+  if (value === "na" || NO_WORDS.test(value)) return "no";
+  if (YES_WORDS.test(value)) return "yes";
+  return "unclear";
 }
 
 /** Spoken yes/no must be short. A long line that merely contains "yes" is not a confirmation. */
@@ -444,7 +475,10 @@ export function takeSpeakable(
   const re = /[.!?।](?=\s)/g;
   let end = -1;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(pending))) end = match.index + 1;
+  while ((match = re.exec(pending))) {
+    if (match[0] === "." && endsInOpenDot(pending.slice(0, match.index + 1))) continue;
+    end = match.index + 1;
+  }
   if (end < 0) return { spoken: "", consumed: 0 };
   let consumed = end;
   while (consumed < pending.length && /\s/.test(pending[consumed] ?? "")) consumed += 1;
@@ -557,7 +591,7 @@ export function applySttTier(input: {
   return tier;
 }
 
-const SPEECH_LADDER = ["tiny", "base", "small", "medium", "large-v3"] as const;
+const SPEECH_LADDER = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"] as const;
 
 /** An average log-probability below this is a transcript the recogniser itself was unsure of. */
 export const LOW_HEARING_LOGPROB = -0.8;
@@ -588,7 +622,7 @@ export function suggestLargerSpeech(input: {
   if (at < 0 || !next) return { suggest: null, reason: "already the largest size" };
   if (at + 1 > cap)
     return { suggest: null, reason: "this PC is already at its largest sensible size" };
-  if (input.battery && (next === "medium" || next === "large-v3")) {
+  if (input.battery && (next === "medium" || next === "large-v3-turbo" || next === "large-v3")) {
     return { suggest: null, reason: "on battery a larger size would drain it" };
   }
   return {
@@ -918,7 +952,10 @@ export function foreignAssistant(text: string): boolean {
 }
 
 /** A bare pronoun is a question, not a guess. A real question still goes through. */
-export function clarifyPrompt(text: string): string {
+export function clarifyPrompt(text: string, hasContext = false): string {
+  // Right after she spoke ("Do you want me to open it now?") "open it" has a referent: the conversation. Asking
+  // "Which one do you mean?" then would be absurd, and the Brain has the context to resolve it.
+  if (hasContext) return "";
   const trimmed = text.trim();
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (!words.length || words.length > 3) return "";

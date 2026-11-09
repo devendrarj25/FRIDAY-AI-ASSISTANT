@@ -31,6 +31,12 @@ export type VoiceCloudPrefs = {
   sarvamSpeaker: string;
   /** Speak replies with this cloud voice (a female Indian voice). Empty keeps the local and Neural ladder. */
   speakWith: "" | "sarvam" | "azure-speech";
+  /** Use one persistent Sarvam stream for the clauses of a reply (needs a bulbul:v4-flash persona as the voice). */
+  streaming: boolean;
+  /** Show Sarvam's live partial words while the owner speaks. Sends the microphone audio of each utterance to Sarvam. */
+  streamCaptions: boolean;
+  /** Play a streamed Sarvam clause while it is still arriving (needs Stream Sarvam speech; mp3 through a media source). */
+  streamPlayback: boolean;
 };
 
 export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
@@ -47,6 +53,9 @@ export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
   azureVoice: "",
   sarvamSpeaker: "",
   speakWith: "",
+  streaming: false,
+  streamCaptions: false,
+  streamPlayback: false,
 };
 
 const whole = (value: unknown, max: number): number => {
@@ -91,6 +100,9 @@ export function sanitizeCloudPrefs(
         ? src.sarvamSpeaker
         : "",
     speakWith: src.speakWith === "sarvam" || src.speakWith === "azure-speech" ? src.speakWith : "",
+    streaming: src.streaming === true,
+    streamCaptions: src.streamCaptions === true,
+    streamPlayback: src.streamPlayback === true,
   };
 }
 
@@ -99,7 +111,16 @@ export function toRouterSettings(
   keyPresent: Record<string, boolean>,
 ): VoiceCloudSettings {
   const clean = sanitizeCloudPrefs(prefs);
-  const { azureRegion: _r, azureVoice: _v, sarvamSpeaker: _s, speakWith: _w, ...router } = clean;
+  const {
+    azureRegion: _r,
+    azureVoice: _v,
+    sarvamSpeaker: _s,
+    speakWith: _w,
+    streaming: _st,
+    streamCaptions: _sc,
+    streamPlayback: _sp,
+    ...router
+  } = clean;
   return { ...DEFAULT_CLOUD_SETTINGS, ...router, keyPresent };
 }
 

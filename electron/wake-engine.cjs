@@ -402,6 +402,52 @@ async function detect({
   }
 }
 
+/**
+ * Score a chunk of live 16 kHz mono PCM16 (base64) taken from the one shared capture. The worker keeps a streaming
+ * scorer per `session`, so a phrase that spans chunks is still one trigger. Needs an openWakeWord model; the bundled
+ * linear scorer scores whole clips only and says so. `reset: true` ends the session's scorer.
+ */
+async function scoreFrames({
+  session: sessionId = "default",
+  pcmBase64 = "",
+  wakeWord = "friday",
+  threshold = 0.5,
+  reset = false,
+  minFrames = 2,
+  cooldownMs = 1500,
+} = {}) {
+  if (!reset && !pcmBase64) return { ok: false, engine: "transcript", reason: "no audio supplied" };
+  try {
+    const worker = await ensureWorker();
+    const parsed = await workerRequest(
+      worker,
+      {
+        op: "frame",
+        session: String(sessionId).slice(0, 64),
+        pcm: reset ? "" : String(pcmBase64),
+        reset: Boolean(reset),
+        wakeWord: String(wakeWord || "friday"),
+        threshold,
+        minFrames,
+        cooldownMs,
+      },
+      5000,
+    );
+    if (!parsed?.ok)
+      return { ok: false, engine: "transcript", reason: parsed?.error || "wake scoring failed" };
+    return {
+      ok: true,
+      engine: parsed.engine || "openwakeword",
+      detected: Boolean(parsed.detected),
+      score: parsed.score,
+      frames: parsed.frames,
+      threshold: parsed.threshold,
+    };
+  } catch (error) {
+    return { ok: false, engine: "transcript", reason: String(error?.message || error) };
+  }
+}
+
 function shutdown() {
   const session = worker;
   worker = null;
@@ -424,6 +470,7 @@ module.exports = {
   status,
   install,
   detect,
+  scoreFrames,
   shutdown,
   installBundledModel,
   bundledWakeDir,

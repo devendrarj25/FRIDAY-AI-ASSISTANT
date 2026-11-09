@@ -513,8 +513,15 @@ export function stopSpeaking() {
   }
 }
 
-async function playBase64(audioBase64: string, mime: string, volume: number): Promise<void> {
-  const audio = new Audio(`data:${mime};base64,${audioBase64}`);
+async function playBase64(
+  audioBase64: string,
+  mime: string,
+  volume: number,
+  ready?: unknown,
+): Promise<void> {
+  // A clip that is still arriving comes as an element that is already attached to its stream and paused.
+  const audio =
+    (ready as HTMLAudioElement | undefined) ?? new Audio(`data:${mime};base64,${audioBase64}`);
   audio.volume = Math.min(Math.max(volume, 0), 1);
   currentAudio = audio;
   // Feed the desktop companion the real speech envelope for lip-sync.
@@ -561,10 +568,17 @@ type SpeechTuning = {
     text: string,
     lang: string,
     tone: { rate: number; pitch: number; volume: number },
-  ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>;
+  ) => Promise<{
+    audioBase64: string;
+    mime: string;
+    engine: string;
+    voice?: string;
+    /** A paused audio element fed by a stream; played instead of the base64 clip. */
+    audio?: unknown;
+  } | null>;
 };
 
-type SpeechClip = { audioBase64: string; mime: string; route: SpeechRoute };
+type SpeechClip = { audioBase64: string; mime: string; route: SpeechRoute; audio?: unknown };
 
 type SegmentPlan = {
   text: string;
@@ -630,10 +644,11 @@ async function makeClip(
     const cloud = await tuning
       .cloudClip(plan.text, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
       .catch(() => null);
-    if (cloud?.audioBase64) {
+    if (cloud?.audioBase64 || cloud?.audio) {
       return {
         audioBase64: cloud.audioBase64,
         mime: cloud.mime,
+        ...(cloud.audio ? { audio: cloud.audio } : {}),
         route: {
           engine: cloud.engine,
           voiceId: cloud.voice ?? "",
@@ -757,7 +772,9 @@ export async function speakText(
           return clip;
         },
         play: (clip, plan) =>
-          stale() ? Promise.resolve() : playBase64(clip.audioBase64, clip.mime, plan.volume),
+          stale()
+            ? Promise.resolve()
+            : playBase64(clip.audioBase64, clip.mime, plan.volume, clip.audio),
         stale,
         ahead: 2,
         onFirstClip: (clip) => {

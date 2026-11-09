@@ -42,7 +42,7 @@ function whisperLanguage(raw) {
 }
 
 const SCRIPT = path.join(__dirname, "..", "kernel", "stt.py");
-const MODELS = ["tiny", "base", "small", "medium", "large-v3"];
+const MODELS = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 const DEFAULT_MODEL = "small";
 const crashTimes = [];
 const CRASH_WINDOW_MS = 60000;
@@ -240,6 +240,8 @@ function run(exe, args, timeout = 120000) {
         timeout,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
+        // Never the program folder: a child that stands in it keeps it alive after an uninstall.
+        cwd: os.tmpdir(),
         env: { ...process.env, FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" },
       },
       (error, stdout, stderr) =>
@@ -397,14 +399,131 @@ async function prepareWeights(model, onEvent) {
   });
 }
 
+/**
+ * Progress for any speech download, as one event shape for the whole app (the window draws a bar from it).
+ * The sink is set once by the main process; a missing sink drops the event and nothing else changes.
+ */
+let progressSink = null;
+function setProgressSink(sink) {
+  progressSink = typeof sink === "function" ? sink : null;
+}
+function reportProgress(payload) {
+  try {
+    progressSink?.(payload);
+  } catch {
+    /* progress is a view, never a reason to stop a download */
+  }
+}
+
+/** A download event from the model downloader, as the bar needs it. */
+function downloadReporter(size, label) {
+  return (event) => {
+    const raw = String(event?.status || "");
+    if (!raw || raw === "already on disk") return;
+    reportProgress({
+      stage: "download",
+      model: size,
+      status: label,
+      progress: typeof event?.progress === "number" ? Math.round(event.progress) : null,
+      gbDone: typeof event?.gbDone === "number" ? event.gbDone : null,
+      gbTotal: typeof event?.gbTotal === "number" ? event.gbTotal : null,
+      speedMbps: typeof event?.speedMbps === "number" ? event.speedMbps : null,
+      etaSeconds: typeof event?.etaSeconds === "number" ? event.etaSeconds : null,
+      host: String(event?.host || ""),
+    });
+  };
+}
+
+/** Which small sizes are on disk, so the first choice is one that needs no download. */
+function cachedSizes() {
+  const have = require("./voice-weights.cjs").installedSizes(paths.root() || "", (file) =>
+    fs.existsSync(file),
+  );
+  return { baseCached: have.includes("base"), smallCached: have.includes("small") };
+}
+
+const backgroundFetches = new Map();
+const failedFetches = new Map();
+const FETCH_RETRY_MS = 10 * 60 * 1000;
+
+/**
+ * Fetch a size that is not on disk while listening carries on with one that is. One fetch per size at
+ * a time; a failed one is not started again for ten minutes, so a bad line does not retry on every word.
+ */
+function fetchInBackground(size) {
+  if (backgroundFetches.has(size)) return backgroundFetches.get(size);
+  if (Date.now() - (failedFetches.get(size) || 0) < FETCH_RETRY_MS) return null;
+  const job = prepareWeights(size, downloadReporter(size, `Downloading speech model ${size}`))
+    .then((result) => {
+      if (result?.ok) {
+        failedFetches.delete(size);
+        reportProgress({
+          stage: "ready",
+          model: size,
+          status: `Speech model ${size} is ready`,
+          progress: 100,
+        });
+      } else {
+        failedFetches.set(size, Date.now());
+        reportProgress({
+          stage: "failed",
+          model: size,
+          status: `Speech model ${size} did not download`,
+          progress: null,
+          error: String(result?.error || "").slice(0, 200),
+        });
+      }
+      return result;
+    })
+    .catch((error) => {
+      failedFetches.set(size, Date.now());
+      return { ok: false, error: String(error?.message || error) };
+    })
+    .finally(() => backgroundFetches.delete(size));
+  backgroundFetches.set(size, job);
+  return job;
+}
+
+/**
+ * Which weights to open for a request: the size asked for when it is on disk, otherwise the nearest size
+ * that is (listening never waits on a download while any speech model is installed) and the asked-for
+ * size is fetched in the background. Only a PC with no speech model at all waits for a download.
+ */
+async function chooseWeights(wanted, onEvent) {
+  await require("./staged-assets.cjs").whenIdle();
+  const weights = require("./voice-weights.cjs");
+  const root = paths.root() || "";
+  const have = weights.installedSizes(root, (file) => fs.existsSync(file));
+  if (have.includes(wanted)) return { ...(await prepareWeights(wanted, onEvent)), size: wanted };
+  const stand = weights.nearestInstalled(wanted, have);
+  if (stand) {
+    void fetchInBackground(wanted);
+    return {
+      ok: true,
+      dir: path.join(root, "cache", "stt", stand),
+      size: stand,
+      substituted: wanted,
+      downloaded: false,
+    };
+  }
+  return {
+    ...(await prepareWeights(
+      wanted,
+      onEvent || downloadReporter(wanted, "Downloading speech model, first time only"),
+    )),
+    size: wanted,
+  };
+}
+
 async function ensureWorker(model, onEvent, options = {}) {
-  const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
+  let wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
   const loadModel = options.load !== false;
   let modelPath = "";
   if (loadModel) {
-    const prepared = await prepareWeights(wanted, onEvent);
+    const prepared = await chooseWeights(wanted, onEvent);
     if (!prepared.ok) throw new Error(prepared.error || "speech weights are not on disk");
     modelPath = prepared.dir;
+    if (prepared.size) wanted = prepared.size;
   }
   if (worker?.alive) {
     if (!loadModel) return worker;
@@ -438,6 +557,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   const child = spawn(py[0], [...py[1], scriptPath(), "--serve"], {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
+    // The worker and everything it starts (the Windows speech probe included) must not stand in the program folder.
+    cwd: os.tmpdir(),
     env: {
       ...process.env,
       PYTHONUNBUFFERED: "1",
@@ -634,16 +755,8 @@ async function status(force = false, options = {}) {
   if (warm) {
     try {
       const voiceInstall = require("./voice-install.cjs");
-      const boot = voiceInstall.bootModel({ requested: "auto" });
-      await ensureWorker(boot.model, (event) => {
-        if (typeof options.onProgress !== "function") return;
-        const raw = String(event?.status || "");
-        if (!raw || raw === "already on disk") return;
-        options.onProgress({
-          status: "Downloading speech model, first time only",
-          progress: typeof event?.progress === "number" ? Math.round(event.progress) : null,
-        });
-      });
+      const boot = voiceInstall.bootModel({ requested: "auto", ...cachedSizes() });
+      await ensureWorker(boot.model);
     } catch (error) {
       const voiceInstall = require("./voice-install.cjs");
       lastLocalLayers.reason = voiceInstall.classifyDownloadError(
@@ -689,8 +802,63 @@ async function status(force = false, options = {}) {
   return value;
 }
 
+const PACKAGE_FLOOR = { "faster-whisper": "1.2.1", av: "17.0.0" };
+const AV_CEILING = 19;
+
+/** Versions of the two speech packages in this interpreter, and the newest faster-whisper on PyPI (read only, 4 s). */
+async function probePackages(py) {
+  const voiceInstall = require("./voice-install.cjs");
+  const code =
+    "import json, importlib.metadata as m\n" +
+    "o = {}\n" +
+    "for n in ('faster-whisper', 'av'):\n" +
+    "    try:\n        o[n] = m.version(n)\n" +
+    "    except Exception:\n        o[n] = None\n" +
+    "print(json.dumps(o))";
+  const out = await run(py[0], [...py[1], "-c", code], 30000);
+  let versions = {};
+  try {
+    versions = JSON.parse(
+      String(out.stdout || "")
+        .trim()
+        .split(/\r?\n/)
+        .pop() || "{}",
+    );
+  } catch {
+    versions = {};
+  }
+  const fw = versions["faster-whisper"] || null;
+  const av = versions.av || null;
+  const satisfied = Boolean(
+    fw &&
+    av &&
+    voiceInstall.versionAtLeast(fw, PACKAGE_FLOOR["faster-whisper"]) &&
+    voiceInstall.versionAtLeast(av, PACKAGE_FLOOR.av) &&
+    Number(String(av).split(".")[0]) < AV_CEILING,
+  );
+  let latest = null;
+  try {
+    const bounded = boundedInit({}, 4000);
+    try {
+      const res = await fetchCompat("https://pypi.org/pypi/faster-whisper/json", bounded.init);
+      const body = res.ok ? await res.json() : null;
+      latest = String(body?.info?.version || "") || null;
+    } finally {
+      bounded.clear();
+    }
+  } catch {
+    latest = null; // offline: the installed engine is still used
+  }
+  return {
+    versions: { "faster-whisper": fw, av },
+    satisfied,
+    latest,
+    updateAvailable: Boolean(fw && latest && !voiceInstall.versionAtLeast(fw, latest)),
+  };
+}
+
 /** Install the transcriber into the same interpreter Install Manager uses. */
-async function install() {
+async function install(options = {}) {
   if (installing) return installing;
   installing = (async () => {
     const voiceInstall = require("./voice-install.cjs");
@@ -711,11 +879,42 @@ async function install() {
           : voiceInstall.classifyInstallLog(pip.stderr);
       return { ok: false, cause, error: voiceInstall.explain(cause, pip.stderr) };
     }
-    const result = await run(
-      py[0],
-      [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper>=1.2.1", "av>=17.0.0,<19"],
-      600000,
-    );
+    // Look first: a package that is already there and in range is not installed again, and a Fix voice
+    // press on a working engine no longer runs pip. The newest release is only read, never forced.
+    const found = await probePackages(py);
+    const needed = options.upgrade || !found.satisfied;
+    reportProgress({
+      stage: "check",
+      status: found.satisfied
+        ? `Speech engine is installed (faster-whisper ${found.versions["faster-whisper"]})`
+        : "Speech engine needs an install",
+      progress: null,
+      versions: found.versions,
+      latest: found.latest,
+      updateAvailable: found.updateAvailable,
+    });
+    const result = needed
+      ? await (async () => {
+          reportProgress({
+            stage: "install",
+            status: "Installing the speech engine",
+            progress: null,
+          });
+          return run(
+            py[0],
+            [
+              ...py[1],
+              "-m",
+              "pip",
+              "install",
+              "--upgrade",
+              "faster-whisper>=1.2.1",
+              "av>=17.0.0,<19",
+            ],
+            600000,
+          );
+        })()
+      : { ok: true, stdout: "", stderr: "" };
     if (!result.ok) {
       const cause = voiceInstall.classifyInstallLog(`${result.stderr} ${result.stdout}`);
       return { ok: false, cause, error: voiceInstall.explain(cause, result.stderr) };
@@ -732,7 +931,14 @@ async function install() {
     lastLocalLayers.dependency = "ready";
     const now = await status(true, { warm: true, localOnly: true });
     return now.ready
-      ? { ok: true, model: now.model }
+      ? {
+          ok: true,
+          model: now.model,
+          skippedInstall: !needed,
+          versions: found.versions,
+          latest: found.latest,
+          updateAvailable: found.updateAvailable,
+        }
       : {
           ok: false,
           cause: "import-failed",
@@ -856,7 +1062,7 @@ async function transcribeNow(req = {}, onPartial) {
     }
     const voiceInstall = require("./voice-install.cjs");
     const explicit = MODELS.includes(req.model) ? req.model : "";
-    const boot = voiceInstall.bootModel({ requested: explicit || "auto" });
+    const boot = voiceInstall.bootModel({ requested: explicit || "auto", ...cachedSizes() });
     const model = explicit || boot.model;
     const loadBudget = voiceInstall.loadBudgetMs(model);
     const locked = whisperLanguage(req.language);
@@ -1121,6 +1327,7 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 module.exports = {
   status,
   install,
+  setProgressSink,
   transcribe,
   createTurnGate,
   workerRequest,

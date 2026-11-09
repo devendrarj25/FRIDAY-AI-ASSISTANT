@@ -81,6 +81,61 @@ export class BargeInDetector {
   }
 }
 
+/**
+ * Shadow comparison of the acoustic detector with what the live path really did. It changes nothing: it counts how
+ * often the detector fires, how often the live path pauses her for speech, and how often both happen within
+ * `windowMs` of each other. A detector that fires with no live pause, or the reverse, shows where the guard and
+ * the detector disagree on the owner's own microphone and speakers.
+ */
+export class BargeShadow {
+  private pending: Array<{ t: number; by: "detector" | "live"; matched: boolean }> = [];
+  detectorOnly = 0;
+  liveOnly = 0;
+  both = 0;
+
+  constructor(private readonly windowMs = 700) {}
+
+  detectorFired(t: number): void {
+    this.add(t, "detector");
+  }
+
+  liveFired(t: number): void {
+    this.add(t, "live");
+  }
+
+  private add(t: number, by: "detector" | "live"): void {
+    const other = this.pending.find(
+      (e) => e.by !== by && !e.matched && Math.abs(e.t - t) <= this.windowMs,
+    );
+    if (other) {
+      other.matched = true;
+      this.both += 1;
+      this.pending.push({ t, by, matched: true });
+    } else this.pending.push({ t, by, matched: false });
+    this.tick(t);
+  }
+
+  /** Count as one-sided every event that found no partner within the window. Call with the current time. */
+  tick(now: number): void {
+    const keep: typeof this.pending = [];
+    for (const e of this.pending) {
+      if (now - e.t <= this.windowMs) keep.push(e);
+      else if (!e.matched) {
+        if (e.by === "detector") this.detectorOnly += 1;
+        else this.liveOnly += 1;
+      }
+    }
+    this.pending = keep;
+  }
+
+  line(now?: number): string {
+    if (now !== undefined) this.tick(now);
+    return this.both + this.detectorOnly + this.liveOnly === 0
+      ? "no barge-in seen yet"
+      : `${this.both} agreed · ${this.detectorOnly} detector only · ${this.liveOnly} live only`;
+  }
+}
+
 export type StepName = "playback" | "ttsRequest" | "answerStream" | "queue" | "providerTruncate";
 
 export type InterruptSteps = Partial<Record<StepName, (reason: string) => void | Promise<void>>>;

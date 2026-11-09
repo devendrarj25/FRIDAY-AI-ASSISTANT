@@ -62,7 +62,7 @@ describe("background request wiring", () => {
     expect(block).toContain("startVoiceTask(");
     expect(block).toContain("askBrain(background.request");
     expect(block).toContain("brain.stop()");
-    expect(at).toBeLessThan(mode.indexOf("if (isStopCommand(text))"));
+    expect(at).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))"));
   });
 
   it("leaves the answer to a quick agreement after being cut off to the interruption hold, not to a second path", () => {

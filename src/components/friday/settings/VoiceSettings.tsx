@@ -21,6 +21,7 @@ import { assistantMode } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { attentionWindowSeconds, clampAttentionSeconds } from "@/lib/friday/attention-window";
 import { Slider } from "@/components/ui/slider";
+import { VoiceNotesList } from "@/components/friday/VoiceNotesPanel";
 import { cn } from "@/lib/utils";
 import {
   activeVoiceSettings,
@@ -317,6 +318,13 @@ export function VoiceSettings() {
             on={prefs.voice.liveWords === true}
             onToggle={() => preferences.setVoice({ liveWords: prefs.voice.liveWords !== true })}
           />
+          <ToggleRow
+            label="Listen for the wake word live (needs a wake model)"
+            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs an openWakeWord model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
+            on={prefs.voice.liveWake === true}
+            onToggle={() => preferences.setVoice({ liveWake: prefs.voice.liveWake !== true })}
+          />
+          <VoiceNotesList />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
           <SpeechModelCheck />
@@ -353,6 +361,9 @@ export function VoiceSettings() {
               </option>
               <option value="medium" className="bg-background">
                 Medium
+              </option>
+              <option value="large-v3-turbo" className="bg-background">
+                Large turbo (fast, big)
               </option>
               <option value="large-v3" className="bg-background">
                 Large

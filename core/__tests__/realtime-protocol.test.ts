@@ -3,6 +3,7 @@ import {
   applyServerEvent,
   clientEvents,
   newSession,
+  openaiDialect,
   pcm16Base64,
   realtimeGate,
   shouldBargeIn,
@@ -93,6 +94,40 @@ describe("realtime session protocol", () => {
     expect(
       clientEvents.start({ instructions: "x".repeat(9000) }).session.instructions,
     ).toHaveLength(4000);
+  });
+
+  it("uses the current OpenAI session shape for a current model and the flat shape for a preview model", () => {
+    expect(openaiDialect("gpt-realtime")).toBe("ga");
+    expect(openaiDialect("gpt-realtime-2")).toBe("ga");
+    expect(openaiDialect("gpt-4o-realtime-preview-2024-12-17")).toBe("beta");
+    const ga = clientEvents.startGa({ instructions: "Be brief.", voice: "marin", serverVad: true });
+    expect(ga).toEqual({
+      type: "session.update",
+      session: {
+        type: "realtime",
+        output_modalities: ["audio"],
+        instructions: "Be brief.",
+        audio: {
+          input: {
+            format: { type: "audio/pcm", rate: 24000 },
+            transcription: { model: "whisper-1" },
+            turn_detection: { type: "server_vad" },
+          },
+          output: { format: { type: "audio/pcm", rate: 24000 }, voice: "marin" },
+        },
+      },
+    });
+    expect(
+      clientEvents.startGa({ instructions: "x" }).session.audio.input.turn_detection,
+    ).toBeNull();
+    expect(
+      clientEvents.startGa({ instructions: "x".repeat(9000) }).session.instructions,
+    ).toHaveLength(4000);
+    // the flat shape is unchanged for the other providers
+    expect(clientEvents.start({ instructions: "x" }).session).toHaveProperty(
+      "input_audio_format",
+      "pcm16",
+    );
   });
 
   it("turns float samples into little-endian PCM16 base64", () => {

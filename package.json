@@ -54,6 +54,7 @@
     "test:watch": "vitest",
     "test:kernel": "python -m pytest kernel/tests -q",
     "voice:check": "python kernel/voice_runtime.py --check",
+    "voice:stack": "node scripts/voice-stack.cjs",
     "voice:install": "python kernel/voice_runtime.py --fetch",
     "setup:python:test": "python -m pip install -r kernel/requirements-dev.txt",
     "build:all": "node scripts/build-pipeline.cjs --channel production --targets nsis,portable --caller npm",

@@ -162,6 +162,7 @@ describe("runStartupFlow", () => {
   it("with no services.json, starts every engine that canStart", async () => {
     const started: string[] = [];
     await startup.runStartupFlow({
+      totalGb: 16,
       workspaceRoot: null,
       boot: () => {},
       listCapabilities: async () => ({ items: [], counts: {} }),
@@ -178,6 +179,57 @@ describe("runStartupFlow", () => {
       routableModels: async () => 1,
     });
     expect(started).toEqual(["ollama", "llamacpp"]);
+  });
+
+  it("starts the engines together, so a slow one does not hold the others", async () => {
+    const order: string[] = [];
+    let releaseSlow: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => (releaseSlow = resolve));
+    const run = startup.runStartupFlow({
+      totalGb: 16,
+      workspaceRoot: null,
+      boot: () => {},
+      listCapabilities: async () => ({ items: [], counts: {} }),
+      engineStatus: async () => [
+        { id: "ollama", name: "Ollama", running: false, canStart: true, hint: null },
+        { id: "llamacpp", name: "llama.cpp", running: false, canStart: true, hint: null },
+      ],
+      startEngine: async (id: string) => {
+        order.push(`start ${id}`);
+        if (id === "ollama") await slow; // Ollama is slow; llama.cpp must not wait for it
+        order.push(`done ${id}`);
+        return { ok: true, detail: "verified" };
+      },
+      kernelAlive: async () => true,
+      routableModels: async () => 1,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(order).toEqual(["start ollama", "start llamacpp", "done llamacpp"]);
+    releaseSlow();
+    const report = await run;
+    expect(order.at(-1)).toBe("done ollama");
+    expect(report.services.map((s: { id: string }) => s.id)).toEqual(["ollama", "llamacpp"]); // order kept
+  });
+
+  it("leaves llama.cpp for the owner on a PC with under 8 GB of memory, and starts the rest", async () => {
+    const started: string[] = [];
+    await startup.runStartupFlow({
+      totalGb: 6,
+      workspaceRoot: null,
+      boot: () => {},
+      listCapabilities: async () => ({ items: [], counts: {} }),
+      engineStatus: async () => [
+        { id: "ollama", name: "Ollama", running: false, canStart: true, hint: null },
+        { id: "llamacpp", name: "llama.cpp", running: false, canStart: true, hint: null },
+      ],
+      startEngine: async (id: string) => {
+        started.push(id);
+        return { ok: true, detail: "verified" };
+      },
+      kernelAlive: async () => true,
+      routableModels: async () => 1,
+    });
+    expect(started).toEqual(["ollama"]);
   });
 
   it("honours an explicit services.json list and does not start extra canStart engines", async () => {

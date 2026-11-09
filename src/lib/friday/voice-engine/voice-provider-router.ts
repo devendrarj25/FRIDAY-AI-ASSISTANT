@@ -151,7 +151,7 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: false,
     freeTier: "unknown",
     verified: true,
-    note: "Docs read 2026-11-07: text-to-speech and speech-to-text (hi-IN, en-IN; codemix mode for Hinglish), key in the api-subscription-key header, short audio only. No streaming is documented on the pages read, so none is claimed.",
+    note: "Docs read 2026-11-08: one-shot text-to-speech and speech-to-text (hi-IN, en-IN; codemix for Hinglish) plus realtime speech-to-text (partial and final transcripts, saaras:v4) and text-to-speech (bulbul:v4-flash) over WebSocket; the key goes in the api-subscription-key header. Streaming is connected here and unit tested; never run on a live account.",
   },
   {
     id: "azure-speech",

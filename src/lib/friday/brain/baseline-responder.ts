@@ -40,7 +40,7 @@ import {
   inspectSelfComplete,
   inspectSourceHealth,
 } from "./self-diagnosis";
-import { currentVoiceHealth, describeVoiceHealth } from "../voice-health";
+import { currentVoiceHealth, describeVoiceHealth, repairVoice } from "../voice-health";
 import {
   describeLiveSelf,
   describeSections,
@@ -367,13 +367,42 @@ const SELF_CHECK =
  * Answered from the live Auto session (voice-health), never from a guess.
  */
 const VOICE_SUBJECT =
-  /\b(voice|awaaz|aawaz|awaz|mic|microphone|hear(?:ing)?|listen(?:ing)?|speak(?:ing)?|sun(?:ti|te|na)?|bol(?:ti|te|na)?|baat)\b/i;
+  /\b(voice|awaaz|aawaz|awaz|mic|microphone|hear(?:ing)?|listen(?:ing)?|speak(?:ing)?|speech|stt|whisper|sun(?:ti|te|na|ne)?|bol(?:ti|te|na|ne)?|baat)\b/i;
 const VOICE_PROBLEM =
-  /\b(kyu|kyun|kyon|why|check|thik|theek|fix|problem|issue|issues|not working|doesn'?t work|isn'?t working|can'?t|cannot|nahi|nhi|kaam|work(?:ing)?|wrong|broken|dead|status)\b/i;
-const VOICE_SELF = /\b(you|your|yourself|tum|tumhari|tumhara|tumare|tumhe|aap|aapki|friday)\b/i;
+  /\b(kyu|kyun|kyon|why|check|thik|theek|fix|problem|issue|issues|not working|doesn'?t work|isn'?t working|can'?t|cannot|nahi|nhi|kaam|work(?:ing)?|wrong|broken|dead|status|which|what|kaun|kaunsa|kis|model|using|use|ready|can you|are you|kya tum|chal)\b/i;
+/** "Fix your voice", "tumhari awaaz theek karo": a request to mend it, not only to explain it. */
+const VOICE_FIX =
+  /\b(fix|repair|heal|reset|restart|reload|theek\s*kar|thik\s*kar|sahi\s*kar|sudhar)\w*/i;
+const VOICE_SELF =
+  /\b(you|your|yourself|tum|tumhari|tumhara|tumare|tumhe|aap|aapki|friday)\b|\b(rahi|sakti|karti)\s+ho\b/i;
+
+/**
+ * "Can you hear me?", "tum meri awaaz sun sakti ho", "which speech model are you using to listen": she is asked
+ * about her own hearing, voice or the model behind them. Needs her named or addressed (VOICE_SELF) so that a
+ * line about music, a podcast or someone else's voice is not taken for a question about her.
+ */
+const VOICE_CAN =
+  /\b(can you|could you|do you|are you|kya tum|kya aap|tum\s+\w+\s+(?:sakti|sakte|rahi)|sakti ho|sakte ho|rahi ho)\b/i;
+const VOICE_MODEL =
+  /\b(speech|stt|whisper|listening|hearing|voice|sunne|bolne|awaaz|awaz)\b.*\b(model|engine|using|use|kaun|kaunsa)\b|\b(model|engine|using|use|kaun|kaunsa)\b.*\b(speech|stt|whisper|listening|hearing|voice|sunne|bolne|awaaz|awaz)\b/i;
+
+/** Hearing music or a show is not a question about her own ears. */
+const NOT_HER_VOICE = /\b(music|song|gaana|gana|podcast|radio|youtube|spotify|video|movie|film)\b/i;
 
 export function isOwnVoiceQuestion(text: string): boolean {
-  return VOICE_SUBJECT.test(text) && VOICE_PROBLEM.test(text) && VOICE_SELF.test(text);
+  if (!VOICE_SELF.test(text) || !VOICE_SUBJECT.test(text) || NOT_HER_VOICE.test(text)) return false;
+  return VOICE_PROBLEM.test(text) || VOICE_CAN.test(text) || VOICE_MODEL.test(text);
+}
+
+/** She is asked to mend her own voice or hearing (so she checks it and repairs it, not only describes it). */
+export function isOwnVoiceRepair(text: string): boolean {
+  return (
+    text.length <= 200 &&
+    VOICE_SUBJECT.test(text) &&
+    VOICE_FIX.test(text) &&
+    VOICE_SELF.test(text) &&
+    !/\b(code|source|file|bug in)\b/i.test(text)
+  );
 }
 
 /** "Find bugs in your source" — architecture index + sandbox verify + AUDIT.md. */
@@ -669,6 +698,15 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   }
 
   // 3b. her own voice — the live Auto session, not a model's guess ----------
+  if (isOwnVoiceRepair(text)) {
+    return {
+      handled: true,
+      kind: "diagnosis",
+      text: "",
+      confidence: 0.88,
+      resolve: async () => repairVoice(),
+    };
+  }
   if (isOwnVoiceQuestion(text)) {
     return {
       handled: true,

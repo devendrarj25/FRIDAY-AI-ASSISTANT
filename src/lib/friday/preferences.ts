@@ -72,10 +72,14 @@ export type VoicePreferences = {
   expressiveSpeech: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
+  /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
+  liveWake: boolean;
+  /** Days to keep finished voice notes and meeting notes; 0 keeps them until deleted. */
+  notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
-  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
+  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */
@@ -232,6 +236,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
     liveWords: false,
+    liveWake: false,
+    notesRetentionDays: 30,
     expressiveSpeech: true,
     localVoiceStyle: "",
     sttSize: "auto",

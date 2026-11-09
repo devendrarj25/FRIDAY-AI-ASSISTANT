@@ -36,9 +36,9 @@ describe("desktop stt", () => {
 
   it("offers real whisper model sizes only", () => {
     expect(stt.MODELS).toContain(stt.DEFAULT_MODEL);
-    expect(stt.MODELS.every((m: string) => /^(tiny|base|small|medium|large-v3)$/.test(m))).toBe(
-      true,
-    );
+    expect(
+      stt.MODELS.every((m: string) => /^(tiny|base|small|medium|large-v3-turbo|large-v3)$/.test(m)),
+    ).toBe(true);
   });
 
   it("sweeps stale capture files without failing when none exist", () => {

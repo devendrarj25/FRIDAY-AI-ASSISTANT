@@ -293,7 +293,7 @@ describe("speech ladder, hearing, and self-heal", () => {
     expect(assistant).toMatch(/resetMicrophone\(\)[\s\S]*applyVoiceHeal/);
     expect(assistant).toMatch(/refreshWakeEngine[\s\S]*applyVoiceHeal/);
     expect(assistant).toMatch(/scheduleSttRecovery[\s\S]*applyVoiceHeal/);
-    expect(assistant).toMatch(/async verifyVoiceRuntime\(\)[\s\S]*applyVoiceHeal/);
+    expect(assistant).toMatch(/async verifyVoiceRuntime\([^)]*\)[\s\S]*applyVoiceHeal/);
     expect(main).toContain('id: "voice-heal"');
   });
 

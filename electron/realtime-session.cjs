@@ -29,7 +29,12 @@ const CLOUD_REALTIME = {
     label: "OpenAI Realtime",
     host: "api.openai.com",
     url: (model) => `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
-    headers: (key) => ({ Authorization: `Bearer ${key}`, "OpenAI-Beta": "realtime=v1" }),
+    // The current (GA) socket takes the key as a Bearer header only: that is all the official openai-node client
+    // sends (read 2026-11-08). A preview model belongs to the older beta interface and still needs the beta header.
+    headers: (key, model) => ({
+      Authorization: `Bearer ${key}`,
+      ...(/preview/i.test(String(model || "")) ? { "OpenAI-Beta": "realtime=v1" } : {}),
+    }),
   },
 };
 
@@ -140,7 +145,7 @@ function createRealtimeSessions({ WebSocketImpl = globalThis.WebSocket } = {}) {
     let socket;
     try {
       socket = new WebSocketImpl(provider.url(model, apiKey), {
-        headers: provider.headers(apiKey),
+        headers: provider.headers(apiKey, model),
       });
     } catch (error) {
       return {

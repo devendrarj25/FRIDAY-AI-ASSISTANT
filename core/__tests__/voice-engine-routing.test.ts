@@ -141,7 +141,7 @@ describe("voice provider router", () => {
       "sarvam",
       "azure-speech",
     ]);
-    expect(PROVIDERS.find((p) => p.id === "sarvam")?.note).toMatch(/No streaming is documented/);
+    expect(PROVIDERS.find((p) => p.id === "sarvam")?.note).toMatch(/never run on a live account/);
     expect(PROVIDERS.find((p) => p.id === "azure-speech")?.note).toMatch(/not read/);
     expect(PROVIDERS.find((p) => p.id === "gemini")?.needs).toContain("realtime-audio");
   });
@@ -163,7 +163,31 @@ describe("performance profile", () => {
     expect(p.stt).toMatchObject({ device: "cpu", computeType: "int8", model: "small", beam: 1 });
     expect(p.llm.device).toBe("gpu");
     expect(p.maxBackgroundWorkers).toBe(1);
-    expect(p.stt.threads).toBeLessThanOrEqual(4);
+    // The same rule as the CPU speech engine: about half the logical processors, 4 to 8, never more than the PC has.
+    expect(p.stt.threads).toBe(
+      Math.min(target.cpuThreads, Math.max(4, Math.min(8, Math.floor(target.cpuThreads / 2)))),
+    );
+    expect(p.stt.threads).toBeGreaterThanOrEqual(4);
+    expect(p.stt.threads).toBeLessThanOrEqual(8);
+  });
+
+  it("uses the big turbo speech size only on a quality PC with the video memory and the RAM for it", () => {
+    const strong = {
+      ...target,
+      cuda: true,
+      vramGb: 12,
+      ramTotalGb: 32,
+      ramAvailableGb: 24,
+      cpuThreads: 16,
+    };
+    expect(selectProfile(strong).name).toBe("quality");
+    expect(selectProfile(strong).stt.model).toBe("large-v3-turbo");
+    // 8 GB of video memory is still enough for the turbo size (about 1.6 GB of weights)
+    expect(selectProfile({ ...strong, vramGb: 8 }).stt.model).toBe("large-v3-turbo");
+    expect(selectProfile({ ...strong, cuda: false, vramGb: 0 }).stt.model).not.toBe(
+      "large-v3-turbo",
+    );
+    expect(selectProfile(target).stt.model).toBe("small");
   });
 
   it("runs everything on the CPU with no GPU", () => {

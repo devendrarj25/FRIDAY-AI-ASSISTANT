@@ -1902,6 +1902,8 @@ function stopOwnedProcesses() {
   }
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* worker may already be gone */
   }
@@ -4462,6 +4464,8 @@ lifeSteps.microphone = () => {
   }
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* wake worker may already be gone */
   }
@@ -4553,6 +4557,8 @@ lifeSteps.tts = () => {
 lifeSteps.wake = () => {
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* worker may already be gone */
   }
@@ -4753,25 +4759,35 @@ function warmFastChatModel() {
   }
 }
 
-ipcMain.handle("voice:stt-status", (e, request) => {
+// Every speech download (first install, a size fetched while another listens, the engine package) reports
+// through one sink, so the Auto window draws one bar from one event shape.
+stt.setProgressSink((payload) => {
+  send("voice:stt-progress", {
+    stage: String(payload?.stage || "download").slice(0, 16),
+    model: String(payload?.model || "").slice(0, 32),
+    status: String(payload?.status || "").slice(0, 120),
+    progress: typeof payload?.progress === "number" ? payload.progress : null,
+    gbDone: typeof payload?.gbDone === "number" ? payload.gbDone : null,
+    gbTotal: typeof payload?.gbTotal === "number" ? payload.gbTotal : null,
+    speedMbps: typeof payload?.speedMbps === "number" ? payload.speedMbps : null,
+    etaSeconds: typeof payload?.etaSeconds === "number" ? payload.etaSeconds : null,
+    host: String(payload?.host || "").slice(0, 80),
+    error: String(payload?.error || "").slice(0, 200),
+    updateAvailable: Boolean(payload?.updateAvailable),
+    latest: String(payload?.latest || "").slice(0, 24),
+  });
+});
+ipcMain.handle("voice:stt-status", (_e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
   if (options.warm) warmFastChatModel();
   return stt.status(Boolean(options.force), {
     localOnly: Boolean(options.localOnly),
     warm: Boolean(options.warm),
-    onProgress: (payload) => {
-      try {
-        e.sender.send("voice:stt-progress", {
-          status: String(payload?.status || "").slice(0, 80),
-          progress: typeof payload?.progress === "number" ? payload.progress : null,
-        });
-      } catch {
-        /* the window is already gone */
-      }
-    },
   });
 });
-ipcMain.handle("voice:stt-install", () => stt.install());
+ipcMain.handle("voice:stt-install", (_e, request) =>
+  stt.install({ upgrade: Boolean(request?.upgrade) }),
+);
 ipcMain.handle("voice:transcribe", (e, payload) =>
   stt.transcribe(payload || {}, (partial) => {
     ipcTimeout.noteActivity();
@@ -4793,6 +4809,7 @@ ipcMain.handle("voice:wake-status", (_e, payload) =>
 );
 ipcMain.handle("voice:wake-install", () => wakeEngine.install());
 ipcMain.handle("voice:wake-detect", (_e, payload) => wakeEngine.detect(payload || {}));
+ipcMain.handle("voice:wake-frames", (_e, payload) => wakeEngine.scoreFrames(payload || {}));
 
 // Real post-install verification of the voice runtime (imports + model load +
 // a real neural voice), used by first-run and Voice Diagnostics.
@@ -9067,6 +9084,27 @@ ipcMain.handle("voice-cloud:speak", (_e, provider, request) =>
 ipcMain.handle("voice-cloud:transcribe", (_e, provider, request) =>
   voiceCloudApi.transcribe(String(provider || ""), request),
 );
+// Streaming speech (Sarvam realtime speech-to-text and text-to-speech). The address is built in sarvam-stream.cjs
+// from a kind and a validated option set; the key is read here by the voice-cloud gate and never leaves this process.
+const sarvamStreams = require("./sarvam-stream.cjs").createSarvamStreams({
+  gate: (provider) => voiceCloudApi.gate(provider),
+});
+ipcMain.handle("voice-stream:open", (e, id, kind, options) =>
+  sarvamStreams.open(
+    String(id || ""),
+    String(kind || ""),
+    options && typeof options === "object" ? options : {},
+    {
+      onOpen: () => e.sender.send("voice-stream:opened", { id }),
+      onEvent: (event) => e.sender.send("voice-stream:event", { id, event }),
+      onClose: (info) => e.sender.send("voice-stream:closed", { id, ...info }),
+    },
+  ),
+);
+ipcMain.handle("voice-stream:send", (_e, id, message) =>
+  sarvamStreams.send(String(id || ""), message),
+);
+ipcMain.handle("voice-stream:close", (_e, id) => sarvamStreams.close(String(id || "")));
 ipcMain.handle("voice-cloud:key-status", () => {
   const credentials = require("./credentials.cjs");
   return Object.fromEntries(

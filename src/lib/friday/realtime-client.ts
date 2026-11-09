@@ -12,6 +12,8 @@
 import {
   applyServerEvent,
   clientEvents,
+  openaiDialect,
+  type SessionDialect,
   newSession,
   realtimeGate,
   shouldBargeIn,
@@ -132,7 +134,12 @@ export async function startRealtime(input: {
     cleanup();
     return { ok: false, reasons: [opened.error ?? "the engine could not be reached"] };
   }
-  await bridge.realtimeSend(id, clientEvents.start(input.settings));
+  const dialect: SessionDialect =
+    isCloud && input.cloud?.provider === "openai" ? openaiDialect(input.cloud.model) : "beta";
+  await bridge.realtimeSend(
+    id,
+    dialect === "ga" ? clientEvents.startGa(input.settings) : clientEvents.start(input.settings),
+  );
 
   const handle: RealtimeHandle = {
     session: () => session,

@@ -129,7 +129,9 @@ class VoiceRuntimeTests(unittest.TestCase):
                 self.assertEqual(voice_runtime.speech_lang("क्रोम खोलो और open करो", "en-IN"), "hi")
                 self.assertEqual(voice_runtime.speech_lang("hello", "en-IN"), "en")
                 self.assertEqual(voice_runtime.speech_lang("नमस्ते", "hi-IN"), "hi")
-                self.assertIn("SpeechRecognizer", stt.WINDOWS_SPEECH_PROBE)
+                self.assertIn("InstalledRecognizers", stt.WINDOWS_SPEECH_PROBE)
+                # The shared recogniser starts sapisvr.exe and the Speech Recognition setup wizard.
+                self.assertNotIn("New-Object System.Speech.Recognition.SpeechRecognizer", stt.WINDOWS_SPEECH_PROBE)
                 self.assertIsNone(stt.transcribe_windows(""))
                 self.assertFalse(stt.windows_speech_ready())
                 self.assertEqual(
@@ -362,3 +364,12 @@ class VoiceRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowsSpeechChildrenTest(unittest.TestCase):
+    def test_powershell_children_do_not_inherit_the_program_folder(self):
+        source = Path(__file__).resolve().parents[1].joinpath("stt.py").read_text(encoding="utf-8")
+        runs = [chunk for chunk in source.split("subprocess.run(")[1:] if '"powershell"' in chunk.split(")\n", 1)[0]]
+        self.assertGreaterEqual(len(runs), 3)
+        for chunk in runs:
+            self.assertIn("cwd=tempfile.gettempdir()", chunk.split("except", 1)[0])

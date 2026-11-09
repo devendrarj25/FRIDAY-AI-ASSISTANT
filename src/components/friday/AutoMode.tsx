@@ -1,3 +1,4 @@
+import { VoiceDownloadBar } from "./VoiceDownloadBar";
 import {
   Activity,
   ArrowDown,
@@ -49,6 +50,7 @@ import {
 } from "@/lib/friday/chat-level";
 import { VoiceDiagnostics } from "@/components/friday/VoiceDiagnostics";
 import { VoiceTaskPanel } from "@/components/friday/VoiceTaskPanel";
+import { VoiceNoteBanner } from "@/components/friday/VoiceNotesPanel";
 import {
   HudButton,
   HudDivider,
@@ -449,6 +451,7 @@ export function AutoMode() {
           {stage?.label ?? run.intentLabel}
         </span>
       ) : null}
+      <VoiceDownloadBar download={voice.download} />
       {voice.error ? (
         <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-ctl border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
           <span className="min-w-0 break-words">{voice.error}</span>
@@ -654,6 +657,7 @@ export function AutoMode() {
                   full && "px-4 py-3",
                 )}
               >
+                <VoiceNoteBanner />
                 <VoiceTaskPanel />
                 <VoiceTranscript
                   captions={visible}
