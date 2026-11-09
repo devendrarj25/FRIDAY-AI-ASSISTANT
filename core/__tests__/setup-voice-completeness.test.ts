@@ -67,3 +67,28 @@ describe("setup and the packaged build", () => {
       expect(() => readFileSync(file)).not.toThrow();
   });
 });
+
+describe("setup runs the voice files for real, not only checks that they exist", () => {
+  const setup = read("scripts/setup-python.cjs");
+  const smoke = setup.slice(setup.indexOf("function voiceSmokeTest"));
+
+  it("runs the voice runtime check after the models are fetched, on Windows only", () => {
+    const probe = setup.indexOf("voiceSmokeTest(picked.root)");
+    expect(probe).toBeGreaterThan(setup.indexOf("whisper-load-probe.json"));
+    expect(setup.indexOf("function fetchModelsAndProbe")).toBeLessThan(probe);
+    expect(setup).toMatch(/if \(win && voiceImportable\(\)\) \{\s*fetchModelsAndProbe\(\)/);
+    expect(smoke).toContain('"--check"');
+  });
+
+  it("counts a failed check and a download that did not land as a gap, but not the disk reading", () => {
+    expect(smoke).toContain("local-tts|vad-silero|smart-turn");
+    expect(smoke).toContain("incomplete.push");
+    expect(smoke).toContain("FAIL\\s+disk");
+  });
+
+  it("has Supertonic speak one test line to a temporary file that is removed", () => {
+    expect(smoke).toContain('"--speak"');
+    expect(smoke).toContain("mkdtempSync");
+    expect(smoke).toContain("rmSync(dir");
+  });
+});

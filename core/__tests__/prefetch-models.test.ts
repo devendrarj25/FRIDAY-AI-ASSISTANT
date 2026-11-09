@@ -195,6 +195,7 @@ describe("Ollama install and lite models on Windows", () => {
           return { ok: true };
         },
         waitMs: 1,
+        skipAnswerCheck: true,
         totalGb: 32,
         ollamaExe: "C:/nowhere/ollama.exe",
       },
@@ -654,6 +655,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
             },
             startOllama: () => {},
             waitMs: 1,
+            skipAnswerCheck: true,
             ...overrides,
           },
         });
@@ -1207,5 +1209,59 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
     for (const model of prefetch.OLLAMA_MODELS) {
       expect(modelByTag(model.tag), model.tag).toBeTruthy();
     }
+  });
+});
+
+describe("the light model must also answer, not only be pulled", () => {
+  const run = async (answers: unknown) => {
+    const lines: string[] = [];
+    const rows = await prefetch.ensureOllama("/friday", null, {
+      log: (line: string) => lines.push(line),
+      deps: {
+        fetch: async () => ({
+          ok: true,
+          json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+        }),
+        ramGb: 4,
+        answers,
+      },
+    });
+    return { rows, lines: lines.join("\n") };
+  };
+
+  it("says it answered, and adds no row", async () => {
+    const asked: string[] = [];
+    const r = await run(async (tag: string) => {
+      asked.push(tag);
+      return { ok: true };
+    });
+    expect(asked).toEqual(["qwen2.5:1.5b"]);
+    expect(r.lines).toContain("loaded and answered a test prompt");
+    expect(r.rows.some((row: { id: string }) => row.id === "ollama-answers")).toBe(false);
+  });
+
+  it("reports a model that does not answer as a note that never fails setup", async () => {
+    const r = await run(async () => ({ ok: false, error: "timed out" }));
+    expect(r.lines).toContain("did not answer a test prompt (timed out)");
+    const row = r.rows.find((x: { id: string }) => x.id === "ollama-answers");
+    expect(row).toMatchObject({ ok: false, optional: true });
+    expect(prefetch.failureReport(r.rows)).toEqual([]);
+  });
+
+  it("reads a real answer from the daemon and rejects a body without one", async () => {
+    const good = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => ({
+      ok: true,
+      json: async () => ({ response: "ready" }),
+    }));
+    expect(good.ok).toBe(true);
+    const none = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => ({
+      ok: true,
+      json: async () => ({ models: [] }),
+    }));
+    expect(none.ok).toBe(false);
+    const down = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => {
+      throw new Error("connection refused");
+    });
+    expect(down).toMatchObject({ ok: false, error: "connection refused" });
   });
 });

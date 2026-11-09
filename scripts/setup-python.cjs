@@ -466,6 +466,68 @@ function fetchModelsAndProbe() {
       log("speech model is not cached");
       incomplete.push("the faster-whisper speech model is not cached");
     }
+    voiceSmokeTest(picked.root);
+  }
+}
+
+/**
+ * The voice files are checked by size and digest when they download, but a file that is on disk can still
+ * fail to load (a broken onnxruntime wheel, a half-written model, a changed package API). So the voice
+ * runtime is run for real: it scores a window with the silero file through onnxruntime, checks the
+ * noise suppressor and the end-of-turn file, and Supertonic speaks one short line to a temporary WAV.
+ */
+function voiceSmokeTest(fridayRoot) {
+  const script = path.join(kernelDir, "voice_runtime.py");
+  const env = { ...process.env, FRIDAY_ROOT: fridayRoot, PYTHONIOENCODING: "utf-8" };
+  const checked = capture(python, [script, "--check"], { env, timeout: 300000 });
+  const lines = String(checked.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (checked.status !== 0 || !lines.length) {
+    log("voice runtime check did not run");
+    incomplete.push("the voice runtime check did not run");
+  }
+  for (const line of lines) {
+    log(`voice runtime: ${line}`);
+    // A disk reading can be unmeasurable on a locked-down PC; every other FAIL is a real voice fault.
+    // Setup has just downloaded the voice, silero and Smart Turn files, so "optional - not installed" for
+    // those three means the download did not land, which is a gap here (the speaker model stays optional).
+    const missing = /^OPTIONAL\s+(local-tts|vad-silero|smart-turn)\b/.test(line);
+    if ((/^FAIL\s/.test(line) && !/^FAIL\s+disk/.test(line)) || missing) {
+      incomplete.push(`voice runtime: ${line.replace(/^(FAIL|OPTIONAL)\s+/, "")}`);
+    }
+  }
+  const dir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "friday-voice-"));
+  try {
+    const wav = path.join(dir, "check.wav");
+    const spoken = capture(
+      python,
+      [script, "--speak", "--text", "FRIDAY voice check.", "--out", wav],
+      { env, timeout: 600000 },
+    );
+    let said = null;
+    try {
+      said = JSON.parse(
+        String(spoken.stdout || "")
+          .trim()
+          .split(/\r?\n/)
+          .pop() || "null",
+      );
+    } catch {
+      said = null;
+    }
+    if (said && said.ok && fs.existsSync(wav) && fs.statSync(wav).size > 1000) {
+      log(`offline voice (Supertonic) spoke a test line (${fs.statSync(wav).size} bytes)`);
+    } else {
+      const why = (said && said.reason) || "no audio came out";
+      log(`offline voice (Supertonic) did not speak: ${why}`);
+      incomplete.push(
+        `the offline voice (Supertonic) did not speak (${String(why).slice(0, 120)})`,
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

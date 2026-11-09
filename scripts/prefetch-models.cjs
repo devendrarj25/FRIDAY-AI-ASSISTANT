@@ -397,6 +397,33 @@ async function ollamaUp(fetchImpl) {
 }
 
 /**
+ * One short real answer from the light model, so "pulled" also means "loads and answers". A slow first load
+ * on a CPU-only PC gets a generous time; a timeout or a refusal is reported, never thrown.
+ */
+async function ollamaAnswers(tag, fetchImpl, timeoutMs = 240000) {
+  try {
+    const res = await fetchImpl(`${OLLAMA_API}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: tag,
+        prompt: "Reply with the single word: ready",
+        stream: false,
+        options: { num_predict: 8, temperature: 0 },
+        keep_alive: "30s",
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const body = await res.json();
+    if (typeof body?.response !== "string") return { ok: false, error: "no answer field" };
+    return { ok: body.response.trim().length > 0, error: "empty answer" };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+/**
  * A pull that makes no progress for this long is given up, so a registry that cannot be reached
  * (a blocked or broken route to Ollama's storage host) hands over to the GGUF copy in about a
  * minute instead of retrying for many minutes.
@@ -592,6 +619,18 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
         error: result.error,
         ...(model.optional ? { optional: true } : {}),
       });
+    }
+  }
+  // The light model is the voice model: prove it loads and answers, as a note (a slow first load is not a failure).
+  const light = rows.find((row) => row.id === models[0]?.tag && row.ok && !row.skipped);
+  if (light && !deps.skipAnswerCheck) {
+    const answer = await (deps.answers || ollamaAnswers)(light.id, fetchImpl);
+    if (answer.ok) log(`[friday] ok       ${light.id} loaded and answered a test prompt`);
+    else {
+      log(
+        `[friday] INFO     ${light.id} is pulled but did not answer a test prompt (${answer.error}); Doctor checks it again`,
+      );
+      rows.push({ id: "ollama-answers", ok: false, error: answer.error, optional: true });
     }
   }
   return rows;
@@ -1183,6 +1222,7 @@ module.exports = {
   prefetchParallelism,
   ensureOllama,
   ollamaPull,
+  ollamaAnswers,
   firstGguf,
   findOllama,
   detectOllama,
