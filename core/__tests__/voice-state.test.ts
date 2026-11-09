@@ -202,6 +202,8 @@ describe("voice check uses the live speech model", () => {
     expect(verify).toContain('"--load-probe", "--model", size');
     expect(verify).toContain('bootModel({ requested: "auto" })');
     const mode = readFileSync(join(process.cwd(), "src/lib/friday/assistant-mode.ts"), "utf8");
-    expect(mode).toMatch(/verifyVoiceRuntime\(\{\s*loadModel: true,\s*\.\.\.\(sttSize/);
+    expect(mode).toMatch(
+      /verifyVoiceRuntime\(\{\s*loadModel: options\.loadModel !== false,\s*\.\.\.\(sttSize/,
+    );
   });
 });

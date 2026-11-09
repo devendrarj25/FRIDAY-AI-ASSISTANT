@@ -209,7 +209,9 @@ describe("Fix voice checks her own voice and mends what is broken", () => {
     const mode = read("src/lib/friday/assistant-mode.ts");
     expect(mode).toContain("void this.selfCheckVoice(true);");
     expect(mode).toContain("void this.selfCheckVoice(false);");
-    expect(mode).toContain("await this.verifyVoiceRuntime({ heal: false })");
+    expect(mode).toMatch(
+      /await this\.verifyVoiceRuntime\(\{\s*heal: false,\s*loadModel: !this\.state\.stt\.ready,?\s*\}\)/,
+    );
     expect(mode).toContain("clearTimeout(this.autoCheckTimer)");
   });
 });

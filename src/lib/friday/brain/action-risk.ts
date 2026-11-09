@@ -28,7 +28,6 @@ export const CONSEQUENTIAL =
 
 export const AFFIRM =
   /\b(yes|yeah|yep|confirm|confirmed|do it|go ahead|proceed|haan|haa|thik hai|ok|okay)\b/i;
-export const DENY = /\b(no|nope|cancel|stop|abort|don'?t|nahi|nahin|reject)\b/i;
 
 /**
  * The live mode. assistant-mode.ts owns the user-facing switch and mirrors it

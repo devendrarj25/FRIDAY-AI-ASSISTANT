@@ -188,6 +188,29 @@ export function wakeOnCooldown(
   return lastAcceptAt > 0 && now - lastAcceptAt < cooldownMs;
 }
 
+/**
+ * A spoken answer to "should I go ahead?": yes, no, or neither. A no always beats a yes, so "okay cancel that",
+ * "haan nahi" and "ok mat karo" stop the action instead of approving it. Hindi and Hinglish count: "ha kar do",
+ * "theek hai kar do", "kar do" are yes; "mat karo", "ruko", "rehne do", "nahi" are no. The particle "na"
+ * ("kar do na", please do it) is a no only when it is the whole answer.
+ */
+const NO_WORDS =
+  /\b(no|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|rehne do|rahne do|chhod do|chod do|wait|hold on|never ?mind|leave it|forget it)\b/i;
+const YES_WORDS =
+  /\b(yes|yeah|yep|yup|sure|confirm(?:ed)?|do it|go ahead|proceed|haan|haa|han|ha|ji|jee|bilkul|theek hai|thik hai|ok|okay|kar do|kar de|karo|chalao|chala do)\b/i;
+
+export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
+  const value = String(text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!value) return "unclear";
+  if (value === "na" || NO_WORDS.test(value)) return "no";
+  if (YES_WORDS.test(value)) return "yes";
+  return "unclear";
+}
+
 /** Spoken yes/no must be short. A long line that merely contains "yes" is not a confirmation. */
 export function isBoundConfirmation(text: string, affirms: (value: string) => boolean): boolean {
   const words = text.trim().split(/\s+/).filter(Boolean);

@@ -111,6 +111,7 @@ import {
   duplicateFinalUtterance,
   nextSpokenCursor,
   isBoundConfirmation,
+  confirmationVerdict,
   createNarrator,
   whileBusy,
   isHoldSound,
@@ -229,13 +230,7 @@ import {
   type VoiceState,
 } from "./voice-state";
 
-import {
-  AFFIRM,
-  DENY,
-  approvalReason,
-  commandNeedsApproval,
-  setActionMode,
-} from "./brain/action-risk";
+import { approvalReason, commandNeedsApproval, setActionMode } from "./brain/action-risk";
 
 export type AssistantMode = "manual" | "auto";
 
@@ -1728,7 +1723,11 @@ class AssistantModeStore {
       }
       const fault = this.state.error || "";
       if (/dependency-incompatible|metadata_errors/i.test(fault)) this.sttRepairConfirmed = true;
-      const verified = await this.verifyVoiceRuntime({ heal: false });
+      // A speech engine that is already loaded and ready is not loaded a second time just to look at it.
+      const verified = await this.verifyVoiceRuntime({
+        heal: false,
+        loadModel: !this.state.stt.ready,
+      });
       const result = diagnoseVoice({
         micReady: this.state.micReady,
         micError: fault || null,
@@ -2170,7 +2169,7 @@ class AssistantModeStore {
    * Real post-install verification: faster-whisper imports AND loads its model,
    * edge-tts imports AND lists a voice. Only then is voice genuinely ready.
    */
-  async verifyVoiceRuntime(options: { heal?: boolean } = {}): Promise<{
+  async verifyVoiceRuntime(options: { heal?: boolean; loadModel?: boolean } = {}): Promise<{
     ok: boolean;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
     lines: string[];
@@ -2191,7 +2190,7 @@ class AssistantModeStore {
     // Verify the same speech model size the live worker uses.
     const sttSize = preferences.getSnapshot().voice.sttSize;
     const result = await api.verifyVoiceRuntime({
-      loadModel: true,
+      loadModel: options.loadModel !== false,
       ...(sttSize && sttSize !== "auto" ? { model: sttSize } : {}),
     });
     const report = formatVoiceProbeReport(result?.checks ?? []);
@@ -2374,14 +2373,14 @@ class AssistantModeStore {
     const readBack = this.pendingHeard;
     this.pendingHeard = null;
     if (readBack && Date.now() - readBack.at <= HEARD_CONFIRM_MS) {
-      if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
+      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
         // A yes confirms what was HEARD. A consequential command still has to be approved as an action.
         this.routeCommand(readBack.command);
         return;
       }
-      if (isBoundConfirmation(text, (value) => DENY.test(value))) {
+      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "no")) {
         const again =
           languageId(readBack.command) === "en" ? "Okay, say it again." : "Theek hai, dobara bolo.";
         this.caption("user", text);
@@ -2400,14 +2399,14 @@ class AssistantModeStore {
       typeof waiting.at === "number" &&
       approvalFresh(waiting.at, Date.now())
     ) {
-      if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
+      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         brain.approve(true);
         this.caption("user", text);
         this.caption("friday", "Approved.");
         this.emit();
         return;
       }
-      if (isBoundConfirmation(text, (value) => DENY.test(value))) {
+      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "no")) {
         brain.approve(false);
         this.caption("user", text);
         this.caption("friday", "Cancelled.");
@@ -2428,7 +2427,7 @@ class AssistantModeStore {
         this.speak(expired);
         return;
       }
-      if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
+      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         const cmd = this.state.pending.command;
         this.state.pending = null;
         this.to("confirm-resolved");
@@ -2439,7 +2438,7 @@ class AssistantModeStore {
         this.dispatch(cmd);
         return;
       }
-      if (DENY.test(text)) {
+      if (confirmationVerdict(text) === "no") {
         this.state.pending = null;
         this.caption("user", text);
         const dropped = this.variedLine("cancelled", text);
@@ -2721,6 +2720,11 @@ class AssistantModeStore {
       this.state.status = conduct.spoken;
       this.emit();
       this.speak(conduct.spoken);
+      return;
+    }
+    // "haan" or "hmm" while she is speaking is the owner following along: she does not talk over herself.
+    if (isHoldSound(command) && this.state.speaking) {
+      this.remember("backchannel", command, "following along");
       return;
     }
     const cue = backchannel({

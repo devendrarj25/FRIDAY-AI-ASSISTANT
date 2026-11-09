@@ -95,10 +95,10 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
 
   // Only carriers ("hey", "okay") may precede the name for a leading match.
   const leading = tokens.slice(0, index).every((t) => CARRIERS.has(t));
-  const rest = tokens
-    .slice(index + 1)
-    .join(" ")
-    .trim();
+  // "Friday's open notepad" normalises to "friday s open notepad": the lone "s" is the possessive, not a word.
+  const after = tokens.slice(index + 1);
+  if (after[0] === "s") after.shift();
+  const rest = after.join(" ").trim();
   const token = tokens[index] ?? "";
   return {
     matched: true,
