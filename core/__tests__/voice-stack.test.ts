@@ -37,8 +37,11 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(has("ollama release pin")).toBe(true);
     // llama.cpp is added later from Install Manager, so setup must not plan it.
     expect(has("llamacpp-runtime")).toBe(false);
-    // The big speech sizes are not part of setup; FRIDAY fetches them from inside the app.
-    expect(rows.find((r) => r.name === "big speech sizes in the plan")?.detail).toContain("none");
+    // medium and large-v3 are part of setup; large-v3-turbo is fetched from inside FRIDAY.
+    const big = rows.find((r) => r.name === "big speech sizes in the plan")?.detail ?? "";
+    expect(big).toContain("stt-medium");
+    expect(big).toContain("stt-large-v3");
+    expect(big).not.toContain("turbo");
     expect(rows.some((r) => r.layer === "speech" && r.name.startsWith("kernel/stt.py"))).toBe(true);
   });
 

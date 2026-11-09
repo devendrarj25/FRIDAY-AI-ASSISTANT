@@ -25,6 +25,45 @@ const bar = (fraction) => {
   return `${"#".repeat(filled)}${"-".repeat(BAR - filled)}`;
 };
 
+/** ANSI colours for a terminal board. NO_COLOR turns them off; FORCE_COLOR turns them on. */
+function colourWanted(stream, env = process.env) {
+  if (String(env.NO_COLOR ?? "") !== "") return false;
+  if (String(env.FORCE_COLOR ?? "") !== "" && String(env.FORCE_COLOR) !== "0") return true;
+  if (String(env.TERM || "") === "dumb") return false;
+  return Boolean(stream && stream.isTTY);
+}
+const paintWith = (code) => (text) => (text === "" ? text : `\x1b[${code}m${text}\x1b[0m`);
+const dim = paintWith("2");
+const bold = paintWith("1");
+const red = paintWith("31");
+const green = paintWith("32");
+const yellow = paintWith("33");
+const blue = paintWith("34");
+const magenta = paintWith("35");
+const cyan = paintWith("36");
+
+/**
+ * Colour a line that has already been cut to the terminal width (so the width never counts the colour codes):
+ * the bar in the colour of its state, sizes in blue, speed in magenta, time left in yellow, FAILED in red.
+ */
+function paint(line, state = "running") {
+  const barColour = state === "failed" ? red : state === "done" ? green : cyan;
+  return line
+    .replace(/^\[friday\]/, dim("[friday]"))
+    .replace(/\[([#!]*)(-*)\]/, (_all, filled, rest) => `[${barColour(filled)}${dim(rest)}]`)
+    .replace(/FAILED/, red(bold("FAILED")))
+    .replace(/waiting/, yellow("waiting"))
+    .replace(
+      /(\d+(?:\.\d+)? (?:MB|GB))\/(\d+(?:\.\d+)? (?:MB|GB))/,
+      (_all, a, b) => `${blue(a)}/${blue(b)}`,
+    )
+    .replace(/(\d+(?:\.\d+)? MB\/s)/g, (v) => magenta(v))
+    .replace(/(\d+m?\d*s left)/, (v) => yellow(v))
+    .replace(/ (\d+)%/, (_all, n) => ` ${Number(n) === 100 ? green(`${n}%`) : bold(`${n}%`)}`)
+    .replace(/(\d+\/\d+ ready)/, (v) => bold(v))
+    .replace(/(ready|average in \d+s|in \d+m?\d*s)\s*$/, (v) => (state === "done" ? green(v) : v));
+}
+
 /** One row. `row` is { id, state, percent, bytesDone, bytesTotal, speed, eta, connections, note, seconds }. */
 function renderRow(row, idWidth = 16) {
   const id = String(row.id).padEnd(idWidth);
@@ -53,9 +92,18 @@ function renderOverall(total) {
 }
 
 class DownloadBoard {
-  constructor({ stream = process.stdout, tty, now = Date.now, intervalMs = 250, log } = {}) {
+  constructor({
+    stream = process.stdout,
+    tty,
+    now = Date.now,
+    intervalMs = 250,
+    log,
+    color,
+    env,
+  } = {}) {
     this.stream = stream;
     this.tty = tty ?? Boolean(stream && stream.isTTY);
+    this.color = color ?? (this.tty && colourWanted(stream, env || process.env));
     this.now = now;
     this.intervalMs = intervalMs;
     this.log = log || ((line) => stream.write(`${line}\n`));
@@ -204,9 +252,14 @@ class DownloadBoard {
         .slice(0, room - 2);
     }
     const fit = this.width() - 1;
-    return [...shown.map((row) => renderRow(row)), renderOverall(this.total())].map((line) =>
-      line.length > fit ? line.slice(0, fit) : line,
-    );
+    const cut = (line) => (line.length > fit ? line.slice(0, fit) : line);
+    const lines = shown.map((row) => {
+      const plain = cut(renderRow(row));
+      return this.color ? paint(plain, row.state) : plain;
+    });
+    const overall = cut(renderOverall(this.total()));
+    lines.push(this.color ? paint(overall, "running") : overall);
+    return lines;
   }
 
   /**
@@ -236,4 +289,4 @@ class DownloadBoard {
   }
 }
 
-module.exports = { DownloadBoard, renderRow, renderOverall, mb, clock };
+module.exports = { DownloadBoard, renderRow, renderOverall, mb, clock, paint, colourWanted };

@@ -15,7 +15,7 @@ const { execFile } = require("node:child_process");
 
 const SERVER_NAMES = process.platform === "win32" ? ["llama-server.exe"] : ["llama-server"];
 /** The chat model setup downloads for her; its file name carries this id. */
-const DEFAULT_CHAT_ID = "qwen2.5-1.5b-instruct";
+const DEFAULT_CHAT_ID = "qwen3-4b";
 
 const engineDir = (root) => path.join(root, "runtime", "engines", "llama.cpp");
 

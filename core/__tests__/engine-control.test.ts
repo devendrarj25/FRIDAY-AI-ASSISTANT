@@ -93,7 +93,7 @@ describe("llama.cpp / vLLM conditional start", () => {
   });
 
   it("uses the chat model setup downloaded when several GGUFs are present and none is selected", () => {
-    const mine = "/friday/models/qwen2.5-1.5b-instruct/qwen2.5-1.5b-instruct-q4_k_m.gguf";
+    const mine = "/friday/models/qwen3-4b/Qwen3-4B-Q4_K_M.gguf";
     const resolved = models.resolveEngineStart("llamacpp", [
       { path: "/m/other.gguf", format: "gguf" },
       { path: mine, format: "gguf" },

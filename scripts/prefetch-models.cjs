@@ -35,11 +35,10 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_CHAT_SMART=0 the smart Ollama chat model,
- * FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
- * install and pulls. The big speech sizes are NOT part of setup (they are large and slow on a normal line);
- * FRIDAY fetches them from inside the app when a size is chosen. FRIDAY_PREFETCH_STT_LARGE=1 adds medium,
- * FRIDAY_PREFETCH_STT_BIG=1 large-v3-turbo and FRIDAY_PREFETCH_STT_MAX=1 large-v3 to setup.
+ * FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_STT_LARGE=0 the medium and large-v3 sizes,
+ * FRIDAY_PREFETCH_STT_MAX=0 only large-v3, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech,
+ * FRIDAY_PREFETCH_OLLAMA=0 the Ollama install and the Qwen pull. The large-v3-turbo speech size is not part of
+ * setup (FRIDAY fetches it from inside the app when it is chosen); FRIDAY_PREFETCH_STT_BIG=1 adds it.
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -67,7 +66,7 @@ const APPROX_BYTES = {
   "stt-large-v3-turbo": 1620 * 1024 ** 2,
   "stt-large-v3": 3100 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
-  "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
+  "qwen3-4b": 2500 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
 };
 
@@ -99,13 +98,13 @@ const TTS_MODEL = {
   sources: [{ kind: "hf-repo", repo: "Supertone/supertonic-3", label: "Hugging Face (Supertone)" }],
 };
 
-/** A small, fast, Apache-2.0 local chat model from the publisher's own GGUF repo. */
+/** The same Qwen3 4B as the one Ollama pulls, from the publisher's own GGUF repo (Apache-2.0): the file copy used when Ollama's registry cannot be reached. */
 const CHAT_MODEL = {
-  id: "qwen2.5-1.5b-instruct",
+  id: "qwen3-4b",
   sources: [
     {
       kind: "hf-gguf",
-      repo: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      repo: "Qwen/Qwen3-4B-GGUF",
       match: ["q4_k_m", "q5_k_m", "q8_0"],
       label: "Hugging Face (Qwen official)",
     },
@@ -269,9 +268,9 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       },
     });
   }
-  // The larger speech sizes are opt-in (FRIDAY_PREFETCH_STT_LARGE, _MAX and _BIG = 1): they are big and slow on a
-  // normal line, so FRIDAY fetches them from inside the app when the owner picks one. Asked for, they go last.
-  if (optedIn(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+  // The larger speech sizes (medium, large-v3) go last, so everything needed to listen, speak and chat is in place
+  // first. large-v3-turbo is not part of setup: FRIDAY fetches it from inside the app (FRIDAY_PREFETCH_STT_BIG=1 adds it).
+  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
     const plan = voiceWeights.sttPlan(STT_LARGE.size, root);
     jobs.push({
       id: plan.id,
@@ -282,7 +281,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
-  if (optedIn(env, "FRIDAY_PREFETCH_STT_MAX")) {
+  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE") && enabled(env, "FRIDAY_PREFETCH_STT_MAX")) {
     const plan = voiceWeights.sttPlan(STT_MAX.size, root);
     jobs.push({
       id: plan.id,

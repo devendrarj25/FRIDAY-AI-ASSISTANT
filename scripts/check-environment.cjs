@@ -646,7 +646,7 @@ if (win) {
       "smart-turn": "Voice model: end-of-turn detector",
       "silero-vad": "Voice model: speech detector",
       "supertonic-3": "Voice model: offline voice (Supertonic 3)",
-      "qwen2.5-1.5b-instruct": "Chat model file: Qwen 2.5 1.5B",
+      "qwen3-4b": "Chat model file: Qwen3 4B",
       "llamacpp-runtime": "Local engine: llama.cpp (llama-server)",
     };
     // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
@@ -659,7 +659,7 @@ if (win) {
       if (!labels[job.id]) continue;
       if (job.minRamGb && ramGb < job.minRamGb) continue;
       // Ollama provides the small chat model on Windows; its file copy is only a fallback.
-      if (job.id === "qwen2.5-1.5b-instruct" && win && !llamaPlanned) continue;
+      if (job.id === "qwen3-4b" && win && !llamaPlanned) continue;
       const here = prefetchModels.alreadyThere(job);
       add({
         name: labels[job.id],
