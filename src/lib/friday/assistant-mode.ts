@@ -21,6 +21,7 @@
  * spoken (or clicked) confirmation first.
  */
 
+import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
 import { brain } from "./brain-engine";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
@@ -84,7 +85,9 @@ import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
-import { preferSpoken } from "./conversation-style";
+import { preferSpoken, socialRegister } from "./conversation-style";
+import { vary, type RepeatBucket } from "./brain/anti-repeat";
+import { diagnoseVoice, problemLine, type SelfCheckResult } from "./voice-selfcheck";
 import {
   activeVoiceSettings,
   lastSpeechRoute,
@@ -290,6 +293,8 @@ export type AssistantModeState = {
   interim: string;
   /** Short human status line for the Auto Mode screen. */
   status: string;
+  /** A speech model or the speech engine being checked, fetched or installed (null when nothing is). */
+  download: VoiceDownload | null;
   /** Rolling captions for both sides of the conversation. */
   captions: Caption[];
   /** Consequential action waiting for an explicit yes/no. */
@@ -402,10 +407,13 @@ type VoiceDesktop = {
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
   }>;
   meetingStatus?: () => Promise<{ meeting?: boolean; names?: string[] }>;
-  onSttProgress?: (
-    cb: (payload: { status?: string; progress?: number | null }) => void,
-  ) => () => void;
-  installStt?: () => Promise<{ ok: boolean; error?: string }>;
+  onSttProgress?: (cb: (payload: SttProgressPayload) => void) => () => void;
+  installStt?: (options?: { upgrade?: boolean }) => Promise<{
+    ok: boolean;
+    error?: string;
+    skippedInstall?: boolean;
+    updateAvailable?: boolean;
+  }>;
   installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
   restartKernel?: () => Promise<{ ok: boolean }>;
 };
@@ -496,6 +504,7 @@ class AssistantModeStore {
   private awakeTimer: number | null = null;
   /** Last accepted wake, so a second copy of the name inside the cooldown is ignored. */
   private lastWakeAt = 0;
+  private downloadTimer: ReturnType<typeof setTimeout> | null = null;
   private conduct: ConductState = { ...EMPTY_CONDUCT, orders: [], journal: [] };
   private hotplugTimer: number | null = null;
   private callHold = false;
@@ -546,6 +555,7 @@ class AssistantModeStore {
     // Wake word required by default: FRIDAY listens continuously but stays
     // passive until she is actually called. Hands-free is an explicit opt-in.
     handsFree: false,
+    download: null,
 
     voiceLog: [],
     voiceState: "OFF",
@@ -723,14 +733,25 @@ class AssistantModeStore {
       this.emit();
     });
     desktop()?.onSttProgress?.((payload) => {
-      if (this.state.mode !== "auto") return;
-      const text = String(payload?.status || "").slice(0, 80);
-      if (!text) return;
-      const pct =
-        typeof payload?.progress === "number"
-          ? ` ${Math.max(0, Math.min(100, Math.round(payload.progress)))}%`
-          : "";
-      this.state.status = `${text}${pct}`;
+      const next = describeDownload(payload);
+      if (!next) return;
+      if (this.downloadTimer) clearTimeout(this.downloadTimer);
+      this.downloadTimer = null;
+      this.state.download = next.stage === "check" && !next.updateAvailable ? null : next;
+      if (this.state.mode === "auto") {
+        this.state.status = next.percent == null ? next.label : `${next.label} ${next.percent}%`;
+      }
+      // A finished or failed row stays long enough to be read, then goes.
+      if (next.stage === "ready" || next.stage === "failed" || next.stage === "check") {
+        this.downloadTimer = setTimeout(
+          () => {
+            this.state.download = null;
+            this.downloadTimer = null;
+            this.emit();
+          },
+          next.stage === "failed" ? 20000 : 4000,
+        );
+      }
       this.emit();
     });
     // "Pause listening" from the tray really stops the microphone here.
@@ -1249,6 +1270,12 @@ class AssistantModeStore {
   private enterAuto() {
     this.armPushToTalk();
     this.ensureLiveWake();
+    // Her own look at her ears and voice a few seconds after Auto starts; silent unless something is wrong.
+    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+    this.autoCheckTimer = setTimeout(() => {
+      this.autoCheckTimer = null;
+      if (this.state.mode === "auto") void this.selfCheckVoice(false);
+    }, 6000);
     this.startBargeShadow();
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
@@ -1376,6 +1403,10 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+    this.autoCheckTimer = null;
+    if (this.downloadTimer) clearTimeout(this.downloadTimer);
+    this.downloadTimer = null;
     this.to("session-stop");
     brain.setAutoMode(false);
     this.unBrain?.();
@@ -1548,12 +1579,85 @@ class AssistantModeStore {
     this.startRecognition();
   }
 
+  /**
+   * The Fix voice button: she looks at her own microphone, speech engine, voice and wake engine, mends
+   * exactly what is broken, and says what she found in the owner's language.
+   */
   fixVoice() {
     speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
-    const fault = this.state.error || "";
-    if (/dependency-incompatible|metadata_errors/i.test(fault)) this.sttRepairConfirmed = true;
-    this.applyVoiceHeal(fault || "stt-model-missing", true);
-    this.noteVoiceTrigger("fix-voice");
+    void this.selfCheckVoice(true);
+  }
+
+  private selfChecking = false;
+  private autoCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Check the voice and heal what is wrong. `manual` is the owner pressing Fix voice (she always answers);
+   * otherwise it is her own check on entering Auto, which stays silent unless it finds a fault.
+   */
+  async selfCheckVoice(manual: boolean): Promise<SelfCheckResult | null> {
+    if (this.selfChecking) return null;
+    const api = desktop();
+    const register = socialRegister(this.lastOwnerLine);
+    if (!api?.verifyVoiceRuntime) {
+      if (manual) {
+        const line = "Voice repair runs in the installed FRIDAY app.";
+        this.state.status = line;
+        this.caption("friday", line);
+        this.emit();
+      }
+      return null;
+    }
+    this.selfChecking = true;
+    try {
+      if (manual) {
+        const line = vary("checking", { register });
+        this.state.status = line;
+        this.caption("friday", line);
+        this.emit();
+      }
+      const fault = this.state.error || "";
+      if (/dependency-incompatible|metadata_errors/i.test(fault)) this.sttRepairConfirmed = true;
+      const verified = await this.verifyVoiceRuntime({ heal: false });
+      const result = diagnoseVoice({
+        micReady: this.state.micReady,
+        micError: fault || null,
+        sttReady: this.state.stt.ready,
+        sttModel: this.state.stt.model,
+        sttError: this.state.stt.lastError,
+        ttsEngine: this.state.tts.engine,
+        ttsError: this.state.tts.lastError,
+        wakeReady: this.state.wakeEngine.ready,
+        wakeEngine: this.state.wakeEngine.engine,
+        probes: verified.checks,
+      });
+      this.trace("heal", `self-check: ${result.ok ? "all good" : result.faults.join(", ")}`);
+      if (result.ok) {
+        if (manual) {
+          const line = vary("allGood", { register });
+          this.state.status = line;
+          this.caption("friday", line);
+          this.speak(line);
+        }
+        this.noteVoiceTrigger(manual ? "fix-voice" : "model-ready");
+        this.emit();
+        return result;
+      }
+      let started = 0;
+      for (const named of result.faults) {
+        const plan = this.applyVoiceHeal(named, true);
+        if (plan.action !== "idle" && plan.action !== "needs-you") started += 1;
+      }
+      const line = problemLine(result, register, { fixing: started > 0 });
+      this.state.status = line;
+      this.caption("friday", line);
+      this.speak(line);
+      this.noteVoiceTrigger("fix-voice");
+      this.emit();
+      return result;
+    } finally {
+      this.selfChecking = false;
+    }
   }
 
   private markHealFixed() {
@@ -1953,7 +2057,7 @@ class AssistantModeStore {
    * Real post-install verification: faster-whisper imports AND loads its model,
    * edge-tts imports AND lists a voice. Only then is voice genuinely ready.
    */
-  async verifyVoiceRuntime(): Promise<{
+  async verifyVoiceRuntime(options: { heal?: boolean } = {}): Promise<{
     ok: boolean;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
     lines: string[];
@@ -1984,7 +2088,8 @@ class AssistantModeStore {
       // Only a part the voice cannot work without starts a repair. An optional part that is not installed
       // (local voice, silero, smart-turn, speaker) is not a fault, and used to start a speech-model download.
       const failed = report.checks.find((check) => !check.ok && !check.optional);
-      if (failed) this.applyVoiceHeal(failed.detail || "stt-model-missing", true);
+      if (failed && options.heal !== false)
+        this.applyVoiceHeal(failed.detail || "stt-model-missing", true);
     }
     this.state.stt = { ...this.state.stt, ready: Boolean(result?.ok) };
     if (result?.ok) this.noteVoiceTrigger("model-ready");
@@ -2028,6 +2133,16 @@ class AssistantModeStore {
     if (next !== from && detail) this.trace("segment", `${from} → ${next} (${event}) · ${detail}`);
     if (next === "LISTENING" && from !== "LISTENING") releaseTaskUpdates();
     return true;
+  }
+
+  /** The owner's last words, so a short line can answer in the language they are using. */
+  private lastOwnerLine = "";
+
+  /** A short reply that differs from the last few of its kind and follows the owner's language. */
+  private variedLine(bucket: RepeatBucket, heard: string): string {
+    // One word (just her name) says nothing about the language; the last full line does.
+    const said = heard.trim().split(/\s+/).length >= 2 ? heard : this.lastOwnerLine || heard;
+    return vary(bucket, { register: socialRegister(said) });
   }
 
   /** A background task update, said in Auto mode (Chat and Manual stay silent) and shown in the captions. */
@@ -2089,6 +2204,7 @@ class AssistantModeStore {
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
     const words = text.trim().split(/\s+/).filter(Boolean).length;
+    if (words >= 2) this.lastOwnerLine = text;
     this.trace("transcript", text.slice(0, 160));
     if (this.settleInterruption(text)) {
       this.state.interim = "";
@@ -2191,10 +2307,11 @@ class AssistantModeStore {
       if (!approvalFresh(this.state.pending.at, Date.now())) {
         this.state.pending = null;
         this.remember("approval-expired", text, "dropped");
-        this.caption("friday", "That confirmation expired. Ask again if you still want it.");
+        const expired = this.variedLine("expired", text);
+        this.caption("friday", expired);
         this.state.status = "Confirmation expired";
         this.emit();
-        this.speak("That confirmation expired. Ask again if you still want it.");
+        this.speak(expired);
         return;
       }
       if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
@@ -2211,10 +2328,11 @@ class AssistantModeStore {
       if (DENY.test(text)) {
         this.state.pending = null;
         this.caption("user", text);
-        this.caption("friday", "Cancelled. Nothing was executed.");
+        const dropped = this.variedLine("cancelled", text);
+        this.caption("friday", dropped);
         this.state.status = "Cancelled";
         this.emit();
-        this.speak("Cancelled. Nothing was executed.");
+        this.speak(dropped);
         return;
       }
       // Anything else while a confirmation is open is ignored on purpose.
@@ -2409,10 +2527,11 @@ class AssistantModeStore {
     }
 
     if (!command) {
-      this.caption("friday", "Yes?");
+      const ready = this.variedLine("wake", text);
+      this.caption("friday", ready);
       this.state.status = "Awake — go ahead";
       this.emit();
-      this.speak("Yes?");
+      this.speak(ready);
       return;
     }
     const lastCaption = this.state.captions[this.state.captions.length - 1];
@@ -2799,10 +2918,11 @@ class AssistantModeStore {
       this.emit();
       this.dispatch(pending.command);
     } else {
-      this.caption("friday", "Cancelled. Nothing was executed.");
+      const dropped = this.variedLine("cancelled", this.lastOwnerLine);
+      this.caption("friday", dropped);
       this.state.status = "Cancelled";
       this.emit();
-      this.speak("Cancelled. Nothing was executed.");
+      this.speak(dropped);
     }
   }
 

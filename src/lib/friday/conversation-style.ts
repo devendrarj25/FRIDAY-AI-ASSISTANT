@@ -360,7 +360,13 @@ export function socialLine(input: {
 }): { text: string; register: Register } {
   const register = socialRegister(input.prompt);
   const now = input.now ?? Date.UTC(2026, 0, 15, 15, 0, 0);
-  const salt = input.salt ?? hourOf(now) + recent.length;
+  // Without a given salt the choice follows the real moment: a fixed default clock made the first line of
+  // every launch (and every quiet hour) the same one, which is what made her sound like a recording.
+  const salt =
+    input.salt ??
+    (input.now === undefined
+      ? Math.floor(Math.random() * 1_000_003)
+      : hourOf(now) + Math.floor(now / 60000) + recent.length);
   if (input.kind === "greeting" && input.context) {
     const made = contextualGreeting(input.context, register, salt);
     if (made) {

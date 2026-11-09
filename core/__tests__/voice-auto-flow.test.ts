@@ -40,6 +40,7 @@ type Driver = {
   liveWakeAt: number;
   followUpUntil: number;
   awakeUntil: number;
+  lastWakeAt: number;
 };
 const drive = assistantMode as unknown as Driver;
 // The controller sets timers through `window`; here that is the test process itself.
@@ -232,14 +233,14 @@ describe("a consequential command waits for a yes", () => {
     drive.handleHeard("no don't");
     expect(sent).toEqual([]);
     expect(drive.state.pending).toBeNull();
-    expect(spoken.join(" ")).toMatch(/Nothing was executed/);
+    expect(spoken.join(" ")).toMatch(/nothing (was executed|ran|was done)|kuch .*nahi|कुछ नहीं/i);
   });
 
   it("lets a yes expire, so a late yes approves nothing", () => {
     ask("delete the old reports", 10 * 60_000);
     drive.handleHeard("yes");
     expect(sent).toEqual([]);
-    expect(spoken.join(" ")).toMatch(/expired/);
+    expect(spoken.join(" ")).toMatch(/expire|timed out|timeout|समाप्त|समय निकल/i);
   });
 
   it("is not swallowed into a note while it waits", () => {
@@ -262,13 +263,40 @@ describe("what she does with a line once it is addressed", () => {
   it("answers just her name with a short prompt and runs nothing", () => {
     drive.handleHeard("Friday");
     expect(sent).toEqual([]);
-    expect(spoken).toEqual(["Yes?"]);
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0]).toMatch(
+      /^(Yes\?|I'm here\.|Go ahead\.|Listening\.|Yes, tell me\.|Right here\.|What's up\?)$/,
+    );
+  });
+
+  it("does not answer her name with the same words every time", () => {
+    const answers = new Set<string>();
+    let last = "";
+    for (let i = 0; i < 12; i += 1) {
+      spoken = [];
+      drive.lastWakeAt = 0;
+      drive.handleHeard("Friday");
+      const line = spoken[0] ?? "";
+      expect(line).not.toBe(last);
+      last = line;
+      answers.add(line);
+    }
+    expect(answers.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it("answers in the language the owner used", () => {
+    spoken = [];
+    drive.handleHeard("Friday kya haal hai tum sun rahi ho");
+    spoken = [];
+    drive.lastWakeAt = 0;
+    drive.handleHeard("Friday");
+    expect(spoken[0]).not.toMatch(/^(Yes\?|Go ahead\.|Listening\.|Yes, tell me\.|What's up\?)$/);
   });
 
   it("does not repeat the prompt when the name is said twice in a row", () => {
     drive.handleHeard("Friday");
     drive.handleHeard("Friday");
-    expect(spoken).toEqual(["Yes?"]);
+    expect(spoken).toHaveLength(1);
   });
 
   it("does not take her own words coming back through the microphone as a request", () => {

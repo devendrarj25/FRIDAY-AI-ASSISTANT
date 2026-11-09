@@ -5,6 +5,7 @@
  * a no-op so the UI still renders.
  */
 import type { SystemPressure } from "./system-pressure";
+import type { SttProgressPayload } from "./voice-download";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { ModelSource as ModelDownloadSource } from "./model-sources";
@@ -591,10 +592,13 @@ type DesktopApi = {
     inference?: string;
     loadCount?: number;
   }>;
-  onSttProgress?: (
-    cb: (payload: { status?: string; progress?: number | null }) => void,
-  ) => () => void;
-  installStt?: () => Promise<{ ok: boolean; error?: string }>;
+  onSttProgress?: (cb: (payload: SttProgressPayload) => void) => () => void;
+  installStt?: (options?: { upgrade?: boolean }) => Promise<{
+    ok: boolean;
+    error?: string;
+    skippedInstall?: boolean;
+    updateAvailable?: boolean;
+  }>;
   restartKernel?: () => Promise<{ ok: boolean }>;
   transcribe?: (payload: {
     audioBase64?: string;

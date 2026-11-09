@@ -4759,25 +4759,35 @@ function warmFastChatModel() {
   }
 }
 
-ipcMain.handle("voice:stt-status", (e, request) => {
+// Every speech download (first install, a size fetched while another listens, the engine package) reports
+// through one sink, so the Auto window draws one bar from one event shape.
+stt.setProgressSink((payload) => {
+  send("voice:stt-progress", {
+    stage: String(payload?.stage || "download").slice(0, 16),
+    model: String(payload?.model || "").slice(0, 32),
+    status: String(payload?.status || "").slice(0, 120),
+    progress: typeof payload?.progress === "number" ? payload.progress : null,
+    gbDone: typeof payload?.gbDone === "number" ? payload.gbDone : null,
+    gbTotal: typeof payload?.gbTotal === "number" ? payload.gbTotal : null,
+    speedMbps: typeof payload?.speedMbps === "number" ? payload.speedMbps : null,
+    etaSeconds: typeof payload?.etaSeconds === "number" ? payload.etaSeconds : null,
+    host: String(payload?.host || "").slice(0, 80),
+    error: String(payload?.error || "").slice(0, 200),
+    updateAvailable: Boolean(payload?.updateAvailable),
+    latest: String(payload?.latest || "").slice(0, 24),
+  });
+});
+ipcMain.handle("voice:stt-status", (_e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
   if (options.warm) warmFastChatModel();
   return stt.status(Boolean(options.force), {
     localOnly: Boolean(options.localOnly),
     warm: Boolean(options.warm),
-    onProgress: (payload) => {
-      try {
-        e.sender.send("voice:stt-progress", {
-          status: String(payload?.status || "").slice(0, 80),
-          progress: typeof payload?.progress === "number" ? payload.progress : null,
-        });
-      } catch {
-        /* the window is already gone */
-      }
-    },
   });
 });
-ipcMain.handle("voice:stt-install", () => stt.install());
+ipcMain.handle("voice:stt-install", (_e, request) =>
+  stt.install({ upgrade: Boolean(request?.upgrade) }),
+);
 ipcMain.handle("voice:transcribe", (e, payload) =>
   stt.transcribe(payload || {}, (partial) => {
     ipcTimeout.noteActivity();

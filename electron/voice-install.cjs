@@ -274,6 +274,7 @@ module.exports = {
   installOutcome,
   blockedPip,
   bootModel,
+  versionAtLeast,
   loadBudgetMs,
   classifyDownloadError,
   downloadSelfCheck,

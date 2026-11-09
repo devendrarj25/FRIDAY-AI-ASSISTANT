@@ -242,7 +242,7 @@ async function hearingSelfTest(env) {
  * @returns {Promise<{ok:boolean, python:string|null, checks:Array<{id:string,label:string,ok:boolean,detail:string}>}>}
  */
 async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
-  const size = STT_SIZES.includes(model) ? model : liveAutoSize();
+  let size = STT_SIZES.includes(model) ? model : liveAutoSize();
   let prepared = null;
   const checks = [];
   const found = await resolvePython();
@@ -285,6 +285,10 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
 
   if (whisperImport.ok && loadModel) {
     const weights = require("./voice-weights.cjs");
+    // Checking the voice must not start a download: when the size asked for is not on disk but another
+    // speech size is (the build fetched it), the check runs on that one. Only a PC with none fetches.
+    const onDisk = weights.installedSizes(paths.root() || "", (file) => fs.existsSync(file));
+    size = weights.nearestInstalled(size, onDisk) || size;
     prepared = await weights.ensureSttWeights(size, paths.root() || "", {
       exists: (file) => fs.existsSync(file),
       downloadModel: require("./model-download.cjs").downloadModel,

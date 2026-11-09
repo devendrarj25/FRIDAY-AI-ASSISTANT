@@ -62,6 +62,31 @@ function weightsReady(dir, exists) {
   );
 }
 
+/** Smallest to largest, the order a size is traded for another. */
+const SIZE_ORDER = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
+
+/** Speech sizes whose weights are really on disk, smallest first. */
+function installedSizes(root, exists) {
+  const check = exists || (() => false);
+  if (!root) return [];
+  return SIZE_ORDER.filter((size) => weightsReady(path.join(root, "cache", "stt", size), check));
+}
+
+/**
+ * The size to listen with right now when `wanted` is not on disk: the nearest installed size at or
+ * below it first (it is never slower than what was asked for), then the nearest larger one.
+ * Returns "" when nothing is installed, and `wanted` itself when it is.
+ */
+function nearestInstalled(wanted, installed) {
+  const have = SIZE_ORDER.filter((size) => (installed || []).includes(size));
+  if (!have.length) return "";
+  if (have.includes(wanted)) return wanted;
+  const at = SIZE_ORDER.indexOf(wanted);
+  const below = have.filter((size) => SIZE_ORDER.indexOf(size) < at);
+  if (below.length) return below[below.length - 1];
+  return have[0];
+}
+
 function pinnedJobs() {
   return PINNED.map((row) => ({ ...row, dir: [...row.dir] }));
 }
@@ -193,6 +218,9 @@ module.exports = {
   voiceModelsOnDisk,
   downloadTarget,
   weightsReady,
+  installedSizes,
+  nearestInstalled,
+  SIZE_ORDER,
   pinnedJobs,
   otherVoiceJobs,
   ensureSttWeights,
