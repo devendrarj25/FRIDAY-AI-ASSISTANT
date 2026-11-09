@@ -156,7 +156,7 @@ describe("build pipeline", () => {
   it("derives the installer floor from the toolchain budget and stays under 2 GiB", () => {
     const bounds = pipeline.installerBounds(manifest());
     const plan = stage.stagePlan(manifest());
-    expect(plan.sum).toBe(205088081);
+    expect(plan.sum).toBe(205118234);
     expect(bounds.floor).toBe(Math.floor(plan.sum * 0.7));
     expect(bounds.ceiling).toBeLessThan(pipeline.GITHUB_ASSET_LIMIT);
     expect(bounds.floor).toBeGreaterThan(100_000_000);
@@ -524,7 +524,7 @@ describe("build pipeline", () => {
         if (dest.endsWith("python")) fs.writeFileSync(path.join(dest, "python.exe"), "");
         else if (dest.endsWith("whisper")) fs.writeFileSync(path.join(dest, "whisper-cli.exe"), "");
         else if (dest.endsWith("node")) {
-          const nested = path.join(dest, "node-v22.23.3-win-x64");
+          const nested = path.join(dest, "node-v22.23.4-win-x64");
           fs.mkdirSync(nested, { recursive: true });
           fs.writeFileSync(path.join(nested, "node.exe"), "");
         }

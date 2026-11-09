@@ -84,7 +84,7 @@ That runs `scripts\setup-windows.ps1` via `powershell.exe` (Windows PowerShell 5
 
 **Doctor** (`npm run doctor`) marks every package of `kernel/requirements-capabilities.txt` as required on a Windows PC that builds FRIDAY (chromadb stays optional: SQLite memory is the fallback) and gives every SKIPPED row its reason.
 
-The whole chain is: `npm run setup` (install everything) → `npm run doctor` (check and repair; the backup when setup stopped halfway) → `npm run build:win` (check the PC again, install what is still missing, build, verify, run the requirement tests, print **FRIDAY BUILD READY** with the files to use).
+The whole chain is: `npm run setup` (install everything) → `npm run doctor` (check and repair; the backup when setup stopped halfway; it also runs the voice files for real and checks the voice stack) → `npm run build:win` (check the PC again, install what is still missing, build, verify, run the requirement tests, print **FRIDAY BUILD READY** with the files to use).
 
 Inside the script, in order:
 
