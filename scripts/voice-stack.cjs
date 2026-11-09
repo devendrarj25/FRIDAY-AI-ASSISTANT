@@ -170,9 +170,28 @@ function inventory({ root = "", platform = process.platform, env = process.env }
 
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------
   if (root) {
+    const ramGb = require("node:os").totalmem() / 1024 ** 3;
     for (const job of plan) {
       const here = prefetch.alreadyThere(job);
-      row("disk", job.id, here ? "PASS" : "FAIL", here ? "on disk" : "missing — run npm run setup");
+      // Setup skips a size this PC has too little memory for, and an optional download may not have landed:
+      // neither is a gap, so they are reported but never fail the check.
+      if (!here && job.minRamGb && ramGb < job.minRamGb) {
+        row(
+          "disk",
+          job.id,
+          "INFO",
+          `not fetched: needs ${job.minRamGb} GB, this PC has ${Math.floor(ramGb)}`,
+        );
+      } else if (!here && job.optional) {
+        row("disk", job.id, "INFO", "optional, not on disk");
+      } else {
+        row(
+          "disk",
+          job.id,
+          here ? "PASS" : "FAIL",
+          here ? "on disk" : "missing — run npm run setup",
+        );
+      }
     }
   }
 

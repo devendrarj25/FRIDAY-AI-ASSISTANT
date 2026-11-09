@@ -50,7 +50,11 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     });
     const disk = withRoot.filter((r) => r.layer === "disk");
     expect(disk.length).toBeGreaterThan(0);
-    expect(disk.every((r) => r.state === "FAIL")).toBe(true); // nothing is there, and it says so
+    // Nothing is there, and it says so: what setup always fetches fails, what it may skip is information.
+    expect(disk.every((r) => r.state === "FAIL" || r.state === "INFO")).toBe(true);
+    expect(disk.filter((r) => r.state === "FAIL").length).toBeGreaterThan(5);
+    expect(disk.find((r) => r.name === "stt-small")?.state).toBe("FAIL");
+    expect(disk.find((r) => r.name === "stt-large-v3")?.state).toBe("INFO");
   });
 
   it("reads package names from a requirements file and finds a banned one", () => {

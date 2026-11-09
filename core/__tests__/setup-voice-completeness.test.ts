@@ -2,7 +2,8 @@
  * What `npm run setup`, the installer and the build do so that listening and speaking work on the first open.
  * These read the scripts; the Windows jobs run them.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const read = (file: string) => readFileSync(file, "utf8");
@@ -68,27 +69,93 @@ describe("setup and the packaged build", () => {
   });
 });
 
-describe("setup runs the voice files for real, not only checks that they exist", () => {
+describe("setup and Doctor run the voice files for real, not only check that they exist", () => {
   const setup = read("scripts/setup-python.cjs");
-  const smoke = setup.slice(setup.indexOf("function voiceSmokeTest"));
+  const smoke = read("scripts/voice-smoke.cjs");
 
-  it("runs the voice runtime check after the models are fetched, on Windows only", () => {
+  it("setup runs the shared voice smoke test after the models are fetched, on Windows only", () => {
     const probe = setup.indexOf("voiceSmokeTest(picked.root)");
     expect(probe).toBeGreaterThan(setup.indexOf("whisper-load-probe.json"));
     expect(setup.indexOf("function fetchModelsAndProbe")).toBeLessThan(probe);
     expect(setup).toMatch(/if \(win && voiceImportable\(\)\) \{\s*fetchModelsAndProbe\(\)/);
-    expect(smoke).toContain('"--check"');
+    expect(setup).toContain('require("./voice-smoke.cjs").voiceSmoke');
+    expect(setup).toContain("incomplete.push(...result.problems)");
+  });
+
+  it("Doctor runs it too, and then the whole voice stack with the FRIDAY folder", () => {
+    const doctor = read("scripts/doctor.cjs");
+    expect(doctor).toContain('node("voice-smoke.cjs")');
+    expect(doctor).toContain('"--root"');
+    // After the models step, so the files it fetched are the ones that get run.
+    expect(doctor.indexOf('run: node("voice-smoke.cjs")')).toBeGreaterThan(
+      doctor.indexOf("run: models"),
+    );
   });
 
   it("counts a failed check and a download that did not land as a gap, but not the disk reading", () => {
     expect(smoke).toContain("local-tts|vad-silero|smart-turn");
-    expect(smoke).toContain("incomplete.push");
     expect(smoke).toContain("FAIL\\s+disk");
+    expect(smoke).toContain('"--check"');
   });
 
   it("has Supertonic speak one test line to a temporary file that is removed", () => {
     expect(smoke).toContain('"--speak"');
     expect(smoke).toContain("mkdtempSync");
     expect(smoke).toContain("rmSync(dir");
+  });
+});
+
+describe("the voice smoke test reads what the voice runtime says", () => {
+  const smoke = createRequire(import.meta.url)("../../scripts/voice-smoke.cjs");
+
+  it("keeps a real fault and a download that did not land, and ignores a disk reading and the speaker model", () => {
+    expect(
+      smoke.problemsIn([
+        "PASS boot",
+        "FAIL rnnoise pyrnnoise is not installed",
+        "FAIL disk unmeasured",
+        "OPTIONAL local-tts optional - not installed",
+        "OPTIONAL speaker optional - not installed",
+        "PASS smart-turn file present",
+      ]),
+    ).toEqual([
+      "voice runtime: rnnoise pyrnnoise is not installed",
+      "voice runtime: local-tts optional - not installed",
+    ]);
+  });
+
+  it("passes when the check is clean and Supertonic wrote audio, and fails when either is not", () => {
+    const run = (check: string, spoke: boolean) => (_exe: string, args: string[]) => {
+      if (args.includes("--check")) return { status: 0, stdout: check };
+      const out = String(args[args.indexOf("--out") + 1]);
+      if (spoke) writeFileSync(out, Buffer.alloc(5000));
+      return { status: 0, stdout: JSON.stringify({ ok: spoke, reason: spoke ? "" : "no voice" }) };
+    };
+    const clean = "PASS boot\nPASS vad-silero probability=0.1\nPASS smart-turn file present\n";
+    const log = () => {};
+    expect(
+      smoke.voiceSmoke({ python: "py", fridayRoot: "/r", run: run(clean, true), log }),
+    ).toEqual({
+      ok: true,
+      problems: [],
+    });
+    const mute = smoke.voiceSmoke({ python: "py", fridayRoot: "/r", run: run(clean, false), log });
+    expect(mute.ok).toBe(false);
+    expect(mute.problems[0]).toContain("did not speak (no voice)");
+    const broken = smoke.voiceSmoke({
+      python: "py",
+      fridayRoot: "/r",
+      run: run("FAIL vad-silero scorer failed\n", true),
+      log,
+    });
+    expect(broken.problems).toEqual(["voice runtime: vad-silero scorer failed"]);
+  });
+});
+
+describe("voice-stack does not fail a PC for a model setup rightly skipped", () => {
+  it("reports a size needing more memory, or an optional one, as information", () => {
+    const stack = read("scripts/voice-stack.cjs");
+    expect(stack).toContain("job.minRamGb && ramGb < job.minRamGb");
+    expect(stack).toContain("job.optional");
   });
 });
