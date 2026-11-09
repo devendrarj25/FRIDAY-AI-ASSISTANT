@@ -84,6 +84,24 @@ const checks = [
       "requirements-capabilities.txt",
     ),
   },
+  // The voice files the installed app copies or runs. Without them the wake word falls back to transcript
+  // matching and listening cannot start, with nothing in the build to say so.
+  {
+    label: "Wake model (friday.onnx)",
+    file: path.join(release, "win-unpacked", "resources", "wake", "friday.onnx"),
+  },
+  {
+    label: "Speech worker",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "stt.py"),
+  },
+  {
+    label: "Voice runtime",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "voice_runtime.py"),
+  },
+  {
+    label: "Wake scorer",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "wake_word.py"),
+  },
   {
     label: "Config",
     file: path.join(release, "win-unpacked", "resources", "config", "kernel.yaml"),

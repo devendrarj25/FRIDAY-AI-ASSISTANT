@@ -51,8 +51,34 @@ function Install-CapabilityExtras {
   }
 }
 
+# faster-whisper (speech), PyAV (decodes the audio for it) and edge-tts (the online voice) are in requirements.txt.
+# Test-Runtime looks at the kernel only, so a healthy runtime from an older install, or one whose voice install
+# was cut short, would be called ready without them. They are checked and installed here, once, for that case.
+function Test-VoiceCore {
+  if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
+  & $venvPython -c "import faster_whisper, av, edge_tts" 2>$null
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Install-VoiceCore {
+  if (Test-VoiceCore) { return }
+  if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { return }
+  $voiceMethods = @(
+    @('--disable-pip-version-check', '--only-binary=:all:', '-r', $requirements),
+    @('--disable-pip-version-check', '--prefer-binary', '-r', $requirements),
+    @('--disable-pip-version-check', '--prefer-binary', '--no-cache-dir', '-r', $requirements),
+    @('--disable-pip-version-check', '--prefer-binary', '--index-url', 'https://pypi.org/simple', '-r', $requirements)
+  )
+  foreach ($method in $voiceMethods) {
+    & $venvPython -m pip install @method
+    if ($LASTEXITCODE -eq 0) { break }
+  }
+}
+
 if (Test-Runtime) {
+  Install-VoiceCore
   Install-CapabilityExtras
+  if (-not (Test-VoiceCore)) { Finish 'voice-packages-failed' 10 }
   Finish 'ready' 0
 }
 if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { Finish 'requirements-missing' 2 }
@@ -126,4 +152,5 @@ if (-not $installed) { Finish 'requirements-failed' 8 }
 if (-not (Test-Runtime)) { Finish 'verification-failed' 9 }
 
 Install-CapabilityExtras
+if (-not (Test-VoiceCore)) { Finish 'voice-packages-failed' 10 }
 Finish 'ready' 0
