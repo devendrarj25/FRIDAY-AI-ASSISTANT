@@ -143,6 +143,7 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["smart-turn", "end-of-turn detector"],
     ["silero-vad", "speech detector"],
     ["stt-base", "fast listening"],
+    ["stt-tiny", "lite listening fallback"],
     ["stt-small", "Hindi and Hinglish listening"],
     ["supertonic-3", "offline voice"],
     ["qwen2.5-1.5b-instruct", "the small chat model file"],
