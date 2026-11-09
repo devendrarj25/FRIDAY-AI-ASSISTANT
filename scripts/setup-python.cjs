@@ -466,12 +466,25 @@ function fetchModelsAndProbe() {
       log("speech model is not cached");
       incomplete.push("the faster-whisper speech model is not cached");
     }
+    voiceSmokeTest(picked.root);
   }
+}
+
+/** The voice files are run for real, not only looked for (scripts/voice-smoke.cjs, which Doctor runs too). */
+function voiceSmokeTest(fridayRoot) {
+  const result = require("./voice-smoke.cjs").voiceSmoke({
+    python,
+    fridayRoot,
+    kernelDir,
+    run: capture,
+    log,
+  });
+  incomplete.push(...result.problems);
 }
 
 function voiceImportable() {
   return (
-    capture(python, ["-c", "import faster_whisper, edge_tts; print('voice packages ok')"])
+    capture(python, ["-c", "import faster_whisper, av, edge_tts; print('voice packages ok')"])
       .status === 0
   );
 }
@@ -485,14 +498,16 @@ if (!voiceImportable()) {
 }
 if (!voiceImportable()) {
   if (win) {
-    console.error("[friday] voice packages (faster-whisper, edge-tts) are still not importable.");
+    console.error(
+      "[friday] voice packages (faster-whisper, av, edge-tts) are still not importable.",
+    );
     process.exit(1);
   }
   log(
     "note: faster-whisper / edge-tts not importable — kernel still boots; Install Manager can add them.",
   );
 } else {
-  log("voice packages ok (faster-whisper, edge-tts)");
+  log("voice packages ok (faster-whisper, av, edge-tts)");
 }
 
 const capReq = path.join(kernelDir, "requirements-capabilities.txt");

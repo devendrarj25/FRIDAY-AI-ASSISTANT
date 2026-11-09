@@ -235,6 +235,7 @@ export const VOICE_MODEL_IDS = [
   "faster-whisper-base",
   "faster-whisper-small",
   "faster-whisper-medium",
+  "faster-whisper-large-v3-turbo",
   "faster-whisper",
   "silero-vad",
   "smart-turn",

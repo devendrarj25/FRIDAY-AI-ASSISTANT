@@ -310,6 +310,11 @@ describe("voice models on the Models page", () => {
     const { VOICE_MODEL_IDS } = await import("../../src/lib/friday/models-engine");
     const { modelById } = await import("../../src/lib/friday/model-catalog");
     for (const id of VOICE_MODEL_IDS) expect(modelById.get(id), id).toBeTruthy();
+    // Every size the disk scan can report is a row the page checks, so none is on disk yet "not installed".
+    const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+    for (const id of Object.values(weights.STT_CATALOG) as string[]) {
+      expect(VOICE_MODEL_IDS as readonly string[], id).toContain(id);
+    }
     const engine = read("src/lib/friday/models-engine.ts");
     expect(engine).toContain("speech: null,");
     expect(engine).toContain("this.speechFromPrefs()");

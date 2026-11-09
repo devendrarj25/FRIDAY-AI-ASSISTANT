@@ -35,7 +35,7 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_STT_MAX=0 the 3 GB large-v3 size, FRIDAY_PREFETCH_STT_LITE=0 the tiny size, FRIDAY_PREFETCH_CHAT_SMART=0 the bigger Ollama chat models, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -56,10 +56,12 @@ const APPROX_BYTES = {
   "silero-vad": 2.3 * 1024 ** 2,
   "smart-turn": 8.7 * 1024 ** 2,
   "llamacpp-runtime": 18.6 * 1024 ** 2,
+  "stt-tiny": 75 * 1024 ** 2,
   "stt-base": 141 * 1024 ** 2,
   "stt-small": 464 * 1024 ** 2,
   "stt-medium": 1457 * 1024 ** 2,
   "stt-large-v3-turbo": 1620 * 1024 ** 2,
+  "stt-large-v3": 3100 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
   "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
@@ -79,7 +81,13 @@ const STT_SIZES = ["base", "small"];
  */
 const STT_LARGE = { size: "medium", minRamGb: 8 };
 /** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. */
-const STT_BIG = { size: "large-v3-turbo", minRamGb: 16 };
+// 15, not 16: Windows reports a 16 GB PC as about 15.8 GB.
+const STT_BIG = { size: "large-v3-turbo", minRamGb: 15 };
+
+/** The lite fallback: the smallest size, so a weak or busy PC can still hear. About 75 MB, every PC. */
+const STT_LITE = { size: "tiny" };
+/** The most accurate size, for a PC with the memory and the disk. About 3 GB; optional, so a failed download never fails setup. */
+const STT_MAX = { size: "large-v3", minRamGb: 15 };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
@@ -120,11 +128,11 @@ function prefetchParallelism(env = process.env) {
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
 
 /** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
-/** llama.cpp's Windows release is installed by setup unless FRIDAY_PREFETCH_LLAMACPP=0 or it is a hosted run. */
+/** llama.cpp is not part of setup: it is added later from Install Manager. FRIDAY_PREFETCH_LLAMACPP=1 opts it in. */
 function llamaCppWanted(env, platform) {
   return (
     platform === "win32" &&
-    enabled(env, "FRIDAY_PREFETCH_LLAMACPP") &&
+    String(env.FRIDAY_PREFETCH_LLAMACPP ?? "0").trim() === "1" &&
     enabled(env, "FRIDAY_AUTO_INSTALL")
   );
 }
@@ -171,6 +179,15 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   }
   for (const size of STT_SIZES) {
     const plan = voiceWeights.sttPlan(size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  }
+  if (enabled(env, "FRIDAY_PREFETCH_STT_LITE")) {
+    const plan = voiceWeights.sttPlan(STT_LITE.size, root);
     jobs.push({
       id: plan.id,
       kind: "stt",
@@ -256,6 +273,17 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
+  if (enabled(env, "FRIDAY_PREFETCH_STT_MAX") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+    const plan = voiceWeights.sttPlan(STT_MAX.size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      minRamGb: STT_MAX.minRamGb,
+      optional: true,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  }
   if (enabled(env, "FRIDAY_PREFETCH_STT_BIG") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
     const plan = voiceWeights.sttPlan(STT_BIG.size, root);
     jobs.push({
@@ -365,6 +393,33 @@ async function ollamaUp(fetchImpl) {
     return new Set((body.models || []).map((row) => String(row.name || row.model || "")));
   } catch {
     return null;
+  }
+}
+
+/**
+ * One short real answer from the light model, so "pulled" also means "loads and answers". A slow first load
+ * on a CPU-only PC gets a generous time; a timeout or a refusal is reported, never thrown.
+ */
+async function ollamaAnswers(tag, fetchImpl, timeoutMs = 240000) {
+  try {
+    const res = await fetchImpl(`${OLLAMA_API}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: tag,
+        prompt: "Reply with the single word: ready",
+        stream: false,
+        options: { num_predict: 8, temperature: 0 },
+        keep_alive: "30s",
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const body = await res.json();
+    if (typeof body?.response !== "string") return { ok: false, error: "no answer field" };
+    return { ok: body.response.trim().length > 0, error: "empty answer" };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
   }
 }
 
@@ -501,7 +556,22 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
   }
   rows.push({ id: "ollama", ok: true });
   const models = deps.models || OLLAMA_MODELS;
+  const ramGb = deps.ramGb ?? deps.totalGb ?? os.totalmem() / 1024 ** 3;
+  const skip = new Set(
+    String(deps.skipOptional ?? process.env.FRIDAY_PREFETCH_CHAT_SMART ?? "").trim() === "0"
+      ? models.filter((m) => m.optional).map((m) => m.tag)
+      : [],
+  );
+  // The light model comes first; the bigger ones are pulled after it, only on a PC with the memory.
   for (const model of models) {
+    if (skip.has(model.tag)) continue;
+    if (model.minRamGb && ramGb < model.minRamGb) {
+      log(
+        `[friday] INFO     ${model.tag} skipped: needs ${model.minRamGb} GB RAM, this PC has ${Math.floor(ramGb)}`,
+      );
+      rows.push({ id: model.tag, ok: true, downloaded: false, skipped: true });
+      continue;
+    }
     if (have.has(model.tag)) {
       log(`[friday] ok       ${model.tag} already in Ollama; verified, not pulled again`);
       rows.push({ id: model.tag, ok: true, downloaded: false });
@@ -543,7 +613,24 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
       log(
         `[friday] INFO     ${model.tag} not pulled (${result.error}); FRIDAY pulls it on first use`,
       );
-      rows.push({ id: model.tag, ok: false, error: result.error });
+      rows.push({
+        id: model.tag,
+        ok: false,
+        error: result.error,
+        ...(model.optional ? { optional: true } : {}),
+      });
+    }
+  }
+  // The light model is the voice model: prove it loads and answers, as a note (a slow first load is not a failure).
+  const light = rows.find((row) => row.id === models[0]?.tag && row.ok && !row.skipped);
+  if (light && !deps.skipAnswerCheck) {
+    const answer = await (deps.answers || ollamaAnswers)(light.id, fetchImpl);
+    if (answer.ok) log(`[friday] ok       ${light.id} loaded and answered a test prompt`);
+    else {
+      log(
+        `[friday] INFO     ${light.id} is pulled but did not answer a test prompt (${answer.error}); Doctor checks it again`,
+      );
+      rows.push({ id: "ollama-answers", ok: false, error: answer.error, optional: true });
     }
   }
   return rows;
@@ -997,7 +1084,7 @@ async function prefetch(
     const why = (result && result.error) || "download failed";
     if (ui) ui.finish(row.id, { ok: false, note: String(why).slice(0, 80) });
     say(`[friday] FAIL     ${row.id} was not downloaded (${why})`);
-    return { id: row.id, ok: false, error: why };
+    return { id: row.id, ok: false, error: why, ...(row.optional ? { optional: true } : {}) };
   });
   if (ui) ui.stop();
   uiRef.current = null;
@@ -1032,7 +1119,11 @@ async function prefetch(
           deps: {
             signed: async (file) =>
               require("../electron/download-safety.cjs").authenticodeStatus(file),
-            localGguf: () => firstGguf(chatJob(root).ready),
+            ramGb,
+            skipOptional: env.FRIDAY_PREFETCH_CHAT_SMART,
+            // The downloaded GGUF is the light model only; a bigger tier must never be registered from it.
+            localGguf: (model) =>
+              model?.tag === OLLAMA_MODELS[0]?.tag ? firstGguf(chatJob(root).ready) : "",
             ...(existing.exe ? { ollamaExe: existing.exe } : {}),
             ...ollama,
           },
@@ -1108,7 +1199,8 @@ function strict(env = process.env) {
 
 /** One line per model that could not be fetched, and the way forward. Empty when all is well. */
 function failureReport(rows) {
-  const failed = (rows || []).filter((row) => !row.ok);
+  // An optional bigger model that could not be fetched is a note, not a failed setup.
+  const failed = (rows || []).filter((row) => !row.ok && !row.optional);
   if (!failed.length) return [];
   return [
     `[friday] ACTION REQUIRED  ${failed.length} model download(s) did not finish:`,
@@ -1131,6 +1223,7 @@ module.exports = {
   prefetchParallelism,
   ensureOllama,
   ollamaPull,
+  ollamaAnswers,
   firstGguf,
   findOllama,
   detectOllama,

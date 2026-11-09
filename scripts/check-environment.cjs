@@ -637,9 +637,12 @@ if (win) {
     const pickedRoot = require("./friday-root.cjs").workspaceRootOrDev().root;
     const ramGb = require("node:os").totalmem() / 1024 ** 3;
     const labels = {
+      "stt-tiny": "Speech model: tiny (lite fallback)",
       "stt-base": "Speech model: base (fast listening)",
       "stt-small": "Speech model: small (Hindi and Hinglish)",
       "stt-medium": "Speech model: medium (accurate)",
+      "stt-large-v3-turbo": "Speech model: large-v3-turbo (big, fast)",
+      "stt-large-v3": "Speech model: large-v3 (most accurate)",
       "smart-turn": "Voice model: end-of-turn detector",
       "silero-vad": "Voice model: speech detector",
       "supertonic-3": "Voice model: offline voice (Supertonic 3)",
@@ -660,7 +663,7 @@ if (win) {
       const here = prefetchModels.alreadyThere(job);
       add({
         name: labels[job.id],
-        required: toolsRequired,
+        required: toolsRequired && !job.optional,
         group: "local-models",
         ok: here,
         found: here ? "on disk" : "missing",
@@ -687,18 +690,21 @@ if (win) {
     });
     if (win && installedOllama) {
       const listed = capture(installedOllama.exe || "ollama", ["list"]) || "";
-      const tag = (require("./prefetch-models.cjs").OLLAMA_MODELS[0] || {}).tag || "qwen2.5:1.5b";
-      const has = listed.toLowerCase().includes(tag.toLowerCase());
-      add({
-        name: `Chat model in Ollama: ${tag}`,
-        required: toolsRequired,
-        group: "local-models",
-        ok: has,
-        found: has ? "pulled" : "not pulled",
-        want: "the light local chat model for quick replies and talking",
-        fix: "npm run doctor",
-        url: "https://ollama.com/library",
-      });
+      // The light model is required; the bigger tiers are checked only on a PC with the memory and never block.
+      for (const model of prefetchModels.OLLAMA_MODELS) {
+        if (model.minRamGb && ramGb < model.minRamGb) continue;
+        const has = listed.toLowerCase().includes(model.tag.toLowerCase());
+        add({
+          name: `Chat model in Ollama: ${model.tag}`,
+          required: toolsRequired && !model.optional,
+          group: "local-models",
+          ok: has,
+          found: has ? "pulled" : "not pulled",
+          want: model.role || "a local chat model",
+          fix: "npm run doctor",
+          url: "https://ollama.com/library",
+        });
+      }
     }
   } catch (error) {
     add({

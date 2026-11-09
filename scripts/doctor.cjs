@@ -16,9 +16,15 @@
  *                      toolkit are installed or repaired, then checked again
  *   3. models          scripts/prefetch-models.cjs: the speech, voice and chat weights, fetched again
  *                      (retrying a network drop) when any is missing
- *   4. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
- *   5. main process    scripts/verify-deps.cjs: every module the app requires ships
- *   6. registry        scripts/env-registry.cjs repair: the persistent component list
+ *   4. voice files     scripts/voice-smoke.cjs: silero, the noise suppressor and Smart Turn are run, and
+ *                      Supertonic speaks a test line (Windows)
+ *   5. voice stack     scripts/voice-stack.cjs --root <FRIDAY folder>: every runner, model, package, router,
+ *                      gate and connection of the voice mode, and the models on disk
+ *   6. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
+ *   7. main process    scripts/verify-deps.cjs: every module the app requires ships
+ *   8. registry        scripts/env-registry.cjs repair: the persistent component list
+ *   9. pinned runners  scripts/runners-status.cjs: Ollama and llama.cpp against the newest official
+ *                      release (information only: it never fails the run and never changes a pin)
  *
  * Exit 0 only when every step passed.
  */
@@ -76,13 +82,31 @@ function models() {
   });
 }
 
+/** voice-stack.cjs with the FRIDAY folder, so the models on disk are checked as well as the code. */
+function voiceStack() {
+  let root = "";
+  try {
+    root = require("./friday-root.cjs").workspaceRootOrDev().root || "";
+  } catch {
+    root = "";
+  }
+  return spawnSync(
+    process.execPath,
+    [path.join(ROOT, "scripts", "voice-stack.cjs"), ...(root ? ["--root", root] : [])],
+    { cwd: ROOT, stdio: "inherit" },
+  );
+}
+
 const STEPS = [
   { name: "dependencies", run: dependencies },
   { name: "environment check and repair", run: node("check-environment.cjs", ["--fix"]) },
   { name: "speech, voice and chat models", run: models },
+  { name: "voice files load and speak", run: node("voice-smoke.cjs") },
+  { name: "voice stack: runners, models, packages and connections", run: voiceStack },
   { name: "runtime folders and database", run: node("init-runtime.cjs") },
   { name: "main-process dependencies", run: node("verify-deps.cjs") },
   { name: "environment registry", run: node("env-registry.cjs", ["repair"]) },
+  { name: "pinned local runners against the newest release", run: node("runners-status.cjs") },
 ];
 
 /** Run every step in order (later steps still run after a failure, so one pass reports everything). */

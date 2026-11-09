@@ -141,7 +141,7 @@ describe("dependency policy", () => {
     }
   });
 
-  it("keeps TypeScript 5 and the calendar and chart libraries on their maintained majors", () => {
+  it("keeps TypeScript 6 (the newest line typescript-eslint supports) and the calendar and chart libraries on their maintained majors", () => {
     const raw = read("package.json");
     expect(raw.match(/"typescript":/g)).toHaveLength(1);
     expect(raw.match(/"prettier":/g)).toHaveLength(1);
@@ -162,8 +162,10 @@ describe("dependency policy", () => {
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
     };
-    expect(pkg.devDependencies["typescript"]?.startsWith("5.")).toBe(true);
-    expect(pkg.dependencies["react-day-picker"]).toMatch(/^\^9\./);
+    // TypeScript 7 is the native compiler: it drops the JavaScript compiler API that several tests read, and
+    // typescript-eslint supports TypeScript below 6.1 only. Move to 7 when both are ready.
+    expect(pkg.devDependencies["typescript"]?.startsWith("6.0.")).toBe(true);
+    expect(pkg.dependencies["react-day-picker"]).toMatch(/^\^10\./);
     expect(pkg.dependencies["recharts"]).toMatch(/^\^3\./);
   });
 

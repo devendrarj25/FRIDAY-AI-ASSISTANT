@@ -710,12 +710,12 @@ const TOOLS = [
   T("FRIDAY Node", "Languages & Runtimes", {
     url: "https://nodejs.org/",
     source: "nodejs.org",
-    installerUrl: "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
-    sha256: "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
-    needBytes: 35574076,
-    archiveBin: "node-v22.23.3-win-x64/node.exe",
+    installerUrl: "https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip",
+    sha256: "cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20",
+    needBytes: 35604229,
+    archiveBin: "node-v22.23.4-win-x64/node.exe",
     manual:
-      "Portable Node.js 22.23.3 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-10-08.",
+      "Portable Node.js 22.23.4 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-11-09.",
   }),
   T("whisper.cpp", "Voice", {
     url: "https://github.com/ggml-org/whisper.cpp",

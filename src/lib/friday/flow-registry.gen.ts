@@ -5835,6 +5835,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "qwen3-4b",
+      kind: "model",
+      name: "Qwen3 4B",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "qwen3-8b",
       kind: "model",
       name: "Qwen3 8B",
@@ -9357,8 +9363,8 @@ export const FLOW_REGISTRY = {
       total: 132,
     },
     capabilities: {
-      mapped: 1103,
-      total: 1103,
+      mapped: 1104,
+      total: 1104,
     },
     ipc: {
       mapped: 486,

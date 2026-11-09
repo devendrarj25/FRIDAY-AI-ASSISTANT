@@ -17,7 +17,7 @@ _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Loca
 | Contracts / tests | `core/` | Vitest suite and typed contracts — not inside the EXE |
 | Scripts | `scripts/` | Setup, pack, docs engine, release engine |
 
-Stack from `package.json` / kernel floors: Electron 45, React 19, TanStack Router 1.170, Vite 8, Tailwind 4, TypeScript 5.9, Vitest 5, Python ≥ 3.12.10, FastAPI 0.115+, uvicorn, httpx, pydantic 2, PyYAML. Voice floors `faster-whisper` and `edge-tts` are in `kernel/requirements.txt`. Optional extras (numpy, chromadb, pywin32, …) are in `kernel/requirements-capabilities.txt`.
+Stack from `package.json` / kernel floors: Electron 45, React 19, TanStack Router 1.170, Vite 8, Tailwind 4, TypeScript 6.0, Vitest 5, Python ≥ 3.12.10, FastAPI 0.115+, uvicorn, httpx, pydantic 2, PyYAML. Voice floors `faster-whisper` and `edge-tts` are in `kernel/requirements.txt`. Optional extras (numpy, chromadb, pywin32, …) are in `kernel/requirements-capabilities.txt`.
 
 ## 2. IPC
 

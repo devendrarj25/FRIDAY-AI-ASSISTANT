@@ -135,7 +135,6 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     GITHUB_ACTIONS: "",
     FRIDAY_PREFETCH: "1",
     FRIDAY_AUTO_INSTALL: "1",
-    FRIDAY_PREFETCH_LLAMACPP: "1",
   };
   const plan = prefetch.prefetchPlan(root || "/friday", winEnv, "win32", {});
   const planned = new Set(plan.map((job) => job.id));
@@ -143,10 +142,9 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["smart-turn", "end-of-turn detector"],
     ["silero-vad", "speech detector"],
     ["stt-base", "fast listening"],
+    ["stt-tiny", "lite listening fallback"],
     ["stt-small", "Hindi and Hinglish listening"],
     ["supertonic-3", "offline voice"],
-    ["qwen2.5-1.5b-instruct", "the small chat model file"],
-    ["llamacpp-runtime", "llama.cpp"],
     ["ollama-setup", "Ollama"],
   ])
     check(
@@ -172,9 +170,28 @@ function inventory({ root = "", platform = process.platform, env = process.env }
 
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------
   if (root) {
+    const ramGb = require("node:os").totalmem() / 1024 ** 3;
     for (const job of plan) {
       const here = prefetch.alreadyThere(job);
-      row("disk", job.id, here ? "PASS" : "FAIL", here ? "on disk" : "missing — run npm run setup");
+      // Setup skips a size this PC has too little memory for, and an optional download may not have landed:
+      // neither is a gap, so they are reported but never fail the check.
+      if (!here && job.minRamGb && ramGb < job.minRamGb) {
+        row(
+          "disk",
+          job.id,
+          "INFO",
+          `not fetched: needs ${job.minRamGb} GB, this PC has ${Math.floor(ramGb)}`,
+        );
+      } else if (!here && job.optional) {
+        row("disk", job.id, "INFO", "optional, not on disk");
+      } else {
+        row(
+          "disk",
+          job.id,
+          here ? "PASS" : "FAIL",
+          here ? "on disk" : "missing — run npm run setup",
+        );
+      }
     }
   }
 

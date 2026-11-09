@@ -14,10 +14,10 @@
 # from the project root matches CMD setup.
 #
 # These packages are the entire startup surface of the FastAPI kernel.
-fastapi>=0.162.0
+fastapi>=0.162.2
 uvicorn[standard]>=0.54.0
 httpx>=0.28.1
-pydantic>=2.14.1
+pydantic>=2.14.3
 PyYAML>=6.0.3
 
 # Voice runtime (same STT / TTS the app already uses). setup-python installs

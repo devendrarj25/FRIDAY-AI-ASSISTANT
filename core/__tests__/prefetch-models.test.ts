@@ -32,15 +32,18 @@ describe("build-time model prefetch", () => {
       "silero-vad",
       "stt-base",
       "stt-small",
+      "stt-tiny", // the lite fallback for a weak or busy PC
       "supertonic-3",
       "qwen2.5-1.5b-instruct",
       "stt-medium", // the optional larger size is the biggest piece, so it goes last
+      "stt-large-v3", // the most accurate size, only with 24 GB, optional
       "stt-large-v3-turbo", // the big size, only for a PC with the memory, after everything else
     ]);
     const small = jobs[3];
-    expect(jobs[6]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
-    expect(jobs[7]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 16 });
-    expect(jobs[7].job.sources[0]).toMatchObject({
+    expect(jobs[7]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
+    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 15, optional: true });
+    expect(jobs[9]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 15 });
+    expect(jobs[9].job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     });
@@ -52,12 +55,12 @@ describe("build-time model prefetch", () => {
     const vad = jobs[1];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
-    expect(jobs[4].job.sources[0]).toMatchObject({
+    expect(jobs[5].job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "Supertone/supertonic-3",
     });
-    expect(jobs[4].job.dir).toBe(path.join("/friday", "models"));
-    expect(jobs[5].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
+    expect(jobs[5].job.dir).toBe(path.join("/friday", "models"));
+    expect(jobs[6].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
   });
 
   it("honours the opt-outs and stays off on hosted CI unless asked", () => {
@@ -70,7 +73,7 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(8);
+    ).toBe(10);
     // the big size can be left out on its own, and by the switch that leaves out every larger size
     const ids = (env: Record<string, string>) =>
       prefetch
@@ -192,12 +195,13 @@ describe("Ollama install and lite models on Windows", () => {
           return { ok: true };
         },
         waitMs: 1,
+        skipAnswerCheck: true,
         totalGb: 32,
         ollamaExe: "C:/nowhere/ollama.exe",
       },
     });
     expect(installs).toEqual([row.ready]);
-    expect(pulled).toEqual(["qwen2.5:1.5b"]);
+    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
     expect(rows.every((r: { ok: boolean }) => r.ok)).toBe(true);
   });
 
@@ -225,6 +229,7 @@ describe("Ollama install and lite models on Windows", () => {
     const rows = await prefetch.ensureOllama("C:/friday", row, {
       log: () => {},
       deps: {
+        ramGb: 4,
         fetch: async () => ({
           ok: true,
           json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
@@ -332,7 +337,7 @@ describe("an Ollama that is already on this PC", () => {
         runInstaller: async () => {
           throw new Error("must not reinstall");
         },
-        totalGb: 32,
+        ramGb: 32,
         pull: async (tag: string) => {
           pulled.push(tag);
           return { ok: true };
@@ -340,7 +345,7 @@ describe("an Ollama that is already on this PC", () => {
       },
     });
     expect(fetched).not.toContain("ollama");
-    expect(pulled).toEqual(["qwen2.5:1.5b"]);
+    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
     expect(rows.find((r: { id: string }) => r.id === "ollama")).toMatchObject({ ok: true });
     const log = lines.join("\n");
     expect(log).toContain("ollama 0.40.4 already installed");
@@ -388,10 +393,16 @@ describe("one local chat model, and nothing downloaded twice", () => {
   const library = require_(path.join(root, "electron/local-library.cjs"));
   const win = "win32";
 
-  it("keeps exactly one light local chat model in the runner config", () => {
+  it("keeps one light model first and the bigger tiers optional, gated by memory", () => {
     const models = library.ollamaModels();
-    expect(models.map((m: { tag: string }) => m.tag)).toEqual(["qwen2.5:1.5b"]);
-    expect(prefetch.OLLAMA_MODELS.map((m: { tag: string }) => m.tag)).toEqual(["qwen2.5:1.5b"]);
+    const tags = models.map((m: { tag: string }) => m.tag);
+    expect(tags).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
+    expect(prefetch.OLLAMA_MODELS.map((m: { tag: string }) => m.tag)).toEqual(tags);
+    expect(models[0]).toMatchObject({ minRamGb: 0, optional: false });
+    for (const bigger of models.slice(1)) {
+      expect(bigger.optional).toBe(true);
+      expect(bigger.minRamGb).toBe(7);
+    }
   });
 
   it("routes by size: a small model is a fast-role model, a large one is a brain", () => {
@@ -414,7 +425,11 @@ describe("one local chat model, and nothing downloaded twice", () => {
         totalGb: 64,
         fetch: async () => ({
           ok: true,
-          json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+          json: async () => ({
+            models: ["qwen2.5:1.5b", "qwen3:4b"].map((name) => ({
+              name,
+            })),
+          }),
         }),
         pull: async (tag: string) => {
           pulled.push(tag);
@@ -496,7 +511,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
           return { ok: true };
         },
         latest: async () => null,
-        totalGb: 64,
+        totalGb: 4,
         ollama: {
           find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
           fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
@@ -626,7 +641,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
             return { ok: true };
           },
           latest: async () => newest,
-          totalGb: 64,
+          totalGb: 4,
           ollama: {
             find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
             fetch: async () => ({
@@ -640,6 +655,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
             },
             startOllama: () => {},
             waitMs: 1,
+            skipAnswerCheck: true,
             ...overrides,
           },
         });
@@ -662,7 +678,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
     it("keeps the installed Ollama when the installer will not run, and does not fail", async () => {
       const r = await run({ runInstaller: async () => ({ ok: false, error: "exit code 5" }) });
       expect(r.lines).toContain("ollama update did not finish (exit code 5)");
-      expect(r.rows.every((row: { ok: boolean }) => row.ok)).toBe(true);
+      expect(r.rows.filter((row: { ok: boolean }) => !row.ok)).toEqual([]);
     });
 
     it("refuses an installer whose signature is not valid", async () => {
@@ -690,7 +706,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
           log: (line: string) => lines.push(line),
           download: async () => ({ ok: true }),
           latest: async () => ({ ...newest, sha256: "" }),
-          totalGb: 64,
+          totalGb: 4,
           ollama: {
             find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
             fetch: async () => ({
@@ -739,7 +755,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
   it("a second run downloads nothing that is already on disk and verified", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
     try {
-      for (const size of ["base", "small"]) {
+      for (const size of ["tiny", "base", "small"]) {
         const stt = path.join(dir, "cache", "stt", size);
         mkdirSync(stt, { recursive: true });
         writeFileSync(path.join(stt, "config.json"), "{}");
@@ -765,8 +781,8 @@ describe("one local chat model, and nothing downloaded twice", () => {
       });
       // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
       expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
-      // base, small, the voice, the chat model, and the two larger sizes skipped for lack of memory.
-      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(6);
+      // tiny, base, small, the voice, the chat model, and the three larger sizes skipped for lack of memory.
+      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(8);
       expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -842,7 +858,6 @@ describe("the app and the build agree on the one local chat model", () => {
     expect(spec).toBeTruthy();
     expect(registryTag(spec!)).toBe(prefetch.OLLAMA_MODELS[0].tag);
     expect(modelByTag(prefetch.OLLAMA_MODELS[0].tag)?.id).toBe(BOOTSTRAP_MODEL_ID);
-    expect(prefetch.OLLAMA_MODELS).toHaveLength(1);
   });
 });
 
@@ -1113,5 +1128,187 @@ describe("the live download board", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("voice model tiers in setup: lite, large and the bigger chat models", () => {
+  const plan = (env: Record<string, string> = {}) =>
+    prefetch
+      .prefetchPlan("/friday", { FRIDAY_PREFETCH: "1", ...env }, "win32", {})
+      .map((job: { id: string }) => job.id);
+
+  it("plans the lite tiny size for every PC and the 3 GB large-v3 only with enough memory", () => {
+    const jobs = prefetch.prefetchPlan("/friday", { FRIDAY_PREFETCH: "1" }, "win32", {});
+    expect(jobs.map((j: { id: string }) => j.id)).toEqual(
+      expect.arrayContaining(["stt-tiny", "stt-large-v3-turbo", "stt-large-v3"]),
+    );
+    const tiny = jobs.find((j: { id: string }) => j.id === "stt-tiny");
+    expect(tiny.minRamGb).toBeUndefined();
+    const max = jobs.find((j: { id: string }) => j.id === "stt-large-v3");
+    expect(max).toMatchObject({ minRamGb: 15, optional: true });
+    expect(jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo").minRamGb).toBe(15);
+  });
+
+  it("lets the owner leave the lite and max sizes out", () => {
+    expect(plan({ FRIDAY_PREFETCH_STT_LITE: "0" })).not.toContain("stt-tiny");
+    expect(plan({ FRIDAY_PREFETCH_STT_MAX: "0" })).not.toContain("stt-large-v3");
+    expect(plan({ FRIDAY_PREFETCH_STT_LARGE: "0" })).not.toContain("stt-large-v3");
+  });
+
+  it("skips the smart model below 7 GB and never fails on it, since it is optional", async () => {
+    const run = async (ramGb: number, ok: boolean) => {
+      const pulled: string[] = [];
+      const rows = await prefetch.ensureOllama("/friday", null, {
+        log: () => {},
+        deps: {
+          fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+          ramGb,
+          pull: async (tag: string) => {
+            pulled.push(tag);
+            return tag === "qwen3:4b" && !ok ? { ok: false, error: "no route" } : { ok: true };
+          },
+        },
+      });
+      return { pulled, rows };
+    };
+    const small = await run(6, true);
+    expect(small.pulled).toEqual(["qwen2.5:1.5b"]);
+    expect(small.rows.find((r: { id: string }) => r.id === "qwen3:4b")).toMatchObject({
+      ok: true,
+      skipped: true,
+    });
+    const sixteen = await run(15.8, true);
+    expect(sixteen.pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
+    const failing = await run(16, false);
+    expect(failing.rows.find((r: { id: string }) => r.id === "qwen3:4b")).toMatchObject({
+      ok: false,
+      optional: true,
+    });
+    expect(prefetch.failureReport(failing.rows)).toEqual([]);
+    expect(prefetch.failureReport([{ id: "qwen2.5:1.5b", ok: false, error: "x" }])).not.toEqual([]);
+  });
+
+  it("leaves the smart chat model out when FRIDAY_PREFETCH_CHAT_SMART is 0", async () => {
+    const pulled: string[] = [];
+    await prefetch.ensureOllama("/friday", null, {
+      log: () => {},
+      deps: {
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        ramGb: 64,
+        skipOptional: "0",
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(pulled).toEqual(["qwen2.5:1.5b"]);
+  });
+
+  it("only pulls tags the model catalog knows, so the router and Models page can use them", () => {
+    for (const model of prefetch.OLLAMA_MODELS) {
+      expect(modelByTag(model.tag), model.tag).toBeTruthy();
+    }
+  });
+});
+
+describe("the light model must also answer, not only be pulled", () => {
+  const run = async (answers: unknown) => {
+    const lines: string[] = [];
+    const rows = await prefetch.ensureOllama("/friday", null, {
+      log: (line: string) => lines.push(line),
+      deps: {
+        fetch: async () => ({
+          ok: true,
+          json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+        }),
+        ramGb: 4,
+        answers,
+      },
+    });
+    return { rows, lines: lines.join("\n") };
+  };
+
+  it("says it answered, and adds no row", async () => {
+    const asked: string[] = [];
+    const r = await run(async (tag: string) => {
+      asked.push(tag);
+      return { ok: true };
+    });
+    expect(asked).toEqual(["qwen2.5:1.5b"]);
+    expect(r.lines).toContain("loaded and answered a test prompt");
+    expect(r.rows.some((row: { id: string }) => row.id === "ollama-answers")).toBe(false);
+  });
+
+  it("reports a model that does not answer as a note that never fails setup", async () => {
+    const r = await run(async () => ({ ok: false, error: "timed out" }));
+    expect(r.lines).toContain("did not answer a test prompt (timed out)");
+    const row = r.rows.find((x: { id: string }) => x.id === "ollama-answers");
+    expect(row).toMatchObject({ ok: false, optional: true });
+    expect(prefetch.failureReport(r.rows)).toEqual([]);
+  });
+
+  it("reads a real answer from the daemon and rejects a body without one", async () => {
+    const good = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => ({
+      ok: true,
+      json: async () => ({ response: "ready" }),
+    }));
+    expect(good.ok).toBe(true);
+    const none = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => ({
+      ok: true,
+      json: async () => ({ models: [] }),
+    }));
+    expect(none.ok).toBe(false);
+    const down = await prefetch.ollamaAnswers("qwen2.5:1.5b", async () => {
+      throw new Error("connection refused");
+    });
+    expect(down).toMatchObject({ ok: false, error: "connection refused" });
+  });
+});
+
+describe("a renamed speech repository still downloads", () => {
+  it("lists the renamed turbo repository as a second source and no other size gets one", () => {
+    const jobs = prefetch.prefetchPlan("/friday", { FRIDAY_PREFETCH: "1" }, "win32", {});
+    const turbo = jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo");
+    expect(turbo.job.sources.map((s: { repo: string }) => s.repo)).toEqual([
+      "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "dropbox-dash/faster-whisper-large-v3-turbo",
+    ]);
+    for (const id of ["stt-tiny", "stt-base", "stt-small", "stt-medium", "stt-large-v3"]) {
+      expect(jobs.find((j: { id: string }) => j.id === id).job.sources).toHaveLength(1);
+    }
+  });
+});
+
+describe("the opt-outs given to prefetch reach the Ollama step", () => {
+  it("leaves the smart model out when the env passed to prefetch says so", async () => {
+    const pulled: string[] = [];
+    await prefetch.prefetch("C:/friday", {
+      env: {
+        CI: "",
+        GITHUB_ACTIONS: "",
+        FRIDAY_SETUP_UPDATE: "0",
+        FRIDAY_AUTO_INSTALL: "1",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+        FRIDAY_PREFETCH_MOONSHINE: "0",
+        FRIDAY_PREFETCH_CHAT_SMART: "0",
+      },
+      platform: "win32",
+      log: () => {},
+      download: async () => ({ ok: true }),
+      latest: async () => null,
+      totalGb: 32,
+      ollama: {
+        find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.15" }),
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        skipAnswerCheck: true,
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(pulled).toEqual(["qwen2.5:1.5b"]);
   });
 });
