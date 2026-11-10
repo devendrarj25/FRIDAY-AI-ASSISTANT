@@ -4,7 +4,8 @@
  * network and no installs here: the toolchain is a stand-in.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -496,5 +497,58 @@ describe("toolkit in every command", () => {
     expect(check).toContain('"-ToolchainOnly"');
     expect(check).toContain('"prefetch-toolkit.cjs"');
     expect(check).toContain("npm run doctor");
+  });
+});
+
+describe("a newer managed copy is used first", () => {
+  const managedPath = require_(path.join(root, "electron/managed-path.cjs"));
+
+  it("puts the managed copy in front only when it is verifiably newer", () => {
+    const calls: string[] = [];
+    const managed = {
+      preferManaged: (_r: string, dir: string) => (calls.push(dir), true),
+      withFirstPath: managedPath.withFirstPath,
+    };
+    const env = { PATH: ["/opt/cmake/bin", "/usr/bin"].join(path.delimiter) };
+    const managedBin = path.join("/friday", "runtime", "cmake", "bin");
+    const win = (version: string | null) => ({
+      installedBin: () => (version ? { bin: path.join(managedBin, "cmake.exe"), version } : null),
+      managedPath: managed,
+      env,
+    });
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win("4.2.0"))).toBe(
+      "4.2.0",
+    );
+    expect(calls).toHaveLength(1);
+    expect(env.PATH.split(path.delimiter)[0]).toBe(managedBin);
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.2.0", win("4.2.0"))).toBe("");
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win(null))).toBe("");
+    expect(
+      toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", {
+        installedBin: () => {
+          throw new Error("no marker");
+        },
+      }),
+    ).toBe("");
+  });
+
+  it("keeps the recorded front folders first on every later apply, and lists nothing twice", () => {
+    expect(managedPath.withFirstPath("C:\\a;C:\\b;C:\\c", ["C:\\B", "C:\\x"], ";")).toBe(
+      "C:\\B;C:\\x;C:\\a;C:\\c",
+    );
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-first-"));
+    try {
+      const bin = path.join(dir, "runtime", "cmake", "bin");
+      mkdirSync(bin, { recursive: true });
+      expect(managedPath.preferManaged(dir, bin)).toBe(true);
+      expect(managedPath.readFirst(dir)).toEqual([bin]);
+      const env = { PATH: ["/usr/bin", "/opt/cmake/bin"].join(path.delimiter) };
+      managedPath.applyManagedPath(dir, [], env);
+      expect(env.PATH.split(path.delimiter)[0]).toBe(bin);
+      // The list the kernel reads keeps the front folders after a later apply rewrites it.
+      expect(managedPath.readFirst(dir)).toEqual([bin]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

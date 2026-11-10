@@ -255,6 +255,7 @@ async function download({
   const args = ["-c", SCRIPT, repo, dest, JSON.stringify(wanted.map((file) => file.name))];
   const started = Date.now();
   let failure = "";
+  let reached = 0; // the most bytes the client reported or left on disk, even when it then failed
   const code = await new Promise((resolve) => {
     let child;
     try {
@@ -312,6 +313,7 @@ async function download({
       const moved = done > best || touched > lastMove;
       if (moved) lastMove = Date.now();
       best = Math.max(best, done);
+      reached = best;
       const now = Date.now();
       samples.push([now, best]);
       while (samples.length > 2 && now - samples[0][0] > 4000) samples.shift();
@@ -359,7 +361,9 @@ async function download({
       /* not empty or already gone */
     }
   };
-  if (code !== 0) return { ok: false, error: failure || `the client exited with ${code}` };
+  if (code !== 0) {
+    return { ok: false, error: failure || `the client exited with ${code}`, reached };
+  }
   const problem = await verify(dest, wanted);
   if (problem) {
     for (const file of wanted) fs.rmSync(path.join(dest, file.name), { force: true });

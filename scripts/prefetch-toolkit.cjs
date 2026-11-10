@@ -113,6 +113,29 @@ function alreadyTried(ledger, id, to, now = Date.now()) {
   return now - Number(hit.at || 0) < RETRY_FAILED_MS ? hit : null;
 }
 
+/**
+ * An update that landed beside an older PC-wide copy (winget's CMake 4.1 first on PATH, the vendor's 4.2
+ * unpacked under runtime\\): when the managed copy is verifiably the newer one, its folder goes in front
+ * of PATH for this process and for FRIDAY from now on (managed-path.json `first`). Returns the
+ * managed version that now wins, or "" when there is no newer managed copy. Never throws.
+ */
+function preferNewerManaged(root, tool, seen, deps = {}) {
+  try {
+    const installed = (
+      deps.installedBin || require("../electron/managed-install.cjs").installedBin
+    )(root, tool);
+    if (!installed?.bin || !installed.version || !newer(installed.version, seen)) return "";
+    const dir = path.dirname(installed.bin);
+    const managed = deps.managedPath || require("../electron/managed-path.cjs");
+    if (!managed.preferManaged(root, dir)) return "";
+    const env = deps.env || process.env;
+    env.PATH = managed.withFirstPath(env.PATH, [dir]);
+    return String(installed.version);
+  } catch {
+    return "";
+  }
+}
+
 /** What a finished update turned out to be, from the job result and the version seen afterwards. Pure. */
 function updateOutcome(result, to, seen) {
   if (!result?.ok) return "failed";
@@ -389,6 +412,20 @@ async function prefetchToolkit(root, deps = {}) {
       } catch {
         seen = "";
       }
+      if (result?.ok && seen && newer(row.to, seen)) {
+        const front = preferNewerManaged(root, toolchain.toolById?.(row.id), seen, deps);
+        if (front) {
+          try {
+            const again = await toolchain.detectTools({ force: true, root, only: [row.id] });
+            seen = String(again.tools?.find((tool) => tool.id === row.id)?.version || seen);
+          } catch {
+            /* the earlier version stays the one seen */
+          }
+          log(
+            `[friday] ok       ${row.id} ${front} is used first from now on (the older copy stays installed)`,
+          );
+        }
+      }
       const outcome = updateOutcome(result, row.to, seen);
       history[row.id] = { to: row.to, outcome, at: Date.now(), seen };
       ledger.write(history);
@@ -471,6 +508,7 @@ module.exports = {
   memoryLedger,
   alreadyTried,
   updateOutcome,
+  preferNewerManaged,
   tidyLine,
   failureReport,
   strict,

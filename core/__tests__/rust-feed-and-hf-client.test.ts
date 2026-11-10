@@ -210,6 +210,32 @@ describe("Hugging Face official client", () => {
     expect(events.every((event) => event.bytesTotal === 7)).toBe(true);
   });
 
+  it("reports how far a client got before it dropped, so the caller can try it once more", async () => {
+    const dest = target();
+    const dropped = await hub.download({
+      repo: "Systran/faster-whisper-base",
+      dest,
+      files,
+      python: "python",
+      pollMs: 20,
+      spawnImpl: fakeClient({ beats: 3, exit: 1 }),
+    });
+    expect(dropped.ok).toBe(false);
+    expect(dropped.reached).toBeGreaterThan(0);
+    const never = await hub.download({
+      repo: "Systran/faster-whisper-base",
+      dest: target(),
+      files,
+      python: "python",
+      pollMs: 20,
+      spawnImpl: fakeClient({ exit: 1 }),
+    });
+    expect(never.reached).toBe(0);
+    const source = read("electron/model-download.cjs");
+    expect(source).toContain("res.reached > 0");
+    expect(source).toContain("trying it once more");
+  });
+
   it("keeps nothing when a weight fails its SHA-256", async () => {
     const dest = target();
     const res = await hub.download({

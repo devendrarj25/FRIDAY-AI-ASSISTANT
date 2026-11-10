@@ -157,12 +157,33 @@ function Install-Package([string]$File, [string[]]$SilentArgs) {
   }
 }
 
+# winget redraws one progress line with a carriage return and prints spinner frames; read live in a console
+# that is a blinking bar, in a pipe it is dozens of lines. This keeps the readable lines (what it found,
+# downloads, installs, the result), drops the frames, prints a repeat once, and leaves the exit code in
+# $LASTEXITCODE. (Pattern is ASCII: \u2588-\u2591 are the block characters of the bar.)
+$script:WingetNoise = '^[\s\-\\|/]*$|[\u2588\u2592\u2593\u2591]|^\s*[\d.]+\s*[KMG]?i?B\s*/\s*[\d.]+\s*[KMG]?i?B\s*$|^\s*\d{1,3}%\s*$'
+function Invoke-WingetQuiet([string[]]$WingetArgs) {
+  $script:WingetLast = ''
+  # Windows PowerShell 5.1 turns a line on stderr into a terminating error under 'Stop'; winget's text is not one.
+  $before = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & winget @WingetArgs 2>&1 | ForEach-Object {
+      $text = ("$_" -replace '\x1b\[[0-9;?]*[A-Za-z]', '').Trim()
+      if ($text -and ($text -notmatch $script:WingetNoise) -and ($text -ne $script:WingetLast)) {
+        Write-Host $text
+        $script:WingetLast = $text
+      }
+    }
+  } finally { $ErrorActionPreference = $before }
+}
+
 function Install-WingetPackage([string]$PackageId) {
   if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
     throw 'winget (App Installer) is not available on this PC'
   }
-  Write-Step "winget install $PackageId (winget prints its own live progress below)"
-  & winget install --id $PackageId --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+  Write-Step "winget install $PackageId (its readable lines below; progress frames are dropped)"
+  Invoke-WingetQuiet @('install', '--id', $PackageId, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
   $code = $LASTEXITCODE
   Write-Step "winget finished for $PackageId with exit code $code (0 = installed, -1978335189 = already installed)"
   # 0 = installed, -1978335189 (0x8A15002B) = already installed, no newer version.
@@ -274,7 +295,7 @@ function Update-IfNewer([string]$Label, [string[]]$Ids) {
     Write-Step "$Label - asking the official winget source for a newer release ($id)"
     $code = -1
     try {
-      & winget upgrade --id $id --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
       $code = $LASTEXITCODE
     } catch { $code = -1 }
     if ($code -eq 0) {
@@ -563,6 +584,9 @@ try {
   Write-Step 'Fetching the packs that ship inside the EXE (kept in .cache, so the build downloads nothing)'
   & node.exe scripts\stage-toolchain.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The packs for the EXE could not be downloaded. Check the network, then run npm run doctor.' }
+
+  Write-Step 'Fetching the installer tools electron-builder needs (NSIS and the resource editor), so the build downloads nothing'
+  & node.exe scripts\prewarm-builder-cache.cjs
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 

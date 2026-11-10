@@ -102,6 +102,7 @@ const STEPS = [
   { name: "dependencies", run: dependencies },
   { name: "environment check and repair", run: node("check-environment.cjs", ["--fix"]) },
   { name: "packs that ship inside the EXE", run: node("stage-toolchain.cjs") },
+  { name: "installer tools electron-builder needs", run: node("prewarm-builder-cache.cjs") },
   { name: "speech, voice and chat models", run: models },
   { name: "voice files load and speak", run: node("voice-smoke.cjs") },
   { name: "voice stack: runners, models, packages and connections", run: voiceStack },
