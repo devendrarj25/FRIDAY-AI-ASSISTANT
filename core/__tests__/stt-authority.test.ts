@@ -51,7 +51,11 @@ function rig(
   });
   const advance = (ms: number) => {
     state.clock += ms;
-    for (const t of timers) if (!t.cleared && t.at <= state.clock) ((t.cleared = true), t.fn());
+    for (const t of timers) {
+      if (t.cleared || t.at > state.clock) continue;
+      t.cleared = true;
+      t.fn();
+    }
   };
   return { arbiter, state, submitted, advance };
 }
