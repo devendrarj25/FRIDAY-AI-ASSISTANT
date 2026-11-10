@@ -3371,10 +3371,8 @@ function runJob({ id, action, root }, emit) {
         }
         jobs.set(key, child);
         const feed = (chunk) => {
-          String(chunk)
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean)
+          require("./installer-output.cjs")
+            .tidyChunk(chunk)
             .slice(-4)
             .forEach((line) => emit({ id, action, phase: "Running", line }));
         };

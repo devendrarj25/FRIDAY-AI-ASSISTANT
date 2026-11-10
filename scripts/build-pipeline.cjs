@@ -628,7 +628,7 @@ function runPhase(phase, options, root) {
     runNode("scripts/ensure-electron.cjs", ["--quiet"], root);
     runNode("scripts/setup-python.cjs", [], root);
     // The agent tools (search, Git, build tools, Docker, Sandbox, CUDA): a tool that cannot be installed stops the build.
-    runNode("scripts/prefetch-toolkit.cjs", [], root);
+    runNode("scripts/prefetch-toolkit.cjs", ["--no-update"], root);
     runNode("scripts/init-runtime.cjs", [], root);
     runNode("scripts/check-environment.cjs", ["--fix"], root);
     runNode("scripts/env-registry.cjs", ["repair"], root);

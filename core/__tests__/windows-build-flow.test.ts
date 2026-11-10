@@ -90,6 +90,7 @@ describe("npm run doctor checks, repairs and checks again", () => {
     expect(order).toEqual([
       "dependencies",
       "environment check and repair",
+      "packs that ship inside the EXE",
       "speech, voice and chat models",
       "voice files load and speak",
       "voice stack: runners, models, packages and connections",
@@ -104,6 +105,12 @@ describe("npm run doctor checks, repairs and checks again", () => {
     // The models step is the same script the build runs, with the venv Python so Moonshine can be fetched.
     expect(source).toContain('"prefetch-models.cjs"');
     expect(source).toContain("FRIDAY_PYTHON");
+    // The EXE's own packs come in setup and Doctor, so the build only reuses the .cache copy.
+    expect(source).toContain('node("stage-toolchain.cjs")');
+    const setup = read("scripts/setup-windows.ps1");
+    expect(setup.indexOf("scripts\\stage-toolchain.cjs")).toBeGreaterThan(
+      setup.indexOf("scripts\\prefetch-toolkit.cjs"),
+    );
   });
 });
 

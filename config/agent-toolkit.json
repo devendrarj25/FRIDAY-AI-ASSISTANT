@@ -131,7 +131,8 @@
       "approxBytes": 40000000,
       "probe": {
         "cmd": ["pandoc", "pandoc.exe"],
-        "args": ["--version"]
+        "args": ["--version"],
+        "dirs": ["%ProgramFiles%\\Pandoc", "%LOCALAPPDATA%\\Pandoc"]
       }
     },
     {

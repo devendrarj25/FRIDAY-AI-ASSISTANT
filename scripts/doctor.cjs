@@ -14,6 +14,7 @@
  *   2. environment     scripts/check-environment.cjs --fix: the toolchain, Electron,
  *                      the Python environment, the local chat engine and the agent
  *                      toolkit are installed or repaired, then checked again
+ *   2b. EXE packs      scripts/stage-toolchain.cjs: the packs the EXE carries, from the .cache when already fetched
  *   3. models          scripts/prefetch-models.cjs: the speech, voice and chat weights, fetched again
  *                      (retrying a network drop) when any is missing
  *   4. voice files     scripts/voice-smoke.cjs: silero, the noise suppressor and Smart Turn are run, and
@@ -100,6 +101,7 @@ function voiceStack() {
 const STEPS = [
   { name: "dependencies", run: dependencies },
   { name: "environment check and repair", run: node("check-environment.cjs", ["--fix"]) },
+  { name: "packs that ship inside the EXE", run: node("stage-toolchain.cjs") },
   { name: "speech, voice and chat models", run: models },
   { name: "voice files load and speak", run: node("voice-smoke.cjs") },
   { name: "voice stack: runners, models, packages and connections", run: voiceStack },

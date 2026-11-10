@@ -556,6 +556,10 @@ try {
   Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
   & node.exe scripts\prefetch-toolkit.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The agent toolkit is not complete (see ACTION REQUIRED above). Fix it, then run npm run doctor.' }
+
+  Write-Step 'Fetching the packs that ship inside the EXE (kept in .cache, so the build downloads nothing)'
+  & node.exe scripts\stage-toolchain.cjs
+  if ($LASTEXITCODE -ne 0) { throw 'The packs for the EXE could not be downloaded. Check the network, then run npm run doctor.' }
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 

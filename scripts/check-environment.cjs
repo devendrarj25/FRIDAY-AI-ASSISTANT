@@ -895,7 +895,7 @@ if (
     step(
       `installing the agent toolkit (${brokenToolkit.map((c) => c.name).join(", ")})`,
       process.execPath,
-      [path.join(root, "scripts", "prefetch-toolkit.cjs")],
+      [path.join(root, "scripts", "prefetch-toolkit.cjs"), "--no-update"],
     );
   }
   console.log("");
