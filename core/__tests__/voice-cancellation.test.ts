@@ -406,12 +406,14 @@ describe("the voice library on an interruption", () => {
     lib.resetPrefetchedSpeech();
     g.window = neural([]);
     // This clip ends by itself, so the pipeline moves on to the pause that follows a sentence.
+    let started = 0;
     class QuickAudio {
       volume = 1;
       onended: (() => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(public src: string) {}
       play() {
+        started += 1;
         setTimeout(() => this.onended?.(), 1);
         return Promise.resolve();
       }
@@ -425,10 +427,12 @@ describe("the voice library on an interruption", () => {
     // The first clause ends after 1 ms; the pause that follows a sentence is 150 ms.
     await vi.waitFor(() => expect(lib.pendingSpeechOperations()).toBe(1), { interval: 2 });
     await tick(10); // past the 1 ms clip: what is waiting now is the pause
-    const stoppedAt = Date.now();
+    expect(started).toBe(1);
     lib.stopSpeaking();
-    expect(await Promise.race([speaking, tick(300).then(() => "HUNG")])).toBe("none");
-    expect(Date.now() - stoppedAt).toBeLessThan(100); // not the rest of the 150 ms pause
+    expect(await Promise.race([speaking, tick(1000).then(() => "HUNG")])).toBe("none");
     expect(lib.pendingSpeechOperations()).toBe(0);
+    // Judged by what happened, not by a clock: had the pause run its course, the second clause would have started.
+    await tick(400);
+    expect(started).toBe(1);
   });
 });
