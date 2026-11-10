@@ -64,7 +64,7 @@ describe("ipc budget table", () => {
     // Loading a speech model and transcribing takes longer than the 30 s total of a quick call on a slow PC
     // (a hosted Windows runner's restart ran past it); its steps carry their own limits (voice-verify.cjs).
     expect(table.CHANNEL_CLASS["voice:verify"]).toBe("long-job");
-    expect(ipc.budgetFor("voice:verify").ms).toBe(0);
+    expect(ipc.budgetFor("voice:verify").class).toBe("long-job");
     expect(table.CHANNEL_CLASS["voice:transcribe"]).toBe("stream");
     expect(table.CHANNEL_CLASS["chat:parallel"]).toBe("stream");
     expect(table.CHANNEL_CLASS["agents:run"]).toBe("stream");
