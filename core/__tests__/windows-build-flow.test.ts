@@ -114,6 +114,21 @@ describe("npm run doctor checks, repairs and checks again", () => {
   });
 });
 
+describe("setup output stays calm on a console", () => {
+  it("turns off npm's spinner and pip's per-package lines and bars", () => {
+    const setup = read("scripts/setup-windows.ps1");
+    expect(setup).toContain("$env:npm_config_progress = 'false'");
+    expect(setup).toContain("$env:PIP_PROGRESS_BAR = 'off'");
+    const py = read("scripts/setup-python.cjs");
+    expect(py).toContain('PIP_QUIET: "1"');
+    expect(py).toContain('PIP_PROGRESS_BAR: "off"');
+    expect(py).toContain("...process.env");
+    const spawn = read("scripts/win-spawn.cjs");
+    expect(spawn).toContain('npm_config_progress: "false"');
+    expect(spawn.match(/quietNpm\(extra\)/g)?.length).toBe(2);
+  });
+});
+
 describe("the environment check is strict exactly where the setup installs", () => {
   const check = read("scripts/check-environment.cjs");
 

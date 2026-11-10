@@ -7,6 +7,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# npm redraws a spinner on a console, which blinks; pip prints one summary line instead of a line per package.
+if (-not $env:npm_config_progress) { $env:npm_config_progress = 'false' }
+if (-not $env:PIP_PROGRESS_BAR) { $env:PIP_PROGRESS_BAR = 'off' }
 
 # FRIDAY - idempotent Windows setup.
 #
