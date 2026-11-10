@@ -24,6 +24,8 @@ const MAX_SESSIONS = 4;
 const KEYTERM_LIMIT = 50;
 const KEYTERM_LENGTH = 64;
 const PING_MS = 15_000;
+// A socket that has not opened by then is abandoned: a stream that never opens must not hold a turn for ever.
+const OPEN_TIMEOUT_MS = 10_000;
 
 const STT_LANGS = new Set([
   "auto",
@@ -48,8 +50,33 @@ const TTS_MODELS = new Set(["bulbul:v2", "bulbul:v3", "bulbul:v4-flash"]);
 const TTS_LANGS = /^(bn|en|gu|hi|kn|ml|mr|od|pa|ta|te)-IN$/;
 const TTS_RATES = new Set([8000, 16000, 22050, 24000]);
 const SPEAKER = /^[a-z0-9_]{2,48}$/;
-// The provider page says mp3 is the only codec supported today; a caller may name another, and it is passed through.
-const CODECS = new Set(["mp3", "wav", "opus", "flac", "aac", "linear16"]);
+// Codecs are provider-, model- and transport-specific, so the REST call and the WebSocket never share one list.
+// WebSocket (docs.sarvam.ai text-to-speech streaming page, read 2026-11-10): the config message accepts mp3, wav,
+// aac, opus, flac, linear16, mulaw and alaw, and mp3 is what the provider sends when none is named. This app plays
+// each clause through an audio element, so it requests only the containers that element decodes. mulaw and alaw
+// (telephony) and raw linear16 have no container to play. opus is listed by the page but the same provider reports
+// it failing on its REST endpoint and nothing here has confirmed it on the socket, so it is not requested until a
+// live run does. Only bulbul:v4-flash has a documented WebSocket codec list; bulbul:v2 and v3 keep to the default.
+const WS_CODECS_BY_MODEL = Object.freeze({
+  "bulbul:v4-flash": Object.freeze({
+    listed: ["mp3", "wav", "aac", "opus", "flac", "linear16", "mulaw", "alaw"],
+    requestable: ["mp3", "wav", "aac", "flac"],
+  }),
+  "bulbul:v3": Object.freeze({ listed: ["mp3"], requestable: ["mp3"] }),
+  "bulbul:v2": Object.freeze({ listed: ["mp3"], requestable: ["mp3"] }),
+});
+// The one-shot REST call (voice-cloud.cjs) for bulbul:v3 and v4-flash: wav, mp3, aac, flac and linear16 work, opus
+// is accepted by the schema and answers with an error. Kept apart from the WebSocket list on purpose.
+const REST_CODECS = Object.freeze(["mp3", "wav", "aac", "flac", "linear16"]);
+
+/** What each transport may be asked for, per model. Pure. */
+function codecCapabilities(model) {
+  const ws = WS_CODECS_BY_MODEL[model] || { listed: [], requestable: [] };
+  return {
+    websocket: { listed: [...ws.listed], requestable: [...ws.requestable] },
+    rest: [...REST_CODECS],
+  };
+}
 
 const scrub = (text, key) => {
   const raw = String(text ?? "");
@@ -112,7 +139,15 @@ function buildTtsSession(options = {}) {
   const rate = Number(options.sampleRate ?? 24000);
   if (!TTS_RATES.has(rate)) return { ok: false, error: "that sample rate is not offered" };
   const codec = String(options.codec ?? "mp3");
-  if (!CODECS.has(codec)) return { ok: false, error: "that audio codec is not offered" };
+  const wsCodecs = WS_CODECS_BY_MODEL[model];
+  if (!wsCodecs.requestable.includes(codec)) {
+    return {
+      ok: false,
+      error: wsCodecs.listed.includes(codec)
+        ? `${codec} is listed for the ${model} stream but this app cannot play or has not confirmed it; use ${wsCodecs.requestable.join(", ")}`
+        : `${codec} is not an audio codec of the ${model} stream; use ${wsCodecs.requestable.join(", ")}`,
+    };
+  }
   const data = {
     model,
     language_code: language,
@@ -220,8 +255,11 @@ function createSarvamStreams({
   gate,
   setInterval: setIntervalImpl = globalThis.setInterval,
   clearInterval: clearIntervalImpl = globalThis.clearInterval,
+  setTimeout: setTimeoutImpl = globalThis.setTimeout,
+  clearTimeout: clearTimeoutImpl = globalThis.clearTimeout,
+  openTimeoutMs = OPEN_TIMEOUT_MS,
 } = {}) {
-  /** @type {Map<string, {socket: any, kind: string, key: string, timer: any, cfg?: object}>} */
+  /** @type {Map<string, {socket: any, kind: string, key: string, timer: any, cfg?: object, state: string, waiters: Array<(r: {ok: boolean, error?: string}) => void>, openTimer: any}>} */
   const sessions = new Map();
 
   function open(id, kind, options, handlers) {
@@ -248,16 +286,45 @@ function createSarvamStreams({
       };
     }
     socket.binaryType = "arraybuffer";
-    const session = { socket, kind, key: allowed.key, timer: null, cfg: spec.config?.data };
+    const session = {
+      socket,
+      kind,
+      key: allowed.key,
+      timer: null,
+      cfg: spec.config?.data,
+      // "connecting" until the socket's own open event; a send or a ready signal before that is refused.
+      state: "connecting",
+      waiters: [],
+      openTimer: null,
+    };
     sessions.set(id, session);
     const parse = kind === "stt" ? parseSttEvent : parseTtsEvent;
+    const settle = (result) => {
+      clearTimeoutImpl(session.openTimer);
+      session.openTimer = null;
+      for (const waiter of session.waiters.splice(0)) waiter(result);
+    };
+    session.openTimer = setTimeoutImpl(() => {
+      if (session.state !== "connecting") return;
+      // Settle first (so the reason is the timeout, not the close it causes), then drop the socket.
+      finish(1006, "the connection did not open in time");
+      try {
+        socket.close(1000);
+      } catch {
+        /* already closing */
+      }
+    }, openTimeoutMs);
+    session.openTimer?.unref?.();
     socket.addEventListener("open", () => {
+      if (!sessions.has(id) || session.state !== "connecting") return;
+      session.state = "open";
       if (kind === "tts" && spec.config) socket.send(JSON.stringify(spec.config));
       session.timer = setIntervalImpl(() => {
         if (socket.readyState === 1)
           socket.send(JSON.stringify(kind === "stt" ? { event: "ping" } : { type: "ping" }));
       }, PING_MS);
       session.timer?.unref?.();
+      settle({ ok: true });
       handlers.onOpen?.();
     });
     socket.addEventListener("message", (event) => {
@@ -275,8 +342,16 @@ function createSarvamStreams({
     const finish = (code, reason) => {
       if (!sessions.has(id)) return;
       clearIntervalImpl(session.timer);
+      const neverOpened = session.state === "connecting";
+      session.state = "closed";
       sessions.delete(id);
       const verdict = classifyClose(code);
+      settle({
+        ok: false,
+        error: neverOpened
+          ? `the stream closed before it opened (${scrub(reason || verdict.reason, session.key)})`
+          : "the stream closed",
+      });
       handlers.onClose?.({
         code: Number(code) || 0,
         retry: verdict.retry,
@@ -288,10 +363,23 @@ function createSarvamStreams({
     return { ok: true, id, kind };
   }
 
+  /**
+   * Resolves when the socket's own open event has happened ({ok: true}), or when it closed or timed out first
+   * ({ok: false, error}). The renderer is told "ready" from this, never from the request having been accepted.
+   */
+  function whenOpen(id) {
+    const session = sessions.get(id);
+    if (!session) return Promise.resolve({ ok: false, error: "that stream is not open" });
+    if (session.state === "open") return Promise.resolve({ ok: true });
+    return new Promise((resolve) => session.waiters.push(resolve));
+  }
+
   function send(id, message) {
     const session = sessions.get(id);
-    if (!session || session.socket.readyState !== 1)
-      return { ok: false, error: "that stream is not open" };
+    if (!session) return { ok: false, error: "that stream is not open" };
+    if (session.state === "connecting")
+      return { ok: false, error: "that stream is still connecting" };
+    if (session.socket.readyState !== 1) return { ok: false, error: "that stream is not open" };
     const m = message || {};
     let frame = null;
     if (session.kind === "stt") {
@@ -339,7 +427,7 @@ function createSarvamStreams({
   }
 
   const count = () => sessions.size;
-  return { open, send, close, count };
+  return { open, whenOpen, send, close, count };
 }
 
 module.exports = {
@@ -350,5 +438,7 @@ module.exports = {
   parseTtsEvent,
   classifyClose,
   cleanKeyterms,
+  codecCapabilities,
+  OPEN_TIMEOUT_MS,
   HOST,
 };

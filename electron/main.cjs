@@ -9089,9 +9089,12 @@ ipcMain.handle("voice-cloud:transcribe", (_e, provider, request) =>
 const sarvamStreams = require("./sarvam-stream.cjs").createSarvamStreams({
   gate: (provider) => voiceCloudApi.gate(provider),
 });
-ipcMain.handle("voice-stream:open", (e, id, kind, options) =>
-  sarvamStreams.open(
-    String(id || ""),
+// The answer is sent when the socket has really opened (or failed to), so "ok" means "a connection exists", not
+// "the request was accepted": a renderer that sent text on an accepted-but-still-connecting socket lost it.
+ipcMain.handle("voice-stream:open", async (e, id, kind, options) => {
+  const streamId = String(id || "");
+  const started = sarvamStreams.open(
+    streamId,
     String(kind || ""),
     options && typeof options === "object" ? options : {},
     {
@@ -9099,8 +9102,11 @@ ipcMain.handle("voice-stream:open", (e, id, kind, options) =>
       onEvent: (event) => e.sender.send("voice-stream:event", { id, event }),
       onClose: (info) => e.sender.send("voice-stream:closed", { id, ...info }),
     },
-  ),
-);
+  );
+  if (!started.ok) return started;
+  const opened = await sarvamStreams.whenOpen(streamId);
+  return opened.ok ? { ...started, opened: true } : { ok: false, error: opened.error };
+});
 ipcMain.handle("voice-stream:send", (_e, id, message) =>
   sarvamStreams.send(String(id || ""), message),
 );

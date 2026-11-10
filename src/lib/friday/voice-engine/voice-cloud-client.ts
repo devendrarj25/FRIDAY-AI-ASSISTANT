@@ -10,7 +10,14 @@ import { routeVoice, type UsageLedger } from "./voice-provider-router";
 import { toRouterSettings, type VoiceCloudPrefs } from "./voice-cloud-settings";
 
 export type CloudSpeakResult =
-  | { ok: true; audioBase64: string; mime: string; provider: string; audio?: unknown }
+  | {
+      ok: true;
+      audioBase64: string;
+      mime: string;
+      provider: string;
+      audio?: unknown;
+      release?: () => void;
+    }
   | { ok: false; error: string };
 
 export type CloudSpeakDeps = {
@@ -74,6 +81,7 @@ export async function speakWithCloud(
       : {}),
   });
   const audio = (out as { audio?: unknown }).audio;
+  const release = (out as { release?: () => void }).release;
   if (!out.ok || (!out.audioBase64 && !audio))
     return { ok: false, error: out.error ?? "the provider returned no audio" };
   return {
@@ -82,6 +90,7 @@ export async function speakWithCloud(
     mime: out.mime ?? "audio/wav",
     provider,
     ...(audio ? { audio } : {}),
+    ...(typeof release === "function" ? { release } : {}),
   };
 }
 

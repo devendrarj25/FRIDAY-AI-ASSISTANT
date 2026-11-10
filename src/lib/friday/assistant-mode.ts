@@ -3706,7 +3706,14 @@ class AssistantModeStore {
         text: string,
         lang: string,
         tone: { rate: number; pitch: number; volume: number },
-      ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>)
+      ) => Promise<{
+        audioBase64: string;
+        mime: string;
+        engine: string;
+        voice?: string;
+        audio?: unknown;
+        release?: () => void;
+      } | null>)
     | undefined {
     const cloud = sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice);
     const provider = cloud.speakWith;
@@ -3756,6 +3763,7 @@ class AssistantModeStore {
         mime: out.mime,
         engine: provider,
         ...(out.audio ? { audio: out.audio } : {}),
+        ...(out.release ? { release: out.release } : {}),
       };
     };
   }

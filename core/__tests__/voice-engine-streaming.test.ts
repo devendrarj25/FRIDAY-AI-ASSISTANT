@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CaptureTap } from "../../src/lib/friday/pcm-capture";
 import { StageClock, LatencyMonitor } from "../../src/lib/friday/voice-engine/latency-monitor";
 import { createRealtimeStt } from "../../src/lib/friday/voice-engine/sarvam-realtime-stt";
@@ -16,7 +16,9 @@ import {
 } from "../../src/lib/friday/voice-engine/voice-frame-assembler";
 
 /** A fake main process: records what the renderer sends and lets a test push provider events back. */
-function fakeApi(openResult: { ok: boolean; error?: string } = { ok: true }) {
+function fakeApi(
+  openResult: { ok: boolean; error?: string; opened?: boolean } = { ok: true, opened: true },
+) {
   const opened: Array<(p: { id: string }) => void> = [];
   const events: Array<(p: { id: string; event: { type: string } }) => void> = [];
   const closed: Array<(p: { id: string; code: number; retry: boolean; reason: string }) => void> =
@@ -70,6 +72,9 @@ function fakeApi(openResult: { ok: boolean; error?: string } = { ok: true }) {
     listeners: () => opened.length + events.length + closed.length,
   };
 }
+
+/** The request is accepted at once (as an older main process answers), the socket opens only when the test says so. */
+const acceptedNotOpen = () => fakeApi({ ok: true });
 
 const META = { sequence: 1, sampleStart: 0 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -329,6 +334,149 @@ describe("streaming text to speech (renderer)", () => {
     expect(await tts.speak("t1", "   ")).toBe(0);
     expect(await tts.speak("t1", "x".repeat(2501))).toBe(0);
     expect(events.some((e) => e.type === "error" && e.category === "config")).toBe(true);
+  });
+});
+
+describe("streaming text to speech waits for the socket's own open", () => {
+  const make = (rig: ReturnType<typeof fakeApi>, openTimeoutMs = 5000) => {
+    const events: VoiceTtsEvent[] = [];
+    const tts = createStreamingTts({
+      api: rig.api,
+      sessionId: "sess",
+      now: () => 5,
+      openTimeoutMs,
+      onEvent: (e) => events.push(e),
+    });
+    return { tts, events };
+  };
+  const options = { language: "hi-IN", speaker: "aparna_hi_customer" };
+
+  it("is not ready when the request was only accepted: nothing is sent until the socket opens", async () => {
+    const rig = acceptedNotOpen();
+    const { tts, events } = make(rig);
+    let started = false;
+    const start = tts.start(options).then((r) => ((started = true), r));
+    await until(() => rig.opens.length >= 1);
+    await tick();
+    expect(started).toBe(false); // start() is still waiting for the real open
+    const speaking = tts.speak("t1", "नमस्ते।");
+    await tick();
+    expect(rig.sent).toEqual([]); // a send before OPEN never leaves the renderer
+    rig.open(rig.opens[0]!.id); // the delayed open
+    expect(await start).toEqual({ ok: true });
+    expect(await speaking).toBeGreaterThan(0);
+    expect(rig.sent.map((m) => m.message["type"])).toEqual(["text", "flush"]);
+    expect(events[0]).toMatchObject({ type: "request-started" });
+  });
+
+  it("is ready at once when the main process answers after the real open", async () => {
+    const rig = fakeApi({ ok: true, opened: true });
+    const { tts } = make(rig);
+    expect(await tts.start(options)).toEqual({ ok: true });
+    expect(await tts.speak("t1", "हेलो।")).toBeGreaterThan(0);
+  });
+
+  it("fails a socket that closes before it opens, and sends nothing", async () => {
+    const rig = acceptedNotOpen();
+    const { tts, events } = make(rig);
+    const start = tts.start(options);
+    await until(() => rig.opens.length >= 1);
+    rig.close(rig.opens[0]!.id, false, "key refused");
+    const out = await start;
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("closed before it opened");
+    expect(await tts.speak("t1", "नमस्ते।")).toBe(0);
+    expect(rig.sent).toEqual([]);
+    expect(events.filter((e) => e.type === "error")).toEqual([]);
+    expect(rig.listeners()).toBe(0);
+  });
+
+  it("gives up on a socket that never opens, closes it, and a late open changes nothing", async () => {
+    const rig = acceptedNotOpen();
+    const { tts } = make(rig, 30);
+    const out = await tts.start(options);
+    expect(out).toMatchObject({ ok: false, error: "the stream did not open in time" });
+    expect(rig.closes).toEqual([rig.opens[0]!.id]);
+    rig.open(rig.opens[0]!.id); // too late: the listeners are gone
+    expect(await tts.speak("t1", "नमस्ते।")).toBe(0);
+    expect(rig.sent).toEqual([]);
+    expect(rig.listeners()).toBe(0);
+  });
+
+  it("refuses the request outright when the main process refuses it", async () => {
+    const rig = fakeApi({ ok: false, error: "cloud voice is off" });
+    const { tts } = make(rig);
+    expect(await tts.start(options)).toEqual({ ok: false, error: "cloud voice is off" });
+    expect(await tts.speak("t1", "x")).toBe(0);
+  });
+
+  it("a replaced start does not leave the first one waiting", async () => {
+    const rig = acceptedNotOpen();
+    const { tts } = make(rig, 5000);
+    const first = tts.start(options);
+    await until(() => rig.opens.length >= 1);
+    const second = tts.start(options);
+    await until(() => rig.opens.length >= 2);
+    rig.open(rig.opens[1]!.id);
+    expect((await second).ok).toBe(true);
+    // The first start was superseded; it must settle (not hang) and must not be treated as the live stream.
+    rig.open(rig.opens[0]!.id);
+    expect((await first).ok).toBe(false);
+  });
+});
+
+describe("the first spoken sentence reaches the streaming provider", () => {
+  const b64 = (text: string) => btoa(text);
+  it("is sent on the stream, not the REST call, even when the connection opens late", async () => {
+    const { createStreamingSpeak } =
+      await import("../../src/lib/friday/voice-engine/streaming-speak");
+    const rig = acceptedNotOpen();
+    const rest = vi.fn(async () => ({ ok: true, audioBase64: "REST", mime: "audio/wav" }));
+    const notes: string[] = [];
+    const speaker = createStreamingSpeak({
+      api: rig.api as never,
+      rest,
+      note: (l) => notes.push(l),
+      timeoutMs: 40, // shorter than the connection delay below: the answer clock must not count the connect
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+    });
+    const first = speaker.speak("sarvam", {
+      text: "नमस्ते।",
+      language: "hi-IN",
+      speaker: "aparna_hi_customer",
+    });
+    await until(() => rig.opens.length >= 1);
+    await new Promise((r) => setTimeout(r, 120)); // the connection takes longer than the answer timeout
+    expect(rig.sent).toEqual([]);
+    const id = rig.opens[0]!.id;
+    rig.open(id);
+    await until(() => flushes(rig, id) >= 1);
+    rig.emit(id, { type: "audio", audioBase64: b64("AB"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    expect(await first).toEqual({ ok: true, audioBase64: b64("AB"), mime: "audio/mp3" });
+    expect(rest).not.toHaveBeenCalled();
+    expect(notes).toEqual([]);
+  });
+
+  it("still falls back to REST once, with a note, when the stream never opens", async () => {
+    const { createStreamingSpeak } =
+      await import("../../src/lib/friday/voice-engine/streaming-speak");
+    const rig = fakeApi({ ok: false, error: "no network" });
+    const rest = vi.fn(async () => ({ ok: true, audioBase64: "REST", mime: "audio/wav" }));
+    const notes: string[] = [];
+    const speaker = createStreamingSpeak({
+      api: rig.api as never,
+      rest,
+      note: (l) => notes.push(l),
+    });
+    const out = await speaker.speak("sarvam", {
+      text: "नमस्ते।",
+      language: "hi-IN",
+      speaker: "aparna_hi_customer",
+    });
+    expect(out.audioBase64).toBe("REST");
+    expect(rest).toHaveBeenCalledTimes(1);
+    expect(notes.join(" ")).toContain("streaming voice not opened");
   });
 });
 

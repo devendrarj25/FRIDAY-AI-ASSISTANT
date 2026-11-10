@@ -31,6 +31,11 @@ export type PipelineOptions<Item, Clip> = {
   /** Silence after a clip, in ms, before the next one (not after the last). */
   gapAfter?: (item: Item, index: number) => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called for every clip that was made and will never be played: the speech went stale, an earlier clip failed,
+   * or the clip arrived after the pipeline had already ended. The owner of the clip gives its resources back.
+   */
+  dispose?: (clip: Clip, item: Item, index: number) => void;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -56,19 +61,43 @@ export async function runSpeechPipeline<Item, Clip>(
   };
 
   launch(ahead);
+  /** Clips still being made or waiting when the pipeline ends are released as they arrive. */
+  const discardRest = (from: number) => {
+    for (const [index, promise] of pending) {
+      if (index < from) continue;
+      pending.delete(index);
+      void promise.then((clip) => {
+        if (clip !== null && clip !== undefined)
+          options.dispose?.(clip, items[index] as Item, index);
+      });
+    }
+  };
   let played = 0;
   for (let index = 0; index < items.length; index += 1) {
-    if (stale()) return { played, failedAt: null, stale: true };
+    if (stale()) {
+      discardRest(index);
+      return { played, failedAt: null, stale: true };
+    }
     const clip = await pending.get(index);
     pending.delete(index);
-    if (stale()) return { played, failedAt: null, stale: true };
-    if (clip === null || clip === undefined) return { played, failedAt: index, stale: false };
+    if (stale()) {
+      if (clip !== null && clip !== undefined) options.dispose?.(clip, items[index] as Item, index);
+      discardRest(index + 1);
+      return { played, failedAt: null, stale: true };
+    }
+    if (clip === null || clip === undefined) {
+      discardRest(index + 1);
+      return { played, failedAt: index, stale: false };
+    }
     // Start making the clip after the next while this one is about to play.
     launch(index + 1 + ahead);
     if (played === 0) options.onFirstClip?.(clip, items[index] as Item);
     await options.play(clip, items[index] as Item, index);
     played += 1;
-    if (stale()) return { played, failedAt: null, stale: true };
+    if (stale()) {
+      discardRest(index + 1);
+      return { played, failedAt: null, stale: true };
+    }
     const gap =
       index < items.length - 1 ? (options.gapAfter?.(items[index] as Item, index) ?? 0) : 0;
     if (gap > 0) await sleep(gap);
