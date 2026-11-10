@@ -343,6 +343,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                 rows.map((row) => `${row.label}: ${row.value}`).join("\n"),
                 assistantMode.micDebug(),
                 `barge-in shadow data:\n${assistantMode.bargeShadowReport()}`,
+                `soak record:\n${assistantMode.soakReport()}`,
               ]
                 .filter(Boolean)
                 .join("\n"),

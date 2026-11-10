@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "about": "Reference phrases for the speech-recognition check on the installed Windows app. Read each one aloud, at a normal pace and distance, in a quiet room, then once more with a TV or fan on. The app's transcript for each id goes into the transcripts file that `node scripts/voice-hardware-validate.cjs score-stt` reads. Scripts matter: a Hindi sentence is expected in Devanagari, a Hinglish one in the Roman letters shown, so a transcript in the other script counts as wrong words and that is reported, not hidden.",
+  "phrases": [
+    { "id": "hi-01", "group": "hindi", "text": "आज मौसम कैसा रहेगा" },
+    { "id": "hi-02", "group": "hindi", "text": "मेरी अगली मीटिंग कब है" },
+    { "id": "hi-03", "group": "hindi", "text": "माँ को फोन लगाओ" },
+    { "id": "hi-04", "group": "hindi", "text": "कल सुबह सात बजे का अलार्म लगा दो" },
+    { "id": "hi-05", "group": "hindi", "text": "इस फाइल को डेस्कटॉप पर सेव कर दो" },
+    { "id": "hi-06", "group": "hindi", "text": "मुझे आज का समाचार सुनाओ" },
+    { "id": "hi-07", "group": "hindi", "text": "पिछली बातचीत का सार बताओ" },
+    { "id": "hi-08", "group": "hindi", "text": "बैटरी कितनी बची है" },
+    { "id": "hx-01", "group": "hinglish", "text": "kal subah saat baje ka alarm laga do" },
+    { "id": "hx-02", "group": "hinglish", "text": "mere inbox me naye emails dikhao" },
+    { "id": "hx-03", "group": "hinglish", "text": "is report ko pdf bana ke desktop par save karo" },
+    { "id": "hx-04", "group": "hinglish", "text": "aaj ki meeting ka summary bhejo" },
+    { "id": "hx-05", "group": "hinglish", "text": "volume thoda kam kar do" },
+    { "id": "hx-06", "group": "hinglish", "text": "friday ye batao ki kal ka weather kaisa rahega" },
+    { "id": "hx-07", "group": "hinglish", "text": "chrome me youtube khol do" },
+    { "id": "hx-08", "group": "hinglish", "text": "mujhe ek reminder chahiye ki shaam ko doodh lana hai" },
+    { "id": "en-01", "group": "english", "text": "what is on my calendar tomorrow" },
+    { "id": "en-02", "group": "english", "text": "read me the last message from Rahul" },
+    { "id": "en-03", "group": "english", "text": "turn the brightness down a little" },
+    { "id": "en-04", "group": "english", "text": "summarise this document in three lines" },
+    { "id": "en-05", "group": "english", "text": "set a timer for ten minutes" },
+    { "id": "en-06", "group": "english", "text": "stop talking" },
+    { "id": "en-07", "group": "english", "text": "open the downloads folder" },
+    { "id": "en-08", "group": "english", "text": "how much battery is left" }
+  ]
+}

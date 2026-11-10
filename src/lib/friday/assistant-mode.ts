@@ -79,6 +79,7 @@ import { createStreamingSpeak } from "./voice-engine/streaming-speak";
 import { StageClock } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
+import { SoakRecorder } from "./voice-engine/soak-recorder";
 import {
   SttBillingReconciler,
   createUtteranceArbiter,
@@ -426,6 +427,12 @@ const desktop = (): VoiceDesktop | null =>
 
 let cid = 0;
 const captionId = () => `cap-${Date.now().toString(36)}-${(cid += 1).toString(36)}`;
+
+/** Used JavaScript heap in MB where the engine reports it (Chromium does); null elsewhere. */
+function heapMegabytes(): number | null {
+  const memory = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
+  return typeof memory?.usedJSHeapSize === "number" ? memory.usedJSHeapSize / 1_048_576 : null;
+}
 
 type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[0]["onFinal"]>[1];
 
@@ -1282,6 +1289,7 @@ class AssistantModeStore {
       if (this.state.mode === "auto") void this.selfCheckVoice(false);
     }, 6000);
     this.startBargeShadow();
+    this.soak.start(Date.now());
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
@@ -1428,6 +1436,7 @@ class AssistantModeStore {
     void this.stopCloudCaptions();
     this.stopLiveWake();
     this.stopBargeShadow();
+    this.soak.stop(Date.now());
     // Nothing from this Auto session may survive into the next one: queued requests, a paused reply, a spent wake.
     this.queuedCommands = [];
     this.stopQueueTimer();
@@ -1633,6 +1642,7 @@ class AssistantModeStore {
     const now = Date.now();
     if (now - this.lastSupervisorTick < 5000) return;
     this.lastSupervisorTick = now;
+    this.soak.sample(now, heapMegabytes());
     const verdict = superviseVoice({
       mode: this.state.mode,
       paused: this.state.paused,
@@ -1647,6 +1657,7 @@ class AssistantModeStore {
     if (now - (this.supervisedAt.get(verdict.state) ?? 0) < SUPERVISOR_COOLDOWN_MS) return;
     this.supervisedAt.set(verdict.state, now);
     this.interventions += 1;
+    this.soak.intervention();
     this.lastIntervention = `${verdict.state}: ${verdict.reason}`;
     this.trace("heal", `supervisor: ${verdict.reason}`);
     if (verdict.remedy === "self-check") {
@@ -1972,7 +1983,9 @@ class AssistantModeStore {
       },
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
-        this.turnStages.finish();
+        const finished = this.turnStages.finish();
+        if (Object.keys(finished).length)
+          this.soak.turn(Date.now(), finished["firstAudible"] ?? null);
         this.turnStages.reset();
         this.turnStages.mark("micSpeechStart");
         this.turnClock = {
@@ -2064,6 +2077,7 @@ class AssistantModeStore {
       },
       onStateChange: (listening) => {
         if (listening === "listening") {
+          this.soak.recovered();
           this.to("mic-opened");
           this.announceReady();
         } else if (listening === "thinking") this.to("transcribe-start");
@@ -2842,6 +2856,7 @@ class AssistantModeStore {
 
   private noteMicFault(message: string) {
     if (this.shownMicFault === message) return;
+    this.soak.fault();
     this.shownMicFault = message;
     this.state.error = message;
     this.trace("error", message);
@@ -3437,6 +3452,13 @@ class AssistantModeStore {
       voiceNotes.setSummary(id, done.answer);
       return "The meeting minutes are saved with the note.";
     });
+  }
+
+  private readonly soak = new SoakRecorder();
+
+  /** The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak). */
+  soakReport(): string {
+    return JSON.stringify(this.soak.record(), null, 2);
   }
 
   private bargeDetector = new BargeInDetector();

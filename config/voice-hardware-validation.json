@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "evidenceRule": "A scenario is verified only by a report whose machine block says the installed, packaged app ran on Windows with real devices, and only when every criterion below is met by the measured numbers in that report. A result from Linux, a unit test, a fake device or a development build is not a verification and is reported as unverified.",
+  "scenarios": [
+    {
+      "id": "stt-hindi-hinglish",
+      "title": "Hindi, Hinglish and English speech recognition",
+      "needs": ["microphone"],
+      "steps": [
+        "Open the installed FRIDAY, Settings > Voice, note the speech model in use.",
+        "In a quiet room read the 24 phrases of testing/voice-hardware/phrases.json one at a time into Auto mode and save what FRIDAY heard for each id in transcripts.json ({\"hi-01\": \"...\"}).",
+        "Run: node scripts/voice-hardware-validate.cjs score-stt --transcripts transcripts.json --report REPORT.json",
+        "Repeat once with a TV or fan on and keep the worse of the two runs."
+      ],
+      "criteria": [
+        { "metric": "phrases", "min": 24 },
+        { "metric": "hindiWer", "max": 0.25 },
+        { "metric": "hinglishWer", "max": 0.3 },
+        { "metric": "englishWer", "max": 0.12 }
+      ]
+    },
+    {
+      "id": "sarvam-live-captions",
+      "title": "Sarvam live captions",
+      "needs": ["microphone", "network", "sarvam-key"],
+      "steps": [
+        "Settings > Voice: cloud voice on, Sarvam allowed, key saved, privacy mode off, Live captions on.",
+        "Say 15 sentences of 4 to 8 words in Hindi, Hinglish and English.",
+        "For each, record the time from the first spoken word to the first caption (screen recording at 60 fps, count frames) and from the end of speech to the final text.",
+        "Count any action or tool run started by words that appeared only as a caption and were not a finished sentence."
+      ],
+      "criteria": [
+        { "metric": "sentences", "min": 15 },
+        { "metric": "firstCaptionMsP50", "max": 800 },
+        { "metric": "finalAfterSpeechEndMsP95", "max": 1800 },
+        { "metric": "actionsFromPartials", "max": 0 },
+        { "metric": "duplicateTurns", "max": 0 }
+      ]
+    },
+    {
+      "id": "sarvam-streaming-tts",
+      "title": "Sarvam streaming speech",
+      "needs": ["speaker", "network", "sarvam-key"],
+      "steps": [
+        "Settings > Voice: speak with Sarvam, Stream Sarvam speech on, a bulbul:v4-flash persona chosen.",
+        "Ask 10 questions whose answers are two or three sentences. Record the first sound time from the request to the first audible sample (Voice diagnostics: first sound) and whether the first sentence used the stream or fell back to the one-shot call (the voice trace says `streaming voice skipped`).",
+        "Play one answer to the end and listen for gaps, clicks or a repeated word."
+      ],
+      "criteria": [
+        { "metric": "answers", "min": 10 },
+        { "metric": "firstSoundMsP50", "max": 900 },
+        { "metric": "firstSoundMsP95", "max": 1800 },
+        { "metric": "firstSentenceRestFallbacks", "max": 1 },
+        { "metric": "audibleGlitches", "max": 0 }
+      ]
+    },
+    {
+      "id": "speaker-playback",
+      "title": "Real speaker playback",
+      "needs": ["speaker"],
+      "steps": [
+        "Play a long answer (about 40 seconds) on the laptop speakers and on headphones.",
+        "Record underruns from Voice diagnostics and any audible gap, click, speed change or cut-off start/end."
+      ],
+      "criteria": [
+        { "metric": "outputsTried", "min": 2 },
+        { "metric": "underruns", "max": 0 },
+        { "metric": "audibleGlitches", "max": 0 },
+        { "metric": "clippedStartOrEnd", "max": 0 }
+      ]
+    },
+    {
+      "id": "interrupt-mid-sentence",
+      "title": "Interrupting her mid-sentence",
+      "needs": ["microphone", "speaker"],
+      "steps": [
+        "Ask for a long answer, wait until she is speaking, then say \"stop\" and a new request in the middle of a sentence.",
+        "Record the time from the start of your first word to the last audible sample (second device recording or a loopback capture) and from your last word to the new reply's first sound.",
+        "Do 20 trials, half on speakers and half on headphones."
+      ],
+      "criteria": [
+        { "metric": "trials", "min": 20 },
+        { "metric": "audibleStopMsP95", "max": 400 },
+        { "metric": "newReplyAfterInterruptMsP95", "max": 2500 },
+        { "metric": "missedInterruptions", "max": 1 },
+        { "metric": "staleAudioAfterNewTurn", "max": 0 }
+      ]
+    },
+    {
+      "id": "no-self-echo",
+      "title": "No recognition of her own voice",
+      "needs": ["microphone", "speaker"],
+      "steps": [
+        "On laptop speakers at 70% volume and again at 100%, with the room silent, let FRIDAY speak 30 replies in Auto mode without saying anything.",
+        "Count turns that started from her own words (the transcript contains words she spoke) and any reply that cut itself off."
+      ],
+      "criteria": [
+        { "metric": "replies", "min": 30 },
+        { "metric": "selfEchoTurns", "max": 0 },
+        { "metric": "selfInterruptions", "max": 0 }
+      ]
+    },
+    {
+      "id": "session-30-minutes",
+      "title": "Thirty minutes of Auto mode",
+      "needs": ["microphone", "speaker"],
+      "steps": [
+        "Start Auto mode, speak a turn about every 90 seconds for at least 30 minutes without restarting the app or touching Reset microphone.",
+        "At the end copy Voice diagnostics (it includes the soak record) into the report."
+      ],
+      "criteria": [
+        { "metric": "durationMinutes", "min": 30 },
+        { "metric": "turns", "min": 18 },
+        { "metric": "stuckInterventions", "max": 0 },
+        { "metric": "unrecoveredFaults", "max": 0 },
+        { "metric": "heapGrowthMb", "max": 150 },
+        { "metric": "firstSoundLateVsEarlyRatio", "max": 1.5 }
+      ]
+    },
+    {
+      "id": "mic-unplug-replug",
+      "title": "Microphone unplug and replug",
+      "needs": ["usb-microphone"],
+      "steps": [
+        "With Auto mode listening on a USB or Bluetooth microphone, unplug it, wait 10 seconds, plug it back in. Do this 5 times.",
+        "Record, for each, how long until FRIDAY listened again without pressing anything, and whether the app crashed, froze or kept using the missing device."
+      ],
+      "criteria": [
+        { "metric": "trials", "min": 5 },
+        { "metric": "recoverySecondsP95", "max": 10 },
+        { "metric": "manualResets", "max": 0 },
+        { "metric": "crashesOrFreezes", "max": 0 }
+      ]
+    }
+  ]
+}
