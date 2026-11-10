@@ -156,6 +156,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: assistantMode.bargeShadowLine(),
     },
     {
+      label: "barge-in readiness (is there enough real-device evidence to switch)",
+      value: assistantMode.bargeShadowVerdictLine(),
+    },
+    {
       label: "self-test (16 checks)",
       value: selfTestSummary(
         voiceSelfTestMatrix({
@@ -335,7 +339,11 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           onClick={() => {
             const probes = formatVoiceProbeReport(checks);
             const live = redactDiagnostics(
-              [rows.map((row) => `${row.label}: ${row.value}`).join("\n"), assistantMode.micDebug()]
+              [
+                rows.map((row) => `${row.label}: ${row.value}`).join("\n"),
+                assistantMode.micDebug(),
+                `barge-in shadow data:\n${assistantMode.bargeShadowReport()}`,
+              ]
                 .filter(Boolean)
                 .join("\n"),
             );

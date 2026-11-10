@@ -50,13 +50,28 @@ describe("production capability map", () => {
     expect(missing).toEqual([]);
   });
 
-  it("ships the bundled friday.onnx linear scorer and no other onnx/tflite", () => {
-    expect(map.wakeWord.bundledOnnx).toBe(true);
-    const onnx = walkFiles(root).filter((f) => /\.(onnx|tflite)$/i.test(f));
-    expect(onnx).toEqual([join(root, "resources/wake/friday.onnx")]);
-    expect(existsSync(join(root, "resources/wake/friday-wake.json"))).toBe(true);
-    expect(read("kernel/wake_word.py")).toMatch(/Bundled FRIDAY linear scorer/);
+  it("ships no synthetic wake detector: a model in resources/wake must be real-speech and evaluated", () => {
+    expect(map.wakeWord.bundledOnnx).toBe(false);
+    const shipped = walkFiles(root).filter((f) => /\.(onnx|tflite)$/i.test(f));
+    // Only the labelled test fixture (and nothing under resources/) may carry a model file.
+    expect(shipped.filter((f) => f.includes(`${join(root, "resources")}`))).toEqual([]);
+    const manifestFile = join(root, "resources/wake/friday-wake.json");
+    if (existsSync(manifestFile)) {
+      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+      expect(manifest.kind).toBe("friday-linear-v2");
+      expect(manifest.provenance).toBe("real-speech");
+      expect(manifest.production).toBe(true);
+      expect(manifest.evaluation.meetsTargets).toBe(true);
+      expect(manifest.evaluation.independent).toBe(true);
+    }
+    const fixture = JSON.parse(
+      readFileSync(join(root, "testing/wake-fixture/friday-wake.json"), "utf8"),
+    );
+    expect(fixture.provenance).toBe("synthetic-fixture");
+    expect(fixture.production).toBe(false);
+    expect(read("kernel/wake_word.py")).toMatch(/REAL recordings/);
     expect(read("electron/wake-engine.cjs")).toContain("installBundledModel");
+    expect(read("electron/wake-engine.cjs")).toContain("isProductionManifest");
   });
 });
 

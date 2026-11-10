@@ -37,6 +37,12 @@ export type VoiceCloudPrefs = {
   streamCaptions: boolean;
   /** Play a streamed Sarvam clause while it is still arriving (needs Stream Sarvam speech; mp3 through a media source). */
   streamPlayback: boolean;
+  /**
+   * Who turns a finished utterance into a Brain turn. `captions` (default): Sarvam only draws live words and the local
+   * recogniser makes the turn. `sarvam`: the Sarvam final is the input, while every cloud gate passes (it needs live
+   * captions and cloud voice on); otherwise, and whenever a gate fails, the local text is used. See stt-authority.ts.
+   */
+  sttAuthority: "captions" | "sarvam";
 };
 
 export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
@@ -56,6 +62,7 @@ export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
   streaming: false,
   streamCaptions: false,
   streamPlayback: false,
+  sttAuthority: "captions",
 };
 
 const whole = (value: unknown, max: number): number => {
@@ -103,6 +110,11 @@ export function sanitizeCloudPrefs(
     streaming: src.streaming === true,
     streamCaptions: src.streamCaptions === true,
     streamPlayback: src.streamPlayback === true,
+    // Authority over the turn is only ever kept while the stream that supplies it is itself permitted.
+    sttAuthority:
+      src.sttAuthority === "sarvam" && src.streamCaptions === true && src.cloudEnabled === true
+        ? "sarvam"
+        : "captions",
   };
 }
 
@@ -119,6 +131,7 @@ export function toRouterSettings(
     streaming: _st,
     streamCaptions: _sc,
     streamPlayback: _sp,
+    sttAuthority: _sa,
     ...router
   } = clean;
   return { ...DEFAULT_CLOUD_SETTINGS, ...router, keyPresent };

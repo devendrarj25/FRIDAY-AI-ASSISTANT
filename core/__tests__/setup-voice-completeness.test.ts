@@ -48,23 +48,15 @@ describe("setup and the packaged build", () => {
 
   it("the build refuses a package without the wake model or the voice kernel files", () => {
     const verify = read("scripts/verify-build.cjs");
-    for (const label of [
-      "Wake model (friday.onnx)",
-      "Speech worker",
-      "Voice runtime",
-      "Wake scorer",
-    ])
+    for (const label of ["Speech worker", "Voice runtime", "Wake scorer"])
       expect(verify, label).toContain(`label: "${label}"`);
-    expect(verify).toContain('"wake", "friday.onnx"');
+    // The wake model is audited, not required: none ships until a real-speech one has met its targets.
+    expect(verify).toContain('"wake", "friday-wake.json"');
+    expect(verify).toContain('manifest.provenance === "real-speech"');
   });
 
   it("the shipped files those checks name exist in the repository", () => {
-    for (const file of [
-      "resources/wake/friday.onnx",
-      "kernel/stt.py",
-      "kernel/voice_runtime.py",
-      "kernel/wake_word.py",
-    ])
+    for (const file of ["kernel/stt.py", "kernel/voice_runtime.py", "kernel/wake_word.py"])
       expect(() => readFileSync(file)).not.toThrow();
   });
 });

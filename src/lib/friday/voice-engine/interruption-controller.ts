@@ -87,31 +87,56 @@ export class BargeInDetector {
  * `windowMs` of each other. A detector that fires with no live pause, or the reverse, shows where the guard and
  * the detector disagree on the owner's own microphone and speakers.
  */
+/** What the shadow knew when one side fired, so a disagreement can be read against the room it happened in. */
+export type ShadowContext = { playbackLevel: number; micLevel: number };
+
+export type ShadowResolved =
+  | { kind: "both"; leadMs: number; playbackLevel: number; micLevel: number }
+  | { kind: "detectorOnly"; playbackLevel: number; micLevel: number }
+  | { kind: "liveOnly"; playbackLevel: number; micLevel: number };
+
 export class BargeShadow {
-  private pending: Array<{ t: number; by: "detector" | "live"; matched: boolean }> = [];
+  private pending: Array<{
+    t: number;
+    by: "detector" | "live";
+    matched: boolean;
+    context: ShadowContext;
+  }> = [];
   detectorOnly = 0;
   liveOnly = 0;
   both = 0;
 
-  constructor(private readonly windowMs = 700) {}
+  /** `onResolved` hears every outcome once, when it is known (a pair at once, a one-sided hit when its window ends). */
+  constructor(
+    private readonly windowMs = 700,
+    private readonly onResolved?: (outcome: ShadowResolved) => void,
+  ) {}
 
-  detectorFired(t: number): void {
-    this.add(t, "detector");
+  detectorFired(t: number, context: ShadowContext = { playbackLevel: 0, micLevel: 0 }): void {
+    this.add(t, "detector", context);
   }
 
-  liveFired(t: number): void {
-    this.add(t, "live");
+  liveFired(t: number, context: ShadowContext = { playbackLevel: 0, micLevel: 0 }): void {
+    this.add(t, "live", context);
   }
 
-  private add(t: number, by: "detector" | "live"): void {
+  private add(t: number, by: "detector" | "live", context: ShadowContext): void {
     const other = this.pending.find(
       (e) => e.by !== by && !e.matched && Math.abs(e.t - t) <= this.windowMs,
     );
     if (other) {
       other.matched = true;
       this.both += 1;
-      this.pending.push({ t, by, matched: true });
-    } else this.pending.push({ t, by, matched: false });
+      this.pending.push({ t, by, matched: true, context });
+      const detectorAt = by === "detector" ? t : other.t;
+      const liveAt = by === "live" ? t : other.t;
+      this.onResolved?.({
+        kind: "both",
+        leadMs: detectorAt - liveAt,
+        playbackLevel: Math.max(context.playbackLevel, other.context.playbackLevel),
+        micLevel: Math.max(context.micLevel, other.context.micLevel),
+      });
+    } else this.pending.push({ t, by, matched: false, context });
     this.tick(t);
   }
 
@@ -123,6 +148,11 @@ export class BargeShadow {
       else if (!e.matched) {
         if (e.by === "detector") this.detectorOnly += 1;
         else this.liveOnly += 1;
+        this.onResolved?.({
+          kind: e.by === "detector" ? "detectorOnly" : "liveOnly",
+          playbackLevel: e.context.playbackLevel,
+          micLevel: e.context.micLevel,
+        });
       }
     }
     this.pending = keep;

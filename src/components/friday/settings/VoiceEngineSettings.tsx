@@ -368,7 +368,23 @@ function CloudSpeechTest({
           label="Live captions from Sarvam"
           hint="Shows Hindi, English and Hinglish words as you speak. Sends the audio of what you say to Sarvam, only while you speak, and only with cloud voice on, a saved key, privacy mode off and quota left. It draws words only; the reply still comes from the normal listening path. Off by default and not yet run against a live account."
           on={cloud.streamCaptions}
-          onToggle={() => set({ streamCaptions: !cloud.streamCaptions })}
+          onToggle={() =>
+            set(
+              cloud.streamCaptions
+                ? { streamCaptions: false, sttAuthority: "captions" }
+                : { streamCaptions: true },
+            )
+          }
+        />
+      ) : null}
+      {cloud.allowedProviders.includes("sarvam") && cloud.streamCaptions ? (
+        <ToggleRow
+          label="Sarvam's final text starts the turn"
+          hint="Off (safe): Sarvam only shows live words and the local recogniser makes the turn. On: the finished Sarvam sentence is what FRIDAY answers, which can be more accurate for Hindi and Hinglish. Only one finished sentence ever starts a turn, a half-finished one never does, and if cloud voice, the key, privacy mode or your quota stop allowing it, FRIDAY uses the local text instead. Off by default; not yet measured on a real microphone."
+          on={cloud.sttAuthority === "sarvam"}
+          onToggle={() =>
+            set({ sttAuthority: cloud.sttAuthority === "sarvam" ? "captions" : "sarvam" })
+          }
         />
       ) : null}
       {cloud.speakWith ? (

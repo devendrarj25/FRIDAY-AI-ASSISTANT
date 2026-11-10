@@ -6,7 +6,10 @@
  *   friday-linear / openwakeword — native detector. It scores a captured clip
  *                  BEFORE whisper runs, on a persistent worker that keeps the
  *                  matching model loaded. Ready only when that configured
- *                  model's file is actually present (jarvis never uses friday.onnx).
+ *                  model's file is actually present (jarvis never uses friday.onnx)
+ *                  and, for the FRIDAY linear scorer, only when its manifest says it
+ *                  was trained on real speech and met its held-out targets
+ *                  (kernel/wake_word.py production_status). FRIDAY ships none yet.
  *   transcript   — the documented fallback (src/lib/friday/wake-word.ts):
  *                  regex matching over the finished faster-whisper transcript.
  *                  Used whenever the native detector is not installed, or is

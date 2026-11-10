@@ -84,12 +84,8 @@ const checks = [
       "requirements-capabilities.txt",
     ),
   },
-  // The voice files the installed app copies or runs. Without them the wake word falls back to transcript
-  // matching and listening cannot start, with nothing in the build to say so.
-  {
-    label: "Wake model (friday.onnx)",
-    file: path.join(release, "win-unpacked", "resources", "wake", "friday.onnx"),
-  },
+  // The voice files the installed app runs. (A wake model is audited separately below: none is required, but one
+  // that ships must be a real-speech, evaluated model.)
   {
     label: "Speech worker",
     file: path.join(release, "win-unpacked", "resources", "kernel", "stt.py"),
@@ -101,6 +97,10 @@ const checks = [
   {
     label: "Wake scorer",
     file: path.join(release, "win-unpacked", "resources", "kernel", "wake_word.py"),
+  },
+  {
+    label: "Wake features",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "wake_features.py"),
   },
   {
     label: "Config",
@@ -160,6 +160,39 @@ for (const check of checks) {
   console.log(
     `[friday] ok       ${check.label}: ${path.relative(root, check.file)} (${mb(check.file)})`,
   );
+}
+
+// The wake word. FRIDAY ships no wake model until one is trained on real recordings and meets its held-out
+// targets (scripts/train-friday-wake.py); until then the transcript matcher answers. A model that does ship
+// must say so in its own manifest, so a synthetic or unevaluated scorer can never reach a build.
+{
+  const manifestFile = path.join(release, "win-unpacked", "resources", "wake", "friday-wake.json");
+  if (!fs.existsSync(manifestFile)) {
+    console.log("[friday] ok       Wake model: none shipped (the transcript matcher answers)");
+  } else {
+    let manifest = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    } catch {
+      manifest = null;
+    }
+    const evaluation = (manifest && manifest.evaluation) || {};
+    const real =
+      manifest &&
+      manifest.kind === "friday-linear-v2" &&
+      manifest.provenance === "real-speech" &&
+      manifest.production === true &&
+      evaluation.meetsTargets === true &&
+      evaluation.independent === true;
+    if (real) {
+      console.log("[friday] ok       Wake model: real-speech, held-out targets met");
+    } else {
+      console.error(
+        "[friday] WAKE     resources/wake holds a model that is synthetic, unevaluated or unreadable; remove it or train a real-speech one",
+      );
+      failed++;
+    }
+  }
 }
 
 // Identity of the packaged executable: product name, publisher and the

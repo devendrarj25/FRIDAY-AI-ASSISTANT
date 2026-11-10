@@ -71,8 +71,9 @@ describe("voice tone against the owner's own baseline", () => {
 
   it("only his own voice teaches the baseline: the tone is read after the echo and duplicate checks", () => {
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
-    const final = mode.slice(mode.indexOf("onFinal: (text, meta) => {"));
-    const body = final.slice(0, final.indexOf("onStateChange"));
+    // The turn is made in acceptFinalUtterance, after the arbiter has let a finished utterance through.
+    const final = mode.slice(mode.indexOf("private acceptFinalUtterance("));
+    const body = final.slice(0, final.indexOf("private captionStt"));
     expect(body.indexOf("this.isSelfEcho(text)")).toBeGreaterThan(-1);
     expect(body.indexOf("this.lastTone = assessTone(meta?.prosody)")).toBeGreaterThan(
       body.indexOf("this.isSelfEcho(text)"),
