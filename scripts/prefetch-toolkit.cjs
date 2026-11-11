@@ -158,11 +158,13 @@ function preferNewestCopy(root, entry, tool, deps = {}) {
     const delimiter = deps.delimiter || path.delimiter;
     const seen = new Set();
     const dirs = [];
-    const add = (dir) => {
-      const key = String(dir || "").toLowerCase();
+    const add = (raw) => {
+      // One spelling per folder ("/prog/Pandoc" and "\\prog\\Pandoc" are the same place on Windows).
+      const dir = raw ? path.normalize(String(raw)) : "";
+      const key = dir.toLowerCase();
       if (dir && !seen.has(key)) {
         seen.add(key);
-        dirs.push(String(dir));
+        dirs.push(dir);
       }
     };
     const onPath = String(env.PATH || "")
@@ -184,8 +186,9 @@ function preferNewestCopy(root, entry, tool, deps = {}) {
       .filter((copy) => copy.version);
     if (copies.length < 2) return null;
     const winner =
-      copies.find((copy) => onPath.some((p) => p.toLowerCase() === copy.dir.toLowerCase())) ||
-      copies[0];
+      copies.find((copy) =>
+        onPath.some((p) => path.normalize(p).toLowerCase() === copy.dir.toLowerCase()),
+      ) || copies[0];
     let best = copies[0];
     for (const copy of copies) if (newer(copy.version, best.version)) best = copy;
     if (best.dir.toLowerCase() === winner.dir.toLowerCase() || !newer(best.version, winner.version))
