@@ -337,7 +337,7 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
       if ($before -and $after -and $before -eq $after) {
         # winget said it installed a release, but the program that answers on PATH is the same version as before.
         Write-MethodFailure "winget upgrade $id" "reported success, but $Command still answers $after"
-        Add-FollowUp "$Label: winget installed a newer release, but $Command still reports $after. Another copy is first on PATH, or Windows needs a restart; open a new terminal and run $Command $($VersionArguments -join ' ')."
+        Add-FollowUp "${Label}: winget installed a newer release, but $Command still reports $after. Another copy is first on PATH, or Windows needs a restart; open a new terminal and run $Command $($VersionArguments -join ' ')."
       } elseif ($before -and $after) {
         Write-Step "$Label updated from $before to $after ($id)"
       } else {

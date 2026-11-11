@@ -63,4 +63,18 @@ describe("build run log fixes (2026-11-11)", () => {
       'model.options.get("model", model.id)',
     );
   });
+
+  it("no double-quoted PowerShell string has a bare variable-colon (it parses as a scope-qualified variable)", () => {
+    const text = fs.readFileSync(path.join(ROOT, "scripts/setup-windows.ps1"), "utf8");
+    const scopes = /^(env|script|global|local|private|using|variable|function)$/i;
+    const bad: string[] = [];
+    text.split(/\r?\n/).forEach((line, i) => {
+      for (const quoted of line.matchAll(/"((?:[^"`]|`.)*)"/g)) {
+        for (const v of (quoted[1] ?? "").matchAll(/(?<![`$])[$]([A-Za-z_]\w*):/g)) {
+          if (!scopes.test(v[1] ?? "")) bad.push(`${i + 1}: ${v[0]}`);
+        }
+      }
+    });
+    expect(bad).toEqual([]);
+  });
 });
