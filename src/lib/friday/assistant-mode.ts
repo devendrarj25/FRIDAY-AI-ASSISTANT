@@ -78,6 +78,13 @@ import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-clou
 import { createStreamingSpeak } from "./voice-engine/streaming-speak";
 import { StageClock } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
+import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
+import { SoakRecorder } from "./voice-engine/soak-recorder";
+import {
+  SttBillingReconciler,
+  createUtteranceArbiter,
+  type Utterance,
+} from "./voice-engine/stt-authority";
 import { createWakeFrameFeed } from "./voice-engine/voice-frame-assembler";
 import { classifyNoteCommand, minutesPrompt, translationPrompt, voiceNotes } from "./voice-notes";
 import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
@@ -420,6 +427,14 @@ const desktop = (): VoiceDesktop | null =>
 
 let cid = 0;
 const captionId = () => `cap-${Date.now().toString(36)}-${(cid += 1).toString(36)}`;
+
+/** Used JavaScript heap in MB where the engine reports it (Chromium does); null elsewhere. */
+function heapMegabytes(): number | null {
+  const memory = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
+  return typeof memory?.usedJSHeapSize === "number" ? memory.usedJSHeapSize / 1_048_576 : null;
+}
+
+type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[0]["onFinal"]>[1];
 
 class AssistantModeStore {
   private listeners = new Set<() => void>();
@@ -1274,6 +1289,7 @@ class AssistantModeStore {
       if (this.state.mode === "auto") void this.selfCheckVoice(false);
     }, 6000);
     this.startBargeShadow();
+    this.soak.start(Date.now());
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
@@ -1420,6 +1436,7 @@ class AssistantModeStore {
     void this.stopCloudCaptions();
     this.stopLiveWake();
     this.stopBargeShadow();
+    this.soak.stop(Date.now());
     // Nothing from this Auto session may survive into the next one: queued requests, a paused reply, a spent wake.
     this.queuedCommands = [];
     this.stopQueueTimer();
@@ -1625,6 +1642,7 @@ class AssistantModeStore {
     const now = Date.now();
     if (now - this.lastSupervisorTick < 5000) return;
     this.lastSupervisorTick = now;
+    this.soak.sample(now, heapMegabytes());
     const verdict = superviseVoice({
       mode: this.state.mode,
       paused: this.state.paused,
@@ -1639,6 +1657,7 @@ class AssistantModeStore {
     if (now - (this.supervisedAt.get(verdict.state) ?? 0) < SUPERVISOR_COOLDOWN_MS) return;
     this.supervisedAt.set(verdict.state, now);
     this.interventions += 1;
+    this.soak.intervention();
     this.lastIntervention = `${verdict.state}: ${verdict.reason}`;
     this.trace("heal", `supervisor: ${verdict.reason}`);
     if (verdict.remedy === "self-check") {
@@ -1964,7 +1983,9 @@ class AssistantModeStore {
       },
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
-        this.turnStages.finish();
+        const finished = this.turnStages.finish();
+        if (Object.keys(finished).length)
+          this.soak.turn(Date.now(), finished["firstAudible"] ?? null);
         this.turnStages.reset();
         this.turnStages.mark("micSpeechStart");
         this.turnClock = {
@@ -2047,38 +2068,16 @@ class AssistantModeStore {
       },
       onFinal: (text, meta) => {
         const trimmed = text.trim();
-        if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
-          this.trace("dropped", "duplicate finalized utterance");
-          this.state.interim = "";
-          this.to("transcript");
-          this.emit();
-          return;
-        }
-        this.lastFinalText = trimmed;
-        this.lastFinalAt = Date.now();
-        if (this.recentlySpeaking() && this.isSelfEcho(text)) {
-          this.trace("dropped", "ignored FRIDAY's own voice (echo)");
-          this.to("transcript");
-          return;
-        }
-        // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
-        // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
-        this.lastTone = assessTone(meta?.prosody);
-        this.lastSpeechMs = meta?.durationMs ?? null;
-        this.lastHeardQuality = meta?.quality ?? null;
-        this.state.interim = "";
-        beginVoiceTurn();
-        markTurnStage("heard", true, "", `${trimmed.split(/\s+/).length} words`);
-        this.state.stt = {
-          ...this.state.stt,
-          lastTranscript: text.slice(0, 200),
-          lastError: null,
-          lastLatencyMs: meta?.ms ?? null,
-        };
-        this.handleHeard(text, meta?.wake ?? null);
+        // Which recogniser may make the turn is decided in one place (stt-authority.ts). By default the local text goes
+        // straight through; when the owner made Sarvam the authority it waits briefly for the cloud sentence.
+        if (trimmed) this.rememberLocalMeta(trimmed, meta);
+        const decision = this.sttArbiter().local(trimmed);
+        if (decision.action === "hold")
+          this.trace("segment", "local text held for the Sarvam sentence");
       },
       onStateChange: (listening) => {
         if (listening === "listening") {
+          this.soak.recovered();
           this.to("mic-opened");
           this.announceReady();
         } else if (listening === "thinking") this.to("transcribe-start");
@@ -2857,6 +2856,7 @@ class AssistantModeStore {
 
   private noteMicFault(message: string) {
     if (this.shownMicFault === message) return;
+    this.soak.fault();
     this.shownMicFault = message;
     this.state.error = message;
     this.trace("error", message);
@@ -3097,7 +3097,10 @@ class AssistantModeStore {
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
   private holdForInterruption() {
     if (this.interruptHold) return;
-    this.bargeShadow.liveFired(performance.now());
+    this.bargeShadow.liveFired(performance.now(), {
+      playbackLevel: speechRms(),
+      micLevel: this.bargeMicLevel,
+    });
     this.interruptStages.reset();
     this.interruptStages.mark("interruptCandidate");
     this.clearHoldLines();
@@ -3451,9 +3454,27 @@ class AssistantModeStore {
     });
   }
 
+  private readonly soak = new SoakRecorder();
+
+  /** The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak). */
+  soakReport(): string {
+    return JSON.stringify(this.soak.record(), null, 2);
+  }
+
   private bargeDetector = new BargeInDetector();
-  private bargeShadow = new BargeShadow();
+  /** What the detector and the live pause did on this PC's devices, kept across restarts (shadow-evaluation.ts). */
+  private bargeLedger = ShadowLedger.load(
+    typeof localStorage === "undefined" ? null : localStorage,
+  );
+  private bargeShadow = new BargeShadow(700, (outcome) => this.bargeLedger.record(outcome));
   private bargeShadowOff: (() => void) | null = null;
+  private bargeMicLevel = 0;
+  private bargeSavedAt = 0;
+
+  private saveBargeLedger() {
+    this.bargeLedger.save(typeof localStorage === "undefined" ? null : localStorage);
+    this.bargeSavedAt = Date.now();
+  }
 
   /**
    * Shadow barge-in: the acoustic detector (`BargeInDetector`) runs on the shared capture with the real speaker
@@ -3464,7 +3485,8 @@ class AssistantModeStore {
     if (this.bargeShadowOff) return;
     // The shadow is a measurement: when the capture has no free listener it is simply not run.
     try {
-      this.bargeShadowOff = subscribeCaptureFrames((samples, _rate, atMono) => {
+      this.bargeLedger.beginSession();
+      this.bargeShadowOff = subscribeCaptureFrames((samples, rate, atMono) => {
         if (this.state.mode !== "auto" || !this.state.speaking) return;
         let sum = 0;
         for (let i = 0; i < samples.length; i += 1) {
@@ -3472,13 +3494,18 @@ class AssistantModeStore {
           sum += v * v;
         }
         const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        const playbackLevel = speechRms();
+        this.bargeMicLevel = micLevel;
+        // Time spent playing with the detector listening: the denominator of "false interruptions per hour".
+        if (rate > 0) this.bargeLedger.addExposure((samples.length / rate) * 1000);
         const fired = this.bargeDetector.push({
           t: atMono,
           speech: voiceGate.heardSpeechWithin(250),
           micLevel,
-          playbackLevel: speechRms(),
+          playbackLevel,
         });
-        if (fired) this.bargeShadow.detectorFired(performance.now());
+        if (fired) this.bargeShadow.detectorFired(performance.now(), { playbackLevel, micLevel });
+        if (Date.now() - this.bargeSavedAt > 30_000) this.saveBargeLedger();
       });
     } catch {
       this.bargeShadowOff = null;
@@ -3489,11 +3516,34 @@ class AssistantModeStore {
     this.bargeShadowOff?.();
     this.bargeShadowOff = null;
     this.bargeDetector.playbackEnded();
+    this.bargeShadow.tick(performance.now() + 10_000); // settle pairings that were still waiting
+    this.saveBargeLedger();
   }
 
   /** One line for Voice diagnostics. */
   bargeShadowLine(): string {
     return this.bargeShadow.line(performance.now());
+  }
+
+  /**
+   * Whether the evidence on this PC would support letting the acoustic detector make the interruption decision.
+   * Advice for a person: nothing here switches the decision, and the live path stays the only one that acts.
+   */
+  bargeShadowVerdictLine(): string {
+    this.bargeShadow.tick(performance.now());
+    return verdictLine(shadowVerdict(this.bargeLedger.report()));
+  }
+
+  /** The measurements as JSON for a bug report or the hardware validation record. */
+  bargeShadowReport(): string {
+    this.bargeShadow.tick(performance.now());
+    const report = this.bargeLedger.report();
+    return JSON.stringify({ report, verdict: shadowVerdict(report) }, null, 2);
+  }
+
+  resetBargeShadow() {
+    this.bargeLedger.reset();
+    this.saveBargeLedger();
   }
 
   private wakeFeed: ReturnType<typeof createWakeFrameFeed> | null = null;
@@ -3554,10 +3604,95 @@ class AssistantModeStore {
       : `${base} · ${stats.chunks} chunks scored · last score ${stats.lastScore.toFixed(2)}`;
   }
 
+  /** The local recogniser's measurements for a finished utterance, kept until the arbiter lets that text through. */
+  private localFinalMeta = new Map<string, LocalFinalMeta>();
+  private rememberLocalMeta(text: string, meta: LocalFinalMeta) {
+    if (this.localFinalMeta.size >= 8) {
+      const oldest = this.localFinalMeta.keys().next().value;
+      if (oldest !== undefined) this.localFinalMeta.delete(oldest);
+    }
+    this.localFinalMeta.set(text, meta);
+  }
+
+  private sttArbiterInstance: ReturnType<typeof createUtteranceArbiter> | null = null;
+  /** The one gate between a finished utterance (either recogniser) and a Brain turn. */
+  private sttArbiter() {
+    this.sttArbiterInstance ??= createUtteranceArbiter({
+      authority: () => sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice).sttAuthority,
+      cloudHealthy: () => this.captionStt?.stats().status === "open",
+      gate: () => this.cloudSttGate(),
+      submit: (utterance) => this.acceptFinalUtterance(utterance),
+    });
+    return this.sttArbiterInstance;
+  }
+
+  /**
+   * The cloud permissions, asked again for every Sarvam final that wants to start a turn: cloud voice on, Sarvam
+   * allowed, privacy mode off, a saved key, quota left. Nothing is counted here.
+   */
+  private cloudSttGate(): { ok: boolean; reason?: string } {
+    const voice = preferences.getSnapshot().voice;
+    const cloud = sanitizeCloudPrefs(voice.cloudVoice);
+    if (voice.privacyMode === true) return { ok: false, reason: "privacy mode is on" };
+    if (!cloud.cloudEnabled || !cloud.allowedProviders.includes("sarvam"))
+      return { ok: false, reason: "cloud voice or Sarvam is switched off" };
+    this.cloudLedger ??= loadLedger(typeof localStorage === "undefined" ? null : localStorage);
+    const verdict = canStreamSpeechToText(
+      {
+        prefs: cloud,
+        keys: this.cloudSpeechKeys,
+        privacyMode: false,
+        online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+      },
+      this.cloudLedger,
+    );
+    return verdict.ok ? { ok: true } : { ok: false, reason: verdict.error };
+  }
+
+  /** A finished utterance that the arbiter let through: from here it is one turn, whichever engine heard it. */
+  private acceptFinalUtterance(utterance: Utterance) {
+    const text = utterance.text;
+    const meta = utterance.source === "local" ? this.localFinalMeta.get(text) : undefined;
+    this.localFinalMeta.delete(text);
+    if (utterance.source === "sarvam")
+      this.trace("segment", "the Sarvam sentence starts this turn");
+    const trimmed = text.trim();
+    if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
+      this.trace("dropped", "duplicate finalized utterance");
+      this.state.interim = "";
+      this.to("transcript");
+      this.emit();
+      return;
+    }
+    this.lastFinalText = trimmed;
+    this.lastFinalAt = Date.now();
+    if (this.recentlySpeaking() && this.isSelfEcho(text)) {
+      this.trace("dropped", "ignored FRIDAY's own voice (echo)");
+      this.to("transcript");
+      return;
+    }
+    // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
+    // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
+    this.lastTone = assessTone(meta?.prosody);
+    this.lastSpeechMs = meta?.durationMs ?? null;
+    this.lastHeardQuality = meta?.quality ?? null;
+    this.state.interim = "";
+    beginVoiceTurn();
+    markTurnStage("heard", true, "", `${trimmed.split(/\s+/).length} words`);
+    this.state.stt = {
+      ...this.state.stt,
+      lastTranscript: text.slice(0, 200),
+      lastError: null,
+      lastLatencyMs: meta?.ms ?? null,
+    };
+    this.handleHeard(text, meta?.wake ?? null);
+  }
+
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
   private captionOff: (() => void) | null = null;
   private captionStarting = false;
   private captionBlockedUntil = 0;
+  private readonly captionBilling = new SttBillingReconciler();
 
   /**
    * Live partial words from Sarvam, shown as the caption while the owner speaks. Off by default; it sends the
@@ -3606,11 +3741,21 @@ class AssistantModeStore {
           this.state.interim = event.text;
           this.emit();
         },
-        onBilledSeconds: (seconds) => {
-          ledger.record("sarvam", seconds / 60);
-          saveLedger(store, ledger);
+        // A finished Sarvam sentence goes to the arbiter, which lets it start a turn only in the owner's
+        // "Sarvam's final text starts the turn" mode and only while every cloud gate still passes. A partial never does.
+        onFinalTurn: (final) => {
+          const decision = this.sttArbiter().cloudFinal(final.text, final.language, final.turnId);
+          if (decision.action === "drop" && decision.reason === "blocked")
+            this.trace(
+              "segment",
+              `Sarvam text not used — ${decision.detail ?? "a cloud gate is closed"}`,
+            );
         },
+        // The provider's own count replaces the client's estimate; it is recorded once when the stream closes.
+        onBilledSeconds: (seconds) => this.captionBilling.reportBilled(seconds),
         onStatus: (status, detail) => {
+          if (status === "closed" || status === "failed" || status === "retrying")
+            this.sttArbiter().cloudLost(); // a held local sentence is used now, not after the wait
           if (status !== "failed") return;
           this.captionBlockedUntil = Date.now() + 60_000;
           this.trace("segment", `live captions stopped — ${detail ?? "the stream failed"}`);
@@ -3649,7 +3794,8 @@ class AssistantModeStore {
           }
           if (this.state.paused || this.state.muted || this.state.speaking) return;
           if (!voiceGate.heardSpeechWithin(CAPTION_TAIL_MS)) return;
-          this.captionStt.pushFrame(samples, rate);
+          if (this.captionStt.pushFrame(samples, rate))
+            this.captionBilling.addSentSeconds(samples.length / rate);
         });
       } catch {
         // No free capture listener: the stream is closed again instead of running with nothing to send.
@@ -3666,9 +3812,25 @@ class AssistantModeStore {
     this.captionOff = null;
     const stt = this.captionStt;
     this.captionStt = null;
+    this.sttArbiter().cloudLost();
     if (stt) {
       await stt.finish().catch(() => undefined);
+      // The provider reports what it billed when the session ends; give it a moment, then record once: its figure
+      // if it came, the client's own count if the stream dropped first.
+      for (let waited = 0; waited < 800 && !this.captionBilling.hasBilled; waited += 50)
+        await new Promise((resolve) => setTimeout(resolve, 50));
       await stt.stop().catch(() => undefined);
+      const owed = this.captionBilling.take();
+      if (owed.seconds > 0) {
+        const store = typeof localStorage === "undefined" ? null : localStorage;
+        this.cloudLedger ??= loadLedger(store);
+        this.cloudLedger.record("sarvam", owed.seconds / 60);
+        saveLedger(store, this.cloudLedger);
+        this.trace(
+          "segment",
+          `Sarvam captions billed ${owed.seconds.toFixed(1)} s (${owed.source === "provider" ? "provider's count" : "estimate"})`,
+        );
+      }
     }
   }
 
@@ -3706,7 +3868,14 @@ class AssistantModeStore {
         text: string,
         lang: string,
         tone: { rate: number; pitch: number; volume: number },
-      ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>)
+      ) => Promise<{
+        audioBase64: string;
+        mime: string;
+        engine: string;
+        voice?: string;
+        audio?: unknown;
+        release?: () => void;
+      } | null>)
     | undefined {
     const cloud = sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice);
     const provider = cloud.speakWith;
@@ -3756,6 +3925,7 @@ class AssistantModeStore {
         mime: out.mime,
         engine: provider,
         ...(out.audio ? { audio: out.audio } : {}),
+        ...(out.release ? { release: out.release } : {}),
       };
     };
   }

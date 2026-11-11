@@ -311,3 +311,131 @@ describe("Sarvam stream sessions", () => {
     expect(streams.open("k", "video", {}, handlers().h).ok).toBe(false);
   });
 });
+
+describe("a stream is ready only when its socket has really opened", () => {
+  const streamsWithTimers = () => {
+    const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
+    const streams = createSarvamStreams({
+      WebSocketImpl: FakeSocket,
+      gate: () => allowed,
+      setInterval: () => ({ unref() {} }),
+      clearInterval: () => undefined,
+      setTimeout: (fn: () => void, ms: number) => {
+        const t = { fn, ms, cleared: false };
+        timers.push(t);
+        return t;
+      },
+      clearTimeout: (t: { cleared: boolean }) => {
+        if (t) t.cleared = true;
+      },
+      openTimeoutMs: 5000,
+    });
+    return { streams, timers };
+  };
+  const tts = { speaker: "aparna_hi_customer", language: "hi-IN" };
+
+  it("accepts the request first, but refuses a send and a ready answer until the socket opens", async () => {
+    const { streams } = streamsWithTimers();
+    expect(streams.open("t1", "tts", tts, handlers().h).ok).toBe(true);
+    // The request was accepted and the socket is still connecting: text sent now would be lost.
+    expect(streams.send("t1", { type: "text", text: "नमस्ते" })).toEqual({
+      ok: false,
+      error: "that stream is still connecting",
+    });
+    expect(streams.send("t1", { type: "flush" }).ok).toBe(false);
+    expect(FakeSocket.last!.sent).toEqual([]);
+    let ready = false;
+    const waiting = streams.whenOpen("t1").then((r: { ok: boolean }) => {
+      ready = r.ok;
+      return r;
+    });
+    await Promise.resolve();
+    expect(ready).toBe(false);
+    FakeSocket.last!.open(); // a delayed open
+    expect(await waiting).toEqual({ ok: true });
+    expect(JSON.parse(FakeSocket.last!.sent[0]!).type).toBe("config");
+    expect(streams.send("t1", { type: "text", text: "नमस्ते" }).ok).toBe(true);
+    expect(await streams.whenOpen("t1")).toEqual({ ok: true }); // already open
+  });
+
+  it("reports a close before the open as a failure, not as a ready stream", async () => {
+    const { streams } = streamsWithTimers();
+    const { h, log } = handlers();
+    streams.open("t1", "tts", tts, h);
+    const waiting = streams.whenOpen("t1");
+    FakeSocket.last!.emit("close", { code: 1003, reason: "key refused" });
+    const out = await waiting;
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("closed before it opened");
+    expect(log).not.toContain("open");
+    expect(streams.send("t1", { type: "text", text: "x" }).ok).toBe(false);
+    expect(streams.count()).toBe(0);
+    expect((await streams.whenOpen("t1")).ok).toBe(false);
+  });
+
+  it("reports a socket error before the open the same way", async () => {
+    const { streams } = streamsWithTimers();
+    streams.open("t1", "tts", tts, handlers().h);
+    const waiting = streams.whenOpen("t1");
+    FakeSocket.last!.emit("error");
+    expect((await waiting).ok).toBe(false);
+    expect(streams.count()).toBe(0);
+  });
+
+  it("gives up on a connection that never opens, closes it and frees the slot", async () => {
+    const { streams, timers } = streamsWithTimers();
+    const { h, log } = handlers();
+    streams.open("t1", "tts", tts, h);
+    const waiting = streams.whenOpen("t1");
+    const limit = timers.find((t) => t.ms === 5000)!;
+    limit.fn();
+    const out = await waiting;
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("did not open in time");
+    expect(FakeSocket.last!.readyState).toBe(3);
+    expect(log.some((e) => (e as { close?: { retry: boolean } }).close?.retry === true)).toBe(true);
+    expect(streams.count()).toBe(0);
+  });
+
+  it("stops the open timer once the socket has opened, so a late tick cannot close a live stream", async () => {
+    const { streams, timers } = streamsWithTimers();
+    streams.open("t1", "tts", tts, handlers().h);
+    FakeSocket.last!.open();
+    const limit = timers.find((t) => t.ms === 5000)!;
+    expect(limit.cleared).toBe(true);
+    limit.fn(); // a tick that already fired is ignored
+    expect(FakeSocket.last!.readyState).toBe(1);
+    expect(streams.count()).toBe(1);
+  });
+});
+
+describe("codecs per transport", () => {
+  it("accepts for the v4 WebSocket only the containers the provider lists and the player decodes", () => {
+    for (const codec of ["mp3", "wav", "aac", "flac"]) {
+      expect(buildTtsSession({ speaker: "aparna_hi_customer", codec }).ok, codec).toBe(true);
+    }
+    const listedButNotRequested = buildTtsSession({ speaker: "aparna_hi_customer", codec: "opus" });
+    expect(listedButNotRequested.ok).toBe(false);
+    expect(listedButNotRequested.error).toContain("listed");
+    for (const codec of ["linear16", "mulaw", "alaw"]) {
+      expect(buildTtsSession({ speaker: "aparna_hi_customer", codec }).ok, codec).toBe(false);
+    }
+    const unknown = buildTtsSession({ speaker: "aparna_hi_customer", codec: "ogg" });
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error).toContain("not an audio codec of the bulbul:v4-flash stream");
+  });
+
+  it("keeps the older models on the default container and the REST list apart from the socket's", () => {
+    expect(buildTtsSession({ model: "bulbul:v3", speaker: "anushka", codec: "mp3" }).ok).toBe(true);
+    expect(buildTtsSession({ model: "bulbul:v3", speaker: "anushka", codec: "wav" }).ok).toBe(
+      false,
+    );
+    const v4 = stream.codecCapabilities("bulbul:v4-flash");
+    expect(v4.websocket.listed).toContain("opus");
+    expect(v4.websocket.requestable).not.toContain("opus");
+    expect(v4.rest).toContain("linear16");
+    expect(v4.rest).not.toContain("opus");
+    expect(v4.websocket.requestable).not.toEqual(v4.rest);
+    expect(stream.codecCapabilities("bulbul:v9").websocket.requestable).toEqual([]);
+  });
+});

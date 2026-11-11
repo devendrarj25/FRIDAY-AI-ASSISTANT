@@ -76,23 +76,44 @@ function bundledWakeDir() {
     path.join(process.resourcesPath || "", "resources", "wake"),
     path.join(process.resourcesPath || "", "wake"),
   ];
-  return dirs.find((dir) => fs.existsSync(path.join(dir, "friday.onnx")));
+  return dirs.find((dir) => fs.existsSync(path.join(dir, "friday-wake.json")));
 }
 
-/** Copy the shipped friday.onnx into <FRIDAY_ROOT>/models/wake when missing. */
+/**
+ * May this manifest be installed as the wake detector? Only a model trained on real recordings whose held-out
+ * evaluation met its targets (scripts/train-friday-wake.py). A synthetic or unevaluated scorer is never copied.
+ */
+function isProductionManifest(manifest) {
+  const evaluation = (manifest && manifest.evaluation) || {};
+  return Boolean(
+    manifest &&
+    manifest.kind === "friday-linear-v2" &&
+    manifest.provenance === "real-speech" &&
+    manifest.production === true &&
+    evaluation.meetsTargets === true &&
+    evaluation.independent === true,
+  );
+}
+
+/**
+ * Copy the shipped real-speech FRIDAY wake model into <FRIDAY_ROOT>/models/wake when missing. FRIDAY ships none
+ * until one has been trained and evaluated, and then the transcript matcher answers.
+ */
 function installBundledModel() {
   const root = paths.root() || process.env.FRIDAY_ROOT;
   if (!root) return null;
   const destDir = path.join(root, "models", "wake");
-  const dest = path.join(destDir, "friday.onnx");
+  const dest = path.join(destDir, "friday-wake.json");
   if (fs.existsSync(dest)) return dest;
   const fromDir = bundledWakeDir();
   if (!fromDir) return null;
   try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(fromDir, "friday-wake.json"), "utf8"));
+    if (!isProductionManifest(manifest)) return null;
     fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(path.join(fromDir, "friday.onnx"), dest);
-    const json = path.join(fromDir, "friday-wake.json");
-    if (fs.existsSync(json)) fs.copyFileSync(json, path.join(destDir, "friday-wake.json"));
+    fs.copyFileSync(path.join(fromDir, "friday-wake.json"), dest);
+    const onnx = path.join(fromDir, "friday.onnx");
+    if (fs.existsSync(onnx)) fs.copyFileSync(onnx, path.join(destDir, "friday.onnx"));
     return dest;
   } catch {
     return null;
@@ -474,4 +495,5 @@ module.exports = {
   shutdown,
   installBundledModel,
   bundledWakeDir,
+  isProductionManifest,
 };

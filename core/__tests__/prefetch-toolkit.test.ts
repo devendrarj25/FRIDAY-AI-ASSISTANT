@@ -3,8 +3,9 @@
  * folder before the EXE is built, through the Install Manager's own job. No
  * network and no installs here: the toolchain is a stand-in.
  */
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -140,7 +141,19 @@ describe("toolkit plan", () => {
 });
 
 describe("toolkit run", () => {
-  const win = { platform: "win32", env: { CI: "", GITHUB_ACTIONS: "" } };
+  // A fresh in-memory ledger per test, so no run writes under a C:/friday folder on this machine.
+  let win = {
+    platform: "win32",
+    env: { CI: "", GITHUB_ACTIONS: "" },
+    ledger: toolkit.memoryLedger(),
+  };
+  beforeEach(() => {
+    win = {
+      platform: "win32",
+      env: { CI: "", GITHUB_ACTIONS: "" },
+      ledger: toolkit.memoryLedger(),
+    };
+  });
 
   function fakeToolchain(installed: Record<string, string>, latest: Record<string, string> = {}) {
     const jobs: { id: string; action: string; root: string }[] = [];
@@ -256,6 +269,100 @@ describe("toolkit run", () => {
     expect(toolkit.strict({ FRIDAY_PREFETCH_TOOLKIT_STRICT: "0" })).toBe(false);
   });
 
+  it("tries a newer release once: a shadowed or finished update is not downloaded on the next run", async () => {
+    const all = Object.fromEntries(
+      manifest.prefetch.map((row: { id: string }) => [row.id, "1.0.0"]),
+    );
+    const stub = fakeToolchain(all, { CMake: "2.0.0" });
+    const lines: string[] = [];
+    const run = () =>
+      toolkit.prefetchToolkit("C:/friday", {
+        ...win,
+        toolchain: stub,
+        progressLine,
+        log: (l: string) => lines.push(l),
+      });
+    await run();
+    expect(stub.jobs.map((job) => job.id)).toEqual(["CMake"]);
+    // The scan still sees 1.0.0 afterwards: the older copy is first on PATH.
+    expect(lines.join("\n")).toContain(
+      "CMake 2.0.0 is installed, but 1.0.0 is found first on PATH",
+    );
+    lines.length = 0;
+    await run();
+    await run();
+    expect(stub.jobs.map((job) => job.id)).toEqual(["CMake"]);
+    expect(lines.join("\n")).toContain("CMake 1.0.0 works; 2.0.0 was tried before");
+    // A still newer release is a new attempt.
+    const next = fakeToolchain(all, { CMake: "3.0.0" });
+    await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      toolchain: next,
+      progressLine,
+      log: () => {},
+    });
+    expect(next.jobs.map((job) => job.id)).toEqual(["CMake"]);
+  });
+
+  it("looks for no update at all when updates are off (Doctor and the build), and installs what is missing", async () => {
+    const all = Object.fromEntries(
+      manifest.prefetch.map((row: { id: string }) => [row.id, "1.0.0"]),
+    );
+    delete all["Pandoc"];
+    let asked = 0;
+    const stub = fakeToolchain(all, { CMake: "2.0.0", Pandoc: "9.0.0" });
+    stub.wingetUpgrades = async () => {
+      asked += 1;
+      return {};
+    };
+    await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      env: { ...win.env, FRIDAY_PREFETCH_TOOLKIT_UPDATE: "0" },
+      toolchain: stub,
+      progressLine,
+      log: () => {},
+    });
+    expect(asked).toBe(0);
+    expect(stub.jobs).toEqual([{ id: "Pandoc", action: "install", root: "C:/friday" }]);
+    const build = readFileSync(path.join(root, "scripts/build-pipeline.cjs"), "utf8");
+    expect(build).toContain('"scripts/prefetch-toolkit.cjs", ["--no-update"]');
+    const check = readFileSync(path.join(root, "scripts/check-environment.cjs"), "utf8");
+    expect(check).toMatch(/prefetch-toolkit\.cjs"\), "--no-update"\]/);
+    const setup = readFileSync(path.join(root, "scripts/setup-windows.ps1"), "utf8");
+    expect(setup).toContain("node.exe scripts\\prefetch-toolkit.cjs");
+    expect(setup).not.toMatch(/prefetch-toolkit\.cjs --no-update/);
+  });
+
+  it("decides an update's outcome from what the next scan sees, and retries a failure after a day", () => {
+    expect(toolkit.updateOutcome({ ok: true }, "2.0.0", "2.0.0")).toBe("installed");
+    expect(toolkit.updateOutcome({ ok: true }, "2.0.0", "1.0.0")).toBe("shadowed");
+    expect(toolkit.updateOutcome({ ok: true, upToDate: true }, "2.0.0", "1.0.0")).toBe("current");
+    expect(toolkit.updateOutcome({ ok: true, vendorUpdateFailed: "x" }, "2.0.0", "1.0.0")).toBe(
+      "failed",
+    );
+    expect(toolkit.updateOutcome({ ok: false }, "2.0.0", "1.0.0")).toBe("failed");
+    const at = 1_000_000;
+    const ledger = {
+      A: { to: "2.0.0", outcome: "failed", at },
+      B: { to: "2.0.0", outcome: "shadowed", at },
+    };
+    expect(toolkit.alreadyTried(ledger, "A", "2.0.0", at + 3_600_000)).toBeTruthy();
+    expect(toolkit.alreadyTried(ledger, "A", "2.0.0", at + 25 * 3_600_000)).toBeNull();
+    expect(toolkit.alreadyTried(ledger, "B", "2.0.0", at + 90 * 24 * 3_600_000)).toBeTruthy();
+    expect(toolkit.alreadyTried(ledger, "B", "2.1.0", at)).toBeNull();
+  });
+
+  it("drops installer spinner frames and progress bars from the log", () => {
+    const { tidyChunk } = require_(path.join(root, "electron/installer-output.cjs"));
+    const chunk =
+      "  -\r  \\\r  |\r  /\r  ██████▒▒▒▒  12.0 MB / 40.0 MB\r  ████████▒▒  32.0 MB / 40.0 MB\r\n" +
+      "Successfully installed\r\nSuccessfully installed\r\n  100%\r\n";
+    expect(tidyChunk(chunk)).toEqual(["Successfully installed"]);
+    expect(tidyChunk("\x1b[1m\x1b[32mFound CMake [Kitware.CMake] Version 4.2.0\x1b[0m")).toEqual([
+      "Found CMake [Kitware.CMake] Version 4.2.0",
+    ]);
+  });
+
   it("skips offline, off Windows, on hosted CI and when switched off", async () => {
     expect(toolkit.skipReason({ FRIDAY_OFFLINE: "1" }, "win32")).toContain("offline");
     expect(toolkit.skipReason({}, "linux")).toContain("Windows");
@@ -318,7 +425,7 @@ describe("toolkit is part of the one build recipe", () => {
     expect(at).toBeLessThan(commands.indexOf("scripts/init-runtime.cjs"));
     expect(pipeline.PHASES).not.toContain("prefetch-toolkit");
     const source = readFileSync(path.join(root, "scripts/build-pipeline.cjs"), "utf8");
-    expect(source).toContain('runNode("scripts/prefetch-toolkit.cjs", [], root)');
+    expect(source).toContain('runNode("scripts/prefetch-toolkit.cjs", ["--no-update"], root)');
   });
 
   it("is also run by the Windows setup script, which stops when the toolkit is not complete", () => {
@@ -390,5 +497,58 @@ describe("toolkit in every command", () => {
     expect(check).toContain('"-ToolchainOnly"');
     expect(check).toContain('"prefetch-toolkit.cjs"');
     expect(check).toContain("npm run doctor");
+  });
+});
+
+describe("a newer managed copy is used first", () => {
+  const managedPath = require_(path.join(root, "electron/managed-path.cjs"));
+
+  it("puts the managed copy in front only when it is verifiably newer", () => {
+    const calls: string[] = [];
+    const managed = {
+      preferManaged: (_r: string, dir: string) => (calls.push(dir), true),
+      withFirstPath: managedPath.withFirstPath,
+    };
+    const env = { PATH: ["/opt/cmake/bin", "/usr/bin"].join(path.delimiter) };
+    const managedBin = path.join("/friday", "runtime", "cmake", "bin");
+    const win = (version: string | null) => ({
+      installedBin: () => (version ? { bin: path.join(managedBin, "cmake.exe"), version } : null),
+      managedPath: managed,
+      env,
+    });
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win("4.2.0"))).toBe(
+      "4.2.0",
+    );
+    expect(calls).toHaveLength(1);
+    expect(env.PATH.split(path.delimiter)[0]).toBe(managedBin);
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.2.0", win("4.2.0"))).toBe("");
+    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win(null))).toBe("");
+    expect(
+      toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", {
+        installedBin: () => {
+          throw new Error("no marker");
+        },
+      }),
+    ).toBe("");
+  });
+
+  it("keeps the recorded front folders first on every later apply, and lists nothing twice", () => {
+    expect(managedPath.withFirstPath("C:\\a;C:\\b;C:\\c", ["C:\\B", "C:\\x"], ";")).toBe(
+      "C:\\B;C:\\x;C:\\a;C:\\c",
+    );
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-first-"));
+    try {
+      const bin = path.join(dir, "runtime", "cmake", "bin");
+      mkdirSync(bin, { recursive: true });
+      expect(managedPath.preferManaged(dir, bin)).toBe(true);
+      expect(managedPath.readFirst(dir)).toEqual([bin]);
+      const env = { PATH: ["/usr/bin", "/opt/cmake/bin"].join(path.delimiter) };
+      managedPath.applyManagedPath(dir, [], env);
+      expect(env.PATH.split(path.delimiter)[0]).toBe(bin);
+      // The list the kernel reads keeps the front folders after a later apply rewrites it.
+      expect(managedPath.readFirst(dir)).toEqual([bin]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

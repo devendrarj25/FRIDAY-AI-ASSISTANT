@@ -493,6 +493,34 @@ export function splitByLanguage(text: string): Array<{ text: string; lang: strin
 let currentAudio: HTMLAudioElement | null = null;
 /** Bumped on every stop so a late neural clip from the previous turn cannot play. */
 let speechGeneration = 0;
+/**
+ * Everything that can be waiting on speech to finish: a clip being played, a pause between two clauses. Stopping
+ * calls each one, so no promise is left pending behind an interrupt and the next turn can start at once.
+ */
+const cancelHooks = new Set<() => void>();
+
+/** Run `body` with a hook that ends it early; the hook is removed when `body` settles. */
+function cancellable<T>(body: (settle: (value: T) => void) => () => void, onCancel: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let done = false;
+    let cleanup: () => void = () => undefined;
+    const hook = () => finish(onCancel);
+    const finish = (value: T) => {
+      if (done) return;
+      done = true;
+      cancelHooks.delete(hook);
+      try {
+        cleanup();
+      } catch {
+        /* nothing left to clean */
+      }
+      resolve(value);
+    };
+    cancelHooks.add(hook);
+    cleanup = body(finish);
+    if (done) cleanup(); // settled while the body was still setting up
+  });
+}
 
 /** Stop whatever FRIDAY is saying right now (neural playback or SAPI). */
 export function stopSpeaking() {
@@ -511,13 +539,26 @@ export function stopSpeaking() {
     }
     currentAudio = null;
   }
+  // Settle every pending playback and pause, and let each give back what it holds.
+  for (const hook of [...cancelHooks]) {
+    try {
+      hook();
+    } catch {
+      /* one hook failing must not keep the others waiting */
+    }
+  }
+  resetPrefetchedSpeech();
 }
 
-async function playBase64(
+/** How many playbacks or pauses are waiting to be cancelled (a stuck count means a leak). */
+export const pendingSpeechOperations = (): number => cancelHooks.size;
+
+function playBase64(
   audioBase64: string,
   mime: string,
   volume: number,
   ready?: unknown,
+  release?: () => void,
 ): Promise<void> {
   // A clip that is still arriving comes as an element that is already attached to its stream and paused.
   const audio =
@@ -526,14 +567,32 @@ async function playBase64(
   currentAudio = audio;
   // Feed the desktop companion the real speech envelope for lip-sync.
   attachSpeechAudio(audio);
-  await new Promise<void>((resolve) => {
-    audio.onended = () => resolve();
-    audio.onerror = () => resolve();
-    void audio.play().catch(() => resolve());
-  });
-  if (currentAudio === audio) currentAudio = null;
-  stopSpeechAudio();
+  return cancellable<void>((finish) => {
+    audio.onended = () => finish();
+    audio.onerror = () => finish();
+    void audio.play().catch(() => finish());
+    return () => {
+      // Whether it ended, failed or was cancelled: detach, stop and give the clip's resources back.
+      audio.onended = null;
+      audio.onerror = null;
+      try {
+        audio.pause();
+      } catch {
+        /* already stopped */
+      }
+      release?.();
+      if (currentAudio === audio) currentAudio = null;
+      stopSpeechAudio();
+    };
+  }, undefined);
 }
+
+/** A pause between two clauses that a stop cuts short. */
+const pauseSpeech = (ms: number): Promise<void> =>
+  cancellable<void>((finish) => {
+    const timer = setTimeout(() => finish(), ms);
+    return () => clearTimeout(timer);
+  }, undefined);
 
 function duckOthers(speaking: boolean) {
   const api = bridge();
@@ -575,10 +634,18 @@ type SpeechTuning = {
     voice?: string;
     /** A paused audio element fed by a stream; played instead of the base64 clip. */
     audio?: unknown;
+    /** Gives back the stream, buffers and object URL of `audio` when the clip is dropped or cancelled. */
+    release?: () => void;
   } | null>;
 };
 
-type SpeechClip = { audioBase64: string; mime: string; route: SpeechRoute; audio?: unknown };
+type SpeechClip = {
+  audioBase64: string;
+  mime: string;
+  route: SpeechRoute;
+  audio?: unknown;
+  release?: () => void;
+};
 
 type SegmentPlan = {
   text: string;
@@ -649,6 +716,7 @@ async function makeClip(
         audioBase64: cloud.audioBase64,
         mime: cloud.mime,
         ...(cloud.audio ? { audio: cloud.audio } : {}),
+        ...(cloud.release ? { release: cloud.release } : {}),
         route: {
           engine: cloud.engine,
           voiceId: cloud.voice ?? "",
@@ -690,14 +758,25 @@ const clipAhead = new Map<string, Promise<SpeechClip | null>>();
 const AHEAD_LIMIT = 12;
 const AHEAD_LIFETIME_MS = 60_000;
 
+/** A prepared clip that is dropped unused gives back what it holds (a media stream, an object URL). */
+const releaseUnused = (promise: Promise<SpeechClip | null>) =>
+  void promise.then((clip) => clip?.release?.()).catch(() => undefined);
+
 function remember(key: string, promise: Promise<SpeechClip | null>) {
   if (clipAhead.size >= AHEAD_LIMIT) {
     const oldest = clipAhead.keys().next().value;
-    if (oldest !== undefined) clipAhead.delete(oldest);
+    if (oldest !== undefined) {
+      const dropped = clipAhead.get(oldest);
+      clipAhead.delete(oldest);
+      if (dropped) releaseUnused(dropped);
+    }
   }
   clipAhead.set(key, promise);
   setTimeout(() => {
-    if (clipAhead.get(key) === promise) clipAhead.delete(key);
+    if (clipAhead.get(key) === promise) {
+      clipAhead.delete(key);
+      releaseUnused(promise);
+    }
   }, AHEAD_LIFETIME_MS);
 }
 
@@ -727,6 +806,7 @@ export function prefetchSpeech(text: string, tuning: SpeechTuning): void {
 }
 
 export function resetPrefetchedSpeech(): void {
+  for (const promise of clipAhead.values()) releaseUnused(promise);
   clipAhead.clear();
 }
 
@@ -774,7 +854,7 @@ export async function speakText(
         play: (clip, plan) =>
           stale()
             ? Promise.resolve()
-            : playBase64(clip.audioBase64, clip.mime, plan.volume, clip.audio),
+            : playBase64(clip.audioBase64, clip.mime, plan.volume, clip.audio, clip.release),
         stale,
         ahead: 2,
         onFirstClip: (clip) => {
@@ -782,6 +862,9 @@ export async function speakText(
           playback.onStart();
         },
         gapAfter: (plan) => plan.pauseAfterMs,
+        sleep: pauseSpeech,
+        // A clause made for a reply that was interrupted is never played: give its stream back.
+        dispose: (clip) => clip.release?.(),
       });
       if (outcome.stale) return "none";
       const last = routes[routes.length - 1];

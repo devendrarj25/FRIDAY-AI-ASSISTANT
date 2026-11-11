@@ -171,8 +171,14 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------
   if (root) {
     const ramGb = require("node:os").totalmem() / 1024 ** 3;
+    const ollamaHere = Boolean(prefetch.findOllama());
     for (const job of plan) {
       const here = prefetch.alreadyThere(job);
+      // The Ollama installer is only downloaded when Ollama is not on the PC: an installed Ollama is the proof.
+      if (job.kind === "installer" && !here && ollamaHere) {
+        row("disk", job.id, "PASS", "Ollama is installed, so its installer was not needed");
+        continue;
+      }
       // Setup skips a size this PC has too little memory for, and an optional download may not have landed:
       // neither is a gap, so they are reported but never fail the check.
       if (!here && job.minRamGb && ramGb < job.minRamGb) {

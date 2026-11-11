@@ -3,8 +3,8 @@
   "generatedFor": "production-e2e-verify",
   "taskArchitecture": "one-owner-graph-plus-queue-nonblocking-chat",
   "wakeWord": {
-    "bundledOnnx": true,
-    "livePath": "electron/wake-engine.cjs copies resources/wake/friday.onnx into <FRIDAY_ROOT>/models/wake; transcript-fallback if copy or probe fails",
+    "bundledOnnx": false,
+    "livePath": "electron/wake-engine.cjs copies a real-speech, held-out-evaluated resources/wake/friday-wake.json into <FRIDAY_ROOT>/models/wake (none ships until one is trained); transcript matching answers otherwise",
     "source": ["src/lib/friday/wake-word.ts", "electron/wake-engine.cjs", "kernel/wake_word.py"]
   },
   "capabilities": {

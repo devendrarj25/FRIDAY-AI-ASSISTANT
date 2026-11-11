@@ -418,7 +418,7 @@ type DesktopApi = {
     id: string,
     kind: "stt" | "tts",
     options: Record<string, unknown>,
-  ) => Promise<{ ok: boolean; error?: string }>;
+  ) => Promise<{ ok: boolean; error?: string; opened?: boolean }>;
   voiceStreamSend?: (
     id: string,
     message: Record<string, unknown>,

@@ -2,9 +2,10 @@
 
 Two real engines share this script:
 
-  1. Bundled FRIDAY linear scorer (`friday.onnx` / `friday-wake.json`) trained
-     by scripts/train-friday-wake.py on synthesised "FRIDAY" vs noise. Copied
-     into <FRIDAY_ROOT>/models/wake by electron/wake-engine.cjs.
+  1. FRIDAY linear scorer (`friday-wake.json` kind friday-linear-v2, optional `friday.onnx`) trained by
+     scripts/train-friday-wake.py on REAL recordings and evaluated on held-out speakers. It is used only when its
+     manifest says `production: true` with `provenance: real-speech`; a synthetic or unevaluated model (the old
+     friday-linear-v1 tone detector included) is reported as not ready and the transcript fallback answers.
   2. openWakeWord, when the owner drops a compatible custom model.
 
 electron/wake-engine.cjs prefers a persistent worker:
@@ -164,8 +165,28 @@ def l2_normalize(feat: list[float]) -> list[float]:
     return [v / norm for v in feat]
 
 
+def score_linear_v2(pcm, manifest: dict, model_path: str, threshold: float) -> dict | None:
+    try:
+        import wake_features  # type: ignore
+
+        score = wake_features.score_clip(pcm, manifest)
+    except Exception:  # noqa: BLE001
+        return None
+    return {
+        "ok": True,
+        "detected": score >= threshold,
+        "score": round(float(score), 4),
+        "threshold": threshold,
+        "model": Path(model_path).stem,
+        "engine": "friday-linear",
+    }
+
+
 def score_linear(pcm, model_path: str, threshold: float) -> dict | None:
     path = Path(model_path)
+    manifest = manifest_for(model_path)
+    if manifest and manifest.get("kind") == "friday-linear-v2":
+        return score_linear_v2(pcm, manifest, model_path, threshold)
     json_path = path if path.suffix.lower() == ".json" else path.with_name("friday-wake.json")
     if path.suffix.lower() == ".onnx":
         sidecar = path.parent / "friday-wake.json"
@@ -257,6 +278,54 @@ def score_openwakeword(pcm, model_path: str, threshold: float) -> dict:
     }
 
 
+def fixtures_allowed() -> bool:
+    """Tests and development may score a synthetic fixture. The app never sets this."""
+    return os.environ.get("FRIDAY_WAKE_ALLOW_FIXTURE") == "1"
+
+
+def manifest_for(model_path: str | None) -> dict | None:
+    if not model_path:
+        return None
+    path = Path(model_path)
+    candidates = [path] if path.suffix.lower() == ".json" else [path.with_name("friday-wake.json")]
+    for candidate in candidates:
+        manifest = read_manifest(candidate)
+        if manifest and str(manifest.get("kind", "")).startswith("friday-linear"):
+            return manifest
+    return None
+
+
+def production_status(model_path: str | None) -> tuple[bool, str]:
+    """May this FRIDAY linear model answer as the wake detector? Only a real-speech, evaluated one may.
+
+    The old `friday-linear-v1` scorer was fitted to synthesised tone bursts, not to speech, so it is never a
+    production detector whatever its manifest says. A v2 model needs `provenance: real-speech`, `production: true`
+    and held-out evaluation numbers that met the targets when it was trained.
+    """
+    manifest = manifest_for(model_path)
+    if manifest is None:
+        return True, ""  # not a FRIDAY linear model (an openWakeWord one): judged by its own engine
+    if fixtures_allowed():
+        return True, ""
+    kind = manifest.get("kind")
+    if kind != "friday-linear-v2":
+        return False, "this FRIDAY scorer was fitted to synthetic tones, not speech; train one on real recordings"
+    if manifest.get("provenance") == "synthetic-fixture":
+        return False, "this FRIDAY model is a synthetic test fixture, not speech; train one on real recordings"
+    evaluation = manifest.get("evaluation") or {}
+    if (
+        manifest.get("provenance") == "real-speech"
+        and manifest.get("production") is True
+        and evaluation.get("meetsTargets") is True
+        and evaluation.get("independent") is True
+    ):
+        return True, ""
+    because = manifest.get("notProductionBecause")
+    detail = f" ({'; '.join(because[:2])})" if isinstance(because, list) and because else ""
+    return False, f"the FRIDAY wake model is a candidate that has not met its held-out targets{detail}"
+
+
+LINEAR_KINDS = {"friday-linear-v1", "friday-linear-v2"}
 LEGACY_LINEAR_MAX_BYTES = 16 * 1024  # the bundled linear scorer is a few hundred bytes; a real model is far larger
 
 
@@ -284,8 +353,10 @@ def engine_for_path(model_path: str | None) -> str | None:
         return str(sidecar["engine"])
     if path.suffix.lower() == ".json":
         manifest = read_manifest(path)
-        return "friday-linear" if manifest and manifest.get("kind") == "friday-linear-v1" else None
+        return "friday-linear" if manifest and manifest.get("kind") in LINEAR_KINDS else None
     manifest = read_manifest(path.with_name("friday-wake.json"))
+    if manifest and manifest.get("kind") == "friday-linear-v2":
+        return "friday-linear"  # v2 scores from the manifest; an exported .onnx beside it is the same model
     if manifest and manifest.get("kind") == "friday-linear-v1" and path.is_file():
         recorded = manifest.get("modelSha256")
         if recorded:
@@ -534,17 +605,19 @@ def probe_payload(wake_word: str, explicit: str | None = None) -> dict:
         oww_installed = True
     except Exception:  # noqa: BLE001
         oww_installed = False
+    allowed, why_not = production_status(model_path)
+    ready = bool(model_path) and allowed
     return {
         "ok": True,
         "installed": bool(model_path) or oww_installed,
         "modelDir": str(wake_model_dir()),
         "models": custom_models(),
         "model": model_path,
-        "ready": bool(model_path),
-        "engine": engine_for_path(model_path),
+        "ready": ready,
+        "engine": engine_for_path(model_path) if ready else "transcript",
         "wakeWord": normalise(wake_word or "friday"),
         "loadCount": _load_count,
-        "error": None if model_path else missing_model_error(wake_word),
+        "error": None if ready else (why_not if model_path else missing_model_error(wake_word)),
     }
 
 
@@ -558,6 +631,9 @@ def detect_audio(audio: str, wake_word: str, explicit: str | None, threshold: fl
             "ready": False,
             "engine": "transcript",
         }
+    allowed, why_not = production_status(model_path)
+    if not allowed:
+        return {"ok": False, "reason": "not-production", "error": why_not, "ready": False, "engine": "transcript"}
     if not audio or not os.path.exists(audio):
         return {"ok": False, "reason": "no-audio", "error": "No audio file was supplied."}
     pcm = decode_pcm16(audio)

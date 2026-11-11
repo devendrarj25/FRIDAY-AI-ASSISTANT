@@ -47,8 +47,13 @@ export type StreamingTtsDeps = {
   guard?: GenerationGuard;
   clock?: StageClock;
   now?: () => number;
+  /** How long to wait for the socket's own open event after the main process accepted the request. */
+  openTimeoutMs?: number;
   onEvent: (event: VoiceTtsEvent) => void;
 };
+
+/** Default patience for a socket that was accepted but has not opened (the main process gives up at 10 s). */
+export const OPEN_WAIT_MS = 12_000;
 
 export const MAX_UNIT_CHARS = 2500;
 
@@ -82,6 +87,8 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
   let ready = false;
   let epoch = 0;
   let opened: Promise<{ ok: boolean; error?: string }> | null = null;
+  /** Settles the wait for the socket's open event (set while a start is waiting). */
+  let settleOpen: ((r: { ok: boolean; error?: string }) => void) | null = null;
 
   const fail = (
     w: Waiting,
@@ -145,15 +152,24 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
     api = deps.api ?? (desktopApi() as StreamApi | null);
     if (!api?.voiceStreamOpen)
       return { ok: false, error: "streaming speech runs in the installed desktop app" };
+    // An earlier start still waiting for its socket is released now: it is superseded and must not hang.
+    settleOpen?.({ ok: false, error: "the stream was replaced" });
     unsubscribe();
     epoch += 1;
     const mine = epoch;
     streamId = `tts-${deps.sessionId}-${mine}`;
     const id = streamId;
     ready = false;
+    // "Ready" is the socket's own open event. The IPC answer only says the request was accepted, so text is not
+    // sent on it alone: it would go to a socket that is still connecting and be lost.
+    let sawOpen = false;
+    let sawClose = "";
     offs.push(
       api.onVoiceStreamOpened?.((p) => {
-        if (p.id === id && mine === epoch) ready = true;
+        if (p.id !== id || mine !== epoch) return;
+        sawOpen = true;
+        ready = true;
+        settleOpen?.({ ok: true });
       }) ?? (() => undefined),
       api.onVoiceStreamEvent?.((p) => {
         if (p.id === id && mine === epoch) handle(p.event as TtsWire);
@@ -162,19 +178,56 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
         if (p.id !== id || mine !== epoch) return;
         ready = false;
         streamId = "";
+        sawClose = p.reason || "the stream closed";
+        settleOpen?.({ ok: false, error: `the stream closed before it opened (${sawClose})` });
         while (waiting.length) {
           const w = waiting.shift()!;
           if (!w.cancelled) fail(w, "network", p.retry, p.reason);
         }
       }) ?? (() => undefined),
     );
+    const waitForOpen = new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      const timer = setTimeout(
+        () => resolve({ ok: false, error: "the stream did not open in time" }),
+        deps.openTimeoutMs ?? OPEN_WAIT_MS,
+      );
+      settleOpen = (r) => {
+        clearTimeout(timer);
+        settleOpen = null;
+        resolve(r);
+      };
+    });
     const out = await api.voiceStreamOpen(id, "tts", { ...options });
+    if (mine !== epoch) {
+      settleOpen?.({ ok: false, error: "the stream was replaced" });
+      return { ok: false, error: "the stream was replaced" };
+    }
     if (!out.ok) {
+      settleOpen?.({ ok: false });
       unsubscribe();
       streamId = "";
       return { ok: false, ...(out.error ? { error: out.error } : {}) };
     }
-    ready = true; // the main process sends the config as the socket opens; frames queue behind it
+    // The main process answers after the real open; an older one answers at once, then the event follows.
+    if (out.opened === true || sawOpen) {
+      settleOpen?.({ ok: true });
+      ready = true;
+    } else if (sawClose) {
+      settleOpen?.({ ok: false });
+    }
+    const result = await waitForOpen;
+    if (!result.ok) {
+      const stillMine = mine === epoch;
+      if (stillMine) {
+        unsubscribe();
+        const dead = streamId;
+        streamId = "";
+        ready = false;
+        // A socket that never opened is closed so it does not linger or open late behind a REST fallback.
+        if (dead && api.voiceStreamClose) void api.voiceStreamClose(dead);
+      }
+      return { ok: false, ...(result.error ? { error: result.error } : {}) };
+    }
     return { ok: true };
   }
 
@@ -250,6 +303,7 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
     nextGeneration: () => guard.next(),
 
     async stop() {
+      settleOpen?.({ ok: false, error: "the stream was stopped" });
       epoch += 1;
       unsubscribe();
       const id = streamId;
@@ -260,5 +314,11 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
     },
 
     pending: () => waiting.filter((w) => !w.cancelled).length,
+
+    /**
+     * Units that were cancelled but are still being made at the provider. Replies come back in the order the units
+     * were sent, so a new unit would wait behind them; the caller starts a fresh connection instead.
+     */
+    staleOutstanding: () => waiting.filter((w) => w.cancelled).length,
   };
 }

@@ -32,46 +32,49 @@ class WakeWordProbeTests(unittest.TestCase):
         else:
             self.assertIn(payload.get("reason"), {"missing-dependency", "no-model"})
 
-    def test_bundled_model_detects_demo_wav_and_rejects_noise(self):
+    def test_fixture_is_scored_only_when_explicitly_allowed_never_as_production(self):
         import shutil
         import tempfile
 
-        bundle = KERNEL.parent / "resources" / "wake"
+        bundle = KERNEL.parent / "testing" / "wake-fixture"
         demo = bundle / "friday-demo.wav"
         noise = bundle / "noise-demo.wav"
-        self.assertTrue((bundle / "friday.onnx").is_file())
         self.assertTrue(demo.is_file())
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp) / "models" / "wake"
             dest.mkdir(parents=True)
-            shutil.copy(bundle / "friday.onnx", dest / "friday.onnx")
             shutil.copy(bundle / "friday-wake.json", dest / "friday-wake.json")
-            env = {**__import__("os").environ, "FRIDAY_ROOT": tmp}
-            hit = subprocess.run(
-                [sys.executable, str(SCRIPT), "--audio", str(demo), "--wake-word", "friday"],
-                cwd=str(KERNEL),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env,
-            )
-            self.assertEqual(hit.returncode, 0, hit.stderr)
-            payload = json.loads(hit.stdout.strip().splitlines()[-1])
-            self.assertTrue(payload.get("ok"))
-            self.assertTrue(payload.get("detected"))
-            self.assertEqual(payload.get("engine"), "friday-linear")
-            miss = subprocess.run(
-                [sys.executable, str(SCRIPT), "--audio", str(noise), "--wake-word", "friday"],
-                cwd=str(KERNEL),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env,
-            )
-            self.assertEqual(miss.returncode, 0, miss.stderr)
-            rejected = json.loads(miss.stdout.strip().splitlines()[-1])
-            self.assertTrue(rejected.get("ok"))
-            self.assertFalse(rejected.get("detected"))
+
+            def run(args, extra=None):
+                env = {**__import__("os").environ, "FRIDAY_ROOT": tmp, **(extra or {})}
+                env.pop("FRIDAY_WAKE_ALLOW_FIXTURE", None) if extra is None else None
+                done = subprocess.run(
+                    [sys.executable, str(SCRIPT), *args],
+                    cwd=str(KERNEL),
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=env,
+                )
+                self.assertEqual(done.returncode, 0, done.stderr)
+                return json.loads(done.stdout.strip().splitlines()[-1])
+
+            # The app never sets the switch: a synthetic model is not ready and answers nothing.
+            refused = run(["--audio", str(demo), "--wake-word", "friday"])
+            self.assertFalse(refused.get("ok"))
+            self.assertEqual(refused.get("reason"), "not-production")
+            probe = run(["--probe", "--wake-word", "friday"])
+            self.assertFalse(probe.get("ready"))
+            self.assertEqual(probe.get("engine"), "transcript")
+            self.assertIn("synthetic", (probe.get("error") or "").lower())
+            # Tests and development may opt in to exercise the scoring code.
+            allow = {"FRIDAY_WAKE_ALLOW_FIXTURE": "1"}
+            hit = run(["--audio", str(demo), "--wake-word", "friday"], allow)
+            self.assertTrue(hit.get("ok") and hit.get("detected"))
+            self.assertEqual(hit.get("engine"), "friday-linear")
+            miss = run(["--audio", str(noise), "--wake-word", "friday"], allow)
+            self.assertTrue(miss.get("ok"))
+            self.assertFalse(miss.get("detected"))
 
     def test_detect_without_audio_does_not_invent_a_hit(self):
         result = subprocess.run(
@@ -94,11 +97,10 @@ class WakeWordProbeTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("wake_word", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        bundle = KERNEL.parent / "resources" / "wake"
+        bundle = KERNEL.parent / "testing" / "wake-fixture"
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp) / "models" / "wake"
             dest.mkdir(parents=True)
-            shutil.copy(bundle / "friday.onnx", dest / "friday.onnx")
             shutil.copy(bundle / "friday-wake.json", dest / "friday-wake.json")
             old = __import__("os").environ.get("FRIDAY_ROOT")
             __import__("os").environ["FRIDAY_ROOT"] = tmp
@@ -106,7 +108,7 @@ class WakeWordProbeTests(unittest.TestCase):
                 self.assertIsNone(mod.pick_model("jarvis", None))
                 friday = mod.pick_model("friday", None)
                 self.assertIsNotNone(friday)
-                self.assertTrue(str(friday).endswith("friday.onnx"))
+                self.assertTrue(str(friday).endswith("friday-wake.json"))
                 probe = subprocess.run(
                     [sys.executable, str(SCRIPT), "--probe", "--wake-word", "jarvis"],
                     cwd=str(KERNEL),
@@ -135,11 +137,11 @@ class WakeWordProbeTests(unittest.TestCase):
         import shutil
         import tempfile
 
-        bundle = KERNEL.parent / "resources" / "wake"
+        bundle = KERNEL.parent / "testing" / "wake-fixture"
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp) / "models" / "wake"
             dest.mkdir(parents=True)
-            shutil.copy(bundle / "friday.onnx", dest / "friday.onnx")
+            shutil.copy(bundle / "friday-wake.json", dest / "friday-wake.json")
             proc = subprocess.Popen(
                 [sys.executable, str(SCRIPT), "--serve"],
                 cwd=str(KERNEL),
@@ -192,7 +194,7 @@ class WakeEngineManifestTests(unittest.TestCase):
             self.assertEqual(self.wake.engine_for_path(str(model)), "openwakeword")
 
     def test_the_bundled_scorer_is_still_the_linear_engine(self):
-        bundled = KERNEL.parent / "resources" / "wake" / "friday.onnx"
+        bundled = KERNEL.parent / "testing" / "wake-fixture" / "friday-wake.json"
         self.assertEqual(self.wake.engine_for_path(str(bundled)), "friday-linear")
 
     def test_a_recorded_hash_must_match_the_file(self):

@@ -161,14 +161,19 @@ function spawnDirect(cmd, args = [], extra = {}) {
   return spawnSync(launch.file, launch.args, launch.opts);
 }
 
+/** npm redraws a spinner on a console, which blinks; a caller's own npm_config_progress wins. */
+function quietNpm(extra = {}) {
+  return { ...extra, env: { npm_config_progress: "false", ...(extra.env || process.env) } };
+}
+
 function spawnNpm(args = [], extra = {}) {
-  const launch = applyPlan(npmPlan(args), extra, true);
+  const launch = applyPlan(npmPlan(args), quietNpm(extra), true);
   return spawnSync(launch.file, launch.args, launch.opts);
 }
 
 function spawnChild(cmd, args = [], extra = {}) {
   if (isNpmCommand(cmd)) {
-    const launch = applyPlan(npmPlan(args), extra, false);
+    const launch = applyPlan(npmPlan(args), quietNpm(extra), false);
     return spawn(launch.file, launch.args, launch.opts);
   }
   const launch = launchSpec(cmd, args, extra, false);

@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const require_ = createRequire(import.meta.url);
@@ -80,5 +81,17 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
   it("never reports a real-PC fact as a pass: nothing here claims a microphone, a live account or Windows", () => {
     const text = rows.map((r) => `${r.name} ${r.detail}`).join("\n");
     expect(text).not.toMatch(/live account|real microphone|tested on windows/i);
+  });
+});
+
+describe("the voice stack does not ask for the Ollama installer when Ollama is installed", () => {
+  it("passes the installer row when Ollama is on the PC and fails it when neither is there", () => {
+    const source = readFileSync(
+      path.join(import.meta.dirname, "../../scripts/voice-stack.cjs"),
+      "utf8",
+    );
+    expect(source).toContain("prefetch.findOllama()");
+    expect(source).toContain('job.kind === "installer" && !here && ollamaHere');
+    expect(source).toContain("so its installer was not needed");
   });
 });

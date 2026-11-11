@@ -1122,18 +1122,34 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
           const python = deps.hubPython !== undefined ? deps.hubPython : hub.findPython({ root });
           if (await hubReady(hub, python)) {
             onEvent?.({ status: "source: Hugging Face official client (hf_xet)" });
-            const res = await hub.download({
+            const hubFiles = todo.map((file) => ({
+              name: file,
+              size: sizeOf(file),
+              sha256: listing.meta?.[file]?.sha256 || "",
+            }));
+            let res = await hub.download({
               repo: source.repo,
               dest,
               python,
-              files: todo.map((file) => ({
-                name: file,
-                size: sizeOf(file),
-                sha256: listing.meta?.[file]?.sha256 || "",
-              })),
+              files: hubFiles,
               onProgress: onEvent,
               signal,
             });
+            // A client that had started (bytes moved) and then dropped is a network hiccup, not a dead
+            // route: once more, resuming from what it kept, before FRIDAY's slower own downloader.
+            if (!res.ok && res.reached > 0 && !signal?.aborted && mode !== "own") {
+              onEvent?.({
+                status: `the Hugging Face client dropped after ${Math.round(res.reached / 1024 ** 2)} MB (${res.error}); trying it once more`,
+              });
+              res = await hub.download({
+                repo: source.repo,
+                dest,
+                python,
+                files: hubFiles,
+                onProgress: onEvent,
+                signal,
+              });
+            }
             if (signal?.aborted) throw abortError(signal);
             if (res.ok) {
               bytes = res.bytes;

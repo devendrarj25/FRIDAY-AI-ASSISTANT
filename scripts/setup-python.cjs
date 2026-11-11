@@ -72,8 +72,18 @@ let upgradeTried = false;
     );
   }
 }
+// pip prints a "Requirement already satisfied" line per package and redraws a progress bar per wheel,
+// which floods (and, redrawn, flickers) a console; quiet pip prints the errors and one summary line.
+// PIP_NO_INPUT keeps it from ever waiting on a prompt. A caller's own PIP_* choice wins.
+const quietPip = { PIP_QUIET: "1", PIP_PROGRESS_BAR: "off", PIP_NO_INPUT: "1" };
 const run = (exe, args, opts = {}) =>
-  spawnSync(exe, args, { stdio: "inherit", shell: false, cwd: root, ...opts });
+  spawnSync(exe, args, {
+    stdio: "inherit",
+    shell: false,
+    cwd: root,
+    ...opts,
+    env: { ...quietPip, ...process.env, ...(opts.env || {}) },
+  });
 const capture = (exe, args, opts = {}) =>
   spawnSync(exe, args, {
     encoding: "utf8",

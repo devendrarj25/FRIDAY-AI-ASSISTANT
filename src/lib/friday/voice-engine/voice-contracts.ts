@@ -5,6 +5,9 @@
  * current ones. A partial transcript is provisional and never actionable; a final one is acted on once.
  */
 
+/** Who may turn a finished utterance into a Brain turn (see `stt-authority.ts`). `captions` is the safe default. */
+export type { SttAuthority, UtteranceSource } from "./stt-authority";
+
 export type VoiceTranscriptEvent =
   | {
       type: "partial";

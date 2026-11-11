@@ -78,6 +78,51 @@ function machineToolDirs({
   return out;
 }
 
+/**
+ * Folders that go in FRONT of PATH: the managed copy of a tool whose update FRIDAY installed beside an
+ * older PC-wide copy (CMake from winget at 4.1, the vendor's 4.2 unpacked under runtime\\). Recorded
+ * by the toolkit step only after it checked the managed copy is the newer one; read back on every
+ * apply, so FRIDAY's own terminal, agents and scans use the newest copy. Nothing outside FRIDAY changes.
+ */
+function readFirst(root) {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(root, "runtime", FILE), "utf8"));
+    return Array.isArray(data.first) ? data.first.filter((d) => typeof d === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function preferManaged(root, dir) {
+  if (!root || !dir) return false;
+  const first = readFirst(root).filter((d) => d.toLowerCase() !== String(dir).toLowerCase());
+  first.unshift(dir);
+  try {
+    const file = path.join(root, "runtime", FILE);
+    let data = {};
+    try {
+      data = JSON.parse(fs.readFileSync(file, "utf8")) || {};
+    } catch {
+      data = {};
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ ...data, first }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** PATH with `dirs` moved or put in front (the same folder is never listed twice). */
+function withFirstPath(currentPath, dirs, delimiter = path.delimiter) {
+  const front = (dirs || []).filter(Boolean);
+  const keys = new Set(front.map((d) => d.toLowerCase()));
+  const rest = String(currentPath || "")
+    .split(delimiter)
+    .filter((part) => part && !keys.has(part.toLowerCase()));
+  return [...front, ...rest].join(delimiter);
+}
+
 /** Append the managed folders to a PATH string without repeating any entry. */
 function withManagedPath(currentPath, dirs, delimiter = path.delimiter) {
   const parts = String(currentPath || "")
@@ -103,12 +148,13 @@ function applyManagedPath(root, tools, env = process.env, io = {}) {
     ...managedBinDirs(root, tools, io.exists),
     ...machineToolDirs({ env, exists: io.exists, platform: io.platform }),
   ];
-  const next = withManagedPath(env.PATH, dirs);
+  const first = readFirst(root).filter((dir) => (io.exists || fs.existsSync)(dir));
+  const next = withFirstPath(withManagedPath(env.PATH, dirs), first);
   const changed = next !== env.PATH;
   env.PATH = next;
   try {
     const file = path.join(root, "runtime", FILE);
-    const body = JSON.stringify({ dirs, at: Date.now() });
+    const body = JSON.stringify({ dirs, first: readFirst(root), at: Date.now() });
     const previous = (() => {
       try {
         return JSON.parse(fs.readFileSync(file, "utf8")).dirs;
@@ -132,5 +178,8 @@ module.exports = {
   managedBinDirs,
   machineToolDirs,
   withManagedPath,
+  withFirstPath,
+  readFirst,
+  preferManaged,
   applyManagedPath,
 };

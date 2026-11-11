@@ -1378,6 +1378,26 @@ describe("the light model must also answer, not only be pulled", () => {
     expect(prefetch.failureReport(r.rows)).toEqual([]);
   });
 
+  it("turns thinking off for the check, and counts a model that only thought as answering", async () => {
+    let sent: Record<string, unknown> = {};
+    const asked = async (_url: string, init: { body: string }) => {
+      sent = JSON.parse(init.body);
+      return {
+        ok: true,
+        json: async () => ({ response: "", thinking: "The user wants one word." }),
+      };
+    };
+    const thought = await prefetch.ollamaAnswers("qwen3:4b", asked);
+    expect(thought.ok).toBe(true);
+    expect(sent).toMatchObject({ model: "qwen3:4b", think: false, stream: false });
+    expect((sent["options"] as { num_predict: number }).num_predict).toBeGreaterThanOrEqual(32);
+    const empty = await prefetch.ollamaAnswers("qwen3:4b", async () => ({
+      ok: true,
+      json: async () => ({ response: "   " }),
+    }));
+    expect(empty).toMatchObject({ ok: false, error: "empty answer" });
+  });
+
   it("reads a real answer from the daemon and rejects a body without one", async () => {
     const good = await prefetch.ollamaAnswers("qwen3:4b", async () => ({
       ok: true,

@@ -13,6 +13,11 @@
  * - Present and current: nothing is downloaded (one line, "already installed").
  * - Present and older than the newest release: it is updated, so the build
  *   starts from the latest versions (FRIDAY_PREFETCH_TOOLKIT_UPDATE=0 only reports).
+ * - Updates happen in `npm run setup` only. Doctor and the build pass `--no-update`: they install
+ *   what is missing and report what is outdated, so a second command never downloads again.
+ *   A newer release is tried once: what happened (installed, still shadowed by an older copy
+ *   earlier on PATH, or failed) is kept in <FRIDAY>/temporary/toolkit-updates.json, so the same
+ *   release is not downloaded on every run (a failed one is tried again after a day).
  * - Missing: installed, with the size and the live progress printed. There is no
  *   size cap: a needed tool is installed however large it is (Docker Desktop,
  *   WSL 2, Windows Sandbox, the CUDA Toolkit).
@@ -36,9 +41,11 @@
  * administrator tool) ends an install that never answers; FRIDAY_OFFLINE=1 skips.
  * Hosted CI skips it unless FRIDAY_PREFETCH=1.
  */
+const fs = require("node:fs");
 const path = require("node:path");
 
 const config = require("../config/agent-toolkit.json");
+const { tidyLine } = require("../electron/installer-output.cjs");
 
 function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
@@ -63,6 +70,79 @@ function newer(latest, have) {
     if (delta) return delta > 0;
   }
   return false;
+}
+
+const RETRY_FAILED_MS = 24 * 60 * 60 * 1000;
+
+/** Where the update attempts are remembered, and a stand-in that keeps them in memory (tests). */
+function fileLedger(root) {
+  const file = path.join(root, "temporary", "toolkit-updates.json");
+  return {
+    read() {
+      try {
+        const data = JSON.parse(fs.readFileSync(file, "utf8"));
+        return data && typeof data === "object" ? data : {};
+      } catch {
+        return {};
+      }
+    },
+    write(data) {
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+      } catch {
+        /* a ledger that cannot be written only means the next run may try again */
+      }
+    },
+  };
+}
+function memoryLedger(initial = {}) {
+  let data = { ...initial };
+  return { read: () => ({ ...data }), write: (next) => (data = { ...next }) };
+}
+
+/**
+ * Was this release already tried? An installed or shadowed one never again (the same release
+ * would be downloaded for nothing); a failed or "winget has nothing newer" one after a day.
+ * Pure. Returns the earlier attempt, or null when the release should be tried.
+ */
+function alreadyTried(ledger, id, to, now = Date.now()) {
+  const hit = ledger?.[id];
+  if (!hit || String(hit.to) !== String(to)) return null;
+  if (hit.outcome === "installed" || hit.outcome === "shadowed") return hit;
+  return now - Number(hit.at || 0) < RETRY_FAILED_MS ? hit : null;
+}
+
+/**
+ * An update that landed beside an older PC-wide copy (winget's CMake 4.1 first on PATH, the vendor's 4.2
+ * unpacked under runtime\\): when the managed copy is verifiably the newer one, its folder goes in front
+ * of PATH for this process and for FRIDAY from now on (managed-path.json `first`). Returns the
+ * managed version that now wins, or "" when there is no newer managed copy. Never throws.
+ */
+function preferNewerManaged(root, tool, seen, deps = {}) {
+  try {
+    const installed = (
+      deps.installedBin || require("../electron/managed-install.cjs").installedBin
+    )(root, tool);
+    if (!installed?.bin || !installed.version || !newer(installed.version, seen)) return "";
+    const dir = path.dirname(installed.bin);
+    const managed = deps.managedPath || require("../electron/managed-path.cjs");
+    if (!managed.preferManaged(root, dir)) return "";
+    const env = deps.env || process.env;
+    env.PATH = managed.withFirstPath(env.PATH, [dir]);
+    return String(installed.version);
+  } catch {
+    return "";
+  }
+}
+
+/** What a finished update turned out to be, from the job result and the version seen afterwards. Pure. */
+function updateOutcome(result, to, seen) {
+  if (!result?.ok) return "failed";
+  if (result.vendorUpdateFailed) return "failed";
+  if (result.upToDate || result.outsideWinget) return "current";
+  if (seen && !newer(to, seen)) return "installed";
+  return seen ? "shadowed" : "installed";
 }
 
 /** How long one install may run before the build moves on (minutes in FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN). */
@@ -139,15 +219,39 @@ function toolkitPlan({
   });
 }
 
+/** Status words in colour on a terminal (NO_COLOR turns it off), plain text in a log file. */
+function colourLog(stream = process.stdout, env = process.env) {
+  const { colourWanted } = require("./download-board.cjs");
+  if (!colourWanted(stream, env)) return (line) => console.log(line);
+  const colours = [
+    [/^\[friday\] (ok) /, "32"],
+    [/^\[friday\] (FAIL|ACTION REQUIRED|RESTART WINDOWS) ?/, "31;1"],
+    [/^\[friday\] (INFO) /, "33"],
+    [/^\[friday\] (fetching|updating) /, "36"],
+  ];
+  return (line) => {
+    for (const [pattern, code] of colours) {
+      if (pattern.test(line)) {
+        console.log(
+          line.replace(pattern, (all, word) => all.replace(word, `\x1b[${code}m${word}\x1b[0m`)),
+        );
+        return;
+      }
+    }
+    console.log(line);
+  };
+}
+
 /** Kinds the Install Manager and the Models section keep: named in the summary so nothing is a surprise. */
 function deferredList() {
   return config.onDemand.map((entry) => ({ id: entry.id, reason: entry.reason }));
 }
 
-/** Print an Install Manager job event as build-log lines. */
+/** Print an Install Manager job event as build-log lines (noise dropped, a repeat printed once). */
 function eventPrinter(log, id, progressLine) {
   let last = "";
   let bucket = -1;
+  const seen = new Set();
   return (event) => {
     if (!event) return;
     let line = "";
@@ -157,7 +261,12 @@ function eventPrinter(log, id, progressLine) {
       const step = Math.floor(Math.max(0, Math.min(100, Number(event.progress))) / 10);
       if (step <= bucket) return;
       if (line) bucket = step;
-    } else if (event.line) line = `[friday] ${id.padEnd(14)} ${String(event.line).slice(0, 160)}`;
+    } else if (event.line) {
+      const text = tidyLine(event.line);
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      line = `[friday] ${id.padEnd(14)} ${text.slice(0, 160)}`;
+    }
     if (line && line !== last) {
       last = line;
       log(line);
@@ -168,7 +277,7 @@ function eventPrinter(log, id, progressLine) {
 /** Plan and run. Returns one row per tool. Never throws. */
 async function prefetchToolkit(root, deps = {}) {
   const env = deps.env || process.env;
-  const log = deps.log || console.log;
+  const log = deps.log || colourLog();
   const reason = skipReason(env, deps.platform || process.platform);
   if (reason) {
     log(`[friday] tool prefetch skipped: ${reason}`);
@@ -195,9 +304,14 @@ async function prefetchToolkit(root, deps = {}) {
     log(`[friday] FAIL     tool scan failed (${reason}); the toolkit cannot be verified`);
     return [{ id: "tool scan", ok: false, error: reason }];
   }
+  // A folder that is not there (a test's stand-in path) keeps the record in memory and writes nothing.
+  const ledger = deps.ledger || (fs.existsSync(root) ? fileLedger(root) : memoryLedger());
+  const history = ledger.read();
   try {
-    const table = await toolchain.wingetUpgrades().catch(() => ({}));
-    for (const entry of config.prefetch) {
+    // Only setup looks for newer releases (`winget upgrade` alone takes up to a minute); Doctor and the
+    // build install what is missing and leave the rest, so they never download an update again.
+    const table = update ? await toolchain.wingetUpgrades().catch(() => ({})) : {};
+    for (const entry of update ? config.prefetch : []) {
       const tool = toolchain.toolById(entry.id);
       if (!tool || !detected[entry.id]?.installed) continue;
       const next = await toolchain.latestFor(tool, { wingetTable: table });
@@ -206,7 +320,11 @@ async function prefetchToolkit(root, deps = {}) {
   } catch {
     /* an unknown latest version only means "no update is claimed" */
   }
-  const plan = toolkitPlan({ detected, latest, update, elevated });
+  const plan = toolkitPlan({ detected, latest, update, elevated }).map((row) => {
+    if (row.action !== "update") return row;
+    const earlier = alreadyTried(history, row.id, row.to);
+    return earlier ? { ...row, action: "tried", outcome: earlier.outcome } : row;
+  });
   const rows = [];
   const total = plan.filter((row) => row.action === "install" || row.action === "update");
   log(
@@ -216,6 +334,19 @@ async function prefetchToolkit(root, deps = {}) {
     if (row.action === "keep") {
       log(
         `[friday] ok       ${row.id}${row.version ? ` ${row.version}` : ""} already installed; not downloaded again`,
+      );
+      rows.push({ id: row.id, ok: true, downloaded: false });
+      continue;
+    }
+    if (row.action === "tried") {
+      const why =
+        row.outcome === "shadowed"
+          ? "it is installed, but the older copy is found first on PATH"
+          : row.outcome === "installed"
+            ? "it was installed already"
+            : "its installer did not finish last time; tried again tomorrow";
+      log(
+        `[friday] ok       ${row.id} ${row.from} works; ${row.to} was tried before (${why}), so it is not downloaded again`,
       );
       rows.push({ id: row.id, ok: true, downloaded: false });
       continue;
@@ -272,6 +403,38 @@ async function prefetchToolkit(root, deps = {}) {
     }
     if (!result?.ok && result?.error)
       log(`[friday] FAIL     ${row.id}: ${String(result.error).slice(0, 200)}`);
+    if (row.action === "update") {
+      // Look again, so a release that is installed but hidden behind an older copy is remembered as such.
+      let seen = "";
+      try {
+        const again = await toolchain.detectTools({ force: true, root, only: [row.id] });
+        seen = String((again.tools || []).find((tool) => tool.id === row.id)?.version || "");
+      } catch {
+        seen = "";
+      }
+      if (result?.ok && seen && newer(row.to, seen)) {
+        const front = preferNewerManaged(root, toolchain.toolById?.(row.id), seen, deps);
+        if (front) {
+          try {
+            const again = await toolchain.detectTools({ force: true, root, only: [row.id] });
+            seen = String(again.tools?.find((tool) => tool.id === row.id)?.version || seen);
+          } catch {
+            /* the earlier version stays the one seen */
+          }
+          log(
+            `[friday] ok       ${row.id} ${front} is used first from now on (the older copy stays installed)`,
+          );
+        }
+      }
+      const outcome = updateOutcome(result, row.to, seen);
+      history[row.id] = { to: row.to, outcome, at: Date.now(), seen };
+      ledger.write(history);
+      if (outcome === "shadowed") {
+        log(
+          `[friday] INFO     ${row.id} ${row.to} is installed, but ${seen} is found first on PATH; it is not downloaded again`,
+        );
+      }
+    }
     if (result?.ok) {
       if (row.action === "update" && result.vendorUpdateFailed) {
         // The vendor lists a newer release than winget; its installer could not finish, so the
@@ -341,6 +504,12 @@ function failureReport(rows) {
 
 module.exports = {
   prefetchToolkit,
+  fileLedger,
+  memoryLedger,
+  alreadyTried,
+  updateOutcome,
+  preferNewerManaged,
+  tidyLine,
   failureReport,
   strict,
   jobLimitMs,
@@ -357,6 +526,8 @@ if (require.main === module) {
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
+  // Doctor and the build install what is missing only; npm run setup is where updates happen.
+  if (process.argv.includes("--no-update")) process.env.FRIDAY_PREFETCH_TOOLKIT_UPDATE = "0";
   prefetchToolkit(path.resolve(picked.root)).then(
     (rows) => {
       const lines = failureReport(rows);

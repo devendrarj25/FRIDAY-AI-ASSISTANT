@@ -90,6 +90,8 @@ describe("npm run doctor checks, repairs and checks again", () => {
     expect(order).toEqual([
       "dependencies",
       "environment check and repair",
+      "packs that ship inside the EXE",
+      "installer tools electron-builder needs",
       "speech, voice and chat models",
       "voice files load and speak",
       "voice stack: runners, models, packages and connections",
@@ -104,6 +106,27 @@ describe("npm run doctor checks, repairs and checks again", () => {
     // The models step is the same script the build runs, with the venv Python so Moonshine can be fetched.
     expect(source).toContain('"prefetch-models.cjs"');
     expect(source).toContain("FRIDAY_PYTHON");
+    // The EXE's own packs come in setup and Doctor, so the build only reuses the .cache copy.
+    expect(source).toContain('node("stage-toolchain.cjs")');
+    const setup = read("scripts/setup-windows.ps1");
+    expect(setup.indexOf("scripts\\stage-toolchain.cjs")).toBeGreaterThan(
+      setup.indexOf("scripts\\prefetch-toolkit.cjs"),
+    );
+  });
+});
+
+describe("setup output stays calm on a console", () => {
+  it("turns off npm's spinner and pip's per-package lines and bars", () => {
+    const setup = read("scripts/setup-windows.ps1");
+    expect(setup).toContain("$env:npm_config_progress = 'false'");
+    expect(setup).toContain("$env:PIP_PROGRESS_BAR = 'off'");
+    const py = read("scripts/setup-python.cjs");
+    expect(py).toContain('PIP_QUIET: "1"');
+    expect(py).toContain('PIP_PROGRESS_BAR: "off"');
+    expect(py).toContain("...process.env");
+    const spawn = read("scripts/win-spawn.cjs");
+    expect(spawn).toContain('npm_config_progress: "false"');
+    expect(spawn.match(/quietNpm\(extra\)/g)?.length).toBe(2);
   });
 });
 
@@ -281,5 +304,114 @@ describe("build-windows.cmd is one clear flow", () => {
     );
     expect(cmd).toContain("The build stopped with exit code");
     expect(cmd).toContain("endlocal & exit /b %FRIDAY_BUILD_CODE%");
+  });
+});
+
+describe("winget output in the setup script", () => {
+  const setup = read("scripts/setup-windows.ps1");
+
+  it("goes through one filter that drops spinner and bar frames and keeps the exit code", () => {
+    expect(setup).toContain("function Invoke-WingetQuiet");
+    expect(setup).toMatch(/Invoke-WingetQuiet @\('install'/);
+    expect(setup).toMatch(/Invoke-WingetQuiet @\('upgrade'/);
+    // No call to winget outside the filter prints a raw progress bar.
+    expect(setup.match(/^\s*& winget /gm)?.length ?? 0).toBe(1); // the filter itself
+    expect(setup).toContain("& winget @WingetArgs 2>&1");
+    expect(setup).toContain("$ErrorActionPreference = 'Continue'");
+    // The script stays 7-bit ASCII with CRLF line ends (a console or Windows PowerShell 5.1 reads it).
+    expect(/[^\x00-\x7f]/.test(setup)).toBe(false);
+    expect(
+      setup.split("\n").every((line, i, all) => i === all.length - 1 || line.endsWith("\r")),
+    ).toBe(true);
+  });
+
+  it("uses a noise pattern that matches frames and spares real lines", () => {
+    const match = /const NOISE = '(.*)'/.exec(
+      `const NOISE = '${/\$script:WingetNoise = '(.*)'/.exec(setup)?.[1]}'`,
+    );
+    const noise = new RegExp(match?.[1] ?? "", "");
+    for (const frame of [
+      "-",
+      "\\",
+      "|",
+      "/",
+      "  ",
+      "\u2588\u2588\u2588\u2592\u2592  12.0 MB / 40.0 MB",
+      "12.0 MB / 40.0 MB",
+      "45%",
+    ]) {
+      expect(noise.test(frame), frame).toBe(true);
+    }
+    for (const line of [
+      "Found Kitware CMake [Kitware.CMake] Version 4.2.0",
+      "Starting package install...",
+      "Successfully installed",
+    ]) {
+      expect(noise.test(line), line).toBe(false);
+    }
+  });
+});
+
+describe("installer tools are fetched before the build", () => {
+  const prewarm = require_(path.join(root, "scripts/prewarm-builder-cache.cjs"));
+  const calls: string[] = [];
+  const lib = {
+    getMakeNsisPath: async () => calls.push("nsis"),
+    getNsisPluginsPath: async () => calls.push("plugins"),
+    getNsisElevatePath: async () => calls.push("elevate"),
+    getRceditBundle: async () => calls.push("rcedit"),
+  };
+
+  it("calls electron-builder's own toolset functions, once each, and says each is ready", async () => {
+    const lines: string[] = [];
+    const rows = await prewarm.prewarm({
+      lib,
+      platform: "win32",
+      env: {},
+      log: (l: string) => lines.push(l),
+    });
+    expect(calls).toEqual(["nsis", "plugins", "elevate", "rcedit"]);
+    expect(rows.every((r: { ok: boolean }) => r.ok)).toBe(true);
+    expect(lines.join("\n")).toContain("NSIS compiler ready in electron-builder's cache");
+  });
+
+  it("retries a failed fetch, then reports it without failing the step", async () => {
+    let tries = 0;
+    const lines: string[] = [];
+    const rows = await prewarm.prewarm({
+      lib: {
+        ...lib,
+        getRceditBundle: async () => {
+          tries += 1;
+          throw new Error("network down\nstack");
+        },
+      },
+      platform: "win32",
+      env: {},
+      wait: async () => {},
+      log: (l: string) => lines.push(l),
+    });
+    expect(tries).toBe(3);
+    expect(rows.find((r: { name: string }) => r.name === "resource editor")).toMatchObject({
+      ok: false,
+      error: "network down",
+    });
+    expect(lines.join("\n")).toContain("the build tries again");
+  });
+
+  it("skips off Windows, offline, when switched off and on hosted CI", () => {
+    expect(prewarm.skipReason({}, "linux")).toContain("Windows only");
+    expect(prewarm.skipReason({ FRIDAY_OFFLINE: "1" }, "win32")).toContain("offline");
+    expect(prewarm.skipReason({ FRIDAY_PREFETCH: "0" }, "win32")).toContain("turned off");
+    expect(prewarm.skipReason({ CI: "true" }, "win32")).toContain("hosted CI");
+    expect(prewarm.skipReason({ CI: "true", FRIDAY_PREFETCH: "1" }, "win32")).toBe("");
+    expect(prewarm.skipReason({}, "win32")).toBe("");
+  });
+
+  it("runs in setup after the EXE packs", () => {
+    const setup = read("scripts/setup-windows.ps1");
+    expect(setup.indexOf("scripts\\prewarm-builder-cache.cjs")).toBeGreaterThan(
+      setup.indexOf("scripts\\stage-toolchain.cjs"),
+    );
   });
 });

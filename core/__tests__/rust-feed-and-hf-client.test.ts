@@ -141,7 +141,13 @@ describe("Hugging Face official client", () => {
 
   /** A stand-in for `python -c ...`: writes the files the client would write, then exits. */
   const fakeClient =
-    (opts: { write?: Record<string, string>; exit?: number; hang?: boolean; slow?: boolean }) =>
+    (opts: {
+      write?: Record<string, string>;
+      exit?: number;
+      hang?: boolean;
+      slow?: boolean;
+      beats?: number;
+    }) =>
     (_python: string, args: string[]) => {
       const dest = args[3] as string;
       const child = new EventEmitter() as EventEmitter & {
@@ -158,6 +164,12 @@ describe("Hugging Face official client", () => {
         child.emit("close", code);
       };
       child.kill = () => finish(1);
+      // A Xet client writes nothing to the folder for a long time but reports its bytes through its bar.
+      for (let i = 1; i <= (opts.beats || 0); i += 1) {
+        setTimeout(() => {
+          child.stdout.emit("data", `FRIDAYBYTES\tDownloading bytes\t${i}\t${opts.beats}\n`);
+        }, i * 60);
+      }
       if (!opts.hang) {
         setTimeout(
           () => {
@@ -169,7 +181,7 @@ describe("Hugging Face official client", () => {
             if (opts.exit) child.stderr.emit("data", "Traceback: boom");
             finish(opts.exit || 0);
           },
-          opts.slow ? 120 : 5,
+          opts.beats ? (opts.beats + 1) * 60 : opts.slow ? 120 : 5,
         );
       }
       return child;
@@ -196,6 +208,32 @@ describe("Hugging Face official client", () => {
     expect(existsSync(path.join(dest, ".cache"))).toBe(false);
     expect(events.length).toBeGreaterThan(0);
     expect(events.every((event) => event.bytesTotal === 7)).toBe(true);
+  });
+
+  it("reports how far a client got before it dropped, so the caller can try it once more", async () => {
+    const dest = target();
+    const dropped = await hub.download({
+      repo: "Systran/faster-whisper-base",
+      dest,
+      files,
+      python: "python",
+      pollMs: 20,
+      spawnImpl: fakeClient({ beats: 3, exit: 1 }),
+    });
+    expect(dropped.ok).toBe(false);
+    expect(dropped.reached).toBeGreaterThan(0);
+    const never = await hub.download({
+      repo: "Systran/faster-whisper-base",
+      dest: target(),
+      files,
+      python: "python",
+      pollMs: 20,
+      spawnImpl: fakeClient({ exit: 1 }),
+    });
+    expect(never.reached).toBe(0);
+    const source = read("electron/model-download.cjs");
+    expect(source).toContain("res.reached > 0");
+    expect(source).toContain("trying it once more");
   });
 
   it("keeps nothing when a weight fails its SHA-256", async () => {
@@ -235,6 +273,33 @@ describe("Hugging Face official client", () => {
     });
     expect(quiet).toMatchObject({ ok: false });
     expect(quiet.error).toContain("no byte");
+  });
+
+  it("trusts the bytes the client reports, so a Xet download that writes late is not cut off as stalled", async () => {
+    // Without the client's own count this run looks silent for 540 ms, longer than the 250 ms stall limit.
+    const events: { bytesDone: number }[] = [];
+    const res = await hub.download({
+      repo: "x/y",
+      dest: target(),
+      files,
+      python: "python",
+      pollMs: 20,
+      stallMs: 250,
+      startMs: 250,
+      onProgress: (event: { bytesDone: number }) => events.push(event),
+      spawnImpl: fakeClient({ write: { "config.json": "{}", "model.bin": "12345" }, beats: 8 }),
+    });
+    expect(res).toMatchObject({ ok: true });
+    // The count it reported shows up as progress before any file reached the disk.
+    expect(events.some((event) => event.bytesDone > 0 && event.bytesDone < 7)).toBe(true);
+  });
+
+  it("asks the client for its byte count and keeps its Xet cache inside the folder it cleans up", () => {
+    const source = read("electron/hf-hub-download.cjs");
+    expect(hub.SCRIPT).toContain("tqdm_class=Beat");
+    expect(hub.SCRIPT).toContain("FRIDAYBYTES");
+    expect(source).toContain("HF_XET_CACHE");
+    expect(source).toContain('HF_HUB_DISABLE_PROGRESS_BARS: "0"');
   });
 
   it("gives up a client that has moved no byte since the start, long before the stall limit", async () => {

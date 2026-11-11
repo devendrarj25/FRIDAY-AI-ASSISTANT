@@ -27,6 +27,11 @@ export type SpeakResult = {
   mime?: string;
   /** Set when the clip is playing as it arrives: a paused audio element the player starts. */
   audio?: unknown;
+  /**
+   * Gives back what the clip holds (its media stream, buffers and object URL). The player calls it when the clip is
+   * cancelled or dropped before it ended; calling it twice, or after the clip ended, does nothing.
+   */
+  release?: () => void;
 };
 type RestSpeak = (provider: string, request: SpeakRequest) => Promise<SpeakResult>;
 
@@ -99,7 +104,13 @@ export function createStreamingSpeak(deps: {
           const stream = new ProgressiveAudio(deps.media);
           slot.stream = stream;
           for (const part of slot.parts) stream.append(part);
-          slot.early({ ok: true, audio: stream.audio, mime: slot.mime, audioBase64: "" });
+          slot.early({
+            ok: true,
+            audio: stream.audio,
+            mime: slot.mime,
+            audioBase64: "",
+            release: () => stream.dispose(),
+          });
         }
       } else if (event.type === "utterance-complete") {
         if (slot.stream) {
@@ -130,6 +141,12 @@ export function createStreamingSpeak(deps: {
 
   async function ensureOpen(options: StreamingTtsOptions): Promise<boolean> {
     const pace = options.pace ?? 1;
+    // After an interruption the provider is still making the cancelled sentences and replies come back in order,
+    // so the next sentence would wait behind them: drop that connection (the provider stops) and open a new one.
+    if (current && tts.staleOutstanding() > 0) {
+      await tts.stop();
+      current = null;
+    }
     if (current && current.speaker !== options.speaker) {
       await tts.stop();
       current = null;
@@ -162,15 +179,15 @@ export function createStreamingSpeak(deps: {
       };
       const turnId = `u${(counter += 1)}`;
       const result = await new Promise<SpeakResult>((resolve) => {
-        const timer = setTimer(
-          () => finish({ ok: false, error: "the stream did not answer in time" }),
-          timeoutMs,
-        );
+        // The answer clock starts when the text has been sent on an open socket, not when the clause was asked:
+        // the wait for the connection has its own limit (the open timeout), and counting it here made a slow first
+        // connection look like a silent stream and fall back to REST for the very first sentence.
+        let timer: unknown = null;
         let settled = false;
         const settle = (r: SpeakResult) => {
           if (settled) return;
           settled = true;
-          clearTimer(timer);
+          if (timer !== null) clearTimer(timer);
           resolve(r);
         };
         const finish = (r: SpeakResult) => {
@@ -187,7 +204,13 @@ export function createStreamingSpeak(deps: {
         // The slot exists before anything is sent, so no reply frame can arrive for a clause nobody waits for.
         void inOrder(async () => {
           if (!(await ensureOpen(options))) return false;
-          return (await tts.speak(turnId, request.text)) !== 0;
+          const sent = (await tts.speak(turnId, request.text)) !== 0;
+          if (sent && !settled)
+            timer = setTimer(
+              () => finish({ ok: false, error: "the stream did not answer in time" }),
+              timeoutMs,
+            );
+          return sent;
         })
           .catch(() => false)
           .then((sent) => {
@@ -203,12 +226,18 @@ export function createStreamingSpeak(deps: {
     /** Barge-in: drop what is waiting. The player's own stop is separate. */
     cancel() {
       tts.cancel();
-      for (const slot of [...pending.values()]) slot.done({ ok: false, error: "cancelled" });
+      for (const slot of [...pending.values()]) {
+        slot.stream?.dispose(); // what was still arriving is dropped, not left to buffer behind the next turn
+        slot.done({ ok: false, error: "cancelled" });
+      }
     },
 
     async stop() {
       current = null;
-      for (const slot of [...pending.values()]) slot.done({ ok: false, error: "stopped" });
+      for (const slot of [...pending.values()]) {
+        slot.stream?.dispose();
+        slot.done({ ok: false, error: "stopped" });
+      }
       await tts.stop();
     },
   };

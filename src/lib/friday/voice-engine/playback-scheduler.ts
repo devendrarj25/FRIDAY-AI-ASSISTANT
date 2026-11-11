@@ -43,6 +43,8 @@ export class PcmPlayback {
   private underruns = 0;
   private scheduledMs = 0;
   private listener: ((whenSeconds: number, pcm: Int16Array) => void) | null = null;
+  private generation = 0;
+  private disposed = false;
 
   constructor(
     private readonly context: ContextLike,
@@ -57,9 +59,24 @@ export class PcmPlayback {
     this.listener = listener;
   }
 
-  /** True when the chunk was scheduled. A chunk past the queue bound is refused and counted. */
-  enqueue(pcm: Int16Array): boolean {
+  /**
+   * The number a chunk must carry to be heard. `flush()` moves it on, so a chunk of an answer that was cut off
+   * and arrives afterwards (a provider still sending) is refused and counted instead of starting a stale answer.
+   */
+  get currentGeneration(): number {
+    return this.generation;
+  }
+
+  /**
+   * True when the chunk was scheduled. A chunk past the queue bound, of an old generation, or after `dispose()`
+   * is refused and counted. Without a generation the chunk belongs to whatever is current (the older call shape).
+   */
+  enqueue(pcm: Int16Array, generation?: number): boolean {
     if (pcm.length === 0) return true;
+    if (this.disposed || (generation !== undefined && generation !== this.generation)) {
+      this.dropped += 1;
+      return false;
+    }
     const max = this.options.maxQueuedMs ?? 4000;
     const ms = samplesToMs(pcm.length, this.options.rate);
     if (this.queuedMs() + ms > max) {
@@ -116,7 +133,16 @@ export class PcmPlayback {
     this.nextTime = 0;
     this.startedAt = null;
     this.scheduledMs = 0;
+    this.generation += 1; // what was cut off cannot continue, and the next answer starts clean at once
     return Math.round(played);
+  }
+
+  /** End of use: stop everything audible, stop listening, and refuse every later chunk. */
+  dispose(): number {
+    const played = this.flush();
+    this.listener = null;
+    this.disposed = true;
+    return played;
   }
 
   /** True while audio is scheduled to come out. */

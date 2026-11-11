@@ -204,3 +204,24 @@ module.exports.sha256 = sha256;
 module.exports.sourceUrls = sourceUrls;
 module.exports.progressLine = progressLine;
 module.exports.beforePack = beforePack;
+
+// `node scripts/stage-toolchain.cjs`: fetch the packs that ship inside the EXE now (npm run setup and
+// npm run doctor), so the build finds them in .cache/toolchain and downloads nothing.
+if (require.main === module) {
+  beforePack().then(
+    (result) => {
+      if (!result || result.skipped) {
+        console.log("[friday] ok       packs for the EXE: staging is switched off");
+        return;
+      }
+      const mib = Math.round(result.sum / 1024 ** 2);
+      console.log(
+        `[friday] ok       ${result.staged.length} packs for the EXE are ready (${mib} MB); the build reuses them`,
+      );
+    },
+    (err) => {
+      console.error(`[friday] FAIL     packs for the EXE: ${String((err && err.message) || err)}`);
+      process.exitCode = 1;
+    },
+  );
+}
