@@ -400,6 +400,23 @@ class Model:
     status: str = "ready"
     options: dict = field(default_factory=dict)
 
+    @property
+    def wire_model(self) -> str:
+        """The name the provider itself knows this model by.
+
+        The desktop sends it as ``options.model``. A row the kernel reloaded
+        from its own database has no options, and its id is the registry id
+        (``ollama:qwen3:4b``); sending that to the provider is an
+        "invalid model name". The registry prefix is stripped instead.
+        """
+        named = self.options.get("model") if isinstance(self.options, dict) else None
+        if named:
+            return str(named)
+        prefix = f"{self.provider}:"
+        if self.provider in {"ollama", "lmstudio", "llamacpp", "jan", "koboldcpp"} and self.id.startswith(prefix):
+            return self.id[len(prefix) :]
+        return self.id
+
     def public(self) -> dict:
         return {
             "id": self.id,
@@ -936,7 +953,7 @@ class ModelRouter:
             "[router] registered model "
             f"id={model.id} provider={model.provider} "
             f"endpoint={model.endpoint or '(none)'} "
-            f"wire_model={model.options.get('model', model.id)} "
+            f"wire_model={model.wire_model} "
             f"api_key={'present' if model.api_key else 'absent'}",
             flush=True,
         )
@@ -1484,7 +1501,7 @@ class ModelRouter:
         tool_budget_t0: float | None = None
         for _round in range(4):
             body = {
-                "model": model.options.get("model", model.id),
+                "model": model.wire_model,
                 "max_tokens": 2048,
                 "stream": True,
                 "messages": convo,
@@ -1668,7 +1685,7 @@ class ModelRouter:
             round_t0 = time.perf_counter()
             _turn_debug("openai.round", extra=str(_round))
             body = {
-                "model": model.options.get("model", model.id),
+                "model": model.wire_model,
                 "messages": convo,
                 "stream": True,
             }
@@ -1801,7 +1818,7 @@ class ModelRouter:
         tool_budget_t0: float | None = None
         for _round in range(4):
             body: dict = {
-                "model": model.options.get("model", model.id),
+                "model": model.wire_model,
                 "messages": convo,
                 "stream": True,
                 # Ollama unloads a model five minutes after its last use, so the next spoken question waited for it

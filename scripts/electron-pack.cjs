@@ -8,7 +8,7 @@
  *
  *   node scripts/electron-pack.cjs --win nsis portable
  */
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const path = require("node:path");
 const engine = require("./release-engine.cjs");
 
@@ -26,6 +26,37 @@ function packPublishArgs(extra) {
     (arg) => arg === "--publish" || arg === "-p" || String(arg).startsWith("--publish="),
   );
   return listed ? args.slice() : ["--publish", "never", ...args];
+}
+
+/**
+ * electron-builder prints every duplicate dependency reference on one line that can run to many
+ * kilobytes. The count is the useful part; the full list stays out of the log.
+ */
+function condenseBuilderLine(line) {
+  const text = String(line);
+  const at = text.search(/duplicate dependency references/i);
+  if (at === -1 || text.length <= 240) return text;
+  const head = text.slice(0, at).trimEnd();
+  return `${head} duplicate dependency references (${text.length} characters of detail hidden)`.trim();
+}
+
+/** Forward a stream line by line, condensing the oversized lines. Returns a flush function. */
+function lineForwarder(write) {
+  let rest = "";
+  const push = (chunk) => {
+    rest += chunk;
+    let at;
+    while ((at = rest.search(/\r?\n/)) !== -1) {
+      const eol = rest[at] === "\r" ? 2 : 1;
+      write(`${condenseBuilderLine(rest.slice(0, at))}\n`);
+      rest = rest.slice(at + eol);
+    }
+  };
+  push.flush = () => {
+    if (rest) write(condenseBuilderLine(rest));
+    rest = "";
+  };
+  return push;
 }
 
 function main() {
@@ -57,16 +88,28 @@ function main() {
     ...extra,
   ];
 
-  const result = spawnSync(process.execPath, args, { cwd: ROOT, stdio: "inherit" });
-  const status = result.status === null ? 1 : result.status;
-  if (status === 0) {
-    // electron-builder's latest.yml uses the npm encoding. Rewrite it to the
-    // public four-part identity before verify-build / checksums run.
-    engine.syncLatestYml(identity, { root: ROOT });
-  }
-  process.exit(status);
+  const child = spawn(process.execPath, args, { cwd: ROOT, stdio: ["inherit", "pipe", "pipe"] });
+  const out = lineForwarder((t) => process.stdout.write(t));
+  const err = lineForwarder((t) => process.stderr.write(t));
+  child.stdout.setEncoding("utf8").on("data", out);
+  child.stderr.setEncoding("utf8").on("data", err);
+  child.on("error", (e) => {
+    console.error(`ERROR: electron-builder did not start: ${e.message}`);
+    process.exit(1);
+  });
+  child.on("close", (code) => {
+    out.flush();
+    err.flush();
+    const status = code === null ? 1 : code;
+    if (status === 0) {
+      // electron-builder's latest.yml uses the npm encoding. Rewrite it to the
+      // public four-part identity before verify-build / checksums run.
+      engine.syncLatestYml(identity, { root: ROOT });
+    }
+    process.exit(status);
+  });
 }
 
-module.exports = { packPublishArgs };
+module.exports = { packPublishArgs, condenseBuilderLine, lineForwarder };
 
 if (require.main === module) main();
