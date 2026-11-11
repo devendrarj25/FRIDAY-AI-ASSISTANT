@@ -4,7 +4,7 @@
  * Everything here reads scripts as text or runs them with stand-ins; no network, no installs.
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -91,7 +91,6 @@ describe("npm run doctor checks, repairs and checks again", () => {
       "dependencies",
       "environment check and repair",
       "packs that ship inside the EXE",
-      "installer tools electron-builder needs",
       "speech, voice and chat models",
       "voice files load and speak",
       "voice stack: runners, models, packages and connections",
@@ -101,7 +100,10 @@ describe("npm run doctor checks, repairs and checks again", () => {
       "pinned local runners against the newest release",
     ]);
     const source = read("scripts/doctor.cjs");
-    expect(source).toContain('node("check-environment.cjs", ["--fix"])');
+    expect(source).toContain('node("check-environment.cjs", [');
+    expect(source).toContain('"--fix"');
+    // Inside setup the confirming pass is a count, not the same table a second time.
+    expect(source).toContain('process.env.FRIDAY_SETUP_RUN === "1" ? ["--summary"] : []');
     expect(source).toContain('node("env-registry.cjs", ["repair"])');
     // The models step is the same script the build runs, with the venv Python so Moonshine can be fetched.
     expect(source).toContain('"prefetch-models.cjs"');
@@ -325,6 +327,19 @@ describe("winget output in the setup script", () => {
     ).toBe(true);
   });
 
+  it("also drops the answers its own next line already states, and the licence notice", () => {
+    const pattern = /\$script:WingetNoise = '(.*)'/.exec(setup)?.[1] ?? "";
+    const noise = new RegExp(pattern, "");
+    for (const line of [
+      "No available upgrade found.",
+      "No newer package versions are available from the configured sources.",
+      "This application is licensed to you by its owner.",
+      "Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.",
+    ])
+      expect(noise.test(line), line).toBe(true);
+    expect(noise.test("Successfully installed")).toBe(false);
+  });
+
   it("uses a noise pattern that matches frames and spares real lines", () => {
     const match = /const NOISE = '(.*)'/.exec(
       `const NOISE = '${/\$script:WingetNoise = '(.*)'/.exec(setup)?.[1]}'`,
@@ -352,66 +367,71 @@ describe("winget output in the setup script", () => {
   });
 });
 
-describe("installer tools are fetched before the build", () => {
-  const prewarm = require_(path.join(root, "scripts/prewarm-builder-cache.cjs"));
-  const calls: string[] = [];
-  const lib = {
-    getMakeNsisPath: async () => calls.push("nsis"),
-    getNsisPluginsPath: async () => calls.push("plugins"),
-    getNsisElevatePath: async () => calls.push("elevate"),
-    getRceditBundle: async () => calls.push("rcedit"),
-  };
-
-  it("calls electron-builder's own toolset functions, once each, and says each is ready", async () => {
-    const lines: string[] = [];
-    const rows = await prewarm.prewarm({
-      lib,
-      platform: "win32",
-      env: {},
-      log: (l: string) => lines.push(l),
-    });
-    expect(calls).toEqual(["nsis", "plugins", "elevate", "rcedit"]);
-    expect(rows.every((r: { ok: boolean }) => r.ok)).toBe(true);
-    expect(lines.join("\n")).toContain("NSIS compiler ready in electron-builder's cache");
+describe("installer tools are fetched once, into the cache the build uses", () => {
+  it("has no second fetch of electron-builder's tools: ensure-electron fills .cache/electron-builder, which build-pipeline uses", () => {
+    const ensure = read("scripts/ensure-electron.cjs");
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(ensure).toContain("fetching installer tools (NSIS) for electron-builder");
+    expect(pipeline).toContain('path.join(cache, "electron-builder")');
+    // The build removes the winCodeSign cache before each package (its macOS symlinks fail on a normal account),
+    // so fetching it earlier gains nothing and a second copy under AppData is a second download.
+    expect(pipeline).toContain('path.join(process.env.ELECTRON_BUILDER_CACHE, "winCodeSign")');
+    expect(existsSync(path.join(root, "scripts/prewarm-builder-cache.cjs"))).toBe(false);
+    expect(read("scripts/setup-windows.ps1")).not.toContain("prewarm-builder-cache");
+    expect(read("scripts/doctor.cjs")).not.toContain("prewarm-builder-cache");
   });
+});
 
-  it("retries a failed fetch, then reports it without failing the step", async () => {
-    let tries = 0;
-    const lines: string[] = [];
-    const rows = await prewarm.prewarm({
-      lib: {
-        ...lib,
-        getRceditBundle: async () => {
-          tries += 1;
-          throw new Error("network down\nstack");
-        },
-      },
-      platform: "win32",
-      env: {},
-      wait: async () => {},
-      log: (l: string) => lines.push(l),
-    });
-    expect(tries).toBe(3);
-    expect(rows.find((r: { name: string }) => r.name === "resource editor")).toMatchObject({
-      ok: false,
-      error: "network down",
-    });
-    expect(lines.join("\n")).toContain("the build tries again");
-  });
+describe("what a real setup run left unsaid", () => {
+  const setup = read("scripts/setup-windows.ps1");
 
-  it("skips off Windows, offline, when switched off and on hosted CI", () => {
-    expect(prewarm.skipReason({}, "linux")).toContain("Windows only");
-    expect(prewarm.skipReason({ FRIDAY_OFFLINE: "1" }, "win32")).toContain("offline");
-    expect(prewarm.skipReason({ FRIDAY_PREFETCH: "0" }, "win32")).toContain("turned off");
-    expect(prewarm.skipReason({ CI: "true" }, "win32")).toContain("hosted CI");
-    expect(prewarm.skipReason({ CI: "true", FRIDAY_PREFETCH: "1" }, "win32")).toBe("");
-    expect(prewarm.skipReason({}, "win32")).toBe("");
-  });
-
-  it("runs in setup after the EXE packs", () => {
-    const setup = read("scripts/setup-windows.ps1");
-    expect(setup.indexOf("scripts\\prewarm-builder-cache.cjs")).toBeGreaterThan(
-      setup.indexOf("scripts\\stage-toolchain.cjs"),
+  it("checks that an update really changed the version winget said it installed", () => {
+    expect(setup).toContain(
+      "function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command",
     );
+    expect(setup).toMatch(/\$before = if \(\$Command\)/);
+    expect(setup).toContain("reported success, but $Command still answers $after");
+    expect(setup).toContain("updated from $before to $after");
+    // The tools that can be checked pass their command.
+    expect(setup).toContain("Update-IfNewer $Label $UpdateIds $Command $VersionArguments");
+  });
+
+  it("repeats what only a person can finish in one block after SETUP PASS, including a newer Node.js and npm", () => {
+    expect(setup).toContain("function Add-FollowUp");
+    expect(setup).toContain("function Write-FollowUps");
+    expect(setup.indexOf("SETUP PASS")).toBeLessThan(setup.lastIndexOf("Write-FollowUps"));
+    expect(setup).toMatch(/Add-FollowUp "\$Label \$Latest is out/);
+  });
+
+  it("removes a FRIDAY_PYTHON that points at a file that is gone, from the user's own environment only", () => {
+    expect(setup).toContain("function Clear-StaleFridayPython");
+    expect(setup).toContain("SetEnvironmentVariable('FRIDAY_PYTHON', $null, 'User')");
+    expect(setup).not.toContain("SetEnvironmentVariable('FRIDAY_PYTHON', $null, 'Machine')");
+    // It runs before the first tool is looked at, so the Python step never meets the stale value.
+    expect(setup.indexOf("  Clear-StaleFridayPython\r\n")).toBeGreaterThan(-1);
+    expect(setup.indexOf("  Clear-StaleFridayPython\r\n")).toBeLessThan(
+      setup.indexOf("Ensure-Tool 'Node.js'"),
+    );
+  });
+
+  it("tells Doctor it runs inside setup, so the environment table is not printed twice", () => {
+    expect(setup).toContain("$env:FRIDAY_SETUP_RUN = '1'");
+    const check = read("scripts/check-environment.cjs");
+    expect(check).toContain('process.argv.includes("--summary")');
+    expect(check).toContain("components pass");
+    // The summary still shows the whole table when something is wrong.
+    expect(check).toMatch(/summaryOnly =[\s\S]*?missing\.length === 0 && warned\.length === 0/);
+  });
+
+  it("states honestly that no wake model ships", () => {
+    const init = read("scripts/init-runtime.cjs");
+    expect(init).not.toContain("bundled wake model not copied");
+    expect(init).toContain("no wake model is installed");
+  });
+
+  it("uses the copy of a tool that setup chose to run first when it names its version", () => {
+    const check = read("scripts/check-environment.cjs");
+    expect(check).toContain("managedPath.readFirst(");
+    expect(check).toContain("managedPath.withFirstPath(process.env.PATH, first)");
   });
 });

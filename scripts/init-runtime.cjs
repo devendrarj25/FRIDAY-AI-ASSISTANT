@@ -35,7 +35,7 @@ if (wakeModel) {
   console.log(`[friday] wake model ready: ${wakeModel}`);
 } else {
   console.log(
-    "[friday] bundled wake model not copied — transcript fallback remains until the app copies it",
+    "[friday] no wake model is installed (none ships until one is trained on real recordings): the wake word is matched in the transcript",
   );
 }
 

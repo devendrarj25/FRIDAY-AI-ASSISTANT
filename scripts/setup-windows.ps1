@@ -38,6 +38,38 @@ function Write-MethodFailure([string]$Label, [string]$Reason) {
   Write-Host "[FRIDAY] method failed: $Label - $Reason" -ForegroundColor Yellow
 }
 
+# Things setup could not finish by itself (a newer Node.js that is running this very setup, a tool whose update
+# did not take effect). They are collected and repeated in one block at the very end, where they are not lost
+# in the middle of a long log.
+$script:FollowUps = New-Object System.Collections.Generic.List[string]
+function Add-FollowUp([string]$Text) { $script:FollowUps.Add($Text) | Out-Null }
+function Write-FollowUps {
+  if ($script:FollowUps.Count -eq 0) { return }
+  Write-Host ''
+  Write-Host '[FRIDAY] Still to do by hand (setup passed; these only make a tool newer):' -ForegroundColor Yellow
+  foreach ($line in $script:FollowUps) { Write-Host "[FRIDAY]   - $line" -ForegroundColor Yellow }
+}
+
+# A FRIDAY_PYTHON left from an older install that points at a file that is gone is removed from the user's own
+# environment (and from this session), so it stops being reported on every run. A machine-wide one needs
+# administrator rights and is only named.
+function Clear-StaleFridayPython {
+  $value = [Environment]::GetEnvironmentVariable('FRIDAY_PYTHON', 'User')
+  if ($value -and -not (Test-Path -LiteralPath $value)) {
+    try {
+      [Environment]::SetEnvironmentVariable('FRIDAY_PYTHON', $null, 'User')
+      Remove-Item Env:FRIDAY_PYTHON -ErrorAction SilentlyContinue
+      Write-Step "FRIDAY_PYTHON pointed at $value, which does not exist: removed it from your user environment"
+    } catch {
+      Add-FollowUp "FRIDAY_PYTHON points at $value, which does not exist. Remove it: Settings, System, About, Advanced system settings, Environment Variables."
+    }
+  }
+  $machine = [Environment]::GetEnvironmentVariable('FRIDAY_PYTHON', 'Machine')
+  if ($machine -and -not (Test-Path -LiteralPath $machine)) {
+    Add-FollowUp "A machine-wide FRIDAY_PYTHON points at $machine, which does not exist. Remove it from the system environment variables (administrator)."
+  }
+}
+
 function Refresh-Path {
   # Entries already in this session stay (a venv or npm shim put them there); the registry
   # PATH is added, so a tool winget just installed or upgraded is found.
@@ -161,7 +193,7 @@ function Install-Package([string]$File, [string[]]$SilentArgs) {
 # that is a blinking bar, in a pipe it is dozens of lines. This keeps the readable lines (what it found,
 # downloads, installs, the result), drops the frames, prints a repeat once, and leaves the exit code in
 # $LASTEXITCODE. (Pattern is ASCII: \u2588-\u2591 are the block characters of the bar.)
-$script:WingetNoise = '^[\s\-\\|/]*$|[\u2588\u2592\u2593\u2591]|^\s*[\d.]+\s*[KMG]?i?B\s*/\s*[\d.]+\s*[KMG]?i?B\s*$|^\s*\d{1,3}%\s*$'
+$script:WingetNoise = '^[\s\-\\|/]*$|[\u2588\u2592\u2593\u2591]|^\s*[\d.]+\s*[KMG]?i?B\s*/\s*[\d.]+\s*[KMG]?i?B\s*$|^\s*\d{1,3}%\s*$|^(No available upgrade found\.|No newer package versions are available from the configured sources\.|This application is licensed to you by its owner\.|Microsoft is not responsible for, nor does it grant any licenses to, third-party packages\.)$'
 function Invoke-WingetQuiet([string[]]$WingetArgs) {
   $script:WingetLast = ''
   # Windows PowerShell 5.1 turns a line on stderr into a terminating error under 'Stop'; winget's text is not one.
@@ -284,7 +316,7 @@ function Set-UpdateChecked {
 
 $script:UpdateWanted = Test-UpdateDue
 
-function Update-IfNewer([string]$Label, [string[]]$Ids) {
+function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [string[]]$VersionArguments = @()) {
   if (-not $script:UpdateWanted) { return }
   if (-not $Ids -or $Ids.Count -eq 0) { return }
   if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
@@ -294,13 +326,23 @@ function Update-IfNewer([string]$Label, [string[]]$Ids) {
   foreach ($id in $Ids) {
     Write-Step "$Label - asking the official winget source for a newer release ($id)"
     $code = -1
+    $before = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
     try {
       Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
       $code = $LASTEXITCODE
     } catch { $code = -1 }
     if ($code -eq 0) {
       Refresh-Path
-      Write-Step "$Label updated to the latest release ($id)"
+      $after = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
+      if ($before -and $after -and $before -eq $after) {
+        # winget said it installed a release, but the program that answers on PATH is the same version as before.
+        Write-MethodFailure "winget upgrade $id" "reported success, but $Command still answers $after"
+        Add-FollowUp "$Label: winget installed a newer release, but $Command still reports $after. Another copy is first on PATH, or Windows needs a restart; open a new terminal and run $Command $($VersionArguments -join ' ')."
+      } elseif ($before -and $after) {
+        Write-Step "$Label updated from $before to $after ($id)"
+      } else {
+        Write-Step "$Label updated to the latest release ($id)"
+      }
       return
     }
     # -1978335189 (0x8A15002B): no applicable update, so this is already the newest release.
@@ -323,7 +365,8 @@ function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Late
   if (-not $Installed -or -not $Latest) { return }
   try {
     if ([version]$Latest -gt [version]$Installed) {
-      Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is not replaced from here - in a new terminal run: $Command"
+      Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is not replaced from here (the command is repeated at the end)"
+      Add-FollowUp "$Label $Latest is out (you have $Installed). Close this window, open a new terminal and run: $Command"
     } else {
       Write-Step "$Label $Installed is the latest release"
     }
@@ -359,7 +402,7 @@ function Ensure-Tool(
   $found = Get-Version $Command $VersionArguments
   if (Test-SupportedVersion $found $MinimumVersion) {
     Write-Step "$Label $found is supported (minimum $MinimumVersion) - detected, kept"
-    Update-IfNewer $Label $UpdateIds
+    Update-IfNewer $Label $UpdateIds $Command $VersionArguments
     return
   }
   if ($found) {
@@ -438,6 +481,7 @@ try {
     Write-Step 'latest-release check: off for this run (done within the last day, or FRIDAY_SETUP_UPDATE=0, hosted CI or offline)'
   }
 
+  Clear-StaleFridayPython
   Ensure-Tool 'Node.js' 'node.exe' @('--version') $Versions.nodeMinimum @(
     @{ Label = 'official winget package (OpenJS.NodeJS.LTS)'; Action = { Install-WingetPackage 'OpenJS.NodeJS.LTS' } },
     @{ Label = 'official nodejs.org MSI download'; Action = { Install-NodeDirect } },
@@ -585,8 +629,6 @@ try {
   & node.exe scripts\stage-toolchain.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The packs for the EXE could not be downloaded. Check the network, then run npm run doctor.' }
 
-  Write-Step 'Fetching the installer tools electron-builder needs (NSIS and the resource editor), so the build downloads nothing'
-  & node.exe scripts\prewarm-builder-cache.cjs
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 
@@ -595,7 +637,11 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Automatic component repair could not complete every required component.' }
 
   Write-Step 'Running final readiness verification'
+  # Doctor repeats the environment check only to confirm it: from here it prints the failures and a count, not the
+  # same 80-line table a second time.
+  $env:FRIDAY_SETUP_RUN = '1'
   & npm.cmd run doctor
+  Remove-Item Env:FRIDAY_SETUP_RUN -ErrorAction SilentlyContinue
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY Doctor did not pass.' }
   Write-Step ("resolved versions - node {0}, npm {1}, python {2}, git {3}, pwsh {4} (floors in config\toolchain-versions.json; newer versions are reused)" -f `
     (Get-Version 'node.exe' @('--version')), `
@@ -604,6 +650,7 @@ try {
     (Get-Version 'git.exe' @('--version')), `
     (Get-Version 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()')))
   Write-Host '[FRIDAY] SETUP PASS - FRIDAY is ready to test, build and run.' -ForegroundColor Green
+  Write-FollowUps
 } catch {
   Write-Host "[FRIDAY] SETUP FAIL - $($_.Exception.Message)" -ForegroundColor Red
   exit 1

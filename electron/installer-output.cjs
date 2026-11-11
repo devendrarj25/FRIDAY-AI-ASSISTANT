@@ -22,6 +22,17 @@ function tidyLine(raw) {
   if (/[█▒▓░■□]/.test(text)) return "";
   if (/^\d+(\.\d+)?\s*[KMG]?i?B\s*\/\s*\d+(\.\d+)?\s*[KMG]?i?B$/i.test(text)) return "";
   if (/^\d{1,3}%$/.test(text)) return "";
+  // winget's answers that our own next line already states, its licence notice, and the echo of the command we ran.
+  if (
+    /^(No available upgrade found\.|No newer package versions are available from the configured sources\.)$/.test(
+      text,
+    ) ||
+    /^(This application is licensed to you by its owner\.|Microsoft is not responsible for, nor does it grant any licenses to, third-party packages\.)$/.test(
+      text,
+    ) ||
+    /^\[(vendor installer|winget|chocolatey|scoop)\] /i.test(text)
+  )
+    return "";
   return text;
 }
 

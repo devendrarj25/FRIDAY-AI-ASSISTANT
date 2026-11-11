@@ -503,33 +503,77 @@ describe("toolkit in every command", () => {
 describe("a newer managed copy is used first", () => {
   const managedPath = require_(path.join(root, "electron/managed-path.cjs"));
 
-  it("puts the managed copy in front only when it is verifiably newer", () => {
+  const entry = {
+    probe: { cmd: ["pandoc.exe", "pandoc"], args: ["--version"], dirs: ["%PF%/Pandoc"] },
+  };
+  /** A PC with some folders holding a tool, each answering its own version. */
+  const pc = (versions: Record<string, string>, pathDirs: string[]) => {
     const calls: string[] = [];
-    const managed = {
-      preferManaged: (_r: string, dir: string) => (calls.push(dir), true),
-      withFirstPath: managedPath.withFirstPath,
+    const env: Record<string, string | undefined> = {
+      PATH: pathDirs.join(path.delimiter),
+      PF: "/prog",
     };
-    const env = { PATH: ["/opt/cmake/bin", "/usr/bin"].join(path.delimiter) };
-    const managedBin = path.join("/friday", "runtime", "cmake", "bin");
-    const win = (version: string | null) => ({
-      installedBin: () => (version ? { bin: path.join(managedBin, "cmake.exe"), version } : null),
-      managedPath: managed,
+    return {
+      calls,
       env,
-    });
-    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win("4.2.0"))).toBe(
-      "4.2.0",
-    );
-    expect(calls).toHaveLength(1);
-    expect(env.PATH.split(path.delimiter)[0]).toBe(managedBin);
-    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.2.0", win("4.2.0"))).toBe("");
-    expect(toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", win(null))).toBe("");
-    expect(
-      toolkit.preferNewerManaged("/friday", { id: "CMake" }, "4.1.0", {
-        installedBin: () => {
-          throw new Error("no marker");
+      deps: {
+        env,
+        exists: (exe: string) => Object.keys(versions).some((dir) => exe.startsWith(dir)),
+        run: (exe: string) => {
+          const dir = Object.keys(versions).find((d) => exe.startsWith(d)) as string;
+          return `pandoc ${versions[dir]}\nFeatures: +server`;
         },
-      }),
-    ).toBe("");
+        installedBin: () => null,
+        managedPath: {
+          preferManaged: (_r: string, dir: string) => (calls.push(dir), true),
+          withFirstPath: managedPath.withFirstPath,
+        },
+      },
+    };
+  };
+
+  it("puts the newest copy first when an older one is found first on PATH (two system copies)", () => {
+    const user = path.join("/home", "u", "Pandoc");
+    const machine = path.join("/prog", "Pandoc");
+    const { deps, env, calls } = pc({ [user]: "3.12.1", [machine]: "3.13" }, [user, "/usr/bin"]);
+    const best = toolkit.preferNewestCopy("/friday", entry, null, deps);
+    expect(best).toMatchObject({ dir: machine, version: "3.13" });
+    expect(calls).toEqual([machine]);
+    expect(env["PATH"]?.split(path.delimiter)[0]).toBe(machine);
+  });
+
+  it("does nothing when the copy found first already is the newest, or there is only one copy", () => {
+    const a = path.join("/a", "Pandoc");
+    const b = path.join("/b", "Pandoc");
+    const same = pc({ [a]: "3.13", [b]: "3.12.1" }, [a, b]);
+    expect(toolkit.preferNewestCopy("/friday", entry, null, same.deps)).toBeNull();
+    expect(same.calls).toEqual([]);
+    const one = pc({ [a]: "3.13" }, [a]);
+    expect(toolkit.preferNewestCopy("/friday", entry, null, one.deps)).toBeNull();
+  });
+
+  it("counts the managed copy under runtime as a candidate and survives a failing probe", () => {
+    const system = path.join("/prog", "CMake", "bin");
+    const managedDir = path.join("/friday", "runtime", "cmake", "bin");
+    const cmake = { probe: { cmd: ["cmake.exe", "cmake"], args: ["--version"], dirs: [] } };
+    const { deps, env } = pc({ [system]: "4.4.4", [managedDir]: "4.4.5" }, [system]);
+    (deps as { installedBin: unknown }).installedBin = () => ({
+      bin: path.join(managedDir, "cmake.exe"),
+      version: "4.4.5",
+    });
+    (deps as { run: unknown }).run = (exe: string) => {
+      if (exe.startsWith(managedDir)) return "cmake version 4.4.5";
+      return "cmake version 4.4.4";
+    };
+    const best = toolkit.preferNewestCopy("/friday", cmake, { id: "CMake" }, deps);
+    expect(best).toMatchObject({ dir: managedDir, version: "4.4.5" });
+    expect(env["PATH"]?.split(path.delimiter)[0]).toBe(managedDir);
+    const broken = pc({ [system]: "4.4.4" }, [system]);
+    (broken.deps as { run: unknown }).run = () => {
+      throw new Error("does not run");
+    };
+    expect(toolkit.preferNewestCopy("/friday", cmake, null, broken.deps)).toBeNull();
+    expect(toolkit.preferNewestCopy("/friday", undefined, null, {})).toBeNull();
   });
 
   it("keeps the recorded front folders first on every later apply, and lists nothing twice", () => {
@@ -550,5 +594,76 @@ describe("a newer managed copy is used first", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the toolkit log of a real setup run", () => {
+  const win = { platform: "win32", env: { CI: "", GITHUB_ACTIONS: "" } };
+  const installer = require_(path.join(root, "electron/installer-output.cjs"));
+
+  it("prints one line per ten percent of an installer download, not one per chunk", async () => {
+    const lines: string[] = [];
+    const stub = {
+      detectTools: async () => ({ tools: [] }),
+      wingetUpgrades: async () => ({}),
+      toolById: (id: string) => ({ id }),
+      latestFor: async () => null,
+      runJob: async (_job: unknown, emit: (e: unknown) => void) => {
+        for (let p = 0; p <= 100; p += 1)
+          emit({
+            id: "Git",
+            phase: "Downloading",
+            percent: p,
+            line: `Downloading Git ${p}%`,
+            speedMbps: 8.4,
+          });
+        return { ok: true };
+      },
+    };
+    await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      ledger: toolkit.memoryLedger(),
+      toolchain: stub,
+      progressLine: () => "",
+      log: (l: string) => lines.push(l),
+    });
+    const git = lines.filter((l) => /^\[friday\] Git +downloading \d+%/.test(l));
+    expect(git.length).toBeGreaterThanOrEqual(9);
+    expect(git.length).toBeLessThanOrEqual(11);
+    expect(git[0]).toContain("MB/s");
+    expect(lines.some((l) => /Downloading Git \d+%/.test(l))).toBe(false);
+  });
+
+  it("drops winget's boilerplate and the echo of the command that was run", () => {
+    for (const line of [
+      "No available upgrade found.",
+      "No newer package versions are available from the configured sources.",
+      "This application is licensed to you by its owner.",
+      "Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.",
+      "[winget] winget upgrade --id Git.Git --silent --accept-package-agreements",
+      "[vendor installer] powershell -NoProfile -ExecutionPolicy Bypass -Command $ErrorActionPreference='Stop'",
+    ])
+      expect(installer.tidyLine(line), line).toBe("");
+    for (const line of [
+      "Found PowerShell [Microsoft.PowerShell] Version 7.6.10.0",
+      "Successfully verified installer hash",
+      "Starting package install...",
+      "Successfully installed",
+    ])
+      expect(installer.tidyLine(line), line).toBe(line);
+  });
+
+  it("shows the version number alone and names winget's well-known exit code in words", () => {
+    expect(toolkit.shortVersion("9.0.2-full_build-www.gyan.dev")).toBe("9.0.2");
+    expect(toolkit.shortVersion("2.56.0.windows.4")).toBe("2.56.0");
+    expect(toolkit.shortVersion("")).toBe("");
+    expect(toolchain.exitCodeText(2316632107)).toBe("winget: no newer version is available");
+    expect(toolchain.exitCodeText(0x8a15002b)).toContain("no newer version");
+    expect(toolchain.exitCodeText(5)).toBe("exit code 5");
+  });
+
+  it("raises no administrator prompt for an archive unpacked into FRIDAY's own folder", () => {
+    const source = readFileSync(path.join(root, "electron/toolchain.cjs"), "utf8");
+    expect(source).toMatch(/\["msi", "exe"\]\.includes\(String\(feed\.kind/);
   });
 });

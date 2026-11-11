@@ -51,6 +51,12 @@ function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
 }
 
+/** The version number alone: "9.0.2-full_build-www.gyan.dev" is 9.0.2. */
+const shortVersion = (value) => {
+  const text = String(value || "");
+  return /\d+(?:\.\d+)+/.exec(text)?.[0] ?? text;
+};
+
 const mb = (bytes) =>
   bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 
@@ -113,26 +119,83 @@ function alreadyTried(ledger, id, to, now = Date.now()) {
   return now - Number(hit.at || 0) < RETRY_FAILED_MS ? hit : null;
 }
 
+/** The version number a copy of a tool answers with, or "" when it cannot be run. */
+function versionIn(dir, entry, deps = {}) {
+  const exists = deps.exists || fs.existsSync;
+  const run =
+    deps.run ||
+    ((exe, args) =>
+      require("node:child_process").execFileSync(exe, args, {
+        encoding: "utf8",
+        timeout: 15_000,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      }));
+  for (const name of entry?.probe?.cmd || []) {
+    const exe = path.join(dir, name);
+    if (!exists(exe)) continue;
+    try {
+      const found = /\d+(?:\.\d+)+/.exec(String(run(exe, entry.probe.args || ["--version"])));
+      if (found) return found[0];
+    } catch {
+      /* a copy that does not run is not a candidate */
+    }
+  }
+  return "";
+}
+
 /**
- * An update that landed beside an older PC-wide copy (winget's CMake 4.1 first on PATH, the vendor's 4.2
- * unpacked under runtime\\): when the managed copy is verifiably the newer one, its folder goes in front
- * of PATH for this process and for FRIDAY from now on (managed-path.json `first`). Returns the
- * managed version that now wins, or "" when there is no newer managed copy. Never throws.
+ * An update that landed beside an older copy of the same tool (winget's CMake 4.4.4 under Program Files and the
+ * vendor's 4.4.5 unpacked under runtime\\; Pandoc 3.12.1 per user and 3.13 for the machine): every folder that
+ * holds the tool is asked for its version, and when the copy that PATH finds first is not the newest, the newest
+ * copy's folder goes in front of PATH for this process and, through `first` in runtime\\managed-path.json, for
+ * FRIDAY from now on. The older copy stays installed and nothing outside FRIDAY changes. Returns
+ * { dir, version } for the copy now used first, or null when the first copy already is the newest. Never throws.
  */
-function preferNewerManaged(root, tool, seen, deps = {}) {
+function preferNewestCopy(root, entry, tool, deps = {}) {
   try {
-    const installed = (
-      deps.installedBin || require("../electron/managed-install.cjs").installedBin
-    )(root, tool);
-    if (!installed?.bin || !installed.version || !newer(installed.version, seen)) return "";
-    const dir = path.dirname(installed.bin);
-    const managed = deps.managedPath || require("../electron/managed-path.cjs");
-    if (!managed.preferManaged(root, dir)) return "";
     const env = deps.env || process.env;
-    env.PATH = managed.withFirstPath(env.PATH, [dir]);
-    return String(installed.version);
+    const delimiter = deps.delimiter || path.delimiter;
+    const seen = new Set();
+    const dirs = [];
+    const add = (dir) => {
+      const key = String(dir || "").toLowerCase();
+      if (dir && !seen.has(key)) {
+        seen.add(key);
+        dirs.push(String(dir));
+      }
+    };
+    const onPath = String(env.PATH || "")
+      .split(delimiter)
+      .filter(Boolean);
+    for (const dir of onPath) add(dir);
+    const installed = tool
+      ? (deps.installedBin || require("../electron/managed-install.cjs").installedBin)(root, tool)
+      : null;
+    if (installed?.bin) add(path.dirname(installed.bin));
+    for (const text of entry?.probe?.dirs || [])
+      add(
+        String(text)
+          .replace(/%([^%]+)%/g, (_m, name) => env[name] ?? "\0")
+          .replace(/^.*\0.*$/, ""),
+      );
+    const copies = dirs
+      .map((dir) => ({ dir, version: versionIn(dir, entry, deps) }))
+      .filter((copy) => copy.version);
+    if (copies.length < 2) return null;
+    const winner =
+      copies.find((copy) => onPath.some((p) => p.toLowerCase() === copy.dir.toLowerCase())) ||
+      copies[0];
+    let best = copies[0];
+    for (const copy of copies) if (newer(copy.version, best.version)) best = copy;
+    if (best.dir.toLowerCase() === winner.dir.toLowerCase() || !newer(best.version, winner.version))
+      return null;
+    const managed = deps.managedPath || require("../electron/managed-path.cjs");
+    if (!managed.preferManaged(root, best.dir)) return null;
+    env.PATH = managed.withFirstPath(env.PATH, [best.dir], delimiter);
+    return best;
   } catch {
-    return "";
+    return null;
   }
 }
 
@@ -261,6 +324,14 @@ function eventPrinter(log, id, progressLine) {
       const step = Math.floor(Math.max(0, Math.min(100, Number(event.progress))) / 10);
       if (step <= bucket) return;
       if (line) bucket = step;
+    } else if (event.percent != null && event.phase === "Downloading") {
+      // The installer download reports a percent with every chunk: one line per ten percent, with the speed.
+      const percent = Math.max(0, Math.min(100, Math.round(Number(event.percent))));
+      const step = Math.floor(percent / 10);
+      if (step <= bucket) return;
+      bucket = step;
+      const speed = event.speedMbps ? ` ${event.speedMbps} MB/s` : "";
+      line = `[friday] ${id.padEnd(14)} downloading ${percent}%${speed}`;
     } else if (event.line) {
       const text = tidyLine(event.line);
       if (!text || seen.has(text)) return;
@@ -333,7 +404,7 @@ async function prefetchToolkit(root, deps = {}) {
   for (const row of plan) {
     if (row.action === "keep") {
       log(
-        `[friday] ok       ${row.id}${row.version ? ` ${row.version}` : ""} already installed; not downloaded again`,
+        `[friday] ok       ${row.id}${row.version ? ` ${shortVersion(row.version)}` : ""} already installed; not downloaded again`,
       );
       rows.push({ id: row.id, ok: true, downloaded: false });
       continue;
@@ -413,7 +484,8 @@ async function prefetchToolkit(root, deps = {}) {
         seen = "";
       }
       if (result?.ok && seen && newer(row.to, seen)) {
-        const front = preferNewerManaged(root, toolchain.toolById?.(row.id), seen, deps);
+        const entry = config.prefetch.find((candidate) => candidate.id === row.id);
+        const front = preferNewestCopy(root, entry, toolchain.toolById?.(row.id), deps);
         if (front) {
           try {
             const again = await toolchain.detectTools({ force: true, root, only: [row.id] });
@@ -422,7 +494,7 @@ async function prefetchToolkit(root, deps = {}) {
             /* the earlier version stays the one seen */
           }
           log(
-            `[friday] ok       ${row.id} ${front} is used first from now on (the older copy stays installed)`,
+            `[friday] ok       ${row.id} ${front.version} is used first from now on (${front.dir}; the older copy stays installed)`,
           );
         }
       }
@@ -508,12 +580,14 @@ module.exports = {
   memoryLedger,
   alreadyTried,
   updateOutcome,
-  preferNewerManaged,
+  preferNewestCopy,
+  versionIn,
   tidyLine,
   failureReport,
   strict,
   jobLimitMs,
   toolkitPlan,
+  shortVersion,
   skipReason,
   deferredList,
   newer,

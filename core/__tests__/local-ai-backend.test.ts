@@ -267,7 +267,7 @@ describe("local library parsers", () => {
     });
     expect(gpt.canRun).toBe(false);
     expect(gpt.reason).toMatch(/sha256/i);
-    const card = library.launcherCard(ollama, { now: Date.parse("2026-11-11T00:00:00Z") });
+    const card = library.launcherCard(ollama, { now: Date.parse("2026-11-13T00:00:00Z") });
     expect(card.detected).toBe(false);
     expect(card.nextStep).toMatch(/Not installed/);
     expect(card.pinAgeLabel).toBe("Pin age: 2 days");

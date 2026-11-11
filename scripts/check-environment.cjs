@@ -50,6 +50,18 @@ const capture = (exe, args, timeout = 15000) => {
   }
 };
 
+// A tool whose newer copy was installed beside an older one (CMake, Pandoc) is found at the copy setup chose to
+// use first (runtime/managed-path.json `first`), so this check names the version FRIDAY really runs.
+if (win) {
+  try {
+    const managedPath = require("../electron/managed-path.cjs");
+    const first = managedPath.readFirst(require("./friday-root.cjs").workspaceRootOrDev().root);
+    if (first.length) process.env.PATH = managedPath.withFirstPath(process.env.PATH, first);
+  } catch {
+    /* without a recorded choice the PATH order stands */
+  }
+}
+
 /** PATH first, then well-known install folders (winget often skips user PATH). */
 function captureCommand(names, args, extraDirs = []) {
   for (const name of names) {
@@ -920,13 +932,23 @@ const pad = (s, n) => String(s).padEnd(n);
 const missing = checks.filter((c) => !c.ok && c.required);
 const warned = checks.filter((c) => !c.ok && !c.required);
 
+// --summary (the confirming pass inside `npm run setup`): a count, and the full table only when something is wrong.
+const summaryOnly =
+  process.argv.includes("--summary") && missing.length === 0 && warned.length === 0;
+if (summaryOnly) {
+  console.log(`[friday] environment check: all ${checks.length} components pass`);
+}
 console.log("");
-console.log("FRIDAY — environment check");
-console.log("Minimum versions are compatibility floors; newer compatible releases PASS.");
-console.log("-".repeat(78));
-console.log(`${pad("STATUS", 10)}${pad("COMPONENT", 34)}${pad("INSTALLED", 22)}MINIMUM SUPPORTED`);
-console.log("-".repeat(78));
-for (const c of checks) {
+if (!summaryOnly) {
+  console.log("FRIDAY — environment check");
+  console.log("Minimum versions are compatibility floors; newer compatible releases PASS.");
+  console.log("-".repeat(78));
+  console.log(
+    `${pad("STATUS", 10)}${pad("COMPONENT", 34)}${pad("INSTALLED", 22)}MINIMUM SUPPORTED`,
+  );
+  console.log("-".repeat(78));
+}
+for (const c of summaryOnly ? [] : checks) {
   const state = c.ok ? "PASS" : c.required ? "MISSING" : "SKIPPED";
   // A long value never pushes the next column: the row keeps its width and the full text follows below.
   const clip = (text, n) =>
@@ -942,7 +964,7 @@ for (const c of checks) {
     console.log(`          source: ${c.url}`);
   }
 }
-console.log("-".repeat(78));
+if (!summaryOnly) console.log("-".repeat(78));
 
 if (missing.length) {
   // Never a generic failure: name every missing component and its exact fix.
@@ -980,8 +1002,9 @@ if (warned.length && strict) {
   );
   process.exit(1);
 }
-console.log(
-  warned.length
-    ? `Ready to build (${warned.length} tool(s) skipped on this run, installed by npm run setup on your PC: ${warned.map((c) => c.name).join(", ")}).`
-    : "Ready to build.",
-);
+if (!summaryOnly)
+  console.log(
+    warned.length
+      ? `Ready to build (${warned.length} tool(s) skipped on this run, installed by npm run setup on your PC: ${warned.map((c) => c.name).join(", ")}).`
+      : "Ready to build.",
+  );
