@@ -603,6 +603,17 @@ if (require.main === module) {
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
+  // A tool whose newer copy setup installed beside an older one is looked for at the copy setup chose to use
+  // first, so the build and Doctor name CMake 4.4.5 / Pandoc 3.13 and do not call a newer release "outdated".
+  if (process.platform === "win32") {
+    try {
+      const managed = require("../electron/managed-path.cjs");
+      const first = managed.readFirst(picked.root);
+      if (first.length) process.env.PATH = managed.withFirstPath(process.env.PATH, first);
+    } catch {
+      /* without a recorded choice the PATH order stands */
+    }
+  }
   // Doctor and the build install what is missing only; npm run setup is where updates happen.
   if (process.argv.includes("--no-update")) process.env.FRIDAY_PREFETCH_TOOLKIT_UPDATE = "0";
   prefetchToolkit(path.resolve(picked.root)).then(

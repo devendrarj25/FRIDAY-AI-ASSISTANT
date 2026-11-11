@@ -64,6 +64,46 @@ describe("build run log fixes (2026-11-11)", () => {
     );
   });
 
+  it("the restart line names the kernel lines that say why a launch had no kernel", () => {
+    const harness = require_(path.join(ROOT, "scripts/readiness-test.cjs")) as {
+      restartReportLine: (second: unknown, first: unknown) => string;
+    };
+    const line = harness.restartReportLine(
+      {
+        stages: [{ name: "BASIC TASK", ok: false, detail: "watchdog" }],
+        output:
+          "noise\n[kernel] database is locked\nstill noise\nError occurred in handler for 'kernel:rpc'",
+      },
+      { kernel: { pid: 1, port: 2 } },
+    );
+    expect(line).toContain("kernel log:");
+    expect(line).toContain("database is locked");
+  });
+
+  it("inside setup the voice-stack table is a count plus the rows that need a look", () => {
+    const stack = require_(path.join(ROOT, "scripts/voice-stack.cjs")) as {
+      print: (rows: unknown[], log: (t: string) => void, o: { summary: boolean }) => number;
+    };
+    const lines: string[] = [];
+    const rows = [
+      { layer: "a", state: "PASS", name: "one", detail: "x" },
+      { layer: "a", state: "INFO", name: "two", detail: "y" },
+    ];
+    expect(stack.print(rows, (t) => lines.push(t), { summary: true })).toBe(0);
+    const text = lines.join("\n");
+    expect(text).toContain("two");
+    expect(text).not.toContain("one ");
+    expect(text).toContain("2 rows: 1 pass, 0 fail, 1 info");
+    expect(fs.readFileSync(path.join(ROOT, "scripts/doctor.cjs"), "utf8")).toContain('"--summary"');
+  });
+
+  it("the toolkit step looks at the copy setup chose first, and setup's own check is a summary", () => {
+    const toolkit = fs.readFileSync(path.join(ROOT, "scripts/prefetch-toolkit.cjs"), "utf8");
+    expect(toolkit).toContain("managed.readFirst(picked.root)");
+    const ps = fs.readFileSync(path.join(ROOT, "scripts/setup-windows.ps1"), "utf8");
+    expect(ps).toContain("check-environment.cjs --fix --summary");
+  });
+
   it("no double-quoted PowerShell string has a bare variable-colon (it parses as a scope-qualified variable)", () => {
     const text = fs.readFileSync(path.join(ROOT, "scripts/setup-windows.ps1"), "utf8");
     const scopes = /^(env|script|global|local|private|using|variable|function)$/i;

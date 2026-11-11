@@ -633,7 +633,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 
   Write-Step 'Repairing any incomplete Electron or Python component'
-  & node.exe scripts\check-environment.cjs --fix
+  & node.exe scripts\check-environment.cjs --fix --summary
   if ($LASTEXITCODE -ne 0) { throw 'Automatic component repair could not complete every required component.' }
 
   Write-Step 'Running final readiness verification'
