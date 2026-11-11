@@ -1413,9 +1413,9 @@ const TOOLS = [
     // is stored under runtime\\ and run from there, never registered as a service.
     url: "https://github.com/LostRuins/koboldcpp",
     source: "github.com/LostRuins",
-    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.124.1/koboldcpp.exe",
-    sha256: "32def5892e7880cec04382ab02baef635ac6bb298d38c616ae7c1fda48c94281",
-    needBytes: 622611661,
+    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.124.2/koboldcpp.exe",
+    sha256: "e306b58f9770fbca5265c7a0a6cc1c096d1bc3535a6d7e1f8e78c6810564faf7",
+    needBytes: 622841516,
     storeOnly: true,
     archiveBin: "koboldcpp.exe",
     latest: { kind: "github", ref: "LostRuins/koboldcpp" },
@@ -2885,6 +2885,13 @@ const WINGET_NO_UPGRADE = 2316632107; // 0x8A15002B: no newer version is availab
 const WINGET_NOT_MANAGED = 2316632084; // 0x8A150014: no package installed by winget matches
 const WINGET_BENIGN_CODES = new Set([WINGET_NO_UPGRADE, WINGET_NOT_MANAGED]);
 
+/** An exit code in words where winget's well-known answers are concerned (it prints 2316632107 for 0x8A15002B). */
+function exitCodeText(code) {
+  if (code === WINGET_NO_UPGRADE) return "winget: no newer version is available";
+  if (code === WINGET_NOT_MANAGED) return "winget does not manage this copy";
+  return `exit code ${code}`;
+}
+
 function jobSucceeded(code, action, probe) {
   const desiredState = action === "uninstall" ? !probe.installed : probe.installed;
   return Boolean(desiredState && (code === 0 || WINGET_BENIGN_CODES.has(code)));
@@ -3538,7 +3545,11 @@ function runJob({ id, action, root }, emit) {
             line: `winget has nothing newer, but ${feed.source} lists ${feed.version} (installed ${last.probe.version || "unknown"}) — updating from the official installer`,
           });
           keptCurrent = finished;
-          machineWide = /[\\/]Program Files/i.test(String(last.probe.path || ""));
+          // Only an msi/exe writes under Program Files; a zip is unpacked into FRIDAY's own folder, which needs no
+          // administrator rights, so no prompt is raised for it.
+          machineWide =
+            /[\\/]Program Files/i.test(String(last.probe.path || "")) &&
+            ["msi", "exe"].includes(String(feed.kind || ""));
           return null;
         }
       }
@@ -3549,7 +3560,7 @@ function runJob({ id, action, root }, emit) {
         phase: last.restartRequired ? "Restart required" : "Done",
         ...(last.restartRequired ? { restartRequired: true } : {}),
         version: last.probe.version,
-        line: `exit code ${last.code} · health check: ${last.probe.status}`,
+        line: `${exitCodeText(last.code)} · health check: ${last.probe.status}`,
       });
       return finished;
     };
@@ -3966,4 +3977,5 @@ module.exports = {
   archiveInstallCommand,
   extractZip,
   rustupInitCandidates,
+  exitCodeText,
 };

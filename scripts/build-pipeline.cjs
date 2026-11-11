@@ -45,7 +45,7 @@ const PHASE_COMMANDS = {
     "scripts/setup-python.cjs",
     "scripts/prefetch-toolkit.cjs",
     "scripts/init-runtime.cjs",
-    "scripts/check-environment.cjs --fix",
+    "scripts/check-environment.cjs --fix --summary",
     "scripts/env-registry.cjs repair",
   ],
   // canonical friday-version.json is the single truth
@@ -509,6 +509,43 @@ function runPackagedSelfCheck(input = {}) {
   return lines.join("; ");
 }
 
+/**
+ * `npm ci` downloads the Electron zip into the default shared cache; the build then looks in
+ * `.cache/electron` and would fetch the same ~100 MB again. Copy the matching zip folder across once.
+ */
+function seedElectronCache(target, source = defaultElectronCache()) {
+  const copied = [];
+  try {
+    if (!source || !fs.existsSync(source) || path.resolve(source) === path.resolve(target))
+      return copied;
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const from = path.join(source, entry.name);
+      const zips = fs.readdirSync(from).filter((f) => /^electron-v[\d.]+-.*\.zip$/.test(f));
+      for (const zip of zips) {
+        const to = path.join(target, entry.name, zip);
+        if (fs.existsSync(to)) continue;
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.copyFileSync(path.join(from, zip), to);
+        copied.push(zip);
+      }
+    }
+  } catch {
+    // A cache that cannot be read only means the build downloads once, as before.
+  }
+  return copied;
+}
+
+function defaultElectronCache() {
+  if (process.platform === "win32") {
+    return process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "electron", "Cache") : "";
+  }
+  return path.join(
+    process.env.XDG_CACHE_HOME || path.join(require("node:os").homedir(), ".cache"),
+    "electron",
+  );
+}
+
 function applyBuildCache(root = ROOT) {
   const cache = path.join(root, ".cache");
   if (!process.env.ELECTRON_BUILDER_CACHE) {
@@ -518,6 +555,7 @@ function applyBuildCache(root = ROOT) {
   process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
   fs.mkdirSync(process.env.ELECTRON_BUILDER_CACHE, { recursive: true });
   fs.mkdirSync(process.env.ELECTRON_CACHE, { recursive: true });
+  seedElectronCache(process.env.ELECTRON_CACHE);
   for (const dir of [
     process.env.LOCALAPPDATA
       ? path.join(process.env.LOCALAPPDATA, "electron-builder", "Cache", "winCodeSign")
@@ -622,6 +660,11 @@ function runPhase(phase, options, root) {
     // build with the reason. The toolchain comes first: Git, PowerShell, FFmpeg, Tesseract and the
     // Visual C++ runtime are checked (and installed from the official source when missing) before
     // npm ci, so a PC that has Node.js but not the rest is not discovered late.
+    const stale = require("./explicit-python.cjs").dropStalePython(process.env);
+    if (stale)
+      console.log(
+        `[friday] FRIDAY_PYTHON pointed at ${stale}, which is gone; using the Python setup created.`,
+      );
     ensureToolchain(root);
     runNode("scripts/check-engines.cjs", [], root);
     npmCi(root);
@@ -630,7 +673,7 @@ function runPhase(phase, options, root) {
     // The agent tools (search, Git, build tools, Docker, Sandbox, CUDA): a tool that cannot be installed stops the build.
     runNode("scripts/prefetch-toolkit.cjs", ["--no-update"], root);
     runNode("scripts/init-runtime.cjs", [], root);
-    runNode("scripts/check-environment.cjs", ["--fix"], root);
+    runNode("scripts/check-environment.cjs", ["--fix", "--summary"], root);
     runNode("scripts/env-registry.cjs", ["repair"], root);
     return "environment ready";
   }
@@ -1015,6 +1058,7 @@ async function main() {
 }
 
 module.exports = {
+  seedElectronCache,
   PHASES,
   PHASE_COMMANDS,
   GITHUB_ASSET_LIMIT,
