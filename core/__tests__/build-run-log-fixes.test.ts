@@ -64,6 +64,46 @@ describe("build run log fixes (2026-11-11)", () => {
     );
   });
 
+  it("the restart line names the kernel lines that say why a launch had no kernel", () => {
+    const harness = require_(path.join(ROOT, "scripts/readiness-test.cjs")) as {
+      restartReportLine: (second: unknown, first: unknown) => string;
+    };
+    const line = harness.restartReportLine(
+      {
+        stages: [{ name: "BASIC TASK", ok: false, detail: "watchdog" }],
+        output:
+          "noise\n[kernel] database is locked\nstill noise\nError occurred in handler for 'kernel:rpc'",
+      },
+      { kernel: { pid: 1, port: 2 } },
+    );
+    expect(line).toContain("kernel log:");
+    expect(line).toContain("database is locked");
+  });
+
+  it("inside setup the voice-stack table is a count plus the rows that need a look", () => {
+    const stack = require_(path.join(ROOT, "scripts/voice-stack.cjs")) as {
+      print: (rows: unknown[], log: (t: string) => void, o: { summary: boolean }) => number;
+    };
+    const lines: string[] = [];
+    const rows = [
+      { layer: "a", state: "PASS", name: "one", detail: "x" },
+      { layer: "a", state: "INFO", name: "two", detail: "y" },
+    ];
+    expect(stack.print(rows, (t) => lines.push(t), { summary: true })).toBe(0);
+    const text = lines.join("\n");
+    expect(text).toContain("two");
+    expect(text).not.toContain("one ");
+    expect(text).toContain("2 rows: 1 pass, 0 fail, 1 info");
+    expect(fs.readFileSync(path.join(ROOT, "scripts/doctor.cjs"), "utf8")).toContain('"--summary"');
+  });
+
+  it("the toolkit step looks at the copy setup chose first, and setup's own check is a summary", () => {
+    const toolkit = fs.readFileSync(path.join(ROOT, "scripts/prefetch-toolkit.cjs"), "utf8");
+    expect(toolkit).toContain("managed.readFirst(picked.root)");
+    const ps = fs.readFileSync(path.join(ROOT, "scripts/setup-windows.ps1"), "utf8");
+    expect(ps).toContain("check-environment.cjs --fix --summary");
+  });
+
   it("no double-quoted PowerShell string has a bare variable-colon (it parses as a scope-qualified variable)", () => {
     const text = fs.readFileSync(path.join(ROOT, "scripts/setup-windows.ps1"), "utf8");
     const scopes = /^(env|script|global|local|private|using|variable|function)$/i;
@@ -76,5 +116,41 @@ describe("build run log fixes (2026-11-11)", () => {
       }
     });
     expect(bad).toEqual([]);
+  });
+
+  it("a terminal gets one in-place progress bar per tool download; a log keeps one line per ten percent", () => {
+    const toolkit = require_(path.join(ROOT, "scripts/prefetch-toolkit.cjs")) as {
+      eventPrinter: (
+        log: (l: string) => void,
+        id: string,
+        progressLine: undefined,
+        o: { tty: boolean; out: { write: (t: string) => void } },
+      ) => ((e: unknown) => void) & { end: () => void };
+    };
+    const written: string[] = [];
+    const lines: string[] = [];
+    const live = toolkit.eventPrinter((l) => lines.push(l), "cmake", undefined, {
+      tty: true,
+      out: { write: (t) => written.push(t) },
+    });
+    for (const percent of [0, 3, 3, 40, 100]) {
+      live({ phase: "Downloading", percent, speedMbps: 5.4 });
+    }
+    live({ line: "installed" });
+    live.end();
+    const frames = written.filter((t) => t.startsWith("\r"));
+    expect(frames).toHaveLength(4); // 0, 3, 40, 100: a repeat of 3 is not redrawn
+    expect(frames[2]).toContain("[##########--------------]  40%");
+    expect(frames[3]).toContain("100%");
+    expect(written.filter((t) => t === "\n")).toHaveLength(1); // the bar is closed before the next message
+    expect(lines).toEqual(["[friday] cmake          installed"]);
+
+    const plain: string[] = [];
+    const log = toolkit.eventPrinter((l) => plain.push(l), "pandoc", undefined, {
+      tty: false,
+      out: { write: () => undefined },
+    });
+    for (let percent = 0; percent <= 100; percent += 1) log({ phase: "Downloading", percent });
+    expect(plain).toHaveLength(11);
   });
 });

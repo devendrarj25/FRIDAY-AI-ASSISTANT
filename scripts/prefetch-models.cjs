@@ -443,8 +443,51 @@ async function ollamaAnswers(tag, fetchImpl, timeoutMs = 240000) {
  */
 const PULL_IDLE_MS = Math.max(15, Number(process.env.FRIDAY_OLLAMA_PULL_IDLE_S) || 60) * 1000;
 
-/** Stream POST /api/pull and report percent; resolves ok when the daemon says success. */
+/**
+ * Totals across the layers of one pull. Ollama reports each layer (the weights, the template, the licence) with its
+ * own `digest`, `total` and `completed`; the bar needs the whole model: bytes done and total, speed, time left.
+ * `now` is injectable so the speed is testable.
+ */
+function pullMeter(now = Date.now) {
+  const layers = new Map();
+  const started = now();
+  let lastAt = started;
+  let lastBytes = 0;
+  let speed = 0; // bytes per second, smoothed
+  return (row) => {
+    const key = String(row.digest || "layer");
+    const prev = layers.get(key) || { total: 0, completed: 0 };
+    layers.set(key, {
+      total: Math.max(prev.total, Number(row.total) || 0),
+      completed: Math.max(prev.completed, Number(row.completed) || 0),
+    });
+    let total = 0;
+    let done = 0;
+    for (const layer of layers.values()) {
+      total += layer.total;
+      done += Math.min(layer.completed, layer.total || layer.completed);
+    }
+    const at = now();
+    if (at - lastAt >= 500 && done >= lastBytes) {
+      const instant = ((done - lastBytes) / (at - lastAt)) * 1000;
+      speed = speed > 0 ? speed * 0.7 + instant * 0.3 : instant;
+      lastAt = at;
+      lastBytes = done;
+    }
+    const left = speed > 0 && total > done ? Math.round((total - done) / speed) : 0;
+    return {
+      progress: total > 0 ? (done / total) * 100 : 0,
+      bytesDone: done,
+      bytesTotal: total,
+      ...(speed > 0 ? { speedMbps: Number((speed / 1024 ** 2).toFixed(1)) } : {}),
+      ...(left > 0 ? { etaSeconds: left } : {}),
+    };
+  };
+}
+
+/** Stream POST /api/pull and report size, speed and time left; resolves ok when the daemon says success. */
 async function ollamaPull(tag, { fetchImpl = fetch, onEvent, idleMs = PULL_IDLE_MS } = {}) {
+  const meter = pullMeter();
   const guard = new AbortController();
   let timer = null;
   let idled = false;
@@ -486,9 +529,7 @@ async function ollamaPull(tag, { fetchImpl = fetch, onEvent, idleMs = PULL_IDLE_
         }
         if (row.error) return { ok: false, error: String(row.error) };
         if (row.status === "success") ok = true;
-        if (row.total > 0 && row.completed >= 0) {
-          onEvent?.({ progress: (row.completed / row.total) * 100 });
-        }
+        if (row.total > 0 && row.completed >= 0) onEvent?.(meter(row));
       }
     }
     return ok ? { ok: true } : { ok: false, error: "the pull ended without success" };
@@ -1236,6 +1277,7 @@ module.exports = {
   prefetchParallelism,
   ensureOllama,
   ollamaPull,
+  pullMeter,
   ollamaAnswers,
   firstGguf,
   findOllama,

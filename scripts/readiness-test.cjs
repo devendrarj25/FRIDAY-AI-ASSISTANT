@@ -411,6 +411,17 @@ function restartReportLine(second, first) {
       return `launch ${index + 1} pid ${pid} port ${port}`;
     })
     .join("; ");
+  // The last lines that name the kernel, Python or an error say why a launch had no kernel; the final line alone
+  // (an IPC handler message) did not.
+  const why = [second && second.output, first && first.output]
+    .filter(Boolean)
+    .join("\n")
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .filter((row) => /kernel|python|traceback|address already in use|database is locked/i.test(row))
+    .slice(-3)
+    .join(" | ")
+    .slice(-500);
   const leak =
     second && second.leak && second.leak.ok === false
       ? `leak ${(second.leak.alive || []).join(",")}`
@@ -420,7 +431,7 @@ function restartReportLine(second, first) {
     code: second && second.exitCode,
     text: `${details}\n${tail}`,
   });
-  return `${cause.class}: ${cause.detail}; ${details}; ${launches}; ${leak}`;
+  return `${cause.class}: ${cause.detail}; ${details}; ${launches}; ${leak}${why ? `; kernel log: ${why}` : ""}`;
 }
 
 function portBusy(port) {
