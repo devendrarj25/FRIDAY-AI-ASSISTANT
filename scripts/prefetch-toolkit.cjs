@@ -313,21 +313,55 @@ function deferredList() {
   return config.onDemand.map((entry) => ({ id: entry.id, reason: entry.reason }));
 }
 
-/** Print an Install Manager job event as build-log lines (noise dropped, a repeat printed once). */
-function eventPrinter(log, id, progressLine) {
+/** The live bar for one download: the same `[####----] 40%` the model downloads draw. */
+function barLine(id, percent, event = {}) {
+  const width = 24;
+  const filled = Math.round((percent / 100) * width);
+  const mb = (bytes) => (Number(bytes) / 1024 ** 2).toFixed(Number(bytes) < 10 * 1024 ** 2 ? 1 : 0);
+  const size = event.bytesTotal > 0 ? ` ${mb(event.bytesDone)}/${mb(event.bytesTotal)} MB` : "";
+  const speed = event.speedMbps ? ` ${event.speedMbps} MB/s` : "";
+  const eta = event.etaSeconds ? ` eta ${event.etaSeconds}s` : "";
+  return `[friday] ${id.padEnd(14)} [${"#".repeat(filled)}${"-".repeat(width - filled)}] ${String(percent).padStart(3)}%${size}${speed}${eta}`;
+}
+
+/**
+ * Print an Install Manager job event. A terminal gets one progress bar that is redrawn in place (and ended with a
+ * newline before any other message); a log file or CI gets one line per ten percent. Noise is dropped and a
+ * repeat is printed once. The returned function has `.end()` to close an open bar.
+ */
+function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout } = {}) {
   let last = "";
   let bucket = -1;
+  let shown = -1;
+  let open = false;
   const seen = new Set();
-  return (event) => {
+  const close = () => {
+    if (open) out.write("\n");
+    open = false;
+  };
+  const draw = (percent, event) => {
+    if (percent === shown) return;
+    shown = percent;
+    out.write(`\r${barLine(id, percent, event)}\x1b[K`);
+    open = true;
+  };
+  const print = (event) => {
     if (!event) return;
     let line = "";
-    if (event.progress != null && progressLine) {
+    const hasBar = event.progress != null && progressLine;
+    const hasPercent = event.percent != null && event.phase === "Downloading";
+    if (tty && (hasBar || hasPercent)) {
+      const raw = hasBar ? event.progress : event.percent;
+      draw(Math.max(0, Math.min(100, Math.round(Number(raw)))), event);
+      return;
+    }
+    if (hasBar) {
       line = progressLine(id, event, false);
       // One line per ten percent, not one per update (the speed and ETA change every second).
       const step = Math.floor(Math.max(0, Math.min(100, Number(event.progress))) / 10);
       if (step <= bucket) return;
       if (line) bucket = step;
-    } else if (event.percent != null && event.phase === "Downloading") {
+    } else if (hasPercent) {
       // The installer download reports a percent with every chunk: one line per ten percent, with the speed.
       const percent = Math.max(0, Math.min(100, Math.round(Number(event.percent))));
       const step = Math.floor(percent / 10);
@@ -343,9 +377,12 @@ function eventPrinter(log, id, progressLine) {
     }
     if (line && line !== last) {
       last = line;
+      close();
       log(line);
     }
   };
+  print.end = close;
+  return print;
 }
 
 /** Plan and run. Returns one row per tool. Never throws. */
@@ -455,9 +492,13 @@ async function prefetchToolkit(root, deps = {}) {
     };
     const limit = jobLimitMs(env, row.elevated);
     let timer;
+    // A real terminal (and no injected logger) gets the in-place bar; anything else keeps the ten-percent lines.
+    const printEvent = eventPrinter(log, row.id, progressLine, {
+      tty: !deps.log && Boolean(process.stdout.isTTY),
+    });
     try {
       result = await Promise.race([
-        toolchain.runJob(job, eventPrinter(log, row.id, progressLine)),
+        toolchain.runJob(job, printEvent),
         new Promise((resolve) => {
           timer = setTimeout(() => {
             // An unanswered administrator prompt or a stuck installer must not hold the build for ever.
@@ -474,6 +515,7 @@ async function prefetchToolkit(root, deps = {}) {
       result = { ok: false, error: String((err && err.message) || err) };
     } finally {
       clearTimeout(timer);
+      printEvent.end();
     }
     if (!result?.ok && result?.error)
       log(`[friday] FAIL     ${row.id}: ${String(result.error).slice(0, 200)}`);
@@ -579,6 +621,7 @@ function failureReport(rows) {
 
 module.exports = {
   prefetchToolkit,
+  eventPrinter,
   fileLedger,
   memoryLedger,
   alreadyTried,

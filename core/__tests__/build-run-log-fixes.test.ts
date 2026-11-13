@@ -117,4 +117,40 @@ describe("build run log fixes (2026-11-11)", () => {
     });
     expect(bad).toEqual([]);
   });
+
+  it("a terminal gets one in-place progress bar per tool download; a log keeps one line per ten percent", () => {
+    const toolkit = require_(path.join(ROOT, "scripts/prefetch-toolkit.cjs")) as {
+      eventPrinter: (
+        log: (l: string) => void,
+        id: string,
+        progressLine: undefined,
+        o: { tty: boolean; out: { write: (t: string) => void } },
+      ) => ((e: unknown) => void) & { end: () => void };
+    };
+    const written: string[] = [];
+    const lines: string[] = [];
+    const live = toolkit.eventPrinter((l) => lines.push(l), "cmake", undefined, {
+      tty: true,
+      out: { write: (t) => written.push(t) },
+    });
+    for (const percent of [0, 3, 3, 40, 100]) {
+      live({ phase: "Downloading", percent, speedMbps: 5.4 });
+    }
+    live({ line: "installed" });
+    live.end();
+    const frames = written.filter((t) => t.startsWith("\r"));
+    expect(frames).toHaveLength(4); // 0, 3, 40, 100: a repeat of 3 is not redrawn
+    expect(frames[2]).toContain("[##########--------------]  40%");
+    expect(frames[3]).toContain("100%");
+    expect(written.filter((t) => t === "\n")).toHaveLength(1); // the bar is closed before the next message
+    expect(lines).toEqual(["[friday] cmake          installed"]);
+
+    const plain: string[] = [];
+    const log = toolkit.eventPrinter((l) => plain.push(l), "pandoc", undefined, {
+      tty: false,
+      out: { write: () => undefined },
+    });
+    for (let percent = 0; percent <= 100; percent += 1) log({ phase: "Downloading", percent });
+    expect(plain).toHaveLength(11);
+  });
 });
