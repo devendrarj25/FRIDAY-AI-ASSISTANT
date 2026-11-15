@@ -153,4 +153,36 @@ describe("build run log fixes (2026-11-11)", () => {
     for (let percent = 0; percent <= 100; percent += 1) log({ phase: "Downloading", percent });
     expect(plain).toHaveLength(11);
   });
+
+  it("the readiness run starts the installed Ollama first so chat tries the model setup pulled", async () => {
+    const harness = require_(path.join(ROOT, "scripts/readiness-test.cjs")) as {
+      ensureLocalChatEngine: (deps: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+    let ups = 0;
+    const started: string[] = [];
+    const models = {
+      ollamaUp: async () => (++ups >= 3 ? new Set(["qwen3:4b"]) : null),
+      findOllama: () => ({ exe: "C:/Ollama/ollama.exe" }),
+      startOllama: (exe: string) => started.push(exe),
+    };
+    const result = await harness.ensureLocalChatEngine({ env: {}, models, waitMs: 1 });
+    expect(result).toMatchObject({ up: true, started: true, models: 1 });
+    expect(started).toEqual(["C:/Ollama/ollama.exe"]);
+
+    const running = await harness.ensureLocalChatEngine({
+      env: {},
+      models: { ...models, ollamaUp: async () => new Set(["a", "b"]) },
+    });
+    expect(running).toMatchObject({ up: true, started: false, models: 2 });
+
+    expect(await harness.ensureLocalChatEngine({ env: { CI: "true" }, models })).toMatchObject({
+      up: false,
+      skipped: "hosted CI",
+    });
+    const none = await harness.ensureLocalChatEngine({
+      env: {},
+      models: { ...models, ollamaUp: async () => null, findOllama: () => null },
+    });
+    expect(none).toMatchObject({ up: false, skipped: "Ollama is not installed" });
+  });
 });

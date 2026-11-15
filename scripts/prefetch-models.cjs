@@ -1281,6 +1281,8 @@ module.exports = {
   ollamaAnswers,
   firstGguf,
   findOllama,
+  startOllama,
+  ollamaUp,
   detectOllama,
   ollamaServesChat,
   looksTransient,

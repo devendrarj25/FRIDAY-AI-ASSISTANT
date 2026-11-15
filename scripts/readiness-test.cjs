@@ -476,6 +476,34 @@ function report(payload) {
   return file;
 }
 
+/**
+ * The packaged app does no background work during the readiness run, so it never starts Ollama itself, and the
+ * chat check had no local model to answer with unless Ollama happened to be running already. Start the installed
+ * Ollama first (as `npm run setup` leaves it stopped), so CHAT and RESTART try the model setup pulled. Local runs
+ * only; a PC without Ollama, or hosted CI, is left alone. Never throws.
+ */
+async function ensureLocalChatEngine(deps = {}) {
+  const env = deps.env || process.env;
+  if (env.CI || env.GITHUB_ACTIONS) return { up: false, skipped: "hosted CI" };
+  try {
+    const models = deps.models || require("./prefetch-models.cjs");
+    const fetchImpl = deps.fetch || fetch;
+    let up = await models.ollamaUp(fetchImpl);
+    if (up) return { up: true, started: false, models: up.size };
+    const exe = models.findOllama({ exists: fs.existsSync })?.exe;
+    if (!exe) return { up: false, skipped: "Ollama is not installed" };
+    (deps.start || models.startOllama)(exe);
+    const tries = deps.tries ?? 30;
+    for (let i = 0; i < tries && !up; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, deps.waitMs ?? 1000));
+      up = await models.ollamaUp(fetchImpl);
+    }
+    return up ? { up: true, started: true, models: up.size } : { up: false, started: true };
+  } catch (error) {
+    return { up: false, skipped: String((error && error.message) || error) };
+  }
+}
+
 async function runReadinessHarness() {
   await bindReadinessIsolation();
   const stages = [];
@@ -503,6 +531,16 @@ async function runReadinessHarness() {
   log(`FRIDAY root for this run: ${FRIDAY_ROOT}`);
   log(`readiness userData: ${READINESS_USER_DATA}`);
   log(`readiness kernel port: ${READINESS_PORT}`);
+  const engine = await ensureLocalChatEngine();
+  if (engine.up) {
+    log(
+      `local chat engine: Ollama ${engine.started ? "started" : "already running"} (${engine.models} model(s))`,
+    );
+  } else if (engine.started) {
+    log(
+      "local chat engine: Ollama was started but did not answer; the chat check may have no local model",
+    );
+  }
   const app = resolveApp();
   if (
     !add("INSTALL", Boolean(app), app ? `${app.kind}: ${app.exe}` : "no FRIDAY application found")
@@ -660,6 +698,7 @@ module.exports = {
   stallVerdict,
   stallMessage,
   restartReportLine,
+  ensureLocalChatEngine,
   waitForRelease,
   clearDatabaseSidecars,
   chooseReadinessRoot,
