@@ -294,6 +294,51 @@ describe("Ollama install and lite models on Windows", () => {
   });
 });
 
+describe("the Qwen pull shows live size, speed and time left like the other downloads", () => {
+  it("adds the layers together and works out speed and ETA from the bytes that arrived", () => {
+    let t = 0;
+    const meter = prefetch.pullMeter(() => t);
+    const mb = 1024 ** 2;
+    const first = meter({ digest: "sha256:weights", total: 400 * mb, completed: 0 });
+    expect(first).toMatchObject({ progress: 0, bytesDone: 0, bytesTotal: 400 * mb });
+    expect(first.speedMbps).toBeUndefined();
+    meter({ digest: "sha256:tiny", total: 1 * mb, completed: 1 * mb });
+    t = 1000;
+    const mid = meter({ digest: "sha256:weights", total: 400 * mb, completed: 100 * mb });
+    expect(mid.bytesTotal).toBe(401 * mb);
+    expect(mid.bytesDone).toBe(101 * mb);
+    expect(mid.progress).toBeCloseTo((101 / 401) * 100, 5);
+    expect(mid.speedMbps).toBeGreaterThan(90);
+    expect(mid.etaSeconds).toBeGreaterThan(0);
+    t = 2000;
+    const late = meter({ digest: "sha256:weights", total: 400 * mb, completed: 400 * mb });
+    expect(late.progress).toBe(100);
+    expect(late.etaSeconds).toBeUndefined();
+  });
+
+  it("ollamaPull hands the bar the sizes, not only a percent", async () => {
+    const encoder = new TextEncoder();
+    const events: { bytesDone?: number; bytesTotal?: number }[] = [];
+    await prefetch.ollamaPull("qwen3:4b", {
+      fetchImpl: async () => ({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                '{"status":"pulling a","digest":"a","total":2000,"completed":500}\n{"status":"success"}\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+      }),
+      onEvent: (event: { bytesDone?: number; bytesTotal?: number }) => events.push(event),
+    });
+    expect(events[0]).toMatchObject({ bytesDone: 500, bytesTotal: 2000 });
+  });
+});
+
 describe("an Ollama that is already on this PC", () => {
   const win = "win32";
 

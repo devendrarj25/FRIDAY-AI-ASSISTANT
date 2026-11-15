@@ -18,7 +18,9 @@
  *     staged original removed, so a half copy is never mistaken for a model;
  *   * only the download folders move (speech weights, models, installers).
  *     The staged database, memory and settings are left alone;
- *   * only a folder named `.friday-dev` is ever read from or removed from.
+ *   * only a folder named `.friday-dev` is ever read from or removed from;
+ *   * nothing moves while the build's readiness run is going (FRIDAY_READINESS=1): its FRIDAY folder is a
+ *     throwaway one, so the staged downloads stay where the next build finds them.
  */
 const fs = require("node:fs");
 const os = require("node:os");
@@ -194,6 +196,9 @@ function adopt(root, { env = process.env } = {}) {
   running = (async () => {
     const report = { moved: [], kept: [], failed: [], sources: [] };
     if (!root || String(env.FRIDAY_ADOPT_STAGED ?? "1").trim() === "0") return report;
+    // The build's readiness run uses a throwaway FRIDAY folder that is deleted afterwards. Moving the
+    // owner's staged models into it would copy gigabytes for nothing and then destroy them.
+    if (String(env.FRIDAY_READINESS ?? "").trim() === "1") return report;
     try {
       for (const staging of candidates(root, env)) {
         report.sources.push(staging);

@@ -37,7 +37,7 @@ function condenseBuilderLine(line) {
   const at = text.search(/duplicate dependency references/i);
   if (at === -1 || text.length <= 240) return text;
   const head = text.slice(0, at).trimEnd();
-  return `${head} duplicate dependency references (${text.length} characters of detail hidden)`.trim();
+  return `${head} duplicate dependency references (${text.length} characters of detail hidden)`;
 }
 
 /** Forward a stream line by line, condensing the oversized lines. Returns a flush function. */

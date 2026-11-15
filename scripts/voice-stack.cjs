@@ -432,10 +432,12 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   return rows;
 }
 
-function print(rows, log = console.log) {
-  const width = Math.max(...rows.map((r) => r.name.length), 10);
+function print(rows, log = console.log, { summary = false } = {}) {
+  // Summary (inside `npm run setup`): the rows that need a look, then the count. A full pass is one line.
+  const shown = summary ? rows.filter((r) => r.state !== "PASS") : rows;
+  const width = Math.max(...shown.map((r) => r.name.length), 10);
   let layer = "";
-  for (const r of rows) {
+  for (const r of shown) {
     if (r.layer !== layer) {
       layer = r.layer;
       log(`\n[${layer}]`);
@@ -459,6 +461,6 @@ if (require.main === module) {
     console.log(JSON.stringify(rows, null, 2));
     process.exitCode = rows.some((r) => r.state === "FAIL") ? 1 : 0;
   } else {
-    process.exitCode = print(rows) ? 1 : 0;
+    process.exitCode = print(rows, console.log, { summary: args.includes("--summary") }) ? 1 : 0;
   }
 }

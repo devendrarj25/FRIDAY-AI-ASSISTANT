@@ -93,7 +93,12 @@ function voiceStack() {
   }
   return spawnSync(
     process.execPath,
-    [path.join(ROOT, "scripts", "voice-stack.cjs"), ...(root ? ["--root", root] : [])],
+    [
+      path.join(ROOT, "scripts", "voice-stack.cjs"),
+      ...(root ? ["--root", root] : []),
+      // Inside `npm run setup` a full pass is a count; the 74-row table is for a standalone `npm run doctor`.
+      ...(process.env.FRIDAY_SETUP_RUN === "1" ? ["--summary"] : []),
+    ],
     { cwd: ROOT, stdio: "inherit" },
   );
 }

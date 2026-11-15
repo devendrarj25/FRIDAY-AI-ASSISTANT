@@ -143,6 +143,19 @@ describe("staged build downloads", () => {
     expect(empty.failed).toEqual([]);
   });
 
+  it("moves nothing during the build's readiness run: its FRIDAY folder is thrown away afterwards", async () => {
+    const dev = path.join(temp, "checkout", ".friday-dev");
+    write(dev, "cache/stt/small/model.bin", "weights");
+    write(dev, "models/m/model.gguf", "x");
+    staged.recordStaging(dev, { env });
+    const report = await staged.adopt(root, { env: { ...env, FRIDAY_READINESS: "1" } });
+    expect(report.moved).toEqual([]);
+    expect(report.sources).toEqual([]);
+    expect(fs.existsSync(path.join(dev, "cache", "stt", "small", "model.bin"))).toBe(true);
+    expect(fs.existsSync(path.join(dev, "models", "m", "model.gguf"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "models"))).toBe(false);
+  });
+
   it("across volumes the item is copied under a temporary name, then renamed into place", async () => {
     const dev = path.join(temp, "checkout", ".friday-dev");
     write(dev, "cache/stt/medium/model.bin", "weights");
