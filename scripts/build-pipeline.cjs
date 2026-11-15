@@ -566,6 +566,18 @@ function applyBuildCache(root = ROOT) {
   }
 }
 
+/**
+ * The install-and-chat check (start the packaged app in a throwaway folder, talk to a model, speak, restart it) is
+ * for PR Validation and the release. A build on the owner's own PC ends once the installer and portable EXE are
+ * built, verified and boot: installing and chatting is the owner's next step. `FRIDAY_BUILD_READINESS=1` (or
+ * `npm run readiness`) runs it anyway.
+ */
+function readinessSkip(options, env = process.env) {
+  const local = options && (options.caller === "cmd" || options.caller === "npm");
+  if (!local || String(env.FRIDAY_BUILD_READINESS ?? "").trim() === "1") return "";
+  return "skipped: a local build stops at a verified, bootable installer (npm run verify:install, or FRIDAY_BUILD_READINESS=1, runs the install-and-chat check)";
+}
+
 function runNode(script, args, root) {
   const result = spawnDirect(process.execPath, [path.join(root, script), ...args], {
     cwd: root,
@@ -816,6 +828,8 @@ function runPhase(phase, options, root) {
     return "boot verified";
   }
   if (phase === "readiness") {
+    const skip = readinessSkip(options);
+    if (skip) return skip;
     runNode("scripts/readiness-test.cjs", ["--pack"], root);
     return "readiness passed";
   }
@@ -1058,6 +1072,7 @@ async function main() {
 }
 
 module.exports = {
+  readinessSkip,
   seedElectronCache,
   PHASES,
   PHASE_COMMANDS,

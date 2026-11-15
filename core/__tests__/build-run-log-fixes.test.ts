@@ -185,4 +185,18 @@ describe("build run log fixes (2026-11-11)", () => {
     });
     expect(none).toMatchObject({ up: false, skipped: "Ollama is not installed" });
   });
+
+  it("a local build stops at a verified, bootable installer; PR Validation and the release still run the install-and-chat check", () => {
+    const { readinessSkip } = require_(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
+      readinessSkip: (o: { caller: string }, env?: Record<string, string>) => string;
+    };
+    expect(readinessSkip({ caller: "cmd" }, {})).toMatch(/^skipped:/);
+    expect(readinessSkip({ caller: "npm" }, {})).toMatch(/^skipped:/);
+    expect(readinessSkip({ caller: "cmd" }, { FRIDAY_BUILD_READINESS: "1" })).toBe("");
+    for (const caller of ["pr-validation", "friday-release", "node", "ci"]) {
+      expect(readinessSkip({ caller }, {})).toBe("");
+    }
+    const pipeline = fs.readFileSync(path.join(ROOT, "scripts/build-pipeline.cjs"), "utf8");
+    expect(pipeline).toContain("verify:install");
+  });
 });
