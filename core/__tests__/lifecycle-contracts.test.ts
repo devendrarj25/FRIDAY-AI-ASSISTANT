@@ -164,7 +164,8 @@ describe("one pack pipeline", () => {
       "node scripts/build-pipeline.cjs --channel test --caller test --from stage-toolchain",
     );
     const source = read("scripts/build-pipeline.cjs");
-    expect(source).toContain("if (!report.ok) process.exit(1)");
+    // A failed build exits 1, through exitCode (scripts/leave.cjs) rather than process.exit().
+    expect(source).toContain('if (!report.ok) require("./leave.cjs").leave(1)');
     const failed = source.indexOf('status: "failed"');
     const passed = source.indexOf("report.ok = true");
     expect(failed).toBeGreaterThan(-1);

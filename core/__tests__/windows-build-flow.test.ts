@@ -226,9 +226,11 @@ describe("the build starts with the PC and ends with a verdict", () => {
     expect(source).not.toContain("a failure never stops the build");
     expect(source).toContain("a tool that cannot be installed stops the build");
     // The scripts exit 1 on a failure; runNode turns that into a failed phase.
+    // It leaves through exitCode (scripts/leave.cjs), never process.exit(), with the same strict verdict.
     expect(read("scripts/prefetch-toolkit.cjs")).toContain(
-      "process.exit(lines.length && strict() ? 1 : 0)",
+      "leave(lines.length && strict() ? 1 : 0)",
     );
+    expect(read("scripts/prefetch-toolkit.cjs")).not.toContain("process.exit(");
     // The models step leaves through exitCode (see prefetch-models.test.ts), with the same strict verdict.
     expect(read("scripts/prefetch-models.cjs")).toContain(
       "finish(lines.length && strict() ? 1 : 0)",

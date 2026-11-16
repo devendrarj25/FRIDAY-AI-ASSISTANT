@@ -11,6 +11,7 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const engine = require("./release-engine.cjs");
+const { leave } = require("./leave.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -106,7 +107,7 @@ function main() {
       // public four-part identity before verify-build / checksums run.
       engine.syncLatestYml(identity, { root: ROOT });
     }
-    process.exit(status);
+    leave(status);
   });
 }
 
