@@ -659,17 +659,18 @@ if (require.main === module) {
   }
   // Doctor and the build install what is missing only; npm run setup is where updates happen.
   if (process.argv.includes("--no-update")) process.env.FRIDAY_PREFETCH_TOOLKIT_UPDATE = "0";
+  const { leave } = require("./leave.cjs");
   prefetchToolkit(path.resolve(picked.root)).then(
     (rows) => {
       const lines = failureReport(rows);
       for (const line of lines) console.error(line);
-      process.exit(lines.length && strict() ? 1 : 0);
+      leave(lines.length && strict() ? 1 : 0);
     },
     (err) => {
       console.error(
         `[friday] FAIL     toolkit step crashed: ${String((err && err.message) || err)}`,
       );
-      process.exit(strict() ? 1 : 0);
+      leave(strict() ? 1 : 0);
     },
   );
 }

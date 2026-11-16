@@ -199,4 +199,68 @@ describe("build run log fixes (2026-11-11)", () => {
     const pipeline = fs.readFileSync(path.join(ROOT, "scripts/build-pipeline.cjs"), "utf8");
     expect(pipeline).toContain("verify:install");
   });
+
+  it("the step scripts leave through exitCode, never process.exit(), so Windows does not abort a finished step", () => {
+    const { leave } = require_(path.join(ROOT, "scripts/leave.cjs")) as {
+      leave: (code?: number, graceMs?: number) => number;
+    };
+    const before = process.exitCode;
+    expect(leave(0, 60_000)).toBe(0);
+    expect(process.exitCode).toBe(0);
+    expect(leave("3" as unknown as number, 60_000)).toBe(3);
+    expect(process.exitCode).toBe(3);
+    process.exitCode = before;
+    for (const file of [
+      "scripts/prefetch-toolkit.cjs",
+      "scripts/ensure-electron.cjs",
+      "scripts/electron-pack.cjs",
+    ]) {
+      const text = fs.readFileSync(path.join(ROOT, file), "utf8");
+      const main = text.slice(
+        text.lastIndexOf("require.main === module") > 0
+          ? text.lastIndexOf("require.main === module")
+          : text.indexOf("function main"),
+      );
+      expect(main, file).not.toMatch(/process\.exit\(\s*(ok|status|lines|strict)/);
+    }
+  });
+
+  it("inside setup Doctor does not repeat what setup just ran, and a standalone Doctor still runs every step", () => {
+    const doctor = require_(path.join(ROOT, "scripts/doctor.cjs")) as {
+      runDoctor: (
+        steps: { name: string; run: () => { status: number }; setupVerified?: boolean }[],
+        log: (l: string) => void,
+        env: Record<string, string>,
+      ) => { ok: boolean; rows: { name: string; reused?: boolean }[] };
+    };
+    let ran = 0;
+    const steps = [
+      { name: "a", run: () => (ran++, { status: 0 }) },
+      { name: "b", run: () => (ran++, { status: 0 }), setupVerified: true },
+    ];
+    const inSetup = doctor.runDoctor(steps, () => undefined, { FRIDAY_SETUP_RUN: "1" });
+    expect(ran).toBe(1);
+    expect(inSetup.ok).toBe(true);
+    expect(inSetup.rows[1]).toMatchObject({ reused: true });
+    const alone = doctor.runDoctor(steps, () => undefined, {});
+    expect(ran).toBe(3);
+    expect(alone.rows.some((row) => row.reused)).toBe(false);
+    const real = doctor as unknown as { STEPS: { name: string; setupVerified?: boolean }[] };
+    expect(real.STEPS.filter((step) => step.setupVerified).map((step) => step.name)).toEqual([
+      "speech, voice and chat models",
+      "voice files load and speak",
+    ]);
+  });
+
+  it("a local build does not install FRIDAY on the owner's PC; PR Validation still runs the installer lifecycle", () => {
+    const { installerSmokeSkip } = require_(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
+      installerSmokeSkip: (o: { caller: string }, env?: Record<string, string>) => string;
+    };
+    expect(installerSmokeSkip({ caller: "cmd" }, {})).toMatch(/^skipped:/);
+    expect(installerSmokeSkip({ caller: "npm" }, {})).toMatch(/^skipped:/);
+    expect(installerSmokeSkip({ caller: "cmd" }, { FRIDAY_BUILD_INSTALLER_SMOKE: "1" })).toBe("");
+    for (const caller of ["pr-validation", "friday-release", "friday-test-build", "node"]) {
+      expect(installerSmokeSkip({ caller }, {})).toBe("");
+    }
+  });
 });

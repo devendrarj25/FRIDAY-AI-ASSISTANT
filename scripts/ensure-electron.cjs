@@ -541,11 +541,12 @@ module.exports = {
 };
 
 if (require.main === module) {
+  const { leave } = require("./leave.cjs");
   ensureElectron()
     .then(async (ok) => (ok ? ensureInstallerTools() : false))
-    .then((ok) => process.exit(ok ? 0 : 1))
+    .then((ok) => leave(ok ? 0 : 1))
     .catch((error) => {
       console.error(`[friday] error    ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
+      leave(1);
     });
 }

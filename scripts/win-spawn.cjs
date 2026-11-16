@@ -161,9 +161,20 @@ function spawnDirect(cmd, args = [], extra = {}) {
   return spawnSync(launch.file, launch.args, launch.opts);
 }
 
-/** npm redraws a spinner on a console, which blinks; a caller's own npm_config_progress wins. */
+/**
+ * npm redraws a spinner on a console, which blinks, and prints a "deprecated" warning for every old package inside
+ * electron-builder's own dependency tree (inflight, rimraf 2, glob 7) that FRIDAY cannot change. Progress is off and
+ * only errors are printed; a caller's own npm_config_progress / npm_config_loglevel wins.
+ */
 function quietNpm(extra = {}) {
-  return { ...extra, env: { npm_config_progress: "false", ...(extra.env || process.env) } };
+  return {
+    ...extra,
+    env: {
+      npm_config_progress: "false",
+      npm_config_loglevel: "error",
+      ...(extra.env || process.env),
+    },
+  };
 }
 
 function spawnNpm(args = [], extra = {}) {

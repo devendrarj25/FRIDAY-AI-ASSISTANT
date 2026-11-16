@@ -115,8 +115,10 @@ const STEPS = [
       ])(),
   },
   { name: "packs that ship inside the EXE", run: node("stage-toolchain.cjs") },
-  { name: "speech, voice and chat models", run: models },
-  { name: "voice files load and speak", run: node("voice-smoke.cjs") },
+  // `npm run setup` fetched, verified and spoke with these seconds ago (setup-python.cjs), and stops on a failure,
+  // so its confirming Doctor pass does not repeat the downloads check, the Qwen test prompt or the speak test.
+  { name: "speech, voice and chat models", run: models, setupVerified: true },
+  { name: "voice files load and speak", run: node("voice-smoke.cjs"), setupVerified: true },
   { name: "voice stack: runners, models, packages and connections", run: voiceStack },
   { name: "runtime folders and database", run: node("init-runtime.cjs") },
   { name: "main-process dependencies", run: node("verify-deps.cjs") },
@@ -125,10 +127,17 @@ const STEPS = [
 ];
 
 /** Run every step in order (later steps still run after a failure, so one pass reports everything). */
-function runDoctor(steps = STEPS, log = console.log) {
+function runDoctor(steps = STEPS, log = console.log, env = process.env) {
   const rows = [];
   steps.forEach((step, index) => {
     log(`[friday] doctor ${index + 1}/${steps.length}: ${step.name}`);
+    if (step.setupVerified && env.FRIDAY_SETUP_RUN === "1") {
+      log(
+        "[friday] ok       verified by npm run setup a moment ago; not repeated (npm run doctor checks it in full)",
+      );
+      rows.push({ name: step.name, ok: true, status: 0, error: "", reused: true });
+      return;
+    }
     let status = 1;
     let error = "";
     try {

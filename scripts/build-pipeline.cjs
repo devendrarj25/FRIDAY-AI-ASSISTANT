@@ -578,6 +578,18 @@ function readinessSkip(options, env = process.env) {
   return "skipped: a local build stops at a verified, bootable installer (npm run verify:install, or FRIDAY_BUILD_READINESS=1, runs the install-and-chat check)";
 }
 
+/**
+ * The installer lifecycle (install, run, update, uninstall) installs FRIDAY on the PC that runs it, and restores
+ * the per-user pointer files and registry key it touched. That belongs to PR Validation's clean runners. A build on
+ * the owner's own PC builds the installer and leaves installing it to the owner. `FRIDAY_BUILD_INSTALLER_SMOKE=1`
+ * runs it anyway.
+ */
+function installerSmokeSkip(options, env = process.env) {
+  const local = options && (options.caller === "cmd" || options.caller === "npm");
+  if (!local || String(env.FRIDAY_BUILD_INSTALLER_SMOKE ?? "").trim() === "1") return "";
+  return "skipped: a local build does not install FRIDAY on this PC; run the installer yourself (FRIDAY_BUILD_INSTALLER_SMOKE=1 runs the install-and-uninstall check on demand)";
+}
+
 function runNode(script, args, root) {
   const result = spawnDirect(process.execPath, [path.join(root, script), ...args], {
     cwd: root,
@@ -834,7 +846,7 @@ function runPhase(phase, options, root) {
     return "readiness passed";
   }
   if (phase === "packaged-self-check") {
-    return runPackagedSelfCheck({
+    const detail = runPackagedSelfCheck({
       platform: options.platform,
       unpackDir: options.unpackDir,
       root,
@@ -843,11 +855,23 @@ function runPhase(phase, options, root) {
       manifest: options.manifest,
       workDir: options.workDir,
     });
+    // The check unpacks Python, whisper and Node (hundreds of MB, plus the pip it installed) beside the installer.
+    // On the owner's PC that folder is not an output, so it is removed once the check has passed.
+    if ((options.caller === "cmd" || options.caller === "npm") && !options.workDir) {
+      try {
+        removeTree(path.join(root, "release", "self-check"));
+      } catch {
+        /* a folder that stays only costs disk; the next build clears release\ */
+      }
+    }
+    return detail;
   }
   if (phase === "installer-smoke") {
     if (process.platform !== "win32" || !options.targets.includes("nsis")) {
       return "skipped: installer smoke runs on Windows when an NSIS target was packaged";
     }
+    const skip = installerSmokeSkip(options);
+    if (skip) return skip;
     const releaseDir = path.join(root, "release");
     const setup = fs.readdirSync(releaseDir).find((name) => /Setup-.+\.exe$/i.test(name));
     if (!setup) throw new Error("installer smoke found no Setup EXE");
@@ -1068,11 +1092,12 @@ async function main() {
   if (options.caller === "cmd" || options.caller === "npm") {
     for (const line of readySummary(options, report)) console.log(line);
   }
-  if (!report.ok) process.exit(1);
+  if (!report.ok) require("./leave.cjs").leave(1);
 }
 
 module.exports = {
   readinessSkip,
+  installerSmokeSkip,
   seedElectronCache,
   PHASES,
   PHASE_COMMANDS,
@@ -1099,6 +1124,6 @@ module.exports = {
 if (require.main === module) {
   main().catch((error) => {
     console.error(error && error.message ? error.message : error);
-    process.exit(1);
+    require("./leave.cjs").leave(1);
   });
 }
