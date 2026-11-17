@@ -253,6 +253,16 @@ async function ensureWorker() {
   return session;
 }
 
+/**
+ * One request to the shared wake worker, with the generation of the process that answered. A worker that was
+ * restarted has lost anything held in its memory (the owner's voice profile), so a caller compares generations.
+ */
+async function workerCall(payload, timeoutMs = 30000) {
+  const session = await ensureWorker();
+  const result = await workerRequest(session, payload, timeoutMs);
+  return { result, generation: session.generation };
+}
+
 function mapStatus(parsed, key, fallbackReason) {
   if (parsed?.ok) {
     return {
@@ -488,6 +498,7 @@ function shutdown() {
 }
 
 module.exports = {
+  workerCall,
   status,
   install,
   detect,

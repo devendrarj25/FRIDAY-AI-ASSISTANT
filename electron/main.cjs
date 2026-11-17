@@ -504,6 +504,7 @@ const neuralVoice = loadNamed("neural-voice", () => require("./neural-voice.cjs"
 const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
 const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
 const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
+const voiceEnroll = loadNamed("voice-enroll", () => require("./voice-enroll.cjs"));
 const stt = loadNamed("stt", () => require("./stt.cjs"));
 const wakeEngine = loadNamed("wake", () => require("./wake-engine.cjs"));
 const voiceVerify = loadNamed("voice-verify", () => require("./voice-verify.cjs"));
@@ -4742,6 +4743,18 @@ ipcMain.handle("voice:duck", (_e, payload) => {
 ipcMain.handle("voice:meeting", () => meetingWatch.status());
 ipcMain.handle("voice:voiceprint-status", () => voiceprint.status());
 ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
+
+// ------------------------------------------- the owner's own voice (Settings -> Voice) --
+// Samples recorded in Settings become a voiceprint and a personal "Friday" template (electron/voice-enroll.cjs).
+// Local only; "Forget my voice" removes everything; a match never approves an action.
+ipcMain.handle("voice-enroll:status", () => voiceEnroll.status());
+ipcMain.handle("voice-enroll:save-sample", (_e, payload) => voiceEnroll.saveSample(payload || {}));
+ipcMain.handle("voice-enroll:delete-sample", (_e, id) => voiceEnroll.deleteSample(id));
+ipcMain.handle("voice-enroll:read-sample", (_e, id) => voiceEnroll.readSample(id));
+ipcMain.handle("voice-enroll:build", () => voiceEnroll.build());
+ipcMain.handle("voice-enroll:score", (_e, payload) => voiceEnroll.score(payload || {}));
+ipcMain.handle("voice-enroll:clear-recordings", () => voiceEnroll.clearRecordings());
+ipcMain.handle("voice-enroll:forget", () => voiceEnroll.forget());
 
 // ------------------------------------------- desktop speech-to-text (STT) --
 // Real on-device transcription. Auto Mode sets localOnly so neither status

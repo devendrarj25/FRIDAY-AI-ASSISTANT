@@ -311,16 +311,20 @@ export const FLOW_REGISTRY = {
     "voice.localVoiceStyle",
     "voice.models",
     "voice.notesRetentionDays",
+    "voice.ownerVoiceOnly",
     "voice.pauseDuringCalls",
+    "voice.personalWake",
     "voice.pitch",
     "voice.privacyMode",
     "voice.pronunciations",
     "voice.rate",
     "voice.realtimeExperiment",
+    "voice.recogniseMyVoice",
     "voice.recognitionLang",
     "voice.speakReplies",
     "voice.speechLang",
     "voice.sttSize",
+    "voice.vocabulary",
     "voice.voiceName",
     "voice.volume",
     "voice.wakeWord",
@@ -2096,6 +2100,38 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice-enroll:build",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:clear-recordings",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:delete-sample",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:forget",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:read-sample",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:save-sample",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:score",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-enroll:status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice-stream:close",
       file: "electron/main.cjs",
     },
@@ -2568,6 +2604,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "thinking",
       file: "kernel/reasoning_control.py",
+    },
+    {
+      kind: "wake",
+      file: "kernel/voice_enroll.py",
     },
     {
       kind: "wav",
@@ -9359,16 +9399,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 132,
-      total: 132,
+      mapped: 136,
+      total: 136,
     },
     capabilities: {
       mapped: 1104,
       total: 1104,
     },
     ipc: {
-      mapped: 486,
-      total: 486,
+      mapped: 494,
+      total: 494,
     },
     kernel: {
       mapped: 14,

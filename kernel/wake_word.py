@@ -653,8 +653,53 @@ def detect_audio(audio: str, wake_word: str, explicit: str | None, threshold: fl
         return {"ok": False, "reason": "detect-failed", "error": str(exc)[-600:]}
 
 
+# The owner's profile (voiceprint and personal wake template) lives in this worker's memory only. The desktop keeps
+# it encrypted on disk and sends it with `enroll_load` when the worker starts.
+_owner_profile: dict | None = None
+
+
+def enroll_op(req: dict) -> dict:
+    """Ops of the owner's voice profile: load, build, score, summary, clear. Never raises."""
+    global _owner_profile
+    op = str(req.get("op") or "")
+    try:
+        import numpy as np  # type: ignore
+        import voice_enroll as ve
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": "missing-dependency", "error": str(exc)[-300:]}
+    if op == "enroll_load":
+        profile = req.get("profile")
+        _owner_profile = profile if isinstance(profile, dict) else None
+        return {"ok": True, "op": op, "summary": ve.public_summary(_owner_profile)}
+    if op == "enroll_clear":
+        _owner_profile = None
+        return {"ok": True, "op": op}
+    if op == "enroll_summary":
+        return {"ok": True, "op": op, "summary": ve.public_summary(_owner_profile)}
+    if op == "enroll_build":
+        clips = []
+        skipped = []
+        for item in req.get("samples") or []:
+            pcm = decode_pcm16(str(item.get("path") or ""))
+            if pcm is None or len(pcm) < 1600:
+                skipped.append(str(item.get("id") or item.get("path") or "?"))
+                continue
+            clips.append({"id": item.get("id"), "kind": item.get("kind"), "pcm": np.asarray(pcm)})
+        profile = ve.build_profile(clips)
+        _owner_profile = profile
+        return {"ok": True, "op": op, "profile": profile, "summary": ve.public_summary(profile), "skipped": skipped}
+    if op == "enroll_score":
+        pcm = decode_pcm16(str(req.get("audio") or ""))
+        if pcm is None or len(pcm) < 1600:
+            return {"ok": False, "reason": "no-audio", "error": "the clip could not be decoded"}
+        return {"ok": True, "op": op, **ve.score_clip(_owner_profile, np.asarray(pcm))}
+    return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
+
+
 def handle_request(req: dict) -> dict:
     op = str(req.get("op") or "")
+    if op.startswith("enroll_"):
+        return enroll_op(req)
     wake_word = str(req.get("wakeWord") or req.get("wake_word") or "friday")
     explicit = str(req.get("model") or "") or None
     threshold = float(req.get("threshold") or 0.5)

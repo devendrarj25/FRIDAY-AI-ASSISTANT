@@ -188,6 +188,16 @@ import { rememberDevice } from "./mic-truth";
 import { affect, readFeeling } from "./brain/affect";
 import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
 import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
+import {
+  parseThreshold,
+  parseVocabulary,
+  refreshVoiceProfile,
+  scoreUtterance,
+  speakerInput,
+  voiceTurnGate,
+  type VoiceSettingsView,
+} from "./voice-profile";
+import type { VoiceMatchResult } from "./desktop";
 import { alertsAudible } from "./settings-runtime";
 import {
   EMPTY_CONDUCT,
@@ -1955,6 +1965,7 @@ class AssistantModeStore {
   }
 
   private startDesktopDictation() {
+    void refreshVoiceProfile();
     this.stopWakeOnly();
     if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
     if (this.dictation?.active) return;
@@ -1978,9 +1989,16 @@ class AssistantModeStore {
         return sttInitialPrompt({
           preference: voice.recognitionLang,
           topic: conversationDigest(),
-          vocab: [voice.addressName, voice.wakeWord, voice.voiceName].filter(Boolean),
+          vocab: [
+            voice.addressName,
+            voice.wakeWord,
+            voice.voiceName,
+            ...parseVocabulary(voice.vocabulary),
+          ].filter(Boolean),
         });
       },
+      // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
+      voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         const finished = this.turnStages.finish();
@@ -2318,6 +2336,25 @@ class AssistantModeStore {
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     if (words >= 2) this.lastOwnerLine = text;
     this.trace("transcript", text.slice(0, 160));
+    // The owner's saved voice (only when one is built): "only answer my voice" drops what clearly is not them,
+    // and their own "Friday" recordings can wake her when the transcript wrote the word differently.
+    const earlyWake = matchWakeWord(text, wakeWord()).matched;
+    const voiceTurn = voiceTurnGate({
+      voice: this.turnVoice,
+      settings: this.voiceSettings(),
+      transcriptWake: earlyWake,
+      isStop: this.isStopHeard(text, earlyWake),
+      words,
+    });
+    this.turnPersonalWake = voiceTurn.personalWake;
+    if (voiceTurn.ignore) {
+      this.trace("dropped", voiceTurn.reason);
+      markTurnStage("routed", false, voiceTurn.reason);
+      this.remember("other-voice", text, "ignored");
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
     if (this.settleInterruption(text)) {
       this.state.interim = "";
       this.emit();
@@ -2460,7 +2497,7 @@ class AssistantModeStore {
     // and can miss a clearly spoken name (weak or missing model); the
     // transcript matcher is a real, equal detection path, not a consolation
     // prize — so a name that is visible in the transcript always counts.
-    const matched = Boolean(probe?.detected) || transcriptWake.matched;
+    const matched = Boolean(probe?.detected) || transcriptWake.matched || this.turnPersonalWake;
     const wake = {
       matched,
       command: transcriptWake.command,
@@ -2468,10 +2505,12 @@ class AssistantModeStore {
         ? transcriptWake.matched && !probe.detected
           ? `${probe.detail} · transcript matched "${transcriptWake.token}"`
           : probe.detail
-        : transcriptWake.detail,
+        : this.turnPersonalWake
+          ? `your own "${wakeWord()}" recording matched (distance ${this.turnVoice?.wake?.distance ?? "?"})`
+          : transcriptWake.detail,
     };
     this.state.lastWake = {
-      engine: probe?.detected ? probe.engine : "transcript",
+      engine: probe?.detected ? probe.engine : this.turnPersonalWake ? "personal" : "transcript",
       detail: wake.detail,
       at: Date.now(),
     };
@@ -2745,8 +2784,7 @@ class AssistantModeStore {
     const heardSensitive =
       voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
     const speaker = speakerDecision({
-      similarity: null,
-      enrolled: false,
+      ...speakerInput(this.turnVoice, this.voiceSettings()),
       sensitive: heardSensitive,
     });
     if (!speaker.allow) {
@@ -3604,6 +3642,22 @@ class AssistantModeStore {
       : `${base} · ${stats.chunks} chunks scored · last score ${stats.lastScore.toFixed(2)}`;
   }
 
+  /** How the utterance being handled scored against the owner's saved voice (null: no saved voice, or not scored). */
+  private turnVoice: VoiceMatchResult | null = null;
+  /** The owner's own "Friday" template woke her for this turn although the transcript did not carry the word. */
+  private turnPersonalWake = false;
+
+  /** The owner's choices about their saved voice, read when a turn is handled. */
+  private voiceSettings(): VoiceSettingsView {
+    const snapshot = preferences.getSnapshot();
+    return {
+      recogniseMyVoice: snapshot.voice.recogniseMyVoice !== false,
+      ownerVoiceOnly: snapshot.voice.ownerVoiceOnly === true,
+      personalWake: snapshot.voice.personalWake !== false,
+      threshold: parseThreshold(snapshot.fields["speakerThreshold"]),
+    };
+  }
+
   /** The local recogniser's measurements for a finished utterance, kept until the arbiter lets that text through. */
   private localFinalMeta = new Map<string, LocalFinalMeta>();
   private rememberLocalMeta(text: string, meta: LocalFinalMeta) {
@@ -3673,6 +3727,7 @@ class AssistantModeStore {
     }
     // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
     // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
+    this.turnVoice = meta?.voice ?? null;
     this.lastTone = assessTone(meta?.prosody);
     this.lastSpeechMs = meta?.durationMs ?? null;
     this.lastHeardQuality = meta?.quality ?? null;

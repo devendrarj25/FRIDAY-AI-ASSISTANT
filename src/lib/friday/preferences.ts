@@ -74,6 +74,14 @@ export type VoicePreferences = {
   liveWords: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
   liveWake: boolean;
+  /** A saved voice may block a sensitive command from a voice that does not match it. It never approves anything. */
+  recogniseMyVoice: boolean;
+  /** Ignore what clearly is not the owner's saved voice (a stop is always heard). Off by default. */
+  ownerVoiceOnly: boolean;
+  /** The owner's own "Friday" recordings may wake her when the transcript missed the word. */
+  personalWake: boolean;
+  /** Names and words FRIDAY should expect to hear (kept on this PC, used as a hint when listening). */
+  vocabulary: string;
   /** Days to keep finished voice notes and meeting notes; 0 keeps them until deleted. */
   notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
@@ -237,6 +245,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     liveWords: false,
     liveWake: false,
+    recogniseMyVoice: true,
+    ownerVoiceOnly: false,
+    personalWake: true,
+    vocabulary: "",
     notesRetentionDays: 30,
     expressiveSpeech: true,
     localVoiceStyle: "",

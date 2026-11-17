@@ -91,11 +91,14 @@ export function speakerDecision(input: {
   similarity: number | null;
   enrolled: boolean;
   sensitive: boolean;
+  /** The similarity the owner's voice must reach. Default 0.75, the edge the kernel calibrates to. */
+  threshold?: number;
 }): { allow: boolean; execute: false; reason: string } {
   if (!input.sensitive) return { allow: true, execute: false, reason: "ordinary" };
   if (!input.enrolled || input.similarity == null)
     return { allow: true, execute: false, reason: "no-voiceprint" };
-  if (input.similarity < 0.75) return { allow: false, execute: false, reason: "speaker-mismatch" };
+  if (input.similarity < (input.threshold ?? 0.75))
+    return { allow: false, execute: false, reason: "speaker-mismatch" };
   return { allow: true, execute: false, reason: "speaker-match" };
 }
 

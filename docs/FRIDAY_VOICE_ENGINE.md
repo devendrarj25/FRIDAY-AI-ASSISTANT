@@ -291,6 +291,33 @@ Settings > Voice > "Sarvam's final text starts the turn" (needs cloud voice and 
 
 These are the cost of FRIDAY's own code. The first sound a person hears, the stop at the speaker, the caption delay and the recognition accuracy depend on the microphone, the speaker, the network and the provider and are **not measured**.
 
+## My voice: enrolment, voiceprint, personal wake word (2026-11-17)
+
+Settings → Voice → **My voice** records guided samples of the owner (8 takes of the wake word in different manners, 10 sentences in English, Hindi and Hinglish). From them the kernel builds a **voiceprint** (is this the owner's voice) and a **personal wake template** (is this the owner saying "Friday"). Built and tested on the Linux machine with synthetic stand-in voices only; **not run with a real microphone, a real accent or another real person.**
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Recording | The owner presses Record and Stop. The recorder joins the one shared microphone capture as its own named holder (`voiceGate.acquire`), listens to the frames it already produces, shows a level, stops by itself after 12 s, and lets the microphone go at once. It never opens a second stream. This is the one place the microphone is used outside an Auto session, and only between the owner's own Record and Stop | `voice-enroll-recorder.ts`, `VoiceEnrollment.tsx` |
+| Samples | 16 kHz mono WAV plus a text file of what was said, in `<FRIDAY folder>/preferences/voice-enrollment/samples` (the layout the speech model check reads). A sample that is too short, too quiet, clipped or not 16 kHz mono is refused with the reason | `electron/voice-enroll.cjs` `inspectWav`, `saveSample` |
+| Voiceprint | numpy only, no download: cepstral mean, spread and change of each clip plus pitch, scaled by the owner's own spread. The edge is set from leave-one-out distances **and** from short crops of the owner's clips (a short utterance varies more than a recorded sentence). Similarity 0.75 is that edge, the value the speaker gate already used | `kernel/voice_enroll.py` |
+| Personal wake template | The owner's takes as cepstral paths, matched by dynamic time warping over a sliding word-length window. Calibrated on held-out takes (each against the others) and on the owner's own sentences (best window over each). **Ready only when** every held-out take passes (refusal rate at most 15 %), none of the owner's other sentences matches, and there is a positive margin; otherwise it says why and is not used | `kernel/voice_enroll.py` |
+| Profile at rest | Built by the existing wake worker (`enroll_build`), encrypted with the Windows safe store (`profile.enc`), loaded into the worker's memory on first use and again after a worker restart. No safe store means no profile. Recordings are plain WAV files so they can be played, checked and deleted | `electron/voice-enroll.cjs`, `wake_word.py` `enroll_op` |
+| Each utterance | `voiceProbe` scores the raw audio beside the transcription (4 s cap; null at once when no profile is built). The result rides on the turn: `meta.voice` | `voice-stt.ts`, `assistant-mode.ts` |
+
+What Auto mode does with the score (`voiceTurnGate`, `speakerInput` in `voice-profile.ts`):
+
+* **Recognise my voice** (on by default, only with a saved voice): a command that needs confirmation is not run when the voice clearly is not the owner's. The speaker check was hard-wired to "never scored" before. `speakerDecision` still can only block: **a match never approves an action**, and with no saved voice every line is heard exactly as before. The owner's bar is the existing "Speaker match bar" field (default 0.75).
+* **Only answer my voice** (off by default): an utterance whose similarity is known and below the bar is ignored. A clip too short to tell is heard. A spoken stop is always heard.
+* **Wake on my own recordings** (on by default, only when the personal wake is ready): a short utterance (3 words or fewer) whose template matched wakes her even when the transcript wrote the word differently, unless the voice clearly is not the owner's.
+* **Words and names FRIDAY should expect**: the owner's list is added to the listener's hint (`sttInitialPrompt` vocabulary). It is a hint to the on-device recogniser; nothing is sent anywhere by itself.
+* **Understanding the owner**: no model is retrained. The recordings double as a speech-check set (each has the text said), so Settings → Voice → "Which speech model hears you best" can run on them. Hindi and Hinglish quality is not claimed.
+
+Honest limits. The voiceprint is a statistical convenience, **not a neural speaker model and not a lock**; it was calibrated on the owner alone, so how well it rejects other people is only known when the owner has someone else say a sentence in **Test** (the result shows the similarity and the bar). A different microphone, room or a cold can lower the owner's own score; rebuild after changing the microphone. The WeSpeaker ECAPA model (CC-BY-4.0, optional download) stays the upgrade path for real speaker verification; it is not downloaded here.
+
+Cost on the Linux machine (synthetic clips): about 87 ms to score one clip (voiceprint and wake template), about 6.4 s to build a profile from 22 recordings; the profile is about 80 KB. **Real-microphone numbers are not measured.** Forget my voice deletes the recordings, the profile, the older `voiceprint.json` and the worker's copy; "Delete recordings, keep profile" keeps only the encrypted profile.
+
+Tests: `kernel/tests/test_voice_enroll.py` (build, match, thin data refused, a wake word that sounds like the owner's sentences not marked ready, scoring speed, the worker ops), `core/__tests__/voice-enroll.test.ts` (WAV checks, files, encrypted profile, restarted worker, forget), `core/__tests__/voice-profile.test.ts` (prompts, progress, the three decisions, the wiring).
+
 ## Hardware acceptance checklist (needs the owner's PC)
 
 These cannot be done on the build machine. Each says what to do and where the number appears.
@@ -300,6 +327,7 @@ These cannot be done on the build machine. Each says what to do and where the nu
 | Echo is not taken for a command | Start a realtime session on speakers, let her talk for a minute without speaking      | Settings → Voice session line: echo delay and ERLE; the captions must stay free of her own words                               |
 | Speak while she speaks          | Interrupt her mid-sentence with "ruk jao"                                             | Voice diagnostics: the interrupted turn; the speaker must stop within about 300 ms (a target, not a claim)                     |
 | 30-minute session               | Leave a realtime session or Auto mode open and talk now and then                      | Frames dropped, speaker gaps, memory in Task Manager; a rising number is a leak                                                |
+| My voice (enrolment)            | Record the 8 takes and 10 sentences in Settings → Voice → My voice, build, then say a sentence in Test; then have someone else say one | The Test line: your similarity should clear the bar and theirs should not; "personal wake word: ready" with held-out refusal and false-accept numbers |
 | Device unplug                   | Pull the microphone, plug it back                                                     | The session reconnects (at most 3 tries) or says why it ended                                                                  |
 | Hindi voice naturalness         | Settings → Voice → try a sentence, then Speak a sample                                | Your ears; fix any word through the pronunciation dictionary                                                                   |
 | Hindi numbers                   | Say a reply with ₹1,50,000 and 25/01/2026                                             | Listen; the number words come from the standard forms and the Wikipedia romanization (only 44 has a variant: चवालीस / चौवालीस) |
