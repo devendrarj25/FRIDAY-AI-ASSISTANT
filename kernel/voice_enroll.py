@@ -235,8 +235,32 @@ def build_profile(clips: list[dict]) -> dict:
         "evidence": EVIDENCE,
         "speaker": _build_speaker(speech_vecs, speech_ids, speech_audio, len(other_audio), speech_seconds),
         "wake": _build_wake(wake_seqs, wake_ids, other_audio),
+        "baseline": owner_baseline([pcm for _cid, pcm in other_audio]),
     }
     return profile
+
+
+def owner_baseline(clips: list[np.ndarray]) -> dict | None:
+    """How the owner usually sounds (median pitch, pitch spread, loudness), measured by the same function the
+    app uses on every spoken utterance, so the tone reading is calibrated from the first sentence instead of after
+    five. None when too few clips have a measurable voice."""
+    try:
+        import voice_runtime
+    except Exception:  # noqa: BLE001 — the profile is still useful without a tone baseline
+        return None
+    rows = []
+    for pcm in clips:
+        measured = voice_runtime.voice_prosody(np.asarray(pcm, dtype=np.float32), RATE)
+        if measured.get("ok") and float(measured.get("voicedShare", 0.0)) >= 0.2:
+            rows.append(measured)
+    if len(rows) < 4:
+        return None
+    return {
+        "pitchHz": round(float(np.median([r["pitchHz"] for r in rows])), 1),
+        "pitchSpreadSemitones": round(float(np.median([r["pitchSpreadSemitones"] for r in rows])), 2),
+        "energyDbfs": round(float(np.median([r["energyDbfs"] for r in rows])), 1),
+        "clips": len(rows),
+    }
 
 
 def _build_speaker(
@@ -350,7 +374,14 @@ def public_summary(profile: dict | None) -> dict:
     for hidden in ("centroid", "scale"):
         speaker.pop(hidden, None)
     wake.pop("templates", None)
-    return {"built": True, "engine": ENGINE, "evidence": EVIDENCE, "speaker": speaker, "wake": wake}
+    return {
+        "built": True,
+        "engine": ENGINE,
+        "evidence": EVIDENCE,
+        "speaker": speaker,
+        "wake": wake,
+        "baseline": profile.get("baseline"),
+    }
 
 
 def score_speaker(profile: dict | None, pcm) -> dict:

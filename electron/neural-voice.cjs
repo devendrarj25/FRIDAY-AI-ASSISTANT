@@ -34,6 +34,11 @@ const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
 const PREFERRED = [
   { id: "hi-IN-SwaraNeural", label: "Swara · Hindi (India) · neural", lang: "hi-IN" },
   { id: "en-IN-NeerjaNeural", label: "Neerja · English (India) · neural", lang: "en-IN" },
+  {
+    id: "en-IN-NeerjaExpressiveNeural",
+    label: "Neerja Expressive · English (India) · neural",
+    lang: "en-IN",
+  },
   { id: "hi-IN-MadhurNeural", label: "Madhur · Hindi (India) · neural", lang: "hi-IN" },
   { id: "en-IN-PrabhatNeural", label: "Prabhat · English (India) · neural", lang: "en-IN" },
 ];
@@ -361,6 +366,17 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
   };
 }
 
+/**
+ * Pitch multiplier (1 = the voice's own pitch) to the Hz offset the online service takes. The old mapping sent
+ * (pitch - 1) * 12 Hz, so the whole slider moved the voice by about 6 Hz, which cannot be heard; 150 Hz per 1.0
+ * moves a female voice about a semitone per 0.06, and the offset is clamped to +-40 Hz so no setting sounds broken.
+ */
+function pitchOffsetHz(pitch) {
+  const value = Number(pitch);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-40, Math.min(40, Math.round((value - 1) * 150)));
+}
+
 async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {}) {
   const spoken = String(text || "").trim();
   const voiceId = String(voice || "");
@@ -377,7 +393,7 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
     const py = await python();
     if (!py)
       return { ok: false, reason: "Python 3.12+ was not found.", engine: "edge-tts", cloud: true };
-    const semitones = Math.round((Number(pitch) - 1) * 12);
+    const offsetHz = pitchOffsetHz(pitch);
     const args = [
       ...py[1],
       "-m",
@@ -388,7 +404,7 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
       spoken,
       `--rate=${pct(rate)}`,
       `--volume=${pct(volume)}`,
-      `--pitch=${semitones >= 0 ? "+" : ""}${semitones}Hz`,
+      `--pitch=${offsetHz >= 0 ? "+" : ""}${offsetHz}Hz`,
       "--write-media",
       file,
     ];
@@ -509,4 +525,5 @@ module.exports = {
   shutdown,
   speakerRequest,
   PREFERRED,
+  pitchOffsetHz,
 };

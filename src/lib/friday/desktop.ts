@@ -27,6 +27,13 @@ export type VoiceProfileSummary = {
   built: boolean;
   engine: string;
   evidence: string;
+  /** How the owner usually sounds in their recordings; seeds the tone reading. */
+  baseline?: {
+    pitchHz: number;
+    pitchSpreadSemitones: number;
+    energyDbfs: number;
+    clips: number;
+  } | null;
   speaker?: {
     ready: boolean;
     reasons: string[];

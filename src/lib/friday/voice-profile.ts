@@ -13,6 +13,7 @@
  * Nothing is sent anywhere. With no saved voice every function here is a no-op and `scoreUtterance` answers at once.
  */
 import { desktopApi } from "./desktop";
+import { seedToneBaseline } from "./voice-tone";
 import type {
   VoiceEnrollCounts,
   VoiceEnrollStatus,
@@ -286,8 +287,16 @@ export function voiceProfileSnapshot(): VoiceEnrollStatus | null {
   return state.status;
 }
 
+let seededFor = 0;
+
 function publish(status: VoiceEnrollStatus | null) {
   state = { status, loadedAt: Date.now() };
+  // The owner's recordings tell how they usually sound: start the tone reading from that, once per built profile.
+  const base = status?.profile.summary?.baseline;
+  if (status?.profile.built && base && status.profile.builtAt !== seededFor) {
+    seededFor = status.profile.builtAt;
+    seedToneBaseline(base);
+  }
   for (const listener of [...listeners]) listener();
 }
 
@@ -384,6 +393,7 @@ export async function forgetMyVoice(): Promise<void> {
 
 /** Reset the cache (tests). */
 export function resetVoiceProfileForTests(): void {
+  seededFor = 0;
   state = { status: null, loadedAt: 0 };
   listeners.clear();
 }

@@ -185,3 +185,16 @@ def test_the_wake_worker_builds_loads_scores_and_clears_the_profile(tmp_path):
     assert wake_word.handle_request({"op": "enroll_score", "audio": str(probe)})["wake"]["matched"] is True
     assert wake_word.handle_request({"op": "enroll_score", "audio": str(tmp_path / "missing.wav")})["ok"] is False
     wake_word.handle_request({"op": "enroll_clear"})
+
+
+def test_the_owner_baseline_is_measured_by_the_apps_own_prosody_function():
+    rng = np.random.default_rng(8)
+    profile = ve.build_profile(owner_clips(rng))
+    base = profile["baseline"]
+    assert base and base["clips"] >= 4
+    # an owner at 120 Hz is read near 120 Hz, not at a pitch the app would never see
+    assert 90 <= base["pitchHz"] <= 170
+    assert base["energyDbfs"] < 0 and base["pitchSpreadSemitones"] >= 0
+    assert ve.public_summary(profile)["baseline"] == base
+    # too few measurable clips: no baseline, and the profile still builds
+    assert ve.build_profile(owner_clips(rng, wakes=6, sentences=2))["baseline"] is None

@@ -6,6 +6,7 @@ import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
+import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
 import {
   ownerAcceptanceSteps,
@@ -38,6 +39,7 @@ import {
   selectVoiceModel,
   speakSample,
   updateVoiceModel,
+  resetToBestVoice,
 } from "@/lib/friday/voice-library";
 
 const RECOGNITION_LANGS = [
@@ -62,6 +64,7 @@ export function VoiceSettings() {
 
   return (
     <div className="space-y-4">
+      <FridayVoice />
       <HudPanel title="Voice & Wake Word" hint="used by auto mode in the title bar">
         <div className="grid gap-3 sm:grid-cols-2">
           <EditField
@@ -445,30 +448,6 @@ export function VoiceSettings() {
               onValueCommit={() => void preferences.flush()}
             />
           </div>
-          <TuneRow
-            label="Speaking rate"
-            value={prefs.voice.rate}
-            min={0.5}
-            max={2}
-            detail={`${prefs.voice.rate.toFixed(2)}x`}
-            onChange={(rate) => preferences.setVoice({ rate })}
-          />
-          <TuneRow
-            label="Pitch"
-            value={prefs.voice.pitch}
-            min={0}
-            max={2}
-            detail={prefs.voice.pitch.toFixed(2)}
-            onChange={(pitch) => preferences.setVoice({ pitch })}
-          />
-          <TuneRow
-            label="Volume"
-            value={prefs.voice.volume}
-            min={0}
-            max={1}
-            detail={`${Math.round(prefs.voice.volume * 100)}%`}
-            onChange={(volume) => preferences.setVoice({ volume })}
-          />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -497,13 +476,11 @@ export function VoiceSettings() {
                 wakeWord: "friday",
                 recognitionLang: "hi-IN",
                 speechLang: "hi-IN",
-                voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
-                rate: 0.96,
-                pitch: 1.12,
-                volume: 1,
+                voiceName: "",
                 speakReplies: true,
                 hinglish: true,
               });
+              resetToBestVoice();
               assistantMode.setHandsFree(true);
               assistantMode.setMuted(false);
               assistantMode.setPaused(false);
