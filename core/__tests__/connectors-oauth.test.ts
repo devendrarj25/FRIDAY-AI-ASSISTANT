@@ -296,7 +296,9 @@ describe("OAuth loopback + GitHub token exchange", () => {
 describe("callConnector requires Connected, not just stored tokens", () => {
   it("refuses an action when credentials exist but the probe never succeeded", async () => {
     const root = temp();
-    expect(credentials.setSecret(root, "connector.github.token", "gho_unverified").ok).toBe(true);
+    expect((await credentials.setSecret(root, "connector.github.token", "gho_unverified")).ok).toBe(
+      true,
+    );
     fs.mkdirSync(path.join(root, "config"), { recursive: true });
     fs.writeFileSync(
       path.join(root, "config", "connectors.json"),

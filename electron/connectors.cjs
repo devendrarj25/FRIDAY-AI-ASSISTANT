@@ -4326,12 +4326,16 @@ function mergeFields(root, id, values = {}) {
   return fields;
 }
 
-function saveSpecFields(root, id, fields) {
+async function saveSpecFields(root, id, fields) {
   const spec = CONNECTORS[id];
   const publicFields = {};
   for (const field of spec.fields) {
     if (field.secret) {
-      const saved = credentials.setSecret(root, SECRET_ID(id, field.id), text(fields[field.id]));
+      const saved = await credentials.setSecret(
+        root,
+        SECRET_ID(id, field.id),
+        text(fields[field.id]),
+      );
       if (!saved.ok) return saved;
     } else publicFields[field.id] = text(fields[field.id]);
   }
@@ -4428,7 +4432,7 @@ async function connect(root, id, values = {}, fetchImpl = fetchCompat) {
     return verified;
   }
 
-  const saved = saveSpecFields(root, id, fields);
+  const saved = await saveSpecFields(root, id, fields);
   if (!saved.ok) return saved;
   persist(root, id, connectionPatch(spec, verified));
   return { ok: true, account: verified.account || "", connector: describe(root, id) };
@@ -4457,7 +4461,7 @@ async function startOAuth(root, id, values = {}, options = {}) {
     return { ok: false, error: "Give the OAuth client secret first." };
   }
 
-  const saved = saveSpecFields(root, id, fields);
+  const saved = await saveSpecFields(root, id, fields);
   if (!saved.ok) return saved;
 
   let listener;
@@ -4554,10 +4558,14 @@ async function startOAuth(root, id, values = {}, options = {}) {
     return { ok: false, error };
   }
 
-  const accessSaved = credentials.setSecret(root, SECRET_ID(id, "accessToken"), tokens.accessToken);
+  const accessSaved = await credentials.setSecret(
+    root,
+    SECRET_ID(id, "accessToken"),
+    tokens.accessToken,
+  );
   if (!accessSaved.ok) return accessSaved;
   if (tokens.refreshToken) {
-    const refreshSaved = credentials.setSecret(
+    const refreshSaved = await credentials.setSecret(
       root,
       SECRET_ID(id, "refreshToken"),
       tokens.refreshToken,
@@ -4615,7 +4623,7 @@ async function startPhoneVerify(root, id, values = {}, fetchImpl = fetchCompat) 
     };
   }
 
-  const saved = saveSpecFields(root, id, fields);
+  const saved = await saveSpecFields(root, id, fields);
   if (!saved.ok) return saved;
 
   try {
@@ -4702,15 +4710,15 @@ async function confirmPhone(root, id, values = {}, fetchImpl = fetchCompat) {
   }
 }
 
-function disconnect(root, id) {
+async function disconnect(root, id) {
   const spec = CONNECTORS[id];
   if (!spec) return { ok: false, error: "Unknown connector." };
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   for (const field of spec.fields) {
-    if (field.secret) credentials.setSecret(root, SECRET_ID(id, field.id), "");
+    if (field.secret) await credentials.setSecret(root, SECRET_ID(id, field.id), "");
   }
   for (const extra of EXTRA_SECRETS) {
-    credentials.setSecret(root, SECRET_ID(id, extra), "");
+    await credentials.setSecret(root, SECRET_ID(id, extra), "");
   }
   const state = readState(root);
   delete state[id];

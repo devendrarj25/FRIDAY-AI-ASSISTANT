@@ -174,7 +174,10 @@ describe("downloading a release installer", () => {
         return respond();
       }),
     );
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_test_token" });
+    await sync.writeConfig(root, {
+      repo: "devendrarj25/FRIDAY-AI-ASSISTANT",
+      token: "ghp_test_token",
+    });
     const result = await sync.downloadInstaller({
       root,
       url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/download/v9.9.9/FRIDAY-Setup-9.9.9.exe",

@@ -62,8 +62,12 @@ const release = (tag: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe("the update token is its own credential", () => {
-  it("is stored apart from the Hub token and never leaves the main process in the public config", () => {
-    sync.writeConfig(work, { repo: "owner/repo", token: "hub-write", updateToken: "upd-read" });
+  it("is stored apart from the Hub token and never leaves the main process in the public config", async () => {
+    await sync.writeConfig(work, {
+      repo: "owner/repo",
+      token: "hub-write",
+      updateToken: "upd-read",
+    });
     expect(credentials.getSecret(work, sync.TOKEN_ID)).toBe("hub-write");
     expect(credentials.getSecret(work, sync.UPDATE_TOKEN_ID)).toBe("upd-read");
     const cfg = sync.readConfig(work);
@@ -76,9 +80,13 @@ describe("the update token is its own credential", () => {
     expect(fs.readFileSync(sync.configFile(work), "utf8")).not.toContain("upd-read");
   });
 
-  it("clears only the update token when asked, and reports a shared token honestly", () => {
-    sync.writeConfig(work, { repo: "owner/repo", token: "hub-write", updateToken: "upd-read" });
-    sync.writeConfig(work, { updateToken: null });
+  it("clears only the update token when asked, and reports a shared token honestly", async () => {
+    await sync.writeConfig(work, {
+      repo: "owner/repo",
+      token: "hub-write",
+      updateToken: "upd-read",
+    });
+    await sync.writeConfig(work, { updateToken: null });
     const pub = sync.publicConfig(sync.readConfig(work));
     expect(pub).toMatchObject({ hasToken: true, hasUpdateToken: false, updateTokenShared: true });
   });
@@ -108,7 +116,7 @@ describe("the update connection only reads", () => {
   });
 
   it("tests a private repository with the update token and reports a read-only scope", async () => {
-    sync.writeConfig(work, {
+    await sync.writeConfig(work, {
       repo: "https://github.com/owner/repo",
       token: "hub-write",
       updateToken: "upd-read",
@@ -137,7 +145,7 @@ describe("the update connection only reads", () => {
   });
 
   it("warns when the token could also write, and when it is the shared Hub token", async () => {
-    sync.writeConfig(work, { repo: "owner/repo", token: "hub-write" });
+    await sync.writeConfig(work, { repo: "owner/repo", token: "hub-write" });
     stubGithub({ private: true, push: true, releases: [release("v1.0.0")] });
     const out = await sync.testUpdateSource(work);
     expect(out).toMatchObject({
@@ -149,7 +157,7 @@ describe("the update connection only reads", () => {
   });
 
   it("needs no token for a public repository and says what to do for a private one", async () => {
-    sync.writeConfig(work, { repo: "owner/repo" });
+    await sync.writeConfig(work, { repo: "owner/repo" });
     stubGithub({ private: false, releases: [release("v1.0.0")] });
     const pub = await sync.testUpdateSource(work);
     expect(pub).toMatchObject({ ok: true, authenticated: false, tokenScope: "none" });
@@ -163,7 +171,7 @@ describe("the update connection only reads", () => {
   });
 
   it("reports an offline GitHub as offline, not as a bad token", async () => {
-    sync.writeConfig(work, { repo: "owner/repo", updateToken: "upd-read" });
+    await sync.writeConfig(work, { repo: "owner/repo", updateToken: "upd-read" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -211,7 +219,7 @@ describe("what a release contains is recognised", () => {
   });
 
   it("a checked release carries those files for the panel", async () => {
-    sync.writeConfig(work, { repo: "owner/repo", channel: "release", updateToken: "t" });
+    await sync.writeConfig(work, { repo: "owner/repo", channel: "release", updateToken: "t" });
     stubGithub({ releases: [release("v2.0.0")] });
     const out = await sync.checkUpdate(work, { currentVersion: "1.0.0", channel: "release" });
     expect(out.ok).toBe(true);
@@ -281,7 +289,7 @@ describe("installing a downloaded update", () => {
     expect(main).not.toMatch(/spawn\(file, \[\], \{/);
   });
 
-  it("verifies, backs up the protected folders and records the update before it launches", () => {
+  it("verifies, backs up the protected folders and records the update before it launches", async () => {
     const install = main.slice(main.indexOf('ipcMain.handle("github:install-update"'));
     const order = [
       "updateSafety.verifyArtifact(",

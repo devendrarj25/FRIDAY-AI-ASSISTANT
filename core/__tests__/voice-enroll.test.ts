@@ -107,10 +107,13 @@ const fakeWake = {
 };
 
 const fakeSafe = {
-  isEncryptionAvailable: () => true,
-  encryptString: (text: string) => Buffer.from(`ENC:${Buffer.from(text).toString("base64")}`),
-  decryptString: (buf: Buffer) =>
-    Buffer.from(buf.toString().replace("ENC:", ""), "base64").toString(),
+  isAsyncEncryptionAvailable: async () => true,
+  encryptStringAsync: async (text: string) =>
+    Buffer.from(`ENC:${Buffer.from(text).toString("base64")}`),
+  decryptStringAsync: async (buf: Buffer) => ({
+    result: Buffer.from(buf.toString().replace("ENC:", ""), "base64").toString(),
+    shouldReEncrypt: false,
+  }),
 };
 
 beforeEach(() => {
@@ -237,7 +240,10 @@ describe("the profile", () => {
   it("refuses to build without the Windows safe store or without samples", async () => {
     expect((await enroll.build()).reason).toBe("no-samples");
     record();
-    enroll.useForTests({ wake: fakeWake, safeStorage: { isEncryptionAvailable: () => false } });
+    enroll.useForTests({
+      wake: fakeWake,
+      safeStorage: { isAsyncEncryptionAvailable: async () => false },
+    });
     expect((await enroll.build()).reason).toBe("no-safe-store");
   });
 

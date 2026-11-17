@@ -75,11 +75,11 @@ const fake = async (
   return json({ error: { message: "unreachable in this test" } }, 503);
 };
 
-beforeAll(() => {
+beforeAll(async () => {
   undici.fetch = fake;
   dir = mkdtempSync(path.join(tmpdir(), "friday-four-"));
   for (const id of ["gemini", "groq", "openrouter", "nvidia"])
-    models.writeKey(dir, id, `key-${id}`);
+    await models.writeKey(dir, id, `key-${id}`);
 });
 afterAll(() => {
   undici.fetch = realFetch;

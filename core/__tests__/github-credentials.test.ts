@@ -26,8 +26,8 @@ const githubConfig = () =>
   JSON.parse(fs.readFileSync(path.join(root, "config", "github.json"), "utf8"));
 
 describe("GitHub credential storage", () => {
-  it("stores the token outside config.json, under security/credentials", () => {
-    const saved = sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
+  it("stores the token outside config.json, under security/credentials", async () => {
+    const saved = await sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
     expect(saved.ok).toBe(true);
     expect(githubConfig().token).toBeUndefined();
     expect(JSON.stringify(githubConfig())).not.toContain("ghp_secret");
@@ -35,27 +35,29 @@ describe("GitHub credential storage", () => {
     expect(sync.readConfig(root).token).toBe("ghp_secret");
   });
 
-  it("never exposes the token to the renderer, only whether one is stored", () => {
-    sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
+  it("never exposes the token to the renderer, only whether one is stored", async () => {
+    await sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
     const shown = sync.publicConfig(sync.readConfig(root));
     expect(shown.hasToken).toBe(true);
     expect((shown as Record<string, unknown>)["token"]).toBeUndefined();
   });
 
-  it("migrates a token found in a historical config file and erases it there", () => {
+  it("migrates a token found in a historical config file and erases it there", async () => {
     fs.mkdirSync(path.join(root, "config"), { recursive: true });
     fs.writeFileSync(
       path.join(root, "config", "github.json"),
       JSON.stringify({ repo: "owner/name", token: "ghp_legacy" }),
     );
+    // Readable at once; the move into the encrypted store finishes in the background.
     expect(sync.readConfig(root).token).toBe("ghp_legacy");
+    await sync.whenAdopted(root);
     expect(githubConfig().token).toBeUndefined();
     expect(credentials.getSecret(root, "github.token")).toBe("ghp_legacy");
   });
 
-  it("clears the token when an empty value is saved", () => {
-    sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
-    sync.writeConfig(root, { token: "" });
+  it("clears the token when an empty value is saved", async () => {
+    await sync.writeConfig(root, { repo: "owner/name", token: "ghp_secret" });
+    await sync.writeConfig(root, { token: "" });
     expect(sync.readConfig(root).token).toBe("");
     expect(sync.publicConfig(sync.readConfig(root)).hasToken).toBe(false);
   });

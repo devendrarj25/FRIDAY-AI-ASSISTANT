@@ -304,7 +304,7 @@ describe("the wiring", () => {
 
   it("keeps the recordings out of the cloud and the profile encrypted", () => {
     const main = read("electron/voice-enroll.cjs");
-    expect(main).toContain("safeStorage().encryptString");
+    expect(main).toContain("secretBox.encryptText");
     expect(main).not.toMatch(/fetch\(|https?:\/\//);
     expect(read("kernel/voice_enroll.py")).not.toMatch(/requests|httpx|urllib|socket/);
   });

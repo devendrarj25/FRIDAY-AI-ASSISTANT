@@ -66,7 +66,10 @@ const RELEASES = [
 
 describe("listInstallerBundles", () => {
   it("keeps stable and test installers on separate channels via isTestRelease", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", updateChannel: "stable" });
+    await sync.writeConfig(root, {
+      repo: "devendrarj25/FRIDAY-AI-ASSISTANT",
+      updateChannel: "stable",
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -94,7 +97,7 @@ describe("listInstallerBundles", () => {
   });
 
   it("keeps the GitHub API asset URL on a private-style installer bundle", async () => {
-    sync.writeConfig(root, { repo: "owner/secret", token: "ghp_x", updateChannel: "stable" });
+    await sync.writeConfig(root, { repo: "owner/secret", token: "ghp_x", updateChannel: "stable" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -215,7 +218,7 @@ describe("connect session (public and private)", () => {
     !String(url).includes("/actions");
 
   beforeEach(async () => {
-    sync.writeConfig(root, { repo: "" });
+    await sync.writeConfig(root, { repo: "" });
     await sync.connect(root);
   });
 
@@ -244,7 +247,7 @@ describe("connect session (public and private)", () => {
   });
 
   it("connects a public repo without a token and keeps CONNECTED across reconnect", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -270,7 +273,7 @@ describe("connect session (public and private)", () => {
   });
 
   it("does not keep private: true after a later public connect", async () => {
-    sync.writeConfig(root, { repo: "owner/secret", token: "ghp_x" });
+    await sync.writeConfig(root, { repo: "owner/secret", token: "ghp_x" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -297,7 +300,7 @@ describe("connect session (public and private)", () => {
     const priv = await sync.connect(root);
     expect(priv.state).toBe("connected");
     expect(priv.private).toBe(true);
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "" });
     const pub = await sync.connect(root);
     expect(pub.state).toBe("connected");
     expect(pub.private).toBe(false);
@@ -305,7 +308,7 @@ describe("connect session (public and private)", () => {
   });
 
   it("marks a 404 without a token as reauth-required with the real error", async () => {
-    sync.writeConfig(root, { repo: "owner/private" });
+    await sync.writeConfig(root, { repo: "owner/private" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => json({ message: "Not Found" }, 404)),
@@ -317,7 +320,7 @@ describe("connect session (public and private)", () => {
   });
 
   it("connects a private repo when a token is stored", async () => {
-    sync.writeConfig(root, { repo: "owner/secret", token: "ghp_private" });
+    await sync.writeConfig(root, { repo: "owner/secret", token: "ghp_private" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {

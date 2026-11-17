@@ -55,7 +55,7 @@ GitHub release v1.1.5.7 is published (FRIDAY Release run 30: Setup 321406580 byt
 - Live keyed provider calls and a live speech-model download: **NOT VERIFIED**.
 - Shutdown and Restart on the packaged EXE: **NOT VERIFIED**.
 - Dependency updates change the lockfile: let PR Validation rebuild the Windows package before merging them.
-- The synchronous `safeStorage` methods (API keys, connector tokens, the voiceprint) are removed in Electron 46. FRIDAY is on 45, where they only warn; the move to the asynchronous methods must land before 46 ([FRIDAY_STATE.md](FRIDAY_STATE.md), Next priorities 19).
+- Secret storage (API keys, connector tokens, the voice profile, the voiceprint) uses only the asynchronous `safeStorage` methods through `electron/secret-box.cjs` (`core/__tests__/secret-box-async.test.ts`, a mocked store on Linux). Real Windows DPAPI, including opening ciphertext an older build wrote with `encryptString`, is unverified until the owner runs it on the PC ([docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md)).
 - The pricing snapshot in `electron/model-access.cjs` is past its date in `npm run pricing:status` (the app re-reads the provider pages at start and every 24 hours).
 - Nothing from Electron 45, the new resource editor (`resedit`), the voice-worker stops or the kernel's worker threads has run on Windows: **NOT VERIFIED** until the owner's Windows runs of `package-windows` and a real session.
 - Five React Compiler rules and `react-hooks/exhaustive-deps` are `"error"` in `eslint.config.js`. `react-refresh/only-export-components` stays `"warn"`. FRIDAY does not ship the React Compiler.

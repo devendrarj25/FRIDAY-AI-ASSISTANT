@@ -143,21 +143,47 @@ function readStored(root) {
  * A token found in a historical github.json is moved into the encrypted store
  * once and erased from the config file.
  */
+// Roots whose historical config token is being moved into the encrypted store right now.
+const adopting = new Map();
+
+/** Resolves when a running move of a historical config token has finished. */
+const whenAdopted = (root) => adopting.get(root) || Promise.resolve();
+
+/**
+ * Move a token found in a historical github.json into the encrypted store. The config file is
+ * blanked only after the store accepted the token, so a failed save never loses it.
+ */
+function adoptConfigToken(root, token) {
+  if (adopting.has(root)) return;
+  const running = credentials
+    .adoptLegacySecret(root, TOKEN_ID, token)
+    .then((adopted) => {
+      if (!adopted) return;
+      const stored = readStored(root);
+      if (!stored.token) return;
+      delete stored.token;
+      try {
+        fs.writeFileSync(configFile(root), JSON.stringify(stored, null, 2));
+      } catch {
+        /* the credential store is authoritative from now on regardless */
+      }
+    })
+    .catch(() => {})
+    .finally(() => adopting.delete(root));
+  adopting.set(root, running);
+}
+
 function readConfig(root) {
   const stored = readStored(root);
   if (!root) return { ...stored, token: "" };
-  if (stored.token) {
-    credentials.adoptLegacySecret(root, TOKEN_ID, stored.token);
+  const legacy = stored.token || "";
+  if (legacy) {
+    adoptConfigToken(root, legacy);
     delete stored.token;
-    try {
-      fs.writeFileSync(configFile(root), JSON.stringify(stored, null, 2));
-    } catch {
-      /* the credential store is authoritative from now on regardless */
-    }
   }
   return {
     ...stored,
-    token: credentials.getSecret(root, TOKEN_ID),
+    token: credentials.getSecret(root, TOKEN_ID) || legacy,
     updateToken: credentials.getSecret(root, UPDATE_TOKEN_ID),
   };
 }
@@ -173,18 +199,10 @@ function updateCfg(cfg = {}) {
   };
 }
 
-function writeConfig(root, patch) {
+/** Non-secret config fields only. A token in the patch is ignored here; `writeConfig` stores it encrypted. */
+function writeStoredConfig(root, patch) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
-  const { token, updateToken, ...rest } = patch || {};
-  // A token in the patch never reaches disk as plain config — it is encrypted.
-  if (token !== undefined) {
-    const saved = credentials.setSecret(root, TOKEN_ID, token || "");
-    if (!saved.ok) return saved;
-  }
-  if (updateToken !== undefined) {
-    const saved = credentials.setSecret(root, UPDATE_TOKEN_ID, updateToken || "");
-    if (!saved.ok) return saved;
-  }
+  const { token: _token, updateToken: _updateToken, ...rest } = patch || {};
   const next = { ...readStored(root), ...rest };
   delete next.token;
   delete next.updateToken;
@@ -205,6 +223,21 @@ function writeConfig(root, patch) {
         !credentials.hasSecret(root, UPDATE_TOKEN_ID) && credentials.hasSecret(root, TOKEN_ID),
     },
   };
+}
+
+/** Config plus tokens. A token never reaches disk as plain config: it is encrypted, asynchronously. */
+async function writeConfig(root, patch) {
+  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  const { token, updateToken } = patch || {};
+  if (token !== undefined) {
+    const saved = await credentials.setSecret(root, TOKEN_ID, token || "");
+    if (!saved.ok) return saved;
+  }
+  if (updateToken !== undefined) {
+    const saved = await credentials.setSecret(root, UPDATE_TOKEN_ID, updateToken || "");
+    if (!saved.ok) return saved;
+  }
+  return writeStoredConfig(root, patch);
 }
 
 /** The renderer never receives the token itself, only whether one is stored. */
@@ -849,7 +882,7 @@ async function checkUpdate(root, override = {}) {
     ]);
 
     if (!body) {
-      writeConfig(root, { lastCheck: Date.now() });
+      writeStoredConfig(root, { lastCheck: Date.now() });
       return {
         ok: true,
         channel: "release",
@@ -913,7 +946,7 @@ async function checkUpdate(root, override = {}) {
       appliedRef,
       otherChannel,
     };
-    writeConfig(root, { lastCheck: Date.now() });
+    writeStoredConfig(root, { lastCheck: Date.now() });
     return result;
   }
 
@@ -935,7 +968,7 @@ async function checkUpdate(root, override = {}) {
       }));
     }
   }
-  writeConfig(root, { lastCheck: Date.now() });
+  writeStoredConfig(root, { lastCheck: Date.now() });
   return {
     ok: true,
     channel: "branch",
@@ -1012,10 +1045,10 @@ function recordApplied(
   // Merging a release's content packs is not installing that release: the
   // installed ref stays, so the new EXE is still offered.
   if (contentOnly) {
-    writeConfig(root, { history });
+    writeStoredConfig(root, { history });
     return { ok: true, entry };
   }
-  writeConfig(
+  writeStoredConfig(
     root,
     target === "test"
       ? { testAppliedRef: ref, testAppliedAt: entry.at, history }
@@ -1465,7 +1498,7 @@ async function addConnection(root, { repo, token, label } = {}) {
   if (!name) return { ok: false, error: "Enter a repository as owner/name." };
   const cfg = readConfig(root);
   if (cfg.repo && sameRepo(name, cfg.repo)) {
-    writeConfig(root, { selectedConnectionId: SELF_CONNECTION_ID });
+    writeStoredConfig(root, { selectedConnectionId: SELF_CONNECTION_ID });
     return { ok: true, id: SELF_CONNECTION_ID, reused: true, ...listConnections(root) };
   }
   // Do not reuse FRIDAY's Updates token for an extra Hub repo — extras are
@@ -1477,7 +1510,7 @@ async function addConnection(root, { repo, token, label } = {}) {
   const existing = extras.find((c) => sameRepo(c.repo, test.repo || name));
   const id = existing?.id || newConnectionId();
   if (token) {
-    const saved = credentials.setSecret(root, connectionTokenId(id), token);
+    const saved = await credentials.setSecret(root, connectionTokenId(id), token);
     if (!saved.ok) return saved;
   }
   const conn = {
@@ -1490,21 +1523,21 @@ async function addConnection(root, { repo, token, label } = {}) {
     localPath: existing?.localPath || relativeCheckout(test.repo || name, id),
   };
   const connections = [...extras.filter((c) => c.id !== id), conn];
-  writeConfig(root, { connections, selectedConnectionId: id });
+  writeStoredConfig(root, { connections, selectedConnectionId: id });
   return { ok: true, id, reused: Boolean(existing), ...listConnections(root) };
 }
 
-function removeConnection(root, id) {
+async function removeConnection(root, id) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   if (!id || id === SELF_CONNECTION_ID) {
     return { ok: false, error: "FRIDAY's own repository cannot be removed from Hub." };
   }
   const stored = readStored(root);
   const connections = sanitizeConnections(stored.connections).filter((c) => c.id !== id);
-  credentials.setSecret(root, connectionTokenId(id), "");
+  await credentials.setSecret(root, connectionTokenId(id), "");
   const selectedConnectionId =
     stored.selectedConnectionId === id ? SELF_CONNECTION_ID : stored.selectedConnectionId;
-  writeConfig(root, { connections, selectedConnectionId });
+  writeStoredConfig(root, { connections, selectedConnectionId });
   return { ok: true, ...listConnections(root) };
 }
 
@@ -1514,7 +1547,7 @@ function selectConnection(root, id) {
   if (!listed.connections.some((c) => c.id === id)) {
     return { ok: false, error: "That repository is not in the Hub list." };
   }
-  writeConfig(root, { selectedConnectionId: id });
+  writeStoredConfig(root, { selectedConnectionId: id });
   return { ok: true, ...listConnections(root) };
 }
 
@@ -1533,7 +1566,7 @@ async function testHubConnection(root, id) {
         });
   if (result.ok) {
     if (conn.id === SELF_CONNECTION_ID || conn.role === "self") {
-      writeConfig(root, { selfPrivate: Boolean(result.private) });
+      writeStoredConfig(root, { selfPrivate: Boolean(result.private) });
     } else {
       const stored = readStored(root);
       const extras = sanitizeConnections(stored.connections).map((item) =>
@@ -1546,7 +1579,7 @@ async function testHubConnection(root, id) {
             }
           : item,
       );
-      writeConfig(root, { connections: extras });
+      writeStoredConfig(root, { connections: extras });
     }
   }
   return result;
@@ -1563,6 +1596,8 @@ module.exports = {
   readConfig,
 
   writeConfig,
+  writeStoredConfig,
+  whenAdopted,
   publicConfig,
   testConnection,
   testUpdateSource,

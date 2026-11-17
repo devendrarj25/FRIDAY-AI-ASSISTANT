@@ -42,11 +42,11 @@ describe("real model operations", () => {
     expect(probe.error).toBeTruthy();
   }, 30_000);
 
-  it("stores and clears provider keys on disk", () => {
+  it("stores and clears provider keys on disk", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fr-keys-"));
-    models.writeKey(dir, "groq", "test-key-123");
+    await models.writeKey(dir, "groq", "test-key-123");
     expect(models.readKeys(dir).groq).toBe("test-key-123");
-    models.writeKey(dir, "groq", null);
+    await models.writeKey(dir, "groq", null);
     expect(models.readKeys(dir).groq).toBeUndefined();
   });
 });

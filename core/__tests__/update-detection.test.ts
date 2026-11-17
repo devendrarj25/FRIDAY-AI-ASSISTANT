@@ -25,8 +25,8 @@ afterEach(() => {
 });
 
 describe("the repository stays connected across a restart", () => {
-  it("keeps the address and watches it again after the app is reopened", () => {
-    sync.writeConfig(root, { repo: "https://github.com/o/r.git", updateToken: "ro-token" });
+  it("keeps the address and watches it again after the app is reopened", async () => {
+    await sync.writeConfig(root, { repo: "https://github.com/o/r.git", updateToken: "ro-token" });
     // A new process reads the same files: address on disk, token in the encrypted store.
     const reopened = sync.readConfig(root);
     expect(reopened.repo).toBe("o/r");
@@ -37,12 +37,12 @@ describe("the repository stays connected across a restart", () => {
     );
   });
 
-  it("honours an owner who switched checking off", () => {
-    sync.writeConfig(root, { repo: "o/r", autoCheck: false });
+  it("honours an owner who switched checking off", async () => {
+    await sync.writeConfig(root, { repo: "o/r", autoCheck: false });
     expect(sync.readConfig(root).autoCheck).toBe(false);
   });
 
-  it("reconnects at launch and checks once soon after, then on the interval", () => {
+  it("reconnects at launch and checks once soon after, then on the interval", async () => {
     const main = src("electron/main.cjs");
     expect(main).toContain('id: "github-reconnect"');
     expect(main).toContain("async function runGithubCheck()");
@@ -119,7 +119,7 @@ describe("GitHub is asked sparingly and answers honestly", () => {
   });
 
   it("keeps the connection and says 'rate limit', not 'sign in again', while rate-limited", async () => {
-    sync.writeConfig(root, { repo: "o/r", updateToken: "ro" });
+    await sync.writeConfig(root, { repo: "o/r", updateToken: "ro" });
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -198,9 +198,9 @@ describe("the new installer is fetched ahead of time, and only fetched", () => {
   const main = src("electron/main.cjs");
   const staging = main.slice(main.indexOf("async function stageInBackground("));
 
-  it("is on by default and can be switched off", () => {
+  it("is on by default and can be switched off", async () => {
     expect(sync.readConfig(root).autoDownload).toBe(true);
-    sync.writeConfig(root, { repo: "o/r", autoDownload: false });
+    await sync.writeConfig(root, { repo: "o/r", autoDownload: false });
     expect(sync.readConfig(root).autoDownload).toBe(false);
     const panel = src("src/components/friday/settings/GithubUpdates.tsx");
     expect(panel).toContain("Download new versions in the background");
@@ -218,7 +218,7 @@ describe("the new installer is fetched ahead of time, and only fetched", () => {
     expect(body).toContain("staged?.ok && staged.verified");
   });
 
-  it("shares one download path with the button, which takes over a background download", () => {
+  it("shares one download path with the button, which takes over a background download", async () => {
     expect(main).toContain("async function stageInstaller(");
     const button = main.slice(main.indexOf('ipcMain.handle("github:download-installer"'));
     expect(button.slice(0, 1800)).toContain("installerDownload?.abort();");

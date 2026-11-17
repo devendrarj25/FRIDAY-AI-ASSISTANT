@@ -11,11 +11,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const lazy = require("./lazy-electron.cjs");
 
-// Do not read safeStorage while main.cjs is still loading. On Windows that
-// export waits for ready, and ready waits for the load to finish.
-function safeStorage() {
-  return lazy.afterReady("safeStorage");
-}
+// Encryption goes through electron/secret-box.cjs, the one module that uses the asynchronous
+// safeStorage API (never while main.cjs is still loading: on Windows that export waits for ready,
+// and ready waits for the load to finish). Reads stay synchronous and use what `prime` opened after
+// the app was ready; writes are asynchronous and queued per file.
+const secretBox = require("./secret-box.cjs");
 
 function electronApp() {
   try {
@@ -25,13 +25,9 @@ function electronApp() {
   }
 }
 
-const encryptionAvailable = () => {
-  try {
-    return Boolean(safeStorage()?.isEncryptionAvailable());
-  } catch {
-    return false;
-  }
-};
+/** The last known answer. False until `prime` or a write has asked the OS once. */
+const encryptionAvailable = () => secretBox.availableNow();
+const encryptionAvailableAsync = () => secretBox.available();
 
 /**
  * An installed (packaged) FRIDAY is production: a secret that cannot be
@@ -46,12 +42,18 @@ const productionMode = () => {
   }
 };
 
-/** Why the store can or cannot hold a secret right now. */
+/** Why the store can or cannot hold a secret right now (last known answer; `prime` refreshes it). */
 const storageStatus = () => ({
   encrypted: encryptionAvailable(),
   production: productionMode(),
   usable: encryptionAvailable() || !productionMode(),
 });
+
+/** Open every stored secret once, after the app is ready, so reads can stay synchronous. */
+function prime(root) {
+  const file = secretsFile(root);
+  return file ? secretBox.prime(file) : Promise.resolve({ ok: false, opened: 0, failed: 0 });
+}
 
 /** Canonical credential folder; honours an existing capitalised alias. */
 function credentialsDir(root) {
@@ -69,46 +71,14 @@ const secretsFile = (root) => {
 };
 
 function readAll(root) {
-  const file = secretsFile(root);
-  if (!file) return {};
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-    return raw && typeof raw === "object" ? raw : {};
-  } catch {
-    return {};
-  }
+  return secretBox.readRaw(secretsFile(root));
 }
 
-function writeAll(root, raw) {
-  const file = secretsFile(root);
-  if (!file) return false;
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(raw, null, 2), { mode: 0o600 });
-    try {
-      fs.chmodSync(file, 0o600);
-    } catch {
-      /* best effort on filesystems without POSIX modes */
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Read one secret in clear text. Main-process only. */
+/** Read one secret in clear text. Main-process only. Empty until `prime` has opened it. */
 function getSecret(root, id) {
-  const value = readAll(root)[id];
-  if (!value) return "";
-  if (typeof value === "string") return value; // written before encryption existed
-  if (value.enc && encryptionAvailable()) {
-    try {
-      return safeStorage().decryptString(Buffer.from(value.enc, "base64"));
-    } catch {
-      return ""; // encrypted on another machine
-    }
-  }
-  return "";
+  const file = secretsFile(root);
+  if (!file) return "";
+  return secretBox.readEntries(file).values[id] || "";
 }
 
 const hasSecret = (root, id) => Boolean(getSecret(root, id));
@@ -128,13 +98,15 @@ function ownerRefusesUnencrypted(root) {
   }
 }
 
-/** Store (or, with an empty value, delete) one secret. Never logged. */
-function setSecret(root, id, value) {
+/** Store (or, with an empty value, delete) one secret. Asynchronous. Never logged. */
+async function setSecret(root, id, value) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  const encrypted = await secretBox.available();
   // Production always refuses plaintext. Unpackaged follows Settings → Security
   // once that toggle has been saved on this workspace (tests with a temp root
   // and no prefs file still write, so the suite keeps working).
-  if (value && !encryptionAvailable() && (productionMode() || ownerRefusesUnencrypted(root))) {
+  const refuse = productionMode() || ownerRefusesUnencrypted(root);
+  if (value && !encrypted && refuse) {
     return {
       ok: false,
       error:
@@ -142,24 +114,19 @@ function setSecret(root, id, value) {
         "Sign in to your normal Windows account (not a temporary or sandboxed profile) and try again.",
     };
   }
-  const raw = readAll(root);
-  if (!value) delete raw[id];
-  else if (encryptionAvailable())
-    raw[id] = { enc: safeStorage().encryptString(String(value)).toString("base64") };
-  else raw[id] = String(value);
-  if (!writeAll(root, raw))
-    return { ok: false, error: "The credential store could not be written." };
-  return { ok: true, stored: Boolean(value), encrypted: encryptionAvailable() };
+  const saved = await secretBox.setEntry(secretsFile(root), id, value, { allowPlain: !refuse });
+  if (!saved.ok) return { ok: false, error: saved.error };
+  return { ok: true, stored: saved.stored, encrypted: saved.encrypted };
 }
 
 /**
  * Move a secret that historically lived in a config file into the canonical
  * store, then blank it in the config. Runs once; canonical always wins.
  */
-function adoptLegacySecret(root, id, legacyValue) {
+async function adoptLegacySecret(root, id, legacyValue) {
   if (!legacyValue) return false;
   if (hasSecret(root, id)) return true;
-  return setSecret(root, id, legacyValue).ok;
+  return (await setSecret(root, id, legacyValue)).ok;
 }
 
 module.exports = {
@@ -171,6 +138,8 @@ module.exports = {
   setSecret,
   adoptLegacySecret,
   encryptionAvailable,
+  encryptionAvailableAsync,
+  prime,
   productionMode,
   storageStatus,
 };

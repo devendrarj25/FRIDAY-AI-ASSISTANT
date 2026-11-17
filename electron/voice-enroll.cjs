@@ -17,7 +17,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const paths = require("./friday-paths.cjs");
-const lazy = require("./lazy-electron.cjs");
+const secretBox = require("./secret-box.cjs");
 
 const RATE = 16_000;
 const MIN_MS = 400;
@@ -35,6 +35,7 @@ let loadedGeneration = -1;
 let injected = {};
 function useForTests(deps = {}) {
   injected = deps;
+  secretBox.useForTests(deps.safeStorage || null);
   loadedGeneration = -1;
 }
 
@@ -53,18 +54,6 @@ function samplesDir() {
 
 const manifestFile = () => path.join(baseDir(), "manifest.json");
 const profileFile = () => path.join(baseDir(), "profile.enc");
-
-function safeStorage() {
-  return injected.safeStorage || lazy.afterReady("safeStorage");
-}
-
-function encryptionReady() {
-  try {
-    return Boolean(safeStorage()?.isEncryptionAvailable());
-  } catch {
-    return false;
-  }
-}
 
 function readJson(file, fallback) {
   try {
@@ -266,18 +255,21 @@ function readProfileFile() {
   return raw && typeof raw.enc === "string" ? raw : null;
 }
 
-function decryptProfile() {
+async function decryptProfile() {
   const raw = readProfileFile();
-  if (!raw || !encryptionReady()) return null;
+  if (!raw || !(await secretBox.available())) return null;
+  const opened = await secretBox.decryptText(raw.enc);
+  if (!opened.ok) return null;
   try {
-    return JSON.parse(safeStorage().decryptString(Buffer.from(raw.enc, "base64")));
+    return JSON.parse(opened.text);
   } catch {
     return null;
   }
 }
 
-function saveProfile(profile, summary) {
-  const enc = safeStorage().encryptString(JSON.stringify(profile)).toString("base64");
+/** Encrypt and save the profile. The old file stays if encryption or the write fails. */
+async function saveProfile(profile, summary) {
+  const enc = await secretBox.encryptText(JSON.stringify(profile));
   writeJson(profileFile(), { v: 1, enc, builtAt: Date.now(), summary });
 }
 
@@ -288,7 +280,7 @@ function status() {
   return {
     ok: true,
     folder: paths.root() ? samplesDir() : "",
-    encryption: encryptionReady(),
+    encryption: secretBox.availableNow(),
     counts: counts(manifest),
     samples: manifest.samples.map((row) => ({
       id: row.id,
@@ -306,11 +298,17 @@ function status() {
   };
 }
 
+/** The status with a fresh answer from the OS about encryption. */
+async function statusFresh() {
+  await secretBox.available();
+  return status();
+}
+
 // ----------------------------------------------------------------------------- the worker
 async function ensureLoaded() {
   const { result, generation } = await wake().workerCall({ op: "enroll_summary" }, 30_000);
   if (generation === loadedGeneration && result?.summary?.built) return true;
-  const profile = decryptProfile();
+  const profile = await decryptProfile();
   if (!profile) return false;
   const loaded = await wake().workerCall({ op: "enroll_load", profile }, 30_000);
   loadedGeneration = loaded.generation;
@@ -319,7 +317,7 @@ async function ensureLoaded() {
 
 async function build() {
   if (!paths.root()) return { ok: false, reason: "no-root", error: "choose a FRIDAY folder first" };
-  if (!encryptionReady()) {
+  if (!(await secretBox.available())) {
     return {
       ok: false,
       reason: "no-safe-store",
@@ -348,7 +346,11 @@ async function build() {
       error: result?.error || "the profile was not built",
     };
   }
-  saveProfile(result.profile, result.summary);
+  try {
+    await saveProfile(result.profile, result.summary);
+  } catch {
+    return { ok: false, reason: "save-failed", error: "the profile could not be saved encrypted" };
+  }
   loadedGeneration = answer.generation;
   return { ok: true, summary: result.summary, skipped: result.skipped || [] };
 }
@@ -427,6 +429,7 @@ async function forget() {
 }
 
 module.exports = {
+  statusFresh,
   MIN_MS,
   MAX_MS,
   inspectWav,
