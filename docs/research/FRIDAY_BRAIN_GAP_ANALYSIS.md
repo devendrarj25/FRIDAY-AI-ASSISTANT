@@ -17,7 +17,7 @@ Two claims in the first audit were wrong and are corrected below: the retrieval 
 - **Durable work**: task graph with checkpoints, bounded retry, quarantine, resume that never repeats a side effect, abort, parallel groups.
 - **Authority and governance**: kernel-minted single-use tokens, approval gate, undo journal, protected files, always-ask self-changes.
 - **Self-knowledge**: Self Atlas, world model, goal stack, uncertainty kinds with behaviours.
-- **Measurement basics**: offline eval (85 tasks including held-out), instruction-keeping comparison on the owner's model, per-domain capability matrix.
+- **Measurement basics**: offline eval (157 tasks including a held-out batch), instruction-keeping comparison on the owner's model, per-domain capability matrix.
 
 ## 2. Partial: built, narrower than the brief
 
