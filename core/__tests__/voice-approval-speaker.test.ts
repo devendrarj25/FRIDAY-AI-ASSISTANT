@@ -8,7 +8,8 @@
  * apart (too little speech, no saved voice, the setting off) behaves exactly as before, and a "no" from anyone
  * still cancels. The controller is driven with injected utterances and scores: no microphone, no model, no network.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as voiceProfileModule from "../../src/lib/friday/voice-profile";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { brain } from "../../src/lib/friday/brain-engine";
 import { APP_RESTART_TOOL } from "../../src/lib/friday/app-control";
@@ -26,6 +27,7 @@ type Driver = {
   cancelSpeech: () => void;
   voiceSettings: () => unknown;
   turnVoice: VoiceMatchResult | null;
+  turnUnverified: boolean;
   lastApprovalMismatchAt: number;
   spokenText: string;
   echoUntil: number;
@@ -76,6 +78,7 @@ beforeEach(() => {
     pending: { command: COMMAND, reason: "exec", at: Date.now() },
   });
   d.turnVoice = null;
+  d.turnUnverified = false;
   d.lastApprovalMismatchAt = 0;
   d.spokenText = "";
   d.echoUntil = 0;
@@ -162,6 +165,47 @@ describe("a spoken yes for a waiting command", () => {
     d.turnVoice = voice(0.99);
     d.handleHeard("yes");
     expect(dispatched).not.toContain(COMMAND);
+  });
+});
+
+describe("a turn made by a recogniser that gives no audio to score (Sarvam final text)", () => {
+  beforeEach(() => {
+    vi.spyOn(voiceProfileModule, "voiceProfileBuilt").mockReturnValue(true);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is not accepted as the owner's yes for a waiting command when a voice is saved", () => {
+    d.turnVoice = null;
+    d.turnUnverified = true;
+    d.handleHeard("yes");
+    expect(dispatched).toEqual([]);
+    expect(d.state.pending?.command).toBe(COMMAND);
+    expect(spoken).toEqual([
+      "I could not check your voice on this recogniser. Confirm it on the desktop.",
+    ]);
+  });
+
+  it("leaves ordinary, non-sensitive talk alone", () => {
+    d.state.pending = null;
+    d.turnVoice = null;
+    d.turnUnverified = true;
+    d.handleHeard("Friday what time is it");
+    expect(dispatched).toEqual(["what time is it"]);
+  });
+
+  it("is accepted when the owner turned Recognise my voice off", () => {
+    d.voiceSettings = () => settings({ recogniseMyVoice: false });
+    d.turnVoice = null;
+    d.turnUnverified = true;
+    d.handleHeard("yes");
+    expect(dispatched).toEqual([COMMAND]);
+  });
+
+  it("is accepted when no voice is saved: nothing was promised", () => {
+    d.turnVoice = null;
+    d.turnUnverified = false;
+    d.handleHeard("yes");
+    expect(dispatched).toEqual([COMMAND]);
   });
 });
 

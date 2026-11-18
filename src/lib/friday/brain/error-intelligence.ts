@@ -242,8 +242,8 @@ export function decodeCode(raw: string, context = ""): DecodedCode | null {
 
 const CODE_PATTERNS: RegExp[] = [
   /\b0x[0-9a-f]{8}\b/gi,
-  /\bexit(?:ed)?(?:\s+with)?(?:\s+(?:status|code))?\s*[:=]?\s*(-?\d{1,10})\b/gi,
-  /\b(?:exitcode|errorlevel|returned|return code)\s*[:=]?\s*(-?\d{1,10})\b/gi,
+  /\bexit(?:ed)?(?:\s{1,5}with)?(?:\s{1,5}(?:status|code))?\s{0,5}[:=]?\s{0,5}(-?\d{1,10})\b/gi,
+  /\b(?:exitcode|errorlevel|returned|return code)\s{0,5}[:=]?\s{0,5}(-?\d{1,10})\b/gi,
   /\b(?:win32 |system )?error\s+(\d{1,5})\b/gi,
   /\bERROR_[A-Z_]+\b/g,
   /\bE(?:NOENT|ACCES|PERM|BUSY|ADDRINUSE|NOSPC|MFILE|TIMEDOUT|CONNREFUSED|CONNRESET|NOTFOUND|EXIST|NOTEMPTY|ISDIR|NOTDIR|PIPE|NAMETOOLONG)\b/g,
@@ -290,9 +290,10 @@ const frame = (file: string, line?: string, fn?: string, column?: string): Frame
 type Parsed = { language: ErrorLanguage; errorType: string; message: string; frames: Frame[] };
 
 function parsePython(text: string): Parsed | null {
-  if (!/Traceback \(most recent call last\)|^\s*File ".+", line \d+/m.test(text)) return null;
+  if (!/Traceback \(most recent call last\)|^[ \t]*File ".{1,400}", line \d+/m.test(text))
+    return null;
   // Python lists the oldest call first; every parser here returns the innermost frame first.
-  const frames = [...text.matchAll(/^\s*File "([^"]+)", line (\d+)(?:, in (.+))?$/gm)]
+  const frames = [...text.matchAll(/^[ \t]*File "([^"]+)", line (\d+)(?:, in (.+))?$/gm)]
     .map((m) => frame(m[1] ?? "", m[2], m[3]))
     .reverse();
   const last = text
@@ -311,9 +312,9 @@ function parsePython(text: string): Parsed | null {
 }
 
 function parseJava(text: string): Parsed | null {
-  if (!/^\s*at [\w.$<>]+\([\w.$]+\.java:\d+\)/m.test(text) && !/^Caused by:/m.test(text))
+  if (!/^[ \t]*at [\w.$<>]+\([\w.$]+\.java:\d+\)/m.test(text) && !/^Caused by:/m.test(text))
     return null;
-  const frames = [...text.matchAll(/^\s*at ([\w.$<>]+)\(([^:()]+):(\d+)\)/gm)].map((m) =>
+  const frames = [...text.matchAll(/^[ \t]*at ([\w.$<>]+)\(([^:()]+):(\d+)\)/gm)].map((m) =>
     frame(`${m[1]}`.replace(/\.[^.]+$/, "") + "/" + (m[2] ?? ""), m[3], m[1]),
   );
   const causes = [
@@ -331,10 +332,13 @@ function parseJava(text: string): Parsed | null {
 }
 
 function parseCsharp(text: string): Parsed | null {
-  if (!/^\s*at [\w.`<>+]+\(.*\)(?: in .+:line \d+)?\s*$/m.test(text) || !/Exception/.test(text))
+  if (
+    !/^[ \t]*at [\w.`<>+]+\(.*\)(?: in .+:line \d+)?[ \t\r]*$/m.test(text) ||
+    !/Exception/.test(text)
+  )
     return null;
   const frames = [
-    ...text.matchAll(/^\s*at ([\w.`<>+]+)\(.*?\)(?: in (.+?):line (\d+))?\s*$/gm),
+    ...text.matchAll(/^[ \t]*at ([\w.`<>+]+)\(.*?\)(?: in (.+?):line (\d+))?[ \t\r]*$/gm),
   ].map((m) => frame(m[2] ?? m[1] ?? "", m[3], m[1]));
   const head = /^([\w.]+Exception)(?::\s*(.*))?$/m.exec(text);
   return {
@@ -382,11 +386,15 @@ function parseRust(text: string): Parsed | null {
 }
 
 function parseJavascript(text: string): Parsed | null {
-  if (!/^\s*at (?:async )?(?:.+ \()?(?:node:)?(?:[A-Za-z]:)?[^():\s]+:\d+:\d+\)?\s*$/m.test(text))
+  if (
+    !/^[ \t]*at (?:async )?(?:.+ \()?(?:node:)?(?:[A-Za-z]:)?[^():\s]+:\d+:\d+\)?[ \t\r]*$/m.test(
+      text,
+    )
+  )
     return null;
   const frames = [
     ...text.matchAll(
-      /^\s*at (?:async )?(?:(.+?) \()?((?:node:)?(?:[A-Za-z]:)?[^():]+?):(\d+):(\d+)\)?\s*$/gm,
+      /^[ \t]*at (?:async )?(?:(.+?) \()?((?:node:)?(?:[A-Za-z]:)?[^():]+?):(\d+):(\d+)\)?[ \t\r]*$/gm,
     ),
   ].map((m) => frame(m[2] ?? "", m[3], m[1], m[4]));
   const head = /^(?:Uncaught )?([A-Z][A-Za-z]*(?:Error|Exception)|[A-Z]+_[A-Z_]+):?\s*(.*)$/m.exec(
@@ -480,8 +488,11 @@ const base = (file: string): string => file.replace(/\\/g, "/").split("/").pop()
 
 /* --------------------------------------------------------------- normalise */
 
+/** The most text any diagnosis reads: parsers and rules alike. */
+const MAX_DIAGNOSED_CHARS = 60_000;
+
 export function normalizeError(input: string): NormalizedError {
-  const text = String(input ?? "").slice(0, 60_000);
+  const text = String(input ?? "").slice(0, MAX_DIAGNOSED_CHARS);
   let parsed: Parsed | null = null;
   for (const parse of PARSERS) {
     parsed = parse(text);
@@ -1726,7 +1737,7 @@ const RULES: Rule[] = [
   {
     id: "assertion-failed",
     test: (_n, raw) =>
-      /AssertionError|\bExpected:?[^\n]*\n?\s*(?:Received|Actual):|expected .{1,80} to (?:equal|be|deep equal|match)|assert(?:ion)? failed/i.test(
+      /AssertionError|\bExpected:?[^\n]{0,200}?(?:\n[ \t]{0,40}|[ \t]+)(?:Received|Actual):|expected .{1,80} to (?:equal|be|deep equal|match)|assert(?:ion)? failed/i.test(
         raw,
       ),
     cause:
@@ -1878,7 +1889,9 @@ export function evidenceFromProbes(): Evidence {
 }
 
 export function diagnose(input: { text: string; evidence?: Evidence }): Diagnosis {
-  const raw = String(input.text ?? "");
+  // Pasted text is untrusted and can be huge. Every rule reads the same bounded text the parsers read
+  // (`normalizeError` keeps 60 000 characters), so no pattern is ever run over an unbounded string.
+  const raw = String(input.text ?? "").slice(0, MAX_DIAGNOSED_CHARS);
   const evidence = { ...evidenceFromProbes(), ...(input.evidence ?? {}) };
   const normalized = normalizeError(raw);
   const kind = classifyFailure(raw);

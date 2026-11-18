@@ -262,14 +262,20 @@ export function parseVocabulary(value: string | undefined | null): string[] {
 export function speakerInput(
   voice: VoiceMatchResult | null | undefined,
   settings: VoiceSettingsView,
-): { similarity: number | null; enrolled: boolean; threshold: number } {
+  /** The turn came from a recogniser that gives no audio to score, while a voice is saved. */
+  unverifiedSource = false,
+): { similarity: number | null; enrolled: boolean; threshold: number; unverified: boolean } {
+  if (settings.recogniseMyVoice && unverifiedSource && !voice) {
+    return { similarity: null, enrolled: true, threshold: settings.threshold, unverified: true };
+  }
   if (!settings.recogniseMyVoice || !voice?.speaker?.enrolled) {
-    return { similarity: null, enrolled: false, threshold: settings.threshold };
+    return { similarity: null, enrolled: false, threshold: settings.threshold, unverified: false };
   }
   return {
     similarity: voice.speaker.similarity ?? null,
     enrolled: true,
     threshold: settings.threshold,
+    unverified: false,
   };
 }
 

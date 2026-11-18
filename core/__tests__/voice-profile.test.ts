@@ -269,7 +269,12 @@ describe("the wiring", () => {
     expect(assistant).toContain("voiceProbe: ({ audioBytes, mime }) => scoreUtterance");
     expect(assistant).toContain("this.turnVoice = meta?.voice ?? null");
     expect(assistant).toContain("voiceTurnGate({");
-    expect(assistant).toContain("...speakerInput(this.turnVoice, this.voiceSettings())");
+    // One helper makes the saved-voice verdict for the command gate and for the approving "yes", and it
+    // carries whether the turn's audio could be scored at all.
+    expect(assistant).toContain(
+      "...speakerInput(this.turnVoice, this.voiceSettings(), this.turnUnverified)",
+    );
+    expect(assistant.match(/this\.speakerVerdict\(/g)?.length).toBeGreaterThanOrEqual(2);
     expect(assistant).toContain("this.turnPersonalWake");
     // the old hard-coded "never scored" speaker check is gone
     expect(assistant).not.toMatch(

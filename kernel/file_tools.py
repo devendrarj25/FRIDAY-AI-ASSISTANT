@@ -38,7 +38,9 @@ HIDDEN = {TRASH, ".friday-sandbox"}
 # Folders and file names that hold credentials. A read tool never opens these,
 # whatever root it was pointed at: the model sees tool output as data and a
 # cloud model may be the one asking.
-SENSITIVE_FOLDERS = {".ssh", ".gnupg", ".aws", ".azure", ".kube"}
+# `voice-enrollment` holds the owner's own recordings (the raw samples of their voice); a read tool never opens
+# them either, and neither the voiceprint file nor the encrypted voice profile.
+SENSITIVE_FOLDERS = {".ssh", ".gnupg", ".aws", ".azure", ".kube", "voice-enrollment"}
 SENSITIVE_NAMES = (
     ".env",
     ".env.*",
@@ -56,6 +58,8 @@ SENSITIVE_NAMES = (
     "credentials.*",
     "secrets.*",
     "provider-keys*",
+    "voiceprint.json",
+    "profile.enc",
 )
 
 

@@ -221,6 +221,42 @@ function writeTargets(plan: AgentPlanValue): string[] {
   return targets;
 }
 
+/** The names an agent's plan lists, whichever of name or path it gives. */
+function candidateNames(plan: AgentPlanValue | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const candidate of Array.isArray(plan?.candidates) ? (plan?.candidates ?? []) : []) {
+    const raw = String(candidate?.name || candidate?.path || "").trim();
+    if (raw) out.add(raw.split(/[\\/]/).pop() || raw);
+  }
+  return out;
+}
+
+/** What an agent's own result says went wrong: items it could not do, or an error it reports. */
+function reportedFailures(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const lines: string[] = [];
+  if (Array.isArray(record["failed"])) {
+    for (const row of record["failed"]) {
+      if (row && typeof row === "object") {
+        const item = row as { name?: unknown; error?: unknown };
+        lines.push(`${String(item.name ?? "an item")}: ${String(item.error ?? "failed")}`);
+      } else lines.push(String(row));
+    }
+  }
+  if (typeof record["error"] === "string" && record["error"].trim()) lines.push(record["error"]);
+  if (record["ok"] === false && !lines.length)
+    lines.push("the agent reported that it did not succeed");
+  return lines;
+}
+
+/** The names an agent's result says it removed. */
+function claimedRemoved(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const removed = (value as Record<string, unknown>)["deleted"];
+  return Array.isArray(removed) ? removed.map((item) => String(item)).filter(Boolean) : [];
+}
+
 export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<number> {
   const agents = await host.listEnabledAgents();
   let queued = 0;
@@ -254,7 +290,14 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
 
     const day = new Date().toISOString().slice(0, 10);
     const id = `gov:agent:${agent.id}:${fingerprint(plan)}:${day}`;
-    if (host.getItem(id)) continue;
+    // An item already filed today is not filed again, except one the owner approved after a restart: that yes was
+    // recorded on the item and is used when the same item comes round again.
+    const existing = host.getItem(id);
+    if (
+      existing &&
+      !(existing.stage === "proposed" && typeof existing.ownerApprovedAt === "number")
+    )
+      continue;
     const writes = writeTargets(plan);
     if (agent.risk !== "safe" && writesThisPass.some((prior) => mustSerialize(prior, { writes }))) {
       continue;
@@ -266,6 +309,18 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
       `${agent.name} planned an actionable change. Review the evidence before anything is applied.`;
     const title = `Agent — ${agent.name}`;
     const evidence = evidenceFrom(plan);
+
+    // What the owner is shown and says yes to. The run is held to it, and what it claims is looked at again after.
+    const approvedTargets = new Set(writes);
+    let removedClaims: string[] = [];
+    const lookAgain = async (): Promise<AgentPlanValue | null> => {
+      try {
+        const fresh = await host.planAgent(agent.id, input);
+        return fresh.ok && fresh.value ? fresh.value : null;
+      } catch {
+        return null;
+      }
+    };
 
     if (agent.risk !== "safe") writesThisPass.push({ writes });
     if (agent.risk === "safe") {
@@ -377,19 +432,63 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             const artifact = acceptArtifact(rawArtifact as Record<string, unknown>);
             if (!artifact.ok) return { ok: false, detail: artifact.reason };
           }
+          // The yes was for the targets shown. Look once more right before acting: anything that was not in that
+          // list (a file that appeared since) is not covered by it, and nothing is changed.
+          if (approvedTargets.size > 0) {
+            const fresh = await lookAgain();
+            if (!fresh) {
+              return {
+                ok: false,
+                detail: "could not look at the targets again before acting, so nothing was changed",
+              };
+            }
+            const extra = writeTargets(fresh).filter((target) => !approvedTargets.has(target));
+            if (extra.length) {
+              return {
+                ok: false,
+                detail: `${extra.length} new item(s) appeared since you looked (for example ${extra[0]}); nothing was changed, ask again`,
+              };
+            }
+          }
           const result = await host.runAgent(agent.id, { ...input, dryRun: false, approved: true });
+          const failures = result.ok ? reportedFailures(result.value) : [];
+          removedClaims = result.ok ? claimedRemoved(result.value) : [];
           const packet = completeHandoff({
             result: result.ok ? "agent run applied after owner approval" : "failed",
             evidence: result.ok ? "owner-approved run" : "",
             confidence: result.ok ? 1 : 0,
             unresolved: result.ok ? [] : [result.error || "agent run failed"],
             artifacts: [],
-            checked: result.ok,
+            checked: result.ok && failures.length === 0,
           });
+          if (failures.length) {
+            // A partial result is not a success: say what was done and what was not.
+            return {
+              ok: false,
+              detail: `partly done: ${removedClaims.length} done, ${failures.length} failed (${failures.slice(0, 3).join("; ")})`,
+            };
+          }
           if (!result.ok || packet.verification !== "passed") {
             return { ok: false, detail: packet.unresolved[0] || "agent run failed" };
           }
           return { ok: true, detail: packet.result };
+        },
+        // The proof is an observation, not the agent's own word: look at the same place again and check that
+        // what it says it removed is gone.
+        verify: async () => {
+          if (!removedClaims.length) {
+            return { ok: true, detail: "the agent did not claim to remove anything" };
+          }
+          const fresh = await lookAgain();
+          if (!fresh) return { ok: false, detail: "could not look again to confirm the removal" };
+          const names = candidateNames(fresh);
+          const still = removedClaims.filter((name) => names.has(name));
+          return still.length
+            ? {
+                ok: false,
+                detail: `${still.length} item(s) the agent said it removed are still there`,
+              }
+            : { ok: true, detail: `${removedClaims.length} removal(s) confirmed by looking again` };
         },
       })
       .catch(() => undefined);

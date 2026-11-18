@@ -230,4 +230,21 @@ describe("companion live snapshot", () => {
     expect(shell).toContain("coolingModelIds: usage.models");
     expect(shell).toContain(".filter((model) => model.coolingDown)");
   });
+
+  it("publishes the private target, so the phone path keeps the prompt on this PC exactly as the desktop does", () => {
+    const base = {
+      voice: "OFF",
+      listening: false,
+      error: false,
+      doctorProblems: 0,
+      doctorWarnings: 0,
+      doctorScanning: false,
+      connectors: [],
+      cloud: [],
+    };
+    expect(buildCompanionLive({ ...base, qualityTarget: "private" }).privacy).toBe("private");
+    // anything else, or nothing at all, is the standard route: only "private" is a hard filter
+    expect(buildCompanionLive({ ...base, qualityTarget: "best-quality" }).privacy).toBe("standard");
+    expect(buildCompanionLive(base).privacy).toBe("standard");
+  });
 });

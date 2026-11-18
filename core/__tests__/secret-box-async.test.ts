@@ -38,6 +38,7 @@ function makeStore(opts: { available?: boolean; rotate?: boolean } = {}) {
     rotate: opts.rotate ?? false,
     failDecrypt: false,
     failEncrypt: false,
+    hang: "" as "" | "available" | "encrypt" | "decrypt",
     delayMs: 0,
     foreign: new Set<string>(),
     calls: [] as string[],
@@ -48,16 +49,19 @@ function makeStore(opts: { available?: boolean; rotate?: boolean } = {}) {
     state,
     isAsyncEncryptionAvailable: async () => {
       state.calls.push("available");
+      if (state.hang === "available") return new Promise<boolean>(() => {});
       return state.available;
     },
     encryptStringAsync: async (text: string) => {
       state.calls.push("encrypt");
+      if (state.hang === "encrypt") return new Promise<Buffer>(() => {});
       await wait();
       if (state.failEncrypt) throw new Error("encrypt failed");
       return Buffer.from(`${ASYNC}g${state.generation}:${b64(text)}`);
     },
     decryptStringAsync: async (buffer: Buffer) => {
       state.calls.push("decrypt");
+      if (state.hang === "decrypt") return new Promise<never>(() => {});
       await wait();
       if (state.failDecrypt) throw new Error("decrypt failed");
       const raw = buffer.toString();
@@ -94,11 +98,13 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-secretbox-"));
   store = makeStore();
   secretBox.useForTests(store);
+  secretBox.setCallLimitForTests(60);
   process.env["FRIDAY_ROOT"] = root;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  secretBox.setCallLimitForTests(0);
   secretBox.useForTests(null);
   delete process.env["FRIDAY_ROOT"];
   fs.rmSync(root, { recursive: true, force: true });
@@ -304,6 +310,46 @@ describe("key rotation (shouldReEncrypt)", () => {
     await Promise.all([first, second]);
     await secretBox.settled(credFile());
     expect(credentials.getSecret(root, "t")).toBe("new-value");
+  });
+});
+
+describe("a keystore call that never answers", () => {
+  it("a hung encryption fails that save in a bounded time and the next save still works", async () => {
+    store.state.hang = "encrypt";
+    const started = Date.now();
+    const saved = await credentials.setSecret(root, "stuck", "synthetic-stuck");
+    expect(saved.ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(fs.existsSync(credFile())).toBe(false);
+
+    store.state.hang = "";
+    const next = await credentials.setSecret(root, "after", "synthetic-after");
+    expect(next.ok).toBe(true);
+    expect(credentials.getSecret(root, "after")).toBe("synthetic-after");
+  });
+
+  it("a hung availability check reads as unavailable, never an exception or a stuck promise", async () => {
+    store.state.hang = "available";
+    expect(await secretBox.available()).toBe(false);
+    writeJson(path.join(root, "config", "friday-preferences.json"), {
+      toggles: { encryption: true },
+    });
+    const refused = await credentials.setSecret(root, "k", "synthetic");
+    expect(refused.ok).toBe(false);
+    expect(fs.existsSync(credFile())).toBe(false);
+  });
+
+  it("a hung decryption is not remembered as an unreadable secret: it opens once the keystore answers", async () => {
+    writeJson(credFile(), { t: { enc: legacyEncrypt("synthetic-late").toString("base64") } });
+    store.state.hang = "decrypt";
+    const first = await credentials.prime(root);
+    expect(first).toMatchObject({ ok: true, opened: 0, failed: 1 });
+    expect(credentials.getSecret(root, "t")).toBe("");
+
+    store.state.hang = "";
+    const second = await credentials.prime(root);
+    expect(second).toMatchObject({ opened: 1, failed: 0 });
+    expect(credentials.getSecret(root, "t")).toBe("synthetic-late");
   });
 });
 

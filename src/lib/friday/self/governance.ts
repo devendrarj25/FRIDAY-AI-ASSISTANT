@@ -146,6 +146,11 @@ export type GovItem = {
   /** Backup/checkpoint reference so a bad apply can be undone. */
   checkpoint?: string | undefined;
   autoApproved?: boolean;
+  /**
+   * When the owner said yes to an item that was no longer waiting on a live answer (the app had restarted since
+   * it was filed). The next time the same item is filed it uses that yes once, instead of asking again.
+   */
+  ownerApprovedAt?: number | undefined;
   error?: string | undefined;
   logs: GovLog[];
 };
@@ -167,6 +172,9 @@ export type GovAction = {
   /** Undo, used automatically when apply or verify fails. */
   rollback?: (checkpoint?: string) => Promise<{ ok: boolean; detail: string }>;
 };
+
+/** How long a yes given to an item that was not waiting (after a restart) stays good. Same item, same day. */
+export const CARRIED_APPROVAL_MS = 6 * 60 * 60 * 1000;
 
 const STORAGE_KEY = "friday.governance.v1";
 const MAX_ITEMS = 200;
@@ -315,6 +323,12 @@ class Governance {
   async submit(action: GovAction & { id?: string }): Promise<GovItem> {
     const item = this.discover(action);
     const id = item.id;
+    // A yes the owner gave before a restart, to this same item, is used once and then spent.
+    const carried =
+      typeof item.ownerApprovedAt === "number" &&
+      Date.now() - item.ownerApprovedAt <= CARRIED_APPROVAL_MS &&
+      item.stage === "proposed";
+    if (item.ownerApprovedAt !== undefined) this.patch(id, { ownerApprovedAt: undefined });
     if (autonomy.getSnapshot().halted) {
       this.patch(id, { stage: "failed", error: "Stopped." }, "stop everything", "error");
       return this.get(id) as GovItem;
@@ -370,6 +384,9 @@ class Governance {
     let allowed = auto;
     if (auto) {
       this.patch(id, { autoApproved: true }, "auto-approved by policy", "ok");
+    } else if (carried) {
+      allowed = true;
+      this.patch(id, {}, "approved by the owner before the restart — applying now", "ok");
     } else {
       this.patch(id, { stage: "waiting-approval" }, "waiting for owner approval", "warn");
       allowed = await new Promise<boolean>((resolve) => this.waiting.set(id, resolve));
@@ -453,8 +470,10 @@ class Governance {
     if (family) noteDecision(family, allow);
     this.patch(
       id,
-      { stage: allow ? "proposed" : "rejected" },
-      allow ? "approved — will re-run on the next cycle" : "rejected by owner",
+      allow
+        ? { stage: "proposed" as GovStage, ownerApprovedAt: Date.now() }
+        : { stage: "rejected" as GovStage },
+      allow ? "approved — will run when it is filed again" : "rejected by owner",
       allow ? "ok" : "warn",
     );
   }

@@ -22,6 +22,24 @@ const fs = require("node:fs");
 const path = require("node:path");
 const lazy = require("./lazy-electron.cjs");
 
+/** The longest any one OS keystore call may take. A stuck keystore must not hold the write queue or an IPC reply. */
+let callLimitMs = 10_000;
+
+/** Test seam: shorten the limit so a hang can be tested without waiting. */
+function setCallLimitForTests(ms) {
+  callLimitMs = Number.isFinite(ms) && ms > 0 ? ms : 10_000;
+}
+
+/** Race one OS call against the limit. Rejects with a plain error; never leaves the caller waiting forever. */
+function withLimit(promise, what) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out`)), callLimitMs);
+    if (typeof timer.unref === "function") timer.unref();
+  });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+
 let injected = null;
 /** Test seam: a fake with `isAsyncEncryptionAvailable`, `encryptStringAsync`, `decryptStringAsync`. */
 function useForTests(fake) {
@@ -59,7 +77,9 @@ async function available() {
     return false;
   }
   try {
-    lastAvailable = Boolean(await store.isAsyncEncryptionAvailable());
+    lastAvailable = Boolean(
+      await withLimit(Promise.resolve(store.isAsyncEncryptionAvailable()), "availability check"),
+    );
   } catch {
     lastAvailable = false;
   }
@@ -75,7 +95,10 @@ async function encryptText(text) {
   if (!store || typeof store.encryptStringAsync !== "function") {
     throw new Error("secure storage is not ready");
   }
-  const buffer = await store.encryptStringAsync(String(text));
+  const buffer = await withLimit(
+    Promise.resolve(store.encryptStringAsync(String(text))),
+    "encryption",
+  );
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new Error("secure storage returned no ciphertext");
   }
@@ -104,13 +127,16 @@ async function decryptText(enc) {
     return { ok: false, reason: "undecryptable" };
   }
   try {
-    const first = await store.decryptStringAsync(buffer);
+    const first = await withLimit(Promise.resolve(store.decryptStringAsync(buffer)), "decryption");
     if (!first || typeof first.result !== "string") return { ok: false, reason: "undecryptable" };
     let text = first.result;
     const reEncrypt = first.shouldReEncrypt === true;
     if (reEncrypt) {
       try {
-        const second = await store.decryptStringAsync(buffer);
+        const second = await withLimit(
+          Promise.resolve(store.decryptStringAsync(buffer)),
+          "second decryption",
+        );
         if (second && typeof second.result === "string" && second.result) text = second.result;
       } catch {
         /* the first answer stands */
@@ -119,7 +145,9 @@ async function decryptText(enc) {
     known.set(String(enc), text);
     unreadable.delete(String(enc));
     return { ok: true, text, reEncrypt };
-  } catch {
+  } catch (error) {
+    // A call that hung is not a verdict on the ciphertext: it is tried again later, not remembered as unreadable.
+    if (/timed out$/.test(String(error?.message))) return { ok: false, reason: "timeout" };
     return { ok: false, reason: "undecryptable" };
   }
 }
@@ -225,8 +253,8 @@ function prime(file) {
       if (result.ok) {
         openedCount += 1;
         if (result.reEncrypt) rotate.push(enc);
-      } else if (result.reason === "undecryptable") {
-        unreadable.add(enc);
+      } else {
+        if (result.reason === "undecryptable") unreadable.add(enc);
         failed += 1;
       }
     }
@@ -337,6 +365,7 @@ const settled = (file) => queues.get(file) || Promise.resolve();
 
 module.exports = {
   useForTests,
+  setCallLimitForTests,
   available,
   availableNow,
   encryptText,

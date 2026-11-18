@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { autonomy } from "../../src/lib/friday/self/autonomy";
 import { brain } from "../../src/lib/friday/brain-engine";
+import { voiceGate } from "../../src/lib/friday/voice-audio";
 
 type Driver = {
   state: Record<string, unknown> & {
@@ -37,6 +38,7 @@ type Driver = {
   followUpUntil: number;
 };
 const d = assistantMode as unknown as Driver;
+const realStartRecognition = d.startRecognition;
 (globalThis as unknown as { window?: unknown }).window ??= globalThis;
 
 let cancelled = 0;
@@ -162,14 +164,65 @@ describe("resuming", () => {
   });
 });
 
-describe("the switch was already on when the controller started listening", () => {
-  it("a session that begins while halted does not open the microphone", () => {
+describe("the switch was already on when Auto starts (it persists across a restart)", () => {
+  it("entering Auto through setMode does not open the microphone, and Resume opens it", () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    g["addEventListener"] ??= () => undefined;
+    g["removeEventListener"] ??= () => undefined;
+    const acquire = vi.spyOn(voiceGate, "acquire").mockResolvedValue(false);
+    d.state.mode = "manual";
+    d.state.paused = false;
+    // The real startRecognition runs here, not the stub from beforeEach.
+    d.startRecognition = realStartRecognition;
+    d.stopRecognition = () => void (stopped += 1);
     autonomy.stopEverything();
-    d.state.mode = "auto";
+
+    assistantMode.setMode("auto");
+
+    expect(d.state.mode).toBe("auto");
+    expect(d.state.paused).toBe(true);
+    expect(acquire).not.toHaveBeenCalled();
+    expect(String(d.state["status"])).toMatch(/stop everything/i);
+
+    // Resume reopens it: the switch, not the owner, had closed it.
+    d.startRecognition = () => void (started += 1);
+    autonomy.resume();
+    expect(d.state.paused).toBe(false);
+    expect(started).toBeGreaterThan(0);
+    assistantMode.setMode("manual");
+  });
+
+  it("the same holds for the owner's own pause: Auto entered while paused keeps the microphone closed until Resume", () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    g["addEventListener"] ??= () => undefined;
+    g["removeEventListener"] ??= () => undefined;
+    const acquire = vi.spyOn(voiceGate, "acquire").mockResolvedValue(false);
+    d.state.mode = "manual";
+    d.state.paused = true;
+    d.startRecognition = realStartRecognition;
+    d.stopRecognition = () => void (stopped += 1);
+
+    assistantMode.setMode("auto");
+    expect(acquire).not.toHaveBeenCalled();
+    expect(d.state.paused).toBe(true);
+
+    d.startRecognition = () => void (started += 1);
+    d.setPaused(false);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(d.state.paused).toBe(false);
+    assistantMode.setMode("manual");
+  });
+
+  it("an ordinary Auto start, with nothing stopped and nothing paused, still opens the microphone at once", () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    g["addEventListener"] ??= () => undefined;
+    g["removeEventListener"] ??= () => undefined;
+    const acquire = vi.spyOn(voiceGate, "acquire").mockResolvedValue(false);
+    d.state.mode = "manual";
     d.state.paused = false;
     d.startRecognition = () => void (started += 1);
-    // The listener is armed only through the same gate the pause button uses.
-    d.setPaused(false);
-    expect(started).toBe(0);
+    assistantMode.setMode("auto");
+    expect(acquire).toHaveBeenCalledTimes(1);
+    assistantMode.setMode("manual");
   });
 });

@@ -195,6 +195,7 @@ import {
   refreshVoiceProfile,
   scoreUtterance,
   speakerInput,
+  voiceProfileBuilt,
   voiceTurnGate,
   type VoiceSettingsView,
 } from "./voice-profile";
@@ -688,6 +689,10 @@ class AssistantModeStore {
       // An explicit resume is the owner asking again: retry immediately.
       this.resetVoiceRecovery();
       this.to("resume");
+      if (this.autoMicDeferred) {
+        this.autoMicDeferred = false;
+        this.openAutoMic();
+      }
       this.startRecognition();
     } else {
       this.to("stopped");
@@ -1334,32 +1339,17 @@ class AssistantModeStore {
     return pttActive();
   }
 
-  private enterAuto() {
-    this.armPushToTalk();
-    this.ensureLiveWake();
-    // Her own look at her ears and voice a few seconds after Auto starts; silent unless something is wrong.
-    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
-    this.autoCheckTimer = setTimeout(() => {
-      this.autoCheckTimer = null;
-      if (this.state.mode === "auto") void this.selfCheckVoice(false);
-    }, 6000);
-    this.startBargeShadow();
-    this.soak.start(Date.now());
-    // Same runtime, different shape: the brain now knows replies are spoken.
-    brain.setAutoMode(true);
-    if (!this.wakeWordRequired) this.state.handsFree = true;
-    this.state.error = null;
-    // Turning Auto Mode on is an explicit request — retry the engine now.
-    this.resetVoiceRecovery();
-    this.to("session-start");
-    this.state.status = "Starting microphone…";
-    void this.refreshWakeEngine(true);
-    this.spokenUpTo = brain.getSnapshot().messages.length;
-    this.unBrain = brain.subscribe(() => this.speakNewReplies());
+  /** Whether Auto started with the microphone held back (Stop everything or the pause was on). Resume opens it. */
+  private autoMicDeferred = false;
+
+  /**
+   * Acquire the shared microphone for Auto. Done on the Auto Mode click or on Resume, so the browser lets
+   * the AudioContext start. Not done while Stop everything or the owner's pause is on.
+   */
+  private openAutoMic() {
     const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
-    // Acquire on the Auto Mode click before any other await so AudioContext
-    // can resume. A throwaway probeMicrophone capture afterwards would fight
-    // Windows exclusive-mode devices and leave the analyser silent.
+    // A throwaway probeMicrophone capture afterwards would fight Windows exclusive-mode devices and leave the
+    // analyser silent, so nothing awaits before the acquire.
     void voiceGate.acquire("auto-mode", preferred || undefined).then(async (opened) => {
       if (this.state.mode !== "auto") {
         voiceGate.release("auto-mode");
@@ -1433,6 +1423,40 @@ class AssistantModeStore {
       if (this.state.error?.startsWith("microphone")) this.state.error = null;
       this.emit();
     });
+  }
+
+  private enterAuto() {
+    this.armPushToTalk();
+    this.ensureLiveWake();
+    // Her own look at her ears and voice a few seconds after Auto starts; silent unless something is wrong.
+    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+    this.autoCheckTimer = setTimeout(() => {
+      this.autoCheckTimer = null;
+      if (this.state.mode === "auto") void this.selfCheckVoice(false);
+    }, 6000);
+    this.startBargeShadow();
+    this.soak.start(Date.now());
+    // Same runtime, different shape: the brain now knows replies are spoken.
+    brain.setAutoMode(true);
+    if (!this.wakeWordRequired) this.state.handsFree = true;
+    this.state.error = null;
+    // Turning Auto Mode on is an explicit request — retry the engine now.
+    this.resetVoiceRecovery();
+    this.to("session-start");
+    this.state.status = "Starting microphone…";
+    void this.refreshWakeEngine(true);
+    this.spokenUpTo = brain.getSnapshot().messages.length;
+    this.unBrain = brain.subscribe(() => this.speakNewReplies());
+    if (this.stopped() || this.state.paused) {
+      // Stop everything persists across a restart, and the owner may have paused: Auto starts with the
+      // microphone closed and the first Resume opens it.
+      this.autoMicDeferred = true;
+      if (this.stopped()) this.followKillSwitch();
+      this.to("pause");
+      this.state.status = this.stopped() ? "Stopped. Stop everything is on" : "Microphone paused";
+    } else {
+      this.openAutoMic();
+    }
     void this.refreshMeeting();
     this.startRecognition();
   }
@@ -1471,6 +1495,7 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    this.autoMicDeferred = false;
     this.interventions = 0;
     this.lastIntervention = "";
     this.reportedStuck = false;
@@ -2839,13 +2864,14 @@ class AssistantModeStore {
     // the line is still heard, and a match still does not run the action.
     const heardSensitive =
       voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
-    const speaker = speakerDecision({
-      ...speakerInput(this.turnVoice, this.voiceSettings()),
-      sensitive: heardSensitive,
-    });
+    const speaker = this.speakerVerdict(heardSensitive);
     if (!speaker.allow) {
-      const refused = "That did not match the saved voice. Confirm it on the desktop.";
-      this.remember("speaker-mismatch", command, "blocked");
+      const refused = this.speakerRefusal(speaker.reason);
+      this.remember(
+        speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
+        command,
+        "blocked",
+      );
       this.caption("friday", refused);
       this.speak(refused);
       this.emit();
@@ -3716,6 +3742,23 @@ class AssistantModeStore {
   private turnVoice: VoiceMatchResult | null = null;
   /** The owner's own "Friday" template woke her for this turn although the transcript did not carry the word. */
   private turnPersonalWake = false;
+  /** A voice is saved but this turn came from a recogniser that gives no audio to score (Sarvam's final text). */
+  private turnUnverified = false;
+
+  /** The saved-voice verdict for the turn being handled. It can only block, never approve. */
+  private speakerVerdict(sensitive: boolean) {
+    return speakerDecision({
+      ...speakerInput(this.turnVoice, this.voiceSettings(), this.turnUnverified),
+      sensitive,
+    });
+  }
+
+  /** The line spoken when the saved voice stops a command or an approval. */
+  private speakerRefusal(reason: string): string {
+    return reason === "speaker-unverified"
+      ? "I could not check your voice on this recogniser. Confirm it on the desktop."
+      : "That did not match the saved voice. Confirm it on the desktop.";
+  }
 
   /** When a different voice's "yes" was last refused out loud, so a repeated yes is not answered every time. */
   private lastApprovalMismatchAt = 0;
@@ -3727,13 +3770,14 @@ class AssistantModeStore {
    * approval waiting, so the owner can still say it inside the window or confirm on the desktop.
    */
   private approvalVoiceAllows(heard: string): boolean {
-    const speaker = speakerDecision({
-      ...speakerInput(this.turnVoice, this.voiceSettings()),
-      sensitive: true,
-    });
+    const speaker = this.speakerVerdict(true);
     if (speaker.allow) return true;
-    this.remember("speaker-mismatch", heard, "approval not accepted from another voice");
-    const refused = "That did not match the saved voice. Confirm it on the desktop.";
+    this.remember(
+      speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
+      heard,
+      "approval not accepted: the saved voice could not confirm it",
+    );
+    const refused = this.speakerRefusal(speaker.reason);
     if (Date.now() - this.lastApprovalMismatchAt > 4000) {
       this.lastApprovalMismatchAt = Date.now();
       this.caption("friday", refused);
@@ -3824,6 +3868,7 @@ class AssistantModeStore {
     // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
     // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
     this.turnVoice = meta?.voice ?? null;
+    this.turnUnverified = utterance.source !== "local" && voiceProfileBuilt();
     this.lastTone = assessTone(meta?.prosody);
     this.lastSpeechMs = meta?.durationMs ?? null;
     this.lastHeardQuality = meta?.quality ?? null;

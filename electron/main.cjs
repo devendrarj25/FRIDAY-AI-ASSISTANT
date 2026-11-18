@@ -3010,9 +3010,14 @@ async function streamOnceRaw({
   explicitPaid = false,
   collect = false,
 }) {
-  // BILLING FIREWALL — the last gate before a provider request leaves this
-  // machine. Every caller (chat, agents, tools, workflows, schedulers, remote
-  // clients) reaches a provider through here, so nothing can route around it.
+  // BILLING FIREWALL — the last gate before a CHAT request leaves this
+  // machine. Every caller of a chat turn (chat, agents, tools, workflows,
+  // schedulers, remote clients) reaches a provider through here, so nothing can
+  // route around it. The one other request that leaves for a provider is the
+  // verification probe of a free-class candidate (`lazyVerifyForRoute` in
+  // models.cjs): a fixed, non-sensitive prompt, never for a private turn or a
+  // paid-only policy. It cannot go through this gate on purpose, because the
+  // gate holds an unverified model back and the probe is what verifies it.
   const auth = await authoriseProviderRequest({
     model,
     explicitPaid,

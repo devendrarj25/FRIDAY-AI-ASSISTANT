@@ -399,6 +399,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
         } catch {
           return {
             routeMode: "auto",
+            qualityTarget: "balanced",
             policy: "free-preferred",
             selected: [] as string[],
             models: [] as Array<{ id: string; coolingDown: boolean }>,
@@ -437,6 +438,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
           })),
           cloud,
           routeMode: usage.routeMode,
+          qualityTarget: usage.qualityTarget,
           policy: usage.policy,
           selected: usage.selected,
           coolingModelIds: usage.models

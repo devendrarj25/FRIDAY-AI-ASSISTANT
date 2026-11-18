@@ -20,6 +20,8 @@ export type CompanionLive = {
   cloud: string[];
   /** Where inference may run — same value the desktop router stores. */
   routeMode: string;
+  /** "private" keeps the prompt on this PC; the phone path honours it exactly as the desktop does. */
+  privacy: "private" | "standard";
   /** Hard usage policy the router is enforcing (not a second cost store). */
   policy: string;
   /** Owner-picked model ids; empty means the mode's full eligible pool. */
@@ -81,6 +83,8 @@ export function buildCompanionLive(input: {
   connectors: Array<{ id: string; name: string; connected: boolean }>;
   cloud: string[];
   routeMode?: string;
+  /** The desktop's quality target. Only "private" matters: it is a hard local filter. */
+  qualityTarget?: string;
   policy?: string;
   selected?: string[];
   coolingModelIds?: string[];
@@ -127,6 +131,7 @@ export function buildCompanionLive(input: {
     })),
     cloud: [...input.cloud],
     routeMode: input.routeMode || "auto",
+    privacy: input.qualityTarget === "private" ? "private" : "standard",
     policy: input.policy || "free-preferred",
     selected: [...(input.selected || [])].filter(Boolean),
     coolingModelIds: [...new Set(input.coolingModelIds || [])].filter(Boolean),

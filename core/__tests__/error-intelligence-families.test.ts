@@ -9,7 +9,7 @@
  * Text in, data out: nothing is run and no model is used. This says nothing about model quality.
  */
 import { describe, expect, it } from "vitest";
-import { diagnose } from "../../src/lib/friday/brain/error-intelligence";
+import { diagnose, looksLikeFailure } from "../../src/lib/friday/brain/error-intelligence";
 import { EVAL_TASKS, runEvalHarness } from "../../src/lib/friday/self/eval-harness";
 
 const top = (text: string) => diagnose({ text }).hypotheses[0]?.id ?? null;
@@ -250,5 +250,50 @@ describe("the benchmark fixtures that led here stay in place", () => {
     const report = await runEvalHarness();
     expect(report.heldOut.tasks).toBe(26);
     expect(report.heldOut.after).toBeLessThan(1);
+  });
+});
+
+describe("pasted text is untrusted: no input can make a diagnosis take seconds", () => {
+  // Found in the 2026-11-18 review: `Expected:` followed by tens of thousands of spaces took 3.6 s at 40 000
+  // characters (quadratic backtracking in the new assertion rule), and sibling patterns in the stack parsers and
+  // the exit-code decoder did the same on long runs of newlines or spaces. Before the fix these inputs took
+  // 1.5 to 13 seconds; after it, a few tens of milliseconds. The limit below is deliberately generous so a slow
+  // machine does not fail it, and still far below what the old patterns took.
+  const N = 80_000;
+  const inputs: Record<string, string> = {
+    "Expected: then spaces": `test failed with an ERROR\nExpected:${" ".repeat(N)}done`,
+    "Expected: then newlines": `error failed Expected:${"\n".repeat(N)}`,
+    "exit code then spaces": `error failed exit code ${" ".repeat(N)}`,
+    "a Python traceback header then newlines": `Traceback (most recent call last):${"\n".repeat(N)}`,
+    "repeated File tokens": `error ${'File "'.repeat(N / 6)}`,
+    "a Java trace of many frames": `Exception\n${"   at a.b(c.java:1)\n".repeat(N / 20)}`,
+  };
+
+  for (const [name, text] of Object.entries(inputs)) {
+    it(`stays fast on: ${name}`, () => {
+      const started = performance.now();
+      looksLikeFailure(text);
+      diagnose({ text });
+      expect(performance.now() - started).toBeLessThan(2000);
+    });
+  }
+
+  it("reads at most 60 000 characters, so a long paste cannot reach any rule whole", () => {
+    // A cause named only after the 60 000th character is not read; one inside it still is.
+    const early = `${"x".repeat(100)} AssertionError: expected 3 to equal 4`;
+    const late = `${"x".repeat(70_000)} AssertionError: expected 3 to equal 4`;
+    expect(diagnose({ text: early }).hypotheses.map((h) => h.id)).toContain("assertion-failed");
+    expect(diagnose({ text: late }).hypotheses.map((h) => h.id)).not.toContain("assertion-failed");
+  });
+
+  it("still recognises the assertion shapes the bounded pattern is meant to keep", () => {
+    for (const text of [
+      "Expected: 4\nReceived: 3",
+      "Expected: 4\n    Received: 3",
+      "Expected: 4 Received: 3",
+      "Expected 4 Actual: 3",
+    ]) {
+      expect(ids(text), text).toContain("assertion-failed");
+    }
   });
 });
