@@ -136,11 +136,13 @@ describe("the report", () => {
   it("reports the held-out set apart, and is honest that it is lower than the tuned tasks", async () => {
     const report = await runEvalHarness();
     // The held-out batch is renewed each round: once its failures are fixed the tasks join the development
-    // set and a fresh, untuned batch takes their place. The first blind figure of the current batch (h4,
-    // written before any rule for its classes) was 1 of 12 and is reported as it is, not tuned up.
+    // set and a fresh, untuned batch takes their place. First blind figures, never tuned up: h4 1 of 12, h5
+    // 18 of 22. Their rules were added on 2026-11-18, so h4 and h5 are development tasks now and h6 (written
+    // before those rules and not run until they existed) is the held-out batch: 16 of 26 before the rules
+    // and 16 of 26 after them. The rules did not carry over to error families they were not written for.
     expect(report.heldOut.tasks).toBeGreaterThanOrEqual(12);
     expect(report.heldOut.after).toBeLessThan(report.after);
-    expect(report.heldOut.failed.every((id) => id.startsWith("h4-"))).toBe(true);
+    expect(report.heldOut.failed.every((id) => id.startsWith("h6-"))).toBe(true);
     // Every development task passes: all failures are held-out ones.
     expect(Math.round(report.after * report.tasks)).toBe(
       report.tasks - report.heldOut.failed.length,

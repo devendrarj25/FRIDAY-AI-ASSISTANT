@@ -8,7 +8,7 @@
  *   - `model`    needs a real model, so it only runs when the owner presses a button;
  *   - `desktop`  needs a real desktop;
  *   - `external` belongs to an outside benchmark the owner runs.
- * `coverage` says plainly how many categories each domain has in each state, so "74 categories" never
+ * `coverage` says plainly how many categories each domain has in each state, so "77 categories" never
  * hides how many can be scored today. A runner answers one boolean per fixture; the bank adds nothing else.
  */
 
@@ -77,7 +77,7 @@ const elsewhere = (
   scorer: Category["scorer"] = "deterministic",
 ): Category => ({ id, domain, title, scorer, backing, where });
 
-/** The class scores of the existing 85-task harness, one category per class. */
+/** The class scores of the existing eval harness (`eval-harness.ts`), one category per class. */
 let harness: Promise<Record<EvalClass, { total: number; after: number }>> | null = null;
 const harnessClass = async (cls: EvalClass): Promise<boolean[]> => {
   harness ??= runEvalHarness().then(
@@ -810,7 +810,7 @@ export const CATEGORIES: Category[] = [
 ];
 
 /**
- * Rates measured on the 85-task harness are not rules that must always hold, so they have a floor instead
+ * Rates measured on the eval harness are not rules that must always hold, so they have a floor instead
  * of an exact pass. The floor is below the recorded figure; a fall under it is a regression to look at.
  */
 const MEASURED_FLOORS: Record<string, number> = {

@@ -890,7 +890,10 @@ const RULES: Rule[] = [
     test: (n) =>
       /SyntaxError|IndentationError|TabError|Unexpected token|Unexpected end of/i.test(
         n.errorType + " " + n.message,
-      ) && !/is not valid JSON|JSON\.parse|JSONDecodeError/i.test(n.message),
+      ) &&
+      !/is not valid JSON|JSON\.parse|JSONDecodeError|in JSON at position|Unexpected end of JSON input/i.test(
+        n.message,
+      ),
     cause: "the file at the named line is not valid code (a missing bracket, quote or indent)",
     base: 0.9,
     check: "open the file at the named line and the line above it; nothing is changed",
@@ -1195,7 +1198,7 @@ const RULES: Rule[] = [
   {
     id: "path-not-found",
     test: (_n, raw) =>
-      /The system cannot find the (?:path|file) specified|ENOENT: no such file or directory|No such file or directory|FileNotFoundError|DirectoryNotFoundException/i.test(
+      /The system cannot find the (?:path|file) specified|\bENOENT\b|No such file or directory|FileNotFoundError|DirectoryNotFoundException/i.test(
         raw,
       ),
     cause: "the file or folder the step names does not exist at that path",
@@ -1391,7 +1394,7 @@ const RULES: Rule[] = [
   {
     id: "tls-chain-untrusted",
     test: (_n, raw) =>
-      /unable to verify the first certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN/i.test(
+      /unable to verify the first certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN|PKIX path building failed|unable to find valid certification path|SunCertPathBuilderException/i.test(
         raw,
       ),
     cause:
@@ -1529,6 +1532,237 @@ const RULES: Rule[] = [
         "decide what the program should do with a value that is not a number",
       ],
       risk: "low",
+    },
+  },
+  // The rules below cover families a held-out round found silent (FRIDAY said it could not recognise the
+  // error). Each test names the tool's own words, in more than one ecosystem where the fault is the same,
+  // and nothing broader: an error that matches none of them is still reported as not recognised.
+  {
+    id: "git-not-a-repository",
+    test: (_n, raw) => /not a git repository/i.test(raw),
+    cause:
+      "the folder this git command ran in is not inside a git repository (no .git folder here or above it)",
+    base: 0.9,
+    check: "run git rev-parse --show-toplevel in the folder; nothing is changed",
+    fix: {
+      summary: "run the command from the project folder, or create the repository on purpose",
+      steps: [
+        "change into the project folder that holds the .git folder",
+        "if the project has no repository yet and it should, run git init there",
+        "run the git command again",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "download-integrity-mismatch",
+    test: (_n, raw) =>
+      /checksum mismatch|SECURITY ERROR[\s\S]{0,40}does NOT match|EINTEGRITY|integrity (?:check|checksum) failed|DO NOT MATCH THE HASHES|hashes? (?:do|does) not match|sha\d+-\S+ integrity/i.test(
+        raw,
+      ),
+    cause:
+      "what was downloaded is not what the lock file or checksum list says it should be (a changed release, a bad cache, or a tampered download)",
+    base: 0.82,
+    check:
+      "compare the expected and the downloaded hash in the message and clear the tool's cache; nothing is changed",
+    fix: {
+      summary:
+        "clear the package cache and fetch again; only update the recorded hash after confirming the new release is the intended one",
+      steps: [
+        "clear the tool's download cache (npm cache clean --force, go clean -modcache, pip cache purge)",
+        "run the install again from the official source",
+        "if it still differs, do not edit the hash to make it pass until the publisher's release is checked",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "dependency-version-unsatisfiable",
+    test: (_n, raw) =>
+      /failed to select a version for the requirement|candidate versions found which didn't match|No matching version found for|notarget|Could not find a version that satisfies the requirement|No matching distribution found for|no matching versions for query|ResolutionImpossible/i.test(
+        raw,
+      ),
+    cause:
+      "no published version satisfies the version the project asks for (the range is too new, too old, or the name is for a different package)",
+    base: 0.8,
+    check:
+      "list the versions the registry really has (cargo search, npm view <name> versions, pip index versions <name>); nothing is changed",
+    fix: {
+      summary: "loosen or correct the version requirement to one that exists, then install again",
+      steps: [
+        "read the requirement in the manifest and the versions the message says were found",
+        "choose a version that exists and that the rest of the project accepts",
+        "install again and run the tests",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "database-table-missing",
+    test: (_n, raw) =>
+      /no such table|relation "[^"]+" does not exist|Table '[^']+' doesn't exist|ORA-00942|Invalid object name '[^']+'/i.test(
+        raw,
+      ),
+    cause:
+      "the database the program connected to has no such table: the migrations were not applied, or it is a different database file or schema than expected",
+    base: 0.82,
+    check:
+      "list the tables of the database the program really opened (and its file path or name); nothing is changed",
+    fix: {
+      summary:
+        "apply the schema or migrations to that database, or point the program at the right one",
+      steps: [
+        "confirm which database file, host and schema the program is configured to use",
+        "run the project's migration command against it (for example migrate, alembic upgrade head)",
+        "run the failed step again",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "esm-commonjs-mismatch",
+    test: (_n, raw) =>
+      /ERR_REQUIRE_ESM|require\(\) of ES Module|Cannot use import statement outside a module|must use import to load ES Module|ERR_UNKNOWN_FILE_EXTENSION|exports is not defined in ES module scope/i.test(
+        raw,
+      ),
+    cause:
+      "a CommonJS file and an ES module are being mixed the wrong way (require() on an ES module, or import in a file Node treats as CommonJS)",
+    base: 0.85,
+    check:
+      'read the nearest package.json for "type" and the extensions of the two files; nothing is changed',
+    fix: {
+      summary: "make both files the same module kind, or load the ES module with import()",
+      steps: [
+        'check "type" in package.json and whether the files end in .mjs, .cjs or .js',
+        "use import (or a dynamic import()) for an ES module instead of require()",
+        "or rename the file to match the module kind it is written in",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "react-invalid-hook-call",
+    test: (_n, raw) =>
+      /Invalid hook call|Rendered (?:more|fewer) hooks than during the previous render|Hooks can only be called inside/i.test(
+        raw,
+      ),
+    cause:
+      "a React hook was called where React does not allow it (outside a function component or custom hook, inside a condition or loop, or with two copies of React loaded)",
+    base: 0.85,
+    check:
+      "look at the component named in the stack and run npm ls react to see whether more than one copy is installed; nothing is changed",
+    fix: {
+      summary: "call hooks only at the top level of a component, and keep one copy of React",
+      steps: [
+        "move the hook out of any if, loop, callback or class component",
+        "check that react and react-dom have the same version and appear once in npm ls react",
+        "run the component's test again",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "database-login-refused",
+    test: (_n, raw) =>
+      /Access denied for user|ERROR 1045|password authentication failed for user|FATAL:\s+role "[^"]+" does not exist|Login failed for user|ORA-01017/i.test(
+        raw,
+      ),
+    cause:
+      "the database server answered but refused this user name or password (wrong credentials, or that user is not allowed from this host)",
+    base: 0.85,
+    check:
+      "try the same user and password in the database's own command-line client; nothing is changed",
+    fix: {
+      summary: "correct the user or password in the connection setting, or grant that user access",
+      steps: [
+        "check the user name and password in the connection string or environment setting",
+        "confirm the user exists on the server and may connect from this host",
+        "retry; never write the password into the repository",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "process-killed",
+    test: (_n, raw) =>
+      /OOMKilled|exit(?:ed)?(?: with)?(?: status)?(?: code)? 137\b|Out of memory: Kill(?:ed)? process|Killed process \d+|\(signal 9\)/i.test(
+        raw,
+      ),
+    cause:
+      "the process was killed from outside (code 137 is SIGKILL), most often because it went over a memory limit",
+    base: 0.8,
+    check:
+      "read the container's or machine's memory limit and the process's peak use (docker inspect, docker stats, Task Manager); nothing is changed",
+    fix: {
+      summary: "give it more memory, or make it use less, then run it again",
+      steps: [
+        "check the memory limit set on the container or service",
+        "raise the limit, or reduce what the program holds in memory at once",
+        "if the limit is already high, look for a leak before raising it again",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "yaml-syntax",
+    test: (_n, raw) =>
+      /yaml\.(?:scanner|parser|constructor)\.\w*Error|mapping values are not allowed here|did not find expected (?:key|'-' indicator)|found character '\\t' that cannot start any token|bad indentation of a mapping entry|YAMLException|Error parsing YAML/i.test(
+        raw,
+      ),
+    cause:
+      "the YAML file is not valid: usually a wrong indent, a tab instead of spaces, or a colon inside a value that needs quotes",
+    base: 0.85,
+    check: "open the file at the line and column named, and the line above it; nothing is changed",
+    fix: {
+      summary: "fix the indent or quote the value at the line the error names",
+      steps: [
+        "use spaces, never tabs, and keep sibling keys at the same indent",
+        "put quotes around a value that contains a colon or starts with a special character",
+        "run a YAML check on the file before using it again",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "assertion-failed",
+    test: (_n, raw) =>
+      /AssertionError|\bExpected:?[^\n]*\n?\s*(?:Received|Actual):|expected .{1,80} to (?:equal|be|deep equal|match)|assert(?:ion)? failed/i.test(
+        raw,
+      ),
+    cause:
+      "a test's check failed: the value the code produced is not the value the test expected (the code is wrong, or the test's expectation is out of date)",
+    base: 0.7,
+    check:
+      "read the expected and the actual value in the message and the test line it names; nothing is changed",
+    fix: {
+      summary: "decide whether the code or the test is wrong at that line, and fix that one",
+      steps: [
+        "compare the expected value with the actual one at the named line",
+        "if the behaviour changed on purpose, update the test; otherwise fix the code",
+        "run the test again, then the rest of the suite",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "too-many-open-files",
+    test: (_n, raw) =>
+      /\bEMFILE\b|Too many open files|Errno 24\b|too many open files|Handle count exceeded/i.test(
+        raw,
+      ),
+    cause:
+      "the program has more files, sockets or handles open at once than the system allows (they are opened and never closed, or the limit is low)",
+    base: 0.85,
+    check:
+      "count the open handles of the process (Task Manager, lsof -p, or handle.exe) and see whether the count keeps rising; nothing is changed",
+    fix: {
+      summary: "close what is opened as soon as it is done with, and only then raise the limit",
+      steps: [
+        "find the code that opens files or sockets in a loop",
+        "close each one (a with block, or finally) as soon as it is finished",
+        "raise the limit only if the count is steady and still too low",
+      ],
+      risk: "needs-approval",
     },
   },
 ];
