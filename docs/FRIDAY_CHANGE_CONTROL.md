@@ -64,6 +64,7 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Durable outcome | A model or tool saying done is not success. A checked observation is required. Exhausted retries quarantine and do not claim success. |
 | Approval | Bound to task, action, argument hash, target, data class, risk, expiry, one use, and approver. Revalidated immediately before the side effect. |
 | Child authority | A child cannot add capabilities, network, or spend beyond the parent. |
+| Stop everything | It outranks an approval given before it. `governance.submit` reads the switch again immediately before `apply()`, after the wait for the owner, so an item approved while halted is marked `failed` ("Stopped.") and nothing is applied. Every caller of the queue (agents, dev pipeline, forges, connectors, import, fine-tuning) gets this from the one gate. |
 | Capability phase | Registered is not healthy. Healthy is not authorized. Authorized is not execution. |
 | Evaluation | Completion, facts, tools, authorization, verification, latency, tokens, cost, recovery, and user control. Deterministic. No provider call. |
 | Knowledge clash | A contradiction is kept as two rows unless an explicit correction may supersede. A first-run row is protected. |

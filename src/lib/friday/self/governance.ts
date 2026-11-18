@@ -380,6 +380,19 @@ class Governance {
       return this.get(id) as GovItem;
     }
 
+    // Stop everything outranks a yes given before it. An item can wait for the owner for hours, so the
+    // switch is read again here, at the last point before the side effect (the first read, above, was
+    // before the wait). The yes is not used: nothing is applied and the item is marked stopped.
+    if (autonomy.getSnapshot().halted) {
+      this.patch(
+        id,
+        { stage: "failed", error: "Stopped." },
+        "stop everything is on — approved, but not applied",
+        "error",
+      );
+      return this.get(id) as GovItem;
+    }
+
     let checkpoint: string | undefined;
     try {
       const result = await action.apply();
