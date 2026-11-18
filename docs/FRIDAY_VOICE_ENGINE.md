@@ -337,6 +337,25 @@ Cost on the Linux machine (synthetic clips): about 87 ms to score one clip (voic
 
 Tests: `kernel/tests/test_voice_enroll.py` (build, match, thin data refused, a wake word that sounds like the owner's sentences not marked ready, scoring speed, the worker ops), `core/__tests__/voice-enroll.test.ts` (WAV checks, files, encrypted profile, restarted worker, forget), `core/__tests__/voice-profile.test.ts` (prompts, progress, the three decisions, the wiring).
 
+## Who may approve, and what Stop everything stops (2026-11-18)
+
+Two defects found by reading `assistant-mode.ts`, reproduced with the real controller and injected utterances, and fixed. Both tests were run without the fix first and failed.
+
+| Defect | What happened | Now |
+| --- | --- | --- |
+| A spoken "yes" from another voice approved a waiting command | The saved-voice check ran on the command ("delete my downloads folder") but not on the "yes" that approves it. With Recognise my voice on (the default), a guest, a second person or a television saying "yes" inside the confirmation window ran the owner's consequential command, or approved an app restart or shutdown | `approvalVoiceAllows` puts the "yes" through the same `speakerDecision` as the command. A clearly different voice is refused, one spoken line (at most once in 4 s) says to confirm on the desktop, and the approval keeps waiting so the owner can still say yes inside the window. Unchanged: a voice that cannot be told apart (too little speech, no saved voice, Recognise my voice off) passes as before, the owner's own threshold is used, a "no" from anyone still cancels, and a match never approves anything |
+| Stop everything did not stop Auto | `autonomy.stopEverything()` stopped the approval queue and the Brain's tools, but Auto never read it: it kept listening, a reply being said went on, requests queued behind a running turn were sent later, a transcript that finished after the switch still started a turn, and a session that began while it was on (it persists across a restart) opened the microphone. Only the panic button happened to leave Auto | `followKillSwitch` (subscribed to `autonomy`) closes the microphone through the existing `setPaused`, cuts speech, and drops queued requests, a waiting confirmation and a read-back. The microphone does not reopen while it is on, whoever asks (pause button, tray, resume). `handleHeard`, `dispatch` and `speak` each read the switch again at their own last point. Resume reopens the microphone only if the switch closed it (not if the owner had paused it). Mute is a separate switch and is not touched; hands-free is not changed; Manual and Chat never owned the microphone, so nothing changes there |
+
+Tests: `core/__tests__/voice-approval-speaker.test.ts` (13) and `core/__tests__/voice-stop-everything.test.ts` (11), both driving `assistantMode` with injected scores and state, no microphone, speech engine, model, network or paid provider. 5 and 5 of them fail without the fixes.
+
+What is verified and what is not, in one place:
+
+| | Verified here (Linux, injected audio and state) | Not verified (needs the owner's Windows PC) |
+| --- | --- | --- |
+| Approval by voice | The yes is refused for a clearly different score, accepted for the owner's score, for an unscorable clip, with no saved voice, and with the setting off | Whether the owner's real "haan" or "yes" is long enough to be scored, and whether a real second person scores clearly below the bar: both depend on real recordings, and **no threshold was tuned and no recognition accuracy is claimed** |
+| Stop everything | The switch closes the microphone, cuts speech, empties the queue and pending items, blocks a late transcript and a late reply, and Resume reopens it only if the switch closed it | That the real microphone stops at once, that the speaker stops at once mid-sentence, and a 30-minute session with the switch thrown and resumed |
+| Mic and speech ownership | Auto is the only mode that opens the microphone or speaks (`microphoneAllowed`, `spokenReplyAllowed`); `handsFree` starts false; enrolment recording is the one other holder and is the owner's own Record and Stop | Any use of the microphone in the installed app outside those |
+
 ## Hardware acceptance checklist (needs the owner's PC)
 
 These cannot be done on the build machine. Each says what to do and where the number appears.
@@ -356,4 +375,6 @@ These cannot be done on the build machine. Each says what to do and where the nu
 | Sarvam live captions            | Save a Sarvam key, allow it, turn on Live captions, speak Hindi, Hinglish and English | Words appear while you speak; the trace shows any refusal; the ledger shows the billed seconds                                 |
 | Sarvam streaming voice          | Pick a v4 flash persona, turn on Stream Sarvam speech, listen to a long reply         | Voice diagnostics: cloud speech first chunk; audition the persona by ear before pinning it                                     |
 | Live wake frames                | Put a trained openWakeWord friday model in the wake folder, start a frame feed        | Trigger within about half a second; false accepts per hour over an evening of ordinary audio                                   |
+| Stop everything                 | In Auto, while she is listening and again while she is speaking a long reply, press Stop everything (Autonomy dial), then Resume | The microphone indicator goes off and the voice stops at once; after Resume the microphone returns only if you had not paused it                 |
+| Another person says yes         | Ask for something that needs confirmation (for example "delete my downloads folder"), have someone else say "yes"; then say "yes" yourself          | Their yes is refused with "That did not match the saved voice"; yours inside the window runs it. Note how short a "haan" you can say and still be scored |
 | All of the above, scripted      | `node scripts/voice-hardware-validate.cjs plan`, then `init`, fill, `check`           | `VERIFIED on the installed Windows app` only for a complete Windows report that meets every criterion                          |

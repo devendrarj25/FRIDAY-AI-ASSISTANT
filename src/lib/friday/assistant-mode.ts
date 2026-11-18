@@ -147,6 +147,7 @@ import { speechRms } from "./character/speech-audio";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
+import { autonomy } from "./self/autonomy";
 import {
   attachVoiceTaskSpeaker,
   releaseTaskUpdates,
@@ -631,8 +632,52 @@ class AssistantModeStore {
    * "Pause listening" (tray) — really closes the microphone; resuming restarts
    * recognition only when auto mode is still on.
    */
+  /** True while Stop everything is on. Read where it matters, not cached. */
+  private stopped(): boolean {
+    return autonomy.getSnapshot().halted === true;
+  }
+
+  /** Whether the microphone was closed by Stop everything (so Resume may reopen it) and not by the owner's pause. */
+  private pausedByStop = false;
+  private readonly unKillSwitch = autonomy.subscribe(() => this.followKillSwitch());
+
+  /**
+   * Stop everything is the kill switch for the approval queue and the Brain's tools; it is also the owner's
+   * "stop" for Auto. Switching it on closes the microphone, cuts what is being said, and drops what was waiting
+   * (queued requests and a confirmation); switching it off reopens the microphone only if this closed it. Mute is
+   * a separate switch and is not touched, and Manual and Chat never owned the microphone, so nothing changes there.
+   */
+  private followKillSwitch() {
+    if (this.stopped()) {
+      this.queuedCommands = [];
+      this.stopQueueTimer();
+      this.state.pending = null;
+      this.pendingHeard = null;
+      if (this.state.mode === "auto" && !this.state.paused) {
+        this.pausedByStop = true;
+        this.setPaused(true);
+        this.state.status = "Stopped. Stop everything is on";
+      } else if (this.state.speaking || this.speechQueue.length) {
+        this.cancelSpeech();
+      }
+      this.emit();
+      return;
+    }
+    if (this.pausedByStop) {
+      this.pausedByStop = false;
+      this.setPaused(false);
+    }
+  }
+
   setPaused(paused: boolean) {
+    if (!paused && this.stopped()) {
+      // The microphone does not reopen under the kill switch, whoever asks.
+      this.state.status = "Stop everything is on";
+      this.emit();
+      return;
+    }
     if (this.state.paused === paused) return;
+    if (this.state.paused && !paused) this.pausedByStop = false;
     this.state.paused = paused;
     if (paused) {
       this.stopRecognition();
@@ -1491,6 +1536,8 @@ class AssistantModeStore {
   /** Start FRIDAY's own on-device transcriber. Browser cloud speech is never used. */
   private startRecognition() {
     if (this.callHold) return;
+    // A session that begins while Stop everything is on (it persists across a restart) must not open the microphone.
+    if (this.stopped()) this.followKillSwitch();
     if (!microphoneAllowed(this.state.mode, this.state.paused)) {
       this.wantRunning = false;
       return;
@@ -2330,6 +2377,13 @@ class AssistantModeStore {
   }
 
   private handleHeard(text: string, probe: WakeProbe | null = null) {
+    // A transcript that finished a moment after Stop everything was thrown is not a turn.
+    if (this.stopped()) {
+      this.trace("dropped", "Stop everything is on");
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
@@ -2436,6 +2490,7 @@ class AssistantModeStore {
       approvalFresh(waiting.at, Date.now())
     ) {
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+        if (!this.approvalVoiceAllows(text)) return;
         brain.approve(true);
         this.caption("user", text);
         this.caption("friday", "Approved.");
@@ -2464,6 +2519,7 @@ class AssistantModeStore {
         return;
       }
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+        if (!this.approvalVoiceAllows(text)) return;
         const cmd = this.state.pending.command;
         this.state.pending = null;
         this.to("confirm-resolved");
@@ -2916,6 +2972,12 @@ class AssistantModeStore {
 
   /** Run a command through the existing brain pipeline. */
   private dispatch(command: string) {
+    if (this.stopped()) {
+      this.remember("stopped", command, "not sent: Stop everything is on");
+      this.state.status = "Stopped. Stop everything is on";
+      this.emit();
+      return;
+    }
     // A light remark while a turn is running (how is it going, are you there)
     // is answered at once and the turn keeps going. A real request falls
     // through and still interrupts, as before.
@@ -3257,6 +3319,10 @@ class AssistantModeStore {
   private speak(text: string) {
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
     this.turnStages.mark("brainFirstToken");
+    if (this.stopped()) {
+      markTurnStage("spoken", false, "Stop everything is on");
+      return;
+    }
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
       markTurnStage(
         "spoken",
@@ -3292,7 +3358,7 @@ class AssistantModeStore {
     this.draining = true;
     try {
       while (this.speechQueue.length) {
-        if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
+        if (!spokenReplyAllowed(this.state.mode, this.state.muted) || this.stopped()) {
           this.speechQueue = [];
           break;
         }
@@ -3304,7 +3370,11 @@ class AssistantModeStore {
       }
     } finally {
       this.draining = false;
-      if (this.speechQueue.length && spokenReplyAllowed(this.state.mode, this.state.muted)) {
+      if (
+        this.speechQueue.length &&
+        spokenReplyAllowed(this.state.mode, this.state.muted) &&
+        !this.stopped()
+      ) {
         void this.drainSpeech();
       }
     }
@@ -3646,6 +3716,32 @@ class AssistantModeStore {
   private turnVoice: VoiceMatchResult | null = null;
   /** The owner's own "Friday" template woke her for this turn although the transcript did not carry the word. */
   private turnPersonalWake = false;
+
+  /** When a different voice's "yes" was last refused out loud, so a repeated yes is not answered every time. */
+  private lastApprovalMismatchAt = 0;
+
+  /**
+   * A spoken "yes" that would finish an approval must not come from a clearly different voice. The same rule as
+   * for the command itself: the saved voice can only block, never approve, and a voice that cannot be told apart
+   * (too little speech, no saved voice, Recognise my voice off) passes exactly as before. A refused yes leaves the
+   * approval waiting, so the owner can still say it inside the window or confirm on the desktop.
+   */
+  private approvalVoiceAllows(heard: string): boolean {
+    const speaker = speakerDecision({
+      ...speakerInput(this.turnVoice, this.voiceSettings()),
+      sensitive: true,
+    });
+    if (speaker.allow) return true;
+    this.remember("speaker-mismatch", heard, "approval not accepted from another voice");
+    const refused = "That did not match the saved voice. Confirm it on the desktop.";
+    if (Date.now() - this.lastApprovalMismatchAt > 4000) {
+      this.lastApprovalMismatchAt = Date.now();
+      this.caption("friday", refused);
+      this.speak(refused);
+    }
+    this.emit();
+    return false;
+  }
 
   /** The owner's choices about their saved voice, read when a turn is handled. */
   private voiceSettings(): VoiceSettingsView {

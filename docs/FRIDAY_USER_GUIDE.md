@@ -153,7 +153,7 @@ On any page that has a title, **Flow** opens Flow Studio for that page. **Full m
 - **Brain:** inspect retrieval and planner traces; it is not a second chat box.
 - **Memory:** long-term notes under the FRIDAY root.
 - **Library:** owner files FRIDAY indexed (`library/items`).
-- **Self-Management:** the approval queue (`governance`). Risky kinds ask unless Full autonomy is on; Stop everything halts the queue, and a request you approve after pressing it is not applied (it shows as stopped; ask again once you resume); a protected policy file never auto-approves.
+- **Self-Management:** the approval queue (`governance`). Risky kinds ask unless Full autonomy is on; Stop everything halts the queue and Auto (it closes the microphone and cuts the voice; Resume reopens them), and a request you approve after pressing it is not applied (it shows as stopped; ask again once you resume); a protected policy file never auto-approves.
 - **FRIDAY Status:** the live wiring overlay (read-only for permission, privacy, and billing).
 - **Hardware:** measured CPU, RAM, and adapters.
 
