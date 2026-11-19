@@ -15,7 +15,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | Document | Answers | For |
 | --- | --- | --- |
 | [README.md](../README.md) | What FRIDAY is, who owns it, how to get it, and which document to open next | everyone |
-| [INSTALL.md](../INSTALL.md) | Published Setup and Portable, every owner-facing CMD/npm command, toolchain download fallbacks, isolated runtime layout, first-launch so Chat Manual/Auto/voice/local engines work, then upgrade and uninstall | owner |
+| [INSTALL.md](../INSTALL.md) | From-zero steps: install the published Setup or build the EXE with CMD, open FRIDAY, install models, connect a provider API key, check it works, then update, reinstall and uninstall; plus every owner-facing CMD/npm command, toolchain download fallbacks and the isolated runtime layout | owner |
 | [docs/FRIDAY_USER_GUIDE.md](FRIDAY_USER_GUIDE.md) | How to use the running desktop app, section by section, plus troubleshooting | owner |
 | [docs/FRIDAY_FEATURES.md](FRIDAY_FEATURES.md) | Every shipped capability, the file that implements it, and the test that covers it | owner, contributors |
 | [docs/FRIDAY_SKILLS.md](FRIDAY_SKILLS.md) | Every built-in skill and system agent, how FRIDAY and her agents pick and combine skills, and how to manage them | owner, contributors |

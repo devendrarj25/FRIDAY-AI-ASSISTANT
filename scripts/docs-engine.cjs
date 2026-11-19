@@ -80,7 +80,7 @@ const DOCUMENTS = [
     section: "start",
     audience: "owner",
     answers:
-      "Published Setup and Portable, every owner-facing CMD/npm command, toolchain download fallbacks, isolated runtime layout, first-launch so Chat Manual/Auto/voice/local engines work, then upgrade and uninstall",
+      "From-zero steps: install the published Setup or build the EXE with CMD, open FRIDAY, install models, connect a provider API key, check it works, then update, reinstall and uninstall; plus every owner-facing CMD/npm command, toolchain download fallbacks and the isolated runtime layout",
     topic: "Install, local CMD pack, first-launch, upgrade, uninstall",
   },
   {

@@ -5,68 +5,367 @@
 
 FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
 
-This is the owner start-to-finish guide: get FRIDAY onto a Windows PC, pack the Windows EXEs from this checkout, install those EXEs, update, uninstall, and bring Chat / voice / local engines / cloud keys to a working state.
+This guide takes you from nothing to a working FRIDAY on a Windows PC, one small step at a time: get the program (download it, or build it yourself with the Windows command prompt), install it, open it, add models, connect a cloud provider with an API key, check that everything works, then update it and, when you want, remove it. You do not need to know programming. Follow the numbered steps in order and do not skip the "What you should see" lines: they tell you whether a step worked.
 
-Related documents (do not copy their tables here): version numbers [VERSIONING.md](VERSIONING.md); what Setup may replace on disk [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md); using each sidebar section after the app is open [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md); how CMD / TEST / Official packs differ, and how Stable vs Test updates behave, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+Related documents (they are not copied here): version numbers [VERSIONING.md](VERSIONING.md); what Setup may replace on disk [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md); using every page after the app is open [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md); how the CMD, TEST and Official packs differ and how Stable and Test updates behave [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md); keys, billing and privacy rules [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md).
 
-Every command in this file is run from the **project root** (the folder that contains `package.json`) in **Windows `cmd.exe`**, unless a step says otherwise. `npm run build:win` must stay the backslash CMD path — it is the owner-verified pack launcher.
+## Contents
 
-## 1. Pick one path
+1. [Words used in this guide](#1-words-used-in-this-guide)
+2. [Choose your path](#2-choose-your-path)
+3. [Before you start](#3-before-you-start)
+4. [Path A: install the ready-made program from GitHub](#4-path-a-install-the-ready-made-program-from-github)
+5. [Path B: build the program yourself](#5-path-b-build-the-program-yourself)
+6. [Install the program you built](#6-install-the-program-you-built)
+7. [Open FRIDAY the first time](#7-open-friday-the-first-time)
+8. [Install models (so FRIDAY can think, hear and speak)](#8-install-models-so-friday-can-think-hear-and-speak)
+9. [Connect a cloud provider with an API key](#9-connect-a-cloud-provider-with-an-api-key)
+10. [Check that FRIDAY really works](#10-check-that-friday-really-works)
+11. [Safety settings in plain words](#11-safety-settings-in-plain-words)
+12. [Update FRIDAY](#12-update-friday)
+13. [Reinstall FRIDAY](#13-reinstall-friday)
+14. [Uninstall FRIDAY](#14-uninstall-friday)
+15. [Quick fixes](#15-quick-fixes)
+16. [Technical reference](#16-technical-reference)
 
-| Path                             | Who it is for                                                               | What you do                                                                                                            |
-| -------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| A. Published GitHub EXE          | Daily use. No Node, Python, or Git required.                                | Download `FRIDAY-Setup-1.1.5.7.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.1.5.7.exe` (no uninstaller) |
-| B. Source checkout + Windows CMD | Packing a new EXE, changing code, or running the desktop app from this tree | Clone this repo, then `npm run setup`, then `npm run build:win` (or `npm run desktop:start` without packing)           |
+## 1. Words used in this guide
 
-Both paths share one disk root once a folder is chosen. Do not install Official and then overwrite it with a TEST EXE expecting the same Windows appId — TEST uses `dev.friday.desk.test` so it can sit beside Official. Isolation: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+| Word                       | Meaning                                                                                                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CMD / Command Prompt**   | The black text window of Windows where you type commands. Open it: press the Windows key, type `cmd`, press Enter.                                                                                   |
+| **EXE**                    | A Windows program file. FRIDAY comes as two: **Setup** (`FRIDAY-Setup-1.1.5.7.exe`, installs FRIDAY and can uninstall it) and **Portable** (`FRIDAY-Portable-1.1.5.7.exe`, runs without installing). |
+| **FRIDAY folder ("root")** | The one folder where FRIDAY keeps everything that is yours: models, memory, chats, settings, database. The program itself sits in `<root>\App`. Default for Setup: `%USERPROFILE%\FRIDAY`.           |
+| **Kernel**                 | FRIDAY's engine, a small Python program that runs on your PC next to the window. "Kernel ready" means the engine is running.                                                                         |
+| **Model**                  | The AI "brain" file or service that writes the answers. A **local** model runs on your PC and works offline. A **cloud** model runs at a company and needs the internet and a key.                   |
+| **Provider**               | A company that offers cloud models (Groq, OpenRouter, Google Gemini, OpenAI, Anthropic and others).                                                                                                  |
+| **API key**                | A long secret text you create on the provider's website. FRIDAY uses it to talk to that provider for you. Treat it like a password.                                                                  |
+| **Ollama**                 | A free program that runs local models. FRIDAY's setup installs it for you.                                                                                                                           |
+| **Doctor**                 | FRIDAY's checker and repairer. As a command it is `npm run doctor`; inside the app it is the page **Setup & Doctor**.                                                                                |
+| **Install Manager**        | The app page that installs and updates tools and voice models.                                                                                                                                       |
 
-If you clone Git into a folder that is **already** the installed FRIDAY data root (same path as `HKCU\Software\FRIDAY\WorkspacePath`), `kernel/` can be treated as a data alias of `backend/`. `setup-python` restores that tree. Prefer cloning into a **different** folder than the installed root.
+## 2. Choose your path
 
-## 2. Path A — install the published Setup EXE
+| Path                      | Choose it when                                                                    | What you do                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **A. Ready-made program** | You just want to use FRIDAY. No Node, Python or Git needed.                       | Download Setup from GitHub, run it ([section 4](#4-path-a-install-the-ready-made-program-from-github)).                 |
+| **B. Build it yourself**  | You want to pack a new EXE from this source code, change the code, or test a fix. | Get the code, run three commands, install the EXE they make ([sections 5 and 6](#5-path-b-build-the-program-yourself)). |
 
-No CMD pack is required for daily use.
+Not sure? Choose **A**. Both paths end the same way: you open FRIDAY and continue at [section 7](#7-open-friday-the-first-time).
 
-1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.1.5.7**.
-2. Download `FRIDAY-Setup-1.1.5.7.exe`. Optionally check `SHA256SUMS.txt` on that release.
-3. Double-click Setup while signed in as the user who will run FRIDAY. The product is per-user (`perMachine: false` in `electron-builder.yml`). Do not “Run as administrator” unless that account should own the install.
-4. The wizard has one folder page: where the FRIDAY root should live. Default is `%USERPROFILE%\FRIDAY`. Setup refuses `Program Files`, `Windows`, and a nested `FRIDAY\FRIDAY` folder.
-5. Program files go into `<chosen root>\App` (`$INSTDIR`). The chosen root is written to `HKCU\Software\FRIDAY\WorkspacePath`.
-6. After copy, Setup launches `installer/build/repair-runtime.ps1`. That helper **never aborts Setup**. It reuses a healthy `runtime\.venv`, installs `kernel\requirements.txt` (startup + voice floors), then tries `kernel\requirements-capabilities.txt` as best-effort extras. When Python repair cannot finish, shortcuts and the uninstaller still register, and Setup records `PythonSetupPending` so Doctor / Install Manager can finish later.
-7. Tick launch if the wizard offers it, or start FRIDAY from the Start menu / desktop shortcut (`FRIDAY.exe` inside `<root>\App`).
-8. Continue at [section 8](#8-first-launch--make-friday-actually-work).
+Official and TEST builds can sit side by side on one PC: TEST uses a different Windows app id (`dev.friday.desk.test`) and does not touch the Official install. More in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
-SmartScreen may warn on an unsigned build. That is the honest local/CI default until `CSC_LINK` / `CSC_KEY_PASSWORD` are set at pack time. Signing does not by itself clear SmartScreen for a new publisher.
+## 3. Before you start
 
-## 3. Path A — Portable EXE (no Apps & Features row)
+You need:
 
-`FRIDAY-Portable-1.1.5.7.exe` is the same public version with no Apps & Features entry and no NSIS uninstaller. Run or extract it, then pick the same kind of FRIDAY root as Setup. Updates still come from GitHub Releases when the running app is packaged. Prefer Setup when you want a Start-menu shortcut and a keep-data vs delete-all uninstall.
+- **Windows 10 or 11, 64-bit**, and a normal user account you will use every day. FRIDAY installs for that one user. Do not use "Run as administrator" unless that account is the one that should own FRIDAY.
+- **The internet** for the first install: Path B downloads tools and models (several gigabytes in all). Path A needs only the Setup file; models are added later in the app.
+- **Free disk space.** As a rough guide: a few gigabytes for the program and its Python, then the models you choose (a small chat model is about 2 GB, bigger ones 4 to 10 GB or more). Doctor reports the free space on the drive that holds your models. Put FRIDAY on a drive with plenty of room.
+- **A good folder.** Use a short, plain, local path such as `C:\FRIDAY` or `D:\FRIDAY`. Avoid `Program Files`, `Windows`, and folders that OneDrive, Dropbox or Google Drive keep in sync: they cause locked files and slow syncing. Setup refuses `Program Files`, `Windows` and a nested `FRIDAY\FRIDAY`.
+- **A microphone and speakers** only if you want to talk to FRIDAY. Typing works without them.
+- **A cloud key** only if you want cloud models. FRIDAY works offline with a local model alone ([section 9](#9-connect-a-cloud-provider-with-an-api-key)).
 
-Then continue at [section 8](#8-first-launch--make-friday-actually-work).
+## 4. Path A: install the ready-made program from GitHub
 
-## 4. Path B — open CMD in the Git clone
+1. On the Windows PC open the GitHub releases page of the repository `devendrarj25/FRIDAY-AI-ASSISTANT` (https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases) and open the release tagged **v1.1.5.7**.
+2. Under **Assets** download `FRIDAY-Setup-1.1.5.7.exe`. (Optional check: the same page lists `SHA256SUMS.txt`; the SHA-256 of your download must match its line. In CMD: `certutil -hashfile FRIDAY-Setup-1.1.5.7.exe SHA256`.)
+3. Double-click the file you downloaded.
+   - Windows **SmartScreen** may say "Windows protected your PC". The default build is not signed with a paid certificate, which is the honest reason. Click **More info**, then **Run anyway**, only if you downloaded the file from the real repository above. Signing does not by itself clear SmartScreen for a new publisher.
+4. The wizard has **one page that matters: the FRIDAY folder.** Keep the default (`%USERPROFILE%\FRIDAY`) or type a short local path such as `D:\FRIDAY`. Click **Install**.
+5. Setup copies the program into `<root>\App`, remembers your folder in `HKCU\Software\FRIDAY\WorkspacePath`, and then runs a repair helper (`installer/build/repair-runtime.ps1`) that prepares FRIDAY's Python engine in `<root>\runtime\.venv` and installs its packages. This can take several minutes and needs the internet. It never aborts the install: if it cannot finish, FRIDAY is still installed, Setup records `PythonSetupPending`, and **Setup & Doctor** or **Install Manager** finishes the job later.
+6. Tick **Launch FRIDAY** on the last page, or start FRIDAY from the Start menu or the desktop shortcut.
 
-Packing needs a Windows PC with `cmd.exe`. Floors live in `config/toolchain-versions.json`. A newer compatible tool is reused; setup never downgrades.
+**What you should see:** a FRIDAY window opens. Go to [section 7](#7-open-friday-the-first-time).
 
-1. Install Git for Windows if it is not already there (setup can also install it).
-2. Open **Command Prompt** (`cmd.exe`). Do not use Git Bash for `npm run build:win`.
-3. Clone into a folder that is **not** already the installed FRIDAY data root:
+**Portable instead of Setup.** `FRIDAY-Portable-1.1.5.7.exe` is the same version with no installer and no entry in Apps & Features. Put it in a folder you keep, double-click it, and pick your FRIDAY folder when asked. To remove it you delete the file yourself ([section 14](#14-uninstall-friday)). Prefer Setup when you want a Start-menu shortcut, easy updates and a proper uninstall with a keep-data or delete-all choice.
+
+## 5. Path B: build the program yourself
+
+This path needs a Windows PC with `cmd.exe` and the internet. It installs everything FRIDAY needs, builds the EXE, and checks it. The three commands you will use, in order, are `npm run setup`, `npm run doctor` and `npm run build:win`. Do them in the **Command Prompt**, not in Git Bash and not in PowerShell.
+
+### 5.1 Install Git
+
+Git downloads the source code. Check if you have it: open CMD and type `git --version`. If it prints a version, go to 5.2. If not, install it with either way:
 
 ```cmd
-git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
-cd FRIDAY-AI-ASSISTANT
+winget install --id Git.Git -e
+```
+
+or download "Git for Windows" from https://git-scm.com/download/win and run it with the default choices. Then **close CMD and open a new one** so Windows sees Git.
+
+### 5.2 Get the code into your FRIDAY folder
+
+The folder you build in becomes your FRIDAY folder, so choose it now. Type (you may replace `C:\FRIDAY` with another short local path; the folder must not exist yet or must be empty):
+
+```cmd
+git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git C:\FRIDAY
+cd /d C:\FRIDAY
 git pull origin main
 ```
 
-If the repo already exists:
+`cd /d` moves CMD into that folder (the `/d` also switches drives). **What you should see:** `dir package.json` lists the file `package.json`. If it says "File Not Found" you are in the wrong folder; every later command is run from this folder (the **project root**).
+
+### 5.3 Run setup
 
 ```cmd
-cd /d D:\FRIDAY
-git pull origin main
+npm run setup
 ```
 
-Replace `D:\FRIDAY` with the real clone path. You are in the right folder when `dir package.json` shows that file.
+If CMD answers `'npm' is not recognized`, you do not have Node.js yet. Run the same setup without npm; it installs Node.js for you:
 
-## 5. Path B — first-time setup (toolchain + venv + Doctor)
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
+```
+
+What setup does, in plain words: it checks the PC, installs what is missing (Node.js, Python, Git, PowerShell 7, FFmpeg, Tesseract, the Visual C++ runtime), downloads FRIDAY's code libraries, downloads the Electron app shell, creates FRIDAY's own Python environment, installs the agent toolkit, downloads the speech, voice and chat models, creates the folders and database, and finally runs Doctor.
+
+- **It takes a long time** (the first run often 30 to 90 minutes, depending on your line), prints a lot of text, and some steps show a progress bar. Let it run. Do not close the window.
+- **Windows may ask for permission** (a blue-and-yellow "User Account Control" box) for WSL 2, Docker Desktop, Windows Sandbox and CUDA. Allow it if you want those tools; setup carries on if you decline. Windows may ask for a restart afterwards.
+- Setup never waits for a typed answer. If another window asks something, close it and run `npm run doctor`.
+- Run it again any time: it is safe to repeat. A tool that is already new enough is reused; an old or missing one is installed at the latest stable release.
+
+**What you should see at the end:** the line `SETUP PASS`. If Node.js was installed during this run and the next command says `node` is not found, close CMD, open a new one, `cd /d C:\FRIDAY`, and run `npm run setup` again.
+
+**If it fails:** read the last lines; setup says which step failed and why. Then run `npm run doctor` (next step): it repairs and checks again. Most failures are a dropped network. More in [section 15](#15-quick-fixes).
+
+### 5.4 Run Doctor
+
+```cmd
+npm run doctor
+```
+
+Doctor checks everything and repairs what it can. It is also the backup if setup stopped halfway. It also runs the voice files for real. **What you should see:** every row OK or `not applicable` (for example CUDA without an NVIDIA graphics card, or Windows Sandbox on Windows Home). If a row says MISSING, run `npm run doctor` again; if it stays, the row names the reason.
+
+### 5.5 Build the EXE
+
+```cmd
+npm run build:win
+```
+
+This packs **both** the Setup installer and the Portable EXE. It checks the PC again, builds the app window, packs the files, verifies them and runs the built program once as a test. This also takes a while. **What you should see at the end:** **FRIDAY BUILD READY**, followed by the files to use. If it ends with **FAILED**, it names the step and the reason; fix that, then run the same command again.
+
+Your files are in the `release` folder inside your FRIDAY folder:
+
+- `release\FRIDAY-Setup-1.1.5.7.exe` (the installer)
+- `release\FRIDAY-Portable-1.1.5.7.exe` (no installer)
+- `release\win-unpacked\FRIDAY.exe` (the unpacked program)
+
+Want only one? `scripts\build-windows.cmd nsis` builds Setup only, `scripts\build-windows.cmd portable` builds Portable only, and `npm run build:win:dir` builds only the unpacked folder (fastest, for testing).
+
+### 5.6 Just try it without installing (optional)
+
+To run the program straight from this folder without installing an EXE:
+
+```cmd
+npm run desktop:start
+```
+
+(`npm run desktop:dev` is the developer version.) You still need the FRIDAY folder and a ready kernel; [section 7](#7-open-friday-the-first-time) onwards applies.
+
+### 5.7 The whole of Path B on one screen
+
+```cmd
+git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git C:\FRIDAY
+cd /d C:\FRIDAY
+npm run setup
+npm run doctor
+npm run build:win
+```
+
+Packing needs Windows. On Linux or macOS `npm run build:win` is not available by design.
+
+## 6. Install the program you built
+
+1. Close any FRIDAY that is running.
+2. Open the `release` folder and double-click `release\FRIDAY-Setup-1.1.5.7.exe`. The wizard is the same as in [section 4](#4-path-a-install-the-ready-made-program-from-github). Because you built in your FRIDAY folder, the wizard already offers that folder as the install folder: accept it.
+3. A packed **TEST** build (`FRIDAY-Test-Setup-…`) installs beside Official and keeps its own data; do not mix their folders.
+4. Installing a locally built Setup over an older Official of the **same** four-part version is a rebuild of that version, not a version bump. Changing the version number is the owner's decision (`config/friday-version.json`).
+
+Then go to [section 7](#7-open-friday-the-first-time).
+
+## 7. Open FRIDAY the first time
+
+1. **Start it** from the Start menu or desktop shortcut (or `<root>\App\FRIDAY.exe`). It opens a window and a small icon appears in the system tray (near the clock). Closing the window can hide FRIDAY to the tray so she keeps running; to quit completely use the tray icon menu.
+2. **Choose the FRIDAY folder** if the app asks. Pick a writable folder (not `Program Files`). If you set up in `C:\FRIDAY` or installed there, it is already chosen. Models downloaded during setup and waiting in `.friday-dev` are moved into your folder on this first launch; an item your folder already has is never overwritten, and nothing is downloaded twice.
+3. **Wait for the kernel to become ready.** Look at the title strip, or open **FRIDAY Status** in the left menu. Until the kernel is ready, chat and Doctor are not meaningful. A few minutes on the very first start is normal.
+   - If it stays down, open **Setup & Doctor** and press the repair button, then **Install Manager**. A leftover `PythonSetupPending` means the installer's Python repair did not finish; the same pages finish it.
+4. **Know the left menu.** The pages you will use now:
+   - **Friday (Main Window):** the chat. Manual or Auto, a model picker, streaming answers.
+   - **Models:** local and cloud models, providers and keys.
+   - **Install Manager:** tools, services and voice models; updates for them.
+   - **Setup & Doctor:** checks and repairs.
+   - **FRIDAY Status:** read-only health of the kernel and Python.
+   - **Settings:** voice, look, updates, start at sign-in, autonomy.
+
+**Two modes of chat.** **Manual** is typing only. **Auto** is the voice mode: the microphone is open and FRIDAY speaks her answers. Manual and chat never listen and never speak. Hands-free is the Auto conversation; turning it off means you must say the wake word first.
+
+## 8. Install models (so FRIDAY can think, hear and speak)
+
+FRIDAY needs three kinds of models. You can start with the first only.
+
+### 8.1 A chat model (the brain)
+
+You need **at least one**: a local model, or a cloud key from [section 9](#9-connect-a-cloud-provider-with-an-api-key).
+
+- **If you did Path B,** setup already installed Ollama and downloaded one small, fast chat model (`qwen3:4b`) into it. Check in **Models → LOCAL AI → Installed**; it should be listed as installed.
+- **Otherwise (Path A),** add one:
+  1. Open **Models** and the **LOCAL AI** section, then **Catalog**.
+  2. The Catalog opens on **Runs on this PC**: FRIDAY measured your RAM, graphics card and free disk space and ranks models best-fit first (Optimal, Supported, Tight, CPU only, Unsupported). Pick one marked Optimal or Supported. A good first choice is `llama3.2-3b`.
+  3. Press **Install**. A row with progress, **Pause** and **Cancel** appears. Wait until it says installed. If Ollama is missing, Install Manager (below) installs it first.
+  4. Search a model by name in the search box (Enter or **Search online** also looks in the Hugging Face index) or **Import & Connect** to add your own `.gguf` file.
+- **Local engines FRIDAY finds by herself** once they are running: Ollama (port 11434), LM Studio (1234, with a model loaded), llama.cpp (8080), vLLM (8000), LocalAI (8081), Jan, KoboldCpp (5001), GPT4All (4891, with its Local API Server turned on). Their models appear when the engine answers.
+
+**What you should see:** in **Friday (Main Window)** the model picker lists the model. Pick it, type "hello", press send, and an answer streams in.
+
+### 8.2 The voice packages (hearing and speaking)
+
+Voice needs two Python packages in FRIDAY's own environment: `faster-whisper` (hearing) and `edge-tts` (speaking). Path B installs them. If they are missing, open **Install Manager**, find the rows `faster-whisper` and `edge-tts` and press **Install**. FRIDAY also works without voice (typing only).
+
+- **Speech size (hearing quality).** **Settings → Voice → Speech model size** lists faster-whisper sizes `tiny`, `base`, `small`, `medium`, `large-v3` and `large-v3-turbo`. Bigger is more accurate and slower, and needs more memory. Leave it on **Auto** if unsure; pick `large-v3-turbo` only if you want it, and FRIDAY downloads it from inside the app.
+- **Voices (speaking).** The default voice is `hi-IN-SwaraNeural` (a female Indian voice) when the internet is on and Privacy mode is off. Offline, **Supertonic 3** (voice F2) speaks when installed, otherwise a female Indian Windows voice. In Install Manager you can add optional voice models: Silero VAD, Smart Turn, Supertonic 3. In a source folder, `npm run voice:install` downloads Supertonic, Smart Turn and the English Moonshine hearing model, and `npm run voice:check` prints PASS or FAIL for each stage.
+- **Teach FRIDAY your voice (optional).** **Settings → Voice → My voice** records you so FRIDAY wakes for your voice. **Settings → Voice → FRIDAY's voice** picks her voice.
+
+### 8.3 Install Manager: tools and services
+
+Open **Install Manager** for the tools FRIDAY can use on your PC: Git, Node, Python, ffmpeg, Docker, Graphviz and many more.
+
+- The page re-reads your PC every five minutes and after every install. A row shows installed or missing, the installed version and the newest version.
+- Press **Install** on a row, or **Update** to update it. It uses `winget` first and the vendor's own checked installer if winget cannot. **Refresh** reads again; **Update all** updates what has a newer version; **Cancel** stops a download or an installer.
+- On an app installed from a release, the button **Install agent toolkit** installs the same toolkit Path B installs (search and convert helpers, Git and build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, and CUDA with an NVIDIA card). Some of these ask for administrator approval.
+- **Your own tools:** the **Software** section can add anything that installs with winget, npm or pip.
+- **Services** (Ollama, LM Studio, Docker Desktop) can be started and stopped there.
+
+### 8.4 Diagram tools (optional)
+
+Flow Studio draws and exports without extra tools. Install Manager can add Graphviz 16.1.0 and D2 0.9.0 for compiled diagrams; a missing compiler leaves the canvas working.
+
+## 9. Connect a cloud provider with an API key
+
+A cloud provider lets FRIDAY use a big model over the internet. **This is optional**: a local model alone works offline. Keys cost nothing to create on the free tiers below; paid models stay switched off until you allow them.
+
+### 9.1 Get a key (free tiers)
+
+Open the provider's website, sign in or sign up, create an API key, and copy it.
+
+| Provider          | Where to create the key                |
+| ----------------- | -------------------------------------- |
+| **Groq**          | https://console.groq.com/keys          |
+| **OpenRouter**    | https://openrouter.ai/keys             |
+| **Google Gemini** | https://aistudio.google.com/app/apikey |
+
+Other providers (OpenAI, Anthropic, DeepSeek, Mistral, Together, xAI, Cohere, Perplexity, Hugging Face and more) have a card in **Models → CLOUD AI → Providers** that names the official page. Azure OpenAI, Bedrock, Vertex, "OpenAI-compatible" and "Custom" are listed as "no connector yet" and cannot be connected.
+
+### 9.2 Paste the key into FRIDAY
+
+1. Open **Models** and the **CLOUD AI** section, then **Providers**.
+2. Find the provider's card. Open **Connections**, paste the key, and press **Connect**.
+3. FRIDAY checks the key and says what happened: **"connected — N models ready"**, or "did not connect" with the provider's reason (a wrong key, no credit, a network problem).
+4. The key is stored encrypted in Windows (Electron `safeStorage`) for your Windows user only. It is never written to a plain file, and on another PC or another Windows account you enter it again.
+
+**What you should see:** the provider's models appear in the chat model picker and in **Models → CLOUD AI → Catalog**.
+
+### 9.3 Free, paid and private: what FRIDAY will and will not do
+
+- **Free models appear on their own.** A model counts as free only when the provider's own pricing page says so. Free models are available for Auto and for a manual pick.
+- **Paid and unknown-cost models stay hidden** until you turn paid access on and set a budget. Select **Confirm paid** before a paid model can be chosen; **Save selection** is your allowlist. A valid key is not the same as a verified free model.
+- **Private text never goes to the cloud.** The privacy firewall keeps sensitive text on a local model. Privacy mode also keeps FRIDAY from using online voices.
+- **Local first.** A local model answers when it can; the cloud is used only when it cannot and both firewalls allow it.
+- A key that hits its limit stays listed, greyed, with the reason and when it comes back.
+- Full rules: [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md).
+
+## 10. Check that FRIDAY really works
+
+Do these in order. Each takes a minute.
+
+1. **Status.** Open **FRIDAY Status** and **Setup & Doctor**. The kernel and the Python environment should be healthy.
+2. **Manual chat.** In **Friday (Main Window)** choose Manual, pick a model, send "hello". An answer must arrive. It needs a local model with a pulled model, or a cloud key that connected.
+3. **Which model answered.** The strip above the conversation says which model will answer before you send and which did answer after.
+4. **Auto (voice).** Switch to Auto. Auto is ready only when the speech model is actually loaded, not merely installed. Say "FRIDAY, what time is it?" You should hear the answer and see it on screen. Say "stop" while she speaks: she stops. Mute stops the microphone; the tray icon pauses it.
+5. **Wake word (optional).** FRIDAY ships no trained wake model yet; until one is trained and passes its test, the wake word is matched in the transcript. A model of your own needs `{word}.onnx` in `<root>\models\wake`; a word `jarvis` must load `jarvis.onnx`, `friday.onnx` is not a substitute.
+6. **A real microphone and speaker test is yours to do.** The checks above are only real on your hardware. A longer voice checklist is in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md).
+
+## 11. Safety settings in plain words
+
+- **Autonomy** (Settings, and the toolbar of Auto mode and Flow Studio): **Ask every time**, **Balanced** (the default on a fresh install: she asks before she writes or runs something), **Full autonomy** (she acts without asking each time). **Stop everything** always halts her.
+- Running commands needs your approval by default (`auto_approve_exec` is off).
+- Screen, web, file, e-mail and tool text is treated as data, never as orders. A password field, a payment and a captcha are never touched.
+
+## 12. Update FRIDAY
+
+### 12.1 From inside the app (the normal way)
+
+1. Open **Settings → Updates**. Read the short guide at the top.
+2. **Repository.** Press **Use the official FRIDAY repository** (or paste the address `https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT`). A public repository needs no token. For a private one, create a GitHub fine-grained token with only this repository and the permission **Contents: Read-only** and paste it. That token can read but never write, so updating cannot change your repository.
+3. Press **Test connection**. It tells you public or private, whether the token is read-only, and the newest Stable and Test builds.
+4. Pick **Stable** (normal) or **Test** (early builds, for testing only).
+5. Press **Check for updates**, read what the files are for, then **Install**.
+6. FRIDAY checks the installer's SHA-256, backs up your protected data, closes, installs silently, and reopens on the new version. If the new version does not start, the panel offers to restore the backup and the old program is reopened.
+
+Good to know: the connection is remembered; FRIDAY checks a few seconds after start and tells you in Notifications when a new version exists; she downloads and checks the installer in the background (switch off under **Automatic updates**) so Install is instant, but **nothing installs until you press Install**. From the second update on, only the changed parts are downloaded. A dropped download continues from the same place (Cancel stops it, Retry resumes). Your chats, memory, settings, models, voices, downloads and uploads are never replaced. After an update FRIDAY installs any new Python packages the version needs and asks you to restart. An installed FRIDAY is never replaced by a source ZIP; **Update content** may merge only new skills, agents, plugins, modules, workflows, resources and docs.
+
+### 12.2 By hand
+
+Download the new `FRIDAY-Setup-<version>.exe` from the GitHub release and run it over the old install, choosing the **same FRIDAY folder**. Setup replaces `<root>\App` only; everything else in your folder stays.
+
+### 12.3 Update the tools FRIDAY uses
+
+Open **Install Manager**, press **Refresh**, then **Update** on a row or **Update all**.
+
+### 12.4 Update your own build (Path B)
+
+```cmd
+cd /d C:\FRIDAY
+git pull origin main
+npm run setup
+npm run doctor
+npm run build:win
+```
+
+Then run the new `release\FRIDAY-Setup-1.1.5.7.exe` (the file name carries the version of the code you pulled). If `git pull` reports local changes, stop and ask before overwriting anything.
+
+## 13. Reinstall FRIDAY
+
+Reinstalling keeps your data when you do it right.
+
+1. Uninstall with the **keep data** choice ([section 14](#14-uninstall-friday)).
+2. Run `FRIDAY-Setup-1.1.5.7.exe` again and choose the **same FRIDAY folder**.
+3. Open FRIDAY: your chats, memory, models, settings and keys-to-reconnect are still there. Doctor repairs the Python engine if needed.
+
+A clean start instead: uninstall with **Delete all FRIDAY data**, then install.
+
+## 14. Uninstall FRIDAY
+
+1. Open Windows **Settings → Apps → Installed apps**, find **FRIDAY** (or **FRIDAY Test**) and choose **Uninstall**. Close FRIDAY first, or let the uninstaller close it; it also stops FRIDAY's own Python and Node helper programs.
+2. **Keep data (default).** Only `<root>\App` is removed. Your database, models, memory, library and the rest of the FRIDAY folder stay. Reinstall later and you are back.
+3. **Delete everything.** Tick **Delete all FRIDAY data and resources**, and confirm. This removes the whole FRIDAY folder. If your FRIDAY folder is the **source checkout** you built in, the uninstaller removes only the data folders and downloaded models and keeps your source code and Git history.
+4. From a script: `Uninstall FRIDAY.exe /S /DELETEDATA` does the delete-all uninstall silently.
+5. The uninstaller also removes the "start at sign-in" entry.
+6. **Portable:** delete the `FRIDAY-Portable-1.1.5.7.exe` file and, if you want, the FRIDAY folder yourself; there is no entry in Apps & Features.
+
+Windows will not silently wipe your folder: the installer is set to keep data unless you tick the delete box.
+
+## 15. Quick fixes
+
+| What you see                                       | What to do                                                                                                                                                 |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'npm' is not recognized`                          | Node.js is not installed yet. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows.ps1`, then open a **new** CMD.                |
+| `node` is not found right after setup installed it | Close CMD, open a new `cmd.exe`, `cd /d` back to your FRIDAY folder, run `npm run setup` again.                                                            |
+| `python` opens the Microsoft Store                 | Windows Settings → Apps → Advanced app settings → App execution aliases → turn off `python.exe` and `python3.exe`.                                         |
+| Setup stops on one step                            | Read its reason, then run `npm run doctor`: it repairs and checks again. Network errors: run it again; set `HTTPS_PROXY` if you are behind a proxy.        |
+| `build:win` says FAILED                            | The last lines name the step. Fix it (often a re-run of `npm run doctor`), then run `npm run build:win` again.                                             |
+| FRIDAY opens but the kernel never becomes ready    | **Setup & Doctor** and **Install Manager**; look for `PythonSetupPending`. The repair is the environment in `<root>\runtime\.venv`, never a global Python. |
+| Chat says "No models loaded"                       | Install a local model ([section 8.1](#81-a-chat-model-the-brain)) or connect a key ([section 9](#9-connect-a-cloud-provider-with-an-api-key)).             |
+| Key says "did not connect"                         | Read the reason on the card: wrong key, no credit, or no network. Create a new key and paste it again.                                                     |
+| FRIDAY does not hear me                            | Set it to Auto; check Windows microphone permission; unmute; make sure the tray pause is off; check that the speech model is loaded (Settings → Voice).    |
+| SmartScreen warning                                | The default build is unsigned. Use More info → Run anyway for a file you downloaded from the official repository.                                          |
+| Official and TEST are both installed               | Expected: different app ids. Uninstall the one you do not want.                                                                                            |
+| Anything else                                      | Open **Setup & Doctor**, press repair, then see the technical table in [section 16.6](#166-troubleshooting-technical).                                     |
+
+## 16. Technical reference
+
+Everything below is the exact detail behind the steps above. You do not need it to follow the guide.
+
+### 16.1 What `npm run setup` does inside
 
 From that same folder:
 
@@ -106,7 +405,7 @@ What the log tells you on a real PC:
 - Nothing in setup waits for a typed answer: installers run with the keyboard closed (stdin ignored) and with their own yes flags, winget is asked for its own source only (no Microsoft Store agreement prompt), and Chocolatey, which needs administrator rights and otherwise stops at "Do you want to continue?", is used only when FRIDAY is elevated. If a window ever does ask something, close it and run `npm run doctor`; it repairs and checks again.
 - Model downloads go through the official Hugging Face client first (`huggingface_hub` with `hf_xet`, already installed in FRIDAY's Python environment, run with `HF_XET_HIGH_PERFORMANCE=1`): a plain download link for a Xet file is served through Hugging Face's compatibility bridge, which is slower than the client's own chunked path. Every file it fetches is checked against the SHA-256 and size Hugging Face lists, and it is cut off after a minute without a byte. If it is missing or fails, FRIDAY's own downloader (`electron/model-download.cjs`) takes over: a file over 24 MB is cut into 8 MB chunks that a pool of connections pulls, starting at 4 and adding two at a time while the speed still rises (up to 16 for one file, 24 in all); a connection with no byte, or a server with no answer, for 20 seconds is ended and the chunk is asked again on the next host; SHA-256 and resume as before. `FRIDAY_HF_ENGINE=own` skips the client, `hub` uses only it. One model downloads at a time (`FRIDAY_PREFETCH_PARALLEL=2..4` runs more) and the optional larger speech size goes last, so everything FRIDAY needs is in place before it. The terminal shows one live line (bar, percent, MB of MB, MB/s, ETA, connections), a log one line per ten percent, and a finished model prints its size, time and average speed. Hugging Face is the only official host of these weights; `FRIDAY_HF_MIRROR=1` adds hf-mirror.com as a last resort and its bytes are still checked against Hugging Face's own digest.
 - Setup, Doctor and the build read the Machine and User PATH from the registry again, so FFmpeg, Pandoc and Rust that setup just installed are found without opening a new window. A tool still missing after that is genuinely missing.
-- Models are downloaded once. With no FRIDAY folder chosen they wait in `.friday-dev` and the installed app moves them into your folder on first launch (section 8).
+- Models are downloaded once. With no FRIDAY folder chosen they wait in `.friday-dev` and the installed app moves them into your folder on first launch ([section 7](#7-open-friday-the-first-time)).
 
 Official download floors (tried in order):
 
@@ -142,9 +441,9 @@ After a successful setup:
 
 Nothing in this chain uses a global `pip install` as the kernel. If a Store alias or a broken venv is on PATH, delete the isolated `.venv` folder and run `npm run setup:python` again.
 
-## 6. Path B — pack the Windows EXEs
+### 16.2 What `npm run build:win` does inside
 
-Prerequisites: section 5 succeeded (`npm run setup` already did the floors). Then, still in the clone root:
+Prerequisites: [16.1](#161-what-npm-run-setup-does-inside) succeeded (`npm run setup` already did the floors). Then, still in the clone root:
 
 ```cmd
 npm run build:win
@@ -194,16 +493,7 @@ Python wheels: floors, not pins. Missing capability extras do not fail kernel bo
 
 Packaging identity, TEST vs Official, and GitHub Actions: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). Assistants must not dispatch those workflows. Official publish is Actions → **FRIDAY Release** on GitHub, not a CMD command. A branch EXE is Actions → **FRIDAY Test Build**.
 
-## 7. Path B — install the EXE you just packed
-
-1. Close any running FRIDAY that uses the same Windows appId you are about to install.
-2. Run `release\FRIDAY-Setup-1.1.5.7.exe` (or the Portable) the same way as [section 2](#2-path-a--install-the-published-setup-exe).
-3. A **TEST** artifact (`FRIDAY-Test-Setup-…`) installs beside Official; it does not replace Official user data. Do not mix their folders.
-4. Follow [section 8](#8-first-launch--make-friday-actually-work) on the new install (venv under that root’s `runtime\.venv`).
-
-Installing a locally packed Setup over an older Official of the **same** four-part version is a rebuild of that version, not a bump. Bumping `config/friday-version.json` is owner-only.
-
-## 8. First launch — make FRIDAY actually work
+### 16.3 First launch: technical details
 
 This section applies after Path A **or** Path B install, and also after `npm run desktop:start` from a checkout.
 
@@ -227,22 +517,11 @@ Do these in order on the running app:
 
 Section-by-section use after this: [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md).
 
-## 9. Run from this checkout without packing
-
-Useful while developing. Not a substitute for the Setup EXE on a daily-driver PC.
-
-```cmd
-npm run setup
-npm run desktop:start
-```
-
-`npm run desktop:dev` uses `electron/dev.cjs` instead of `electron/main.cjs`. You still need a FRIDAY folder and a ready kernel. Chat / voice / model steps in section 8 still apply.
-
-## 10. Every owner-facing CMD / npm command
+### 16.4 Every owner-facing CMD and npm command
 
 Run from the project root in `cmd.exe`.
 
-### 10.1 Pack and run
+#### 16.4.1 Pack and run
 
 | Command                              | What it actually runs                  | Use it when                                                                                  |
 | ------------------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -255,7 +534,7 @@ Run from the project root in `cmd.exe`.
 | `npm run desktop:start`              | `electron electron/main.cjs`           | Run the desktop app from this checkout (not a pack)                                          |
 | `npm run desktop:dev`                | `electron electron/dev.cjs`            | Dev desktop from this checkout                                                               |
 
-### 10.2 Repair one piece
+#### 16.4.2 Repair one piece
 
 | Command                           | What it actually runs                                                                                                                      | Use it when                                                                                                                                                                                                                                                                                                                                                                                              |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -273,7 +552,7 @@ Run from the project root in `cmd.exe`.
 | `npm run verify:install`          | `scripts\readiness-test.cjs`                                                                                                               | Post-pack kernel/database/chat/voice/model/task probe                                                                                                                                                                                                                                                                                                                                                    |
 | `npm run clean:cache`             | `scripts\clean-build-cache.cjs`                                                                                                            | Clear project pack caches under `.cache\`                                                                                                                                                                                                                                                                                                                                                                |
 
-### 10.3 Checks that do not pack an EXE
+#### 16.4.3 Checks that do not pack an EXE
 
 | Command                                    | What it actually runs        | Use it when                                                |
 | ------------------------------------------ | ---------------------------- | ---------------------------------------------------------- |
@@ -286,7 +565,7 @@ Run from the project root in `cmd.exe`.
 
 Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run build:win` needs `cmd.exe`. Those two are Windows-only by design. `setup:python`, `setup:electron`, `init:runtime`, and `check:env` do run on Linux.
 
-## 11. Where files land
+### 16.5 Where files land
 
 One scannable root: the folder you run setup and `build:win` in is it, unless you already chose another folder (the installer then offers it as the install folder). Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 
@@ -304,32 +583,7 @@ One scannable root: the folder you run setup and `build:win` in is it, unless yo
 | Checkout `dist-desktop\`                                 | Renderer bundle                                                                             |
 | Checkout `release\`                                      | `FRIDAY-Setup-1.1.5.7.exe`, `FRIDAY-Portable-1.1.5.7.exe`, `win-unpacked\FRIDAY.exe`        |
 
-## 12. Update
-
-In the running **packaged** app: Settings → Updates. The Stable vs Test selector is described in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). The updater reads GitHub Releases and `friday-update.json`, verifies SHA256, then `electron/update-safety.cjs` (backup → install → health → rollback). Packaged FRIDAY is never replaced by a source ZIP. User data under the root is not deleted by a normal update.
-
-From source, packing a new EXE and running that Setup is an upgrade of `<root>\App` only.
-
-## 13. Uninstall
-
-1. Windows Settings → Apps → Installed apps → FRIDAY (Official) or FRIDAY Test.
-2. Default (keep-data): only `<root>\App` is removed. Database, models, memory, library, and the rest of the root stay.
-3. Tick **Delete all FRIDAY data and resources** to remove the whole root (`$FridayUnMode == "delete"`). `nsis.deleteAppDataOnUninstall` is `false` in `electron-builder.yml`, so Windows will not silently wipe the root. Before the program folder is removed, Setup and Uninstall close the installed FRIDAY tree and also any Python or Node process started on a file inside the program folder (its executable can sit outside it, and it stands in that folder), never the process that started the closer; a detached helper then removes `<root>\App` and `<root>` for about a minute and a half. Keep-data removes `<root>\App` only.
-4. Portable: delete the extracted folder yourself; there is no Apps & Features row.
-
-Typed plans: `installer/uninstall/index.ts`. Contract: [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
-
-## 14. Signing a packed EXE (optional)
-
-```cmd
-set CSC_LINK=C:\path\to\publisher.pfx
-set CSC_KEY_PASSWORD=********
-npm run build:win
-```
-
-Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CSC_LINK` means unsigned. Details: [SECURITY.md](SECURITY.md).
-
-## 15. Troubleshooting (install / pack / first kernel)
+### 16.6 Troubleshooting (technical)
 
 | Symptom                                                                                                                                         | What to do                                                                                                                                                                                                                                                                     |
 | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -340,7 +594,7 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 | `faster-whisper` / `edge-tts` import fails on Windows                                                                                           | `npm run setup:python` fail-closes on purpose. Retry on a network that can reach PyPI; do not skip those floors                                                                                                                                                                |
 | `build:win` not found on Linux / macOS                                                                                                          | Expected. Pack on Windows `cmd.exe`. Do not wrap the `.cmd` in a Unix script                                                                                                                                                                                                   |
 | SQLite / Git below floor on Linux CI agents                                                                                                     | Floors in `config/toolchain-versions.json` are Windows product requirements. Do not lower them to green a Linux agent                                                                                                                                                          |
-| SmartScreen warning                                                                                                                             | Unsigned default. See section 14                                                                                                                                                                                                                                               |
+| SmartScreen warning                                                                                                                             | Unsigned default. See [16.7](#167-signing-a-packed-exe-optional)                                                                                                                                                                                                               |
 | Official and TEST both installed                                                                                                                | Different appIds — expected. Uninstall the one you meant                                                                                                                                                                                                                       |
 | Packed app will not take a GitHub source ZIP as an update                                                                                       | Intentional. Use Settings → Updates / a verified Setup EXE                                                                                                                                                                                                                     |
 | `kernel/requirements.txt not found` during `npm run build:win`                                                                                  | This Git clone is also the FRIDAY data root, so `kernel/` was treated as a data alias of `backend/`. Re-run the pack; `setup-python` restores `kernel/`. Clone the repo into a folder that is not the installed FRIDAY root                                                    |
@@ -351,17 +605,46 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 
 Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.
 
-## 16. Copy-paste order (source path, Windows CMD)
-
-From a fresh clone on a Windows PC:
+### 16.7 Signing a packed EXE (optional)
 
 ```cmd
-git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
-cd FRIDAY-AI-ASSISTANT
-git pull origin main
-npm run setup
-npm run doctor
+set CSC_LINK=C:\path\to\publisher.pfx
+set CSC_KEY_PASSWORD=********
 npm run build:win
 ```
 
-Then run `release\FRIDAY-Setup-1.1.5.7.exe`, pick a FRIDAY folder, wait for kernel ready, then follow section 8 until Chat Manual sends a reply.
+Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CSC_LINK` means unsigned. Details: [SECURITY.md](SECURITY.md).
+
+### 16.8 Update and uninstall: how they work
+
+**Update.**
+
+In the running **packaged** app: Settings → Updates. The Stable vs Test selector is described in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). The updater reads GitHub Releases and `friday-update.json`, verifies SHA256, then `electron/update-safety.cjs` (backup → install → health → rollback). Packaged FRIDAY is never replaced by a source ZIP. User data under the root is not deleted by a normal update.
+
+From source, packing a new EXE and running that Setup is an upgrade of `<root>\App` only.
+
+**Uninstall.**
+
+1. Windows Settings → Apps → Installed apps → FRIDAY (Official) or FRIDAY Test.
+2. Default (keep-data): only `<root>\App` is removed. Database, models, memory, library, and the rest of the root stay.
+3. Tick **Delete all FRIDAY data and resources** to remove the whole root (`$FridayUnMode == "delete"`). `nsis.deleteAppDataOnUninstall` is `false` in `electron-builder.yml`, so Windows will not silently wipe the root. Before the program folder is removed, Setup and Uninstall close the installed FRIDAY tree and also any Python or Node process started on a file inside the program folder (its executable can sit outside it, and it stands in that folder), never the process that started the closer; a detached helper then removes `<root>\App` and `<root>` for about a minute and a half. Keep-data removes `<root>\App` only.
+4. Portable: delete the extracted folder yourself; there is no Apps & Features row.
+
+Typed plans: `installer/uninstall/index.ts`. Contract: [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
+
+### 16.9 The Setup installer step by step
+
+No CMD pack is required for daily use.
+
+1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.1.5.7**.
+2. Download `FRIDAY-Setup-1.1.5.7.exe`. Optionally check `SHA256SUMS.txt` on that release.
+3. Double-click Setup while signed in as the user who will run FRIDAY. The product is per-user (`perMachine: false` in `electron-builder.yml`). Do not “Run as administrator” unless that account should own the install.
+4. The wizard has one folder page: where the FRIDAY root should live. Default is `%USERPROFILE%\FRIDAY`. Setup refuses `Program Files`, `Windows`, and a nested `FRIDAY\FRIDAY` folder.
+5. Program files go into `<chosen root>\App` (`$INSTDIR`). The chosen root is written to `HKCU\Software\FRIDAY\WorkspacePath`.
+6. After copy, Setup launches `installer/build/repair-runtime.ps1`. That helper **never aborts Setup**. It reuses a healthy `runtime\.venv`, installs `kernel\requirements.txt` (startup + voice floors), then tries `kernel\requirements-capabilities.txt` as best-effort extras. When Python repair cannot finish, shortcuts and the uninstaller still register, and Setup records `PythonSetupPending` so Doctor / Install Manager can finish later.
+7. Tick launch if the wizard offers it, or start FRIDAY from the Start menu / desktop shortcut (`FRIDAY.exe` inside `<root>\App`).
+8. Continue at [section 7](#7-open-friday-the-first-time).
+
+SmartScreen may warn on an unsigned build. That is the honest local/CI default until `CSC_LINK` / `CSC_KEY_PASSWORD` are set at pack time. Signing does not by itself clear SmartScreen for a new publisher.
+
+If you clone Git into a folder that is **already** the installed FRIDAY data root (same path as `HKCU\Software\FRIDAY\WorkspacePath`), `kernel/` can be treated as a data alias of `backend/`. `setup-python` restores that tree. Prefer cloning into a **different** folder than the installed root.
