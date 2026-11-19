@@ -364,7 +364,7 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
       return;
     }
     if (hasBar) {
-      line = progressLine(id, event, false);
+      line = progressLine(id, event, false, true);
       // One line per ten percent, not one per update (the speed and ETA change every second).
       const step = Math.floor(Math.max(0, Math.min(100, Number(event.progress))) / 10);
       if (step <= bucket) return;

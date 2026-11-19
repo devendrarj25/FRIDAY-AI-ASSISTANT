@@ -66,7 +66,7 @@ function sourceUrls(pack, env = process.env) {
 }
 
 /** One progress line for a pack download; a TTY redraws it, a log prints every 10 percent. */
-function progressLine(id, event, tty) {
+function progressLine(id, event, tty, everyStep = false) {
   if (!event || event.progress == null) return "";
   const percent = Math.max(0, Math.min(100, Math.round(event.progress)));
   const width = 24;
@@ -81,7 +81,8 @@ function progressLine(id, event, tty) {
   const line = `[friday] ${id.padEnd(14)} [${bar}] ${String(percent).padStart(3)}%${size}${speed}${eta}${conns}`;
   // \x1b[K clears what a longer earlier line left behind on the same row.
   if (tty) return `\r${line}\x1b[K`;
-  return percent % 10 === 0 ? line : "";
+  // A fast download can jump past an exact multiple of ten; the caller that keeps its own step count asks for every line.
+  return everyStep || percent % 10 === 0 ? line : "";
 }
 
 function sha256(body) {
