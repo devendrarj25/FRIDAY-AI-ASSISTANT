@@ -1605,9 +1605,13 @@ async function startKernelNow(root) {
 
   kernel.stdout.on("data", forward("info"));
   kernel.stderr.on("data", forward("error"));
+  // An event from an older kernel that arrives after a newer one started must not mark the new one as down.
+  const thisKernel = kernel;
   kernel.on("error", (err) => {
-    kernelReady = false;
-    kernel = null;
+    if (kernel === thisKernel) {
+      kernelReady = false;
+      kernel = null;
+    }
     kernelFailure =
       err?.code === "ENOENT"
         ? `Python was not found (tried "${python}"). Install Python 3 and reopen FRIDAY.`
@@ -1617,9 +1621,11 @@ async function startKernelNow(root) {
     boot("Starting services", "warn", kernelFailure);
     serviceHealth.invalidate();
   });
-  kernel.on("exit", (code) => {
-    kernelReady = false;
-    kernel = null;
+  thisKernel.on("exit", (code) => {
+    if (kernel === thisKernel) {
+      kernelReady = false;
+      kernel = null;
+    }
     if (code !== 0 && code !== null) {
       const tail = kernelStderr.trim().split("\n").slice(-2).join(" ").slice(0, 300);
       kernelFailure = `The local AI service stopped (exit ${code}).${tail ? ` ${tail}` : ""}`;
@@ -1836,7 +1842,9 @@ async function stopKernel({ timeoutMs = 10_000 } = {}) {
       setTimeout(() => resolve(false), timeoutMs).unref?.();
     });
     try {
-      child.kill();
+      // Windows: kill() ends only the launcher of a virtual environment, not the interpreter under it that holds the port.
+      if (process.platform === "win32" && child.pid) appLifecycle.killProcessTree(child.pid);
+      else child.kill();
     } catch {
       // Already gone.
     }
@@ -1940,7 +1948,8 @@ function stopOwnedProcesses() {
   }
   if (kernel) {
     try {
-      kernel.kill();
+      if (process.platform === "win32" && kernel.pid) appLifecycle.killProcessTree(kernel.pid);
+      else kernel.kill();
     } catch {
       // The kernel may already have exited.
     }
