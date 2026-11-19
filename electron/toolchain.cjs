@@ -3448,23 +3448,58 @@ function runJob({ id, action, root }, emit) {
             /* already gone */
           }
         });
+        // Installers and winget print no bar when their output is piped (and winget's own frames are dropped
+        // below), so a long download looked like a hang: say it is still working every few seconds, and turn
+        // winget's `12.3 MB / 45.0 MB` frames into a real percent, size and speed.
+        const activity = require("./activity.cjs");
+        const ticker = activity.startTicker({
+          label: tool.name || id,
+          watch: activity.watchDirsFor(tool),
+          write: (_line, text) =>
+            emit({ id, action, phase: "Running", line: `[${label}] ${text}` }),
+        });
+        let frame = { at: 0, bytes: 0 };
         const feed = (chunk) => {
           dog.poke();
-          require("./installer-output.cjs")
+          const output = require("./installer-output.cjs");
+          output
             .tidyChunk(chunk)
             .slice(-4)
             .forEach((line) => emit({ id, action, phase: "Running", line }));
+          const progress = output.progressFromChunk(chunk);
+          const nowMs = Date.now();
+          if (progress && nowMs - frame.at >= 1000) {
+            const seconds = Math.max(0.001, (nowMs - frame.at) / 1000);
+            const speed =
+              frame.at && progress.bytesDone >= frame.bytes
+                ? (progress.bytesDone - frame.bytes) / seconds / 1024 ** 2
+                : 0;
+            frame = { at: nowMs, bytes: progress.bytesDone };
+            emit({
+              id,
+              action,
+              phase: "Downloading",
+              line: `downloading ${progress.percent}%`,
+              percent: progress.percent,
+              bytesDone: progress.bytesDone,
+              bytesTotal: progress.bytesTotal,
+              speedMbps: speed > 0 ? Number(speed.toFixed(1)) : undefined,
+              source: "winget",
+            });
+          }
         };
         child.stdout?.on("data", feed);
         child.stderr?.on("data", feed);
         child.on("error", (err) => {
           dog.stop();
+          ticker.stop();
           jobs.delete(key);
           emit({ id, action, phase: "Running", line: `[${label}] ${String(err.message)}` });
           resolve(-1);
         });
         child.on("close", (code) => {
           dog.stop();
+          ticker.stop();
           jobs.delete(key);
           resolve(code);
         });

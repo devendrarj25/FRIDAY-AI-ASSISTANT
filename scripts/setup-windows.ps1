@@ -731,11 +731,13 @@ try {
   }
 
   Write-Step 'Installing the exact Node dependency lockfile'
-  & npm.cmd ci --no-audit --no-fund
+  # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
+  # shows no progress when its output is piped and a quiet minute looks like a hung window.
+  & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) {
     Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
     & npm.cmd cache verify
-    & npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
+    & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
   }
 

@@ -121,6 +121,7 @@ What setup does, in plain words: it checks the PC, installs what is missing (Nod
 
 - **It takes a long time** (the first run often 30 to 90 minutes, depending on your line), prints a lot of text, and some steps show a progress bar. Let it run. Do not close the window.
 - **Windows may ask for permission** (a blue-and-yellow "User Account Control" box) for WSL 2, Docker Desktop, Windows Sandbox and CUDA. Allow it if you want those tools; setup carries on if you decline. Windows may ask for a restart afterwards.
+- A long step that cannot draw a progress bar in a pipe (`npm ci`, the Electron download, the Python packages, a tool update) prints a line like `still working · 1m20s · 412 MB so far · 5.1 MB/s` every 15 seconds, so a quiet window is working, not stuck. `FRIDAY_ACTIVITY=0` turns those lines off.
 - Setup never waits for a typed answer. If another window asks something, close it and run `npm run doctor`.
 - Run it again any time: it is safe to repeat. A tool that is already new enough is reused; an old or missing one is installed at the latest stable release.
 

@@ -46,4 +46,36 @@ function tidyChunk(chunk) {
   return out;
 }
 
-module.exports = { tidyLine, tidyChunk };
+const UNIT = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 };
+const toBytes = (value, unit) =>
+  Number(value) * (UNIT[String(unit).toUpperCase().replace("IB", "B")] || 1);
+
+/**
+ * winget draws `████▒▒▒  12.3 MB / 45.0 MB` (and sometimes `45%`) with a carriage return. Read from a pipe those
+ * frames used to be thrown away, so a 500 MB download showed nothing. The newest frame of a chunk, as bytes and a
+ * percent, or null. Pure.
+ */
+function progressFromChunk(chunk) {
+  let found = null;
+  for (const piece of String(chunk || "")
+    .replace(ANSI, "")
+    .split(/[\r\n]+/)) {
+    const sized = piece.match(
+      /(\d+(?:\.\d+)?)\s*([KMG]i?B|B)\s*\/\s*(\d+(?:\.\d+)?)\s*([KMG]i?B|B)/i,
+    );
+    if (sized) {
+      const done = toBytes(sized[1], sized[2]);
+      const total = toBytes(sized[3], sized[4]);
+      if (total > 0 && done <= total * 1.001) {
+        found = {
+          bytesDone: Math.round(done),
+          bytesTotal: Math.round(total),
+          percent: Math.min(100, Math.round((done / total) * 100)),
+        };
+      }
+    }
+  }
+  return found;
+}
+
+module.exports = { tidyLine, tidyChunk, progressFromChunk };

@@ -913,12 +913,18 @@ async function fetchMoonshine(root, { env = process.env, log = console.log, run 
         child.stdout.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
         child.stderr.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
         const timer = setTimeout(() => child.kill(), options.timeout);
+        // The download prints nothing until it ends, so a proof-of-life line says it is still working.
+        const ticker = require("./electron-module.cjs")
+          .load("activity.cjs")
+          .startTicker({ label: "moonshine-en", watch: [dir], write: (line) => log(line) });
         child.on("error", (error) => {
           clearTimeout(timer);
+          ticker.stop();
           resolve({ status: -1, stdout: out, stderr: "", error });
         });
         child.on("close", (status) => {
           clearTimeout(timer);
+          ticker.stop();
           resolve({ status, stdout: out, stderr: "" });
         });
       }));

@@ -54,16 +54,22 @@ function dependencies() {
     console.log("[friday] node_modules already matches package-lock.json; npm ci skipped");
     return { status: 0 };
   }
-  const first = spawnNpm(["ci", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit" });
+  const { withActivity } = require("./with-activity.cjs");
+  const modules = [path.join(ROOT, "node_modules")];
+  const first = withActivity("npm ci", modules, () =>
+    spawnNpm(["ci", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit" }),
+  );
   if (first.status === 0) return first;
   console.error(
     "[friday] npm ci failed - npm cache verify, then one retry against registry.npmjs.org",
   );
   spawnNpm(["cache", "verify"], { cwd: ROOT, stdio: "inherit" });
-  return spawnNpm(["ci", "--no-audit", "--no-fund", "--registry", "https://registry.npmjs.org/"], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
+  return withActivity("npm ci", modules, () =>
+    spawnNpm(["ci", "--no-audit", "--no-fund", "--registry", "https://registry.npmjs.org/"], {
+      cwd: ROOT,
+      stdio: "inherit",
+    }),
+  );
 }
 
 /** The speech, voice and chat weights: Doctor used to pass without ever looking for them. */
