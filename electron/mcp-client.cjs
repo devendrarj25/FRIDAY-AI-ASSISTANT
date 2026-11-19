@@ -8,6 +8,7 @@
 const { spawn } = require("node:child_process");
 const { fetchCompat } = require("./net-fetch.cjs");
 const proto = require("./mcp-protocol.cjs");
+const { stopChild } = require("./app-lifecycle.cjs");
 const privacy = require("./privacy-firewall.cjs");
 
 const PROTOCOL = proto.CURRENT_VERSION;
@@ -158,7 +159,7 @@ function openStdio(commandLine, { cwd, timeoutMs = 20_000, onServerRequest } = {
       /* already gone */
     }
     try {
-      child.kill("SIGTERM");
+      stopChild(child, "SIGTERM");
     } catch {
       /* already gone */
     }

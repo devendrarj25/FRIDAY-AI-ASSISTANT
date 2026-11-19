@@ -15,6 +15,7 @@
  *     every start, and it never blocks or crashes start-up.
  */
 const fs = require("node:fs");
+const { stopChild } = require("./app-lifecycle.cjs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -88,7 +89,7 @@ function runPip(exe, args, { timeoutMs = PIP_TIMEOUT_MS } = {}) {
     const timer = setTimeout(() => {
       out += "\npip timed out";
       try {
-        child.kill();
+        stopChild(child);
       } catch {
         /* already gone */
       }

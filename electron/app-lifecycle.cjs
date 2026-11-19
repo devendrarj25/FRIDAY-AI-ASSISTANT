@@ -189,6 +189,22 @@ function killProcessTree(pid, options = {}) {
   }
 }
 
+/**
+ * Stop a child this app started. On Windows `child.kill()` ends only that one process, so a shell, `npx`, a Python
+ * launcher or an installer would leave what it started still running: the whole tree goes there. Elsewhere the signal
+ * is sent to the child. Never throws.
+ */
+function stopChild(child, signal, options = {}) {
+  if (!child) return false;
+  const platform = options.platform || process.platform;
+  try {
+    if (platform === "win32" && child.pid) return killProcessTree(child.pid, options);
+    return child.kill(signal) !== false;
+  } catch {
+    return false;
+  }
+}
+
 function createPidRegistry({ file, fsImpl = fs } = {}) {
   const rows = new Map();
 
@@ -584,6 +600,7 @@ module.exports = {
   restartPlan,
   pidAlive,
   killProcessTree,
+  stopChild,
   killImage,
   waitForProcessGone,
   createPidRegistry,

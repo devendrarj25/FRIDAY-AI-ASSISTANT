@@ -42,7 +42,7 @@ function extractTarArchive(file, dest) {
   const spec = require("./load-win-spawn.cjs")
     .loadWinSpawn(__dirname)
     .localTar(file, ["-xzf", file, "-C", dest]);
-  execFileSync("tar", spec.args, { cwd: spec.cwd, stdio: "ignore" });
+  execFileSync("tar", spec.args, { cwd: spec.cwd, stdio: "ignore", windowsHide: true });
 }
 
 const run = (cmd, args, timeout = 6000) => {

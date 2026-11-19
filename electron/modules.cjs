@@ -14,6 +14,7 @@ const { spawn } = require("child_process");
 
 const capabilities = require("./capabilities.cjs");
 const { resolvePython } = require("./python.cjs");
+const { stopChild } = require("./app-lifecycle.cjs");
 
 function isRoots(value) {
   return Boolean(
@@ -356,7 +357,7 @@ function runProcess(cmd, args, cwd, timeoutMs) {
       if (done) return;
       done = true;
       try {
-        child.kill("SIGKILL");
+        stopChild(child, "SIGKILL");
       } catch {
         /* already gone */
       }
