@@ -16,30 +16,30 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "fr-root-"));
  * Without a root there is no second store anywhere on the machine.
  */
 describe("root-only credential storage", () => {
-  it("refuses to store provider keys before a FRIDAY folder is selected", () => {
+  it("refuses to store provider keys before a FRIDAY folder is selected", async () => {
     expect(models.readKeys(null)).toEqual({});
-    expect(models.writeKey(null, "groq", "secret").ok).toBe(false);
+    expect((await models.writeKey(null, "groq", "secret")).ok).toBe(false);
     expect(models.readEndpoints(null)).toEqual({});
     expect(models.writeEndpoint(null, "groq", "https://x.dev").ok).toBe(false);
     expect(models.readAccessTiers(null)).toEqual({});
     expect(models.writeAccessTier(null, "groq", "free").ok).toBe(false);
   });
 
-  it("keeps keys inside <root>/config", () => {
+  it("keeps keys inside <root>/config", async () => {
     const dir = tmp();
-    models.writeKey(dir, "groq", "k-1");
+    await models.writeKey(dir, "groq", "k-1");
     expect(fs.existsSync(path.join(dir, "config", "provider-keys.json"))).toBe(true);
     expect(models.readKeys(dir).groq).toBe("k-1");
   });
 
-  it("refuses plaintext keys when Settings encryption is on and OS encryption is missing", () => {
+  it("refuses plaintext keys when Settings encryption is on and OS encryption is missing", async () => {
     const dir = tmp();
     fs.mkdirSync(path.join(dir, "config"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "config", "friday-preferences.json"),
       JSON.stringify({ toggles: { encryption: true } }),
     );
-    const result = models.writeKey(dir, "groq", "secret-key");
+    const result = await models.writeKey(dir, "groq", "secret-key");
     if (result.ok) {
       expect(result.encrypted).toBe(true);
     } else {

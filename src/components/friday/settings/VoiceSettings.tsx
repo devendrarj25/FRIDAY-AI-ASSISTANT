@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
+import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
+import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
 import {
   ownerAcceptanceSteps,
@@ -37,6 +39,7 @@ import {
   selectVoiceModel,
   speakSample,
   updateVoiceModel,
+  resetToBestVoice,
 } from "@/lib/friday/voice-library";
 
 const RECOGNITION_LANGS = [
@@ -61,6 +64,7 @@ export function VoiceSettings() {
 
   return (
     <div className="space-y-4">
+      <FridayVoice />
       <HudPanel title="Voice & Wake Word" hint="used by auto mode in the title bar">
         <div className="grid gap-3 sm:grid-cols-2">
           <EditField
@@ -215,46 +219,11 @@ export function VoiceSettings() {
             onToggle={() => assistantMode.setPaused(!voice.paused)}
           />
           <EditField
-            label="Speaker match threshold"
+            label="Speaker match bar (0.30 to 0.99; 0.75 is what your saved voice was measured at)"
             value={prefs.fields["speakerThreshold"] ?? "0.75"}
             onChange={(value) => preferences.setField("speakerThreshold", value)}
           />
-          <p className="text-meta text-muted-foreground">
-            WeSpeaker ECAPA is CC-BY-4.0 and is not bundled. A match never approves an action. Enrol
-            waits until that file is on this PC.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const api = desktopApi();
-                if (!api?.voiceprintStatus) {
-                  toast.message("The speaker model is not on disk");
-                  return;
-                }
-                void api.voiceprintStatus().then((row) => {
-                  toast.message(row?.reason || "The speaker model is not on disk");
-                });
-              }}
-            >
-              Enrol voiceprint
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const api = desktopApi();
-                if (!api?.clearVoiceprint) {
-                  toast.error("Forget voiceprint runs in the desktop app");
-                  return;
-                }
-                void api.clearVoiceprint().then(() => toast.success("Voiceprint forgotten"));
-              }}
-            >
-              Forget voiceprint
-            </Button>
-          </div>
+          <VoiceEnrollment />
           <ToggleRow
             label="Lower other audio while FRIDAY speaks"
             hint="Quiet hours leave other apps alone. A voice match never approves an action."
@@ -479,30 +448,6 @@ export function VoiceSettings() {
               onValueCommit={() => void preferences.flush()}
             />
           </div>
-          <TuneRow
-            label="Speaking rate"
-            value={prefs.voice.rate}
-            min={0.5}
-            max={2}
-            detail={`${prefs.voice.rate.toFixed(2)}x`}
-            onChange={(rate) => preferences.setVoice({ rate })}
-          />
-          <TuneRow
-            label="Pitch"
-            value={prefs.voice.pitch}
-            min={0}
-            max={2}
-            detail={prefs.voice.pitch.toFixed(2)}
-            onChange={(pitch) => preferences.setVoice({ pitch })}
-          />
-          <TuneRow
-            label="Volume"
-            value={prefs.voice.volume}
-            min={0}
-            max={1}
-            detail={`${Math.round(prefs.voice.volume * 100)}%`}
-            onChange={(volume) => preferences.setVoice({ volume })}
-          />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -531,13 +476,11 @@ export function VoiceSettings() {
                 wakeWord: "friday",
                 recognitionLang: "hi-IN",
                 speechLang: "hi-IN",
-                voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
-                rate: 0.96,
-                pitch: 1.12,
-                volume: 1,
+                voiceName: "",
                 speakReplies: true,
                 hinglish: true,
               });
+              resetToBestVoice();
               assistantMode.setHandsFree(true);
               assistantMode.setMuted(false);
               assistantMode.setPaused(false);

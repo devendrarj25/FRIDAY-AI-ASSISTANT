@@ -18,6 +18,7 @@ import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing
 import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
 import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
 import { desktopApi } from "@/lib/friday/desktop";
+import { useVoiceProfile } from "@/lib/friday/use-voice-profile";
 import { turnTraceLine, voiceTurn, whereItStopped } from "@/lib/friday/voice-turn-trace";
 import {
   formatVoiceProbeReport,
@@ -42,6 +43,7 @@ import {
  * run the REAL probes in the main process.
  */
 export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
+  const myVoice = useVoiceProfile();
   const [checks, setChecks] = useState<
     Array<{
       id: string;
@@ -186,6 +188,12 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: assistantMode.voiceTone()?.line ?? "no voiced utterance yet",
     },
     { label: "heard / dropped", value: hearingCountersLine(hearingCounters()) },
+    {
+      label: "my voice (saved profile)",
+      value: myVoice?.profile.built
+        ? `built${myVoice.profile.stale ? ", recordings changed since" : ""} · voiceprint ${myVoice.profile.summary?.speaker?.ready ? "ready" : "not ready"} · personal wake ${myVoice.profile.summary?.wake?.ready ? "ready" : "not ready"}`
+        : `no profile yet (${myVoice?.counts.total ?? 0} recording(s))`,
+    },
     {
       label: "capture frames (numbered / listeners dropped)",
       value: `${captureCounters().frames} frames · ${captureCounters().samples} samples · ${captureCounters().tapsDropped} listener(s) dropped · ${captureTapCount()} listening`,

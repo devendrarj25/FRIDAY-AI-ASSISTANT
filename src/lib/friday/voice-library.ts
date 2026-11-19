@@ -15,6 +15,7 @@ import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expre
 import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
 import { attachSpeechAudio, pulseSpeechAudio, stopSpeechAudio } from "./character/speech-audio";
 import { preferences, type VoiceModel } from "./preferences";
+import { bestVoiceFields, presetFields, type VoicePresetId } from "./voice-presets";
 import { alertsAudible } from "./settings-runtime";
 import { readVoiceSurface, shouldDuck, spokenReplyAllowed } from "./voice-session";
 
@@ -160,6 +161,36 @@ export function updateVoiceModel(id: string, patch: Partial<VoiceModel>) {
 }
 
 /** Make one voice the active FRIDAY voice for Auto mode. */
+/**
+ * Set how FRIDAY's voice is delivered (speed, pitch, volume). The active library voice carries its own copy of the
+ * three numbers and wins over the plain preferences when it speaks, so both are written: otherwise a slider moved
+ * while a library voice is active would change nothing.
+ */
+export function setVoiceDelivery(patch: { rate?: number; pitch?: number; volume?: number }) {
+  const voice = preferences.getSnapshot().voice;
+  preferences.setVoice({ ...patch, voicePreset: "custom" });
+  if (voice.activeId) updateVoiceModel(voice.activeId, patch);
+}
+
+/** Apply a delivery preset (natural, warm, bright, calm) to the preferences and to the active library voice. */
+export function applyVoicePreset(id: VoicePresetId) {
+  const fields = presetFields(id);
+  preferences.setVoice(fields);
+  const voice = preferences.getSnapshot().voice;
+  if (voice.activeId) {
+    updateVoiceModel(voice.activeId, {
+      ...(fields.rate !== undefined ? { rate: fields.rate } : {}),
+      ...(fields.pitch !== undefined ? { pitch: fields.pitch } : {}),
+      ...(fields.volume !== undefined ? { volume: fields.volume } : {}),
+    });
+  }
+}
+
+/** Reset FRIDAY's voice to the best-known one: Swara and Neerja, the natural preset. The owner's library is kept. */
+export function resetToBestVoice() {
+  preferences.setVoice({ ...bestVoiceFields(), activeId: "", voiceName: "", speechLang: "hi-IN" });
+}
+
 export function selectVoiceModel(id: string) {
   const model = currentModels().find((m) => m.id === id);
   if (!model) return;
@@ -249,13 +280,21 @@ export function addNeuralVoice(voice: NeuralVoice): VoiceModel {
   return model;
 }
 
-/** Default neural voice for a language — Swara for Hindi, Neerja for English. */
+/**
+ * The neural voice for a language. An explicit voice named by the caller (the active library voice) wins when it
+ * speaks that language; otherwise the owner's own Hindi or English pick (Settings → Voice → FRIDAY's voice);
+ * otherwise Swara for Hindi and Neerja for English.
+ */
 export function neuralVoiceFor(lang: string, preferred?: string): string {
   const hindi = /^hi/i.test(lang);
   if (preferred && /Neural$/.test(preferred)) {
     const preferredIsHindi = preferred.startsWith("hi-");
     if (preferredIsHindi === hindi) return preferred;
   }
+  const own = hindi
+    ? preferences.getSnapshot().voice.hindiVoice
+    : preferences.getSnapshot().voice.englishVoice;
+  if (own && /Neural$/.test(own) && own.startsWith(hindi ? "hi-" : "en-")) return own;
   return hindi ? "hi-IN-SwaraNeural" : "en-IN-NeerjaNeural";
 }
 

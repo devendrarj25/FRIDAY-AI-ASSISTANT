@@ -113,8 +113,8 @@ async function initGit(dir: string, files: Record<string, string>) {
 }
 
 describe("Hub multi-repo connections", () => {
-  it("always lists FRIDAY's own repo as self and cannot remove it", () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+  it("always lists FRIDAY's own repo as self and cannot remove it", async () => {
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     const listed = sync.listConnections(root);
     expect(listed.ok).toBe(true);
     expect(listed.selectedId).toBe("self");
@@ -122,13 +122,13 @@ describe("Hub multi-repo connections", () => {
     expect(listed.connections[0].role).toBe("self");
     expect(listed.connections[0].label).toMatch(/FRIDAY/i);
     expect(listed.connections[0].hasToken).toBe(true);
-    const removed = sync.removeConnection(root, "self");
+    const removed = await sync.removeConnection(root, "self");
     expect(removed.ok).toBe(false);
     expect(sync.readConfig(root).token).toBe("ghp_self");
   });
 
   it("keeps Updates repo/token when an extra Hub repo is added", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     stubRepo("acme/notes");
     const added = await sync.addConnection(root, { repo: "acme/notes", token: "ghp_extra" });
     expect(added.ok).toBe(true);
@@ -152,7 +152,7 @@ describe("Hub multi-repo connections", () => {
   });
 
   it("selects self when the extra URL is FRIDAY's own repo, without replacing the Updates token", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     const added = await sync.addConnection(root, {
       repo: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
       token: "ghp_should_not_overwrite",
@@ -164,7 +164,7 @@ describe("Hub multi-repo connections", () => {
   });
 
   it("uses the existing private-repo 404 message when an extra repo has no token", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => json({ message: "Not Found" }, 404)),
@@ -176,16 +176,16 @@ describe("Hub multi-repo connections", () => {
   });
 
   it("preserves Hub connections when Updates only patches repo", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
     stubRepo("acme/notes");
     await sync.addConnection(root, { repo: "acme/notes" });
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", branch: "main" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", branch: "main" });
     const listed = sync.listConnections(root);
     expect(listed.connections.some((c: { repo: string }) => c.repo === "acme/notes")).toBe(true);
   });
 
   it("treats FRIDAY's own repo as self even when the URL case or SSH form differs", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     const pasted = await sync.addConnection(root, {
       repo: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/tree/main",
       token: "ghp_should_not_overwrite",
@@ -203,7 +203,7 @@ describe("Hub multi-repo connections", () => {
   });
 
   it("records live private/public after Test connection", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     stubRepo("acme/notes", { private: true });
     const added = await sync.addConnection(root, { repo: "acme/notes" });
     expect(added.ok).toBe(true);
@@ -230,7 +230,7 @@ describe("Hub multi-repo connections", () => {
 
 describe("create-repo and workflow dispatch", () => {
   it("refuses create and dispatch without confirm", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     const created = await release.createRepository(root, { name: "scratch" });
     expect(created.ok).toBe(false);
     expect(String(created.error)).toMatch(/confirmed/i);
@@ -240,7 +240,7 @@ describe("create-repo and workflow dispatch", () => {
   });
 
   it("creates a repo through github-release call() and lists workflows", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     stubRepo("tester/scratch");
     const created = await release.createRepository(root, {
       name: "scratch",
@@ -266,7 +266,7 @@ describe("create-repo and workflow dispatch", () => {
   });
 
   it("refuses to dispatch FRIDAY's official release.yml from Hub when self is selected", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     stubRepo("devendrarj25/FRIDAY-AI-ASSISTANT");
     const ran = await release.dispatchWorkflow(root, {
       workflow: "release.yml",
@@ -329,11 +329,11 @@ describe("working-tree file gates", () => {
   });
 
   it("packages a folder into a linked checkout and refuses FRIDAY's own tree", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT" });
     const rel = "temporary/sessions/hub-repos/repo_pack-acme-pack";
     const dest = path.join(root, rel);
     fs.mkdirSync(dest, { recursive: true });
-    sync.writeConfig(root, {
+    await sync.writeConfig(root, {
       connections: [
         {
           id: "repo_pack",
@@ -364,7 +364,7 @@ describe("working-tree file gates", () => {
 
 describe("real second repo: branch, edit, validate, push, open PR", () => {
   it("operates against a linked checkout, not FRIDAY's Updates repo", async () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
+    await sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", token: "ghp_self" });
     const credentials = require_(path.resolve(process.cwd(), "electron/credentials.cjs"));
     const remote = path.join(root, "remotes", "scratch.git");
     fs.mkdirSync(remote, { recursive: true });
@@ -384,7 +384,7 @@ describe("real second repo: branch, edit, validate, push, open PR", () => {
     const seeded = await dev.git(["push", "-u", "origin", "HEAD:main"], checkout);
     expect(seeded.ok).toBe(true);
 
-    sync.writeConfig(root, {
+    await sync.writeConfig(root, {
       connections: [
         {
           id: "repo_scratch",
@@ -396,7 +396,7 @@ describe("real second repo: branch, edit, validate, push, open PR", () => {
       ],
       selectedConnectionId: "repo_scratch",
     });
-    credentials.setSecret(root, sync.connectionTokenId("repo_scratch"), "ghp_linked");
+    await credentials.setSecret(root, sync.connectionTokenId("repo_scratch"), "ghp_linked");
 
     const target = sync.hubTarget(root);
     expect(target.role).toBe("linked");

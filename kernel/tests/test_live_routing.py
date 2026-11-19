@@ -97,6 +97,19 @@ class LiveRoutingTests(unittest.TestCase):
         self.assertIsNone(router.ids_for_live(None))
         self.assertIsNone(router.ids_for_live({}))
 
+    def test_private_live_snapshot_keeps_the_phone_route_on_this_pc(self):
+        """The desktop now publishes `privacy`; a phone turn must not reach a cloud model when it is private."""
+        router = make_router()
+        private = router.ids_for_live(
+            {"routeMode": "auto", "policy": "free-preferred", "privacy": "private", "selected": []}
+        )
+        self.assertEqual(sorted(private or []), ["ollama:llama3.1", "ollama:qwen2.5"])
+        standard = router.ids_for_live(
+            {"routeMode": "auto", "policy": "free-preferred", "privacy": "standard", "selected": []}
+        )
+        self.assertIn("gemini:gemini-2.0-flash", standard or [])
+        self.assertIn("ollama:llama3.1", standard or [])
+
     def test_desktop_cooldowns_are_removed_from_phone_routing(self):
         router = make_router()
         ids = router.ids_for_live(

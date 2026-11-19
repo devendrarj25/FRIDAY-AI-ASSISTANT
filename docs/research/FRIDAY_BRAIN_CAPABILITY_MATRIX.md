@@ -158,7 +158,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Compatibility, permissions, health, versions, dependencies | DONE | capability lifecycle record, `capabilityMayRun`, install manager | none |
 | Usage analytics, failure handling, retirement | PARTIAL | `mastery.ts` derives from the ledger | retirement flow |
 | MCP server and client | DONE | `electron/mcp-protocol.cjs`, off by default, loopback and stdio only | spec revision check pending (changelog host blocked) |
-| Tools, skills, plugins, browser, desktop, code, files, databases | DONE | kernel tools (76), `sqlite.query`, `fs.make`, `media.*` | none |
+| Tools, skills, plugins, browser, desktop, code, files, databases | DONE | kernel tools (79, counted 2026-11-18), `sqlite.query`, `fs.make`, `media.*` | none |
 | Never trust an unknown tool | DONE | quarantine in the forges, kernel authority tokens | none |
 
 ## J. Multimodal intelligence

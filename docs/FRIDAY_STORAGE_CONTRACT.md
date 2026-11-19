@@ -28,6 +28,7 @@ Python live venv: `<root>\runtime\.venv` when a folder is chosen.
 | Tools FRIDAY unpacks herself (portable Node, MinGit, ...) | `runtime\<tool>` | yes | yes |
 | Skills, agents, plugins, modules, workflows | their own folders | yes | yes |
 | Owner uploads and generated files | `library` | yes | yes |
+| The owner's own voice (recordings of the owner, the encrypted voiceprint and wake template) | `preferences\voice-enrollment` | yes | yes (and "Forget my voice" in Settings → Voice) |
 | Memory, conversations, database, settings, keys | `memory`, `conversations`, `database`, `config`, `security` | yes | yes |
 | winget and vendor installs (Git, Go, Rust, Docker, CUDA, FFmpeg, ...) | Windows' own folders and PATH | yes | no (they belong to the PC) |
 | npm global packages | the user's npm prefix | yes | no |

@@ -504,6 +504,7 @@ const neuralVoice = loadNamed("neural-voice", () => require("./neural-voice.cjs"
 const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
 const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
 const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
+const voiceEnroll = loadNamed("voice-enroll", () => require("./voice-enroll.cjs"));
 const stt = loadNamed("stt", () => require("./stt.cjs"));
 const wakeEngine = loadNamed("wake", () => require("./wake-engine.cjs"));
 const voiceVerify = loadNamed("voice-verify", () => require("./voice-verify.cjs"));
@@ -1135,6 +1136,28 @@ function dataDir() {
  */
 function keyStoreRoot() {
   return paths.root();
+}
+
+/**
+ * Open the stored provider keys and tokens once, after Electron is ready, so every synchronous
+ * reader sees them (electron/secret-box.cjs). Bounded: a slow OS keystore can never hold startup,
+ * and a key that is not open yet reads as "not set" until it is.
+ */
+async function primeSecretStores(root = keyStoreRoot()) {
+  if (!root) return;
+  const work = Promise.allSettled([
+    require("./models.cjs").primeKeys(root),
+    require("./credentials.cjs").prime(root),
+  ]);
+  let timer;
+  const limit = new Promise((resolve) => {
+    timer = setTimeout(resolve, 5000);
+  });
+  try {
+    await Promise.race([work, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setWorkspaceRoot(root) {
@@ -2987,9 +3010,14 @@ async function streamOnceRaw({
   explicitPaid = false,
   collect = false,
 }) {
-  // BILLING FIREWALL — the last gate before a provider request leaves this
-  // machine. Every caller (chat, agents, tools, workflows, schedulers, remote
-  // clients) reaches a provider through here, so nothing can route around it.
+  // BILLING FIREWALL — the last gate before a CHAT request leaves this
+  // machine. Every caller of a chat turn (chat, agents, tools, workflows,
+  // schedulers, remote clients) reaches a provider through here, so nothing can
+  // route around it. The one other request that leaves for a provider is the
+  // verification probe of a free-class candidate (`lazyVerifyForRoute` in
+  // models.cjs): a fixed, non-sensitive prompt, never for a private turn or a
+  // paid-only policy. It cannot go through this gate on purpose, because the
+  // gate holds an unverified model back and the probe is what verifies it.
   const auth = await authoriseProviderRequest({
     model,
     explicitPaid,
@@ -4743,6 +4771,18 @@ ipcMain.handle("voice:meeting", () => meetingWatch.status());
 ipcMain.handle("voice:voiceprint-status", () => voiceprint.status());
 ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
 
+// ------------------------------------------- the owner's own voice (Settings -> Voice) --
+// Samples recorded in Settings become a voiceprint and a personal "Friday" template (electron/voice-enroll.cjs).
+// Local only; "Forget my voice" removes everything; a match never approves an action.
+ipcMain.handle("voice-enroll:status", () => voiceEnroll.statusFresh());
+ipcMain.handle("voice-enroll:save-sample", (_e, payload) => voiceEnroll.saveSample(payload || {}));
+ipcMain.handle("voice-enroll:delete-sample", (_e, id) => voiceEnroll.deleteSample(id));
+ipcMain.handle("voice-enroll:read-sample", (_e, id) => voiceEnroll.readSample(id));
+ipcMain.handle("voice-enroll:build", () => voiceEnroll.build());
+ipcMain.handle("voice-enroll:score", (_e, payload) => voiceEnroll.score(payload || {}));
+ipcMain.handle("voice-enroll:clear-recordings", () => voiceEnroll.clearRecordings());
+ipcMain.handle("voice-enroll:forget", () => voiceEnroll.forget());
+
 // ------------------------------------------- desktop speech-to-text (STT) --
 // Real on-device transcription. Auto Mode sets localOnly so neither status
 // discovery nor transcription can select a cloud provider.
@@ -5420,10 +5460,10 @@ ipcMain.on("window:busy", (_e, busy) => {
   app.__fridayBusy = Boolean(busy);
 });
 
-ipcMain.handle("security:encryption", () => {
+ipcMain.handle("security:encryption", async () => {
   try {
     const credentials = require("./credentials.cjs");
-    return { available: Boolean(credentials.encryptionAvailable()) };
+    return { available: Boolean(await credentials.encryptionAvailableAsync()) };
   } catch {
     return { available: false };
   }
@@ -5636,6 +5676,7 @@ ipcMain.handle("workspace:set", async (_e, root) => {
     }
   }
   setWorkspaceRoot(resolvedRoot);
+  await primeSecretStores(resolvedRoot);
   screenVision.setRoot(resolvedRoot);
   camera.setRoot(resolvedRoot);
   // Answer the first-run screen straight away. Creating the layout, starting
@@ -5791,7 +5832,7 @@ ipcMain.handle("models:preview-route", async (_e, prompt) => {
   };
 });
 ipcMain.handle("models:set-key", async (_e, id, apiKey) => {
-  const result = modelsApi.writeKey(keyStoreRoot(), id, apiKey || null);
+  const result = await modelsApi.writeKey(keyStoreRoot(), id, apiKey || null);
   // A new or removed key changes what is routable: rediscover now and let the
   // selector refresh itself instead of waiting for the cache to expire.
   if (modelsApi.invalidateProviderCache) modelsApi.invalidateProviderCache(id);
@@ -7156,7 +7197,7 @@ ipcMain.handle("github:set-config", async (_e, patch) => {
     if (next[key] === "" || next[key] === undefined) delete next[key];
     else if (next[key] === null) next[key] = "";
   }
-  const result = githubSync.writeConfig(getWorkspaceRoot(), next);
+  const result = await githubSync.writeConfig(getWorkspaceRoot(), next);
   scheduleGithubChecks();
   // Await the live session so the renderer reads CONNECTED (or the real error)
   // after save, not a stale snapshot from before reconnectGithub finished.
@@ -7481,7 +7522,7 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
   // Move channels only after Windows accepted the installer process. A failed
   // launch must leave both update state and the selected channel unchanged.
   if (crossing) {
-    const moved = githubSync.writeConfig(root, { updateChannel: targetChannel });
+    const moved = githubSync.writeStoredConfig(root, { updateChannel: targetChannel });
     if (!moved.ok) {
       updateSafety.cancelInstall({ root });
       await resumeKernel("kernel resume after channel-switch failure");
@@ -8912,8 +8953,8 @@ ipcMain.handle("connectors:connect", async (_e, id, values) => {
   if (result.ok) send("connectors:changed", { id: String(id || ""), connected: true });
   return result;
 });
-ipcMain.handle("connectors:disconnect", (_e, id) => {
-  const result = connectors.disconnect(getWorkspaceRoot(), String(id || ""));
+ipcMain.handle("connectors:disconnect", async (_e, id) => {
+  const result = await connectors.disconnect(getWorkspaceRoot(), String(id || ""));
   if (result.ok) send("connectors:changed", { id: String(id || ""), connected: false });
   return result;
 });
@@ -9120,12 +9161,12 @@ ipcMain.handle("voice-cloud:key-status", () => {
     ]),
   );
 });
-ipcMain.handle("voice-cloud:save-key", (_e, provider, key) => {
+ipcMain.handle("voice-cloud:save-key", async (_e, provider, key) => {
   const id = voiceCloud.SECRET_IDS[String(provider || "")];
   if (!id) return { ok: false, error: "that provider has no speech connection here" };
   const value = String(key ?? "").trim();
   if (value.length > 512) return { ok: false, error: "that key is too long" };
-  const saved = require("./credentials.cjs").setSecret(keyStoreRoot(), id, value);
+  const saved = await require("./credentials.cjs").setSecret(keyStoreRoot(), id, value);
   return saved?.ok === false
     ? { ok: false, error: saved.error }
     : { ok: true, stored: value.length > 0 };
@@ -9515,6 +9556,8 @@ app
     readinessTrace.trace("app-ready");
     if (process.env.FRIDAY_BOOT_SELFTEST) armBootSelfTestWatchdog();
     ownerPidRegistry();
+    // Secrets are opened now that the app is ready (never earlier: see lazy-electron.cjs).
+    await primeSecretStores();
     log(`FRIDAY ${productVersion()} starting · packaged=${app.isPackaged}`);
     // Voice needs the microphone. Electron denies every permission request by
     // default when no handler is installed, which is what made the renderer's

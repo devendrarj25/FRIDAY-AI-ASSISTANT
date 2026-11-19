@@ -59,7 +59,8 @@ describe("user identity split", () => {
     userProfile.update({ preferredName: "Rahul", useNameInAddress: true });
     expect(vocative()).toBe("Rahul");
     resetAntiRepeat();
-    const seen = Array.from({ length: 10 }, () => vary("greeting"));
+    // The lines are drawn at random; enough draws that missing the name is not a realistic outcome.
+    const seen = Array.from({ length: 40 }, () => vary("greeting"));
     expect(seen.some((line) => /Rahul/.test(line))).toBe(true);
     expect(seen.every((line) => !PUBLISHER_VOCATIVE.test(line))).toBe(true);
   });

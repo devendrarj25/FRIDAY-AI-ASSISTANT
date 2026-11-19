@@ -144,6 +144,10 @@ def test_is_sensitive_names():
     assert file_tools.is_sensitive(Path("a/id_rsa"))
     assert file_tools.is_sensitive(Path("home/.ssh/config"))
     assert file_tools.is_sensitive(Path("config/provider-keys.json"))
+    # the owner's own voice recordings, voiceprint and encrypted voice profile are never read by a tool
+    assert file_tools.is_sensitive(Path("D:/FRIDAY/preferences/voice-enrollment/samples/wake-1-1.wav"))
+    assert file_tools.is_sensitive(Path("D:/FRIDAY/preferences/voice-enrollment/profile.enc"))
+    assert file_tools.is_sensitive(Path("D:/FRIDAY/voiceprint.json"))
     assert not file_tools.is_sensitive(Path("docs/security-notes.md"))
     assert not file_tools.is_sensitive(Path("src/keyboard.ts"))
 

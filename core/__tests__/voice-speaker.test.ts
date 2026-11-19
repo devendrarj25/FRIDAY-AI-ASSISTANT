@@ -13,7 +13,7 @@ const voiceprint = require("../../electron/voiceprint.cjs") as {
 };
 
 describe("speaker score and self-voice", () => {
-  it("scores a voiceprint without approving an action, and drops FRIDAY's own voice", () => {
+  it("scores a voiceprint without approving an action, and drops FRIDAY's own voice", async () => {
     const same = voiceprint.score([1, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0], 0.75);
     expect(same.match).toBe(true);
     expect(same.execute).toBe(false);
@@ -21,7 +21,7 @@ describe("speaker score and self-voice", () => {
     const other = voiceprint.score([1, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0], 0.75);
     expect(other.match).toBe(false);
     expect(other.execute).toBe(false);
-    expect(voiceprint.enrol([1]).ok).toBe(false);
+    expect((await voiceprint.enrol([1])).ok).toBe(false);
     expect(voiceprint.forget().enrolled).toBe(false);
     expect(suppressSelfVoice({ mic: [1, 0], playback: [1, 0], speaking: true })).toEqual({
       keep: false,

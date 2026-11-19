@@ -8,6 +8,7 @@
  *
  * Writes are merged and debounced: flipping ten toggles costs one disk write.
  */
+import { upgradeVoiceDefaults } from "./voice-presets";
 import {
   DEFAULT_VOICE_CLOUD_PREFS,
   type VoiceCloudPrefs,
@@ -74,6 +75,22 @@ export type VoicePreferences = {
   liveWords: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
   liveWake: boolean;
+  /** A saved voice may block a sensitive command from a voice that does not match it. It never approves anything. */
+  recogniseMyVoice: boolean;
+  /** Ignore what clearly is not the owner's saved voice (a stop is always heard). Off by default. */
+  ownerVoiceOnly: boolean;
+  /** The owner's own "Friday" recordings may wake her when the transcript missed the word. */
+  personalWake: boolean;
+  /** Names and words FRIDAY should expect to hear (kept on this PC, used as a hint when listening). */
+  vocabulary: string;
+  /** FRIDAY's own Hindi voice (an online neural voice id). Empty uses the default, Swara. */
+  hindiVoice: string;
+  /** FRIDAY's own English voice (an online neural voice id). Empty uses the default, Neerja. */
+  englishVoice: string;
+  /** The delivery preset the sliders were last set from ("custom" once moved). Display only. */
+  voicePreset: string;
+  /** Which shipped voice numbers this install was moved to (0 = the first ones). */
+  voicePresetVersion: number;
   /** Days to keep finished voice notes and meeting notes; 0 keeps them until deleted. */
   notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
@@ -223,8 +240,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     speechLang: "hi-IN",
     voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
     // A soft, warm Indian-girl delivery: slightly slower, slightly brighter.
-    rate: 0.96,
-    pitch: 1.12,
+    // The natural preset (voice-presets.ts): the neural voice's own pitch, a touch slower than its own pace.
+    rate: 0.97,
+    pitch: 1,
     volume: 1,
     speakReplies: true,
     hinglish: true,
@@ -237,6 +255,14 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     liveWords: false,
     liveWake: false,
+    recogniseMyVoice: true,
+    ownerVoiceOnly: false,
+    personalWake: true,
+    vocabulary: "",
+    hindiVoice: "hi-IN-SwaraNeural",
+    englishVoice: "en-IN-NeerjaNeural",
+    voicePreset: "natural",
+    voicePresetVersion: 1,
     notesRetentionDays: 30,
     expressiveSpeech: true,
     localVoiceStyle: "",
@@ -329,6 +355,14 @@ class PreferencesStore {
       }
     }
     this.state = merge(DEFAULT_PREFERENCES, stored);
+    // An install that still holds the first shipped voice numbers is moved to the natural preset, once.
+    if (stored?.voice) {
+      const upgraded = upgradeVoiceDefaults({ ...stored.voice });
+      if (upgraded.changed) {
+        this.state = merge(this.state, { voice: upgraded.voice as VoicePreferences });
+        this.schedule();
+      }
+    }
     this.emit();
     return this.state;
   }

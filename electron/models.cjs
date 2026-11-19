@@ -438,13 +438,11 @@ function headerMap(res) {
 const gb = (bytes) => Number(((bytes || 0) / 1024 ** 3).toFixed(2));
 
 // ------------------------------------------------------------- key storage
-// Same rule as credentials.cjs: the safeStorage export is read only after
-// ready. Reading it during module load deadlocks a headless Windows start.
+// Same rule as credentials.cjs: encryption goes through electron/secret-box.cjs (the asynchronous
+// safeStorage API, used only after ready). Reading it during module load deadlocks a headless
+// Windows start.
 const lazyElectron = require("./lazy-electron.cjs");
-
-function safeStorage() {
-  return lazyElectron.afterReady("safeStorage");
-}
+const secretBox = require("./secret-box.cjs");
 
 function electronApp() {
   try {
@@ -457,14 +455,6 @@ function electronApp() {
 const productionMode = () => {
   try {
     return Boolean(electronApp()?.isPackaged);
-  } catch {
-    return false;
-  }
-};
-
-const encryptionAvailable = () => {
-  try {
-    return Boolean(safeStorage()?.isEncryptionAvailable());
   } catch {
     return false;
   }
@@ -511,7 +501,11 @@ function migrateCredentials(root, sources = []) {
       ]),
   ].filter((file) => file && path.resolve(file) !== path.resolve(target));
 
-  const current = readRawKeys(target);
+  const strict = secretBox.readRawStrict(target);
+  if (strict.corrupt) {
+    return { ok: false, migrated: 0, error: "canonical credential store is unreadable" };
+  }
+  const current = strict.raw;
   let migrated = 0;
   for (const file of candidates) {
     if (!fs.existsSync(file)) continue;
@@ -528,8 +522,7 @@ function migrateCredentials(root, sources = []) {
   }
   if (migrated) {
     try {
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, JSON.stringify(current, null, 2));
+      secretBox.writeAtomic(target, JSON.stringify(current, null, 2));
     } catch {
       return { ok: false, migrated: 0, error: "canonical credential store is not writable" };
     }
@@ -537,26 +530,21 @@ function migrateCredentials(root, sources = []) {
   return { ok: true, migrated };
 }
 
+/** Every stored provider key in clear text. Synchronous; empty for a key `primeKeys` has not opened yet. */
 function readKeys(userData) {
   const file = keyFile(userData);
   if (!file) return {};
-  const raw = readRawKeys(file);
-  const out = {};
-  for (const [id, value] of Object.entries(raw)) {
-    if (value && typeof value === "object" && value.enc && encryptionAvailable()) {
-      try {
-        out[id] = safeStorage().decryptString(Buffer.from(value.enc, "base64"));
-      } catch {
-        /* key was written on another machine — ignore it */
-      }
-    } else if (typeof value === "string") {
-      out[id] = value;
-    }
-  }
-  return out;
+  return secretBox.readEntries(file).values;
 }
 
-function writeKey(userData, id, apiKey) {
+/** Open every stored provider key once, after the app is ready. Safe to call again. */
+function primeKeys(userData) {
+  const file = keyFile(userData);
+  return file ? secretBox.prime(file) : Promise.resolve({ ok: false, opened: 0, failed: 0 });
+}
+
+/** Store (or, with an empty key, delete) one provider key. Asynchronous and queued per file. */
+async function writeKey(userData, id, apiKey) {
   const file = keyFile(userData);
   if (!file)
     return { ok: false, stored: false, encrypted: false, error: "no FRIDAY folder selected yet" };
@@ -571,7 +559,8 @@ function writeKey(userData, id, apiKey) {
       return false;
     }
   })();
-  if (apiKey && !encryptionAvailable() && (productionMode() || ownerRefusesUnencrypted)) {
+  const refuse = productionMode() || ownerRefusesUnencrypted;
+  if (apiKey && !(await secretBox.available()) && refuse) {
     return {
       ok: false,
       stored: false,
@@ -581,19 +570,12 @@ function writeKey(userData, id, apiKey) {
         "Sign in to your normal Windows account (not a temporary or sandboxed profile) and try again.",
     };
   }
-  const raw = readRawKeys(file);
-
-  if (!apiKey) delete raw[id];
-  else if (encryptionAvailable())
-    raw[id] = { enc: safeStorage().encryptString(apiKey).toString("base64") };
-  else raw[id] = apiKey;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(raw, null, 2));
-  return {
-    ok: true,
-    stored: Boolean(apiKey),
-    encrypted: encryptionAvailable(),
-  };
+  const saved = await secretBox.setEntry(file, id, apiKey || "", {
+    allowPlain: !refuse,
+    mode: 0o600,
+  });
+  if (!saved.ok) return { ok: false, stored: false, encrypted: false, error: saved.error };
+  return { ok: true, stored: saved.stored, encrypted: saved.encrypted };
 }
 
 const resolveKey = (userData, id) =>
@@ -3127,6 +3109,7 @@ module.exports = {
   ollamaRunning,
   localFolders,
   readKeys,
+  primeKeys,
   writeKey,
   readEndpoints,
   writeEndpoint,

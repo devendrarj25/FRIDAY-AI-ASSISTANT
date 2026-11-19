@@ -34,6 +34,12 @@ export const RENAMES: Record<string, string> = {
   // Settings → Updates takes a read-only fine-grained token (Contents: Read-only),
   // so its example is a fine-grained one instead of a classic "ghp_" token.
   "ghp_…": "github_pat_… (Contents: Read-only)",
+  // The speaker stub (a status toast and a delete button) became real voice enrolment (Settings → Voice → My voice):
+  // recording, a built profile, a test, and "Forget my voice".
+  "Enrol voiceprint": "Build my voice profile",
+  "Forget voiceprint": "Forget my voice",
+  "Speaker match threshold":
+    "Speaker match bar (0.30 to 0.99; 0.75 is what your saved voice was measured at)",
 };
 
 describe("UI control parity", () => {

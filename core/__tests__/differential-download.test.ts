@@ -211,7 +211,7 @@ describe("inside the installer download", () => {
   const asset = (n: string) => `https://api.github.com/repos/o/r/releases/assets/${n}`;
 
   async function setup(stub: { ignoreRange?: boolean } = {}) {
-    sync.writeConfig(dir, { repo: "o/r", updateToken: "ro" });
+    await sync.writeConfig(dir, { repo: "o/r", updateToken: "ro" });
     const { old, next } = pair();
     const installers = path.join(dir, "updates", "installers");
     fs.mkdirSync(installers, { recursive: true });

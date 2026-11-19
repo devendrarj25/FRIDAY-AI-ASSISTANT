@@ -82,11 +82,17 @@ describe("continuous background work", () => {
 });
 
 describe("FRIDAY's default voice and language", () => {
-  it("defaults to a warm Indian Hindi voice with Hinglish replies", () => {
+  it("defaults to a natural female Indian voice (Swara for Hindi, Neerja for English) with Hinglish replies", () => {
     expect(DEFAULT_PREFERENCES.voice.speechLang).toBe("hi-IN");
     expect(DEFAULT_PREFERENCES.voice.recognitionLang).toBe("hi-IN");
     expect(DEFAULT_PREFERENCES.voice.hinglish).toBe(true);
-    expect(DEFAULT_PREFERENCES.voice.pitch).toBeGreaterThan(1);
+    expect(DEFAULT_PREFERENCES.voice.hindiVoice).toBe("hi-IN-SwaraNeural");
+    expect(DEFAULT_PREFERENCES.voice.englishVoice).toBe("en-IN-NeerjaNeural");
+    // Natural delivery (voice-presets.ts): the neural voice's own pitch, a touch slower than its own pace. It was a
+    // bright pitch above 1 before; the owner asked for the natural, human-like voice.
+    expect(Math.abs(DEFAULT_PREFERENCES.voice.pitch - 1)).toBeLessThanOrEqual(0.06);
+    expect(DEFAULT_PREFERENCES.voice.rate).toBeGreaterThanOrEqual(0.9);
+    expect(DEFAULT_PREFERENCES.voice.rate).toBeLessThanOrEqual(1);
   });
 
   it("puts the language contract into every model prompt", () => {

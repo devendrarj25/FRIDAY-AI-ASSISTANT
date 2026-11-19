@@ -39,6 +39,26 @@ export function resetToneBaseline(): void {
   baseline = null;
 }
 
+/**
+ * Start the baseline from the owner's own recordings (Settings → Voice → My voice), so the first sentence is
+ * already read against how they usually sound. A baseline learned from live speech is not replaced.
+ */
+export function seedToneBaseline(seed: {
+  pitchHz: number;
+  energyDbfs: number;
+  pitchSpreadSemitones: number;
+}): boolean {
+  if (baseline && baseline.samples >= TONE_WARMUP) return false;
+  if (!(seed.pitchHz > 0) || !Number.isFinite(seed.energyDbfs)) return false;
+  baseline = {
+    pitch: seed.pitchHz,
+    energy: seed.energyDbfs,
+    spread: seed.pitchSpreadSemitones,
+    samples: TONE_WARMUP,
+  };
+  return true;
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }

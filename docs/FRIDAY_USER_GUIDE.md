@@ -35,6 +35,23 @@ Sidebar labels come from `src/lib/friday/navigation.ts`. Settings is the shell f
 
 An error shows Fix voice, followed by the running task and WORKING or IDLE. Every control has an icon and a name. On a narrow window the names hide behind the icons and slide out when you point at a button; tools that still do not fit go into **More**. The microphone chip and **Stop everything** never hide.
 
+### FRIDAY's voice (Settings → Voice → FRIDAY's voice)
+
+The shipped voice is a female Indian voice for both languages: **Swara** for Hindi and **Neerja** for English, with the **Natural** delivery. She picks the voice sentence by sentence, so a Hinglish reply sounds right. Change the Hindi or English voice, pick a delivery (Natural, Warm and soft, Bright and quick, Calm and low), move Speaking rate, Pitch (shown with the Hz it sends) and Volume, and press **Hear Hindi**, **Hear English** or **Hear Hinglish** to listen (she speaks only in Auto mode). **Reset to the best voice** brings Swara, Neerja and Natural back and keeps your voice library. The online voices need the network and Privacy mode off; offline she uses the on-device voice.
+
+### Teach FRIDAY your voice (Settings → Voice → My voice)
+
+Press **Record** next to each line, say it, then **Stop** (a recording also stops by itself after 12 seconds). Record the wake word eight times in different manners (normal, softer, louder, farther away, quick, slow, from across the room) and six or more sentences in English, Hindi and Hinglish, in a quiet room close to the microphone. Then **Build my voice profile**.
+
+* **Recognise my voice:** a command that needs your confirmation is not run when the voice clearly is not yours. A voice match never approves anything.
+* **Only answer my voice** (off by default): she ignores what clearly is not your voice; "stop" is always heard.
+* **Wake on my own recordings:** your own takes can wake her when the transcript wrote the word differently. It is used only when the profile says "personal wake word: ready".
+* **Words and names FRIDAY should expect:** names and Hinglish words you use often.
+* After you build the profile, FRIDAY also knows how you usually sound, so her reading of your tone (calm, lively, tense) is right from your first sentence instead of after a few.
+* **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
+
+The recordings stay on this PC in your FRIDAY folder and the voiceprint is encrypted. Nothing is uploaded. **Forget my voice** deletes the recordings and the profile; **Delete recordings, keep profile** keeps only the profile. This is a convenience, not a lock, and it was only measured on your own recordings.
+
 ### Voice window sizes
 
 Pick them on the captions strip (**Compact**, **Expanded**, **Transcript**), or press Alt+1, Alt+2, or Alt+3 in the voice window while not typing. The choice is remembered after a restart.
@@ -136,7 +153,7 @@ On any page that has a title, **Flow** opens Flow Studio for that page. **Full m
 - **Brain:** inspect retrieval and planner traces; it is not a second chat box.
 - **Memory:** long-term notes under the FRIDAY root.
 - **Library:** owner files FRIDAY indexed (`library/items`).
-- **Self-Management:** the approval queue (`governance`). Risky kinds ask unless Full autonomy is on; Stop everything halts the queue; a protected policy file never auto-approves.
+- **Self-Management:** the approval queue (`governance`). Risky kinds ask unless Full autonomy is on; Stop everything halts the queue and Auto (it closes the microphone and cuts the voice; Resume reopens them), and a request you approve after pressing it is not applied (it shows as stopped; ask again once you resume); a protected policy file never auto-approves.
 - **FRIDAY Status:** the live wiring overlay (read-only for permission, privacy, and billing).
 - **Hardware:** measured CPU, RAM, and adapters.
 

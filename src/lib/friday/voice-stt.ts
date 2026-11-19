@@ -42,6 +42,7 @@ import {
   type HearingAudio,
 } from "./voice-hearing";
 import type { HeardQuality } from "./asr-bias";
+import type { VoiceMatchResult } from "./desktop";
 
 /** The same fault line is logged once. A new class replaces it. */
 export function collapseRepeat(previous: string, next: string): string | null {
@@ -196,6 +197,25 @@ export async function installStt(): Promise<{ ok: boolean; error?: string }> {
   }
 }
 
+/** The owner's voice score is scored beside the transcription; it never holds a turn longer than this. */
+const VOICE_PROBE_MS = 4000;
+
+function withTimeout<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 function pickMime(): string {
   if (typeof MediaRecorder === "undefined") return "";
   for (const type of [
@@ -238,6 +258,8 @@ export interface DictationOptions {
       durationMs?: number | null;
       /** How sure the speech model was about these words and their language. */
       quality?: HeardQuality | null;
+      /** How the utterance scored against the owner's saved voice (null when no voice is saved). */
+      voice?: VoiceMatchResult | null;
     },
   ) => void;
   /**
@@ -245,6 +267,14 @@ export interface DictationOptions {
    * Returning null means the engine is unavailable → transcript fallback.
    */
   wakeProbe?: (payload: { audioBytes: Uint8Array; mime: string }) => Promise<WakeProbe | null>;
+  /**
+   * Score the raw audio of each utterance against the owner's saved voice, in parallel with the transcription.
+   * Null (no saved voice, or it took too long) leaves the turn exactly as it was.
+   */
+  voiceProbe?: (payload: {
+    audioBytes: Uint8Array;
+    mime: string;
+  }) => Promise<VoiceMatchResult | null>;
   /** Fired once per utterance when an in-flight wake probe matches. */
   onEarlyWake?: (wake: WakeProbe) => void;
   onSpeechStart?: () => void;
@@ -1081,6 +1111,12 @@ export class DesktopDictation {
           ms: Date.now() - startedAt,
         });
       }
+      const voicePromise = this.options.voiceProbe
+        ? withTimeout(
+            this.options.voiceProbe({ audioBytes, mime: blob.type }).catch(() => null),
+            VOICE_PROBE_MS,
+          )
+        : Promise.resolve(null);
       this.options.onStateChange?.("thinking");
       this.options.onDiagnostic?.({
         stage: "transcribing",
@@ -1154,7 +1190,16 @@ export class DesktopDictation {
               ms: Date.now() - startedAt,
             });
           }
+          const voice = await voicePromise;
+          if (voice?.speaker?.enrolled) {
+            this.options.onDiagnostic?.({
+              stage: "segment",
+              detail: `voice: ${voice.speaker.similarity == null ? "too little speech to tell" : `${Math.round(voice.speaker.similarity * 100)}% like you`}${voice.wake?.matched ? " · your own wake word matched" : ""}`,
+              ms: Date.now() - startedAt,
+            });
+          }
           this.options.onFinal(text, {
+            voice,
             wake,
             ms: Date.now() - startedAt,
             prosody: result.audio?.prosody ?? null,

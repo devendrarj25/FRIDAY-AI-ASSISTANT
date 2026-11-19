@@ -639,7 +639,8 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     prompt,
     expect,
   })),
-  // Held out, fourth round: written before any rule for these classes. Never used to tune.
+  // Fourth round. Written before any rule for these classes and held out then (first blind figure 1 of 12).
+  // The rules that fixed its failures were added on 2026-11-18, so these tasks are now development tasks.
   ...(
     [
       [
@@ -697,6 +698,266 @@ export const EVAL_TASKS: readonly EvalTask[] = [
         "h4-ps-not-recognized",
         "The term 'kubectl' is not recognized as the name of a cmdlet, function, script file, or operable program.",
         /not recognized|install|path|command|program/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
+  })),
+  // Fifth round, written on 2026-11-18 from common real-world error messages before any rule was added for
+  // them. First blind figure 18 of 22 (four silent or wrong). The rules for those four were added the same day,
+  // so these tasks are now development tasks too, and the sixth round below is the held-out batch.
+  ...(
+    [
+      [
+        "h5-npm-eresolve",
+        'npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE unable to resolve dependency tree\nnpm ERR! Found: react@19.0.0\nnpm ERR! peer react@"^18.0.0" from some-ui-lib@2.1.0',
+        /peer|dependenc|version|conflict|resolve/i,
+      ],
+      [
+        "h5-git-not-repo",
+        "fatal: not a git repository (or any of the parent directories): .git",
+        /git|repositor|init|folder|directory/i,
+      ],
+      [
+        "h5-git-push-rejected",
+        "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'github.com:owner/repo.git'\nhint: Updates were rejected because the remote contains work that you do not have locally.",
+        /pull|fetch|remote|merge|rebase|behind|work/i,
+      ],
+      [
+        "h5-py-module",
+        "ModuleNotFoundError: No module named 'requests'",
+        /module|install|package|pip|environment/i,
+      ],
+      [
+        "h5-docker-daemon",
+        "docker: Cannot connect to the Docker daemon at npipe:////./pipe/docker_engine. Is the docker daemon running?",
+        /docker|daemon|running|start|desktop|engine/i,
+      ],
+      [
+        "h5-ssl-expired",
+        "curl: (60) SSL certificate problem: certificate has expired",
+        /certificate|expire|clock|date|ssl|tls|trust/i,
+      ],
+      [
+        "h5-connect-timeout",
+        "requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/items (Caused by ConnectTimeoutError: Connection to api.example.com timed out. (connect timeout=10))",
+        /timeout|timed out|network|connect|firewall|reach|proxy|dns/i,
+      ],
+      [
+        "h5-json-html",
+        "SyntaxError: Unexpected token < in JSON at position 0",
+        /json|html|response|parse|not json|token/i,
+      ],
+      [
+        "h5-postgres-refused",
+        'psycopg2.OperationalError: connection to server at "localhost" (::1), port 5432 failed: Connection refused\n\tIs the server running on that host and accepting TCP/IP connections?',
+        /server|running|port|5432|connect|postgres|start/i,
+      ],
+      [
+        "h5-py-indent",
+        '  File "app.py", line 12\n    return total\nIndentationError: unexpected indent',
+        /indent|space|tab|whitespace|align/i,
+      ],
+      [
+        "h5-java-heap",
+        'Exception in thread "main" java.lang.OutOfMemoryError: Java heap space',
+        /memory|heap|xmx|limit|leak|allocate/i,
+      ],
+      [
+        "h5-node-heap",
+        "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+        /memory|heap|limit|node|max-old-space|increase/i,
+      ],
+      [
+        "h5-cors",
+        "Access to fetch at 'http://localhost:3000/api/items' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        /cors|origin|header|server|allow/i,
+      ],
+      [
+        "h5-pip-hash",
+        "ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE. If you have updated the package versions, please update the hashes.",
+        /hash|requirements|package|tamper|mismatch|version/i,
+      ],
+      [
+        "h5-segfault",
+        "Segmentation fault (core dumped)",
+        /memory|segfault|segmentation|pointer|crash|invalid|access/i,
+      ],
+      [
+        "h5-ts-assign",
+        "src/total.ts(14,5): error TS2322: Type 'string' is not assignable to type 'number'.",
+        /type|string|number|assign|mismatch/i,
+      ],
+      [
+        "h5-sqlite-locked",
+        "sqlite3.OperationalError: database is locked",
+        /lock|another|connection|process|write|busy|transaction/i,
+      ],
+      [
+        "h5-redis-refused",
+        "redis.exceptions.ConnectionError: Error 111 connecting to localhost:6379. Connection refused.",
+        /redis|server|running|6379|connect|start/i,
+      ],
+      [
+        "h5-keyerror",
+        "Traceback (most recent call last):\n  File \"app.py\", line 8, in <module>\n    print(row['user_id'])\nKeyError: 'user_id'",
+        /key|missing|dict|exist|field|user_id/i,
+      ],
+      [
+        "h5-recursion",
+        "RecursionError: maximum recursion depth exceeded in comparison",
+        /recurs|depth|infinite|base case|loop|stack/i,
+      ],
+      [
+        "h5-hi-docker",
+        "Friday ye error aa raha hai, docker chal hi nahi raha:\nerror during connect: This error may indicate that the docker daemon is not running.: open //./pipe/docker_engine: The system cannot find the file specified.",
+        /docker|daemon|engine|start|running|desktop/i,
+      ],
+      [
+        "h5-hi-npm-enoent",
+        "bhai npm install nahi ho raha:\nnpm ERR! code ENOENT\nnpm ERR! syscall open\nnpm ERR! path C:\\projects\\shop\\package.json\nnpm ERR! errno -4058",
+        /package\.json|path|file|missing|folder|directory|exist/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
+  })),
+  // Held out, sixth round: written on 2026-11-18 before the rules that the h4 and h5 failures led to, and
+  // never run until those rules existed, so the rules were not shaped by it. The before figure is measured
+  // afterwards on the commit that holds these tasks and not the rules.
+  ...(
+    [
+      [
+        "h6-eaddrinuse",
+        "Error: listen EADDRINUSE: address already in use :::3000",
+        /port|address|in use|already|another|3000/i,
+      ],
+      [
+        "h6-npm-404",
+        "npm ERR! 404 Not Found - GET https://registry.npmjs.org/@acme%2fprivate-lib - Not found",
+        /not found|package|registry|name|private|auth|exist/i,
+      ],
+      [
+        "h6-git-conflict",
+        "Auto-merging src/app.ts\nCONFLICT (content): Merge conflict in src/app.ts\nAutomatic merge failed; fix conflicts and then commit the result.",
+        /conflict|merge|resolve|edit|marker|both/i,
+      ],
+      [
+        "h6-git-auth",
+        "remote: Support for password authentication was removed on August 13, 2021.\nfatal: Authentication failed for 'https://github.com/owner/repo.git/'",
+        /token|authentic|password|credential|login/i,
+      ],
+      [
+        "h6-ssh-publickey",
+        "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+        /key|ssh|publickey|auth|access|permission/i,
+      ],
+      [
+        "h6-py-circular",
+        "ImportError: cannot import name 'Config' from partially initialized module 'app.settings' (most likely due to a circular import)",
+        /circular|import|cycle|partial/i,
+      ],
+      [
+        "h6-py-charmap",
+        "UnicodeEncodeError: 'charmap' codec can't encode character '\u20b9' in position 5: character maps to <undefined>",
+        /encod|charmap|utf|character|unicode/i,
+      ],
+      [
+        "h6-py-nonetype",
+        "AttributeError: 'NoneType' object has no attribute 'group'",
+        /none|attribute|missing|return|match|no match/i,
+      ],
+      [
+        "h6-window-undefined",
+        "ReferenceError: window is not defined",
+        /window|browser|server|node|ssr|undefined|environment/i,
+      ],
+      [
+        "h6-react-key",
+        'Warning: Each child in a list should have a unique "key" prop.',
+        /key|list|unique|prop|child/i,
+      ],
+      [
+        "h6-enotfound",
+        "Error: getaddrinfo ENOTFOUND api.example.com",
+        /dns|resolve|host|internet|network|name|spell/i,
+      ],
+      ["h6-econnreset", "Error: read ECONNRESET", /reset|connection|server|closed|network|drop/i],
+      [
+        "h6-401",
+        "HTTP 401 Unauthorized: invalid api key provided",
+        /key|auth|credential|unauthor|token|invalid/i,
+      ],
+      [
+        "h6-429",
+        "HTTP 429 Too Many Requests: Rate limit reached for requests",
+        /rate|limit|wait|retry|quota|slow/i,
+      ],
+      [
+        "h6-winerror5",
+        "PermissionError: [WinError 5] Access is denied: 'C:\\Program Files\\App\\data.db'",
+        /permission|access|denied|right|admin|folder|program files/i,
+      ],
+      [
+        "h6-ps-json",
+        "ConvertFrom-Json : Invalid JSON primitive: abc.",
+        /json|invalid|format|parse|quote|syntax/i,
+      ],
+      [
+        "h6-docker-port",
+        "docker: Error response from daemon: driver failed programming external connectivity on endpoint web: Bind for 0.0.0.0:8080 failed: port is already allocated.",
+        /port|allocated|in use|already|another|8080/i,
+      ],
+      [
+        "h6-docker-pull",
+        "Error response from daemon: pull access denied for myapp, repository does not exist or may require 'docker login'",
+        /login|repositor|image|exist|access|name|auth/i,
+      ],
+      [
+        "h6-crashloop",
+        "NAME       READY   STATUS             RESTARTS\nweb-7d9f   0/1     CrashLoopBackOff   5",
+        /crash|restart|log|container|loop|fail|exit/i,
+      ],
+      [
+        "h6-mongo",
+        "MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017",
+        /mongo|server|running|27017|connect|start/i,
+      ],
+      [
+        "h6-rollup-native",
+        "Error: Cannot find module '@rollup/rollup-win32-x64-msvc'",
+        /module|install|rollup|optional|node_modules|npm|reinstall|platform/i,
+      ],
+      [
+        "h6-python-not-recognized",
+        "'python' is not recognized as an internal or external command, operable program or batch file.",
+        /python|path|install|recogni|command/i,
+      ],
+      [
+        "h6-hi-index",
+        "mera code nahi chal raha: IndexError: list index out of range",
+        /index|range|list|length|empty|element/i,
+      ],
+      [
+        "h6-hi-msvc-build",
+        'pip install fail ho gaya: error: Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools"',
+        /c\+\+|build tools|visual|compiler|microsoft|wheel/i,
+      ],
+      [
+        "h6-self-signed",
+        "Error: self-signed certificate in certificate chain",
+        /certificate|self-signed|chain|proxy|trust|ca\b/i,
+      ],
+      [
+        "h6-dotnet-assembly",
+        "System.IO.FileNotFoundException: Could not load file or assembly 'Newtonsoft.Json, Version=13.0.0.0'",
+        /assembly|file|load|version|package|reference|dependenc|dll/i,
       ],
     ] as [string, string, RegExp][]
   ).map(([id, prompt, expect]): EvalTask => ({

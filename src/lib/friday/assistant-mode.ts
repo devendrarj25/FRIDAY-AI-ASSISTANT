@@ -147,6 +147,7 @@ import { speechRms } from "./character/speech-audio";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
+import { autonomy } from "./self/autonomy";
 import {
   attachVoiceTaskSpeaker,
   releaseTaskUpdates,
@@ -188,6 +189,17 @@ import { rememberDevice } from "./mic-truth";
 import { affect, readFeeling } from "./brain/affect";
 import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
 import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
+import {
+  parseThreshold,
+  parseVocabulary,
+  refreshVoiceProfile,
+  scoreUtterance,
+  speakerInput,
+  voiceProfileBuilt,
+  voiceTurnGate,
+  type VoiceSettingsView,
+} from "./voice-profile";
+import type { VoiceMatchResult } from "./desktop";
 import { alertsAudible } from "./settings-runtime";
 import {
   EMPTY_CONDUCT,
@@ -621,8 +633,52 @@ class AssistantModeStore {
    * "Pause listening" (tray) — really closes the microphone; resuming restarts
    * recognition only when auto mode is still on.
    */
+  /** True while Stop everything is on. Read where it matters, not cached. */
+  private stopped(): boolean {
+    return autonomy.getSnapshot().halted === true;
+  }
+
+  /** Whether the microphone was closed by Stop everything (so Resume may reopen it) and not by the owner's pause. */
+  private pausedByStop = false;
+  private readonly unKillSwitch = autonomy.subscribe(() => this.followKillSwitch());
+
+  /**
+   * Stop everything is the kill switch for the approval queue and the Brain's tools; it is also the owner's
+   * "stop" for Auto. Switching it on closes the microphone, cuts what is being said, and drops what was waiting
+   * (queued requests and a confirmation); switching it off reopens the microphone only if this closed it. Mute is
+   * a separate switch and is not touched, and Manual and Chat never owned the microphone, so nothing changes there.
+   */
+  private followKillSwitch() {
+    if (this.stopped()) {
+      this.queuedCommands = [];
+      this.stopQueueTimer();
+      this.state.pending = null;
+      this.pendingHeard = null;
+      if (this.state.mode === "auto" && !this.state.paused) {
+        this.pausedByStop = true;
+        this.setPaused(true);
+        this.state.status = "Stopped. Stop everything is on";
+      } else if (this.state.speaking || this.speechQueue.length) {
+        this.cancelSpeech();
+      }
+      this.emit();
+      return;
+    }
+    if (this.pausedByStop) {
+      this.pausedByStop = false;
+      this.setPaused(false);
+    }
+  }
+
   setPaused(paused: boolean) {
+    if (!paused && this.stopped()) {
+      // The microphone does not reopen under the kill switch, whoever asks.
+      this.state.status = "Stop everything is on";
+      this.emit();
+      return;
+    }
     if (this.state.paused === paused) return;
+    if (this.state.paused && !paused) this.pausedByStop = false;
     this.state.paused = paused;
     if (paused) {
       this.stopRecognition();
@@ -633,6 +689,10 @@ class AssistantModeStore {
       // An explicit resume is the owner asking again: retry immediately.
       this.resetVoiceRecovery();
       this.to("resume");
+      if (this.autoMicDeferred) {
+        this.autoMicDeferred = false;
+        this.openAutoMic();
+      }
       this.startRecognition();
     } else {
       this.to("stopped");
@@ -1279,32 +1339,17 @@ class AssistantModeStore {
     return pttActive();
   }
 
-  private enterAuto() {
-    this.armPushToTalk();
-    this.ensureLiveWake();
-    // Her own look at her ears and voice a few seconds after Auto starts; silent unless something is wrong.
-    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
-    this.autoCheckTimer = setTimeout(() => {
-      this.autoCheckTimer = null;
-      if (this.state.mode === "auto") void this.selfCheckVoice(false);
-    }, 6000);
-    this.startBargeShadow();
-    this.soak.start(Date.now());
-    // Same runtime, different shape: the brain now knows replies are spoken.
-    brain.setAutoMode(true);
-    if (!this.wakeWordRequired) this.state.handsFree = true;
-    this.state.error = null;
-    // Turning Auto Mode on is an explicit request — retry the engine now.
-    this.resetVoiceRecovery();
-    this.to("session-start");
-    this.state.status = "Starting microphone…";
-    void this.refreshWakeEngine(true);
-    this.spokenUpTo = brain.getSnapshot().messages.length;
-    this.unBrain = brain.subscribe(() => this.speakNewReplies());
+  /** Whether Auto started with the microphone held back (Stop everything or the pause was on). Resume opens it. */
+  private autoMicDeferred = false;
+
+  /**
+   * Acquire the shared microphone for Auto. Done on the Auto Mode click or on Resume, so the browser lets
+   * the AudioContext start. Not done while Stop everything or the owner's pause is on.
+   */
+  private openAutoMic() {
     const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
-    // Acquire on the Auto Mode click before any other await so AudioContext
-    // can resume. A throwaway probeMicrophone capture afterwards would fight
-    // Windows exclusive-mode devices and leave the analyser silent.
+    // A throwaway probeMicrophone capture afterwards would fight Windows exclusive-mode devices and leave the
+    // analyser silent, so nothing awaits before the acquire.
     void voiceGate.acquire("auto-mode", preferred || undefined).then(async (opened) => {
       if (this.state.mode !== "auto") {
         voiceGate.release("auto-mode");
@@ -1378,6 +1423,40 @@ class AssistantModeStore {
       if (this.state.error?.startsWith("microphone")) this.state.error = null;
       this.emit();
     });
+  }
+
+  private enterAuto() {
+    this.armPushToTalk();
+    this.ensureLiveWake();
+    // Her own look at her ears and voice a few seconds after Auto starts; silent unless something is wrong.
+    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+    this.autoCheckTimer = setTimeout(() => {
+      this.autoCheckTimer = null;
+      if (this.state.mode === "auto") void this.selfCheckVoice(false);
+    }, 6000);
+    this.startBargeShadow();
+    this.soak.start(Date.now());
+    // Same runtime, different shape: the brain now knows replies are spoken.
+    brain.setAutoMode(true);
+    if (!this.wakeWordRequired) this.state.handsFree = true;
+    this.state.error = null;
+    // Turning Auto Mode on is an explicit request — retry the engine now.
+    this.resetVoiceRecovery();
+    this.to("session-start");
+    this.state.status = "Starting microphone…";
+    void this.refreshWakeEngine(true);
+    this.spokenUpTo = brain.getSnapshot().messages.length;
+    this.unBrain = brain.subscribe(() => this.speakNewReplies());
+    if (this.stopped() || this.state.paused) {
+      // Stop everything persists across a restart, and the owner may have paused: Auto starts with the
+      // microphone closed and the first Resume opens it.
+      this.autoMicDeferred = true;
+      if (this.stopped()) this.followKillSwitch();
+      this.to("pause");
+      this.state.status = this.stopped() ? "Stopped. Stop everything is on" : "Microphone paused";
+    } else {
+      this.openAutoMic();
+    }
     void this.refreshMeeting();
     this.startRecognition();
   }
@@ -1416,6 +1495,7 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    this.autoMicDeferred = false;
     this.interventions = 0;
     this.lastIntervention = "";
     this.reportedStuck = false;
@@ -1481,6 +1561,8 @@ class AssistantModeStore {
   /** Start FRIDAY's own on-device transcriber. Browser cloud speech is never used. */
   private startRecognition() {
     if (this.callHold) return;
+    // A session that begins while Stop everything is on (it persists across a restart) must not open the microphone.
+    if (this.stopped()) this.followKillSwitch();
     if (!microphoneAllowed(this.state.mode, this.state.paused)) {
       this.wantRunning = false;
       return;
@@ -1955,6 +2037,7 @@ class AssistantModeStore {
   }
 
   private startDesktopDictation() {
+    void refreshVoiceProfile();
     this.stopWakeOnly();
     if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
     if (this.dictation?.active) return;
@@ -1978,9 +2061,16 @@ class AssistantModeStore {
         return sttInitialPrompt({
           preference: voice.recognitionLang,
           topic: conversationDigest(),
-          vocab: [voice.addressName, voice.wakeWord, voice.voiceName].filter(Boolean),
+          vocab: [
+            voice.addressName,
+            voice.wakeWord,
+            voice.voiceName,
+            ...parseVocabulary(voice.vocabulary),
+          ].filter(Boolean),
         });
       },
+      // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
+      voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         const finished = this.turnStages.finish();
@@ -2312,12 +2402,38 @@ class AssistantModeStore {
   }
 
   private handleHeard(text: string, probe: WakeProbe | null = null) {
+    // A transcript that finished a moment after Stop everything was thrown is not a turn.
+    if (this.stopped()) {
+      this.trace("dropped", "Stop everything is on");
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     if (words >= 2) this.lastOwnerLine = text;
     this.trace("transcript", text.slice(0, 160));
+    // The owner's saved voice (only when one is built): "only answer my voice" drops what clearly is not them,
+    // and their own "Friday" recordings can wake her when the transcript wrote the word differently.
+    const earlyWake = matchWakeWord(text, wakeWord()).matched;
+    const voiceTurn = voiceTurnGate({
+      voice: this.turnVoice,
+      settings: this.voiceSettings(),
+      transcriptWake: earlyWake,
+      isStop: this.isStopHeard(text, earlyWake),
+      words,
+    });
+    this.turnPersonalWake = voiceTurn.personalWake;
+    if (voiceTurn.ignore) {
+      this.trace("dropped", voiceTurn.reason);
+      markTurnStage("routed", false, voiceTurn.reason);
+      this.remember("other-voice", text, "ignored");
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
     if (this.settleInterruption(text)) {
       this.state.interim = "";
       this.emit();
@@ -2399,6 +2515,7 @@ class AssistantModeStore {
       approvalFresh(waiting.at, Date.now())
     ) {
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+        if (!this.approvalVoiceAllows(text)) return;
         brain.approve(true);
         this.caption("user", text);
         this.caption("friday", "Approved.");
@@ -2427,6 +2544,7 @@ class AssistantModeStore {
         return;
       }
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+        if (!this.approvalVoiceAllows(text)) return;
         const cmd = this.state.pending.command;
         this.state.pending = null;
         this.to("confirm-resolved");
@@ -2460,7 +2578,7 @@ class AssistantModeStore {
     // and can miss a clearly spoken name (weak or missing model); the
     // transcript matcher is a real, equal detection path, not a consolation
     // prize — so a name that is visible in the transcript always counts.
-    const matched = Boolean(probe?.detected) || transcriptWake.matched;
+    const matched = Boolean(probe?.detected) || transcriptWake.matched || this.turnPersonalWake;
     const wake = {
       matched,
       command: transcriptWake.command,
@@ -2468,10 +2586,12 @@ class AssistantModeStore {
         ? transcriptWake.matched && !probe.detected
           ? `${probe.detail} · transcript matched "${transcriptWake.token}"`
           : probe.detail
-        : transcriptWake.detail,
+        : this.turnPersonalWake
+          ? `your own "${wakeWord()}" recording matched (distance ${this.turnVoice?.wake?.distance ?? "?"})`
+          : transcriptWake.detail,
     };
     this.state.lastWake = {
-      engine: probe?.detected ? probe.engine : "transcript",
+      engine: probe?.detected ? probe.engine : this.turnPersonalWake ? "personal" : "transcript",
       detail: wake.detail,
       at: Date.now(),
     };
@@ -2744,14 +2864,14 @@ class AssistantModeStore {
     // the line is still heard, and a match still does not run the action.
     const heardSensitive =
       voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
-    const speaker = speakerDecision({
-      similarity: null,
-      enrolled: false,
-      sensitive: heardSensitive,
-    });
+    const speaker = this.speakerVerdict(heardSensitive);
     if (!speaker.allow) {
-      const refused = "That did not match the saved voice. Confirm it on the desktop.";
-      this.remember("speaker-mismatch", command, "blocked");
+      const refused = this.speakerRefusal(speaker.reason);
+      this.remember(
+        speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
+        command,
+        "blocked",
+      );
       this.caption("friday", refused);
       this.speak(refused);
       this.emit();
@@ -2878,6 +2998,12 @@ class AssistantModeStore {
 
   /** Run a command through the existing brain pipeline. */
   private dispatch(command: string) {
+    if (this.stopped()) {
+      this.remember("stopped", command, "not sent: Stop everything is on");
+      this.state.status = "Stopped. Stop everything is on";
+      this.emit();
+      return;
+    }
     // A light remark while a turn is running (how is it going, are you there)
     // is answered at once and the turn keeps going. A real request falls
     // through and still interrupts, as before.
@@ -3219,6 +3345,10 @@ class AssistantModeStore {
   private speak(text: string) {
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
     this.turnStages.mark("brainFirstToken");
+    if (this.stopped()) {
+      markTurnStage("spoken", false, "Stop everything is on");
+      return;
+    }
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
       markTurnStage(
         "spoken",
@@ -3254,7 +3384,7 @@ class AssistantModeStore {
     this.draining = true;
     try {
       while (this.speechQueue.length) {
-        if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
+        if (!spokenReplyAllowed(this.state.mode, this.state.muted) || this.stopped()) {
           this.speechQueue = [];
           break;
         }
@@ -3266,7 +3396,11 @@ class AssistantModeStore {
       }
     } finally {
       this.draining = false;
-      if (this.speechQueue.length && spokenReplyAllowed(this.state.mode, this.state.muted)) {
+      if (
+        this.speechQueue.length &&
+        spokenReplyAllowed(this.state.mode, this.state.muted) &&
+        !this.stopped()
+      ) {
         void this.drainSpeech();
       }
     }
@@ -3604,6 +3738,66 @@ class AssistantModeStore {
       : `${base} · ${stats.chunks} chunks scored · last score ${stats.lastScore.toFixed(2)}`;
   }
 
+  /** How the utterance being handled scored against the owner's saved voice (null: no saved voice, or not scored). */
+  private turnVoice: VoiceMatchResult | null = null;
+  /** The owner's own "Friday" template woke her for this turn although the transcript did not carry the word. */
+  private turnPersonalWake = false;
+  /** A voice is saved but this turn came from a recogniser that gives no audio to score (Sarvam's final text). */
+  private turnUnverified = false;
+
+  /** The saved-voice verdict for the turn being handled. It can only block, never approve. */
+  private speakerVerdict(sensitive: boolean) {
+    return speakerDecision({
+      ...speakerInput(this.turnVoice, this.voiceSettings(), this.turnUnverified),
+      sensitive,
+    });
+  }
+
+  /** The line spoken when the saved voice stops a command or an approval. */
+  private speakerRefusal(reason: string): string {
+    return reason === "speaker-unverified"
+      ? "I could not check your voice on this recogniser. Confirm it on the desktop."
+      : "That did not match the saved voice. Confirm it on the desktop.";
+  }
+
+  /** When a different voice's "yes" was last refused out loud, so a repeated yes is not answered every time. */
+  private lastApprovalMismatchAt = 0;
+
+  /**
+   * A spoken "yes" that would finish an approval must not come from a clearly different voice. The same rule as
+   * for the command itself: the saved voice can only block, never approve, and a voice that cannot be told apart
+   * (too little speech, no saved voice, Recognise my voice off) passes exactly as before. A refused yes leaves the
+   * approval waiting, so the owner can still say it inside the window or confirm on the desktop.
+   */
+  private approvalVoiceAllows(heard: string): boolean {
+    const speaker = this.speakerVerdict(true);
+    if (speaker.allow) return true;
+    this.remember(
+      speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
+      heard,
+      "approval not accepted: the saved voice could not confirm it",
+    );
+    const refused = this.speakerRefusal(speaker.reason);
+    if (Date.now() - this.lastApprovalMismatchAt > 4000) {
+      this.lastApprovalMismatchAt = Date.now();
+      this.caption("friday", refused);
+      this.speak(refused);
+    }
+    this.emit();
+    return false;
+  }
+
+  /** The owner's choices about their saved voice, read when a turn is handled. */
+  private voiceSettings(): VoiceSettingsView {
+    const snapshot = preferences.getSnapshot();
+    return {
+      recogniseMyVoice: snapshot.voice.recogniseMyVoice !== false,
+      ownerVoiceOnly: snapshot.voice.ownerVoiceOnly === true,
+      personalWake: snapshot.voice.personalWake !== false,
+      threshold: parseThreshold(snapshot.fields["speakerThreshold"]),
+    };
+  }
+
   /** The local recogniser's measurements for a finished utterance, kept until the arbiter lets that text through. */
   private localFinalMeta = new Map<string, LocalFinalMeta>();
   private rememberLocalMeta(text: string, meta: LocalFinalMeta) {
@@ -3673,6 +3867,8 @@ class AssistantModeStore {
     }
     // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
     // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
+    this.turnVoice = meta?.voice ?? null;
+    this.turnUnverified = utterance.source !== "local" && voiceProfileBuilt();
     this.lastTone = assessTone(meta?.prosody);
     this.lastSpeechMs = meta?.durationMs ?? null;
     this.lastHeardQuality = meta?.quality ?? null;

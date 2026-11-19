@@ -14,6 +14,88 @@ import type { ModelSource as ModelDownloadSource } from "./model-sources";
  * Billing safety record, owned by the main process. A stored paid API key is
  * never permission to spend — these flags are.
  */
+/** The owner's own voice (Settings -> Voice): what is recorded, what was built from it, and how a clip scored. */
+export type VoiceEnrollCounts = {
+  total: number;
+  wakeTakes: number;
+  speechClips: number;
+  speechSeconds: number;
+  byPrompt: Record<string, number>;
+};
+
+export type VoiceProfileSummary = {
+  built: boolean;
+  engine: string;
+  evidence: string;
+  /** How the owner usually sounds in their recordings; seeds the tone reading. */
+  baseline?: {
+    pitchHz: number;
+    pitchSpreadSemitones: number;
+    energyDbfs: number;
+    clips: number;
+  } | null;
+  speaker?: {
+    ready: boolean;
+    reasons: string[];
+    clips: number;
+    seconds?: number;
+    edge?: number;
+    looMax?: number;
+    looMedian?: number;
+    shortClipP90?: number;
+  };
+  wake?: {
+    ready: boolean;
+    reasons: string[];
+    takes: number;
+    threshold?: number;
+    margin?: number;
+    positiveMax?: number;
+    negativeMin?: number;
+    heldOutRefusalRate?: number;
+    negativeClips?: number;
+    falseAcceptsOnOwnSentences?: number;
+  };
+};
+
+export type VoiceEnrollStatus = {
+  ok: boolean;
+  folder: string;
+  encryption: boolean;
+  counts: VoiceEnrollCounts;
+  samples: {
+    id: string;
+    kind: "wake" | "speech";
+    promptId: string;
+    durationMs: number;
+    createdAt: number;
+  }[];
+  profile: { built: boolean; builtAt: number; stale: boolean; summary: VoiceProfileSummary | null };
+};
+
+export type VoiceMatchResult = {
+  ok: boolean;
+  enrolled?: boolean;
+  reason?: string;
+  engine?: string;
+  evidence?: string;
+  speaker?: {
+    enrolled: boolean;
+    similarity: number | null;
+    distance?: number;
+    edge?: number;
+    match: boolean;
+    reason: string;
+  } | null;
+  wake?: {
+    ready: boolean;
+    matched: boolean;
+    distance?: number;
+    threshold?: number;
+    reason: string;
+  } | null;
+};
+
 export type DataClassification = "public" | "internal" | "private" | "sensitive";
 
 /** One data-egress confirmation, as the main process reports it. */
@@ -654,6 +736,29 @@ type DesktopApi = {
   openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   voiceprintStatus?: () => Promise<{ ok?: boolean; enrolled?: boolean; reason?: string }>;
   clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
+  voiceEnrollStatus?: () => Promise<VoiceEnrollStatus>;
+  voiceEnrollSaveSample?: (payload: {
+    id: string;
+    kind: "wake" | "speech";
+    promptId: string;
+    text: string;
+    language: string;
+    wavBytes: Uint8Array;
+  }) => Promise<{ ok: boolean; reason?: string; detail?: string; counts?: VoiceEnrollCounts }>;
+  voiceEnrollDeleteSample?: (id: string) => Promise<{ ok: boolean; counts?: VoiceEnrollCounts }>;
+  voiceEnrollReadSample?: (id: string) => Promise<{ ok: boolean; bytes?: Uint8Array }>;
+  voiceEnrollBuild?: () => Promise<{
+    ok: boolean;
+    reason?: string;
+    error?: string;
+    summary?: VoiceProfileSummary;
+  }>;
+  voiceEnrollScore?: (payload: {
+    audioBytes: Uint8Array;
+    mime?: string;
+  }) => Promise<VoiceMatchResult>;
+  voiceEnrollClearRecordings?: () => Promise<{ ok: boolean; counts?: VoiceEnrollCounts }>;
+  voiceEnrollForget?: () => Promise<VoiceEnrollStatus>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   onSystemResume?: (cb: () => void) => () => void;
   onSystemSuspend?: (cb: () => void) => () => void;

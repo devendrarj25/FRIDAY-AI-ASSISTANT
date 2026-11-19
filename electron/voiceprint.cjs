@@ -8,13 +8,9 @@
  */
 const fs = require("fs");
 const path = require("path");
-const lazy = require("./lazy-electron.cjs");
+const secretBox = require("./secret-box.cjs");
 
 let userData = "";
-
-function safeStorage() {
-  return lazy.afterReady("safeStorage");
-}
 
 function userDataDir() {
   if (userData) return userData;
@@ -35,14 +31,6 @@ function storePath() {
   return root ? path.join(root, "voiceprint.json") : "";
 }
 
-function encryptionReady() {
-  try {
-    return Boolean(safeStorage()?.isEncryptionAvailable());
-  } catch {
-    return false;
-  }
-}
-
 function status() {
   const file = storePath();
   const enrolled = Boolean(file && fs.existsSync(file));
@@ -56,19 +44,39 @@ function status() {
   };
 }
 
-function save(vector) {
+async function save(vector) {
   if (!Array.isArray(vector) || vector.length < 8 || vector.some((n) => typeof n !== "number")) {
     return { ok: false, reason: "voiceprint needs a numeric embedding" };
   }
-  if (!encryptionReady()) {
+  if (!(await secretBox.available())) {
     return { ok: false, reason: "voiceprint needs the desktop safe store" };
   }
   const file = storePath();
   if (!file) return { ok: false, reason: "no FRIDAY folder" };
-  const enc = safeStorage().encryptString(JSON.stringify(vector)).toString("base64");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ enc }));
+  try {
+    const enc = await secretBox.encryptText(JSON.stringify(vector));
+    secretBox.writeAtomic(file, JSON.stringify({ enc }));
+  } catch {
+    // The old voiceprint file, if any, is untouched.
+    return { ok: false, reason: "the voiceprint could not be saved" };
+  }
   return { ok: true, enrolled: true };
+}
+
+/** The saved embedding, or null when none is saved or this PC cannot open it. */
+async function load() {
+  const file = storePath();
+  if (!file || !(await secretBox.available())) return null;
+  const raw = secretBox.readRaw(file);
+  if (typeof raw.enc !== "string") return null;
+  const opened = await secretBox.decryptText(raw.enc);
+  if (!opened.ok) return null;
+  try {
+    const vector = JSON.parse(opened.text);
+    return Array.isArray(vector) ? vector : null;
+  } catch {
+    return null;
+  }
 }
 
 function clear() {
@@ -125,7 +133,7 @@ function score(probe, enrolled, threshold) {
   };
 }
 
-function enrol(vector) {
+async function enrol(vector) {
   return save(vector);
 }
 
@@ -133,4 +141,4 @@ function forget() {
   return clear();
 }
 
-module.exports = { status, save, clear, score, enrol, forget, cosine };
+module.exports = { status, save, load, clear, score, enrol, forget, cosine };

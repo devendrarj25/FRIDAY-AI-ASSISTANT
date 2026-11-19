@@ -76,7 +76,7 @@ function flakyCdn(body: Buffer, dropAfter: number) {
 
 describe("the installer survives a dropped connection", () => {
   it("resumes from the bytes it already has and installs the exact file", async () => {
-    sync.writeConfig(work, { repo: "o/r", updateToken: "read-only" });
+    await sync.writeConfig(work, { repo: "o/r", updateToken: "read-only" });
     const seen = flakyCdn(exe, 1024 * 1024);
     const events: string[] = [];
     const out = await sync.downloadInstaller({
@@ -103,7 +103,7 @@ describe("the installer survives a dropped connection", () => {
   }, 30_000);
 
   it("can be cancelled and then continued", async () => {
-    sync.writeConfig(work, { repo: "o/r" });
+    await sync.writeConfig(work, { repo: "o/r" });
     flakyCdn(exe, 1024 * 1024);
     const controller = new AbortController();
     controller.abort();
@@ -314,8 +314,8 @@ describe("what an update leaves behind", () => {
     expect(fs.existsSync(fresh)).toBe(true);
   });
 
-  it("records a content merge without claiming the release is installed", () => {
-    sync.writeConfig(work, { repo: "o/r", appliedRef: "v1.0.0" });
+  it("records a content merge without claiming the release is installed", async () => {
+    await sync.writeConfig(work, { repo: "o/r", appliedRef: "v1.0.0" });
     sync.recordApplied(work, { ref: "v2.0.0", applied: 4, areas: ["skills"], contentOnly: true });
     const cfg = sync.readConfig(work);
     expect(cfg.appliedRef).toBe("v1.0.0");

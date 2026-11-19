@@ -91,11 +91,22 @@ export function speakerDecision(input: {
   similarity: number | null;
   enrolled: boolean;
   sensitive: boolean;
+  /** The similarity the owner's voice must reach. Default 0.75, the edge the kernel calibrates to. */
+  threshold?: number;
+  /**
+   * The utterance's audio was never scored although a voice is saved (a text-only recogniser, such as the
+   * Sarvam final text, made it). It cannot be told apart from anyone, so sensitive work is not accepted from it.
+   */
+  unverified?: boolean;
 }): { allow: boolean; execute: false; reason: string } {
   if (!input.sensitive) return { allow: true, execute: false, reason: "ordinary" };
+  if (input.unverified && input.enrolled) {
+    return { allow: false, execute: false, reason: "speaker-unverified" };
+  }
   if (!input.enrolled || input.similarity == null)
     return { allow: true, execute: false, reason: "no-voiceprint" };
-  if (input.similarity < 0.75) return { allow: false, execute: false, reason: "speaker-mismatch" };
+  if (input.similarity < (input.threshold ?? 0.75))
+    return { allow: false, execute: false, reason: "speaker-mismatch" };
   return { allow: true, execute: false, reason: "speaker-match" };
 }
 

@@ -28,15 +28,15 @@ afterEach(() => {
 });
 
 describe("channel selection", () => {
-  it("defaults to stable and only ever stores stable or test", () => {
+  it("defaults to stable and only ever stores stable or test", async () => {
     expect(sync.readConfig(root).updateChannel).toBe("stable");
     expect(sync.normalizeUpdateChannel(undefined)).toBe("stable");
     expect(sync.normalizeUpdateChannel("nightly")).toBe("stable");
     expect(sync.normalizeUpdateChannel("TEST")).toBe("test");
 
-    sync.writeConfig(root, { updateChannel: "test" });
+    await sync.writeConfig(root, { updateChannel: "test" });
     expect(sync.readConfig(root).updateChannel).toBe("test");
-    sync.writeConfig(root, { updateChannel: "whatever" });
+    await sync.writeConfig(root, { updateChannel: "whatever" });
     expect(sync.readConfig(root).updateChannel).toBe("stable");
   });
 });
@@ -84,14 +84,17 @@ describe("test prerelease versions", () => {
 });
 
 describe("channel state never mixes", () => {
-  it("records a test install apart from the stable installed ref", () => {
-    sync.writeConfig(root, { repo: "devendrarj25/FRIDAY-AI-ASSISTANT", updateChannel: "stable" });
+  it("records a test install apart from the stable installed ref", async () => {
+    await sync.writeConfig(root, {
+      repo: "devendrarj25/FRIDAY-AI-ASSISTANT",
+      updateChannel: "stable",
+    });
     sync.recordApplied(root, { ref: "v1.3.1", applied: 3 });
     let cfg = sync.readConfig(root);
     expect(cfg.appliedRef).toBe("v1.3.1");
     expect(cfg.testAppliedRef).toBeNull();
 
-    sync.writeConfig(root, { updateChannel: "test" });
+    await sync.writeConfig(root, { updateChannel: "test" });
     sync.recordApplied(root, { ref: "test-build-42", applied: 3 });
     cfg = sync.readConfig(root);
     // Stable stays exactly where it was — a test build never claims it.
