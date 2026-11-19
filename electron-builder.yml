@@ -73,6 +73,26 @@ extraResources:
     to: workflows
   - from: config
     to: config
+    # When the FRIDAY folder is this checkout, the owner's settings, keys and state sit in config/. They are
+    # never part of the installer (the same names are in .gitignore).
+    filter:
+      - "**/*"
+      - "!build-root.json"
+      - "!capabilities.json"
+      - "!connectors.json"
+      - "!dev-changesets.json"
+      - "!first-run.json"
+      - "!friday-camera.json"
+      - "!friday-preferences.json"
+      - "!friday-screen-vision.json"
+      - "!friday-settings.json"
+      - "!friday-storage.json"
+      - "!github.json"
+      - "!provider-access.json"
+      - "!provider-endpoints.json"
+      - "!provider-keys.json"
+      - "!user/**"
+      - "!security/**"
   # Product What's New for the phone companion — the same CHANGELOG.md the
   # updater already publishes. Not a second notes store.
   - from: CHANGELOG.md

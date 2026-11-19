@@ -75,6 +75,27 @@ release-notes.md
 bun.lock
 .friday-readiness-root/
 
+# The owner's own settings, keys and state when the FRIDAY folder is this checkout. Never committed, never packed
+# into the installer (electron-builder.yml filters the same names).
+/config/build-root.json
+/config/capabilities.json
+/config/connectors.json
+/config/dev-changesets.json
+/config/first-run.json
+/config/friday-camera.json
+/config/friday-preferences.json
+/config/friday-screen-vision.json
+/config/friday-settings.json
+/config/friday-storage.json
+/config/github.json
+/config/provider-access.json
+/config/provider-endpoints.json
+/config/provider-keys.json
+/config/user/*
+!/config/user/.gitkeep
+/config/security/*
+!/config/security/.gitkeep
+
 # Isolated Python environments created by setup. Not part of the installer.
 .venv/
 runtime/.venv/

@@ -94,8 +94,10 @@ const CAPABILITY_PACKAGES = [
 function selectedRuntimeParent() {
   try {
     const fridayRoot = require("./friday-root.cjs");
-    const selected = fridayRoot.findWorkspaceRoot();
-    if (selected) return fridayRoot.layout(selected).runtime;
+    // The folder the setup CMD runs in counts as selected on Windows (it is the FRIDAY folder the installer and
+    // the app will use), so the venv lands in <root>\runtime\.venv, where the installed app looks for it.
+    const picked = fridayRoot.workspaceRootOrDev({ record: false });
+    if (!picked.development) return fridayRoot.layout(picked.root).runtime;
   } catch {
     /* a missing pointer keeps the checkout .venv */
   }
