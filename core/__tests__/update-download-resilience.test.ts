@@ -314,6 +314,22 @@ describe("what an update leaves behind", () => {
     expect(fs.existsSync(fresh)).toBe(true);
   });
 
+  it("skips an installer or leftover it cannot read instead of failing the whole clean-up", () => {
+    const dir = path.join(work, "updates", "installers");
+    fs.mkdirSync(dir, { recursive: true });
+    ["a", "b", "c"].forEach((n, i) => {
+      const file = path.join(dir, `FRIDAY-Setup-${n}.exe`);
+      fs.writeFileSync(file, "x");
+      fs.utimesSync(file, new Date(2026, 0, i + 1), new Date(2026, 0, i + 1));
+    });
+    // A dangling link stands for a file that vanished between the listing and the stat.
+    fs.symlinkSync(path.join(dir, "gone"), path.join(dir, "FRIDAY-Setup-ghost.exe"));
+    fs.symlinkSync(path.join(dir, "gone"), path.join(dir, "FRIDAY-Setup-ghost.exe.part"));
+    const out = safety.pruneInstallers({ root: work, keep: 2 });
+    expect(out.ok).toBe(true);
+    expect(out.removed).toEqual(["FRIDAY-Setup-a.exe"]);
+  });
+
   it("records a content merge without claiming the release is installed", async () => {
     await sync.writeConfig(work, { repo: "o/r", appliedRef: "v1.0.0" });
     sync.recordApplied(work, { ref: "v2.0.0", applied: 4, areas: ["skills"], contentOnly: true });
