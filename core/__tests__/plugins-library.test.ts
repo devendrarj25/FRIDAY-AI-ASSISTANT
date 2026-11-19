@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(__dirname, "../..");
-type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Any = any;
 const plugins = require("../../electron/plugins.cjs") as Any;
 
 const temps: string[] = [];

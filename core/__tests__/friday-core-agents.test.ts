@@ -58,7 +58,7 @@ const manifest = (slug: string) =>
   JSON.parse(fs.readFileSync(path.join(SYSTEM_AGENTS, slug, "manifest.json"), "utf8")) as Record<
     string,
     any
-  >; // eslint-disable-line @typescript-eslint/no-explicit-any
+  >;
 const coreSkillIds = fs
   .readdirSync(CORE_SKILLS, { withFileTypes: true })
   .filter((e) => e.isDirectory() && fs.existsSync(path.join(CORE_SKILLS, e.name, "skill.json")))
@@ -220,7 +220,7 @@ describe("FRIDAY core agents: they really use their skills", () => {
     const value = run.value as {
       outputs: { id: string; value: any }[];
       notApplicable?: { id: string; reason: string }[];
-    }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    };
     const gst = value.outputs.find((o) => o.id === "in-tax-invoice");
     expect(gst?.value).toMatchObject({
       ok: true,
@@ -244,7 +244,7 @@ describe("FRIDAY core agents: they really use their skills", () => {
     );
     const run = runs[0]!;
     expect(run.ok).toBe(true);
-    const value = run.value as { outputs: { id: string; value: any }[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const value = run.value as { outputs: { id: string; value: any }[] };
     const byId = Object.fromEntries(value.outputs.map((o) => [o.id, o.value]));
     const scan = byId["saf-content-scan"];
     expect(scan.part).toBe("saf-secret-scan");

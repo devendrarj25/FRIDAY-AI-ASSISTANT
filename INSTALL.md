@@ -335,6 +335,8 @@ A clean start instead: uninstall with **Delete all FRIDAY data**, then install.
 
 ## 14. Uninstall FRIDAY
 
+**Back up first if the data matters.** Everything that is yours (chats, memory, library, settings, models, database) lives in your FRIDAY folder. Close FRIDAY, then copy that folder to another drive: that is a backup. API keys are stored encrypted for your Windows user and are not part of a copy that works on another PC or account, so connect them again ([section 9](#9-connect-a-cloud-provider-with-an-api-key)). A normal update also makes its own safety backup before it installs (`backup\releases` in your FRIDAY folder).
+
 1. Open Windows **Settings → Apps → Installed apps**, find **FRIDAY** (or **FRIDAY Test**) and choose **Uninstall**. Close FRIDAY first, or let the uninstaller close it; it also stops FRIDAY's own Python and Node helper programs.
 2. **Keep data (default).** Only `<root>\App` is removed. Your database, models, memory, library and the rest of the FRIDAY folder stay. Reinstall later and you are back.
 3. **Delete everything.** Tick **Delete all FRIDAY data and resources**, and confirm. This removes the whole FRIDAY folder. If your FRIDAY folder is the **source checkout** you built in, the uninstaller removes only the data folders and downloaded models and keeps your source code and Git history.
@@ -364,6 +366,12 @@ Windows will not silently wipe your folder: the installer is set to keep data un
 ## 16. Technical reference
 
 Everything below is the exact detail behind the steps above. You do not need it to follow the guide.
+
+Notes that apply to everything below:
+
+- Every command is run from the **project root** (the folder that contains `package.json`) in Windows `cmd.exe`. `npm run build:win` must stay the backslash CMD path: it is the owner-verified pack launcher.
+- Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are run by the owner on GitHub, never from this guide. An official release is Actions → **FRIDAY Release**, not a CMD command; a branch EXE is Actions → **FRIDAY Test Build**.
+- On Linux or macOS `npm run setup` and `npm run build:win` are not available by design (they need `winget`, `msiexec` and `cmd.exe`); `setup:python`, `setup:electron`, `init:runtime` and `check:env` do run there.
 
 ### 16.1 What `npm run setup` does inside
 
