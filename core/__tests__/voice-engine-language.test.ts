@@ -70,9 +70,7 @@ describe("language segmenter", () => {
 
 describe("speech chunker", () => {
   it("never makes one chunk per word", () => {
-    const chunks = chunkForSpeech(
-      "मैं आपकी मदद कर सकती हूँ। Let me check the report. फिर बताती हूँ।",
-    );
+    const chunks = chunkForSpeech("मैं आपकी मदद कर सकती हूँ। Let me check the report. फिर बताती हूँ।");
     expect(chunks.length).toBeLessThanOrEqual(3);
     expect(chunks.every((c) => c.text.split(/\s+/).length >= 3)).toBe(true);
   });

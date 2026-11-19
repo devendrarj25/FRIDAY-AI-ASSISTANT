@@ -43,8 +43,14 @@ function dirSize(dir, { budgetMs = 400, maxFiles = 60_000 } = {}) {
   return total;
 }
 
-function sizeOfAll(dirs) {
-  return dirs.reduce((sum, dir) => sum + dirSize(dir), 0);
+/**
+ * One number for several folders. `sum` adds them; `max` takes the largest, for a step whose bytes pass through
+ * two folders (pip downloads a wheel into its cache and then unpacks it into site-packages, so adding both counts
+ * every package twice). The largest of two growing folders still only grows.
+ */
+function sizeOfAll(dirs, combine = "sum") {
+  const sizes = dirs.map((dir) => dirSize(dir));
+  return combine === "max" ? Math.max(0, ...sizes) : sizes.reduce((sum, n) => sum + n, 0);
 }
 
 function duration(ms) {
@@ -87,33 +93,39 @@ function startTicker({
   first = 8_000,
   every = 15_000,
   now = Date.now,
-  size = sizeOfAll,
+  combine = "sum",
+  size = (dirs) => sizeOfAll(dirs, combine),
   write = (line) => console.log(line),
   setTimer = setTimeout,
   clearTimer = clearTimeout,
 } = {}) {
   const began = now();
   const baseline = watch.length ? size(watch) : 0;
-  let last = { at: began, bytes: baseline };
+  // A folder walk is time-limited and a download can move between folders (pip's cache, then site-packages), so one
+  // reading can be lower than the one before. Only the high-water mark is reported, and the speed is the growth
+  // over the last few readings, so a single noisy reading cannot show 246 MB/s or take the total back to 0.2 MB.
+  let high = baseline;
+  const recent = [{ at: began, bytes: baseline }];
   let timer = null;
   let stopped = false;
   const tick = () => {
     if (stopped) return;
     const at = now();
-    let bytes = last.bytes;
     try {
-      bytes = watch.length ? size(watch) : last.bytes;
+      if (watch.length) high = Math.max(high, size(watch));
     } catch {
       /* measuring is best effort */
     }
+    recent.push({ at, bytes: high });
+    while (recent.length > 5) recent.shift();
+    const from = recent[0];
     const measured = {
       elapsedMs: at - began,
-      grownBytes: Math.max(0, bytes - baseline),
-      recentBytes: Math.max(0, bytes - last.bytes),
-      recentMs: at - last.at,
+      grownBytes: Math.max(0, high - baseline),
+      recentBytes: Math.max(0, high - from.bytes),
+      recentMs: at - from.at,
     };
     write(activityLine({ label, ...measured }), activityText(measured));
-    last = { at, bytes };
     timer = setTimer(tick, every);
     timer?.unref?.();
   };

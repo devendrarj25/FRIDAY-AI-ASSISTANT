@@ -475,4 +475,28 @@ describe("cancel stops a download too", () => {
     };
     expect(own.cancelJob({ id: "nothing", action: "install" })).toBe(false);
   });
+
+  it("reads only the leading release number of a GitHub tag, so WinLibs 16.2.0 is not 'older' than its own release tag", async () => {
+    const vendor = require_("../../electron/vendor-sources.cjs") as {
+      githubRelease: (ref: string) => Promise<{ tag: string } | null>;
+    };
+    const tc = toolchain as unknown as {
+      latestFor: (tool: Record<string, unknown>) => Promise<string | null>;
+    };
+    const original = vendor.githubRelease;
+    try {
+      vendor.githubRelease = async () => ({ tag: "16.2.0posix-23.1.3-14.0.0-ucrt-r3" });
+      const version = await tc.latestFor({
+        id: "Tag Probe Tool",
+        latest: { kind: "github", ref: "owner/repo" },
+      });
+      expect(version).toBe("16.2.0");
+      vendor.githubRelease = async () => ({ tag: "v4.5.1" });
+      expect(
+        await tc.latestFor({ id: "Tag Probe Tool 2", latest: { kind: "github", ref: "o/r" } }),
+      ).toBe("4.5.1");
+    } finally {
+      vendor.githubRelease = original;
+    }
+  });
 });

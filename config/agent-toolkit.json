@@ -275,13 +275,14 @@
     {
       "id": ".NET SDK",
       "group": "language",
-      "why": "build and run C# programs",
+      "why": "build and run C# programs (the supported line, 10; an older SDK stays installed)",
       "approxBytes": 230000000,
       "probe": {
         "cmd": ["dotnet", "dotnet.exe"],
         "args": ["--version"],
         "dirs": ["%ProgramFiles%\\dotnet"]
-      }
+      },
+      "minVersion": "10.0"
     },
     {
       "id": "dotnet-script",

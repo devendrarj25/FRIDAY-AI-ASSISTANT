@@ -865,6 +865,11 @@ const TOOLS = [
     // The official binary distribution, checked against the SHA-256 Gradle publishes beside it (read 2026-11-19).
     installerUrl: "https://services.gradle.org/distributions/gradle-9.9.1-bin.zip",
     sha256: "d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228",
+    // Gradle's second official host and its GitHub release carry the same file; the digest above holds for all three.
+    installerMirrors: [
+      "https://downloads.gradle.org/distributions/gradle-9.9.1-bin.zip",
+      "https://github.com/gradle/gradle-distributions/releases/download/v9.9.1/gradle-9.9.1-bin.zip",
+    ],
     needBytes: 134921139,
     archiveBin: "gradle-9.9.1/bin/gradle.bat",
     pinVersion: "9.9.1",
@@ -1381,6 +1386,10 @@ const TOOLS = [
     installerUrl:
       "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
     sha256: "4ec3f26fb1a692473aea0235c300bd20f0f9fe741947c82c1234cefd76ac3a3c",
+    // Maven Central serves the same release file (same digest) from a CDN.
+    installerMirrors: [
+      "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip",
+    ],
     needBytes: 9202456,
     archiveBin: "apache-maven-3.9.9/bin/mvn.cmd",
     pinVersion: "3.9.9",
@@ -1395,6 +1404,9 @@ const TOOLS = [
     // composer.phar is a PHP archive, not a program: the install keeps it beside a composer.bat that runs it.
     installerUrl: "https://getcomposer.org/download/2.11.2/composer.phar",
     sha256: "dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028",
+    installerMirrors: [
+      "https://github.com/composer/composer/releases/download/2.11.2/composer.phar",
+    ],
     needBytes: 3815650,
     archiveBin: "composer.bat",
     pharFile: "composer.phar",
@@ -2695,7 +2707,10 @@ async function latestFromSpec(spec) {
   }
   if (spec.kind === "github") {
     const release = await require("./vendor-sources.cjs").githubRelease(spec.ref);
-    return release?.tag ? semver(release.tag) : null;
+    // A tag can carry build words after the number (WinLibs: "16.2.0posix-23.1.3-14.0.0-ucrt-r3"); only the
+    // leading release number is a version, or the installed 16.2.0 would look older than its own release.
+    const lead = release?.tag ? /\d+(?:\.\d+){1,3}/.exec(String(release.tag)) : null;
+    return lead ? lead[0] : null;
   }
   return null;
 }
@@ -2964,10 +2979,27 @@ function runElevated(cmd, args) {
  * continue?" prompt can never wait for an answer nobody can type. Every
  * command below passes its own yes flags instead.
  */
+/**
+ * The .NET command line prints a welcome and telemetry text on its first run, sends usage data unless told not
+ * to, and creates an ASP.NET Core HTTPS development certificate in the user's certificate store. A tool install
+ * FRIDAY runs (`dotnet tool install`) needs none of that: no banner, no telemetry, no certificate.
+ */
+const DOTNET_QUIET = Object.freeze({
+  DOTNET_NOLOGO: "1",
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: "false",
+});
+
+function childEnv(cmd, base = process.env) {
+  return /^dotnet(\.exe)?$/i.test(path.basename(String(cmd))) ? { ...base, ...DOTNET_QUIET } : base;
+}
+
 function spawnCommand(cmd, args) {
   const { loadWinSpawn } = require("./load-win-spawn.cjs");
   return loadWinSpawn(__dirname).spawnChild(cmd, args || [], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: childEnv(cmd),
   });
 }
 
@@ -4167,6 +4199,8 @@ function installerDir(root) {
 
 module.exports = {
   runElevated,
+  childEnv,
+  DOTNET_QUIET,
   installerCommand,
   commandFor,
   lastDetected: () => lastDetect,

@@ -445,9 +445,7 @@ function PronunciationSettings() {
   const entries = sanitizePronunciations(prefs.voice.pronunciations);
   const [written, setWritten] = useState("");
   const [said, setSaid] = useState("");
-  const [sample, setSample] = useState(
-    "आपका बिल ₹1,200 है, pay by 25/01/2026 at 5:30 pm. GST 18%.",
-  );
+  const [sample, setSample] = useState("आपका बिल ₹1,200 है, pay by 25/01/2026 at 5:30 pm. GST 18%.");
   const save = (next: Record<string, string>) =>
     preferences.setVoice({ pronunciations: sanitizePronunciations(next) });
   return (

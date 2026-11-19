@@ -280,6 +280,11 @@ function toolkitPlan({
       };
     }
     if (!have?.installed) return { ...base, action: "install" };
+    // A copy older than the line the toolkit supports (.NET 8, out of support since 10 November 2026) stays
+    // installed; the supported line is installed beside it and `dotnet` then answers with the newest SDK.
+    if (entry.minVersion && have.version && newer(entry.minVersion, shortVersion(have.version))) {
+      return { ...base, action: "install", older: have.version, minVersion: entry.minVersion };
+    }
     const next = latest[entry.id];
     if (next && have.version && newer(next, have.version)) {
       return { ...base, action: update ? "update" : "outdated", from: have.version, to: next };
@@ -408,6 +413,14 @@ async function prefetchToolkit(root, deps = {}) {
   } catch {
     /* the built-in rows still install */
   }
+  // A newer copy FRIDAY unpacked herself (the vendor's CMake under runtime\\) is recorded as "first" in
+  // runtime\\managed-path.json by an earlier run. It goes in front of PATH before anything is detected, so the
+  // next run finds 4.5.1 instead of the 4.4.4 under Program Files and does not download the same update again.
+  try {
+    toolchain.applyManagedPath?.(root);
+  } catch {
+    /* detection then sees PATH as it is */
+  }
   const progressLine = deps.progressLine || require("./stage-toolchain.cjs").progressLine;
   const update = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_UPDATE");
   const elevated = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_ELEVATED");
@@ -486,7 +499,9 @@ async function prefetchToolkit(root, deps = {}) {
     log(
       row.action === "update"
         ? `[friday] updating ${row.id} ${row.from} -> ${row.to} (winget first, then the official installer when winget has nothing newer)`
-        : `[friday] fetching ${row.id} (about ${mb(row.bytes)}): ${row.why}`,
+        : row.older
+          ? `[friday] fetching ${row.id} ${row.minVersion} (about ${mb(row.bytes)}): ${row.older} is older than the supported line, so the supported one is installed beside it`
+          : `[friday] fetching ${row.id} (about ${mb(row.bytes)}): ${row.why}`,
     );
     if (row.elevated) {
       log(
@@ -527,7 +542,9 @@ async function prefetchToolkit(root, deps = {}) {
       printEvent.end();
     }
     if (!result?.ok && result?.error)
-      log(`[friday] FAIL     ${row.id}: ${String(result.error).slice(0, 200)}`);
+      log(
+        `[friday] ${row.older ? "NOTE    " : "FAIL    "} ${row.id}: ${String(result.error).slice(0, 200)}`,
+      );
     if (row.action === "update") {
       // Look again, so a release that is installed but hidden behind an older copy is remembered as such.
       let seen = "";
@@ -594,6 +611,12 @@ async function prefetchToolkit(root, deps = {}) {
         downloaded: true,
         ...(result.restartRequired ? { restartRequired: true } : {}),
       });
+    } else if (row.older) {
+      // The older copy still works: the failed install of the supported line is a note, not a failed setup.
+      log(
+        `[friday] NOTE     ${row.id} ${row.minVersion} was not installed; ${row.older} stays in use (run npm run doctor to try again)`,
+      );
+      rows.push({ id: row.id, ok: true, downloaded: false, outdated: true });
     } else {
       log(`[friday] FAIL     ${row.id} was not installed`);
       rows.push({ id: row.id, ok: false, error: result?.error || "install failed" });

@@ -94,6 +94,7 @@ const run = (exe, args, opts = {}) =>
         "pip",
         require("./with-activity.cjs").pipWatchDirs(exe),
         () => rawRun(exe, args, opts),
+        { combine: "max" },
       )
     : rawRun(exe, args, opts);
 const capture = (exe, args, opts = {}) =>
@@ -597,6 +598,33 @@ if (capture(python, ["-c", "import chromadb"]).status !== 0) {
   log("note: chromadb not importable - FRIDAY falls back to SQLite memory.");
 } else {
   log("chromadb ok (semantic memory enabled)");
+  fetchChromaEmbeddingModel();
+}
+
+/**
+ * Chroma embeds every memory with a 79 MB model (all-MiniLM-L6-v2) that it downloads the first time memory is
+ * used. Left to that moment it made the first recall slow, and on a slow line it froze the kernel long enough for
+ * the readiness restart to time out. It is fetched here once, with a "still working" line, where a failure only
+ * costs a note: without it FRIDAY downloads it on first use, off the event loop, or uses the local index.
+ */
+function fetchChromaEmbeddingModel() {
+  if (process.env.FRIDAY_PREFETCH === "0" || process.env.FRIDAY_OFFLINE === "1") return;
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const cache = process.env.CHROMA_CACHE_DIR || path.join(home, ".cache", "chroma");
+  const probe = [
+    "from chromadb.utils import embedding_functions as e",
+    "f = getattr(e, 'DefaultEmbeddingFunction', None) or getattr(e, 'ONNXMiniLM_L6_V2')",
+    "f()(['FRIDAY memory'])",
+  ].join("\n");
+  log("fetching the semantic-memory embedding model (all-MiniLM-L6-v2, about 79 MB, once)");
+  const result = require("./with-activity.cjs").withActivity("chroma-model", [cache], () =>
+    capture(python, ["-c", probe], { timeout: 15 * 60 * 1000 }),
+  );
+  log(
+    result.status === 0
+      ? "semantic-memory embedding model ready"
+      : "NOTE the semantic-memory model was not downloaded; it is fetched on first use, or memory uses the local index (npm run doctor tries again)",
+  );
 }
 
 /**

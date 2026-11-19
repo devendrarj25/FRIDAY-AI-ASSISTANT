@@ -204,4 +204,51 @@ describe("where it is used", () => {
     expect(models).not.toContain('label: "qwen');
     expect(models).toContain("pulling ${model.tag}");
   });
+
+  it("never reports a total that goes down or a speed from one noisy reading (pip's cache and site-packages alternate)", () => {
+    let clock = 0;
+    const readings = [0, 65e6, 0.2e6, 0.2e6, 84e6];
+    let reading = 0;
+    const lines: string[] = [];
+    const timers: Array<() => void> = [];
+    const ticker = activity.startTicker({
+      label: "pip",
+      watch: ["x"],
+      now: () => clock,
+      size: () => readings[Math.min(reading++, readings.length - 1)],
+      write: (_line: string, text: string) => lines.push(text),
+      setTimer: (fn: () => void) => {
+        timers.push(fn);
+        return 0;
+      },
+      clearTimer: () => undefined,
+    });
+    for (const at of [9_000, 25_000, 41_000, 57_000]) {
+      clock = at;
+      timers.pop()?.();
+    }
+    ticker.stop();
+    // 65 MB seen once stays the floor of the total; the dip to 0.2 MB is not shown.
+    expect(lines[0]).toContain("62 MB so far");
+    expect(lines[1]).toContain("62 MB so far");
+    expect(lines[2]).toContain("62 MB so far");
+    expect(lines[3]).toContain("80 MB so far");
+    // Speed is growth over the last few readings (about 65 MB in 25 s here), never a 16 s spike.
+    for (const line of lines) {
+      const speed = /(\d+(?:\.\d+)?) MB\/s/.exec(line);
+      if (speed) expect(Number(speed[1])).toBeLessThan(10);
+    }
+  });
+
+  it("downloads Maven, Gradle, Composer and CMake from more than one official host, with the same SHA-256 for each", () => {
+    const toolchain = require_("../../electron/toolchain.cjs") as {
+      toolById: (id: string) => Record<string, any> | null;
+    };
+    for (const id of ["Maven", "Gradle", "Composer"]) {
+      const tool = toolchain.toolById(id);
+      expect(tool?.["installerMirrors"]?.length, id).toBeGreaterThan(0);
+      for (const url of tool?.["installerMirrors"] || []) expect(url).toMatch(/^https:\/\//);
+    }
+    expect(read("electron/vendor-sources.cjs")).toContain("https://cmake.org/files/v");
+  });
 });

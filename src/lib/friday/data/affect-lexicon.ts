@@ -113,8 +113,7 @@ export const AFFECT_LEXICON: readonly LexiconRow[] = [
   },
   {
     id: "hurry-en",
-    pattern:
-      "hurry|jaldi|abhi ke abhi|abhi chahiye|abhi hi|asap|quick|turant|bas kar do|जल्दी|तुरंत",
+    pattern: "hurry|jaldi|abhi ke abhi|abhi chahiye|abhi hi|asap|quick|turant|bas kar do|जल्दी|तुरंत",
     label: "hurry",
     valence: 0,
     arousal: 0.85,

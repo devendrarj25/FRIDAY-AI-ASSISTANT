@@ -73,11 +73,7 @@ const CANCELLED: Pools = {
     "Rok diya, kuch execute nahi hua.",
     "Cancel. Kuch bhi nahi hua.",
   ],
-  hi: [
-    "रद्द कर दिया। कुछ नहीं चला।",
-    "ठीक है, छोड़ दिया। कुछ नहीं हुआ।",
-    "रोक दिया, कुछ नहीं चलाया।",
-  ],
+  hi: ["रद्द कर दिया। कुछ नहीं चला।", "ठीक है, छोड़ दिया। कुछ नहीं हुआ।", "रोक दिया, कुछ नहीं चलाया।"],
 };
 
 const EXPIRED: Pools = {
@@ -130,11 +126,7 @@ const READY: Pools = {
     "Main sun rahi hoon, jab chaaho bolo.",
     "Sab ready hai, batao.",
   ],
-  hi: [
-    "ऑटो मोड चालू है, मैं सुन रही हूँ।",
-    "तैयार हूँ, बोलिए।",
-    "मैं सुन रही हूँ, जब चाहें बोलिए।",
-  ],
+  hi: ["ऑटो मोड चालू है, मैं सुन रही हूँ।", "तैयार हूँ, बोलिए।", "मैं सुन रही हूँ, जब चाहें बोलिए।"],
 };
 
 const ALL_GOOD: Pools = {
@@ -195,15 +187,7 @@ function pool(bucket: RepeatBucket, address: string, register: LineRegister): st
     case "ready":
       return fromPools(READY, register);
     case "ack":
-      return [
-        "Got it.",
-        "ठीक है।",
-        "On it.",
-        "Understood.",
-        "हाँ।",
-        "Right.",
-        "Okay — doing that.",
-      ];
+      return ["Got it.", "ठीक है।", "On it.", "Understood.", "हाँ।", "Right.", "Okay — doing that."];
     case "thanks":
       return ["Anytime.", "Done.", "खुशी हुई।", "Glad it helped.", "What's next?", "Happy to."];
     case "done":
