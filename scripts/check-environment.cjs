@@ -571,6 +571,24 @@ if (win) {
     url: "https://www.electronjs.org/",
   });
 
+  // 1b) The commands the build runs (vite, electron-builder) must be linked in node_modules/.bin.
+  const missingCommands = require("./build-pipeline.cjs").missingBuildCommands(
+    root,
+    process.platform,
+  );
+  add({
+    name: "Build commands (vite, electron-builder)",
+    required: true,
+    group: "node-deps",
+    ok: missingCommands.length === 0,
+    found: missingCommands.length
+      ? `not linked in node_modules/.bin: ${missingCommands.join(", ")}`
+      : "linked in node_modules/.bin",
+    want: "node_modules/.bin has vite and electron-builder",
+    fix: "npm ci",
+    url: "https://docs.npmjs.com/cli/commands/npm-ci",
+  });
+
   // 2) The binary must actually execute and report its version. The very same
   //    verification the Electron repair tool uses, so doctor and setup can
   //    never disagree about the state of node_modules/electron/dist.
@@ -891,12 +909,14 @@ const brokenPython = checks.filter(
   (c) => (c.group === "python-packages" || c.group === "python-runtime") && !c.ok,
 );
 const brokenElectron = checks.filter((c) => c.group === "electron-binary" && !c.ok);
+const brokenNodeDeps = checks.filter((c) => c.group === "node-deps" && !c.ok);
 const brokenToolchain = checks.filter((c) => c.group === "toolchain" && !c.ok && c.required);
 const brokenToolkit = checks.filter((c) => c.group === "agent-toolkit" && !c.ok && c.required);
 const brokenModels = checks.filter((c) => c.group === "local-models" && !c.ok && c.required);
 if (
   wantsFix &&
   (brokenElectron.length ||
+    brokenNodeDeps.length ||
     brokenPython.length ||
     (win && (brokenToolchain.length || brokenToolkit.length || brokenModels.length)))
 ) {
@@ -920,6 +940,14 @@ if (
         "-ToolchainOnly",
       ],
     );
+  }
+  if (brokenNodeDeps.length) {
+    // A real install (not the "already current" skip) re-creates the package links in node_modules/.bin.
+    step("installing the Node dependencies again (npm ci)", process.execPath, [
+      "-e",
+      "require(process.argv[1]).npmCi(process.cwd(), true)",
+      path.join(root, "scripts", "build-pipeline.cjs"),
+    ]);
   }
   if (brokenElectron.length) {
     step("installing the resolved Electron binary", process.execPath, [

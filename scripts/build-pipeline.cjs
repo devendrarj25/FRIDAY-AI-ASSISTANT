@@ -616,6 +616,21 @@ function runNode(script, args, root) {
  * place (npm ci does not download it, ensure-electron does); anything else (a pull, an edit, a missing piece) installs again.
  * FRIDAY_FORCE_NPM_CI=1 always installs.
  */
+/**
+ * The commands the build runs from node_modules/.bin. A folder whose packages are there but whose command links are
+ * not (an install cut short, a cleaner that removed .bin, an npm that did not link them) used to pass the "npm ci
+ * can be skipped" test and then stop at `'vite' is not recognized`.
+ */
+const BUILD_COMMANDS = ["vite", "electron-builder"];
+function missingBuildCommands(root, platform = process.platform) {
+  const bin = path.join(root, "node_modules", ".bin");
+  // npm writes name.cmd (cmd.exe), name.ps1 (PowerShell) and name (sh) on Windows; any of them is a link.
+  const forms = platform === "win32" ? [".cmd", ".ps1", ""] : [""];
+  return BUILD_COMMANDS.filter(
+    (name) => !forms.some((ext) => fs.existsSync(path.join(bin, name + ext))),
+  );
+}
+
 function nodeModulesCurrent(root, env = process.env) {
   if (String(env.FRIDAY_FORCE_NPM_CI || "") === "1") return false;
   try {
@@ -630,14 +645,14 @@ function nodeModulesCurrent(root, env = process.env) {
     const present =
       fs.existsSync(path.join(electron, "path.txt")) ||
       fs.existsSync(path.join(electron, "dist", binary));
-    return installed >= wanted && present;
+    return installed >= wanted && present && missingBuildCommands(root).length === 0;
   } catch {
     return false;
   }
 }
 
-function npmCi(root) {
-  if (nodeModulesCurrent(root)) {
+function npmCi(root, force = false) {
+  if (!force && nodeModulesCurrent(root)) {
     console.log("[FRIDAY] node_modules already matches package-lock.json; npm ci skipped");
     return;
   }
@@ -752,7 +767,29 @@ function runPhase(phase, options, root) {
   }
   if (phase === "build-renderer") {
     cleanOutputs(root);
-    const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
+    // Heal first: packages without their command links get a real install instead of a "not recognized" stop.
+    const missing = missingBuildCommands(root);
+    if (missing.length) {
+      console.log(
+        `[FRIDAY] build commands missing from node_modules\\.bin (${missing.join(", ")}); installing the dependencies again`,
+      );
+      npmCi(root, true);
+    }
+    // The link can still be missing on a machine whose npm writes none; vite's own script runs the same build.
+    const viteScript = path.join(root, "node_modules", "vite", "bin", "vite.js");
+    if (missingBuildCommands(root).includes("vite") && !fs.existsSync(viteScript)) {
+      throw new Error("vite is not installed in node_modules after npm ci");
+    }
+    const built = missingBuildCommands(root).includes("vite")
+      ? spawnDirect(
+          process.execPath,
+          [viteScript, "build", "--config", "vite.electron.config.ts"],
+          {
+            cwd: root,
+            stdio: "inherit",
+          },
+        )
+      : spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
       throw new Error("renderer bundle missing — build failed");
@@ -1134,6 +1171,8 @@ module.exports = {
   runPackagedSelfCheck,
   runPipeline,
   nodeModulesCurrent,
+  missingBuildCommands,
+  npmCi,
   REMOVE_OPTIONS,
   removeTree,
 };

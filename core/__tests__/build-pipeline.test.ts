@@ -671,6 +671,12 @@ describe("npm ci is not repeated for node_modules that setup just installed", ()
     touch(path.join(dir, "package-lock.json"), order.manifest);
     touch(path.join(dir, "node_modules", ".package-lock.json"), order.modules);
     touch(path.join(dir, "node_modules", "electron", "path.txt"), order.modules);
+    for (const name of ["vite", "electron-builder"]) {
+      touch(
+        path.join(dir, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name),
+        order.modules,
+      );
+    }
     return dir;
   }
 
@@ -687,6 +693,35 @@ describe("npm ci is not repeated for node_modules that setup just installed", ()
     } finally {
       fs.rmSync(fresh, { recursive: true, force: true });
       fs.rmSync(stale, { recursive: true, force: true });
+    }
+  });
+
+  it("does not skip npm ci when the packages are there but the vite command link is not (the 'vite is not recognized' stop)", () => {
+    const dir = checkout({ modules: 10, manifest: 60 });
+    try {
+      expect(current(dir)).toBe(true);
+      const bin = path.join(dir, "node_modules", ".bin");
+      for (const file of fs.readdirSync(bin))
+        if (file.startsWith("vite")) fs.rmSync(path.join(bin, file));
+      expect(current(dir)).toBe(false);
+      const missing = (pipeline as unknown as { missingBuildCommands: (root: string) => string[] })
+        .missingBuildCommands;
+      expect(missing(dir)).toEqual(["vite"]);
+      const check = fs.readFileSync(
+        path.join(__dirname, "../../scripts/check-environment.cjs"),
+        "utf8",
+      );
+      expect(check).toContain('group: "node-deps"');
+      expect(check).toContain("npmCi(process.cwd(), true)");
+      const source = fs.readFileSync(
+        path.join(__dirname, "../../scripts/build-pipeline.cjs"),
+        "utf8",
+      );
+      // The renderer step installs again when a command link is missing and can run vite's own script.
+      expect(source).toContain("installing the dependencies again");
+      expect(source).toContain('"vite", "bin", "vite.js"');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
