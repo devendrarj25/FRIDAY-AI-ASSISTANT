@@ -4,7 +4,7 @@
 
 ## 1. `FRIDAY_ROOT`
 
-Resolved only by `electron/friday-paths.cjs` (`ensureStructure()`) using `electron/friday-contract.cjs` (`FOLDERS`, `NAMES`, `TREES`). Order: session selection (`workspace:set`, `--workspace`, env) → persisted pointer → `HKCU\Software\FRIDAY\WorkspacePath` → none (first run asks). Persistent data is not stored in AppData, IndexedDB, or `process.cwd()`.
+Resolved only by `electron/friday-paths.cjs` (`ensureStructure()`) using `electron/friday-contract.cjs` (`FOLDERS`, `NAMES`, `TREES`). Order: session selection (`workspace:set`, `--workspace`, env) → persisted pointer → `HKCU\Software\FRIDAY\WorkspacePath` → none (first run asks). Setup, Doctor and the build (`scripts/friday-root.cjs`) add one last step on Windows: with none of those chosen, the folder the setup CMD runs in is the root and is written to `WorkspacePath`. Persistent data is not stored in AppData, IndexedDB, or `process.cwd()`.
 
 When that root is also the Git clone, `kernel/` (FastAPI `main.py` + `requirements.txt`) and `src/` (renderer `routes/` + `lib/friday`) stay as source trees. They are not data aliases of `backend` / `frontend`. `ensureStructure` restores them if they were already renamed, then creates sibling data folders. `scripts/setup-python.cjs` uses `resolveKernelSource` so `npm run build:win` still finds `requirements.txt` if a rename cannot run. Pack from a clone that is not the installed FRIDAY data root when you can. Walkthrough: [INSTALL.md](../INSTALL.md).
 
