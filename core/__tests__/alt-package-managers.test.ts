@@ -13,6 +13,8 @@ const root = path.resolve(import.meta.dirname, "../..");
 const alt = require_(path.join(root, "electron/alt-package-managers.cjs"));
 const toolchain = require_(path.join(root, "electron/toolchain.cjs"));
 const manifest = require_(path.join(root, "config/agent-toolkit.json"));
+// The shipped extension rows (the C++ compiler, eSpeak NG) are part of the catalog and of the toolkit list.
+toolchain.syncExtensions("");
 
 describe("alternate package managers", () => {
   it("name only tools the Install Manager has", () => {
@@ -24,6 +26,10 @@ describe("alternate package managers", () => {
     for (const entry of manifest.prefetch) {
       // A Windows optional feature is switched on with DISM, not a package manager.
       if (toolchain.toolById(entry.id).optionalFeature) continue;
+      // A .NET global tool is installed by the .NET SDK itself (`dotnet tool install`), not by a package manager.
+      if (toolchain.toolById(entry.id).dotnetTool) continue;
+      // A .NET global tool is installed by the .NET SDK itself (`dotnet tool install`), not by a package manager.
+      if (toolchain.toolById(entry.id).dotnetTool) continue;
       expect(alt.managersFor(entry.id).length, entry.id).toBeGreaterThan(0);
     }
   });

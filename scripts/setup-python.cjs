@@ -76,7 +76,7 @@ let upgradeTried = false;
 // which floods (and, redrawn, flickers) a console; quiet pip prints the errors and one summary line.
 // PIP_NO_INPUT keeps it from ever waiting on a prompt. A caller's own PIP_* choice wins.
 const quietPip = { PIP_QUIET: "1", PIP_PROGRESS_BAR: "off", PIP_NO_INPUT: "1" };
-const run = (exe, args, opts = {}) =>
+const rawRun = (exe, args, opts = {}) =>
   spawnSync(exe, args, {
     stdio: "inherit",
     shell: false,
@@ -84,6 +84,18 @@ const run = (exe, args, opts = {}) =>
     ...opts,
     env: { ...quietPip, ...process.env, ...(opts.env || {}) },
   });
+// pip draws no bar when its output is piped and it is run quiet, so a package install that takes minutes (the
+// 1 GB CUDA libraries, the capability packages) looked like a hung window. A "still working" line with the time,
+// the size so far and the speed prints beside it (scripts/with-activity.cjs); the pip command itself is unchanged.
+const isPipInstall = (args) => args.includes("pip") && args.includes("install");
+const run = (exe, args, opts = {}) =>
+  isPipInstall(args)
+    ? require("./with-activity.cjs").withActivity(
+        "pip",
+        require("./with-activity.cjs").pipWatchDirs(exe),
+        () => rawRun(exe, args, opts),
+      )
+    : rawRun(exe, args, opts);
 const capture = (exe, args, opts = {}) =>
   spawnSync(exe, args, {
     encoding: "utf8",

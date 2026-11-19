@@ -120,18 +120,7 @@ broke both. Nothing auto-merges. Dependabot runs use a
 read-only token and cannot publish the `PR Validation` status: run **PR Validation**
 from the Actions tab with that commit's SHA.
 
-A Dependabot **security** run that ends "The updater encountered one or more errors" with "can't be automatically
-updated to a non-vulnerable version" is not a broken Dependabot and not a broken workflow: the fix is a new major
-that a parent package does not allow. Read the run's log for the package and the parents it names. On 2026-11-02
-this was `minimatch` (advisories fixed in 11.0.1), which eslint, typescript-eslint, `@electron/asar` and
-electron-builder's own helpers ask for at older majors. The ones on the real build path (lint and the asar packer)
-are moved to the patched releases with `overrides` in `package.json` (`minimatch@^10.0.0` and `@^9.0.0` to 11.0.4,
-`glob@^13.0.0` to 14.0.3; `core/__tests__/project-governance.test.ts` pins them). The rest sit in electron-builder's
-Squirrel, macOS and template code (`rimraf` 2, `glob` 7, `dir-compare`, `filelist`), need the old function export of
-`minimatch` 3 and 5, and are never run by FRIDAY; they go when electron-builder drops them. Until then the alert
-stays open on GitHub and the security run fails after each merge: the owner can dismiss that alert (Security >
-Dependabot alerts > minimatch > Dismiss > "A fix is not available" or "Vulnerable code is not actually used"), which
-stops the repeated red run. Version updates (npm, pip, Actions) are separate runs and are not affected.
+A Dependabot **security** run that ends "The updater encountered one or more errors" with "A patched version exists ... but the available update path would downgrade electron-builder" is not a broken Dependabot and not a broken workflow: the patched release exists, but a parent package asks for an older major, so Dependabot's only path is to downgrade the parent. Read the run's log for the package and the parents it names. This was `minimatch` (GHSA-g3hv-75wg-m249, affected `>=7.0.0 <11.0.1`), which eslint, typescript-eslint, `@eslint/config-array`, `@electron/universal`, `app-builder-lib` and `@electron/asar` ask for at `^9` and `^10`, and it failed after the merges of 2026-11-03, 2026-11-09 and 2026-11-19. The earlier fix (2026-11-02) added `overrides` that npm accepted but never applied (`minimatch@^10.0.0` and `@^9.0.0` do not match the ranges the packages really ask for, `^10.2.6` and `^9.0.3`), so the lockfile kept `minimatch` 9.0.9 and 10.2.6 and `npm audit` still listed 14 moderate findings. The override that works is one range selector, `"minimatch@>=9.0.0 <11.0.1": "11.0.9"`, which sends every request in the advisory range to the patched release and leaves the 3.x and 5.x copies inside electron-builder's Squirrel and template code (outside the range, and the ones that need the old function export) alone; with it the lockfile has no `minimatch` in the range and `npm audit` reports 0 vulnerabilities. `core/__tests__/project-governance.test.ts` pins the selector and reads `package-lock.json` for any `minimatch` in the advisory range, so a lockfile that drifts back fails in a pull request instead of in Dependabot's run. A real `electron-builder --linux dir` pack, ESLint, the type check and the full test suite ran on the patched tree. `glob@^13.0.0` goes to 14.0.3 the same way. Version updates (npm, pip, Actions) are separate runs and are not affected; they are held back a week after a release (`cooldown`), which does not apply to security updates.
 
 In `static` and `docs-only` the three hygiene steps (tests-required note, commit provenance, added-file check) run right after the toolchain step and before `npm ci`, so a provenance or stray-file mistake fails within about a minute of the start.
 

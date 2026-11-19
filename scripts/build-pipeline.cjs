@@ -590,11 +590,20 @@ function installerSmokeSkip(options, env = process.env) {
   return "skipped: a local build does not install FRIDAY on this PC; run the installer yourself (FRIDAY_BUILD_INSTALLER_SMOKE=1 runs the install-and-uninstall check on demand)";
 }
 
+// Each node script of the pipeline can run for minutes without printing (electron-builder compressing the
+// installer, the boot and readiness checks). A "still working" line every few seconds shows it is alive; the
+// pack also reports how much of the installer exists so far.
+const ACTIVITY_WATCH = { "scripts/electron-pack.cjs": ["release"] };
+
 function runNode(script, args, root) {
-  const result = spawnDirect(process.execPath, [path.join(root, script), ...args], {
-    cwd: root,
-    stdio: "inherit",
-  });
+  const { withActivity } = require("./with-activity.cjs");
+  const watched = (ACTIVITY_WATCH[script] || []).map((dir) => path.join(root, dir));
+  const result = withActivity(path.basename(script, ".cjs"), watched, () =>
+    spawnDirect(process.execPath, [path.join(root, script), ...args], {
+      cwd: root,
+      stdio: "inherit",
+    }),
+  );
   if (result.status !== 0) {
     throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
   }
@@ -633,14 +642,20 @@ function npmCi(root) {
     return;
   }
   const args = ["ci", "--no-audit", "--no-fund"];
-  const once = spawnNpm(args, { cwd: root, stdio: "inherit" });
+  const { withActivity } = require("./with-activity.cjs");
+  const modules = [path.join(root, "node_modules")];
+  const once = withActivity("npm ci", modules, () =>
+    spawnNpm(args, { cwd: root, stdio: "inherit" }),
+  );
   if (once.status === 0) return;
   console.error("[FRIDAY] npm ci failed — npm cache verify, then retry against registry.npmjs.org");
   spawnNpm(["cache", "verify"], { cwd: root, stdio: "inherit" });
-  const again = spawnNpm([...args, "--registry", "https://registry.npmjs.org/"], {
-    cwd: root,
-    stdio: "inherit",
-  });
+  const again = withActivity("npm ci", modules, () =>
+    spawnNpm([...args, "--registry", "https://registry.npmjs.org/"], {
+      cwd: root,
+      stdio: "inherit",
+    }),
+  );
   if (again.status !== 0) throw new Error("npm ci failed after a registry retry");
 }
 
@@ -689,6 +704,8 @@ function runPhase(phase, options, root) {
       console.log(
         `[friday] FRIDAY_PYTHON pointed at ${stale}, which is gone; using the Python setup created.`,
       );
+    // A Node.js / npm update left by the last `npm run setup` finishes before anything starts.
+    require("./running-tools-upgrade.cjs").waitForPending();
     ensureToolchain(root);
     runNode("scripts/check-engines.cjs", [], root);
     npmCi(root);

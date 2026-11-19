@@ -21,6 +21,8 @@ type Row = { id: string; action: string; from?: string; to?: string; version?: s
 
 describe("agent toolkit manifest", () => {
   it("names only tools the Install Manager can install, and has no size cap", () => {
+    // The shipped extension rows (config/install-extensions.json) are part of the catalog.
+    toolchain.syncExtensions("");
     const ids = new Set(toolchain.TOOLS.map((tool: { id: string }) => tool.id));
     expect(manifest.maxPrefetchBytes).toBeUndefined();
     for (const entry of [...manifest.prefetch, ...manifest.onDemand]) {

@@ -8,12 +8,49 @@ stdout/stderr. Nothing runs outside the folder it was detected in.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from env_guard import child_env
+
+# A program name that Windows installs under another name: MinGW's GNU make is mingw32-make.exe.
+WINDOWS_ALIASES = {"make": ("make", "mingw32-make")}
+
+
+def find_program(
+    name: str,
+    which: Callable[[str], str | None] | None = None,
+    windows: bool | None = None,
+) -> str | None:
+    """The full path of a program, or None.
+
+    Windows cannot start `npm`, `npx`, `mvn`, `gradle`, `composer` or `bundle` by their bare name from
+    subprocess: they are .cmd or .bat files, which CreateProcess does not look for. `shutil.which` follows
+    PATHEXT, so the path it returns can be started.
+    """
+    lookup = which or shutil.which
+    on_windows = os.name == "nt" if windows is None else windows
+    names = WINDOWS_ALIASES.get(name, (name,)) if on_windows else (name,)
+    for candidate in names:
+        found = lookup(candidate)
+        if found:
+            return found
+    return None
+
+
+def resolve_command(
+    command: list[str],
+    which: Callable[[str], str | None] | None = None,
+    windows: bool | None = None,
+) -> list[str]:
+    """`command` with its program replaced by its full path when one is found."""
+    found = find_program(command[0], which, windows) if command else None
+    return [found, *command[1:]] if found else list(command)
+
 
 # fingerprint -> (language, runtime executable, run command, dependency command)
 PROJECTS = [
@@ -78,7 +115,7 @@ class ProjectRunner:
                     "path": str(directory),
                     "language": language,
                     "runtime": runtime,
-                    "runtimeInstalled": shutil.which(runtime) is not None,
+                    "runtimeInstalled": find_program(runtime) is not None,
                     "entry": fingerprint,
                     "command": command,
                     "install": install,
@@ -93,7 +130,7 @@ class ProjectRunner:
                     "path": str(directory),
                     "language": language,
                     "runtime": runtime,
-                    "runtimeInstalled": shutil.which(runtime) is not None,
+                    "runtimeInstalled": find_program(runtime) is not None,
                     "entry": file.name,
                     "command": builder(file.name),
                     "install": None,
@@ -102,9 +139,10 @@ class ProjectRunner:
 
     # ----------------------------------------------------------- execution --
     def _spawn(self, command: list[str], cwd: str, timeout: int) -> dict:
+        shown = " ".join(command)
         try:
             proc = subprocess.run(
-                command,
+                resolve_command(command),
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -117,7 +155,7 @@ class ProjectRunner:
                 "code": proc.returncode,
                 "stdout": proc.stdout[-20000:],
                 "stderr": proc.stderr[-20000:],
-                "command": " ".join(command),
+                "command": shown,
             }
         except subprocess.TimeoutExpired:
             return {
@@ -125,7 +163,7 @@ class ProjectRunner:
                 "code": None,
                 "stdout": "",
                 "stderr": f"Timed out after {timeout}s",
-                "command": " ".join(command),
+                "command": shown,
             }
         except FileNotFoundError:
             return {
@@ -133,7 +171,7 @@ class ProjectRunner:
                 "code": None,
                 "stdout": "",
                 "stderr": f"{command[0]} is not installed",
-                "command": " ".join(command),
+                "command": shown,
             }
 
     def run(self, project_id: str, install: bool = False, timeout: int = 300) -> dict:
@@ -162,7 +200,7 @@ class ProjectRunner:
         if suffix is None:
             return {"ok": False, "error": f"unsupported language: {language}"}
         _lang, runtime, builder = SNIPPETS[suffix]
-        if shutil.which(runtime) is None:
+        if find_program(runtime) is None:
             return {"ok": False, "error": f"{runtime} is not installed", "runtime": runtime}
         with tempfile.TemporaryDirectory(prefix="friday-run-") as tmp:
             file = Path(tmp) / f"snippet{suffix}"
@@ -176,6 +214,6 @@ class ProjectRunner:
 
     def languages(self) -> list[dict]:
         return [
-            {"language": spec[0], "runtime": spec[1], "installed": shutil.which(spec[1]) is not None}
+            {"language": spec[0], "runtime": spec[1], "installed": find_program(spec[1]) is not None}
             for spec in {v[0]: v for v in SNIPPETS.values()}.values()
         ]

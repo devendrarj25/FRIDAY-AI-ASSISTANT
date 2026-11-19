@@ -187,11 +187,18 @@ const downloadEnv = () => {
 
 const runInstaller = () => {
   if (!fs.existsSync(installer)) return false;
-  const r = spawnSync(process.execPath, [installer], {
-    stdio: quiet ? "ignore" : "inherit",
-    cwd: electronDir,
-    env: downloadEnv(),
-  });
+  // The download shows no bar when its output is piped, so a proof-of-life line says it is still working.
+  const cache =
+    process.env.ELECTRON_CACHE ||
+    (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "electron", "Cache") : "");
+  const watched = [cache, path.join(electronDir, "dist")].filter(Boolean);
+  const r = require("./with-activity.cjs").withActivity("electron", watched, () =>
+    spawnSync(process.execPath, [installer], {
+      stdio: quiet ? "ignore" : "inherit",
+      cwd: electronDir,
+      env: downloadEnv(),
+    }),
+  );
   return r.status === 0 && isUsable();
 };
 

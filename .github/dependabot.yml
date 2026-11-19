@@ -10,6 +10,14 @@
 # Security updates stay immediate and ungrouped: a vulnerability fix must not
 # wait for the monthly batch.
 #
+# A security update of a package that only comes in through another package (minimatch inside eslint and
+# electron-builder) can only be applied when the lockfile and the `overrides` in package.json agree; when they do
+# not, Dependabot's own update path wants to downgrade the parent and fails. core/__tests__/project-governance.test.ts
+# reads the lockfile for the advisory range, so that state is caught in a pull request, not by a failed run.
+#
+# `cooldown` holds a version update back for a week after a release is published, so a release that is pulled or
+# fixed within days is never the one proposed. It does not apply to security updates, which open at once.
+#
 # Every ecosystem ignores semver majors. A major is a planned upgrade.
 # The monthly group is minor and patch only. TypeScript 7 landed through that
 # group and npm ci could not install it beside typescript-eslint.
@@ -21,6 +29,8 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
     versioning-strategy: increase
     labels:
       - dependencies
@@ -48,6 +58,8 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
     labels:
       - dependencies
       - build
@@ -67,6 +79,8 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
     labels:
       - dependencies
       - build

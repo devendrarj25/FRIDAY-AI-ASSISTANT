@@ -1,4 +1,31 @@
 {
-  "$comment": "Tools added to Install Manager by data. One entry per tool; see electron/install-extensions.cjs for the allowed fields. The owner's own list is <FRIDAY folder>/config/install-extensions.user.json and an update never touches it.",
-  "tools": []
+  "$comment": "Tools added to Install Manager by data. One entry per tool; see electron/install-extensions.cjs for the allowed fields. The owner's own list is <FRIDAY folder>/config/install-extensions.user.json and an update never touches it. The tools here are the programs a FRIDAY feature runs that the built-in catalog does not install: the C and C++ compiler of the project runner (kernel/runner.py), the speech synthesiser of the offline voice fallback (kernel/stt.py).",
+  "tools": [
+    {
+      "id": "GCC and G++ (WinLibs)",
+      "category": "Languages & Runtimes",
+      "cmd": "g++",
+      "args": ["--version"],
+      "winget": "BrechtSanders.WinLibs.POSIX.UCRT",
+      "url": "https://winlibs.com/",
+      "source": "winlibs.com",
+      "latest": {
+        "kind": "github",
+        "ref": "brechtsanders/winlibs_mingw"
+      }
+    },
+    {
+      "id": "eSpeak NG",
+      "category": "Voice",
+      "cmd": "espeak-ng",
+      "args": ["--version"],
+      "winget": "eSpeak-NG.eSpeak-NG",
+      "url": "https://github.com/espeak-ng/espeak-ng",
+      "source": "github.com/espeak-ng",
+      "latest": {
+        "kind": "github",
+        "ref": "espeak-ng/espeak-ng"
+      }
+    }
+  ]
 }

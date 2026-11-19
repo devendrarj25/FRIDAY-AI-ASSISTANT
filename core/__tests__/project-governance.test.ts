@@ -108,6 +108,16 @@ describe("dependency policy", () => {
     expect(ecosystems).toContain("github-actions");
   });
 
+  it("holds a version update back a week after a release; security updates are not delayed by it", () => {
+    for (const update of doc.updates) {
+      expect(update.cooldown?.["default-days"], update["package-ecosystem"]).toBe(7);
+    }
+    // The grouped (version-update) pull requests are the ones the cooldown applies to.
+    for (const update of doc.updates) {
+      expect(Object.values<any>(update.groups)[0]["applies-to"]).toBe("version-updates");
+    }
+  });
+
   it("keeps the hand-kept av range out of Dependabot's reach", () => {
     // Dependabot raised only the floor (av>=17.1.0,<19), which broke
     // scripts/verify-deps.cjs and the tests that pin av>=17.0.0,<19.
@@ -150,12 +160,15 @@ describe("dependency policy", () => {
     expect(raw).not.toContain('"rcedit"');
     expect(raw).not.toContain("vite-tsconfig-paths");
     // Dependabot cannot raise `minimatch` or `glob` past the majors that eslint, typescript-eslint and
-    // electron-builder ask for, so its security update failed on every merge. These selectors send the ones on the
-    // real build path (lint and the asar packer) to the patched releases; the older ones inside electron-builder's
-    // Squirrel, macOS and template code stay (they need the old function export and FRIDAY never runs them).
+    // electron-builder ask for, so its security update (GHSA-g3hv-75wg-m249, affected >=7.0.0 <11.0.1) failed on
+    // every merge: its only path was to downgrade electron-builder. One override selects every minimatch request in
+    // that range and sends it to the patched release. The selector is a range, not the exact specs the packages
+    // ask for today, so it still applies after eslint or electron-builder change their own range; the older
+    // copies inside electron-builder's Squirrel and template code (3.x, 5.x) are outside the range and stay.
     const overrides = (JSON.parse(raw) as { overrides: Record<string, unknown> }).overrides;
-    expect(overrides["minimatch@^10.0.0"]).toBe("11.0.4");
-    expect(overrides["minimatch@^9.0.0"]).toBe("11.0.4");
+    expect(overrides["minimatch@>=9.0.0 <11.0.1"]).toBe("11.0.9");
+    expect(overrides["minimatch@^10.0.0"]).toBeUndefined();
+    expect(overrides["minimatch@^9.0.0"]).toBeUndefined();
     expect(overrides["glob@^13.0.0"]).toBe("14.0.3");
     expect(overrides["@electron/asar"]).toBe("4.3.1");
     const pkg = JSON.parse(raw) as {
@@ -170,6 +183,24 @@ describe("dependency policy", () => {
     const declared = { ...pkg.devDependencies, ...pkg.dependencies };
     expect(declared["react-day-picker"]).toMatch(/^\^10\./);
     expect(declared["recharts"]).toMatch(/^\^3\./);
+  });
+
+  it("keeps no minimatch inside the range of the open advisory (the lockfile is what Dependabot and npm ci read)", () => {
+    const lock = JSON.parse(read("package-lock.json")) as {
+      packages: Record<string, { version?: string }>;
+    };
+    const versions = Object.entries(lock.packages)
+      .filter(([name]) => name.endsWith("node_modules/minimatch"))
+      .map(([name, entry]) => ({ name, version: String(entry.version) }));
+    expect(versions.length).toBeGreaterThan(0);
+    const affected = versions.filter(({ version }) => {
+      const [major = 0, minor = 0] = version.split(".").map(Number);
+      // GHSA-g3hv-75wg-m249: >=7.0.0 <11.0.1
+      return (
+        major >= 7 && (major < 11 || (major === 11 && minor === 0 && version.split(".")[2] === "0"))
+      );
+    });
+    expect(affected).toEqual([]);
   });
 
   it("caps how many dependency pull requests can be open at once", () => {

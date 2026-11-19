@@ -187,6 +187,11 @@ describe("a job that prints nothing", () => {
   });
 });
 
+const shippedIds = (): string[] =>
+  JSON.parse(readFileSync(path.join(root, "config/install-extensions.json"), "utf8")).tools.map(
+    (t: { id: string }) => t.id,
+  );
+
 describe("a new tool is one JSON entry", () => {
   const categories = ["Developer Tools", "Media Tools"];
   const good = {
@@ -301,13 +306,15 @@ describe("a new tool is one JSON entry", () => {
   });
 
   it("joins the real catalog on the next scan, leaves the built-in tools alone, and leaves again when removed", () => {
+    // The shipped file (config/install-extensions.json) is always part of the catalog; the owner's tool joins it.
+    toolchain.syncExtensions("");
     const builtIn = toolchain.TOOLS.length;
     const dir = folder();
     mkdirSync(path.join(dir, "config"));
     const file = path.join(dir, "config", "install-extensions.user.json");
     writeFileSync(file, JSON.stringify({ tools: [good, { ...good, id: "Node.js LTS" }] }));
     const report = toolchain.syncExtensions(dir);
-    expect(report.tools).toEqual(["Hugo"]);
+    expect(report.tools).toEqual([...shippedIds(), "Hugo"]);
     expect(report.problems.some((p) => /already used/.test(p.reason))).toBe(true);
     expect(toolchain.toolById("Hugo")).toMatchObject({
       winget: "Hugo.Hugo.Extended",
@@ -322,11 +329,29 @@ describe("a new tool is one JSON entry", () => {
     expect(toolchain.TOOLS.length).toBe(builtIn);
   });
 
-  it("ships an empty list the owner can fill, and keeps the owner's file out of git and the installer", () => {
+  it("ships the tools a FRIDAY feature runs that the catalog lacks, all valid, none required, none a duplicate; keeps the owner's file out of git and the installer", () => {
     const shipped = JSON.parse(
       readFileSync(path.join(root, "config/install-extensions.json"), "utf8"),
     );
-    expect(shipped.tools).toEqual([]);
+    const names = shipped.tools.map((t: { id: string }) => t.id);
+    expect(names).toEqual(["GCC and G++ (WinLibs)", "eSpeak NG"]);
+    const taken = new Set<string>(toolchain.TOOLS.map((t) => String(t["id"]).toLowerCase()));
+    expect(taken.size).toBeGreaterThan(190);
+    // A shipped id that a built-in tool already uses would be skipped with a problem instead of becoming a row.
+    expect(toolchain.syncExtensions("").problems).toEqual([]);
+    for (const entry of shipped.tools) {
+      const checked = ext.validate(entry, { categories, taken: new Set() });
+      expect(checked.reason, entry.id).toBeUndefined();
+      expect(checked.tool?.["required"], entry.id).toBe(false);
+    }
+    // The program each feature looks for is the command the row detects.
+    const byId = Object.fromEntries(
+      shipped.tools.map((t: { id: string; cmd: string }) => [t.id, t.cmd]),
+    );
+    expect(byId["GCC and G++ (WinLibs)"]).toBe("g++");
+    expect(byId["eSpeak NG"]).toBe("espeak-ng");
+    expect(readFileSync(path.join(root, "kernel/runner.py"), "utf8")).toContain('"g++"');
+    expect(readFileSync(path.join(root, "kernel/stt.py"), "utf8")).toContain('"espeak-ng"');
     expect(readFileSync(path.join(root, ".gitignore"), "utf8")).toContain(
       "/config/install-extensions.user.json",
     );
@@ -370,7 +395,7 @@ describe("adding and removing your own tool", () => {
     const file = path.join(dir, "config", "install-extensions.user.json");
     expect(JSON.parse(readFileSync(file, "utf8")).tools).toHaveLength(1);
     expect(own.toolById("Hugo")).toMatchObject({ winget: "Hugo.Hugo.Extended", required: false });
-    expect(own.listExtensions(dir).tools).toEqual([{ id: "Hugo", own: true }]);
+    expect(own.listExtensions(dir).tools.filter((t) => t.own)).toEqual([{ id: "Hugo", own: true }]);
 
     expect(own.removeExtension(dir, "hugo")).toEqual({ ok: true, id: "hugo" });
     expect(own.toolById("Hugo")).toBeNull();
