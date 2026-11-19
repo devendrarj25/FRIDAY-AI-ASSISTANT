@@ -522,7 +522,9 @@ FunctionEnd
       Delete "$TEMP\friday-runtime-status.txt"
       RMDir /r "$TEMP\friday-bootstrap"
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
+      DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "dev.friday.desk"
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"
+      DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "dev.friday.desk"
       DeleteRegKey HKCU "Software\FRIDAY"
       DeleteRegKey HKCU "Software\FRIDAY Test"
       DetailPrint "FRIDAY was removed completely. Nothing of FRIDAY is left on this PC."
@@ -539,7 +541,9 @@ FunctionEnd
       ; upgrade keeps it, and the new version sets it again at its first start from the owner's saved setting.
       ${IfNot} ${isUpdated}
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "dev.friday.desk"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "dev.friday.desk"
       ${EndIf}
     ${EndIf}
   ${EndIf}

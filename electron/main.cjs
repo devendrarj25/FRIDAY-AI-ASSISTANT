@@ -274,9 +274,13 @@ if (
 }
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
+const loginItem = require("./login-item.cjs");
 const lifeSteps = {};
 function restartArgv() {
-  const kept = process.argv.slice(1).filter((arg) => arg !== "--friday-restart=1");
+  // A restart the owner asked for shows the window, so the "started at sign-in" marker is not carried over.
+  const kept = process.argv
+    .slice(1)
+    .filter((arg) => arg !== "--friday-restart=1" && arg !== require("./login-item.cjs").LOGIN_ARG);
   kept.push("--friday-restart=1");
   return kept;
 }
@@ -1386,13 +1390,15 @@ function noteStartup(milestone) {
   startupTrace.note(milestone, null, startupLogFile());
 }
 
+/** True when this launch came from the sign-in entry: `--friday-login` on Windows, the OS flag on macOS. */
 function loginLaunchHidden() {
+  let settings = null;
   try {
-    const settings = app.getLoginItemSettings();
-    return Boolean(settings && settings.wasOpenedAtLogin && settings.openAtLogin);
+    settings = app.getLoginItemSettings();
   } catch {
-    return false;
+    settings = null;
   }
+  return loginItem.startedAtLogin(process.argv, settings);
 }
 
 /** A previous crash may have left a kernel FRIDAY started. Anything else on the port stays up. */
@@ -4388,8 +4394,12 @@ function hideToTray() {
   const target = liveWin();
   if (!target) return false;
   saveWindowState();
+  // With no tray icon (the shell is not up yet at sign-in, or the desktop has none) a hidden window could not be
+  // found again, so it is minimized to the taskbar instead.
+  const hasTray = typeof tray.isAvailable === "function" && tray.isAvailable();
   try {
-    target.hide();
+    if (hasTray) target.hide();
+    else target.minimize();
   } catch {
     /* already hidden */
   }
@@ -5397,7 +5407,7 @@ function applyOwnerPreferenceEffects(value) {
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
     if (typeof toggles.startup === "boolean") {
-      app.setLoginItemSettings({ openAtLogin: Boolean(toggles.startup) });
+      loginItem.setEnabled(app, Boolean(toggles.startup));
     }
     const target = liveWin();
     if (target && typeof toggles.alwaysOnTop === "boolean") {
@@ -6799,11 +6809,8 @@ ipcMain.handle("app:confirm-restart", async (_e, reason) => {
   return true;
 });
 
-ipcMain.handle("startup:get", () => app.getLoginItemSettings().openAtLogin);
-ipcMain.handle("startup:set", (_e, enabled) => {
-  app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
-  return app.getLoginItemSettings().openAtLogin;
-});
+ipcMain.handle("startup:get", () => loginItem.isEnabled(app));
+ipcMain.handle("startup:set", (_e, enabled) => loginItem.setEnabled(app, Boolean(enabled)));
 
 // ---- Install Manager & Doctor ---------------------------------------------
 // All of this runs asynchronously in the main process; the renderer only ever
@@ -9683,6 +9690,12 @@ app
     screenVision.setRoot(root);
     camera.setRoot(root);
     healStaleBootState(root);
+    try {
+      // An entry written by an older build had no sign-in marker (and, in a portable build, a dead path).
+      if (loginItem.migrate(app)) log("start at sign-in: rewrote the entry in its current form");
+    } catch (error) {
+      log(`start at sign-in migration skipped: ${error?.message || error}`);
+    }
     if (loginLaunchHidden()) {
       log("started at login; waiting for Windows sign-in to settle");
       await new Promise((resolve) => setTimeout(resolve, 2500));
