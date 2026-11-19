@@ -149,3 +149,38 @@ describe("the release engine loader", () => {
     }
   });
 });
+
+describe("Electron fuses", () => {
+  const yaml = require_("js-yaml") as {
+    load: (text: string) => { electronFuses?: Record<string, boolean> };
+  };
+  const fuses = yaml.load(read("electron-builder.yml")).electronFuses ?? {};
+
+  it("turns off the file:// extras and the inspect arguments, and never turns off RunAsNode", () => {
+    expect(fuses["grantFileProtocolExtraPrivileges"]).toBe(false);
+    expect(fuses["enableNodeCliInspectArguments"]).toBe(false);
+    // FRIDAY starts its own executable as Node (MCP launcher, tool sandbox, in-app builder).
+    const users = ["mcp-launch", "mcp-paths", "sandbox", "builder-run"].map((n) =>
+      read(`electron/${n}.cjs`),
+    );
+    for (const source of users) expect(source).toContain("ELECTRON_RUN_AS_NODE");
+    expect(fuses["runAsNode"]).not.toBe(false);
+  });
+
+  it("serves the renderer from friday://, not file://, which is what makes the file:// fuse safe", () => {
+    const renderer = read("electron/renderer.cjs");
+    expect(renderer).toContain("friday");
+    const code = renderer
+      .split("\n")
+      .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+      .join("\n");
+    expect(code).not.toMatch(/\.loadFile\(/);
+  });
+
+  it("is checked on the built executable", () => {
+    const verify = read("scripts/verify-build.cjs");
+    expect(verify).toContain("RunAsNode");
+    expect(verify).toContain("EnableNodeCliInspectArguments");
+    expect(verify).toContain("GrantFileProtocolExtraPrivileges");
+  });
+});

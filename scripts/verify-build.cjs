@@ -185,6 +185,33 @@ for (const check of checks) {
   );
 }
 
+// Electron fuses are part of the executable (electron-builder flips them from `electronFuses`). FRIDAY needs RunAsNode
+// (it starts its own executable as Node) and wants the other two off; a build that lost them says so here.
+{
+  const exe = path.join(release, "win-unpacked", "FRIDAY.exe");
+  const reader = path.join(root, "node_modules", "@electron", "fuses", "dist", "bin.js");
+  if (fs.existsSync(exe) && fs.existsSync(reader)) {
+    const read = spawnSync(process.execPath, [reader, "read", "--app", exe], { encoding: "utf8" });
+    const text = `${read.stdout || ""}`;
+    const want = [
+      ["RunAsNode", "Enabled"],
+      ["EnableNodeCliInspectArguments", "Disabled"],
+      ["GrantFileProtocolExtraPrivileges", "Disabled"],
+    ];
+    const wrong = want.filter(([name, state]) => !new RegExp(`${name} is ${state}`).test(text));
+    if (read.status !== 0 || wrong.length) {
+      console.error(
+        `[friday] FUSES    the executable's fuses are not as electron-builder.yml asks: ${wrong.map(([n, st]) => `${n} should be ${st}`).join(", ") || "could not be read"}`,
+      );
+      failed++;
+    } else {
+      console.log(
+        "[friday] ok       Electron fuses: RunAsNode on, inspect arguments off, file:// extras off",
+      );
+    }
+  }
+}
+
 // The owner's own settings, keys and tool list must never be inside the installer, even when the build ran from a
 // folder that is also the FRIDAY folder (electron-builder.yml filters the same names).
 {

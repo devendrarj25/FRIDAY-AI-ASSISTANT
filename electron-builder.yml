@@ -4,6 +4,14 @@ copyright: Copyright © 2026 Devendra Singh Meena (devendrarj25)
 directories:
   output: release
   buildResources: installer/build
+# Electron fuses (flipped by electron-builder after packaging, before signing). Only what FRIDAY can do without:
+#   * grantFileProtocolExtraPrivileges off: the renderer is served by the friday:// scheme, never from file://.
+#   * enableNodeCliInspectArguments off: a packaged FRIDAY cannot be attached to with --inspect or SIGUSR1.
+# runAsNode stays on because FRIDAY starts its own executable as Node for the MCP launcher, the tool sandbox and the
+# in-app builder; the other fuses are left for a Windows-verified change (see FRIDAY_STATE.md, Next priorities).
+electronFuses:
+  grantFileProtocolExtraPrivileges: false
+  enableNodeCliInspectArguments: false
 afterPack: scripts/brand-windows.cjs
 # electron-builder 26 still runs signAndEditResources after afterPack even
 # when signExecutable is false. That pass writes npm FileVersion
