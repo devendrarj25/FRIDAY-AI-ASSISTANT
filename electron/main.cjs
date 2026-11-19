@@ -7008,8 +7008,8 @@ ipcMain.handle("tools:detect", async (_e, force) => {
   recordInventory(scan);
   return scan;
 });
-ipcMain.handle("tools:latest", async () => {
-  latestSeen = await toolchain.latestVersions();
+ipcMain.handle("tools:latest", async (_e, force) => {
+  latestSeen = await toolchain.latestVersions({ force: Boolean(force) });
   recordInventory(toolchain.lastDetected());
   return latestSeen;
 });

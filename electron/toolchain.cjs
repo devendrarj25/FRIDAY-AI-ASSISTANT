@@ -2168,6 +2168,44 @@ try {
 }
 
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
+const BUILT_IN_COUNT = TOOLS.length;
+
+/**
+ * Tools described in config/install-extensions.json and the owner's install-extensions.user.json join the
+ * catalog here (electron/install-extensions.cjs). The files are read again only when they change; a removed
+ * entry leaves on the next scan. Built-in tools are never replaced.
+ */
+let extensionStamp = null;
+let extensionReport = { tools: [], problems: [] };
+function syncExtensions(root) {
+  try {
+    const ext = require("./install-extensions.cjs");
+    const taken = new Set(TOOLS.slice(0, BUILT_IN_COUNT).map((t) => t.id));
+    for (const alias of CATALOG_ALIAS.keys()) taken.add(alias);
+    const loaded = ext.loadExtensions({
+      shippedFile: require("./resource-paths.cjs").resolveConfigFile(ext.FILE_NAME),
+      root,
+      categories: [...new Set(TOOLS.slice(0, BUILT_IN_COUNT).map((t) => t.category))],
+      taken,
+    });
+    if (loaded.stamp === extensionStamp) return extensionReport;
+    extensionStamp = loaded.stamp;
+    TOOLS.length = BUILT_IN_COUNT;
+    for (const id of [...TOOL_BY_ID.keys()]) {
+      if (!TOOLS.slice(0, BUILT_IN_COUNT).some((t) => t.id === id)) TOOL_BY_ID.delete(id);
+    }
+    for (const tool of loaded.tools) {
+      TOOLS.push(tool);
+      TOOL_BY_ID.set(tool.id, tool);
+    }
+    extensionReport = { tools: loaded.tools.map((t) => t.id), problems: loaded.problems };
+    // The scan cache predates the new list: read the machine again.
+    lastDetect = { at: 0, tools: [], root: null };
+  } catch {
+    /* a broken extension file never breaks the built-in catalog */
+  }
+  return extensionReport;
+}
 
 /** Resolve either the real component id or the catalog display name. */
 function toolById(id) {
@@ -2503,6 +2541,7 @@ let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
 async function detectTools({ force = false, root: rootArg, only = null } = {}) {
+  syncExtensions(rootArg ?? fridayPaths.root() ?? "");
   // A caller that needs a handful of tools (the build-time toolkit step) probes
   // just those and leaves the app's full-scan cache alone.
   if (Array.isArray(only) && only.length) {
@@ -2619,7 +2658,9 @@ async function wingetUpgrades(force = false) {
   if (!force && Date.now() - wingetUpgradeCache.at < LATEST_TTL) return wingetUpgradeCache.table;
   const text = await run(
     "winget",
-    ["upgrade", "--accept-source-agreements", "--disable-interactivity"],
+    // --include-unknown lists a package whose installed version winget cannot read; without it that package never
+    // shows an update and its upgrade answers "no applicable upgrade" while the row stays outdated.
+    ["upgrade", "--include-unknown", "--accept-source-agreements", "--disable-interactivity"],
     60_000,
   );
   const table = text ? require("./vendor-sources.cjs").parseWingetUpgrade(text) : {};
@@ -2648,8 +2689,13 @@ async function latestFor(tool, context = {}) {
   return version;
 }
 
-async function latestVersions() {
+async function latestVersions({ force = false } = {}) {
   const vendor = require("./vendor-sources.cjs");
+  // A refresh the owner asked for reads the sources again; the 30-minute memory is for the quiet background scan.
+  if (force) {
+    latestCache.clear();
+    wingetUpgradeCache = { at: 0, table: {} };
+  }
   const wingetTable = await wingetUpgrades().catch(() => ({}));
   const withSource = TOOLS.filter((t) => t.latest || vendor.hasFeed(t.id) || t.winget);
   const results = await pool(withSource, 5, async (t) => [
@@ -2766,6 +2812,7 @@ async function commandFor(tool, action, opts = {}) {
           "upgrade",
           "--id",
           winget,
+          "--include-unknown",
           "--silent",
           "--accept-package-agreements",
           "--accept-source-agreements",
@@ -3377,7 +3424,23 @@ function runJob({ id, action, root }, emit) {
           return;
         }
         jobs.set(key, child);
+        const idleMs = installIdleMs(command !== cmd);
+        const dog = idleWatchdog(idleMs, () => {
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `[${label}] no output for ${Math.round(idleMs / 60_000)} minutes - stopping it so the queue can move on`,
+          });
+          try {
+            if (WIN) killProcessTree(child.pid);
+            else child.kill("SIGTERM");
+          } catch {
+            /* already gone */
+          }
+        });
         const feed = (chunk) => {
+          dog.poke();
           require("./installer-output.cjs")
             .tidyChunk(chunk)
             .slice(-4)
@@ -3386,11 +3449,13 @@ function runJob({ id, action, root }, emit) {
         child.stdout?.on("data", feed);
         child.stderr?.on("data", feed);
         child.on("error", (err) => {
+          dog.stop();
           jobs.delete(key);
           emit({ id, action, phase: "Running", line: `[${label}] ${String(err.message)}` });
           resolve(-1);
         });
         child.on("close", (code) => {
+          dog.stop();
           jobs.delete(key);
           resolve(code);
         });
@@ -3909,6 +3974,42 @@ function runJob({ id, action, root }, emit) {
   })();
 }
 
+/**
+ * A job that prints nothing for a long time is stuck (a hidden prompt, a locked file, a dead network): without
+ * a limit its row would say "Installing" forever and the queue behind it would never start. The limit is
+ * generous because a silent installer (CUDA, a build-tools bundle) and an elevated one print nothing for long.
+ * `FRIDAY_INSTALL_IDLE_MINUTES` changes it (5 to 240).
+ */
+function installIdleMs(elevated, env = process.env) {
+  const asked = Number(env.FRIDAY_INSTALL_IDLE_MINUTES);
+  const minutes = Number.isFinite(asked) && asked >= 5 && asked <= 240 ? asked : elevated ? 90 : 45;
+  return Math.round(minutes * 60_000);
+}
+
+/** Calls `onIdle` once if `poke()` is not called for `ms`; `stop()` ends it. */
+function idleWatchdog(ms, onIdle, timers = { set: setTimeout, clear: clearTimeout }) {
+  let handle = null;
+  let done = false;
+  const arm = () => {
+    if (done) return;
+    if (handle) timers.clear(handle);
+    handle = timers.set(() => {
+      if (done) return;
+      done = true;
+      onIdle();
+    }, ms);
+    handle?.unref?.();
+  };
+  arm();
+  return {
+    poke: arm,
+    stop() {
+      done = true;
+      if (handle) timers.clear(handle);
+    },
+  };
+}
+
 function cancelJob({ id, action }) {
   const child = jobs.get(`${id}:${action}`);
   if (!child) return false;
@@ -3948,9 +4049,13 @@ module.exports = {
   detectTools,
   latestVersions,
   latestFor,
+  syncExtensions,
+  extensionReport: () => extensionReport,
   wingetUpgrades,
   runJob,
   cancelJob,
+  installIdleMs,
+  idleWatchdog,
   activeJobs,
   installerDir,
   probeTool,

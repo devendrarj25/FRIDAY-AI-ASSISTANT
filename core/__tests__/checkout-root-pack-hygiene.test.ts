@@ -22,6 +22,7 @@ const STATE_FILES = [
   "friday-settings",
   "friday-storage",
   "github",
+  "install-extensions.user",
   "provider-access",
   "provider-endpoints",
   "provider-keys",

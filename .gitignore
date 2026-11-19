@@ -88,6 +88,7 @@ bun.lock
 /config/friday-settings.json
 /config/friday-storage.json
 /config/github.json
+/config/install-extensions.user.json
 /config/provider-access.json
 /config/provider-endpoints.json
 /config/provider-keys.json

@@ -453,7 +453,7 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
     $code = -1
     $before = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
     try {
-      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--include-unknown', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
       $code = $LASTEXITCODE
     } catch { $code = -1 }
     if ($code -eq 0) {
