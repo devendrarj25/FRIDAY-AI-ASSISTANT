@@ -5,13 +5,8 @@
   "name": "Git diff",
   "description": "Read-only git diff (stat + patch, truncated). Does not apply or commit anything.",
   "category": "developer",
-  "inputs": [
-    "root",
-    "statOnly"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["root", "statOnly"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to run git diff (read-only) in this repository. Allow this?"
 }

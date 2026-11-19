@@ -4,15 +4,9 @@
   "description": "Measures and reshapes text offline: counts words and reading time, converts names between snake, camel, kebab and title case, and builds a Markdown contents list.",
   "category": "writing",
   "role": "writing-desk",
-  "skills": [
-    "doc-text-tools",
-    "lang-hinglish-detect",
-    "doc-writing-analysis"
-  ],
+  "skills": ["doc-text-tools", "lang-hinglish-detect", "doc-writing-analysis"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

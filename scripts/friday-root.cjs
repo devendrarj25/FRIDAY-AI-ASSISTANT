@@ -83,13 +83,59 @@ function findWorkspaceRoot() {
 }
 
 /**
- * Root to use for a script that must write something now. Falls back to a
- * clearly named development folder inside the checkout — never the user home.
+ * The folder the setup CMD runs in is FRIDAY's home when nothing else has been chosen: the checkout can be named
+ * anything and sit anywhere, because the path comes from where this script lives, never from a guessed name.
+ * A program-files, Windows, node_modules or unwritable folder is never a home, and neither is a test sandbox.
  */
-function workspaceRootOrDev() {
+function isUsableHome(project = projectRoot) {
+  if (!project || isThrowawayRoot(project)) return false;
+  const lowered = `${String(project).toLowerCase().replace(/\//g, "\\")}\\`;
+  if (/\\(program files( \(x86\))?|windows|node_modules)\\/.test(lowered)) return false;
+  try {
+    fs.accessSync(project, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let recordedCheckout = false;
+
+/**
+ * Writes the checkout into HKCU\Software\FRIDAY\WorkspacePath, the key the installer wizard reads for its
+ * default folder and the app reads first, so setup, the build, the installer and the installed app all name the
+ * same folder. Only called when no other folder was chosen; never throws; once per process.
+ */
+function recordWorkspaceRoot(root) {
+  if (process.platform !== "win32" || recordedCheckout) return false;
+  // A hosted runner is thrown away; it must not leave a registry pointer behind or depend on one.
+  if (process.env.CI || process.env.GITHUB_ACTIONS) return false;
+  recordedCheckout = true;
+  const out = spawnSync(
+    "reg",
+    ["add", "HKCU\\Software\\FRIDAY", "/v", "WorkspacePath", "/t", "REG_SZ", "/d", root, "/f"],
+    { encoding: "utf8", windowsHide: true, timeout: 8000 },
+  );
+  return !out.error && out.status === 0;
+}
+
+/**
+ * Root to use for a script that must write something now. On Windows, with no chosen folder, that is the folder
+ * the setup CMD runs in (recorded so the installer and the app agree); elsewhere, or when that folder cannot be
+ * a home, a clearly named development folder inside the checkout, never the user home.
+ */
+function workspaceRootOrDev({
+  platform = process.platform,
+  project = projectRoot,
+  record = true,
+} = {}) {
   const found = findWorkspaceRoot();
   if (found) return { root: found, development: false };
-  return { root: path.join(projectRoot, ".friday-dev"), development: true };
+  if (platform === "win32" && isUsableHome(project)) {
+    if (record) recordWorkspaceRoot(project);
+    return { root: project, development: false, fromCheckout: true };
+  }
+  return { root: path.join(project, ".friday-dev"), development: true };
 }
 
 /** Runtime folders a checkout must ignore. Source trees are not in this list. */
@@ -126,6 +172,8 @@ module.exports = {
   findWorkspaceRoot,
   fromOwnCheckout,
   workspaceRootOrDev,
+  isUsableHome,
+  recordWorkspaceRoot,
   layout,
   RUNTIME_FOLDERS,
   THROWAWAY_ROOT,

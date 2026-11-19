@@ -12,7 +12,10 @@ const { spawn } = require("node:child_process");
 const { killProcessTree } = require("./app-lifecycle.cjs");
 const python = require("./python.cjs");
 
-const KERNEL = path.join(__dirname, "..", "kernel");
+// Packaged: resources/kernel (next to app.asar, never inside it). Development: the checkout's kernel folder.
+const KERNEL =
+  require("./resource-paths.cjs").resolveResourceDir("kernel") ||
+  path.join(__dirname, "..", "kernel");
 
 const DRIVER = `
 import inspect, json, sys, traceback

@@ -26,6 +26,7 @@ import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { OwnToolsPanel } from "@/components/friday/OwnToolsPanel";
 import {
   DataTable,
   FilterTabs,
@@ -431,9 +432,14 @@ function InstallManagerPage() {
           </div>
         )}
         {state.latestFailed && !state.scanError && !state.scanning && (
-          <div className="rounded-surface border border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
-            The newest versions could not be read just now, so "Latest" may be old. The next scan
-            tries again.
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
+            <span>
+              The newest versions could not be read just now, so "Latest" may be old. The next scan
+              tries again.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => installer.refreshFromSystem(true)}>
+              <RefreshCw className="size-3" /> Try now
+            </Button>
           </div>
         )}
 
@@ -709,6 +715,7 @@ function InstallManagerPage() {
                 onCopy={copyValue}
               />
             ) : null}
+            <OwnToolsPanel title="Your own tools" />
           </>
         )}
 

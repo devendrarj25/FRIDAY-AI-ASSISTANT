@@ -152,7 +152,28 @@ export const serviceIdFor = (pkg: string, known: readonly ServiceRow[]): string 
   return known.some((row) => row.id === id && row.supported) ? id : null;
 };
 
+/** The owner's own tools (config/install-extensions*.json): what loaded and what was skipped, and why. */
+export type ExtensionsInfo = {
+  file: string | null;
+  tools: Array<{ id: string; own: boolean }>;
+  problems: Array<{ id: string | null; reason: string }>;
+};
+
+/** What the "Add a tool" form sends; the main process checks it again before anything is written. */
+export type OwnToolEntry = {
+  id: string;
+  cmd?: string;
+  winget?: string;
+  npm?: string;
+  pip?: string;
+  url: string;
+  category?: string;
+};
+
 export type DesktopInstallerApi = {
+  listToolExtensions?: () => Promise<ExtensionsInfo>;
+  addToolExtension?: (entry: OwnToolEntry) => Promise<{ ok: boolean; id?: string; error?: string }>;
+  removeToolExtension?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   toolServices?: () => Promise<{ at: number; idleMinutes: number; services: ServiceRow[] }>;
   toolServiceAction?: (
     id: string,
@@ -161,7 +182,7 @@ export type DesktopInstallerApi = {
   setToolServiceIdle?: (minutes: number) => Promise<{ idleMinutes: number }>;
   onToolServicesChanged?: (cb: () => void) => () => void;
   detectTools?: (force?: boolean) => Promise<{ at: number; tools: DetectedTool[] }>;
-  latestToolVersions?: () => Promise<Record<string, string>>;
+  latestToolVersions?: (force?: boolean) => Promise<Record<string, string>>;
   /** Which cloud providers actually have a stored credential right now. */
   providerKeys?: () => Promise<Record<string, boolean>>;
 
@@ -366,6 +387,15 @@ class InstallerStore {
   private hydrated = false;
   private progressBound = false;
   private detectInflight: Promise<void> | null = null;
+  /**
+   * Packages whose update ran to the end and still read older afterwards, as "installed|published". "Update all"
+   * and the assistant skip them until either version changes, so one stubborn row (an older copy earlier on PATH)
+   * is not offered and re-run forever. The row itself still offers the button.
+   */
+  private updateTried: Record<string, string> = {};
+  /** The job the desktop queue is running now, and the ones cancelled while it ran (their slot is already freed). */
+  private desktopJobId: string | null = null;
+  private released = new Set<string>();
   private desktopActive = false;
 
   state: InstallerState = {
@@ -650,6 +680,50 @@ class InstallerStore {
     this.emit();
   }
 
+  /* ------------------------------------------------ the owner's own tools */
+
+  /** The owner's tool list, or null where there is no desktop app. */
+  async listOwnTools(): Promise<ExtensionsInfo | null> {
+    const desktop = this.desktopApi();
+    if (!desktop?.listToolExtensions) return null;
+    try {
+      return await desktop.listToolExtensions();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Adds a tool; on success the machine is read again so the new row shows its real state. */
+  async addOwnTool(entry: OwnToolEntry): Promise<{ ok: boolean; error?: string }> {
+    const desktop = this.desktopApi();
+    if (!desktop?.addToolExtension) return { ok: false, error: "needs the desktop app" };
+    try {
+      const result = await desktop.addToolExtension(entry);
+      if (result.ok) {
+        this.push("ok", `${entry.id}: added to your tools`);
+        void this.refreshFromSystem(true);
+      }
+      return result;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || "could not add the tool" };
+    }
+  }
+
+  async removeOwnTool(id: string): Promise<{ ok: boolean; error?: string }> {
+    const desktop = this.desktopApi();
+    if (!desktop?.removeToolExtension) return { ok: false, error: "needs the desktop app" };
+    try {
+      const result = await desktop.removeToolExtension(id);
+      if (result.ok) {
+        this.push("info", `${id}: removed from your tools (the program itself stays installed)`);
+        void this.refreshFromSystem(true);
+      }
+      return result;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || "could not remove the tool" };
+    }
+  }
+
   /** Real detection: probes the machine and the official registries. */
   async refreshFromSystem(force = false): Promise<boolean> {
     const desktop = this.desktopApi();
@@ -668,7 +742,7 @@ class InstallerStore {
         let latestFailed = false;
         const [detected, latest, keys] = await Promise.all([
           desktop.detectTools!(force),
-          desktop.latestToolVersions?.().catch(() => {
+          desktop.latestToolVersions?.(force).catch(() => {
             latestFailed = true;
             return {};
           }) ?? Promise.resolve({}),
@@ -733,6 +807,10 @@ class InstallerStore {
             requirement: t.required ? ("required" as const) : ("optional" as const),
             ...(t.manual ? { notes: t.manual } : {}),
           }));
+        // Every source answering with nothing is a failed lookup, not "everything is current".
+        if (desktop.latestToolVersions && Object.keys(latest as object).length === 0) {
+          latestFailed = true;
+        }
         this.state.latest = { ...this.state.latest, ...(latest as Record<string, string>) };
 
         this.state.lastScanAt = Date.now();
@@ -768,12 +846,17 @@ class InstallerStore {
     const desktop = this.desktopApi();
     if (!desktop?.runToolJob) return;
     this.bindDesktopProgress();
+    this.desktopJobId = job.id;
     job.phase = "Resolving";
     job.detail = `${job.action} via ${this.state.probe[job.pkg]?.manager ?? "official source"}`;
     this.emit();
+    let updateRan = false;
     try {
       const result = await desktop.runToolJob({ id: job.pkg, action: job.action });
-      if (result?.ok) {
+      if ((job as Job).phase === "Cancelled") {
+        // The owner cancelled it while it ran: the row already says so and the queue has moved on.
+      } else if (result?.ok) {
+        updateRan = job.action === "update";
         job.targetVersion = result.version || job.targetVersion;
         this.finish(job, Date.now());
       } else if (result?.manual) {
@@ -803,10 +886,41 @@ class InstallerStore {
       // Re-probe so the row shows the real post-install state, then always
       // release the queue even if IPC or detection failed unexpectedly.
       await this.refreshFromSystem(true).catch(() => false);
+      if (updateRan) this.noteUpdateOutcome(job.pkg);
       this.emit();
-      this.desktopActive = false;
-      this.pumpDesktopQueue();
+      // A cancel already freed this job's place in the queue (and the next job may be running): do not free it twice.
+      if (!this.released.delete(job.id)) {
+        this.desktopJobId = null;
+        this.desktopActive = false;
+        this.pumpDesktopQueue();
+      }
     }
+  }
+
+  /** After an update that reported success: remember it when the row still reads older than the published version. */
+  private noteUpdateOutcome(pkg: string) {
+    const entry = this.entries().find((e) => e.pkg === pkg);
+    if (!entry) return;
+    if (this.statusOf(entry) !== "Update available") {
+      delete this.updateTried[pkg];
+      return;
+    }
+    const installed = this.state.installed[pkg] ?? "?";
+    const published = this.latestOf(entry);
+    this.updateTried[pkg] = `${installed}|${published}`;
+    this.push(
+      "warn",
+      `${pkg}: the update finished but ${installed} is still what FRIDAY finds (published ${published}). Another copy earlier on PATH, or a vendor build behind its feed, can cause this; it will not be queued again by Update all until something changes.`,
+    );
+  }
+
+  /** True while an update for this package already ran and nothing about it has changed since. */
+  private updateAlreadyTried(entry: CatalogEntry): boolean {
+    const key = this.updateTried[entry.pkg];
+    if (!key) return false;
+    if (key === `${this.state.installed[entry.pkg] ?? "?"}|${this.latestOf(entry)}`) return true;
+    delete this.updateTried[entry.pkg];
+    return false;
   }
 
   /** Windows installers and winget are process-global and cannot safely run in
@@ -1138,6 +1252,13 @@ class InstallerStore {
     job.finishedAt = Date.now();
     this.record(job, "cancelled");
     this.push("warn", `${job.pkg}: ${job.action} cancelled`);
+    // The running job that is cancelled must not keep the queue shut if the main process is slow to answer.
+    if (this.state.bridge === "desktop" && this.desktopJobId === job.id) {
+      this.released.add(job.id);
+      this.desktopJobId = null;
+      this.desktopActive = false;
+      this.pumpDesktopQueue();
+    }
     this.emit();
   }
 
@@ -1208,7 +1329,9 @@ class InstallerStore {
   }
 
   updateAll(): number {
-    const pending = this.entries().filter((e) => this.statusOf(e) === "Update available");
+    const pending = this.entries().filter(
+      (e) => this.statusOf(e) === "Update available" && !this.updateAlreadyTried(e),
+    );
     pending.forEach((e) => this.enqueue(e.pkg, "update"));
     return pending.length;
   }

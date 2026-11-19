@@ -5,17 +5,11 @@
   "category": "office",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "to"
-  ],
+  "inputs": ["text", "to"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "formal letter skeleton",
-    "formal letter"
-  ],
+  "triggers": ["formal letter skeleton", "formal letter"],
   "description": "A writing template. It does not print, post, or sign a letter."
 }

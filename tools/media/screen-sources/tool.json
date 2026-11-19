@@ -6,9 +6,7 @@
   "description": "List capturable screens/windows via electron/screen-vision.cjs. Refuses when screen vision is disabled.",
   "category": "media",
   "inputs": [],
-  "permissions": [
-    "screen.read"
-  ],
+  "permissions": ["screen.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to LIST screen and window names (no pixels). Allow this?"
 }

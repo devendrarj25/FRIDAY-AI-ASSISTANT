@@ -2056,6 +2056,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "tools:extension-add",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "tools:extension-remove",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "tools:extensions",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "tools:latest",
       file: "electron/main.cjs",
     },
@@ -9411,8 +9423,8 @@ export const FLOW_REGISTRY = {
       total: 1104,
     },
     ipc: {
-      mapped: 494,
-      total: 494,
+      mapped: 497,
+      total: 497,
     },
     kernel: {
       mapped: 14,

@@ -5,18 +5,11 @@
   "category": "travel",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "city",
-    "days",
-    "text"
-  ],
+  "inputs": ["city", "days", "text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "day itinerary skeleton",
-    "day itinerary"
-  ],
+  "triggers": ["day itinerary skeleton", "day itinerary"],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
 }

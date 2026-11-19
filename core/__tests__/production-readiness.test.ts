@@ -22,7 +22,8 @@ function walkFiles(dir: string, out: string[] = []): string[] {
       entry.name === ".venv" ||
       entry.name === "dist" ||
       entry.name === "dist-desktop" ||
-      entry.name === ".friday-dev"
+      entry.name === ".friday-dev" ||
+      entry.name === "App"
     )
       continue;
     const full = join(dir, entry.name);

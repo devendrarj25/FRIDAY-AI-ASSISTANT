@@ -5,16 +5,11 @@
   "category": "communication",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "item"
-  ],
+  "inputs": ["text", "item"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "polite chase email"
-  ],
+  "triggers": ["polite chase email"],
   "description": "Draft only. FRIDAY does not send the chase email or open your inbox."
 }

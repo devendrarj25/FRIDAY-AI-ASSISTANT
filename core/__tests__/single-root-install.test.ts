@@ -32,7 +32,20 @@ function macroBody(name: string): string {
   return nsh.slice(nsh.indexOf("\n", start) + 1, end);
 }
 
-type Env = { vars: Record<string, string>; reg: Record<string, string>; deferred: string[] };
+type Env = {
+  vars: Record<string, string>;
+  reg: Record<string, string>;
+  deferred: string[];
+  /** Commands the script ran through nsExec::ExecToLog (a PowerShell helper cannot run here, so it is recorded). */
+  ran?: string[];
+};
+
+/** Body of a named NSIS function from the shipped script. */
+function functionBody(name: string): string {
+  const start = nsh.indexOf(`Function ${name}`);
+  const end = nsh.indexOf("FunctionEnd", start);
+  return nsh.slice(nsh.indexOf("\n", start) + 1, end);
+}
 
 /**
  * Minimal NSIS interpreter covering exactly the instructions customUnInstall
@@ -87,6 +100,14 @@ function runNsis(body: string, env: Env): void {
       stack.push({ taken: value, active: value });
       continue;
     }
+    const orif = /^\$\{OrIf\}\s+(.+)$/.exec(line);
+    if (orif) {
+      const frame = stack[stack.length - 1]!;
+      const value = frame.taken || test(orif[1]!);
+      frame.taken = value;
+      frame.active = value;
+      continue;
+    }
     const andif = /^\$\{AndIf\}\s+(.+)$/.exec(line);
     if (andif) {
       const frame = stack[stack.length - 1]!;
@@ -106,10 +127,17 @@ function runNsis(body: string, env: Env): void {
     }
     if (!live()) continue;
 
-    if (
-      /^(DetailPrint|ClearErrors|Pop|nsExec::ExecToLog|SetShellVarContext|SetOutPath)\b/.test(line)
-    )
+    if (line.startsWith("nsExec::ExecToLog")) {
+      (env.ran ??= []).push(expand(line));
       continue;
+    }
+    // A function the macro calls runs in the same state, exactly as NSIS shares its variables.
+    const call = /^Call\s+(un\.\w+)$/.exec(line);
+    if (call) {
+      runNsis(functionBody(call[1]!), env);
+      continue;
+    }
+    if (/^(DetailPrint|ClearErrors|Pop|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
 
     const rmdir = /^RMDir\s+(?:\/r\s+)?(.+)$/.exec(line);
     if (rmdir) {
@@ -261,6 +289,57 @@ describe("uninstall executed against a real folder tree", () => {
     expect(env.deferred).toContain(instdir);
     expect(existsSync(root)).toBe(false);
     expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  it("delete mode on a source checkout keeps the owner's source and Git history and hands the data to the helper", () => {
+    const { root, instdir, env } = buildInstall();
+    env.vars["FridayUnMode"] = "delete";
+    // The FRIDAY folder is also the Git checkout the app was built from.
+    mkdirSync(join(root, ".git"), { recursive: true });
+    writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/main");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "app.ts"), "export {}");
+    mkdirSync(join(root, "kernel"), { recursive: true });
+    writeFileSync(join(root, "kernel", "main.py"), "print('kernel')");
+    env.ran = [];
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+    for (const target of env.deferred) rmSync(target, { recursive: true, force: true });
+
+    // Nothing in the script removed the folder or the source in it.
+    expect(existsSync(root)).toBe(true);
+    expect(readFileSync(join(root, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/main");
+    expect(readFileSync(join(root, "src", "app.ts"), "utf8")).toBe("export {}");
+    expect(readFileSync(join(root, "kernel", "main.py"), "utf8")).toBe("print('kernel')");
+    // The data is removed by the helper, which was asked about exactly this folder.
+    expect(env.ran).toHaveLength(1);
+    expect(env.ran[0]).toContain("remove-source-root-data.ps1");
+    expect(env.ran[0]).toContain(`-Root "${root}"`);
+    expect(env.deferred).not.toContain(root);
+    // The rest of a complete removal still happens.
+    expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  it("a source checkout is also recognised by its build script when there is no .git", () => {
+    const { root, instdir, env } = buildInstall();
+    env.vars["FridayUnMode"] = "delete";
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    writeFileSync(join(root, "scripts", "build-windows.cmd"), "@echo off");
+    env.ran = [];
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+    expect(existsSync(join(root, "scripts", "build-windows.cmd"))).toBe(true);
+    expect(env.ran).toHaveLength(1);
+  });
+
+  it("keep mode on a source checkout never calls the helper", () => {
+    const { root, instdir, env } = buildInstall();
+    mkdirSync(join(root, ".git"), { recursive: true });
+    env.ran = [];
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+    expect(env.ran).toEqual([]);
+    expect(existsSync(join(root, "database", "user-content"))).toBe(true);
   });
 
   const RUN = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\\FRIDAY";

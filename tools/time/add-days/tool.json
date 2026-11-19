@@ -5,16 +5,9 @@
   "name": "Add days",
   "description": "Add (or subtract) whole days to an ISO date or the current time.",
   "category": "time",
-  "inputs": [
-    "text",
-    "days"
-  ],
+  "inputs": ["text", "days"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to ADD DAYS to a date in memory. Allow this?",
-  "keywords": [
-    "add",
-    "days",
-    "offset"
-  ]
+  "keywords": ["add", "days", "offset"]
 }

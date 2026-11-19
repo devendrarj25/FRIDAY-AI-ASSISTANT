@@ -5,16 +5,11 @@
   "category": "legal-templates",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "contractor kickoff checklist",
-    "contractor kickoff"
-  ],
+  "triggers": ["contractor kickoff checklist", "contractor kickoff"],
   "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
 }

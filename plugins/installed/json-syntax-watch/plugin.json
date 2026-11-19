@@ -11,10 +11,6 @@
   "name": "JSON syntax watch",
   "description": "When a known manifest JSON file changes (package/tsconfig/plugin/skill/tool/manifest), parse it and record ok/error. Skips other JSON.",
   "category": "quality",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-file-change"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-file-change"]
 }

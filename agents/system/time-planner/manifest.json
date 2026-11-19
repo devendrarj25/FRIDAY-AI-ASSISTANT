@@ -4,14 +4,9 @@
   "description": "Works out dates and times: working days, date maths, time zones, Unix timestamps, calendar files and how long a download takes.",
   "category": "office",
   "role": "time-planner",
-  "skills": [
-    "cal-date-time",
-    "cal-planner"
-  ],
+  "skills": ["cal-date-time", "cal-planner"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

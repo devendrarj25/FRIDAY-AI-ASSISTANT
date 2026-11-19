@@ -346,10 +346,13 @@ describe("flow canvas depth", () => {
     expect(optionalExporterReady("d2").core).toBe(true);
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
     };
-    expect(pkg.dependencies["@xyflow/react"]).toBeTruthy();
+    // The renderer's packages are bundled by Vite, so they are build-time (dev) dependencies; declared in either set.
+    const declared: Record<string, string> = { ...pkg.devDependencies, ...pkg.dependencies };
+    expect(declared["@xyflow/react"]).toBeTruthy();
     for (const name of ["elkjs", "ajv", "@viz-js/viz", "@codemirror/view"]) {
-      expect(pkg.dependencies[name]).toBeTruthy();
+      expect(declared[name]).toBeTruthy();
     }
     for (const name of [
       "mermaid",
@@ -360,7 +363,7 @@ describe("flow canvas depth", () => {
       "n8n",
       "monaco-editor",
     ]) {
-      expect(pkg.dependencies[name]).toBeUndefined();
+      expect(declared[name]).toBeUndefined();
     }
   });
 

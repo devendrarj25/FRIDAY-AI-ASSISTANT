@@ -5,15 +5,9 @@
   "name": "MIME from name",
   "description": "Guess a MIME type from a filename extension. Local map, no network.",
   "category": "documents",
-  "inputs": [
-    "name"
-  ],
+  "inputs": ["name"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to GUESS a MIME TYPE from a filename. Allow this?",
-  "keywords": [
-    "mime",
-    "extension",
-    "type"
-  ]
+  "keywords": ["mime", "extension", "type"]
 }

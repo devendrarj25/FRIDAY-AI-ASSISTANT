@@ -5,20 +5,10 @@
   "category": "automation",
   "entry": "index.cjs",
   "kernelTool": "input.type",
-  "inputs": [
-    "text",
-    "target",
-    "hwnd",
-    "interval"
-  ],
-  "permissions": [
-    "devices",
-    "process.exec"
-  ],
+  "inputs": ["text", "target", "hwnd", "interval"],
+  "permissions": ["devices", "process.exec"],
   "risk": "exec",
   "enabled": false,
-  "requires": [
-    "PyAutoGUI"
-  ],
+  "requires": ["PyAutoGUI"],
   "approvalPrompt": "FRIDAY wants to TYPE on your keyboard into the window \u201c{target}\u201d:\n\n    {text}\n\nThese are real keystrokes: they can send messages, edit files, or run commands if the target window is a terminal. Allow this?"
 }

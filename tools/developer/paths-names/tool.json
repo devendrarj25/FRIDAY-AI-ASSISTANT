@@ -9,9 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to LIST CANONICAL FOLDER NAMES from the structure contract. Allow this?",
-  "keywords": [
-    "paths",
-    "folders",
-    "contract"
-  ]
+  "keywords": ["paths", "folders", "contract"]
 }

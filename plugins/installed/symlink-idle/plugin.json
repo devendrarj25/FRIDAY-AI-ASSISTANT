@@ -11,10 +11,6 @@
   "name": "Symlink idle",
   "description": "On idle, list symbolic links found in a depth-2 walk (names only).",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

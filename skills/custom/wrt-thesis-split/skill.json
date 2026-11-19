@@ -5,15 +5,11 @@
   "category": "writing",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "thesis split"
-  ],
+  "triggers": ["thesis split"],
   "description": "A thinking scaffold. It does not fact-check the claim."
 }

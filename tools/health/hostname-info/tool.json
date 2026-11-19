@@ -9,9 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ HOSTNAME AND PLATFORM. Allow this?",
-  "keywords": [
-    "hostname",
-    "platform",
-    "arch"
-  ]
+  "keywords": ["hostname", "platform", "arch"]
 }

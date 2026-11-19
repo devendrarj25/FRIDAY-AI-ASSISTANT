@@ -274,9 +274,13 @@ if (
 }
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
+const loginItem = require("./login-item.cjs");
 const lifeSteps = {};
 function restartArgv() {
-  const kept = process.argv.slice(1).filter((arg) => arg !== "--friday-restart=1");
+  // A restart the owner asked for shows the window, so the "started at sign-in" marker is not carried over.
+  const kept = process.argv
+    .slice(1)
+    .filter((arg) => arg !== "--friday-restart=1" && arg !== require("./login-item.cjs").LOGIN_ARG);
   kept.push("--friday-restart=1");
   return kept;
 }
@@ -293,6 +297,28 @@ const life = appLifecycle.createLifecycle({
   relaunchArgs: restartArgv,
 });
 exitNow = (code, reason) => life.exitNow(code, reason);
+
+// A signal is an ordinary way to end FRIDAY (Ctrl+C or closing the console it was started from, a service manager,
+// `taskkill` without /F). Without a handler the process was cut off at once and the Python kernel it owns kept
+// running, holding its port until the next start recovered it. The first signal shuts down in order; a second one
+// while that is still going on ends the process now.
+{
+  let signalled = 0;
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+    try {
+      process.on(signal, () => {
+        signalled += 1;
+        if (signalled > 1) {
+          life.exitNow(130, `second ${signal}`);
+          return;
+        }
+        void life.requestShutdown(`signal ${signal}`);
+      });
+    } catch {
+      /* this platform does not deliver that signal */
+    }
+  }
+}
 function lifecyclePidFile() {
   try {
     return path.join(app.getPath("userData"), "lifecycle.json");
@@ -1386,13 +1412,15 @@ function noteStartup(milestone) {
   startupTrace.note(milestone, null, startupLogFile());
 }
 
+/** True when this launch came from the sign-in entry: `--friday-login` on Windows, the OS flag on macOS. */
 function loginLaunchHidden() {
+  let settings = null;
   try {
-    const settings = app.getLoginItemSettings();
-    return Boolean(settings && settings.wasOpenedAtLogin && settings.openAtLogin);
+    settings = app.getLoginItemSettings();
   } catch {
-    return false;
+    settings = null;
   }
+  return loginItem.startedAtLogin(process.argv, settings);
 }
 
 /** A previous crash may have left a kernel FRIDAY started. Anything else on the port stays up. */
@@ -1577,9 +1605,13 @@ async function startKernelNow(root) {
 
   kernel.stdout.on("data", forward("info"));
   kernel.stderr.on("data", forward("error"));
+  // An event from an older kernel that arrives after a newer one started must not mark the new one as down.
+  const thisKernel = kernel;
   kernel.on("error", (err) => {
-    kernelReady = false;
-    kernel = null;
+    if (kernel === thisKernel) {
+      kernelReady = false;
+      kernel = null;
+    }
     kernelFailure =
       err?.code === "ENOENT"
         ? `Python was not found (tried "${python}"). Install Python 3 and reopen FRIDAY.`
@@ -1589,9 +1621,11 @@ async function startKernelNow(root) {
     boot("Starting services", "warn", kernelFailure);
     serviceHealth.invalidate();
   });
-  kernel.on("exit", (code) => {
-    kernelReady = false;
-    kernel = null;
+  thisKernel.on("exit", (code) => {
+    if (kernel === thisKernel) {
+      kernelReady = false;
+      kernel = null;
+    }
     if (code !== 0 && code !== null) {
       const tail = kernelStderr.trim().split("\n").slice(-2).join(" ").slice(0, 300);
       kernelFailure = `The local AI service stopped (exit ${code}).${tail ? ` ${tail}` : ""}`;
@@ -1808,7 +1842,9 @@ async function stopKernel({ timeoutMs = 10_000 } = {}) {
       setTimeout(() => resolve(false), timeoutMs).unref?.();
     });
     try {
-      child.kill();
+      // Windows: kill() ends only the launcher of a virtual environment, not the interpreter under it that holds the port.
+      if (process.platform === "win32" && child.pid) appLifecycle.killProcessTree(child.pid);
+      else child.kill();
     } catch {
       // Already gone.
     }
@@ -1912,7 +1948,8 @@ function stopOwnedProcesses() {
   }
   if (kernel) {
     try {
-      kernel.kill();
+      if (process.platform === "win32" && kernel.pid) appLifecycle.killProcessTree(kernel.pid);
+      else kernel.kill();
     } catch {
       // The kernel may already have exited.
     }
@@ -4388,8 +4425,12 @@ function hideToTray() {
   const target = liveWin();
   if (!target) return false;
   saveWindowState();
+  // With no tray icon (the shell is not up yet at sign-in, or the desktop has none) a hidden window could not be
+  // found again, so it is minimized to the taskbar instead.
+  const hasTray = typeof tray.isAvailable === "function" && tray.isAvailable();
   try {
-    target.hide();
+    if (hasTray) target.hide();
+    else target.minimize();
   } catch {
     /* already hidden */
   }
@@ -5397,7 +5438,7 @@ function applyOwnerPreferenceEffects(value) {
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
     if (typeof toggles.startup === "boolean") {
-      app.setLoginItemSettings({ openAtLogin: Boolean(toggles.startup) });
+      loginItem.setEnabled(app, Boolean(toggles.startup));
     }
     const target = liveWin();
     if (target && typeof toggles.alwaysOnTop === "boolean") {
@@ -6799,11 +6840,8 @@ ipcMain.handle("app:confirm-restart", async (_e, reason) => {
   return true;
 });
 
-ipcMain.handle("startup:get", () => app.getLoginItemSettings().openAtLogin);
-ipcMain.handle("startup:set", (_e, enabled) => {
-  app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
-  return app.getLoginItemSettings().openAtLogin;
-});
+ipcMain.handle("startup:get", () => loginItem.isEnabled(app));
+ipcMain.handle("startup:set", (_e, enabled) => loginItem.setEnabled(app, Boolean(enabled)));
 
 // ---- Install Manager & Doctor ---------------------------------------------
 // All of this runs asynchronously in the main process; the renderer only ever
@@ -7008,11 +7046,20 @@ ipcMain.handle("tools:detect", async (_e, force) => {
   recordInventory(scan);
   return scan;
 });
-ipcMain.handle("tools:latest", async () => {
-  latestSeen = await toolchain.latestVersions();
+ipcMain.handle("tools:latest", async (_e, force) => {
+  latestSeen = await toolchain.latestVersions({ force: Boolean(force) });
   recordInventory(toolchain.lastDetected());
   return latestSeen;
 });
+// Tools the owner adds by data (config/install-extensions.user.json). Nothing here runs a command: an entry is
+// checked by electron/install-extensions.cjs and installs through the same winget, npm or pip paths as the rest.
+ipcMain.handle("tools:extensions", () => toolchain.listExtensions(getWorkspaceRoot()));
+ipcMain.handle("tools:extension-add", (_e, entry) =>
+  toolchain.addExtension(getWorkspaceRoot(), entry),
+);
+ipcMain.handle("tools:extension-remove", (_e, id) =>
+  toolchain.removeExtension(getWorkspaceRoot(), String(id || "")),
+);
 ipcMain.handle("tools:active-jobs", () => toolchain.activeJobs());
 ipcMain.handle("tools:cancel", (_e, job) => toolchain.cancelJob(job || {}));
 ipcMain.handle("tools:run", (_e, job) =>
@@ -9674,6 +9721,12 @@ app
     screenVision.setRoot(root);
     camera.setRoot(root);
     healStaleBootState(root);
+    try {
+      // An entry written by an older build had no sign-in marker (and, in a portable build, a dead path).
+      if (loginItem.migrate(app)) log("start at sign-in: rewrote the entry in its current form");
+    } catch (error) {
+      log(`start at sign-in migration skipped: ${error?.message || error}`);
+    }
     if (loginLaunchHidden()) {
       log("started at login; waiting for Windows sign-in to settle");
       await new Promise((resolve) => setTimeout(resolve, 2500));

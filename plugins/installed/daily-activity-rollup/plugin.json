@@ -12,8 +12,5 @@
   "description": "Accumulate file-change counts per local date, then rewrite a daily summary on idle.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-file-change",
-    "on-idle"
-  ]
+  "hooks": ["on-file-change", "on-idle"]
 }

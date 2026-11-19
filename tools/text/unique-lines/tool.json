@@ -5,9 +5,7 @@
   "name": "Unique lines",
   "description": "Keep first occurrence of each line.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to DEDUPLICATE lines of text in memory. Allow this?"

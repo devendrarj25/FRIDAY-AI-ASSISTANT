@@ -9,10 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ the CURRENT UNIX TIME. Allow this?",
-  "keywords": [
-    "unix",
-    "epoch",
-    "now",
-    "timestamp"
-  ]
+  "keywords": ["unix", "epoch", "now", "timestamp"]
 }

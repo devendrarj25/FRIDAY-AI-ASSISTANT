@@ -11,10 +11,6 @@
   "name": "License presence",
   "description": "Check LICENSE / LICENSE.md at workspace root on start.",
   "category": "workspace",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

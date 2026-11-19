@@ -11,10 +11,6 @@
   "name": "README presence",
   "description": "Check README.md / README at workspace root on start.",
   "category": "workspace",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

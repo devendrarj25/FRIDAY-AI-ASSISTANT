@@ -12,7 +12,5 @@
   "description": "Records the run id and intent when a chat turn starts, into this plugin's data/starts.ndjson.",
   "category": "logging",
   "permissions": [],
-  "hooks": [
-    "on-turn-start"
-  ]
+  "hooks": ["on-turn-start"]
 }

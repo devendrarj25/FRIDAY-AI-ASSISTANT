@@ -17,6 +17,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { stopChild } = require("./app-lifecycle.cjs");
 
 const STALL_MS = 60_000;
 /** No byte at all this long after the start means this client cannot reach its servers from this PC. */
@@ -116,7 +117,7 @@ function runQuiet(python, args, { env, timeout = 20_000, spawnImpl = spawn } = {
     let out = "";
     const timer = setTimeout(() => {
       try {
-        child.kill();
+        stopChild(child);
       } catch {
         /* already gone */
       }
@@ -300,7 +301,7 @@ async function download({
     const stop = (why) => {
       failure = why;
       try {
-        child.kill();
+        stopChild(child);
       } catch {
         /* already gone */
       }

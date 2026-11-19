@@ -11,10 +11,6 @@
   "name": "Coverage artifact idle",
   "description": "On idle, note coverage / htmlcov / .nyc_output folder presence.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

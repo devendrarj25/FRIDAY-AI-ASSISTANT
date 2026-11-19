@@ -9,9 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to GENERATE a UUID v4. Allow this?",
-  "keywords": [
-    "uuid",
-    "guid",
-    "random"
-  ]
+  "keywords": ["uuid", "guid", "random"]
 }

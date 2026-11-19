@@ -165,8 +165,11 @@ describe("dependency policy", () => {
     // TypeScript 7 is the native compiler: it drops the JavaScript compiler API that several tests read, and
     // typescript-eslint supports TypeScript below 6.1 only. Move to 7 when both are ready.
     expect(pkg.devDependencies["typescript"]?.startsWith("6.0.")).toBe(true);
-    expect(pkg.dependencies["react-day-picker"]).toMatch(/^\^10\./);
-    expect(pkg.dependencies["recharts"]).toMatch(/^\^3\./);
+    // The renderer's packages are bundled by Vite into dist-desktop, so they are build-time (dev) dependencies;
+    // only what the main process requires at run time is a production dependency (see packaged-dependencies.test.ts).
+    const declared = { ...pkg.devDependencies, ...pkg.dependencies };
+    expect(declared["react-day-picker"]).toMatch(/^\^10\./);
+    expect(declared["recharts"]).toMatch(/^\^3\./);
   });
 
   it("caps how many dependency pull requests can be open at once", () => {

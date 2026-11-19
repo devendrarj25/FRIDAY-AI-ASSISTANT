@@ -5,12 +5,8 @@
   "name": "List npm scripts",
   "description": "Read package.json scripts. Does not run them.",
   "category": "developer",
-  "inputs": [
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ package.json scripts in this project. Allow this?"
 }

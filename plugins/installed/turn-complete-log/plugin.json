@@ -12,7 +12,5 @@
   "description": "On each finished chat turn, append run id and duration to this plugin's data/turns.ndjson. Inspect-only; does not write the workspace.",
   "category": "logging",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

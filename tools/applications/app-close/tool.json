@@ -5,13 +5,8 @@
   "category": "applications",
   "entry": "index.cjs",
   "kernelTool": "app.close",
-  "inputs": [
-    "title",
-    "hwnd"
-  ],
-  "permissions": [
-    "process.exec"
-  ],
+  "inputs": ["title", "hwnd"],
+  "permissions": ["process.exec"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to CLOSE the window \u201c{title}\u201d. Unsaved work in that application can be lost. Allow this?"

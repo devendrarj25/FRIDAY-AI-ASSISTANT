@@ -61,7 +61,7 @@ describe("silent, deterministic EXE boot", () => {
 
   it("invalidates service-health when the kernel child exits or fails to spawn", () => {
     expect(main).toContain("serviceHealth.invalidate()");
-    const exitAt = main.indexOf('kernel.on("exit"');
+    const exitAt = main.indexOf('thisKernel.on("exit"');
     const exit = main.slice(exitAt, main.indexOf("kernelStartPromise = waitForKernel", exitAt));
     expect(exit).toContain("serviceHealth.invalidate()");
     expect(exit.indexOf("serviceHealth.invalidate()")).toBeLessThan(

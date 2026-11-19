@@ -5,15 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "code"
-  ],
+  "inputs": ["code"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "typescript any finder"
-  ],
+  "triggers": ["typescript any finder"],
   "description": "Line matches only. Does not infer better types."
 }

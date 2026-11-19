@@ -2,7 +2,7 @@
 // Nothing is ever installed without an explicit user answer.
 const fs = require("fs");
 const path = require("path");
-const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const { compareBuilds } = require("./release-engine-loader.cjs").releaseEngine();
 
 const readJson = (p) => {
   try {

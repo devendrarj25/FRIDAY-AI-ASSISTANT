@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Extract ATX headings from README.md to sketch the document outline. Read-only.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

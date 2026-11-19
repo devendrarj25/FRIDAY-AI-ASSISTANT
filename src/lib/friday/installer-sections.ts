@@ -19,6 +19,7 @@ export const PANEL_SECTIONS: Record<string, InstallSection | "always"> = {
   "Environment Summary": "always",
   "Software Catalog": "software",
   "Package details": "software",
+  "Your own tools": "software",
   "Install Queue": "queue",
   "Update Manager": "queue",
   "Background services": "services",

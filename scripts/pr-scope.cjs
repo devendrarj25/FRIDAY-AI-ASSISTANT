@@ -39,12 +39,16 @@ const DOC_PREFIXES = ["docs/", ".github/ISSUE_TEMPLATE/"];
 
 const DOC_FILES = [...ROOT_DOCS, ".github/pull_request_template.md"];
 
+/** Pages under docs/ that the installer ships (the MCP server serves one), so they are code for scoping. */
+const PACKAGED_DOCS = ["docs/FRIDAY_MCP.md"];
+
 /** Documentation globs. PR Validation reads this script; it does not copy the list into `paths-ignore`. */
 const PATHS_IGNORE = [...DOC_PREFIXES.map((p) => `${p}**`), ...DOC_FILES];
 
 function isDocPath(file) {
   const f = String(file).trim().replace(/\\/g, "/");
   if (!f || f.startsWith("/") || f.split("/").includes("..")) return false;
+  if (PACKAGED_DOCS.includes(f)) return false;
   return DOC_FILES.includes(f) || DOC_PREFIXES.some((p) => f.startsWith(p) && f.length > p.length);
 }
 
@@ -54,7 +58,15 @@ function isDocsOnly(files) {
   return list.length > 0 && list.every(isDocPath);
 }
 
-module.exports = { ROOT_DOCS, DOC_PREFIXES, DOC_FILES, PATHS_IGNORE, isDocPath, isDocsOnly };
+module.exports = {
+  ROOT_DOCS,
+  DOC_PREFIXES,
+  DOC_FILES,
+  PACKAGED_DOCS,
+  PATHS_IGNORE,
+  isDocPath,
+  isDocsOnly,
+};
 
 if (require.main === module) {
   let input = "";

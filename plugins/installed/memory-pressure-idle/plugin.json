@@ -12,7 +12,5 @@
   "description": "On idle, compute free/total memory ratio and flag pressure below 10% free.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-idle"
-  ]
+  "hooks": ["on-idle"]
 }

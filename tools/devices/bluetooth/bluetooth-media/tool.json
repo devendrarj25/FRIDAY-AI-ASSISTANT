@@ -12,9 +12,7 @@
       "required": true
     }
   ],
-  "permissions": [
-    "devices"
-  ],
+  "permissions": ["devices"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to send {command} to your connected Bluetooth audio device. Allow this?"

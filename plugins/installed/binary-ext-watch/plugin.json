@@ -12,7 +12,5 @@
   "description": "Journal file-change events for common binary extensions (exe/dll/png/jpg/zip/pdf).",
   "category": "quality",
   "permissions": [],
-  "hooks": [
-    "on-file-change"
-  ]
+  "hooks": ["on-file-change"]
 }

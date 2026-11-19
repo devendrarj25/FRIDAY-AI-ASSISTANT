@@ -4,14 +4,8 @@
   "description": "Finds leftover merge/patch files (*.orig, *.rej, *.patch) and can delete them after you approve.",
   "category": "developer",
   "entry": "index.cjs",
-  "inputs": [
-    "folder",
-    "dryRun"
-  ],
-  "permissions": [
-    "fs.read",
-    "fs.write"
-  ],
+  "inputs": ["folder", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
   "risk": "write",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to DELETE {count} leftover patch/merge file(s) under \u201c{folder}\u201d. Review before allowing."

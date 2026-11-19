@@ -5,15 +5,9 @@
   "name": "Markdown strip",
   "description": "Strip common Markdown markers to plain text. Not a full CommonMark parser.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to STRIP MARKDOWN markers from text. Allow this?",
-  "keywords": [
-    "markdown",
-    "strip",
-    "plain"
-  ]
+  "keywords": ["markdown", "strip", "plain"]
 }

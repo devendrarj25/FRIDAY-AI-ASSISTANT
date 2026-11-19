@@ -5,13 +5,8 @@
   "name": "Git log",
   "description": "Read-only recent git history (hash, date, subject). Does not rewrite history.",
   "category": "developer",
-  "inputs": [
-    "root",
-    "limit"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["root", "limit"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to read git log in this repository. Allow this?"
 }

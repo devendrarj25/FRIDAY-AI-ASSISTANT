@@ -4,13 +4,9 @@
   "description": "Kitchen help from the built-in cooking skills: scale a recipe, baker's ratios, grocery lists, pantry substitutions, spice pairing, meal plans and cook times. Picks the best skills for the request and can combine them.",
   "category": "cooking",
   "role": "kitchen-desk",
-  "skills": [
-    "category:cooking"
-  ],
+  "skills": ["category:cooking"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

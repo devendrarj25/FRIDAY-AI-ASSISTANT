@@ -405,6 +405,11 @@ function fetchModelsAndProbe() {
   if (win) {
     const fridayRoot = require("./friday-root.cjs");
     const picked = fridayRoot.workspaceRootOrDev();
+    if (picked.fromCheckout) {
+      log(
+        `FRIDAY folder: ${picked.root} (the folder this setup runs in). Models, runtimes and tools are installed and detected there, and the installer offers it as the install folder. To use another folder, set FRIDAY_WORKSPACE_ROOT before setup.`,
+      );
+    }
     if (picked.development) {
       require("../electron/staged-assets.cjs").recordStaging(picked.root);
       log(

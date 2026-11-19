@@ -1,0 +1,4 @@
+{
+  "$comment": "Tools added to Install Manager by data. One entry per tool; see electron/install-extensions.cjs for the allowed fields. The owner's own list is <FRIDAY folder>/config/install-extensions.user.json and an update never touches it.",
+  "tools": []
+}

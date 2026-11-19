@@ -19,6 +19,7 @@ function recognize(bytes) {
     fs.writeFileSync(file, bytes);
     const run = spawnSync(bin, [file, "stdout", "-l", "eng", "--psm", "6", "tsv"], {
       timeout: 20000,
+      windowsHide: true,
       encoding: "utf8",
       maxBuffer: 8 * 1024 * 1024,
     });

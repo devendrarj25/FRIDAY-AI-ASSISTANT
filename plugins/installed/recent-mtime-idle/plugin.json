@@ -11,10 +11,6 @@
   "name": "Recent mtime idle",
   "description": "On idle, list the 15 most recently modified files from a depth-2 walk.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

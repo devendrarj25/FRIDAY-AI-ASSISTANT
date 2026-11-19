@@ -5,13 +5,8 @@
   "name": "File status",
   "description": "Return size, type and timestamps for a path inside the FRIDAY folder.",
   "category": "filesystem",
-  "inputs": [
-    "path",
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["path", "root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ file status for “{path}” inside the FRIDAY folder. Allow this?"
 }

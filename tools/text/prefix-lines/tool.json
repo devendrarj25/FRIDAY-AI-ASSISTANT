@@ -5,16 +5,9 @@
   "name": "Prefix lines",
   "description": "Prefix every line of text with a string (for example a comment marker).",
   "category": "text",
-  "inputs": [
-    "text",
-    "prefix"
-  ],
+  "inputs": ["text", "prefix"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to PREFIX LINES of text in memory. Allow this?",
-  "keywords": [
-    "prefix",
-    "lines",
-    "comment"
-  ]
+  "keywords": ["prefix", "lines", "comment"]
 }

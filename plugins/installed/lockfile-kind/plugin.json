@@ -11,10 +11,6 @@
   "name": "Lockfile kind",
   "description": "Detect which package lockfiles exist at the workspace root (npm/yarn/pnpm/poetry/composer).",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

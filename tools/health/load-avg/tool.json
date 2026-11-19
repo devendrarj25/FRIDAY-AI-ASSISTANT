@@ -9,8 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ OS LOAD AVERAGE. Allow this?",
-  "keywords": [
-    "load",
-    "loadavg"
-  ]
+  "keywords": ["load", "loadavg"]
 }

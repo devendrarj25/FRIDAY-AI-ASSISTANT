@@ -5,13 +5,8 @@
   "name": "List a folder",
   "description": "List files and folders inside the selected FRIDAY folder. Paths are resolved through friday-contract.cjs — nothing outside that root is visible.",
   "category": "filesystem",
-  "inputs": [
-    "path",
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["path", "root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to LIST the contents of “{path}” inside the FRIDAY folder. Allow this?"
 }

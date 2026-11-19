@@ -12,7 +12,5 @@
   "description": "Keeps the last 20 on-error payloads in this plugin's data/errors.json for a short local window. Does not alert a network.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error"
-  ]
+  "hooks": ["on-error"]
 }

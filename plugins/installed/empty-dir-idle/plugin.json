@@ -11,10 +11,6 @@
   "name": "Empty dir idle",
   "description": "On idle, walk depth 2 and list directories with zero children (skip ignored trees).",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

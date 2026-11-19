@@ -9,9 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ SCREEN-VISION STATE (no capture). Allow this?",
-  "keywords": [
-    "screen",
-    "vision",
-    "state"
-  ]
+  "keywords": ["screen", "vision", "state"]
 }

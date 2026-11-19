@@ -6,9 +6,7 @@
   "description": "Local non-internal IPv4/IPv6 addresses from electron/system-monitor.cjs lanAddresses().",
   "category": "system",
   "inputs": [],
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to read this PC's LAN addresses. Allow this?"
 }

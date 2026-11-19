@@ -12,10 +12,7 @@
       "required": false
     }
   ],
-  "permissions": [
-    "process.exec",
-    "devices"
-  ],
+  "permissions": ["process.exec", "devices"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to mirror your connected Android phone's screen onto this PC. Allow this?"

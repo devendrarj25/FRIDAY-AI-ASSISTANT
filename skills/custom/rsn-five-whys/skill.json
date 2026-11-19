@@ -5,15 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "five whys root cause"
-  ],
+  "triggers": ["five whys root cause"],
   "description": "If you paste numbered answers, they fill why-1…why-5. Otherwise the skill returns the empty ladder to complete."
 }

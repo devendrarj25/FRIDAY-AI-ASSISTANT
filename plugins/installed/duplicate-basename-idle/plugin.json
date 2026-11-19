@@ -11,10 +11,6 @@
   "name": "Duplicate basename idle",
   "description": "On idle, find the same filename appearing in more than one folder (depth 2).",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

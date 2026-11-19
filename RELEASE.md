@@ -35,14 +35,14 @@ Actions → **FRIDAY Release** (`release.yml`). The default `stage` is `all`: pl
 
 ### If publish fails
 
-| Next run | Result |
-| --- | --- |
-| Same release type (`patch` again, `minor` again, …) | The failed number is published. The counters do not move |
-| A different explicit level | The failed number is skipped. Only the chosen counter moves, counted from the last successful publish |
-| `mode` auto with `release_type` auto | The number stays. A new counter is not invented. A never-published line is finished as it stands |
-| An explicit patch, minor, major, or extreme on a never-published line | That one counter still moves from the declared number |
-| `mode` update with `release_type` auto | Patch, minor, or major from the size of the change. Extreme stays manual |
-| Rebuild, or release type revision | The declared number is packed again for a check |
+| Next run                                                              | Result                                                                                                |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Same release type (`patch` again, `minor` again, …)                   | The failed number is published. The counters do not move                                              |
+| A different explicit level                                            | The failed number is skipped. Only the chosen counter moves, counted from the last successful publish |
+| `mode` auto with `release_type` auto                                  | The number stays. A new counter is not invented. A never-published line is finished as it stands      |
+| An explicit patch, minor, major, or extreme on a never-published line | That one counter still moves from the declared number                                                 |
+| `mode` update with `release_type` auto                                | Patch, minor, or major from the size of the change. Extreme stays manual                              |
+| Rebuild, or release type revision                                     | The declared number is packed again for a check                                                       |
 
 A patch of `1.0.1.2` is `1.0.1.3`. A minor is `1.0.2.2`. A major is `1.1.1.2`. An extreme is `2.0.1.2`. The other places stay. The full rule is [VERSIONING.md](VERSIONING.md).
 

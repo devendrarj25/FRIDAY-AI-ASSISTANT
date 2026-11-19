@@ -17,7 +17,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const { compareBuilds } = require("./release-engine-loader.cjs").releaseEngine();
 
 /** Files/folders that must never be lost across an update. */
 const { OWNERSHIP, NEVER_DELETED } = require("./friday-contract.cjs");
@@ -324,8 +324,15 @@ function pruneInstallers({ root, keep = 2 } = {}) {
   } catch {
     return { ok: true, removed: [] };
   }
+  // A file that vanished or cannot be read between the listing and the stat is skipped, never fatal.
   const rows = names
-    .map((name) => ({ name, at: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .flatMap((name) => {
+      try {
+        return [{ name, at: fs.statSync(path.join(dir, name)).mtimeMs }];
+      } catch {
+        return [];
+      }
+    })
     .sort((a, b) => b.at - a.at);
   const removed = [];
   // A half-finished download nobody resumed within a week is just disk space.
@@ -333,9 +340,13 @@ function pruneInstallers({ root, keep = 2 } = {}) {
     for (const name of fs.readdirSync(dir)) {
       if (!/\.(part|verified)$/i.test(name)) continue;
       const file = path.join(dir, name);
-      if (Date.now() - fs.statSync(file).mtimeMs > 7 * 86_400_000) {
-        fs.rmSync(file, { force: true });
-        removed.push(name);
+      try {
+        if (Date.now() - fs.statSync(file).mtimeMs > 7 * 86_400_000) {
+          fs.rmSync(file, { force: true });
+          removed.push(name);
+        }
+      } catch {
+        /* one unreadable leftover must not stop the rest */
       }
     }
   } catch {

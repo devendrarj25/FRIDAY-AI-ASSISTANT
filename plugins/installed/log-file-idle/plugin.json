@@ -11,10 +11,6 @@
   "name": "Log file idle",
   "description": "On idle, census *.log filenames in a depth-2 walk.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

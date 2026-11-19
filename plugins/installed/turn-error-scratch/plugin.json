@@ -12,7 +12,5 @@
   "description": "Writes the last chat-turn error line into this plugin's data/last-error.txt when on-error fires.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error"
-  ]
+  "hooks": ["on-error"]
 }

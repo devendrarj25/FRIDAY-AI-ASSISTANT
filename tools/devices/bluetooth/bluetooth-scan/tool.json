@@ -12,9 +12,7 @@
       "required": false
     }
   ],
-  "permissions": [
-    "devices"
-  ],
+  "permissions": ["devices"],
   "risk": "safe",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to scan for Bluetooth devices near this PC. Allow this?"

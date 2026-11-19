@@ -12,7 +12,5 @@
   "description": "Record process.version at on-app-start.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

@@ -9,7 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(__dirname, "../..");
-type Out = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Out = any;
 
 function manifests() {
   const out: Out[] = [];

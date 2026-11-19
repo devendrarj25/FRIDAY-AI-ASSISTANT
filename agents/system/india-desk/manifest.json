@@ -4,15 +4,9 @@
   "description": "Handles everyday Indian paperwork maths: GST, invoice totals, amounts in words, EMI and SIP, percentages and ID number checks.",
   "category": "finance",
   "role": "india-desk",
-  "skills": [
-    "in-tax-invoice",
-    "in-finance-calc",
-    "in-id-check"
-  ],
+  "skills": ["in-tax-invoice", "in-finance-calc", "in-id-check"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

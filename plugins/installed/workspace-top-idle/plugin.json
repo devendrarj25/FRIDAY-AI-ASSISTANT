@@ -11,10 +11,6 @@
   "name": "Workspace top idle",
   "description": "On idle, lists top-level workspace folder names (inspect only) into this plugin's data/top.json. Needs fs.read.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

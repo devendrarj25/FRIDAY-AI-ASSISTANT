@@ -12,7 +12,5 @@
   "description": "On quit, stamp os uptime, memory, and load as a session-end snapshot.",
   "category": "session",
   "permissions": [],
-  "hooks": [
-    "on-app-quit"
-  ]
+  "hooks": ["on-app-quit"]
 }

@@ -5,16 +5,9 @@
   "name": "Random int",
   "description": "Inclusive crypto.randomInt between min and max (capped to a million-wide span).",
   "category": "math",
-  "inputs": [
-    "min",
-    "max"
-  ],
+  "inputs": ["min", "max"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to GENERATE a RANDOM INTEGER. Allow this?",
-  "keywords": [
-    "random",
-    "integer",
-    "rng"
-  ]
+  "keywords": ["random", "integer", "rng"]
 }

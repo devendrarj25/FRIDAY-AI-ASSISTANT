@@ -5,15 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "goal and key result splitter"
-  ],
+  "triggers": ["goal and key result splitter"],
   "description": "Heuristic: lines with digits or % become KRs. Not a full OKR product."
 }

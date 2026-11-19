@@ -4,6 +4,14 @@ copyright: Copyright © 2026 Devendra Singh Meena (devendrarj25)
 directories:
   output: release
   buildResources: installer/build
+# Electron fuses (flipped by electron-builder after packaging, before signing). Only what FRIDAY can do without:
+#   * grantFileProtocolExtraPrivileges off: the renderer is served by the friday:// scheme, never from file://.
+#   * enableNodeCliInspectArguments off: a packaged FRIDAY cannot be attached to with --inspect or SIGUSR1.
+# runAsNode stays on because FRIDAY starts its own executable as Node for the MCP launcher, the tool sandbox and the
+# in-app builder; the other fuses are left for a Windows-verified change (see FRIDAY_STATE.md, Next priorities).
+electronFuses:
+  grantFileProtocolExtraPrivileges: false
+  enableNodeCliInspectArguments: false
 afterPack: scripts/brand-windows.cjs
 # electron-builder 26 still runs signAndEditResources after afterPack even
 # when signExecutable is false. That pass writes npm FileVersion
@@ -28,8 +36,6 @@ files:
   # The single semver/changelog implementation shared by the release workflow
   # and the desktop release panel — the main process requires it at runtime.
   - scripts/release-engine.cjs
-
-
 
 # Native packs under resources/ stay outside app.asar because that folder is
 # already an extraResource. These patterns keep a later copy inside the asar
@@ -73,10 +79,34 @@ extraResources:
     to: workflows
   - from: config
     to: config
+    # When the FRIDAY folder is this checkout, the owner's settings, keys and state sit in config/. They are
+    # never part of the installer (the same names are in .gitignore).
+    filter:
+      - "**/*"
+      - "!build-root.json"
+      - "!capabilities.json"
+      - "!connectors.json"
+      - "!dev-changesets.json"
+      - "!first-run.json"
+      - "!friday-camera.json"
+      - "!friday-preferences.json"
+      - "!friday-screen-vision.json"
+      - "!friday-settings.json"
+      - "!friday-storage.json"
+      - "!github.json"
+      - "!install-extensions.user.json"
+      - "!provider-access.json"
+      - "!provider-endpoints.json"
+      - "!provider-keys.json"
+      - "!user/**"
+      - "!security/**"
   # Product What's New for the phone companion — the same CHANGELOG.md the
   # updater already publishes. Not a second notes store.
   - from: CHANGELOG.md
     to: CHANGELOG.md
+  # The MCP server serves this page as friday://docs/FRIDAY_MCP.md; it is read from resources/docs.
+  - from: docs/FRIDAY_MCP.md
+    to: docs/FRIDAY_MCP.md
   # `to` is relative to the app resources directory (electron-builder
   # FileSet). `to: resources` nested this tree at resources/resources, so
   # verify-artifacts could not see resources/<dest>/<id>/pack.bin. Omitting

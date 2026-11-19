@@ -25,7 +25,11 @@
     },
     "D": {
       "feature": "frontend ↔ kernel bridge",
-      "source": ["src/lib/friday/desktop.ts", "src/lib/friday/kernel-api.ts", "electron/kernel-methods.cjs"],
+      "source": [
+        "src/lib/friday/desktop.ts",
+        "src/lib/friday/kernel-api.ts",
+        "electron/kernel-methods.cjs"
+      ],
       "entry": "src/lib/friday/desktop.ts"
     },
     "E": {
@@ -60,7 +64,11 @@
     },
     "K": {
       "feature": "Model routing",
-      "source": ["electron/model-router.cjs", "electron/model-access.cjs", "src/lib/friday/brain/orchestrator.ts"],
+      "source": [
+        "electron/model-router.cjs",
+        "electron/model-access.cjs",
+        "src/lib/friday/brain/orchestrator.ts"
+      ],
       "entry": "electron/model-router.cjs"
     },
     "L": {
@@ -70,12 +78,20 @@
     },
     "M": {
       "feature": "Cloud/free models",
-      "source": ["electron/providers.cjs", "electron/provider-registry.cjs", "electron/model-access.cjs"],
+      "source": [
+        "electron/providers.cjs",
+        "electron/provider-registry.cjs",
+        "electron/model-access.cjs"
+      ],
       "entry": "electron/providers.cjs"
     },
     "N": {
       "feature": "Paid model protection",
-      "source": ["electron/billing-firewall.cjs", "electron/billing-policy.cjs", "kernel/billing.py"],
+      "source": [
+        "electron/billing-firewall.cjs",
+        "electron/billing-policy.cjs",
+        "kernel/billing.py"
+      ],
       "entry": "electron/billing-firewall.cjs"
     },
     "O": {
@@ -130,12 +146,20 @@
     },
     "Y": {
       "feature": "Windows packaging",
-      "source": ["electron-builder.yml", "scripts/build-windows.cmd", "scripts/windows-installer-smoke.ps1"],
+      "source": [
+        "electron-builder.yml",
+        "scripts/build-windows.cmd",
+        "scripts/windows-installer-smoke.ps1"
+      ],
       "entry": "scripts/build-windows.cmd"
     },
     "Z": {
       "feature": "GitHub CI/CD/release",
-      "source": [".github/workflows/pr-validation.yml", ".github/workflows/test-build.yml", ".github/workflows/release.yml"],
+      "source": [
+        ".github/workflows/pr-validation.yml",
+        ".github/workflows/test-build.yml",
+        ".github/workflows/release.yml"
+      ],
       "entry": ".github/workflows/release.yml"
     }
   }

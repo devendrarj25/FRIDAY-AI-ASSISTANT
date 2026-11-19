@@ -468,6 +468,36 @@ if (win) {
     fix: "npm run setup",
     url: "https://learn.microsoft.com/powershell/",
   });
+  {
+    const longPaths = require("./long-paths.cjs");
+    const assessed = longPaths.assess({
+      state: longPaths.readLongPathsEnabled(),
+      root: require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root,
+    });
+    const placed = require("./folder-advice.cjs").assess(
+      require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root,
+    );
+    add({
+      name: "FRIDAY folder location",
+      required: false,
+      group: "toolchain",
+      ok: placed.ok,
+      found: placed.note,
+      want: "a plain local folder: not synced by OneDrive, Dropbox or Google Drive, and not under Program Files",
+      fix: placed.fix,
+      url: "https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation",
+    });
+    add({
+      name: "Windows long paths",
+      required: false,
+      group: "toolchain",
+      ok: assessed.ok,
+      found: assessed.note,
+      want: "a FRIDAY folder shallow enough, or long paths enabled, so deep package paths can unpack",
+      fix: assessed.fix,
+      url: "https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation",
+    });
+  }
   const wg = firstVersion(capture("winget", ["--version"]));
   add({
     name: "winget (App Installer)",

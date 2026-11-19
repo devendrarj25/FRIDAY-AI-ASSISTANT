@@ -45,7 +45,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const config = require("../config/agent-toolkit.json");
-const { tidyLine } = require("../electron/installer-output.cjs");
+const { tidyLine } = require("./electron-module.cjs").load("installer-output.cjs");
 
 function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
@@ -172,7 +172,10 @@ function preferNewestCopy(root, entry, tool, deps = {}) {
       .filter(Boolean);
     for (const dir of onPath) add(dir);
     const installed = tool
-      ? (deps.installedBin || require("../electron/managed-install.cjs").installedBin)(root, tool)
+      ? (
+          deps.installedBin ||
+          require("./electron-module.cjs").load("managed-install.cjs").installedBin
+        )(root, tool)
       : null;
     if (installed?.bin) add(path.dirname(installed.bin));
     for (const text of entry?.probe?.dirs || [])
@@ -193,7 +196,7 @@ function preferNewestCopy(root, entry, tool, deps = {}) {
     for (const copy of copies) if (newer(copy.version, best.version)) best = copy;
     if (best.dir.toLowerCase() === winner.dir.toLowerCase() || !newer(best.version, winner.version))
       return null;
-    const managed = deps.managedPath || require("../electron/managed-path.cjs");
+    const managed = deps.managedPath || require("./electron-module.cjs").load("managed-path.cjs");
     if (!managed.preferManaged(root, best.dir)) return null;
     env.PATH = managed.withFirstPath(env.PATH, [best.dir], delimiter);
     return best;
@@ -398,7 +401,7 @@ async function prefetchToolkit(root, deps = {}) {
     log("[friday] tool prefetch skipped: no FRIDAY folder");
     return [];
   }
-  const toolchain = deps.toolchain || require("../electron/toolchain.cjs");
+  const toolchain = deps.toolchain || require("./electron-module.cjs").load("toolchain.cjs");
   const progressLine = deps.progressLine || require("./stage-toolchain.cjs").progressLine;
   const update = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_UPDATE");
   const elevated = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_ELEVATED");
@@ -645,12 +648,13 @@ if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
-  if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
+  if (picked.development)
+    require("./electron-module.cjs").load("staged-assets.cjs").recordStaging(picked.root);
   // A tool whose newer copy setup installed beside an older one is looked for at the copy setup chose to use
   // first, so the build and Doctor name CMake 4.4.5 / Pandoc 3.13 and do not call a newer release "outdated".
   if (process.platform === "win32") {
     try {
-      const managed = require("../electron/managed-path.cjs");
+      const managed = require("./electron-module.cjs").load("managed-path.cjs");
       const first = managed.readFirst(picked.root);
       if (first.length) process.env.PATH = managed.withFirstPath(process.env.PATH, first);
     } catch {

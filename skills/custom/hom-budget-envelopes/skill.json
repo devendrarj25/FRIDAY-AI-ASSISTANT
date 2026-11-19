@@ -5,16 +5,11 @@
   "category": "home",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "amount",
-    "text"
-  ],
+  "inputs": ["amount", "text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "budget envelopes"
-  ],
+  "triggers": ["budget envelopes"],
   "description": "Arithmetic on numbers you type. Not a bank connection."
 }

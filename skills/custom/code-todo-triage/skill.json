@@ -5,15 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "code"
-  ],
+  "inputs": ["code"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "todo triage"
-  ],
+  "triggers": ["todo triage"],
   "description": "Keyword triage of comment markers. Does not create issues."
 }

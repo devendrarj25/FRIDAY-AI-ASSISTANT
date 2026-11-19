@@ -2,8 +2,8 @@
  * When FRIDAY is installed inside its own checkout and the registry entry or
  * settings pointer is gone, the build still finds that folder as the home.
  */
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -38,5 +38,75 @@ describe("own checkout as the FRIDAY home", () => {
     writeFileSync(path.join(dir, "database", "friday.sqlite3"), "");
     expect(root.fromOwnCheckout(dir)).toBeNull();
     expect(root.fromOwnCheckout(folder())).toBeNull();
+  });
+});
+
+describe("the folder the setup CMD runs in as the FRIDAY home", () => {
+  const api = root as unknown as {
+    workspaceRootOrDev: (o: { platform: string; project: string; record: boolean }) => {
+      root: string;
+      development: boolean;
+      fromCheckout?: boolean;
+    };
+    isUsableHome: (project: string) => boolean;
+  };
+  const saved = { a: process.env["FRIDAY_WORKSPACE_ROOT"], b: process.env["APPDATA"] };
+  beforeEach(() => {
+    // No recorded folder: an empty settings location, so the answer does not depend on this machine.
+    process.env["APPDATA"] = folder();
+  });
+  afterEach(() => {
+    if (saved.a === undefined) delete process.env["FRIDAY_WORKSPACE_ROOT"];
+    else process.env["FRIDAY_WORKSPACE_ROOT"] = saved.a;
+    if (saved.b === undefined) delete process.env["APPDATA"];
+    else process.env["APPDATA"] = saved.b;
+  });
+
+  it("is the home on Windows whatever the folder is called, when no other folder was chosen", () => {
+    delete process.env["FRIDAY_WORKSPACE_ROOT"];
+    const dir = path.join(folder(), "any name at all");
+    mkdirSync(dir);
+    const picked = api.workspaceRootOrDev({ platform: "win32", project: dir, record: false });
+    expect(picked.root).toBe(dir);
+    expect(picked.development).toBe(false);
+    expect(picked.fromCheckout).toBe(true);
+  });
+
+  it("keeps the development folder off Windows", () => {
+    delete process.env["FRIDAY_WORKSPACE_ROOT"];
+    const dir = folder();
+    const picked = api.workspaceRootOrDev({ platform: "linux", project: dir, record: false });
+    expect(picked.development).toBe(true);
+    expect(picked.root).toBe(path.join(dir, ".friday-dev"));
+  });
+
+  it("an explicit folder always wins over the checkout", () => {
+    const other = folder();
+    process.env["FRIDAY_WORKSPACE_ROOT"] = other;
+    const picked = api.workspaceRootOrDev({ platform: "win32", project: folder(), record: false });
+    expect(picked.root).toBe(path.resolve(other));
+    expect(picked.fromCheckout).toBeUndefined();
+  });
+
+  it("never treats program files, node_modules, a test sandbox or an unwritable folder as a home", () => {
+    expect(api.isUsableHome("C:\\Program Files\\FRIDAY")).toBe(false);
+    expect(api.isUsableHome("C:\\Program Files (x86)\\FRIDAY")).toBe(false);
+    expect(api.isUsableHome("C:\\Windows\\System32")).toBe(false);
+    expect(api.isUsableHome("D:\\work\\app\\node_modules\\friday")).toBe(false);
+    expect(api.isUsableHome("C:\\Users\\a\\AppData\\Local\\Temp\\friday-readiness-abc123")).toBe(
+      false,
+    );
+    expect(api.isUsableHome(path.join(folder(), "does-not-exist"))).toBe(false);
+    expect(api.isUsableHome(folder())).toBe(true);
+  });
+
+  it("leaves no registry pointer behind on a hosted runner", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../scripts/friday-root.cjs"), "utf8");
+    const fn = src.slice(
+      src.indexOf("function recordWorkspaceRoot"),
+      src.indexOf("function workspaceRootOrDev"),
+    );
+    expect(fn).toMatch(/process\.env\.CI \|\| process\.env\.GITHUB_ACTIONS/);
+    expect(fn.indexOf("GITHUB_ACTIONS")).toBeLessThan(fn.indexOf("spawnSync"));
   });
 });

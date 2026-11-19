@@ -5,13 +5,8 @@
   "name": "TCP connect check",
   "description": "Try a TCP connect to one host:port (default 443) with a short timeout. This is a single named endpoint, not a port scan.",
   "category": "network",
-  "inputs": [
-    "host",
-    "port"
-  ],
-  "permissions": [
-    "network"
-  ],
+  "inputs": ["host", "port"],
+  "permissions": ["network"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to test TCP connectivity to “{host}:{port}”. Allow this?"
 }

@@ -6,15 +6,9 @@
       "id": "python",
       "name": "Python",
       "support": "parsed",
-      "extensions": [
-        ".py",
-        ".pyi",
-        ".pyw"
-      ],
+      "extensions": [".py", ".pyi", ".pyw"],
       "filenames": [],
-      "comment": [
-        "#"
-      ],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "class",
@@ -35,22 +29,9 @@
       "id": "typescript",
       "name": "TypeScript / JavaScript",
       "support": "outline",
-      "extensions": [
-        ".ts",
-        ".tsx",
-        ".mts",
-        ".cts",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs"
-      ],
+      "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "class",
@@ -87,22 +68,9 @@
       "id": "c",
       "name": "C / C++",
       "support": "outline",
-      "extensions": [
-        ".c",
-        ".h",
-        ".cc",
-        ".cpp",
-        ".cxx",
-        ".hpp",
-        ".hh",
-        ".hxx"
-      ],
+      "extensions": [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "class",
@@ -121,24 +89,16 @@
           "pattern": "^[A-Za-z_][\\w\\s\\*&:<>,]*?[\\s\\*&]([A-Za-z_~][\\w:]*)\\s*\\([^;]*\\)\\s*(?:const\\s*)?(?:\\{|$)"
         }
       ],
-      "imports": [
-        "^\\s*#\\s*include\\s*[<\"]([^>\"]+)[>\"]"
-      ],
+      "imports": ["^\\s*#\\s*include\\s*[<\"]([^>\"]+)[>\"]"],
       "graph": true
     },
     {
       "id": "csharp",
       "name": "C#",
       "support": "outline",
-      "extensions": [
-        ".cs"
-      ],
+      "extensions": [".cs"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "class",
@@ -157,26 +117,16 @@
           "pattern": "^\\s*(?:public|internal|private|protected|static|virtual|override|async|abstract|\\s)+[\\w<>\\[\\],\\.?]+\\s+([A-Za-z_]\\w*)\\s*\\([^;]*\\)\\s*(?:\\{|=>|$)"
         }
       ],
-      "imports": [
-        "^\\s*using\\s+(?:static\\s+)?([A-Za-z_][\\w.]*)\\s*;"
-      ],
+      "imports": ["^\\s*using\\s+(?:static\\s+)?([A-Za-z_][\\w.]*)\\s*;"],
       "graph": true
     },
     {
       "id": "java",
       "name": "Java / Kotlin",
       "support": "outline",
-      "extensions": [
-        ".java",
-        ".kt",
-        ".kts"
-      ],
+      "extensions": [".java", ".kt", ".kts"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "class",
@@ -199,24 +149,16 @@
           "pattern": "^\\s*(?:public|private|internal|override|suspend|inline|\\s)*fun\\s+(?:<[^>]*>\\s*)?(?:[\\w.]+\\.)?([A-Za-z_]\\w*)"
         }
       ],
-      "imports": [
-        "^\\s*import\\s+(?:static\\s+)?([A-Za-z_][\\w.*]*)"
-      ],
+      "imports": ["^\\s*import\\s+(?:static\\s+)?([A-Za-z_][\\w.*]*)"],
       "graph": true
     },
     {
       "id": "go",
       "name": "Go",
       "support": "outline",
-      "extensions": [
-        ".go"
-      ],
+      "extensions": [".go"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "func",
@@ -227,24 +169,16 @@
           "pattern": "^type\\s+([A-Za-z_]\\w*)"
         }
       ],
-      "imports": [
-        "^\\s*(?:import\\s+)?(?:[A-Za-z_.]+\\s+)?\"([\\w./-]+)\"\\s*$"
-      ],
+      "imports": ["^\\s*(?:import\\s+)?(?:[A-Za-z_.]+\\s+)?\"([\\w./-]+)\"\\s*$"],
       "graph": true
     },
     {
       "id": "rust",
       "name": "Rust",
       "support": "outline",
-      "extensions": [
-        ".rs"
-      ],
+      "extensions": [".rs"],
       "filenames": [],
-      "comment": [
-        "//",
-        "*",
-        "/*"
-      ],
+      "comment": ["//", "*", "/*"],
       "symbols": [
         {
           "kind": "fn",
@@ -271,24 +205,16 @@
           "pattern": "^\\s*(?:pub\\s+)?mod\\s+([A-Za-z_]\\w*)"
         }
       ],
-      "imports": [
-        "^\\s*use\\s+([A-Za-z_][\\w:]*)"
-      ],
+      "imports": ["^\\s*use\\s+([A-Za-z_][\\w:]*)"],
       "graph": true
     },
     {
       "id": "powershell",
       "name": "PowerShell",
       "support": "outline",
-      "extensions": [
-        ".ps1",
-        ".psm1",
-        ".psd1"
-      ],
+      "extensions": [".ps1", ".psm1", ".psd1"],
       "filenames": [],
-      "comment": [
-        "#"
-      ],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "function",
@@ -309,40 +235,25 @@
       "id": "batch",
       "name": "Batch / CMD",
       "support": "outline",
-      "extensions": [
-        ".cmd",
-        ".bat"
-      ],
+      "extensions": [".cmd", ".bat"],
       "filenames": [],
-      "comment": [
-        "rem ",
-        "::",
-        "REM "
-      ],
+      "comment": ["rem ", "::", "REM "],
       "symbols": [
         {
           "kind": "label",
           "pattern": "^:([A-Za-z_][\\w-]*)\\s*$"
         }
       ],
-      "imports": [
-        "(?i)^\\s*call\\s+\"?([\\w./\\\\%~-]+\\.(?:cmd|bat))"
-      ],
+      "imports": ["(?i)^\\s*call\\s+\"?([\\w./\\\\%~-]+\\.(?:cmd|bat))"],
       "graph": false
     },
     {
       "id": "shell",
       "name": "Shell",
       "support": "outline",
-      "extensions": [
-        ".sh",
-        ".bash",
-        ".zsh"
-      ],
+      "extensions": [".sh", ".bash", ".zsh"],
       "filenames": [],
-      "comment": [
-        "#"
-      ],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "function",
@@ -353,24 +264,16 @@
           "pattern": "^\\s*function\\s+([A-Za-z_][\\w-]*)\\s*\\{"
         }
       ],
-      "imports": [
-        "^\\s*(?:source|\\.)\\s+['\"]?([\\w./$-]+)"
-      ],
+      "imports": ["^\\s*(?:source|\\.)\\s+['\"]?([\\w./$-]+)"],
       "graph": true
     },
     {
       "id": "sql",
       "name": "SQL",
       "support": "outline",
-      "extensions": [
-        ".sql"
-      ],
+      "extensions": [".sql"],
       "filenames": [],
-      "comment": [
-        "--",
-        "/*",
-        "*"
-      ],
+      "comment": ["--", "/*", "*"],
       "symbols": [
         {
           "kind": "table",
@@ -396,14 +299,9 @@
       "id": "html",
       "name": "HTML",
       "support": "outline",
-      "extensions": [
-        ".html",
-        ".htm"
-      ],
+      "extensions": [".html", ".htm"],
       "filenames": [],
-      "comment": [
-        "<!--"
-      ],
+      "comment": ["<!--"],
       "symbols": [
         {
           "kind": "id",
@@ -420,40 +318,25 @@
       "id": "css",
       "name": "CSS",
       "support": "outline",
-      "extensions": [
-        ".css",
-        ".scss",
-        ".less"
-      ],
+      "extensions": [".css", ".scss", ".less"],
       "filenames": [],
-      "comment": [
-        "/*",
-        "*",
-        "//"
-      ],
+      "comment": ["/*", "*", "//"],
       "symbols": [
         {
           "kind": "rule",
           "pattern": "^([.#]?[A-Za-z_][\\w-]*(?:[ >+~.#:][\\w-]+)*)\\s*\\{"
         }
       ],
-      "imports": [
-        "^\\s*@import\\s+(?:url\\()?['\"]?([^'\")]+)"
-      ],
+      "imports": ["^\\s*@import\\s+(?:url\\()?['\"]?([^'\")]+)"],
       "graph": false
     },
     {
       "id": "yaml",
       "name": "YAML",
       "support": "outline",
-      "extensions": [
-        ".yaml",
-        ".yml"
-      ],
+      "extensions": [".yaml", ".yml"],
       "filenames": [],
-      "comment": [
-        "#"
-      ],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "key",
@@ -467,17 +350,9 @@
       "id": "toml",
       "name": "TOML / INI",
       "support": "outline",
-      "extensions": [
-        ".toml",
-        ".ini",
-        ".cfg",
-        ".conf"
-      ],
+      "extensions": [".toml", ".ini", ".cfg", ".conf"],
       "filenames": [],
-      "comment": [
-        "#",
-        ";"
-      ],
+      "comment": ["#", ";"],
       "symbols": [
         {
           "kind": "section",
@@ -491,14 +366,9 @@
       "id": "json",
       "name": "JSON",
       "support": "outline",
-      "extensions": [
-        ".json",
-        ".jsonc"
-      ],
+      "extensions": [".json", ".jsonc"],
       "filenames": [],
-      "comment": [
-        "//"
-      ],
+      "comment": ["//"],
       "symbols": [
         {
           "kind": "key",
@@ -512,19 +382,9 @@
       "id": "xml",
       "name": "XML / project files",
       "support": "outline",
-      "extensions": [
-        ".xml",
-        ".csproj",
-        ".vcxproj",
-        ".props",
-        ".targets",
-        ".xaml",
-        ".svg"
-      ],
+      "extensions": [".xml", ".csproj", ".vcxproj", ".props", ".targets", ".xaml", ".svg"],
       "filenames": [],
-      "comment": [
-        "<!--"
-      ],
+      "comment": ["<!--"],
       "symbols": [
         {
           "kind": "element",
@@ -538,16 +398,9 @@
       "id": "dockerfile",
       "name": "Dockerfile",
       "support": "outline",
-      "extensions": [
-        ".dockerfile"
-      ],
-      "filenames": [
-        "Dockerfile",
-        "Containerfile"
-      ],
-      "comment": [
-        "#"
-      ],
+      "extensions": [".dockerfile"],
+      "filenames": ["Dockerfile", "Containerfile"],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "stage",
@@ -565,38 +418,23 @@
       "id": "makefile",
       "name": "Makefile",
       "support": "outline",
-      "extensions": [
-        ".mk"
-      ],
-      "filenames": [
-        "Makefile",
-        "makefile",
-        "GNUmakefile"
-      ],
-      "comment": [
-        "#"
-      ],
+      "extensions": [".mk"],
+      "filenames": ["Makefile", "makefile", "GNUmakefile"],
+      "comment": ["#"],
       "symbols": [
         {
           "kind": "target",
           "pattern": "^([A-Za-z0-9_][\\w./-]*)\\s*:(?!=)"
         }
       ],
-      "imports": [
-        "^\\s*-?include\\s+(\\S+)"
-      ],
+      "imports": ["^\\s*-?include\\s+(\\S+)"],
       "graph": false
     },
     {
       "id": "markdown",
       "name": "Markdown",
       "support": "outline",
-      "extensions": [
-        ".md",
-        ".markdown",
-        ".rst",
-        ".txt"
-      ],
+      "extensions": [".md", ".markdown", ".rst", ".txt"],
       "filenames": [],
       "comment": [],
       "symbols": [

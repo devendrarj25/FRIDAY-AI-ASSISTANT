@@ -5,16 +5,11 @@
   "category": "cooking",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "kg",
-    "kind"
-  ],
+  "inputs": ["kg", "kind"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "cook time sketch"
-  ],
+  "triggers": ["cook time sketch"],
   "description": "Not a substitute for a thermometer or the recipe's own time."
 }

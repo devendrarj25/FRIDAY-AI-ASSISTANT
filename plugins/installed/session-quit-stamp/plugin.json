@@ -12,7 +12,5 @@
   "description": "On app quit, writes a closed-at stamp into this plugin's data/quit.json so the last session end is on disk.",
   "category": "session",
   "permissions": [],
-  "hooks": [
-    "on-app-quit"
-  ]
+  "hooks": ["on-app-quit"]
 }

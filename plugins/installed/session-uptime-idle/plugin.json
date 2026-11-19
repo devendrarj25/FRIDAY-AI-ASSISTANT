@@ -12,8 +12,5 @@
   "description": "Write a boot timestamp on start and report process uptime on idle.",
   "category": "session",
   "permissions": [],
-  "hooks": [
-    "on-app-start",
-    "on-idle"
-  ]
+  "hooks": ["on-app-start", "on-idle"]
 }

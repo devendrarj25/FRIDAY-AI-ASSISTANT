@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Collect email addresses from text files. Unique list, no send. Read-only.",
   "category": "communication",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

@@ -7,6 +7,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Windows PowerShell 5.1 on an older .NET offers only TLS 1.0/1.1 by default, which nodejs.org, python.org and
+# GitHub refuse. TLS 1.2 (and 1.3 where this .NET has it) is added; nothing the system already allows is removed.
+try {
+  $tls12 = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+  try { [Net.ServicePointManager]::SecurityProtocol = $tls12 -bor 12288 } catch { [Net.ServicePointManager]::SecurityProtocol = $tls12 }
+} catch { }
 # npm redraws a spinner on a console, which blinks; pip prints one summary line instead of a line per package.
 if (-not $env:npm_config_progress) { $env:npm_config_progress = 'false' }
 if (-not $env:PIP_PROGRESS_BAR) { $env:PIP_PROGRESS_BAR = 'off' }
@@ -147,7 +153,8 @@ function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
   $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
   if ($curl) {
     try {
-      & curl.exe --fail --location --progress-bar --show-error --retry 3 --retry-delay 2 --output $target $Url
+      # -C - resumes the partial file after a dropped connection instead of starting over.
+      & curl.exe --fail --location --progress-bar --show-error --connect-timeout 30 --retry 5 --retry-delay 2 -C - --output $target $Url
       if ($LASTEXITCODE -eq 0 -and (Test-Path $target) -and ((Get-Item $target).Length -gt 0)) {
         Write-DownloadDone $target $started 'curl.exe'
         return $target
@@ -174,8 +181,37 @@ function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
   throw "official download failed for $Url - $joined"
 }
 
+# A directly downloaded installer runs with the owner's rights, so its Authenticode signature is checked first:
+# a corrupt or tampered file (HashMismatch) is deleted and refused. A machine that cannot judge the chain
+# (an old root store, no cmdlet) says so and goes on, because the download came over TLS from the official host.
+function Assert-InstallerSignature([string]$File) {
+  $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
+  if ($extension -ne '.exe' -and $extension -ne '.msi') { return }
+  if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) {
+    Write-Step "signature check not available on this PowerShell - $(Split-Path -Leaf $File) kept"
+    return
+  }
+  try { $signature = Get-AuthenticodeSignature -LiteralPath $File } catch {
+    Write-Step "signature check could not run ($($_.Exception.Message)) - $(Split-Path -Leaf $File) kept"
+    return
+  }
+  $status = "$($signature.Status)"
+  if ($status -eq 'Valid') {
+    $subject = ''
+    if ($signature.SignerCertificate) { $subject = $signature.SignerCertificate.GetNameInfo('SimpleName', $false) }
+    Write-Step "publisher signature verified for $(Split-Path -Leaf $File): $subject"
+    return
+  }
+  if ($status -eq 'HashMismatch') {
+    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+    throw "the downloaded file failed its signature check (HashMismatch: corrupt or altered) and was deleted: $(Split-Path -Leaf $File)"
+  }
+  Write-Step "signature status for $(Split-Path -Leaf $File): $status - not blocking, the download came over TLS from the official host"
+}
+
 function Install-Package([string]$File, [string[]]$SilentArgs) {
   $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
+  Assert-InstallerSignature $File
   Write-Step "installing $(Split-Path -Leaf $File) silently - this can take a minute or two, a Windows prompt may appear"
   $installStarted = Get-Date
   if ($extension -eq '.msi') {
@@ -231,6 +267,28 @@ function Install-WingetPackage([string]$PackageId) {
 }
 
 # ---------------------------------------------------------------- direct downloads
+# nodejs.org publishes SHASUMS256.txt beside every release. The MSI is checked against it; a file that does not
+# match is deleted and the method fails (the next method runs). If the list itself cannot be read, the signature
+# check in Install-Package still applies.
+function Assert-NodeChecksum([string]$Version, [string]$File) {
+  $name = Split-Path -Leaf $File
+  try {
+    $text = (Invoke-WebRequest -Uri "https://nodejs.org/dist/$Version/SHASUMS256.txt" -UseBasicParsing).Content
+    if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
+  } catch {
+    Write-Step "Node.js checksum list could not be read ($($_.Exception.Message)) - signature check only"
+    return
+  }
+  $match = [regex]::Match("$text", "(?im)^([0-9a-f]{64})\s+\*?$([regex]::Escape($name))\s*$")
+  if (-not $match.Success) { return }
+  $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $match.Groups[1].Value.ToLowerInvariant()) {
+    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+    throw "SHA-256 mismatch for $name (file deleted)"
+  }
+  Write-Step "SHA-256 verified for $name"
+}
+
 function Install-NodeDirect {
   $index = $null
   try {
@@ -244,6 +302,7 @@ function Install-NodeDirect {
   $version = $release.version
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/$version/node-$version-$arch.msi" "node-$version-$arch.msi"
+  Assert-NodeChecksum $version $file
   Install-Package $file @('/qn', '/norestart')
 }
 
@@ -251,6 +310,7 @@ function Install-NodeFloor {
   $version = $Versions.nodeMinimum
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/v$version/node-v$version-$arch.msi" "node-v$version-$arch.msi"
+  Assert-NodeChecksum "v$version" $file
   Install-Package $file @('/qn', '/norestart')
 }
 
@@ -280,12 +340,75 @@ function Install-PythonDirect {
   Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0')
 }
 
+# The unauthenticated GitHub API allows 60 requests an hour per address, which a shared office network can
+# spend; a GITHUB_TOKEN in the environment lifts that, and a transient failure is retried before giving up.
+function Get-GitHubLatestRelease([string]$Repository) {
+  $headers = @{ 'User-Agent' = 'FRIDAY-Setup'; 'Accept' = 'application/vnd.github+json' }
+  if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
+  $last = $null
+  foreach ($attempt in 1..3) {
+    try {
+      return Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -UseBasicParsing -Headers $headers
+    } catch {
+      $last = $_
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+  throw "GitHub release lookup for $Repository failed: $($last.Exception.Message)"
+}
+
+# A release that publishes '<asset>.sha256' next to an asset is checked against it; one that does not is kept.
+function Assert-AssetChecksum($Release, $Asset, [string]$File) {
+  $sidecar = $Release.assets | Where-Object { $_.name -eq "$($Asset.name).sha256" } | Select-Object -First 1
+  if (-not $sidecar) { return }
+  try {
+    $text = (Invoke-WebRequest -Uri $sidecar.browser_download_url -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }).Content
+    if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
+    $expected = ([regex]::Match("$text", '(?i)\b[0-9a-f]{64}\b')).Value.ToLowerInvariant()
+  } catch {
+    Write-Step "checksum file for $($Asset.name) could not be read ($($_.Exception.Message)) - download kept"
+    return
+  }
+  if (-not $expected) { return }
+  $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $expected) {
+    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+    throw "SHA-256 mismatch for $($Asset.name): expected $expected, got $actual (file deleted)"
+  }
+  Write-Step "SHA-256 verified for $($Asset.name)"
+}
+
 function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [string[]]$SilentArgs) {
-  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }
+  $release = Get-GitHubLatestRelease $Repository
   $asset = $release.assets | Where-Object { $_.name -like $AssetPattern } | Select-Object -First 1
   if (-not $asset) { throw "no official asset matching $AssetPattern in $Repository" }
   $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
+  Assert-AssetChecksum $release $asset $file
   Install-Package $file $SilentArgs
+}
+
+# FFmpeg ships as a ZIP, not an installer: it is unpacked into a per-user folder (no administrator rights,
+# nothing system-wide changes) and that folder's bin is added to this session and to the user PATH.
+function Install-FfmpegArchive {
+  $release = Get-GitHubLatestRelease 'GyanD/codexffmpeg'
+  $asset = $release.assets | Where-Object { $_.name -like 'ffmpeg-*-essentials_build.zip' } | Select-Object -First 1
+  if (-not $asset) { throw 'no official FFmpeg essentials archive in GyanD/codexffmpeg' }
+  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
+  Assert-AssetChecksum $release $asset $file
+  $base = $env:LOCALAPPDATA
+  if (-not $base) { $base = Join-Path $env:USERPROFILE 'AppData\Local' }
+  $destination = Join-Path $base 'FRIDAY\tools\ffmpeg'
+  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $destination | Out-Null
+  Expand-Archive -LiteralPath $file -DestinationPath $destination -Force
+  $exe = Get-ChildItem -LiteralPath $destination -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $exe) { throw 'the FFmpeg archive did not contain ffmpeg.exe' }
+  $bin = $exe.DirectoryName
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if (-not $userPath -or (($userPath -split ';') -notcontains $bin)) {
+    [Environment]::SetEnvironmentVariable('Path', (($userPath, $bin | Where-Object { $_ }) -join ';'), 'User')
+  }
+  Write-Step "FFmpeg unpacked to $bin and added to your user PATH"
 }
 
 # ---------------------------------------------------------------- newest official release
@@ -330,7 +453,7 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
     $code = -1
     $before = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
     try {
-      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--include-unknown', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
       $code = $LASTEXITCODE
     } catch { $code = -1 }
     if ($code -eq 0) {
@@ -561,7 +684,8 @@ try {
 
   Ensure-RequiredCommand 'FFmpeg' 'ffmpeg.exe' @(
     @{ Label = 'official winget package (Gyan.FFmpeg)'; Action = { Install-WingetPackage 'Gyan.FFmpeg' } },
-    @{ Label = 'official winget package (Gyan.FFmpeg.Essentials)'; Action = { Install-WingetPackage 'Gyan.FFmpeg.Essentials' } }
+    @{ Label = 'official winget package (Gyan.FFmpeg.Essentials)'; Action = { Install-WingetPackage 'Gyan.FFmpeg.Essentials' } },
+    @{ Label = 'official Gyan.dev FFmpeg release archive (GitHub, per-user)'; Action = { Install-FfmpegArchive } }
   ) @('Gyan.FFmpeg', 'Gyan.FFmpeg.Essentials')
 
   Ensure-RequiredCommand 'Tesseract OCR' 'tesseract.exe' @(

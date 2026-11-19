@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Classify text files as LF, CRLF, CR, or mixed. Useful before a repo-wide .gitattributes pass. Read-only.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

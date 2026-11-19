@@ -88,9 +88,14 @@ describe("Workflow Visual Builder wiring", () => {
     expect(visual).not.toContain('from "../../core/workflow"');
     expect(visual).not.toContain('from "@/../core/workflow"');
     expect(visual).not.toContain("core/workflow");
-    const pkg = JSON.parse(read("package.json")) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@xyflow/react"]).toBeTruthy();
-    expect(pkg.dependencies["reactflow"]).toBeUndefined();
+    const pkg = JSON.parse(read("package.json")) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+    // Bundled by Vite into the renderer, so a build-time (dev) dependency; declared in either set.
+    const declared: Record<string, string> = { ...pkg.devDependencies, ...pkg.dependencies };
+    expect(declared["@xyflow/react"]).toBeTruthy();
+    expect(declared["reactflow"]).toBeUndefined();
   });
 
   it("keeps write/exec behind the existing approval / dry-run gate", () => {

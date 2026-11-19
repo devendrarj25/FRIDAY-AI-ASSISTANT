@@ -12,7 +12,5 @@
   "description": "On each idle cycle, stamp loadavg and free memory without touching the workspace.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-idle"
-  ]
+  "hooks": ["on-idle"]
 }

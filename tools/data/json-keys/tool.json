@@ -5,9 +5,7 @@
   "name": "JSON keys",
   "description": "List top-level keys of a JSON object (JSON.parse, no second parser).",
   "category": "data",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to LIST keys of JSON text in memory. Allow this?"

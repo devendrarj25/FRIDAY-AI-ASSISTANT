@@ -17,6 +17,7 @@ const { spawn } = require("child_process");
 
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
+const { stopChild } = require("./app-lifecycle.cjs");
 
 const HISTORY_FILE = () => path.join(paths.ensureDir("database"), "finetune.json");
 const JOBS_DIR = () => {
@@ -246,7 +247,7 @@ async function start(options = {}) {
 function cancel() {
   if (!active) return { ok: false, error: "Nothing is training right now." };
   try {
-    active.child.kill();
+    stopChild(active.child);
   } catch {
     /* already gone */
   }

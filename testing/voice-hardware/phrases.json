@@ -12,12 +12,24 @@
     { "id": "hi-08", "group": "hindi", "text": "बैटरी कितनी बची है" },
     { "id": "hx-01", "group": "hinglish", "text": "kal subah saat baje ka alarm laga do" },
     { "id": "hx-02", "group": "hinglish", "text": "mere inbox me naye emails dikhao" },
-    { "id": "hx-03", "group": "hinglish", "text": "is report ko pdf bana ke desktop par save karo" },
+    {
+      "id": "hx-03",
+      "group": "hinglish",
+      "text": "is report ko pdf bana ke desktop par save karo"
+    },
     { "id": "hx-04", "group": "hinglish", "text": "aaj ki meeting ka summary bhejo" },
     { "id": "hx-05", "group": "hinglish", "text": "volume thoda kam kar do" },
-    { "id": "hx-06", "group": "hinglish", "text": "friday ye batao ki kal ka weather kaisa rahega" },
+    {
+      "id": "hx-06",
+      "group": "hinglish",
+      "text": "friday ye batao ki kal ka weather kaisa rahega"
+    },
     { "id": "hx-07", "group": "hinglish", "text": "chrome me youtube khol do" },
-    { "id": "hx-08", "group": "hinglish", "text": "mujhe ek reminder chahiye ki shaam ko doodh lana hai" },
+    {
+      "id": "hx-08",
+      "group": "hinglish",
+      "text": "mujhe ek reminder chahiye ki shaam ko doodh lana hai"
+    },
     { "id": "en-01", "group": "english", "text": "what is on my calendar tomorrow" },
     { "id": "en-02", "group": "english", "text": "read me the last message from Rahul" },
     { "id": "en-03", "group": "english", "text": "turn the brightness down a little" },

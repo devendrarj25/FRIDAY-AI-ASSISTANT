@@ -5,16 +5,11 @@
   "category": "construction",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "rfi and submittal checklist",
-    "rfi and submittal"
-  ],
+  "triggers": ["rfi and submittal checklist", "rfi and submittal"],
   "description": "Extracts drawing/spec-looking tokens from pasted text and lists missing RFI fields. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
 }

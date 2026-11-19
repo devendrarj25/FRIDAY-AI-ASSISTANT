@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Collect CSS class selectors from .css files (naive .classname tokenizer). Read-only. Does not restyle FRIDAY.",
   "category": "ui",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

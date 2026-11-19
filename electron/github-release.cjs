@@ -11,7 +11,7 @@
 const path = require("node:path");
 
 const sync = require("./github-sync.cjs");
-const engine = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const engine = require("./release-engine-loader.cjs").releaseEngine();
 const { boundedInit } = require("./net-fetch.cjs");
 
 const API = "https://api.github.com";

@@ -5,15 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "socratic question set"
-  ],
+  "triggers": ["socratic question set"],
   "description": "Questions are templated from the claim text. They are prompts for you, not answers."
 }

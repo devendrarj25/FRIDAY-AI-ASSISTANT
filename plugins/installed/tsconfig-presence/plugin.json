@@ -11,10 +11,6 @@
   "name": "tsconfig presence",
   "description": "Check tsconfig.json / jsconfig.json at start.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

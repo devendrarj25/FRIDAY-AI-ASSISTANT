@@ -991,16 +991,20 @@ function tools() {
   return out;
 }
 
-/** Load every enabled plugin once, at boot or after a workspace change. */
+/** How many plugin sandboxes start at once at boot. Each one waits on its own process, so one at a time left a
+ * PC with twenty plugins loading for several seconds before FRIDAY called itself ready. */
+const LOAD_CONCURRENCY = 4;
+
+/** Load every enabled plugin once, at boot or after a workspace change. Results keep the plugin order. */
 async function loadEnabled(rootOrRoots, services) {
   const roots = normalizeRoots(rootOrRoots);
-  const results = [];
   const seen = new Set();
   const packs = roots.appRoot
     ? (require("./capabilities.cjs").list(roots).items || []).filter(
         (item) => item.tree === "plugins" && item.enabled,
       )
     : list(roots.workspaceRoot).filter((plugin) => plugin.enabled);
+  const wanted = [];
   for (const plugin of packs) {
     const key = plugin.path || plugin.id;
     const slug = pluginSlug(plugin.id || plugin.path);
@@ -1008,11 +1012,27 @@ async function loadEnabled(rootOrRoots, services) {
     seen.add(key);
     seen.add(plugin.id);
     if (slug) seen.add(slug);
-    results.push({
-      id: plugin.id,
-      ...(await load(roots.appRoot ? roots : roots.workspaceRoot, plugin.id, services)),
-    });
+    wanted.push(plugin);
   }
+  const results = new Array(wanted.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < wanted.length) {
+      const at = next;
+      next += 1;
+      const plugin = wanted[at];
+      let outcome;
+      try {
+        outcome = await load(roots.appRoot ? roots : roots.workspaceRoot, plugin.id, services);
+      } catch (error) {
+        outcome = { ok: false, error: String((error && error.message) || error) };
+      }
+      results[at] = { id: plugin.id, ...outcome };
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(LOAD_CONCURRENCY, wanted.length) }, () => worker()),
+  );
   return results;
 }
 

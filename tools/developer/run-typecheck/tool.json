@@ -5,13 +5,8 @@
   "name": "Run typecheck",
   "description": "Run npm run typecheck via sandbox.runCommand, the same command sandbox.verify uses for TypeScript.",
   "category": "developer",
-  "inputs": [
-    "root",
-    "probe"
-  ],
-  "permissions": [
-    "process.exec"
-  ],
+  "inputs": ["root", "probe"],
+  "permissions": ["process.exec"],
   "risk": "exec",
   "approvalPrompt": "FRIDAY wants to RUN npm run typecheck in this project. Allow this?"
 }

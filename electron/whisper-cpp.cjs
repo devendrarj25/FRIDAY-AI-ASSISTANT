@@ -4,6 +4,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { stopChild } = require("./app-lifecycle.cjs");
 
 const WHISPER_PORT = 8177;
 
@@ -100,7 +101,7 @@ function createWhisperSession({ binary, cli, model, spawn, clock, health, port }
       return job;
     },
     stop() {
-      if (child && typeof child.kill === "function") child.kill();
+      if (child && typeof child.kill === "function") stopChild(child);
       child = null;
       mode = "cli";
       return { stopped: true, mode };

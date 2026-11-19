@@ -20,7 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
+const { killProcessTree, stopChild, trackOwned } = require("./app-lifecycle.cjs");
 
 const WIN = process.platform === "win32";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -359,11 +359,7 @@ function runCommand(root, options = {}, emit = () => {}) {
     };
 
     const timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
+      stopChild(child);
       finish({ ok: false, code: null, error: `timed out after ${Math.round(timeoutMs / 1000)}s` });
     }, timeoutMs);
 

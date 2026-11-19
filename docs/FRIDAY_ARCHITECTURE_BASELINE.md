@@ -10,11 +10,11 @@ Folder and subsystem pins the architecture audit enforces. Runtime layers and th
 
 `config/project-structure.json` is generated. Source: `electron/friday-contract.cjs` `SOURCE_LAYOUT`. Regenerate: `node scripts/arrange-project.cjs --fix`. Check: `npm run arrange:check`.
 
-| Tree | Folders in `SOURCE_LAYOUT` today |
-| --- | --- |
-| `code` | 17 (`src/routes`, `src/lib/friday`, `core`, `electron`, `kernel`, `scripts`, `installer`, `updater`, `testing`, `system`, …) |
-| `capabilities` | 53 (every `TREES` segment plus `*/manifests`) |
-| `data` | 69 (`backup/*`, `brain-data/*`, `config/*`, …) |
+| Tree           | Folders in `SOURCE_LAYOUT` today                                                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `code`         | 17 (`src/routes`, `src/lib/friday`, `core`, `electron`, `kernel`, `scripts`, `installer`, `updater`, `testing`, `system`, …) |
+| `capabilities` | 53 (every `TREES` segment plus `*/manifests`)                                                                                |
+| `data`         | 69 (`backup/*`, `brain-data/*`, `config/*`, …)                                                                               |
 
 `FOLDERS` has 40 top-level keys. Program folder constant: `app` (`<root>\App`).
 
@@ -34,10 +34,10 @@ Vitest and typed contracts live under `core/`. Renderer, Electron, and kernel mu
 
 ## 4. Authoritative files (do not fork)
 
-| Subsystem | File |
-| --- | --- |
-| Navigation | `src/lib/friday/navigation.ts` |
-| Update safety | `electron/update-safety.cjs` |
-| Identity | `scripts/identity.cjs` |
-| Version | `config/friday-version.json` |
-| Docs registry | `scripts/docs-engine.cjs` |
+| Subsystem     | File                           |
+| ------------- | ------------------------------ |
+| Navigation    | `src/lib/friday/navigation.ts` |
+| Update safety | `electron/update-safety.cjs`   |
+| Identity      | `scripts/identity.cjs`         |
+| Version       | `config/friday-version.json`   |
+| Docs registry | `scripts/docs-engine.cjs`      |

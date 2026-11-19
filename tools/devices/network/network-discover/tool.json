@@ -12,9 +12,7 @@
       "required": false
     }
   ],
-  "permissions": [
-    "network"
-  ],
+  "permissions": ["network"],
   "risk": "safe",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to look for devices advertising themselves on your WiFi network. Allow this?"

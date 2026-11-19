@@ -236,6 +236,138 @@ function listAsar(file) {
   return normaliseList(asar.listPackage(file));
 }
 
+/**
+ * Folders that ship beside app.asar (extraResources), never inside it. Inside the packaged app `__dirname/..` is
+ * the archive root, so `path.join(__dirname, "..", "kernel", ...)` names a file that does not exist there, and
+ * Python or a child process cannot read from an archive anyway. A module may name such a folder from `__dirname`
+ * only as the checkout fallback behind electron/resource-paths.cjs or `process.resourcesPath`.
+ */
+const OUTSIDE_ASAR = new Set([
+  "kernel",
+  "docs",
+  "config",
+  "skills",
+  "tools",
+  "agents",
+  "plugins",
+  "workflows",
+  "modules",
+  "installer",
+  "updater",
+  "builder",
+  "resources",
+  "public",
+  "memory",
+  "database",
+  "models",
+  "runtime",
+  "src",
+  "core",
+  "scripts",
+]);
+
+function checkAsarPaths({ root = ROOT } = {}) {
+  const failures = [];
+  const reach = /(?:join|resolve)\(\s*__dirname\s*,\s*(['"])\.\.\1\s*,\s*(['"])([A-Za-z_-]+)\2/g;
+  for (const file of walk(path.join(root, "electron"))) {
+    const relFile = path.relative(root, file).split(path.sep).join("/");
+    if (relFile === "electron/resource-paths.cjs") continue;
+    const source = fs.readFileSync(file, "utf8");
+    const resolved = /resource-paths|resourcesPath/.test(source);
+    reach.lastIndex = 0;
+    let match = reach.exec(source);
+    while (match) {
+      const folder = match[3];
+      const rest = source.slice(match.index + match[0].length, match.index + match[0].length + 40);
+      const releaseEngine =
+        folder === "scripts" && /^\s*,\s*['"]release-engine\.cjs['"]/.test(rest);
+      if (OUTSIDE_ASAR.has(folder) && !releaseEngine && !resolved) {
+        failures.push({
+          file: relFile,
+          folder,
+          line: source.slice(0, match.index).split("\n").length,
+        });
+      }
+      match = reach.exec(source);
+    }
+  }
+  return failures;
+}
+
+/**
+ * Scripts the installed app loads from resources/scripts (outside the archive) must not require a sibling `electron` folder by relative path:
+ * there `electron/` is inside app.asar, so the relative path finds nothing. They use scripts/electron-module.cjs.
+ * The set is what the main process loads or spawns, plus the scripts those load.
+ */
+const PACKAGED_SCRIPT_ROOTS = [
+  "scripts/env-registry.cjs",
+  "scripts/stage-toolchain.cjs",
+  "scripts/identity.cjs",
+  "scripts/win-spawn.cjs",
+];
+
+function checkPackagedScripts({ root = ROOT, roots = PACKAGED_SCRIPT_ROOTS } = {}) {
+  const failures = [];
+  const seen = new Set();
+  const visit = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    let source;
+    try {
+      source = fs.readFileSync(path.join(root, rel), "utf8");
+    } catch {
+      return;
+    }
+    // Comments may quote the pattern (scripts/electron-module.cjs explains it); only code counts.
+    source = source
+      .split("\n")
+      .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+      .join("\n");
+    const direct = /require\(\s*(['"])\.\.\/electron\/[^'"]+\1\s*\)/g;
+    let hit = direct.exec(source);
+    while (hit) {
+      failures.push({ file: rel, spec: hit[0] });
+      hit = direct.exec(source);
+    }
+    const local = /require\(\s*(['"])\.\/([A-Za-z0-9._-]+)\1\s*\)/g;
+    let next = local.exec(source);
+    while (next) {
+      const name = /\.(?:cjs|js|json)$/.test(next[2]) ? next[2] : `${next[2]}.cjs`;
+      visit(`scripts/${name}`);
+      next = local.exec(source);
+    }
+  };
+  for (const rel of roots) visit(rel);
+  return failures;
+}
+
+/** Every file or folder the code asks resource-paths for must be one electron-builder copies into resources/. */
+function checkResourceReferences({ root = ROOT, extraResources } = {}) {
+  let shipped = extraResources;
+  if (!shipped) {
+    const yaml = require("js-yaml");
+    const cfg = yaml.load(fs.readFileSync(path.join(root, "electron-builder.yml"), "utf8"));
+    shipped = (cfg.extraResources || []).map((row) =>
+      typeof row === "string" ? row : row.to || "",
+    );
+  }
+  const failures = [];
+  const ask = /resolveResource(?:File|Dir)\(\s*(['"])([^'"]+)\1/g;
+  for (const file of walk(path.join(root, "electron"))) {
+    const relFile = path.relative(root, file).split(path.sep).join("/");
+    const source = fs.readFileSync(file, "utf8");
+    ask.lastIndex = 0;
+    let match = ask.exec(source);
+    while (match) {
+      const wanted = match[2].replace(/\\/g, "/");
+      const covered = shipped.some((to) => to && (wanted === to || wanted.startsWith(`${to}/`)));
+      if (!covered) failures.push({ file: relFile, wanted });
+      match = ask.exec(source);
+    }
+  }
+  return failures;
+}
+
 function formatFailure(row) {
   return `${row.file} requires ${row.spec} — not in app.asar (tried ${row.tried.join(", ")})`;
 }
@@ -265,6 +397,30 @@ function main(argv) {
     );
     process.exit(1);
   }
+  const scriptFailures = checkPackagedScripts({ root: ROOT });
+  if (scriptFailures.length) {
+    for (const row of scriptFailures) {
+      console.error(
+        `[friday] packaged scripts: ${row.file} uses ${row.spec}; inside the installed app electron/ is in app.asar, use scripts/electron-module.cjs`,
+      );
+    }
+    process.exit(1);
+  }
+  const pathFailures = checkAsarPaths({ root: ROOT });
+  const resourceFailures = checkResourceReferences({ root: ROOT });
+  if (pathFailures.length || resourceFailures.length) {
+    for (const row of pathFailures) {
+      console.error(
+        `[friday] packaged paths: ${row.file}:${row.line} reaches ${row.folder}/ from __dirname, which is not inside app.asar; resolve it through electron/resource-paths.cjs`,
+      );
+    }
+    for (const row of resourceFailures) {
+      console.error(
+        `[friday] packaged resources: ${row.file} asks for ${row.wanted}, which electron-builder.yml extraResources does not copy`,
+      );
+    }
+    process.exit(1);
+  }
   const failures = checkRequires({ root: ROOT, asarFiles: listed });
   if (failures.length) {
     console.error(
@@ -284,6 +440,11 @@ module.exports = {
   LAZY_GUARDED,
   PACKED_FILES,
   checkRequires,
+  checkAsarPaths,
+  checkPackagedScripts,
+  PACKAGED_SCRIPT_ROOTS,
+  checkResourceReferences,
+  OUTSIDE_ASAR,
   filesFromPatterns,
   matcherFrom,
   globMatches,

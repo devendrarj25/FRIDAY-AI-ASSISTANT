@@ -5,15 +5,11 @@
   "category": "writing",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "cliche hunt"
-  ],
+  "triggers": ["cliche hunt"],
   "description": "A phrase list check. It does not grade writing quality overall."
 }

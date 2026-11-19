@@ -528,7 +528,9 @@ function probeInstalledApp() {
 }
 
 function probeModelRuntimes() {
-  const installedOllama = require("../electron/local-library.cjs").findInstalledOllama();
+  const installedOllama = require("./electron-module.cjs")
+    .load("local-library.cjs")
+    .findInstalledOllama();
   const ollama = locate(win ? "ollama.exe" : "ollama") || installedOllama?.exe || null;
   const ollamaVersion = installedOllama?.version || null;
   // The setup installs Ollama on a Windows PC that builds FRIDAY, so there it is needed, not optional.

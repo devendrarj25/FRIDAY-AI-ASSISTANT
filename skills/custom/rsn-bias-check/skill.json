@@ -5,16 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "cognitive bias checklist",
-    "cognitive bias"
-  ],
+  "triggers": ["cognitive bias checklist", "cognitive bias"],
   "description": "Phrase heuristics, not a diagnosis of a person."
 }

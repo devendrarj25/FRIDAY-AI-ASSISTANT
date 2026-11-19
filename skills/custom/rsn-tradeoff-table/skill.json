@@ -5,16 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "criteria"
-  ],
+  "inputs": ["text", "criteria"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "trade off table"
-  ],
+  "triggers": ["trade off table"],
   "description": "Cells start empty unless a line mentions both option and criterion. Scoring stays yours."
 }

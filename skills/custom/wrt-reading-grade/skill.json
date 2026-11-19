@@ -5,15 +5,11 @@
   "category": "writing",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "reading ease estimate"
-  ],
+  "triggers": ["reading ease estimate"],
   "description": "A rough local estimate, not a certified readability audit."
 }

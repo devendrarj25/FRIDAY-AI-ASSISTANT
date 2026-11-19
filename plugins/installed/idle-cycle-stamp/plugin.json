@@ -12,7 +12,5 @@
   "description": "Records each autonomous-core idle cycle note into this plugin's data/idle.ndjson. Does not start a second timer.",
   "category": "housekeeping",
   "permissions": [],
-  "hooks": [
-    "on-idle"
-  ]
+  "hooks": ["on-idle"]
 }

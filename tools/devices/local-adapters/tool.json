@@ -6,9 +6,7 @@
   "description": "List this PC's network adapters (os.networkInterfaces). Complements Bluetooth/Android/Wi-Fi device tools with the local NIC inventory. Does not scan other devices.",
   "category": "devices",
   "inputs": [],
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to list this PC's network adapters. Allow this?"
 }

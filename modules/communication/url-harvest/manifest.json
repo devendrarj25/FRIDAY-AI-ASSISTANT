@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Collect http(s) URLs from text files in a folder. Unique list, no fetch. Read-only.",
   "category": "communication",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

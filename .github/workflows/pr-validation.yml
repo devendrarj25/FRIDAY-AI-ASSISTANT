@@ -756,7 +756,6 @@ jobs:
           done
           [ "$state" = "success" ]
 
-
   # Documentation-only pull requests: everything that can actually break for a
   # docs change (type check, the full Vitest suite, docs registry, version sync)
   # runs on Linux. There is no installer to build because nothing in it changed.

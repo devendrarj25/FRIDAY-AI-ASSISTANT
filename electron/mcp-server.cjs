@@ -24,6 +24,14 @@ function nowOf(server) {
   return server.now();
 }
 
+/** docs/FRIDAY_MCP.md: resources/docs when packaged, the checkout's docs folder in development. */
+function mcpDocPath() {
+  return (
+    require("./resource-paths.cjs").resolveResourceFile("docs/FRIDAY_MCP.md") ||
+    path.resolve(__dirname, "..", "docs", "FRIDAY_MCP.md")
+  );
+}
+
 function createServer(options = {}) {
   const risk = options.risk || catalog.loadKernelRisk(options.root);
   const built = catalog.buildCatalog(risk);
@@ -848,7 +856,7 @@ function resourceList(server) {
       rows.push({ uri: `friday://workspace/${name}`, name, mimeType: "text/plain" });
     }
   }
-  const doc = path.resolve(__dirname, "..", "docs", "FRIDAY_MCP.md");
+  const doc = mcpDocPath();
   if (fs.existsSync(doc))
     rows.push({
       uri: "friday://docs/FRIDAY_MCP.md",
@@ -889,7 +897,7 @@ function readResource(server, uri) {
     return { text, mimeType: "text/plain" };
   }
   if (uri === "friday://docs/FRIDAY_MCP.md") {
-    const doc = path.resolve(__dirname, "..", "docs", "FRIDAY_MCP.md");
+    const doc = mcpDocPath();
     if (!fs.existsSync(doc)) return null;
     return { text: fs.readFileSync(doc, "utf8"), mimeType: "text/markdown" };
   }

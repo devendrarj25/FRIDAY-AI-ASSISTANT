@@ -5,13 +5,8 @@
   "name": "Run lint",
   "description": "Run npm run lint via sandbox.runCommand, the same command sandbox.verify uses for ESLint.",
   "category": "developer",
-  "inputs": [
-    "root",
-    "probe"
-  ],
-  "permissions": [
-    "process.exec"
-  ],
+  "inputs": ["root", "probe"],
+  "permissions": ["process.exec"],
   "risk": "exec",
   "approvalPrompt": "FRIDAY wants to RUN npm run lint in this project. Allow this?"
 }

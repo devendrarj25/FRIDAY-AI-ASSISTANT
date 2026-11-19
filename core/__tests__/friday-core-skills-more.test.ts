@@ -12,7 +12,7 @@ import type { SkillManifest } from "../../src/lib/friday/brain/skill-forge";
 import { MERGED, PART_OF } from "./helpers/core-skills-map";
 
 const CORE = path.resolve(__dirname, "../../skills/core");
-type Out = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Out = any;
 async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
   const target = PART_OF[id] ?? id;
   const mod = await import(

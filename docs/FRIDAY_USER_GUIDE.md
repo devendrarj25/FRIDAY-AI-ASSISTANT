@@ -43,12 +43,12 @@ The shipped voice is a female Indian voice for both languages: **Swara** for Hin
 
 Press **Record** next to each line, say it, then **Stop** (a recording also stops by itself after 12 seconds). Record the wake word eight times in different manners (normal, softer, louder, farther away, quick, slow, from across the room) and six or more sentences in English, Hindi and Hinglish, in a quiet room close to the microphone. Then **Build my voice profile**.
 
-* **Recognise my voice:** a command that needs your confirmation is not run when the voice clearly is not yours. A voice match never approves anything.
-* **Only answer my voice** (off by default): she ignores what clearly is not your voice; "stop" is always heard.
-* **Wake on my own recordings:** your own takes can wake her when the transcript wrote the word differently. It is used only when the profile says "personal wake word: ready".
-* **Words and names FRIDAY should expect:** names and Hinglish words you use often.
-* After you build the profile, FRIDAY also knows how you usually sound, so her reading of your tone (calm, lively, tense) is right from your first sentence instead of after a few.
-* **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
+- **Recognise my voice:** a command that needs your confirmation is not run when the voice clearly is not yours. A voice match never approves anything.
+- **Only answer my voice** (off by default): she ignores what clearly is not your voice; "stop" is always heard.
+- **Wake on my own recordings:** your own takes can wake her when the transcript wrote the word differently. It is used only when the profile says "personal wake word: ready".
+- **Words and names FRIDAY should expect:** names and Hinglish words you use often.
+- After you build the profile, FRIDAY also knows how you usually sound, so her reading of your tone (calm, lively, tense) is right from your first sentence instead of after a few.
+- **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
 
 The recordings stay on this PC in your FRIDAY folder and the voiceprint is encrypted. Nothing is uploaded. **Forget my voice** deletes the recordings and the profile; **Delete recordings, keep profile** keeps only the profile. This is a convenience, not a lock, and it was only measured on your own recordings.
 
@@ -118,6 +118,9 @@ Neon glow only removes glow shadows; Blur effect is the switch that turns blur o
 - **Fresh PC.** Run `scripts\build-windows.cmd`: if Node.js is missing it prepares the Windows toolchain first. An install that winget cannot do is tried from the vendor, then Chocolatey, then Scoop if you have them.
 - **Uninstall.** A normal uninstall keeps your data. Tick "Delete all FRIDAY data too" (and answer YES) to erase everything, or run `Uninstall FRIDAY.exe /S /DELETEDATA` for the same from a script.
 - **Sandbox runs.** FRIDAY can run a command in a throwaway Windows Sandbox (workspace read-only, no network) after you approve it.
+- **Refresh, Update all and Cancel.** **Refresh** reads every version source again; if none answers, the page says so with a **Try now** button instead of calling everything current. **Update all** skips a package whose update already ran and still reads older (another copy earlier on PATH, or a vendor build behind its feed) until a version changes; its own row keeps the Update button. **Cancel** stops a download as well as an installer and frees the queue at once; an install that prints nothing for 45 minutes (90 when it asks for administrator rights) is stopped by itself (`FRIDAY_INSTALL_IDLE_MINUTES` changes it).
+- **Your own tools.** In the Software section, **Your own tools** adds anything that installs with winget, npm or pip: a name, the command FRIDAY looks for, the package and the official page. It is saved in `<FRIDAY folder>\config\install-extensions.user.json`, which an update never touches, shows up as a row, is detected, and updates like the rest. **Remove** takes it off the list; the installed program stays.
+- **Start at sign-in.** The switch in Settings makes FRIDAY start in the tray when you sign in to Windows (no window over your desktop); open it from the tray icon. A portable FRIDAY registers the portable file itself, and Uninstall removes the entry.
 - **Voice models** (faster-whisper sizes, Silero VAD, Smart Turn, Supertonic 3) show as installed when their files are on this PC. Downloading a speech size here puts it where voice mode loads it. Their files are managed in the Install Manager, so Remove here leaves them in place.
 - **Local engines** FRIDAY finds by themselves: Ollama, LM Studio, llama.cpp, vLLM, LocalAI, Jan, KoboldCpp (port 5001) and GPT4All (turn on its Local API Server, port 4891). Their models appear as soon as the engine answers.
 - **Pick a model by name** in chat or voice: "use qwen2.5 1.5b for this", "gemini se pucho", or "ask claude to check this" sends that turn to that model, or to that provider's models. Just mentioning a name ("what is OpenAI?") does not. The paid and private rules still decide: a named model they block is not used.

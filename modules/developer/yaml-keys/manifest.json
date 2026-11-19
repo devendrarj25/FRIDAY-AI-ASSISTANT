@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Naive first-level YAML key: scanner (no PyYAML). Useful for compose/workflow-adjacent files. Read-only.",
   "category": "data",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

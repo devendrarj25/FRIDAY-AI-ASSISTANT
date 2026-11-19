@@ -12,8 +12,5 @@
   "description": "Count errors and completed turns, then store errors/turns as a running ratio.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error",
-    "on-turn-complete"
-  ]
+  "hooks": ["on-error", "on-turn-complete"]
 }

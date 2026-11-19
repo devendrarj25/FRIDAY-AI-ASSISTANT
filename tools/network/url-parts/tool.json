@@ -5,15 +5,9 @@
   "name": "URL parts",
   "description": "Split a URL into protocol, host, path, query, and hash using the WHATWG URL parser.",
   "category": "network",
-  "inputs": [
-    "url"
-  ],
+  "inputs": ["url"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to PARSE URL PARTS in memory. Allow this?",
-  "keywords": [
-    "url",
-    "parse",
-    "host"
-  ]
+  "keywords": ["url", "parse", "host"]
 }

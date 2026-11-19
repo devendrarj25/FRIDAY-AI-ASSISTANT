@@ -12,7 +12,5 @@
   "description": "Stamp free/total host memory when FRIDAY starts.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

@@ -5,16 +5,11 @@
   "category": "health-education",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "symptom log template",
-    "symptom log"
-  ],
+  "triggers": ["symptom log template", "symptom log"],
   "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
 }

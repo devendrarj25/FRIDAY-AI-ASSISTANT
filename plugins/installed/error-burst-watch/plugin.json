@@ -12,7 +12,5 @@
   "description": "Keep the last five error timestamps and flag a burst when three land inside 60s.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error"
-  ]
+  "hooks": ["on-error"]
 }

@@ -5,13 +5,8 @@
   "name": "XLSX sheets",
   "description": "Preview an XLSX inside the FRIDAY folder via electron/document-extract.cjs parseXlsx.",
   "category": "documents",
-  "inputs": [
-    "path",
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["path", "root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ XLSX “{path}” inside the FRIDAY folder. Allow this?"
 }

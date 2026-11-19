@@ -5,9 +5,7 @@
   "name": "CSV to JSON",
   "description": "Parse CSV text with document-extract.parseCsv and return JSON rows.",
   "category": "data",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to CONVERT CSV text to JSON in memory. Allow this?"

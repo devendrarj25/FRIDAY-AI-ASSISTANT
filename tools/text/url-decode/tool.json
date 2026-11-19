@@ -5,9 +5,7 @@
   "name": "URL decode",
   "description": "decodeURIComponent on a string. Invalid sequences fail honestly.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to URL-DECODE text in memory. Allow this?"

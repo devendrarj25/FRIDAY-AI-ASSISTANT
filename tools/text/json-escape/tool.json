@@ -5,15 +5,9 @@
   "name": "JSON escape",
   "description": "JSON.stringify a string so it can be pasted into JSON.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to JSON-ESCAPE text in memory. Allow this?",
-  "keywords": [
-    "json",
-    "escape",
-    "stringify"
-  ]
+  "keywords": ["json", "escape", "stringify"]
 }

@@ -9,9 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ FREE MEMORY. Allow this?",
-  "keywords": [
-    "memory",
-    "ram",
-    "freemem"
-  ]
+  "keywords": ["memory", "ram", "freemem"]
 }

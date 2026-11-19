@@ -199,16 +199,68 @@ const archiveName = (version) =>
   `electron-v${version}-${process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "arm64" ? "arm64" : "x64"}.zip`;
 
 /**
- * Official download endpoints (https://www.electronjs.org/download):
- * the GitHub release asset, plus a user-configured official mirror if present.
+ * Download endpoints, in order. Each is a release folder holding the archive and its SHASUMS256.txt:
+ *   1. the official GitHub release (https://www.electronjs.org/download),
+ *   2. the owner's own ELECTRON_MIRROR, when set,
+ *   3. the Electron project's documented public mirror (npmmirror), which is the fast path from regions
+ *      where GitHub release downloads are throttled or blocked.
+ * The archive is always checked against a published SHA-256 list (the GitHub one first), so a mirror cannot
+ * hand over a different file.
  */
-const releaseArchives = (version) => {
-  const urls = [
-    `https://github.com/electron/electron/releases/download/v${version}/${archiveName(version)}`,
-  ];
+const releaseFolders = (version) => {
+  const folders = [`https://github.com/electron/electron/releases/download/v${version}`];
   const mirror = process.env.ELECTRON_MIRROR;
-  if (mirror) urls.push(`${mirror.replace(/\/$/, "")}/v${version}/${archiveName(version)}`);
-  return urls;
+  if (mirror) folders.push(`${mirror.replace(/\/$/, "")}/v${version}`);
+  folders.push(`https://cdn.npmmirror.com/binaries/electron/v${version}`);
+  return [...new Set(folders)];
+};
+
+const releaseArchives = (version) =>
+  releaseFolders(version).map((folder) => `${folder}/${archiveName(version)}`);
+
+/** The SHA-256 a SHASUMS256.txt ("<hash> *<name>" per line) lists for one file, or null. */
+const shasumFor = (text, name) => {
+  for (const line of String(text).split(/\r?\n/)) {
+    const m = /^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$/.exec(line);
+    if (m && m[2] === name) return m[1].toLowerCase();
+  }
+  return null;
+};
+
+const sha256File = (file) => {
+  const hash = require("node:crypto").createHash("sha256");
+  const fd = fs.openSync(file, "r");
+  try {
+    const buffer = Buffer.alloc(1 << 20);
+    for (;;) {
+      const read = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (read === 0) break;
+      hash.update(buffer.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+};
+
+/** Published SHA-256 for the archive: GitHub's list first, then the list next to the archive that was fetched. */
+const publishedSha256 = async (fetchFn, dispatcher, version, archiveUrl) => {
+  const name = archiveName(version);
+  const lists = [
+    `https://github.com/electron/electron/releases/download/v${version}/SHASUMS256.txt`,
+    `${archiveUrl.slice(0, archiveUrl.lastIndexOf("/"))}/SHASUMS256.txt`,
+  ];
+  for (const url of [...new Set(lists)]) {
+    try {
+      const response = await fetchFn(url, { redirect: "follow", dispatcher });
+      if (!response.ok) continue;
+      const found = shasumFor(await response.text(), name);
+      if (found) return found;
+    } catch {
+      /* the next list, or no checksum at all: the ZIP check and the run check still apply */
+    }
+  }
+  return null;
 };
 
 const loadExtractor = () => {
@@ -302,6 +354,21 @@ async function downloadResolvedRelease(version) {
           }
           if (header[0] !== 0x50 || header[1] !== 0x4b || fs.statSync(archive).size === 0) {
             throw new Error("release response is not a valid ZIP archive");
+          }
+          const expected = await publishedSha256(
+            fetch,
+            proxy ? new ProxyAgent(proxy) : undefined,
+            version,
+            url,
+          );
+          if (expected) {
+            const actual = sha256File(archive);
+            if (actual !== expected) {
+              throw new Error(`SHA-256 mismatch (expected ${expected}, got ${actual})`);
+            }
+            log(`verified SHA-256 ${expected.slice(0, 12)}... for ${archiveName(version)}`);
+          } else {
+            log("no published SHA-256 list could be read; ZIP and run checks only");
           }
           fs.rmSync(destination, { recursive: true, force: true });
           fs.mkdirSync(destination, { recursive: true });
@@ -530,6 +597,9 @@ async function ensureInstallerTools({
 }
 
 module.exports = {
+  releaseArchives,
+  shasumFor,
+  sha256File,
   ensureElectron,
   ensureInstallerTools,
   installerToolsReady,

@@ -5,9 +5,7 @@
   "name": "URL encode",
   "description": "encodeURIComponent on a string.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to URL-ENCODE text in memory. Allow this?"

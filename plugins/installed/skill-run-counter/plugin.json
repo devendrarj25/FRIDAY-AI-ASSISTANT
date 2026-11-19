@@ -12,7 +12,5 @@
   "description": "Counts on-skill-run events in this plugin's data/count.json so a local tally is available without a second stats store.",
   "category": "logging",
   "permissions": [],
-  "hooks": [
-    "on-skill-run"
-  ]
+  "hooks": ["on-skill-run"]
 }

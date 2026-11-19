@@ -114,6 +114,11 @@ function noticeBackground() {
   return true;
 }
 
+/** True while a tray icon exists. A window hidden "to the tray" with no icon could never be found again. */
+function isAvailable() {
+  return Boolean(tray && !(tray.isDestroyed && tray.isDestroyed()));
+}
+
 function destroy() {
   try {
     tray?.destroy();
@@ -123,4 +128,4 @@ function destroy() {
   tray = null;
 }
 
-module.exports = { init, setState, getState, noticeBackground, destroy, refresh };
+module.exports = { init, setState, getState, noticeBackground, destroy, refresh, isAvailable };

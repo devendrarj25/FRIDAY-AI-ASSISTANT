@@ -9,10 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ the CACHED NETWORK SNAPSHOT. Allow this?",
-  "keywords": [
-    "network",
-    "online",
-    "offline",
-    "snapshot"
-  ]
+  "keywords": ["network", "online", "offline", "snapshot"]
 }

@@ -5,15 +5,11 @@
   "category": "study",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "cornell notes split"
-  ],
+  "triggers": ["cornell notes split"],
   "description": "Layout helper. It does not grade the notes."
 }

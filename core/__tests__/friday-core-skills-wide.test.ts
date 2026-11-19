@@ -15,7 +15,7 @@ import { PART_OF } from "./helpers/core-skills-map";
 
 const CORE = path.resolve(__dirname, "../../skills/core");
 const CUSTOM = path.resolve(__dirname, "../../skills/custom");
-type Out = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Out = any;
 async function tool(part: string, input: Record<string, unknown>): Promise<Out> {
   const id = PART_OF[part] ?? part;
   const mod = await import(/* @vite-ignore */ pathToFileURL(path.join(CORE, id, "skill.mjs")).href);

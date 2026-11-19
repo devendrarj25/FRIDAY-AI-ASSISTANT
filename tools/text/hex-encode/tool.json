@@ -5,14 +5,9 @@
   "name": "Hex encode",
   "description": "Encode UTF-8 text as lowercase hex with Node Buffer.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to HEX-ENCODE text in memory. Allow this?",
-  "keywords": [
-    "hex",
-    "encode"
-  ]
+  "keywords": ["hex", "encode"]
 }

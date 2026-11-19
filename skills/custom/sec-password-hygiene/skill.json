@@ -10,9 +10,6 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "password hygiene checklist",
-    "password hygiene"
-  ],
+  "triggers": ["password hygiene checklist", "password hygiene"],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }

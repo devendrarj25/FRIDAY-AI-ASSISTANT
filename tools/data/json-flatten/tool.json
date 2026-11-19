@@ -5,15 +5,9 @@
   "name": "JSON flatten",
   "description": "Flatten a JSON object to dotted keys. Node only — no extra library.",
   "category": "data",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to FLATTEN JSON text in memory. Allow this?",
-  "keywords": [
-    "json",
-    "flatten",
-    "dotted"
-  ]
+  "keywords": ["json", "flatten", "dotted"]
 }

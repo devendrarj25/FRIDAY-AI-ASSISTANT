@@ -12,8 +12,5 @@
   "description": "Allocates a local session id on app start and marks it closed on quit, stored only in this plugin's data/session.json.",
   "category": "session",
   "permissions": [],
-  "hooks": [
-    "on-app-start",
-    "on-app-quit"
-  ]
+  "hooks": ["on-app-start", "on-app-quit"]
 }

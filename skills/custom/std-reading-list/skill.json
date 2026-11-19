@@ -5,16 +5,11 @@
   "category": "study",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "prioritised reading list",
-    "prioritised reading"
-  ],
+  "triggers": ["prioritised reading list", "prioritised reading"],
   "description": "Ordering helper. It does not fetch the papers."
 }

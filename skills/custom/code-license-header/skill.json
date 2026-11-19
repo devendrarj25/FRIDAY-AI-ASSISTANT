@@ -5,16 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "code",
-    "needle"
-  ],
+  "inputs": ["code", "needle"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "license header check"
-  ],
+  "triggers": ["license header check"],
   "description": "Default needle is Copyright. Does not relicense files."
 }

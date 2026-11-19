@@ -4,14 +4,9 @@
   "description": "Learning help from the built-in study and health-education skills: study plans, notes, quizzes, summaries and explanations. Picks the best skills for the request and can combine them.",
   "category": "study",
   "role": "study-desk",
-  "skills": [
-    "category:study",
-    "category:health-education"
-  ],
+  "skills": ["category:study", "category:health-education"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

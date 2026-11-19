@@ -4,13 +4,9 @@
   "description": "Construction and site help from the built-in construction skills: quantities, estimates, schedules, checklists and site notes. Picks the best skills for the request and can combine them.",
   "category": "construction",
   "role": "builder-desk",
-  "skills": [
-    "category:construction"
-  ],
+  "skills": ["category:construction"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

@@ -12,7 +12,5 @@
   "description": "Journal when CHANGELOG.md or release-notes.md changes.",
   "category": "developer",
   "permissions": [],
-  "hooks": [
-    "on-file-change"
-  ]
+  "hooks": ["on-file-change"]
 }

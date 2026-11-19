@@ -4,12 +4,8 @@
   "description": "On Windows, tries to list $Recycle.Bin entry counts if readable. On other hosts it returns an honest empty note. Never dumps deleted file contents.",
   "category": "home",
   "entry": "index.cjs",
-  "inputs": [
-    "dryRun"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["dryRun"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "enabled": false,
   "approvalPrompt": "FRIDAY checked the Recycle Bin ({count} visible item(s)). Read-only. Nothing will be purged."

@@ -22,12 +22,7 @@
       "required": true
     }
   ],
-  "permissions": [
-    "process.exec",
-    "fs.read",
-    "fs.write",
-    "devices"
-  ],
+  "permissions": ["process.exec", "fs.read", "fs.write", "devices"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to copy files between this PC and your connected Android phone. Allow this?"

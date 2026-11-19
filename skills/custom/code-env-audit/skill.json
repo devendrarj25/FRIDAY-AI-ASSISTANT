@@ -5,15 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "code"
-  ],
+  "inputs": ["code"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "environment variable audit"
-  ],
+  "triggers": ["environment variable audit"],
   "description": "Does not print values — only names referenced in source."
 }

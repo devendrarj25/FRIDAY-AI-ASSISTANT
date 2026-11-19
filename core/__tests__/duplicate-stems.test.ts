@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const root = path.resolve(__dirname, "../..");
 const skip = new Set([
@@ -25,6 +26,8 @@ const skip = new Set([
   ".pytest_cache",
   ".ruff_cache",
   ".friday-dev",
+  // FRIDAY installed into its own checkout: <root>\App holds the installed program, which is not source.
+  "App",
   ".friday-readiness-root",
 ]);
 const exempt = new Set([
@@ -79,10 +82,35 @@ function walk(dir: string, acc: string[]) {
   }
 }
 
+/**
+ * Files git ignores are not part of the source (when the FRIDAY folder is this checkout the app writes its starter kit
+ * and runtime files into it). A tracked file is never reported as ignored. Without git nothing is filtered.
+ */
+function dropIgnored(files: string[]): string[] {
+  if (!files.length || !fs.existsSync(path.join(root, ".git"))) return files;
+  const run = spawnSync("git", ["check-ignore", "--stdin"], {
+    cwd: root,
+    input: files.join("\n"),
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (run.error || (run.status !== 0 && run.status !== 1)) return files;
+  const ignored = new Set(String(run.stdout).split(/\r?\n/).filter(Boolean));
+  return files.filter((file) => !ignored.has(file));
+}
+
 describe("duplicate file names", () => {
   it("allows only the recorded stems", () => {
-    const files: string[] = [];
-    walk(root, files);
+    const walked: string[] = [];
+    walk(root, walked);
+    const counts = new Map<string, number>();
+    for (const file of walked)
+      counts.set(path.posix.basename(file), (counts.get(path.posix.basename(file)) ?? 0) + 1);
+    // Only a name that appears more than once can be a duplicate, so only those files go to git.
+    const files = [
+      ...dropIgnored(walked.filter((file) => (counts.get(path.posix.basename(file)) ?? 0) > 1)),
+      ...walked.filter((file) => (counts.get(path.posix.basename(file)) ?? 0) <= 1),
+    ];
     const groups = new Map<string, string[]>();
     for (const file of files) {
       const base = path.posix.basename(file);

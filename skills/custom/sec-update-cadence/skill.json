@@ -10,8 +10,6 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "update cadence table"
-  ],
+  "triggers": ["update cadence table"],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }
