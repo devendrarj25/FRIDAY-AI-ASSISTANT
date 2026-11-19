@@ -95,7 +95,7 @@ async function githubRelease(repo, options = {}) {
 }
 
 /** A feed for one asset of a GitHub release. */
-function githubFeed({ repo, asset, version, kind, installerArgs, bin }) {
+function githubFeed({ repo, asset, version, kind, installerArgs, bin, mirrors }) {
   return async (options) => {
     const release = await githubRelease(repo, options);
     if (!release?.tag) return null;
@@ -109,6 +109,8 @@ function githubFeed({ repo, asset, version, kind, installerArgs, bin }) {
         bytes: hit.bytes,
         ...(installerArgs ? { installerArgs } : {}),
         ...(bin ? { bin: typeof bin === "function" ? bin(hit.name, v) : bin } : {}),
+        // The vendor's own site serves the same file, so the same digest checks every source.
+        ...(mirrors ? { mirrors: mirrors(hit.name, v).filter(Boolean) } : {}),
       });
     }
     return out;
@@ -427,6 +429,11 @@ const FEEDS = {
     asset: /^cmake-[\d.]+-windows-x86_64\.zip$/,
     kind: "zip",
     bin: (name) => `${name.replace(/\.zip$/, "")}/bin/cmake.exe`,
+    // cmake.org/files/v4.5/ holds every release file (Kitware's own download page links there).
+    mirrors: (name, v) => {
+      const minor = /^(\d+\.\d+)/.exec(v);
+      return minor ? [`https://cmake.org/files/v${minor[1]}/${name}`] : [];
+    },
   }),
   Ninja: githubFeed({
     repo: "ninja-build/ninja",

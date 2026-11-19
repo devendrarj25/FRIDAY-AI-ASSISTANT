@@ -101,26 +101,31 @@ function startTicker({
 } = {}) {
   const began = now();
   const baseline = watch.length ? size(watch) : 0;
-  let last = { at: began, bytes: baseline };
+  // A folder walk is time-limited and a download can move between folders (pip's cache, then site-packages), so one
+  // reading can be lower than the one before. Only the high-water mark is reported, and the speed is the growth
+  // over the last few readings, so a single noisy reading cannot show 246 MB/s or take the total back to 0.2 MB.
+  let high = baseline;
+  const recent = [{ at: began, bytes: baseline }];
   let timer = null;
   let stopped = false;
   const tick = () => {
     if (stopped) return;
     const at = now();
-    let bytes = last.bytes;
     try {
-      bytes = watch.length ? size(watch) : last.bytes;
+      if (watch.length) high = Math.max(high, size(watch));
     } catch {
       /* measuring is best effort */
     }
+    recent.push({ at, bytes: high });
+    while (recent.length > 5) recent.shift();
+    const from = recent[0];
     const measured = {
       elapsedMs: at - began,
-      grownBytes: Math.max(0, bytes - baseline),
-      recentBytes: Math.max(0, bytes - last.bytes),
-      recentMs: at - last.at,
+      grownBytes: Math.max(0, high - baseline),
+      recentBytes: Math.max(0, high - from.bytes),
+      recentMs: at - from.at,
     };
     write(activityLine({ label, ...measured }), activityText(measured));
-    last = { at, bytes };
     timer = setTimer(tick, every);
     timer?.unref?.();
   };

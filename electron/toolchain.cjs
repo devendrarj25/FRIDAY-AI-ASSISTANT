@@ -865,6 +865,11 @@ const TOOLS = [
     // The official binary distribution, checked against the SHA-256 Gradle publishes beside it (read 2026-11-19).
     installerUrl: "https://services.gradle.org/distributions/gradle-9.9.1-bin.zip",
     sha256: "d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228",
+    // Gradle's second official host and its GitHub release carry the same file; the digest above holds for all three.
+    installerMirrors: [
+      "https://downloads.gradle.org/distributions/gradle-9.9.1-bin.zip",
+      "https://github.com/gradle/gradle-distributions/releases/download/v9.9.1/gradle-9.9.1-bin.zip",
+    ],
     needBytes: 134921139,
     archiveBin: "gradle-9.9.1/bin/gradle.bat",
     pinVersion: "9.9.1",
@@ -1381,6 +1386,10 @@ const TOOLS = [
     installerUrl:
       "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
     sha256: "4ec3f26fb1a692473aea0235c300bd20f0f9fe741947c82c1234cefd76ac3a3c",
+    // Maven Central serves the same release file (same digest) from a CDN.
+    installerMirrors: [
+      "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip",
+    ],
     needBytes: 9202456,
     archiveBin: "apache-maven-3.9.9/bin/mvn.cmd",
     pinVersion: "3.9.9",
@@ -1395,6 +1404,9 @@ const TOOLS = [
     // composer.phar is a PHP archive, not a program: the install keeps it beside a composer.bat that runs it.
     installerUrl: "https://getcomposer.org/download/2.11.2/composer.phar",
     sha256: "dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028",
+    installerMirrors: [
+      "https://github.com/composer/composer/releases/download/2.11.2/composer.phar",
+    ],
     needBytes: 3815650,
     archiveBin: "composer.bat",
     pharFile: "composer.phar",
