@@ -294,6 +294,53 @@ function checkAsarPaths({ root = ROOT } = {}) {
   return failures;
 }
 
+/**
+ * Scripts the installed app loads from resources/scripts (outside the archive) must not require a sibling `electron` folder by relative path:
+ * there `electron/` is inside app.asar, so the relative path finds nothing. They use scripts/electron-module.cjs.
+ * The set is what the main process loads or spawns, plus the scripts those load.
+ */
+const PACKAGED_SCRIPT_ROOTS = [
+  "scripts/env-registry.cjs",
+  "scripts/stage-toolchain.cjs",
+  "scripts/identity.cjs",
+  "scripts/win-spawn.cjs",
+];
+
+function checkPackagedScripts({ root = ROOT, roots = PACKAGED_SCRIPT_ROOTS } = {}) {
+  const failures = [];
+  const seen = new Set();
+  const visit = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    let source;
+    try {
+      source = fs.readFileSync(path.join(root, rel), "utf8");
+    } catch {
+      return;
+    }
+    // Comments may quote the pattern (scripts/electron-module.cjs explains it); only code counts.
+    source = source
+      .split("\n")
+      .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+      .join("\n");
+    const direct = /require\(\s*(['"])\.\.\/electron\/[^'"]+\1\s*\)/g;
+    let hit = direct.exec(source);
+    while (hit) {
+      failures.push({ file: rel, spec: hit[0] });
+      hit = direct.exec(source);
+    }
+    const local = /require\(\s*(['"])\.\/([A-Za-z0-9._-]+)\1\s*\)/g;
+    let next = local.exec(source);
+    while (next) {
+      const name = /\.(?:cjs|js|json)$/.test(next[2]) ? next[2] : `${next[2]}.cjs`;
+      visit(`scripts/${name}`);
+      next = local.exec(source);
+    }
+  };
+  for (const rel of roots) visit(rel);
+  return failures;
+}
+
 /** Every file or folder the code asks resource-paths for must be one electron-builder copies into resources/. */
 function checkResourceReferences({ root = ROOT, extraResources } = {}) {
   let shipped = extraResources;
@@ -350,6 +397,15 @@ function main(argv) {
     );
     process.exit(1);
   }
+  const scriptFailures = checkPackagedScripts({ root: ROOT });
+  if (scriptFailures.length) {
+    for (const row of scriptFailures) {
+      console.error(
+        `[friday] packaged scripts: ${row.file} uses ${row.spec}; inside the installed app electron/ is in app.asar, use scripts/electron-module.cjs`,
+      );
+    }
+    process.exit(1);
+  }
   const pathFailures = checkAsarPaths({ root: ROOT });
   const resourceFailures = checkResourceReferences({ root: ROOT });
   if (pathFailures.length || resourceFailures.length) {
@@ -385,6 +441,8 @@ module.exports = {
   PACKED_FILES,
   checkRequires,
   checkAsarPaths,
+  checkPackagedScripts,
+  PACKAGED_SCRIPT_ROOTS,
   checkResourceReferences,
   OUTSIDE_ASAR,
   filesFromPatterns,

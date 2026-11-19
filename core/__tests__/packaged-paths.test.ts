@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,6 +16,10 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(__dirname, "..", "..");
 const check = require_("../../scripts/packaged-requires.cjs") as {
   checkAsarPaths: (o?: { root?: string }) => Array<{ file: string; folder: string }>;
+  checkPackagedScripts: (o?: {
+    root?: string;
+    roots?: string[];
+  }) => Array<{ file: string; spec: string }>;
   checkResourceReferences: (o?: {
     root?: string;
     extraResources?: string[];
@@ -151,5 +156,58 @@ describe("the modules that used to miss the packaged kernel now find it", () => 
     expect(read("electron/stt.cjs")).toContain('resolveResourceFile("kernel/voice_runtime.py")');
     expect(read("electron/mcp-catalog.cjs")).toContain('resolveResourceFile("kernel/tools.py")');
     expect(read("electron/mcp-server.cjs")).toContain('resolveResourceFile("docs/FRIDAY_MCP.md")');
+  });
+});
+
+describe("scripts that ship beside the app find electron/ inside the archive", () => {
+  it("no script the installed app loads requires ../electron/ directly", () => {
+    expect(check.checkPackagedScripts({ root })).toEqual([]);
+  });
+
+  it("flags one that does, follows a script's own requires, and ignores a comment that quotes the pattern", () => {
+    const fake = temp();
+    mkdirSync(path.join(fake, "scripts"), { recursive: true });
+    writeFileSync(
+      path.join(fake, "scripts", "root.cjs"),
+      '// require("../electron/in-a-comment.cjs")\nconst a = require("./helper.cjs");\n',
+    );
+    writeFileSync(
+      path.join(fake, "scripts", "helper.cjs"),
+      'const b = require("../electron/x.cjs");\n',
+    );
+    const found = check.checkPackagedScripts({ root: fake, roots: ["scripts/root.cjs"] });
+    expect(found).toEqual([{ file: "scripts/helper.cjs", spec: 'require("../electron/x.cjs")' }]);
+  });
+
+  it("the environment registry runs in the installed layout (scripts beside, electron inside app.asar)", () => {
+    const home = temp();
+    const resources = path.join(home, "resources");
+    mkdirSync(path.join(resources, "app.asar"), { recursive: true });
+    cpSync(path.join(root, "scripts"), path.join(resources, "scripts"), { recursive: true });
+    cpSync(path.join(root, "electron"), path.join(resources, "app.asar", "electron"), {
+      recursive: true,
+    });
+    cpSync(path.join(root, "config"), path.join(resources, "config"), { recursive: true });
+    const workspace = path.join(home, "friday-folder");
+    mkdirSync(workspace, { recursive: true });
+    const run = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `const r = require(${JSON.stringify(path.join(resources, "scripts", "env-registry.cjs"))}).refreshRegistry(); console.log("components:" + r.components.length);`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FRIDAY_WORKSPACE_ROOT: workspace,
+          NODE_PATH: path.join(root, "node_modules"),
+          FRIDAY_OFFLINE: "1",
+        },
+        timeout: 60_000,
+      },
+    );
+    expect(run.stderr).not.toMatch(/Cannot find module/);
+    expect(run.stdout).toMatch(/components:\d+/);
   });
 });

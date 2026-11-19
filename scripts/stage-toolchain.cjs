@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const layout = require("../electron/runtime-layout.cjs");
+const layout = require("./electron-module.cjs").load("runtime-layout.cjs");
 
 function packBytes(pack) {
   return Number(pack?.bytes || 0);
@@ -162,7 +162,7 @@ async function beforePack(options = {}) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(__dirname, "../config/toolchain-manifest.json"), "utf8"),
   );
-  const { downloadUrl } = require("../electron/model-download.cjs");
+  const { downloadUrl } = require("./electron-module.cjs").load("model-download.cjs");
   const tty = Boolean(process.stdout.isTTY);
   const fetchImpl = async (url, { pack } = {}) => {
     const temp = path.join(__dirname, "../.cache/toolchain", `${pack?.sha256 || "pack"}.download`);
