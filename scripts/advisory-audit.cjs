@@ -238,7 +238,10 @@ function main(argv) {
   if (opts.npmJson) {
     npm = readJson(opts.npmJson);
   } else {
-    const ran = auditWithRetry("npm", ["audit", "--json", "--omit=dev"], npmReportProblem);
+    // The whole tree, not `--omit=dev`: the renderer's packages are bundled into the installed app by Vite, and they
+    // are devDependencies (only what the main process requires is a production dependency), so omitting dev would
+    // leave almost everything that ships unaudited.
+    const ran = auditWithRetry("npm", ["audit", "--json"], npmReportProblem);
     if (ran.problem) {
       console.error(`::error title=advisory audit::${ran.problem}`);
       process.exit(1);

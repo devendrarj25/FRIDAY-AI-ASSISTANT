@@ -1218,7 +1218,9 @@ async function scoreTurn(req = {}) {
   try {
     const py = await python();
     if (!py) return { ok: true, ready: false, probability: null, reason: "no-python" };
-    const runtime = path.join(__dirname, "..", "kernel", "voice_runtime.py");
+    const runtime =
+      require("./resource-paths.cjs").resolveResourceFile("kernel/voice_runtime.py") ||
+      path.join(__dirname, "..", "kernel", "voice_runtime.py");
     const probe = await run(py[0], [...py[1], runtime, "--score", "--audio", file], 12000);
     const parsed = parse(probe.stdout);
     if (!parsed) return { ok: true, ready: false, probability: null, reason: "no score" };

@@ -303,8 +303,12 @@ function parseKernelRisk(source) {
   return risk;
 }
 
-function loadKernelRisk(root = path.resolve(__dirname, "..")) {
-  const file = path.join(root, "kernel", "tools.py");
+function loadKernelRisk(root) {
+  // Packaged, the kernel is resources/kernel beside app.asar; the checkout's kernel folder is the dev path.
+  const file = root
+    ? path.join(root, "kernel", "tools.py")
+    : require("./resource-paths.cjs").resolveResourceFile("kernel/tools.py") ||
+      path.join(__dirname, "..", "kernel", "tools.py");
   return parseKernelRisk(fs.readFileSync(file, "utf8"));
 }
 

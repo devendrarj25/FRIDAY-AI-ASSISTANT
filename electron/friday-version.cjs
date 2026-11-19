@@ -10,7 +10,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const engine = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const engine = require("./release-engine-loader.cjs").releaseEngine();
 const resourcePaths = require("./resource-paths.cjs");
 
 function packagedCanonical() {

@@ -14,7 +14,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 // One semver implementation for the whole release system (workflow + desktop).
-const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const { compareBuilds } = require("./release-engine-loader.cjs").releaseEngine();
 
 const credentials = require("./credentials.cjs");
 // Loaded up front so net-fetch notes the global fetch before anything replaces it.

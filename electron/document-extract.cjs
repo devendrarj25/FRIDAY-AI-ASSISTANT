@@ -15,7 +15,11 @@ const { execFileSync } = require("node:child_process");
 const { resolveManagedPython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
 
-const OCR_SCRIPT = path.join(__dirname, "..", "kernel", "document_ocr.py");
+// The kernel folder ships next to app.asar (extraResources), not inside it; Python cannot read a script from an
+// archive, so the packaged path comes from resource-paths and the checkout path is only the development fallback.
+const OCR_SCRIPT =
+  require("./resource-paths.cjs").resolveResourceFile("kernel/document_ocr.py") ||
+  path.join(__dirname, "..", "kernel", "document_ocr.py");
 const INVENT_REFUSAL = "I will not invent the missing words.";
 
 function pythonExecutable(workspaceRoot = undefined) {

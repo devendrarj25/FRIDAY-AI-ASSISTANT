@@ -82,6 +82,12 @@ describe("pr-scope: what counts as documentation only", () => {
     }
   });
 
+  it("treats the docs page the installer ships as code, and the other docs pages as documentation", () => {
+    expect(scope.isDocPath("docs/FRIDAY_MCP.md")).toBe(false);
+    expect(scope.isDocPath("docs/FRIDAY_BUILD_AND_RELEASE.md")).toBe(true);
+    expect(scope.isDocsOnly(["docs/FRIDAY_MCP.md", "README.md"])).toBe(false);
+  });
+
   it("keeps one documentation list and does not skip PR Validation with paths-ignore", () => {
     const expected = [...scope.DOC_PREFIXES.map((prefix) => `${prefix}**`), ...scope.DOC_FILES];
     expect([...scope.PATHS_IGNORE].sort()).toEqual([...expected].sort());

@@ -98,6 +98,9 @@ extraResources:
   # updater already publishes. Not a second notes store.
   - from: CHANGELOG.md
     to: CHANGELOG.md
+  # The MCP server serves this page as friday://docs/FRIDAY_MCP.md; it is read from resources/docs.
+  - from: docs/FRIDAY_MCP.md
+    to: docs/FRIDAY_MCP.md
   # `to` is relative to the app resources directory (electron-builder
   # FileSet). `to: resources` nested this tree at resources/resources, so
   # verify-artifacts could not see resources/<dest>/<id>/pack.bin. Omitting

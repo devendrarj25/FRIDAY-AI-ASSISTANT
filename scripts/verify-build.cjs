@@ -102,6 +102,29 @@ const checks = [
     label: "Wake features",
     file: path.join(release, "win-unpacked", "resources", "kernel", "wake_features.py"),
   },
+  // Files the installed app reads from resources/ (never from app.asar): the document OCR script, the kernel tool
+  // table the MCP server is built from, the fine-tune script, the MCP guide it serves and the Install Manager's
+  // shipped tool list. A missing one breaks a feature only after install, so the build refuses it here.
+  {
+    label: "Document OCR script",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "document_ocr.py"),
+  },
+  {
+    label: "Kernel tool table (MCP)",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "tools.py"),
+  },
+  {
+    label: "Fine-tune script",
+    file: path.join(release, "win-unpacked", "resources", "kernel", "finetune_lora.py"),
+  },
+  {
+    label: "MCP guide",
+    file: path.join(release, "win-unpacked", "resources", "docs", "FRIDAY_MCP.md"),
+  },
+  {
+    label: "Install Manager tool list",
+    file: path.join(release, "win-unpacked", "resources", "config", "install-extensions.json"),
+  },
   {
     label: "Config",
     file: path.join(release, "win-unpacked", "resources", "config", "kernel.yaml"),
@@ -160,6 +183,34 @@ for (const check of checks) {
   console.log(
     `[friday] ok       ${check.label}: ${path.relative(root, check.file)} (${mb(check.file)})`,
   );
+}
+
+// The owner's own settings, keys and tool list must never be inside the installer, even when the build ran from a
+// folder that is also the FRIDAY folder (electron-builder.yml filters the same names).
+{
+  const packedConfig = path.join(release, "win-unpacked", "resources", "config");
+  const privateFiles = [
+    "provider-keys.json",
+    "friday-settings.json",
+    "friday-preferences.json",
+    "github.json",
+    "provider-access.json",
+    "provider-endpoints.json",
+    "install-extensions.user.json",
+  ];
+  const leaked = privateFiles.filter((name) => fs.existsSync(path.join(packedConfig, name)));
+  for (const name of ["user", "security"]) {
+    const dir = path.join(packedConfig, name);
+    if (fs.existsSync(dir)) leaked.push(`${name}/`);
+  }
+  if (leaked.length) {
+    console.error(
+      `[friday] PRIVATE  the installer carries the owner's own files in resources/config: ${leaked.join(", ")}`,
+    );
+    failed += leaked.length;
+  } else if (fs.existsSync(packedConfig)) {
+    console.log("[friday] ok       No owner settings, keys or tool list inside resources/config");
+  }
 }
 
 // The wake word. FRIDAY ships no wake model until one is trained on real recordings and meets its held-out
@@ -342,6 +393,32 @@ if (fs.existsSync(asarFile)) {
         ["Rajdhani Devanagari (Hindi)", /\/rajdhani-devanagari-400-normal-[^/]+\.woff2$/],
         ["JetBrains Mono (code)", /\/jetbrains-mono-latin-wght-normal-[^/]+\.woff2$/],
       ];
+      // Only what the main process requires at run time may ride in app.asar (package.json `dependencies`). The
+      // renderer is already bundled into dist-desktop, so a build tool or a UI package in the archive means a
+      // dependency was put in the wrong set: the installer grows by about 170 MB and installs slower for nothing.
+      const prod = new Set(
+        Object.keys(
+          JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).dependencies || {},
+        ),
+      );
+      const packed = new Set(
+        norm
+          .map((e) => e.match(/^\/node_modules\/(@[^/]+\/[^/]+|[^/]+)/))
+          .filter(Boolean)
+          .map((m) => m[1]),
+      );
+      const extra = [...packed].filter((name) => !prod.has(name) && !prod.has(name.split("/")[0]));
+      // A production dependency's own dependencies are allowed; the closure is small, so a long list is the sign.
+      if (packed.size > prod.size * 12 + 12) {
+        console.error(
+          `[friday] BLOATED  app.asar carries ${packed.size} packages for ${prod.size} production dependencies (${extra.slice(0, 6).join(", ")}...): move renderer and build packages to devDependencies`,
+        );
+        failed++;
+      } else {
+        console.log(
+          `[friday] ok       app.asar carries ${packed.size} package(s) for ${prod.size} production dependencies`,
+        );
+      }
       const lost = need.filter(([, pattern]) => !assets.some((e) => pattern.test(e)));
       if (lost.length) {
         console.error(

@@ -17,7 +17,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const { compareBuilds } = require("./release-engine-loader.cjs").releaseEngine();
 
 /** Files/folders that must never be lost across an update. */
 const { OWNERSHIP, NEVER_DELETED } = require("./friday-contract.cjs");
