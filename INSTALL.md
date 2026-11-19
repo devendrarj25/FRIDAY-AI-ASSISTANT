@@ -91,7 +91,7 @@ Inside the script, in order:
 1. Node, Python, Git, PowerShell, npm — each method prints `method failed:` and the next official source runs.
 2. FFmpeg, Tesseract, VC++ runtime — required, installed the same way; setup stops if one stays missing.
 3. `npm ci` from `package-lock.json`. On failure: `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
-4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip, then `@electron/get`).
+4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip checked against its SHA-256 list, the public npmmirror copy of the same zip, then `@electron/get`).
 5. `node scripts\setup-python.cjs` — venv at the selected FRIDAY folder `runtime\.venv`, or checkout `.venv` if no folder is selected.
 6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
 7. `node scripts\init-runtime.cjs` — folders, wake model, database.
@@ -119,7 +119,7 @@ Official download floors (tried in order):
 | Git                   | 2.49.0           | winget `Git.Git` → GitHub `git-for-windows/git`                                                                      |
 | PowerShell 7          | 7.5.0            | winget `Microsoft.PowerShell` → GitHub `PowerShell/PowerShell`                                                       |
 | Electron binary       | 45.0.0           | `scripts/ensure-electron.cjs`                                                                                        |
-| FFmpeg                | —                | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials`                                                                      |
+| FFmpeg                | —                | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials` → Gyan.dev ZIP (per user)                                            |
 | Tesseract             | —                | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
 | VC++ Redist           | —                | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe`                             |
 
