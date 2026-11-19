@@ -123,7 +123,7 @@ Official download floors (tried in order):
 | Tesseract             | —                | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
 | VC++ Redist           | —                | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe`                             |
 
-Downloads use `Invoke-WebRequest` first, then `curl.exe --fail --location --retry`. TLS certificate checks stay on.
+Downloads use `curl.exe` first (resumable, five retries), then `Invoke-WebRequest`. TLS 1.2 is switched on for older Windows PowerShell and certificate checks stay on. A downloaded installer is run only after its publisher signature is checked (a corrupt or altered file is deleted and refused); the Node.js installer is also checked against nodejs.org's SHA-256 list and a GitHub release that publishes a `.sha256` file against it.
 
 If setup installed Node and the current window still cannot see `node`, **close CMD and open a new `cmd.exe`**, `cd` back to the clone, and run `npm run setup` again.
 
@@ -288,7 +288,7 @@ Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run bui
 
 ## 11. Where files land
 
-One scannable root. Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
+One scannable root: the folder you run setup and `build:win` in is it, unless you already chose another folder (the installer then offers it as the install folder). Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 
 | Location                                                 | What it is                                                                                  |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -298,7 +298,7 @@ One scannable root. Setup may replace `<root>\App` on upgrade. User folders besi
 | `<root>\models` and `<root>\models\wake`                 | Downloaded weights and wake `.onnx` files                                                   |
 | `<root>\config`                                          | Including `first-run.json`, `github.json` (update channel)                                  |
 | `HKCU\Software\FRIDAY\WorkspacePath`                     | Pointer to the root                                                                         |
-| Checkout `.venv`                                         | Only when packing/running from source with **no** selected folder                           |
+| Checkout `.venv`                                         | Only on a machine where the checkout cannot be the root (not Windows, or Program Files)     |
 | Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`)                       |
 | Checkout `temporary\downloads`                           | Official installer payloads during `npm run setup`                                          |
 | Checkout `dist-desktop\`                                 | Renderer bundle                                                                             |
