@@ -97,6 +97,13 @@ bun.lock
 /config/security/*
 !/config/security/.gitkeep
 
+# FRIDAY installed into its own checkout (the folder setup runs in is the FRIDAY folder): the installed program,
+# the app's root index files and its profiles are not source.
+/App/
+/inventory.json
+/integrity.json
+/profiles/
+
 # Isolated Python environments created by setup. Not part of the installer.
 .venv/
 runtime/.venv/

@@ -49,6 +49,7 @@ describe("PowerShell scripts parse", () => {
       "scripts/windows-installer-smoke.ps1",
       "installer/build/repair-runtime.ps1",
       "installer/build/close-friday.ps1",
+      "installer/build/remove-source-root-data.ps1",
     ]) {
       expect(scripts, needed).toContain(needed);
     }

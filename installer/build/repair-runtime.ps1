@@ -20,6 +20,20 @@ $requirements = Join-Path $InstallDir 'resources\kernel\requirements.txt'
 $pythonHelper = Join-Path $InstallDir 'resources\installer\build\install-python.ps1'
 $pythonPathFile = Join-Path $env:TEMP "friday-python-$PID.txt"
 
+# The FRIDAY folder's own environment comes first. Setup and the build create <root>\runtime\.venv (the home the
+# storage contract names, which an update and a normal uninstall never touch), and the installed app looks there
+# before the program folder. When it exists this script repairs and reuses that one instead of building a second
+# copy of every package under <root>\App\runtime; the program-folder environment stays the fallback.
+if ((Split-Path -Leaf $InstallDir) -ieq 'App') {
+  $rootRuntime = Join-Path (Split-Path -Parent $InstallDir) 'runtime'
+  $rootVenv = Join-Path $rootRuntime '.venv'
+  if (Test-Path -LiteralPath (Join-Path $rootVenv 'Scripts\python.exe') -PathType Leaf) {
+    $runtimeDir = $rootRuntime
+    $venvDir = $rootVenv
+    $venvPython = Join-Path $rootVenv 'Scripts\python.exe'
+  }
+}
+
 function Finish([string]$Status, [int]$Code) {
   Set-Content -LiteralPath $StatusFile -Value $Status -Encoding ASCII
   Remove-Item -LiteralPath $pythonPathFile -Force -ErrorAction SilentlyContinue

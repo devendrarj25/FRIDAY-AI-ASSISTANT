@@ -25,6 +25,8 @@ const skip = new Set([
   ".pytest_cache",
   ".ruff_cache",
   ".friday-dev",
+  // FRIDAY installed into its own checkout: <root>\App holds the installed program, which is not source.
+  "App",
   ".friday-readiness-root",
 ]);
 const exempt = new Set([
