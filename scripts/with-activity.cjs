@@ -20,13 +20,27 @@ const core = require("./electron-module.cjs").load("activity.cjs");
 const off = () => process.env.FRIDAY_ACTIVITY === "0";
 
 /** Start the ticker as its own process (a synchronous call blocks this one). Returns `{ stop() }`. */
-function startTickerProcess({ label, watch = [], first = 8_000, every = 15_000 } = {}) {
+function startTickerProcess({
+  label,
+  watch = [],
+  first = 8_000,
+  every = 15_000,
+  combine = "sum",
+} = {}) {
   if (off()) return { stop() {} };
   let child = null;
   try {
     child = spawn(
       process.execPath,
-      [__filename, "--ticker", label, watch.join(path.delimiter), String(first), String(every)],
+      [
+        __filename,
+        "--ticker",
+        label,
+        watch.join(path.delimiter),
+        String(first),
+        String(every),
+        combine,
+      ],
       { stdio: ["ignore", "inherit", "inherit"], windowsHide: true },
     );
     child.on("error", () => {});
@@ -56,12 +70,13 @@ function withActivity(label, watch, step, timing = {}) {
 
 function main(argv) {
   if (argv[0] === "--ticker") {
-    const [, label, watchText, first, every] = argv;
+    const [, label, watchText, first, every, combine] = argv;
     core.startTicker({
       label,
       watch: watchText ? watchText.split(path.delimiter).filter(Boolean) : [],
       first: Number(first) || 8_000,
       every: Number(every) || 15_000,
+      combine: combine === "max" ? "max" : "sum",
     });
     // The ticker's timers are unref'd for library use; this process exists only to tick, so keep it alive.
     setInterval(() => {}, 1 << 30);

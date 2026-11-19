@@ -43,8 +43,14 @@ function dirSize(dir, { budgetMs = 400, maxFiles = 60_000 } = {}) {
   return total;
 }
 
-function sizeOfAll(dirs) {
-  return dirs.reduce((sum, dir) => sum + dirSize(dir), 0);
+/**
+ * One number for several folders. `sum` adds them; `max` takes the largest, for a step whose bytes pass through
+ * two folders (pip downloads a wheel into its cache and then unpacks it into site-packages, so adding both counts
+ * every package twice). The largest of two growing folders still only grows.
+ */
+function sizeOfAll(dirs, combine = "sum") {
+  const sizes = dirs.map((dir) => dirSize(dir));
+  return combine === "max" ? Math.max(0, ...sizes) : sizes.reduce((sum, n) => sum + n, 0);
 }
 
 function duration(ms) {
@@ -87,7 +93,8 @@ function startTicker({
   first = 8_000,
   every = 15_000,
   now = Date.now,
-  size = sizeOfAll,
+  combine = "sum",
+  size = (dirs) => sizeOfAll(dirs, combine),
   write = (line) => console.log(line),
   setTimer = setTimeout,
   clearTimer = clearTimeout,

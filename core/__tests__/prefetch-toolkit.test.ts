@@ -183,7 +183,10 @@ describe("toolkit run", () => {
 
   it("does not download what is already installed and updates what is outdated", async () => {
     const all = Object.fromEntries(
-      manifest.prefetch.map((row: { id: string }) => [row.id, "1.0.0"]),
+      manifest.prefetch.map((row: { id: string }) => [
+        row.id,
+        row.id === ".NET SDK" ? "10.0.100" : "1.0.0",
+      ]),
     );
     const stub = fakeToolchain(all, { ripgrep: "2.0.0" });
     const lines: string[] = [];
@@ -273,7 +276,10 @@ describe("toolkit run", () => {
 
   it("tries a newer release once: a shadowed or finished update is not downloaded on the next run", async () => {
     const all = Object.fromEntries(
-      manifest.prefetch.map((row: { id: string }) => [row.id, "1.0.0"]),
+      manifest.prefetch.map((row: { id: string }) => [
+        row.id,
+        row.id === ".NET SDK" ? "10.0.100" : "1.0.0",
+      ]),
     );
     const stub = fakeToolchain(all, { CMake: "2.0.0" });
     const lines: string[] = [];
@@ -308,7 +314,10 @@ describe("toolkit run", () => {
 
   it("looks for no update at all when updates are off (Doctor and the build), and installs what is missing", async () => {
     const all = Object.fromEntries(
-      manifest.prefetch.map((row: { id: string }) => [row.id, "1.0.0"]),
+      manifest.prefetch.map((row: { id: string }) => [
+        row.id,
+        row.id === ".NET SDK" ? "10.0.100" : "1.0.0",
+      ]),
     );
     delete all["Pandoc"];
     let asked = 0;

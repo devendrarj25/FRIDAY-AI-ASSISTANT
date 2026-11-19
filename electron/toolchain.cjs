@@ -2964,10 +2964,27 @@ function runElevated(cmd, args) {
  * continue?" prompt can never wait for an answer nobody can type. Every
  * command below passes its own yes flags instead.
  */
+/**
+ * The .NET command line prints a welcome and telemetry text on its first run, sends usage data unless told not
+ * to, and creates an ASP.NET Core HTTPS development certificate in the user's certificate store. A tool install
+ * FRIDAY runs (`dotnet tool install`) needs none of that: no banner, no telemetry, no certificate.
+ */
+const DOTNET_QUIET = Object.freeze({
+  DOTNET_NOLOGO: "1",
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: "false",
+});
+
+function childEnv(cmd, base = process.env) {
+  return /^dotnet(\.exe)?$/i.test(path.basename(String(cmd))) ? { ...base, ...DOTNET_QUIET } : base;
+}
+
 function spawnCommand(cmd, args) {
   const { loadWinSpawn } = require("./load-win-spawn.cjs");
   return loadWinSpawn(__dirname).spawnChild(cmd, args || [], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: childEnv(cmd),
   });
 }
 
@@ -4167,6 +4184,8 @@ function installerDir(root) {
 
 module.exports = {
   runElevated,
+  childEnv,
+  DOTNET_QUIET,
   installerCommand,
   commandFor,
   lastDetected: () => lastDetect,

@@ -94,6 +94,7 @@ const run = (exe, args, opts = {}) =>
         "pip",
         require("./with-activity.cjs").pipWatchDirs(exe),
         () => rawRun(exe, args, opts),
+        { combine: "max" },
       )
     : rawRun(exe, args, opts);
 const capture = (exe, args, opts = {}) =>
