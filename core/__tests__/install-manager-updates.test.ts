@@ -334,12 +334,7 @@ describe("a new tool is one JSON entry", () => {
       readFileSync(path.join(root, "config/install-extensions.json"), "utf8"),
     );
     const names = shipped.tools.map((t: { id: string }) => t.id);
-    expect(names).toEqual([
-      "GCC and G++ (WinLibs)",
-      "eSpeak NG",
-      "Composer (PHP)",
-      "dotnet-script",
-    ]);
+    expect(names).toEqual(["GCC and G++ (WinLibs)", "eSpeak NG"]);
     const taken = new Set<string>(toolchain.TOOLS.map((t) => String(t["id"]).toLowerCase()));
     expect(taken.size).toBeGreaterThan(190);
     // A shipped id that a built-in tool already uses would be skipped with a problem instead of becoming a row.

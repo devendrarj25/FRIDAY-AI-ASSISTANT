@@ -862,6 +862,14 @@ const TOOLS = [
     args: ["-v"],
     url: "https://gradle.org/install/",
     source: "gradle.org",
+    // The official binary distribution, checked against the SHA-256 Gradle publishes beside it (read 2026-11-19).
+    installerUrl: "https://services.gradle.org/distributions/gradle-9.9.1-bin.zip",
+    sha256: "d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228",
+    needBytes: 134921139,
+    archiveBin: "gradle-9.9.1/bin/gradle.bat",
+    pinVersion: "9.9.1",
+    manual:
+      "Gradle 9.9.1. Apache-2.0. Needs a JDK. Checksum from services.gradle.org on 2026-11-19.",
   }),
   T(".NET SDK", "Languages & Runtimes", {
     cmd: "dotnet",
@@ -1369,6 +1377,43 @@ const TOOLS = [
     args: ["-v"],
     url: "https://maven.apache.org/",
     source: "maven.apache.org",
+    // archive.apache.org keeps every release; the SHA-512 Apache publishes matched this file (read 2026-11-19).
+    installerUrl:
+      "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
+    sha256: "4ec3f26fb1a692473aea0235c300bd20f0f9fe741947c82c1234cefd76ac3a3c",
+    needBytes: 9202456,
+    archiveBin: "apache-maven-3.9.9/bin/mvn.cmd",
+    pinVersion: "3.9.9",
+    manual:
+      "Maven 3.9.9. Apache-2.0. Needs a JDK. SHA-512 from archive.apache.org checked on 2026-11-19.",
+  }),
+  T("Composer", "Languages & Runtimes", {
+    cmd: "composer",
+    args: ["--version"],
+    url: "https://getcomposer.org/download/",
+    source: "getcomposer.org",
+    // composer.phar is a PHP archive, not a program: the install keeps it beside a composer.bat that runs it.
+    installerUrl: "https://getcomposer.org/download/2.11.2/composer.phar",
+    sha256: "dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028",
+    needBytes: 3815650,
+    archiveBin: "composer.bat",
+    pharFile: "composer.phar",
+    pinVersion: "2.11.2",
+    latest: { kind: "github", ref: "composer/composer" },
+    manual: "Composer 2.11.2. MIT. Needs PHP. SHA-256 from getcomposer.org checked on 2026-11-19.",
+  }),
+  T("dotnet-script", "Languages & Runtimes", {
+    cmd: "dotnet-script",
+    args: ["--version"],
+    url: "https://github.com/dotnet-script/dotnet-script",
+    source: "github.com/dotnet-script",
+    // A .NET global tool: installed by the .NET SDK itself.
+    dotnetTool: "dotnet-script",
+    latest: { kind: "github", ref: "dotnet-script/dotnet-script" },
+    customCommand: async (action) => [
+      "dotnet",
+      ["tool", action === "update" ? "update" : "install", "--global", "dotnet-script"],
+    ],
   }),
   T("Terraform", "Developer Tools", {
     cmd: "terraform",
@@ -2793,6 +2838,7 @@ async function commandFor(tool, action, opts = {}) {
     if (winget)
       return ["winget", ["uninstall", "--id", winget, "--silent", "--accept-source-agreements"]];
     if (tool.npm) return [WIN ? "npm.cmd" : "npm", ["uninstall", "-g", tool.npm]];
+    if (tool.dotnetTool) return ["dotnet", ["tool", "uninstall", "--global", tool.dotnetTool]];
     if (tool.pip) {
       const python = await resolvePython(path.join(__dirname, ".."));
       return python
@@ -3027,6 +3073,7 @@ function pmMethodLabel(tool) {
   if (tool.npm) return "npm";
   if (tool.pip) return "pip";
   if (tool.cargo) return "cargo";
+  if (tool.dotnetTool) return "dotnet tool";
   return "package manager";
 }
 
@@ -3186,6 +3233,18 @@ function installerCommand(file, tool, root) {
     fs.mkdirSync(plan.dest, { recursive: true });
     extractZip(file, plan.dest);
     if (tool.embedPth) require("./toolchain-pack.cjs").writeEmbedPth(plan.dest);
+    return plan.command;
+  }
+  if (ext === ".phar") {
+    // A PHP archive is kept next to a one-line launcher, so `composer` works from any terminal.
+    const plan = archiveInstallCommand(file, root, tool);
+    fs.mkdirSync(plan.dest, { recursive: true });
+    const phar = tool.pharFile || path.basename(file);
+    fs.copyFileSync(file, path.join(plan.dest, phar));
+    fs.writeFileSync(
+      path.join(plan.dest, tool.archiveBin || "composer.bat"),
+      `@echo off\r\nphp "%~dp0${phar}" %*\r\n`,
+    );
     return plan.command;
   }
   if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
@@ -3874,7 +3933,7 @@ function runJob({ id, action, root }, emit) {
       if (!last.ok) return null;
       // An unpacked archive records what it is, so the next scan finds it, knows
       // its version and can tell when a newer one exists.
-      if (tool.archiveBin && /\.(zip|gz)$/i.test(file)) {
+      if (tool.archiveBin && /\.(zip|gz|phar)$/i.test(file)) {
         require("./managed-install.cjs").writeMarker(root, tool, {
           version: tool.releaseTag || tool.pinVersion,
           bin: tool.feedBin || tool.archiveBin,
@@ -4108,6 +4167,8 @@ function installerDir(root) {
 
 module.exports = {
   runElevated,
+  installerCommand,
+  commandFor,
   lastDetected: () => lastDetect,
   applyManagedPath: (root) => require("./managed-path.cjs").applyManagedPath(root, TOOLS),
   anyReachable,

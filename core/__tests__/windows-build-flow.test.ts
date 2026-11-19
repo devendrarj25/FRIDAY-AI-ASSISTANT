@@ -402,7 +402,28 @@ describe("what a real setup run left unsaid", () => {
     expect(setup).toContain("function Add-FollowUp");
     expect(setup).toContain("function Write-FollowUps");
     expect(setup.indexOf("SETUP PASS")).toBeLessThan(setup.lastIndexOf("Write-FollowUps"));
-    expect(setup).toMatch(/Add-FollowUp "\$Label \$Latest is out/);
+    // A newer Node.js or npm is installed by a hidden helper after this window's npm command ends; only when
+    // that helper cannot start (or FRIDAY_SETUP_UPDATE_RUNNING_TOOLS=0) is the command named for the person.
+    expect(setup).toMatch(/Add-FollowUp "\$\(\$item\.Label\) \$\(\$item\.Latest\) is out/);
+    expect(setup.indexOf("Start-RunningToolUpgrades\r\n  Write-FollowUps")).toBeGreaterThan(
+      setup.indexOf("SETUP PASS"),
+    );
+  });
+
+  it("installs a newer Node.js and npm after the setup process has ended, and makes the next run wait for it", () => {
+    expect(setup).toContain("FRIDAY_SETUP_UPDATE_RUNNING_TOOLS");
+    expect(setup).toContain("winget upgrade --id OpenJS.NodeJS.LTS");
+    expect(setup).toContain("npm.cmd install --global npm@latest");
+    expect(setup).toContain("Wait-Process -Id `$id -Timeout 900");
+    // The helper waits for this process and for the npm and cmd.exe processes that only wait for it.
+    expect(setup).toContain("function Get-WaitIds");
+    expect(setup).toContain("-EncodedCommand");
+    expect(setup).toContain("-WindowStyle Hidden");
+    // The next setup run waits for a helper that is still replacing the files, before it looks at any tool.
+    expect(setup).toContain("function Wait-RunningToolsUpgrade");
+    expect(setup.indexOf("  Wait-RunningToolsUpgrade\r\n")).toBeLessThan(
+      setup.indexOf("Ensure-Tool 'Node.js'"),
+    );
   });
 
   it("removes a FRIDAY_PYTHON that points at a file that is gone, from the user's own environment only", () => {

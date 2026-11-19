@@ -484,18 +484,104 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
   Write-Step "$Label - winget does not manage this copy, so it is kept as it is"
 }
 
-# Node.js and npm run this very setup, so a running copy is never replaced from here: a newer release is
-# named, with the one command that installs it from a new terminal.
+# Node.js and npm run this very setup, so a running copy is never replaced from here. A newer release is
+# collected and installed by a hidden helper that starts when this window's npm command has exited (see
+# Start-RunningToolUpgrades); when that cannot start, the one command that installs it is named at the end.
+$script:RunningUpgrades = New-Object System.Collections.Generic.List[object]
+$script:UpgradeLock = Join-Path $env:TEMP 'friday-running-tools-upgrade.lock'
+$script:UpgradeLog = Join-Path $env:TEMP 'friday-running-tools-upgrade.log'
+
 function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Latest, [string]$Command) {
   if (-not $Installed -or -not $Latest) { return }
   try {
     if ([version]$Latest -gt [version]$Installed) {
-      Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is not replaced from here (the command is repeated at the end)"
-      Add-FollowUp "$Label $Latest is out (you have $Installed). Close this window, open a new terminal and run: $Command"
+      Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is installed right after this setup ends"
+      $script:RunningUpgrades.Add(@{ Label = $Label; Installed = $Installed; Latest = $Latest; Command = $Command }) | Out-Null
     } else {
       Write-Step "$Label $Installed is the latest release"
     }
   } catch { }
+}
+
+# The helper from the last setup may still be replacing Node.js or npm: starting another run underneath it would
+# use half-replaced files, so this run waits for it (at most 15 minutes).
+function Wait-RunningToolsUpgrade {
+  if (-not (Test-Path -LiteralPath $script:UpgradeLock)) { return }
+  $pending = 0
+  try { $pending = [int]((Get-Content -LiteralPath $script:UpgradeLock -Raw).Trim()) } catch { }
+  $process = $null
+  if ($pending -gt 0) { $process = Get-Process -Id $pending -ErrorAction SilentlyContinue }
+  if ($process -and $process.ProcessName -match 'powershell') {
+    Write-Step "a Node.js / npm update started by the last setup is still running - waiting for it (up to 15 minutes; log: $($script:UpgradeLog))"
+    try { Wait-Process -Id $pending -Timeout 900 -ErrorAction SilentlyContinue } catch { }
+  }
+  Remove-Item -LiteralPath $script:UpgradeLock -Force -ErrorAction SilentlyContinue
+}
+
+# This process and the processes that started it and only wait for it (npm, the cmd.exe that runs the script).
+function Get-WaitIds {
+  $ids = @($PID)
+  try {
+    $current = $PID
+    for ($depth = 0; $depth -lt 6; $depth++) {
+      $row = Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction Stop
+      $parent = [int]$row.ParentProcessId
+      if ($parent -le 0) { break }
+      $up = Get-CimInstance Win32_Process -Filter "ProcessId=$parent" -ErrorAction Stop
+      if (-not $up) { break }
+      $line = "$($up.CommandLine)"
+      $waits = ($up.Name -ieq 'node.exe') -or (($up.Name -ieq 'cmd.exe') -and ($line -match '\s/c\s'))
+      if (-not $waits) { break }
+      $ids += $parent
+      $current = $parent
+    }
+  } catch { }
+  return $ids
+}
+
+function Start-RunningToolUpgrades {
+  if ($script:RunningUpgrades.Count -eq 0) { return }
+  $started = $false
+  if ($env:FRIDAY_SETUP_UPDATE_RUNNING_TOOLS -ne '0') {
+    try {
+      $ids = (Get-WaitIds) -join ','
+      $body = New-Object System.Collections.Generic.List[string]
+      $body.Add("`$ErrorActionPreference = 'Continue'")
+      $body.Add("`$log = '$($script:UpgradeLog)'")
+      $body.Add('function Log([string]$Text) { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + '' '' + $Text) }')
+      $body.Add("foreach (`$id in @($ids)) { try { Wait-Process -Id `$id -Timeout 900 -ErrorAction SilentlyContinue } catch { } }")
+      $body.Add('Start-Sleep -Seconds 2')
+      $body.Add("Log 'update of the running tools started'")
+      foreach ($item in $script:RunningUpgrades) {
+        if ($item.Label -eq 'Node.js') {
+          $body.Add("Log 'winget upgrade OpenJS.NodeJS.LTS'")
+          $body.Add('& winget upgrade --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget *>> $log')
+          $body.Add('Log (''exit code '' + $LASTEXITCODE)')
+        } elseif ($item.Label -eq 'npm') {
+          $body.Add("Log 'npm install --global npm@latest'")
+          $body.Add('& npm.cmd install --global npm@latest --no-audit --no-fund *>> $log')
+          $body.Add('Log (''exit code '' + $LASTEXITCODE)')
+        }
+      }
+      $body.Add("Log 'done'")
+      $body.Add("Remove-Item -LiteralPath '$($script:UpgradeLock)' -Force -ErrorAction SilentlyContinue")
+      $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($body -join "`r`n")))
+      $helper = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', $encoded) -WindowStyle Hidden -PassThru
+      if ($helper) {
+        Set-Content -LiteralPath $script:UpgradeLock -Value $helper.Id
+        $started = $true
+        $names = ($script:RunningUpgrades | ForEach-Object { "$($_.Label) $($_.Latest)" }) -join ' and '
+        Write-Step "$names will be installed in the background as soon as this window's npm command ends. A Windows prompt may appear. Wait about a minute before the next npm command (it waits for the update by itself). Log: $($script:UpgradeLog)"
+      }
+    } catch {
+      Write-MethodFailure 'background update of Node.js / npm' $_.Exception.Message
+    }
+  }
+  if (-not $started) {
+    foreach ($item in $script:RunningUpgrades) {
+      Add-FollowUp "$($item.Label) $($item.Latest) is out (you have $($item.Installed)). Close this window, open a new terminal and run: $($item.Command)"
+    }
+  }
 }
 
 function Show-NodeAndNpmLatest {
@@ -598,6 +684,7 @@ function Restore-ConsoleQuickEdit([long]$Mode) {
 $script:ConsoleModeBefore = Disable-ConsoleQuickEdit
 Push-Location $Root
 try {
+  Wait-RunningToolsUpgrade
   Refresh-Path
   Write-Step 'Preparing the FRIDAY Windows toolchain: each tool is detected first, kept when supported, and updated when its official source has a newer release'
   if ($script:UpdateWanted) {
@@ -778,6 +865,7 @@ try {
     (Get-Version 'git.exe' @('--version')), `
     (Get-Version 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()')))
   Write-Host '[FRIDAY] SETUP PASS - FRIDAY is ready to test, build and run.' -ForegroundColor Green
+  Start-RunningToolUpgrades
   Write-FollowUps
 } catch {
   Write-Host "[FRIDAY] SETUP FAIL - $($_.Exception.Message)" -ForegroundColor Red

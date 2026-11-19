@@ -212,6 +212,26 @@
       }
     },
     {
+      "id": "Maven",
+      "group": "language",
+      "why": "build Java projects that have a pom.xml",
+      "approxBytes": 9202456,
+      "probe": {
+        "cmd": ["mvn", "mvn.cmd"],
+        "args": ["-v"]
+      }
+    },
+    {
+      "id": "Gradle",
+      "group": "language",
+      "why": "build Java projects that have a build.gradle",
+      "approxBytes": 134921139,
+      "probe": {
+        "cmd": ["gradle", "gradle.bat"],
+        "args": ["-v"]
+      }
+    },
+    {
       "id": "GCC and G++ (WinLibs)",
       "group": "language",
       "why": "compile and run C and C++ programs (the project runner calls gcc and g++)",
@@ -243,6 +263,16 @@
       }
     },
     {
+      "id": "Composer",
+      "group": "language",
+      "why": "install the packages of a PHP project that has a composer.json",
+      "approxBytes": 3815650,
+      "probe": {
+        "cmd": ["composer", "composer.bat"],
+        "args": ["--version"]
+      }
+    },
+    {
       "id": ".NET SDK",
       "group": "language",
       "why": "build and run C# programs",
@@ -251,6 +281,17 @@
         "cmd": ["dotnet", "dotnet.exe"],
         "args": ["--version"],
         "dirs": ["%ProgramFiles%\\dotnet"]
+      }
+    },
+    {
+      "id": "dotnet-script",
+      "group": "language",
+      "why": "run a single C# file (.cs)",
+      "approxBytes": 10000000,
+      "probe": {
+        "cmd": ["dotnet-script", "dotnet-script.exe"],
+        "args": ["--version"],
+        "dirs": ["%USERPROFILE%\\.dotnet\\tools"]
       }
     },
     {

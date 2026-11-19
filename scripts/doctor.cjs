@@ -182,5 +182,7 @@ module.exports = { STEPS, runDoctor };
 
 if (require.main === module) {
   // exitCode, not process.exit(): ending the process while child pipes are closing can abort Node on Windows.
+  // A Node.js / npm update left by the last `npm run setup` finishes first.
+  require("./running-tools-upgrade.cjs").waitForPending();
   process.exitCode = runDoctor().ok ? 0 : 1;
 }

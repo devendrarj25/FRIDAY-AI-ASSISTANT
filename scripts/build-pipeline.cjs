@@ -704,6 +704,8 @@ function runPhase(phase, options, root) {
       console.log(
         `[friday] FRIDAY_PYTHON pointed at ${stale}, which is gone; using the Python setup created.`,
       );
+    // A Node.js / npm update left by the last `npm run setup` finishes before anything starts.
+    require("./running-tools-upgrade.cjs").waitForPending();
     ensureToolchain(root);
     runNode("scripts/check-engines.cjs", [], root);
     npmCi(root);

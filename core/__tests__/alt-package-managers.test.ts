@@ -26,6 +26,10 @@ describe("alternate package managers", () => {
     for (const entry of manifest.prefetch) {
       // A Windows optional feature is switched on with DISM, not a package manager.
       if (toolchain.toolById(entry.id).optionalFeature) continue;
+      // A .NET global tool is installed by the .NET SDK itself (`dotnet tool install`), not by a package manager.
+      if (toolchain.toolById(entry.id).dotnetTool) continue;
+      // A .NET global tool is installed by the .NET SDK itself (`dotnet tool install`), not by a package manager.
+      if (toolchain.toolById(entry.id).dotnetTool) continue;
       expect(alt.managersFor(entry.id).length, entry.id).toBeGreaterThan(0);
     }
   });

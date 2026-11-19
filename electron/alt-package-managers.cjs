@@ -39,6 +39,7 @@ const ALT = Object.freeze({
   "GCC and G++ (WinLibs)": { choco: "mingw", scoop: "gcc" },
   Ruby: { choco: "ruby", scoop: "ruby" },
   PHP: { choco: "php", scoop: "php" },
+  Composer: { choco: "composer", scoop: "composer" },
   ".NET SDK": { choco: "dotnet-sdk", scoop: "dotnet-sdk" },
   "eSpeak NG": { choco: "espeak-ng" },
   "Docker Desktop": { choco: "docker-desktop" },
