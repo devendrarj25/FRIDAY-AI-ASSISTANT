@@ -2695,7 +2695,10 @@ async function latestFromSpec(spec) {
   }
   if (spec.kind === "github") {
     const release = await require("./vendor-sources.cjs").githubRelease(spec.ref);
-    return release?.tag ? semver(release.tag) : null;
+    // A tag can carry build words after the number (WinLibs: "16.2.0posix-23.1.3-14.0.0-ucrt-r3"); only the
+    // leading release number is a version, or the installed 16.2.0 would look older than its own release.
+    const lead = release?.tag ? /\d+(?:\.\d+){1,3}/.exec(String(release.tag)) : null;
+    return lead ? lead[0] : null;
   }
   return null;
 }

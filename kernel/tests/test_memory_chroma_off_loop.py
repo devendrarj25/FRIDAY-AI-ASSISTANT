@@ -4,6 +4,7 @@ a first recall could freeze FRIDAY for minutes). The calls now run in a worker t
 call moves memory to the local index."""
 
 import asyncio
+import importlib
 import sys
 import tempfile
 import threading
@@ -12,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from memory import VectorMemory  # noqa: E402
+VectorMemory = importlib.import_module("memory").VectorMemory
 
 
 class SlowCollection:
