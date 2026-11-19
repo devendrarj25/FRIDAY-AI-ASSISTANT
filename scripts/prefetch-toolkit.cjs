@@ -402,6 +402,12 @@ async function prefetchToolkit(root, deps = {}) {
     return [];
   }
   const toolchain = deps.toolchain || require("./electron-module.cjs").load("toolchain.cjs");
+  // The rows config/install-extensions.json adds (the C++ compiler, eSpeak NG) are part of the toolkit list.
+  try {
+    toolchain.syncExtensions?.(root);
+  } catch {
+    /* the built-in rows still install */
+  }
   const progressLine = deps.progressLine || require("./stage-toolchain.cjs").progressLine;
   const update = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_UPDATE");
   const elevated = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_ELEVATED");

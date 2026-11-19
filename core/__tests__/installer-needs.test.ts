@@ -105,6 +105,13 @@ describe("agent toolkit queue", () => {
     const { installer } = await import("../../src/lib/friday/installer-engine");
     const manifest = (await import("../../config/agent-toolkit.json")).default;
     installer.state.bridge = "desktop";
+    // A row the scan reports that the built-in catalog does not know (the shipped extension rows: the C++
+    // compiler, eSpeak NG) becomes a row by itself, so the toolkit button queues it too.
+    const known = new Set(installer.entries().map((e) => e.pkg));
+    installer.state.extra = (manifest.prefetch as { id: string; catalog?: string }[])
+      .filter((row) => !known.has(row.catalog ?? row.id))
+      .map((row) => ({ pkg: row.catalog ?? row.id, category: "Developer Tools" }) as never);
+    expect(installer.state.extra.length).toBeGreaterThanOrEqual(2);
     installer.state.probed = ["Git"];
     installer.state.installed["Git"] = "2.50.0";
     const queued = installer.installToolkit();

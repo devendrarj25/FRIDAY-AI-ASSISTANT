@@ -232,7 +232,7 @@ Open **Install Manager** for the tools FRIDAY can use on your PC: Git, Node, Pyt
 
 - The page re-reads your PC every five minutes and after every install. A row shows installed or missing, the installed version and the newest version.
 - Press **Install** on a row, or **Update** to update it. It uses `winget` first and the vendor's own checked installer if winget cannot. **Refresh** reads again; **Update all** updates what has a newer version; **Cancel** stops a download or an installer.
-- On an app installed from a release, the button **Install agent toolkit** installs the same toolkit Path B installs (search and convert helpers, Git and build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, and CUDA with an NVIDIA card). Some of these ask for administrator approval.
+- On an app installed from a release, the button **Install agent toolkit** installs the same toolkit Path B installs (search and convert helpers, Git and build tools, Go, Rust, Java, C and C++ (GCC), Ruby, PHP, .NET, eSpeak NG, WSL 2, Docker, Windows Sandbox, and CUDA with an NVIDIA card). Some of these ask for administrator approval.
 - **Your own tools:** the **Software** section can add anything that installs with winget, npm or pip.
 - **Services** (Ollama, LM Studio, Docker Desktop) can be started and stopped there.
 
@@ -401,7 +401,7 @@ Inside the script, in order:
 3. `npm ci` from `package-lock.json`. On failure: `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
 4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip checked against its SHA-256 list, the public npmmirror copy of the same zip, then `@electron/get`).
 5. `node scripts\setup-python.cjs` — venv at the selected FRIDAY folder `runtime\.venv`, or checkout `.venv` if no folder is selected.
-6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
+6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, GCC and G++, Ruby, PHP, .NET SDK, eSpeak NG, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
 7. `node scripts\init-runtime.cjs` — folders, wake model, database.
 8. `node scripts\check-environment.cjs --fix`.
 9. `npm run doctor`. Success prints `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. For the toolchain alone, `scripts\setup-windows.ps1 -ToolchainOnly` installs only Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime (doctor and the build call it).

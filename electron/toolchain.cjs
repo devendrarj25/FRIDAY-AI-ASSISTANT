@@ -866,7 +866,7 @@ const TOOLS = [
   T(".NET SDK", "Languages & Runtimes", {
     cmd: "dotnet",
     args: ["--version"],
-    winget: "Microsoft.DotNet.SDK.8",
+    winget: "Microsoft.DotNet.SDK.10",
     url: "https://dotnet.microsoft.com/download",
     source: "microsoft.com",
   }),

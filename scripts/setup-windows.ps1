@@ -749,7 +749,7 @@ try {
   & node.exe scripts\setup-python.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
 
-  Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
+  Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, C++, Ruby, PHP, .NET, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
   & node.exe scripts\prefetch-toolkit.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The agent toolkit is not complete (see ACTION REQUIRED above). Fix it, then run npm run doctor.' }
 

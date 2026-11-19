@@ -13,6 +13,8 @@ const root = path.resolve(import.meta.dirname, "../..");
 const alt = require_(path.join(root, "electron/alt-package-managers.cjs"));
 const toolchain = require_(path.join(root, "electron/toolchain.cjs"));
 const manifest = require_(path.join(root, "config/agent-toolkit.json"));
+// The shipped extension rows (the C++ compiler, eSpeak NG) are part of the catalog and of the toolkit list.
+toolchain.syncExtensions("");
 
 describe("alternate package managers", () => {
   it("name only tools the Install Manager has", () => {
