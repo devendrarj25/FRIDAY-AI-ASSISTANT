@@ -267,6 +267,28 @@ function Install-WingetPackage([string]$PackageId) {
 }
 
 # ---------------------------------------------------------------- direct downloads
+# nodejs.org publishes SHASUMS256.txt beside every release. The MSI is checked against it; a file that does not
+# match is deleted and the method fails (the next method runs). If the list itself cannot be read, the signature
+# check in Install-Package still applies.
+function Assert-NodeChecksum([string]$Version, [string]$File) {
+  $name = Split-Path -Leaf $File
+  try {
+    $text = (Invoke-WebRequest -Uri "https://nodejs.org/dist/$Version/SHASUMS256.txt" -UseBasicParsing).Content
+    if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
+  } catch {
+    Write-Step "Node.js checksum list could not be read ($($_.Exception.Message)) - signature check only"
+    return
+  }
+  $match = [regex]::Match("$text", "(?im)^([0-9a-f]{64})\s+\*?$([regex]::Escape($name))\s*$")
+  if (-not $match.Success) { return }
+  $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $match.Groups[1].Value.ToLowerInvariant()) {
+    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+    throw "SHA-256 mismatch for $name (file deleted)"
+  }
+  Write-Step "SHA-256 verified for $name"
+}
+
 function Install-NodeDirect {
   $index = $null
   try {
@@ -280,6 +302,7 @@ function Install-NodeDirect {
   $version = $release.version
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/$version/node-$version-$arch.msi" "node-$version-$arch.msi"
+  Assert-NodeChecksum $version $file
   Install-Package $file @('/qn', '/norestart')
 }
 
@@ -287,6 +310,7 @@ function Install-NodeFloor {
   $version = $Versions.nodeMinimum
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/v$version/node-v$version-$arch.msi" "node-v$version-$arch.msi"
+  Assert-NodeChecksum "v$version" $file
   Install-Package $file @('/qn', '/norestart')
 }
 

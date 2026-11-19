@@ -108,6 +108,8 @@ let recordedCheckout = false;
  */
 function recordWorkspaceRoot(root) {
   if (process.platform !== "win32" || recordedCheckout) return false;
+  // A hosted runner is thrown away; it must not leave a registry pointer behind or depend on one.
+  if (process.env.CI || process.env.GITHUB_ACTIONS) return false;
   recordedCheckout = true;
   const out = spawnSync(
     "reg",

@@ -48,6 +48,17 @@ describe("setup-windows.ps1 download safety", () => {
     expect(ps1).toContain("GyanD/codexffmpeg");
   });
 
+  it("checks the Node.js MSI against nodejs.org's SHASUMS256.txt on both direct paths", () => {
+    expect(ps1).toContain("function Assert-NodeChecksum");
+    expect(ps1).toContain("SHASUMS256.txt");
+    const direct = ps1.slice(
+      ps1.indexOf("function Install-NodeDirect"),
+      ps1.indexOf("function Install-PythonDirect"),
+    );
+    expect(direct.match(/Assert-NodeChecksum /g)?.length).toBe(2);
+    expect(direct.indexOf("Assert-NodeChecksum")).toBeLessThan(direct.indexOf("Install-Package"));
+  });
+
   it("retries the GitHub release lookup and honours GITHUB_TOKEN", () => {
     expect(ps1).toContain("function Get-GitHubLatestRelease");
     expect(ps1).toContain("GITHUB_TOKEN");

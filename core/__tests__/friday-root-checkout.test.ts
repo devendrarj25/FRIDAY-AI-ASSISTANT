@@ -3,7 +3,7 @@
  * settings pointer is gone, the build still finds that folder as the home.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -98,5 +98,15 @@ describe("the folder the setup CMD runs in as the FRIDAY home", () => {
     );
     expect(api.isUsableHome(path.join(folder(), "does-not-exist"))).toBe(false);
     expect(api.isUsableHome(folder())).toBe(true);
+  });
+
+  it("leaves no registry pointer behind on a hosted runner", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../scripts/friday-root.cjs"), "utf8");
+    const fn = src.slice(
+      src.indexOf("function recordWorkspaceRoot"),
+      src.indexOf("function workspaceRootOrDev"),
+    );
+    expect(fn).toMatch(/process\.env\.CI \|\| process\.env\.GITHUB_ACTIONS/);
+    expect(fn.indexOf("GITHUB_ACTIONS")).toBeLessThan(fn.indexOf("spawnSync"));
   });
 });
