@@ -7013,6 +7013,15 @@ ipcMain.handle("tools:latest", async (_e, force) => {
   recordInventory(toolchain.lastDetected());
   return latestSeen;
 });
+// Tools the owner adds by data (config/install-extensions.user.json). Nothing here runs a command: an entry is
+// checked by electron/install-extensions.cjs and installs through the same winget, npm or pip paths as the rest.
+ipcMain.handle("tools:extensions", () => toolchain.listExtensions(getWorkspaceRoot()));
+ipcMain.handle("tools:extension-add", (_e, entry) =>
+  toolchain.addExtension(getWorkspaceRoot(), entry),
+);
+ipcMain.handle("tools:extension-remove", (_e, id) =>
+  toolchain.removeExtension(getWorkspaceRoot(), String(id || "")),
+);
 ipcMain.handle("tools:active-jobs", () => toolchain.activeJobs());
 ipcMain.handle("tools:cancel", (_e, job) => toolchain.cancelJob(job || {}));
 ipcMain.handle("tools:run", (_e, job) =>

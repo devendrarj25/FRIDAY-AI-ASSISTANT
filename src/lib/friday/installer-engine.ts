@@ -152,7 +152,28 @@ export const serviceIdFor = (pkg: string, known: readonly ServiceRow[]): string 
   return known.some((row) => row.id === id && row.supported) ? id : null;
 };
 
+/** The owner's own tools (config/install-extensions*.json): what loaded and what was skipped, and why. */
+export type ExtensionsInfo = {
+  file: string | null;
+  tools: Array<{ id: string; own: boolean }>;
+  problems: Array<{ id: string | null; reason: string }>;
+};
+
+/** What the "Add a tool" form sends; the main process checks it again before anything is written. */
+export type OwnToolEntry = {
+  id: string;
+  cmd?: string;
+  winget?: string;
+  npm?: string;
+  pip?: string;
+  url: string;
+  category?: string;
+};
+
 export type DesktopInstallerApi = {
+  listToolExtensions?: () => Promise<ExtensionsInfo>;
+  addToolExtension?: (entry: OwnToolEntry) => Promise<{ ok: boolean; id?: string; error?: string }>;
+  removeToolExtension?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   toolServices?: () => Promise<{ at: number; idleMinutes: number; services: ServiceRow[] }>;
   toolServiceAction?: (
     id: string,
@@ -657,6 +678,50 @@ class InstallerStore {
       if (event.line) job.detail = event.line.slice(0, 160);
     }
     this.emit();
+  }
+
+  /* ------------------------------------------------ the owner's own tools */
+
+  /** The owner's tool list, or null where there is no desktop app. */
+  async listOwnTools(): Promise<ExtensionsInfo | null> {
+    const desktop = this.desktopApi();
+    if (!desktop?.listToolExtensions) return null;
+    try {
+      return await desktop.listToolExtensions();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Adds a tool; on success the machine is read again so the new row shows its real state. */
+  async addOwnTool(entry: OwnToolEntry): Promise<{ ok: boolean; error?: string }> {
+    const desktop = this.desktopApi();
+    if (!desktop?.addToolExtension) return { ok: false, error: "needs the desktop app" };
+    try {
+      const result = await desktop.addToolExtension(entry);
+      if (result.ok) {
+        this.push("ok", `${entry.id}: added to your tools`);
+        void this.refreshFromSystem(true);
+      }
+      return result;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || "could not add the tool" };
+    }
+  }
+
+  async removeOwnTool(id: string): Promise<{ ok: boolean; error?: string }> {
+    const desktop = this.desktopApi();
+    if (!desktop?.removeToolExtension) return { ok: false, error: "needs the desktop app" };
+    try {
+      const result = await desktop.removeToolExtension(id);
+      if (result.ok) {
+        this.push("info", `${id}: removed from your tools (the program itself stays installed)`);
+        void this.refreshFromSystem(true);
+      }
+      return result;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || "could not remove the tool" };
+    }
   }
 
   /** Real detection: probes the machine and the official registries. */

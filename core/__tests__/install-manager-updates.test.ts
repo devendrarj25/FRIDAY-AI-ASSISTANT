@@ -41,7 +41,6 @@ const ext = require_("../../electron/install-extensions.cjs") as {
 };
 
 const store = installer as unknown as {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   state: any;
   updateTried: Record<string, string>;
   noteUpdateOutcome: (pkg: string) => void;
@@ -334,5 +333,121 @@ describe("a new tool is one JSON entry", () => {
     expect(readFileSync(path.join(root, "electron-builder.yml"), "utf8")).toContain(
       '"!install-extensions.user.json"',
     );
+  });
+});
+
+describe("adding and removing your own tool", () => {
+  const folders: string[] = [];
+  const folder = () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "friday-own-"));
+    folders.push(dir);
+    return dir;
+  };
+  afterEach(() => {
+    for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true });
+    toolchain.syncExtensions("");
+  });
+  const own = toolchain as unknown as {
+    listExtensions: (root: string) => {
+      file: string | null;
+      tools: Array<{ id: string; own: boolean }>;
+      problems: Array<{ reason: string }>;
+    };
+    addExtension: (root: string, entry: unknown) => { ok: boolean; id?: string; error?: string };
+    removeExtension: (root: string, id: string) => { ok: boolean; error?: string };
+    toolById: (id: string) => Record<string, any> | null;
+  };
+  const entry = {
+    id: "Hugo",
+    cmd: "hugo",
+    winget: "Hugo.Hugo.Extended",
+    url: "https://gohugo.io/",
+  };
+
+  it("writes the owner's file, shows the tool as a row on the next scan, and removes it again", () => {
+    const dir = folder();
+    expect(own.addExtension(dir, entry)).toEqual({ ok: true, id: "Hugo" });
+    const file = path.join(dir, "config", "install-extensions.user.json");
+    expect(JSON.parse(readFileSync(file, "utf8")).tools).toHaveLength(1);
+    expect(own.toolById("Hugo")).toMatchObject({ winget: "Hugo.Hugo.Extended", required: false });
+    expect(own.listExtensions(dir).tools).toEqual([{ id: "Hugo", own: true }]);
+
+    expect(own.removeExtension(dir, "hugo")).toEqual({ ok: true, id: "hugo" });
+    expect(own.toolById("Hugo")).toBeNull();
+    expect(JSON.parse(readFileSync(file, "utf8")).tools).toEqual([]);
+    expect(own.removeExtension(dir, "Hugo").ok).toBe(false);
+  });
+
+  it("refuses a duplicate, a built-in name, a bad entry and a missing folder, and writes nothing for them", () => {
+    const dir = folder();
+    expect(own.addExtension(dir, entry).ok).toBe(true);
+    expect(own.addExtension(dir, entry).error).toMatch(/already used/);
+    expect(own.addExtension(dir, { ...entry, id: "Node.js LTS" }).error).toMatch(/already used/);
+    expect(own.addExtension(dir, { ...entry, id: "Evil", url: "http://x.com" }).error).toMatch(
+      /https/,
+    );
+    expect(own.addExtension(dir, { ...entry, id: "Evil2", startAfter: ["cmd"] }).error).toMatch(
+      /not allowed/,
+    );
+    expect(own.addExtension("", entry).error).toMatch(/choose a FRIDAY folder/);
+    expect(
+      JSON.parse(readFileSync(path.join(dir, "config", "install-extensions.user.json"), "utf8"))
+        .tools,
+    ).toHaveLength(1);
+  });
+
+  it("does not overwrite a hand-edited file it cannot read", () => {
+    const dir = folder();
+    mkdirSync(path.join(dir, "config"));
+    const file = path.join(dir, "config", "install-extensions.user.json");
+    writeFileSync(file, "{ my notes, not json");
+    expect(own.addExtension(dir, entry).error).toMatch(/not valid JSON/);
+    expect(readFileSync(file, "utf8")).toBe("{ my notes, not json");
+  });
+
+  it("keeps an entry it did not touch, even one that does not load", () => {
+    const dir = folder();
+    mkdirSync(path.join(dir, "config"));
+    const file = path.join(dir, "config", "install-extensions.user.json");
+    writeFileSync(file, JSON.stringify({ tools: [{ id: "Odd", note: "mine" }] }));
+    expect(own.addExtension(dir, entry).ok).toBe(true);
+    expect(JSON.parse(readFileSync(file, "utf8")).tools.map((t: { id: string }) => t.id)).toEqual([
+      "Odd",
+      "Hugo",
+    ]);
+  });
+
+  it("is reachable from the page: IPC, preload, store and a panel in the Software section", () => {
+    const main = readFileSync(path.join(root, "electron/main.cjs"), "utf8");
+    for (const channel of ["tools:extensions", "tools:extension-add", "tools:extension-remove"]) {
+      expect(main, channel).toContain(`ipcMain.handle("${channel}"`);
+      expect(readFileSync(path.join(root, "electron/preload.cjs"), "utf8"), channel).toContain(
+        `"${channel}"`,
+      );
+    }
+    const page = readFileSync(path.join(root, "src/routes/install-manager.tsx"), "utf8");
+    expect(page).toContain('<OwnToolsPanel title="Your own tools" />');
+    const panel = readFileSync(path.join(root, "src/components/friday/OwnToolsPanel.tsx"), "utf8");
+    expect(panel).toContain("installer.addOwnTool(entry)");
+    expect(panel).toContain("installer.removeOwnTool(id)");
+  });
+});
+
+describe("cancel stops a download too", () => {
+  it("aborts the download of the job, ends the attempt without running an installer, and keeps no stale handle", () => {
+    const tc = readFileSync(path.join(root, "electron/toolchain.cjs"), "utf8");
+    expect(tc).toContain("downloadAborts.set(key, abort)");
+    expect(tc).toContain("signal: abort.signal");
+    expect(tc).toMatch(/downloadAborts\.delete\(key\);\s*if \(abort\.signal\.aborted\)/);
+    const cancel = tc.slice(tc.indexOf("function cancelJob"), tc.indexOf("function activeJobs"));
+    expect(cancel).toContain("abort.abort()");
+    expect(cancel).toContain("downloadAborts.delete(");
+  });
+
+  it("cancelJob reports true for a job that is only downloading", () => {
+    const own = toolchain as unknown as {
+      cancelJob: (job: { id: string; action: string }) => boolean;
+    };
+    expect(own.cancelJob({ id: "nothing", action: "install" })).toBe(false);
   });
 });

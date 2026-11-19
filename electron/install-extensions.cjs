@@ -181,4 +181,70 @@ function loadExtensions({ shippedFile, root, categories, taken }) {
   return { tools, problems, stamp: stamps.join("\n") };
 }
 
-module.exports = { FILE_NAME, USER_FILE_NAME, FIELDS, validate, loadExtensions };
+const MAX_USER_TOOLS = 200;
+
+function userFileOf(root) {
+  return path.join(root, "config", USER_FILE_NAME);
+}
+
+/** The owner's own list as written (valid or not), so an edit never drops an entry it did not touch. */
+function readUserEntries(root) {
+  const read = readFile(userFileOf(root));
+  return read.problem ? null : read.entries;
+}
+
+function writeUserEntries(root, entries) {
+  const file = userFileOf(root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify({ tools: entries }, null, 2)}\n`);
+  fs.renameSync(temp, file);
+}
+
+/**
+ * Adds one tool to the owner's list after the same checks a file entry gets. `taken` is every id already in use
+ * (the built-in tools, the catalog names and the shipped extensions).
+ */
+function addUserTool(root, entry, { categories, taken }) {
+  if (!root) return { ok: false, error: "choose a FRIDAY folder first" };
+  const existing = readUserEntries(root);
+  if (existing === null) {
+    return { ok: false, error: `${USER_FILE_NAME} is not valid JSON; fix or delete it first` };
+  }
+  if (existing.length >= MAX_USER_TOOLS) {
+    return { ok: false, error: `the list is full (${MAX_USER_TOOLS} tools)` };
+  }
+  const checked = validate(entry, {
+    categories,
+    taken: new Set([...taken].map((id) => String(id).toLowerCase())),
+  });
+  if (!checked.tool) return { ok: false, error: checked.reason };
+  const clean = { ...checked.tool };
+  delete clean.required;
+  writeUserEntries(root, [...existing, clean]);
+  return { ok: true, id: clean.id };
+}
+
+function removeUserTool(root, id) {
+  if (!root) return { ok: false, error: "choose a FRIDAY folder first" };
+  const existing = readUserEntries(root);
+  if (existing === null) return { ok: false, error: `${USER_FILE_NAME} is not valid JSON` };
+  const kept = existing.filter(
+    (entry) => String(entry?.id || "").toLowerCase() !== String(id).toLowerCase(),
+  );
+  if (kept.length === existing.length) return { ok: false, error: "no such tool in your list" };
+  writeUserEntries(root, kept);
+  return { ok: true, id };
+}
+
+module.exports = {
+  FILE_NAME,
+  USER_FILE_NAME,
+  FIELDS,
+  MAX_USER_TOOLS,
+  validate,
+  loadExtensions,
+  userFileOf,
+  addUserTool,
+  removeUserTool,
+};

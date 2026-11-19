@@ -2170,6 +2170,15 @@ try {
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 const BUILT_IN_COUNT = TOOLS.length;
 
+/** The ids an extension may not reuse, and the categories it may choose from. */
+function extensionContext() {
+  const builtIn = TOOLS.slice(0, BUILT_IN_COUNT);
+  const taken = new Set(builtIn.map((tool) => tool.id));
+  for (const alias of CATALOG_ALIAS.keys()) taken.add(alias);
+  for (const id of extensionReport.tools) taken.add(id);
+  return { categories: [...new Set(builtIn.map((tool) => tool.category))], taken };
+}
+
 /**
  * Tools described in config/install-extensions.json and the owner's install-extensions.user.json join the
  * catalog here (electron/install-extensions.cjs). The files are read again only when they change; a removed
@@ -3686,7 +3695,11 @@ function runJob({ id, action, root }, emit) {
       });
       let file = null;
       let usedUrl = direct.url;
+      // Cancel must stop a download too, not only a running installer (the download has no child process).
+      const abort = new AbortController();
+      downloadAborts.set(key, abort);
       for (const url of sources) {
+        if (abort.signal.aborted) break;
         usedUrl = url;
         const cached = cachedInstaller(url, root);
         if (tool.sha256 && cached && fs.existsSync(cached)) {
@@ -3734,6 +3747,7 @@ function runJob({ id, action, root }, emit) {
               sha256: tool.sha256,
               needBytes: tool.needBytes,
               label: `Downloading ${tool.name || id}`,
+              signal: abort.signal,
             },
           );
           break;
@@ -3748,7 +3762,19 @@ function runJob({ id, action, root }, emit) {
           tried.push(`download from ${url} (failed)`);
           file = null;
           if (err && err.code === "ENOSPC") break;
+          if (abort.signal.aborted) break;
         }
+      }
+      downloadAborts.delete(key);
+      if (abort.signal.aborted) {
+        emit({
+          id,
+          action,
+          phase: "Cancelled",
+          ok: false,
+          line: "cancelled before the installer ran",
+        });
+        return { ok: false, cancelled: true, error: "cancelled" };
       }
       if (file && tool.sha256) {
         emit({
@@ -4010,9 +4036,16 @@ function idleWatchdog(ms, onIdle, timers = { set: setTimeout, clear: clearTimeou
   };
 }
 
+const downloadAborts = new Map();
+
 function cancelJob({ id, action }) {
+  const abort = downloadAborts.get(`${id}:${action}`);
+  if (abort) {
+    abort.abort();
+    downloadAborts.delete(`${id}:${action}`);
+  }
   const child = jobs.get(`${id}:${action}`);
-  if (!child) return false;
+  if (!child) return Boolean(abort);
   try {
     if (WIN) killProcessTree(child.pid);
     else child.kill("SIGTERM");
@@ -4051,6 +4084,38 @@ module.exports = {
   latestFor,
   syncExtensions,
   extensionReport: () => extensionReport,
+  /** Owner's list as the Install Manager shows it: what loaded, what was skipped and why, and the file. */
+  listExtensions(root) {
+    const ext = require("./install-extensions.cjs");
+    const report = syncExtensions(root);
+    const own = root ? ext.userFileOf(root) : null;
+    const userIds = new Set();
+    try {
+      for (const entry of JSON.parse(fs.readFileSync(own, "utf8")).tools || []) {
+        userIds.add(String(entry?.id || "").toLowerCase());
+      }
+    } catch {
+      /* no owner file yet */
+    }
+    return {
+      file: own,
+      tools: report.tools.map((id) => ({ id, own: userIds.has(id.toLowerCase()) })),
+      problems: report.problems.map((p) => ({ id: p.id || null, reason: p.reason })),
+    };
+  },
+  addExtension(root, entry) {
+    const ext = require("./install-extensions.cjs");
+    syncExtensions(root);
+    const result = ext.addUserTool(root, entry, extensionContext());
+    if (result.ok) syncExtensions(root);
+    return result;
+  },
+  removeExtension(root, id) {
+    const ext = require("./install-extensions.cjs");
+    const result = ext.removeUserTool(root, id);
+    if (result.ok) syncExtensions(root);
+    return result;
+  },
   wingetUpgrades,
   runJob,
   cancelJob,

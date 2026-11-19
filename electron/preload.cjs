@@ -564,6 +564,9 @@ contextBridge.exposeInMainWorld("friday", {
   latestToolVersions: (force) => ipcRenderer.invoke("tools:latest", Boolean(force)),
   runToolJob: (job) => ipcRenderer.invoke("tools:run", job),
   cancelToolJob: (job) => ipcRenderer.invoke("tools:cancel", job),
+  listToolExtensions: () => ipcRenderer.invoke("tools:extensions"),
+  addToolExtension: (entry) => ipcRenderer.invoke("tools:extension-add", entry),
+  removeToolExtension: (id) => ipcRenderer.invoke("tools:extension-remove", id),
   activeToolJobs: () => ipcRenderer.invoke("tools:active-jobs"),
   onToolProgress: on("tools:progress"),
 
