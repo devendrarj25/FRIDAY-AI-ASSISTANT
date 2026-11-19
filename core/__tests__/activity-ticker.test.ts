@@ -251,4 +251,32 @@ describe("where it is used", () => {
     }
     expect(read("electron/vendor-sources.cjs")).toContain("https://cmake.org/files/v");
   });
+
+  it("prints no 0.0 MB/s, names the source it really downloads from first, and shows a line for a fast download that skips the exact tens", () => {
+    expect(
+      activity.activityText({
+        elapsedMs: 89_000,
+        grownBytes: 175e6,
+        recentBytes: 1,
+        recentMs: 16_000,
+      }),
+    ).not.toContain("MB/s");
+    const stage = require_("../../scripts/stage-toolchain.cjs") as {
+      progressLine: (
+        id: string,
+        e: Record<string, unknown>,
+        tty: boolean,
+        every?: boolean,
+      ) => string;
+    };
+    const fast = { progress: 37, bytesDone: 50e6, bytesTotal: 135e6, speedMbps: 41 };
+    expect(stage.progressLine("Gradle", fast, false)).toBe("");
+    expect(stage.progressLine("Gradle", fast, false, true)).toContain("37%");
+    expect(stage.progressLine("Gradle", fast, false, true)).toContain("MB/s");
+    const toolchain = read("electron/toolchain.cjs");
+    expect(toolchain).toContain(
+      'downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${sources[0]}',
+    );
+    expect(toolchain).toContain("bytesTotal: event.bytesTotal");
+  });
 });

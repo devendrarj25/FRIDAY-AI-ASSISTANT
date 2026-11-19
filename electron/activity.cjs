@@ -73,7 +73,8 @@ function megabytes(bytes) {
 function activityText({ elapsedMs, grownBytes = 0, recentBytes = 0, recentMs = 0 }) {
   const parts = [`still working`, duration(elapsedMs)];
   if (grownBytes > 0) parts.push(`${megabytes(grownBytes)} MB so far`);
-  if (recentBytes > 0 && recentMs > 0) {
+  // Nothing moved in the window (an unpack or a compile step): no speed, rather than "0.0 MB/s".
+  if (recentBytes > 0 && recentMs > 0 && (recentBytes / recentMs) * 1000 >= 0.05 * 1024 ** 2) {
     parts.push(`${megabytes((recentBytes / recentMs) * 1000)} MB/s`);
   }
   return parts.join(" · ");
