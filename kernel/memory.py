@@ -211,6 +211,28 @@ class VectorMemory:
         self.path.mkdir(parents=True, exist_ok=True)
         self.collection = None
         self.fallback: NumpyIndex | None = None
+        # Chroma's client is synchronous and the first query downloads a 79 MB embedding model, so one call at a
+        # time runs in a worker thread: the kernel keeps answering every other request, and two first calls do not
+        # both download it.
+        self._lock = asyncio.Lock()
+
+    async def _chroma(self, fn, /, *args, **kwargs):
+        """Run one Chroma call off the event loop. A call that fails (offline, a download that was cut, a locked
+        store) moves memory to the local index instead of failing the request again and again."""
+        async with self._lock:
+            try:
+                return await asyncio.to_thread(fn, *args, **kwargs)
+            except Exception as exc:
+                self._degrade(exc)
+                raise
+
+    def _degrade(self, exc: Exception) -> None:
+        if self.collection is None:
+            return
+        print(f"[memory] vector store call failed ({exc}) - using local vector index")
+        self.collection = None
+        if self.fallback is None:
+            self._open_fallback()
 
     async def open(self) -> None:
         """Open the vector store. Missing/broken Chroma degrades to the local
@@ -269,7 +291,10 @@ class VectorMemory:
         if self.collection is None:
             return self.fallback.search(query, k=k) if self.fallback else []
         col = self._ensure()
-        res = col.query(query_texts=[query], n_results=k)
+        try:
+            res = await self._chroma(col.query, query_texts=[query], n_results=k)
+        except Exception:
+            return self.fallback.search(query, k=k) if self.fallback else []
         docs = (res.get("documents") or [[]])[0]
         metas = (res.get("metadatas") or [[]])[0]
         dists = (res.get("distances") or [[]])[0]
@@ -304,9 +329,16 @@ class VectorMemory:
             return
         col = self._ensure()
         try:
-            col.upsert(ids=[rid], documents=[text], metadatas=[meta])
+            try:
+                await self._chroma(col.upsert, ids=[rid], documents=[text], metadatas=[meta])
+            except Exception:
+                if self.collection is None:
+                    raise
+                await self._chroma(col.add, ids=[rid], documents=[text], metadatas=[meta])
         except Exception:
-            col.add(ids=[rid], documents=[text], metadatas=[meta])
+            # The store moved to the local index (see _degrade): the record is kept there.
+            if self.fallback is not None:
+                self.fallback.add(text, kind=kind, title=title, record_id=rid)
 
     async def remove(self, record_ids: list[str]) -> int:
         """Forget records by id in whichever backend is open. A forgotten memory must not be recalled."""
@@ -316,9 +348,9 @@ class VectorMemory:
         if self.collection is None:
             return self.fallback.remove(ids) if self.fallback else 0
         try:
-            self._ensure().delete(ids=ids)
+            await self._chroma(self._ensure().delete, ids=ids)
         except Exception:
-            return 0
+            return self.fallback.remove(ids) if self.fallback else 0
         return len(ids)
 
     async def add_lesson(self, rule: str, context: str) -> None:

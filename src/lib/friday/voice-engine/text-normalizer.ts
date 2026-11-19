@@ -87,9 +87,7 @@ const MONTHS_EN =
   "January February March April May June July August September October November December".split(
     " ",
   );
-const MONTHS_HI = "जनवरी फ़रवरी मार्च अप्रैल मई जून जुलाई अगस्त सितंबर अक्टूबर नवंबर दिसंबर".split(
-  " ",
-);
+const MONTHS_HI = "जनवरी फ़रवरी मार्च अप्रैल मई जून जुलाई अगस्त सितंबर अक्टूबर नवंबर दिसंबर".split(" ");
 
 function number(text: string, lang: SpeechLang): string {
   const clean = text.replace(/,/g, "");

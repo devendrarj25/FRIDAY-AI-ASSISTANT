@@ -256,10 +256,7 @@ export function classifyVoiceControl(heard: string): VoiceControl {
   if (names && has(text, /\b(resume|continue|jaari|dobara|phir se|chalu)\b|जारी|फिर से/u))
     return { kind: "resume-task" };
   if (
-    has(
-      text,
-      /^(stop|quiet|silence|chup|shant)( please)?$|^chup (ho )?(jao|raho)$|^shant$|चुप|शांत/u,
-    )
+    has(text, /^(stop|quiet|silence|chup|shant)( please)?$|^chup (ho )?(jao|raho)$|^shant$|चुप|शांत/u)
   )
     return { kind: "stop-speaking" };
   if (
