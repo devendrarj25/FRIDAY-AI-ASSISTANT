@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Parse a Dockerfile for FROM, USER, EXPOSE, WORKDIR, COPY/ADD counts and whether a non-root USER is set. Read-only; does not build images.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

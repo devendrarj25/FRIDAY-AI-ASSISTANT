@@ -4,15 +4,9 @@
   "description": "Everyday planning and health arithmetic: BMI, calories, running pace, study and exam plans, trip fuel cost and electricity cost.",
   "category": "life",
   "role": "life-desk",
-  "skills": [
-    "health-calc",
-    "study-tools",
-    "life-calc"
-  ],
+  "skills": ["health-calc", "study-tools", "life-calc"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

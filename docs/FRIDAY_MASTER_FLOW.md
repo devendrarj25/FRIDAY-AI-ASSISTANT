@@ -8,25 +8,25 @@ _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Loca
 
 ## Stages (in chart order)
 
-| Id | Live owners (examples) |
-| --- | --- |
-| `owner` | Settings / `assistantMode` |
-| `entry` | `voiceGate`, `matchWakeWord`, Chat dock |
-| `experience` | `stage`, `notifications` |
-| `supervisor` | `coreBrain`, `understand`, `resolveContext`, cognitive control and the cognitive mind inside `cognize` |
-| `voice-runtime` | `nextVoiceState`, `wakeEngineStatus` |
-| `thinking` | `planPipeline`, `classifyPriority` |
-| `task-runtime` | `taskGraph`, `backgroundTasks` |
-| `orchestrator` | `planPipeline`, `considerCollaboration` |
-| `model-router` | `modelRegistry`, `kernel/router.py` |
-| `agents` | `listAgentsFromRegistry` |
-| `capability-bus` | `capabilityRegistry`, skill/tool/module/connector/workflow routers |
-| `permission` | `actionNeedsApproval`, `governance` |
-| `execution` | kernel `kernel/tools.py` + desktop IPC |
-| `verification` | `verifyResult` (spec) plus live Doctor/ops |
-| `memory` | `memory`, `memory-fabric.ts`, `library`, `experiences` |
-| `idle` | `autonomousCore` idle |
-| `improvement` | `learning`, `devPipeline` (never auto-merges `main`) |
+| Id               | Live owners (examples)                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `owner`          | Settings / `assistantMode`                                                                             |
+| `entry`          | `voiceGate`, `matchWakeWord`, Chat dock                                                                |
+| `experience`     | `stage`, `notifications`                                                                               |
+| `supervisor`     | `coreBrain`, `understand`, `resolveContext`, cognitive control and the cognitive mind inside `cognize` |
+| `voice-runtime`  | `nextVoiceState`, `wakeEngineStatus`                                                                   |
+| `thinking`       | `planPipeline`, `classifyPriority`                                                                     |
+| `task-runtime`   | `taskGraph`, `backgroundTasks`                                                                         |
+| `orchestrator`   | `planPipeline`, `considerCollaboration`                                                                |
+| `model-router`   | `modelRegistry`, `kernel/router.py`                                                                    |
+| `agents`         | `listAgentsFromRegistry`                                                                               |
+| `capability-bus` | `capabilityRegistry`, skill/tool/module/connector/workflow routers                                     |
+| `permission`     | `actionNeedsApproval`, `governance`                                                                    |
+| `execution`      | kernel `kernel/tools.py` + desktop IPC                                                                 |
+| `verification`   | `verifyResult` (spec) plus live Doctor/ops                                                             |
+| `memory`         | `memory`, `memory-fabric.ts`, `library`, `experiences`                                                 |
+| `idle`           | `autonomousCore` idle                                                                                  |
+| `improvement`    | `learning`, `devPipeline` (never auto-merges `main`)                                                   |
 
 Wiring overlay (`src/lib/friday/wiring.ts` / `src/components/friday/WiringVisualizer.tsx`) reads the same `FLOW_CHART`. Permission, privacy, governance, billing, and tool-authority nodes have no owner toggle.
 

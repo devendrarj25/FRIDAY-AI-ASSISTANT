@@ -12,7 +12,5 @@
   "description": "Track a running streak of successful on-turn-complete events (ok !== false).",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

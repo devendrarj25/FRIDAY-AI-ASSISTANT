@@ -3,10 +3,7 @@
   "version": "1.0.0",
   "description": "Preview a suffix/prefix rename plan for files matching an extension. Dry-run by default; apply writes .friday-rename-plan.json only \u2014 it does not rename files.",
   "category": "automation",
-  "permissions": [
-    "fs.read",
-    "fs.write"
-  ],
+  "permissions": ["fs.read", "fs.write"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

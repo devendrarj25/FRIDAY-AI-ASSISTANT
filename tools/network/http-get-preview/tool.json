@@ -5,13 +5,8 @@
   "name": "HTTP GET preview",
   "description": "GET a URL via electron/net-fetch.cjs fetchCompat and return status plus a short body preview. Not a crawler.",
   "category": "network",
-  "inputs": [
-    "url",
-    "maxChars"
-  ],
-  "permissions": [
-    "web.access"
-  ],
+  "inputs": ["url", "maxChars"],
+  "permissions": ["web.access"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to GET “{url}” and read a short preview. Allow this?"
 }

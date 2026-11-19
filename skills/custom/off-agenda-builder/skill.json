@@ -5,16 +5,11 @@
   "category": "office",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "minutes"
-  ],
+  "inputs": ["text", "minutes"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "agenda builder"
-  ],
+  "triggers": ["agenda builder"],
   "description": "Splits a topic list across a meeting length so each item has a suggested slot. Does not create a calendar event."
 }

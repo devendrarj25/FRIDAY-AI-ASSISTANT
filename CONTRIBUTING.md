@@ -34,12 +34,12 @@ work to it.
 
 A new branch names the area and the purpose:
 
-| Prefix | Example |
-| --- | --- |
+| Prefix                     | Example                    |
+| -------------------------- | -------------------------- |
 | `upgrade/<area>-<purpose>` | `upgrade/models-free-tier` |
-| `fix/<area>-<purpose>` | `fix/chat-strip` |
-| `change/<area>-<purpose>` | `change/docs-map` |
-| `modify/<area>-<purpose>` | `modify/voice-wake` |
+| `fix/<area>-<purpose>`     | `fix/chat-strip`           |
+| `change/<area>-<purpose>`  | `change/docs-map`          |
+| `modify/<area>-<purpose>`  | `modify/voice-wake`        |
 
 `scripts/merge-engine.cjs` trusts these heads, plus the maintenance prefixes
 in the table below. `dev/` stays trusted so an already-open branch of that
@@ -74,13 +74,13 @@ Windows pack: `scripts\build-windows.cmd` — [INSTALL.md](INSTALL.md) and [docs
 
 ## 4. Prefixes the merge engine trusts
 
-| Prefix | Use |
-| --- | --- |
-| `upgrade/` `fix/` `change/` `modify/` `feature/` `bugfix/` `hotfix/` | product work |
-| `chore/` `docs/` `refactor/` `perf/` `test/` `ci/` `build/` | maintenance |
-| `dev/` | an already-open work branch |
-| `revert/` `restore/` | Repository Control / Revert Center |
-| `release/vX.Y.Z` or `release/vX.Y.Z.W` | created by `release.yml` only |
+| Prefix                                                               | Use                                |
+| -------------------------------------------------------------------- | ---------------------------------- |
+| `upgrade/` `fix/` `change/` `modify/` `feature/` `bugfix/` `hotfix/` | product work                       |
+| `chore/` `docs/` `refactor/` `perf/` `test/` `ci/` `build/`          | maintenance                        |
+| `dev/`                                                               | an already-open work branch        |
+| `revert/` `restore/`                                                 | Repository Control / Revert Center |
+| `release/vX.Y.Z` or `release/vX.Y.Z.W`                               | created by `release.yml` only      |
 
 Never delete `main`, `master`, `develop`, `development`, `release`, or `recovery/*`.
 

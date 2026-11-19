@@ -11,10 +11,6 @@
   "name": "Huge file idle",
   "description": "On idle, walk depth 2 and list files larger than 20 MiB. Inspect-only.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

@@ -5,9 +5,7 @@
   "name": "Base64 encode",
   "description": "Encode UTF-8 text as base64 with Node Buffer. No extra crypto library.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to BASE64-ENCODE text in memory. Allow this?"

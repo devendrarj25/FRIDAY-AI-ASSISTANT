@@ -16,15 +16,15 @@ A payload may be one object, an array, or `{ "packs": [ … ] }`. Destination is
 
 ## 2. Manifest files
 
-| Tree | Manifest | Code next to it |
-| --- | --- | --- |
-| skills | `skill.json` | `skill.mjs` (ESM `run`) |
-| tools | `tool.json` | `index.cjs` (`run`) |
-| agents | `manifest.json` or `agent.json` | optional files listed on the pack |
-| modules | `manifest.json` or `module.json` | `main.py` (`register` / `run` / `self_test`) |
-| plugins | `plugin.json` | `index.cjs` with `hooks` |
-| workflows | `workflow.json` | `steps` (or `nodes`) in the JSON |
-| models | `model.json` | none required |
+| Tree      | Manifest                         | Code next to it                              |
+| --------- | -------------------------------- | -------------------------------------------- |
+| skills    | `skill.json`                     | `skill.mjs` (ESM `run`)                      |
+| tools     | `tool.json`                      | `index.cjs` (`run`)                          |
+| agents    | `manifest.json` or `agent.json`  | optional files listed on the pack            |
+| modules   | `manifest.json` or `module.json` | `main.py` (`register` / `run` / `self_test`) |
+| plugins   | `plugin.json`                    | `index.cjs` with `hooks`                     |
+| workflows | `workflow.json`                  | `steps` (or `nodes`) in the JSON             |
+| models    | `model.json`                     | none required                                |
 
 Shared fields: `id` or `slug`, `name`, `description` or `summary`, optional `permissions`, `risk` (`safe` default), optional `selfTest` `{ export, input }`. Heal never sets `enabled: true`.
 

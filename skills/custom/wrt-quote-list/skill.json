@@ -5,16 +5,11 @@
   "category": "writing",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "quoted text list",
-    "quoted text"
-  ],
+  "triggers": ["quoted text list", "quoted text"],
   "description": "Pulls quote marks only. It does not verify a source."
 }

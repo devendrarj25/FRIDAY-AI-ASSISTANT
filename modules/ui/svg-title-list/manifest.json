@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List SVG files and their <title> text when present. Names and titles only. Read-only.",
   "category": "ui",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

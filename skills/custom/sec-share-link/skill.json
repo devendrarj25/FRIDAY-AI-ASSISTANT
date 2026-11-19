@@ -5,15 +5,11 @@
   "category": "security-hygiene",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "sharing link review"
-  ],
+  "triggers": ["sharing link review"],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }

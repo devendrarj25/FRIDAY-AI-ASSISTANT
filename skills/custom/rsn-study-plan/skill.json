@@ -5,17 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "days",
-    "minutesPerDay"
-  ],
+  "inputs": ["text", "days", "minutesPerDay"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "study plan builder"
-  ],
+  "triggers": ["study plan builder"],
   "description": "Equal slices plus a recap day if days > topics. A plan on paper, not a tutor session."
 }

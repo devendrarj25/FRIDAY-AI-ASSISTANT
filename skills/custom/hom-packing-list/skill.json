@@ -5,17 +5,11 @@
   "category": "home",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "nights",
-    "climate"
-  ],
+  "inputs": ["nights", "climate"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "trip packing list",
-    "trip packing"
-  ],
+  "triggers": ["trip packing list", "trip packing"],
   "description": "Household planning helper. It does not control devices or place orders."
 }

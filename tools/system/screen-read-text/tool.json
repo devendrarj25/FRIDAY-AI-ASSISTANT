@@ -5,20 +5,10 @@
   "category": "system",
   "entry": "index.cjs",
   "kernelTool": "screen.read_text",
-  "inputs": [
-    "region",
-    "lang"
-  ],
-  "permissions": [
-    "devices",
-    "fs.read"
-  ],
+  "inputs": ["region", "lang"],
+  "permissions": ["devices", "fs.read"],
   "risk": "exec",
   "enabled": false,
-  "requires": [
-    "mss",
-    "pytesseract",
-    "Tesseract OCR"
-  ],
+  "requires": ["mss", "pytesseract", "Tesseract OCR"],
   "approvalPrompt": "FRIDAY wants to TAKE A SCREENSHOT of your screen and read all text on it. Everything currently visible \u2014 including private messages, documents and anything not hidden \u2014 will be read. Allow this?"
 }

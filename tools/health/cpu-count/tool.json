@@ -9,8 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ CPU COUNT. Allow this?",
-  "keywords": [
-    "cpu",
-    "cores"
-  ]
+  "keywords": ["cpu", "cores"]
 }

@@ -12,7 +12,5 @@
   "description": "Stamp os.platform() and os.arch() at start.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

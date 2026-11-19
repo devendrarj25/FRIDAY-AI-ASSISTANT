@@ -48,39 +48,39 @@ FRIDAY already has one cognitive pipeline, one model router, one memory engine, 
 
 The requested lifecycle is the existing path with named stages. Nothing is a new pipeline.
 
-| Stage in the brief | Owner today | State | Change attaches here |
-| --- | --- | --- | --- |
-| Input, context assembly | `brain-engine.ts`, `context-engine.ts` | built | none |
-| Intent understanding | `intent-engine.ts`, `reference-resolver.ts`, `settings-intents.ts` | built | Hinglish intent tests (Phase 2) |
-| Task classification, complexity | `cognitive-route.ts`, `task-routing.ts` | built, coarse | per-model fit scoring (Phase 4) |
-| Memory and knowledge retrieval | `retrieval.ts`, `memory-engine.ts`, `vector-index.ts`, `kernel/memory.py` | built, no reranker | entity and recency fusion, optional rerank (Phase 3) |
-| Model selection | `orchestrator.ts`, `model-registry.ts`, `electron/model-router.cjs` | built, rule-based | measured per-model profile, reasoning adapter (Phase 4) |
-| Planning | `task-graph.ts` `planNodes`, `kernel/planner.py` | built, list/then/parallel aware | shared plan context (Phase 5) |
-| Specialist selection | `agent-router.ts`, `agent-scheduler.ts`, `agents/` | built, plan-only until approved | handoff versus agent-as-tool (Phase 5) |
-| Execution, observation | `task-runners.ts`, kernel tools, `computer-use.ts` | built | none |
-| Verification | `core-brain.verify`, `answer-checks.ts`, `verified-run.ts`, `meta-reasoner.evaluateAnswer` | built, not on streaming chat | wire to chat and Auto (Phase 2) |
-| Reflection, error recovery | `cognitive-control.ts`, `bounded-retry`, `failure-guard`, `error-intelligence.ts` | built | none |
-| Result synthesis | `reconciler.ts`, `core-brain.speakAsFriday` | built | none |
-| Memory update, learning candidate | `core-brain.reflect`, `learning-engine.ts`, `skill-loop.ts` | built | none |
-| Completion, trace | `decision-trace.ts`, `turn-trace.ts`, `run-receipt.ts` | built | OpenTelemetry-shaped export (Phase 12) |
+| Stage in the brief                | Owner today                                                                                | State                           | Change attaches here                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------- |
+| Input, context assembly           | `brain-engine.ts`, `context-engine.ts`                                                     | built                           | none                                                    |
+| Intent understanding              | `intent-engine.ts`, `reference-resolver.ts`, `settings-intents.ts`                         | built                           | Hinglish intent tests (Phase 2)                         |
+| Task classification, complexity   | `cognitive-route.ts`, `task-routing.ts`                                                    | built, coarse                   | per-model fit scoring (Phase 4)                         |
+| Memory and knowledge retrieval    | `retrieval.ts`, `memory-engine.ts`, `vector-index.ts`, `kernel/memory.py`                  | built, no reranker              | entity and recency fusion, optional rerank (Phase 3)    |
+| Model selection                   | `orchestrator.ts`, `model-registry.ts`, `electron/model-router.cjs`                        | built, rule-based               | measured per-model profile, reasoning adapter (Phase 4) |
+| Planning                          | `task-graph.ts` `planNodes`, `kernel/planner.py`                                           | built, list/then/parallel aware | shared plan context (Phase 5)                           |
+| Specialist selection              | `agent-router.ts`, `agent-scheduler.ts`, `agents/`                                         | built, plan-only until approved | handoff versus agent-as-tool (Phase 5)                  |
+| Execution, observation            | `task-runners.ts`, kernel tools, `computer-use.ts`                                         | built                           | none                                                    |
+| Verification                      | `core-brain.verify`, `answer-checks.ts`, `verified-run.ts`, `meta-reasoner.evaluateAnswer` | built, not on streaming chat    | wire to chat and Auto (Phase 2)                         |
+| Reflection, error recovery        | `cognitive-control.ts`, `bounded-retry`, `failure-guard`, `error-intelligence.ts`          | built                           | none                                                    |
+| Result synthesis                  | `reconciler.ts`, `core-brain.speakAsFriday`                                                | built                           | none                                                    |
+| Memory update, learning candidate | `core-brain.reflect`, `learning-engine.ts`, `skill-loop.ts`                                | built                           | none                                                    |
+| Completion, trace                 | `decision-trace.ts`, `turn-trace.ts`, `run-receipt.ts`                                     | built                           | OpenTelemetry-shaped export (Phase 12)                  |
 
 ## 4. Canonical module ownership for the evolution
 
-| Capability group in the brief | Canonical owner (extend this) | Never create |
-| --- | --- | --- |
-| A, B Cognitive core and thinking engine | `cognitive-control.ts`, `reasoning.ts`, `meta-reasoner.ts` | a second reasoning engine |
-| C Agents | `task-graph.ts`, `agent-scheduler.ts`, `agent-router.ts`, `agents/` manifests | an agent framework or message bus library |
-| D Memory | `memory-engine.ts` (authority), `memory-fabric.ts` (what may influence a turn), `kernel/memory.py` (vector) | another memory store |
-| E Multi-model fusion | `electron/model-router.cjs`, `model-capabilities.cjs`, `model-registry.ts`, `multi-model.ts` | another router or registry |
-| F Continuous learning | `learning-engine.ts`, `skill-loop.ts`, `task-ledger.ts` experiences | another learning store |
-| G Self-development | `governance.ts`, `own-work.ts`, `dev-pipeline.ts`, `limitation-loop.ts` | a path that writes without the gate |
-| H Research | `research.ts`, `retrieval.ts`, `browser-engine.ts`, `knowledge-base.ts` | a second search stack |
-| I Capability intelligence | `capability-registry.ts`, `*-forge.ts`, `electron/mcp-protocol.cjs` | trusting an unknown tool |
-| J Multimodal | `format-atlas.ts`, `electron/stt.cjs`, `screen-vision.cjs`, `image-generation.cjs`, `kernel/media_tools.py` | another media pipeline |
-| K Computer use | `self/computer-use.ts`, kernel `input.*`, `screen.*` | actions outside the permission levels |
-| L Metacognition | `self-atlas.ts`, `world-model.ts`, `confidence.ts`, `cognitive-runtime.ts` self-model | claims of consciousness |
-| M Proactive | `autonomous-core.ts`, `horizon-goals.ts`, `atlas-notices.ts` | a new always-on timer |
-| Evaluation | `eval-harness.ts`, `instruction-eval.ts`, `intelligence-benchmark.ts` | claims without a number |
+| Capability group in the brief           | Canonical owner (extend this)                                                                               | Never create                              |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| A, B Cognitive core and thinking engine | `cognitive-control.ts`, `reasoning.ts`, `meta-reasoner.ts`                                                  | a second reasoning engine                 |
+| C Agents                                | `task-graph.ts`, `agent-scheduler.ts`, `agent-router.ts`, `agents/` manifests                               | an agent framework or message bus library |
+| D Memory                                | `memory-engine.ts` (authority), `memory-fabric.ts` (what may influence a turn), `kernel/memory.py` (vector) | another memory store                      |
+| E Multi-model fusion                    | `electron/model-router.cjs`, `model-capabilities.cjs`, `model-registry.ts`, `multi-model.ts`                | another router or registry                |
+| F Continuous learning                   | `learning-engine.ts`, `skill-loop.ts`, `task-ledger.ts` experiences                                         | another learning store                    |
+| G Self-development                      | `governance.ts`, `own-work.ts`, `dev-pipeline.ts`, `limitation-loop.ts`                                     | a path that writes without the gate       |
+| H Research                              | `research.ts`, `retrieval.ts`, `browser-engine.ts`, `knowledge-base.ts`                                     | a second search stack                     |
+| I Capability intelligence               | `capability-registry.ts`, `*-forge.ts`, `electron/mcp-protocol.cjs`                                         | trusting an unknown tool                  |
+| J Multimodal                            | `format-atlas.ts`, `electron/stt.cjs`, `screen-vision.cjs`, `image-generation.cjs`, `kernel/media_tools.py` | another media pipeline                    |
+| K Computer use                          | `self/computer-use.ts`, kernel `input.*`, `screen.*`                                                        | actions outside the permission levels     |
+| L Metacognition                         | `self-atlas.ts`, `world-model.ts`, `confidence.ts`, `cognitive-runtime.ts` self-model                       | claims of consciousness                   |
+| M Proactive                             | `autonomous-core.ts`, `horizon-goals.ts`, `atlas-notices.ts`                                                | a new always-on timer                     |
+| Evaluation                              | `eval-harness.ts`, `instruction-eval.ts`, `intelligence-benchmark.ts`                                       | claims without a number                   |
 
 ## 5. Model integration strategy
 
@@ -93,14 +93,14 @@ The requested lifecycle is the existing path with named stages. Nothing is a new
 
 ## 6. Storage implications
 
-| Data | Where it lives now | Evolution impact |
-| --- | --- | --- |
-| Six memory tiers, supersede and archive | `friday.memory.*` state through `persist.ts` | none; add `entities` and `validFrom/validTo` fields as optional, migrated on read |
-| Vector index | `<root>/database` via `kernel/memory.py` (Chroma or hashed n-gram) | optional second-stage rerank at read time; no change to stored vectors |
-| Experiences, ledger, receipts | `task-ledger.ts` state | add the reasoning setting and measured latency per call to the experience record |
-| Model profile | new optional field on the model record in the models state | migrated: absent means "not measured" |
-| Evaluation history | none (runs are not stored) | store last N reports so a trend can be shown; local only |
-| Traces | `turn-trace.ts`, `decision-trace.ts` in memory | optional local export file, never uploaded |
+| Data                                    | Where it lives now                                                 | Evolution impact                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Six memory tiers, supersede and archive | `friday.memory.*` state through `persist.ts`                       | none; add `entities` and `validFrom/validTo` fields as optional, migrated on read |
+| Vector index                            | `<root>/database` via `kernel/memory.py` (Chroma or hashed n-gram) | optional second-stage rerank at read time; no change to stored vectors            |
+| Experiences, ledger, receipts           | `task-ledger.ts` state                                             | add the reasoning setting and measured latency per call to the experience record  |
+| Model profile                           | new optional field on the model record in the models state         | migrated: absent means "not measured"                                             |
+| Evaluation history                      | none (runs are not stored)                                         | store last N reports so a trend can be shown; local only                          |
+| Traces                                  | `turn-trace.ts`, `decision-trace.ts` in memory                     | optional local export file, never uploaded                                        |
 
 All additions are optional fields read with defaults, so an older state file loads unchanged, and install, update and uninstall keep the data rules in the storage contract.
 

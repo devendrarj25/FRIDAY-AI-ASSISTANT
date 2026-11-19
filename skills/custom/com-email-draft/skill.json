@@ -5,16 +5,11 @@
   "category": "communication",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "to"
-  ],
+  "inputs": ["text", "to"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "email draft from bullets"
-  ],
+  "triggers": ["email draft from bullets"],
   "description": "Draft only. FRIDAY does not send email; copy it out if you want it sent."
 }

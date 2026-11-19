@@ -5,17 +5,11 @@
   "category": "home",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "showers",
-    "laundry",
-    "dishes"
-  ],
+  "inputs": ["showers", "laundry", "dishes"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "water use sketch"
-  ],
+  "triggers": ["water use sketch"],
   "description": "Educational sketch using round numbers, not a utility meter."
 }

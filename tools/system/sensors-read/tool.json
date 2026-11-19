@@ -6,9 +6,7 @@
   "description": "Battery/thermal/fan probe via electron/hardware.cjs detectSensors.",
   "category": "system",
   "inputs": [],
-  "permissions": [
-    "system.read"
-  ],
+  "permissions": ["system.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ sensor values on this machine. Allow this?"
 }

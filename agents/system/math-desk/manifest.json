@@ -4,14 +4,9 @@
   "description": "Exact arithmetic and money maths offline: calculator, primes, combinations, equations, geometry, CAGR, break-even, inflation and Indian income tax.",
   "category": "math",
   "role": "math-desk",
-  "skills": [
-    "math-tools",
-    "fin-invest-tax"
-  ],
+  "skills": ["math-tools", "fin-invest-tax"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

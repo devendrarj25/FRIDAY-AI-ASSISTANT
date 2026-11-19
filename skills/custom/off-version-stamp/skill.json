@@ -5,16 +5,11 @@
   "category": "office",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "version",
-    "text"
-  ],
+  "inputs": ["version", "text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "version note stamp"
-  ],
+  "triggers": ["version note stamp"],
   "description": "Formats release notes you already wrote. It is not FRIDAY's version authority."
 }

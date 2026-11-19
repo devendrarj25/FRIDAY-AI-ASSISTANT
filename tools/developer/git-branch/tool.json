@@ -5,12 +5,8 @@
   "name": "Git branch",
   "description": "List local git branches (read-only). Does not create, rename or delete branches.",
   "category": "developer",
-  "inputs": [
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to list git branches in this repository. Allow this?"
 }

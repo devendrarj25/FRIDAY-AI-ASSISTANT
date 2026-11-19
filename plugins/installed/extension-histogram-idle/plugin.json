@@ -11,10 +11,6 @@
   "name": "Extension histogram idle",
   "description": "On idle, histogram file extensions from a depth-2 walk.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

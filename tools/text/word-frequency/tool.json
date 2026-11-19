@@ -5,16 +5,9 @@
   "name": "Word frequency",
   "description": "Count how often each word appears in text. Local tally only.",
   "category": "text",
-  "inputs": [
-    "text",
-    "limit"
-  ],
+  "inputs": ["text", "limit"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to TALLY WORD FREQUENCY in text. Allow this?",
-  "keywords": [
-    "frequency",
-    "tally",
-    "words"
-  ]
+  "keywords": ["frequency", "tally", "words"]
 }

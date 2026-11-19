@@ -5,16 +5,9 @@
   "name": "NDJSON preview",
   "description": "Parse newline-delimited JSON and return the first rows.",
   "category": "data",
-  "inputs": [
-    "text",
-    "limit"
-  ],
+  "inputs": ["text", "limit"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to PREVIEW NDJSON / JSONL text in memory. Allow this?",
-  "keywords": [
-    "ndjson",
-    "jsonl",
-    "preview"
-  ]
+  "keywords": ["ndjson", "jsonl", "preview"]
 }

@@ -12,7 +12,5 @@
   "description": "Journal when a known lockfile name changes.",
   "category": "developer",
   "permissions": [],
-  "hooks": [
-    "on-file-change"
-  ]
+  "hooks": ["on-file-change"]
 }

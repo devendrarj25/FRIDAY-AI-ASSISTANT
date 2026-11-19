@@ -5,17 +5,11 @@
   "category": "communication",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "name",
-    "role",
-    "helps"
-  ],
+  "inputs": ["name", "role", "helps"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "intro blurb"
-  ],
+  "triggers": ["intro blurb"],
   "description": "Bio draft. It does not post to social networks."
 }

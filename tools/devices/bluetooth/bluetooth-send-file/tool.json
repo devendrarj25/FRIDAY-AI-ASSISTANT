@@ -17,10 +17,7 @@
       "required": false
     }
   ],
-  "permissions": [
-    "devices",
-    "fs.read"
-  ],
+  "permissions": ["devices", "fs.read"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to send a file from this PC to a paired Bluetooth device. Allow this?"

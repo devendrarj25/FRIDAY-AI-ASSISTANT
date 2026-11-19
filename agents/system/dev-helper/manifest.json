@@ -14,9 +14,7 @@
     "dev-command-help"
   ],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

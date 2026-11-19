@@ -12,7 +12,5 @@
   "description": "Keep a 200-character preview of the latest on-error payload for later diagnosis.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error"
-  ]
+  "hooks": ["on-error"]
 }

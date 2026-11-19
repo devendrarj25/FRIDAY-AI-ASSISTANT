@@ -11,10 +11,6 @@
   "name": "Package name stamp",
   "description": "Read package.json name and version only at start.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

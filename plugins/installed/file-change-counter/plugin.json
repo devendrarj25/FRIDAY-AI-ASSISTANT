@@ -12,7 +12,5 @@
   "description": "Counts on-file-change events in this plugin's data/count.json. Does not read file contents.",
   "category": "logging",
   "permissions": [],
-  "hooks": [
-    "on-file-change"
-  ]
+  "hooks": ["on-file-change"]
 }

@@ -10,9 +10,6 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "travel document checklist",
-    "travel document"
-  ],
+  "triggers": ["travel document checklist", "travel document"],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
 }

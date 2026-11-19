@@ -11,10 +11,6 @@
   "name": "DS_Store idle",
   "description": "On idle, count .DS_Store / Thumbs.db / desktop.ini names in a depth-2 walk.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

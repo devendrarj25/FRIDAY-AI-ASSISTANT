@@ -5,16 +5,9 @@
   "name": "HTML entities",
   "description": "Decode or encode a small set of HTML entities in text.",
   "category": "text",
-  "inputs": [
-    "text",
-    "mode"
-  ],
+  "inputs": ["text", "mode"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to DECODE OR ENCODE HTML ENTITIES in text. Allow this?",
-  "keywords": [
-    "html",
-    "entities",
-    "unescape"
-  ]
+  "keywords": ["html", "entities", "unescape"]
 }

@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Parse a TOML file with stdlib tomllib and report top-level keys and table names. Read-only.",
   "category": "data",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

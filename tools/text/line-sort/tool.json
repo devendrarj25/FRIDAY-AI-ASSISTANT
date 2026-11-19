@@ -5,10 +5,7 @@
   "name": "Sort lines",
   "description": "Sort lines of text. Optional unique.",
   "category": "text",
-  "inputs": [
-    "text",
-    "unique"
-  ],
+  "inputs": ["text", "unique"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to SORT lines of text in memory. Allow this?"

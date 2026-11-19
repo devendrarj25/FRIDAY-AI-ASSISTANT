@@ -12,7 +12,5 @@
   "description": "Count on-turn-start intent ids (the live catalog rule id). No prompt text is stored.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-start"
-  ]
+  "hooks": ["on-turn-start"]
 }

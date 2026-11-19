@@ -5,12 +5,8 @@
   "name": "DNS lookup",
   "description": "Resolve a hostname with Node's dns.promises (the same DNS API network-diagnostics uses).",
   "category": "network",
-  "inputs": [
-    "host"
-  ],
-  "permissions": [
-    "network"
-  ],
+  "inputs": ["host"],
+  "permissions": ["network"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to resolve DNS for “{host}”. Allow this lookup?"
 }

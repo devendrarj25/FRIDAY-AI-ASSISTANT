@@ -11,10 +11,6 @@
   "name": "TODO filename idle",
   "description": "On idle, list files whose names contain TODO or FIXME (filename only).",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

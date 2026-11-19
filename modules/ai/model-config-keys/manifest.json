@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List top-level keys from JSON/JSONC model config files in a folder (no secret values). Read-only.",
   "category": "ai",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

@@ -5,16 +5,11 @@
   "category": "travel",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "capGrams"
-  ],
+  "inputs": ["text", "capGrams"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "packing weight sum"
-  ],
+  "triggers": ["packing weight sum"],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
 }

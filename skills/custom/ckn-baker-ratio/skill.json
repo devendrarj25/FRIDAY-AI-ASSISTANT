@@ -5,16 +5,11 @@
   "category": "cooking",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "flourGrams",
-    "text"
-  ],
+  "inputs": ["flourGrams", "text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "baker's percentages"
-  ],
+  "triggers": ["baker's percentages"],
   "description": "Assumes the first number tagged flour, or an explicit flourGrams field."
 }

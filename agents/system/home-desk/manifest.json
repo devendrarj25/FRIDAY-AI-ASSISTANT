@@ -4,13 +4,9 @@
   "description": "Home and household help from the built-in home skills: chores, maintenance schedules, budgets, shopping and moving checklists. Picks the best skills for the request and can combine them.",
   "category": "home",
   "role": "home-desk",
-  "skills": [
-    "category:home"
-  ],
+  "skills": ["category:home"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

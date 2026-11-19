@@ -9,8 +9,5 @@
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ OS UPTIME. Allow this?",
-  "keywords": [
-    "uptime",
-    "os"
-  ]
+  "keywords": ["uptime", "os"]
 }

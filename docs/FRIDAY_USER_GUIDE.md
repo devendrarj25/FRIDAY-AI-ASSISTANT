@@ -43,12 +43,12 @@ The shipped voice is a female Indian voice for both languages: **Swara** for Hin
 
 Press **Record** next to each line, say it, then **Stop** (a recording also stops by itself after 12 seconds). Record the wake word eight times in different manners (normal, softer, louder, farther away, quick, slow, from across the room) and six or more sentences in English, Hindi and Hinglish, in a quiet room close to the microphone. Then **Build my voice profile**.
 
-* **Recognise my voice:** a command that needs your confirmation is not run when the voice clearly is not yours. A voice match never approves anything.
-* **Only answer my voice** (off by default): she ignores what clearly is not your voice; "stop" is always heard.
-* **Wake on my own recordings:** your own takes can wake her when the transcript wrote the word differently. It is used only when the profile says "personal wake word: ready".
-* **Words and names FRIDAY should expect:** names and Hinglish words you use often.
-* After you build the profile, FRIDAY also knows how you usually sound, so her reading of your tone (calm, lively, tense) is right from your first sentence instead of after a few.
-* **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
+- **Recognise my voice:** a command that needs your confirmation is not run when the voice clearly is not yours. A voice match never approves anything.
+- **Only answer my voice** (off by default): she ignores what clearly is not your voice; "stop" is always heard.
+- **Wake on my own recordings:** your own takes can wake her when the transcript wrote the word differently. It is used only when the profile says "personal wake word: ready".
+- **Words and names FRIDAY should expect:** names and Hinglish words you use often.
+- After you build the profile, FRIDAY also knows how you usually sound, so her reading of your tone (calm, lively, tense) is right from your first sentence instead of after a few.
+- **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
 
 The recordings stay on this PC in your FRIDAY folder and the voiceprint is encrypted. Nothing is uploaded. **Forget my voice** deletes the recordings and the profile; **Delete recordings, keep profile** keeps only the profile. This is a convenience, not a lock, and it was only measured on your own recordings.
 

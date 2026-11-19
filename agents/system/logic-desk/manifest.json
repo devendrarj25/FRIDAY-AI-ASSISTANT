@@ -4,13 +4,9 @@
   "description": "Structured thinking from the built-in reasoning skills: decision matrices, pros and cons, assumptions, risks, pre-mortems and first-principles breakdowns. Picks the best skills and can combine them.",
   "category": "reasoning",
   "role": "logic-desk",
-  "skills": [
-    "category:reasoning"
-  ],
+  "skills": ["category:reasoning"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

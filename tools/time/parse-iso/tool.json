@@ -5,15 +5,9 @@
   "name": "Parse ISO date",
   "description": "Parse an ISO-8601 / RFC-2822 date string with Date.parse. Invalid input fails honestly.",
   "category": "time",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to PARSE a DATE STRING in memory. Allow this?",
-  "keywords": [
-    "date",
-    "iso",
-    "parse"
-  ]
+  "keywords": ["date", "iso", "parse"]
 }

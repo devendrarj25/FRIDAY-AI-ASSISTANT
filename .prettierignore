@@ -14,3 +14,27 @@ pnpm-lock.yaml
 package-lock.json
 bun.lock
 routeTree.gen.ts
+
+# Written by scripts/docs-engine.cjs: its generated blocks are not prettier-shaped and are rewritten on every docs:sync.
+README.md
+ARCHITECTURE.md
+docs/README.md
+docs/FRIDAY_MCP.md
+docs/FRIDAY_PROVIDERS_AND_SECRETS.md
+docs/FRIDAY_SKILLS.md
+config/mcp-surface.json
+
+# Published history and recorded snapshots: byte-for-byte as released or generated.
+CHANGELOG.md
+releases/notes
+core/fixtures
+kernel/openapi.snapshot.json
+
+# Owner-governed rulebook: changed only by the owner.
+AGENTS.md
+
+# Tests read this stylesheet as text and pin its exact rule layout.
+src/styles.css
+
+# Generated mirror of the layout contract (scripts/arrange-project.cjs rewrites it).
+config/project-structure.json

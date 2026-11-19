@@ -11,10 +11,6 @@
   "name": "EditorConfig presence",
   "description": "Check .editorconfig at workspace root on start.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

@@ -4,15 +4,9 @@
   "description": "Answers PC and network questions offline: converts data sizes and units, looks up what runs on a port, classifies IP addresses and says whether a file type can run code.",
   "category": "ops",
   "role": "system-desk",
-  "skills": [
-    "ops-convert",
-    "ops-network-tools",
-    "ops-file-path-check"
-  ],
+  "skills": ["ops-convert", "ops-network-tools", "ops-file-path-check"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

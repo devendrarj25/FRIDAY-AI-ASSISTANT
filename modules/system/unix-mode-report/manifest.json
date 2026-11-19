@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Report octal modes and flag world-writable or setuid files. Names and modes only. Read-only.",
   "category": "system",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

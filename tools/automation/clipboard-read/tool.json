@@ -6,9 +6,7 @@
   "description": "Read the desktop clipboard via Electron's clipboard module. Outside the FRIDAY desktop app this fails honestly — there is no fake clipboard store.",
   "category": "automation",
   "inputs": [],
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ the current clipboard text. Whatever is copied right now will be visible to her. Allow this?"
 }

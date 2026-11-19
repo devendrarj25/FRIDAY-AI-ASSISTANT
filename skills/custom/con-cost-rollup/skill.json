@@ -5,15 +5,11 @@
   "category": "construction",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "material cost rollup"
-  ],
+  "triggers": ["material cost rollup"],
   "description": "Each line: quantity, unit cost, rest is the label. Totals are arithmetic on your numbers, not a bid. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
 }

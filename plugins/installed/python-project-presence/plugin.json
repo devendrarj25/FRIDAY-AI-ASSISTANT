@@ -11,10 +11,6 @@
   "name": "Python project presence",
   "description": "Check pyproject.toml / requirements.txt / setup.py at start.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

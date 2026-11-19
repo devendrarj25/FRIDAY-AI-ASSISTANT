@@ -4,13 +4,9 @@
   "description": "The agent that can use any enabled skill. It picks the best few skills for what you ask from the whole built-in and installed set, runs them together and answers from all of their results.",
   "category": "skills",
   "role": "skill-desk",
-  "skills": [
-    "*"
-  ],
+  "skills": ["*"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

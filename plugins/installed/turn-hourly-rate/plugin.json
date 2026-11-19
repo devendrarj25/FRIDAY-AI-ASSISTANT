@@ -12,7 +12,5 @@
   "description": "Count finished turns per local hour so the owner can see busy vs quiet windows.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

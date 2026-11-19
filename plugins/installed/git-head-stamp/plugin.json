@@ -11,10 +11,6 @@
   "name": "Git HEAD stamp",
   "description": "Read .git/HEAD (text only) at start. Does not run git and does not commit.",
   "category": "git",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

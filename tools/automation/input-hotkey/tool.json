@@ -5,19 +5,10 @@
   "category": "automation",
   "entry": "index.cjs",
   "kernelTool": "input.hotkey",
-  "inputs": [
-    "keys",
-    "target",
-    "hwnd"
-  ],
-  "permissions": [
-    "devices",
-    "process.exec"
-  ],
+  "inputs": ["keys", "target", "hwnd"],
+  "permissions": ["devices", "process.exec"],
   "risk": "exec",
   "enabled": false,
-  "requires": [
-    "PyAutoGUI"
-  ],
+  "requires": ["PyAutoGUI"],
   "approvalPrompt": "FRIDAY wants to PRESS the shortcut {keys} in the window \u201c{target}\u201d. Shortcuts act immediately and can save, delete, close or start things. Allow this?"
 }

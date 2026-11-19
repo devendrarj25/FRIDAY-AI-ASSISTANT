@@ -5,17 +5,11 @@
   "category": "reasoning",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "title"
-  ],
+  "inputs": ["text", "title"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "decision record template",
-    "decision record"
-  ],
+  "triggers": ["decision record template", "decision record"],
   "description": "Keyword buckets. Does not commit architecture on its own."
 }

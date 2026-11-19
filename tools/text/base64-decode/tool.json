@@ -5,9 +5,7 @@
   "name": "Base64 decode",
   "description": "Decode base64 to UTF-8 text with Node Buffer. Invalid input fails honestly.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to BASE64-DECODE text in memory. Allow this?"

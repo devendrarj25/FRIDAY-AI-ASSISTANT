@@ -5,13 +5,8 @@
   "name": "Hash a file",
   "description": "SHA-256 of a file inside the FRIDAY folder (node:crypto). Read-only.",
   "category": "filesystem",
-  "inputs": [
-    "path",
-    "root"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["path", "root"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to HASH the file “{path}” (SHA-256) inside the FRIDAY folder. Allow this?"
 }

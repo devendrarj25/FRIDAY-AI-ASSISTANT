@@ -17,10 +17,7 @@
       "required": false
     }
   ],
-  "permissions": [
-    "process.exec",
-    "devices"
-  ],
+  "permissions": ["process.exec", "devices"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to control the touchscreen of your connected Android phone. Allow this?"

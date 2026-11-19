@@ -70,18 +70,8 @@
     {
       "id": "word",
       "label": "Word documents",
-      "match": [
-        "docx",
-        "doc",
-        "odt",
-        "rtf",
-        "epub"
-      ],
-      "words": [
-        "word",
-        "word document",
-        "docx"
-      ],
+      "match": ["docx", "doc", "odt", "rtf", "epub"],
+      "words": ["word", "word document", "docx"],
       "read": {
         "status": "built",
         "tool": "fs.extract",
@@ -96,19 +86,8 @@
     {
       "id": "excel",
       "label": "Spreadsheets",
-      "match": [
-        "xlsx",
-        "xlsm",
-        "xls",
-        "ods",
-        "csv",
-        "tsv"
-      ],
-      "words": [
-        "excel",
-        "spreadsheet",
-        "sheet"
-      ],
+      "match": ["xlsx", "xlsm", "xls", "ods", "csv", "tsv"],
+      "words": ["excel", "spreadsheet", "sheet"],
       "read": {
         "status": "built",
         "tool": "fs.extract",
@@ -123,17 +102,8 @@
     {
       "id": "slides",
       "label": "Presentations",
-      "match": [
-        "pptx",
-        "ppt",
-        "odp"
-      ],
-      "words": [
-        "powerpoint",
-        "slides",
-        "presentation",
-        "deck"
-      ],
+      "match": ["pptx", "ppt", "odp"],
+      "words": ["powerpoint", "slides", "presentation", "deck"],
       "read": {
         "status": "built",
         "tool": "fs.extract",
@@ -148,12 +118,8 @@
     {
       "id": "pdf",
       "label": "PDF",
-      "match": [
-        "pdf"
-      ],
-      "words": [
-        "pdf"
-      ],
+      "match": ["pdf"],
+      "words": ["pdf"],
       "read": {
         "status": "built",
         "tool": "fs.extract",
@@ -168,21 +134,8 @@
     {
       "id": "archive",
       "label": "Archives",
-      "match": [
-        "zip",
-        "tar",
-        "gz",
-        "tgz",
-        "bz2",
-        "xz",
-        "7z",
-        "rar"
-      ],
-      "words": [
-        "zip",
-        "archive",
-        "compress"
-      ],
+      "match": ["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"],
+      "words": ["zip", "archive", "compress"],
       "read": {
         "status": "built",
         "tool": "archive.list, archive.extract",
@@ -197,25 +150,8 @@
     {
       "id": "image",
       "label": "Images",
-      "match": [
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-        "bmp",
-        "svg",
-        "tiff",
-        "ico"
-      ],
-      "words": [
-        "image",
-        "picture",
-        "photo",
-        "screenshot",
-        "logo",
-        "drawing"
-      ],
+      "match": ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tiff", "ico"],
+      "words": ["image", "picture", "photo", "screenshot", "logo", "drawing"],
       "read": {
         "status": "partial",
         "tool": "fs.identify, screen.read_text, a vision model",
@@ -230,24 +166,8 @@
     {
       "id": "audio",
       "label": "Audio",
-      "match": [
-        "mp3",
-        "wav",
-        "m4a",
-        "ogg",
-        "flac",
-        "opus",
-        "aac"
-      ],
-      "words": [
-        "audio",
-        "sound",
-        "voice",
-        "song",
-        "music",
-        "recording",
-        "podcast"
-      ],
+      "match": ["mp3", "wav", "m4a", "ogg", "flac", "opus", "aac"],
+      "words": ["audio", "sound", "voice", "song", "music", "recording", "podcast"],
       "read": {
         "status": "built",
         "tool": "speech to text, media.transcribe, media.probe",
@@ -262,20 +182,8 @@
     {
       "id": "video",
       "label": "Video",
-      "match": [
-        "mp4",
-        "mkv",
-        "mov",
-        "webm",
-        "avi",
-        "m4v"
-      ],
-      "words": [
-        "video",
-        "clip",
-        "movie",
-        "film"
-      ],
+      "match": ["mp4", "mkv", "mov", "webm", "avi", "m4v"],
+      "words": ["video", "clip", "movie", "film"],
       "read": {
         "status": "needs-tool",
         "tool": "media.probe, media.frames, media.transcribe",
@@ -290,21 +198,8 @@
     {
       "id": "data-stores",
       "label": "Databases and binaries",
-      "match": [
-        "db",
-        "sqlite",
-        "sqlite3",
-        "exe",
-        "dll",
-        "msi",
-        "ipynb"
-      ],
-      "words": [
-        "database",
-        "sqlite",
-        "executable",
-        "notebook"
-      ],
+      "match": ["db", "sqlite", "sqlite3", "exe", "dll", "msi", "ipynb"],
+      "words": ["database", "sqlite", "executable", "notebook"],
       "read": {
         "status": "built",
         "tool": "sqlite.query, fs.identify",

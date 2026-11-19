@@ -5,16 +5,9 @@
   "name": "Round number",
   "description": "Round a number to N decimal places with Number.toFixed semantics.",
   "category": "math",
-  "inputs": [
-    "value",
-    "places"
-  ],
+  "inputs": ["value", "places"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to ROUND a NUMBER. Allow this?",
-  "keywords": [
-    "round",
-    "decimal",
-    "fixed"
-  ]
+  "keywords": ["round", "decimal", "fixed"]
 }

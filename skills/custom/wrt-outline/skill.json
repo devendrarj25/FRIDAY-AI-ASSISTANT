@@ -5,16 +5,11 @@
   "category": "writing",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "title"
-  ],
+  "inputs": ["text", "title"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "piece outline"
-  ],
+  "triggers": ["piece outline"],
   "description": "Structure helper. It does not publish the piece."
 }

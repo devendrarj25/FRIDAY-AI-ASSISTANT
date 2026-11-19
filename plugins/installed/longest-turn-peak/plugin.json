@@ -12,7 +12,5 @@
   "description": "Remember the slowest successful turn (ms + run id) seen while enabled.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

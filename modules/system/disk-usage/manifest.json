@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Sum file sizes under a folder (skips .git/node_modules) and rank top directories. Read-only; does not call df.",
   "category": "system",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

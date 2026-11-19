@@ -11,10 +11,6 @@
   "name": "Workspace root markers",
   "description": "One start stamp of common project markers (package.json, .git, src, kernel, skills).",
   "category": "workspace",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

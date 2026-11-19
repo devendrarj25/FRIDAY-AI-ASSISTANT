@@ -20,19 +20,19 @@ Python live venv: `<root>\runtime\.venv` when a folder is chosen.
 
 `<root>\App` is only the program: `FRIDAY.exe` and the files that ship inside it. An update or reinstall replaces it wholesale, which is why nothing FRIDAY downloads or the owner adds is stored there. Everything else is a sibling folder in the root that an update never touches, so the new program finds the same models, libraries, memory and files and nothing is fetched again. After an update the program is new and the data is the old data.
 
-| Thing | Home | Survives update, reinstall, normal uninstall | Removed by "Delete all FRIDAY data" |
-| --- | --- | --- | --- |
-| Models (GGUF, imported, downloaded) | `models` | yes | yes |
-| Speech weights | `cache\stt` | yes | yes |
-| pip libraries (faster-whisper, torch, ...) | `runtime\.venv` | yes | yes |
-| Tools FRIDAY unpacks herself (portable Node, MinGit, ...) | `runtime\<tool>` | yes | yes |
-| Skills, agents, plugins, modules, workflows | their own folders | yes | yes |
-| Owner uploads and generated files | `library` | yes | yes |
-| The owner's own voice (recordings of the owner, the encrypted voiceprint and wake template) | `preferences\voice-enrollment` | yes | yes (and "Forget my voice" in Settings → Voice) |
-| Memory, conversations, database, settings, keys | `memory`, `conversations`, `database`, `config`, `security` | yes | yes |
-| winget and vendor installs (Git, Go, Rust, Docker, CUDA, FFmpeg, ...) | Windows' own folders and PATH | yes | no (they belong to the PC) |
-| npm global packages | the user's npm prefix | yes | no |
-| Ollama's own models | `%USERPROFILE%\.ollama` | yes | no |
+| Thing                                                                                       | Home                                                        | Survives update, reinstall, normal uninstall | Removed by "Delete all FRIDAY data"             |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------- |
+| Models (GGUF, imported, downloaded)                                                         | `models`                                                    | yes                                          | yes                                             |
+| Speech weights                                                                              | `cache\stt`                                                 | yes                                          | yes                                             |
+| pip libraries (faster-whisper, torch, ...)                                                  | `runtime\.venv`                                             | yes                                          | yes                                             |
+| Tools FRIDAY unpacks herself (portable Node, MinGit, ...)                                   | `runtime\<tool>`                                            | yes                                          | yes                                             |
+| Skills, agents, plugins, modules, workflows                                                 | their own folders                                           | yes                                          | yes                                             |
+| Owner uploads and generated files                                                           | `library`                                                   | yes                                          | yes                                             |
+| The owner's own voice (recordings of the owner, the encrypted voiceprint and wake template) | `preferences\voice-enrollment`                              | yes                                          | yes (and "Forget my voice" in Settings → Voice) |
+| Memory, conversations, database, settings, keys                                             | `memory`, `conversations`, `database`, `config`, `security` | yes                                          | yes                                             |
+| winget and vendor installs (Git, Go, Rust, Docker, CUDA, FFmpeg, ...)                       | Windows' own folders and PATH                               | yes                                          | no (they belong to the PC)                      |
+| npm global packages                                                                         | the user's npm prefix                                       | yes                                          | no                                              |
+| Ollama's own models                                                                         | `%USERPROFILE%\.ollama`                                     | yes                                          | no                                              |
 
 `<root>\inventory.json` (`electron/install-inventory.cjs`) writes down the real state of that table: one row per tool, model and speech weight with its home, path, version and whether a newer one exists. It is rebuilt from the Install Manager scan and the real folders, written only when it changed, and hashed in `integrity.json`. It adds no second detector or installer.
 

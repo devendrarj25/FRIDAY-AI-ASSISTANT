@@ -11,10 +11,6 @@
   "name": "Screenshot name idle",
   "description": "On idle, find files whose names look like screenshots (Screenshot, IMG_, WA).",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

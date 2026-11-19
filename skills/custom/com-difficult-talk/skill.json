@@ -5,16 +5,11 @@
   "category": "communication",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "difficult conversation outline",
-    "difficult conversation"
-  ],
+  "triggers": ["difficult conversation outline", "difficult conversation"],
   "description": "A talking scaffold. It does not speak for you."
 }

@@ -5,14 +5,8 @@
   "category": "applications",
   "entry": "index.cjs",
   "kernelTool": "app.focus",
-  "inputs": [
-    "title",
-    "hwnd"
-  ],
-  "permissions": [
-    "process.exec",
-    "devices"
-  ],
+  "inputs": ["title", "hwnd"],
+  "permissions": ["process.exec", "devices"],
   "risk": "exec",
   "enabled": false,
   "approvalPrompt": "FRIDAY wants to SWITCH the foreground window to \u201c{title}\u201d. Your keyboard and mouse will then be aimed at that window instead of the one you are using. Allow this?"

@@ -11,10 +11,6 @@
   "name": "gitignore presence",
   "description": "Check .gitignore at workspace root on start.",
   "category": "git",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

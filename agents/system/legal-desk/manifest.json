@@ -4,13 +4,9 @@
   "description": "Plain-language templates from the built-in legal skills: notices, agreements outlines, checklists and clause reminders. They are templates, not legal advice; a lawyer should review anything that matters.",
   "category": "legal",
   "role": "legal-desk",
-  "skills": [
-    "category:legal-templates"
-  ],
+  "skills": ["category:legal-templates"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List KEY names from .env and .env.example files only \u2014 never values. Flags keys present in example but missing in .env. Read-only.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

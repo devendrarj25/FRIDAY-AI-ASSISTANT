@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List GNU Make targets from Makefile / makefile (name before first colon, skip .PHONY and pattern rules). Read-only; does not run make.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

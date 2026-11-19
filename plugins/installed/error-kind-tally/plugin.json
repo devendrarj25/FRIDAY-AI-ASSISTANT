@@ -12,7 +12,5 @@
   "description": "Classify on-error messages into timeout / network / permission / other. Stores the kind, not a dump.",
   "category": "diagnostics",
   "permissions": [],
-  "hooks": [
-    "on-error"
-  ]
+  "hooks": ["on-error"]
 }

@@ -4,14 +4,9 @@
   "description": "Security and privacy help from the built-in security and safety skills: secret and personal-data scans, link checks, password strength, account hygiene checklists. Picks the best skills and can combine them.",
   "category": "security",
   "role": "security-desk",
-  "skills": [
-    "category:security-hygiene",
-    "category:safety"
-  ],
+  "skills": ["category:security-hygiene", "category:safety"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

@@ -12,7 +12,5 @@
   "description": "Journal file-change events whose names look like tests (*.test.*, *.spec.*, __tests__).",
   "category": "quality",
   "permissions": [],
-  "hooks": [
-    "on-file-change"
-  ]
+  "hooks": ["on-file-change"]
 }

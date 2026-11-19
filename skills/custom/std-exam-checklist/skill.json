@@ -5,16 +5,11 @@
   "category": "study",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "exam week checklist",
-    "exam week"
-  ],
+  "triggers": ["exam week checklist", "exam week"],
   "description": "Logistics template, not a grade prediction."
 }

@@ -5,16 +5,11 @@
   "category": "data",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "dedupe key list",
-    "dedupe key"
-  ],
+  "triggers": ["dedupe key list", "dedupe key"],
   "description": "In-memory uniqueness. It does not rewrite the source file."
 }

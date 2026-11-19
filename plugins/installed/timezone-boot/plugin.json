@@ -12,7 +12,5 @@
   "description": "Record the host timezone offset and locale time string at start.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

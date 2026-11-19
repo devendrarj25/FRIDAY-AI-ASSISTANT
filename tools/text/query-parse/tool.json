@@ -5,15 +5,9 @@
   "name": "Query parse",
   "description": "Parse a URL query string (with or without ?) into keys and values.",
   "category": "text",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to PARSE a URL QUERY STRING in memory. Allow this?",
-  "keywords": [
-    "query",
-    "qs",
-    "searchparams"
-  ]
+  "keywords": ["query", "qs", "searchparams"]
 }

@@ -12,7 +12,5 @@
   "description": "On app start, writes Node version, platform, and pid into this plugin's data/boot.json. No network.",
   "category": "session",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

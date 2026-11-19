@@ -4,13 +4,8 @@
   "description": "Parses local CSV files and sums numeric cells so a hisab/export folder has real totals. Local files only \u2014 nothing is sent to a ledger cloud.",
   "category": "office",
   "entry": "index.cjs",
-  "inputs": [
-    "folder",
-    "dryRun"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["folder", "dryRun"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "enabled": false,
   "approvalPrompt": "FRIDAY summed numeric cells in {count} CSV file(s) under \u201c{folder}\u201d. Local parse only. Allow to keep the totals. No row is uploaded."

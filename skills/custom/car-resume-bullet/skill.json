@@ -5,19 +5,11 @@
   "category": "career",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "situation",
-    "task",
-    "action",
-    "result",
-    "text"
-  ],
+  "inputs": ["situation", "task", "action", "result", "text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "star resume bullet"
-  ],
+  "triggers": ["star resume bullet"],
   "description": "Writing aid. It does not apply to jobs for you."
 }

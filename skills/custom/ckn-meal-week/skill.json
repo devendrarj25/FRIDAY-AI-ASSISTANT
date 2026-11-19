@@ -5,15 +5,11 @@
   "category": "cooking",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "seven day meal slots"
-  ],
+  "triggers": ["seven day meal slots"],
   "description": "A slot plan for dishes you already named. Not nutrition advice and not a shopping order."
 }

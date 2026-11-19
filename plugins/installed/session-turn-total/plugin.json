@@ -12,8 +12,5 @@
   "description": "Count turns this process and stamp the total again on quit.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete",
-    "on-app-quit"
-  ]
+  "hooks": ["on-turn-complete", "on-app-quit"]
 }

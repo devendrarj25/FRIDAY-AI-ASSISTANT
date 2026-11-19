@@ -12,7 +12,5 @@
   "description": "On each finished turn, record runs that took 8s or longer. Inspect-only latency journal.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

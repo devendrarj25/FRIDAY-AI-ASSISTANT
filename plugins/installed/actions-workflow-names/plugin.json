@@ -11,10 +11,6 @@
   "name": "Actions workflow names",
   "description": "List filenames under .github/workflows at start. Does not run CI.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-app-start"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"]
 }

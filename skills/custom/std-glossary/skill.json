@@ -5,15 +5,11 @@
   "category": "study",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "glossary builder"
-  ],
+  "triggers": ["glossary builder"],
   "description": "Term harvest. Definitions stay as '[add]' unless the line already has one."
 }

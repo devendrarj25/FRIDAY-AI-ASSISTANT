@@ -4,14 +4,9 @@
   "description": "Money and markets help from the built-in markets and finance skills: ratios, returns, position sizing, budgets and what-if arithmetic. Educational arithmetic only, never investment advice.",
   "category": "finance",
   "role": "markets-desk",
-  "skills": [
-    "category:markets",
-    "category:finance"
-  ],
+  "skills": ["category:markets", "category:finance"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

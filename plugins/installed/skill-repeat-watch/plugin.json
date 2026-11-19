@@ -12,7 +12,5 @@
   "description": "Flag when the same skill id runs twice in a row.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-skill-run"
-  ]
+  "hooks": ["on-skill-run"]
 }

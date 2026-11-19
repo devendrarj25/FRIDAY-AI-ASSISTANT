@@ -5,15 +5,9 @@
   "name": "CSV headers",
   "description": "Return the header row of CSV/TSV text using document-extract.parseCsv.",
   "category": "data",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to READ CSV HEADERS from text you provide. Allow this?",
-  "keywords": [
-    "csv",
-    "headers",
-    "columns"
-  ]
+  "keywords": ["csv", "headers", "columns"]
 }

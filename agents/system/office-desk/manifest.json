@@ -4,15 +4,9 @@
   "description": "Office work from the built-in office, document and productivity skills: agendas, minutes, status reports, checklists and task planning. Picks the best skills for the request and can combine them.",
   "category": "office",
   "role": "office-desk",
-  "skills": [
-    "category:office",
-    "category:documents",
-    "category:productivity"
-  ],
+  "skills": ["category:office", "category:documents", "category:productivity"],
   "workflows": [],
-  "inputs": [
-    "prompt"
-  ],
+  "inputs": ["prompt"],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

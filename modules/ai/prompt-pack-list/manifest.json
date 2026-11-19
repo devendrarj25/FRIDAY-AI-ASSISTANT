@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List prompt-like files (prompts/, *.prompt.md, *prompt*.txt) and return the first line of each. Read-only.",
   "category": "ai",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

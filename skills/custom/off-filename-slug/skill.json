@@ -5,16 +5,11 @@
   "category": "office",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "ext"
-  ],
+  "inputs": ["text", "ext"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "safe filename slug"
-  ],
+  "triggers": ["safe filename slug"],
   "description": "Produces a slug string. It does not rename files on disk."
 }

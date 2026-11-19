@@ -11,10 +11,6 @@
   "name": "Idle temp census",
   "description": "On idle, inspect-lists the workspace temporary/ folder (names only) and writes a count into this plugin's data/census.json. Needs fs.read; never deletes files.",
   "category": "housekeeping",
-  "permissions": [
-    "fs.read"
-  ],
-  "hooks": [
-    "on-idle"
-  ]
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"]
 }

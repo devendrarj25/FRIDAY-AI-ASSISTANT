@@ -11,7 +11,7 @@ workspace:
   allow_outside_root: false
 
 memory:
-  backend: chroma        # chroma | faiss
+  backend: chroma # chroma | faiss
   embed_model: bge-m3
   chunk_chars: 2000
   recall_k: 6
@@ -19,8 +19,8 @@ memory:
 automation:
   auto_approve_safe: true
   auto_approve_workspace_writes: false
-  auto_approve_exec: false        # never default this to true; the planner never auto-runs exec
-  write_lessons_on_failure: true  # honoured by kernel/planner.py; Brain autoLearn can override live
+  auto_approve_exec: false # never default this to true; the planner never auto-runs exec
+  write_lessons_on_failure: true # honoured by kernel/planner.py; Brain autoLearn can override live
   daily_update_check: true
 
 roles:

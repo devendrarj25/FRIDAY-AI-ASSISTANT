@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Count lines of text files grouped by extension (skips node_modules/.git). Read-only approximation, not scc/cloc.",
   "category": "developer",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

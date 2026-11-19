@@ -4,13 +4,8 @@
   "description": "Lists *.pub files and the key type from the first field only. Never reads private keys.",
   "category": "security",
   "entry": "index.cjs",
-  "inputs": [
-    "folder",
-    "dryRun"
-  ],
-  "permissions": [
-    "fs.read"
-  ],
+  "inputs": ["folder", "dryRun"],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "enabled": false,
   "approvalPrompt": "FRIDAY listed {count} public key file(s) under \u201c{folder}\u201d. Types only, no private key bytes. Allow to keep the inventory."

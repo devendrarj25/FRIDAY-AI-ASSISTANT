@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Read From/To/Cc/Subject/Date from a local .eml file via stdlib email. Does not download mail or dump bodies.",
   "category": "communication",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

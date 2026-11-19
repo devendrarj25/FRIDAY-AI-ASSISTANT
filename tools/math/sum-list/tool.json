@@ -5,15 +5,9 @@
   "name": "Sum list",
   "description": "Sum numbers from a JSON array or a comma/space-separated list.",
   "category": "math",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to SUM a LIST of numbers. Allow this?",
-  "keywords": [
-    "sum",
-    "total",
-    "add"
-  ]
+  "keywords": ["sum", "total", "add"]
 }

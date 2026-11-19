@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "Profile a CSV: delimiter, column names, inferred types (int/float/bool/empty/text), null counts, and unique counts. Distinct from table-inspect sample rows. Read-only.",
   "category": "data",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {

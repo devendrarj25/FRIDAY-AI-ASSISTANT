@@ -12,7 +12,5 @@
   "description": "List process.env *keys* at start (never values) so missing toolchains are visible.",
   "category": "system",
   "permissions": [],
-  "hooks": [
-    "on-app-start"
-  ]
+  "hooks": ["on-app-start"]
 }

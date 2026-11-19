@@ -5,16 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text"
-  ],
+  "inputs": ["text"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "api contract checklist",
-    "api contract"
-  ],
+  "triggers": ["api contract checklist", "api contract"],
   "description": "Looks for HTTP verbs, /paths, auth words, and 4xx/5xx. Does not start a server."
 }

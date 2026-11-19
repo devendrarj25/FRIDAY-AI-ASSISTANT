@@ -6,9 +6,7 @@
   "description": "List this machine's network interfaces via os.networkInterfaces() (no external service).",
   "category": "network",
   "inputs": [],
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to read this PC's local network interface addresses. Allow this?"
 }

@@ -5,10 +5,7 @@
   "name": "Diff lines",
   "description": "Line-level added/removed/same between two texts. No extra diff library.",
   "category": "text",
-  "inputs": [
-    "left",
-    "right"
-  ],
+  "inputs": ["left", "right"],
   "permissions": [],
   "risk": "safe",
   "approvalPrompt": "FRIDAY wants to DIFF two texts in memory. Allow this?"

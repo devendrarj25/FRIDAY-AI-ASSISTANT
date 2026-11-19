@@ -12,7 +12,5 @@
   "description": "Bucket finished-turn durations (<1s, 1–4s, 4–8s, 8s+) into a running histogram.",
   "category": "activity",
   "permissions": [],
-  "hooks": [
-    "on-turn-complete"
-  ]
+  "hooks": ["on-turn-complete"]
 }

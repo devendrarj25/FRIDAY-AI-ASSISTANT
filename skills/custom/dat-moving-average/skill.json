@@ -5,16 +5,11 @@
   "category": "data",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "window"
-  ],
+  "inputs": ["text", "window"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "simple moving average"
-  ],
+  "triggers": ["simple moving average"],
   "description": "Local smoothing. Not a trading signal and not a forecast service."
 }

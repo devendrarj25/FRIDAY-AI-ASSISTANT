@@ -5,16 +5,11 @@
   "category": "coding",
   "capabilities": [],
   "risk": "safe",
-  "inputs": [
-    "text",
-    "version"
-  ],
+  "inputs": ["text", "version"],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
-  "triggers": [
-    "changelog drafter"
-  ],
+  "triggers": ["changelog drafter"],
   "description": "Keyword-sorts your notes. Does not overwrite CHANGELOG.md; FRIDAY version authority stays in config/friday-version.json."
 }

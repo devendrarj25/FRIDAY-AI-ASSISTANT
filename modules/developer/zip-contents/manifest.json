@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "List zip member names, sizes, and compressed sizes without extracting. Opens the local file after fs.read confirms it exists (kernel fs.read is text-only).",
   "category": "data",
-  "permissions": [
-    "fs.read"
-  ],
+  "permissions": ["fs.read"],
   "entry": "main.py",
   "enabled": false,
   "selfTest": {
