@@ -175,3 +175,19 @@ describe("a window hidden to the tray can always be found again", () => {
     expect(api.isAvailable()).toBe(false); // nothing has created an icon in this process
   });
 });
+
+describe("ending FRIDAY with a signal", () => {
+  const main = readFileSync(path.join(root, "electron/main.cjs"), "utf8");
+
+  it("shuts down in order on the first signal and ends at once on a second, so the kernel is not left running", () => {
+    const at = main.indexOf('for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])');
+    expect(at).toBeGreaterThan(-1);
+    const block = main.slice(at, at + 700);
+    expect(block).toContain("process.on(signal");
+    expect(block).toContain("life.requestShutdown(`signal ${signal}`)");
+    expect(block).toContain("life.exitNow(130");
+    // The handler is installed after the lifecycle exists and before the app is ready.
+    expect(main.indexOf("const life = appLifecycle.createLifecycle")).toBeLessThan(at);
+    expect(at).toBeLessThan(main.indexOf("app.whenReady()"));
+  });
+});

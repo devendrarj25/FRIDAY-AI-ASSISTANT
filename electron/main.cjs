@@ -297,6 +297,28 @@ const life = appLifecycle.createLifecycle({
   relaunchArgs: restartArgv,
 });
 exitNow = (code, reason) => life.exitNow(code, reason);
+
+// A signal is an ordinary way to end FRIDAY (Ctrl+C or closing the console it was started from, a service manager,
+// `taskkill` without /F). Without a handler the process was cut off at once and the Python kernel it owns kept
+// running, holding its port until the next start recovered it. The first signal shuts down in order; a second one
+// while that is still going on ends the process now.
+{
+  let signalled = 0;
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+    try {
+      process.on(signal, () => {
+        signalled += 1;
+        if (signalled > 1) {
+          life.exitNow(130, `second ${signal}`);
+          return;
+        }
+        void life.requestShutdown(`signal ${signal}`);
+      });
+    } catch {
+      /* this platform does not deliver that signal */
+    }
+  }
+}
 function lifecyclePidFile() {
   try {
     return path.join(app.getPath("userData"), "lifecycle.json");
