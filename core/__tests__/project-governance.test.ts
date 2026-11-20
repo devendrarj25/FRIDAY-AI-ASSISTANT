@@ -310,3 +310,37 @@ describe("CI economics and safety", () => {
     }
   });
 });
+
+describe("npm 12 install scripts", () => {
+  // npm 12 runs no install script of a dependency unless package.json `allowScripts` names it (true or false).
+  // A new dependency with an install script would then be skipped silently on the owner's PC, so a bump that
+  // brings one must be decided here in the same pull request (the 2026-11-20 setup logs ran npm 12.2.3).
+  it("every locked package with an install script is decided in allowScripts, except the macOS-only optional one", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
+      allowScripts?: Record<string, boolean>;
+    };
+    const lock = JSON.parse(fs.readFileSync(path.join(ROOT, "package-lock.json"), "utf8")) as {
+      packages: Record<string, { hasInstallScript?: boolean; optional?: boolean }>;
+    };
+    const decided = new Set(Object.keys(manifest.allowScripts || {}));
+    const undecided = Object.entries(lock.packages)
+      .filter(([, info]) => info.hasInstallScript && !info.optional)
+      .map(([key]) => key.replace(/^.*node_modules\//, ""))
+      .filter((name) => !decided.has(name));
+    expect(undecided).toEqual([]);
+  });
+
+  it("uses no git or remote dependency, which npm 12 refuses by default (--allow-git and --allow-remote are none)", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as Record<
+      string,
+      Record<string, string>
+    >;
+    const odd: string[] = [];
+    for (const group of ["dependencies", "devDependencies", "optionalDependencies"]) {
+      for (const [name, range] of Object.entries(manifest[group] || {})) {
+        if (/^(git|github:|https?:|git\+)/i.test(range)) odd.push(`${group}.${name}`);
+      }
+    }
+    expect(odd).toEqual([]);
+  });
+});
