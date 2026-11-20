@@ -190,6 +190,35 @@ let pythonExecutable = null;
     url: "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm",
   });
 }
+if (win) {
+  // The build and Doctor start node scripts directly, so a console whose cmd.exe cannot find node or npm no longer
+  // stops them; it still breaks `npm run <script>` and tools that start a command by name, which is what ended a
+  // build with "'node' is not recognized" on one PC. This asks cmd.exe itself, with the PATH this console has.
+  const pathText = String(process.env.Path || process.env.PATH || "");
+  const found = spawnSync(
+    process.env.ComSpec || "cmd.exe",
+    ["/d", "/s", "/c", "where node && where npm"],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15000,
+    },
+  );
+  const reachable = found.status === 0;
+  add({
+    name: "Shell PATH (cmd.exe)",
+    required: false,
+    skip: "a console that cannot find node or npm by name does not stop the build; open a new terminal if a script says 'node' is not recognized",
+    group: "shell-path",
+    ok: reachable,
+    found: reachable
+      ? `node and npm found (PATH ${pathText.length} chars)`
+      : `cmd.exe cannot find node or npm (PATH ${pathText.length} chars)`,
+    want: "cmd.exe finds node and npm by name",
+    fix: "open a new terminal (a console started before the install has the old PATH), then run npm run doctor",
+    url: "https://docs.npmjs.com/cli/commands/npm-run-script",
+  });
+}
 {
   // A real interpreter prints its own path; the Windows Store stub does not.
   const probe = (exe, prefix = []) => {

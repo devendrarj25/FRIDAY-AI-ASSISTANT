@@ -752,6 +752,11 @@ describe("the renderer build does not depend on a shell-resolved PATH ('node' / 
     expect(read("scripts/env-registry.cjs")).toContain(
       'require("./win-spawn.cjs").spawnNpm(args, options)',
     );
+    // The environment check asks cmd.exe itself whether it finds node and npm, as a note and never a stop.
+    const check = read("scripts/check-environment.cjs");
+    expect(check).toContain('group: "shell-path"');
+    expect(check).toContain("where node && where npm");
+    expect(check).toMatch(/name: "Shell PATH \(cmd\.exe\)",\s*required: false/);
     expect(read("scripts/electron-pack.cjs")).toContain("cleanEnv(process.env)");
   });
 });
