@@ -150,6 +150,23 @@ function installColorConsole(env = process.env) {
   };
 }
 
+/**
+ * A library that draws its own progress bar straight to the stream (electron-builder's download bar) bypasses console.log,
+ * so its `[=====   ]` stayed plain text. While this is active every chunk written to the stream gets the same solid bar as
+ * the rest of the console. Returns the function that undoes it.
+ */
+function recolorStream(stream = process.stdout, env = process.env) {
+  if (!stream || typeof stream.write !== "function" || !colorWanted(stream, env)) return () => {};
+  const original = stream.write;
+  stream.write = function write(chunk, ...rest) {
+    const text = typeof chunk === "string" ? chunk : null;
+    return original.call(this, text === null ? chunk : recolorBars(text), ...rest);
+  };
+  return () => {
+    stream.write = original;
+  };
+}
+
 /* ------------------------------------------------------------------------------------------------ live line */
 
 const BAR_CELLS = 16;
@@ -553,6 +570,7 @@ module.exports = {
   colorize,
   redrawsInPlace,
   installColorConsole,
+  recolorStream,
   spinnerFrames,
   shimmer,
   LiveLine,

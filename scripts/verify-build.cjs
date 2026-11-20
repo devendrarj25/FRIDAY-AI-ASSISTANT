@@ -42,6 +42,9 @@ const flag = (name, fallback = "") => {
 // manifest must already exist (the final pre-publish gate).
 const expectedVersion = String(flag("version", "")).replace(/^v/i, "");
 const requireManifest = args.includes("--manifest");
+// The shared build pipeline runs the packaged-requires check as its own phase just before this one and passes this
+// flag so the same line is not printed twice. PR Validation and a direct run pass nothing and still run it here.
+const skipPackagedRequires = args.includes("--skip-packaged-requires");
 
 // `build-windows.cmd dir|nsis|portable` produces a subset of the artifacts, so
 // only require what the requested target actually emits.
@@ -566,7 +569,7 @@ if (wantsInstaller && installerFile) {
 // The shared pipeline runs this as its own phase; running it here as well means
 // PR Validation (which calls verify-build) catches a module left out of the
 // package before FRIDAY Release does.
-if (wantsInstaller || mode === "dir") {
+if (!skipPackagedRequires && (wantsInstaller || mode === "dir")) {
   const asar = path.join(release, "win-unpacked", "resources", "app.asar");
   if (fs.existsSync(asar)) {
     const required = spawnSync(

@@ -18,6 +18,7 @@
 const fs = require("node:fs");
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
 if (require.main === module) require("./live-console.cjs").installColorConsole();
+const { recolorStream } = require("./live-console.cjs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -579,8 +580,16 @@ async function ensureInstallerTools({
         `fetching installer tools (NSIS) for electron-builder${attempt ? `, try ${attempt + 1}` : ""} ...`,
       );
       const toolset = loadToolset();
-      const make = await toolset.getMakeNsisPath(undefined);
-      const plugins = await toolset.getNsisPluginsPath(undefined);
+      // electron-builder draws its download bars itself, wider than the window; they get the console's bar.
+      const restoreBars = recolorStream(process.stdout, env);
+      let make;
+      let plugins;
+      try {
+        make = await toolset.getMakeNsisPath(undefined);
+        plugins = await toolset.getNsisPluginsPath(undefined);
+      } finally {
+        restoreBars();
+      }
       const nsis = path.dirname(make.path);
       if (!fs.existsSync(make.path) || !fs.existsSync(plugins)) {
         throw new Error(`the download left no makensis at ${make.path}`);

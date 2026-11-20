@@ -18,6 +18,9 @@ const bars = require_("../../scripts/console-bar.cjs") as {
   plainBarOf: (fraction: number, total: number) => string;
   recolorBars: (text: string) => string;
 };
+const live = require_("../../scripts/live-console.cjs") as {
+  recolorStream: (stream: unknown, env?: Record<string, string>) => () => void;
+};
 const ui = require_("../../scripts/live-console.cjs") as {
   colorize: (line: string) => string;
   LiveLine: new (o: Record<string, unknown>) => {
@@ -99,6 +102,51 @@ describe("a bar is one solid coloured line", () => {
       '.paint(line, percent >= 100 ? "done" : "running")',
     );
     expect(read("scripts/download-board.cjs")).toContain('require("./console-bar.cjs")');
+  });
+});
+
+describe("a bar a library draws itself", () => {
+  it("electron-builder's 90 cell download bar becomes the standard 24 cell bar with the same share", () => {
+    const wide = `[${"=".repeat(45)}${" ".repeat(45)}] 50% | nsis-3.0.4.1.7z`;
+    const out = bars.recolorBars(wide);
+    expect(plain(out)).toBe(`${"▬".repeat(24)} 50% | nsis-3.0.4.1.7z`);
+    expect(out).toContain("\x1b[32m" + "▬".repeat(12) + "\x1b[0m");
+    const done = plain(bars.recolorBars(`[${"=".repeat(90)}] 100% | x`));
+    expect(done).toBe(`${"▬".repeat(24)} 100% | x`);
+  });
+
+  it("recolorStream recolours what is written straight to a console stream, and gives the stream back", () => {
+    const seen: string[] = [];
+    const stream = { isTTY: true, write: (t: string) => void seen.push(t) };
+    const original = stream.write;
+    const restore = live.recolorStream(stream, { TERM: "xterm" });
+    stream.write(`\r[${"=".repeat(30)}${" ".repeat(60)}] 33% | a`);
+    stream.write("plain words [ok]");
+    expect(plain(seen[0]!)).toContain("▬".repeat(24));
+    expect(seen[1]).toBe("plain words [ok]");
+    restore();
+    expect(stream.write).toBe(original);
+    const log = { isTTY: false, write: (t: string) => void seen.push(t) };
+    const untouched = log.write;
+    live.recolorStream(log, { TERM: "xterm" })();
+    expect(log.write).toBe(untouched);
+  });
+
+  it("the installer-tools download goes through it", () => {
+    const text = read("scripts/ensure-electron.cjs");
+    expect(text).toContain("recolorStream(process.stdout, env)");
+    expect(text).toMatch(/finally \{\s*restoreBars\(\);/);
+  });
+});
+
+describe("the build prints each check once", () => {
+  it("the pipeline's own packaged-requires phase is not repeated inside verify-build; a direct run still does it", () => {
+    expect(read("scripts/build-pipeline.cjs")).toContain(
+      'const verifyArgs = [mode, "--skip-packaged-requires"];',
+    );
+    const verify = read("scripts/verify-build.cjs");
+    expect(verify).toContain('args.includes("--skip-packaged-requires")');
+    expect(verify).toContain('if (!skipPackagedRequires && (wantsInstaller || mode === "dir"))');
   });
 });
 
