@@ -41,12 +41,12 @@ function fakeStream() {
 describe("a bar is one solid coloured line", () => {
   it("lights the filled cells in the colour of the state and leaves the rest dark grey", () => {
     const bar = bars.solidBar(6, 24, "running");
-    expect(plain(bar)).toBe("█".repeat(24));
-    expect(bar).toContain("\x1b[36m" + "█".repeat(6) + "\x1b[0m");
-    expect(bar).toContain("\x1b[90m" + "█".repeat(18) + "\x1b[0m");
+    expect(plain(bar)).toBe("▬".repeat(24));
+    expect(bar).toContain("\x1b[32m" + "▬".repeat(6) + "\x1b[0m");
+    expect(bar).toContain("\x1b[90m" + "▬".repeat(18) + "\x1b[0m");
     expect(bars.solidBar(24, 24, "done")).toContain("\x1b[32m");
     expect(bars.solidBar(3, 24, "failed")).toContain("\x1b[31m");
-    expect(plain(bars.solidBarOf(0.5, 10))).toBe("█".repeat(10));
+    expect(plain(bars.solidBarOf(0.5, 10))).toBe("▬".repeat(10));
     expect(bars.plainBarOf(0.25, 8)).toBe("##------");
   });
 
@@ -54,9 +54,9 @@ describe("a bar is one solid coloured line", () => {
     const line = "[friday] CMake          [########----------------] 33% 18/54 MB 6.7 MB/s";
     const coloured = bars.recolorBars(line);
     expect(coloured).not.toContain("[#");
-    expect(plain(coloured)).toBe(`[friday] CMake          ${"█".repeat(24)} 33% 18/54 MB 6.7 MB/s`);
+    expect(plain(coloured)).toBe(`[friday] CMake          ${"▬".repeat(24)} 33% 18/54 MB 6.7 MB/s`);
     expect(bars.recolorBars("  • downloading [==========>         ] 50% | nsis")).toContain(
-      "\x1b[36m",
+      "\x1b[32m",
     );
     expect(bars.recolorBars("[friday] ok [done] [ok]")).toBe("[friday] ok [done] [ok]");
   });
@@ -66,7 +66,7 @@ describe("a bar is one solid coloured line", () => {
       "[friday] stt-base         [########################] 100%  8.0 MB/s average in 17s";
     const out = ui.colorize(line);
     expect(plain(out)).toBe(
-      "[friday] stt-base         " + "█".repeat(24) + " 100%  8.0 MB/s average in 17s",
+      "[friday] stt-base         " + "▬".repeat(24) + " 100%  8.0 MB/s average in 17s",
     );
     expect(out).toContain("\x1b[32m");
   });
@@ -84,11 +84,11 @@ describe("a bar is one solid coloured line", () => {
     const text = board.renderRow(row);
     expect(text).toContain("[######------------------]");
     const painted = board.paint(text, "running");
-    expect(painted).toContain("█");
+    expect(painted).toContain("▬");
     expect(painted).not.toContain("[#");
-    expect(plain(painted)).toContain("█".repeat(24));
+    expect(plain(painted)).toContain("▬".repeat(24));
     const failed = board.paint(board.renderRow({ id: "x", state: "failed", note: "no" }), "failed");
-    expect(failed).toContain("\x1b[31m" + "█".repeat(24));
+    expect(failed).toContain("\x1b[31m" + "▬".repeat(24));
   });
 
   it("draws the model, pack and tool downloads through the same bar on a console", () => {
@@ -109,13 +109,13 @@ describe("numbered steps", () => {
       "[friday] build 3/13: stage-toolchain",
     ]) {
       const out = ui.colorize(line);
-      expect(out).toContain("█");
+      expect(out).toContain("▬");
       const title = line.split(": ")[1]!;
       expect(plain(out)).toContain(title);
-      expect(plain(out)).toMatch(/^\[friday\] (doctor|build) \d+\/\d+ █+ /);
+      expect(plain(out)).toMatch(/^\[friday\] (doctor|build) \d+\/\d+ ▬+ /);
     }
     const half = plain(ui.colorize("[friday] doctor 5/10: x"));
-    expect(half).toContain("█".repeat(12));
+    expect(half).toContain("▬".repeat(12));
   });
 
   it("numbers every phase of the build before it runs", () => {
@@ -129,9 +129,15 @@ describe("numbered steps", () => {
     expect(ps).toContain("$script:StageTotal = 9");
     const calls = [...ps.matchAll(/^\s*Write-Stage (\d) '/gm)].map((m) => Number(m[1]));
     expect(calls).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    // Plain text in a log, a solid coloured line on a console (the block is written as a code point, so the file is ASCII).
-    expect(ps).toContain("[char]0x2588");
+    // Plain text in a log, a small green rectangle row on a console (written as a code point, so the file is ASCII). A full block is never used (it merged two bars under each other into one slab).
+    expect(ps).toContain("[char]0x25AC");
     expect(ps).toContain("Test-LiveConsole");
+    expect(ps).not.toContain("[char]0x2501");
+    expect(ps).not.toContain("0x2588");
+    // The build runs the toolchain step alone: it prints no "Step 1 of 9".
+    expect(ps).toMatch(
+      /function Write-Stage[^\n]*\n[^\n]*\n\s*if \(\$ToolchainOnly\) \{ return \}/,
+    );
   });
 });
 
@@ -144,12 +150,12 @@ describe("the live line shows the share an installer reports", () => {
     live.draw();
     const withBar = plain(stream.out.join(""));
     expect(withBar).toContain("winget FFmpeg");
-    expect(withBar).toContain("█".repeat(16));
+    expect(withBar).toContain("▬".repeat(16));
     expect(withBar).toContain(" 40%");
     live.setProgress(null);
     stream.out.length = 0;
     live.draw();
-    expect(plain(stream.out.join(""))).not.toContain("█");
+    expect(plain(stream.out.join(""))).not.toContain("▬");
     live.stop();
   });
 
@@ -180,7 +186,7 @@ describe("the live line shows the share an installer reports", () => {
     expect(text.match(/Starting package install\.\.\./g)?.length).toBe(1);
     expect(text).toContain("Successfully installed");
     expect(text).not.toContain("▒");
-    expect(text).toContain("✔ winget FFmpeg");
+    expect(text).toContain("√ winget FFmpeg");
     expect(text).not.toContain("failed");
   });
 

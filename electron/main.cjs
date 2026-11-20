@@ -189,6 +189,33 @@ process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reaso
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
 
+// Everything below loads from V8's code cache after the first start: parsing and compiling the main process and its
+// modules was a fixed cost of every double-click. The cache lives in the app's own data folder; a missing or unwritable
+// folder just means no cache.
+try {
+  require("node:module").enableCompileCache?.(
+    require("node:path").join(app.getPath("userData"), "compile-cache"),
+  );
+} catch {
+  /* no code cache: the same code, started a little slower */
+}
+
+// The first window: a small splash that appears the moment Electron is ready, before the folder, the settings and the
+// real window are worked on (electron/early-splash.cjs). The real window replaces it in `reveal`.
+const earlySplash = (() => {
+  try {
+    return require("./early-splash.cjs").create({
+      app,
+      BrowserWindow,
+      env: process.env,
+      argv: process.argv,
+      loginArg: require("./login-item.cjs").LOGIN_ARG,
+    });
+  } catch {
+    return { shown: false, status() {}, close() {}, whenPainted: () => Promise.resolve() };
+  }
+})();
+
 if (headlessFatalMode() && dialog) {
   dialog.showErrorBox = (title, content) => {
     onFatal("showErrorBox", new Error(`${title}\n${content}`));
@@ -732,6 +759,7 @@ if (!singleInstance) {
       error: "another FRIDAY already holds this PC",
     });
   } else {
+    earlySplash.close();
     life.exitNow(0, "second-instance");
   }
 } else if (
@@ -1254,6 +1282,13 @@ function boot(label, status = "ok", detail = "") {
   const step = { label, status, detail, at: Date.now(), stage: bootPlan.stageFor(label) };
   bootSteps.push(step);
   send("boot:step", step);
+  // The first window (before the real one is shown) names the stage that is being worked on.
+  if (earlySplash.shown) {
+    const stage = step.stage
+      ? bootPlan.STAGES.find((candidate) => candidate.id === step.stage)
+      : null;
+    earlySplash.status(stage ? stage.label : label);
+  }
   return step;
 }
 
@@ -4182,9 +4217,13 @@ function createWindow() {
     if (!win || win.isDestroyed()) return;
     if (forceVisible) {
       if (!win.isVisible()) win.show();
+      earlySplash.close();
       return;
     }
-    if (stayHiddenOnLaunch) return;
+    if (stayHiddenOnLaunch) {
+      earlySplash.close();
+      return;
+    }
     if (win.isVisible()) return;
     if (state.maximized) {
       try {
@@ -4195,10 +4234,12 @@ function createWindow() {
     }
     if (ownerPrefToggle("launchMinimized", false) && ownerPrefToggle("tray", true)) {
       stayHiddenOnLaunch = true;
+      earlySplash.close();
       life.hideToBackground();
       return;
     }
     win.show();
+    earlySplash.close();
     life.markReady();
     noteStartup("window-shown");
     win.focus();
@@ -9647,6 +9688,9 @@ ipcMain.handle("env:readiness", () =>
 app
   .whenReady()
   .then(async () => {
+    // The splash (created by the first ready callback) is on its way to the screen: let it load, a few hundred
+    // milliseconds at most, before the main thread goes into the folder, settings and window work.
+    await earlySplash.whenPainted(350);
     try {
       paths.setFallbackRoot(app.getPath("userData"));
     } catch {
@@ -9807,6 +9851,7 @@ app
     try {
       createWindow();
     } catch (err) {
+      earlySplash.close();
       log(`window creation failed: ${err?.stack || err}`);
       if (process.env.FRIDAY_BOOT_SELFTEST) {
         finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${err?.message || err}`);

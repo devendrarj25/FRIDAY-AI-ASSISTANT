@@ -55,21 +55,35 @@ export const COLOR_COMBOS = [
 
 const SANS = "ui-sans-serif, system-ui, sans-serif";
 
+/**
+ * Hindi and Hinglish are drawn in Noto Sans (bundled, with its Devanagari faces) when the chosen font has no Devanagari
+ * of its own, instead of in whatever the PC happens to have.
+ */
+const HINDI_SAFE = `"Noto Sans Variable", ${SANS}`;
+
 /** Headings / HUD labels. Shipped default is Orbitron. Every face is bundled with the app (see fonts.ts). */
 export const DISPLAY_FONTS: Record<string, string> = {
   Orbitron: stackFor("Orbitron", `"Rajdhani", ${SANS}`),
   Rajdhani: stackFor("Rajdhani", `"Inter Tight Variable", ${SANS}`),
-  "Inter Tight": stackFor("Inter Tight", SANS),
+  "Space Grotesk": stackFor("Space Grotesk", HINDI_SAFE),
+  Oxanium: stackFor("Oxanium", HINDI_SAFE),
+  Inter: stackFor("Inter", HINDI_SAFE),
+  "Inter Tight": stackFor("Inter Tight", HINDI_SAFE),
   "Exo 2": stackFor("Exo 2", `"Orbitron Variable", ${SANS}`),
   "System UI": SANS,
 };
 
-/** Body / chat. Shipped default is Rajdhani. Atkinson and Lexend are bundled too. */
+/** Body / chat. Shipped default is Rajdhani. Every face here is bundled too; Noto Sans and Rajdhani carry Devanagari. */
 export const BODY_FONTS: Record<string, string> = {
   Rajdhani: stackFor("Rajdhani", `"Inter Tight Variable", ${SANS}`),
-  "Inter Tight": stackFor("Inter Tight", SANS),
-  "Atkinson Hyperlegible": stackFor("Atkinson Hyperlegible", SANS),
-  Lexend: stackFor("Lexend", SANS),
+  Inter: stackFor("Inter", HINDI_SAFE),
+  "Noto Sans": stackFor("Noto Sans", SANS),
+  "Source Sans 3": stackFor("Source Sans 3", HINDI_SAFE),
+  "DM Sans": stackFor("DM Sans", HINDI_SAFE),
+  "Plus Jakarta Sans": stackFor("Plus Jakarta Sans", HINDI_SAFE),
+  "Inter Tight": stackFor("Inter Tight", HINDI_SAFE),
+  "Atkinson Hyperlegible": stackFor("Atkinson Hyperlegible", HINDI_SAFE),
+  Lexend: stackFor("Lexend", HINDI_SAFE),
   "JetBrains Mono": stackFor("JetBrains Mono", "ui-monospace, monospace"),
   "System UI": SANS,
 };
@@ -90,16 +104,55 @@ export const TEXT_SIZE_PERCENT: Record<(typeof TEXT_SIZES)[number], number> = {
   "Extra Large": 125,
 };
 
-/** Line spacing, letter spacing, weight, chat size, small-text size and code font, each with a safe default. */
+/**
+ * Line spacing, letter spacing, weight, chat size, small-text size and code font, each with a safe default.
+ *
+ * The default body weight is Medium (500), not Regular: Rajdhani's regular strokes are thin and, light on dark, look
+ * thinner still. Guidance for dark interfaces is regular to medium for body text (WCAG asks only for contrast, but
+ * thin weights fail it first); `Regular` stays a choice. Headings are Bold by default.
+ */
 export const LINE_SPACINGS = { Tight: "1.3", Normal: "", Relaxed: "1.65", Loose: "1.85" } as const;
 export const LETTER_SPACINGS = { Normal: "", Wide: "0.02em", Wider: "0.04em" } as const;
-export const TEXT_WEIGHTS = { Regular: "", Medium: "500", Bold: "600" } as const;
+export const TEXT_WEIGHTS = {
+  Regular: "400",
+  Medium: "500",
+  Semibold: "600",
+  Bold: "700",
+} as const;
+export const HEADING_WEIGHTS = {
+  Medium: "500",
+  Semibold: "600",
+  Bold: "700",
+  "Extra bold": "800",
+} as const;
+export const DEFAULT_TEXT_WEIGHT = "Medium";
+export const DEFAULT_HEADING_WEIGHT = "Bold";
 export const CHAT_TEXT_SIZES = { Match: 1, Small: 0.9, Large: 1.15, Larger: 1.3 } as const;
-export const SMALL_TEXT_MODES = ["Standard", "Larger"] as const;
+export const SMALL_TEXT_MODES = ["Standard", "Larger", "Largest"] as const;
 export const CODE_FONTS: Record<string, string> = {
   "JetBrains Mono": stackFor("JetBrains Mono", "ui-monospace, monospace"),
+  "Fira Code": stackFor("Fira Code", "ui-monospace, monospace"),
+  "Source Code Pro": stackFor("Source Code Pro", "ui-monospace, monospace"),
   "System mono": 'ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace',
 };
+
+/**
+ * Settings made before the heavier default (no `typographyVersion`) stored the old default, "Regular", for every owner
+ * who never chose a weight. Such a copy means "the default", so it reads as the new default; the first time the owner
+ * changes any text setting the version is written and their choice, Regular included, is kept as it is.
+ */
+export const TYPOGRAPHY_VERSION = "2";
+export function effectiveTextWeight(fields: Record<string, string>): keyof typeof TEXT_WEIGHTS {
+  const stored = fields["textWeight"];
+  const named =
+    stored !== undefined && Object.prototype.hasOwnProperty.call(TEXT_WEIGHTS, stored)
+      ? (stored as keyof typeof TEXT_WEIGHTS)
+      : DEFAULT_TEXT_WEIGHT;
+  if (named === "Regular" && fields["typographyVersion"] !== TYPOGRAPHY_VERSION) {
+    return DEFAULT_TEXT_WEIGHT;
+  }
+  return named;
+}
 
 const pick = <T extends Record<string, unknown>>(
   table: T,
@@ -278,7 +331,9 @@ export function resetTextPreferences(): void {
     textScale: "",
     lineSpacing: "Normal",
     letterSpacing: "Normal",
-    textWeight: "Regular",
+    textWeight: DEFAULT_TEXT_WEIGHT,
+    headingWeight: DEFAULT_HEADING_WEIGHT,
+    typographyVersion: TYPOGRAPHY_VERSION,
     chatTextSize: "Match",
     smallText: "Standard",
     codeFont: "JetBrains Mono",
@@ -329,7 +384,12 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
   const scale = resolveTextScale(prefs.fields);
   const lineSpacing = pick(LINE_SPACINGS, prefs.fields["lineSpacing"], "Normal");
   const letterSpacing = pick(LETTER_SPACINGS, prefs.fields["letterSpacing"], "Normal");
-  const textWeight = pick(TEXT_WEIGHTS, prefs.fields["textWeight"], "Regular");
+  const textWeight = effectiveTextWeight(prefs.fields);
+  const headingWeight = pick(
+    HEADING_WEIGHTS,
+    prefs.fields["headingWeight"],
+    DEFAULT_HEADING_WEIGHT,
+  );
   const chatSize = pick(CHAT_TEXT_SIZES, prefs.fields["chatTextSize"], "Match");
   const codeFont = pick(CODE_FONTS, prefs.fields["codeFont"], "JetBrains Mono");
   return {
@@ -354,7 +414,12 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
       lineSpacing,
       letterSpacing,
       textWeight,
-      smallText: prefs.fields["smallText"] === "Larger" ? "Larger" : "Standard",
+      headingWeight,
+      smallText: pick(
+        Object.fromEntries(SMALL_TEXT_MODES.map((mode) => [mode, mode])),
+        prefs.fields["smallText"],
+        "Standard",
+      ) as string,
       uiStyle: resolveUiStyle(prefs),
       glassDepth: resolveGlassDepth(prefs),
       cornerStyle: resolveCornerStyle(prefs),
@@ -369,7 +434,8 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
       "--friday-text-scale": scale.custom ? String(scale.percent / 100) : null,
       "--friday-line-height": LINE_SPACINGS[lineSpacing] || null,
       "--friday-letter-spacing": LETTER_SPACINGS[letterSpacing] || null,
-      "--friday-body-weight": TEXT_WEIGHTS[textWeight] || null,
+      "--friday-body-weight": TEXT_WEIGHTS[textWeight],
+      "--friday-heading-weight": HEADING_WEIGHTS[headingWeight],
       "--friday-chat-scale": chatSize === "Match" ? null : String(CHAT_TEXT_SIZES[chatSize]),
       "--friday-panel-opacity": String(panelOpacityPercent(prefs.fields["panelOpacity"]) / 100),
       "--friday-graphic-intensity": String(

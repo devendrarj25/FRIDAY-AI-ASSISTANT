@@ -15,7 +15,10 @@ import {
   BODY_FONTS,
   CHAT_TEXT_SIZES,
   CODE_FONTS,
+  DEFAULT_HEADING_WEIGHT,
+  DEFAULT_TEXT_WEIGHT,
   DISPLAY_FONTS,
+  HEADING_WEIGHTS,
   LETTER_SPACINGS,
   LINE_SPACINGS,
   SMALL_TEXT_MODES,
@@ -23,6 +26,8 @@ import {
   TEXT_SCALE_MIN,
   TEXT_SIZES,
   TEXT_WEIGHTS,
+  TYPOGRAPHY_VERSION,
+  effectiveTextWeight,
   resetTextPreferences,
   resolveTextScale,
 } from "@/lib/friday/appearance";
@@ -34,7 +39,12 @@ const options = (names: readonly string[]) => names.map((name) => ({ value: name
 export function FontsAndTextSettings() {
   const prefs = usePreferences();
   const field = (key: string) => prefs.fields[key] ?? "";
-  const setField = (key: string) => (value: string) => preferences.setField(key, value);
+  // Any change here also stamps the settings as made with the current defaults, so a weight chosen on purpose
+  // (Regular included) is kept as chosen (see effectiveTextWeight).
+  const setField = (key: string) => (value: string) => {
+    preferences.setField(key, value);
+    preferences.setField("typographyVersion", TYPOGRAPHY_VERSION);
+  };
   const scale = resolveTextScale(prefs.fields);
 
   return (
@@ -69,6 +79,7 @@ export function FontsAndTextSettings() {
             // Picking a named size ends a custom size, so the choice the owner just made is the one shown.
             preferences.setField("textSize", value);
             preferences.setField("textScale", "");
+            preferences.setField("typographyVersion", TYPOGRAPHY_VERSION);
           }}
         />
         <SelectField
@@ -78,7 +89,7 @@ export function FontsAndTextSettings() {
           onChange={setField("chatTextSize")}
         />
         <SelectField
-          label="Small text"
+          label="Small text size"
           value={field("smallText") || "Standard"}
           options={options(SMALL_TEXT_MODES)}
           onChange={setField("smallText")}
@@ -97,9 +108,21 @@ export function FontsAndTextSettings() {
         />
         <SelectField
           label="Text weight"
-          value={field("textWeight") || "Regular"}
-          options={options(Object.keys(TEXT_WEIGHTS))}
+          value={effectiveTextWeight(prefs.fields)}
+          options={options(Object.keys(TEXT_WEIGHTS)).map((entry) => ({
+            ...entry,
+            label: entry.value === DEFAULT_TEXT_WEIGHT ? "Medium (default)" : entry.label,
+          }))}
           onChange={setField("textWeight")}
+        />
+        <SelectField
+          label="Heading weight"
+          value={field("headingWeight") || DEFAULT_HEADING_WEIGHT}
+          options={options(Object.keys(HEADING_WEIGHTS)).map((entry) => ({
+            ...entry,
+            label: entry.value === DEFAULT_HEADING_WEIGHT ? "Bold (default)" : entry.label,
+          }))}
+          onChange={setField("headingWeight")}
         />
       </div>
 

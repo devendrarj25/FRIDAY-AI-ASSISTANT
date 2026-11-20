@@ -11,7 +11,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // lives in the notification centre (see lib/friday/toast-bridge.ts).
       duration={6000}
       closeButton
-      visibleToasts={3}
+      visibleToasts={2}
       style={
         {
           // Inline so they beat the library's own light/dark colour sets.
@@ -24,8 +24,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          title: "group-[.toast]:text-foreground",
-          description: "group-[.toast]:text-muted-foreground",
+          title: "group-[.toast]:text-foreground group-[.toast]:font-semibold",
+          // The grey muted colour was almost invisible on the dark toast: the second line is the reason, so it reads like body text.
+          description: "group-[.toast]:text-foreground/80",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
         },

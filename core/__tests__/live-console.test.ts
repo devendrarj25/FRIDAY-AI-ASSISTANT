@@ -168,9 +168,9 @@ describe("the live line", () => {
   it("closes a step with one summary line: what it did, how long it took and how much it moved", () => {
     expect(
       plain(ui.summaryLine({ label: "pip", ok: true, ms: 108_000, bytes: 507 * 1024 ** 2 })),
-    ).toBe("✔ pip  done in 1m48s · 507 MB");
+    ).toBe("√ pip  done in 1m48s · 507 MB");
     expect(plain(ui.summaryLine({ label: "pip", ok: false, ms: 5000, bytes: 0, code: 1 }))).toBe(
-      "✖ pip  failed (exit 1) after 5s",
+      "× pip  failed (exit 1) after 5s",
     );
     expect(ui.formatBytes(1.5 * 1024 ** 3)).toBe("1.50 GB");
   });
@@ -193,7 +193,7 @@ describe("running a command under the live line", () => {
     expect(text).toContain("[friday] ok       first");
     expect(text).toContain("bar 50%");
     // A failure always gets its summary, however short the step was.
-    expect(text).toContain("✖ fake step  failed (exit 3)");
+    expect(text).toContain("× fake step  failed (exit 3)");
   });
 });
 

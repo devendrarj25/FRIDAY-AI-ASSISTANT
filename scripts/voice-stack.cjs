@@ -168,7 +168,13 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     );
   }
   const bigStt = [...planned].filter((id) => /^stt-(medium|large-v3$)/.test(id));
-  row("setup", "big speech sizes in the plan", "INFO", bigStt.length ? bigStt.join(", ") : "none");
+  // Planned is the good answer (the big sizes are part of setup); INFO only when none is planned.
+  row(
+    "setup",
+    "big speech sizes in the plan",
+    bigStt.length ? "PASS" : "INFO",
+    bigStt.length ? bigStt.join(", ") : "none",
+  );
 
   // ---- speech models on disk (only when a folder is given) -----------------------------------------------------
   if (root) {

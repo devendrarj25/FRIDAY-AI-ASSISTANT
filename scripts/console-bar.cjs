@@ -1,10 +1,13 @@
 /**
  * One look for every progress bar in setup, Doctor and the build.
  *
- * On a real console a bar is a solid coloured line: filled cells in the colour of the state (cyan while it moves,
- * green when done, red when it failed) and the rest of the line in dark grey, so the bar reads as one line and not
- * as `#####-----`. In a log file, CI or with NO_COLOR the same bar stays plain text (`[#####-----]`), so a saved log is
- * still readable. The block character is in every Windows console font (code page 437), so it never turns to boxes.
+ * On a real console a bar is a row of small rectangles (U+25AC): the finished part in green (red when it failed), the rest
+ * in dark grey, so the bar reads as a bar and not as `#####-----`. In a log file, CI or with NO_COLOR the same bar stays
+ * plain text (`[#####-----]`), so a saved log is still readable.
+ *
+ * The rectangle is a middle size on purpose. A full block fills the whole height of its row, so the bars of two rows under
+ * each other (the model and pack boards) merged into one slab on the owner's console; a box-drawing line was too thin to
+ * see and its cyan too faint. U+25AC is in code page 437, so it is in every console font and never turns to a box.
  *
  * This file draws and never decides: whether colour is wanted is the caller's question (scripts/live-console.cjs).
  */
@@ -13,14 +16,24 @@
 const ESC = "\x1b[";
 const paint = (code, text) => (text === "" ? text : `${ESC}${code}m${text}${ESC}0m`);
 
-const BLOCK = "█";
-const TONE = { running: "36", done: "32", failed: "31", warn: "33", waiting: "90" };
+// A small rectangle (U+25AC, in code page 437 and every console font): thicker than a line so the bar is easy to see, far
+// thinner than a full block so the bars of two rows under each other never merge.
+const BAR_GLYPH = "▬";
+
+/** The bar's character. */
+function lineGlyph() {
+  return BAR_GLYPH;
+}
+
+// Green for the part that is done (cyan was hard to see on the owner's console), dark grey for the rest.
+const TONE = { running: "32", done: "32", failed: "31", warn: "33", waiting: "90" };
 
 /** A solid bar of `total` cells, `filled` of them lit in the colour of `tone`. */
 function solidBar(filled, total, tone = "running") {
   const cells = Math.max(1, Math.round(total));
   const lit = Math.max(0, Math.min(cells, Math.round(filled)));
-  return `${paint(TONE[tone] || TONE.running, BLOCK.repeat(lit))}${paint(TONE.waiting, BLOCK.repeat(cells - lit))}`;
+  const glyph = lineGlyph();
+  return `${paint(TONE[tone] || TONE.running, glyph.repeat(lit))}${paint(TONE.waiting, glyph.repeat(cells - lit))}`;
 }
 
 /** The same bar from a fraction 0..1. */
@@ -55,4 +68,12 @@ function recolorBars(text) {
   });
 }
 
-module.exports = { solidBar, solidBarOf, plainBarOf, recolorBars, paint, BLOCK };
+module.exports = {
+  solidBar,
+  solidBarOf,
+  plainBarOf,
+  recolorBars,
+  paint,
+  lineGlyph,
+  BAR_GLYPH,
+};

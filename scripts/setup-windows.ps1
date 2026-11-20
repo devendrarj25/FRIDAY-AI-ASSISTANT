@@ -53,14 +53,17 @@ function Test-LiveConsole {
 # The head of one of the nine stages of setup: its number, a solid bar of how far setup is, and its name.
 $script:StageTotal = 9
 function Write-Stage([int]$Number, [string]$Name) {
+  # The build runs the toolchain step alone (-ToolchainOnly) and numbers its own phases: no "Step 1 of 9" there.
+  if ($ToolchainOnly) { return }
   $cells = 24
   $lit = [int][math]::Round($cells * $Number / $script:StageTotal)
   $percent = [int][math]::Round(100 * $Number / $script:StageTotal)
   Write-Host ''
   if (Test-LiveConsole) {
-    $block = [string][char]0x2588
+    # A small rectangle (U+25AC): thicker than a line, far thinner than a full block, which merged two bars into one slab.
+    $block = [string][char]0x25AC
     Write-Host ('[FRIDAY] Step {0} of {1} ' -f $Number, $script:StageTotal) -NoNewline -ForegroundColor White
-    Write-Host ($block * $lit) -NoNewline -ForegroundColor Cyan
+    Write-Host ($block * $lit) -NoNewline -ForegroundColor Green
     Write-Host ($block * ($cells - $lit)) -NoNewline -ForegroundColor DarkGray
     Write-Host (' {0,3}%  ' -f $percent) -NoNewline -ForegroundColor White
     Write-Host $Name -ForegroundColor Cyan
@@ -886,14 +889,21 @@ try {
 
   Write-Stage 2 'Node dependencies'
   Write-Step 'Installing the exact Node dependency lockfile'
-  # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
-  # shows no progress when its output is piped and a quiet minute looks like a hung window.
-  & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) {
-    Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
-    & npm.cmd cache verify
-    & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
-    if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
+  # A folder whose node_modules already matches package-lock.json is not wiped and installed again (the same check
+  # Doctor and the build use); FRIDAY_FORCE_NPM_CI=1 installs anyway.
+  & node.exe scripts\node-modules-current.cjs
+  if ($LASTEXITCODE -eq 0) {
+    Write-Step 'node_modules already matches package-lock.json; npm ci skipped'
+  } else {
+    # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
+    # shows no progress when its output is piped and a quiet minute looks like a hung window.
+    & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) {
+      Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
+      & npm.cmd cache verify
+      & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
+      if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
+    }
   }
 
   Write-Stage 3 'Electron'

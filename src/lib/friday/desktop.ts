@@ -1867,6 +1867,37 @@ const bootStore = (() => {
   };
 })();
 
+/**
+ * True while the boot screen is up in the desktop app. Nothing may listen or speak behind it: FRIDAY started talking
+ * while the boot screen still showed "Restoring your state", because Auto mode comes back from the saved mode the
+ * moment the page mounts. The browser preview has no boot screen, so it never holds.
+ */
+export function isBootHolding(): boolean {
+  return !bootStore.get().done;
+}
+
+/** Calls `fn` once the boot screen has gone (at once when it already has). Returns a function that cancels the wait. */
+export function whenBootDone(fn: () => void): () => void {
+  if (!isBootHolding()) {
+    fn();
+    return () => undefined;
+  }
+  let fired = false;
+  let off: (() => void) | null = null;
+  const check = () => {
+    if (fired || !bootStore.get().done) return;
+    fired = true;
+    // Unsubscribing inside the notification would change the listener set while it is walked.
+    queueMicrotask(() => off?.());
+    fn();
+  };
+  off = bootStore.subscribe(check);
+  return () => {
+    fired = true;
+    off?.();
+  };
+}
+
 export function useBootSequence() {
   const snapshot = useSyncExternalStore(bootStore.subscribe, bootStore.get, bootStore.get);
   return { ...snapshot, dismiss: bootStore.finish };

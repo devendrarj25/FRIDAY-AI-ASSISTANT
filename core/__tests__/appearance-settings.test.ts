@@ -124,8 +124,10 @@ describe("appearance fonts", () => {
 
   it("tries the bundled face first and the installed name second, naming a family once", () => {
     expect(DISPLAY_FONTS["Orbitron"]).toMatch(/^"Orbitron Variable", "Orbitron"/);
-    // Atkinson's bundled and installed names are the same, so it appears once.
-    expect(BODY_FONTS["Atkinson Hyperlegible"]).toMatch(/^"Atkinson Hyperlegible", ui-sans-serif/);
+    // Atkinson's bundled and installed names are the same, so it appears once; Hindi falls back to bundled Noto Sans.
+    expect(BODY_FONTS["Atkinson Hyperlegible"]).toMatch(
+      /^"Atkinson Hyperlegible", "Noto Sans Variable", ui-sans-serif/,
+    );
     expect(BODY_FONTS["Rajdhani"]?.match(/"Rajdhani"/g)).toHaveLength(1);
   });
 });
