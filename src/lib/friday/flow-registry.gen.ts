@@ -213,6 +213,7 @@ export const FLOW_REGISTRY = {
     "fields.githubToken",
     "fields.glassDepth",
     "fields.graphicIntensity",
+    "fields.headingWeight",
     "fields.importTarget",
     "fields.landingPage",
     "fields.language",
@@ -9419,8 +9420,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 140,
-      total: 140,
+      mapped: 141,
+      total: 141,
     },
     capabilities: {
       mapped: 1104,

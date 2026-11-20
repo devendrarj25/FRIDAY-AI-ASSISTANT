@@ -41,6 +41,15 @@ describe("the bundled fonts survive the build", () => {
         "JetBrains Mono Variable",
         "Rajdhani",
         "Atkinson Hyperlegible",
+        "Inter Variable",
+        "Noto Sans Variable",
+        "Source Sans 3 Variable",
+        "DM Sans Variable",
+        "Plus Jakarta Sans Variable",
+        "Space Grotesk Variable",
+        "Oxanium Variable",
+        "Fira Code Variable",
+        "Source Code Pro Variable",
       ]) {
         expect(css, family).toMatch(new RegExp(`@font-face\\{[^}]*font-family:["']?${family}`));
       }

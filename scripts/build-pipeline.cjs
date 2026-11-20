@@ -611,6 +611,10 @@ const STEP_LABEL = {
   "scripts/check-environment.cjs": "checking the environment",
   "scripts/packaged-requires.cjs": "checking the packaged files",
   "scripts/release-manifest.cjs": "writing the update manifest",
+  "scripts/env-registry.cjs": "recording the environment",
+  // The same script runs twice in a row; two lines that both said "release-engine" read like a repeat.
+  "scripts/release-engine.cjs heal": "checking the version files",
+  "scripts/release-engine.cjs verify": "verifying the version",
 };
 
 function runNode(script, args, root) {
@@ -620,7 +624,9 @@ function runNode(script, args, root) {
   const result = SELF_DISPLAY.has(script)
     ? spawnDirect(process.execPath, target, { cwd: root, stdio: "inherit" })
     : withActivityCommand(
-        STEP_LABEL[script] || path.basename(script, ".cjs"),
+        STEP_LABEL[`${script} ${args[0] || ""}`] ||
+          STEP_LABEL[script] ||
+          path.basename(script, ".cjs"),
         watched,
         process.execPath,
         target,

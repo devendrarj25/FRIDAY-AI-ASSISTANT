@@ -11,6 +11,13 @@
  */
 
 @theme inline {
+  /* The type scale, one step bigger than Tailwind's: Rajdhani has a small x-height and thin strokes, so 12 px and 14 px
+     read like 10 and 12 on the dark glass. The Windows type ramp's floor is 12 px (body 14); here the small size is
+     13 px and the small body size 15 px. The Settings text size scales all of it. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.4rem;
   --radius-sm: calc(var(--radius) - 3px);
   --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
@@ -287,6 +294,7 @@
   h2,
   h3 {
     font-family: var(--font-display);
+    font-weight: var(--friday-heading-weight, 700);
     letter-spacing: 0.02em;
   }
 }
@@ -301,7 +309,7 @@
 
 @utility label-xs {
   font-family: var(--font-display);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -312,25 +320,25 @@
    control radii. */
 @utility text-meta {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility text-meta-sm {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility text-data {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility text-data-sm {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility text-note {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility text-note-sm {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 @utility rounded-ctl {
   border-radius: var(--radius-sm);
@@ -1835,7 +1843,7 @@ html.no-gpu[data-ui-style="glass"] :is(.hud-panel, .hud-tile, .glass-menu, .glas
 /* Typography in glass: body 14px, labels 12px sentence case in the body
    font. Mono stays for data and code. */
 html[data-ui-style="glass"] body {
-  font-size: 0.875rem;
+  font-size: 1rem;
   line-height: 1.5;
 }
 html[data-ui-style="glass"] .label-xs,
@@ -1843,37 +1851,37 @@ html[data-ui-style="glass"] :is(.text-meta, .text-meta-sm, .text-note, .text-not
 html[data-ui-style="glass"] [class*="text-[10px]"][class*="uppercase"],
 html[data-ui-style="glass"] [class*="text-[11px]"][class*="uppercase"] {
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   letter-spacing: 0.01em;
   text-transform: none;
 }
-/* Small text is 12 px, never 11, and one weight heavier: Rajdhani's strokes are thin and its x-height small, so the
+/* Small text is 13 px (it was 11, then 12), and one weight heavier: Rajdhani's strokes are thin and its x-height small, so the
    11 px regular captions, counts and hints were hard to read on the dark glass. Sentence-case body text keeps its
    size and weight. */
 html[data-ui-style="glass"] .text-meta {
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .text-meta-sm {
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .text-note {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .text-note-sm {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .text-data {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .text-data-sm {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 html[data-ui-style="glass"] .rounded-ctl {
@@ -2470,8 +2478,10 @@ html[data-line-spacing]:not([data-line-spacing="Normal"]) :is(body, .friday-chat
 html[data-letter-spacing]:not([data-letter-spacing="Normal"]) :is(body, .friday-chat-messages, .voice-captions) {
   letter-spacing: var(--friday-letter-spacing);
 }
-html[data-text-weight]:not([data-text-weight="Regular"]) body {
-  font-weight: var(--friday-body-weight);
+/* The default body weight is Medium (500): Rajdhani's regular strokes are thin on a dark page. The Settings choice
+   (Regular to Bold) sets --friday-body-weight. */
+html body {
+  font-weight: var(--friday-body-weight, 500);
 }
 
 /* The chat and the voice captions can be sized apart from the rest of the app. */
@@ -2480,12 +2490,12 @@ html[data-text-weight]:not([data-text-weight="Regular"]) body {
   zoom: var(--friday-chat-scale, 1);
 }
 
-/* "Larger small text": every small text utility steps up one size. */
-html[data-small-text="Larger"] :is(.text-meta-sm, .text-note-sm, .text-data-sm, .label-xs) {
-  font-size: 0.8125rem;
+/* "Larger" and "Largest" small text: every small text utility steps up (13 px is the standard size). */
+html[data-small-text="Larger"] :is(.text-meta-sm, .text-note-sm, .text-data-sm, .text-meta, .text-note, .text-data, .label-xs) {
+  font-size: 0.9375rem;
 }
-html[data-small-text="Larger"] :is(.text-meta, .text-note, .text-data) {
-  font-size: 0.875rem;
+html[data-small-text="Largest"] :is(.text-meta-sm, .text-note-sm, .text-data-sm, .text-meta, .text-note, .text-data, .label-xs) {
+  font-size: 1.0625rem;
 }
 
 /* The font utilities follow the Settings choice. Tailwind's inline theme writes the font names into

@@ -253,7 +253,7 @@ describe("the bell and the readable popup", () => {
     expect(read("src/components/ui/sonner.tsx")).toContain("visibleToasts={2}");
   });
 
-  it("small glass text is 12 px and one weight heavier", () => {
+  it("small glass text is 13 px and one weight heavier", () => {
     const css = read("src/styles.css");
     for (const token of [
       "text-meta",
@@ -266,7 +266,7 @@ describe("the bell and the readable popup", () => {
       const at = css.indexOf(`html[data-ui-style="glass"] .${token} {`);
       expect(at, token).toBeGreaterThan(-1);
       const body = css.slice(at, css.indexOf("}", at));
-      expect(body, token).toContain("font-size: 0.75rem;");
+      expect(body, token).toContain("font-size: 0.8125rem;");
       expect(body, token).toContain("font-weight: 500;");
     }
   });

@@ -15,12 +15,12 @@ function Chart({ series }: { series: NonNullable<StageItem["series"]> }) {
     <div className="flex h-full min-h-40 items-end gap-2 px-1 pt-4">
       {series.map((s) => (
         <div key={s.label} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-          <span className="font-mono text-[0.6875rem] text-primary/80">{s.value}</span>
+          <span className="font-mono text-[0.75rem] text-primary/80">{s.value}</span>
           <div
             className="w-full rounded-t-sm bg-primary/60"
             style={{ height: `${Math.max(2, (Math.abs(s.value) / max) * 140)}px` }}
           />
-          <span className="w-full truncate text-center text-[0.6875rem] text-muted-foreground">
+          <span className="w-full truncate text-center text-[0.75rem] text-muted-foreground">
             {s.label}
           </span>
         </div>
@@ -119,7 +119,7 @@ export function Stage() {
         <div className="flex items-center justify-between gap-2 border-b border-primary/15 px-3 py-2">
           <div className="min-w-0">
             <p className="truncate text-xs font-medium text-primary">{item.title}</p>
-            <p className="font-mono text-[0.6875rem] text-muted-foreground">
+            <p className="font-mono text-[0.75rem] text-muted-foreground">
               {item.source} · {item.kind}
             </p>
           </div>

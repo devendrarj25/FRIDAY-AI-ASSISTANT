@@ -14,6 +14,31 @@ export const BUNDLED_FONTS = [
     css: "JetBrains Mono Variable",
     pkg: "@fontsource-variable/jetbrains-mono",
   },
+  { name: "Inter", css: "Inter Variable", pkg: "@fontsource-variable/inter" },
+  { name: "Noto Sans", css: "Noto Sans Variable", pkg: "@fontsource-variable/noto-sans" },
+  {
+    name: "Source Sans 3",
+    css: "Source Sans 3 Variable",
+    pkg: "@fontsource-variable/source-sans-3",
+  },
+  { name: "DM Sans", css: "DM Sans Variable", pkg: "@fontsource-variable/dm-sans" },
+  {
+    name: "Plus Jakarta Sans",
+    css: "Plus Jakarta Sans Variable",
+    pkg: "@fontsource-variable/plus-jakarta-sans",
+  },
+  {
+    name: "Space Grotesk",
+    css: "Space Grotesk Variable",
+    pkg: "@fontsource-variable/space-grotesk",
+  },
+  { name: "Oxanium", css: "Oxanium Variable", pkg: "@fontsource-variable/oxanium" },
+  { name: "Fira Code", css: "Fira Code Variable", pkg: "@fontsource-variable/fira-code" },
+  {
+    name: "Source Code Pro",
+    css: "Source Code Pro Variable",
+    pkg: "@fontsource-variable/source-code-pro",
+  },
   { name: "Rajdhani", css: "Rajdhani", pkg: "@fontsource/rajdhani" },
   {
     name: "Atkinson Hyperlegible",

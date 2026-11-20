@@ -2,12 +2,21 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  BODY_FONTS,
+  CODE_FONTS,
+  DISPLAY_FONTS,
+  HEADING_WEIGHTS,
+  SMALL_TEXT_MODES,
   TEXT_SCALE_MAX,
   TEXT_SCALE_MIN,
+  TEXT_WEIGHTS,
+  TYPOGRAPHY_VERSION,
   appearanceState,
+  effectiveTextWeight,
   resetAppearancePreferences,
   resolveTextScale,
 } from "../../src/lib/friday/appearance";
+import { BUNDLED_FONTS } from "../../src/lib/friday/font-registry";
 import { preferences } from "../../src/lib/friday/preferences";
 
 const css = readFileSync("src/styles.css", "utf8");
@@ -23,11 +32,14 @@ describe("text settings reach the document", () => {
       "--friday-text-scale",
       "--friday-line-height",
       "--friday-letter-spacing",
-      "--friday-body-weight",
       "--friday-chat-scale",
     ]) {
       expect(vars[name], name).toBeNull();
     }
+    // The default weights are heavier than Regular (research: thin strokes fail first on a dark page).
+    expect(vars["--friday-body-weight"]).toBe("500");
+    expect(vars["--friday-heading-weight"]).toBe("700");
+    expect(dataset.textWeight).toBe("Medium");
     expect(dataset.textCustom).toBe("off");
     expect(dataset.smallText).toBe("Standard");
     expect(vars["--font-mono"]).toContain("JetBrains Mono");
@@ -87,9 +99,11 @@ describe("text settings reach the document", () => {
     expect(css).toContain("var(--friday-text-scale");
     expect(css).toContain("var(--friday-line-height)");
     expect(css).toContain("var(--friday-letter-spacing)");
-    expect(css).toContain("var(--friday-body-weight)");
+    expect(css).toContain("var(--friday-body-weight, 500)");
+    expect(css).toContain("var(--friday-heading-weight, 700)");
     expect(css).toContain("var(--friday-chat-scale");
     expect(css).toContain('html[data-small-text="Larger"]');
+    expect(css).toContain('html[data-small-text="Largest"]');
   });
 });
 
@@ -176,5 +190,72 @@ describe("small text stays readable", () => {
     expect(source).toContain("@container");
     expect(source).not.toMatch(/\b(sm|md|lg|xl|2xl):(inline|flex|block)\b/);
     expect(source).toMatch(/@min-\[\d+rem\]:/);
+  });
+});
+
+describe("the heavier, bigger defaults (research: Windows type ramp, dark-mode guidance)", () => {
+  it("an old copy of the settings that holds the old default Regular reads as the new default, until the owner chooses", () => {
+    expect(effectiveTextWeight({ textWeight: "Regular" })).toBe("Medium");
+    expect(effectiveTextWeight({})).toBe("Medium");
+    // After the owner changed any text setting, Regular is a choice and is kept.
+    expect(
+      effectiveTextWeight({ textWeight: "Regular", typographyVersion: TYPOGRAPHY_VERSION }),
+    ).toBe("Regular");
+    expect(effectiveTextWeight({ textWeight: "Bold" })).toBe("Bold");
+    expect(effectiveTextWeight({ textWeight: "9; color: red" })).toBe("Medium");
+  });
+
+  it("offers four body weights, four heading weights and three small-text sizes, each reaching the document", () => {
+    expect(Object.keys(TEXT_WEIGHTS)).toEqual(["Regular", "Medium", "Semibold", "Bold"]);
+    expect(Object.keys(HEADING_WEIGHTS)).toEqual(["Medium", "Semibold", "Bold", "Extra bold"]);
+    expect(SMALL_TEXT_MODES).toEqual(["Standard", "Larger", "Largest"]);
+    preferences.setField("typographyVersion", TYPOGRAPHY_VERSION);
+    preferences.setField("textWeight", "Regular");
+    preferences.setField("headingWeight", "Extra bold");
+    preferences.setField("smallText", "Largest");
+    const { vars, dataset } = state();
+    expect(vars["--friday-body-weight"]).toBe("400");
+    expect(vars["--friday-heading-weight"]).toBe("800");
+    expect(dataset.smallText).toBe("Largest");
+    preferences.setField("smallText", "nonsense");
+    expect(state().dataset.smallText).toBe("Standard");
+  });
+
+  it("the type scale is bigger than Tailwind's and small text is 13 px at the normal size", () => {
+    expect(css).toContain("--text-xs: 0.8125rem;");
+    expect(css).toContain("--text-sm: 0.9375rem;");
+    expect(css).toMatch(/html\[data-ui-style="glass"\] body \{\s*font-size: 1rem;/);
+  });
+
+  it("the interface offers more bundled fonts, with Hindi falling back to bundled Noto Sans", () => {
+    for (const name of ["Inter", "Noto Sans", "Source Sans 3", "DM Sans", "Plus Jakarta Sans"]) {
+      expect(Object.keys(BODY_FONTS), name).toContain(name);
+    }
+    for (const name of ["Space Grotesk", "Oxanium", "Inter"]) {
+      expect(Object.keys(DISPLAY_FONTS), name).toContain(name);
+    }
+    expect(Object.keys(CODE_FONTS)).toEqual(
+      expect.arrayContaining(["JetBrains Mono", "Fira Code", "Source Code Pro", "System mono"]),
+    );
+    expect(BODY_FONTS["DM Sans"]).toContain('"Noto Sans Variable"');
+    const fonts = readFileSync("src/lib/friday/fonts.ts", "utf8");
+    for (const entry of BUNDLED_FONTS) {
+      expect(fonts, entry.pkg).toContain(entry.pkg);
+      const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      expect(
+        pkg.dependencies?.[entry.pkg] ?? pkg.devDependencies?.[entry.pkg],
+        entry.pkg,
+      ).toBeTruthy();
+    }
+  });
+
+  it("the Fonts and text panel has the heading weight and stamps a choice so Regular can be kept", () => {
+    const panel = readFileSync("src/components/friday/settings/FontsAndTextSettings.tsx", "utf8");
+    expect(panel).toContain('label="Heading weight"');
+    expect(panel).toContain('label="Small text size"');
+    expect(panel).toContain('preferences.setField("typographyVersion", TYPOGRAPHY_VERSION)');
   });
 });

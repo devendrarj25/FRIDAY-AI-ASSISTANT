@@ -53,12 +53,16 @@ function Test-LiveConsole {
 # The head of one of the nine stages of setup: its number, a solid bar of how far setup is, and its name.
 $script:StageTotal = 9
 function Write-Stage([int]$Number, [string]$Name) {
+  # The build runs the toolchain step alone (-ToolchainOnly) and numbers its own phases: no "Step 1 of 9" there.
+  if ($ToolchainOnly) { return }
   $cells = 24
   $lit = [int][math]::Round($cells * $Number / $script:StageTotal)
   $percent = [int][math]::Round(100 * $Number / $script:StageTotal)
   Write-Host ''
   if (Test-LiveConsole) {
-    $block = [string][char]0x2588
+    # A thin line, not a full block: a block fills its whole row and two bars under each other merged into one slab.
+    $heavy = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -or ($env:ConEmuANSI -eq 'ON'))
+    $block = if ($heavy) { [string][char]0x2501 } else { [string][char]0x2500 }
     Write-Host ('[FRIDAY] Step {0} of {1} ' -f $Number, $script:StageTotal) -NoNewline -ForegroundColor White
     Write-Host ($block * $lit) -NoNewline -ForegroundColor Cyan
     Write-Host ($block * ($cells - $lit)) -NoNewline -ForegroundColor DarkGray
