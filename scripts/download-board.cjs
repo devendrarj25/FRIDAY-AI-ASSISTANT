@@ -9,6 +9,7 @@
 "use strict";
 
 const { markBoardActive } = require("./electron-module.cjs").load("activity.cjs");
+const { solidBar } = require("./console-bar.cjs");
 
 const BAR = 24;
 const mb = (bytes) => {
@@ -46,24 +47,32 @@ const cyan = paintWith("36");
 
 /**
  * Colour a line that has already been cut to the terminal width (so the width never counts the colour codes):
- * the bar in the colour of its state, sizes in blue, speed in magenta, time left in yellow, FAILED in red.
+ * the bar as a solid line in the colour of its state, sizes in blue, speed in magenta, time left in yellow, FAILED in red.
  */
 function paint(line, state = "running") {
-  const barColour = state === "failed" ? red : state === "done" ? green : cyan;
-  return line
-    .replace(/^\[friday\]/, dim("[friday]"))
-    .replace(/\[([#!]*)(-*)\]/, (_all, filled, rest) => `[${barColour(filled)}${dim(rest)}]`)
-    .replace(/FAILED/, red(bold("FAILED")))
-    .replace(/waiting/, yellow("waiting"))
-    .replace(
-      /(\d+(?:\.\d+)? (?:MB|GB))\/(\d+(?:\.\d+)? (?:MB|GB))/,
-      (_all, a, b) => `${blue(a)}/${blue(b)}`,
-    )
-    .replace(/(\d+(?:\.\d+)? MB\/s)/g, (v) => magenta(v))
-    .replace(/(\d+m?\d*s left)/, (v) => yellow(v))
-    .replace(/ (\d+)%/, (_all, n) => ` ${Number(n) === 100 ? green(`${n}%`) : bold(`${n}%`)}`)
-    .replace(/(\d+\/\d+ ready)/, (v) => bold(v))
-    .replace(/(ready|average in \d+s|in \d+m?\d*s)\s*$/, (v) => (state === "done" ? green(v) : v));
+  return (
+    line
+      .replace(/^\[friday\]/, dim("[friday]"))
+      // The bar is one solid coloured line: lit cells in the colour of the state, the rest in dark grey.
+      .replace(/\[([#!]*)(-*)\]/, (_all, filled, rest) =>
+        solidBar(
+          filled.length,
+          filled.length + rest.length,
+          state === "failed" ? "failed" : state === "done" ? "done" : "running",
+        ),
+      )
+      .replace(/FAILED/, red(bold("FAILED")))
+      .replace(/waiting/, yellow("waiting"))
+      .replace(
+        /(\d+(?:\.\d+)? (?:MB|GB))\/(\d+(?:\.\d+)? (?:MB|GB))/,
+        (_all, a, b) => `${blue(a)}/${blue(b)}`,
+      )
+      .replace(/(\d+(?:\.\d+)? MB\/s)/g, (v) => magenta(v))
+      .replace(/(\d+m?\d*s left)/, (v) => yellow(v))
+      .replace(/ (\d+)%/, (_all, n) => ` ${Number(n) === 100 ? green(`${n}%`) : bold(`${n}%`)}`)
+      .replace(/(\d+\/\d+ ready)/, (v) => bold(v))
+      .replace(/(ready|average in \d+s|in \d+m?\d*s)\s*$/, (v) => (state === "done" ? green(v) : v))
+  );
 }
 
 /** One row. `row` is { id, state, percent, bytesDone, bytesTotal, speed, eta, connections, note, seconds }. */

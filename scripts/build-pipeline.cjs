@@ -1055,8 +1055,10 @@ async function runPipeline(options, root = ROOT) {
     caller: options.caller,
     phases: [],
   };
-  for (const phase of phases) {
+  for (const [index, phase] of phases.entries()) {
     const started = Date.now();
+    // The head of every phase, so a long build reads as numbered steps: `build 4/13: build-renderer`.
+    console.log(`[friday] build ${index + 1}/${phases.length}: ${phase}`);
     try {
       const detail = await runPhase(phase, options, root);
       const text = String(detail);

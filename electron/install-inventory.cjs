@@ -51,9 +51,11 @@ function homeOf(tool, root) {
   return "machine";
 }
 
+// A packaging revision after a full version (Ruby 3.4.13-1) is the same release as 3.4.13, not a newer one.
 const numbers = (value) =>
   String(value || "")
     .replace(/^v/i, "")
+    .replace(/^(\d+(?:\.\d+)+)-\d+$/, "$1")
     .split(/[^\d]+/)
     .filter(Boolean)
     .map(Number);

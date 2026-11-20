@@ -62,9 +62,11 @@ const mb = (bytes) =>
 
 /** Is `latest` a newer release than `have`? Dotted numbers; anything else is "not newer". */
 function newer(latest, have) {
+  // A packaging revision after a full version (Ruby 3.4.13-1) is the same release as 3.4.13, not a newer one.
   const parts = (text) =>
     String(text || "")
       .replace(/^v/i, "")
+      .replace(/^(\d+(?:\.\d+)+)-\d+$/, "$1")
       .split(/[^0-9]+/)
       .filter(Boolean)
       .map(Number);
@@ -329,7 +331,10 @@ function barLine(id, percent, event = {}) {
   const size = event.bytesTotal > 0 ? ` ${mb(event.bytesDone)}/${mb(event.bytesTotal)} MB` : "";
   const speed = event.speedMbps ? ` ${event.speedMbps} MB/s` : "";
   const eta = event.etaSeconds ? ` eta ${event.etaSeconds}s` : "";
-  return `[friday] ${id.padEnd(14)} [${"#".repeat(filled)}${"-".repeat(width - filled)}] ${String(percent).padStart(3)}%${size}${speed}${eta}`;
+  const line = `[friday] ${id.padEnd(14)} [${"#".repeat(filled)}${"-".repeat(width - filled)}] ${String(percent).padStart(3)}%${size}${speed}${eta}`;
+  // A real console draws the bar as a solid coloured line; a log keeps the plain text.
+  if (!require("./live-console.cjs").colorWanted(process.stdout)) return line;
+  return require("./download-board.cjs").paint(line, percent >= 100 ? "done" : "running");
 }
 
 /**

@@ -42,6 +42,33 @@ function Write-Step([string]$Message) {
   Write-Host "[FRIDAY] $Message" -ForegroundColor Cyan
 }
 
+# A real console gets colour, solid bars and the live line of scripts\live-console.cjs; a log file, CI or NO_COLOR gets
+# the same words in plain text.
+function Test-LiveConsole {
+  if ([Console]::IsOutputRedirected) { return $false }
+  if ($env:NO_COLOR -or $env:FRIDAY_ACTIVITY -eq '0' -or $env:TERM -eq 'dumb') { return $false }
+  return $true
+}
+
+# The head of one of the nine stages of setup: its number, a solid bar of how far setup is, and its name.
+$script:StageTotal = 9
+function Write-Stage([int]$Number, [string]$Name) {
+  $cells = 24
+  $lit = [int][math]::Round($cells * $Number / $script:StageTotal)
+  $percent = [int][math]::Round(100 * $Number / $script:StageTotal)
+  Write-Host ''
+  if (Test-LiveConsole) {
+    $block = [string][char]0x2588
+    Write-Host ('[FRIDAY] Step {0} of {1} ' -f $Number, $script:StageTotal) -NoNewline -ForegroundColor White
+    Write-Host ($block * $lit) -NoNewline -ForegroundColor Cyan
+    Write-Host ($block * ($cells - $lit)) -NoNewline -ForegroundColor DarkGray
+    Write-Host (' {0,3}%  ' -f $percent) -NoNewline -ForegroundColor White
+    Write-Host $Name -ForegroundColor Cyan
+  } else {
+    Write-Host ('[FRIDAY] Step {0} of {1} [{2}{3}] {4}%  {5}' -f $Number, $script:StageTotal, ('#' * $lit), ('-' * ($cells - $lit)), $percent, $Name)
+  }
+}
+
 function Write-MethodFailure([string]$Label, [string]$Reason) {
   Write-Host "[FRIDAY] method failed: $Label - $Reason" -ForegroundColor Yellow
 }
@@ -209,6 +236,26 @@ function Assert-InstallerSignature([string]$File) {
   Write-Step "signature status for $(Split-Path -Leaf $File): $status - not blocking, the download came over TLS from the official host"
 }
 
+# An installer run silently prints nothing for a minute or two. On a console a moving line (a spinner, the name and
+# the time) shows the window is alive; in a log file the wait is plain. The exit code stays in $Process.ExitCode.
+function Wait-InstallerProcess($Process, [string]$Label) {
+  $null = $Process.Handle
+  if (-not (Test-LiveConsole)) { $Process.WaitForExit(); return }
+  $braille = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -or ($env:ConEmuANSI -eq 'ON'))
+  $frames = if ($braille) { [char[]](0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F) } else { [char[]]'|/-\' }
+  $started = Get-Date
+  $tick = 0
+  while (-not $Process.HasExited) {
+    $seconds = [int][math]::Floor(((Get-Date) - $started).TotalSeconds)
+    $clock = if ($seconds -ge 60) { '{0}m{1:00}s' -f [math]::Floor($seconds / 60), ($seconds % 60) } else { "${seconds}s" }
+    Write-Host ("`r{0} {1} - {2}   " -f $frames[$tick % $frames.Count], $Label, $clock) -NoNewline -ForegroundColor Cyan
+    $tick++
+    Start-Sleep -Milliseconds 120
+  }
+  $Process.WaitForExit()
+  Write-Host ("`r" + (' ' * 78) + "`r") -NoNewline
+}
+
 function Install-Package([string]$File, [string[]]$SilentArgs) {
   $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
   Assert-InstallerSignature $File
@@ -216,10 +263,11 @@ function Install-Package([string]$File, [string[]]$SilentArgs) {
   $installStarted = Get-Date
   if ($extension -eq '.msi') {
     $arguments = @('/i', "`"$File`"") + $SilentArgs
-    $process = Start-Process 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
+    $process = Start-Process 'msiexec.exe' -ArgumentList $arguments -PassThru
   } else {
-    $process = Start-Process $File -ArgumentList $SilentArgs -Wait -PassThru
+    $process = Start-Process $File -ArgumentList $SilentArgs -PassThru
   }
+  Wait-InstallerProcess $process "installing $(Split-Path -Leaf $File)"
   $installSeconds = [int][math]::Round(((Get-Date) - $installStarted).TotalSeconds)
   Write-Step "installer finished with exit code $($process.ExitCode) after ${installSeconds}s (0 = done, 3010 = done, restart wanted)"
   if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
@@ -232,8 +280,21 @@ function Install-Package([string]$File, [string[]]$SilentArgs) {
 # downloads, installs, the result), drops the frames, prints a repeat once, and leaves the exit code in
 # $LASTEXITCODE. (Pattern is ASCII: \u2588-\u2591 are the block characters of the bar.)
 $script:WingetNoise = '^[\s\-\\|/]*$|[\u2588\u2592\u2593\u2591]|^\s*[\d.]+\s*[KMG]?i?B\s*/\s*[\d.]+\s*[KMG]?i?B\s*$|^\s*\d{1,3}%\s*$|^(No available upgrade found\.|No newer package versions are available from the configured sources\.|This application is licensed to you by its owner\.|Microsoft is not responsible for, nor does it grant any licenses to, third-party packages\.)$'
-function Invoke-WingetQuiet([string[]]$WingetArgs) {
+function Invoke-WingetQuiet([string[]]$WingetArgs, [string]$Label = 'winget') {
   $script:WingetLast = ''
+  # On a real console winget runs under the live line (a spinner, the time and the share it reports), so a long
+  # "Starting package install..." never looks like a stuck window. Node.js is not there yet on a fresh PC: then, and
+  # in a log file, the filter below prints the same lines without it.
+  $hostScript = Join-Path $PSScriptRoot 'live-console.cjs'
+  $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($nodeCommand -and (Test-Path -LiteralPath $hostScript) -and (Test-LiveConsole)) {
+    $before = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      & $nodeCommand.Source $hostScript --label $Label --tidy --ok '-1978335189' -- winget.exe @WingetArgs
+    } finally { $ErrorActionPreference = $before }
+    return
+  }
   # Windows PowerShell 5.1 turns a line on stderr into a terminating error under 'Stop'; winget's text is not one.
   $before = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -253,7 +314,7 @@ function Install-WingetPackage([string]$PackageId) {
     throw 'winget (App Installer) is not available on this PC'
   }
   Write-Step "winget install $PackageId (its readable lines below; progress frames are dropped)"
-  Invoke-WingetQuiet @('install', '--id', $PackageId, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+  Invoke-WingetQuiet @('install', '--id', $PackageId, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity') "winget install $PackageId"
   $code = $LASTEXITCODE
   Write-Step "winget finished for $PackageId with exit code $code (0 = installed, -1978335189 = already installed)"
   # 0 = installed, -1978335189 (0x8A15002B) = already installed, no newer version.
@@ -453,7 +514,7 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
     $code = -1
     $before = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
     try {
-      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--include-unknown', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+      Invoke-WingetQuiet @('upgrade', '--id', $id, '--exact', '--source', 'winget', '--include-unknown', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity') "winget $Label"
       $code = $LASTEXITCODE
     } catch { $code = -1 }
     if ($code -eq 0) {
@@ -691,6 +752,7 @@ Push-Location $Root
 try {
   Wait-RunningToolsUpgrade
   Refresh-Path
+  Write-Stage 1 'The PC toolchain'
   Write-Step 'Preparing the FRIDAY Windows toolchain: each tool is detected first, kept when supported, and updated when its official source has a newer release'
   if ($script:UpdateWanted) {
     Write-Step 'latest-release check: on (once a day; FRIDAY_SETUP_UPDATE=0 turns it off, FRIDAY_SETUP_UPDATE=1 asks now)'
@@ -822,6 +884,7 @@ try {
     return
   }
 
+  Write-Stage 2 'Node dependencies'
   Write-Step 'Installing the exact Node dependency lockfile'
   # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
   # shows no progress when its output is piped and a quiet minute looks like a hung window.
@@ -833,29 +896,36 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
   }
 
+  Write-Stage 3 'Electron'
   Write-Step 'Installing the Electron binary when npm ci did not download it'
   & node.exe scripts\ensure-electron.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Electron binary installation failed after every official method.' }
 
+  Write-Stage 4 'Python environment and voice models'
   Write-Step 'Creating the isolated Python environment and runtime storage'
   & node.exe scripts\setup-python.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
 
+  Write-Stage 5 'Agent tools'
   Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, C++, Ruby, PHP, .NET, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
   & node.exe scripts\prefetch-toolkit.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The agent toolkit is not complete (see ACTION REQUIRED above). Fix it, then run npm run doctor.' }
 
+  Write-Stage 6 'Packs for the EXE'
   Write-Step 'Fetching the packs that ship inside the EXE (kept in .cache, so the build downloads nothing)'
   & node.exe scripts\stage-toolchain.cjs
   if ($LASTEXITCODE -ne 0) { throw 'The packs for the EXE could not be downloaded. Check the network, then run npm run doctor.' }
 
+  Write-Stage 7 'Runtime folders and database'
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 
+  Write-Stage 8 'Repair'
   Write-Step 'Repairing any incomplete Electron or Python component'
   & node.exe scripts\check-environment.cjs --fix --summary
   if ($LASTEXITCODE -ne 0) { throw 'Automatic component repair could not complete every required component.' }
 
+  Write-Stage 9 'Final readiness verification'
   Write-Step 'Running final readiness verification'
   # Doctor repeats the environment check only to confirm it: from here it prints the failures and a count, not the
   # same 80-line table a second time.

@@ -20,11 +20,16 @@
  * Off a real console (a log file, CI, NO_COLOR, FRIDAY_ACTIVITY=0) nothing here draws: callers fall back to the plain
  * "still working" lines of scripts/with-activity.cjs, so a log stays readable.
  *
- *   node scripts/live-console.cjs --label "pip" --watch <dir>;<dir> [--combine max] [--cwd <dir>] -- <command> [args]
+ *   node scripts/live-console.cjs --label "pip" --watch <dir>;<dir> [--combine max] [--cwd <dir>] [--tidy] -- <command> [args]
+ *
+ * `--tidy` is for an installer such as winget: its progress frames are dropped, its readable lines are kept, and the
+ * share it reports is drawn as a solid bar on the live line. `--ok` lists exit codes that are not a failure (the
+ * code still goes back to the caller unchanged).
  */
 "use strict";
 
 const path = require("node:path");
+const { solidBarOf, recolorBars } = require("./console-bar.cjs");
 const { Worker, isMainThread, parentPort, workerData } = require("node:worker_threads");
 
 const ESC = "\x1b[";
@@ -71,8 +76,17 @@ const STATUS_WORD = [
  * changed, only wrapped in colour codes, so a log written without colour holds the same words.
  */
 function colorize(line) {
-  const text = String(line ?? "");
-  if (!text.trim() || hasEscape(text)) return text;
+  const original = String(line ?? "");
+  if (!original.trim() || hasEscape(original)) return original;
+  // A bar drawn as `[#####-----]` becomes one solid coloured line; the words around it do not change.
+  const text = recolorBars(original);
+  // The head of a stage (`[friday] doctor 4/10: ...`, `[friday] build 3/13: ...`): the step, an overall bar, the title.
+  const stage = /^\[friday\] (doctor|build) (\d+)\/(\d+): (.*)$/.exec(text);
+  if (stage) {
+    const [, name, n, total, title] = stage;
+    const bar = solidBarOf(Number(n) / Math.max(1, Number(total)), 12, "running");
+    return `${dim("[friday]")} ${boldCyan(`${name} ${n}/${total}`)} ${bar} ${bold(title)}`;
+  }
   // Banners: the verdict of a whole step.
   if (/\b(SETUP PASS|DOCTOR PASS|TOOLCHAIN PASS|BUILD READY|ready to build)\b/i.test(text)) {
     return boldGreen(text);
@@ -134,6 +148,7 @@ function installColorConsole(env = process.env) {
 
 /* ------------------------------------------------------------------------------------------------ live line */
 
+const BAR_CELLS = 16;
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const ASCII = ["|", "/", "-", "\\"];
 
@@ -181,6 +196,7 @@ class LiveLine {
     this.boardActive = boardActive;
     this.label = "";
     this.detail = "";
+    this.progress = null;
     this.tick = 0;
     this.timer = null;
     this.drawn = false;
@@ -208,6 +224,11 @@ class LiveLine {
     this.detail = String(text || "");
   }
 
+  /** A known share (0..1) draws a solid bar after the label; null (the default) draws none. */
+  setProgress(fraction) {
+    this.progress = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : null;
+  }
+
   width() {
     const columns =
       Number(this.stream && this.stream.columns) || Number(process.env.FRIDAY_COLUMNS) || 100;
@@ -218,7 +239,11 @@ class LiveLine {
     const elapsed = clock(this.now() - this.started);
     const spin = cyan(this.frames[this.tick % this.frames.length]);
     const detail = this.detail ? dim(` · ${this.detail}`) : dim(` · ${elapsed}`);
-    return `${spin} ${shimmer(this.label, this.tick)}${detail}`;
+    const bar =
+      this.progress === null
+        ? ""
+        : ` ${solidBarOf(this.progress, BAR_CELLS, "running")} ${String(Math.round(this.progress * 100)).padStart(3)}%`;
+    return `${spin} ${shimmer(this.label, this.tick)}${bar}${detail}`;
   }
 
   erase() {
@@ -235,7 +260,8 @@ class LiveLine {
       return;
     }
     // Cut to the width of the console without counting colour codes: build the plain text first.
-    const plainLabel = `${this.frames[0]} ${this.label} · ${this.detail || clock(this.now() - this.started)}`;
+    const barWidth = this.progress === null ? 0 : BAR_CELLS + 6;
+    const plainLabel = `${this.frames[0]} ${this.label}${" ".repeat(barWidth)} · ${this.detail || clock(this.now() - this.started)}`;
     const room = this.width();
     let line = this.frame();
     if (plainLabel.length > room) {
@@ -257,7 +283,7 @@ class LiveLine {
   raw(chunk) {
     this.erase();
     this.paused = true;
-    this.stream.write(chunk);
+    this.stream.write(recolorBars(chunk));
   }
 
   /** The child's bar is over. `closeRow` ends a row left open by a bar so the line starts on a fresh one. */
@@ -307,6 +333,8 @@ function runLive({
   cwd,
   env = process.env,
   stream = process.stdout,
+  tidy = false,
+  okCodes = [],
 }) {
   return new Promise((resolve) => {
     const win = require("./win-spawn.cjs");
@@ -362,7 +390,25 @@ function runLive({
         }
       }, 1200);
     };
-    const feed = (kind) => (chunk) => {
+    // An installer (winget) redraws one progress frame over and over: read as a pipe that is noise. `tidy` keeps the
+    // readable lines, shows the share it reports as a solid bar on the live line, and prints a repeat once.
+    let lastTidy = "";
+    const feedTidy = (kind) => (chunk) => {
+      const installer = require("./electron-module.cjs").load("installer-output.cjs");
+      const text = partial[kind] + String(chunk);
+      const cut = Math.max(text.lastIndexOf("\n"), text.lastIndexOf("\r")) + 1;
+      partial[kind] = text.slice(cut);
+      const ready = text.slice(0, cut);
+      const progress = installer.progressFromChunk(ready);
+      // The bar follows the download and goes away when it is over: the install that follows has no share to show.
+      if (progress) live.setProgress(progress.percent >= 100 ? null : progress.percent / 100);
+      for (const line of installer.tidyChunk(ready)) {
+        if (line === lastTidy) continue;
+        lastTidy = line;
+        live.write(colorize(line), kind === "err" ? process.stderr : stream);
+      }
+    };
+    const feedPlain = (kind) => (chunk) => {
       const text = partial[kind] + String(chunk);
       const parts = text.split("\n");
       partial[kind] = parts.pop() ?? "";
@@ -386,6 +432,7 @@ function runLive({
         settle();
       }
     };
+    const feed = tidy ? feedTidy : feedPlain;
     child.stdout?.on("data", feed("out"));
     child.stderr?.on("data", feed("err"));
 
@@ -398,6 +445,12 @@ function runLive({
         /* already gone */
       }
       if (openRow) live.resume(true);
+      if (tidy) {
+        for (const kind of ["out", "err"]) {
+          if (partial[kind]) feedTidy(kind)(`${partial[kind]}\n`);
+          partial[kind] = "";
+        }
+      }
       const ms = Date.now() - started;
       // One last reading, so the summary holds what the step really wrote and not the reading of a few seconds ago.
       if (watch.length && ms > 1500) {
@@ -407,7 +460,8 @@ function runLive({
           /* the summary then shows the last reading */
         }
       }
-      const ok = code === 0 && !error;
+      // winget answers "already installed" and "nothing newer" with a code that is not 0 but is not a failure either.
+      const ok = (code === 0 || okCodes.includes(Number(code) | 0)) && !error;
       // A step that finished at once needs no summary: it would only add a line.
       live.stop(ms > 1500 || !ok ? summaryLine({ label, ok, ms, bytes, code }) : "");
       resolve({ status: code === null || code === undefined ? 1 : code, ms, error });
@@ -443,7 +497,7 @@ function main(argv) {
   const command = split === -1 ? [] : argv.slice(split + 1);
   if (!command.length) {
     console.error(
-      'usage: node scripts/live-console.cjs --label "<name>" [--watch <dir>;<dir>] -- <command> [args]',
+      'usage: node scripts/live-console.cjs --label "<name>" [--watch <dir>;<dir>] [--tidy] [--ok <code>,<code>] -- <command> [args]',
     );
     process.exit(2);
   }
@@ -452,7 +506,25 @@ function main(argv) {
     return at === -1 ? "" : options[at + 1] || "";
   };
   const [cmd, ...args] = command;
+  // Not a real console (a log file, a pipe, NO_COLOR): run the command as it is, with nothing drawn.
+  if (!(process.stdout.isTTY && colorWanted(process.stdout))) {
+    const plain = require("./win-spawn.cjs").spawnChild(cmd, args, {
+      cwd: value("--cwd") || undefined,
+      stdio: "inherit",
+    });
+    plain.on("error", (error) => {
+      process.stderr.write(`[friday] ${cmd}: ${error.message}\n`);
+      process.exit(1);
+    });
+    plain.on("close", (code) => process.exit(code === null ? 1 : code));
+    return;
+  }
   void runLive({
+    tidy: options.includes("--tidy"),
+    okCodes: value("--ok")
+      .split(",")
+      .filter(Boolean)
+      .map((n) => Number(n) | 0),
     label: value("--label") || path.basename(cmd),
     watch: value("--watch")
       .split(path.delimiter)
@@ -462,7 +534,7 @@ function main(argv) {
     cmd,
     args,
     cwd: value("--cwd") || undefined,
-  }).then(({ status }) => process.exit(status));
+  }).then(({ status }) => process.exit(Number(status) | 0));
 }
 
 if (require.main === module && isMainThread) main(process.argv.slice(2));
