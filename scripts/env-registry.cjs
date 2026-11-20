@@ -657,12 +657,12 @@ function repairComponent(id, { onLog = () => {} } = {}) {
   const attempts = [];
   for (const [cmd, args] of steps) {
     onLog(`[friday] repairing ${id}: ${cmd} ${args.join(" ")}`);
-    const result = spawnOfficial(cmd, args, {
-      encoding: "utf8",
-      cwd: root,
-      windowsHide: true,
-      timeout: 20 * 60 * 1000,
-    });
+    const options = { encoding: "utf8", cwd: root, windowsHide: true, timeout: 20 * 60 * 1000 };
+    // npm runs as node + npm-cli.js with a cleaned environment (win-spawn.cjs), not as npm.cmd through cmd.exe,
+    // whose PATH on one PC held neither node nor vite ("'node' is not recognized").
+    const result = /^npm(\.cmd)?$/i.test(path.basename(String(cmd)))
+      ? require("./win-spawn.cjs").spawnNpm(args, options)
+      : spawnOfficial(cmd, args, options);
     const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
     attempts.push({
       command: `${cmd} ${args.join(" ")}`,

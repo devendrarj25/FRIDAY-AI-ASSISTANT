@@ -748,6 +748,10 @@ describe("the renderer build does not depend on a shell-resolved PATH ('node' / 
       expect(read(file), file).not.toMatch(/"run",\s*"build:desktop"/);
     }
     expect(read("scripts/build-pipeline.cjs")).toContain("spawnViteBuild(root)");
+    // Doctor's repair of node_modules starts npm as node + npm-cli.js too, not as npm.cmd through cmd.exe.
+    expect(read("scripts/env-registry.cjs")).toContain(
+      'require("./win-spawn.cjs").spawnNpm(args, options)',
+    );
     expect(read("scripts/electron-pack.cjs")).toContain("cleanEnv(process.env)");
   });
 });
