@@ -9,8 +9,101 @@
       content="FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local &amp; Cloud Models."
     />
     <link rel="icon" href="./favicon.png" type="image/png" />
+    <!--
+      The first thing on screen, before any script has run: the same layout the boot screen (BootScreen.tsx) uses,
+      drawn by this file alone (no script, one 60 KB image), so the window shows FRIDAY at once instead of an empty
+      frame while the interface bundle loads. BootScreen replaces it the moment React is on screen.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #141821;
+        color: #e8edf5;
+      }
+      #friday-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: grid;
+        place-items: center;
+        background: #141821;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+        transition: opacity 200ms ease-out;
+      }
+      #friday-splash.friday-splash-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #friday-splash .fs-logo {
+        /* block + auto margins: the app's stylesheet (Tailwind preflight) makes every image a block once it loads */
+        display: block;
+        margin: 0 auto;
+        width: 132px;
+        height: 132px;
+        object-fit: contain;
+        animation: fs-breathe 3.2s ease-in-out infinite;
+      }
+      #friday-splash .fs-word {
+        margin: 20px 0 0;
+        font-size: 36px;
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        padding-left: 0.3em;
+        color: #5ad1ff;
+      }
+      #friday-splash .fs-line {
+        margin: 12px 0 0;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      #friday-splash .fs-bar {
+        margin: 24px auto 0;
+        width: min(28rem, calc(100vw - 3rem));
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.1);
+      }
+      #friday-splash .fs-bar i {
+        display: block;
+        width: 34%;
+        height: 100%;
+        border-radius: 999px;
+        background: #5ad1ff;
+        animation: fs-slide 1.4s ease-in-out infinite;
+      }
+      @keyframes fs-slide {
+        from {
+          transform: translateX(-110%);
+        }
+        to {
+          transform: translateX(300%);
+        }
+      }
+      @keyframes fs-breathe {
+        50% {
+          opacity: 0.82;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #friday-splash .fs-logo,
+        #friday-splash .fs-bar i {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="friday-splash" role="status" aria-label="Starting FRIDAY">
+      <div>
+        <img class="fs-logo" src="./splash-logo.png" width="132" height="132" alt="" />
+        <p class="fs-word">FRIDAY</p>
+        <p class="fs-line">Starting FRIDAY</p>
+        <div class="fs-bar"><i></i></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>

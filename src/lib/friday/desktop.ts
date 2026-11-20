@@ -4,6 +4,13 @@
  * In the browser preview `window.friday` is absent and every call resolves to
  * a no-op so the UI still renders.
  */
+import {
+  bootGate,
+  computeBootProgress,
+  creepPercent,
+  type BootGate,
+  type BootPlan,
+} from "./boot-progress";
 import type { SystemPressure } from "./system-pressure";
 import type { SttProgressPayload } from "./voice-download";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -176,6 +183,8 @@ export type BootStep = {
   status: "ok" | "warn" | "missing";
   detail?: string;
   at: number;
+  /** The boot-plan stage this step finishes (electron/boot-plan.cjs); a detail line has none. */
+  stage?: string | null;
 };
 
 export type DetectedModel = {
@@ -301,6 +310,7 @@ type DesktopApi = {
   }>;
 
   getBootSteps?: () => Promise<BootStep[]>;
+  getBootPlan?: () => Promise<BootPlan>;
   onBootStep?: (cb: (s: BootStep) => void) => () => void;
   scanWorkspace?: (force?: boolean) => Promise<WorkspaceScanResult | null>;
   pickFolder?: () => Promise<string | null>;
@@ -1696,38 +1706,170 @@ export function useWindowsSecurity() {
   return { security, open, supported: isDesktopApp() };
 }
 
-/** Boot sequence steps streamed by the main process (desktop only). */
+/**
+ * Boot sequence (desktop only): the plan and the steps the main process streams, the clock, and the moment the boot
+ * screen may leave, in one small store. Nothing here runs unless the boot screen is mounted, and a remount (moving
+ * between sections) joins the same store, so the screen is shown once per launch and its clock never restarts.
+ */
 let bootDismissed = false;
 
-export function useBootSequence() {
-  const [steps, setSteps] = useState<BootStep[]>([]);
-  // Shown once per launch — navigating between sections must never re-open it.
-  const [done, setDone] = useState(() => bootDismissed || !isDesktopApp());
+type BootSnapshot = {
+  steps: BootStep[];
+  plan: BootPlan | null;
+  progress: ReturnType<typeof computeBootProgress> | null;
+  shownPercent: number;
+  elapsedMs: number;
+  gate: BootGate;
+  done: boolean;
+  leaving: boolean;
+};
 
-  useEffect(() => {
-    const desktop = api();
-    if (!desktop) return;
-    void desktop.getBootSteps?.().then((s) => s?.length && setSteps(s));
-    const off = desktop.onBootStep?.((step) =>
-      setSteps((prev) => (prev.some((p) => p.at === step.at) ? prev : [...prev, step])),
-    );
-    if (bootDismissed) return () => off?.();
-    const timer = setTimeout(() => {
-      bootDismissed = true;
-      setDone(true);
-    }, 2600);
-    return () => {
-      off?.();
-      clearTimeout(timer);
+const bootStore = (() => {
+  let steps: BootStep[] = [];
+  let plan: BootPlan | null = null;
+  let done = false;
+  let leaving = false;
+  let started = false;
+  let shownAt = 0;
+  let readyAt = 0;
+  let stageKey = "";
+  let stageAt = 0;
+  let tick: ReturnType<typeof setInterval> | null = null;
+  let legacy: ReturnType<typeof setTimeout> | null = null;
+  let off: (() => void) | null = null;
+  const listeners = new Set<() => void>();
+
+  const compute = (): BootSnapshot => {
+    const now = Date.now();
+    const progress = plan ? computeBootProgress(plan, steps) : null;
+    if (progress) {
+      const key = `${progress.percent}|${progress.currentLabel}`;
+      if (key !== stageKey) {
+        stageKey = key;
+        stageAt = now;
+      }
+      if (progress.ready && !readyAt) readyAt = now;
+    }
+    const elapsedMs = shownAt ? Math.max(0, now - shownAt) : 0;
+    return {
+      steps,
+      plan,
+      progress,
+      shownPercent: progress ? creepPercent(progress, now - stageAt) : 0,
+      elapsedMs,
+      gate: progress ? bootGate(progress, elapsedMs, readyAt ? now - readyAt : 0) : "wait",
+      done,
+      leaving,
     };
-  }, []);
-
-  const dismiss = () => {
-    bootDismissed = true;
-    setDone(true);
+  };
+  let ready = false;
+  let snap: BootSnapshot = {
+    steps,
+    plan,
+    progress: null,
+    shownPercent: 0,
+    elapsedMs: 0,
+    gate: "wait",
+    done: true,
+    leaving: false,
+  };
+  // The first render already knows whether the screen is shown, so there is no blank frame before the store starts.
+  const read = () => {
+    if (!ready) {
+      ready = true;
+      done = bootDismissed || !isDesktopApp();
+      snap = compute();
+    }
+    return snap;
   };
 
-  return { steps, done, dismiss };
+  const finish = () => {
+    if (done || leaving) return;
+    bootDismissed = true;
+    leaving = true;
+    emit();
+    setTimeout(() => {
+      done = true;
+      leaving = false;
+      stop();
+      emit();
+    }, 260);
+  };
+
+  function emit() {
+    snap = compute();
+    for (const listener of listeners) listener();
+    if (snap.gate === "leave" && !done && !leaving) finish();
+  }
+
+  function stop() {
+    started = false;
+    if (tick) clearInterval(tick);
+    if (legacy) clearTimeout(legacy);
+    tick = legacy = null;
+    off?.();
+    off = null;
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    done = bootDismissed || !isDesktopApp();
+    if (done) {
+      snap = compute();
+      return;
+    }
+    const desktop = api();
+    if (!desktop) {
+      done = true;
+      snap = compute();
+      return;
+    }
+    if (!shownAt) shownAt = Date.now();
+    void desktop.getBootSteps?.().then((s) => {
+      if (s?.length) {
+        steps = s;
+        emit();
+      }
+    });
+    void desktop.getBootPlan?.().then((p) => {
+      if (p?.stages?.length) {
+        plan = p;
+        emit();
+      }
+    });
+    off =
+      desktop.onBootStep?.((step) => {
+        if (steps.some((p) => p.at === step.at)) return;
+        steps = [...steps, step];
+        emit();
+      }) ?? null;
+    // Four readings a second keep the elapsed time and the easing alive without a frame loop.
+    tick = setInterval(emit, 250);
+    // An older shell without a boot plan keeps the fixed hold it always had.
+    legacy = setTimeout(() => {
+      if (!plan) finish();
+    }, 2600);
+    emit();
+  }
+
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      start();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0 && !done) stop();
+      };
+    },
+    get: read,
+    finish,
+  };
+})();
+
+export function useBootSequence() {
+  const snapshot = useSyncExternalStore(bootStore.subscribe, bootStore.get, bootStore.get);
+  return { ...snapshot, dismiss: bootStore.finish };
 }
 
 /* -------------------------------------------------------- workspace store */

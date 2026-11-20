@@ -275,6 +275,21 @@ if (
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const loginItem = require("./login-item.cjs");
+const bootPlan = require("./boot-plan.cjs");
+const gpuStatus = require("./gpu-status.cjs");
+const processPriority = require("./process-priority.cjs");
+const loopLag = require("./loop-lag.cjs").createLoopLag({ log: (message) => log(message) });
+// The window and the games come first: the AI service runs below normal, the window above normal while in use.
+const priority = processPriority.createPriorityManager({
+  getMetrics: () => {
+    try {
+      return app.getAppMetrics();
+    } catch {
+      return [];
+    }
+  },
+  log: (message) => log(message),
+});
 const lifeSteps = {};
 function restartArgv() {
   // A restart the owner asked for shows the window, so the "started at sign-in" marker is not carried over.
@@ -1235,7 +1250,8 @@ serviceHealth.init(send, {
 
 /** Boot progress: buffered so the UI gets the full sequence once it loads. */
 function boot(label, status = "ok", detail = "") {
-  const step = { label, status, detail, at: Date.now() };
+  // `stage` ties the step to a stage of the boot plan (electron/boot-plan.cjs); a detail line has none.
+  const step = { label, status, detail, at: Date.now(), stage: bootPlan.stageFor(label) };
   bootSteps.push(step);
   send("boot:step", step);
   return step;
@@ -1579,6 +1595,7 @@ async function startKernelNow(root) {
       windowsHide: true,
     });
     ownerPidRegistry().track("kernel", kernel, python);
+    priority.lowerKernel(kernel.pid);
   } catch (error) {
     kernel = null;
     kernelFailure = `Python could not be started (${python}). Install Python 3 and reopen FRIDAY.`;
@@ -4059,6 +4076,9 @@ function createWindow() {
   });
 
   win.__fridayStartMaximized = state.maximized;
+  // The window in use gets the CPU first; one that is not (a game has the screen) goes back to normal.
+  win.on("focus", () => priority.setUiFocus(true));
+  win.on("blur", () => priority.setUiFocus(false));
   const windowWatch = require("./watchdog.cjs");
   windowWatch.watchWindow(win, {
     longWork: () => ipcTimeout.longWorkActive(),
@@ -5309,6 +5329,9 @@ ipcMain.handle("app:paths", () => ({
   kernelPort: KERNEL_PORT,
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
+// Why this launch is a launch and which stages the boot screen waits for (fixed before the window exists).
+let bootPlanState = null;
+ipcMain.handle("boot:plan", () => bootPlanState || bootPlan.planFor("start"));
 
 // The desktop declares the open conversation so a phone turn joins it.
 ipcMain.handle("session:set-active", async (_e, sessionId) => {
@@ -9662,6 +9685,17 @@ app
     }
 
     const bootStartedAt = Date.now();
+    loopLag.start();
+    systemMonitor.setLoopLagReader(() => loopLag.read());
+    priority.setUiFocus(false);
+    // Before the window exists, so the first window-state save cannot turn a first start into a normal one.
+    bootPlanState = bootPlan.planFor(
+      bootPlan.bootModeFor({
+        argv: process.argv,
+        firstRun: !readSettings().windowState,
+        loginArg: loginItem.LOGIN_ARG,
+      }),
+    );
     boot("Detecting installation", "ok", path.dirname(app.getPath("exe")));
     // Setup writes HKCU WorkspacePath. Resolve that pointer BEFORE the window
     // exists so the first workspace:get / first-run:state IPC sees the real
@@ -9997,11 +10031,20 @@ function startAfterKernel(root, bootStartedAt) {
       lastHardware = hw;
       hardwareAt = Date.now();
       offerGpuToSpeech(hw);
+      let graphics = "";
+      try {
+        graphics = gpuStatus.summarizeGpu(app.getGPUFeatureStatus(), {
+          softwareMode: gpuGuard.softwareMode(),
+        }).text;
+      } catch {
+        graphics = "";
+      }
       boot(
         "Checking acceleration",
         "ok",
-        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}`,
+        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}${graphics ? ` · ${graphics}` : ""}`,
       );
+      if (graphics) log(graphics);
     })
     .catch(() => boot("Checking acceleration", "warn"));
 

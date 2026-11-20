@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("friday", {
 
   // Boot sequence.
   getBootSteps: () => ipcRenderer.invoke("boot:steps"),
+  getBootPlan: () => ipcRenderer.invoke("boot:plan"),
   onBootStep: on("boot:step"),
 
   // Startup orchestration (scan → services → verify → readiness).

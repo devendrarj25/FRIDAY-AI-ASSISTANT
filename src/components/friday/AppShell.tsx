@@ -39,6 +39,7 @@ import { useNavThumb } from "@/components/friday/nav-thumb";
 import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
 import { installInteractionPause } from "@/lib/friday/interaction-pause";
+import { installPerfGovernor } from "@/lib/friday/perf-governor";
 import { installTruncateTitles, titleCutLabels } from "@/lib/friday/truncate-titles";
 import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
@@ -534,6 +535,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
 
   useEffect(() => installRejectionToast(), []);
   useEffect(() => installInteractionPause(), []);
+  // Decorative loops hold still while another window is in use, and step down if the page keeps missing frames.
+  useEffect(() => installPerfGovernor(), []);
   useEffect(() => installTruncateTitles(), []);
   // A new page: label whatever it cut with an ellipsis once it has laid out.
   useEffect(() => {
