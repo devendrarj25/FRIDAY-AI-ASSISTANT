@@ -162,6 +162,64 @@ function spawnDirect(cmd, args = [], extra = {}) {
 }
 
 /**
+ * The environment a child process gets. On Windows a plain copy of process.env can carry the search path under two
+ * spellings ("Path" and "PATH") after a script assigns env.PATH on the copy; cmd.exe then reads one of them and
+ * npm's own addition (node_modules\\.bin and the folder of node.exe) lands in the other, which ends as
+ * "'node' is not recognized" or "'vite' is not recognized". One "Path" key, each folder once, is what every child
+ * should see. Off Windows the copy is returned as it is.
+ */
+function cleanEnv(env = process.env, platform = process.platform) {
+  const out = { ...env };
+  if (platform !== "win32") return out;
+  const keys = Object.keys(out).filter((name) => name.toLowerCase() === "path");
+  if (!keys.length) return out;
+  const seen = new Set();
+  const dirs = [];
+  for (const key of keys) {
+    for (const part of String(out[key] || "").split(";")) {
+      const dir = part.trim();
+      const id = dir.replace(/[\\/]+$/, "").toLowerCase();
+      if (!dir || seen.has(id)) continue;
+      seen.add(id);
+      dirs.push(dir);
+    }
+    delete out[key];
+  }
+  out.Path = dirs.join(";");
+  return out;
+}
+
+/**
+ * The renderer bundle: vite's own script run by this node, with no npm, no cmd.exe and no command link. It does
+ * not depend on the PATH a shell would build, which is what broke `npm run build:desktop` on a PC where cmd.exe
+ * could find neither vite nor node.
+ */
+function viteBuildPlan(root, platform = process.platform) {
+  void platform;
+  const script = path.join(root, "node_modules", "vite", "bin", "vite.js");
+  return {
+    file: process.execPath,
+    args: [script, "build", "--config", "vite.electron.config.ts"],
+    script,
+    present: fs.existsSync(script),
+  };
+}
+
+function spawnViteBuild(root, extra = {}) {
+  const plan = viteBuildPlan(root);
+  if (!plan.present) {
+    return { status: 1, error: new Error(`vite is not installed (${plan.script} is missing)`) };
+  }
+  return spawnSync(plan.file, plan.args, {
+    cwd: root,
+    stdio: "inherit",
+    windowsHide: true,
+    ...extra,
+    env: cleanEnv(extra.env || process.env),
+  });
+}
+
+/**
  * npm redraws a spinner on a console, which blinks, and prints a "deprecated" warning for every old package inside
  * electron-builder's own dependency tree (inflight, rimraf 2, glob 7) that FRIDAY cannot change. Progress is off and
  * only errors are printed; a caller's own npm_config_progress / npm_config_loglevel wins.
@@ -169,11 +227,11 @@ function spawnDirect(cmd, args = [], extra = {}) {
 function quietNpm(extra = {}) {
   return {
     ...extra,
-    env: {
+    env: cleanEnv({
       npm_config_progress: "false",
       npm_config_loglevel: "error",
       ...(extra.env || process.env),
-    },
+    }),
   };
 }
 
@@ -266,6 +324,9 @@ function spawnCaptured(cmd, args = [], extra = {}) {
 }
 
 module.exports = {
+  cleanEnv,
+  viteBuildPlan,
+  spawnViteBuild,
   spawnCaptured,
   spawnNpm,
   spawnDirect,

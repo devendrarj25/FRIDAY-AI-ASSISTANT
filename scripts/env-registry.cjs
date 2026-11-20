@@ -637,7 +637,18 @@ const REPAIRS = {
     [win ? "npm.cmd" : "npm", ["install", "--no-audit", "--no-fund"]],
   ],
   database: [[process.execPath, [path.join(root, "scripts", "init-runtime.cjs")]]],
-  renderer: [[win ? "npm.cmd" : "npm", ["run", "build:desktop"]]],
+  // vite's own script run by node: no npm, no cmd.exe, no command link (see win-spawn.cjs viteBuildPlan).
+  renderer: [
+    [
+      process.execPath,
+      [
+        path.join(root, "node_modules", "vite", "bin", "vite.js"),
+        "build",
+        "--config",
+        "vite.electron.config.ts",
+      ],
+    ],
+  ],
 };
 
 function repairComponent(id, { onLog = () => {} } = {}) {

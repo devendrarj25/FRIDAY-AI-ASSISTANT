@@ -779,7 +779,7 @@ function runPhase(phase, options, root) {
       if (still.length)
         throw new Error(`build tools are still missing after npm ci: ${still.join(", ")}`);
     }
-    const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
+    const built = require("./win-spawn.cjs").spawnViteBuild(root);
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
       throw new Error("renderer bundle missing — build failed");
@@ -974,7 +974,11 @@ function ensureToolchain(root, env = process.env, platform = process.platform, d
   // A tool installed just now is not on this process's PATH yet; read the new PATH once.
   const read = deps.readPath || readWindowsPath;
   const fresh = read();
-  if (fresh) env.PATH = `${env.PATH || ""};${fresh}`;
+  if (fresh) {
+    // One key, each folder once: appending the whole registry PATH again doubled it and left a second spelling of the key.
+    const key = Object.keys(env).find((name) => name.toLowerCase() === "path") || "PATH";
+    env[key] = require("./win-path.cjs").mergePaths(env[key], fresh);
+  }
   return "toolchain ready";
 }
 

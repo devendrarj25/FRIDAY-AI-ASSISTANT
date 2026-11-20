@@ -267,11 +267,7 @@ function verifyBackend() {
 }
 
 // ------------------------------------------------------------------- repairs
-const buildDesktop = () =>
-  require("./win-spawn.cjs").spawnNpm(["run", "build:desktop"], {
-    stdio: "inherit",
-    cwd: root,
-  });
+const buildDesktop = () => require("./win-spawn.cjs").spawnViteBuild(root);
 
 const stages = [
   {

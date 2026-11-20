@@ -89,7 +89,12 @@ function main() {
     ...extra,
   ];
 
-  const child = spawn(process.execPath, args, { cwd: ROOT, stdio: ["inherit", "pipe", "pipe"] });
+  // A clean environment (one "Path" key, each folder once): electron-builder itself starts npm and node by name.
+  const child = spawn(process.execPath, args, {
+    cwd: ROOT,
+    stdio: ["inherit", "pipe", "pipe"],
+    env: require("./win-spawn.cjs").cleanEnv(process.env),
+  });
   const out = lineForwarder((t) => process.stdout.write(t));
   const err = lineForwarder((t) => process.stderr.write(t));
   child.stdout.setEncoding("utf8").on("data", out);
