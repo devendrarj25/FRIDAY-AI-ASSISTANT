@@ -29,6 +29,9 @@ function levels(osModule = os) {
 }
 
 function enabled(env = process.env) {
+  // The CI harnesses (readiness, boot self-test) run on small hosted machines with no graphics card: nothing there
+  // may change how fast the AI service starts, so the gate stays deterministic.
+  if (env.FRIDAY_READINESS === "1" || env.FRIDAY_BOOT_SELFTEST) return false;
   return String(env.FRIDAY_PRIORITY ?? "1") !== "0";
 }
 

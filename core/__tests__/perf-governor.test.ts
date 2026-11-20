@@ -207,6 +207,22 @@ describe("process priority", () => {
     for (const pid of [11, 12, 13]) expect(calls).toContainEqual([pid, 0]);
   });
 
+  it("leaves the CI harnesses alone (readiness and boot self-test) so the gate stays deterministic", () => {
+    const calls: Array<[number, number]> = [];
+    for (const env of [{ FRIDAY_READINESS: "1" }, { FRIDAY_BOOT_SELFTEST: "1" }]) {
+      const m = prio.createPriorityManager({
+        osModule: fakeOs(calls),
+        platform: "win32",
+        env,
+        getMetrics: () => metrics,
+      });
+      expect(m.enabled).toBe(false);
+      expect(m.lowerKernel(9)).toBe(false);
+      expect(m.setUiFocus(true)).toBe(false);
+    }
+    expect(calls).toEqual([]);
+  });
+
   it("does nothing off Windows or when FRIDAY_PRIORITY=0, and survives a refused call", () => {
     const calls: Array<[number, number]> = [];
     const linux = prio.createPriorityManager({
@@ -235,6 +251,10 @@ describe("process priority", () => {
   it("is wired: kernel lowered after it starts, window focus raises it, nothing else is touched", () => {
     const main = read("electron/main.cjs");
     expect(main).toContain("priority.lowerKernel(kernel.pid)");
+    // Only after the kernel answered /health: while it starts it needs all the CPU and the boot screen waits for it.
+    expect(main.indexOf("priority.lowerKernel(kernel.pid)")).toBeGreaterThan(
+      main.indexOf('noteStartup("kernel-ready")'),
+    );
     expect(main).toContain('win.on("focus", () => priority.setUiFocus(true))');
     expect(main).toContain('win.on("blur", () => priority.setUiFocus(false))');
     expect(prio.uiPids(metrics, 7).sort((a, b) => a - b)).toEqual([7, 11, 12, 13]);

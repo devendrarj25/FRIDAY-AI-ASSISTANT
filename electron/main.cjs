@@ -1595,7 +1595,6 @@ async function startKernelNow(root) {
       windowsHide: true,
     });
     ownerPidRegistry().track("kernel", kernel, python);
-    priority.lowerKernel(kernel.pid);
   } catch (error) {
     kernel = null;
     kernelFailure = `Python could not be started (${python}). Install Python 3 and reopen FRIDAY.`;
@@ -1810,6 +1809,9 @@ async function waitForKernel(timeoutMs = 20000) {
         kernelFailure = "";
         readinessTrace.trace("kernel-ready");
         noteStartup("kernel-ready");
+        // Only now does the AI service step aside for the window: while it starts it needs every bit of CPU, and the
+        // boot screen waits for it, so a slower start would be the very lag this is meant to remove.
+        if (kernel && kernel.pid) priority.lowerKernel(kernel.pid);
         if (process.env.FRIDAY_READINESS !== "1") connectSessionStream();
         // The kernel starts locked down; hand it the owner's real policy.
         void pushBillingToKernel();
