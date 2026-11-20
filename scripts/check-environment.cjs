@@ -571,20 +571,18 @@ if (win) {
     url: "https://www.electronjs.org/",
   });
 
-  // 1b) The commands the build runs (vite, electron-builder) must be linked in node_modules/.bin.
-  const missingCommands = require("./build-pipeline.cjs").missingBuildCommands(
-    root,
-    process.platform,
-  );
+  // 1b) The scripts the build runs (vite, electron-builder) must be installed; they are started with node, so no
+  //     command link in node_modules/.bin is needed.
+  const missingTools = require("./build-pipeline.cjs").missingBuildTools(root);
   add({
-    name: "Build commands (vite, electron-builder)",
+    name: "Build tools (vite, electron-builder)",
     required: true,
     group: "node-deps",
-    ok: missingCommands.length === 0,
-    found: missingCommands.length
-      ? `not linked in node_modules/.bin: ${missingCommands.join(", ")}`
-      : "linked in node_modules/.bin",
-    want: "node_modules/.bin has vite and electron-builder",
+    ok: missingTools.length === 0,
+    found: missingTools.length
+      ? `not installed in node_modules: ${missingTools.join(", ")}`
+      : "installed in node_modules",
+    want: "node_modules has vite and electron-builder",
     fix: "npm ci",
     url: "https://docs.npmjs.com/cli/commands/npm-ci",
   });

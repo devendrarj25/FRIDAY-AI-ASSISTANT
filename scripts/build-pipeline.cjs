@@ -617,18 +617,19 @@ function runNode(script, args, root) {
  * FRIDAY_FORCE_NPM_CI=1 always installs.
  */
 /**
- * The commands the build runs from node_modules/.bin. A folder whose packages are there but whose command links are
- * not (an install cut short, a cleaner that removed .bin, an npm that did not link them) used to pass the "npm ci
- * can be skipped" test and then stop at `'vite' is not recognized`.
+ * The scripts the build runs from node_modules: vite's own script (`build:desktop` starts it with node) and
+ * electron-builder's cli.js (electron-pack starts it with node). Neither needs a command link in node_modules\\.bin,
+ * which an npm 12 install on Windows did not make runnable by cmd.exe ("'vite' is not recognized"). A folder
+ * without these files is not current, so the build and Doctor run `npm ci`.
  */
-const BUILD_COMMANDS = ["vite", "electron-builder"];
-function missingBuildCommands(root, platform = process.platform) {
-  const bin = path.join(root, "node_modules", ".bin");
-  // npm writes name.cmd (cmd.exe), name.ps1 (PowerShell) and name (sh) on Windows; any of them is a link.
-  const forms = platform === "win32" ? [".cmd", ".ps1", ""] : [""];
-  return BUILD_COMMANDS.filter(
-    (name) => !forms.some((ext) => fs.existsSync(path.join(bin, name + ext))),
-  );
+const BUILD_TOOLS = {
+  vite: path.join("vite", "bin", "vite.js"),
+  "electron-builder": path.join("electron-builder", "cli.js"),
+};
+function missingBuildTools(root) {
+  return Object.entries(BUILD_TOOLS)
+    .filter(([, file]) => !fs.existsSync(path.join(root, "node_modules", file)))
+    .map(([name]) => name);
 }
 
 function nodeModulesCurrent(root, env = process.env) {
@@ -645,7 +646,7 @@ function nodeModulesCurrent(root, env = process.env) {
     const present =
       fs.existsSync(path.join(electron, "path.txt")) ||
       fs.existsSync(path.join(electron, "dist", binary));
-    return installed >= wanted && present && missingBuildCommands(root).length === 0;
+    return installed >= wanted && present && missingBuildTools(root).length === 0;
   } catch {
     return false;
   }
@@ -767,29 +768,18 @@ function runPhase(phase, options, root) {
   }
   if (phase === "build-renderer") {
     cleanOutputs(root);
-    // Heal first: packages without their command links get a real install instead of a "not recognized" stop.
-    const missing = missingBuildCommands(root);
+    // Heal first: a node_modules without the build scripts gets a real install instead of a "not recognized" stop.
+    const missing = missingBuildTools(root);
     if (missing.length) {
       console.log(
-        `[FRIDAY] build commands missing from node_modules\\.bin (${missing.join(", ")}); installing the dependencies again`,
+        `[FRIDAY] build tools missing from node_modules (${missing.join(", ")}); installing the dependencies again`,
       );
       npmCi(root, true);
+      const still = missingBuildTools(root);
+      if (still.length)
+        throw new Error(`build tools are still missing after npm ci: ${still.join(", ")}`);
     }
-    // The link can still be missing on a machine whose npm writes none; vite's own script runs the same build.
-    const viteScript = path.join(root, "node_modules", "vite", "bin", "vite.js");
-    if (missingBuildCommands(root).includes("vite") && !fs.existsSync(viteScript)) {
-      throw new Error("vite is not installed in node_modules after npm ci");
-    }
-    const built = missingBuildCommands(root).includes("vite")
-      ? spawnDirect(
-          process.execPath,
-          [viteScript, "build", "--config", "vite.electron.config.ts"],
-          {
-            cwd: root,
-            stdio: "inherit",
-          },
-        )
-      : spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
+    const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
       throw new Error("renderer bundle missing — build failed");
@@ -1171,7 +1161,7 @@ module.exports = {
   runPackagedSelfCheck,
   runPipeline,
   nodeModulesCurrent,
-  missingBuildCommands,
+  missingBuildTools,
   npmCi,
   REMOVE_OPTIONS,
   removeTree,
