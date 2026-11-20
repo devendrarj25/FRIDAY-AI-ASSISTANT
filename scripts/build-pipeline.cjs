@@ -1165,6 +1165,11 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
       lines.push("  Install : run the Setup EXE above (Next, choose a folder, Install).");
       lines.push("  Portable: run the Portable EXE; no install needed.");
     }
+    if (report.phases?.some((phase) => phase.name === "readiness" && phase.status === "skipped")) {
+      lines.push(
+        "  Check   : npm run verify:install runs this build once and chats with it (optional).",
+      );
+    }
     lines.push("  Repair  : npm run doctor checks and fixes this PC at any time.");
   } else {
     lines.push("");

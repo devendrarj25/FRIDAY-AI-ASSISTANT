@@ -890,14 +890,21 @@ try {
 
   Write-Stage 2 'Node dependencies'
   Write-Step 'Installing the exact Node dependency lockfile'
-  # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
-  # shows no progress when its output is piped and a quiet minute looks like a hung window.
-  & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) {
-    Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
-    & npm.cmd cache verify
-    & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
-    if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
+  # A folder whose node_modules already matches package-lock.json is not wiped and installed again (the same check
+  # Doctor and the build use); FRIDAY_FORCE_NPM_CI=1 installs anyway.
+  & node.exe scripts\node-modules-current.cjs
+  if ($LASTEXITCODE -eq 0) {
+    Write-Step 'node_modules already matches package-lock.json; npm ci skipped'
+  } else {
+    # with-activity.cjs runs the same npm command and prints a "still working" line every few seconds, because npm
+    # shows no progress when its output is piped and a quiet minute looks like a hung window.
+    & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) {
+      Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
+      & npm.cmd cache verify
+      & node.exe scripts\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
+      if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
+    }
   }
 
   Write-Stage 3 'Electron'

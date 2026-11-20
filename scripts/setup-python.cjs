@@ -620,7 +620,16 @@ function fetchChromaEmbeddingModel() {
     "f = getattr(e, 'DefaultEmbeddingFunction', None) or getattr(e, 'ONNXMiniLM_L6_V2')",
     "f()(['FRIDAY memory'])",
   ].join("\n");
-  log("fetching the semantic-memory embedding model (all-MiniLM-L6-v2, about 79 MB, once)");
+  // Chroma keeps the model under <cache>/onnx_models/all-MiniLM-L6-v2/onnx. When it is there the step only loads it once
+  // to prove it works, and says so (it used to say "fetching ... once" on every run).
+  const present = fs.existsSync(
+    path.join(cache, "onnx_models", "all-MiniLM-L6-v2", "onnx", "model.onnx"),
+  );
+  log(
+    present
+      ? "the semantic-memory embedding model (all-MiniLM-L6-v2) is already on disk; checking that it loads"
+      : "fetching the semantic-memory embedding model (all-MiniLM-L6-v2, about 79 MB, once)",
+  );
   const result = require("./with-activity.cjs").withActivityCommand(
     "semantic-memory model",
     [cache],

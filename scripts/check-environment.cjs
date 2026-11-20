@@ -1020,12 +1020,22 @@ const pad = (s, n) => String(s).padEnd(n);
 // an ellipsis, and the whole text of a row that is not fine follows below it.
 const STATUS_W = 10;
 const tableWidth = Math.max(100, Math.min(Number(process.stdout.columns) || 120, 160));
-const longest = (pick) => checks.reduce((n, c) => Math.max(n, String(pick(c)).length), 0);
-const nameW = Math.min(40, Math.max(24, longest((c) => c.name) + 2));
-const foundW = Math.min(34, Math.max(16, longest((c) => c.found) + 2));
-const wantW = Math.max(24, tableWidth - STATUS_W - nameW - foundW);
-const clip = (text, n) => {
+// A path inside the FRIDAY folder is shown from the folder (`.\\runtime\\.venv`): the full folder is printed once at the top
+// of every run, and repeating it cut the end off every long row.
+const shortPath = (text) => {
   const value = String(text);
+  const base = String(root || "");
+  if (!base) return value;
+  return value.split(`${base}${path.sep}`).join(`.${path.sep}`).split(base).join(".");
+};
+const longest = (pick) => checks.reduce((n, c) => Math.max(n, shortPath(pick(c)).length), 0);
+const nameW = Math.min(40, Math.max(24, longest((c) => c.name) + 2));
+const foundW = Math.min(38, Math.max(16, longest((c) => c.found) + 2));
+const wantW = Math.max(24, tableWidth - STATUS_W - nameW - foundW);
+// The heading already says that newer compatible releases pass, so the row does not repeat it.
+const BOILERPLATE = / \(newer compatible releases pass\)$/;
+const clip = (text, n) => {
+  const value = shortPath(text).replace(BOILERPLATE, "");
   return value.length > n - 1 ? `${value.slice(0, n - 2)}…` : value;
 };
 const missing = checks.filter((c) => !c.ok && c.required);
@@ -1036,8 +1046,9 @@ const summaryOnly =
   process.argv.includes("--summary") && missing.length === 0 && warned.length === 0;
 if (summaryOnly) {
   console.log(`[friday] environment check: all ${checks.length} components pass`);
+} else {
+  console.log("");
 }
-console.log("");
 if (!summaryOnly) {
   console.log("FRIDAY — environment check");
   console.log("Minimum versions are compatibility floors; newer compatible releases PASS.");
@@ -1053,14 +1064,14 @@ for (const c of summaryOnly ? [] : checks) {
     `${pad(state, STATUS_W)}${pad(clip(c.name, nameW), nameW)}${pad(clip(c.found, foundW), foundW)}${clip(c.want, wantW)}`,
   );
   if (!c.ok) {
-    if (String(c.found).length > foundW - 1) console.log(`          found:  ${c.found}`);
+    if (shortPath(c.found).length > foundW - 1) console.log(`          found:  ${c.found}`);
     if (!c.required) console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
     console.log(`          wanted: ${c.want}`);
     console.log(`          fix:    ${c.fix}`);
     console.log(`          source: ${c.url}`);
   }
 }
-if (!summaryOnly) console.log("-".repeat(78));
+if (!summaryOnly) console.log("-".repeat(tableWidth));
 
 if (missing.length) {
   // Never a generic failure: name every missing component and its exact fix.
