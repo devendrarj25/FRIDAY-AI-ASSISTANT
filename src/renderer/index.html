@@ -15,10 +15,22 @@
       frame while the interface bundle loads. BootScreen replaces it the moment React is on screen.
     -->
     <style>
+      /* The same two subsets electron/splash-assets.cjs embeds for the first window, so the words do not change
+         font when the boot screen takes over (core/__tests__/early-splash.test.ts keeps the two copies equal). */
+      @font-face {
+        font-family: "FridaySplashDisplay";
+        font-weight: 700;
+        src: url(data:font/woff2;base64,d09GMgABAAAAAAKgAA8AAAAABUAAAAJKAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGh4bYBwqBmA/U1RBVCoAXBEICoMUgjcBNgIkAxwLEAAEIAVMByAbzgMgngeZ25Vmz5y2U78Kk0sZD096//9rzyRXwYNQoYL0CbRkJatULZ6k/X0Pk/4HaOf8fzf1VosTnmIhXt8OrAm4cKkF1PNvWS9agCcSaICBZe5KdPNZ6YZtPPSnnUANCKFLgEAIDNXqE0aKIw8+4RhjpZWrN+5k9FH7n3SM0ZIeYSACE52oQDLUaDokjHZ1XiglIJJzHFDXkJq3aiD2ATpQpHPSs0rSFWk3bDDnxD7mxF5GPMBnkX+OFy2ze/5FQ/6lXxCQVqYPMV4SQo/AYIHR0qmHHnZSQBIQRXoWJGQMlgUGK6xFq0fSZZmVVltnu907WHq486LnPecZj7ivuPy90aEfQjdo0YcTcSGgACSQ3BtQ1f37irLlrVV5/isfVM2V772k6Ita355NnH9NX33FVVRlv61OOu/Fd/sO8KqujaxZOu9qwbUadarKqui3R7WzNoLJ97OnGEEc2UQ+pNp9z+qgNH/V1H2+n/rU1N/2WXXxz2/8fNGFJ7/xVnlKeX95SPmW+R+urJOnp+7zm4segFTyALgkWHvtxQNvu/uSu6eY+eGFHzrly3TfM99Nef+DuIWXp+77a36vzmzVyeWTaaWp3cG2aje8dNPPs55168aXG3COQLL8qj2H3rVvv4W/9eT8E7ydm9nw45R/flWQJ6YP0SWB4HWolQ4kOcJFFLrj1wan8/NystMn7/C5mXmeuXmqQqDbJBmEjmUzZVH0SlqmnqDWflKhx0jbHexQJzvK/k6wq4Md7lCHOclyxzrKQTLQWXMU) format("woff2");
+      }
+      @font-face {
+        font-family: "FridaySplashBody";
+        font-weight: 500;
+        src: url(data:font/woff2;base64,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) format("woff2");
+      }
       html,
       body {
         margin: 0;
-        background: #141821;
+        background: #030b1a;
         color: #e8edf5;
       }
       #friday-splash {
@@ -27,8 +39,8 @@
         z-index: 60;
         display: grid;
         place-items: center;
-        background: #141821;
-        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #030b1a;
+        font-family: "FridaySplashBody", "Segoe UI", system-ui, sans-serif;
         text-align: center;
         transition: opacity 200ms ease-out;
       }
@@ -47,11 +59,11 @@
       }
       #friday-splash .fs-word {
         margin: 20px 0 0;
-        font-size: 36px;
-        font-weight: 700;
+        font: 700 36px "FridaySplashDisplay", "Segoe UI", sans-serif;
         letter-spacing: 0.3em;
         padding-left: 0.3em;
-        color: #5ad1ff;
+        color: #00d4ff;
+        text-shadow: 0 0 18px rgba(0, 212, 255, 0.45);
       }
       #friday-splash .fs-line {
         margin: 12px 0 0;
@@ -71,7 +83,7 @@
         width: 34%;
         height: 100%;
         border-radius: 999px;
-        background: #5ad1ff;
+        background: #00d4ff;
         animation: fs-slide 1.4s ease-in-out infinite;
       }
       @keyframes fs-slide {

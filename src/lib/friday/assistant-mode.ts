@@ -44,7 +44,7 @@ import {
 } from "./pcm-capture";
 import { LiveWords } from "./voice-engine/live-words";
 import { whisperLanguageArg } from "./voice-stt";
-import { desktopApi } from "./desktop";
+import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
   dropLine,
   hearingCounters,
@@ -923,9 +923,33 @@ class AssistantModeStore {
     }
     if (mode === "auto") {
       this.noteVoiceTrigger("toggle");
-      this.enterAuto();
+      this.enterAutoWhenStarted();
     } else this.leaveAuto();
     this.emit();
+  }
+
+  /** Cancels the wait for the boot screen to go (set while Auto is waiting for FRIDAY to finish starting). */
+  private bootWait: (() => void) | null = null;
+
+  /**
+   * Auto comes back from the saved mode the moment the page mounts, which is behind the boot screen. The microphone,
+   * the wake engine and the voice self-check must not start, and nothing may be said, until FRIDAY has finished
+   * starting and the window is open: the owner heard FRIDAY talk while the screen still said "Restoring your state".
+   */
+  private enterAutoWhenStarted() {
+    this.bootWait?.();
+    this.bootWait = null;
+    if (!isBootHolding()) {
+      this.enterAuto();
+      return;
+    }
+    this.state.status = "Waiting for FRIDAY to finish starting";
+    this.bootWait = whenBootDone(() => {
+      this.bootWait = null;
+      if (this.state.mode !== "auto") return;
+      this.enterAuto();
+      this.emit();
+    });
   }
 
   toggle() {
@@ -1495,6 +1519,8 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    this.bootWait?.();
+    this.bootWait = null;
     this.autoMicDeferred = false;
     this.interventions = 0;
     this.lastIntervention = "";
@@ -3345,6 +3371,10 @@ class AssistantModeStore {
   private speak(text: string) {
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
     this.turnStages.mark("brainFirstToken");
+    if (isBootHolding()) {
+      markTurnStage("spoken", false, "FRIDAY is still starting");
+      return;
+    }
     if (this.stopped()) {
       markTurnStage("spoken", false, "Stop everything is on");
       return;
@@ -4255,6 +4285,7 @@ class AssistantModeStore {
 
   private speakStreamed(runId: string, text: string, final: boolean) {
     if (!text.trim()) return;
+    if (isBootHolding()) return;
     if (this.interruptHold) {
       // Paused for a possible interruption: keep the newest text and say it if the owner only nodded along.
       this.deferredStream = { runId, text, final };

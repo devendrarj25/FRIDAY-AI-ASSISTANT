@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Bell,
@@ -57,6 +58,9 @@ export function NotificationCenter() {
   const [expanded, setExpanded] = useState(false);
   const [asking, setAsking] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Where the list opens: under the bell, measured when it opens and when the window is resized.
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
 
   useEffect(() => {
     wireNotifications();
@@ -64,8 +68,24 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (!open) return;
+    const place = () => {
+      const rect = box.current?.getBoundingClientRect();
+      if (rect)
+        setAnchor({
+          top: Math.round(rect.bottom + 8),
+          right: Math.round(window.innerWidth - rect.right),
+        });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!box.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -167,171 +187,189 @@ export function NotificationCenter() {
             : "Notifications paused — right-click to resume"
         }
         className={cn(
-          "relative grid size-6 place-items-center rounded-ctl transition-colors",
+          // 32 px (it was 24): the bell sits among small controls and was hard to hit.
+          "relative grid size-8 place-items-center rounded-ctl transition-colors",
           state.enabled ? "text-muted-foreground hover:text-primary" : "text-muted-foreground/50",
           open && "bg-primary/15 text-primary",
         )}
       >
-        {state.enabled ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+        {state.enabled ? (
+          <Bell className="size-[1.125rem]" />
+        ) : (
+          <BellOff className="size-[1.125rem]" />
+        )}
         {state.enabled && unread > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.6875rem] leading-4 font-bold text-background">
+          <span className="absolute -top-1 -right-1 grid min-w-[1.125rem] place-items-center rounded-full bg-accent px-1 text-[0.6875rem] leading-[1.125rem] font-bold text-background">
             {unread > 9 ? "9+" : unread}
           </span>
         ) : null}
       </button>
 
-      {open ? (
-        <div
-          className={cn(
-            "hud-panel glass-menu glass-backdrop-blur absolute top-8 right-0 z-50 flex flex-col",
-            expanded ? "max-h-[85vh] w-[40rem]" : "max-h-[70vh] w-[22rem]",
-            " rounded-surface border border-primary/25 bg-sidebar shadow-[0_10px_40px_-10px_var(--color-primary)]",
-          )}
-        >
-          <div className="flex items-center justify-between border-b border-primary/15 px-3 py-2">
-            <p className="label-xs text-primary/70">FRIDAY NOTIFICATIONS</p>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setExpanded((e) => !e)}
-                aria-label={expanded ? "Collapse notifications" : "Expand notifications"}
-                title={expanded ? "Collapse notifications" : "Expand notifications"}
-                className="friday-btn grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
-              >
-                {expanded ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => notifications.toggle()}
-                title={state.enabled ? "Pause notifications" : "Resume notifications"}
-                className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-primary"
-              >
-                {state.enabled ? <Pause className="size-3" /> : <Play className="size-3" />}
-                {state.enabled ? "PAUSE" : "RESUME"}
-              </button>
-              <button
-                type="button"
-                onClick={() => notifications.clear()}
-                title="Clear all notifications"
-                className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-destructive"
-              >
-                <Eraser className="size-3" />
-                CLEAR
-              </button>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {state.items.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                {state.enabled
-                  ? "Nothing needs your attention."
-                  : "Notifications are paused — FRIDAY is not recording alerts."}
-              </p>
-            ) : (
-              state.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="group border-b border-primary/10 px-3 py-2 last:border-b-0 hover:bg-primary/5"
-                >
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={cn(
-                        "mt-1 size-1.5 shrink-0 rounded-full bg-current",
-                        TONE[item.level],
-                      )}
-                    />
-                    <div
-                      className={cn("min-w-0 flex-1", item.route && "cursor-pointer")}
-                      role={item.route ? "button" : undefined}
-                      tabIndex={item.route ? 0 : undefined}
-                      onClick={() => openItem(item)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") openItem(item);
-                      }}
-                    >
-                      <p className={cn("truncate text-xs font-medium", TONE[item.level])}>
-                        {item.title}
-                      </p>
-                      {item.detail ? (
-                        <p
-                          className={cn(
-                            "mt-0.5 text-note text-muted-foreground",
-                            expanded ? "whitespace-pre-wrap" : "line-clamp-3",
-                          )}
-                        >
-                          {item.detail}
-                        </p>
-                      ) : null}
-                      <div className="mt-1 flex items-center gap-2 text-meta-sm text-muted-foreground/70">
-                        <span>{item.source}</span>
-                        <span>·</span>
-                        <span>{ago(item.at)} ago</span>
-                        <span>·</span>
-                        <span className="truncate">{whereLabel(item.route)}</span>
-                        {item.route ? <span className="text-primary">open</span> : null}
-                      </div>
-                      {item.advice ? (
-                        <p className="mt-1 border-l border-accent/40 pl-2 text-note whitespace-pre-wrap text-accent/90">
-                          {item.advice}
-                        </p>
-                      ) : null}
-                      {asking === item.id ? (
-                        <p className="mt-1 text-note-sm text-muted-foreground">
-                          FRIDAY is working out what this means…
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                      {!item.advice ? (
-                        <button
-                          type="button"
-                          onClick={() => explain(item)}
-                          disabled={asking === item.id}
-                          aria-label="Ask FRIDAY to explain and fix this"
-                          title="Ask FRIDAY what this means and how to fix it"
-                          className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent disabled:opacity-40"
-                        >
-                          <Sparkles className="size-3" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => showOnScreen(item)}
-                        aria-label="Show on main screen"
-                        title="Show this on the main screen"
-                        className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
-                      >
-                        <Monitor className="size-3" />
-                      </button>
-                      {!item.read ? (
-                        <button
-                          type="button"
-                          onClick={() => notifications.markRead(item.id)}
-                          aria-label="Mark as read"
-                          title="Mark as read"
-                          className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent"
-                        >
-                          <Check className="size-3" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => notifications.dismiss(item.id)}
-                        aria-label="Dismiss"
-                        className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  </div>
+      {open && anchor && typeof document !== "undefined"
+        ? // The title strip clips what hangs below it (its row is overflow-hidden), so the list opened but could not
+          // be seen and the bell looked dead. It is drawn on the page itself, under the bell, above everything else.
+          createPortal(
+            <div
+              ref={panelRef}
+              role="dialog"
+              aria-label="FRIDAY notifications"
+              style={{
+                top: anchor.top,
+                right: Math.max(8, anchor.right),
+                maxHeight: `calc(100vh - ${anchor.top + 12}px)`,
+              }}
+              className={cn(
+                "friday-interactive-region hud-panel glass-menu glass-backdrop-blur fixed z-[80] flex flex-col",
+                expanded ? "w-[min(40rem,calc(100vw-1rem))]" : "w-[min(22rem,calc(100vw-1rem))]",
+                " rounded-surface border border-primary/25 bg-sidebar shadow-[0_10px_40px_-10px_var(--color-primary)]",
+              )}
+            >
+              <div className="flex items-center justify-between border-b border-primary/15 px-3 py-2">
+                <p className="label-xs text-primary/70">FRIDAY NOTIFICATIONS</p>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((e) => !e)}
+                    aria-label={expanded ? "Collapse notifications" : "Expand notifications"}
+                    title={expanded ? "Collapse notifications" : "Expand notifications"}
+                    className="friday-btn grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
+                  >
+                    {expanded ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => notifications.toggle()}
+                    title={state.enabled ? "Pause notifications" : "Resume notifications"}
+                    className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-primary"
+                  >
+                    {state.enabled ? <Pause className="size-3" /> : <Play className="size-3" />}
+                    {state.enabled ? "PAUSE" : "RESUME"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => notifications.clear()}
+                    title="Clear all notifications"
+                    className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-destructive"
+                  >
+                    <Eraser className="size-3" />
+                    CLEAR
+                  </button>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {state.items.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    {state.enabled
+                      ? "Nothing needs your attention."
+                      : "Notifications are paused — FRIDAY is not recording alerts."}
+                  </p>
+                ) : (
+                  state.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="group border-b border-primary/10 px-3 py-2 last:border-b-0 hover:bg-primary/5"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span
+                          className={cn(
+                            "mt-1 size-1.5 shrink-0 rounded-full bg-current",
+                            TONE[item.level],
+                          )}
+                        />
+                        <div
+                          className={cn("min-w-0 flex-1", item.route && "cursor-pointer")}
+                          role={item.route ? "button" : undefined}
+                          tabIndex={item.route ? 0 : undefined}
+                          onClick={() => openItem(item)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") openItem(item);
+                          }}
+                        >
+                          <p className={cn("truncate text-xs font-medium", TONE[item.level])}>
+                            {item.title}
+                          </p>
+                          {item.detail ? (
+                            <p
+                              className={cn(
+                                "mt-0.5 text-note text-muted-foreground",
+                                expanded ? "whitespace-pre-wrap" : "line-clamp-3",
+                              )}
+                            >
+                              {item.detail}
+                            </p>
+                          ) : null}
+                          <div className="mt-1 flex items-center gap-2 text-meta-sm text-muted-foreground/70">
+                            <span>{item.source}</span>
+                            <span>·</span>
+                            <span>{ago(item.at)} ago</span>
+                            <span>·</span>
+                            <span className="truncate">{whereLabel(item.route)}</span>
+                            {item.route ? <span className="text-primary">open</span> : null}
+                          </div>
+                          {item.advice ? (
+                            <p className="mt-1 border-l border-accent/40 pl-2 text-note whitespace-pre-wrap text-accent/90">
+                              {item.advice}
+                            </p>
+                          ) : null}
+                          {asking === item.id ? (
+                            <p className="mt-1 text-note-sm text-muted-foreground">
+                              FRIDAY is working out what this means…
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                          {!item.advice ? (
+                            <button
+                              type="button"
+                              onClick={() => explain(item)}
+                              disabled={asking === item.id}
+                              aria-label="Ask FRIDAY to explain and fix this"
+                              title="Ask FRIDAY what this means and how to fix it"
+                              className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent disabled:opacity-40"
+                            >
+                              <Sparkles className="size-3" />
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => showOnScreen(item)}
+                            aria-label="Show on main screen"
+                            title="Show this on the main screen"
+                            className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
+                          >
+                            <Monitor className="size-3" />
+                          </button>
+                          {!item.read ? (
+                            <button
+                              type="button"
+                              onClick={() => notifications.markRead(item.id)}
+                              aria-label="Mark as read"
+                              title="Mark as read"
+                              className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent"
+                            >
+                              <Check className="size-3" />
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => notifications.dismiss(item.id)}
+                            aria-label="Dismiss"
+                            className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
