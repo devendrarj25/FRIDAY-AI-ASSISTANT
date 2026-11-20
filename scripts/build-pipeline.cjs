@@ -616,6 +616,22 @@ function runNode(script, args, root) {
  * place (npm ci does not download it, ensure-electron does); anything else (a pull, an edit, a missing piece) installs again.
  * FRIDAY_FORCE_NPM_CI=1 always installs.
  */
+/**
+ * The scripts the build runs from node_modules: vite's own script (`build:desktop` starts it with node) and
+ * electron-builder's cli.js (electron-pack starts it with node). Neither needs a command link in node_modules\\.bin,
+ * which an npm 12 install on Windows did not make runnable by cmd.exe ("'vite' is not recognized"). A folder
+ * without these files is not current, so the build and Doctor run `npm ci`.
+ */
+const BUILD_TOOLS = {
+  vite: path.join("vite", "bin", "vite.js"),
+  "electron-builder": path.join("electron-builder", "cli.js"),
+};
+function missingBuildTools(root) {
+  return Object.entries(BUILD_TOOLS)
+    .filter(([, file]) => !fs.existsSync(path.join(root, "node_modules", file)))
+    .map(([name]) => name);
+}
+
 function nodeModulesCurrent(root, env = process.env) {
   if (String(env.FRIDAY_FORCE_NPM_CI || "") === "1") return false;
   try {
@@ -630,14 +646,14 @@ function nodeModulesCurrent(root, env = process.env) {
     const present =
       fs.existsSync(path.join(electron, "path.txt")) ||
       fs.existsSync(path.join(electron, "dist", binary));
-    return installed >= wanted && present;
+    return installed >= wanted && present && missingBuildTools(root).length === 0;
   } catch {
     return false;
   }
 }
 
-function npmCi(root) {
-  if (nodeModulesCurrent(root)) {
+function npmCi(root, force = false) {
+  if (!force && nodeModulesCurrent(root)) {
     console.log("[FRIDAY] node_modules already matches package-lock.json; npm ci skipped");
     return;
   }
@@ -752,6 +768,17 @@ function runPhase(phase, options, root) {
   }
   if (phase === "build-renderer") {
     cleanOutputs(root);
+    // Heal first: a node_modules without the build scripts gets a real install instead of a "not recognized" stop.
+    const missing = missingBuildTools(root);
+    if (missing.length) {
+      console.log(
+        `[FRIDAY] build tools missing from node_modules (${missing.join(", ")}); installing the dependencies again`,
+      );
+      npmCi(root, true);
+      const still = missingBuildTools(root);
+      if (still.length)
+        throw new Error(`build tools are still missing after npm ci: ${still.join(", ")}`);
+    }
     const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
@@ -1134,6 +1161,8 @@ module.exports = {
   runPackagedSelfCheck,
   runPipeline,
   nodeModulesCurrent,
+  missingBuildTools,
+  npmCi,
   REMOVE_OPTIONS,
   removeTree,
 };

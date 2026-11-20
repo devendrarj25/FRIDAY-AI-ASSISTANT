@@ -3817,7 +3817,7 @@ function runJob({ id, action, root }, emit) {
         line:
           pmCmd && !vendorFirst && !keptCurrent
             ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${direct.url}`
-            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${direct.url}`,
+            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${sources[0]}${sources.length > 1 ? ` (${sources.length - 1} more official source${sources.length > 2 ? "s" : ""} ready if it fails)` : ""}`,
       });
       let file = null;
       let usedUrl = direct.url;
@@ -3863,6 +3863,10 @@ function runJob({ id, action, root }, emit) {
                 phase: "Downloading",
                 line: `${event.status || "downloading"}${event.percent != null ? ` ${event.percent}%` : ""}`,
                 percent: event.percent,
+                progress: event.progress,
+                bytesDone: event.bytesDone,
+                bytesTotal: event.bytesTotal,
+                connections: event.connections,
                 gbDone: event.gbDone,
                 gbTotal: event.gbTotal,
                 speedMbps: event.speedMbps,

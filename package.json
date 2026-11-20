@@ -38,7 +38,7 @@
     "desktop:start": "electron electron/main.cjs",
     "desktop:build": "node scripts/build-pipeline.cjs --channel production --targets nsis --caller npm",
     "desktop:pack": "node scripts/build-pipeline.cjs --channel production --targets dir --caller npm",
-    "build:desktop": "vite build --config vite.electron.config.ts",
+    "build:desktop": "node node_modules/vite/bin/vite.js build --config vite.electron.config.ts",
     "build:exe": "node builder/cli.mjs exe",
     "build:portable": "node scripts/build-pipeline.cjs --channel production --targets portable --caller npm",
     "build:zip": "node builder/cli.mjs zip",

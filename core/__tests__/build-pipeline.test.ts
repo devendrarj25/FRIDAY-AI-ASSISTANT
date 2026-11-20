@@ -671,6 +671,8 @@ describe("npm ci is not repeated for node_modules that setup just installed", ()
     touch(path.join(dir, "package-lock.json"), order.manifest);
     touch(path.join(dir, "node_modules", ".package-lock.json"), order.modules);
     touch(path.join(dir, "node_modules", "electron", "path.txt"), order.modules);
+    touch(path.join(dir, "node_modules", "vite", "bin", "vite.js"), order.modules);
+    touch(path.join(dir, "node_modules", "electron-builder", "cli.js"), order.modules);
     return dir;
   }
 
@@ -687,6 +689,27 @@ describe("npm ci is not repeated for node_modules that setup just installed", ()
     } finally {
       fs.rmSync(fresh, { recursive: true, force: true });
       fs.rmSync(stale, { recursive: true, force: true });
+    }
+  });
+
+  it("does not skip npm ci when vite's script is missing, and runs vite through node so no command link is needed ('vite is not recognized')", () => {
+    const dir = checkout({ modules: 10, manifest: 60 });
+    try {
+      expect(current(dir)).toBe(true);
+      fs.rmSync(path.join(dir, "node_modules", "vite", "bin", "vite.js"));
+      expect(current(dir)).toBe(false);
+      const missing = (pipeline as unknown as { missingBuildTools: (root: string) => string[] })
+        .missingBuildTools;
+      expect(missing(dir)).toEqual(["vite"]);
+      const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+      expect(read("package.json")).toContain(
+        '"build:desktop": "node node_modules/vite/bin/vite.js build --config vite.electron.config.ts"',
+      );
+      expect(read("scripts/check-environment.cjs")).toContain('group: "node-deps"');
+      expect(read("scripts/check-environment.cjs")).toContain("npmCi(process.cwd(), true)");
+      expect(read("scripts/build-pipeline.cjs")).toContain("installing the dependencies again");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

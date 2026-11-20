@@ -172,6 +172,10 @@ describe("readiness progress trace", () => {
     expect(engines).toContain("!app.isReady()");
     expect(engines).not.toMatch(/^loadRestartPending\(\);/m);
     expect(trace.BUDGETS["before-subsystems"]).toBeGreaterThanOrEqual(120_000);
+    // A real speech self-test (Python start, model load, transcription) and the first stages after the kernel
+    // answers must fit a cold restart launch on a busy hosted runner; a hang is still caught, only later.
+    expect(trace.BUDGETS["stage:VOICE"]).toBeGreaterThanOrEqual(90_000);
+    expect(trace.BUDGETS["kernel-ready"]).toBeGreaterThanOrEqual(45_000);
   });
 
   it("does not read desktop exports that wait for ready while the subsystem modules load", () => {
