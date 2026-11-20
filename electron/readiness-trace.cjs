@@ -21,7 +21,9 @@ const BUDGETS = {
   "did-finish-load": 20000,
   "renderer-mounted": 15000,
   "kernel-spawn": 70000,
-  "kernel-ready": 20000,
+  // After the kernel answers the interface still has to mount and the stages begin. A restart launch on a busy hosted
+  // runner (Defender scanning the files the first launch wrote) took longer than 20 s here while nothing was stuck.
+  "kernel-ready": 60000,
   "stage:START": 10000,
   "stage:ROOT": 15000,
   "stage:BOOT": 40000,
@@ -29,7 +31,9 @@ const BUDGETS = {
   "stage:DATABASE": 20000,
   "stage:MODEL": 45000,
   "stage:CHAT": 100000,
-  "stage:VOICE": 25000,
+  // The speech self-test starts Python, loads faster-whisper and transcribes a clip (about 16 s warm, 3.6 s load and
+  // 12.6 s transcribe in the hosted log); its own timeout is ten minutes, so a 25 s watchdog failed a healthy cold launch.
+  "stage:VOICE": 120000,
   "stage:BASIC TASK": 30000,
   finishReadiness: 5000,
 };
