@@ -4573,6 +4573,13 @@ lifeSteps.flush = async () => {
     }
   }
   await new Promise((resolve) => setTimeout(resolve, 400));
+  // What those pages just sent is written before the window is destroyed: waiting saves go out now, in order.
+  try {
+    persistQueue.flushSync();
+    await Promise.race([persistQueue.drain(), new Promise((resolve) => setTimeout(resolve, 2500))]);
+  } catch {
+    /* a failed save is logged by its own handler */
+  }
 };
 
 lifeSteps.downloads = () => {
@@ -5359,9 +5366,12 @@ function preferencesFile() {
   return paths.preferencesFile();
 }
 
+// The newest settings the page sent. A save reaches the disk a moment later (it no longer blocks the window), so a
+// check made right after a change reads this copy, not a file that may still hold the previous body.
+let latestPreferences = null;
 function ownerPrefToggle(key, fallback) {
   try {
-    const raw = JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+    const raw = latestPreferences || JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
     const value = raw && raw.toggles ? raw.toggles[key] : undefined;
     return typeof value === "boolean" ? value : fallback;
   } catch {
@@ -5457,12 +5467,15 @@ function ensureSenses() {
   return senseFeed;
 }
 
+let appliedStartupChoice;
 function applyOwnerPreferenceEffects(value) {
   try {
     const toggles =
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
-    if (typeof toggles.startup === "boolean") {
+    // The sign-in entry is written to the registry: only when the choice changed, not on every settings save.
+    if (typeof toggles.startup === "boolean" && toggles.startup !== appliedStartupChoice) {
+      appliedStartupChoice = toggles.startup;
       loginItem.setEnabled(app, Boolean(toggles.startup));
     }
     const target = liveWin();
@@ -5515,11 +5528,25 @@ ipcMain.handle("prefs:get", () => {
   return value;
 });
 
-ipcMain.handle("prefs:set", (_e, value) => {
+// Settings and state are saved without stopping the thread that owns the window: a synchronous write (flush, backup,
+// rename with retries) on a busy disk was long enough for Windows to mark the window "Not Responding" while the owner
+// moved a settings slider. A burst of changes writes only the newest body (electron/write-queue.cjs).
+const persistQueue = require("./write-queue.cjs").createWriteQueue();
+
+ipcMain.handle("prefs:set", async (_e, value) => {
   if (!value || typeof value !== "object") throw new Error("Invalid preferences payload.");
-  safeWrite.writeJsonSafe(preferencesFile(), value);
+  const file = preferencesFile();
+  latestPreferences = value;
   applyOwnerPreferenceEffects(value);
-  return true;
+  return persistQueue.submit("prefs", value, {
+    write: async (body, { shouldCommit }) =>
+      safeWrite.writeJsonSafeAsync(file, body, 2, { shouldCommit }),
+    writeSync: (body) => {
+      safeWrite.writeJsonSafe(file, body);
+      return true;
+    },
+    onError: (error) => log(`settings were not saved: ${error?.message || error}`),
+  });
 });
 
 ipcMain.on("window:busy", (_e, busy) => {
@@ -5635,19 +5662,28 @@ ipcMain.handle("state:identity", () => {
   }
 });
 
-ipcMain.handle("state:get", (_e, namespace) => {
+ipcMain.handle("state:get", async (_e, namespace) => {
   try {
-    return stateStore.readState(stateFile(namespace));
+    const file = stateFile(namespace);
+    // A save of this file that is still on its way lands first, so a read never sees an older body.
+    await persistQueue.idle(file);
+    return stateStore.readState(file);
   } catch {
     return null;
   }
 });
 
-ipcMain.handle("state:set", (_e, namespace, value) => {
+ipcMain.handle("state:set", async (_e, namespace, value) => {
   const file = stateFile(namespace);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const result = stateStore.commitState(file, value, { now: Date.now() });
-  return result.ok;
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const result = await persistQueue.submit(file, value, {
+    write: (body, { shouldCommit }) =>
+      stateStore.commitStateAsync(file, body, { now: Date.now(), shouldCommit }),
+    writeSync: (body) => stateStore.commitState(file, body, { now: Date.now() }),
+    onError: (error) =>
+      log(`state ${path.basename(file)} was not saved: ${error?.message || error}`),
+  });
+  return Boolean(result && (result === true || result.ok));
 });
 
 ipcMain.handle("workspace:pick", async () => {

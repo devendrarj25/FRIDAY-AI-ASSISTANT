@@ -7,7 +7,7 @@
  * previous file as it was.
  */
 const fs = require("fs");
-const { renameWithRetry } = require("./safe-write.cjs");
+const { renameWithRetry, renameWithRetryAsync } = require("./safe-write.cjs");
 
 function backupPath(file) {
   return `${file}.bak`;
@@ -77,6 +77,43 @@ function commitState(file, value, opts = {}) {
   return { ok: true, restored: false, reason: null, backup: migrating ? bak : null };
 }
 
+/**
+ * `commitState` without blocking the main process. The earlier file is read and parsed only when the new body carries a
+ * version (that is the only time its version matters), so an ordinary save no longer parses the whole old file first.
+ * `shouldCommit` lets a newer synchronous save cancel a write that is still in flight.
+ */
+let asyncTemp = 0;
+async function commitStateAsync(file, value, opts = {}) {
+  const fsp = fs.promises;
+  const now = Number.isFinite(opts.now) ? opts.now : 0;
+  const shouldCommit = typeof opts.shouldCommit === "function" ? opts.shouldCommit : () => true;
+  const nextVersion = versionOf(value);
+  const bak = backupPath(file);
+  let migrating = false;
+  if (nextVersion !== null) {
+    let raw = null;
+    try {
+      raw = await fsp.readFile(file, "utf8");
+    } catch {
+      raw = null;
+    }
+    const previous = parsedFile(raw);
+    const prevVersion = versionOf(previous.parsed);
+    migrating =
+      !previous.missing && !previous.corrupt && prevVersion !== null && prevVersion !== nextVersion;
+    if (migrating) await fsp.writeFile(bak, JSON.stringify({ at: now, body: previous.parsed }));
+  }
+  asyncTemp += 1;
+  const tmp = `${file}.${process.pid}.${asyncTemp}.tmp`;
+  await fsp.writeFile(tmp, JSON.stringify(value));
+  if (!shouldCommit()) {
+    await fsp.rm(tmp, { force: true });
+    return { ok: false, restored: false, reason: "superseded", backup: migrating ? bak : null };
+  }
+  await renameWithRetryAsync(tmp, file);
+  return { ok: true, restored: false, reason: null, backup: migrating ? bak : null };
+}
+
 /** Put the backup body back. A missing backup does not invent a file. */
 function restoreState(file) {
   const bak = backupPath(file);
@@ -103,4 +140,4 @@ function readState(file) {
   return restored.ok ? restored.body : null;
 }
 
-module.exports = { commitState, restoreState, readState, backupPath };
+module.exports = { commitState, commitStateAsync, restoreState, readState, backupPath };

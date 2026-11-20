@@ -2018,6 +2018,11 @@ html[data-ui-style="glass"] .friday-seg > button {
   font-family: var(--font-sans);
   font-size: 0.8125rem;
 }
+/* The caption strip's size switch sits in a thin header: its three buttons are as tall as the strip's own chips. */
+html[data-ui-style="glass"] .voice-level-switch.friday-seg > [role="radio"] {
+  min-height: 1.5rem;
+  padding-inline: 0.625rem;
+}
 html[data-ui-style="glass"] .friday-seg > [role="tab"][aria-selected="true"],
 html[data-ui-style="glass"] .friday-seg > [role="radio"][aria-checked="true"],
 html[data-ui-style="glass"] .friday-seg > button[aria-pressed="true"] {
@@ -2065,13 +2070,16 @@ html[data-ui-style="glass"] .friday-switch-thumb {
   border-radius: var(--radius-pill);
   background: white;
   box-shadow: 0 2px 6px color-mix(in oklab, var(--color-background) 55%, transparent);
-  translate: none;
-  transform: translateX(0);
-  transition: transform var(--friday-motion-mid) var(--friday-ease);
+  /* The Switch component also slides its thumb with Tailwind's translate (translate-x-4). A "translate: none" here was
+     dropped by the CSS minifier, so the thumb moved twice (16px and 20px) and stuck out of the track. The glass slide is
+     one translate with explicit values for both states, which the minifier keeps. */
+  transform: none;
+  translate: 0 0;
+  transition: translate var(--friday-motion-mid) var(--friday-ease);
 }
 html[data-ui-style="glass"] .friday-switch[aria-checked="true"] .friday-switch-thumb,
 html[data-ui-style="glass"] .friday-switch[data-state="checked"] .friday-switch-thumb {
-  transform: translateX(1.25rem);
+  translate: 1.25rem 0;
 }
 
 /* Badges and status chips are capsules with a tinted fill. */

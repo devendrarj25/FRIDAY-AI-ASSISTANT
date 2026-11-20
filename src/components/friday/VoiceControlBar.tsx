@@ -96,7 +96,7 @@ export function VoiceLevelSwitch({
       ref={listRef}
       role="radiogroup"
       aria-label="Voice window size"
-      className="voice-level-switch friday-seg inline-flex h-6 shrink-0 whitespace-nowrap items-stretch overflow-hidden rounded-ctl border border-primary/25 text-meta-sm"
+      className="voice-level-switch friday-seg inline-flex shrink-0 items-stretch whitespace-nowrap rounded-ctl border border-primary/25 text-meta-sm [html:not([data-ui-style='glass'])_&]:h-6 [html:not([data-ui-style='glass'])_&]:overflow-hidden"
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {CHAT_LEVELS.map((value, index) => (

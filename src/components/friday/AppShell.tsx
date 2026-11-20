@@ -115,11 +115,13 @@ function AppShellPage({ title, subtitle, actions, live, fill = false, children }
     <main
       className={cn(
         "friday-page min-h-0 flex-1 p-3",
-        fill ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden",
+        // A page that owns the full height is a column: its header keeps its own height and the page takes what is
+        // left. (A `h-full` child after the header was 100% of the whole main, so the page ended below the window.)
+        fill ? "flex flex-col overflow-hidden" : "overflow-y-auto overflow-x-hidden",
       )}
     >
       {title ? (
-        <div className="page-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="page-header mb-3 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             {nav ? (
               <span
@@ -162,10 +164,10 @@ function AppShellPage({ title, subtitle, actions, live, fill = false, children }
         </div>
       ) : null}
       {importTargetLabel(pathname) ? (
-        <ImportBar target={importTargetLabel(pathname)!} className="mb-3" />
+        <ImportBar target={importTargetLabel(pathname)!} className="mb-3 shrink-0" />
       ) : null}
       {fill ? (
-        <div className="h-full min-h-0">{children}</div>
+        <div className="min-h-0 flex-1">{children}</div>
       ) : (
         <div key={pathname} className="page-enter min-w-0">
           {children}
