@@ -60,11 +60,10 @@ function Write-Stage([int]$Number, [string]$Name) {
   $percent = [int][math]::Round(100 * $Number / $script:StageTotal)
   Write-Host ''
   if (Test-LiveConsole) {
-    # A thin line, not a full block: a block fills its whole row and two bars under each other merged into one slab.
-    $heavy = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -or ($env:ConEmuANSI -eq 'ON'))
-    $block = if ($heavy) { [string][char]0x2501 } else { [string][char]0x2500 }
+    # A small rectangle (U+25AC): thicker than a line, far thinner than a full block, which merged two bars into one slab.
+    $block = [string][char]0x25AC
     Write-Host ('[FRIDAY] Step {0} of {1} ' -f $Number, $script:StageTotal) -NoNewline -ForegroundColor White
-    Write-Host ($block * $lit) -NoNewline -ForegroundColor Cyan
+    Write-Host ($block * $lit) -NoNewline -ForegroundColor Green
     Write-Host ($block * ($cells - $lit)) -NoNewline -ForegroundColor DarkGray
     Write-Host (' {0,3}%  ' -f $percent) -NoNewline -ForegroundColor White
     Write-Host $Name -ForegroundColor Cyan

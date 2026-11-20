@@ -15,7 +15,7 @@
  *     a bar touches the shared stamp, electron/activity.cjs) so there is never a bar and a spinner on one row.
  *
  *  3. `runLive` runs a command under that line: the command's output is read, coloured and printed above the line,
- *     and when it ends the line is replaced by one summary (`✔ pip  done in 1m48s · 507 MB`).
+ *     and when it ends the line is replaced by one summary (`√ pip  done in 1m48s · 507 MB`).
  *
  * Off a real console (a log file, CI, NO_COLOR, FRIDAY_ACTIVITY=0) nothing here draws: callers fall back to the plain
  * "still working" lines of scripts/with-activity.cjs, so a log stays readable.
@@ -45,6 +45,10 @@ const magenta = (t) => paint("35", t);
 const boldGreen = (t) => paint("1;32", t);
 const boldRed = (t) => paint("1;31", t);
 const boldCyan = (t) => paint("1;36", t);
+// The grey detail text of a finished or running step (time, size, speed) is a soft violet: readable on a dark console,
+// where the dim grey was not what the owner wanted to read, and where the 16-colour purple is too dark. Consoles
+// without 24-bit colour show the nearest colour.
+const purple = (t) => paint("38;2;187;154;247", t);
 
 /** Colour is wanted on a real console, never with NO_COLOR, never on a dumb terminal; FORCE_COLOR asks for it. */
 function colorWanted(stream = process.stdout, env = process.env) {
@@ -114,7 +118,7 @@ function colorBody(text) {
   // `numpy ok`, `chromadb ok (semantic memory enabled)`: the verdict closes the line.
   const closing = /^(\S[^]*?)(\s+)(ok)(\s.*)?$/.exec(text);
   if (closing && closing[1].length < 40) {
-    return `${closing[1]}${closing[2]}${green(closing[3])}${dim(closing[4] ?? "")}`;
+    return `${closing[1]}${closing[2]}${green(closing[3])}${purple(closing[4] ?? "")}`;
   }
   // Table rows: PASS / FAIL / MISSING / SKIPPED in the first column.
   const row = /^(PASS|FAIL|MISSING|SKIPPED|SKIP|WARN)(\s+)(\S.*)$/.exec(text);
@@ -238,7 +242,7 @@ class LiveLine {
   frame() {
     const elapsed = clock(this.now() - this.started);
     const spin = cyan(this.frames[this.tick % this.frames.length]);
-    const detail = this.detail ? dim(` · ${this.detail}`) : dim(` · ${elapsed}`);
+    const detail = this.detail ? purple(` · ${this.detail}`) : purple(` · ${elapsed}`);
     const bar =
       this.progress === null
         ? ""
@@ -266,7 +270,7 @@ class LiveLine {
     let line = this.frame();
     if (plainLabel.length > room) {
       const keep = Math.max(10, room - 4);
-      line = `${cyan(this.frames[this.tick % this.frames.length])} ${shimmer(this.label.slice(0, Math.max(6, keep - 24)), this.tick)}${dim(` · ${(this.detail || clock(this.now() - this.started)).slice(-22)}`)}`;
+      line = `${cyan(this.frames[this.tick % this.frames.length])} ${shimmer(this.label.slice(0, Math.max(6, keep - 24)), this.tick)}${purple(` · ${(this.detail || clock(this.now() - this.started)).slice(-22)}`)}`;
     }
     this.stream.write(`\r\x1b[K${line}`);
     this.drawn = true;
@@ -311,13 +315,18 @@ function formatBytes(bytes) {
     : `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
 
+// A tick and a cross from the Math and Latin-1 blocks (code page 437 has the tick): the dingbat check mark (U+2714) is
+// drawn by Windows Terminal from the emoji font, in the emoji font's own purple, whatever colour is asked for.
+const TICK = "√";
+const CROSS = "×";
+
 /** The closing line of a step: a mark, its name, how long it took and what it moved. */
 function summaryLine({ label, ok, ms, bytes, code }) {
   const took = clock(ms);
   const size = formatBytes(bytes);
   if (ok)
-    return `${green("✔")} ${bold(label)}${dim(`  done in ${took}${size ? ` · ${size}` : ""}`)}`;
-  return `${red("✖")} ${bold(label)}${red(`  failed (exit ${code ?? "none"}) after ${took}`)}`;
+    return `${green(TICK)} ${bold(label)}${purple(`  done in ${took}${size ? ` · ${size}` : ""}`)}`;
+  return `${red(CROSS)} ${bold(label)}${red(`  failed (exit ${code ?? "none"}) after ${took}`)}`;
 }
 
 /**

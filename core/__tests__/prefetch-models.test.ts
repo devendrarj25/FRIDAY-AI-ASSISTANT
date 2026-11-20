@@ -1267,7 +1267,7 @@ describe("the live download board", () => {
     };
     const coloured = frame({});
     expect(coloured).toContain("\x1b[32m"); // a finished row is green
-    expect(coloured).toContain("\x1b[36m"); // a running bar is cyan
+    expect(coloured).toContain("\x1b[32m"); // a running bar is green
     expect(coloured).toContain("\x1b[35m"); // the speed
     const plain = coloured.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
     for (const line of plain.split("\n")) expect(line.length).toBeLessThanOrEqual(99);
