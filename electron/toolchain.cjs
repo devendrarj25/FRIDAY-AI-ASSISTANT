@@ -3817,7 +3817,7 @@ function runJob({ id, action, root }, emit) {
         line:
           pmCmd && !vendorFirst && !keptCurrent
             ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${direct.url}`
-            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${sources[0]}${sources.length > 1 ? ` (${sources.length - 1} more official source${sources.length > 2 ? "s" : ""} ready if it fails)` : ""}`,
+            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${new URL(sources[0]).hostname}${sources.length > 1 ? ` (${sources.length - 1} more official source${sources.length > 2 ? "s" : ""} ready if it fails)` : ""}: ${sources[0]}`,
       });
       let file = null;
       let usedUrl = direct.url;

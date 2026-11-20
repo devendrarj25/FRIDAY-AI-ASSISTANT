@@ -375,6 +375,7 @@ function printer(log, id, linesOnly = false) {
     if (!line || line === last) return;
     if (tty) {
       last = line;
+      require("./electron-module.cjs").load("activity.cjs").markBoardActive();
       process.stdout.write(line);
       open = true;
       return;

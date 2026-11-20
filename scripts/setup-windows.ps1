@@ -495,6 +495,11 @@ function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Late
   if (-not $Installed -or -not $Latest) { return }
   try {
     if ([version]$Latest -gt [version]$Installed) {
+      if ($ToolchainOnly) {
+        # The build runs on this Node.js and starts no background helper, so nothing is installed after it ends.
+        Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running this build, so it is left as it is; npm run setup installs the newer one when it ends"
+        return
+      }
       Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is installed right after this setup ends"
       $script:RunningUpgrades.Add(@{ Label = $Label; Installed = $Installed; Latest = $Latest; Command = $Command }) | Out-Null
     } else {

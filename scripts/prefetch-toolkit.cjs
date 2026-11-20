@@ -350,6 +350,7 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
   const draw = (percent, event) => {
     if (percent === shown) return;
     shown = percent;
+    require("./electron-module.cjs").load("activity.cjs").markBoardActive();
     out.write(`\r${barLine(id, percent, event)}\x1b[K`);
     open = true;
   };
@@ -381,7 +382,7 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
       const text = tidyLine(event.line);
       if (!text || seen.has(text)) return;
       seen.add(text);
-      line = `[friday] ${id.padEnd(14)} ${text.slice(0, 160)}`;
+      line = `[friday] ${id.padEnd(14)} ${text.slice(0, 260)}`;
     }
     if (line && line !== last) {
       last = line;

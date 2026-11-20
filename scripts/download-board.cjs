@@ -8,6 +8,8 @@
  */
 "use strict";
 
+const { markBoardActive } = require("./electron-module.cjs").load("activity.cjs");
+
 const BAR = 24;
 const mb = (bytes) => {
   const value = Number(bytes) || 0;
@@ -268,6 +270,7 @@ class DownloadBoard {
    */
   draw(force = false) {
     if (!this.tty || this.stopped) return;
+    markBoardActive();
     const at = this.now();
     if (!force && at - this.lastDraw < this.intervalMs) return;
     this.lastDraw = at;

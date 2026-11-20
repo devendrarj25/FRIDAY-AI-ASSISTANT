@@ -1081,11 +1081,20 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
   lines.push(rule);
   for (const phase of phases) {
     const mark = phase.status === "ok" ? "PASS " : phase.status === "skipped" ? "SKIP " : "FAIL ";
-    lines.push(
-      `${mark}${String(phase.name).padEnd(22)} ${String(phase.detail || "")
-        .split(/\r?\n/)[0]
-        .slice(0, 90)}`,
-    );
+    // The whole first line of the detail, wrapped under the first column: a skip reason such as "a local build
+    // stops at a verified, bootable installer (npm run verify:install ...)" used to be cut mid-sentence.
+    const detail = String(phase.detail || "")
+      .split(/\r?\n/)[0]
+      .slice(0, 400);
+    const wrapped = [];
+    for (let rest = detail; rest.length;) {
+      let cut = rest.length <= 52 ? rest.length : rest.lastIndexOf(" ", 52);
+      if (cut <= 0) cut = Math.min(52, rest.length);
+      wrapped.push(rest.slice(0, cut).trimEnd());
+      rest = rest.slice(cut).trimStart();
+    }
+    lines.push(`${mark}${String(phase.name).padEnd(22)} ${wrapped[0] || ""}`);
+    for (const more of wrapped.slice(1)) lines.push(`${" ".repeat(28)}${more}`);
   }
   if (report?.ok) {
     const release = path.join(root, "release");
