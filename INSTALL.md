@@ -59,8 +59,8 @@ Official and TEST builds can sit side by side on one PC: TEST uses a different W
 You need:
 
 - **Windows 10 or 11, 64-bit**, and a normal user account you will use every day. FRIDAY installs for that one user. Do not use "Run as administrator" unless that account is the one that should own FRIDAY.
-- **The internet** for the first install: Path B downloads tools and models (several gigabytes in all). Path A needs only the Setup file; models are added later in the app.
-- **Free disk space.** As a rough guide: a few gigabytes for the program and its Python, then the models you choose (a small chat model is about 2 GB, bigger ones 4 to 10 GB or more). Doctor reports the free space on the drive that holds your models. Put FRIDAY on a drive with plenty of room.
+- **The internet** for the first install: Path B downloads tools and models (about 10 GB in all on a first run). Path A needs only the Setup file; models are added later in the app.
+- **Free disk space.** Path A: a few gigabytes for the program and its Python, then the models you choose (a small chat model is about 2 GB, bigger ones 4 to 10 GB or more). Path B: keep **at least 25 GB free**. A real first Path B run on a Windows 11 PC used about 15 GB: the Node libraries (about 0.3 GB), FRIDAY's Python environment (about 2.7 GB, of which the NVIDIA speech libraries are 1.9 GB), the speech and voice models (about 5.5 GB), the Qwen chat model (about 2.4 GB), the agent toolkit and the packs for the EXE, and about 1.4 GB for the two EXEs in `release\`. Doctor reports the free space on the drive that holds your models. Put FRIDAY on a drive with plenty of room.
 - **A good folder.** Use a short, plain, local path such as `C:\FRIDAY` or `D:\FRIDAY`. Avoid `Program Files`, `Windows`, and folders that OneDrive, Dropbox or Google Drive keep in sync: they cause locked files and slow syncing. Setup refuses `Program Files`, `Windows` and a nested `FRIDAY\FRIDAY`.
 - **A microphone and speakers** only if you want to talk to FRIDAY. Typing works without them.
 - **A cloud key** only if you want cloud models. FRIDAY works offline with a local model alone ([section 9](#9-connect-a-cloud-provider-with-an-api-key)).
@@ -119,14 +119,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
 
 What setup does, in plain words: it checks the PC, installs what is missing (Node.js, Python, Git, PowerShell 7, FFmpeg, Tesseract, the Visual C++ runtime), downloads FRIDAY's code libraries, downloads the Electron app shell, creates FRIDAY's own Python environment, installs the agent toolkit, downloads the speech, voice and chat models, creates the folders and database, and finally runs Doctor.
 
-- **It takes a long time** (the first run often 30 to 90 minutes, depending on your line), prints a lot of text, and some steps show a progress bar. Let it run. Do not close the window.
+- **It takes a long time.** The first run takes about 20 to 40 minutes on a fast line and up to 90 minutes on a slow one (in one real run the model downloads alone took about 6 minutes, and the Python packages about 3 minutes). It prints a lot of text, and some steps show a progress bar. Let it run. Do not close the window.
+- **You can follow it.** Setup has **nine numbered steps**, each with a bar that fills as setup advances: `[FRIDAY] Step 1 of 9 ... The PC toolchain` up to `Step 9 of 9 ... Final readiness verification`. See [section 5.8](#58-what-a-good-run-looks-like) for what every step prints.
 - **Windows may ask for permission** (a blue-and-yellow "User Account Control" box) for WSL 2, Docker Desktop, Windows Sandbox and CUDA. Allow it if you want those tools; setup carries on if you decline. Windows may ask for a restart afterwards.
 - A long step that cannot draw a progress bar in a pipe (`npm ci`, the Electron download, the Python packages, a tool update) prints a line like `still working · 1m20s · 412 MB so far · 5.1 MB/s` every 15 seconds, so a quiet window is working, not stuck. `FRIDAY_ACTIVITY=0` turns those lines off.
 - **Node.js and npm are updated after setup ends.** They run the setup, so they cannot be replaced from inside it. When a newer release exists, a hidden helper installs it as soon as this window's npm command ends (a Windows prompt may appear; log: `%TEMP%\friday-running-tools-upgrade.log`). The next `npm run setup`, `npm run doctor` or `npm run build:win` waits for it by itself. `FRIDAY_SETUP_UPDATE_RUNNING_TOOLS=0` turns it off, and the two commands are printed instead.
 - Setup never waits for a typed answer. If another window asks something, close it and run `npm run doctor`.
-- Run it again any time: it is safe to repeat. A tool that is already new enough is reused; an old or missing one is installed at the latest stable release.
+- Run it again any time: it is safe to repeat. A tool that is already new enough is reused; an old or missing one is installed at the latest stable release. The Node libraries are not reinstalled when `node_modules` already matches `package-lock.json` (`FRIDAY_FORCE_NPM_CI=1` installs them anyway), models already on disk are checked and not downloaded again, and a second run is much shorter than the first.
 
-**What you should see at the end:** the line `SETUP PASS`. If Node.js was installed during this run and the next command says `node` is not found, close CMD, open a new one, `cd /d C:\FRIDAY`, and run `npm run setup` again.
+**What you should see at the end:** the Doctor verdict `DOCTOR PASS - FRIDAY is ready to test, build and run.` and then the line `SETUP PASS - FRIDAY is ready to test, build and run.` If Node.js was installed during this run and the next command says `node` is not found, close CMD, open a new one, `cd /d C:\FRIDAY`, and run `npm run setup` again.
 
 **If it fails:** read the last lines; setup says which step failed and why. Then run `npm run doctor` (next step): it repairs and checks again. Most failures are a dropped network. More in [section 15](#15-quick-fixes).
 
@@ -136,7 +137,7 @@ What setup does, in plain words: it checks the PC, installs what is missing (Nod
 npm run doctor
 ```
 
-Doctor checks everything and repairs what it can. It is also the backup if setup stopped halfway. It also runs the voice files for real. **What you should see:** every row OK or `not applicable` (for example CUDA without an NVIDIA graphics card, or Windows Sandbox on Windows Home). If a row says MISSING, run `npm run doctor` again; if it stays, the row names the reason.
+Doctor checks everything and repairs what it can. It is also the backup if setup stopped halfway. It runs **ten numbered checks** (`doctor 1/10` to `doctor 10/10`: dependencies, the environment table, the packs for the EXE, speech and chat models, the voice files (it makes FRIDAY speak a test line), the voice stack, runtime folders and database, main-process dependencies, the environment registry, and the pinned local runners against their newest release). **What you should see:** the table rows say `PASS` (a row that cannot apply to your PC, such as CUDA without an NVIDIA graphics card or Windows Sandbox on Windows Home, says `not applicable` and also counts as a pass), the table ends with `Ready to build.`, and the last line is `DOCTOR PASS - FRIDAY is ready to test, build and run.` If a row says MISSING, run `npm run doctor` again; if it stays, the row names the reason. Right after a successful setup Doctor does not repeat the speech and voice downloads (it says `verified by npm run setup a moment ago`); run `npm run doctor` later and it checks them in full.
 
 ### 5.5 Build the EXE
 
@@ -144,13 +145,15 @@ Doctor checks everything and repairs what it can. It is also the backup if setup
 npm run build:win
 ```
 
-This packs **both** the Setup installer and the Portable EXE. It checks the PC again, builds the app window, packs the files, verifies them and runs the built program once as a test. This also takes a while. **What you should see at the end:** **FRIDAY BUILD READY**, followed by the files to use. If it ends with **FAILED**, it names the step and the reason; fix that, then run the same command again.
+This packs **both** the Setup installer and the Portable EXE. It checks the PC again, builds the app window, packs the files, verifies them and runs the built program once as a test. It has **thirteen numbered steps** (`build 1/13 prepare-environment` to `build 13/13 installer-smoke`). A real run took about 8 to 10 minutes after setup, and the packing step alone (`packing the installer and portable EXE`) took about 4 minutes for two EXEs of 1.4 GB in all, so a quiet minute there is normal. **What you should see at the end:** a framed table that starts with **FRIDAY BUILD READY**, one `PASS` line per step, then the files to use. Two steps are **SKIP** on purpose on a local build and the table says so: `readiness` (installs the build and chats with it once) and `installer-smoke` (installs and uninstalls FRIDAY on this PC). That is still **READY**. If it ends with **FAILED**, it names the step and the reason; fix that, then run the same command again.
 
 Your files are in the `release` folder inside your FRIDAY folder:
 
 - `release\FRIDAY-Setup-1.1.5.7.exe` (the installer)
 - `release\FRIDAY-Portable-1.1.5.7.exe` (no installer)
 - `release\win-unpacked\FRIDAY.exe` (the unpacked program)
+
+Optional: `npm run verify:install` runs the finished build once in a throwaway folder and chats with it (it needs a loaded local model or a cloud key for the chat part).
 
 Want only one? `scripts\build-windows.cmd nsis` builds Setup only, `scripts\build-windows.cmd portable` builds Portable only, and `npm run build:win:dir` builds only the unpacked folder (fastest, for testing).
 
@@ -175,6 +178,24 @@ npm run build:win
 ```
 
 Packing needs Windows. On Linux or macOS `npm run build:win` is not available by design.
+
+### 5.8 What a good run looks like
+
+This is what the real commands print on a healthy Windows 11 PC, so you know what "fine" is. The exact numbers on your PC differ.
+
+| Command             | What you see                                                                                                                                                                                                              | The last lines                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `npm run setup`     | `Step 1 of 9` PC toolchain, `2` Node libraries, `3` Electron, `4` Python environment and voice models, `5` agent tools, `6` packs for the EXE, `7` runtime folders and database, `8` repair, `9` final readiness (Doctor) | `DOCTOR PASS`, then `SETUP PASS - FRIDAY is ready to test, build and run.`                 |
+| `npm run doctor`    | `doctor 1/10` to `doctor 10/10`, the environment table, then a short list of the ten checks                                                                                                                               | `DOCTOR PASS - FRIDAY is ready to test, build and run.`                                    |
+| `npm run build:win` | `build 1/13` to `build 13/13`                                                                                                                                                                                             | a framed table: `FRIDAY BUILD READY`, `PASS` or `SKIP` per step, and the paths of the EXEs |
+
+How to read the colours on a normal console (Windows Terminal, or CMD on Windows 10 and 11):
+
+- A finished step starts with a **green `√`** and then its name, with the time and the size in **purple** (`√ pip  done in 37s · 296 MB`). A step that failed starts with a red `×`.
+- A **progress bar** is a row of small rectangles: the part that is done is **green**, the rest dark grey, a failed one red. The same bar is used for model downloads, packs and the numbered steps.
+- In a log file, in CI, or with `NO_COLOR=1`, the same bars are plain text (`[#####-----]`) and nothing is lost. `FRIDAY_ASCII=1` makes the spinner plain ASCII for an old console.
+- Lines that begin with `INFO` or `SKIP` are not failures. Typical on a healthy PC: `Sandbox runner (Windows Sandbox) skipped: not available on this Windows edition` on Windows Home; `readiness` and `installer-smoke` skipped on a local build; `latest-release check: off for this run` when setup already checked within the last day.
+- A line that says `already installed; not downloaded again` is the setup being careful, not slow.
 
 ## 6. Install the program you built
 
@@ -350,20 +371,24 @@ Windows will not silently wipe your folder: the installer is set to keep data un
 
 ## 15. Quick fixes
 
-| What you see                                       | What to do                                                                                                                                                 |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `'npm' is not recognized`                          | Node.js is not installed yet. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows.ps1`, then open a **new** CMD.                |
-| `node` is not found right after setup installed it | Close CMD, open a new `cmd.exe`, `cd /d` back to your FRIDAY folder, run `npm run setup` again.                                                            |
-| `python` opens the Microsoft Store                 | Windows Settings → Apps → Advanced app settings → App execution aliases → turn off `python.exe` and `python3.exe`.                                         |
-| Setup stops on one step                            | Read its reason, then run `npm run doctor`: it repairs and checks again. Network errors: run it again; set `HTTPS_PROXY` if you are behind a proxy.        |
-| `build:win` says FAILED                            | The last lines name the step. Fix it (often a re-run of `npm run doctor`), then run `npm run build:win` again.                                             |
-| FRIDAY opens but the kernel never becomes ready    | **Setup & Doctor** and **Install Manager**; look for `PythonSetupPending`. The repair is the environment in `<root>\runtime\.venv`, never a global Python. |
-| Chat says "No models loaded"                       | Install a local model ([section 8.1](#81-a-chat-model-the-brain)) or connect a key ([section 9](#9-connect-a-cloud-provider-with-an-api-key)).             |
-| Key says "did not connect"                         | Read the reason on the card: wrong key, no credit, or no network. Create a new key and paste it again.                                                     |
-| FRIDAY does not hear me                            | Set it to Auto; check Windows microphone permission; unmute; make sure the tray pause is off; check that the speech model is loaded (Settings → Voice).    |
-| SmartScreen warning                                | The default build is unsigned. Use More info → Run anyway for a file you downloaded from the official repository.                                          |
-| Official and TEST are both installed               | Expected: different app ids. Uninstall the one you do not want.                                                                                            |
-| Anything else                                      | Open **Setup & Doctor**, press repair, then see the technical table in [section 16.6](#166-troubleshooting-technical).                                     |
+| What you see                                                 | What to do                                                                                                                                                                                          |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'npm' is not recognized`                                    | Node.js is not installed yet. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows.ps1`, then open a **new** CMD.                                                         |
+| `node` is not found right after setup installed it           | Close CMD, open a new `cmd.exe`, `cd /d` back to your FRIDAY folder, run `npm run setup` again.                                                                                                     |
+| `python` opens the Microsoft Store                           | Windows Settings → Apps → Advanced app settings → App execution aliases → turn off `python.exe` and `python3.exe`.                                                                                  |
+| Setup stops on one step                                      | Read its reason, then run `npm run doctor`: it repairs and checks again. Network errors: run it again; set `HTTPS_PROXY` if you are behind a proxy.                                                 |
+| The bars or the tick show as boxes or strange characters     | Use **Windows Terminal** or a current CMD with a normal font (Consolas, Cascadia). `NO_COLOR=1` turns colours off and `FRIDAY_ASCII=1` makes the spinner plain; the numbers and words are the same. |
+| The build ends `FRIDAY BUILD READY` but two lines say `SKIP` | Normal on a local build: `readiness` and `installer-smoke` are left for `npm run verify:install` and `FRIDAY_BUILD_INSTALLER_SMOKE=1`.                                                              |
+| A quiet minute while packing or downloading                  | Normal. The packing step takes about 4 minutes for two EXEs; a `still working` line appears every 15 seconds. Do not close the window.                                                              |
+| The next npm command seems to wait after setup               | Setup is installing a newer Node.js in the background (log: `%TEMP%\friday-running-tools-upgrade.log`). The command waits for it by itself.                                                         |
+| `build:win` says FAILED                                      | The last lines name the step. Fix it (often a re-run of `npm run doctor`), then run `npm run build:win` again.                                                                                      |
+| FRIDAY opens but the kernel never becomes ready              | **Setup & Doctor** and **Install Manager**; look for `PythonSetupPending`. The repair is the environment in `<root>\runtime\.venv`, never a global Python.                                          |
+| Chat says "No models loaded"                                 | Install a local model ([section 8.1](#81-a-chat-model-the-brain)) or connect a key ([section 9](#9-connect-a-cloud-provider-with-an-api-key)).                                                      |
+| Key says "did not connect"                                   | Read the reason on the card: wrong key, no credit, or no network. Create a new key and paste it again.                                                                                              |
+| FRIDAY does not hear me                                      | Set it to Auto; check Windows microphone permission; unmute; make sure the tray pause is off; check that the speech model is loaded (Settings → Voice).                                             |
+| SmartScreen warning                                          | The default build is unsigned. Use More info → Run anyway for a file you downloaded from the official repository.                                                                                   |
+| Official and TEST are both installed                         | Expected: different app ids. Uninstall the one you do not want.                                                                                                                                     |
+| Anything else                                                | Open **Setup & Doctor**, press repair, then see the technical table in [section 16.6](#166-troubleshooting-technical).                                                                              |
 
 ## 16. Technical reference
 
@@ -395,17 +420,17 @@ That runs `scripts\setup-windows.ps1` via `powershell.exe` (Windows PowerShell 5
 
 The whole chain is: `npm run setup` (install everything) → `npm run doctor` (check and repair; the backup when setup stopped halfway; it also runs the voice files for real and checks the voice stack) → `npm run build:win` (check the PC again, install what is still missing, build, verify, run the requirement tests, print **FRIDAY BUILD READY** with the files to use).
 
-Inside the script, in order:
+Inside the script, in order (the number is the `[FRIDAY] Step N of 9` line it prints):
 
-1. Node, Python, Git, PowerShell, npm — each method prints `method failed:` and the next official source runs.
-2. FFmpeg, Tesseract, VC++ runtime — required, installed the same way; setup stops if one stays missing.
-3. `npm ci` from `package-lock.json`. On failure: `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
-4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip checked against its SHA-256 list, the public npmmirror copy of the same zip, then `@electron/get`).
-5. `node scripts\setup-python.cjs` — venv at the selected FRIDAY folder `runtime\.venv`, or checkout `.venv` if no folder is selected.
-6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, Maven, Gradle, GCC and G++, Ruby, PHP, Composer, .NET SDK, dotnet-script, eSpeak NG, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
-7. `node scripts\init-runtime.cjs` — folders, wake model, database.
-8. `node scripts\check-environment.cjs --fix`.
-9. `npm run doctor`. Success prints `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. For the toolchain alone, `scripts\setup-windows.ps1 -ToolchainOnly` installs only Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime (doctor and the build call it).
+1. **Step 1, the PC toolchain.** Node, Python, Git, PowerShell, npm: each is detected, a supported one is kept, and each method prints `method failed:` before the next official source runs. FFmpeg, Tesseract and the VC++ runtime are required and installed the same way; setup stops if one stays missing.
+2. **Step 2, Node dependencies.** `node scripts\node-modules-current.cjs` asks whether `node_modules` already matches `package-lock.json`; if so `npm ci` is skipped (`FRIDAY_FORCE_NPM_CI=1` installs anyway). Otherwise `npm ci` from `package-lock.json`; on failure `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
+3. **Step 3, Electron.** `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip checked against its SHA-256 list, the public npmmirror copy of the same zip, then `@electron/get`), then the installer tools (NSIS) electron-builder needs, cached under `.cache\electron-builder`.
+4. **Step 4, Python environment and voice models.** `node scripts\setup-python.cjs`: the venv at the selected FRIDAY folder `runtime\.venv` (or checkout `.venv` if no folder is selected), the kernel packages, the capability extras, the semantic-memory model, the NVIDIA speech libraries on a PC with an NVIDIA card, Ollama and the speech, voice and chat models, and the voice tests.
+5. **Step 5, agent tools.** `node scripts\prefetch-toolkit.cjs` installs the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, Maven, Gradle, GCC and G++, Ruby, PHP, Composer, .NET SDK, dotnet-script, eSpeak NG, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
+6. **Step 6, packs for the EXE.** The packs that ship inside the EXE (Python embed, get-pip, Node, whisper.cpp, a small speech model) are fetched into `.cache`, so the build downloads nothing.
+7. **Step 7, runtime folders and database.** `node scripts\init-runtime.cjs`: folders, wake model, database.
+8. **Step 8, repair.** `node scripts\check-environment.cjs --fix`.
+9. **Step 9, final readiness verification.** `npm run doctor`. Success prints `DOCTOR PASS` and `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. For the toolchain alone, `scripts\setup-windows.ps1 -ToolchainOnly` installs only Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime (doctor and the build call it, and it prints no `Step 1 of 9` there).
 
 What the log tells you on a real PC:
 
@@ -476,7 +501,7 @@ npm run build:win:dir
 | `scripts\build-windows.cmd portable` | Portable EXE only                                    |
 | `npm run build:win:dir`              | Unpacked `release\win-unpacked\` only (faster debug) |
 
-The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
+The `.cmd` calls `scripts\build-pipeline.cjs`. The pipeline prints `build N/13` for each of its thirteen phases (`prepare-environment`, `verify-versions`, `stage-toolchain`, `build-renderer`, `package`, `packaged-requires`, `sign-hook`, `manifest`, `verify-artifacts`, `verify-boot`, `readiness`, `packaged-self-check`, `installer-smoke`) and writes `release\build-report.json`. It does, in order:
 
 1. Sets `ELECTRON_CACHE` / `ELECTRON_BUILDER_CACHE` under this repo `.cache\`. Removes a leftover `winCodeSign` cache that used to break symlink creation. Then `scripts\setup-windows.ps1 -ToolchainOnly` (local Windows only; hosted CI keeps its own toolchain): Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime are reused when they meet the floor and installed at the latest stable release when not.
 2. `scripts\check-engines.cjs` (same `package.json` engines as CI) **before** `npm ci`.
@@ -489,7 +514,7 @@ The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 9. Deletes previous `release\` and `dist-desktop\`, then `npm run build:desktop`.
 10. `scripts\electron-pack.cjs` with `electron-builder.yml`. The pinned toolchain packs download first with a progress bar and fall back to pinned mirrors. Names use the public four-part identity, not npm `1.0.0`.
 11. Optional Authenticode if `CSC_LINK` + `CSC_KEY_PASSWORD` are set (`scripts\sign-windows.ps1`).
-12. `scripts\verify-build.cjs` (Setup and Portable must clear the toolchain size floor and stay under 2 GiB), `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack), then the installer smoke when the target includes NSIS. A skipped phase is listed as `SKIP` and is only allowed where the target makes it not apply (for example no installer smoke for `dir`).
+12. `scripts\verify-build.cjs` (Setup and Portable must clear the toolchain size floor and stay under 2 GiB, the update manifest and block map must match, and the packaged requires are checked once), `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack), then the packaged self-check and the installer smoke when the target includes NSIS. On a **local** build `readiness` and `installer-smoke` are `SKIP`: a local build stops at a verified, bootable installer, and `FRIDAY_BUILD_READINESS=1` / `FRIDAY_BUILD_INSTALLER_SMOKE=1` (or `npm run verify:install`) run them on demand. A skipped phase is listed as `SKIP` with its reason and is only allowed where it does not apply.
 
 Expected files after a full pack:
 

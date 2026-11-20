@@ -242,6 +242,20 @@ The owner runs every GitHub Actions workflow: PR Validation, FRIDAY Test Build, 
 
 **Locked areas may be changed** only when the owner asks for that change, or when the task cannot be finished without it. The set is UI organization, EXE install, update and uninstall, GitHub Actions, FRIDAY Release, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md`, Deliberate design decisions.
 
+### The Windows CMD chain is finished and locked
+
+`npm run setup`, `npm run doctor` and `npm run build:win` ran end to end on the owner's Windows PC on 2026-11-20 (FRIDAY 1.1.5.7) and ended `SETUP PASS`, `DOCTOR PASS` and `FRIDAY BUILD READY`, with the installer and the portable EXE verified. That chain is done. It is changed only when the owner asks for that change, or when a real log from his PC shows a failure or a wrong line. A hunch, a tidy-up, a "better" method, or a speed idea is not a reason.
+
+The files that make it up: `scripts/setup-windows.ps1`, `scripts/build-windows.cmd`, `scripts/build-pipeline.cjs`, `scripts/doctor.cjs`, `scripts/check-environment.cjs`, `scripts/setup-python.cjs`, `scripts/prefetch-toolkit.cjs`, `scripts/prefetch-models.cjs`, `scripts/ensure-electron.cjs`, `scripts/stage-toolchain.cjs`, `scripts/electron-pack.cjs`, `scripts/verify-build.cjs`, `scripts/live-console.cjs`, `scripts/console-bar.cjs`, `scripts/download-board.cjs`.
+
+When a change in them is asked for:
+
+- Keep the shape of the output: `Step N of 9` in setup (and none inside the build), `doctor N/10`, `build N/13`, the closing lines `SETUP PASS`, `DOCTOR PASS` and the `FRIDAY BUILD READY` table with `PASS` and `SKIP` rows.
+- Keep the look of the console: a green `√` (a red `×` on failure), grey detail text in purple, progress bars as a green row of `▬` (red when failed, dark grey for the rest), white and cyan text as they are, and plain text bars where there is no real console.
+- Keep what the build leaves alone on purpose: readiness and the installer smoke are skipped on a local build, and the build repeats the PC checks of setup.
+- `setup-windows.ps1` stays 7-bit ASCII with CRLF line ends, and glyphs are written as `[char]0x…`. Check it with the PowerShell parser before the push.
+- The tests and the documents that describe the chain ([INSTALL.md](INSTALL.md), [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md), `FRIDAY_STATE.md`) move in the same change. What was only run on Linux is written as unverified until the owner runs it on Windows.
+
 ### Changing something that already works
 
 1. Keep the old behaviour working: same CMD build, same install, uninstall, reinstall and update, same Actions triggers, same look.
