@@ -10,6 +10,8 @@
 //   node scripts/runners-status.cjs --strict   -> exit 1 when any pin is behind
 //   node scripts/runners-status.cjs --json     -> machine readable
 "use strict";
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 
 const path = require("node:path");
 

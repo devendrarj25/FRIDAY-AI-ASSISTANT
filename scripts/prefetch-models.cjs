@@ -43,6 +43,8 @@
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 const os = require("node:os");
 

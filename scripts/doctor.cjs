@@ -30,6 +30,8 @@
  * Exit 0 only when every step passed.
  */
 "use strict";
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -54,22 +56,19 @@ function dependencies() {
     console.log("[friday] node_modules already matches package-lock.json; npm ci skipped");
     return { status: 0 };
   }
-  const { withActivity } = require("./with-activity.cjs");
+  const { withActivityCommand } = require("./with-activity.cjs");
   const modules = [path.join(ROOT, "node_modules")];
-  const first = withActivity("npm ci", modules, () =>
-    spawnNpm(["ci", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit" }),
-  );
+  const ci = (extra = []) =>
+    withActivityCommand("npm ci", modules, "npm", ["ci", "--no-audit", "--no-fund", ...extra], {
+      cwd: ROOT,
+    });
+  const first = ci();
   if (first.status === 0) return first;
   console.error(
     "[friday] npm ci failed - npm cache verify, then one retry against registry.npmjs.org",
   );
   spawnNpm(["cache", "verify"], { cwd: ROOT, stdio: "inherit" });
-  return withActivity("npm ci", modules, () =>
-    spawnNpm(["ci", "--no-audit", "--no-fund", "--registry", "https://registry.npmjs.org/"], {
-      cwd: ROOT,
-      stdio: "inherit",
-    }),
-  );
+  return ci(["--registry", "https://registry.npmjs.org/"]);
 }
 
 /** The speech, voice and chat weights: Doctor used to pass without ever looking for them. */

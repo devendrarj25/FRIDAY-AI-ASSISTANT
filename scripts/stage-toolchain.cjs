@@ -5,6 +5,8 @@
  * under resources/toolchain or resources/speech. Binaries are not committed.
  */
 const crypto = require("crypto");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const fs = require("fs");
 const path = require("path");
 

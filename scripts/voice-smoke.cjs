@@ -13,6 +13,8 @@
  * Windows only: the models are staged there. FRIDAY_VOICE_SMOKE=1 forces it on another system.
  */
 "use strict";
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 
 const fs = require("node:fs");
 const os = require("node:os");

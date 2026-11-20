@@ -9,6 +9,8 @@
  * Read-only. Exit code 1 means a required module is not a production dependency.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");

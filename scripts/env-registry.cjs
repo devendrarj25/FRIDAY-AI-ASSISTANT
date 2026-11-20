@@ -16,6 +16,8 @@
  * scripts/init-runtime.cjs, npm ci) — never a mirror, never a downgrade.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 const { spawnCaptured, spawnNpm, spawnDirect } = require("./win-spawn.cjs");
 

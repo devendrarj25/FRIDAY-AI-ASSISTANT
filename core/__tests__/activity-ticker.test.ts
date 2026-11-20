@@ -179,8 +179,8 @@ describe("where it is used", () => {
     expect(setup).toContain(
       "scripts\\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund",
     );
-    expect(read("scripts/build-pipeline.cjs")).toContain('withActivity("npm ci"');
-    expect(read("scripts/doctor.cjs")).toContain('withActivity("npm ci"');
+    expect(read("scripts/build-pipeline.cjs")).toContain('withActivityCommand("npm ci"');
+    expect(read("scripts/doctor.cjs")).toContain('withActivityCommand("npm ci"');
   });
 
   it("wraps every pip install in setup:python, the Electron download and the moonshine download", () => {
@@ -188,8 +188,8 @@ describe("where it is used", () => {
     expect(python).toContain(
       'const isPipInstall = (args) => args.includes("pip") && args.includes("install");',
     );
-    expect(python).toMatch(/withActivity\(\s*"pip"/);
-    expect(read("scripts/ensure-electron.cjs")).toContain('withActivity("electron"');
+    expect(python).toMatch(/withActivityCommand\(\s*"pip"/);
+    expect(read("scripts/ensure-electron.cjs")).toContain("withActivityCommand(");
     expect(read("scripts/prefetch-models.cjs")).toContain('label: "moonshine-en"');
   });
 

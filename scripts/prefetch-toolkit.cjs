@@ -397,7 +397,18 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
 /** Plan and run. Returns one row per tool. Never throws. */
 async function prefetchToolkit(root, deps = {}) {
   const env = deps.env || process.env;
-  const log = deps.log || colourLog();
+  // On a real console an install that prints nothing for a while (winget unpacking, an installer running) shows a
+  // moving line with the name of the step and the time, so the window never looks stuck. The line steps aside for a
+  // live download bar. A test (or a log file) injects its own logger and gets none of it.
+  const liveOn = !deps.log && require("./with-activity.cjs").liveWanted();
+  const consoleUi = liveOn ? require("./live-console.cjs") : null;
+  const live = liveOn
+    ? new consoleUi.LiveLine({
+        boardActive: () =>
+          require("./electron-module.cjs").load("activity.cjs").boardIsActive(1500),
+      })
+    : null;
+  const log = deps.log || (live ? (line) => live.write(consoleUi.colorize(line)) : colourLog());
   const reason = skipReason(env, deps.platform || process.platform);
   if (reason) {
     log(`[friday] tool prefetch skipped: ${reason}`);
@@ -515,6 +526,7 @@ async function prefetchToolkit(root, deps = {}) {
       action: row.action === "update" ? "update" : "install",
       root,
     };
+    live?.start(`${row.id} ${row.action === "update" ? "updating" : "installing"}`);
     const limit = jobLimitMs(env, row.elevated);
     let timer;
     // A real terminal (and no injected logger) gets the in-place bar; anything else keeps the ten-percent lines.
@@ -541,6 +553,7 @@ async function prefetchToolkit(root, deps = {}) {
     } finally {
       clearTimeout(timer);
       printEvent.end();
+      live?.stop();
     }
     if (!result?.ok && result?.error)
       log(

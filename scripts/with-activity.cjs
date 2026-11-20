@@ -68,6 +68,46 @@ function withActivity(label, watch, step, timing = {}) {
   }
 }
 
+/** A real console that wants the live line (colour, a moving spinner). A log file, CI or NO_COLOR gets plain lines. */
+function liveWanted(env = process.env, stream = process.stdout) {
+  if (off()) return false;
+  if (String(env.FRIDAY_LIVE_LINE ?? "") === "0") return false;
+  return require("./live-console.cjs").colorWanted(stream, env) && Boolean(stream && stream.isTTY);
+}
+
+/**
+ * Run `cmd args` and return its { status, error } like spawnSync. On a real console the command runs under the live
+ * line of scripts/live-console.cjs (colour, a spinner, the time, size and speed, one summary line at the end); anywhere
+ * else it runs as before with a "still working" line every few seconds.
+ */
+function withActivityCommand(label, watch, cmd, args, spawnOptions = {}, timing = {}) {
+  const win = require("./win-spawn.cjs");
+  if (liveWanted()) {
+    const hostArgs = [
+      path.join(__dirname, "live-console.cjs"),
+      "--label",
+      label,
+      "--watch",
+      (watch || []).join(path.delimiter),
+      "--combine",
+      timing.combine === "max" ? "max" : "sum",
+      ...(spawnOptions.cwd ? ["--cwd", spawnOptions.cwd] : []),
+      "--",
+      cmd,
+      ...args,
+    ];
+    return win.spawnDirect(process.execPath, hostArgs, {
+      stdio: "inherit",
+      ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+    });
+  }
+  const run = () =>
+    /^npm(\.cmd)?$/i.test(path.basename(String(cmd)))
+      ? win.spawnNpm(args, { stdio: "inherit", ...spawnOptions })
+      : win.spawnDirect(cmd, args, { stdio: "inherit", ...spawnOptions });
+  return withActivity(label, watch, run, timing);
+}
+
 function main(argv) {
   if (argv[0] === "--ticker") {
     const [, label, watchText, first, every, combine] = argv;
@@ -102,14 +142,11 @@ function main(argv) {
     .map((dir) => path.resolve(dir));
   const win = require("./win-spawn.cjs");
   const [cmd, ...args] = command;
-  const run = () =>
-    /^npm(\.cmd)?$/i.test(cmd)
-      ? win.spawnNpm(args, { stdio: "inherit" })
-      : win.spawnDirect(cmd, args, { stdio: "inherit" });
   const timing = {};
   if (value("--first")) timing.first = Number(value("--first"));
   if (value("--every")) timing.every = Number(value("--every"));
-  const result = withActivity(label, watch, run, timing);
+  void win;
+  const result = withActivityCommand(label, watch, cmd, args, {}, timing);
   if (result.error) {
     console.error(`[friday] ${label}: ${result.error.message}`);
     process.exit(1);
@@ -121,6 +158,8 @@ if (require.main === module) main(process.argv.slice(2));
 
 module.exports = {
   withActivity,
+  withActivityCommand,
+  liveWanted,
   startTickerProcess,
   pipWatchDirs: core.pipWatchDirs,
   wingetWatchDirs: core.wingetWatchDirs,

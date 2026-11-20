@@ -595,15 +595,37 @@ function installerSmokeSkip(options, env = process.env) {
 // pack also reports how much of the installer exists so far.
 const ACTIVITY_WATCH = { "scripts/electron-pack.cjs": ["release"] };
 
+// Scripts that draw their own progress (download boards and bars, a live line of their own steps) run as they are:
+// a second line over their output would only fight with it.
+const SELF_DISPLAY = new Set([
+  "scripts/setup-python.cjs",
+  "scripts/prefetch-toolkit.cjs",
+  "scripts/prefetch-models.cjs",
+  "scripts/stage-toolchain.cjs",
+]);
+const STEP_LABEL = {
+  "scripts/electron-pack.cjs": "packing the installer and portable EXE",
+  "scripts/verify-build.cjs": "verifying the build",
+  "scripts/verify-boot.cjs": "booting the packaged app",
+  "scripts/ensure-electron.cjs": "Electron",
+  "scripts/check-environment.cjs": "checking the environment",
+  "scripts/packaged-requires.cjs": "checking the packaged files",
+  "scripts/release-manifest.cjs": "writing the update manifest",
+};
+
 function runNode(script, args, root) {
-  const { withActivity } = require("./with-activity.cjs");
+  const { withActivityCommand } = require("./with-activity.cjs");
   const watched = (ACTIVITY_WATCH[script] || []).map((dir) => path.join(root, dir));
-  const result = withActivity(path.basename(script, ".cjs"), watched, () =>
-    spawnDirect(process.execPath, [path.join(root, script), ...args], {
-      cwd: root,
-      stdio: "inherit",
-    }),
-  );
+  const target = [path.join(root, script), ...args];
+  const result = SELF_DISPLAY.has(script)
+    ? spawnDirect(process.execPath, target, { cwd: root, stdio: "inherit" })
+    : withActivityCommand(
+        STEP_LABEL[script] || path.basename(script, ".cjs"),
+        watched,
+        process.execPath,
+        target,
+        { cwd: root },
+      );
   if (result.status !== 0) {
     throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
   }
@@ -658,19 +680,18 @@ function npmCi(root, force = false) {
     return;
   }
   const args = ["ci", "--no-audit", "--no-fund"];
-  const { withActivity } = require("./with-activity.cjs");
+  const { withActivityCommand } = require("./with-activity.cjs");
   const modules = [path.join(root, "node_modules")];
-  const once = withActivity("npm ci", modules, () =>
-    spawnNpm(args, { cwd: root, stdio: "inherit" }),
-  );
+  const once = withActivityCommand("npm ci", modules, "npm", args, { cwd: root });
   if (once.status === 0) return;
   console.error("[FRIDAY] npm ci failed — npm cache verify, then retry against registry.npmjs.org");
   spawnNpm(["cache", "verify"], { cwd: root, stdio: "inherit" });
-  const again = withActivity("npm ci", modules, () =>
-    spawnNpm([...args, "--registry", "https://registry.npmjs.org/"], {
-      cwd: root,
-      stdio: "inherit",
-    }),
+  const again = withActivityCommand(
+    "npm ci",
+    modules,
+    "npm",
+    [...args, "--registry", "https://registry.npmjs.org/"],
+    { cwd: root },
   );
   if (again.status !== 0) throw new Error("npm ci failed after a registry retry");
 }
@@ -779,7 +800,19 @@ function runPhase(phase, options, root) {
       if (still.length)
         throw new Error(`build tools are still missing after npm ci: ${still.join(", ")}`);
     }
-    const built = require("./win-spawn.cjs").spawnViteBuild(root);
+    // On a real console the bundle builds under the live line: no list of 170 files, one moving line while it works
+    // and one summary at the end. A log (CI, a file) keeps vite's own report.
+    const winSpawn = require("./win-spawn.cjs");
+    const plan = winSpawn.viteBuildPlan(root);
+    const built = require("./with-activity.cjs").liveWanted()
+      ? require("./with-activity.cjs").withActivityCommand(
+          "building the interface",
+          [path.join(root, "dist-desktop")],
+          plan.file,
+          [...plan.args, "--logLevel", "warn"],
+          { cwd: root },
+        )
+      : winSpawn.spawnViteBuild(root);
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
       throw new Error("renderer bundle missing — build failed");
@@ -1180,6 +1213,8 @@ module.exports = {
   removeTree,
 };
 
+// Colour that means something on a real console; plain text everywhere else.
+require("./live-console.cjs").installColorConsole();
 if (require.main === module) {
   main().catch((error) => {
     console.error(error && error.message ? error.message : error);
