@@ -43,6 +43,8 @@
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 const os = require("node:os");
 
@@ -375,6 +377,7 @@ function printer(log, id, linesOnly = false) {
     if (!line || line === last) return;
     if (tty) {
       last = line;
+      require("./electron-module.cjs").load("activity.cjs").markBoardActive();
       process.stdout.write(line);
       open = true;
       return;

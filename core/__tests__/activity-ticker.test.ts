@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -69,6 +69,7 @@ describe("the ticker", () => {
     const lines: string[] = [];
     const timers: Array<{ fn: () => void; ms: number; live: boolean }> = [];
     const ticker = activity.startTicker({
+      boardActive: () => false,
       label: "pip",
       watch: ["x"],
       first: 8_000,
@@ -178,8 +179,8 @@ describe("where it is used", () => {
     expect(setup).toContain(
       "scripts\\with-activity.cjs --label 'npm ci' --watch node_modules -- npm.cmd ci --no-audit --no-fund",
     );
-    expect(read("scripts/build-pipeline.cjs")).toContain('withActivity("npm ci"');
-    expect(read("scripts/doctor.cjs")).toContain('withActivity("npm ci"');
+    expect(read("scripts/build-pipeline.cjs")).toContain('withActivityCommand("npm ci"');
+    expect(read("scripts/doctor.cjs")).toContain('withActivityCommand("npm ci"');
   });
 
   it("wraps every pip install in setup:python, the Electron download and the moonshine download", () => {
@@ -187,8 +188,8 @@ describe("where it is used", () => {
     expect(python).toContain(
       'const isPipInstall = (args) => args.includes("pip") && args.includes("install");',
     );
-    expect(python).toMatch(/withActivity\(\s*"pip"/);
-    expect(read("scripts/ensure-electron.cjs")).toContain('withActivity("electron"');
+    expect(python).toMatch(/withActivityCommand\(\s*"pip"/);
+    expect(read("scripts/ensure-electron.cjs")).toContain("withActivityCommand(");
     expect(read("scripts/prefetch-models.cjs")).toContain('label: "moonshine-en"');
   });
 
@@ -212,6 +213,7 @@ describe("where it is used", () => {
     const lines: string[] = [];
     const timers: Array<() => void> = [];
     const ticker = activity.startTicker({
+      boardActive: () => false,
       label: "pip",
       watch: ["x"],
       now: () => clock,
@@ -275,8 +277,55 @@ describe("where it is used", () => {
     expect(stage.progressLine("Gradle", fast, false, true)).toContain("MB/s");
     const toolchain = read("electron/toolchain.cjs");
     expect(toolchain).toContain(
-      'downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${sources[0]}',
+      'downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${new URL(sources[0]).hostname}',
     );
     expect(toolchain).toContain("bytesTotal: event.bytesTotal");
+  });
+
+  it("stays silent while a live board or bar is on the console, and counts only files written since the step began", () => {
+    // A ticker line between two redraws of a board leaves one stale copy of the board's first row behind (the
+    // repeated `smart-turn [####] 100%` rows of the 2026-11-20 build log), so the line is held back while it is on.
+    const lines: string[] = [];
+    const timers: Array<() => void> = [];
+    let busy = true;
+    let clock = 0;
+    const ticker = activity.startTicker({
+      label: "setup-python",
+      now: () => clock,
+      write: (_line: string, text: string) => lines.push(text),
+      setTimer: (fn: () => void) => {
+        timers.push(fn);
+        return 0;
+      },
+      clearTimer: () => undefined,
+      boardActive: () => busy,
+    });
+    clock = 9_000;
+    timers.pop()?.();
+    expect(lines).toEqual([]);
+    busy = false;
+    clock = 25_000;
+    timers.pop()?.();
+    expect(lines.length).toBe(1);
+    ticker.stop();
+
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-since-"));
+    try {
+      writeFileSync(path.join(dir, "old.bin"), Buffer.alloc(5_000_000));
+      const old = new Date(Date.now() - 3_600_000);
+      utimesSync(path.join(dir, "old.bin"), old, old);
+      writeFileSync(path.join(dir, "new.bin"), Buffer.alloc(1_000_000));
+      const dirSize = activity.dirSize as unknown as (d: string, o?: { since?: number }) => number;
+      expect(dirSize(dir)).toBe(6_000_000);
+      // Only the file written after the step began belongs to the step: a 3 GB pip cache is not its download.
+      expect(dirSize(dir, { since: Date.now() - 60_000 })).toBe(1_000_000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    const board = read("scripts/download-board.cjs");
+    expect(board).toContain("markBoardActive()");
+    expect(read("scripts/prefetch-toolkit.cjs")).toContain("markBoardActive()");
+    expect(read("scripts/prefetch-models.cjs")).toContain("markBoardActive()");
   });
 });

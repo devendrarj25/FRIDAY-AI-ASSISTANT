@@ -61,6 +61,9 @@ export default defineConfig({
     // The reporter's default 500 kB line is yellow on every pack. Infinity is
     // not a limit here: an older reporter read it as 0 kB.
     chunkSizeWarningLimit: 8192,
+    // The splash logo (src/renderer/splash-logo.png) is embedded in index.html, so the very first paint already
+    // shows it; every other asset keeps Vite's default limit.
+    assetsInlineLimit: (file: string) => (file.endsWith("splash-logo.png") ? true : undefined),
     rolldownOptions: {
       checks: { bundlerTimings: false, moduleLevelDirective: false },
     },

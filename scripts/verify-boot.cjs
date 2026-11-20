@@ -14,6 +14,8 @@
  * Usage: node scripts/verify-boot.cjs [--no-repair]
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
@@ -267,11 +269,7 @@ function verifyBackend() {
 }
 
 // ------------------------------------------------------------------- repairs
-const buildDesktop = () =>
-  require("./win-spawn.cjs").spawnNpm(["run", "build:desktop"], {
-    stdio: "inherit",
-    cwd: root,
-  });
+const buildDesktop = () => require("./win-spawn.cjs").spawnViteBuild(root);
 
 const stages = [
   {

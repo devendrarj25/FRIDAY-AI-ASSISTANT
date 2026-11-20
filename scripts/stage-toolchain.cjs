@@ -5,6 +5,8 @@
  * under resources/toolchain or resources/speech. Binaries are not committed.
  */
 const crypto = require("crypto");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const fs = require("fs");
 const path = require("path");
 
@@ -79,8 +81,13 @@ function progressLine(id, event, tty, everyStep = false) {
   const size = event.bytesTotal > 0 ? ` ${mb(event.bytesDone)}/${mb(event.bytesTotal)} MB` : "";
   const conns = event.connections > 0 ? ` ${event.connections} conn` : "";
   const line = `[friday] ${id.padEnd(14)} [${bar}] ${String(percent).padStart(3)}%${size}${speed}${eta}${conns}`;
-  // \x1b[K clears what a longer earlier line left behind on the same row.
-  if (tty) return `\r${line}\x1b[K`;
+  // \x1b[K clears what a longer earlier line left behind on the same row. A real console gets the solid coloured
+  // bar and coloured sizes; a log file keeps the plain `[####----]` text.
+  if (tty) {
+    const { paint } = require("./download-board.cjs");
+    const { colorWanted } = require("./live-console.cjs");
+    return `\r${colorWanted(process.stdout) ? paint(line, percent >= 100 ? "done" : "running") : line}\x1b[K`;
+  }
   // A fast download can jump past an exact multiple of ten; the caller that keeps its own step count asks for every line.
   return everyStep || percent % 10 === 0 ? line : "";
 }

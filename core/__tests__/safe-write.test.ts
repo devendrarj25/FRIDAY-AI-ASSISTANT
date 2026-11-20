@@ -137,7 +137,10 @@ describe("the files that reset the app if lost are written this way", () => {
   const main = read("electron/main.cjs");
 
   it("settings, the folder pointer and the workspace settings go through the safe writer, and read back from the backup", () => {
-    expect(main).toContain("safeWrite.writeJsonSafe(preferencesFile(), value);");
+    // Settings are saved by the asynchronous writer (the window stays responsive) and, when the app closes, by the
+    // synchronous one: both are the safe writer with the temporary file, the backup and the retried rename.
+    expect(main).toContain("safeWrite.writeJsonSafeAsync(file, body, 2, { shouldCommit })");
+    expect(main).toContain("safeWrite.writeJsonSafe(file, body);");
     expect(main).toContain("safeWrite.readJsonSafe(preferencesFile(), null)");
     expect(main).toContain("safeWrite.writeJsonSafe(bootstrap,");
     expect(main).toContain("safeWrite.writeJsonSafe(file, next);");
@@ -148,6 +151,7 @@ describe("the files that reset the app if lost are written this way", () => {
     expect(read("electron/library.cjs")).toContain("writeJsonSafe(indexPath()");
     expect(read("electron/root-registry.cjs")).toContain("writeJsonSafe(file, value)");
     expect(read("electron/state-store.cjs")).toContain("renameWithRetry(tmp, file)");
+    expect(read("electron/state-store.cjs")).toContain("renameWithRetryAsync(tmp, file)");
     expect(read("electron/workspace.cjs")).toContain("writeJsonSafe(file, next)");
   });
 

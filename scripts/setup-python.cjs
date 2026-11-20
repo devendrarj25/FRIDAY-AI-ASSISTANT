@@ -11,6 +11,8 @@
  * Usage: node scripts/setup-python.cjs
  */
 const { spawnSync } = require("node:child_process");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -90,10 +92,12 @@ const rawRun = (exe, args, opts = {}) =>
 const isPipInstall = (args) => args.includes("pip") && args.includes("install");
 const run = (exe, args, opts = {}) =>
   isPipInstall(args)
-    ? require("./with-activity.cjs").withActivity(
+    ? require("./with-activity.cjs").withActivityCommand(
         "pip",
         require("./with-activity.cjs").pipWatchDirs(exe),
-        () => rawRun(exe, args, opts),
+        exe,
+        args,
+        { cwd: opts.cwd || root, env: { ...quietPip, ...process.env, ...(opts.env || {}) } },
         { combine: "max" },
       )
     : rawRun(exe, args, opts);
@@ -617,8 +621,12 @@ function fetchChromaEmbeddingModel() {
     "f()(['FRIDAY memory'])",
   ].join("\n");
   log("fetching the semantic-memory embedding model (all-MiniLM-L6-v2, about 79 MB, once)");
-  const result = require("./with-activity.cjs").withActivity("chroma-model", [cache], () =>
-    capture(python, ["-c", probe], { timeout: 15 * 60 * 1000 }),
+  const result = require("./with-activity.cjs").withActivityCommand(
+    "semantic-memory model",
+    [cache],
+    python,
+    ["-c", probe],
+    { cwd: root },
   );
   log(
     result.status === 0

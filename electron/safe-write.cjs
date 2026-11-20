@@ -13,6 +13,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let tempCounter = 0;
+
 const TRANSIENT = new Set(["EPERM", "EBUSY", "EACCES"]);
 const WAITS_MS = [15, 30, 60, 120, 240];
 
@@ -87,6 +90,83 @@ function writeFileSafe(file, data, { fsApi = fs, wait = pause, keepBackup = true
   }
 }
 
+/** The same retry as `renameWithRetry`, waiting with a timer so the main process keeps answering its window. */
+async function renameWithRetryAsync(from, to, { fsApi = fs.promises, wait = sleep } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= WAITS_MS.length; attempt += 1) {
+    try {
+      await fsApi.rename(from, to);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!error || !TRANSIENT.has(error.code) || attempt === WAITS_MS.length) break;
+      await wait(WAITS_MS[attempt]);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * `writeFileSafe` without blocking the main process. The synchronous version stops the thread that owns the window
+ * for the whole write, flush and retry: on a busy disk (a model download, the AI service writing) that is long enough
+ * for Windows to mark the window "Not Responding". Same steps and same guarantees: temporary file, flush, backup,
+ * rename with retry, copy as the last resort. `shouldCommit` lets a newer synchronous save (the app is closing) cancel
+ * a write that is still in flight, so an older body can never land after the newer one.
+ */
+async function writeFileSafeAsync(
+  file,
+  data,
+  { fsApi = fs.promises, wait = sleep, keepBackup = true, shouldCommit = () => true } = {},
+) {
+  await fsApi.mkdir(path.dirname(file), { recursive: true });
+  tempCounter += 1;
+  const tmp = `${file}.${process.pid}.${tempCounter}.tmp`;
+  let handle = null;
+  try {
+    handle = await fsApi.open(tmp, "w");
+    await handle.writeFile(data);
+    try {
+      await handle.sync();
+    } catch {
+      /* a file system without fsync still gets the atomic rename */
+    }
+    await handle.close();
+    handle = null;
+    if (!shouldCommit()) return false;
+    if (keepBackup) {
+      try {
+        await fsApi.copyFile(file, `${file}.bak`);
+      } catch {
+        /* no earlier file, or the backup is a bonus: the save goes on without it */
+      }
+    }
+    try {
+      await renameWithRetryAsync(tmp, file, { fsApi, wait });
+    } catch (error) {
+      if (!error || !TRANSIENT.has(error.code)) throw error;
+      await fsApi.copyFile(tmp, file);
+    }
+    return true;
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    try {
+      await fsApi.rm(tmp, { force: true });
+    } catch {
+      /* a leftover temp file is removed by storage cleanup */
+    }
+  }
+}
+
+function writeJsonSafeAsync(file, value, space = 2, options) {
+  return writeFileSafeAsync(file, `${JSON.stringify(value, null, space)}\n`, options);
+}
+
 function writeJsonSafe(file, value, space = 2, options) {
   writeFileSafe(file, `${JSON.stringify(value, null, space)}\n`, options);
 }
@@ -111,7 +191,10 @@ function readJsonSafe(file, fallback = null, { fsApi = fs } = {}) {
 
 module.exports = {
   writeFileSafe,
+  writeFileSafeAsync,
   writeJsonSafe,
+  writeJsonSafeAsync,
+  renameWithRetryAsync,
   readJsonSafe,
   renameWithRetry,
   TRANSIENT,

@@ -283,6 +283,20 @@ describe("the build starts with the PC and ends with a verdict", () => {
     );
   });
 
+  it("prints a long skip reason whole, wrapped under its column, never cut mid-sentence", () => {
+    const reason =
+      "skipped: a local build stops at a verified, bootable installer (npm run verify:install, or FRIDAY_BUILD_READINESS=1, runs the install-and-chat check)";
+    const lines = pipeline.readySummary(pipeline.parseArgs(["node", "x", "--caller", "cmd"]), {
+      ok: true,
+      phases: [{ name: "readiness", status: "skipped", detail: reason }],
+    });
+    const body = lines
+      .filter((line: string) => line.startsWith("SKIP ") || /^ {28}\S/.test(line))
+      .map((line: string) => line.slice(28).trim())
+      .join(" ");
+    expect(body).toBe(reason);
+  });
+
   it("shows that summary for the CMD pack and npm, not for the release workflows", () => {
     const source = read("scripts/build-pipeline.cjs");
     expect(source).toContain('options.caller === "cmd" || options.caller === "npm"');

@@ -713,3 +713,50 @@ describe("npm ci is not repeated for node_modules that setup just installed", ()
     }
   });
 });
+
+describe("the renderer build does not depend on a shell-resolved PATH ('node' / 'vite' is not recognized)", () => {
+  const spawnLib = require("../../scripts/win-spawn.cjs") as {
+    cleanEnv: (env: Record<string, string>, platform?: string) => Record<string, string>;
+    viteBuildPlan: (root: string) => { file: string; args: string[]; present: boolean };
+  };
+  const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+
+  it("gives every child one Path key with each folder once on Windows, and leaves other systems alone", () => {
+    const clean = spawnLib.cleanEnv(
+      { Path: "C:\\a;C:\\b\\", PATH: "c:\\a;C:\\c", X: "1" },
+      "win32",
+    );
+    expect(Object.keys(clean).filter((key) => key.toLowerCase() === "path")).toEqual(["Path"]);
+    expect(clean["Path"]).toBe("C:\\a;C:\\b\\;C:\\c");
+    expect(clean["X"]).toBe("1");
+    expect(spawnLib.cleanEnv({ PATH: "/a:/b", Y: "2" }, "linux")).toEqual({
+      PATH: "/a:/b",
+      Y: "2",
+    });
+  });
+
+  it("starts vite's own script with this node, so no npm, cmd.exe or command link is involved", () => {
+    const plan = spawnLib.viteBuildPlan(path.join(__dirname, "../.."));
+    expect(plan.file).toBe(process.execPath);
+    expect(plan.args.slice(1)).toEqual(["build", "--config", "vite.electron.config.ts"]);
+    expect(String(plan.args[0]).replace(/\\/g, "/")).toContain("node_modules/vite/bin/vite.js");
+    for (const file of [
+      "scripts/build-pipeline.cjs",
+      "scripts/verify-boot.cjs",
+      "scripts/env-registry.cjs",
+    ]) {
+      expect(read(file), file).not.toMatch(/"run",\s*"build:desktop"/);
+    }
+    expect(read("scripts/build-pipeline.cjs")).toContain("spawnViteBuild(root)");
+    // Doctor's repair of node_modules starts npm as node + npm-cli.js too, not as npm.cmd through cmd.exe.
+    expect(read("scripts/env-registry.cjs")).toContain(
+      'require("./win-spawn.cjs").spawnNpm(args, options)',
+    );
+    // The environment check asks cmd.exe itself whether it finds node and npm, as a note and never a stop.
+    const check = read("scripts/check-environment.cjs");
+    expect(check).toContain('group: "shell-path"');
+    expect(check).toContain("where node && where npm");
+    expect(check).toMatch(/name: "Shell PATH \(cmd\.exe\)",\s*required: false/);
+    expect(read("scripts/electron-pack.cjs")).toContain("cleanEnv(process.env)");
+  });
+});

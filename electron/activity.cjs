@@ -10,10 +10,11 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 /** Bytes under `dir`, walking for at most `budgetMs` and `maxFiles` files; a folder that vanishes counts as 0. */
-function dirSize(dir, { budgetMs = 400, maxFiles = 60_000 } = {}) {
+function dirSize(dir, { budgetMs = 1_500, maxFiles = 200_000, since = 0 } = {}) {
   const started = Date.now();
   let total = 0;
   let files = 0;
@@ -32,8 +33,11 @@ function dirSize(dir, { budgetMs = 400, maxFiles = 60_000 } = {}) {
       if (entry.isDirectory()) stack.push(full);
       else if (entry.isFile()) {
         try {
-          total += fs.statSync(full).size;
+          const stat = fs.statSync(full);
           files += 1;
+          // `since`: only what was written after the step began, so a cache that already holds gigabytes is not
+          // counted as the step's own download and a time-limited walk cannot read it inconsistently.
+          if (!since || stat.mtimeMs >= since) total += stat.size;
         } catch {
           /* a file that is being replaced */
         }
@@ -48,8 +52,8 @@ function dirSize(dir, { budgetMs = 400, maxFiles = 60_000 } = {}) {
  * two folders (pip downloads a wheel into its cache and then unpacks it into site-packages, so adding both counts
  * every package twice). The largest of two growing folders still only grows.
  */
-function sizeOfAll(dirs, combine = "sum") {
-  const sizes = dirs.map((dir) => dirSize(dir));
+function sizeOfAll(dirs, combine = "sum", since = 0) {
+  const sizes = dirs.map((dir) => dirSize(dir, { since }));
   return combine === "max" ? Math.max(0, ...sizes) : sizes.reduce((sum, n) => sum + n, 0);
 }
 
@@ -84,6 +88,30 @@ function activityLine({ label, ...rest }) {
   return `[friday] ${String(label).padEnd(14)} ${activityText(rest)}`;
 }
 
+/** A file in the temp folder that a live board or bar touches while it draws; tickers read how old it is. */
+const BOARD_STAMP = path.join(os.tmpdir(), "friday-live-board.stamp");
+let stamped = 0;
+
+/** Called by anything that redraws lines in place. Cheap: at most one write a second. */
+function markBoardActive(now = Date.now()) {
+  if (now - stamped < 1_000) return;
+  stamped = now;
+  try {
+    fs.writeFileSync(BOARD_STAMP, String(now));
+  } catch {
+    /* a board that cannot be marked only means a ticker line may share its console */
+  }
+}
+
+/** True while a board or bar redrew this console in the last few seconds. */
+function boardIsActive(maxAgeMs = 4_000, now = Date.now()) {
+  try {
+    return now - fs.statSync(BOARD_STAMP).mtimeMs < maxAgeMs;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A ticker for async code. `first` and `every` are in milliseconds; `watch` is a list of folders whose growth is
  * reported. `now`, `size` and `write` are injectable for tests. Returns `{ stop() }`.
@@ -95,13 +123,17 @@ function startTicker({
   every = 15_000,
   now = Date.now,
   combine = "sum",
-  size = (dirs) => sizeOfAll(dirs, combine),
+  size = null,
   write = (line) => console.log(line),
   setTimer = setTimeout,
   clearTimer = clearTimeout,
+  boardActive = boardIsActive,
 } = {}) {
   const began = now();
-  const baseline = watch.length ? size(watch) : 0;
+  // The default measure counts only files written since the step began (baseline 0). A caller that injects `size`
+  // (the tests) keeps the old reading-minus-baseline meaning.
+  const measure = size || ((dirs) => sizeOfAll(dirs, combine, began - 1_000));
+  const baseline = size && watch.length ? size(watch) : 0;
   // A folder walk is time-limited and a download can move between folders (pip's cache, then site-packages), so one
   // reading can be lower than the one before. Only the high-water mark is reported, and the speed is the growth
   // over the last few readings, so a single noisy reading cannot show 246 MB/s or take the total back to 0.2 MB.
@@ -113,7 +145,7 @@ function startTicker({
     if (stopped) return;
     const at = now();
     try {
-      if (watch.length) high = Math.max(high, size(watch));
+      if (watch.length) high = Math.max(high, measure(watch));
     } catch {
       /* measuring is best effort */
     }
@@ -126,7 +158,9 @@ function startTicker({
       recentBytes: Math.max(0, high - from.bytes),
       recentMs: at - from.at,
     };
-    write(activityLine({ label, ...measured }), activityText(measured));
+    // A live download board or bar is on this console: a line from here would push it off its rows (one stale copy of
+    // its first row per tick) or glue itself to the end of a bar. The measuring goes on; only the line is held back.
+    if (!boardActive()) write(activityLine({ label, ...measured }), activityText(measured));
     timer = setTimer(tick, every);
     timer?.unref?.();
   };
@@ -175,6 +209,9 @@ function watchDirsFor(tool, env = process.env) {
 }
 
 module.exports = {
+  markBoardActive,
+  boardIsActive,
+  BOARD_STAMP,
   dirSize,
   sizeOfAll,
   duration,

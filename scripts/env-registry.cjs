@@ -16,6 +16,8 @@
  * scripts/init-runtime.cjs, npm ci) — never a mirror, never a downgrade.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 const { spawnCaptured, spawnNpm, spawnDirect } = require("./win-spawn.cjs");
 
@@ -637,7 +639,18 @@ const REPAIRS = {
     [win ? "npm.cmd" : "npm", ["install", "--no-audit", "--no-fund"]],
   ],
   database: [[process.execPath, [path.join(root, "scripts", "init-runtime.cjs")]]],
-  renderer: [[win ? "npm.cmd" : "npm", ["run", "build:desktop"]]],
+  // vite's own script run by node: no npm, no cmd.exe, no command link (see win-spawn.cjs viteBuildPlan).
+  renderer: [
+    [
+      process.execPath,
+      [
+        path.join(root, "node_modules", "vite", "bin", "vite.js"),
+        "build",
+        "--config",
+        "vite.electron.config.ts",
+      ],
+    ],
+  ],
 };
 
 function repairComponent(id, { onLog = () => {} } = {}) {
@@ -646,12 +659,12 @@ function repairComponent(id, { onLog = () => {} } = {}) {
   const attempts = [];
   for (const [cmd, args] of steps) {
     onLog(`[friday] repairing ${id}: ${cmd} ${args.join(" ")}`);
-    const result = spawnOfficial(cmd, args, {
-      encoding: "utf8",
-      cwd: root,
-      windowsHide: true,
-      timeout: 20 * 60 * 1000,
-    });
+    const options = { encoding: "utf8", cwd: root, windowsHide: true, timeout: 20 * 60 * 1000 };
+    // npm runs as node + npm-cli.js with a cleaned environment (win-spawn.cjs), not as npm.cmd through cmd.exe,
+    // whose PATH on one PC held neither node nor vite ("'node' is not recognized").
+    const result = /^npm(\.cmd)?$/i.test(path.basename(String(cmd)))
+      ? require("./win-spawn.cjs").spawnNpm(args, options)
+      : spawnOfficial(cmd, args, options);
     const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
     attempts.push({
       command: `${cmd} ${args.join(" ")}`,

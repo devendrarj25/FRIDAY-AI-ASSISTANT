@@ -23,6 +23,7 @@ const CHANNEL_CLASS = Object.freeze({
   "billing:kill-switch": "quick",
   "billing:set": "quick",
   "boot:steps": "quick",
+  "boot:plan": "quick",
   "bridge:config": "quick",
   "browser:active-guest": "quick",
   "browser:bookmark-add": "quick",

@@ -39,7 +39,7 @@ export function AutonomyDial({ compact = false }: { compact?: boolean }) {
         <div
           role="group"
           aria-label="Autonomy"
-          className="inline-flex h-6 items-stretch overflow-hidden rounded-ctl border border-primary/25"
+          className="inline-flex h-6 items-stretch overflow-hidden rounded-ctl border border-primary/25 [html[data-ui-style='glass']_&]:h-8"
         >
           {LEVELS.map((level, index) => {
             const on = settings.approvalLevel === level.id;

@@ -62,9 +62,11 @@ const mb = (bytes) =>
 
 /** Is `latest` a newer release than `have`? Dotted numbers; anything else is "not newer". */
 function newer(latest, have) {
+  // A packaging revision after a full version (Ruby 3.4.13-1) is the same release as 3.4.13, not a newer one.
   const parts = (text) =>
     String(text || "")
       .replace(/^v/i, "")
+      .replace(/^(\d+(?:\.\d+)+)-\d+$/, "$1")
       .split(/[^0-9]+/)
       .filter(Boolean)
       .map(Number);
@@ -329,7 +331,10 @@ function barLine(id, percent, event = {}) {
   const size = event.bytesTotal > 0 ? ` ${mb(event.bytesDone)}/${mb(event.bytesTotal)} MB` : "";
   const speed = event.speedMbps ? ` ${event.speedMbps} MB/s` : "";
   const eta = event.etaSeconds ? ` eta ${event.etaSeconds}s` : "";
-  return `[friday] ${id.padEnd(14)} [${"#".repeat(filled)}${"-".repeat(width - filled)}] ${String(percent).padStart(3)}%${size}${speed}${eta}`;
+  const line = `[friday] ${id.padEnd(14)} [${"#".repeat(filled)}${"-".repeat(width - filled)}] ${String(percent).padStart(3)}%${size}${speed}${eta}`;
+  // A real console draws the bar as a solid coloured line; a log keeps the plain text.
+  if (!require("./live-console.cjs").colorWanted(process.stdout)) return line;
+  return require("./download-board.cjs").paint(line, percent >= 100 ? "done" : "running");
 }
 
 /**
@@ -350,6 +355,7 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
   const draw = (percent, event) => {
     if (percent === shown) return;
     shown = percent;
+    require("./electron-module.cjs").load("activity.cjs").markBoardActive();
     out.write(`\r${barLine(id, percent, event)}\x1b[K`);
     open = true;
   };
@@ -381,7 +387,7 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
       const text = tidyLine(event.line);
       if (!text || seen.has(text)) return;
       seen.add(text);
-      line = `[friday] ${id.padEnd(14)} ${text.slice(0, 160)}`;
+      line = `[friday] ${id.padEnd(14)} ${text.slice(0, 260)}`;
     }
     if (line && line !== last) {
       last = line;
@@ -396,7 +402,18 @@ function eventPrinter(log, id, progressLine, { tty = false, out = process.stdout
 /** Plan and run. Returns one row per tool. Never throws. */
 async function prefetchToolkit(root, deps = {}) {
   const env = deps.env || process.env;
-  const log = deps.log || colourLog();
+  // On a real console an install that prints nothing for a while (winget unpacking, an installer running) shows a
+  // moving line with the name of the step and the time, so the window never looks stuck. The line steps aside for a
+  // live download bar. A test (or a log file) injects its own logger and gets none of it.
+  const liveOn = !deps.log && require("./with-activity.cjs").liveWanted();
+  const consoleUi = liveOn ? require("./live-console.cjs") : null;
+  const live = liveOn
+    ? new consoleUi.LiveLine({
+        boardActive: () =>
+          require("./electron-module.cjs").load("activity.cjs").boardIsActive(1500),
+      })
+    : null;
+  const log = deps.log || (live ? (line) => live.write(consoleUi.colorize(line)) : colourLog());
   const reason = skipReason(env, deps.platform || process.platform);
   if (reason) {
     log(`[friday] tool prefetch skipped: ${reason}`);
@@ -514,6 +531,7 @@ async function prefetchToolkit(root, deps = {}) {
       action: row.action === "update" ? "update" : "install",
       root,
     };
+    live?.start(`${row.id} ${row.action === "update" ? "updating" : "installing"}`);
     const limit = jobLimitMs(env, row.elevated);
     let timer;
     // A real terminal (and no injected logger) gets the in-place bar; anything else keeps the ten-percent lines.
@@ -540,6 +558,7 @@ async function prefetchToolkit(root, deps = {}) {
     } finally {
       clearTimeout(timer);
       printEvent.end();
+      live?.stop();
     }
     if (!result?.ok && result?.error)
       log(

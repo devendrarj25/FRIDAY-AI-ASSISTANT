@@ -16,6 +16,8 @@
  * Exit code 0 = a runnable Electron binary is present.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -192,13 +194,19 @@ const runInstaller = () => {
     process.env.ELECTRON_CACHE ||
     (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "electron", "Cache") : "");
   const watched = [cache, path.join(electronDir, "dist")].filter(Boolean);
-  const r = require("./with-activity.cjs").withActivity("electron", watched, () =>
-    spawnSync(process.execPath, [installer], {
-      stdio: quiet ? "ignore" : "inherit",
-      cwd: electronDir,
-      env: downloadEnv(),
-    }),
-  );
+  const r = quiet
+    ? spawnSync(process.execPath, [installer], {
+        stdio: "ignore",
+        cwd: electronDir,
+        env: downloadEnv(),
+      })
+    : require("./with-activity.cjs").withActivityCommand(
+        "electron download",
+        watched,
+        process.execPath,
+        [installer],
+        { cwd: electronDir, env: downloadEnv() },
+      );
   return r.status === 0 && isUsable();
 };
 

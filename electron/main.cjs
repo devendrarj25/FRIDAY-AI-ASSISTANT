@@ -275,6 +275,21 @@ if (
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const loginItem = require("./login-item.cjs");
+const bootPlan = require("./boot-plan.cjs");
+const gpuStatus = require("./gpu-status.cjs");
+const processPriority = require("./process-priority.cjs");
+const loopLag = require("./loop-lag.cjs").createLoopLag({ log: (message) => log(message) });
+// The window and the games come first: the AI service runs below normal, the window above normal while in use.
+const priority = processPriority.createPriorityManager({
+  getMetrics: () => {
+    try {
+      return app.getAppMetrics();
+    } catch {
+      return [];
+    }
+  },
+  log: (message) => log(message),
+});
 const lifeSteps = {};
 function restartArgv() {
   // A restart the owner asked for shows the window, so the "started at sign-in" marker is not carried over.
@@ -1235,7 +1250,8 @@ serviceHealth.init(send, {
 
 /** Boot progress: buffered so the UI gets the full sequence once it loads. */
 function boot(label, status = "ok", detail = "") {
-  const step = { label, status, detail, at: Date.now() };
+  // `stage` ties the step to a stage of the boot plan (electron/boot-plan.cjs); a detail line has none.
+  const step = { label, status, detail, at: Date.now(), stage: bootPlan.stageFor(label) };
   bootSteps.push(step);
   send("boot:step", step);
   return step;
@@ -1793,6 +1809,9 @@ async function waitForKernel(timeoutMs = 20000) {
         kernelFailure = "";
         readinessTrace.trace("kernel-ready");
         noteStartup("kernel-ready");
+        // Only now does the AI service step aside for the window: while it starts it needs every bit of CPU, and the
+        // boot screen waits for it, so a slower start would be the very lag this is meant to remove.
+        if (kernel && kernel.pid) priority.lowerKernel(kernel.pid);
         if (process.env.FRIDAY_READINESS !== "1") connectSessionStream();
         // The kernel starts locked down; hand it the owner's real policy.
         void pushBillingToKernel();
@@ -4059,6 +4078,9 @@ function createWindow() {
   });
 
   win.__fridayStartMaximized = state.maximized;
+  // The window in use gets the CPU first; one that is not (a game has the screen) goes back to normal.
+  win.on("focus", () => priority.setUiFocus(true));
+  win.on("blur", () => priority.setUiFocus(false));
   const windowWatch = require("./watchdog.cjs");
   windowWatch.watchWindow(win, {
     longWork: () => ipcTimeout.longWorkActive(),
@@ -4551,6 +4573,13 @@ lifeSteps.flush = async () => {
     }
   }
   await new Promise((resolve) => setTimeout(resolve, 400));
+  // What those pages just sent is written before the window is destroyed: waiting saves go out now, in order.
+  try {
+    persistQueue.flushSync();
+    await Promise.race([persistQueue.drain(), new Promise((resolve) => setTimeout(resolve, 2500))]);
+  } catch {
+    /* a failed save is logged by its own handler */
+  }
 };
 
 lifeSteps.downloads = () => {
@@ -5309,6 +5338,9 @@ ipcMain.handle("app:paths", () => ({
   kernelPort: KERNEL_PORT,
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
+// Why this launch is a launch and which stages the boot screen waits for (fixed before the window exists).
+let bootPlanState = null;
+ipcMain.handle("boot:plan", () => bootPlanState || bootPlan.planFor("start"));
 
 // The desktop declares the open conversation so a phone turn joins it.
 ipcMain.handle("session:set-active", async (_e, sessionId) => {
@@ -5334,9 +5366,12 @@ function preferencesFile() {
   return paths.preferencesFile();
 }
 
+// The newest settings the page sent. A save reaches the disk a moment later (it no longer blocks the window), so a
+// check made right after a change reads this copy, not a file that may still hold the previous body.
+let latestPreferences = null;
 function ownerPrefToggle(key, fallback) {
   try {
-    const raw = JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+    const raw = latestPreferences || JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
     const value = raw && raw.toggles ? raw.toggles[key] : undefined;
     return typeof value === "boolean" ? value : fallback;
   } catch {
@@ -5432,12 +5467,15 @@ function ensureSenses() {
   return senseFeed;
 }
 
+let appliedStartupChoice;
 function applyOwnerPreferenceEffects(value) {
   try {
     const toggles =
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
-    if (typeof toggles.startup === "boolean") {
+    // The sign-in entry is written to the registry: only when the choice changed, not on every settings save.
+    if (typeof toggles.startup === "boolean" && toggles.startup !== appliedStartupChoice) {
+      appliedStartupChoice = toggles.startup;
       loginItem.setEnabled(app, Boolean(toggles.startup));
     }
     const target = liveWin();
@@ -5490,11 +5528,25 @@ ipcMain.handle("prefs:get", () => {
   return value;
 });
 
-ipcMain.handle("prefs:set", (_e, value) => {
+// Settings and state are saved without stopping the thread that owns the window: a synchronous write (flush, backup,
+// rename with retries) on a busy disk was long enough for Windows to mark the window "Not Responding" while the owner
+// moved a settings slider. A burst of changes writes only the newest body (electron/write-queue.cjs).
+const persistQueue = require("./write-queue.cjs").createWriteQueue();
+
+ipcMain.handle("prefs:set", async (_e, value) => {
   if (!value || typeof value !== "object") throw new Error("Invalid preferences payload.");
-  safeWrite.writeJsonSafe(preferencesFile(), value);
+  const file = preferencesFile();
+  latestPreferences = value;
   applyOwnerPreferenceEffects(value);
-  return true;
+  return persistQueue.submit("prefs", value, {
+    write: async (body, { shouldCommit }) =>
+      safeWrite.writeJsonSafeAsync(file, body, 2, { shouldCommit }),
+    writeSync: (body) => {
+      safeWrite.writeJsonSafe(file, body);
+      return true;
+    },
+    onError: (error) => log(`settings were not saved: ${error?.message || error}`),
+  });
 });
 
 ipcMain.on("window:busy", (_e, busy) => {
@@ -5610,19 +5662,28 @@ ipcMain.handle("state:identity", () => {
   }
 });
 
-ipcMain.handle("state:get", (_e, namespace) => {
+ipcMain.handle("state:get", async (_e, namespace) => {
   try {
-    return stateStore.readState(stateFile(namespace));
+    const file = stateFile(namespace);
+    // A save of this file that is still on its way lands first, so a read never sees an older body.
+    await persistQueue.idle(file);
+    return stateStore.readState(file);
   } catch {
     return null;
   }
 });
 
-ipcMain.handle("state:set", (_e, namespace, value) => {
+ipcMain.handle("state:set", async (_e, namespace, value) => {
   const file = stateFile(namespace);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const result = stateStore.commitState(file, value, { now: Date.now() });
-  return result.ok;
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const result = await persistQueue.submit(file, value, {
+    write: (body, { shouldCommit }) =>
+      stateStore.commitStateAsync(file, body, { now: Date.now(), shouldCommit }),
+    writeSync: (body) => stateStore.commitState(file, body, { now: Date.now() }),
+    onError: (error) =>
+      log(`state ${path.basename(file)} was not saved: ${error?.message || error}`),
+  });
+  return Boolean(result && (result === true || result.ok));
 });
 
 ipcMain.handle("workspace:pick", async () => {
@@ -9662,6 +9723,17 @@ app
     }
 
     const bootStartedAt = Date.now();
+    loopLag.start();
+    systemMonitor.setLoopLagReader(() => loopLag.read());
+    priority.setUiFocus(false);
+    // Before the window exists, so the first window-state save cannot turn a first start into a normal one.
+    bootPlanState = bootPlan.planFor(
+      bootPlan.bootModeFor({
+        argv: process.argv,
+        firstRun: !readSettings().windowState,
+        loginArg: loginItem.LOGIN_ARG,
+      }),
+    );
     boot("Detecting installation", "ok", path.dirname(app.getPath("exe")));
     // Setup writes HKCU WorkspacePath. Resolve that pointer BEFORE the window
     // exists so the first workspace:get / first-run:state IPC sees the real
@@ -9997,11 +10069,20 @@ function startAfterKernel(root, bootStartedAt) {
       lastHardware = hw;
       hardwareAt = Date.now();
       offerGpuToSpeech(hw);
+      let graphics = "";
+      try {
+        graphics = gpuStatus.summarizeGpu(app.getGPUFeatureStatus(), {
+          softwareMode: gpuGuard.softwareMode(),
+        }).text;
+      } catch {
+        graphics = "";
+      }
       boot(
         "Checking acceleration",
         "ok",
-        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}`,
+        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}${graphics ? ` · ${graphics}` : ""}`,
       );
+      if (graphics) log(graphics);
     })
     .catch(() => boot("Checking acceleration", "warn"));
 

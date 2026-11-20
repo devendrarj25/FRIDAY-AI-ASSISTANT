@@ -12,6 +12,8 @@
  * What only a real PC can show (a microphone, a live account, a Windows run) is never reported here as PASS.
  */
 const fs = require("node:fs");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
 
 const REPO = path.resolve(__dirname, "..");

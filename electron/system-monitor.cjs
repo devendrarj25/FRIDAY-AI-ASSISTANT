@@ -358,8 +358,16 @@ async function sample() {
     process: {
       rssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
       uptimeSeconds: Math.round(process.uptime()),
+      // How long this process's event loop was blocked lately (null until the reader is wired).
+      loopLagP99Ms: loopLagReader ? loopLagReader().p99Ms : null,
     },
   };
+}
+
+let loopLagReader = null;
+/** main.cjs hands over the event-loop lag reader (electron/loop-lag.cjs). */
+function setLoopLagReader(fn) {
+  loopLagReader = typeof fn === "function" ? fn : null;
 }
 
 // -------------------------------------------------------------- broadcast ---
@@ -432,6 +440,7 @@ async function snapshot() {
 }
 
 module.exports = {
+  setLoopLagReader,
   sample,
   snapshot,
   subscribe,

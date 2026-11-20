@@ -21,7 +21,8 @@ describe("the semantic-memory embedding model", () => {
     expect(setup.slice(at, at + 200)).toContain("fetchChromaEmbeddingModel();");
     const start = setup.indexOf("function fetchChromaEmbeddingModel()");
     const fn = setup.slice(start, setup.indexOf("\n}\n", start));
-    expect(fn).toContain('withActivity("chroma-model"');
+    expect(fn).toContain('"semantic-memory model"');
+    expect(fn).toContain("withActivityCommand(");
     expect(fn).toContain("DefaultEmbeddingFunction");
     expect(fn).toContain("FRIDAY_PREFETCH");
     expect(fn).toContain("FRIDAY_OFFLINE");

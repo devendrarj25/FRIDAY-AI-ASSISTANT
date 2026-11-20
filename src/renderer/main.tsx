@@ -18,3 +18,7 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+
+// The static splash (index.html) hands over to the boot screen. If the interface never gets that far the splash
+// must not hide a failure screen for ever, so it leaves after a while either way.
+window.setTimeout(() => document.getElementById("friday-splash")?.remove(), 15000);

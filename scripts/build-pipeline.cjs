@@ -595,15 +595,37 @@ function installerSmokeSkip(options, env = process.env) {
 // pack also reports how much of the installer exists so far.
 const ACTIVITY_WATCH = { "scripts/electron-pack.cjs": ["release"] };
 
+// Scripts that draw their own progress (download boards and bars, a live line of their own steps) run as they are:
+// a second line over their output would only fight with it.
+const SELF_DISPLAY = new Set([
+  "scripts/setup-python.cjs",
+  "scripts/prefetch-toolkit.cjs",
+  "scripts/prefetch-models.cjs",
+  "scripts/stage-toolchain.cjs",
+]);
+const STEP_LABEL = {
+  "scripts/electron-pack.cjs": "packing the installer and portable EXE",
+  "scripts/verify-build.cjs": "verifying the build",
+  "scripts/verify-boot.cjs": "booting the packaged app",
+  "scripts/ensure-electron.cjs": "Electron",
+  "scripts/check-environment.cjs": "checking the environment",
+  "scripts/packaged-requires.cjs": "checking the packaged files",
+  "scripts/release-manifest.cjs": "writing the update manifest",
+};
+
 function runNode(script, args, root) {
-  const { withActivity } = require("./with-activity.cjs");
+  const { withActivityCommand } = require("./with-activity.cjs");
   const watched = (ACTIVITY_WATCH[script] || []).map((dir) => path.join(root, dir));
-  const result = withActivity(path.basename(script, ".cjs"), watched, () =>
-    spawnDirect(process.execPath, [path.join(root, script), ...args], {
-      cwd: root,
-      stdio: "inherit",
-    }),
-  );
+  const target = [path.join(root, script), ...args];
+  const result = SELF_DISPLAY.has(script)
+    ? spawnDirect(process.execPath, target, { cwd: root, stdio: "inherit" })
+    : withActivityCommand(
+        STEP_LABEL[script] || path.basename(script, ".cjs"),
+        watched,
+        process.execPath,
+        target,
+        { cwd: root },
+      );
   if (result.status !== 0) {
     throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
   }
@@ -658,19 +680,18 @@ function npmCi(root, force = false) {
     return;
   }
   const args = ["ci", "--no-audit", "--no-fund"];
-  const { withActivity } = require("./with-activity.cjs");
+  const { withActivityCommand } = require("./with-activity.cjs");
   const modules = [path.join(root, "node_modules")];
-  const once = withActivity("npm ci", modules, () =>
-    spawnNpm(args, { cwd: root, stdio: "inherit" }),
-  );
+  const once = withActivityCommand("npm ci", modules, "npm", args, { cwd: root });
   if (once.status === 0) return;
   console.error("[FRIDAY] npm ci failed — npm cache verify, then retry against registry.npmjs.org");
   spawnNpm(["cache", "verify"], { cwd: root, stdio: "inherit" });
-  const again = withActivity("npm ci", modules, () =>
-    spawnNpm([...args, "--registry", "https://registry.npmjs.org/"], {
-      cwd: root,
-      stdio: "inherit",
-    }),
+  const again = withActivityCommand(
+    "npm ci",
+    modules,
+    "npm",
+    [...args, "--registry", "https://registry.npmjs.org/"],
+    { cwd: root },
   );
   if (again.status !== 0) throw new Error("npm ci failed after a registry retry");
 }
@@ -779,7 +800,19 @@ function runPhase(phase, options, root) {
       if (still.length)
         throw new Error(`build tools are still missing after npm ci: ${still.join(", ")}`);
     }
-    const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
+    // On a real console the bundle builds under the live line: no list of 170 files, one moving line while it works
+    // and one summary at the end. A log (CI, a file) keeps vite's own report.
+    const winSpawn = require("./win-spawn.cjs");
+    const plan = winSpawn.viteBuildPlan(root);
+    const built = require("./with-activity.cjs").liveWanted()
+      ? require("./with-activity.cjs").withActivityCommand(
+          "building the interface",
+          [path.join(root, "dist-desktop")],
+          plan.file,
+          [...plan.args, "--logLevel", "warn"],
+          { cwd: root },
+        )
+      : winSpawn.spawnViteBuild(root);
     if (built.status !== 0) throw new Error("renderer bundle failed");
     if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
       throw new Error("renderer bundle missing — build failed");
@@ -974,7 +1007,11 @@ function ensureToolchain(root, env = process.env, platform = process.platform, d
   // A tool installed just now is not on this process's PATH yet; read the new PATH once.
   const read = deps.readPath || readWindowsPath;
   const fresh = read();
-  if (fresh) env.PATH = `${env.PATH || ""};${fresh}`;
+  if (fresh) {
+    // One key, each folder once: appending the whole registry PATH again doubled it and left a second spelling of the key.
+    const key = Object.keys(env).find((name) => name.toLowerCase() === "path") || "PATH";
+    env[key] = require("./win-path.cjs").mergePaths(env[key], fresh);
+  }
   return "toolchain ready";
 }
 
@@ -1018,8 +1055,10 @@ async function runPipeline(options, root = ROOT) {
     caller: options.caller,
     phases: [],
   };
-  for (const phase of phases) {
+  for (const [index, phase] of phases.entries()) {
     const started = Date.now();
+    // The head of every phase, so a long build reads as numbered steps: `build 4/13: build-renderer`.
+    console.log(`[friday] build ${index + 1}/${phases.length}: ${phase}`);
     try {
       const detail = await runPhase(phase, options, root);
       const text = String(detail);
@@ -1077,11 +1116,20 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
   lines.push(rule);
   for (const phase of phases) {
     const mark = phase.status === "ok" ? "PASS " : phase.status === "skipped" ? "SKIP " : "FAIL ";
-    lines.push(
-      `${mark}${String(phase.name).padEnd(22)} ${String(phase.detail || "")
-        .split(/\r?\n/)[0]
-        .slice(0, 90)}`,
-    );
+    // The whole first line of the detail, wrapped under the first column: a skip reason such as "a local build
+    // stops at a verified, bootable installer (npm run verify:install ...)" used to be cut mid-sentence.
+    const detail = String(phase.detail || "")
+      .split(/\r?\n/)[0]
+      .slice(0, 400);
+    const wrapped = [];
+    for (let rest = detail; rest.length;) {
+      let cut = rest.length <= 52 ? rest.length : rest.lastIndexOf(" ", 52);
+      if (cut <= 0) cut = Math.min(52, rest.length);
+      wrapped.push(rest.slice(0, cut).trimEnd());
+      rest = rest.slice(cut).trimStart();
+    }
+    lines.push(`${mark}${String(phase.name).padEnd(22)} ${wrapped[0] || ""}`);
+    for (const more of wrapped.slice(1)) lines.push(`${" ".repeat(28)}${more}`);
   }
   if (report?.ok) {
     const release = path.join(root, "release");
@@ -1167,6 +1215,8 @@ module.exports = {
   removeTree,
 };
 
+// Colour that means something on a real console; plain text everywhere else.
+require("./live-console.cjs").installColorConsole();
 if (require.main === module) {
   main().catch((error) => {
     console.error(error && error.message ? error.message : error);

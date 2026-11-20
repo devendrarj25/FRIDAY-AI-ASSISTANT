@@ -171,7 +171,9 @@ const ComponentBox = memo(function ComponentBox({
       {/* One-line live summary: what this component is doing right now. */}
       <p
         className={cn(
-          "truncate font-mono leading-tight",
+          // A summary such as "9 installed · 6 routed" is longer than the compact card is wide: it wraps to a second
+          // line instead of ending in "6 r…". The full text stays in the tooltip.
+          "line-clamp-2 break-words font-mono leading-tight",
           large ? "text-[0.6875rem]" : "text-[0.6875rem]",
           active ? "text-foreground/85" : "text-muted-foreground",
           node.side === "right" && "text-right",

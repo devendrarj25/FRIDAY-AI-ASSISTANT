@@ -20,6 +20,8 @@
  * --fix and `npm run setup` installs the whole list.
  */
 const { spawnSync } = require("node:child_process");
+// Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
+if (require.main === module) require("./live-console.cjs").installColorConsole();
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnCaptured, spawnNpm } = require("./win-spawn.cjs");
@@ -188,6 +190,35 @@ let pythonExecutable = null;
     want: SUPPORTED.npm,
     fix: "npm run setup",
     url: "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm",
+  });
+}
+if (win) {
+  // The build and Doctor start node scripts directly, so a console whose cmd.exe cannot find node or npm no longer
+  // stops them; it still breaks `npm run <script>` and tools that start a command by name, which is what ended a
+  // build with "'node' is not recognized" on one PC. This asks cmd.exe itself, with the PATH this console has.
+  const pathText = String(process.env.Path || process.env.PATH || "");
+  const found = spawnSync(
+    process.env.ComSpec || "cmd.exe",
+    ["/d", "/s", "/c", "where node && where npm"],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15000,
+    },
+  );
+  const reachable = found.status === 0;
+  add({
+    name: "Shell PATH (cmd.exe)",
+    required: false,
+    skip: "a console that cannot find node or npm by name does not stop the build; open a new terminal if a script says 'node' is not recognized",
+    group: "shell-path",
+    ok: reachable,
+    found: reachable
+      ? `node and npm found (PATH ${pathText.length} chars)`
+      : `cmd.exe cannot find node or npm (PATH ${pathText.length} chars)`,
+    want: "cmd.exe finds node and npm by name",
+    fix: "open a new terminal (a console started before the install has the old PATH), then run npm run doctor",
+    url: "https://docs.npmjs.com/cli/commands/npm-run-script",
   });
 }
 {
@@ -985,6 +1016,18 @@ if (
 
 // ---------------------------------------------------------------- report
 const pad = (s, n) => String(s).padEnd(n);
+// The table follows the width of the console (never narrower than 100, never wider than 160): a long value is cut with
+// an ellipsis, and the whole text of a row that is not fine follows below it.
+const STATUS_W = 10;
+const tableWidth = Math.max(100, Math.min(Number(process.stdout.columns) || 120, 160));
+const longest = (pick) => checks.reduce((n, c) => Math.max(n, String(pick(c)).length), 0);
+const nameW = Math.min(40, Math.max(24, longest((c) => c.name) + 2));
+const foundW = Math.min(34, Math.max(16, longest((c) => c.found) + 2));
+const wantW = Math.max(24, tableWidth - STATUS_W - nameW - foundW);
+const clip = (text, n) => {
+  const value = String(text);
+  return value.length > n - 1 ? `${value.slice(0, n - 2)}…` : value;
+};
 const missing = checks.filter((c) => !c.ok && c.required);
 const warned = checks.filter((c) => !c.ok && !c.required);
 
@@ -998,22 +1041,19 @@ console.log("");
 if (!summaryOnly) {
   console.log("FRIDAY — environment check");
   console.log("Minimum versions are compatibility floors; newer compatible releases PASS.");
-  console.log("-".repeat(78));
+  console.log("-".repeat(tableWidth));
   console.log(
-    `${pad("STATUS", 10)}${pad("COMPONENT", 34)}${pad("INSTALLED", 22)}MINIMUM SUPPORTED`,
+    `${pad("STATUS", STATUS_W)}${pad("COMPONENT", nameW)}${pad("INSTALLED", foundW)}MINIMUM SUPPORTED`,
   );
-  console.log("-".repeat(78));
+  console.log("-".repeat(tableWidth));
 }
 for (const c of summaryOnly ? [] : checks) {
   const state = c.ok ? "PASS" : c.required ? "MISSING" : "SKIPPED";
-  // A long value never pushes the next column: the row keeps its width and the full text follows below.
-  const clip = (text, n) =>
-    String(text).length > n - 1 ? `${String(text).slice(0, n - 2)}~` : text;
   console.log(
-    `${pad(state, 10)}${pad(clip(c.name, 34), 34)}${pad(clip(c.found, 22), 22)}${c.want}`,
+    `${pad(state, STATUS_W)}${pad(clip(c.name, nameW), nameW)}${pad(clip(c.found, foundW), foundW)}${clip(c.want, wantW)}`,
   );
   if (!c.ok) {
-    if (String(c.found).length > 21) console.log(`          found:  ${c.found}`);
+    if (String(c.found).length > foundW - 1) console.log(`          found:  ${c.found}`);
     if (!c.required) console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
     console.log(`          wanted: ${c.want}`);
     console.log(`          fix:    ${c.fix}`);
