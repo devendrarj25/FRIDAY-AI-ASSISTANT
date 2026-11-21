@@ -437,9 +437,7 @@ describe("PR validation", () => {
     // back to the pull request branch - never to main, never a release.
     expect(src.match(/\bpush origin\b/g) || []).toHaveLength(1);
     // The push authenticates on its own command line: the checkout credential is gone before npm ci.
-    expect(src).toContain(
-      'git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"',
-    );
+    expect(src).toContain('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"');
     expect(src.match(/git commit/g) || []).toHaveLength(1);
     expect(src).toContain('git commit -m "chore: sync docs to v$version"');
   });
@@ -799,7 +797,7 @@ describe("official release", () => {
       "scripts/release-engine.cjs decide",
       "scripts/release-engine.cjs apply",
       "build-pipeline.cjs --channel production --caller release --from stage-toolchain",
-      "gh release create",
+      "bash scripts/ci-publish-release.sh",
     ]) {
       // Count executed steps only — the header comment documents the same
       // pipeline in prose and must not be mistaken for a second implementation.
@@ -851,7 +849,8 @@ describe("official release", () => {
   it("never pushes the version commit to protected main", () => {
     expect(steps).not.toMatch(/git push origin HEAD:\$\{\{ github\.ref_name \}\}/);
     expect(steps).not.toMatch(/git push[^\n]*\bmain\b/);
-    expect(steps).toContain('git push origin "HEAD:$branch"');
+    expect(steps).toContain('bash scripts/ci-git.sh push origin "HEAD:$branch"');
+    expect(steps).not.toMatch(/push[^\n]*--force/);
     expect(steps).toContain("gh pr create --base main");
     expect(steps).toContain("not permitted to create or approve pull requests");
     expect(steps).toContain("Allow GitHub Actions to create and approve pull requests");
@@ -931,8 +930,10 @@ describe("official release", () => {
   it("builds and verifies before the tag and release", () => {
     expect(
       at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
-    ).toBeLessThan(at("gh release create"));
-    expect(at("gh release create")).toBeLessThan(at("Confirm the release and its assets"));
+    ).toBeLessThan(at("bash scripts/ci-publish-release.sh"));
+    expect(at("bash scripts/ci-publish-release.sh")).toBeLessThan(
+      at("Confirm the release and its assets"),
+    );
     expect(at("Confirm the release and its assets")).toBeLessThan(
       at("Keep only the last 3 releases"),
     );
@@ -1000,7 +1001,7 @@ describe("official release", () => {
       publish.indexOf("Build with the shared pipeline"),
     );
     expect(at("Guard canonical What's New before publishing")).toBeLessThan(
-      at("gh release create"),
+      at("bash scripts/ci-publish-release.sh"),
     );
     expect(publish).toContain("--setup");
     const rebuild = publish.slice(publish.indexOf("steps.plan.outputs.exists"));
@@ -1479,9 +1480,7 @@ describe("release publish must not be blocked by its own auto-heal", () => {
     // The guard must sit BEFORE the push, otherwise the pinned head moves and
     // Official Publish aborts with "pull request moved".
     const guard = src.indexOf("PINNED-COMMIT GUARD");
-    const push = src.indexOf(
-      'git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"',
-    );
+    const push = src.indexOf('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"');
     expect(guard).toBeGreaterThan(-1);
     expect(push).toBeGreaterThan(guard);
     expect(src).toContain('if [ -n "$PINNED_SHA" ]; then');
@@ -1591,7 +1590,7 @@ describe("automatic-health workflows", () => {
     expect(src).toContain("HEALED_SHA: ${{ needs.static.outputs.healed }}");
     expect(src).toContain('for one in "$sha" "$HEALED_SHA"');
     expect(src.indexOf('echo "sha=$healed" >> "$GITHUB_OUTPUT"')).toBeGreaterThan(
-      src.indexOf('git push origin "HEAD:refs/heads/$branch"'),
+      src.indexOf('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"'),
     );
   });
 

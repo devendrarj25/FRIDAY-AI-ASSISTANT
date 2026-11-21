@@ -267,7 +267,7 @@ jobs:
       # The pull request's own code runs from here on (npm ci, its scripts, its
       # tests). The write token stays out of its reach: it is in no job-level
       # env, and the credential the checkout left in .git/config is removed.
-      # Only the steps below that call gh or push name GH_TOKEN themselves.
+      # Only the steps below that call gh or scripts/ci-git.sh name GH_TOKEN.
       - name: Remove the checkout credential before the pull request's code runs
         shell: bash
         run: |
@@ -372,10 +372,8 @@ jobs:
           printf '%s\n' "$changed" | xargs -d '\n' git add --
           git commit -m "chore: sync docs to v$version"
           # The checkout credential was removed before npm ci; this one push
-          # authenticates on its own command line and leaves nothing behind.
-          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n\r')
-          git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"
-          unset auth
+          # authenticates for itself (scripts/ci-git.sh) and leaves nothing behind.
+          bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"
 
           healed=$(git rev-parse HEAD)
           echo "sha=$healed" >> "$GITHUB_OUTPUT"
@@ -833,7 +831,7 @@ jobs:
       # The pull request's own code runs from here on (npm ci, its scripts, its
       # tests). The write token stays out of its reach: it is in no job-level
       # env, and the credential the checkout left in .git/config is removed.
-      # Only the steps below that call gh or push name GH_TOKEN themselves.
+      # Only the steps below that call gh or scripts/ci-git.sh name GH_TOKEN.
       - name: Remove the checkout credential before the pull request's code runs
         shell: bash
         run: |

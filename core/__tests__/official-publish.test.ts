@@ -328,10 +328,12 @@ describe("official publish · workflow contract", () => {
     }
     expect(doc.jobs.prepare.permissions.contents).toBe("write");
     expect(doc.jobs.publish.permissions.contents).toBe("write");
-    const creates = src
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("#") && line.includes("gh release create"));
-    expect(creates).toHaveLength(1);
+    // One publish path, draft first: the workflow never creates a public release itself.
+    const lines = src.split("\n").filter((line) => !line.trim().startsWith("#"));
+    expect(
+      lines.filter((line) => line.includes("bash scripts/ci-publish-release.sh")),
+    ).toHaveLength(1);
+    expect(lines.filter((line) => line.includes("gh release create"))).toHaveLength(0);
   });
 
   it("gives prepare the same mode and release type the plan job already uses", () => {

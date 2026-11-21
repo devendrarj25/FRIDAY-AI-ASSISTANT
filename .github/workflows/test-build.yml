@@ -165,6 +165,18 @@ jobs:
             echo "- main untouched; any release from this run is a TEST pre-release only"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The ref under test is built and tested from here on (its npm ci, scripts, tests and the pack). From here on the credential the checkout left in
+      # .git/config is gone; a later fetch or push authenticates for that one
+      # command through scripts/ci-git.sh, and GH_TOKEN reaches only the steps
+      # that call gh or ci-git.sh.
+      - name: Remove the checkout credential before the ref's code runs
+        shell: bash
+        run: |
+          git config --local --get-regexp '^http\..*\.extraheader$' | cut -d' ' -f1 | while read -r key; do
+            git config --local --unset-all "$key"
+          done
+          echo "checkout credential removed from .git/config"
+
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
@@ -222,7 +234,7 @@ jobs:
           gh release list --limit 100 --json tagName,isDraft,isPrerelease \
             --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > stable-candidates.txt 2>/dev/null || true
           git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> stable-candidates.txt || true
-          git fetch origin main --quiet
+          bash scripts/ci-git.sh fetch origin main --quiet
           # Git Bash on windows-latest mangles `git show origin/main:config/...`
           # (colon + slash). identity --ref uses a POSIX blob path and
           # MSYS_NO_PATHCONV. package.json npm encoding is never a baseline.
@@ -327,12 +339,12 @@ jobs:
           node scripts/release-manifest.cjs --version "$version" --channel test
           # Same generated What's New the stable channel uses, marked TEST:
           # real commits since the stable baseline, never a placeholder.
-          git fetch origin main --quiet || true
+          bash scripts/ci-git.sh fetch origin main --quiet || true
           base='${{ steps.testversion.outputs.version }}'
           basetag="v${base%%-test.*}"
           # No stable tag yet is a normal first-release state: grep exits 1 and
           # `pipefail` would abort the whole publish step silently.
-          git fetch --tags --force --quiet || true
+          bash scripts/ci-git.sh fetch --tags --force --quiet || true
           prevtag=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | node -e "const e=require('./scripts/release-engine.cjs');const s=require('fs').readFileSync(0,'utf8').split(/\\s+/).filter(Boolean);const n=s.reduce((l,v)=>e.compareBuilds(v,l)>0?v:l,'');process.stdout.write(n)" || true)
           if [ -n "$prevtag" ] && git rev-parse "$prevtag" >/dev/null 2>&1; then
             git log --no-merges --pretty=%s "$prevtag..HEAD" > test-commits.txt
@@ -366,7 +378,10 @@ jobs:
           # The manifest lists the installer's block map, so it is uploaded too:
           # the next Test update can then download only what changed.
           [ -f "$setup.blockmap" ] && assets+=("$setup.blockmap")
-          gh release create "$tag" \
+          # Draft first, like an official release: nothing on the test channel
+          # is public until every asset matches the built file.
+          bash scripts/ci-publish-release.sh \
+            --tag "$tag" \
             --target "$(git rev-parse HEAD)" \
             --title "FRIDAY TEST $version" \
             --notes-file test-notes.md \

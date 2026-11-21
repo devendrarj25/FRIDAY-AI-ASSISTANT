@@ -112,7 +112,9 @@ describe("no workflow ever rewrites history", () => {
 
   it("creates the release branch with a plain push", () => {
     const wf = read(".github/workflows/release.yml");
-    expect(wf).toContain('git push origin "HEAD:$branch"');
+    // Authenticated for that one command (the checkout credential is gone before npm ci), never forced.
+    expect(wf).toContain('bash scripts/ci-git.sh push origin "HEAD:$branch"');
+    expect(wf).not.toMatch(/push[^\n]*(--force|\s-f\s|\+HEAD)/);
   });
 });
 
