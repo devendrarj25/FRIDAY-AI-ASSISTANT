@@ -27,7 +27,10 @@ describe("closing FRIDAY before an uninstall", () => {
 
   it("keeps the old rule: the installed executable and everything under the program folder", () => {
     expect(closer).toContain("$fridayExe");
-    expect(closer).toContain('StartsWith("$installRoot\\", [StringComparison]::OrdinalIgnoreCase)');
+    // The program folder is the first of the folders the script releases, and a path under any of them counts.
+    expect(closer).toContain("$roots = @($installRoot)");
+    expect(closer).toContain('StartsWith("$root\\", [StringComparison]::OrdinalIgnoreCase)');
+    expect(closer).toContain("Test-UnderRoots $_.ExecutablePath");
     expect(closer).toContain("'/T'");
   });
 

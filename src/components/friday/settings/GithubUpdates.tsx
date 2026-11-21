@@ -22,6 +22,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { desktopApi } from "@/lib/friday/desktop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
@@ -109,6 +110,14 @@ export function GithubUpdates() {
   const [connection, setConnection] = useState<GithubTest | null>(null);
   const [session, setSession] = useState<GithubConnection>({ state: "unknown" });
   const [busy, setBusy] = useState<string | null>(null);
+  // The portable EXE updates by replacing itself with the new Portable file; it never runs the Setup installer.
+  const [portable, setPortable] = useState(false);
+  useEffect(() => {
+    void desktopApi()
+      ?.paths?.()
+      .then((info) => setPortable(Boolean(info?.portable)))
+      .catch(() => undefined);
+  }, []);
   const [pipeline, setPipeline] = useState<PipelineState>("idle");
   const [packRollback, setPackRollback] = useState<{ backup: string; target: string } | null>(null);
   // Download/install feedback: live progress, the error that stopped it, and
@@ -249,7 +258,11 @@ export function GithubUpdates() {
     if (started.launched) {
       setPipeline("installing");
       setProgress({ phase: "Installing", percent: 100 });
-      toast.success("Verified and backed up — FRIDAY will close and reopen updated.");
+      toast.success(
+        portable
+          ? "Verified and backed up — the new portable FRIDAY opens beside this one and this one closes. The old file stays so you can go back."
+          : "Verified and backed up — FRIDAY will close and reopen updated.",
+      );
       return;
     }
     if (started.staged) {
@@ -700,7 +713,13 @@ export function GithubUpdates() {
               }
             >
               <PackageCheck className={busy === "installer" ? "size-4 animate-pulse" : "size-4"} />{" "}
-              {check?.testBuild ? "Install TEST build" : "Install new EXE"}
+              {portable
+                ? check?.testBuild
+                  ? "Update to the TEST portable"
+                  : "Update the portable EXE"
+                : check?.testBuild
+                  ? "Install TEST build"
+                  : "Install new EXE"}
             </Button>
           ) : null}
           {check?.staged && check?.updateAvailable ? (

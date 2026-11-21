@@ -8,12 +8,16 @@ const http = require("node:http");
 const net = require("node:net");
 
 const DEFAULT_KERNEL_PORT = 8765;
+// The portable EXE has its own default, so it can run beside an installed FRIDAY (which keeps 8765).
+const PORTABLE_KERNEL_PORT = 8766;
 
 function initialPort(env = process.env) {
   const raw = String((env && env.FRIDAY_KERNEL_PORT) || "").trim();
   const port = Number(raw);
   if (Number.isInteger(port) && port > 0 && port < 65536) return port;
-  return DEFAULT_KERNEL_PORT;
+  return String((env && env.PORTABLE_EXECUTABLE_FILE) || "").trim()
+    ? PORTABLE_KERNEL_PORT
+    : DEFAULT_KERNEL_PORT;
 }
 
 function pickFreePort() {
@@ -77,6 +81,7 @@ function probeFriday(port, timeoutMs = 400) {
 
 module.exports = {
   DEFAULT_KERNEL_PORT,
+  PORTABLE_KERNEL_PORT,
   initialPort,
   pickFreePort,
   classifyKernelExit,

@@ -59,12 +59,19 @@ const sha256 = (file) => crypto.createHash("sha256").update(fs.readFileSync(file
  * manifest the artifact is reported unverified and the caller must ask the
  * owner explicitly instead of installing silently.
  */
-function verifyArtifact({ file, expected, version, currentVersion, channelSwitch = false }) {
+function verifyArtifact({
+  file,
+  expected,
+  version,
+  currentVersion,
+  channelSwitch = false,
+  actual: known = "",
+}) {
   if (!file || !fs.existsSync(file)) return { ok: false, error: "The downloaded file is missing." };
   const bytes = fs.statSync(file).size;
   if (bytes < 1024 * 1024)
     return { ok: false, error: "The downloaded installer is too small to be a FRIDAY build." };
-  const actual = sha256(file);
+  const actual = known || sha256(file);
   if (expected && actual.toLowerCase() !== String(expected).toLowerCase()) {
     return {
       ok: false,
@@ -88,6 +95,33 @@ function verifyArtifact({ file, expected, version, currentVersion, channelSwitch
     verified: Boolean(expected),
     channelSwitch: Boolean(channelSwitch),
   };
+}
+
+/** SHA-256 of a file read in chunks: a 300 MB installer is never held in memory or read on the main thread's turn. */
+function sha256Async(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    fs.createReadStream(file)
+      .on("data", (chunk) => hash.update(chunk))
+      .on("error", reject)
+      .on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/**
+ * Same checks as `verifyArtifact`, with the hash computed while the window stays responsive. This is the one the
+ * update handler uses; a file that cannot be read falls back to the checks of the synchronous version.
+ */
+async function verifyArtifactAsync(input) {
+  let actual = "";
+  try {
+    if (input.file && fs.existsSync(input.file) && fs.statSync(input.file).size >= 1024 * 1024) {
+      actual = await sha256Async(input.file);
+    }
+  } catch {
+    actual = "";
+  }
+  return verifyArtifact({ ...input, actual });
 }
 
 // ------------------------------------------------------------------ backup --
@@ -448,6 +482,8 @@ module.exports = {
   pruneBackups,
   installerLaunch,
   verifyArtifact,
+  verifyArtifactAsync,
+  sha256Async,
   backupState,
   backupStateAsync,
   beginInstall,

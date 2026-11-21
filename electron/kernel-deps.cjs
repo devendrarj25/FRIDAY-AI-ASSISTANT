@@ -148,4 +148,68 @@ async function syncKernelDeps({
   return { ok: false, error };
 }
 
-module.exports = { hashRequirements, status, syncKernelDeps, runPip, STAMP };
+/** The packages the kernel cannot start without. */
+const CORE_IMPORTS = "import fastapi, uvicorn, httpx, pydantic, yaml";
+
+/** Real check: can this interpreter import the kernel's core packages? Resolves a boolean and never throws. */
+function canImportCore(python, run = runPip) {
+  return run(python.exe, [...(python.prefix || []), "-c", CORE_IMPORTS], {
+    timeoutMs: 60_000,
+  }).then((result) => result.code === 0);
+}
+
+/**
+ * First start of a fresh Python (the portable EXE's own, in its own folder): the kernel cannot start until its core
+ * packages are installed, and waiting for the idle task after the boot meant a broken first start and a restart.
+ * Installs `requirements.txt` now when the core packages do not import, then checks again. Never throws.
+ * Returns { ok, ready, installed?, error? }.
+ */
+async function ensureCoreImportable({ root, file, python, run = runPip, log = () => {} }) {
+  if (!python?.exe) return { ok: false, ready: false, error: "no managed Python found" };
+  if (!file || !fs.existsSync(file)) return { ok: false, ready: false, error: "no requirements" };
+  if (await canImportCore(python, run)) return { ok: true, ready: true, installed: false };
+  log("kernel packages: the core packages do not import, running pip install -r");
+  const result = await run(python.exe, [
+    ...(python.prefix || []),
+    "-m",
+    "pip",
+    "install",
+    "--disable-pip-version-check",
+    "--prefer-binary",
+    "-r",
+    file,
+  ]);
+  if (result.code !== 0) {
+    const error = String(result.out || `pip exited with ${result.code}`)
+      .trim()
+      .slice(-600);
+    log(`kernel packages: failed — ${error.split("\n").pop()}`);
+    return { ok: false, ready: false, installed: false, error };
+  }
+  const ready = await canImportCore(python, run);
+  if (ready && root) {
+    writeStamp(root, {
+      hash: hashRequirements(file),
+      at: Date.now(),
+      python: python.executable || python.exe,
+    });
+  }
+  log(ready ? "kernel packages: installed" : "kernel packages: installed but still not importable");
+  return {
+    ok: ready,
+    ready,
+    installed: true,
+    ...(ready ? {} : { error: "the packages installed but the kernel still cannot import them" }),
+  };
+}
+
+module.exports = {
+  hashRequirements,
+  status,
+  syncKernelDeps,
+  ensureCoreImportable,
+  canImportCore,
+  runPip,
+  CORE_IMPORTS,
+  STAMP,
+};

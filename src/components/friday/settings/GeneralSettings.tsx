@@ -28,13 +28,32 @@ export function GeneralSettings() {
   const field = (k: string) => prefs.fields[k] ?? "";
   const setField = (k: string) => (value: string) => preferences.setField(k, value);
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
+  // The portable EXE is a program you run, not an installation: it never starts at sign-in and never stays in the tray
+  // or the background after its window is closed. Those switches show off and say why; the saved preferences, which
+  // an installed FRIDAY in the same folder reads, are not touched.
+  const [portable, setPortable] = useState(false);
+  const [portableHome, setPortableHome] = useState("");
+  const installedOnly = "Setup install only";
 
   useEffect(() => {
     const api = desktopApi() as StartupBridge | null;
-    if (!api?.getStartWithWindows) return;
-    void api.getStartWithWindows().then((on) => {
-      if (typeof on === "boolean") preferences.setToggle("startup", on);
-    });
+    const read = () => {
+      void api?.getStartWithWindows?.().then((on) => {
+        if (typeof on === "boolean") preferences.setToggle("startup", on);
+      });
+    };
+    // Only an installed FRIDAY mirrors the Windows sign-in entry into the saved preference.
+    const info = desktopApi()?.paths?.();
+    if (info) {
+      void info
+        .then((value) => {
+          if (value?.portable) {
+            setPortable(true);
+            setPortableHome(value.portableHome ?? "");
+          } else read();
+        })
+        .catch(read);
+    } else read();
     void githubConfig().then((cfg) => {
       preferences.setToggle("updateCheck", Boolean(cfg.autoCheck));
       preferences.setToggle("autoUpdate", Boolean(cfg.autoApply));
@@ -58,6 +77,12 @@ export function GeneralSettings() {
   };
 
   const flipStartup = () => {
+    if (portable) {
+      toast.info(
+        "The portable FRIDAY runs only while it is open. Install with Setup to start at sign-in.",
+      );
+      return;
+    }
     const next = !isOn("startup");
     preferences.setToggle("startup", next);
     const api = desktopApi() as StartupBridge | null;
@@ -100,23 +125,33 @@ export function GeneralSettings() {
   return (
     <>
       <HudPanel title="General Settings">
+        {portable ? (
+          <p className="mb-2 text-note text-muted-foreground">
+            This is the portable FRIDAY. It keeps its own settings and data
+            {portableHome ? ` in ${portableHome}` : ""}, so an installed FRIDAY on this PC is not
+            touched, and it runs only while its window is open.
+          </p>
+        ) : null}
         <ToggleRow
           label="Start Friday on system startup"
-          on={isOn("startup")}
+          {...(portable ? { hint: installedOnly } : {})}
+          on={!portable && isOn("startup")}
           onToggle={flipStartup}
         />
         <ToggleRow
           label="Launch minimized to the tray"
-          on={isOn("launchMinimized")}
-          onToggle={() => flip("launchMinimized")}
+          {...(portable ? { hint: installedOnly } : {})}
+          on={!portable && isOn("launchMinimized")}
+          onToggle={() => (portable ? flipStartup() : flip("launchMinimized"))}
         />
         <p className="mb-2 text-note text-muted-foreground">
           Needs Minimize to system tray. The tray icon still opens FRIDAY.
         </p>
         <ToggleRow
           label="Minimize to system tray"
-          on={isOn("tray")}
-          onToggle={() => flip("tray")}
+          {...(portable ? { hint: installedOnly } : {})}
+          on={!portable && isOn("tray")}
+          onToggle={() => (portable ? flipStartup() : flip("tray"))}
         />
         <ToggleRow
           label="Run background services"

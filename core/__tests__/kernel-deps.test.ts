@@ -144,3 +144,77 @@ describe("wired into the installed app only", () => {
     expect(main).toContain("New Python packages were installed for this version");
   });
 });
+
+describe("the first start of the portable EXE's own Python", () => {
+  /** A fake interpreter: the core import fails until `pip install` has run, as in a fresh embedded Python. */
+  const fresh = (pipExit = 0) => {
+    const calls: string[][] = [];
+    let installed = false;
+    const run = async (_exe: string, args: string[]) => {
+      calls.push(args);
+      if (args.includes("pip")) {
+        if (pipExit === 0) installed = true;
+        return {
+          code: pipExit,
+          out: pipExit === 0 ? "ok" : "no network\nERROR: could not reach pypi",
+        };
+      }
+      return { code: installed ? 0 : 1, out: "" };
+    };
+    return { calls, run };
+  };
+
+  it("installs requirements.txt when the core packages do not import, checks again and records it", async () => {
+    write("fastapi>=0.1\nuvicorn\n");
+    const { calls, run } = fresh();
+    const out = await deps.ensureCoreImportable({ root, file, python, run });
+    expect(out).toMatchObject({ ok: true, ready: true, installed: true });
+    expect(calls.map((c) => (c.includes("pip") ? "pip" : "import"))).toEqual([
+      "import",
+      "pip",
+      "import",
+    ]);
+    expect(calls[1]).toEqual(expect.arrayContaining(["-3", "-m", "pip", "install", "-r", file]));
+    expect(deps.status({ root, file }).needed).toBe(false);
+  });
+
+  it("does nothing when the core packages already import", async () => {
+    write("fastapi\n");
+    const calls: string[][] = [];
+    const run = async (_exe: string, args: string[]) => {
+      calls.push(args);
+      return { code: 0, out: "" };
+    };
+    const out = await deps.ensureCoreImportable({ root, file, python, run });
+    expect(out).toMatchObject({ ok: true, ready: true, installed: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("reports the reason when pip fails, and never throws", async () => {
+    write("fastapi\n");
+    const { run } = fresh(1);
+    const out = await deps.ensureCoreImportable({ root, file, python, run });
+    expect(out.ok).toBe(false);
+    expect(out.ready).toBe(false);
+    expect(out.error).toContain("could not reach pypi");
+    expect(await deps.ensureCoreImportable({ root, file: "", python, run })).toMatchObject({
+      ok: false,
+    });
+    expect(await deps.ensureCoreImportable({ root, file, python: null, run })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("main.cjs prepares the portable Python before the kernel starts, with a line on the boot screen", () => {
+    const main = fs.readFileSync(
+      path.resolve(import.meta.dirname, "../../electron/main.cjs"),
+      "utf8",
+    );
+    const spawnAt = main.indexOf("kernel = spawn(python, [...pythonPrefix, entry]");
+    const prep = main.indexOf("await preparePortablePython(root, resolvedPython, resourcePaths);");
+    expect(prep).toBeGreaterThan(-1);
+    expect(prep).toBeLessThan(spawnAt);
+    expect(main).toContain("if (PORTABLE_RUN && resolvedPython && app.isPackaged)");
+    expect(main).toContain('"Preparing the portable Python environment"');
+  });
+});

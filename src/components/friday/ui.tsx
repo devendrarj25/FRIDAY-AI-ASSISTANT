@@ -224,11 +224,13 @@ export function useSlidingThumb(active: string | number) {
       }
       // Width and height follow the selected item, and the thumb moves on
       // both axes so a wrapped tab list (FilterTabs wrap) works too.
-      thumb.style.width = `${el.offsetWidth}px`;
-      thumb.style.height = `${el.offsetHeight}px`;
+      // Read every size first, then write: a read after a write made the browser lay the page out again for each one.
+      const { offsetWidth, offsetHeight, offsetLeft, offsetTop } = el;
+      thumb.style.width = `${offsetWidth}px`;
+      thumb.style.height = `${offsetHeight}px`;
       thumb.style.top = "0px";
       thumb.style.bottom = "auto";
-      thumb.style.transform = `translate(${el.offsetLeft}px, ${el.offsetTop}px)`;
+      thumb.style.transform = `translate(${offsetLeft}px, ${offsetTop}px)`;
     };
     place();
     if (typeof ResizeObserver === "undefined") return;

@@ -14,10 +14,16 @@
  *      at every sign-in. The value is now named `FRIDAY`, and the old name is removed whenever the entry is
  *      written or cleared.
  *
+ * A portable build is a program you run, not an installation: it never writes the sign-in entry, never starts at
+ * sign-in and never stays in the background after its window is closed (`isPortable`, `release`). An entry an earlier
+ * build wrote for the portable file is removed the next time the portable build runs; an installed copy's entry
+ * points at its own program and is never touched.
+ *
  * Electron reports `openAtLogin` for a Windows entry only when `path` and `args` match, so the same options
  * are passed to the read. An entry written by an older build (no arguments) still counts as enabled and is
  * rewritten once by `migrate`.
  */
+const { isPortable } = require("./portable-data.cjs");
 const LOGIN_ARG = "--friday-login";
 const VALUE_NAME = "FRIDAY";
 const LEGACY_VALUE_NAME = "dev.friday.desk";
@@ -72,6 +78,17 @@ function migrate(app, ctx = {}) {
   return true;
 }
 
+/**
+ * Portable only: removes a sign-in entry that points at this portable file (written by an earlier build).
+ * An entry for an installed copy has another path, so it does not match and stays. Returns true when it removed one.
+ */
+function release(app, ctx = {}) {
+  if (!isPortable(ctx.env)) return false;
+  if (!isEnabled(app, ctx)) return false;
+  setEnabled(app, false, ctx);
+  return true;
+}
+
 /** True when this launch came from the sign-in entry (Windows: the argument; macOS: the OS flag). */
 function startedAtLogin(argv = process.argv, settings = null) {
   if (Array.isArray(argv) && argv.includes(LOGIN_ARG)) return true;
@@ -82,6 +99,8 @@ module.exports = {
   LOGIN_ARG,
   VALUE_NAME,
   LEGACY_VALUE_NAME,
+  isPortable,
+  release,
   options,
   hasCurrent,
   hasLegacy,

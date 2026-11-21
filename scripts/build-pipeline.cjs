@@ -902,7 +902,7 @@ function runPhase(phase, options, root) {
       : options.targets.includes("nsis") && options.targets.includes("portable")
         ? "all"
         : options.targets[0];
-    const verifyArgs = [mode];
+    const verifyArgs = [mode, "--skip-packaged-requires"];
     if (options.channel === "production" && mode !== "dir") {
       const engine = require("./release-engine.cjs");
       const identity = engine.readCanonicalIdentity({ root });

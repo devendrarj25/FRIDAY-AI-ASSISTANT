@@ -70,6 +70,9 @@ describe("to-do store", () => {
   it("persists through the one state path and reloads", async () => {
     const { personalDesk, store } = await freshDesk();
     personalDesk.add("survive a restart");
+    // The browser copy is written a moment after the change (a burst is one write); leaving the page writes it now.
+    const { flushPendingState } = await import("../../src/lib/friday/persist");
+    flushPendingState();
     const saved = [...store.entries()].find(([key]) => key.includes("personal-desk"));
     expect(saved?.[1]).toContain("survive a restart");
   });

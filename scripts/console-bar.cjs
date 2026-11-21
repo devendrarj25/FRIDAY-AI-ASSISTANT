@@ -49,6 +49,9 @@ function plainBarOf(fraction, total) {
   return `${"#".repeat(lit)}${"-".repeat(total - lit)}`;
 }
 
+const MAX_CELLS = 40;
+const STANDARD_CELLS = 24;
+
 /**
  * A bar drawn by a tool in text (`[#####-----]`, `[=====>     ]`, `[!!!!!]`) becomes one solid coloured line. Only a bar
  * of ten cells or more is touched, so a word in brackets is never mistaken for one. The words around it stay as they are.
@@ -57,6 +60,18 @@ function recolorBars(text) {
   return String(text).replace(/\[([#=!>]*)([ \-.]*)\]/g, (all, filled, rest) => {
     const total = filled.length + rest.length;
     if (total < 10) return all;
+    // A tool that sizes its bar to the window (electron-builder's download bar is 80 to 90 cells) gets the same width as
+    // every other bar, so the line neither wraps nor looks different.
+    if (total > MAX_CELLS) {
+      const tone = filled.startsWith("!")
+        ? "failed"
+        : filled.length === 0
+          ? "waiting"
+          : rest.length === 0
+            ? "done"
+            : "running";
+      return solidBar((filled.length / total) * STANDARD_CELLS, STANDARD_CELLS, tone);
+    }
     const tone = filled.startsWith("!")
       ? "failed"
       : filled.length === 0

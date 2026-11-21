@@ -478,6 +478,15 @@ function AppShellChrome({ children }: { children: ReactNode }) {
           publish();
         });
     };
+    // Seven stores notify this on their own schedules (a streaming run, a health tick, a voice level). Building and
+    // comparing the whole snapshot for each notification was a steady cost; a burst is published once.
+    let publishTimer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePublish = () => {
+      publishTimer ??= setTimeout(() => {
+        publishTimer = null;
+        publish();
+      }, 250);
+    };
     publish();
     refreshRemote();
     const offRemote = livePoller().subscribe(
@@ -487,14 +496,15 @@ function AppShellChrome({ children }: { children: ReactNode }) {
       undefined,
       false,
     );
-    const offCap = capabilityRegistry.subscribe(publish);
-    const offDoc = doctor.subscribe(publish);
-    const offVoice = assistantMode.subscribe(publish);
-    const offUsage = usageRegistry.subscribe(publish);
-    const offBrain = brain.subscribe(publish);
-    const offLibrary = library.subscribe(publish);
-    const offProjects = projectWorkspaces.subscribe(publish);
+    const offCap = capabilityRegistry.subscribe(schedulePublish);
+    const offDoc = doctor.subscribe(schedulePublish);
+    const offVoice = assistantMode.subscribe(schedulePublish);
+    const offUsage = usageRegistry.subscribe(schedulePublish);
+    const offBrain = brain.subscribe(schedulePublish);
+    const offLibrary = library.subscribe(schedulePublish);
+    const offProjects = projectWorkspaces.subscribe(schedulePublish);
     return () => {
+      if (publishTimer) clearTimeout(publishTimer);
       offRemote();
       offCap();
       offDoc();

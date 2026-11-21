@@ -144,7 +144,7 @@ Function FridayRootPageCreate
 
   ${NSD_CreateLabel} 0 0 100% 32u \
     "FRIDAY installs into <folder>\App and keeps your database, memory, models, \
-agents, skills, plugins and workflows in sibling folders under the same root. \
+agents, skills, plugins, workflows and Python environment in sibling folders under the same root. \
 An existing FRIDAY folder is detected and reused - nothing inside it is deleted \
 or overwritten, and it survives a normal uninstall."
   Pop $0
@@ -223,6 +223,18 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; A folder that OneDrive keeps in sync is allowed but slow and fragile: FRIDAY writes a database, a Python environment
+; of tens of thousands of small files and multi-gigabyte models there, and the sync client locks and re-uploads them.
+; Ask once, with "No" as the default, so the owner picks a plain local folder unless they mean it.
+!macro FridayWarnSynced Prefix Label
+  StrLen $1 "${Prefix}"
+  StrCpy $2 "$FridayRoot" $1
+  ${If} $2 == "${Prefix}"
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "This folder is inside ${Label}, which keeps it in sync.$\r$\nFRIDAY writes a database, thousands of small files and multi-gigabyte models there; syncing makes it slow and can lock files.$\r$\n$\r$\nUse it anyway? Choose No to pick a plain local folder such as $PROFILE\FRIDAY or D:\FRIDAY." IDYES +2
+    Abort
+  ${EndIf}
+!macroend
+
 Function FridayRootPageLeave
   ${NSD_GetText} $FridayRootText $FridayRoot
   ${If} $FridayRoot == ""
@@ -233,6 +245,7 @@ Function FridayRootPageLeave
   !insertmacro FridayRejectProtected "$PROGRAMFILES" "Program Files"
   !insertmacro FridayRejectProtected "$PROGRAMFILES64" "Program Files"
   !insertmacro FridayRejectProtected "$WINDIR" "the Windows folder"
+  !insertmacro FridayWarnSynced "$PROFILE\OneDrive" "OneDrive"
 
   ; Picking the program folder of an existing installation means the root is
   ; its parent — never install FRIDAY into <root>\App\App. Plain string work
@@ -252,10 +265,11 @@ Function FridayRootPageLeave
     StrCpy $FridayRoot "$FridayRoot\FRIDAY"
   ${EndIf}
 
-  ; The one decision of this page: root chosen, program folder derived from it.
+  ; The one decision of this page: root chosen, program folder derived from it. The registry pointer is written by
+  ; customInstall, once the files are really being installed: writing it here moved an already installed FRIDAY onto
+  ; the new (empty) folder when the owner pressed Cancel on the next page, because the app reads that pointer first.
   CreateDirectory "$FridayRoot"
   StrCpy $INSTDIR "$FridayRoot\App"
-  WriteRegStr HKCU "Software\FRIDAY" "WorkspacePath" "$FridayRoot"
 FunctionEnd
 
 
@@ -506,6 +520,15 @@ FunctionEnd
           Pop $0
           DetailPrint "Source checkout cleanup finished with code $0 (your source files were not touched)."
         ${Else}
+          ; Stop everything that runs from the FRIDAY folder or stands in it (a runner, Ollama started by FRIDAY, a
+          ; leftover Python): a program whose current directory is inside the folder keeps it alive, and Windows then
+          ; answers "try again" even after every file is gone. Shells and editors of the owner are left alone.
+          DetailPrint "Stopping everything that uses $FridayUnRoot ..."
+          ${If} ${FileExists} "$INSTDIR\resources\installer\build\close-friday.ps1"
+            nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\installer\build\close-friday.ps1" -InstallDir "$INSTDIR" -ReleaseRoot "$FridayUnRoot"'
+            Pop $0
+            DetailPrint "Stopped the programs using the FRIDAY folder (code $0)."
+          ${EndIf}
           DetailPrint "Deleting all FRIDAY data in $FridayUnRoot (explicitly requested)..."
           RMDir /r "$FridayUnRoot"
         ${EndIf}
@@ -549,6 +572,8 @@ FunctionEnd
   ${EndIf}
 
   ; Application-only leftovers: removed by BOTH modes, never user content.
+  ; The "High performance" graphics choice FRIDAY set for its own program (Windows Graphics settings).
+  DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
   RMDir /r "$LOCALAPPDATA\friday-cache"
   RMDir /r "$LOCALAPPDATA\friday-updater"
   ; Run markers of the copy being removed, kept in the app's user-data folder: a software-drawing fallback decided
@@ -666,7 +691,7 @@ Function un.FridayDataPageLeave
           /SD IDNO IDYES friday_confirm_delete
       ${Else}
         MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
-          "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nThis cannot be undone. Delete all FRIDAY data?" \
+          "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nFRIDAY and every program running from that folder are stopped first, and the folder itself is removed.$\r$\nThis cannot be undone. Delete all FRIDAY data?" \
           /SD IDNO IDYES friday_confirm_delete
       ${EndIf}
       Abort

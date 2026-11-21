@@ -189,6 +189,25 @@ process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reaso
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
 
+// The portable EXE keeps its own settings, FRIDAY folder, lock, kernel port and updates (electron/portable-data.cjs), so
+// it can run beside an installed FRIDAY without touching it. This must run before anything reads `userData`, asks for
+// the single-instance lock or registers a window.
+const portableData = require("./portable-data.cjs");
+const portableMode = portableData.prepare(app, process.env);
+const PORTABLE_RUN = portableMode.portable;
+
+// The shortcut starts FRIDAY with the program folder as its current directory, and every program FRIDAY starts and
+// leaves running (Ollama, a runner, a tool service) inherited it. Such a program keeps `<root>\App`, and with it the
+// FRIDAY folder, from being deleted after an uninstall or an update ("try again" in Explorer even when every file is
+// gone). A packaged FRIDAY stands in the system temp folder instead; nothing in it reads its own current directory.
+if (app.isPackaged) {
+  try {
+    process.chdir(require("node:os").tmpdir());
+  } catch {
+    /* the folder it started in stays; the uninstaller still releases it */
+  }
+}
+
 // Everything below loads from V8's code cache after the first start: parsing and compiling the main process and its
 // modules was a fixed cost of every double-click. The cache lives in the app's own data folder; a missing or unwritable
 // folder just means no cache.
@@ -302,6 +321,8 @@ if (
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const loginItem = require("./login-item.cjs");
+// The portable EXE is a program you run, not an installation: no start at sign-in, no staying in the tray or the
+// background after its window is closed. The installed (Setup) FRIDAY keeps all of these, as its settings say.
 const bootPlan = require("./boot-plan.cjs");
 const gpuStatus = require("./gpu-status.cjs");
 const processPriority = require("./process-priority.cjs");
@@ -793,9 +814,19 @@ app.commandLine.appendSwitch(
   "CalculateNativeWinOcclusion,WinUseBrowserSpellChecker,HardwareMediaKeyHandling",
 );
 
+// FRIDAY listens, speaks and works for the owner while her window is hidden in the tray, minimized or behind another
+// window. Chromium lowers the priority of such a window's renderer and slows its timers; the page already opts out of
+// throttling (`backgroundThrottling: false`), and these switches opt the whole renderer out, so wake word, voice
+// activity, streaming speech and the live task view keep their pace. The harness runs keep the defaults.
+if (!process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_READINESS !== "1") {
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+  app.commandLine.appendSwitch("disable-background-timer-throttling");
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+}
+
 // Windows groups the taskbar icon and the installed shortcut by this id — with
 // the default id the app is filed under "Electron" instead of FRIDAY.
-app.setAppUserModelId("dev.friday.desk");
+app.setAppUserModelId(portableData.appUserModelId("dev.friday.desk"));
 
 // ---- Diagnostics -----------------------------------------------------------
 // A packaged app that throws before its first window would otherwise exit with
@@ -1070,6 +1101,8 @@ function writeSettings(next) {
 
 // The installer writes the chosen workspace to HKCU\Software\FRIDAY.
 function readRegistryWorkspace() {
+  // The pointer belongs to the installed FRIDAY; the portable EXE has its own folder and never reads it.
+  if (PORTABLE_RUN) return Promise.resolve(null);
   if (process.platform !== "win32") return null;
   return new Promise((resolve) => {
     let settled = false;
@@ -1098,6 +1131,8 @@ function readRegistryWorkspace() {
 }
 
 function writeRegistryWorkspace(root) {
+  // ...and never overwrites it: that would move the installed FRIDAY onto the portable one's data.
+  if (PORTABLE_RUN) return;
   if (process.platform !== "win32") return;
   execFile(
     "reg",
@@ -1160,6 +1195,14 @@ async function resolveWorkspaceRoot() {
   }
   const stored = settled(readSettings().workspaceRoot);
   if (stored) return publish(stored);
+  // The portable EXE has its own FRIDAY folder beside its settings, so it never has to ask.
+  if (PORTABLE_RUN && portableMode.root) {
+    const own = usable(portableMode.root);
+    if (own) {
+      writeSettings({ ...readSettings(), workspaceRoot: own });
+      return publish(own);
+    }
+  }
   // No invented default: first run must ask for a folder.
   return publish(null);
 }
@@ -1465,6 +1508,8 @@ function noteStartup(milestone) {
 
 /** True when this launch came from the sign-in entry: `--friday-login` on Windows, the OS flag on macOS. */
 function loginLaunchHidden() {
+  // A portable FRIDAY never starts at sign-in, so a leftover marker never keeps its window hidden.
+  if (PORTABLE_RUN) return false;
   let settings = null;
   try {
     settings = app.getLoginItemSettings();
@@ -1517,6 +1562,23 @@ function healStaleBootState(root) {
   }
 }
 
+/** First start of the portable EXE: install the kernel's packages into its own Python, with progress. Never throws. */
+async function preparePortablePython(root, python, resourcePaths) {
+  const label = "Preparing the portable Python environment";
+  try {
+    const kernelDeps = require("./kernel-deps.cjs");
+    const file = resourcePaths.resolveResourceFile("kernel/requirements.txt");
+    if (!file) return;
+    if (await kernelDeps.canImportCore(python)) return;
+    boot(label, "ok", "first start: installing FRIDAY's Python packages (needs the internet)");
+    const out = await kernelDeps.ensureCoreImportable({ root, file, python, log });
+    if (out.ready) boot(label, "ok", "FRIDAY's Python packages are installed");
+    else boot(label, "warn", out.error ? String(out.error).split("\n").pop() : "not finished");
+  } catch (error) {
+    log(`portable Python preparation: ${error?.message || error}`);
+  }
+}
+
 async function startKernel(root) {
   kernelBootPending = true;
   try {
@@ -1547,7 +1609,9 @@ async function startKernelNow(root) {
   if (process.env.FRIDAY_READINESS === "1") {
     KERNEL_PORT = kernelBind.initialPort(process.env);
   } else if (await portBusy(KERNEL_PORT)) {
-    const own = await kernelBind.probeFriday(KERNEL_PORT);
+    // The portable EXE never adopts a kernel that is already running: it would be another FRIDAY's, with another
+    // database. It takes a free port instead.
+    const own = PORTABLE_RUN ? false : await kernelBind.probeFriday(KERNEL_PORT);
     if (!own) {
       const next = await kernelBind.pickFreePort();
       log(`kernel port ${KERNEL_PORT} is held by another program; using ${next}`);
@@ -1569,6 +1633,11 @@ async function startKernelNow(root) {
 
   const resourcePaths = require("./resource-paths.cjs");
   const entry = resourcePaths.resolveResourceFile("kernel/main.py") || "";
+  // The portable EXE starts with an empty folder of its own, so its Python has no packages yet: they are installed now,
+  // before the kernel starts and with a line on the boot screen, not minutes later in the background.
+  if (PORTABLE_RUN && resolvedPython && app.isPackaged) {
+    await preparePortablePython(root, resolvedPython, resourcePaths);
+  }
   const kernelConfigDir = ensureKernelConfigDir();
 
   kernelReady = false;
@@ -4178,7 +4247,7 @@ function createWindow() {
     // (tray menu / Advanced) is still the explicit full exit.
     if (!app.__fridayQuitting) {
       event.preventDefault();
-      const closeToTray = ownerPrefToggle("tray", true);
+      const closeToTray = !PORTABLE_RUN && ownerPrefToggle("tray", true);
       const confirm = ownerPrefToggle("confirmExit", true) && Boolean(app.__fridayBusy);
       const finish = () => {
         if (closeToTray) life.hideToBackground();
@@ -4232,7 +4301,11 @@ function createWindow() {
         // Maximize can fail on odd display configurations — show anyway.
       }
     }
-    if (ownerPrefToggle("launchMinimized", false) && ownerPrefToggle("tray", true)) {
+    if (
+      !PORTABLE_RUN &&
+      ownerPrefToggle("launchMinimized", false) &&
+      ownerPrefToggle("tray", true)
+    ) {
       stayHiddenOnLaunch = true;
       earlySplash.close();
       life.hideToBackground();
@@ -4461,6 +4534,13 @@ ipcMain.handle("window:state", () => {
 // hides FRIDAY into the tray, it does NOT end her. Only "Quit FRIDAY" (tray
 // menu or Settings) really stops the process — see quitFriday() below.
 ipcMain.on("window:close", () => {
+  // The portable EXE has no background: the X button closes the window, which asks first when tasks run and then quits.
+  if (PORTABLE_RUN) {
+    const target = liveWin();
+    if (target) target.close();
+    else void life.requestShutdown("window-close");
+    return;
+  }
   life.hideToBackground();
 });
 
@@ -4752,7 +4832,10 @@ function quitFriday() {
 }
 
 ipcMain.on("window:show", () => showFridayWindow());
-ipcMain.on("window:hide", () => life.hideToBackground());
+ipcMain.on("window:hide", () => {
+  if (PORTABLE_RUN) liveWin()?.minimize();
+  else life.hideToBackground();
+});
 ipcMain.handle("app:quit", () => {
   quitFriday();
   return true;
@@ -5377,6 +5460,8 @@ ipcMain.handle("app:paths", () => ({
   canonical: paths.describe(),
   checkout: paths.checkoutGuard(getWorkspaceRoot()),
   kernelPort: KERNEL_PORT,
+  portable: PORTABLE_RUN,
+  portableHome: portableMode.home || "",
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
 // Why this launch is a launch and which stages the boot screen waits for (fixed before the window exists).
@@ -5515,7 +5600,11 @@ function applyOwnerPreferenceEffects(value) {
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
     // The sign-in entry is written to the registry: only when the choice changed, not on every settings save.
-    if (typeof toggles.startup === "boolean" && toggles.startup !== appliedStartupChoice) {
+    if (
+      !PORTABLE_RUN &&
+      typeof toggles.startup === "boolean" &&
+      toggles.startup !== appliedStartupChoice
+    ) {
       appliedStartupChoice = toggles.startup;
       loginItem.setEnabled(app, Boolean(toggles.startup));
     }
@@ -6864,7 +6953,7 @@ ipcMain.handle("updates:apply", (_e, update) =>
       if (!check?.ok) {
         return { ok: false, error: check?.error || "The release could not be read." };
       }
-      const asset = githubSync.installerAsset(check?.assets || []);
+      const asset = githubSync.installerAsset(check?.assets || [], { portable: PORTABLE_RUN });
       // Private releases often have an API asset URL and no anonymous browser URL.
       if (!asset?.url && !asset?.apiUrl) {
         return { ok: false, error: "This release does not publish a Windows installer." };
@@ -6942,8 +7031,10 @@ ipcMain.handle("app:confirm-restart", async (_e, reason) => {
   return true;
 });
 
-ipcMain.handle("startup:get", () => loginItem.isEnabled(app));
-ipcMain.handle("startup:set", (_e, enabled) => loginItem.setEnabled(app, Boolean(enabled)));
+ipcMain.handle("startup:get", () => (PORTABLE_RUN ? false : loginItem.isEnabled(app)));
+ipcMain.handle("startup:set", (_e, enabled) =>
+  PORTABLE_RUN ? false : loginItem.setEnabled(app, Boolean(enabled)),
+);
 
 // ---- Install Manager & Doctor ---------------------------------------------
 // All of this runs asynchronously in the main process; the renderer only ever
@@ -7479,19 +7570,23 @@ let installerDownload = null;
  */
 async function stageInstaller({ root, check, payload = {}, onProgress, signal }) {
   const pool = [...(check?.assets || []), ...(check?.otherChannel?.assets || [])];
-  const listed = githubSync.installerAsset(pool);
+  const listed = githubSync.installerAsset(pool, { portable: PORTABLE_RUN });
+  // The portable EXE only ever takes a Portable file: a Setup installer named by the page is ignored, never run.
+  const wanted = (a) => !PORTABLE_RUN || portableData.isPortableAsset(a.name);
   const matched =
-    pool.find((a) => payload?.name && a.name === payload.name) ||
-    pool.find((a) => payload?.url && (a.url === payload.url || a.apiUrl === payload.url)) ||
+    pool.find((a) => wanted(a) && payload?.name && a.name === payload.name) ||
+    pool.find(
+      (a) => wanted(a) && payload?.url && (a.url === payload.url || a.apiUrl === payload.url),
+    ) ||
     listed;
   const asset = {
     ...listed,
     ...matched,
-    url: payload?.url || matched?.url || listed?.url,
-    apiUrl: payload?.apiUrl || matched?.apiUrl || listed?.apiUrl,
-    id: payload?.id || matched?.id || listed?.id,
-    name: payload?.name || matched?.name || listed?.name,
-    bytes: payload?.bytes || matched?.bytes || listed?.bytes,
+    url: (!PORTABLE_RUN && payload?.url) || matched?.url || listed?.url,
+    apiUrl: (!PORTABLE_RUN && payload?.apiUrl) || matched?.apiUrl || listed?.apiUrl,
+    id: (!PORTABLE_RUN && payload?.id) || matched?.id || listed?.id,
+    name: (!PORTABLE_RUN && payload?.name) || matched?.name || listed?.name,
+    bytes: (!PORTABLE_RUN && payload?.bytes) || matched?.bytes || listed?.bytes,
   };
   if (!asset?.url && !asset?.apiUrl) {
     return {
@@ -7602,7 +7697,7 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
     };
   }
 
-  const verified = updateSafety.verifyArtifact({
+  const verified = await updateSafety.verifyArtifactAsync({
     file,
     expected: payload.sha256 || null,
     version: payload.version || null,
@@ -7620,6 +7715,12 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
       unverified: true,
       error: "This release publishes no checksum manifest. Confirm before installing.",
     };
+  }
+
+  // The portable EXE is replaced by the new Portable file, never by running the Setup installer (which would install a
+  // second FRIDAY on this PC and leave the portable one behind).
+  if (PORTABLE_RUN) {
+    return installPortableUpdate({ root, file, payload, verified, crossing, targetChannel });
   }
 
   // Release sqlite/python handles before copying `database/` and before NSIS
@@ -7681,6 +7782,63 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
   void life.requestShutdown("installer", { delayMs: 1200 });
   return { ok: true, launched: file, backup: backup.backup, verified: verified.verified };
 });
+
+/**
+ * Portable update: the verified Portable file is copied next to the running one (never over it), the data is backed up
+ * as for an installed update, the new file is started, and this one ends. The old file stays so the owner can go back
+ * to it. Nothing here runs an installer, writes the registry or touches an installed FRIDAY.
+ */
+async function installPortableUpdate({ root, file, payload, verified, crossing, targetChannel }) {
+  if (!portableData.isPortableAsset(path.basename(file))) {
+    return {
+      ok: false,
+      error:
+        "This is the Setup installer. The portable FRIDAY updates with the Portable file; download that one instead.",
+    };
+  }
+  const target = portableData.updateTarget({
+    file,
+    env: process.env,
+    fallbackDir: path.dirname(file),
+  });
+  if (!target) {
+    return {
+      ok: false,
+      error:
+        "This is the Portable file that is running now, or its folder cannot be written. Run the downloaded file from its own folder.",
+    };
+  }
+  await stopKernel();
+  const backup = await updateSafety.backupStateAsync({ root, version: payload.version });
+  if (!backup.ok) {
+    await resumeKernel("kernel resume after failed portable update backup");
+    return backup;
+  }
+  try {
+    if (path.resolve(target).toLowerCase() !== path.resolve(file).toLowerCase()) {
+      fs.copyFileSync(file, target);
+    }
+    const child = require("child_process").spawn(target, ["--friday-restart=1"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (error) {
+    await resumeKernel("kernel resume after portable update launch failure");
+    return { ok: false, error: String(error?.message || error) };
+  }
+  if (crossing) githubSync.writeStoredConfig(root, { updateChannel: targetChannel });
+  void life.requestShutdown("portable-update", { delayMs: 1200 });
+  return {
+    ok: true,
+    launched: target,
+    portable: true,
+    backup: backup.backup,
+    verified: verified.verified,
+  };
+}
 
 /** Pending/stable update state and the rollback the owner can trigger. */
 ipcMain.handle("github:update-state", () => {
@@ -7925,6 +8083,26 @@ app.whenReady().then(() => {
     readiness: false,
     run() {
       setTimeout(() => void reconnectGithub(), 9000);
+    },
+  });
+  startupTasks.register({
+    id: "gpu-preference",
+    phase: "idle",
+    timeoutMs: 1000,
+    readiness: false,
+    run() {
+      // Two graphics chips (a laptop): Windows lists the fast one first for FRIDAY from the next start on.
+      if (!app.isPackaged) return;
+      setTimeout(() => {
+        void require("./gpu-preference.cjs")
+          .ensureHighPerformance({
+            exe: app.getPath("exe"),
+            execFile,
+            portable: PORTABLE_RUN,
+            log,
+          })
+          .catch(() => undefined);
+      }, 6000);
     },
   });
   startupTasks.register({
@@ -9145,6 +9323,7 @@ function mcpLauncherSpec() {
     packaged: app.isPackaged,
     appPath: app.getAppPath(),
     execPath: process.execPath,
+    portable: PORTABLE_RUN,
   });
   return {
     command: launched.command,
@@ -9159,8 +9338,14 @@ ipcMain.handle("mcp:desk", async (_e, payload) => {
   const action = String(body.action || "status");
   if (action === "snippet") {
     const spec = mcpLauncherSpec();
+    // The portable EXE runs from a temporary folder that is removed when it exits, so the launcher path a client
+    // would keep is only good while this portable FRIDAY is open. Say so on every client.
+    const portableNote = PORTABLE_RUN
+      ? "This is the portable FRIDAY: the launcher path below exists only while it is open. For a client you keep, use the installed FRIDAY, or paste this again each time."
+      : "";
     const clients = mcpLaunch.clients(spec).map((row) => ({
       ...row,
+      ...(portableNote ? { note: [row.note, portableNote].filter(Boolean).join(" ") } : {}),
       text: typeof row.body === "string" ? row.body : JSON.stringify(row.body, null, 2),
     }));
     return { ok: true, clients, presets: mcpLaunch.PRESETS, launcher: spec.launcher };
@@ -9839,7 +10024,13 @@ app
     healStaleBootState(root);
     try {
       // An entry written by an older build had no sign-in marker (and, in a portable build, a dead path).
-      if (loginItem.migrate(app)) log("start at sign-in: rewrote the entry in its current form");
+      if (PORTABLE_RUN) {
+        if (loginItem.release(app, { env: process.env, execPath: process.execPath })) {
+          log("portable: removed a start-at-sign-in entry an earlier build wrote for this file");
+        }
+      } else if (loginItem.migrate(app)) {
+        log("start at sign-in: rewrote the entry in its current form");
+      }
     } catch (error) {
       log(`start at sign-in migration skipped: ${error?.message || error}`);
     }

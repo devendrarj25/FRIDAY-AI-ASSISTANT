@@ -181,8 +181,10 @@ describe("Part B closeout — one continuous routing + safety session", () => {
     expect(companionLiveLine(live)).toContain("route: cloud-only");
     expect(companionLiveLine(live)).toContain("cost: paid-only");
     const shell = read("src/components/friday/AppShell.tsx");
-    expect(shell).toContain("usageRegistry.subscribe(publish)");
-    expect(shell).toContain("assistantMode.subscribe(publish)");
+    // A burst of notifications is published once, so the stores subscribe through the coalescing wrapper.
+    expect(shell).toContain("usageRegistry.subscribe(schedulePublish)");
+    expect(shell).toContain("assistantMode.subscribe(schedulePublish)");
+    expect(shell).toContain("publishTimer ??= setTimeout(() => {");
     expect(read("electron/main.cjs")).toContain("void pushBillingToKernel()");
 
     // --- 8. Boot / crash honesty from Part A still holds -------------------
