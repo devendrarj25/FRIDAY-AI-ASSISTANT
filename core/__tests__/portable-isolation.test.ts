@@ -20,6 +20,7 @@ const data = require_("../../electron/portable-data.cjs") as {
   PORTABLE_KERNEL_PORT: number;
   isPortable: (env?: Env) => boolean;
   dataHome: (env?: Env) => string | null;
+  insideCheckout: (dir: string) => boolean;
   prepare: (
     app: unknown,
     env?: Env,
@@ -84,8 +85,22 @@ describe("the portable EXE's own data", () => {
     expect(app.paths["userData"]).toBe(plan.userData);
     expect(app.paths["sessionData"]).toBe(plan.userData);
     expect(fs.statSync(plan.root).isDirectory()).toBe(true);
-    // The owner's own FRIDAY_WORKSPACE_ROOT is never overwritten (the default is resolved in the app).
     expect(env["FRIDAY_WORKSPACE_ROOT"]).toBeUndefined();
+  });
+
+  it("ignores a FRIDAY_WORKSPACE_ROOT left in the shell, and FRIDAY_PORTABLE_ROOT is its own override", () => {
+    const dir = temp();
+    const own = path.join(temp(), "mine");
+    const env: Env = {
+      PORTABLE_EXECUTABLE_FILE: path.join(dir, "F.exe"),
+      PORTABLE_EXECUTABLE_DIR: dir,
+      FRIDAY_WORKSPACE_ROOT: "D:\\FRIDAY",
+    };
+    const plain = data.prepare(new FakeApp(), env);
+    expect(env["FRIDAY_WORKSPACE_ROOT"]).toBeUndefined();
+    expect(plain.root).toBe(path.join(dir, data.HOME_NAME, "FRIDAY"));
+    const chosen = data.prepare(new FakeApp(), { ...env, FRIDAY_PORTABLE_ROOT: own });
+    expect(chosen.root).toBe(path.resolve(own));
   });
 
   it("an installed run changes nothing", () => {
@@ -107,6 +122,24 @@ describe("the portable EXE's own data", () => {
       LOCALAPPDATA: local,
     });
     expect(home).toBe(path.join(local, data.HOME_NAME));
+  });
+
+  it("keeps the data out of a source checkout's release folder, which the next build deletes", () => {
+    const checkout = temp();
+    fs.mkdirSync(path.join(checkout, "scripts"));
+    fs.writeFileSync(path.join(checkout, "scripts", "build-windows.cmd"), "");
+    const release = path.join(checkout, "release");
+    fs.mkdirSync(release);
+    expect(data.insideCheckout(release)).toBe(true);
+    expect(data.insideCheckout(temp())).toBe(false);
+    const local = path.join(temp(), "local");
+    const home = data.dataHome({
+      PORTABLE_EXECUTABLE_FILE: path.join(release, "FRIDAY-Portable-1.1.5.7.exe"),
+      PORTABLE_EXECUTABLE_DIR: release,
+      LOCALAPPDATA: local,
+    });
+    expect(home).toBe(path.join(local, data.HOME_NAME));
+    expect(fs.existsSync(path.join(release, data.HOME_NAME))).toBe(false);
   });
 
   it("FRIDAY_PORTABLE_DATA names another home", () => {

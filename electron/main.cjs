@@ -1540,6 +1540,23 @@ function healStaleBootState(root) {
   }
 }
 
+/** First start of the portable EXE: install the kernel's packages into its own Python, with progress. Never throws. */
+async function preparePortablePython(root, python, resourcePaths) {
+  const label = "Preparing the portable Python environment";
+  try {
+    const kernelDeps = require("./kernel-deps.cjs");
+    const file = resourcePaths.resolveResourceFile("kernel/requirements.txt");
+    if (!file) return;
+    if (await kernelDeps.canImportCore(python)) return;
+    boot(label, "ok", "first start: installing FRIDAY's Python packages (needs the internet)");
+    const out = await kernelDeps.ensureCoreImportable({ root, file, python, log });
+    if (out.ready) boot(label, "ok", "FRIDAY's Python packages are installed");
+    else boot(label, "warn", out.error ? String(out.error).split("\n").pop() : "not finished");
+  } catch (error) {
+    log(`portable Python preparation: ${error?.message || error}`);
+  }
+}
+
 async function startKernel(root) {
   kernelBootPending = true;
   try {
@@ -1594,6 +1611,11 @@ async function startKernelNow(root) {
 
   const resourcePaths = require("./resource-paths.cjs");
   const entry = resourcePaths.resolveResourceFile("kernel/main.py") || "";
+  // The portable EXE starts with an empty folder of its own, so its Python has no packages yet: they are installed now,
+  // before the kernel starts and with a line on the boot screen, not minutes later in the background.
+  if (PORTABLE_RUN && resolvedPython && app.isPackaged) {
+    await preparePortablePython(root, resolvedPython, resourcePaths);
+  }
   const kernelConfigDir = ensureKernelConfigDir();
 
   kernelReady = false;
@@ -9259,6 +9281,7 @@ function mcpLauncherSpec() {
     packaged: app.isPackaged,
     appPath: app.getAppPath(),
     execPath: process.execPath,
+    portable: PORTABLE_RUN,
   });
   return {
     command: launched.command,
@@ -9273,8 +9296,14 @@ ipcMain.handle("mcp:desk", async (_e, payload) => {
   const action = String(body.action || "status");
   if (action === "snippet") {
     const spec = mcpLauncherSpec();
+    // The portable EXE runs from a temporary folder that is removed when it exits, so the launcher path a client
+    // would keep is only good while this portable FRIDAY is open. Say so on every client.
+    const portableNote = PORTABLE_RUN
+      ? "This is the portable FRIDAY: the launcher path below exists only while it is open. For a client you keep, use the installed FRIDAY, or paste this again each time."
+      : "";
     const clients = mcpLaunch.clients(spec).map((row) => ({
       ...row,
+      ...(portableNote ? { note: [row.note, portableNote].filter(Boolean).join(" ") } : {}),
       text: typeof row.body === "string" ? row.body : JSON.stringify(row.body, null, 2),
     }));
     return { ok: true, clients, presets: mcpLaunch.PRESETS, launcher: spec.launcher };

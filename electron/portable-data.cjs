@@ -14,9 +14,11 @@
  *   - updates replace the portable file, never run the Setup installer
  *
  * `<home>` is `FRIDAY-Portable-Data` next to the portable file, so the data travels with it. When that folder cannot be
- * written (a read-only stick, Program Files) it is `%LOCALAPPDATA%\FRIDAY-Portable-Data` instead.
- * `FRIDAY_PORTABLE_DATA` names another folder. The FRIDAY folder is, in order: `FRIDAY_WORKSPACE_ROOT`, the folder the
- * owner chose inside the portable app, then `<home>\FRIDAY`. The registry pointer of an installed copy is never read.
+ * written (a read-only stick, Program Files), or the file sits inside a source checkout (the `release\` folder a build
+ * writes, which the next build deletes), it is `%LOCALAPPDATA%\FRIDAY-Portable-Data` instead.
+ * `FRIDAY_PORTABLE_DATA` names another folder. The FRIDAY folder is, in order: `FRIDAY_PORTABLE_ROOT`, the folder the
+ * owner chose inside the portable app, then `<home>\FRIDAY`. `FRIDAY_WORKSPACE_ROOT` (the installed FRIDAY's and the
+ * build's variable) and the registry pointer of an installed copy are never used.
  *
  * Everything here is plain functions over `env`, `fs` and `path`, so a test drives it without Electron.
  */
@@ -43,6 +45,30 @@ function writable(dir, fsImpl = fs) {
   }
 }
 
+/**
+ * True when the folder is inside a FRIDAY source checkout (the build writes the EXEs to `release\` there, and the next
+ * `npm run build:win` deletes that folder), so data kept beside the file would be wiped by the next build.
+ */
+function insideCheckout(dir, fsImpl = fs) {
+  let current = path.resolve(String(dir || "."));
+  for (let depth = 0; depth < 5; depth += 1) {
+    try {
+      if (
+        fsImpl.existsSync(path.join(current, "scripts", "build-windows.cmd")) ||
+        fsImpl.existsSync(path.join(current, ".git"))
+      ) {
+        return true;
+      }
+    } catch {
+      /* an unreadable folder is not a checkout */
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return false;
+}
+
 /** Where the portable EXE keeps its data. Null when this is not a portable run. */
 function dataHome(env = process.env, fsImpl = fs) {
   if (!isPortable(env)) return null;
@@ -51,7 +77,7 @@ function dataHome(env = process.env, fsImpl = fs) {
   const beside = String(
     env.PORTABLE_EXECUTABLE_DIR || path.dirname(String(env.PORTABLE_EXECUTABLE_FILE)),
   ).trim();
-  if (beside) {
+  if (beside && !insideCheckout(beside, fsImpl)) {
     const home = path.join(beside, HOME_NAME);
     if (writable(home, fsImpl)) return home;
   }
@@ -71,7 +97,12 @@ function prepare(app, env = process.env, fsImpl = fs) {
   const home = dataHome(env, fsImpl);
   if (!home) return { ...none, portable: true };
   const userData = path.join(home, "userData");
-  const root = path.join(home, "FRIDAY");
+  // A FRIDAY_WORKSPACE_ROOT left in the shell (it is how the installed FRIDAY and the build are pointed at a folder)
+  // belongs to them: the portable EXE never takes it, and its children do not inherit it. FRIDAY_PORTABLE_ROOT is the
+  // portable EXE's own override.
+  delete env.FRIDAY_WORKSPACE_ROOT;
+  const named = String(env.FRIDAY_PORTABLE_ROOT || "").trim();
+  const root = named ? path.resolve(named) : path.join(home, "FRIDAY");
   try {
     fsImpl.mkdirSync(userData, { recursive: true });
     fsImpl.mkdirSync(root, { recursive: true });
@@ -125,6 +156,7 @@ module.exports = {
   PORTABLE_KERNEL_PORT,
   isPortable,
   dataHome,
+  insideCheckout,
   prepare,
   appUserModelId,
   isPortableAsset,

@@ -44,7 +44,7 @@ Downloads staged before a folder exists: setup and the build write models to `.f
 
 ### The portable EXE has its own root
 
-The portable EXE is not an installation, so it never uses the installed FRIDAY's root, its settings folder (`%APPDATA%\FRIDAY`) or its registry pointer. `electron/portable-data.cjs` gives it `FRIDAY-Portable-Data` beside the portable file (else `%LOCALAPPDATA%\FRIDAY-Portable-Data`; `FRIDAY_PORTABLE_DATA` names another): `userData` for Electron's settings and single-instance lock, and `FRIDAY` as its FRIDAY root. It never writes `HKCU\Software\FRIDAY\WorkspacePath`. Removing the portable file removes nothing else; deleting `FRIDAY-Portable-Data` removes its data.
+The portable EXE is not an installation, so it never uses the installed FRIDAY's root, its settings folder (`%APPDATA%\FRIDAY`) or its registry pointer. `electron/portable-data.cjs` gives it `FRIDAY-Portable-Data` beside the portable file (else `%LOCALAPPDATA%\FRIDAY-Portable-Data`, also when the file sits inside a source checkout whose `release\` the next build deletes; `FRIDAY_PORTABLE_DATA` names another home and `FRIDAY_PORTABLE_ROOT` another FRIDAY root; a `FRIDAY_WORKSPACE_ROOT` in the shell is ignored): `userData` for Electron's settings and single-instance lock, and `FRIDAY` as its FRIDAY root. It never writes `HKCU\Software\FRIDAY\WorkspacePath`. Removing the portable file removes nothing else; deleting `FRIDAY-Portable-Data` removes its data.
 
 ## 3. Update backup / rollback
 
