@@ -554,6 +554,9 @@ function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [
 $script:RunningUpgrades = New-Object System.Collections.Generic.List[object]
 $script:UpgradeLock = Join-Path $env:TEMP 'friday-running-tools-upgrade.lock'
 $script:UpgradeLog = Join-Path $env:TEMP 'friday-running-tools-upgrade.log'
+# One line per tool (label|from|to|winget or npm exit code|version that answers afterwards); the next setup, doctor
+# or build reads it through scripts/running-tools-upgrade.cjs, says whether the update took effect, and removes it.
+$script:UpgradeResult = Join-Path $env:TEMP 'friday-running-tools-upgrade.result'
 
 function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Latest, [string]$Command) {
   if (-not $Installed -or -not $Latest) { return }
@@ -575,7 +578,12 @@ function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Late
 # The helper from the last setup may still be replacing Node.js or npm: starting another run underneath it would
 # use half-replaced files, so this run waits for it (at most 15 minutes).
 function Wait-RunningToolsUpgrade {
-  if (-not (Test-Path -LiteralPath $script:UpgradeLock)) { return }
+  if (Test-Path -LiteralPath $script:UpgradeLock) { Wait-RunningToolsHelper }
+  # Whether the last helper's update took effect is said once, from its result file.
+  try { & node.exe (Join-Path $Root 'scripts\running-tools-upgrade.cjs') --report } catch { }
+}
+
+function Wait-RunningToolsHelper {
   $pending = 0
   try { $pending = [int]((Get-Content -LiteralPath $script:UpgradeLock -Raw).Trim()) } catch { }
   $process = $null
@@ -617,23 +625,37 @@ function Start-RunningToolUpgrades {
       $body = New-Object System.Collections.Generic.List[string]
       $body.Add("`$ErrorActionPreference = 'Continue'")
       $body.Add("`$log = '$($script:UpgradeLog)'")
+      $body.Add("`$result = '$($script:UpgradeResult)'")
       $body.Add('function Log([string]$Text) { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + '' '' + $Text) }')
+      $body.Add('function Answer([string]$Exe) { try { $env:Path = [Environment]::GetEnvironmentVariable(''Path'', ''Machine'') + '';'' + [Environment]::GetEnvironmentVariable(''Path'', ''User''); return ((& $Exe --version 2>$null | Out-String).Trim() -replace ''^v'', '''') } catch { return '''' } }')
+      $body.Add('function Result([string]$Label, [string]$From, [string]$To, [string]$Code, [string]$Now) { Add-Content -LiteralPath $result -Value ($Label + ''|'' + $From + ''|'' + $To + ''|'' + $Code + ''|'' + $Now) }')
       $body.Add("foreach (`$id in @($ids)) { try { Wait-Process -Id `$id -Timeout 900 -ErrorAction SilentlyContinue } catch { } }")
       $body.Add('Start-Sleep -Seconds 2')
       $body.Add("Log 'update of the running tools started'")
       foreach ($item in $script:RunningUpgrades) {
         if ($item.Label -eq 'Node.js') {
-          $body.Add("Log 'winget upgrade OpenJS.NodeJS.LTS'")
-          $body.Add('& winget upgrade --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget *>> $log')
-          $body.Add('Log (''exit code '' + $LASTEXITCODE)')
+          # Node.js is registered in winget as the LTS or the Current package, so both ids are tried, exactly, and
+          # a copy winget did not install is included; -1978335212 means this id is not installed, so the next runs.
+          $body.Add('$code = -1')
+          $body.Add("foreach (`$wid in @('OpenJS.NodeJS.LTS', 'OpenJS.NodeJS')) {")
+          $body.Add('  Log (''winget upgrade --id '' + $wid)')
+          $body.Add('  & winget upgrade --id $wid --exact --include-unknown --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget *>> $log')
+          $body.Add('  $code = $LASTEXITCODE')
+          $body.Add('  Log (''exit code '' + $code)')
+          $body.Add('  if ($code -ne -1978335212) { break }')
+          $body.Add('}')
+          $body.Add("Result 'Node.js' '$($item.Installed)' '$($item.Latest)' `$code (Answer 'node.exe')")
         } elseif ($item.Label -eq 'npm') {
           $body.Add("Log 'npm install --global npm@latest'")
           $body.Add('& npm.cmd install --global npm@latest --no-audit --no-fund *>> $log')
-          $body.Add('Log (''exit code '' + $LASTEXITCODE)')
+          $body.Add('$code = $LASTEXITCODE')
+          $body.Add('Log (''exit code '' + $code)')
+          $body.Add("Result 'npm' '$($item.Installed)' '$($item.Latest)' `$code (Answer 'npm.cmd')")
         }
       }
       $body.Add("Log 'done'")
       $body.Add("Remove-Item -LiteralPath '$($script:UpgradeLock)' -Force -ErrorAction SilentlyContinue")
+      Remove-Item -LiteralPath $script:UpgradeResult -Force -ErrorAction SilentlyContinue
       $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($body -join "`r`n")))
       $helper = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', $encoded) -WindowStyle Hidden -PassThru
       if ($helper) {

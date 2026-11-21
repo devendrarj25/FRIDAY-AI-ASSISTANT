@@ -267,7 +267,17 @@ describe("local library parsers", () => {
     });
     expect(gpt.canRun).toBe(false);
     expect(gpt.reason).toMatch(/sha256/i);
-    const card = library.launcherCard(ollama, { now: Date.parse("2026-11-13T00:00:00Z") });
+    // Two days after the pins were checked, whatever date config/local-runners.json carries.
+    const checked = (
+      JSON.parse(
+        readFileSync(path.join(process.cwd(), "config", "local-runners.json"), "utf8"),
+      ) as {
+        checked: string;
+      }
+    ).checked;
+    const card = library.launcherCard(ollama, {
+      now: Date.parse(`${checked}T00:00:00Z`) + 2 * 86_400_000,
+    });
     expect(card.detected).toBe(false);
     expect(card.nextStep).toMatch(/Not installed/);
     expect(card.pinAgeLabel).toBe("Pin age: 2 days");

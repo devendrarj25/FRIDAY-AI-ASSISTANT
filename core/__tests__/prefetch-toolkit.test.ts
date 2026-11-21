@@ -678,3 +678,24 @@ describe("the toolkit log of a real setup run", () => {
     expect(source).toMatch(/\["msi", "exe"\]\.includes\(String\(feed\.kind/);
   });
 });
+
+describe("toolkit log lines say what happens", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+
+  it("says nothing to fetch when every tool is here, instead of `0 to fetch (1 MB at most)`", () => {
+    const src = read("scripts/prefetch-toolkit.cjs");
+    expect(src).toContain("`[friday] agent toolkit: ${plan.length} tools, nothing to fetch`");
+    expect(src).toMatch(
+      /total\.length\s+\? `\[friday\] agent toolkit: \$\{plan\.length\} tools, \$\{total\.length\} to fetch/,
+    );
+  });
+
+  it("unpacks an archive and places a .phar instead of claiming to run it", () => {
+    const src = read("electron/toolchain.cjs");
+    expect(src).toContain("/\\.(zip|7z|gz|tgz|tar)$/i.test(file)");
+    expect(src).toContain('"unpacking"');
+    expect(src).toContain('"placing"');
+    expect(src).toContain("line: `${verb} ${path.basename(file)}`");
+    expect(src).not.toContain("line: `running ${path.basename(file)}`");
+  });
+});

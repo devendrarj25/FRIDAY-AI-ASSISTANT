@@ -28,7 +28,7 @@ const folder = () => {
 describe("pinned official archives", () => {
   it.each([
     ["Gradle", "services.gradle.org", "gradle-9.9.1/bin/gradle.bat"],
-    ["Maven", "archive.apache.org", "apache-maven-3.9.9/bin/mvn.cmd"],
+    ["Maven", "archive.apache.org", "apache-maven-3.9.16/bin/mvn.cmd"],
     ["Composer", "getcomposer.org", "composer.bat"],
   ])(
     "%s comes from its vendor over https, with a SHA-256 and the program it unpacks",

@@ -426,7 +426,19 @@ describe("what a real setup run left unsaid", () => {
 
   it("installs a newer Node.js and npm after the setup process has ended, and makes the next run wait for it", () => {
     expect(setup).toContain("FRIDAY_SETUP_UPDATE_RUNNING_TOOLS");
-    expect(setup).toContain("winget upgrade --id OpenJS.NodeJS.LTS");
+    // Both winget ids of Node.js are tried, exactly, including a copy winget did not install (the owner's
+    // 26.5.1 stayed after setup promised 26.13.1 because only the LTS id was asked).
+    expect(setup).toContain("foreach (`$wid in @('OpenJS.NodeJS.LTS', 'OpenJS.NodeJS'))");
+    expect(setup).toContain(
+      "winget upgrade --id $wid --exact --include-unknown --silent --accept-package-agreements",
+    );
+    expect(setup).toContain("if ($code -ne -1978335212) { break }");
+    // Each tool's outcome is written, and the next run says whether it took effect.
+    expect(setup).toContain("friday-running-tools-upgrade.result");
+    expect(setup).toContain(
+      "Result 'Node.js' '$($item.Installed)' '$($item.Latest)' `$code (Answer 'node.exe')",
+    );
+    expect(setup).toContain("running-tools-upgrade.cjs') --report");
     expect(setup).toContain("npm.cmd install --global npm@latest");
     expect(setup).toContain("Wait-Process -Id `$id -Timeout 900");
     // The helper waits for this process and for the npm and cmd.exe processes that only wait for it.
