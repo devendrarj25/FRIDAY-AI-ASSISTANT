@@ -220,7 +220,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      GH_TOKEN: ${{ github.token }}
       # Job env is not shared. Plan already has these. Without them this job
       # decides mode auto and skips the pull request, then pin fails.
       MODE: ${{ inputs.mode }}
@@ -292,6 +291,8 @@ jobs:
           echo "clean main at $head"
 
       - name: Detect previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: previous
         # The baseline is the real current stable version of this project, and
         # - just as importantly - the real COMMIT it was released from. A
@@ -324,6 +325,7 @@ jobs:
         id: plan
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           PLAN_STEP: ${{ needs.plan.outputs.step }}
           PLAN_VERSION: ${{ needs.plan.outputs.version }}
         run: |
@@ -453,6 +455,8 @@ jobs:
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Refuse to reuse an existing version
+        env:
+          GH_TOKEN: ${{ github.token }}
         if: steps.plan.outputs.action == 'update'
         shell: bash
         run: |
@@ -467,6 +471,8 @@ jobs:
           fi
 
       - name: Resolve an existing release branch or release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: pending
         if: steps.plan.outputs.action == 'update'
         # A verified branch/PR for this exact pending version is resumed rather
@@ -598,6 +604,8 @@ jobs:
         run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
 
       - name: Open the release Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: pr
         if: steps.plan.outputs.action == 'update' && steps.pending.outputs.complete != 'true'
         # main is protected and PR-only: the version/changelog change is pushed
@@ -607,8 +615,8 @@ jobs:
         run: |
           set -o pipefail
           branch='release/${{ steps.plan.outputs.tag }}'
-          git config user.name "friday-release"
-          git config user.email "devendrarj25@users.noreply.github.com"
+          git config user.name "devendrarj25"
+          git config user.email "311363093+devendrarj25@users.noreply.github.com"
           if [ '${{ steps.pending.outputs.mode }}' = 'existing_branch' ]; then
             git checkout -B "$branch" "origin/$branch"
             # Working tree after checkout — do not `git show origin/<branch>:releases/...`
@@ -699,6 +707,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Close superseded release preparations
+        env:
+          GH_TOKEN: ${{ github.token }}
         if: steps.plan.outputs.action == 'update'
         # Only lower-version OPEN release PRs are obsolete. The exact target PR
         # must already exist before this runs; equal/newer/ambiguous PRs are
@@ -1105,9 +1115,6 @@ jobs:
       actions: read
     runs-on: windows-latest
     timeout-minutes: 90
-    env:
-      GH_TOKEN: ${{ github.token }}
-      CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
 
     steps:
       - name: Refuse to release from anything but main
@@ -1181,6 +1188,7 @@ jobs:
         # create a brand new one (update).
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           MODE: ${{ inputs.mode }}
         run: |
           version=$(node scripts/release-engine.cjs identity --field releaseVersion)
@@ -1241,6 +1249,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prove the release PR was merged into main
+        env:
+          GH_TOKEN: ${{ github.token }}
         # The hard guard against publishing an unmerged branch: there must be a
         # MERGED pull request release/vX.Y.Z -> main, and its merge commit must
         # be an ancestor of the main commit being released. A rebuild publishes
@@ -1412,6 +1422,7 @@ jobs:
       - name: Require a fresh green PR Validation
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           VALIDATED: ${{ needs.pin.outputs.head }}
         run: |
           set -euo pipefail
@@ -1483,6 +1494,7 @@ jobs:
       - name: Build with the shared pipeline
         shell: powershell
         env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
         run: |
@@ -1522,6 +1534,7 @@ jobs:
         id: publish
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TITLE: ${{ inputs.title }}
         run: |
           title="$RELEASE_TITLE"
@@ -1573,6 +1586,8 @@ jobs:
           fi
 
       - name: Confirm the release and its assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: confirm
         shell: bash
         run: |
@@ -1606,6 +1621,8 @@ jobs:
           echo "confirmed=true" >> "$GITHUB_OUTPUT"
 
       - name: Keep only the last 3 releases
+        env:
+          GH_TOKEN: ${{ github.token }}
         # The single authoritative cleanup. Runs only after a confirmed
         # release, always skips the release just published, and never touches
         # commits, branches or source history.

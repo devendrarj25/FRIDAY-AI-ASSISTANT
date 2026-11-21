@@ -147,8 +147,8 @@ jobs:
           any correction must use a new branch, Pull Request and manual merge.
           EOF
 
-          git config user.name "FRIDAY Main Safety"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "devendrarj25"
+          git config user.email "311363093+devendrarj25@users.noreply.github.com"
           git add -- "$report"
           git commit -m "safety: preserve unexpected main push $short"
           git push origin "HEAD:refs/heads/$branch"

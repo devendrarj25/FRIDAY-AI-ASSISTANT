@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           python3 -m pip install -r kernel/requirements-dev.txt
-          python -m pip install --quiet pip-audit
+          python -m pip install --quiet "pip-audit==2.10.1"
 
       - name: Run the health check
         id: health

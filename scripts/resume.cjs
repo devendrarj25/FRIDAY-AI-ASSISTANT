@@ -100,6 +100,21 @@ if (CI) {
     if (!line) return { status: "WARN", note: "advisory audit could not run" };
     return blocking ? { status: "WARN", note: line } : { status: "PASS" };
   });
+  // The workflows pin their scanner, linter and audit tools inside `run:` lines, where Dependabot cannot see them.
+  // This says when one fell behind a release that is at least two weeks old. Report only; a failed read is not a fault.
+  step("pinned tool versions (info)", () => {
+    const r = run(process.execPath, ["scripts/pin-freshness.cjs"]);
+    const rows = String(r.stdout || "").split("\n");
+    const line = rows.find((row) => row.startsWith("pinned tools:")) || "";
+    if (!line) return { status: "WARN", note: "pin freshness could not run" };
+    const needs = Number((line.match(/(\d+) need attention/) || [])[1] || 0);
+    if (!needs) return { status: "PASS", note: line.replace("pinned tools: ", "") };
+    const names = rows
+      .filter((row) => /: (behind|mismatch|missing)\b/.test(row))
+      .map((row) => row.split(":")[0])
+      .join(", ");
+    return { status: "WARN", note: `${names}: see scripts/pin-freshness.cjs` };
+  });
 }
 
 const failed = results.filter((r) => r.status === "FAIL");

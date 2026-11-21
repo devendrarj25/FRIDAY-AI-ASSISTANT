@@ -1113,6 +1113,109 @@ describe("safe merge flow", () => {
     expect(read("maintenance.yml")).toContain("--merged-prs merged-prs.json");
   });
 
+  it("Repository Control deletes through the verified script, merges only the checked commit, and sweeps like the others", () => {
+    const doc = load("repository-control.yml");
+    const src = read("repository-control.yml");
+    // The merge is of the commit whose checks were read; a head that moved in between is refused by GitHub.
+    expect(src).toContain(
+      'gh pr merge "$PR_NUMBER" --repo "$REPO" --merge --match-head-commit "$head_sha"',
+    );
+    // The delete after a merge is the shared script (retry and a read that proves it), never a bare API call whose
+    // failure is printed as "already removed".
+    expect(src).toContain('bash scripts/ci-delete-branch.sh "$head"');
+    expect(src).not.toContain("branch $head was already removed");
+    expect(src).not.toMatch(
+      /gh api -X DELETE "repos\/\$REPO\/git\/refs\/heads\/\$head" >\/dev\/null/,
+    );
+    const names = doc.jobs.control.steps.map((step: { name?: string }) => step.name);
+    const sweep =
+      doc.jobs.control.steps[
+        names.indexOf("Delete every other branch whose work is already in main")
+      ];
+    expect(sweep.if).toContain("inputs.action == 'merge-pr'");
+    expect(sweep.if).toContain("inputs.delete_branch_after_merge");
+    expect(sweep.run).toContain("bash scripts/ci-sweep-branches.sh");
+    // The Node toolchain it needs is installed for that action too.
+    const node =
+      doc.jobs.control.steps[names.indexOf("Node toolchain (from package.json engines)")];
+    expect(node.if).toContain("inputs.action == 'merge-pr' && inputs.delete_branch_after_merge");
+  });
+
+  it("Security Scan retries the scanner image pull and pins its audit tool like PR Validation", () => {
+    const security = read("security.yml");
+    const pr = read("pr-validation.yml");
+    expect(security).toContain("Pull the secret scanner image");
+    expect(security).toContain("for attempt in 1 2 3 4; do");
+    expect(security.indexOf("Pull the secret scanner image")).toBeLessThan(
+      security.indexOf("Scan for committed secrets"),
+    );
+    // One pinned pip-audit everywhere, so a new release cannot turn a weekly run red.
+    for (const file of [security, read("health-weekly.yml"), pr]) {
+      expect(file).toContain('"pip-audit==2.10.1"');
+      expect(file).not.toMatch(/pip install --quiet pip-audit\s/);
+    }
+  });
+
+  it("the write token and the signing certificate reach only the steps that use them", () => {
+    // Test Build builds any ref (a branch, a pull request, a Dependabot update) and Release builds main; both hold a
+    // token that can write. It belongs to the steps that call gh (and validation-freshness, which does), and the
+    // certificate to the one step that signs, not to `npm ci`, the tests or the rest of the build.
+    const cases: [string, string[]][] = [
+      ["test-build.yml", ["test-build"]],
+      ["release.yml", ["prepare", "publish"]],
+    ];
+    for (const [file, jobs] of cases) {
+      const doc = load(file);
+      for (const name of jobs) {
+        const job = doc.jobs[name];
+        const where = `${file} ${name}`;
+        expect(job.env?.GH_TOKEN, where).toBeUndefined();
+        expect(job.env?.CERTIFICATE_BASE64, where).toBeUndefined();
+        for (const step of job.steps) {
+          if (step.uses) continue;
+          const run = String(step.run || "");
+          const needsToken =
+            /\bgh\s/.test(run) || run.includes("validation-freshness") || run.includes("GH_TOKEN");
+          const label = `${where}: ${step.name}`;
+          if (needsToken) expect(step.env?.GH_TOKEN, label).toBe("${{ github.token }}");
+          else expect(step.env?.GH_TOKEN, label).toBeUndefined();
+          if (run.includes("CERTIFICATE_BASE64")) {
+            expect(step.name, label).toBe("Build with the shared pipeline");
+            expect(step.env.CERTIFICATE_BASE64, label).toBe(
+              "${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}",
+            );
+          }
+        }
+        // The steps that run the project's own code never see the token.
+        for (const step of job.steps) {
+          const run = String(step.run || "");
+          if (/npm (ci|test|run)|build-pipeline\.cjs/.test(run) && !/\bgh\s/.test(run)) {
+            expect(step.env?.GH_TOKEN, `${where}: ${step.name}`).toBeUndefined();
+          }
+        }
+      }
+    }
+  });
+
+  it("every commit a workflow creates is made as the owner, never under an automation name", () => {
+    for (const file of fs.readdirSync(DIR)) {
+      const src = read(file);
+      for (const line of src.split("\n").filter((l) => /git config user\.(name|email)/.test(l))) {
+        expect(line, file).toMatch(/devendrarj25/);
+      }
+      expect(src, file).not.toMatch(/friday-ci|FRIDAY Main Safety|FRIDAY Repository Control"/);
+    }
+    // The owner's no-reply address, the one the repository history already carries (never a plain address).
+    for (const file of [
+      "pr-validation.yml",
+      "release.yml",
+      "repository-control.yml",
+      "main-safety-recovery.yml",
+    ]) {
+      expect(read(file), file).toContain("311363093+devendrarj25@users.noreply.github.com");
+    }
+  });
+
   it("a Test Build that publishes is never cancelled mid-upload and runs one at a time", () => {
     const doc = load("test-build.yml");
     const src = read("test-build.yml");

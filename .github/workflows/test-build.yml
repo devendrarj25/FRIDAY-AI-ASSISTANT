@@ -68,9 +68,6 @@ jobs:
   test-build:
     runs-on: windows-latest
     timeout-minutes: 90
-    env:
-      GH_TOKEN: ${{ github.token }}
-      CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
 
     steps:
       - name: Only the owner and the two GitHub bots may run this
@@ -213,6 +210,8 @@ jobs:
           node scripts/verify-deps.cjs
 
       - name: Determine the TEST prerelease version
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: testversion
         # Official versions stay clean (1.3.2, 1.3.3). A test build carries a
         # real SemVer prerelease of the version it tests: 1.3.2-test.1,
@@ -272,6 +271,7 @@ jobs:
         # channel=test option, not a second pack command.
         shell: powershell
         env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
           TEST_VERSION: ${{ steps.testversion.outputs.version }}
@@ -304,6 +304,7 @@ jobs:
         # beside the production FRIDAY instead of over it.
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           TEST_VERSION: ${{ steps.testversion.outputs.version }}
           TEST_TAG: ${{ steps.testversion.outputs.tag }}
           NOTES_REF: ${{ env.TEST_REF || inputs.ref || github.ref_name }}
@@ -404,6 +405,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           TEST_TAG: ${{ steps.testversion.outputs.tag }}
         run: |
           gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \

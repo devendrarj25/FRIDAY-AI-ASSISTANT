@@ -132,6 +132,7 @@ extraResources:
       - "!ci-delete-branch.sh"
       - "!ci-branch-state.sh"
       - "!ci-sweep-branches.sh"
+      - "!pin-freshness.cjs"
       - "!workflow-lock.cjs"
   - from: updater
     to: updater

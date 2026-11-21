@@ -339,8 +339,9 @@ describe("official publish · workflow contract", () => {
     expect(doc.jobs.plan.env.RELEASE_TYPE).toBe("${{ inputs.release_type }}");
     expect(doc.jobs.prepare.env.MODE).toBe("${{ inputs.mode }}");
     expect(doc.jobs.prepare.env.RELEASE_TYPE).toBe("${{ inputs.release_type }}");
-    expect(doc.jobs.publish.env.MODE).toBeUndefined();
-    expect(doc.jobs.publish.env.RELEASE_TYPE).toBeUndefined();
+    // Publish has no job-level environment at all now (the token and the certificate are per step).
+    expect(doc.jobs.publish.env?.MODE).toBeUndefined();
+    expect(doc.jobs.publish.env?.RELEASE_TYPE).toBeUndefined();
     const analyse = src.slice(
       src.indexOf("Analyse changes and determine version"),
       src.indexOf("Refuse to reuse an existing version"),
