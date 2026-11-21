@@ -82,3 +82,67 @@ describe("the rulebook and the install guide match the chain", () => {
     expect(install).toContain(`FRIDAY-Setup-${version}.exe`);
   });
 });
+
+describe("the chain's files are locked by content", () => {
+  const lock = require_("../../scripts/workflow-lock.cjs") as {
+    chainFiles: (base?: string) => string[];
+    currentChain: (base?: string) => Record<string, string>;
+    readChainLock: (file?: string) => Record<string, string>;
+    compare: (recorded: Record<string, string>, actual: Record<string, string>) => string[];
+  };
+
+  it("records every file AGENTS.md lists, and nothing else", () => {
+    const listed = lock.chainFiles();
+    expect(listed).toHaveLength(15);
+    expect(listed).toContain("scripts/setup-windows.ps1");
+    expect(listed).toContain("scripts/build-windows.cmd");
+    expect(Object.keys(lock.readChainLock()).sort()).toEqual(listed);
+  });
+
+  it("fails when a chain file changes without its lock (node scripts/workflow-lock.cjs --cmd-chain --write)", () => {
+    // A change here needs the owner's request or a real log from his PC (AGENTS.md); then the edit and the new
+    // lock land together. A new tool, package or model goes into its catalogue instead.
+    expect(lock.compare(lock.readChainLock(), lock.currentChain())).toEqual([]);
+  });
+
+  it("names a changed, an added and a removed file", () => {
+    expect(lock.compare({ a: "1", gone: "3" }, { a: "2", fresh: "4" })).toEqual([
+      "a: changed since it was locked",
+      "fresh: added, not in the lock",
+      "gone: removed, still in the lock",
+    ]);
+  });
+});
+
+describe("what other work adds to setup without touching the chain", () => {
+  it("a capability package names its import module in the requirements file, and pip never sees the comment", () => {
+    const src = read("scripts/setup-python.cjs");
+    const body = src.slice(
+      src.indexOf("function parsePins(file) {"),
+      src.indexOf("\nconst voiceNames"),
+    );
+    const parsePins = new Function("fs", `${body}; return parsePins;`)({
+      readFileSync: () =>
+        [
+          "# comment",
+          "opencv-python>=4.12.0  # import: cv2",
+          'pywin32>=312; sys_platform == "win32"',
+          "numpy>=2.5.4",
+        ].join("\n"),
+    }) as (file: string) => { name: string; spec: string; importName?: string }[];
+    expect(parsePins("x")).toEqual([
+      { name: "opencv-python", spec: "opencv-python>=4.12.0", importName: "cv2" },
+      { name: "pywin32", spec: 'pywin32>=312; sys_platform == "win32"' },
+      { name: "numpy", spec: "numpy>=2.5.4" },
+    ]);
+    expect(src).toContain("pin.importName ||");
+  });
+
+  it("the toolkit, the Install Manager catalogue and the runner pins are data the chain reads", () => {
+    expect(read("scripts/prefetch-toolkit.cjs")).toContain("config/agent-toolkit.json");
+    expect(read("scripts/prefetch-models.cjs")).toContain(
+      'require("../config/local-runners.json")',
+    );
+    expect(read("scripts/setup-python.cjs")).toContain('"requirements-capabilities.txt"');
+  });
+});

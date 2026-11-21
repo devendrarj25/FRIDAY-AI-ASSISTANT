@@ -727,8 +727,9 @@ describe("one local chat model, and nothing downloaded twice", () => {
       const installer = r.jobs.find((job) => job.sources[0]?.url === newest.url);
       expect(installer?.sources[0]?.sha256).toBe(newest.sha256);
       expect(r.ran).toEqual([["/CLOSEAPPLICATIONS"]]);
-      expect(r.lines).toContain("updating Ollama 0.40.4 -> v9.9.9");
-      expect(r.lines).toContain("ollama updated to v9.9.9");
+      expect(r.lines).toContain("updating Ollama 0.40.4 -> 9.9.9 (");
+      expect(r.lines).not.toContain("-> v9.9.9");
+      expect(r.lines).toContain("ollama updated to 9.9.9");
     });
 
     it("keeps the installed Ollama when the installer will not run, and does not fail", async () => {
@@ -1516,5 +1517,33 @@ describe("the opt-outs given to prefetch reach the Ollama step", () => {
       },
     });
     expect(pulled).toEqual(["qwen3:4b"]);
+  });
+});
+
+describe("the board total is the same on every run", () => {
+  it("counts what a piece already here takes on disk, not the catalogue estimate", async () => {
+    // The owner's setup said `8/8 ready 5.35 GB` after downloading and Doctor said `5.50 GB` for the same files.
+    const { bytesOnDisk } = require_(path.join(root, "scripts/prefetch-models.cjs")) as {
+      bytesOnDisk: (target: string) => number;
+    };
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-ondisk-"));
+    fs.mkdirSync(path.join(dir, "voice", "onnx"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "voice", "onnx", "model.onnx"), Buffer.alloc(3000));
+    fs.writeFileSync(path.join(dir, "voice", ".friday-complete"), "ok");
+    fs.writeFileSync(path.join(dir, "vad.onnx"), Buffer.alloc(1234));
+    expect(bytesOnDisk(path.join(dir, "vad.onnx"))).toBe(1234);
+    // A completion marker stands for the folder that holds it.
+    expect(bytesOnDisk(path.join(dir, "voice", ".friday-complete"))).toBe(3002);
+    expect(bytesOnDisk(path.join(dir, "missing"))).toBe(0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("passes those bytes to the board when a piece is already on disk", () => {
+    const src = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    expect(src).toMatch(
+      /note: "already on disk, not downloaded again",\s+bytes: bytesOnDisk\(row\.ready\)/,
+    );
   });
 });

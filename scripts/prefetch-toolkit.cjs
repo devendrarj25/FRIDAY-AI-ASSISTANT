@@ -477,8 +477,11 @@ async function prefetchToolkit(root, deps = {}) {
   });
   const rows = [];
   const total = plan.filter((row) => row.action === "install" || row.action === "update");
+  // Nothing to fetch says so: `0 to fetch (1 MB at most)` read as a download on a PC that has every tool.
   log(
-    `[friday] agent toolkit: ${plan.length} tools, ${total.length} to fetch (${mb(total.reduce((sum, row) => sum + row.bytes, 0))} at most), no size limit`,
+    total.length
+      ? `[friday] agent toolkit: ${plan.length} tools, ${total.length} to fetch (${mb(total.reduce((sum, row) => sum + row.bytes, 0))} at most), no size limit`
+      : `[friday] agent toolkit: ${plan.length} tools, nothing to fetch`,
   );
   for (const row of plan) {
     if (row.action === "keep") {

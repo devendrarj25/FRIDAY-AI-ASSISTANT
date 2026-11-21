@@ -504,7 +504,11 @@ function runPackagedSelfCheck(input = {}) {
         `packaged self-check: stt-self-test failed (${speechStatus === null || speechStatus === undefined ? "no exit" : speechStatus})${detail ? `: ${detail}` : ""}`,
       );
     }
-    lines.push(/skipped/i.test(speechOut) ? "stt-self-test skipped" : "stt-self-test ok");
+    lines.push(
+      /skipped/i.test(speechOut)
+        ? `stt-self-test skipped${skipReason(speechOut)}`
+        : "stt-self-test ok",
+    );
   }
   return lines.join("; ");
 }
@@ -536,6 +540,63 @@ function seedElectronCache(target, source = defaultElectronCache()) {
   return copied;
 }
 
+/**
+ * Why the speech self-test skipped, from its JSON answer (` (faster-whisper is not installed)`), so the build table
+ * names the cause instead of a bare "skipped". "" when the answer has no reason.
+ */
+function skipReason(stdout) {
+  for (const line of String(stdout || "")
+    .trim()
+    .split(/\r?\n/)
+    .reverse()) {
+    try {
+      const reason = String(JSON.parse(line).reason || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return reason ? ` (${reason.length > 90 ? `${reason.slice(0, 87)}...` : reason})` : "";
+    } catch {
+      /* not the JSON line */
+    }
+  }
+  return "";
+}
+
+/**
+ * electron-builder 26 hands the Electron zip to @electron/get with no cache folder, so it reads the default shared
+ * cache (where `npm run setup` put the zip). A cache hit is still checked against `SHASUMS256.txt`, which
+ * @electron/get fetches from GitHub on every build unless `SHASUMS256.txt-<version>` sits at that cache root (the
+ * `downloaded label=electron progress=100%` line of a build that should download nothing). Those checksums are the
+ * ones the Electron npm package ships (`node_modules/electron/checksums.json`, locked by package-lock.json), so
+ * they are written there once and the check runs offline. Returns the file written, or "" when nothing changed.
+ */
+function seedElectronChecksums(
+  cacheRoot = defaultElectronCache(),
+  electronDir = path.join(ROOT, "node_modules", "electron"),
+) {
+  try {
+    if (!cacheRoot) return "";
+    const version = JSON.parse(
+      fs.readFileSync(path.join(electronDir, "package.json"), "utf8"),
+    ).version;
+    const sums = JSON.parse(fs.readFileSync(path.join(electronDir, "checksums.json"), "utf8"));
+    const rows = Object.entries(sums)
+      .filter(
+        ([name, sha]) => /^[a-f0-9]{64}$/i.test(String(sha)) && name.includes(`-v${version}-`),
+      )
+      .map(([name, sha]) => `${String(sha).toLowerCase()} *${name}`);
+    if (!version || rows.length === 0) return "";
+    const file = path.join(cacheRoot, `SHASUMS256.txt-${version}`);
+    const text = `${rows.join("\n")}\n`;
+    if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === text) return "";
+    fs.mkdirSync(cacheRoot, { recursive: true });
+    fs.writeFileSync(file, text);
+    return file;
+  } catch {
+    // Without the seed the build only fetches the small checksum list, as before.
+    return "";
+  }
+}
+
 function defaultElectronCache() {
   if (process.platform === "win32") {
     return process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "electron", "Cache") : "";
@@ -556,6 +617,7 @@ function applyBuildCache(root = ROOT) {
   fs.mkdirSync(process.env.ELECTRON_BUILDER_CACHE, { recursive: true });
   fs.mkdirSync(process.env.ELECTRON_CACHE, { recursive: true });
   seedElectronCache(process.env.ELECTRON_CACHE);
+  seedElectronChecksums();
   for (const dir of [
     process.env.LOCALAPPDATA
       ? path.join(process.env.LOCALAPPDATA, "electron-builder", "Cache", "winCodeSign")
@@ -1202,6 +1264,8 @@ module.exports = {
   readinessSkip,
   installerSmokeSkip,
   seedElectronCache,
+  seedElectronChecksums,
+  skipReason,
   PHASES,
   PHASE_COMMANDS,
   GITHUB_ASSET_LIMIT,

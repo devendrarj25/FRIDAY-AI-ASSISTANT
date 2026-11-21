@@ -11,6 +11,14 @@
  *
  *   node scripts/workflow-lock.cjs            check (exit 1 on any difference)
  *   node scripts/workflow-lock.cjs --write    record the current files
+ *
+ * The same lock holds the Windows CMD chain (`npm run setup`, `doctor`, `build:win`): the files AGENTS.md lists
+ * under "The Windows CMD chain is finished and locked", recorded in `config/cmd-chain-lock.json` and checked by
+ * `core/__tests__/cmd-chain-lock.test.ts`. They change only on the owner's request or a real log from his PC;
+ * then the edit and the new lock are one change:
+ *
+ *   node scripts/workflow-lock.cjs --cmd-chain            check
+ *   node scripts/workflow-lock.cjs --cmd-chain --write    record
  */
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -69,9 +77,70 @@ function writeLock(base = root) {
   fs.writeFileSync(LOCK_FILE, `${JSON.stringify(body, null, 2)}\n`);
 }
 
-module.exports = { lockedFiles, digest, current, compare, readLock, writeLock, LOCK_FILE };
+const CHAIN_LOCK_FILE = path.join(root, "config", "cmd-chain-lock.json");
+const CHAIN_NOTE =
+  "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names under 'The Windows CMD chain is finished and locked'. Changed only on the owner's request or a real log from his PC; a new tool, package or model is added through its catalogue, not here (docs/FRIDAY_BUILD_AND_RELEASE.md). Refresh with: node scripts/workflow-lock.cjs --cmd-chain --write";
 
-if (require.main === module) {
+/** The CMD chain files, exactly as AGENTS.md lists them. */
+function chainFiles(base = root) {
+  const agents = fs.readFileSync(path.join(base, "AGENTS.md"), "utf8");
+  const at = agents.indexOf("### The Windows CMD chain is finished and locked");
+  if (at < 0) return [];
+  const end = agents.indexOf("### Changing something that already works", at);
+  const block = agents.slice(at, end < 0 ? undefined : end);
+  const names = [...block.matchAll(/`(scripts\/[a-z0-9-]+\.(?:cjs|ps1|cmd))`/g)].map((m) => m[1]);
+  return [...new Set(names)].sort();
+}
+
+function currentChain(base = root) {
+  const files = {};
+  for (const file of chainFiles(base)) files[file] = digest(file, base);
+  return files;
+}
+
+function readChainLock(file = CHAIN_LOCK_FILE) {
+  return JSON.parse(fs.readFileSync(file, "utf8")).files || {};
+}
+
+function writeChainLock(base = root, file = CHAIN_LOCK_FILE) {
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ note: CHAIN_NOTE, files: currentChain(base) }, null, 2)}\n`,
+  );
+}
+
+module.exports = {
+  lockedFiles,
+  digest,
+  current,
+  compare,
+  readLock,
+  writeLock,
+  LOCK_FILE,
+  chainFiles,
+  currentChain,
+  readChainLock,
+  writeChainLock,
+  CHAIN_LOCK_FILE,
+};
+
+if (require.main === module && process.argv.includes("--cmd-chain")) {
+  if (process.argv.includes("--write")) {
+    writeChainLock();
+    console.log(`CMD chain lock written for ${Object.keys(currentChain()).length} files`);
+  } else {
+    const problems = compare(readChainLock(), currentChain());
+    if (problems.length) {
+      console.error("CMD chain files differ from the lock:");
+      for (const line of problems) console.error(`  - ${line}`);
+      console.error(
+        "They change only on the owner's request or a real log from his PC (AGENTS.md). Then record them: node scripts/workflow-lock.cjs --cmd-chain --write",
+      );
+      process.exit(1);
+    }
+    console.log(`CMD chain lock holds for ${Object.keys(currentChain()).length} files`);
+  }
+} else if (require.main === module) {
   if (process.argv.includes("--write")) {
     writeLock();
     console.log(`workflow lock written for ${Object.keys(current()).length} files`);

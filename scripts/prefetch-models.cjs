@@ -328,6 +328,24 @@ function chatJob(root) {
 }
 
 /** Is this piece already here? A pinned digest is checked; nothing is fetched to find out. */
+/**
+ * What a piece that is already here takes on disk, so the board's ALL total is the same whether this run
+ * downloaded it (the bytes that arrived) or found it (the bytes on disk), not the catalogue's estimate. A
+ * completion marker stands for the folder that holds it. 0 when it cannot be measured (the estimate is used).
+ */
+function bytesOnDisk(target) {
+  try {
+    const where = path.basename(target).startsWith(".friday-") ? path.dirname(target) : target;
+    const stat = fs.statSync(where);
+    if (stat.isFile()) return stat.size;
+    if (stat.isDirectory())
+      return require("./electron-module.cjs").load("activity.cjs").dirSize(where);
+  } catch {
+    /* unmeasurable: the estimate stays */
+  }
+  return 0;
+}
+
 function alreadyThere(row) {
   if (!row.ready) return false;
   if (row.kind === "stt") return voiceWeights.weightsReady(row.ready, fs.existsSync);
@@ -771,7 +789,7 @@ async function updateOllama({ root, newest, current, fetchModel, log, deps = {} 
     },
   };
   log(
-    `[friday] updating Ollama ${current || "(version unknown)"} -> ${newest.tag}${newest.bytes ? ` (${(newest.bytes / 1024 ** 3).toFixed(1)} GB installer, checked against the published SHA-256)` : ""}`,
+    `[friday] updating Ollama ${current || "(version unknown)"} -> ${String(newest.tag).replace(/^v/, "")}${newest.bytes ? ` (${(newest.bytes / 1024 ** 3).toFixed(1)} GB installer, checked against the published SHA-256)` : ""}`,
   );
   if (!alreadyThere(row)) {
     const progress = printer(log, "ollama-update");
@@ -814,7 +832,10 @@ async function updateOllama({ root, newest, current, fetchModel, log, deps = {} 
   } catch {
     /* a kept installer only costs disk */
   }
-  log(`[friday] ok       ollama updated to ${newest.tag}${up ? "" : "; it starts with FRIDAY"}`);
+  // One spelling of a version on both sides (`0.40.16 -> 0.40.17`), as Doctor prints it.
+  log(
+    `[friday] ok       ollama updated to ${String(newest.tag).replace(/^v/, "")}${up ? "" : "; it starts with FRIDAY"}`,
+  );
   return { ok: true };
 }
 
@@ -1081,7 +1102,12 @@ async function prefetch(
           })
         : [];
       if (!stale.length) {
-        if (ui) ui.finish(row.id, { ok: true, note: "already on disk, not downloaded again" });
+        if (ui)
+          ui.finish(row.id, {
+            ok: true,
+            note: "already on disk, not downloaded again",
+            bytes: bytesOnDisk(row.ready),
+          });
         else log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
         return { id: row.id, ok: true, downloaded: false };
       }
@@ -1299,6 +1325,7 @@ module.exports = {
   fetchMoonshine,
   moonshineReady,
   alreadyThere,
+  bytesOnDisk,
   MOONSHINE_DIR,
 };
 
