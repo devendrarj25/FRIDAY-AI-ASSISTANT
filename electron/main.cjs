@@ -7675,7 +7675,7 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
     };
   }
 
-  const verified = updateSafety.verifyArtifact({
+  const verified = await updateSafety.verifyArtifactAsync({
     file,
     expected: payload.sha256 || null,
     version: payload.version || null,

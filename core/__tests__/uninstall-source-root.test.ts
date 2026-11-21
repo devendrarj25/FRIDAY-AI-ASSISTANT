@@ -114,7 +114,7 @@ describe("uninstall never deletes a source checkout used as the FRIDAY folder", 
 describe("the installed runtime reuses the FRIDAY folder's Python environment", () => {
   const repair = read("installer/build/repair-runtime.ps1");
 
-  it("repairs and reuses <root>\\runtime\\.venv when setup already made it, instead of building a second copy", () => {
+  it("repairs, reuses and builds <root>\\runtime\\.venv, so an update finds it and does not download it again", () => {
     expect(repair).toContain("(Split-Path -Leaf $InstallDir) -ieq 'App'");
     expect(repair).toContain("Join-Path (Split-Path -Parent $InstallDir) 'runtime'");
     const reuse = repair.indexOf("$rootVenv");
@@ -122,6 +122,13 @@ describe("the installed runtime reuses the FRIDAY folder's Python environment", 
     // The choice is made before the health check and before anything is built.
     expect(reuse).toBeLessThan(repair.indexOf("function Test-Runtime"));
     expect(reuse).toBeLessThan(repair.indexOf("& $basePython -m venv $venvDir"));
+    // It no longer depends on setup having made the environment first: the program folder is replaced by every update.
+    const choice = repair.slice(
+      repair.indexOf("if ((Split-Path -Leaf $InstallDir)"),
+      repair.indexOf("function Finish("),
+    );
+    expect(choice).not.toContain("Test-Path");
+    expect(choice).toContain("$venvDir = $rootVenv");
   });
 
   it("keeps the program folder's environment as the fallback and stays plain ASCII with CRLF", () => {

@@ -292,7 +292,7 @@ describe("installing a downloaded update", () => {
   it("verifies, backs up the protected folders and records the update before it launches", async () => {
     const install = main.slice(main.indexOf('ipcMain.handle("github:install-update"'));
     const order = [
-      "updateSafety.verifyArtifact(",
+      "updateSafety.verifyArtifactAsync(",
       "await stopKernel()",
       "updateSafety.backupStateAsync(",
       "updateSafety.beginInstall(",

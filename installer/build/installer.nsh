@@ -223,6 +223,18 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; A folder that OneDrive keeps in sync is allowed but slow and fragile: FRIDAY writes a database, a Python environment
+; of tens of thousands of small files and multi-gigabyte models there, and the sync client locks and re-uploads them.
+; Ask once, with "No" as the default, so the owner picks a plain local folder unless they mean it.
+!macro FridayWarnSynced Prefix Label
+  StrLen $1 "${Prefix}"
+  StrCpy $2 "$FridayRoot" $1
+  ${If} $2 == "${Prefix}"
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "This folder is inside ${Label}, which keeps it in sync.$\r$\nFRIDAY writes a database, thousands of small files and multi-gigabyte models there; syncing makes it slow and can lock files.$\r$\n$\r$\nUse it anyway? Choose No to pick a plain local folder such as $PROFILE\FRIDAY or D:\FRIDAY." IDYES +2
+    Abort
+  ${EndIf}
+!macroend
+
 Function FridayRootPageLeave
   ${NSD_GetText} $FridayRootText $FridayRoot
   ${If} $FridayRoot == ""
@@ -233,6 +245,7 @@ Function FridayRootPageLeave
   !insertmacro FridayRejectProtected "$PROGRAMFILES" "Program Files"
   !insertmacro FridayRejectProtected "$PROGRAMFILES64" "Program Files"
   !insertmacro FridayRejectProtected "$WINDIR" "the Windows folder"
+  !insertmacro FridayWarnSynced "$PROFILE\OneDrive" "OneDrive"
 
   ; Picking the program folder of an existing installation means the root is
   ; its parent — never install FRIDAY into <root>\App\App. Plain string work
@@ -252,10 +265,11 @@ Function FridayRootPageLeave
     StrCpy $FridayRoot "$FridayRoot\FRIDAY"
   ${EndIf}
 
-  ; The one decision of this page: root chosen, program folder derived from it.
+  ; The one decision of this page: root chosen, program folder derived from it. The registry pointer is written by
+  ; customInstall, once the files are really being installed: writing it here moved an already installed FRIDAY onto
+  ; the new (empty) folder when the owner pressed Cancel on the next page, because the app reads that pointer first.
   CreateDirectory "$FridayRoot"
   StrCpy $INSTDIR "$FridayRoot\App"
-  WriteRegStr HKCU "Software\FRIDAY" "WorkspacePath" "$FridayRoot"
 FunctionEnd
 
 
