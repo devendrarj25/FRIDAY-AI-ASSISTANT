@@ -282,7 +282,8 @@ function Resolve-Uninstaller {
 
 function Run-Setup {
   # /D is the ONE root folder (must stay the LAST argument for NSIS silent
-  # installs); the installer itself places the program in <root>\App.
+  # installs); the installer itself places the program in <root>\App
+  # (<root>\TestApp for FRIDAY Test).
   $p = Start-Tracked -FilePath $installerPath -ArgumentList @("/S", "/D=$rootDir")
   Wait-Exit $p 900 "FRIDAY Setup" | Out-Null
 
@@ -469,9 +470,12 @@ try {
   }
   $sandbox = Join-Path $tempRoot.TrimEnd('\', '/') ("friday-installer-smoke-" + [Guid]::NewGuid().ToString("N"))
   # Single-root contract: the installer takes ONE root folder via /D, installs
-  # the program into <root>\App and keeps every data sibling under <root>.
+  # the program into <root>\App (FRIDAY Test: <root>\TestApp, so it never
+  # touches the official program; FRIDAY_APP_DIR in installer/build/installer.nsh)
+  # and keeps every data sibling under <root>.
   $rootDir = Join-Path $sandbox "FRIDAY"
-  $installDir = Join-Path $rootDir "App"
+  $appFolder = if ($Product -eq "FRIDAY Test") { "TestApp" } else { "App" }
+  $installDir = Join-Path $rootDir $appFolder
   # Data lives directly under the SAME root, as siblings of App - there is no
   # separate "Data" root any more (single-root contract).
   $dataDir = $rootDir

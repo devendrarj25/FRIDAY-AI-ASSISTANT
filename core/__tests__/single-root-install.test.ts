@@ -275,6 +275,14 @@ describe("single-root install layout", () => {
     expect(nsh).toMatch(
       /!if "\$\{PRODUCT_NAME\}" == "FRIDAY Test"\r?\n\s+!define FRIDAY_APP_DIR "TestApp"[\s\S]*?!define FRIDAY_APP_TAIL "-8"\r?\n!else\r?\n\s+!define FRIDAY_APP_DIR "App"[\s\S]*?!define FRIDAY_APP_TAIL "-4"\r?\n!endif/,
     );
+    // The installer smoke looks for the program where the installer puts it, for each product (FRIDAY Test Build
+    // run 4 failed because the smoke still looked in <root>\\App after Test moved to <root>\\TestApp).
+    const smoke = readFileSync(join(projectRoot, "scripts", "windows-installer-smoke.ps1"), "utf8");
+    expect(smoke).toContain(
+      '$appFolder = if ($Product -eq "FRIDAY Test") { "TestApp" } else { "App" }',
+    );
+    expect(smoke).toContain("$installDir = Join-Path $rootDir $appFolder");
+    expect(smoke).not.toMatch(/\$installDir = Join-Path \$rootDir "App"/);
     // Defined for both passes: before the installer-only block, so the uninstaller pass sees it too.
     expect(nsh.indexOf('!define FRIDAY_APP_DIR "App"')).toBeLessThan(
       nsh.indexOf("!ifndef BUILD_UNINSTALLER"),
