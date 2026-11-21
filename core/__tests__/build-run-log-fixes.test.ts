@@ -12,6 +12,8 @@ const pack = require_(path.join(ROOT, "scripts/electron-pack.cjs")) as {
 };
 const pipeline = require_(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
   seedElectronCache: (target: string, source: string) => string[];
+  seedElectronChecksums: (cacheRoot: string, electronDir: string) => string;
+  skipReason: (stdout: string) => string;
 };
 
 describe("build run log fixes (2026-11-11)", () => {
@@ -48,6 +50,47 @@ describe("build run log fixes (2026-11-11)", () => {
     expect(pipeline.seedElectronCache(target, source)).toEqual([]);
     expect(pipeline.seedElectronCache(target, target)).toEqual([]);
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("seeds the shipped Electron checksums at the shared cache root, so a cached zip is checked offline", () => {
+    // The owner's build on 2026-11-20 printed `downloaded label=electron progress=100%`: a cache hit still fetched
+    // SHASUMS256.txt from GitHub. electron-builder reads `SHASUMS256.txt-<version>` there instead.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "friday-esums-"));
+    const electronDir = path.join(tmp, "electron");
+    const cacheRoot = path.join(tmp, "cache");
+    fs.mkdirSync(electronDir);
+    fs.writeFileSync(path.join(electronDir, "package.json"), JSON.stringify({ version: "45.3.1" }));
+    const sha = "a".repeat(64);
+    fs.writeFileSync(
+      path.join(electronDir, "checksums.json"),
+      JSON.stringify({
+        "electron-v45.3.1-win32-x64.zip": sha,
+        "electron-v45.2.0-win32-x64.zip": "b".repeat(64),
+        "electron-v45.3.1-bad.zip": "not-a-sha",
+      }),
+    );
+    const file = pipeline.seedElectronChecksums(cacheRoot, electronDir);
+    expect(file).toBe(path.join(cacheRoot, "SHASUMS256.txt-45.3.1"));
+    // The same line shape electron-builder's parser accepts: `<sha256> *<file>`, only this version, only real hashes.
+    expect(fs.readFileSync(file, "utf8")).toBe(`${sha} *electron-v45.3.1-win32-x64.zip\n`);
+    expect(pipeline.seedElectronChecksums(cacheRoot, electronDir)).toBe("");
+    // A missing package never breaks the build.
+    expect(pipeline.seedElectronChecksums(cacheRoot, path.join(tmp, "missing"))).toBe("");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("the real Electron package ships a checksum for the Windows zip the build packs", () => {
+    const real = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "node_modules", "electron", "checksums.json"), "utf8"),
+    ) as Record<string, string>;
+    const version = (
+      JSON.parse(
+        fs.readFileSync(path.join(ROOT, "node_modules", "electron", "package.json"), "utf8"),
+      ) as {
+        version: string;
+      }
+    ).version;
+    expect(real[`electron-v${version}-win32-x64.zip`]).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("the build drops a dead FRIDAY_PYTHON and runs the environment check in summary mode", () => {
@@ -262,5 +305,17 @@ describe("build run log fixes (2026-11-11)", () => {
     for (const caller of ["pr-validation", "friday-release", "friday-test-build", "node"]) {
       expect(installerSmokeSkip({ caller }, {})).toBe("");
     }
+  });
+
+  it("names why the packaged speech self-test skipped", () => {
+    // The owner's build table said only `stt-self-test skipped`.
+    expect(
+      pipeline.skipReason(
+        'noise\n{"ok": true, "skipped": true, "reason": "faster-whisper is not installed"}\n',
+      ),
+    ).toBe(" (faster-whisper is not installed)");
+    expect(pipeline.skipReason('{"ok": true, "skipped": true}')).toBe("");
+    expect(pipeline.skipReason("not json")).toBe("");
+    expect(pipeline.skipReason(JSON.stringify({ reason: "x".repeat(200) }))).toHaveLength(93);
   });
 });

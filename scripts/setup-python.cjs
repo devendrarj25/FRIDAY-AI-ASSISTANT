@@ -341,15 +341,22 @@ function installWithMethods(extra, options = {}) {
   return false;
 }
 
+// A requirement line may end with `# import: <module>` when the module a package is imported as differs from its
+// name, so a new package is added in the requirements file alone. The comment is never handed to pip.
 function parsePins(file) {
   return fs
     .readFileSync(file, "utf8")
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"))
-    .map((line) => {
+    .map((raw) => {
+      const hint = raw.match(/\s#\s*import:\s*([A-Za-z_][\w.]*)\s*$/);
+      const line = raw.replace(/\s+#.*$/, "").trim();
       const match = line.match(/^([A-Za-z0-9._-]+)(\[[^\]]+\])?(>=|==)([^\s;]+)/);
-      return match ? { name: match[1], spec: line } : { name: line.split(/[[>=<]/)[0], spec: line };
+      const pin = match
+        ? { name: match[1], spec: line }
+        : { name: line.split(/[[>=<]/)[0], spec: line };
+      return hint ? { ...pin, importName: hint[1] } : pin;
     });
 }
 
@@ -571,7 +578,8 @@ if (fs.existsSync(capReq)) {
   for (const pin of capPins) {
     if (pin.name === "chromadb") continue;
     const mod =
-      pin.name === "Pillow"
+      pin.importName ||
+      (pin.name === "Pillow"
         ? "PIL"
         : pin.name === "PyAutoGUI"
           ? "pyautogui"
@@ -579,7 +587,7 @@ if (fs.existsSync(capReq)) {
             ? "win32gui"
             : pin.name === "pymupdf"
               ? "pymupdf"
-              : pin.name.toLowerCase().replace(/-/g, "_");
+              : pin.name.toLowerCase().replace(/-/g, "_"));
     const importOk =
       capture(python, ["-c", `import ${mod}`]).status === 0 ||
       (pin.name === "pymupdf" && capture(python, ["-c", "import fitz"]).status === 0);

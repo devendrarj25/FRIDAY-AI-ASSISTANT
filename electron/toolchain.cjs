@@ -1382,19 +1382,19 @@ const TOOLS = [
     args: ["-v"],
     url: "https://maven.apache.org/",
     source: "maven.apache.org",
-    // archive.apache.org keeps every release; the SHA-512 Apache publishes matched this file (read 2026-11-19).
+    // archive.apache.org keeps every release; the SHA-512 Apache publishes matched this file (read 2026-11-21).
     installerUrl:
-      "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
-    sha256: "4ec3f26fb1a692473aea0235c300bd20f0f9fe741947c82c1234cefd76ac3a3c",
+      "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.zip",
+    sha256: "5af3b743dd8b876b5c45da33b676251e5f1687712644abb4ee519ca56e1d89ce",
     // Maven Central serves the same release file (same digest) from a CDN.
     installerMirrors: [
-      "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip",
+      "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.zip",
     ],
-    needBytes: 9202456,
-    archiveBin: "apache-maven-3.9.9/bin/mvn.cmd",
-    pinVersion: "3.9.9",
+    needBytes: 9395475,
+    archiveBin: "apache-maven-3.9.16/bin/mvn.cmd",
+    pinVersion: "3.9.16",
     manual:
-      "Maven 3.9.9. Apache-2.0. Needs a JDK. SHA-512 from archive.apache.org checked on 2026-11-19.",
+      "Maven 3.9.16. Apache-2.0. Needs a JDK. SHA-512 from archive.apache.org checked on 2026-11-21.",
   }),
   T("Composer", "Languages & Runtimes", {
     cmd: "composer",
@@ -3963,7 +3963,13 @@ function runJob({ id, action, root }, emit) {
         return { ok: true, via: "store" };
       }
       if (!file) return null;
-      emit({ id, action, phase: "Installing", line: `running ${path.basename(file)}` });
+      // An archive is unpacked and a .phar is put in place; only an installer program is run.
+      const verb = /\.(zip|7z|gz|tgz|tar)$/i.test(file)
+        ? "unpacking"
+        : /\.phar$/i.test(file)
+          ? "placing"
+          : "running";
+      emit({ id, action, phase: "Installing", line: `${verb} ${path.basename(file)}` });
       last = await attempt("vendor installer", installerCommand(file, tool, root));
       tried.push(`vendor installer (exit ${last.code})`);
       if (!last.ok) return null;
