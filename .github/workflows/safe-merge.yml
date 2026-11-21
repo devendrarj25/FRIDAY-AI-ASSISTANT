@@ -267,3 +267,12 @@ jobs:
               esac
             fi
           done
+
+      # A merge made with the workflow token does not start Branch Cleanup (GitHub starts no workflow from an event the
+      # workflow token caused), so every other branch whose work is already in main is swept here, with the same
+      # script. Never a failed merge: the script ends with a warning when something cannot be read or deleted.
+      - name: Delete every other branch whose work is already in main
+        if: ${{ inputs.delete_branch == 'true' }}
+        shell: bash
+        run: |
+          bash scripts/ci-sweep-branches.sh

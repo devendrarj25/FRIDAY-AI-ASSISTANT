@@ -131,6 +131,7 @@ extraResources:
       - "!ci-workflow-run.sh"
       - "!ci-delete-branch.sh"
       - "!ci-branch-state.sh"
+      - "!ci-sweep-branches.sh"
       - "!workflow-lock.cjs"
   - from: updater
     to: updater

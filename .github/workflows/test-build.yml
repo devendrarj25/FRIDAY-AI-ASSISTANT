@@ -45,9 +45,13 @@ on:
         type: boolean
         default: false
 
+# A try-out build (nothing published) is replaced by a newer one for the same ref. A build that publishes is never
+# cancelled mid-upload, which could leave a half-filled TEST prerelease in the Test channel, and all publishing builds
+# share one group so they run one after the other: each picks the next TEST number from the releases that exist, so
+# two at once could choose the same one.
 concurrency:
-  group: friday-test-build-${{ inputs.ref || github.ref }}
-  cancel-in-progress: true
+  group: ${{ inputs.publish && 'friday-test-publish' || format('friday-test-build-{0}', inputs.ref || github.ref) }}
+  cancel-in-progress: ${{ !inputs.publish }}
 
 # Write is used for ONE thing: publishing the TEST prerelease + its tag.
 # This workflow never pushes a commit, never writes to main and never creates

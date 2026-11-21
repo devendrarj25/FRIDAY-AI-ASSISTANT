@@ -1058,38 +1058,70 @@ describe("safe merge flow", () => {
     // The sweep reads pull requests, so the token needs that permission; it still cannot write them.
     expect(doc.permissions["pull-requests"]).toBe("read");
     expect(doc.permissions.contents).toBe("write");
+    // Two merges close together never race each other, and a waiting run is not cancelled mid-delete.
+    expect(doc.concurrency.group).toBe("friday-branch-cleanup");
+    expect(doc.concurrency["cancel-in-progress"]).toBe(false);
     // Full history, because "already in main" is an ancestry question.
     expect(src).toMatch(/uses: \$\/\.github\/actions\/checkout\n\s+with:\n\s+fetch-depth: 0/);
-    const sweep = src.slice(src.indexOf("Delete every other branch whose work is already in main"));
+    const at = src.indexOf("Delete every other branch whose work is already in main");
+    expect(at).toBeGreaterThan(-1);
+    expect(src.slice(at)).toContain("bash scripts/ci-sweep-branches.sh");
+    // The merged head is deleted first, by its own step, so a failing sweep never leaves it behind.
+    expect(src.indexOf('bash scripts/ci-delete-branch.sh "$BRANCH"')).toBeLessThan(at);
+  });
+
+  it("the sweep script reads branches only, skips with a warning when it cannot read, and never forces anything", () => {
+    const sweep = fs.readFileSync(path.resolve(DIR, "../../scripts/ci-sweep-branches.sh"), "utf8");
     expect(sweep).toContain("bash scripts/ci-branch-state.sh");
     expect(sweep).toContain("--open-prs open-prs.json --merged-prs merged-prs.json");
     expect(sweep).toContain('bash scripts/ci-delete-branch.sh "$branch"');
-    // The merged head is deleted first, by its own step, so a failing sweep never leaves it behind.
-    expect(src.indexOf('bash scripts/ci-delete-branch.sh "$BRANCH"')).toBeLessThan(
-      src.indexOf("Delete every other branch whose work is already in main"),
-    );
     // Branches only: no release and no run is ever in the plan, and the protected names are skipped again here.
     expect(sweep).toContain('echo "[]" > releases.json');
     expect(sweep).toContain('echo "[]" > runs.json');
     expect(sweep).toContain("main|master|develop|development|release|recovery/*) continue");
     expect(sweep).not.toMatch(/gh (release|run) delete/);
-    expect(sweep).not.toMatch(/git\s+push/);
-    // A sweep that cannot read GitHub skips with a warning instead of failing a merge that already succeeded.
-    expect(sweep).toContain("::warning::");
-    expect(sweep).not.toMatch(/--force|git branch -D/);
+    expect(sweep).not.toMatch(/git\s+push|--force|git branch -D/);
+    // The merge already succeeded: an unreadable GitHub or an undeletable branch is a warning, never a failure.
+    expect(sweep.match(/::warning::/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(sweep).toMatch(/exit 0\s*$/);
   });
 
-  it("collects branch facts in one script that both cleanup workflows share, and deletes nothing itself", () => {
+  it("Safe Merge sweeps too, because a merge made with the workflow token does not start Branch Cleanup", () => {
+    const doc = load("safe-merge.yml");
+    const steps = doc.jobs.merge.steps;
+    const names = steps.map((step: { name?: string }) => step.name);
+    const mergeAt = names.indexOf("Merge the eligible pull requests");
+    const sweepAt = names.indexOf("Delete every other branch whose work is already in main");
+    expect(mergeAt).toBeGreaterThan(-1);
+    expect(sweepAt).toBeGreaterThan(mergeAt);
+    expect(steps[sweepAt].if).toContain("inputs.delete_branch == 'true'");
+    expect(steps[sweepAt].run).toContain("bash scripts/ci-sweep-branches.sh");
+    // The sweep needs the whole history, which this workflow already fetches, and the pull request read it has.
+    const fetch = steps.find((step: { name?: string }) => step.name === "Fetch source");
+    expect(fetch.with["fetch-depth"]).toBe(0);
+    expect(doc.permissions["pull-requests"]).toBe("write");
+  });
+
+  it("collects branch facts in one script that every cleanup path shares, and deletes nothing itself", () => {
     const script = fs.readFileSync(path.resolve(DIR, "../../scripts/ci-branch-state.sh"), "utf8");
     expect(script).toContain('git merge-base --is-ancestor "$sha" origin/main');
     expect(script).toContain("gh pr list --state open");
     expect(script).toContain("gh pr list --state merged --base main");
     expect(script).toContain("headRefOid,isCrossRepository");
     expect(script).not.toMatch(/\bDELETE\b|--delete|git branch -[dD]|git push/);
-    for (const file of ["branch-cleanup.yml", "maintenance.yml"]) {
-      expect(read(file), file).toContain("bash scripts/ci-branch-state.sh");
-      expect(read(file), file).toContain("--merged-prs merged-prs.json");
-    }
+    expect(read("maintenance.yml")).toContain("bash scripts/ci-branch-state.sh");
+    expect(read("maintenance.yml")).toContain("--merged-prs merged-prs.json");
+  });
+
+  it("a Test Build that publishes is never cancelled mid-upload and runs one at a time", () => {
+    const doc = load("test-build.yml");
+    const src = read("test-build.yml");
+    // Publishing builds share one group (the next TEST number is read from the existing releases) and are
+    // not cancellable; a try-out build is still replaced by a newer one for the same ref.
+    expect(doc.concurrency.group).toContain("inputs.publish && 'friday-test-publish'");
+    expect(doc.concurrency.group).toContain("format('friday-test-build-{0}'");
+    expect(doc.concurrency["cancel-in-progress"]).toBe("${{ !inputs.publish }}");
+    expect(src).toContain("friday-test-build-");
   });
 
   it("deletes a merged branch through REST with retries and proves it is gone", () => {
