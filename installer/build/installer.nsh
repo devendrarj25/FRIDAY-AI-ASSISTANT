@@ -144,7 +144,7 @@ Function FridayRootPageCreate
 
   ${NSD_CreateLabel} 0 0 100% 32u \
     "FRIDAY installs into <folder>\App and keeps your database, memory, models, \
-agents, skills, plugins and workflows in sibling folders under the same root. \
+agents, skills, plugins, workflows and Python environment in sibling folders under the same root. \
 An existing FRIDAY folder is detected and reused - nothing inside it is deleted \
 or overwritten, and it survives a normal uninstall."
   Pop $0
@@ -520,6 +520,15 @@ FunctionEnd
           Pop $0
           DetailPrint "Source checkout cleanup finished with code $0 (your source files were not touched)."
         ${Else}
+          ; Stop everything that runs from the FRIDAY folder or stands in it (a runner, Ollama started by FRIDAY, a
+          ; leftover Python): a program whose current directory is inside the folder keeps it alive, and Windows then
+          ; answers "try again" even after every file is gone. Shells and editors of the owner are left alone.
+          DetailPrint "Stopping everything that uses $FridayUnRoot ..."
+          ${If} ${FileExists} "$INSTDIR\resources\installer\build\close-friday.ps1"
+            nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\installer\build\close-friday.ps1" -InstallDir "$INSTDIR" -ReleaseRoot "$FridayUnRoot"'
+            Pop $0
+            DetailPrint "Stopped the programs using the FRIDAY folder (code $0)."
+          ${EndIf}
           DetailPrint "Deleting all FRIDAY data in $FridayUnRoot (explicitly requested)..."
           RMDir /r "$FridayUnRoot"
         ${EndIf}
@@ -680,7 +689,7 @@ Function un.FridayDataPageLeave
           /SD IDNO IDYES friday_confirm_delete
       ${Else}
         MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
-          "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nThis cannot be undone. Delete all FRIDAY data?" \
+          "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nFRIDAY and every program running from that folder are stopped first, and the folder itself is removed.$\r$\nThis cannot be undone. Delete all FRIDAY data?" \
           /SD IDNO IDYES friday_confirm_delete
       ${EndIf}
       Abort

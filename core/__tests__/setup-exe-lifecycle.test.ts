@@ -119,3 +119,59 @@ describe("an update's installer is checksummed in chunks", () => {
     expect(read("electron/main.cjs")).toContain("await updateSafety.verifyArtifactAsync({");
   });
 });
+
+describe("uninstall with all data erased removes the FRIDAY folder itself", () => {
+  const nsh = read("installer/build/installer.nsh");
+  const script = read("installer/build/close-friday.ps1");
+
+  it("stops everything that runs from the folder or stands in it before the folder is deleted", () => {
+    const erase = nsh.slice(
+      nsh.indexOf("Stopping everything that uses"),
+      nsh.indexOf("Every other trace FRIDAY"),
+    );
+    expect(erase).toContain('-ReleaseRoot "$FridayUnRoot"');
+    expect(erase.indexOf("close-friday.ps1")).toBeLessThan(
+      erase.indexOf('RMDir /r "$FridayUnRoot"'),
+    );
+    // A source checkout is the owner's code: nothing in it is stopped or removed as a whole.
+    const source = nsh.slice(
+      nsh.indexOf("The FRIDAY folder is a source checkout"),
+      nsh.indexOf("Stopping everything that uses"),
+    );
+    expect(source).not.toContain("-ReleaseRoot");
+    expect(nsh).toContain("FRIDAY and every program running from that folder are stopped first");
+  });
+
+  it("the stop script reads each program's own current directory, in 64-bit PowerShell, and spares the owner's shells", () => {
+    expect(script).toContain("[string]$ReleaseRoot = ''");
+    expect(script).toContain("sysnative\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(script).toContain("Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess");
+    expect(script).toContain("NtQueryInformationProcess");
+    expect(script).toContain("0x20");
+    expect(script).toContain("0x38");
+    for (const shell of ["cmd", "powershell", "pwsh", "explorer", "windowsterminal", "code"]) {
+      expect(script).toContain(`'${shell}'`);
+    }
+    // A failure to compile the reader leaves the old behaviour, never an aborted Setup.
+    expect(script).toContain("$cwdReader = $false");
+    expect(script).toContain("Test-CwdHolder");
+  });
+
+  it("FRIDAY and the engines it starts no longer stand in the program folder", () => {
+    const main = read("electron/main.cjs");
+    expect(main).toContain('process.chdir(require("node:os").tmpdir());');
+    expect(main.indexOf("if (app.isPackaged) {\n  try {\n    process.chdir")).toBeGreaterThan(-1);
+    const models = read("electron/models.cjs");
+    const spawnAt = models.indexOf("child = spawn(cmd, args, {");
+    expect(models.slice(spawnAt, spawnAt + 400)).toContain('cwd: require("node:os").tmpdir()');
+  });
+
+  it("Setup and the update installer stop the same holders of the program folder", () => {
+    const check = nsh.slice(
+      nsh.indexOf("!macro customCheckAppRunning"),
+      nsh.indexOf("!macro customInit"),
+    );
+    expect(check).toContain("close-friday.ps1");
+    expect(check).toContain('-InstallDir "$INSTDIR"');
+  });
+});

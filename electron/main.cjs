@@ -196,6 +196,18 @@ const portableData = require("./portable-data.cjs");
 const portableMode = portableData.prepare(app, process.env);
 const PORTABLE_RUN = portableMode.portable;
 
+// The shortcut starts FRIDAY with the program folder as its current directory, and every program FRIDAY starts and
+// leaves running (Ollama, a runner, a tool service) inherited it. Such a program keeps `<root>\App`, and with it the
+// FRIDAY folder, from being deleted after an uninstall or an update ("try again" in Explorer even when every file is
+// gone). A packaged FRIDAY stands in the system temp folder instead; nothing in it reads its own current directory.
+if (app.isPackaged) {
+  try {
+    process.chdir(require("node:os").tmpdir());
+  } catch {
+    /* the folder it started in stays; the uninstaller still releases it */
+  }
+}
+
 // Everything below loads from V8's code cache after the first start: parsing and compiling the main process and its
 // modules was a fixed cost of every double-click. The cache lives in the app's own data folder; a missing or unwritable
 // folder just means no cache.

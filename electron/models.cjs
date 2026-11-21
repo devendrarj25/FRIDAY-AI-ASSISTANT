@@ -2201,6 +2201,9 @@ async function startEngine(id, options = {}) {
         detached: true,
         stdio: "ignore",
         windowsHide: true,
+        // An engine outlives FRIDAY. It must not stand in the program folder (or the FRIDAY folder), which would then
+        // refuse to be replaced or deleted.
+        cwd: require("node:os").tmpdir(),
         ...(spec.startEnv ? { env: spec.startEnv() } : {}),
       });
     } catch (err) {
