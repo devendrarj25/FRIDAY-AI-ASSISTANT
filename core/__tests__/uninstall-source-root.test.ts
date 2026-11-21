@@ -27,15 +27,40 @@ function listIn(name: string): string[] {
   return [...match![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
 }
 
-describe("uninstall never deletes a source checkout used as the FRIDAY folder", () => {
-  it("whole-folder removal is reachable only when the folder is not a source checkout", () => {
+describe("uninstall never deletes a source checkout used as the FRIDAY folder unless the owner asks for it", () => {
+  it("whole-folder removal is reachable only when the folder is not a source checkout, or the owner chose complete removal", () => {
     const remove = nsh.indexOf(WHOLE_FOLDER);
     expect(remove).toBeGreaterThan(-1);
     expect(nsh.indexOf(WHOLE_FOLDER, remove + 1)).toBe(-1);
     const before = nsh.slice(nsh.lastIndexOf("Call un.FridayDetectSource", remove), remove);
     expect(before).toContain('${If} $FridayUnSource == "1"');
+    // A checkout is kept unless the owner's own choice (set only after the second confirmation) says otherwise.
+    expect(before).toContain('${AndIf} $FridayUnWipeSource != "1"');
     expect(before).toContain("remove-source-root-data.ps1");
     expect(before).toContain("${Else}");
+  });
+
+  it("only the confirmed page choice can wipe a checkout; a silent uninstall and an unset value never do", () => {
+    const wipeSets = nsh.match(/StrCpy \$FridayUnWipeSource "1"/g) ?? [];
+    expect(wipeSets).toHaveLength(1);
+    const leave = nsh.slice(
+      nsh.indexOf("Function un.FridayDataPageLeave"),
+      nsh.indexOf("FunctionEnd", nsh.indexOf("Function un.FridayDataPageLeave")),
+    );
+    // The only place that sets it sits behind the "Delete the whole folder?" question, after the Abort of a No.
+    expect(leave.indexOf('StrCpy $FridayUnWipeSource "1"')).toBeGreaterThan(leave.indexOf("Abort"));
+    expect(leave).toContain("IDYES friday_confirm_wipe");
+    expect(leave).toContain("friday_confirm_wipe:");
+    // Every other start is "0": the silent path (customUnInit), the page's Pre and Leave.
+    const init = nsh.slice(
+      nsh.indexOf("!macro customUnInit"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInit")),
+    );
+    expect(init).toContain('StrCpy $FridayUnWipeSource "0"');
+    expect(leave).toContain('StrCpy $FridayUnWipeSource "0"');
+    // The checkbox that keeps the code is offered only for a checkout and starts unticked.
+    expect(nsh).toContain("...but keep my source code, Git history and build output in it");
+    expect(nsh).toMatch(/\$\{NSD_SetState\} \$FridayUnKeepSource \$\{BST_UNCHECKED\}/);
   });
 
   it("the detached sweeper that runs after the uninstaller exits also spares a source checkout", () => {
@@ -47,6 +72,7 @@ describe("uninstall never deletes a source checkout used as the FRIDAY folder", 
     const before = nsh.slice(nsh.lastIndexOf("Call un.FridayDetectSource", at), at);
     // In a source checkout the root entry is emptied first; the sweeper skips an empty entry (Where-Object { $$_ }).
     expect(before).toContain('${If} $FridayUnSource == "1"');
+    expect(before).toContain('${AndIf} $FridayUnWipeSource != "1"');
     expect(before).toContain('StrCpy $FridayUnRoot ""');
     expect(sweeper[0]).toContain("Where-Object { $$_ }");
   });
@@ -58,9 +84,13 @@ describe("uninstall never deletes a source checkout used as the FRIDAY folder", 
     expect(fn).toContain('"$FridayUnRoot\\scripts\\build-windows.cmd"');
   });
 
-  it("says so on the uninstall page and in the confirmation", () => {
-    expect(nsh).toContain("your source code in $FridayUnRoot is kept");
+  it("says so on the uninstall page and in both confirmations", () => {
+    // Keep the code: the data-only question.
     expect(nsh).toContain("Your source code and Git history in that folder are not touched.");
+    // Complete removal: the question names the code, the history and the build output, and tells what to close.
+    expect(nsh).toContain("AND the source code, Git history and build output in that folder.");
+    expect(nsh).toContain("Close any command window or editor that is open inside it first.");
+    expect(nsh).toContain("Delete the whole folder?");
   });
 
   it("runs the helper from the program's installer resources, and the helper refuses anything else", () => {

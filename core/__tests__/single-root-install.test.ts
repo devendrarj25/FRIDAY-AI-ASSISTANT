@@ -320,6 +320,52 @@ describe("uninstall executed against a real folder tree", () => {
     expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
   });
 
+  it("delete mode on a source checkout removes the whole folder when the owner chose complete removal", () => {
+    const { root, instdir, env } = buildInstall();
+    env.vars["FridayUnMode"] = "delete";
+    env.vars["FridayUnWipeSource"] = "1";
+    mkdirSync(join(root, ".git"), { recursive: true });
+    writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/main");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "app.ts"), "export {}");
+    mkdirSync(join(root, "release"), { recursive: true });
+    writeFileSync(join(root, "release", "FRIDAY-Setup.exe"), "installer");
+    // The stop script ships with the program; the uninstaller runs it only when it is there.
+    const stopScript = join(instdir, "resources", "installer", "build");
+    mkdirSync(stopScript, { recursive: true });
+    writeFileSync(join(stopScript, "close-friday.ps1"), "param()");
+    env.ran = [];
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+    for (const target of env.deferred) rmSync(target, { recursive: true, force: true });
+
+    // The folder, the source, the Git history and the build output are all gone, like any FRIDAY folder.
+    expect(existsSync(root)).toBe(false);
+    expect(env.deferred).toContain(root);
+    // Programs running from or standing in the folder were stopped first; the data-only helper never ran.
+    expect(env.ran).toHaveLength(1);
+    expect(env.ran[0]).toContain("close-friday.ps1");
+    expect(env.ran[0]).toContain(`-ReleaseRoot "${root}"`);
+    expect(env.ran.join("\n")).not.toContain("remove-source-root-data.ps1");
+    expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  it("a checkout is kept when the choice is unset or 0, as in a silent uninstall", () => {
+    for (const wipe of [undefined, "0"]) {
+      const { root, instdir, env } = buildInstall();
+      env.vars["FridayUnMode"] = "delete";
+      if (wipe !== undefined) env.vars["FridayUnWipeSource"] = wipe;
+      mkdirSync(join(root, ".git"), { recursive: true });
+      writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/main");
+      env.ran = [];
+      runNsis(macroBody("customUnInstall"), env);
+      rmSync(instdir, { recursive: true, force: true });
+      for (const target of env.deferred) rmSync(target, { recursive: true, force: true });
+      expect(existsSync(join(root, ".git", "HEAD"))).toBe(true);
+      expect(env.deferred).not.toContain(root);
+    }
+  });
+
   it("a source checkout is also recognised by its build script when there is no .git", () => {
     const { root, instdir, env } = buildInstall();
     env.vars["FridayUnMode"] = "delete";
