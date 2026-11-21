@@ -48,10 +48,39 @@ function alignWithRoot(): void {
 // already aligned with the current root by the time one of them hydrates.
 alignWithRoot();
 
+/**
+ * The newest value of each namespace whose browser copy has not been written yet. A streaming run changes its record
+ * on every token; writing the browser copy (a full JSON.stringify and a synchronous storage write on the page's own
+ * thread) each time was a steady cost of every chat. The writes are gathered and made once a moment later, and a read
+ * in between sees the newest value.
+ */
+const unsaved = new Map<string, unknown>();
+let localTimer: ReturnType<typeof setTimeout> | null = null;
+const LOCAL_WRITE_DELAY_MS = 150;
+
+function flushLocalState(): void {
+  if (localTimer) {
+    clearTimeout(localTimer);
+    localTimer = null;
+  }
+  if (typeof window === "undefined") return;
+  for (const [namespace, value] of unsaved) {
+    try {
+      window.localStorage.setItem(namespace, JSON.stringify(value));
+    } catch {
+      /* storage blocked — the desktop copy below still persists the record */
+    }
+  }
+  unsaved.clear();
+}
+
 /** Synchronous read of the browser copy. Always safe, never throws. */
 export function readLocalState<T>(namespace: string): T | null {
   if (typeof window === "undefined") return null;
   try {
+    if (unsaved.has(namespace)) {
+      return JSON.parse(JSON.stringify(unsaved.get(namespace))) as T;
+    }
     const raw = window.localStorage.getItem(namespace);
     return raw ? (JSON.parse(raw) as T) : null;
   } catch {
@@ -82,11 +111,8 @@ const written = new Set<string>();
 export function writeState(namespace: string, value: unknown): void {
   if (typeof window === "undefined") return;
   written.add(namespace);
-  try {
-    window.localStorage.setItem(namespace, JSON.stringify(value));
-  } catch {
-    /* storage blocked — desktop mirror below still persists the record */
-  }
+  unsaved.set(namespace, value);
+  localTimer ??= setTimeout(flushLocalState, LOCAL_WRITE_DELAY_MS);
   const bridge = api();
   if (!bridge?.setState) return;
   const queued = pending.get(namespace);
@@ -120,6 +146,8 @@ export function flushPendingState(): void {
       /* one engine failing must not hold back the others */
     }
   }
+  // After the engines: what they just wrote reaches the browser copy, which the disk copy below is read from.
+  flushLocalState();
   const bridge = api();
   for (const [namespace, timer] of [...pending]) {
     clearTimeout(timer);

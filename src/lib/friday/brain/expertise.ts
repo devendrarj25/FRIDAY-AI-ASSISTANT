@@ -634,7 +634,19 @@ const words = (value: string) =>
     .split(/[^a-z0-9+._#-]+/)
     .filter((word) => word.length > 2);
 
-function scoreEntry(entry: ExpertiseEntry, query: string): number {
+// The words of an entry never change, so they are split once, not on every search (the diagnosis runs search
+// the same few phrases again and again while the owner works).
+const haystacks = new WeakMap<ExpertiseEntry, Set<string>>();
+function haystackOf(entry: ExpertiseEntry): Set<string> {
+  let set = haystacks.get(entry);
+  if (!set) {
+    set = new Set(words(`${entry.title} ${entry.summary} ${entry.keywords.join(" ")}`));
+    haystacks.set(entry, set);
+  }
+  return set;
+}
+
+function scoreEntry(entry: ExpertiseEntry, query: string, tokens: Set<string>): number {
   const lower = query.toLowerCase();
   let score = 0;
   if (lower.includes(entry.title.toLowerCase())) score += 6;
@@ -644,30 +656,44 @@ function scoreEntry(entry: ExpertiseEntry, query: string): number {
   for (const symptom of entry.symptoms ?? []) {
     if (lower.includes(symptom.toLowerCase())) score += 8;
   }
-  const haystack = words(`${entry.title} ${entry.summary} ${entry.keywords.join(" ")}`);
-  for (const token of new Set(words(query))) {
-    if (haystack.includes(token)) score += 1;
+  const haystack = haystackOf(entry);
+  for (const token of tokens) {
+    if (haystack.has(token)) score += 1;
   }
   return score;
 }
+
+const searchCache = new Map<string, ExpertiseEntry[]>();
+const SEARCH_CACHE_LIMIT = 200;
 
 /** Ranked lookup across every entry. Pure and fast — no I/O. */
 export function searchExpertise(query: string, k = 3): ExpertiseEntry[] {
   const text = String(query || "").trim();
   if (!text) return [];
-  return EXPERTISE.map((entry) => ({ entry, score: scoreEntry(entry, text) }))
+  const key = `${k}\u0000${text}`;
+  const cached = searchCache.get(key);
+  if (cached) return [...cached];
+  const tokens = new Set(words(text));
+  const found = EXPERTISE.map((entry) => ({ entry, score: scoreEntry(entry, text, tokens) }))
     .filter((row) => row.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, k))
     .map((row) => row.entry);
+  if (searchCache.size >= SEARCH_CACHE_LIMIT) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest !== undefined) searchCache.delete(oldest);
+  }
+  searchCache.set(key, found);
+  return [...found];
 }
 
 /** Matches pasted error text against known signatures. */
 export function diagnoseError(errorText: string): ExpertiseEntry[] {
   const text = String(errorText || "");
   if (!text.trim()) return [];
+  const tokens = new Set(words(text));
   return EXPERTISE.filter((entry) => entry.kind === "error")
-    .map((entry) => ({ entry, score: scoreEntry(entry, text) }))
+    .map((entry) => ({ entry, score: scoreEntry(entry, text, tokens) }))
     .filter((row) => row.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, 2)

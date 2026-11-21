@@ -203,6 +203,10 @@ export function notificationAllowed(source: string, level: NotifyLevel): boolean
   return true;
 }
 
+// One audio context for every alert beep. Opening an audio device for each beep (and closing it again) cost more than
+// the beep itself and stalled the page for a moment each time.
+let alertContext: AudioContext | null = null;
+
 /** Short beep used when Settings → Notifications → Sound on alerts is on. */
 export function playAlertSound(): void {
   if (typeof window === "undefined") return;
@@ -211,7 +215,9 @@ export function playAlertSound(): void {
     (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioCtx) return;
   try {
-    const ctx = new AudioCtx();
+    if (!alertContext || alertContext.state === "closed") alertContext = new AudioCtx();
+    const ctx = alertContext;
+    if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
@@ -221,8 +227,12 @@ export function playAlertSound(): void {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.12);
-    osc.onended = () => void ctx.close();
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
   } catch {
+    alertContext = null;
     /* no audio device */
   }
 }

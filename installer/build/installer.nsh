@@ -572,6 +572,8 @@ FunctionEnd
   ${EndIf}
 
   ; Application-only leftovers: removed by BOTH modes, never user content.
+  ; The "High performance" graphics choice FRIDAY set for its own program (Windows Graphics settings).
+  DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
   RMDir /r "$LOCALAPPDATA\friday-cache"
   RMDir /r "$LOCALAPPDATA\friday-updater"
   ; Run markers of the copy being removed, kept in the app's user-data folder: a software-drawing fallback decided

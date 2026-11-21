@@ -22,9 +22,11 @@ export function useNavThumb(
         thumb.dataset["on"] = "false";
         return;
       }
-      thumb.style.width = `${link.offsetWidth}px`;
-      thumb.style.height = `${link.offsetHeight}px`;
-      thumb.style.transform = `translate(${link.offsetLeft}px, ${link.offsetTop}px)`;
+      // Read every size first, then write: a read after a write made the browser lay the page out again for each one.
+      const { offsetWidth, offsetHeight, offsetLeft, offsetTop } = link;
+      thumb.style.width = `${offsetWidth}px`;
+      thumb.style.height = `${offsetHeight}px`;
+      thumb.style.transform = `translate(${offsetLeft}px, ${offsetTop}px)`;
       thumb.dataset["on"] = "true";
     };
     place();

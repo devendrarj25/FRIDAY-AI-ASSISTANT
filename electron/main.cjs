@@ -814,6 +814,16 @@ app.commandLine.appendSwitch(
   "CalculateNativeWinOcclusion,WinUseBrowserSpellChecker,HardwareMediaKeyHandling",
 );
 
+// FRIDAY listens, speaks and works for the owner while her window is hidden in the tray, minimized or behind another
+// window. Chromium lowers the priority of such a window's renderer and slows its timers; the page already opts out of
+// throttling (`backgroundThrottling: false`), and these switches opt the whole renderer out, so wake word, voice
+// activity, streaming speech and the live task view keep their pace. The harness runs keep the defaults.
+if (!process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_READINESS !== "1") {
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+  app.commandLine.appendSwitch("disable-background-timer-throttling");
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+}
+
 // Windows groups the taskbar icon and the installed shortcut by this id — with
 // the default id the app is filed under "Electron" instead of FRIDAY.
 app.setAppUserModelId(portableData.appUserModelId("dev.friday.desk"));
@@ -8073,6 +8083,26 @@ app.whenReady().then(() => {
     readiness: false,
     run() {
       setTimeout(() => void reconnectGithub(), 9000);
+    },
+  });
+  startupTasks.register({
+    id: "gpu-preference",
+    phase: "idle",
+    timeoutMs: 1000,
+    readiness: false,
+    run() {
+      // Two graphics chips (a laptop): Windows lists the fast one first for FRIDAY from the next start on.
+      if (!app.isPackaged) return;
+      setTimeout(() => {
+        void require("./gpu-preference.cjs")
+          .ensureHighPerformance({
+            exe: app.getPath("exe"),
+            execFile,
+            portable: PORTABLE_RUN,
+            log,
+          })
+          .catch(() => undefined);
+      }, 6000);
     },
   });
   startupTasks.register({
