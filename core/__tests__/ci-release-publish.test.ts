@@ -127,6 +127,23 @@ describe.skipIf(!tools)("draft-first release publishing", () => {
     expect(r.out).toContain("verified FRIDAY-Setup-1.2.3.4.exe");
   });
 
+  it("hashes a file whose path holds a backslash correctly (a Windows path in Git Bash)", () => {
+    // PR Validation on windows-latest: sha256sum printed "\\<hash>" for such a path and every asset looked changed.
+    const s = setup();
+    const folder = path.join(s.dir, "release\\x64");
+    fs.mkdirSync(folder);
+    const odd = path.join(folder, "FRIDAY-Setup-1.2.3.4.exe");
+    fs.writeFileSync(odd, "installer bytes");
+    const bin = fakeGh(
+      s.dir,
+      [{ name: path.basename(odd), digest: `sha256:${s.sha(odd)}`, id: 1 }],
+      [],
+    );
+    const r = run(s.dir, bin, [odd]);
+    expect(r.status, r.out).toBe(0);
+    expect(r.calls).toContain("-F draft=false -f make_latest=true");
+  });
+
   it("deletes the draft and publishes nothing when an uploaded asset is not the built file", () => {
     const s = setup();
     const bin = fakeGh(

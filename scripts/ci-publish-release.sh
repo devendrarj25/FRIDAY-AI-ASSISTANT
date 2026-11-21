@@ -67,7 +67,9 @@ listing=$(gh api "repos/$repo/releases/$id/assets?per_page=100" \
 
 for asset in "$@"; do
   name=$(basename "$asset")
-  want="sha256:$(sha256sum "$asset" | cut -d' ' -f1)"
+  # Read through stdin: for a file name that holds a backslash (a Windows path
+  # in Git Bash) GNU sha256sum puts a backslash before the hash it prints.
+  want="sha256:$(sha256sum < "$asset" | cut -d' ' -f1)"
   row=$(printf '%s\n' "$listing" | awk -F'\t' -v n="$name" '$1 == n { print; exit }')
   [ -n "$row" ] || drop "$name was not uploaded"
   digest=$(printf '%s' "$row" | cut -f2)
