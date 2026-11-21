@@ -178,9 +178,12 @@ describe("workflow safety · no cross-workflow race on branches", () => {
 
   it("Maintenance collects the open pull requests before planning the cleanup", () => {
     const wf = read(".github/workflows/maintenance.yml");
-    expect(wf).toContain("gh pr list --state open");
+    // The shared collector reads the open pull requests (and the merged ones) before the plan is made.
+    const collector = read("scripts/ci-branch-state.sh");
+    expect(collector).toContain("gh pr list --state open");
+    expect(wf).toContain("bash scripts/ci-branch-state.sh");
     expect(wf).toContain("--open-prs open-prs.json");
-    expect(wf.indexOf("open-prs.json")).toBeLessThan(wf.indexOf("--open-prs open-prs.json"));
+    expect(wf.indexOf("ci-branch-state.sh")).toBeLessThan(wf.indexOf("--open-prs open-prs.json"));
   });
 
   it("Safe Merge still requires an explicit confirmation and Official Publish stops on error", () => {

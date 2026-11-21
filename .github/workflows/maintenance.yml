@@ -81,26 +81,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          # Merged work branches only: a branch that is not an ancestor of main
-          # is still live work and is never listed.
-          git fetch origin --prune
-          : > branches.json
-          {
-            echo "["
-            first=1
-            for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | sed 's|^origin/||'); do
-              [ "$ref" = "HEAD" ] && continue
-              merged=false
-              git merge-base --is-ancestor "origin/$ref" origin/main 2>/dev/null && merged=true
-              [ $first -eq 1 ] || echo ","
-              first=0
-              printf '{"name":"%s","merged":%s}' "$ref" "$merged"
-            done
-            echo "]"
-          } > branches.json
-          # Open pull requests pin their head branch: cleanup must never delete a
-          # branch Safe Merge / FRIDAY Release is still working on.
-          gh pr list --state open --limit 200 --json headRefName > open-prs.json
+          # Branches only that are fully in main (an ancestor of main, or exactly the head of a pull request merged
+          # into main); a branch with an open pull request or any commit main lacks is live work and is never listed.
+          # Open pull requests pin their head branch: cleanup must never delete a branch Safe Merge / FRIDAY Release
+          # is still working on.
+          bash scripts/ci-branch-state.sh
           gh release list --limit 100 --json tagName,isPrerelease,isDraft,createdAt > releases.json
           gh run list --limit 300 --json databaseId,workflowName,status,createdAt > runs.json
           current=$(gh release view --json tagName --jq .tagName 2>/dev/null || echo "")
@@ -112,7 +97,7 @@ jobs:
           set -o pipefail
           node scripts/merge-engine.cjs cleanup \
             --branches branches.json --releases releases.json --runs runs.json \
-            --open-prs open-prs.json \
+            --open-prs open-prs.json --merged-prs merged-prs.json \
             --keep-official "$KEEP_OFFICIAL" --keep-test 1 --keep-runs "$KEEP_RUNS" \
             --current "$current" > plan.json
           cat plan.json

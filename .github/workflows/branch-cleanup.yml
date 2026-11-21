@@ -6,6 +6,14 @@
 # A merged release/vX.Y.Z branch has served its purpose — the version now lives
 # on main — so it is cleaned up like any other temporary branch.
 #
+# After that it sweeps the rest of the repository: every other branch whose work
+# is already entirely in main goes too, whether it was merged with a merge commit
+# (its tip is an ancestor of main) or squash/rebase-merged (its tip is exactly the
+# head commit of a pull request merged into main). A branch with an open pull
+# request, or with any commit main does not have, is live work and stays; so does
+# a branch whose pull request was never merged. The sweep is best effort: the
+# merged head above is already gone, and Maintenance Cleanup is the weekly net.
+#
 # It never deletes main, never deletes a long-lived protected branch, and it
 # never creates a release — merging main is not a release event. Recovery
 # branches are owner-controlled evidence and are never automatically deleted.
@@ -19,6 +27,8 @@ on:
 
 permissions:
   contents: write
+  # The sweep lists open and merged pull requests (gh pr list); without this GitHub refuses it.
+  pull-requests: read
 
 jobs:
   delete-merged-branch:
@@ -44,11 +54,10 @@ jobs:
                 exit 1 ;;
             esac
           done
-      - name: Fetch the branch-delete script only
+      - name: Fetch source
         uses: $/.github/actions/checkout
         with:
-          sparse-checkout: scripts/ci-delete-branch.sh
-          sparse-checkout-cone-mode: "false"
+          fetch-depth: 0
 
       - name: Delete the merged temporary branch
         env:
@@ -58,3 +67,44 @@ jobs:
         shell: bash
         run: |
           bash scripts/ci-delete-branch.sh "$BRANCH"
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Delete every other branch whose work is already in main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          if ! bash scripts/ci-branch-state.sh; then
+            echo "::warning::could not read the branches and pull requests; the sweep was skipped (Maintenance Cleanup does it weekly)."
+            exit 0
+          fi
+          # Branches only: no release and no run is ever planned for deletion here.
+          echo "[]" > releases.json
+          echo "[]" > runs.json
+          if ! node scripts/merge-engine.cjs cleanup \
+            --branches branches.json --releases releases.json --runs runs.json \
+            --open-prs open-prs.json --merged-prs merged-prs.json > plan.json; then
+            echo "::warning::the cleanup plan could not be made; the sweep was skipped."
+            exit 0
+          fi
+          cat plan.json
+          deleted=""
+          for branch in $(jq -r '.branches[]' plan.json); do
+            case "$branch" in
+              main|master|develop|development|release|recovery/*) continue ;;
+            esac
+            if bash scripts/ci-delete-branch.sh "$branch"; then
+              deleted="$deleted $branch"
+            else
+              echo "::warning::$branch is fully in main but could not be deleted; Maintenance Cleanup will retry."
+            fi
+          done
+          {
+            echo "### Branches removed because their work is already in main"
+            echo ""
+            echo "${deleted:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
