@@ -199,7 +199,9 @@ describe("PR validation · manual version bumps auto-heal instead of hard-failin
     expect(wf).toContain("Verify version/documentation synchronization (auto-heal)");
     expect(wf).toContain('node scripts/release-engine.cjs heal --version "$version"');
     expect(wf).toContain('git commit -m "chore: sync docs to v$version"');
-    expect(wf).toContain('git push origin "HEAD:refs/heads/$branch"');
+    expect(wf).toContain(
+      'git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"',
+    );
     expect(wf).toContain("contents: write");
   });
 

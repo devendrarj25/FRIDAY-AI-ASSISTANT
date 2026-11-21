@@ -308,7 +308,16 @@ describe("workflow inventory", () => {
     expect(action).toContain("npm --version");
     expect(action).toContain("Refuse the runner's preinstalled Node");
     // The Node major must come from package.json, never a literal in CI.
-    expect(action).toContain("node-version: ${{ steps.engines.outputs.node_major }}.x");
+    expect(action).toContain("NODE_MAJOR: ${{ steps.engines.outputs.node_major }}");
+    expect(action).toContain('echo "node-version: ${NODE_MAJOR}.x"');
+    // Values from package.json reach the scripts as environment variables only: no `${{ }}` is pasted into a
+    // shell or `node -e` script, so an engines string can never become code.
+    const runs = action
+      .split(/\n\s+run: \|/)
+      .slice(1)
+      .map((block) => block.split(/\n\s+- name:/)[0]);
+    expect(runs.length).toBeGreaterThan(3);
+    for (const block of runs) expect(block).not.toContain("${{");
     expect(action).not.toMatch(/node-version:\s*['"]?\d+/);
   });
 
@@ -426,8 +435,11 @@ describe("PR validation", () => {
     expect(src.match(/gh release \w+/g)).toEqual(["gh release download"]);
     // The single permitted write is the documentation auto-heal commit pushed
     // back to the pull request branch - never to main, never a release.
-    expect(src.match(/git push/g) || []).toHaveLength(1);
-    expect(src).toContain('git push origin "HEAD:refs/heads/$branch"');
+    expect(src.match(/\bpush origin\b/g) || []).toHaveLength(1);
+    // The push authenticates on its own command line: the checkout credential is gone before npm ci.
+    expect(src).toContain(
+      'git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"',
+    );
     expect(src.match(/git commit/g) || []).toHaveLength(1);
     expect(src).toContain('git commit -m "chore: sync docs to v$version"');
   });
@@ -1467,7 +1479,9 @@ describe("release publish must not be blocked by its own auto-heal", () => {
     // The guard must sit BEFORE the push, otherwise the pinned head moves and
     // Official Publish aborts with "pull request moved".
     const guard = src.indexOf("PINNED-COMMIT GUARD");
-    const push = src.indexOf('git push origin "HEAD:refs/heads/$branch"');
+    const push = src.indexOf(
+      'git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/$branch"',
+    );
     expect(guard).toBeGreaterThan(-1);
     expect(push).toBeGreaterThan(guard);
     expect(src).toContain('if [ -n "$PINNED_SHA" ]; then');
@@ -1738,5 +1752,36 @@ describe("automatic-health workflows", () => {
     expect(read("pr-validation.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(read("security.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(release).toContain("validation-freshness.cjs");
+  });
+});
+
+describe("PR Validation keeps the write token away from the pull request's code", () => {
+  const src = read("pr-validation.yml");
+  const job = (name: string) => {
+    const at = src.indexOf(`\n  ${name}:\n`);
+    const next = src.slice(at + 1).search(/\n {2}[a-z-]+:\n/);
+    return src.slice(at, next < 0 ? undefined : at + 1 + next);
+  };
+
+  it("names GH_TOKEN only on the steps that call gh or push, never for the whole job, in static and docs-only", () => {
+    for (const name of ["static", "docs-only"]) {
+      const text = job(name);
+      expect(text, name).not.toMatch(/\n {4}env:\n {6}GH_TOKEN:/);
+      expect(text, name).toContain("          GH_TOKEN: ${{ github.token }}");
+    }
+  });
+
+  it("removes the checkout credential before npm ci runs the pull request's dependencies", () => {
+    for (const name of ["static", "docs-only"]) {
+      const text = job(name);
+      const drop = text.indexOf(
+        "name: Remove the checkout credential before the pull request's code runs",
+      );
+      const install = text.search(/\n\s+run: npm ci\n/);
+      const fetch = text.indexOf('git fetch --no-tags origin "$BASE_REF"');
+      expect(drop, name).toBeGreaterThan(fetch);
+      expect(install, name).toBeGreaterThan(drop);
+      expect(text, name).toContain('git config --local --unset-all "$key"');
+    }
   });
 });
