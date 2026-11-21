@@ -118,6 +118,12 @@ FunctionEnd
       StrCpy $FridayRoot "$PROFILE\FRIDAY"
     ${EndIf}
   ${EndIf}
+  ; A whole drive ("D:\") is not a FRIDAY folder: "Delete all FRIDAY data" would then empty the drive.
+  StrLen $1 "$FridayRoot"
+  ${If} $1 < 4
+    MessageBox MB_ICONSTOP "FRIDAY needs a folder of its own, not a whole drive.$\r$\nUse a folder such as D:\FRIDAY." /SD IDOK
+    Abort
+  ${EndIf}
   StrCpy $INSTDIR "$FridayRoot\App"
 !macroend
 
@@ -239,6 +245,20 @@ Function FridayRootPageLeave
   ${NSD_GetText} $FridayRootText $FridayRoot
   ${If} $FridayRoot == ""
     MessageBox MB_ICONSTOP "Please choose a folder for FRIDAY."
+    Abort
+  ${EndIf}
+
+  ; "D:\FRIDAY\" and "D:\FRIDAY" are the same folder: keep one spelling, so the pointer, the program folder and the
+  ; uninstaller all agree. A whole drive ("D:\") is refused: Delete all would then empty it.
+  StrCpy $0 "$FridayRoot" 1 -1
+  StrLen $1 "$FridayRoot"
+  ${If} $0 == "\"
+  ${AndIf} $1 > 3
+    StrCpy $FridayRoot "$FridayRoot" -1
+  ${EndIf}
+  StrLen $1 "$FridayRoot"
+  ${If} $1 < 4
+    MessageBox MB_ICONSTOP "FRIDAY needs a folder of its own, not a whole drive.$\r$\nChoose a folder such as D:\FRIDAY."
     Abort
   ${EndIf}
 
@@ -458,6 +478,16 @@ FunctionEnd
     ${EndIf}
   ${EndIf}
 
+  ; A whole drive ("D:\", "D:") is never a FRIDAY folder to release or delete, whatever an old pointer says: that
+  ; would empty the drive. The program folder is still removed; the pointer is left for the owner to correct.
+  StrLen $0 "$FridayUnRoot"
+  ${If} $0 == 1
+  ${OrIf} $0 == 2
+  ${OrIf} $0 == 3
+    DetailPrint "The registered FRIDAY folder ($FridayUnRoot) is a whole drive: it is never deleted or released."
+    StrCpy $FridayUnRoot ""
+  ${EndIf}
+
   ${If} $FridayUnMode != "delete"
     StrCpy $FridayUnMode "keep"
   ${EndIf}
@@ -581,7 +611,12 @@ FunctionEnd
 
   ; Application-only leftovers: removed by BOTH modes, never user content.
   ; The "High performance" graphics choice FRIDAY set for its own program (Windows Graphics settings).
-  DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ; Only the value FRIDAY itself writes ("GpuPreference=2;"): a choice the owner made in Windows, such as Power
+  ; saving, is theirs and stays, also across an update (which runs this uninstaller first).
+  ReadRegStr $0 HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ${If} $0 == "GpuPreference=2;"
+    DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ${EndIf}
   RMDir /r "$LOCALAPPDATA\friday-cache"
   RMDir /r "$LOCALAPPDATA\friday-updater"
   ; Run markers of the copy being removed, kept in the app's user-data folder: a software-drawing fallback decided
@@ -615,8 +650,12 @@ FunctionEnd
     ${AndIf} $FridayUnWipeSource != "1"
       StrCpy $FridayUnRoot ""
     ${EndIf}
+    ; The two folders travel in the environment of the helper, not in its command line: a folder name with an
+    ; apostrophe, a percent sign or an ampersand would break the quoting and the sweep would silently do nothing.
+    System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_SWEEP_APP", t "$INSTDIR")'
+    System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_SWEEP_ROOT", t "$FridayUnRoot")'
     SetOutPath "$TEMP"
-    nsExec::Exec 'cmd.exe /c start "" /min "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $$env:TEMP; [Environment]::CurrentDirectory = $$env:TEMP; Start-Sleep -Seconds 6; $$t = @($\'$INSTDIR$\', $\'$FridayUnRoot$\') | Where-Object { $$_ }; for ($$n = 0; $$n -lt 45; $$n++) { foreach ($$p in $$t) { if (Test-Path -LiteralPath $$p) { cmd.exe /c rd /s /q ($\'\\?\$\' + $$p) 2>$$null; Remove-Item -LiteralPath $$p -Recurse -Force -ErrorAction SilentlyContinue } }; if (-not ($$t | Where-Object { Test-Path -LiteralPath $$_ })) { break }; Start-Sleep -Seconds 2 }"'
+    nsExec::Exec 'cmd.exe /c start "" /min "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $$env:TEMP; [Environment]::CurrentDirectory = $$env:TEMP; Start-Sleep -Seconds 6; $$t = @($$env:FRIDAY_SWEEP_APP, $$env:FRIDAY_SWEEP_ROOT) | Where-Object { $$_ }; for ($$n = 0; $$n -lt 45; $$n++) { foreach ($$p in $$t) { if (Test-Path -LiteralPath $$p) { cmd.exe /c rd /s /q ($\'\\?\$\' + $$p) 2>$$null; Remove-Item -LiteralPath $$p -Recurse -Force -ErrorAction SilentlyContinue } }; if (-not ($$t | Where-Object { Test-Path -LiteralPath $$_ })) { break }; Start-Sleep -Seconds 2 }"'
     Pop $0
   ${EndIf}
 

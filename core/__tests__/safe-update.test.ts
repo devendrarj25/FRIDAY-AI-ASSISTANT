@@ -7,7 +7,7 @@
  *   • a launch on the expected version marks it stable
  *   • a launch on the wrong version reports failure and can be rolled back
  */
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -125,6 +125,34 @@ describe("backup, health check and rollback", () => {
     expect(rolled.ok).toBe(true);
     expect(rolled.restored).toContain("database");
     expect(fs.readFileSync(path.join(root, "database", "friday.sqlite3"), "utf8")).toBe("v1-bytes");
+  });
+
+  it("leaves no staging folder behind after a rollback", () => {
+    const backup = safety.backupState({ root, version: "2.0.0" });
+    safety.beginInstall({ root, version: "2.0.0", currentVersion: "1.9.0", backup: backup.backup });
+    expect(safety.rollback({ root, backup: backup.backup }).ok).toBe(true);
+    expect(fs.readdirSync(root).filter((name) => name.endsWith(".restoring"))).toEqual([]);
+  });
+
+  it("keeps the current folder whole when the restore copy fails halfway", () => {
+    const backup = safety.backupState({ root, version: "2.0.0" });
+    safety.beginInstall({ root, version: "2.0.0", currentVersion: "1.9.0", backup: backup.backup });
+    fs.writeFileSync(path.join(root, "config", "settings.json"), '{"voice":"newer"}');
+    const spy = vi.spyOn(fs, "cpSync").mockImplementation(() => {
+      throw new Error("ENOSPC: no space left on device");
+    });
+    try {
+      const rolled = safety.rollback({ root, backup: backup.backup });
+      expect(rolled.ok).toBe(false);
+      expect(String(rolled.error)).toMatch(/Rollback failed.*ENOSPC/);
+    } finally {
+      spy.mockRestore();
+    }
+    // The folder that was running is untouched, and nothing half-restored is left beside it.
+    expect(fs.readFileSync(path.join(root, "config", "settings.json"), "utf8")).toContain("newer");
+    expect(fs.readdirSync(root).filter((name) => name.endsWith(".restoring"))).toEqual([]);
+    // The pending record stays, so the owner can try the rollback again.
+    expect(safety.pendingUpdate(root)?.state).toBe("installing");
   });
 
   it("never copies models into the per-update backup and never lists them as deletable", () => {

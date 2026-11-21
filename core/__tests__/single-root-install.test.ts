@@ -38,6 +38,8 @@ type Env = {
   deferred: string[];
   /** Commands the script ran through nsExec::ExecToLog (a PowerShell helper cannot run here, so it is recorded). */
   ran?: string[];
+  /** Environment variables the script set for the detached sweeper through System::Call. */
+  sweepEnv?: Record<string, string>;
 };
 
 /** Body of a named NSIS function from the shipped script. */
@@ -199,11 +201,23 @@ function runNsis(body: string, env: Env): void {
       for (const key of remaining) delete env.reg[key];
       continue;
     }
+    // The folders for the detached sweeper travel in its environment, not in its command line.
+    const setEnv = /^System::Call 'Kernel32::SetEnvironmentVariable\(t "(\w+)", t "(.*)"\)'$/.exec(
+      line,
+    );
+    if (setEnv) {
+      (env.sweepEnv ??= {})[setEnv[1]!] = arg(setEnv[2]!);
+      continue;
+    }
     // The detached sweeper runs after the uninstaller exits; record its targets.
     if (line.startsWith("nsExec::Exec ")) {
-      // The sweeper's targets are the quoted list in `$$t = @('<program folder>', '<root>')`.
+      // The sweeper's targets are the variables in `$$t = @($$env:FRIDAY_SWEEP_APP, $$env:FRIDAY_SWEEP_ROOT)`;
+      // an empty one is skipped by the helper (Where-Object { $$_ }).
       const list = /\$\$t = @\((.*?)\)/.exec(line)?.[1] ?? "";
-      for (const match of list.matchAll(/\$\\?'(.+?)\$\\?'/g)) env.deferred.push(expand(match[1]!));
+      for (const match of list.matchAll(/\$\$env:(\w+)/g)) {
+        const target = env.sweepEnv?.[match[1]!];
+        if (target) env.deferred.push(target);
+      }
       continue;
     }
     throw new Error(`unsupported NSIS instruction in customUnInstall: ${line}`);
@@ -363,6 +377,39 @@ describe("uninstall executed against a real folder tree", () => {
       for (const target of env.deferred) rmSync(target, { recursive: true, force: true });
       expect(existsSync(join(root, ".git", "HEAD"))).toBe(true);
       expect(env.deferred).not.toContain(root);
+    }
+  });
+
+  it("a registered folder that is a whole drive is never deleted or released, even in delete mode", () => {
+    for (const drive of ["D:\\", "D:", "D"]) {
+      const { instdir, env } = buildInstall();
+      env.vars["FridayUnMode"] = "delete";
+      env.reg["Software\\FRIDAY\\WorkspacePath"] = drive;
+      env.ran = [];
+      runNsis(macroBody("customUnInstall"), env);
+      // No stop script and no sweep for a drive root; only the program folder is the sweeper's target.
+      expect(env.ran.join("\n")).not.toContain("ReleaseRoot");
+      expect(env.deferred).toEqual([instdir]);
+    }
+  });
+
+  it("sweeps the program folder and the root through the environment, not the command line", () => {
+    const { root, instdir, env } = buildInstall();
+    env.vars["FridayUnMode"] = "delete";
+    runNsis(macroBody("customUnInstall"), env);
+    expect(env.sweepEnv).toEqual({ FRIDAY_SWEEP_APP: instdir, FRIDAY_SWEEP_ROOT: root });
+  });
+
+  it("removes only the graphics choice FRIDAY itself wrote, and keeps one the owner made", () => {
+    const key = "Software\\Microsoft\\DirectX\\UserGpuPreferences\\$INSTDIR\\FRIDAY.exe";
+    for (const [value, kept] of [
+      ["GpuPreference=2;", false],
+      ["GpuPreference=1;", true],
+    ] as const) {
+      const { env } = buildInstall();
+      env.reg[key] = value;
+      runNsis(macroBody("customUnInstall"), env);
+      expect(key in env.reg, value).toBe(kept);
     }
   });
 

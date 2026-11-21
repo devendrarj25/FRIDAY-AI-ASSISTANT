@@ -167,3 +167,60 @@ describe("the installed runtime reuses the FRIDAY folder's Python environment", 
     expect(repair.replace(/\r\n/g, "").includes("\n")).toBe(false);
   });
 });
+
+describe("the installer and uninstaller never treat a whole drive as the FRIDAY folder", () => {
+  it("Setup refuses a drive root on the folder page and for /D=, and keeps one spelling of the folder", () => {
+    const leave = nsh.slice(
+      nsh.indexOf("Function FridayRootPageLeave"),
+      nsh.indexOf("FunctionEnd", nsh.indexOf("Function FridayRootPageLeave")),
+    );
+    expect(leave).toContain("${If} $1 < 4");
+    expect(leave).toContain("not a whole drive");
+    // A trailing backslash is dropped (only above a drive root), before the checks that follow.
+    expect(leave.indexOf('StrCpy $FridayRoot "$FridayRoot" -1')).toBeGreaterThan(-1);
+    expect(leave.indexOf('StrCpy $FridayRoot "$FridayRoot" -1')).toBeLessThan(
+      leave.indexOf("!insertmacro FridayRejectProtected"),
+    );
+    const init = nsh.slice(
+      nsh.indexOf("!macro customInit"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customInit")),
+    );
+    expect(init).toContain("${If} $1 < 4");
+    expect(init.indexOf("${If} $1 < 4")).toBeLessThan(
+      init.indexOf('StrCpy $INSTDIR "$FridayRoot\\App"'),
+    );
+  });
+
+  it("the uninstaller empties the root of a drive-root pointer before anything is stopped or deleted", () => {
+    const body = nsh.slice(
+      nsh.indexOf("!macro customUnInstall"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+    );
+    const guard = body.indexOf('StrLen $0 "$FridayUnRoot"');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(body.indexOf("close-friday.ps1"));
+    expect(guard).toBeLessThan(body.indexOf(WHOLE_FOLDER));
+    expect(body.slice(guard, guard + 400)).toContain('StrCpy $FridayUnRoot ""');
+  });
+});
+
+describe("the installed-runtime helpers", () => {
+  const python = read("installer/build/install-python.ps1");
+  const repair = read("installer/build/repair-runtime.ps1");
+
+  it("runs a downloaded Python installer only when the Python Software Foundation signed it", () => {
+    expect(python).toContain("Get-AuthenticodeSignature -LiteralPath $file");
+    expect(python).toContain("Python Software Foundation");
+    const check = python.indexOf("if (-not (Test-PythonInstallerSignature $file))");
+    expect(check).toBeGreaterThan(-1);
+    // The check sits between the download and the silent run, and a refused file is deleted.
+    expect(check).toBeLessThan(python.indexOf("Start-Process -FilePath $file"));
+    expect(check).toBeGreaterThan(python.indexOf("$downloaded = $true"));
+    expect(python.slice(check, check + 400)).toContain("Remove-Item -LiteralPath $file");
+  });
+
+  it("rebuilds the environment only when its check fails twice", () => {
+    expect(repair).toContain("function Test-RuntimeTwice");
+    expect(repair).toMatch(/if \(Test-RuntimeTwice\) \{\r?\n {2}Install-VoiceCore/);
+  });
+});

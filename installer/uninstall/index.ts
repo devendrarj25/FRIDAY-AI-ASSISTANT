@@ -18,6 +18,10 @@
  * app-data decision belongs to the mode chosen here, not to a build flag that
  * would wipe data even when the user asked to keep it.
  *
+ * Two guards limit "delete": a registered folder that is a whole drive is never deleted or released, and a FRIDAY
+ * folder that is the Git checkout FRIDAY was built from keeps its source unless the owner confirms complete removal
+ * (a silent uninstall never removes a checkout).
+ *
  * This module types and documents that contract so no future code can quietly
  * widen the blast radius of either mode.
  */
