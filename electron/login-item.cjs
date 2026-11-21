@@ -23,14 +23,10 @@
  * are passed to the read. An entry written by an older build (no arguments) still counts as enabled and is
  * rewritten once by `migrate`.
  */
+const { isPortable } = require("./portable-data.cjs");
 const LOGIN_ARG = "--friday-login";
 const VALUE_NAME = "FRIDAY";
 const LEGACY_VALUE_NAME = "dev.friday.desk";
-
-/** True when this process is the portable launcher's program (electron-builder sets PORTABLE_EXECUTABLE_FILE). */
-function isPortable(env = process.env) {
-  return String(env.PORTABLE_EXECUTABLE_FILE || "").trim() !== "";
-}
 
 /** The executable and arguments the sign-in entry launches. */
 function options(env = process.env, execPath = process.execPath) {

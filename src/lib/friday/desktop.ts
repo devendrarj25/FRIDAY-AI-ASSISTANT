@@ -309,6 +309,8 @@ type DesktopApi = {
     kernelPort?: number;
     /** True for the portable EXE: no start at sign-in, no tray or background after its window is closed. */
     portable?: boolean;
+    /** The portable EXE's own settings and data folder; empty for an installed FRIDAY. */
+    portableHome?: string;
   }>;
 
   getBootSteps?: () => Promise<BootStep[]>;

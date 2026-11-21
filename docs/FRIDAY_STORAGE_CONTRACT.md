@@ -42,6 +42,10 @@ In a source checkout the nine `memory/*` folders are tracked only as `.gitkeep` 
 
 Downloads staged before a folder exists: setup and the build write models to `.friday-dev` in the checkout when no folder is selected and record that location. On boot and on `workspace:set` the app moves each staged speech weight (`cache/stt/*`), model (`models/*`) and installer (`runtime/installers/*`) into the root through `electron/staged-assets.cjs`, only into a place that is still free, so nothing is overwritten and nothing is downloaded twice. The staged database, memory and settings are never moved. `FRIDAY_ADOPT_STAGED=0` turns it off.
 
+### The portable EXE has its own root
+
+The portable EXE is not an installation, so it never uses the installed FRIDAY's root, its settings folder (`%APPDATA%\FRIDAY`) or its registry pointer. `electron/portable-data.cjs` gives it `FRIDAY-Portable-Data` beside the portable file (else `%LOCALAPPDATA%\FRIDAY-Portable-Data`; `FRIDAY_PORTABLE_DATA` names another): `userData` for Electron's settings and single-instance lock, and `FRIDAY` as its FRIDAY root. It never writes `HKCU\Software\FRIDAY\WorkspacePath`. Removing the portable file removes nothing else; deleting `FRIDAY-Portable-Data` removes its data.
+
 ## 3. Update backup / rollback
 
 `electron/update-safety.cjs`: verify → `backupState` into `<root>/backup/releases/<stamp>` → install → health → `rollback` if needed. Protected copies exclude bulky `models` / `voices` from the backup set but must not be deleted by an update.

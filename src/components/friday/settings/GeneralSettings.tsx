@@ -32,6 +32,7 @@ export function GeneralSettings() {
   // or the background after its window is closed. Those switches show off and say why; the saved preferences, which
   // an installed FRIDAY in the same folder reads, are not touched.
   const [portable, setPortable] = useState(false);
+  const [portableHome, setPortableHome] = useState("");
   const installedOnly = "Setup install only";
 
   useEffect(() => {
@@ -46,8 +47,10 @@ export function GeneralSettings() {
     if (info) {
       void info
         .then((value) => {
-          if (value?.portable) setPortable(true);
-          else read();
+          if (value?.portable) {
+            setPortable(true);
+            setPortableHome(value.portableHome ?? "");
+          } else read();
         })
         .catch(read);
     } else read();
@@ -122,6 +125,13 @@ export function GeneralSettings() {
   return (
     <>
       <HudPanel title="General Settings">
+        {portable ? (
+          <p className="mb-2 text-note text-muted-foreground">
+            This is the portable FRIDAY. It keeps its own settings and data
+            {portableHome ? ` in ${portableHome}` : ""}, so an installed FRIDAY on this PC is not
+            touched, and it runs only while its window is open.
+          </p>
+        ) : null}
         <ToggleRow
           label="Start Friday on system startup"
           {...(portable ? { hint: installedOnly } : {})}

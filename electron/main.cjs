@@ -189,6 +189,13 @@ process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reaso
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
 
+// The portable EXE keeps its own settings, FRIDAY folder, lock, kernel port and updates (electron/portable-data.cjs), so
+// it can run beside an installed FRIDAY without touching it. This must run before anything reads `userData`, asks for
+// the single-instance lock or registers a window.
+const portableData = require("./portable-data.cjs");
+const portableMode = portableData.prepare(app, process.env);
+const PORTABLE_RUN = portableMode.portable;
+
 // Everything below loads from V8's code cache after the first start: parsing and compiling the main process and its
 // modules was a fixed cost of every double-click. The cache lives in the app's own data folder; a missing or unwritable
 // folder just means no cache.
@@ -304,7 +311,6 @@ const appLifecycle = require("./app-lifecycle.cjs");
 const loginItem = require("./login-item.cjs");
 // The portable EXE is a program you run, not an installation: no start at sign-in, no staying in the tray or the
 // background after its window is closed. The installed (Setup) FRIDAY keeps all of these, as its settings say.
-const PORTABLE_RUN = loginItem.isPortable(process.env);
 const bootPlan = require("./boot-plan.cjs");
 const gpuStatus = require("./gpu-status.cjs");
 const processPriority = require("./process-priority.cjs");
@@ -798,7 +804,7 @@ app.commandLine.appendSwitch(
 
 // Windows groups the taskbar icon and the installed shortcut by this id — with
 // the default id the app is filed under "Electron" instead of FRIDAY.
-app.setAppUserModelId("dev.friday.desk");
+app.setAppUserModelId(portableData.appUserModelId("dev.friday.desk"));
 
 // ---- Diagnostics -----------------------------------------------------------
 // A packaged app that throws before its first window would otherwise exit with
@@ -1073,6 +1079,8 @@ function writeSettings(next) {
 
 // The installer writes the chosen workspace to HKCU\Software\FRIDAY.
 function readRegistryWorkspace() {
+  // The pointer belongs to the installed FRIDAY; the portable EXE has its own folder and never reads it.
+  if (PORTABLE_RUN) return Promise.resolve(null);
   if (process.platform !== "win32") return null;
   return new Promise((resolve) => {
     let settled = false;
@@ -1101,6 +1109,8 @@ function readRegistryWorkspace() {
 }
 
 function writeRegistryWorkspace(root) {
+  // ...and never overwrites it: that would move the installed FRIDAY onto the portable one's data.
+  if (PORTABLE_RUN) return;
   if (process.platform !== "win32") return;
   execFile(
     "reg",
@@ -1163,6 +1173,14 @@ async function resolveWorkspaceRoot() {
   }
   const stored = settled(readSettings().workspaceRoot);
   if (stored) return publish(stored);
+  // The portable EXE has its own FRIDAY folder beside its settings, so it never has to ask.
+  if (PORTABLE_RUN && portableMode.root) {
+    const own = usable(portableMode.root);
+    if (own) {
+      writeSettings({ ...readSettings(), workspaceRoot: own });
+      return publish(own);
+    }
+  }
   // No invented default: first run must ask for a folder.
   return publish(null);
 }
@@ -1552,7 +1570,9 @@ async function startKernelNow(root) {
   if (process.env.FRIDAY_READINESS === "1") {
     KERNEL_PORT = kernelBind.initialPort(process.env);
   } else if (await portBusy(KERNEL_PORT)) {
-    const own = await kernelBind.probeFriday(KERNEL_PORT);
+    // The portable EXE never adopts a kernel that is already running: it would be another FRIDAY's, with another
+    // database. It takes a free port instead.
+    const own = PORTABLE_RUN ? false : await kernelBind.probeFriday(KERNEL_PORT);
     if (!own) {
       const next = await kernelBind.pickFreePort();
       log(`kernel port ${KERNEL_PORT} is held by another program; using ${next}`);
@@ -5397,6 +5417,7 @@ ipcMain.handle("app:paths", () => ({
   checkout: paths.checkoutGuard(getWorkspaceRoot()),
   kernelPort: KERNEL_PORT,
   portable: PORTABLE_RUN,
+  portableHome: portableMode.home || "",
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
 // Why this launch is a launch and which stages the boot screen waits for (fixed before the window exists).
@@ -6888,7 +6909,7 @@ ipcMain.handle("updates:apply", (_e, update) =>
       if (!check?.ok) {
         return { ok: false, error: check?.error || "The release could not be read." };
       }
-      const asset = githubSync.installerAsset(check?.assets || []);
+      const asset = githubSync.installerAsset(check?.assets || [], { portable: PORTABLE_RUN });
       // Private releases often have an API asset URL and no anonymous browser URL.
       if (!asset?.url && !asset?.apiUrl) {
         return { ok: false, error: "This release does not publish a Windows installer." };
@@ -7505,19 +7526,23 @@ let installerDownload = null;
  */
 async function stageInstaller({ root, check, payload = {}, onProgress, signal }) {
   const pool = [...(check?.assets || []), ...(check?.otherChannel?.assets || [])];
-  const listed = githubSync.installerAsset(pool);
+  const listed = githubSync.installerAsset(pool, { portable: PORTABLE_RUN });
+  // The portable EXE only ever takes a Portable file: a Setup installer named by the page is ignored, never run.
+  const wanted = (a) => !PORTABLE_RUN || portableData.isPortableAsset(a.name);
   const matched =
-    pool.find((a) => payload?.name && a.name === payload.name) ||
-    pool.find((a) => payload?.url && (a.url === payload.url || a.apiUrl === payload.url)) ||
+    pool.find((a) => wanted(a) && payload?.name && a.name === payload.name) ||
+    pool.find(
+      (a) => wanted(a) && payload?.url && (a.url === payload.url || a.apiUrl === payload.url),
+    ) ||
     listed;
   const asset = {
     ...listed,
     ...matched,
-    url: payload?.url || matched?.url || listed?.url,
-    apiUrl: payload?.apiUrl || matched?.apiUrl || listed?.apiUrl,
-    id: payload?.id || matched?.id || listed?.id,
-    name: payload?.name || matched?.name || listed?.name,
-    bytes: payload?.bytes || matched?.bytes || listed?.bytes,
+    url: (!PORTABLE_RUN && payload?.url) || matched?.url || listed?.url,
+    apiUrl: (!PORTABLE_RUN && payload?.apiUrl) || matched?.apiUrl || listed?.apiUrl,
+    id: (!PORTABLE_RUN && payload?.id) || matched?.id || listed?.id,
+    name: (!PORTABLE_RUN && payload?.name) || matched?.name || listed?.name,
+    bytes: (!PORTABLE_RUN && payload?.bytes) || matched?.bytes || listed?.bytes,
   };
   if (!asset?.url && !asset?.apiUrl) {
     return {
@@ -7648,6 +7673,12 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
     };
   }
 
+  // The portable EXE is replaced by the new Portable file, never by running the Setup installer (which would install a
+  // second FRIDAY on this PC and leave the portable one behind).
+  if (PORTABLE_RUN) {
+    return installPortableUpdate({ root, file, payload, verified, crossing, targetChannel });
+  }
+
   // Release sqlite/python handles before copying `database/` and before NSIS
   // replaces files. A live kernel on Windows locks friday.sqlite3.
   await stopKernel();
@@ -7707,6 +7738,63 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
   void life.requestShutdown("installer", { delayMs: 1200 });
   return { ok: true, launched: file, backup: backup.backup, verified: verified.verified };
 });
+
+/**
+ * Portable update: the verified Portable file is copied next to the running one (never over it), the data is backed up
+ * as for an installed update, the new file is started, and this one ends. The old file stays so the owner can go back
+ * to it. Nothing here runs an installer, writes the registry or touches an installed FRIDAY.
+ */
+async function installPortableUpdate({ root, file, payload, verified, crossing, targetChannel }) {
+  if (!portableData.isPortableAsset(path.basename(file))) {
+    return {
+      ok: false,
+      error:
+        "This is the Setup installer. The portable FRIDAY updates with the Portable file; download that one instead.",
+    };
+  }
+  const target = portableData.updateTarget({
+    file,
+    env: process.env,
+    fallbackDir: path.dirname(file),
+  });
+  if (!target) {
+    return {
+      ok: false,
+      error:
+        "This is the Portable file that is running now, or its folder cannot be written. Run the downloaded file from its own folder.",
+    };
+  }
+  await stopKernel();
+  const backup = await updateSafety.backupStateAsync({ root, version: payload.version });
+  if (!backup.ok) {
+    await resumeKernel("kernel resume after failed portable update backup");
+    return backup;
+  }
+  try {
+    if (path.resolve(target).toLowerCase() !== path.resolve(file).toLowerCase()) {
+      fs.copyFileSync(file, target);
+    }
+    const child = require("child_process").spawn(target, ["--friday-restart=1"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (error) {
+    await resumeKernel("kernel resume after portable update launch failure");
+    return { ok: false, error: String(error?.message || error) };
+  }
+  if (crossing) githubSync.writeStoredConfig(root, { updateChannel: targetChannel });
+  void life.requestShutdown("portable-update", { delayMs: 1200 });
+  return {
+    ok: true,
+    launched: target,
+    portable: true,
+    backup: backup.backup,
+    verified: verified.verified,
+  };
+}
 
 /** Pending/stable update state and the rollback the owner can trigger. */
 ipcMain.handle("github:update-state", () => {

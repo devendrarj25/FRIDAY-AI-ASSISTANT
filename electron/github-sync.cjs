@@ -1061,14 +1061,16 @@ function recordApplied(
  * Pick the Windows installer published with a release, so an installed EXE can
  * upgrade itself to the next EXE instead of only pulling source.
  */
-function installerAsset(assets = []) {
+function installerAsset(assets = [], { portable = false } = {}) {
   const list = Array.isArray(assets) ? assets : [];
+  // The installed FRIDAY updates with the Setup installer; the portable EXE updates with the Portable file and never
+  // runs an installer.
   const score = (name = "") => {
     const n = String(name).toLowerCase();
     if (!n.endsWith(".exe")) return 0;
-    if (n.includes("setup")) return 3;
-    if (n.includes("portable")) return 2;
-    return 1;
+    if (n.includes("setup")) return portable ? 0 : 3;
+    if (n.includes("portable")) return portable ? 3 : 2;
+    return portable ? 0 : 1;
   };
   return (
     list

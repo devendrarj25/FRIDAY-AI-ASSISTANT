@@ -170,7 +170,7 @@ describe("the portable EXE is a program you run, not an installation", () => {
 
   it("main.cjs: no sign-in entry, no tray or background after close, no hidden start, from the portable file", () => {
     const main = readFileSync(path.join(root, "electron/main.cjs"), "utf8");
-    expect(main).toContain("const PORTABLE_RUN = loginItem.isPortable(process.env);");
+    expect(main).toContain("const PORTABLE_RUN = portableMode.portable;");
     // The sign-in entry is neither read, written nor migrated.
     expect(main).toContain('!PORTABLE_RUN &&\n      typeof toggles.startup === "boolean"');
     expect(main).toContain("PORTABLE_RUN ? false : loginItem.setEnabled(app, Boolean(enabled))");
@@ -194,13 +194,14 @@ describe("the portable EXE is a program you run, not an installation", () => {
       path.join(root, "src/components/friday/settings/GeneralSettings.tsx"),
       "utf8",
     );
-    expect(ui).toContain("if (value?.portable) setPortable(true);");
+    expect(ui).toContain("if (value?.portable) {");
+    expect(ui).toContain("setPortable(true);");
     expect(ui).toContain('on={!portable && isOn("startup")}');
     expect(ui).toContain('on={!portable && isOn("launchMinimized")}');
     expect(ui).toContain('on={!portable && isOn("tray")}');
     expect(ui).toContain("Setup install only");
     // A portable FRIDAY never writes the installed copy's preferences from the Windows state.
-    expect(ui).toMatch(/if \(value\?\.portable\) setPortable\(true\);\s*else read\(\);/);
+    expect(ui).toMatch(/\} else read\(\);/);
   });
 });
 
