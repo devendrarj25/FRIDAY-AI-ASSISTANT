@@ -118,8 +118,8 @@ jobs:
       - name: Identity for any commit this workflow creates
         shell: bash
         run: |
-          git config user.name "FRIDAY Repository Control"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "devendrarj25"
+          git config user.email "311363093+devendrarj25@users.noreply.github.com"
 
       # ---------------------------------------------------------------- 1 ---
       - name: CREATE PR
@@ -211,8 +211,9 @@ jobs:
             exit 1
           }
 
-          # No force-push, no reset: a normal merge commit on the PR's own base.
-          gh pr merge "$PR_NUMBER" --repo "$REPO" --merge
+          # No force-push, no reset: a normal merge commit on the PR's own base, and only of the commit whose
+          # checks were just read: if the head moved in between, GitHub refuses and nothing is merged.
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --merge --match-head-commit "$head_sha"
           echo "merged #$PR_NUMBER ($head → $base)"
 
           case "$head" in
@@ -220,9 +221,11 @@ jobs:
               echo "branch '$head' is protected — not deleted" ;;
             *)
               if [ "$DELETE_AFTER_MERGE" = "true" ]; then
-                gh api -X DELETE "repos/$REPO/git/refs/heads/$head" >/dev/null 2>&1 \
-                  && echo "deleted merged branch $head" \
-                  || echo "branch $head was already removed"
+                # One delete for every cleanup path: REST, retried, and proven gone by a read. A plain
+                # `|| echo "already removed"` once hid a branch that was still there. The merge is done, so a
+                # branch that cannot be removed is a warning, never a failed merge.
+                bash scripts/ci-delete-branch.sh "$head" \
+                  || echo "::warning::merged branch $head is still on the remote"
               else
                 echo "branch $head kept (delete not requested)"
               fi ;;
@@ -233,8 +236,16 @@ jobs:
       # the runner's preinstalled Node is often below that floor. Same
       # composite every other Node-using workflow already calls.
       - name: Node toolchain (from package.json engines)
-        if: inputs.action == 'revert-commit' || inputs.action == 'restore-commit'
+        if: inputs.action == 'revert-commit' || inputs.action == 'restore-commit' || (inputs.action == 'merge-pr' && inputs.delete_branch_after_merge)
         uses: ./.github/actions/friday-node
+
+      # A merge here is made with the workflow token, which does not start Branch Cleanup, so every other branch
+      # whose work is already in main is swept with the same script (never a failed merge: it warns and ends 0).
+      - name: Delete every other branch whose work is already in main
+        if: inputs.action == 'merge-pr' && inputs.delete_branch_after_merge
+        shell: bash
+        run: |
+          bash scripts/ci-sweep-branches.sh
 
       # ---------------------------------------------------------------- 3 ---
       - name: REVERT COMMIT

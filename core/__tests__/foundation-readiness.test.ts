@@ -214,6 +214,8 @@ describe("build and packaging chain", () => {
     expect(yml).toContain("!ci-workflow-run.sh");
     expect(yml).toContain("!ci-delete-branch.sh");
     expect(yml).toContain("!ci-branch-state.sh");
+    expect(yml).toContain("!ci-sweep-branches.sh");
+    expect(yml).toContain("!pin-freshness.cjs");
     expect(yml).toContain("!workflow-lock.cjs");
     expect(yml).toContain("!dist-desktop/**/*.map");
   });

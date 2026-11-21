@@ -30,6 +30,13 @@ permissions:
   # The sweep lists open and merged pull requests (gh pr list); without this GitHub refuses it.
   pull-requests: read
 
+# One sweep at a time: two merges close together must not race each other deleting the same branches. A waiting run
+# is never cancelled mid-delete; the sweep reads the whole repository, so a run that was replaced while waiting loses
+# nothing.
+concurrency:
+  group: friday-branch-cleanup
+  cancel-in-progress: false
+
 jobs:
   delete-merged-branch:
     if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
@@ -77,34 +84,4 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          set -uo pipefail
-          if ! bash scripts/ci-branch-state.sh; then
-            echo "::warning::could not read the branches and pull requests; the sweep was skipped (Maintenance Cleanup does it weekly)."
-            exit 0
-          fi
-          # Branches only: no release and no run is ever planned for deletion here.
-          echo "[]" > releases.json
-          echo "[]" > runs.json
-          if ! node scripts/merge-engine.cjs cleanup \
-            --branches branches.json --releases releases.json --runs runs.json \
-            --open-prs open-prs.json --merged-prs merged-prs.json > plan.json; then
-            echo "::warning::the cleanup plan could not be made; the sweep was skipped."
-            exit 0
-          fi
-          cat plan.json
-          deleted=""
-          for branch in $(jq -r '.branches[]' plan.json); do
-            case "$branch" in
-              main|master|develop|development|release|recovery/*) continue ;;
-            esac
-            if bash scripts/ci-delete-branch.sh "$branch"; then
-              deleted="$deleted $branch"
-            else
-              echo "::warning::$branch is fully in main but could not be deleted; Maintenance Cleanup will retry."
-            fi
-          done
-          {
-            echo "### Branches removed because their work is already in main"
-            echo ""
-            echo "${deleted:-none}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/ci-sweep-branches.sh
