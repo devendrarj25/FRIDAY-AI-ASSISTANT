@@ -7,9 +7,11 @@ description: Put Python 3.12 on PATH from the runner image.
 runs:
   using: composite
   steps:
+    # The PATH entries written below are folders of the runner's own Python 3.12 or the venv made from it, never a
+    # value from the event; no workflow uses pull_request_target or workflow_run.
     - name: Select Python 3.12
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env] runner-owned Python folders only
         set -euo pipefail
         # The Windows Store python alias must not win. python312.dll sits beside
         # python.exe, so that directory goes on PATH. A copied exe alone does not start.

@@ -465,7 +465,9 @@ jobs:
             echo "::error::tag $tag already exists — release stopped, nothing changed."
             exit 1
           fi
-          if gh release view "$tag" >/dev/null 2>&1; then
+          # A draft left by a cancelled run is not a release (it is replaced
+          # when this version is published).
+          if [ "$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null)" = "false" ]; then
             echo "::error::release $tag already exists — release stopped, nothing changed."
             exit 1
           fi
@@ -540,6 +542,18 @@ jobs:
             --file owner-notes.md \
             --channel stable
           cp owner-notes.md release-notes.md
+
+      # npm ci, the tests and the version scripts of main run from here on. From here on the credential the checkout left in
+      # .git/config is gone; a later fetch or push authenticates for that one
+      # command through scripts/ci-git.sh, and GH_TOKEN reaches only the steps
+      # that call gh or ci-git.sh.
+      - name: Remove the checkout credential before npm ci
+        shell: bash
+        run: |
+          git config --local --get-regexp '^http\..*\.extraheader$' | cut -d' ' -f1 | while read -r key; do
+            git config --local --unset-all "$key"
+          done
+          echo "checkout credential removed from .git/config"
 
       - name: Install dependencies
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
@@ -646,15 +660,15 @@ jobs:
             fi
             # Plain, non-forced push: history is never rewritten. If the branch
             # already exists remotely the push fails and the run stops.
-            git push origin "HEAD:$branch"
+            bash scripts/ci-git.sh push origin "HEAD:$branch"
           fi
 
           # The branch must be visible to the API before a PR can reference it.
           for _ in 1 2 3 4 5 6 7 8 9 10; do
-            git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && break
+            bash scripts/ci-git.sh ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && break
             sleep 3
           done
-          git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || {
+          bash scripts/ci-git.sh ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || {
             echo "::error::release branch $branch was not published — no PR was created."
             exit 1
           }
@@ -1194,7 +1208,8 @@ jobs:
           version=$(node scripts/release-engine.cjs identity --field releaseVersion)
           tag="v$version"
           exists=false
-          gh release view "$tag" >/dev/null 2>&1 && exists=true
+          # Only a published release counts; a draft left by a cancelled run does not.
+          [ "$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null)" = "false" ] && exists=true
           tagged=false
           git rev-parse "$tag" >/dev/null 2>&1 && tagged=true
 
@@ -1263,7 +1278,7 @@ jobs:
           version='${{ steps.plan.outputs.version }}'
           branch="release/$tag"
           published=false
-          if gh release view "$tag" >/dev/null 2>&1; then
+          if [ "$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null)" = "false" ]; then
             published=true
           fi
 
@@ -1396,6 +1411,18 @@ jobs:
             cp owner-notes.md release-notes.md
           fi
 
+      # npm ci, the checks and the Windows build of main run from here on. From here on the credential the checkout left in
+      # .git/config is gone; a later fetch or push authenticates for that one
+      # command through scripts/ci-git.sh, and GH_TOKEN reaches only the steps
+      # that call gh or ci-git.sh.
+      - name: Remove the checkout credential before npm ci
+        shell: bash
+        run: |
+          git config --local --get-regexp '^http\..*\.extraheader$' | cut -d' ' -f1 | while read -r key; do
+            git config --local --unset-all "$key"
+          done
+          echo "checkout credential removed from .git/config"
+
       - name: Install dependencies
         shell: cmd
         run: npm ci
@@ -1433,7 +1460,7 @@ jobs:
           parent=""
           parent_tree=""
           if [ -n "${VALIDATED}" ]; then
-            git fetch origin "$VALIDATED" --quiet || git fetch origin "$VALIDATED"
+            bash scripts/ci-git.sh fetch origin "$VALIDATED" --quiet || bash scripts/ci-git.sh fetch origin "$VALIDATED"
             validated="$VALIDATED"
             validated_tree=$(git rev-parse "${VALIDATED}^{tree}")
           elif git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
@@ -1573,12 +1600,20 @@ jobs:
             # manifest and checksums always describe the same files. No new
             # version and no invented release note is created.
             echo "rebuilding published ${{ steps.plan.outputs.tag }} — replacing its assets in place"
-            gh release upload '${{ steps.plan.outputs.tag }}' --clobber "${assets[@]}"
+            gh release upload '${{ steps.plan.outputs.tag }}' --clobber "${assets[@]}" || {
+              # With GitHub's immutable releases switched on, a published
+              # release's assets cannot be replaced: publish a new version.
+              echo "::error::the assets of the published ${{ steps.plan.outputs.tag }} could not be replaced (immutable releases forbid it). Publish the next version instead (mode auto)."
+              exit 1
+            }
           else
-            # The tag is created at the exact merged main commit that was built,
-            # so main source, tag, public friday-version.json, CHANGELOG and EXE
-            # all carry the same public version.
-            gh release create '${{ steps.plan.outputs.tag }}' \
+            # DRAFT FIRST (scripts/ci-publish-release.sh): the release is a
+            # draft until every uploaded asset matches the built file, then it
+            # is published and the tag is created at the exact merged main
+            # commit that was built, so main source, tag, public
+            # friday-version.json, CHANGELOG and EXE carry the same version.
+            bash scripts/ci-publish-release.sh \
+              --tag '${{ steps.plan.outputs.tag }}' \
               --target '${{ steps.plan.outputs.sha }}' \
               --title "$title" \
               --notes-file release-notes.md \

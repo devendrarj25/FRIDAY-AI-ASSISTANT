@@ -43,13 +43,16 @@ runs:
     # Node 20.20.2 / npm 10.8.2 failure) with the latest patch of the declared
     # major line. The official setup-node action is not used: this repository
     # only allows actions owned by devendrarj25.
+    # Values from package.json reach the scripts as environment variables, never pasted into the script text, so
+    # an engines string cannot become shell or JavaScript code. The PATH entry written below is the folder of the
+    # nodejs.org archive whose SHA-256 was just checked, never a value from the event.
     - name: Install compatible Node LTS
       shell: bash
       env:
         NODE_MAJOR: ${{ steps.engines.outputs.node_major }}
-      run: |
+      run: | # zizmor: ignore[github-env] the PATH entry is the verified nodejs.org archive folder; no workflow uses pull_request_target or workflow_run
         set -euo pipefail
-        echo "node-version: ${{ steps.engines.outputs.node_major }}.x"
+        echo "node-version: ${NODE_MAJOR}.x"
         echo "check-latest: true"
         case "$(uname -s)" in
           Linux) plat=linux; ext=tar.gz ;;
@@ -89,9 +92,10 @@ runs:
     # run npm ci / electron-builder on an unsupported line.
     - name: Refuse the runner's preinstalled Node
       shell: bash
+      env:
+        want_major: ${{ steps.engines.outputs.node_major }}
       run: |
         actual_major=$(node -p "process.versions.node.split('.')[0]")
-        want_major="${{ steps.engines.outputs.node_major }}"
         echo "active node major: $actual_major (declared line: $want_major.x)"
         if [ "$actual_major" != "$want_major" ]; then
           echo "::error::Active Node $(node --version) is not on the declared $want_major.x line"
@@ -100,8 +104,11 @@ runs:
 
     - name: Ensure npm meets declared minimum
       shell: bash
+      env:
+        NPM_REQ: ${{ steps.engines.outputs.npm_req }}
       run: |
-        current=$(npm --version)
+        CURRENT=$(npm --version)
+        export CURRENT
         node -e "
           const parse = v => v.replace(/^[^0-9]*/, '').split('.').map(Number);
           const gte = (a, b) => {
@@ -111,14 +118,17 @@ runs:
             }
             return true;
           };
-          process.exit(gte(parse('$current'), parse('${{ steps.engines.outputs.npm_req }}')) ? 0 : 1);
-        " || npm install -g "npm@>=${{ steps.engines.outputs.npm_req }}"
+          process.exit(gte(parse(process.env.CURRENT), parse(process.env.NPM_REQ)) ? 0 : 1);
+        " || npm install -g "npm@>=${NPM_REQ}"
 
     - name: Print and validate Node/npm versions
       shell: bash
+      env:
+        NODE_REQ: ${{ steps.engines.outputs.node_req }}
+        NPM_REQ: ${{ steps.engines.outputs.npm_req }}
       run: |
-        echo "node --version -> $(node --version)   (required ${{ steps.engines.outputs.node_req }})"
-        echo "npm --version  -> $(npm --version)    (required ${{ steps.engines.outputs.npm_req }})"
+        echo "node --version -> $(node --version)   (required ${NODE_REQ})"
+        echo "npm --version  -> $(npm --version)    (required ${NPM_REQ})"
         node -e "
           const cp = require('child_process');
           const parse = v => v.replace(/^[^0-9]*/, '').split('.').map(Number);
@@ -129,8 +139,8 @@ runs:
             }
             return true;
           };
-          const nodeReq = parse('${{ steps.engines.outputs.node_req }}');
-          const npmReq  = parse('${{ steps.engines.outputs.npm_req }}');
+          const nodeReq = parse(process.env.NODE_REQ);
+          const npmReq  = parse(process.env.NPM_REQ);
           if (!gte(parse(process.version), nodeReq)) {
             console.error('Node ' + process.version + ' does not satisfy engines.node');
             process.exit(1);

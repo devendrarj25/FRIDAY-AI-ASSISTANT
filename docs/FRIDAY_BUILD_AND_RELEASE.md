@@ -35,7 +35,7 @@ _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Loca
 
 The desktop Vite build writes `src/routeTree.gen.ts` with the same Start footer as the web plugin (`scripts/route-tree-footer.cjs`, `routeTreeFileFooter`). A desktop build leaves that committed file unchanged.
 
-`scripts/electron-pack.cjs` passes `--publish never` unless the command already names `--publish`. electron-builder 26 otherwise treats a CI run that is not a pull request as `onTagOrDraft` and stops when `GH_TOKEN` is unset. Official assets are still uploaded by `gh release create`.
+`scripts/electron-pack.cjs` passes `--publish never` unless the command already names `--publish`. electron-builder 26 otherwise treats a CI run that is not a pull request as `onTagOrDraft` and stops when `GH_TOKEN` is unset. Official assets are uploaded by `scripts/ci-publish-release.sh`, draft first: the release stays a draft until every uploaded asset matches the built file.
 
 File names use the public four-part identity. The npm field stays the three-part encoding. ExtraResources copy the kernel, the capability trees, and the scripts, except the cloud-environment helper scripts. The `resources` extraResource omits `to`: electron-builder resolves that field relative to the app resources directory, and `to: resources` nested the staged packs at `resources/resources`. `verify-artifacts` requires `win-unpacked/resources/<dest>/<id>/pack.bin`. A report is written to `release/build-report.json`.
 

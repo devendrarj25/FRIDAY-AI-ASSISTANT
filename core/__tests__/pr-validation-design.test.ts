@@ -258,10 +258,11 @@ describe("the workflows themselves are audited", () => {
   it("runs a pinned, offline workflow security audit that fails on medium and above", () => {
     const step = stepText("static");
     expect(step).toContain('pip install --quiet "zizmor==');
-    expect(step).toContain(
-      "zizmor --offline --no-progress --min-severity medium .github/workflows",
-    );
+    expect(step).toContain("zizmor --offline --no-progress --min-severity medium .github\n");
     expect(step).toContain("node scripts/run-actionlint.cjs");
+    // The composite actions run inside every job, so they are audited too (the scan once stopped at
+    // .github/workflows and missed five high findings there).
+    expect(step).not.toContain("medium .github/workflows");
   });
 });
 

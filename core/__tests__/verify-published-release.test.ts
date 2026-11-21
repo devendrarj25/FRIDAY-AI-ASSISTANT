@@ -149,7 +149,10 @@ describe("a TEST build", () => {
     const wf = fs.readFileSync(path.join(root, ".github/workflows/test-build.yml"), "utf8");
     expect(wf).toContain('assets+=("$setup.blockmap")');
     const readBack = wf.indexOf("scripts/verify-published-release.cjs");
-    expect(readBack).toBeGreaterThan(wf.indexOf("gh release create"));
+    // Published draft first (every asset hashed before it is public), then read back as a client would.
+    expect(wf.indexOf("bash scripts/ci-publish-release.sh")).toBeGreaterThan(-1);
+    expect(readBack).toBeGreaterThan(wf.indexOf("bash scripts/ci-publish-release.sh"));
+    expect(wf).not.toContain("gh release create");
     expect(readBack).toBeLessThan(wf.indexOf("Keep only the last 3 TEST prereleases"));
   });
 });

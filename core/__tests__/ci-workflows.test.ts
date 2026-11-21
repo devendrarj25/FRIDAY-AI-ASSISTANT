@@ -308,7 +308,16 @@ describe("workflow inventory", () => {
     expect(action).toContain("npm --version");
     expect(action).toContain("Refuse the runner's preinstalled Node");
     // The Node major must come from package.json, never a literal in CI.
-    expect(action).toContain("node-version: ${{ steps.engines.outputs.node_major }}.x");
+    expect(action).toContain("NODE_MAJOR: ${{ steps.engines.outputs.node_major }}");
+    expect(action).toContain('echo "node-version: ${NODE_MAJOR}.x"');
+    // Values from package.json reach the scripts as environment variables only: no `${{ }}` is pasted into a
+    // shell or `node -e` script, so an engines string can never become code.
+    const runs = action
+      .split(/\n\s+run: \|/)
+      .slice(1)
+      .map((block) => block.split(/\n\s+- name:/)[0]);
+    expect(runs.length).toBeGreaterThan(3);
+    for (const block of runs) expect(block).not.toContain("${{");
     expect(action).not.toMatch(/node-version:\s*['"]?\d+/);
   });
 
@@ -426,8 +435,9 @@ describe("PR validation", () => {
     expect(src.match(/gh release \w+/g)).toEqual(["gh release download"]);
     // The single permitted write is the documentation auto-heal commit pushed
     // back to the pull request branch - never to main, never a release.
-    expect(src.match(/git push/g) || []).toHaveLength(1);
-    expect(src).toContain('git push origin "HEAD:refs/heads/$branch"');
+    expect(src.match(/\bpush origin\b/g) || []).toHaveLength(1);
+    // The push authenticates on its own command line: the checkout credential is gone before npm ci.
+    expect(src).toContain('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"');
     expect(src.match(/git commit/g) || []).toHaveLength(1);
     expect(src).toContain('git commit -m "chore: sync docs to v$version"');
   });
@@ -787,7 +797,7 @@ describe("official release", () => {
       "scripts/release-engine.cjs decide",
       "scripts/release-engine.cjs apply",
       "build-pipeline.cjs --channel production --caller release --from stage-toolchain",
-      "gh release create",
+      "bash scripts/ci-publish-release.sh",
     ]) {
       // Count executed steps only — the header comment documents the same
       // pipeline in prose and must not be mistaken for a second implementation.
@@ -839,7 +849,8 @@ describe("official release", () => {
   it("never pushes the version commit to protected main", () => {
     expect(steps).not.toMatch(/git push origin HEAD:\$\{\{ github\.ref_name \}\}/);
     expect(steps).not.toMatch(/git push[^\n]*\bmain\b/);
-    expect(steps).toContain('git push origin "HEAD:$branch"');
+    expect(steps).toContain('bash scripts/ci-git.sh push origin "HEAD:$branch"');
+    expect(steps).not.toMatch(/push[^\n]*--force/);
     expect(steps).toContain("gh pr create --base main");
     expect(steps).toContain("not permitted to create or approve pull requests");
     expect(steps).toContain("Allow GitHub Actions to create and approve pull requests");
@@ -919,8 +930,10 @@ describe("official release", () => {
   it("builds and verifies before the tag and release", () => {
     expect(
       at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
-    ).toBeLessThan(at("gh release create"));
-    expect(at("gh release create")).toBeLessThan(at("Confirm the release and its assets"));
+    ).toBeLessThan(at("bash scripts/ci-publish-release.sh"));
+    expect(at("bash scripts/ci-publish-release.sh")).toBeLessThan(
+      at("Confirm the release and its assets"),
+    );
     expect(at("Confirm the release and its assets")).toBeLessThan(
       at("Keep only the last 3 releases"),
     );
@@ -988,7 +1001,7 @@ describe("official release", () => {
       publish.indexOf("Build with the shared pipeline"),
     );
     expect(at("Guard canonical What's New before publishing")).toBeLessThan(
-      at("gh release create"),
+      at("bash scripts/ci-publish-release.sh"),
     );
     expect(publish).toContain("--setup");
     const rebuild = publish.slice(publish.indexOf("steps.plan.outputs.exists"));
@@ -1467,7 +1480,7 @@ describe("release publish must not be blocked by its own auto-heal", () => {
     // The guard must sit BEFORE the push, otherwise the pinned head moves and
     // Official Publish aborts with "pull request moved".
     const guard = src.indexOf("PINNED-COMMIT GUARD");
-    const push = src.indexOf('git push origin "HEAD:refs/heads/$branch"');
+    const push = src.indexOf('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"');
     expect(guard).toBeGreaterThan(-1);
     expect(push).toBeGreaterThan(guard);
     expect(src).toContain('if [ -n "$PINNED_SHA" ]; then');
@@ -1577,7 +1590,7 @@ describe("automatic-health workflows", () => {
     expect(src).toContain("HEALED_SHA: ${{ needs.static.outputs.healed }}");
     expect(src).toContain('for one in "$sha" "$HEALED_SHA"');
     expect(src.indexOf('echo "sha=$healed" >> "$GITHUB_OUTPUT"')).toBeGreaterThan(
-      src.indexOf('git push origin "HEAD:refs/heads/$branch"'),
+      src.indexOf('bash scripts/ci-git.sh push origin "HEAD:refs/heads/$branch"'),
     );
   });
 
@@ -1738,5 +1751,36 @@ describe("automatic-health workflows", () => {
     expect(read("pr-validation.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(read("security.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(release).toContain("validation-freshness.cjs");
+  });
+});
+
+describe("PR Validation keeps the write token away from the pull request's code", () => {
+  const src = read("pr-validation.yml");
+  const job = (name: string) => {
+    const at = src.indexOf(`\n  ${name}:\n`);
+    const next = src.slice(at + 1).search(/\n {2}[a-z-]+:\n/);
+    return src.slice(at, next < 0 ? undefined : at + 1 + next);
+  };
+
+  it("names GH_TOKEN only on the steps that call gh or push, never for the whole job, in static and docs-only", () => {
+    for (const name of ["static", "docs-only"]) {
+      const text = job(name);
+      expect(text, name).not.toMatch(/\n {4}env:\n {6}GH_TOKEN:/);
+      expect(text, name).toContain("          GH_TOKEN: ${{ github.token }}");
+    }
+  });
+
+  it("removes the checkout credential before npm ci runs the pull request's dependencies", () => {
+    for (const name of ["static", "docs-only"]) {
+      const text = job(name);
+      const drop = text.indexOf(
+        "name: Remove the checkout credential before the pull request's code runs",
+      );
+      const install = text.search(/\n\s+run: npm ci\n/);
+      const fetch = text.indexOf('git fetch --no-tags origin "$BASE_REF"');
+      expect(drop, name).toBeGreaterThan(fetch);
+      expect(install, name).toBeGreaterThan(drop);
+      expect(text, name).toContain('git config --local --unset-all "$key"');
+    }
   });
 });
