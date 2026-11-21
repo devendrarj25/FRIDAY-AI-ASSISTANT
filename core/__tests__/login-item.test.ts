@@ -179,7 +179,9 @@ describe("the portable EXE is a program you run, not an installation", () => {
     const hidden = main.slice(main.indexOf("function loginLaunchHidden()"));
     expect(hidden.slice(0, 400)).toContain("if (PORTABLE_RUN) return false;");
     // The X button quits (after asking when tasks run), and launching minimized to the tray is ignored.
-    expect(main).toContain('const closeToTray = !PORTABLE_RUN && ownerPrefToggle("tray", true);');
+    expect(main).toContain(
+      'const closeToTray = !PORTABLE_RUN && !interfaceFailed && ownerPrefToggle("tray", true);',
+    );
     expect(main).toContain("!PORTABLE_RUN &&");
     expect(main).toMatch(/launchMinimized", false\)/);
     const closeIpc = main.slice(main.indexOf('ipcMain.on("window:close"'));

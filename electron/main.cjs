@@ -887,6 +887,12 @@ let powerResumeBound = false;
 let watcher = null;
 let stayHiddenOnLaunch = false;
 let forceVisible = false;
+// The interface did not load and the failure page is showing: the window then quits on close (nothing worth hiding to the
+// tray), and opening FRIDAY again tries the load again (electron/interface-recovery.cjs).
+let interfaceFailed = false;
+let interfaceRecovery = null;
+let failureDialogOpen = false;
+let failureDialogAbort = null;
 let lastScan = null;
 let lastProviders = null;
 let lastComponents = null;
@@ -4247,8 +4253,11 @@ function createWindow() {
     // (tray menu / Advanced) is still the explicit full exit.
     if (!app.__fridayQuitting) {
       event.preventDefault();
-      const closeToTray = !PORTABLE_RUN && ownerPrefToggle("tray", true);
-      const confirm = ownerPrefToggle("confirmExit", true) && Boolean(app.__fridayBusy);
+      // A window that only shows the failure page has nothing to keep alive: closing it ends FRIDAY, so the next
+      // start is a clean one and not the same failed window shown again from the tray.
+      const closeToTray = !PORTABLE_RUN && !interfaceFailed && ownerPrefToggle("tray", true);
+      const confirm =
+        !interfaceFailed && ownerPrefToggle("confirmExit", true) && Boolean(app.__fridayBusy);
       const finish = () => {
         if (closeToTray) life.hideToBackground();
         else void life.requestShutdown("window-close");
@@ -4322,15 +4331,53 @@ function createWindow() {
   // Renderer bundle produced by `npm run build:desktop` (vite.electron.config.ts)
   // and packaged inside app.asar. It is served over the privileged friday://
   // scheme because Chromium blocks ES modules / dynamic imports over file://.
-  renderer.load(win, {
-    devUrl: process.env.FRIDAY_DEV_URL,
+  // The harnesses (boot self-test, readiness) fail at once and never retry: a retry would only hide the fault from
+  // the check that exists to find it. A normal launch retries a failed or aborted load before telling the owner.
+  const harness = Boolean(process.env.FRIDAY_BOOT_SELFTEST) || process.env.FRIDAY_READINESS === "1";
+  if (interfaceRecovery) interfaceRecovery.dispose();
+  const recovery = require("./interface-recovery.cjs").createInterfaceRecovery({
+    loadInterface: () => loadInterface(),
+    isLoading: () => Boolean(win && !win.isDestroyed() && win.webContents.isLoading()),
+    onGiveUp: (detail, info) => failInterface(detail, info),
     log,
-    onFailure: (message) => showLoadFailure(message),
   });
+  interfaceRecovery = recovery;
+  const loadInterface = () => {
+    if (!win || win.isDestroyed()) return;
+    renderer.load(win, {
+      devUrl: process.env.FRIDAY_DEV_URL,
+      log,
+      onFailure: (message, info = {}) => {
+        if (harness) showLoadFailure(message);
+        else if (info.missing) recovery.missing(message);
+        else if (info.aborted)
+          log("interface load was replaced by a newer load (ERR_ABORTED); not an error");
+        else recovery.failed({ code: -2, description: message, isMainFrame: true });
+      },
+    });
+    if (!harness) recovery.started();
+  };
+  loadInterface();
 
   win.once("ready-to-show", reveal);
   // Fail-safe: some GPU/driver combinations never emit ready-to-show.
   setTimeout(reveal, 6000);
+
+  // Every load, first or later, is watched until it finishes; the failure page itself is not one to watch.
+  // A load that failed still ends in `did-finish-load` (for Chromium's own error page, with the failed URL as the
+  // address), so that event alone does not mean the interface is up. Only a navigation that committed does: it fires
+  // `did-navigate` before `did-finish-load`, and a failed load never does.
+  let committed = false;
+  win.webContents.on("did-start-navigation", (details) => {
+    // Only a new document in the main frame: a sub frame or an in-page route change does not start a load of the
+    // interface and must not start the stall guard.
+    if (!details || !details.isMainFrame || details.isSameDocument) return;
+    committed = false;
+    if (!harness && !isFailurePage(details.url)) recovery.started();
+  });
+  win.webContents.on("did-navigate", (_e, url) => {
+    committed = !isFailurePage(url);
+  });
 
   win.webContents.on("did-fail-load", (_e, code, description, url, isMainFrame) => {
     if (!isMainFrame) return;
@@ -4342,7 +4389,12 @@ function createWindow() {
       );
       return;
     }
-    showLoadFailure(`${description} (${code})\n${url}`);
+    if (harness) {
+      showLoadFailure(`${description} (${code})\n${url}`);
+      return;
+    }
+    if (isFailurePage(url)) return;
+    recovery.failed({ code, description, url, isMainFrame });
   });
 
   win.webContents.on("render-process-gone", (_e, details) => {
@@ -4353,7 +4405,13 @@ function createWindow() {
       finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL render process gone: ${details.reason}`);
       return;
     }
-    showLoadFailure(`The FRIDAY interface stopped unexpectedly (${details.reason}).`);
+    // A renderer that was shut down on purpose (the app is quitting, the window was closed) is not a fault.
+    if (app.__fridayQuitting || details.reason === "clean-exit") return;
+    if (harness) {
+      showLoadFailure(`The FRIDAY interface stopped unexpectedly (${details.reason}).`);
+      return;
+    }
+    recovery.rendererGone(details.reason);
   });
 
   // A window that stops answering is no longer a silent white frame: after a few seconds the owner is asked
@@ -4422,7 +4480,13 @@ function createWindow() {
 
   // Replay the boot log and push the first full scan once the UI is ready.
   win.webContents.on("did-finish-load", () => {
-    interfaceLoaded = !String(win.webContents.getURL()).startsWith("data:");
+    interfaceLoaded = committed && !isFailurePage(win.webContents.getURL());
+    if (interfaceLoaded) {
+      // The real interface is up: whatever failed before is over, and the next trouble gets its own retries.
+      interfaceFailed = false;
+      recovery.finished();
+      if (failureDialogAbort) failureDialogAbort.abort();
+    }
     readinessTrace.trace("did-finish-load");
     noteStartup("renderer-loaded");
     reveal();
@@ -4476,18 +4540,106 @@ function liveWin() {
   return win && !win.isDestroyed() ? win : null;
 }
 
-/** Renders a plain, readable failure screen inside the FRIDAY window. */
+/**
+ * A page that is not the interface: FRIDAY's own failure page (a data: URL) and the page Chromium puts up after a
+ * failed load (chrome-error://). Neither counts as the interface having loaded, and neither is retried.
+ */
+function isFailurePage(url) {
+  return /^(data|chrome-error):/i.test(String(url || ""));
+}
+
+/**
+ * The interface did not load and its retries are used up (electron/interface-recovery.cjs). A graphics card that
+ * cannot draw the window is a common cause, so the first time FRIDAY restarts once drawing in software (the same marker
+ * a crashed graphics driver writes; it expires after a week and `FRIDAY_FORCE_GPU=1` turns this off). Only when that
+ * is not possible or already tried does the owner see the failure page with its buttons.
+ */
+function failInterface(detail, info = {}) {
+  if (app.__fridayQuitting) return;
+  const harness = Boolean(process.env.FRIDAY_BOOT_SELFTEST) || process.env.FRIDAY_READINESS === "1";
+  const reason = String(detail).split(/\r?\n/)[0].slice(0, 120);
+  if (
+    !harness &&
+    info.kind !== "missing" &&
+    gpuGuard.requestSoftware(`interface did not load: ${reason}`)
+  ) {
+    log(
+      "the interface did not load on the graphics card: restarting once and drawing in software (FRIDAY_FORCE_GPU=1 turns this off)",
+    );
+    Promise.resolve(life.requestRestart("interface-load-failed"))
+      .then((started) => {
+        if (started === false) showLoadFailure(detail);
+      })
+      .catch(() => showLoadFailure(detail));
+    return;
+  }
+  showLoadFailure(detail);
+}
+
+/** Renders a plain, readable failure screen inside the FRIDAY window, and offers what to do about it. */
 function showLoadFailure(detail) {
   if (!win || win.isDestroyed()) return;
   interfaceLoaded = false;
+  interfaceFailed = true;
   forceVisible = true;
   stayHiddenOnLaunch = false;
+  const escape = (text) => String(text).replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
   const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#141821;color:#e6ecff;font:14px/1.6 Segoe UI,system-ui,sans-serif;padding:48px">
 <h1 style="font-size:20px;letter-spacing:.12em">FRIDAY could not start the interface</h1>
-<pre style="white-space:pre-wrap;color:#9fb0d0">${String(detail).replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"))}</pre>
-<p style="color:#7f8ea8">Log file: ${logFile()}</p></body>`;
+<pre style="white-space:pre-wrap;color:#9fb0d0">${escape(detail)}</pre>
+<p style="color:#7f8ea8">Log file: ${escape(logFile())}</p>
+<p style="color:#7f8ea8">A message with Try again, Restart FRIDAY and Quit FRIDAY is open on this window. Alt+F4 also closes FRIDAY from this screen, and opening FRIDAY again tries the interface again.</p></body>`;
   win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html)).catch(() => {});
+  if (win.isMinimized()) win.restore();
   if (!win.isVisible()) win.show();
+  void offerRecovery(detail);
+}
+
+/**
+ * The failure page has no buttons of its own (the window has no title bar), so the way out is a native message that
+ * does not depend on the page or its scripts: Try again, Restart FRIDAY, Quit FRIDAY, Open log folder. One message at a
+ * time; "Not now" leaves the page as it is, and Alt+F4, the tray's Quit and a second start of FRIDAY still work.
+ */
+async function offerRecovery(detail) {
+  if (failureDialogOpen || app.__fridayQuitting) return;
+  if (process.env.FRIDAY_BOOT_SELFTEST || process.env.FRIDAY_READINESS === "1") return;
+  const target = liveWin();
+  if (!target) return;
+  failureDialogOpen = true;
+  // When the interface comes up while the message is open (a retry, a second start) the message closes itself.
+  failureDialogAbort = new AbortController();
+  try {
+    for (;;) {
+      const { response } = await dialog.showMessageBox(target, {
+        signal: failureDialogAbort.signal,
+        type: "error",
+        title: "FRIDAY could not start the interface",
+        message: "FRIDAY is running, but its window could not load.",
+        detail: `${String(detail).split(/\r?\n/).slice(0, 3).join("\n")}\n\nLog file: ${logFile()}`,
+        buttons: ["Try again", "Restart FRIDAY", "Quit FRIDAY", "Open log folder", "Not now"],
+        defaultId: 0,
+        cancelId: 4,
+        noLink: true,
+      });
+      if (response === 3) {
+        try {
+          shell.showItemInFolder(logFile());
+        } catch {
+          /* the folder may not open; the path is in the message */
+        }
+        continue;
+      }
+      if (response === 0) interfaceRecovery?.manualRetry("owner asked");
+      else if (response === 1) void life.requestRestart("interface-failed");
+      else if (response === 2) void life.requestShutdown("interface-failed");
+      break;
+    }
+  } catch (error) {
+    log(`recovery message failed: ${error && error.message ? error.message : error}`);
+  } finally {
+    failureDialogOpen = false;
+    failureDialogAbort = null;
+  }
 }
 
 // ---- IPC -------------------------------------------------------------------
@@ -4557,6 +4709,11 @@ function showFridayWindow() {
     life.noteVisible();
     target.focus();
     pushWindowState();
+    // Opening FRIDAY again (the shortcut, the tray, a second start) while the failure page shows is the owner asking
+    // for another go: the interface loads again instead of the same failed page being shown over and over.
+    if (interfaceFailed && interfaceRecovery && !target.webContents.isLoading()) {
+      interfaceRecovery.manualRetry("FRIDAY was opened again");
+    }
   } catch {
     /* window went away between the check and the call */
   }
@@ -4806,6 +4963,19 @@ lifeSteps.tray = () => {
 lifeSteps.windows = () => destroyOwnedWindows();
 lifeSteps.reload = () => {
   if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return false;
+  // Two watchdogs can ask for a reload within seconds of each other (after sleep, on a busy PC). A page that is
+  // already loading is left to finish: a second reload would abort it (ERR_ABORTED) and start over. A window that
+  // shows no interface (the failure page, or a load that never started) gets a fresh load, not a reload of the
+  // failure page itself.
+  if (win.webContents.isLoading()) {
+    log("reload skipped: the interface is still loading");
+    return true;
+  }
+  if (interfaceFailed || !interfaceLoaded) {
+    if (interfaceRecovery) interfaceRecovery.manualRetry("window recovery");
+    else win.webContents.reload();
+    return true;
+  }
   win.webContents.reload();
   return true;
 };

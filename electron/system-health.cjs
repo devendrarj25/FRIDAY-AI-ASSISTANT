@@ -77,24 +77,33 @@ function createGpuGuard({
       `GPU process gone (${details.reason}, exit ${details.exitCode ?? "?"}), ${crashes.length} recent`,
     );
     if (crashes.length < limit) return { action: "noted", count: crashes.length };
+    save(at, details.reason, details.exitCode ?? null);
+    return { action: "fallback", count: crashes.length };
+  }
+
+  function save(at, reason, exitCode) {
     try {
-      fs.writeFileSync(
-        file,
-        JSON.stringify({
-          softwareSince: at,
-          reason: details.reason,
-          exitCode: details.exitCode ?? null,
-        }),
-      );
+      fs.writeFileSync(file, JSON.stringify({ softwareSince: at, reason, exitCode }));
+      return true;
     } catch (error) {
       log(
         `could not save the software-drawing marker: ${error && error.message ? error.message : error}`,
       );
+      return false;
     }
-    return { action: "fallback", count: crashes.length };
   }
 
-  return { softwareMode, recordChildGone, file };
+  /**
+   * The interface would not load on the graphics card even after retries: the next start draws in software too.
+   * Returns true when the marker was written (so a restart is worth it), false when this start already draws in
+   * software, FRIDAY_FORCE_GPU=1 forbids it, or the marker could not be saved (a restart would change nothing).
+   */
+  function requestSoftware(reason) {
+    if (env.FRIDAY_FORCE_GPU === "1" || softwareMode()) return false;
+    return save(now(), String(reason || "interface did not load").slice(0, 160), null);
+  }
+
+  return { softwareMode, recordChildGone, requestSoftware, file };
 }
 
 const MB = 1024 * 1024;

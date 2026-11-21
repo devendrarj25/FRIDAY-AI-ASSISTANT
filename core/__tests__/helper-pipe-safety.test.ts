@@ -35,9 +35,12 @@ describe("child process stdin", () => {
     const main = readFileSync(path.join(dir, "main.cjs"), "utf8");
     expect(main).toContain("let interfaceLoaded = false;");
     expect(main).toMatch(/if \(interfaceLoaded && [\s\S]{0,260}the window stays up/);
+    // The interface counts as loaded only after a committed navigation, and neither FRIDAY's failure page (data:)
+    // nor Chromium's error page (chrome-error://) is the interface.
     expect(main).toMatch(
-      /interfaceLoaded = !String\(win\.webContents\.getURL\(\)\)\.startsWith\("data:"\)/,
+      /interfaceLoaded = committed && !isFailurePage\(win\.webContents\.getURL\(\)\)/,
     );
+    expect(main).toMatch(/return \/\^\(data\|chrome-error\):\/i\.test\(String\(url \|\| ""\)\)/);
   });
 
   it("does not respawn a wake worker that keeps dying at once", () => {

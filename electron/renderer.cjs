@@ -20,6 +20,7 @@ const { app, protocol, net } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { navigationAllowed } = require("./navigation-policy.cjs");
+const { isAborted } = require("./interface-recovery.cjs");
 const csp = require("./csp.cjs");
 
 const SCHEME = "friday";
@@ -180,22 +181,27 @@ function load(win, { devUrl = null, log = () => {}, onFailure = () => {}, route 
     `renderer: packaged=${app.isPackaged} appPath=${appPath} resources=${process.resourcesPath} renderer=${index} rendererExists=${exists}`,
   );
 
+  // `loadURL` rejects with ERR_ABORTED (-3) when another navigation replaced this one. That is not a failure of the
+  // interface, so the caller is told which kind it got (`info.aborted`) and decides (electron/interface-recovery.cjs).
+  const rejected = (err) => onFailure(String(err), { aborted: isAborted(err), missing: false });
+
   if (devUrl) {
     const target = suffix ? `${devUrl.replace(/\/+$/, "")}${suffix}` : devUrl;
-    win.loadURL(target).catch((err) => onFailure(String(err)));
+    win.loadURL(target).catch(rejected);
     return { mode: "dev-server", target };
   }
 
   if (!exists) {
     onFailure(
       `The FRIDAY interface bundle is missing.\n\nExpected: ${index}\n\nRun "npm run build:desktop" before packaging.`,
+      { aborted: false, missing: true },
     );
     return { mode: "missing", target: index };
   }
 
   registerHandler(log);
   const url = suffix ? `${ORIGIN}${suffix}` : `${ORIGIN}/index.html`;
-  win.loadURL(url).catch((err) => onFailure(String(err)));
+  win.loadURL(url).catch(rejected);
   return { mode: "packaged", target: url };
 }
 
