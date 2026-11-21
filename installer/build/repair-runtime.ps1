@@ -89,7 +89,15 @@ function Install-VoiceCore {
   }
 }
 
-if (Test-Runtime) {
+# One failed import is not proof that the environment is broken: a virus scanner or the indexer can hold a file for
+# a moment. The environment is deleted and downloaded again only when the check fails twice.
+function Test-RuntimeTwice {
+  if (Test-Runtime) { return $true }
+  Start-Sleep -Seconds 3
+  return (Test-Runtime)
+}
+
+if (Test-RuntimeTwice) {
   Install-VoiceCore
   Install-CapabilityExtras
   if (-not (Test-VoiceCore)) { Finish 'voice-packages-failed' 10 }

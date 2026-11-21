@@ -61,8 +61,17 @@ describe("silent uninstall data contract", () => {
     expect(sweep).toContain("rd /s /q");
     expect(sweep).toContain("\\\\?\\");
     expect(sweep).toContain("Remove-Item -LiteralPath $$p -Recurse -Force");
-    // The program folder goes first, then the root that held it.
-    expect(sweep.indexOf("$INSTDIR")).toBeLessThan(sweep.indexOf("$FridayUnRoot"));
+    // The program folder goes first, then the root that held it. Both reach the helper through its environment,
+    // never through its command line, so a folder name with an apostrophe, % or & cannot break the quoting.
+    expect(sweep.indexOf("FRIDAY_SWEEP_APP")).toBeGreaterThan(-1);
+    expect(sweep.indexOf("FRIDAY_SWEEP_APP")).toBeLessThan(sweep.indexOf("FRIDAY_SWEEP_ROOT"));
+    expect(sweep).not.toContain("$INSTDIR");
+    expect(sweep).not.toContain("$FridayUnRoot");
+    const app = nsh.indexOf('SetEnvironmentVariable(t "FRIDAY_SWEEP_APP", t "$INSTDIR")');
+    const rootVar = nsh.indexOf('SetEnvironmentVariable(t "FRIDAY_SWEEP_ROOT", t "$FridayUnRoot")');
+    expect(app).toBeGreaterThan(-1);
+    expect(rootVar).toBeGreaterThan(app);
+    expect(rootVar).toBeLessThan(nsh.indexOf("nsExec::Exec 'cmd.exe /c start"));
     // Every PowerShell variable is doubled, because a single $ starts an NSIS variable.
     expect(sweep).not.toMatch(/[^$]\$[a-z_]/);
   });

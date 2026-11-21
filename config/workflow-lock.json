@@ -2,10 +2,10 @@
   "note": "SHA-256 of every workflow and composite action, line endings normalised. Changed only with the owner's request and second yes; see AGENTS.md, GitHub workflows stay locked. Refresh with: node scripts/workflow-lock.cjs --write",
   "files": {
     ".github/workflows/auto-recover.yml": "17363d259f144baa42261b128bf0308f5f77eb4d9f2506f4a6c705d7515443e0",
-    ".github/workflows/branch-cleanup.yml": "724b481877174b88fac3d2613c61c040ac141d8b6b6e0abcbcd63ff2d2a22cf0",
+    ".github/workflows/branch-cleanup.yml": "916eb230932e2a6ccf537f923cf331a85fa4e002a845e9ed6ef6debd8b4b2c76",
     ".github/workflows/health-weekly.yml": "54516edf1bcdadce61d1ec3136708ec3d7031e37fc90fb08daec042333e796a6",
     ".github/workflows/main-safety-recovery.yml": "814f5a56cf8df0424a6b49b9e68003d90eccae80382fab669cd56e2b862f3d04",
-    ".github/workflows/maintenance.yml": "ecbb5fe9d4356c892e2a8ccaaac4d0a8aaaad0b542aaed43cefe8c73c683c953",
+    ".github/workflows/maintenance.yml": "84009068b5e9a7177c02a60fedde7c0bb2af01f9f02f55fd8d482eef6c64d71c",
     ".github/workflows/pr-validation.yml": "ecfb9f25a6649f396b449ad6f95120560b5ca988da85dc5612bc0ae4919ab1b6",
     ".github/workflows/release.yml": "f74269832acb396fb09a7f0ee6af700bd1c8b84d48f145bd42875623971ecaba",
     ".github/workflows/repository-control.yml": "ec937e32ed99c6407c532edb2ef55206efbb2f8fd59145671b55a9e34794b1e9",

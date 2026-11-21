@@ -118,6 +118,12 @@ FunctionEnd
       StrCpy $FridayRoot "$PROFILE\FRIDAY"
     ${EndIf}
   ${EndIf}
+  ; A whole drive ("D:\") is not a FRIDAY folder: "Delete all FRIDAY data" would then empty the drive.
+  StrLen $1 "$FridayRoot"
+  ${If} $1 < 4
+    MessageBox MB_ICONSTOP "FRIDAY needs a folder of its own, not a whole drive.$\r$\nUse a folder such as D:\FRIDAY." /SD IDOK
+    Abort
+  ${EndIf}
   StrCpy $INSTDIR "$FridayRoot\App"
 !macroend
 
@@ -239,6 +245,20 @@ Function FridayRootPageLeave
   ${NSD_GetText} $FridayRootText $FridayRoot
   ${If} $FridayRoot == ""
     MessageBox MB_ICONSTOP "Please choose a folder for FRIDAY."
+    Abort
+  ${EndIf}
+
+  ; "D:\FRIDAY\" and "D:\FRIDAY" are the same folder: keep one spelling, so the pointer, the program folder and the
+  ; uninstaller all agree. A whole drive ("D:\") is refused: Delete all would then empty it.
+  StrCpy $0 "$FridayRoot" 1 -1
+  StrLen $1 "$FridayRoot"
+  ${If} $0 == "\"
+  ${AndIf} $1 > 3
+    StrCpy $FridayRoot "$FridayRoot" -1
+  ${EndIf}
+  StrLen $1 "$FridayRoot"
+  ${If} $1 < 4
+    MessageBox MB_ICONSTOP "FRIDAY needs a folder of its own, not a whole drive.$\r$\nChoose a folder such as D:\FRIDAY."
     Abort
   ${EndIf}
 
@@ -389,6 +409,9 @@ Var FridayUnRoot
 ; "1" when the FRIDAY folder is a Git checkout of FRIDAY's own source (setup and build:win use the folder they run in
 ; as the FRIDAY folder), which a "Delete all FRIDAY data" uninstall must not wipe: it holds the owner's code.
 Var FridayUnSource
+; "1" only when the owner, on the uninstall page and after the second confirmation, chose to remove the source checkout
+; together with FRIDAY's data ("complete removal"). Anything else (unset, "0", a silent uninstall) protects the checkout.
+Var FridayUnWipeSource
 !endif
 
 !ifdef BUILD_UNINSTALLER
@@ -426,6 +449,7 @@ FunctionEnd
   ; Default for every path, including a silent uninstall and the uninstaller
   ; that a reinstall/upgrade runs first: KEEP the data.
   StrCpy $FridayUnMode "keep"
+  StrCpy $FridayUnWipeSource "0"
   ReadRegStr $FridayUnRoot HKCU "Software\FRIDAY" "WorkspacePath"
   ${If} ${Silent}
     Call un.FridayDetectDeleteSwitch
@@ -452,6 +476,16 @@ FunctionEnd
     ${If} $0 == "\App"
       StrCpy $FridayUnRoot "$INSTDIR" -4
     ${EndIf}
+  ${EndIf}
+
+  ; A whole drive ("D:\", "D:") is never a FRIDAY folder to release or delete, whatever an old pointer says: that
+  ; would empty the drive. The program folder is still removed; the pointer is left for the owner to correct.
+  StrLen $0 "$FridayUnRoot"
+  ${If} $0 == 1
+  ${OrIf} $0 == 2
+  ${OrIf} $0 == 3
+    DetailPrint "The registered FRIDAY folder ($FridayUnRoot) is a whole drive: it is never deleted or released."
+    StrCpy $FridayUnRoot ""
   ${EndIf}
 
   ${If} $FridayUnMode != "delete"
@@ -513,8 +547,10 @@ FunctionEnd
       ${If} $FridayUnRoot != ""
         Call un.FridayDetectSource
         ${If} $FridayUnSource == "1"
-          ; The FRIDAY folder is a source checkout: remove FRIDAY's own data and leave the owner's code, Git history
-          ; and build output where they are (installer/build/remove-source-root-data.ps1 refuses anything else).
+        ${AndIf} $FridayUnWipeSource != "1"
+          ; The FRIDAY folder is a source checkout and the owner chose to keep the code: remove FRIDAY's own data and
+          ; leave the code, Git history and build output where they are (installer/build/remove-source-root-data.ps1
+          ; refuses anything else). Without that choice (a silent uninstall) the checkout is always kept.
           DetailPrint "The FRIDAY folder is a source checkout - removing only FRIDAY's own data from $FridayUnRoot (explicitly requested)..."
           nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\installer\build\remove-source-root-data.ps1" -Root "$FridayUnRoot"'
           Pop $0
@@ -523,6 +559,8 @@ FunctionEnd
           ; Stop everything that runs from the FRIDAY folder or stands in it (a runner, Ollama started by FRIDAY, a
           ; leftover Python): a program whose current directory is inside the folder keeps it alive, and Windows then
           ; answers "try again" even after every file is gone. Shells and editors of the owner are left alone.
+          ; Reached for a normal FRIDAY folder, and for a source checkout only when the owner ticked "complete removal"
+          ; and confirmed it: then the code, Git history and build output go with the folder.
           DetailPrint "Stopping everything that uses $FridayUnRoot ..."
           ${If} ${FileExists} "$INSTDIR\resources\installer\build\close-friday.ps1"
             nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\installer\build\close-friday.ps1" -InstallDir "$INSTDIR" -ReleaseRoot "$FridayUnRoot"'
@@ -573,7 +611,12 @@ FunctionEnd
 
   ; Application-only leftovers: removed by BOTH modes, never user content.
   ; The "High performance" graphics choice FRIDAY set for its own program (Windows Graphics settings).
-  DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ; Only the value FRIDAY itself writes ("GpuPreference=2;"): a choice the owner made in Windows, such as Power
+  ; saving, is theirs and stays, also across an update (which runs this uninstaller first).
+  ReadRegStr $0 HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ${If} $0 == "GpuPreference=2;"
+    DeleteRegValue HKCU "Software\Microsoft\DirectX\UserGpuPreferences" "$INSTDIR\FRIDAY.exe"
+  ${EndIf}
   RMDir /r "$LOCALAPPDATA\friday-cache"
   RMDir /r "$LOCALAPPDATA\friday-updater"
   ; Run markers of the copy being removed, kept in the app's user-data folder: a software-drawing fallback decided
@@ -599,14 +642,20 @@ FunctionEnd
     ; current directory is the program folder keeps that folder alive (this left an
     ; empty "<root>\App" behind on a real runner). SetOutPath moves this process, and
     ; the child inherits the new directory; the helper moves itself again to be sure.
-    ; A source checkout used as the FRIDAY folder is never swept: only the program folder is. The data was already
+    ; A source checkout the owner chose to keep is never swept: only the program folder is. The data was already
     ; removed by installer/build/remove-source-root-data.ps1 above, and the sweeper below skips an empty entry.
+    ; When the owner chose complete removal, the sweeper also removes whatever the uninstaller could not.
     Call un.FridayDetectSource
     ${If} $FridayUnSource == "1"
+    ${AndIf} $FridayUnWipeSource != "1"
       StrCpy $FridayUnRoot ""
     ${EndIf}
+    ; The two folders travel in the environment of the helper, not in its command line: a folder name with an
+    ; apostrophe, a percent sign or an ampersand would break the quoting and the sweep would silently do nothing.
+    System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_SWEEP_APP", t "$INSTDIR")'
+    System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_SWEEP_ROOT", t "$FridayUnRoot")'
     SetOutPath "$TEMP"
-    nsExec::Exec 'cmd.exe /c start "" /min "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $$env:TEMP; [Environment]::CurrentDirectory = $$env:TEMP; Start-Sleep -Seconds 6; $$t = @($\'$INSTDIR$\', $\'$FridayUnRoot$\') | Where-Object { $$_ }; for ($$n = 0; $$n -lt 45; $$n++) { foreach ($$p in $$t) { if (Test-Path -LiteralPath $$p) { cmd.exe /c rd /s /q ($\'\\?\$\' + $$p) 2>$$null; Remove-Item -LiteralPath $$p -Recurse -Force -ErrorAction SilentlyContinue } }; if (-not ($$t | Where-Object { Test-Path -LiteralPath $$_ })) { break }; Start-Sleep -Seconds 2 }"'
+    nsExec::Exec 'cmd.exe /c start "" /min "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $$env:TEMP; [Environment]::CurrentDirectory = $$env:TEMP; Start-Sleep -Seconds 6; $$t = @($$env:FRIDAY_SWEEP_APP, $$env:FRIDAY_SWEEP_ROOT) | Where-Object { $$_ }; for ($$n = 0; $$n -lt 45; $$n++) { foreach ($$p in $$t) { if (Test-Path -LiteralPath $$p) { cmd.exe /c rd /s /q ($\'\\?\$\' + $$p) 2>$$null; Remove-Item -LiteralPath $$p -Recurse -Force -ErrorAction SilentlyContinue } }; if (-not ($$t | Where-Object { Test-Path -LiteralPath $$_ })) { break }; Start-Sleep -Seconds 2 }"'
     Pop $0
   ${EndIf}
 
@@ -629,6 +678,8 @@ FunctionEnd
 !ifdef BUILD_UNINSTALLER
 
 Var FridayUnDeleteData
+; Source checkout only: the box "keep my source code" under the delete box.
+Var FridayUnKeepSource
 
 !macro customUnWelcomePage
   UninstPage custom un.FridayDataPagePre un.FridayDataPageLeave
@@ -645,6 +696,7 @@ Function un.FridayDataPagePre
   ; Authoritative read of the data root for the whole uninstall.
   ReadRegStr $FridayUnRoot HKCU "Software\FRIDAY" "WorkspacePath"
   StrCpy $FridayUnMode "keep"
+  StrCpy $FridayUnWipeSource "0"
   ${If} "${PRODUCT_NAME}" == "FRIDAY Test"
     Abort
   ${EndIf}
@@ -663,12 +715,19 @@ Function un.FridayDataPagePre
     ${NSD_CreateLabel} 0 28u 100% 24u "FRIDAY folder: $FridayUnRoot$\r$\nIts sibling folders hold your database, memory, conversations, settings, credentials, models, runtimes, voices and tools - all kept by a normal uninstall."
     Pop $1
     ${If} $FridayUnSource == "1"
-      ${NSD_CreateCheckbox} 0 56u 100% 12u "Delete FRIDAY's data too (memory, settings, models, runtimes) - your source code in $FridayUnRoot is kept"
+      ; The folder is the Git checkout FRIDAY was built from. The box means complete removal, as everywhere else; the
+      ; second box below it is the way to keep the code (it is only read when the first box is ticked).
+      ${NSD_CreateCheckbox} 0 56u 100% 12u "Delete all FRIDAY data too - complete removal of $FridayUnRoot (cannot be undone)"
+      Pop $FridayUnDeleteData
+      ${NSD_SetState} $FridayUnDeleteData ${BST_UNCHECKED}
+      ${NSD_CreateCheckbox} 12u 72u 96% 24u "...but keep my source code, Git history and build output in it (only FRIDAY's own data is removed)"
+      Pop $FridayUnKeepSource
+      ${NSD_SetState} $FridayUnKeepSource ${BST_UNCHECKED}
     ${Else}
       ${NSD_CreateCheckbox} 0 56u 100% 12u "Delete all FRIDAY data too - complete removal of $FridayUnRoot (cannot be undone)"
+      Pop $FridayUnDeleteData
+      ${NSD_SetState} $FridayUnDeleteData ${BST_UNCHECKED}
     ${EndIf}
-    Pop $FridayUnDeleteData
-    ${NSD_SetState} $FridayUnDeleteData ${BST_UNCHECKED}
 
   ${Else}
     StrCpy $FridayUnDeleteData ""
@@ -681,20 +740,30 @@ FunctionEnd
 
 Function un.FridayDataPageLeave
   StrCpy $FridayUnMode "keep"
+  StrCpy $FridayUnWipeSource "0"
   ${If} $FridayUnDeleteData != ""
     ${NSD_GetState} $FridayUnDeleteData $0
     ${If} $0 == ${BST_CHECKED}
       Call un.FridayDetectSource
       ${If} $FridayUnSource == "1"
-        MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
-          "This permanently deletes FRIDAY's data in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nYour source code and Git history in that folder are not touched.$\r$\nThis cannot be undone. Delete FRIDAY's data?" \
-          /SD IDNO IDYES friday_confirm_delete
+        ${NSD_GetState} $FridayUnKeepSource $1
+        ${If} $1 == ${BST_CHECKED}
+          MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
+            "This permanently deletes FRIDAY's data in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nYour source code and Git history in that folder are not touched.$\r$\nThis cannot be undone. Delete FRIDAY's data?" \
+            /SD IDNO IDYES friday_confirm_delete
+        ${Else}
+          MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
+            "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices, AND the source code, Git history and build output in that folder.$\r$\nFRIDAY and every program running from that folder are stopped first, and the folder itself is removed. Close any command window or editor that is open inside it first.$\r$\nThis cannot be undone. Delete the whole folder?" \
+            /SD IDNO IDYES friday_confirm_wipe
+        ${EndIf}
       ${Else}
         MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 \
           "This permanently deletes EVERYTHING in:$\r$\n$FridayUnRoot$\r$\n$\r$\nChats, memory, settings, credentials, models, runtimes and voices.$\r$\nFRIDAY and every program running from that folder are stopped first, and the folder itself is removed.$\r$\nThis cannot be undone. Delete all FRIDAY data?" \
           /SD IDNO IDYES friday_confirm_delete
       ${EndIf}
       Abort
+      friday_confirm_wipe:
+      StrCpy $FridayUnWipeSource "1"
       friday_confirm_delete:
       StrCpy $FridayUnMode "delete"
     ${EndIf}

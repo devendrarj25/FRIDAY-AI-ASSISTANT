@@ -455,8 +455,18 @@ function rollback({ root, backup }) {
       const from = path.join(source, name);
       if (!fs.existsSync(from)) continue;
       const to = path.join(root, name);
-      fs.rmSync(to, { recursive: true, force: true });
-      fs.cpSync(from, to, { recursive: true });
+      // Copy beside the folder first and swap it in only once the copy is whole: a copy that fails halfway (disk
+      // full, a locked file) leaves the current folder as it was instead of a half-restored one.
+      const staged = `${to}.restoring`;
+      try {
+        fs.rmSync(staged, { recursive: true, force: true });
+        fs.cpSync(from, staged, { recursive: true });
+        fs.rmSync(to, { recursive: true, force: true });
+        fs.renameSync(staged, to);
+      } catch (error) {
+        fs.rmSync(staged, { recursive: true, force: true });
+        throw error;
+      }
       restored.push(name);
     }
   } catch (error) {

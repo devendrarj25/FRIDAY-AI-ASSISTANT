@@ -153,6 +153,16 @@ function Official-Versions {
   return $versions
 }
 
+# The installer runs with the owner's rights, so it must be the Python Software Foundation's own, unaltered file: a
+# download that is not validly signed by them is deleted and not run (the next version, then winget, are tried).
+function Test-PythonInstallerSignature([string]$file) {
+  try {
+    $signature = Get-AuthenticodeSignature -LiteralPath $file
+    return (($signature.Status -eq 'Valid') -and $signature.SignerCertificate -and
+      ($signature.SignerCertificate.Subject -match 'Python Software Foundation'))
+  } catch { return $false }
+}
+
 function Install-Official([string]$version) {
   $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
   $url = "https://www.python.org/ftp/python/$version/python-$version-$arch.exe"
@@ -179,6 +189,11 @@ function Install-Official([string]$version) {
   }
   if (-not $downloaded) {
     Write-Host "FRIDAY: download failed for $version"
+    return $false
+  }
+  if (-not (Test-PythonInstallerSignature $file)) {
+    Write-Host "FRIDAY: the Python $version installer is not validly signed by the Python Software Foundation - not run"
+    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
     return $false
   }
   Write-Host "FRIDAY: installing Python $version silently..."

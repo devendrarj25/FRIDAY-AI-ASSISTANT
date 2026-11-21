@@ -23,6 +23,7 @@ const health = require_("../../electron/system-health.cjs") as {
   createGpuGuard: (o: Record<string, unknown>) => {
     softwareMode: () => boolean;
     recordChildGone: (d: unknown) => { action: string; count?: number };
+    requestSoftware: (reason: string) => boolean;
   };
   createPressureMonitor: (o: Record<string, unknown>) => {
     sample: () => Snap;
@@ -96,6 +97,35 @@ describe("a graphics driver that keeps crashing gets software drawing", () => {
     t += 8 * 24 * 60 * 60 * 1000;
     expect(make().softwareMode()).toBe(false);
     expect(fs.files.has("gpu.json")).toBe(false);
+  });
+
+  it("draws in software on request when the interface would not load, once, and never against FRIDAY_FORCE_GPU", () => {
+    const fs = memFs();
+    const t = 7_000_000;
+    const make = (env: Record<string, string> = {}) =>
+      health.createGpuGuard({ fs, file: "gpu.json", now: () => t, env });
+    // FRIDAY_FORCE_GPU=1 is the owner's way to keep the graphics card: nothing is written.
+    expect(make({ FRIDAY_FORCE_GPU: "1" }).requestSoftware("no page")).toBe(false);
+    expect(fs.files.has("gpu.json")).toBe(false);
+    // First request writes the marker, so the next start draws in software.
+    expect(make().requestSoftware("no page")).toBe(true);
+    expect(make().softwareMode()).toBe(true);
+    expect(JSON.parse(fs.files.get("gpu.json") as string).reason).toBe("no page");
+    // A start that already draws in software is not asked to restart again (no restart loop).
+    expect(make().requestSoftware("no page")).toBe(false);
+  });
+
+  it("reports false when the software marker cannot be saved, so no pointless restart follows", () => {
+    const broken = {
+      readFileSync: () => "{}",
+      writeFileSync: () => {
+        throw new Error("EACCES");
+      },
+      rmSync: () => undefined,
+    };
+    expect(health.createGpuGuard({ fs: broken, file: "gpu.json" }).requestSoftware("x")).toBe(
+      false,
+    );
   });
 
   it("survives a marker it cannot read or write", () => {

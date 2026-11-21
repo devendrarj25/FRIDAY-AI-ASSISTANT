@@ -203,7 +203,12 @@ const parseNumbers = (value) =>
  * Nothing that is current, protected, unmerged or still referenced is ever
  * proposed for deletion:
  *   - branches: only merged, non-protected, non-recovery work branches that
- *     have no open pull request (an open PR always means live work)
+ *     have no open pull request (an open PR always means live work). "Merged"
+ *     means every commit of the branch is already in main: either the tip is an
+ *     ancestor of main (a merge commit), or the tip is exactly the head commit of
+ *     a pull request that was merged into main (a squash or rebase merge leaves
+ *     no ancestor, but a branch with nothing after that head has nothing left to
+ *     lose). A branch with one commit more than its merged pull request is live work.
  *   - test releases: prereleases only, newest TEST release always kept
  *   - official releases: newest `keepOfficial` always kept, current never touched
  *   - runs: newest `keepRuns` per workflow always kept; running runs never touched
@@ -221,11 +226,22 @@ function planCleanup(input = {}, policy = {}) {
   const openBranches = new Set(
     (input.openPullRequestBranches || []).map((n) => String(n || "")).filter(Boolean),
   );
+  // Head commits of pull requests merged into main, by branch name. A pull request from a fork never counts:
+  // its branch name says nothing about a branch of this repository.
+  const mergedTips = new Map();
+  for (const pr of input.mergedPullRequests || []) {
+    if (!pr || pr.isCrossRepository || !pr.headRefName || !pr.headRefOid) continue;
+    const name = String(pr.headRefName);
+    if (!mergedTips.has(name)) mergedTips.set(name, new Set());
+    mergedTips.get(name).add(String(pr.headRefOid));
+  }
+  const fullyInMain = (b) =>
+    Boolean(b.merged) || Boolean(b.sha && mergedTips.get(String(b.name))?.has(String(b.sha)));
   const branches = (input.branches || [])
     .filter(
       (b) =>
         b &&
-        b.merged &&
+        fullyInMain(b) &&
         !isProtectedBranch(b.name) &&
         !b.openPullRequest &&
         !openBranches.has(String(b.name)),
@@ -332,7 +348,8 @@ if (require.main === module) {
     process.stdout.write(`${JSON.stringify({ scope, latestReleaseBranch, decisions }, null, 2)}\n`);
   } else if (cmd === "cleanup") {
     // node scripts/merge-engine.cjs cleanup --branches b.json --releases r.json \
-    //   --runs runs.json [--keep-official 3] [--keep-test 1] [--keep-runs 15] [--current v1.3.2]
+    //   --runs runs.json [--open-prs o.json] [--merged-prs m.json]
+    //   [--keep-official 3] [--keep-test 1] [--keep-runs 15] [--current v1.3.2]
     const plan = planCleanup(
       {
         branches: readJson(flag("branches"), []),
@@ -342,6 +359,9 @@ if (require.main === module) {
         openPullRequestBranches: readJson(flag("open-prs"), []).map((p) =>
           typeof p === "string" ? p : String(p?.headRefName || ""),
         ),
+        // Pull requests already merged into main (headRefName, headRefOid): a squash-merged branch is fully in main
+        // although its tip is not an ancestor of it.
+        mergedPullRequests: readJson(flag("merged-prs"), []),
       },
       {
         keepOfficial: Number(flag("keep-official", "3")),

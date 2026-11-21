@@ -236,6 +236,66 @@ describe("maintenance cleanup - never removes anything live", () => {
       expect(engine.isProtectedBranch(b)).toBe(true);
   });
 
+  describe("a branch whose work is already in main, however it was merged", () => {
+    const merged = (name: string, sha: string, extra: Record<string, unknown> = {}) => ({
+      headRefName: name,
+      headRefOid: sha,
+      isCrossRepository: false,
+      ...extra,
+    });
+
+    it("deletes a squash- or rebase-merged branch whose tip is exactly its merged pull request's head", () => {
+      const plan = engine.planCleanup({
+        branches: [
+          { name: "fix/squashed", merged: false, sha: "aaa" },
+          { name: "fix/ancestor", merged: true, sha: "bbb" },
+        ],
+        mergedPullRequests: [merged("fix/squashed", "aaa")],
+      });
+      expect(plan.branches).toEqual(["fix/squashed", "fix/ancestor"]);
+    });
+
+    it("keeps a branch that has a commit its merged pull request did not carry", () => {
+      const plan = engine.planCleanup({
+        branches: [{ name: "fix/more-work", merged: false, sha: "ccc" }],
+        mergedPullRequests: [merged("fix/more-work", "aaa")],
+      });
+      expect(plan.branches).toEqual([]);
+    });
+
+    it("keeps a branch with no merged pull request, with no known tip, or whose pull request came from a fork", () => {
+      const plan = engine.planCleanup({
+        branches: [
+          { name: "fix/never-merged", merged: false, sha: "aaa" },
+          { name: "fix/no-tip", merged: false },
+          { name: "fix/from-fork", merged: false, sha: "ddd" },
+        ],
+        mergedPullRequests: [
+          merged("fix/no-tip", "aaa"),
+          merged("fix/from-fork", "ddd", { isCrossRepository: true }),
+        ],
+      });
+      expect(plan.branches).toEqual([]);
+    });
+
+    it("never deletes a protected branch or one with an open pull request, merged or not", () => {
+      const plan = engine.planCleanup({
+        branches: [
+          { name: "main", merged: false, sha: "aaa" },
+          { name: "recovery/main-2", merged: false, sha: "bbb" },
+          { name: "fix/reopened", merged: false, sha: "ccc" },
+        ],
+        mergedPullRequests: [
+          merged("main", "aaa"),
+          merged("recovery/main-2", "bbb"),
+          merged("fix/reopened", "ccc"),
+        ],
+        openPullRequestBranches: ["fix/reopened"],
+      });
+      expect(plan.branches).toEqual([]);
+    });
+  });
+
   it("keeps the last runs per workflow and never touches a live run", () => {
     const runs = Array.from({ length: 20 }, (_, i) => ({
       databaseId: i + 1,
