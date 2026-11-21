@@ -52,7 +52,7 @@ Related documents (they are not copied here): version numbers [VERSIONING.md](VE
 
 Not sure? Choose **A**. Both paths end the same way: you open FRIDAY and continue at [section 7](#7-open-friday-the-first-time).
 
-Official and TEST builds can sit side by side on one PC: TEST uses a different Windows app id (`dev.friday.desk.test`) and does not touch the Official install. More in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+Official and TEST builds can sit side by side on one PC: TEST uses a different Windows app id (`dev.friday.desk.test`), installs its program into `<root>\TestApp` (Official uses `<root>\App`), keeps its data in `<root>\profiles\test`, and does not touch the Official install. If you installed a FRIDAY Test before 2026-11-21, it sits in `<root>\App`: uninstall that old FRIDAY Test first, run the Official Setup again over the same folder (your data is kept), then install the new FRIDAY Test ([docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md)). More in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
 ## 3. Before you start
 

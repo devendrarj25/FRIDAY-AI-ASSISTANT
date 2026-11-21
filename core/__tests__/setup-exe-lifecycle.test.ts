@@ -32,7 +32,7 @@ describe("the installer script", () => {
 
   it("writes the FRIDAY folder pointer when files are installed, not when the folder page is left", () => {
     expect(leave).not.toContain("WriteRegStr");
-    expect(leave).toContain('StrCpy $INSTDIR "$FridayRoot\\App"');
+    expect(leave).toContain('StrCpy $INSTDIR "$FridayRoot\\${FRIDAY_APP_DIR}"');
     expect(install).toContain('WriteRegStr HKCU "Software\\FRIDAY" "WorkspacePath" "$FridayRoot"');
   });
 

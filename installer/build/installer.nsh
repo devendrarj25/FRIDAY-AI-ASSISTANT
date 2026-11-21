@@ -50,6 +50,20 @@
 
 ; The first pass builds the uninstaller. Do not declare installer-only page
 ; functions in that pass or NSIS warning 6010 is treated as a fatal error.
+; THE PROGRAM FOLDER of this product. FRIDAY Test shares the FRIDAY folder's
+; models, voices and runtime with the official FRIDAY (its own data lives in
+; <root>\profiles\test), but it must never install over, or uninstall, the
+; official program files, so it has a program folder of its own.
+!if "${PRODUCT_NAME}" == "FRIDAY Test"
+  !define FRIDAY_APP_DIR "TestApp"
+  ; "-8" is the length of "\TestApp", counted from the end of a path.
+  !define FRIDAY_APP_TAIL "-8"
+!else
+  !define FRIDAY_APP_DIR "App"
+  ; "-4" is the length of "\App", counted from the end of a path.
+  !define FRIDAY_APP_TAIL "-4"
+!endif
+
 !ifndef BUILD_UNINSTALLER
 
 Var FridayRoot
@@ -106,9 +120,9 @@ FunctionEnd
     ; $INSTDIR already holds the folder passed with /D. Treat it as the ONE
     ; root (tolerating a root that already ends in \App) and install into
     ; <root>\App exactly like the wizard does.
-    StrCpy $0 "$INSTDIR" "" -4
-    ${If} $0 == "\App"
-      StrCpy $FridayRoot "$INSTDIR" -4
+    StrCpy $0 "$INSTDIR" "" ${FRIDAY_APP_TAIL}
+    ${If} $0 == "\${FRIDAY_APP_DIR}"
+      StrCpy $FridayRoot "$INSTDIR" ${FRIDAY_APP_TAIL}
     ${Else}
       StrCpy $FridayRoot "$INSTDIR"
     ${EndIf}
@@ -124,7 +138,7 @@ FunctionEnd
     MessageBox MB_ICONSTOP "FRIDAY needs a folder of its own, not a whole drive.$\r$\nUse a folder such as D:\FRIDAY." /SD IDOK
     Abort
   ${EndIf}
-  StrCpy $INSTDIR "$FridayRoot\App"
+  StrCpy $INSTDIR "$FridayRoot\${FRIDAY_APP_DIR}"
 !macroend
 
 
@@ -149,7 +163,7 @@ Function FridayRootPageCreate
     "One folder holds all of FRIDAY: the program and your data, side by side."
 
   ${NSD_CreateLabel} 0 0 100% 32u \
-    "FRIDAY installs into <folder>\App and keeps your database, memory, models, \
+    "FRIDAY installs into <folder>\${FRIDAY_APP_DIR} and keeps your database, memory, models, \
 agents, skills, plugins, workflows and Python environment in sibling folders under the same root. \
 An existing FRIDAY folder is detected and reused - nothing inside it is deleted \
 or overwritten, and it survives a normal uninstall."
@@ -211,7 +225,7 @@ Function FridayRootDetect
   ${EndIf}
 
   ${If} $FridayDetected == ""
-    ${NSD_SetText} $FridayDetectedText "New FRIDAY folder - the program goes to $FridayRoot\App and the full data structure is created beside it."
+    ${NSD_SetText} $FridayDetectedText "New FRIDAY folder - the program goes to $FridayRoot\${FRIDAY_APP_DIR} and the full data structure is created beside it."
   ${Else}
     ${NSD_SetText} $FridayDetectedText "Existing FRIDAY folder detected ($FridayDetected) - it will be validated and reused, never overwritten. Only $FridayRoot\App is replaced."
   ${EndIf}
@@ -270,10 +284,10 @@ Function FridayRootPageLeave
   ; Picking the program folder of an existing installation means the root is
   ; its parent — never install FRIDAY into <root>\App\App. Plain string work
   ; only, so this behaves identically in the installer and uninstaller passes.
-  StrCpy $0 "$FridayRoot" "" -4
-  ${If} $0 == "\App"
+  StrCpy $0 "$FridayRoot" "" ${FRIDAY_APP_TAIL}
+  ${If} $0 == "\${FRIDAY_APP_DIR}"
   ${AndIf} ${FileExists} "$FridayRoot\FRIDAY.exe"
-    StrCpy $FridayRoot "$FridayRoot" -4
+    StrCpy $FridayRoot "$FridayRoot" ${FRIDAY_APP_TAIL}
   ${EndIf}
 
 
@@ -289,7 +303,7 @@ Function FridayRootPageLeave
   ; customInstall, once the files are really being installed: writing it here moved an already installed FRIDAY onto
   ; the new (empty) folder when the owner pressed Cancel on the next page, because the app reads that pointer first.
   CreateDirectory "$FridayRoot"
-  StrCpy $INSTDIR "$FridayRoot\App"
+  StrCpy $INSTDIR "$FridayRoot\${FRIDAY_APP_DIR}"
 FunctionEnd
 
 
@@ -309,9 +323,9 @@ FunctionEnd
   ; The app reads this at first run to locate the ONE root. $INSTDIR is always
   ; "<root>\App", so the program folder is a sibling of the data folders.
   ${If} $FridayRoot == ""
-    StrCpy $0 "$INSTDIR" "" -4
-    ${If} $0 == "\App"
-      StrCpy $FridayRoot "$INSTDIR" -4
+    StrCpy $0 "$INSTDIR" "" ${FRIDAY_APP_TAIL}
+    ${If} $0 == "\${FRIDAY_APP_DIR}"
+      StrCpy $FridayRoot "$INSTDIR" ${FRIDAY_APP_TAIL}
     ${Else}
       StrCpy $FridayRoot "$INSTDIR"
     ${EndIf}
@@ -472,9 +486,9 @@ FunctionEnd
   ; missing (registry wiped by hand) the root is still recoverable from the
   ; folder the uninstaller is running from — never guessed anywhere else.
   ${If} $FridayUnRoot == ""
-    StrCpy $0 "$INSTDIR" "" -4
-    ${If} $0 == "\App"
-      StrCpy $FridayUnRoot "$INSTDIR" -4
+    StrCpy $0 "$INSTDIR" "" ${FRIDAY_APP_TAIL}
+    ${If} $0 == "\${FRIDAY_APP_DIR}"
+      StrCpy $FridayUnRoot "$INSTDIR" ${FRIDAY_APP_TAIL}
     ${EndIf}
   ${EndIf}
 
