@@ -77,7 +77,7 @@ You need:
 
 **What you should see:** a FRIDAY window opens. Go to [section 7](#7-open-friday-the-first-time).
 
-**Portable instead of Setup.** `FRIDAY-Portable-1.1.5.7.exe` is the same version with no installer and no entry in Apps & Features. Put it in a folder you keep, double-click it, and pick your FRIDAY folder when asked. To remove it you delete the file yourself ([section 14](#14-uninstall-friday)). Prefer Setup when you want a Start-menu shortcut, easy updates and a proper uninstall with a keep-data or delete-all choice.
+**Portable instead of Setup.** `FRIDAY-Portable-1.1.5.7.exe` is the same version with no installer and no entry in Apps & Features. Put it in a folder you keep, double-click it, and pick your FRIDAY folder when asked. **The portable EXE is a program you run, not an installation:** it never starts at sign-in, never stays in the tray or the background after you close it (the X button asks first when tasks run, then quits FRIDAY and the programs she started), and in Settings the switches _Start Friday on system startup_, _Launch minimized to the tray_ and _Minimize to system tray_ show off with "Setup install only". It leaves nothing in the Windows start-up list. To remove it you delete the file yourself ([section 14](#14-uninstall-friday)). Prefer Setup when you want a Start-menu shortcut, easy updates and a proper uninstall with a keep-data or delete-all choice.
 
 ## 5. Path B: build the program yourself
 
@@ -208,7 +208,7 @@ Then go to [section 7](#7-open-friday-the-first-time).
 
 ## 7. Open FRIDAY the first time
 
-1. **Start it** from the Start menu or desktop shortcut (or `<root>\App\FRIDAY.exe`). It opens a window and a small icon appears in the system tray (near the clock). Closing the window can hide FRIDAY to the tray so she keeps running; to quit completely use the tray icon menu.
+1. **Start it** from the Start menu or desktop shortcut (or `<root>\App\FRIDAY.exe`). It opens a window and a small icon appears in the system tray (near the clock). With the installed (Setup) FRIDAY, closing the window hides her to the tray so she keeps running; to quit completely use the tray icon menu. With the Portable EXE, closing the window quits her.
 2. **Choose the FRIDAY folder** if the app asks. Pick a writable folder (not `Program Files`). If you set up in `C:\FRIDAY` or installed there, it is already chosen. Models downloaded during setup and waiting in `.friday-dev` are moved into your folder on this first launch; an item your folder already has is never overwritten, and nothing is downloaded twice.
 3. **Wait for the kernel to become ready.** Look at the title strip, or open **FRIDAY Status** in the left menu. Until the kernel is ready, chat and Doctor are not meaningful. A few minutes on the very first start is normal.
    - If it stays down, open **Setup & Doctor** and press the repair button, then **Install Manager**. A leftover `PythonSetupPending` means the installer's Python repair did not finish; the same pages finish it.

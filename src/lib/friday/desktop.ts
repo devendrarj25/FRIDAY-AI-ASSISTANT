@@ -307,6 +307,8 @@ type DesktopApi = {
     workspace: string | null;
     checkout?: { checkout: boolean; message: string };
     kernelPort?: number;
+    /** True for the portable EXE: no start at sign-in, no tray or background after its window is closed. */
+    portable?: boolean;
   }>;
 
   getBootSteps?: () => Promise<BootStep[]>;

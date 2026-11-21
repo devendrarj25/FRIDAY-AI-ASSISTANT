@@ -302,6 +302,9 @@ if (
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const loginItem = require("./login-item.cjs");
+// The portable EXE is a program you run, not an installation: no start at sign-in, no staying in the tray or the
+// background after its window is closed. The installed (Setup) FRIDAY keeps all of these, as its settings say.
+const PORTABLE_RUN = loginItem.isPortable(process.env);
 const bootPlan = require("./boot-plan.cjs");
 const gpuStatus = require("./gpu-status.cjs");
 const processPriority = require("./process-priority.cjs");
@@ -1465,6 +1468,8 @@ function noteStartup(milestone) {
 
 /** True when this launch came from the sign-in entry: `--friday-login` on Windows, the OS flag on macOS. */
 function loginLaunchHidden() {
+  // A portable FRIDAY never starts at sign-in, so a leftover marker never keeps its window hidden.
+  if (PORTABLE_RUN) return false;
   let settings = null;
   try {
     settings = app.getLoginItemSettings();
@@ -4178,7 +4183,7 @@ function createWindow() {
     // (tray menu / Advanced) is still the explicit full exit.
     if (!app.__fridayQuitting) {
       event.preventDefault();
-      const closeToTray = ownerPrefToggle("tray", true);
+      const closeToTray = !PORTABLE_RUN && ownerPrefToggle("tray", true);
       const confirm = ownerPrefToggle("confirmExit", true) && Boolean(app.__fridayBusy);
       const finish = () => {
         if (closeToTray) life.hideToBackground();
@@ -4232,7 +4237,11 @@ function createWindow() {
         // Maximize can fail on odd display configurations — show anyway.
       }
     }
-    if (ownerPrefToggle("launchMinimized", false) && ownerPrefToggle("tray", true)) {
+    if (
+      !PORTABLE_RUN &&
+      ownerPrefToggle("launchMinimized", false) &&
+      ownerPrefToggle("tray", true)
+    ) {
       stayHiddenOnLaunch = true;
       earlySplash.close();
       life.hideToBackground();
@@ -4461,6 +4470,13 @@ ipcMain.handle("window:state", () => {
 // hides FRIDAY into the tray, it does NOT end her. Only "Quit FRIDAY" (tray
 // menu or Settings) really stops the process — see quitFriday() below.
 ipcMain.on("window:close", () => {
+  // The portable EXE has no background: the X button closes the window, which asks first when tasks run and then quits.
+  if (PORTABLE_RUN) {
+    const target = liveWin();
+    if (target) target.close();
+    else void life.requestShutdown("window-close");
+    return;
+  }
   life.hideToBackground();
 });
 
@@ -4752,7 +4768,10 @@ function quitFriday() {
 }
 
 ipcMain.on("window:show", () => showFridayWindow());
-ipcMain.on("window:hide", () => life.hideToBackground());
+ipcMain.on("window:hide", () => {
+  if (PORTABLE_RUN) liveWin()?.minimize();
+  else life.hideToBackground();
+});
 ipcMain.handle("app:quit", () => {
   quitFriday();
   return true;
@@ -5377,6 +5396,7 @@ ipcMain.handle("app:paths", () => ({
   canonical: paths.describe(),
   checkout: paths.checkoutGuard(getWorkspaceRoot()),
   kernelPort: KERNEL_PORT,
+  portable: PORTABLE_RUN,
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
 // Why this launch is a launch and which stages the boot screen waits for (fixed before the window exists).
@@ -5515,7 +5535,11 @@ function applyOwnerPreferenceEffects(value) {
       value && value.toggles && typeof value.toggles === "object" ? value.toggles : {};
     const fields = value && value.fields && typeof value.fields === "object" ? value.fields : {};
     // The sign-in entry is written to the registry: only when the choice changed, not on every settings save.
-    if (typeof toggles.startup === "boolean" && toggles.startup !== appliedStartupChoice) {
+    if (
+      !PORTABLE_RUN &&
+      typeof toggles.startup === "boolean" &&
+      toggles.startup !== appliedStartupChoice
+    ) {
       appliedStartupChoice = toggles.startup;
       loginItem.setEnabled(app, Boolean(toggles.startup));
     }
@@ -6942,8 +6966,10 @@ ipcMain.handle("app:confirm-restart", async (_e, reason) => {
   return true;
 });
 
-ipcMain.handle("startup:get", () => loginItem.isEnabled(app));
-ipcMain.handle("startup:set", (_e, enabled) => loginItem.setEnabled(app, Boolean(enabled)));
+ipcMain.handle("startup:get", () => (PORTABLE_RUN ? false : loginItem.isEnabled(app)));
+ipcMain.handle("startup:set", (_e, enabled) =>
+  PORTABLE_RUN ? false : loginItem.setEnabled(app, Boolean(enabled)),
+);
 
 // ---- Install Manager & Doctor ---------------------------------------------
 // All of this runs asynchronously in the main process; the renderer only ever
@@ -9839,7 +9865,13 @@ app
     healStaleBootState(root);
     try {
       // An entry written by an older build had no sign-in marker (and, in a portable build, a dead path).
-      if (loginItem.migrate(app)) log("start at sign-in: rewrote the entry in its current form");
+      if (PORTABLE_RUN) {
+        if (loginItem.release(app, { env: process.env, execPath: process.execPath })) {
+          log("portable: removed a start-at-sign-in entry an earlier build wrote for this file");
+        }
+      } else if (loginItem.migrate(app)) {
+        log("start at sign-in: rewrote the entry in its current form");
+      }
     } catch (error) {
       log(`start at sign-in migration skipped: ${error?.message || error}`);
     }
