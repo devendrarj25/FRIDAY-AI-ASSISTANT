@@ -269,7 +269,19 @@ describe("single-root install layout", () => {
 
   it("asks one folder question and derives the program folder from the answer", () => {
     expect(nsh).toContain("Where should FRIDAY live?");
-    expect(nsh).toContain('StrCpy $INSTDIR "$FridayRoot\\App"');
+    expect(nsh).toContain('StrCpy $INSTDIR "$FridayRoot\\${FRIDAY_APP_DIR}"');
+    // The official program folder stays <root>\App; FRIDAY Test gets <root>\TestApp, so installing or removing Test
+    // never touches the official program files (the two products share only the FRIDAY folder's resources).
+    expect(nsh).toMatch(
+      /!if "\$\{PRODUCT_NAME\}" == "FRIDAY Test"\r?\n\s+!define FRIDAY_APP_DIR "TestApp"[\s\S]*?!define FRIDAY_APP_TAIL "-8"\r?\n!else\r?\n\s+!define FRIDAY_APP_DIR "App"[\s\S]*?!define FRIDAY_APP_TAIL "-4"\r?\n!endif/,
+    );
+    // Defined for both passes: before the installer-only block, so the uninstaller pass sees it too.
+    expect(nsh.indexOf('!define FRIDAY_APP_DIR "App"')).toBeLessThan(
+      nsh.indexOf("!ifndef BUILD_UNINSTALLER"),
+    );
+    // No code line hard-codes the program folder any more.
+    const code = nsh.split(/\r?\n/).filter((line) => !line.trim().startsWith(";"));
+    expect(code.filter((line) => /"\\App"|\\App"|" -4$|" "" -4$/.test(line))).toEqual([]);
     expect(nsh).not.toContain("$FridayDataDir");
   });
 });

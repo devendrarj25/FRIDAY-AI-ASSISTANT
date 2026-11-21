@@ -187,7 +187,7 @@ describe("the installer and uninstaller never treat a whole drive as the FRIDAY 
     );
     expect(init).toContain("${If} $1 < 4");
     expect(init.indexOf("${If} $1 < 4")).toBeLessThan(
-      init.indexOf('StrCpy $INSTDIR "$FridayRoot\\App"'),
+      init.indexOf('StrCpy $INSTDIR "$FridayRoot\\${FRIDAY_APP_DIR}"'),
     );
   });
 

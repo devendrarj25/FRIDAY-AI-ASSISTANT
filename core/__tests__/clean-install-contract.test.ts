@@ -197,7 +197,7 @@ describe("node toolchain version set", () => {
     // Silent installs and upgrades never see the folder page: customInit must
     // establish the same one-root layout on its own.
     expect(installer).toContain('StrCpy $FridayRoot "$PROFILE\\FRIDAY"');
-    expect(installer).toContain('StrCpy $INSTDIR "$FridayRoot\\App"');
+    expect(installer).toContain('StrCpy $INSTDIR "$FridayRoot\\${FRIDAY_APP_DIR}"');
   });
 
   it("isolates TEST install metadata and exercises real installer lifecycle in both workflows", () => {
@@ -369,7 +369,7 @@ describe("node toolchain version set", () => {
     expect(builder).toContain("allowToChangeInstallationDirectory: false");
     expect(nsh).toContain("Where should FRIDAY live?");
     expect(nsh).toContain('WriteRegStr HKCU "Software\\FRIDAY" "WorkspacePath" "$FridayRoot"');
-    expect(nsh).toContain('StrCpy $INSTDIR "$FridayRoot\\App"');
+    expect(nsh).toContain('StrCpy $INSTDIR "$FridayRoot\\${FRIDAY_APP_DIR}"');
     // Existing installs store the database as friday.sqlite3 (legacy friday.db still counts).
     expect(nsh).toContain("$FridayRoot\\database\\friday.sqlite3");
     expect(nsh).toContain("$FridayRoot\\database\\friday.db");
