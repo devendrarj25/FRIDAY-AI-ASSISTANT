@@ -131,7 +131,8 @@ describe.skipIf(!tools)("draft-first release publishing", () => {
     // PR Validation on windows-latest: sha256sum printed "\\<hash>" for such a path and every asset looked changed.
     const s = setup();
     const folder = path.join(s.dir, "release\\x64");
-    fs.mkdirSync(folder);
+    // On Linux this is one folder whose name holds a backslash; on Windows it is the nested path release\\x64.
+    fs.mkdirSync(folder, { recursive: true });
     const odd = path.join(folder, "FRIDAY-Setup-1.2.3.4.exe");
     fs.writeFileSync(odd, "installer bytes");
     const bin = fakeGh(
