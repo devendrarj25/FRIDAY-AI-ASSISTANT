@@ -234,6 +234,72 @@
       "refWords": 1,
       "wordEdits": 1,
       "why": "a word lost entirely"
+    },
+    {
+      "id": "roman-spelling",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "mujhe kaam hai",
+      "hypothesis": "mujhe kam hai",
+      "refWords": 3,
+      "wordEdits": 1,
+      "romanWordEdits": 0,
+      "why": "Roman spelling variant: one word to the plain scorer, none to the Roman scorer"
+    },
+    {
+      "id": "roman-accents",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "aaj bahut garmi hai",
+      "hypothesis": "āj bahut garmī hai",
+      "refWords": 4,
+      "wordEdits": 2,
+      "romanWordEdits": 0,
+      "why": "accents and a doubled vowel are spelling, not hearing"
+    },
+    {
+      "id": "roman-punct",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "Aaj ka mausam kaisa hai?",
+      "hypothesis": "aaj ka mausam kaisa hai",
+      "refWords": 5,
+      "wordEdits": 0,
+      "romanWordEdits": 0,
+      "why": "case and punctuation ignored"
+    },
+    {
+      "id": "roman-real-error",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "kal office mein meeting hai",
+      "hypothesis": "kal office mein meeting nahi hai",
+      "refWords": 5,
+      "wordEdits": 1,
+      "romanWordEdits": 1,
+      "why": "a heard word that was not said is still an error"
+    },
+    {
+      "id": "roman-wrong-word",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "kya aap mujhe chai doge",
+      "hypothesis": "kyaa aap mujhe chaay doge",
+      "refWords": 5,
+      "wordEdits": 2,
+      "romanWordEdits": 1,
+      "why": "kyaa is spelling, chaay is not chai"
+    },
+    {
+      "id": "roman-devanagari-answer",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "mujhe chai chahiye",
+      "hypothesis": "मुझे चाय चाहिए",
+      "refWords": 3,
+      "wordEdits": 3,
+      "romanWordEdits": 3,
+      "why": "right words in the other script: still wrong, never transliterated"
     }
   ]
 }

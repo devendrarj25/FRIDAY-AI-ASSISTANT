@@ -41,6 +41,7 @@ if _KERNEL_DIR not in sys.path:
 
 import hindi_ear  # noqa: E402
 import voice_runtime  # noqa: E402
+import whisper_ears  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -262,6 +263,47 @@ def resolve_model_name(requested: str) -> str:
     gpu = os.environ.get("FRIDAY_GPU", "").strip().lower() in {"1", "true", "yes", "on"}
     battery = os.environ.get("FRIDAY_ON_BATTERY", "").strip().lower() in {"1", "true", "yes", "on"}
     return select_model(ram, gpu, battery, auto, requested or DEFAULT_MODEL)
+
+
+# faster-whisper 1.2.1 skips a silent stretch longer than this when it suspects a hallucination; it needs word timings.
+HALLUCINATION_SILENCE_S = 2.0
+MAX_HOTWORDS_CHARS = 200
+
+
+def clean_hotwords(raw) -> str:
+    """The owner's own words (names, project terms) as one short line for faster-whisper's `hotwords`, or "" (off)."""
+    if isinstance(raw, (list, tuple)):
+        raw = ", ".join(str(item) for item in raw)
+    words: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[,\n;]+", str(raw or "")):
+        word = " ".join(part.split())
+        if word and word.lower() not in seen:
+            seen.add(word.lower())
+            words.append(word)
+    return ", ".join(words)[:MAX_HOTWORDS_CHARS].strip(" ,")
+
+
+def decode_options(extras: dict | None, language_locked: bool) -> dict:
+    """Extra faster-whisper 1.2.1 options from the owner's settings. Everything is off unless it is asked for.
+
+    * ``hotwords``: the owner's dictionary; nothing is passed when it is empty.
+    * ``multilingual``: a language guess on every segment, only when the owner turned it on and no language is locked.
+    * ``hallucination_silence_threshold``: only together with word timings (``word_timestamps``), which the library
+      requires; word timings are off unless the request or ``FRIDAY_STT_WORD_TIMESTAMPS`` asks for them.
+    """
+    extras = extras or {}
+    out: dict = {}
+    hot = clean_hotwords(extras.get("hotwords"))
+    if hot:
+        out["hotwords"] = hot
+    if extras.get("multilingual") is True and not language_locked:
+        out["multilingual"] = True
+    env_words = os.environ.get("FRIDAY_STT_WORD_TIMESTAMPS", "").strip().lower() in {"1", "true", "yes", "on"}
+    if extras.get("word_timestamps") is True or env_words:
+        out["word_timestamps"] = True
+        out["hallucination_silence_threshold"] = HALLUCINATION_SILENCE_S
+    return out
 
 
 def plan_partials(duration_s: float, window_s: float = 2.0, hop_s: float = 1.0) -> list[dict]:
@@ -866,6 +908,7 @@ def transcribe_file(
     owner_size: str = "",
     model_path: str = "",
     keep_wav: bool = False,
+    extras: dict | None = None,
 ) -> dict:
     prepared, samples, cleanup, hearing = prepare_audio(audio)
     original = None
@@ -889,6 +932,7 @@ def transcribe_file(
             model_path,
             hearing,
             original,
+            extras,
         )
         _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
         return result
@@ -1140,6 +1184,7 @@ def _transcribe_prepared(
     model_path: str = "",
     hearing: dict | None = None,
     original=None,
+    extras: dict | None = None,
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
@@ -1199,8 +1244,19 @@ def _transcribe_prepared(
             "",
             ["hindi-ear"],
         )
+    # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
+    # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
+    alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
+    model = None
+    if alt is not None:
+        try:
+            model = get_model(alt["id"], alt["path"])
+        except Exception:  # noqa: BLE001 — the generic model answers instead
+            whisper_ears.mark_failed(alt["id"])
+            alt = None
     try:
-        model = get_model(owner_model(owner_size, model_name), model_path or None)
+        if model is None:
+            model = get_model(owner_model(owner_size, model_name), model_path or None)
     except Exception:
         windows_text = transcribe_windows(audio)
         if not windows_text:
@@ -1222,7 +1278,9 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    lang = resolve_language(language)
+    lang = alt["decode"] if alt is not None else resolve_language(language)
+    if alt is not None:
+        engine = alt["engine"]
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
         hint = DEFAULT_HINT
@@ -1234,6 +1292,7 @@ def _transcribe_prepared(
         "vad_parameters": dict(VAD_PARAMETERS),
         "beam_size": 1,
         "condition_on_previous_text": False,
+        **decode_options(extras, lang is not None),
     }
     if hint:
         kwargs["initial_prompt"] = hint[:800]
@@ -1241,6 +1300,13 @@ def _transcribe_prepared(
     try:
         first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
+        if alt is not None:
+            # The optional ear could not decode: remember it and let the engine of today hear this utterance.
+            whisper_ears.mark_failed(alt["id"])
+            return _transcribe_prepared(
+                audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
+                owner_size, model_path, hearing, original, extras,
+            )  # fmt: skip
         fault = classify_stt_exception(exc)
         windows_text = None
         if fault.kind in {"oom", "timeout", "dependency-incompatible"} and isinstance(audio, str):
@@ -1287,9 +1353,10 @@ def _transcribe_prepared(
         {
             "ok": True,
             "text": text,
-            "language": chosen.get("language") or lang or "",
+            "language": alt["report"] if alt is not None else chosen.get("language") or lang or "",
             "languageProbability": chosen.get("languageProbability"),
-            "languageNote": language_note,
+            "languageNote": language_note
+            or ("Hinglish ear: Roman letters" if alt is not None and alt["id"] == whisper_ears.HINGLISH_ID else ""),
             "avgLogprob": chosen.get("avgLogprob"),
             "durationMs": chosen.get("durationMs") or 0,
             "model": _model_name or model_name,
@@ -1459,6 +1526,8 @@ def status_payload() -> dict:
         "error": None if cls is not None else _whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
+        "hinglishEarReady": whisper_ears.hinglish_ready(),
+        "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
         "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
         "counters": counters_payload(),
@@ -1822,6 +1891,11 @@ def handle_request(req: dict) -> dict:
                 str(req.get("sttSize") or req.get("stt_size") or ""),
                 str(req.get("model_path") or ""),
                 bool(req.get("keep_wav") or req.get("keepWav")),
+                {
+                    "hotwords": req.get("hotwords"),
+                    "multilingual": req.get("multilingual") is True,
+                    "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
+                },
             )
         except Exception as exc:  # noqa: BLE001
             fault = classify_stt_exception(exc)

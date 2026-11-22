@@ -8,7 +8,8 @@ Listening: when ``silero_vad.onnx`` is on disk, it is scored with the
 onnxruntime FRIDAY already installs. Otherwise the desktop energy VAD
 remains the listener. The Silero pip package is not used; it requires torch.
 Smart Turn, when its ONNX file is present, can only lengthen a pause. Noise
-suppression is pyrnnoise on PCM when that wheel imports.
+suppression is pyrnnoise on PCM when that wheel imports. FRIDAY Echo
+(echo_canceller.py, pyaec) is optional and only reported here, not yet in capture.
 
 Speaking: Supertonic 3 (code MIT, weights OpenRAIL-M), voice F2, when
 ``models/supertonic-3`` is on disk. No automatic download on a speak call.
@@ -29,6 +30,7 @@ import re
 import shutil
 from pathlib import Path
 
+import echo_canceller
 import language_segmenter
 
 SILERO_NAME = "silero_vad.onnx"
@@ -246,6 +248,7 @@ def status() -> dict:
         "file": str(silero) if silero else "",
     }
     turn = smart_turn_path()
+    echo = echo_canceller.echo_status()
     return {
         "ok": True,
         "boot": "ready",
@@ -257,6 +260,8 @@ def status() -> dict:
             "file": str(turn) if turn else "",
         },
         "noise": noise_status(),
+        "echo": echo,
+        "echoCancellerReady": bool(echo["ready"]),
         "speaker": speaker_status(),
         "providers": execution_providers(),
     }
@@ -721,6 +726,26 @@ def _hindi_ear_line() -> str:
     return "PASS hindi-ear int8 weights present"
 
 
+def _whisper_ear_lines() -> list[str]:
+    """The two optional faster-whisper ears: weights on disk and the package that runs them (faster-whisper)."""
+    import importlib.util
+
+    import whisper_ears
+
+    lines = []
+    for ear_id, ready in (
+        (whisper_ears.HINGLISH_ID, whisper_ears.hinglish_ready()),
+        (whisper_ears.HINDI_FALLBACK_ID, whisper_ears.hindi_fallback_ready()),
+    ):
+        if not ready:
+            lines.append(f"OPTIONAL {ear_id} optional - not installed")
+        elif importlib.util.find_spec("faster_whisper") is None:
+            lines.append(f"FAIL {ear_id} the weights are on disk but the faster-whisper package is not installed")
+        else:
+            lines.append(f"PASS {ear_id} pinned weights present")
+    return lines
+
+
 def check_lines() -> list[str]:
     lines = ["PASS boot"]
     tts = tts_status()
@@ -745,12 +770,18 @@ def check_lines() -> list[str]:
         lines.append("PASS rnnoise")
     else:
         lines.append(f"FAIL rnnoise {noise['reason']}")
+    echo = echo_canceller.echo_status()
+    if echo["ready"]:
+        lines.append("PASS echo-canceller speexdsp-aec (not wired into live capture)")
+    else:
+        lines.append(f"OPTIONAL echo-canceller {echo['reason']}")
     speaker = speaker_status()
     if speaker["ready"]:
         lines.append("PASS speaker wespeaker-ecapa")
     else:
         lines.append(f"OPTIONAL speaker {speaker['reason']}")
     lines.append(_hindi_ear_line())
+    lines.extend(_whisper_ear_lines())
     providers = execution_providers()
     lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
     room = disk_room(voice_root(), SILERO_BYTES)

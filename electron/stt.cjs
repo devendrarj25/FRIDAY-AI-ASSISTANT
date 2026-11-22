@@ -952,8 +952,22 @@ async function install(options = {}) {
 }
 
 /**
+ * The owner's decoding settings, sent to the worker only when set: `hotwords` (the owner's dictionary, never empty)
+ * and `multilingual` (the opt-in language check on every phrase). Nothing is sent otherwise, so listening is as before.
+ */
+function decodeExtras(req) {
+  const hotwords = String(req.hotwords || "")
+    .trim()
+    .slice(0, 200);
+  return {
+    ...(hotwords ? { hotwords } : {}),
+    ...(req.multilingual === true ? { multilingual: true } : {}),
+  };
+}
+
+/**
  * Transcribe one utterance.
- * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, localOnly?: boolean }} req
+ * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean }} req
  */
 async function transcribe(req = {}, onPartial) {
   const release = await turnGate.enter();
@@ -1084,6 +1098,7 @@ async function transcribeNow(req = {}, onPartial) {
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
           sttSize: String(req.sttSize || req.stt_size || ""),
           keep_wav: Boolean(req.keepWav || req.keep_wav),
+          ...decodeExtras(req),
         },
         loadBudget,
         onPartial,
@@ -1115,6 +1130,7 @@ async function transcribeNow(req = {}, onPartial) {
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
               keep_wav: Boolean(req.keepWav || req.keep_wav),
+              ...decodeExtras(req),
             },
             loadBudget,
             onPartial,
@@ -1139,6 +1155,7 @@ async function transcribeNow(req = {}, onPartial) {
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
               keep_wav: Boolean(req.keepWav || req.keep_wav),
+              ...decodeExtras(req),
             },
             voiceInstall.loadBudgetMs(fallback),
             onPartial,

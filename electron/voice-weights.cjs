@@ -32,6 +32,39 @@ const TTS_REPO = "Supertone/supertonic-3";
 /** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
 const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
+/** The optional Hinglish ear (Roman letters, faster-whisper CT2) in `<root>/models/hinglish-ear` (see kernel/whisper_ears.py). */
+const HINGLISH_EAR_REPO = "MSpider3/whisper-hindi2hinglish-swift-ct2";
+
+/** The optional Hindi fallback (CC-BY-4.0, faster-whisper CT2) in `<root>/models/hindi-fallback-ear`. */
+const HINDI_FALLBACK_REPO = "collabora/faster-whisper-small-hindi";
+
+/**
+ * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
+ * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
+ */
+const EAR_MODELS = [
+  { catalogId: "hindi-ear", repo: HINDI_EAR_REPO, rowId: "hindi-ear-pin", label: "Hindi ear" },
+  {
+    catalogId: "hinglish-ear",
+    repo: HINGLISH_EAR_REPO,
+    rowId: "hinglish-ear-pin",
+    label: "Hinglish ear",
+  },
+  {
+    catalogId: "hindi-fallback-ear",
+    repo: HINDI_FALLBACK_REPO,
+    rowId: "hindi-fallback-ear-pin",
+    label: "Hindi fallback ear",
+  },
+];
+
+/** True when every file the pin lists is in the ear's folder. */
+function earOnDisk(root, ear, exists) {
+  const dir = path.join(root, "models", ear.catalogId);
+  const pin = pins.pinForRepo(ear.repo);
+  return Boolean(pin) && Object.keys(pin.files).every((name) => exists(path.join(dir, name)));
+}
+
 const STT_FILES = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"];
 
 const PINNED = [
@@ -184,11 +217,14 @@ function voiceModelsOnDisk(root, exists) {
       break;
     }
   }
-  const ear = path.join(root, "models", "hindi-ear");
-  if (
-    Object.keys(pins.pinForRepo(HINDI_EAR_REPO).files).every((name) => check(path.join(ear, name)))
-  ) {
-    found.push({ catalogId: "hindi-ear", path: ear, kind: "stt" });
+  for (const ear of EAR_MODELS) {
+    if (earOnDisk(root, ear, check)) {
+      found.push({
+        catalogId: ear.catalogId,
+        path: path.join(root, "models", ear.catalogId),
+        kind: "stt",
+      });
+    }
   }
   return found;
 }
@@ -246,15 +282,19 @@ async function pinChecks(root, deps = {}) {
       detail: describe(audit),
     });
   }
-  const earDir = path.join(root, "models", "hindi-ear");
-  const earPin = pins.pinForRepo(HINDI_EAR_REPO);
-  if (Object.keys(earPin.files).every((name) => exists(path.join(earDir, name)))) {
-    const ear = await pins.auditDir(earDir, earPin, deps);
+  for (const ear of EAR_MODELS) {
+    // A row appears only when the ear is installed (every pinned file present). A short or tampered file is red.
+    if (!earOnDisk(root, ear, exists)) continue;
+    const audit = await pins.auditDir(
+      path.join(root, "models", ear.catalogId),
+      pins.pinForRepo(ear.repo),
+      deps,
+    );
     rows.push({
-      id: "hindi-ear-pin",
-      label: "Hindi ear matches its pin",
-      ok: ear.ok,
-      detail: describe(ear),
+      id: ear.rowId,
+      label: `${ear.label} matches its pin`,
+      ok: audit.ok,
+      detail: describe(audit),
     });
   }
   const tts = await auditTts(root, { ...deps, exists });
@@ -363,4 +403,7 @@ module.exports = {
   pinChecks,
   TTS_REPO,
   HINDI_EAR_REPO,
+  HINGLISH_EAR_REPO,
+  HINDI_FALLBACK_REPO,
+  EAR_MODELS,
 };

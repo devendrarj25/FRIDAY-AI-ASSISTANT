@@ -53,6 +53,8 @@ def ready() -> bool:
 def wants_hindi(language: str, speech_pref: str) -> bool:
     """Only when Hindi is chosen. Hinglish, auto and English are not Hindi-only speech."""
     raw = (speech_pref or "").strip().lower().replace("_", "-") or (language or "").strip().lower().replace("_", "-")
+    if raw == "hi-latn":  # Hindi in Roman letters is the Hinglish (Roman) mode, which this Devanagari ear never serves
+        return False
     return raw == "hi" or raw.startswith("hi-")
 
 

@@ -44,6 +44,10 @@ import {
 
 const RECOGNITION_LANGS = [
   { value: "hi-IN", label: "Hindi (India)" },
+  {
+    value: "hi-Latn",
+    label: "Hinglish in Roman letters (optional Hinglish ear, downloads on demand)",
+  },
   { value: "en-IN", label: "English (India)" },
   { value: "en-US", label: "English (US)" },
 ];
@@ -282,6 +286,20 @@ export function VoiceSettings() {
             }
           />
           <ToggleRow
+            label="Tidy the words shown for what I say"
+            hint="Auto mode. Drops um and uh, turns spoken punctuation (comma, full stop, purn viram, new line) into symbols, and lets a spoken correction (two, actually three) replace what it corrects, in Hindi, English and Hinglish. It runs on this PC and never changes what FRIDAY acts on or the script you spoke. On by default."
+            on={prefs.voice.tidyDictation !== false}
+            onToggle={() =>
+              preferences.setVoice({ tidyDictation: prefs.voice.tidyDictation === false })
+            }
+          />
+          <ToggleRow
+            label="Speech Prep for Hindi and Hinglish"
+            hint="Before she speaks, English words inside a Hindi reply and Roman Hindi (kal meeting hai) are written in Devanagari so the Hindi voice says them properly, and numbers, times and rupee amounts are said as words. English sentences, quoted names, code and links are never changed. On by default."
+            on={prefs.voice.speechPrep !== false}
+            onToggle={() => preferences.setVoice({ speechPrep: prefs.voice.speechPrep === false })}
+          />
+          <ToggleRow
             label="Show words while I speak (experimental)"
             hint="Auto mode only. Reads what you have said so far about once a second and shows the words two readings agree on. Uses more CPU while you talk; the answer still waits for the normal final reading. Off by default."
             on={prefs.voice.liveWords === true}
@@ -303,6 +321,14 @@ export function VoiceSettings() {
             on={prefs.voice.realtimeExperiment === true}
             onToggle={() =>
               preferences.setVoice({ realtimeExperiment: prefs.voice.realtimeExperiment !== true })
+            }
+          />
+          <ToggleRow
+            label="Check the language on every phrase (experimental)"
+            hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
+            on={prefs.voice.sttMultilingual === true}
+            onToggle={() =>
+              preferences.setVoice({ sttMultilingual: prefs.voice.sttMultilingual !== true })
             }
           />
           <label className="block">

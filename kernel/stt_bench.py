@@ -8,6 +8,11 @@ is the same for every model. Nothing leaves the PC and nothing is saved.
 
 Devanagari and Roman spellings of the same Hinglish word are different strings here. Write the reference in the
 script the model is set to produce, or the error rate will mostly measure the spelling.
+
+Roman Hinglish (the optional Hinglish ear writes it) has no standard spelling: "kaam" and "kam", "aaj" and "āj" are
+one word. ``roman=True`` scores with ``normalise_roman``, which also strips accents and folds repeated letters, so
+the number measures hearing and not spelling. It never transliterates: a Devanagari answer to a Roman reference is
+still wrong, and it is counted as wrong.
 """
 
 from __future__ import annotations
@@ -34,6 +39,14 @@ def normalise(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def normalise_roman(text: str) -> str:
+    """The Roman Hinglish normaliser: ``normalise``, then accents removed and a doubled letter written once."""
+    t = unicodedata.normalize("NFKD", normalise(text))
+    t = "".join(c for c in t if not unicodedata.combining(c) or "\u0900" <= c <= "\u097f")
+    t = unicodedata.normalize("NFC", t)
+    return re.sub(r"([a-z])\1+", r"\1", t)
+
+
 def _edits(a: list[str], b: list[str]) -> int:
     prev = list(range(len(b) + 1))
     for i, x in enumerate(a, 1):
@@ -44,17 +57,19 @@ def _edits(a: list[str], b: list[str]) -> int:
     return prev[-1]
 
 
-def wer(reference: str, hypothesis: str) -> float:
-    ref = normalise(reference).split()
-    hyp = normalise(hypothesis).split()
+def wer(reference: str, hypothesis: str, roman: bool = False) -> float:
+    norm = normalise_roman if roman else normalise
+    ref = norm(reference).split()
+    hyp = norm(hypothesis).split()
     if not ref:
         return 0.0 if not hyp else 1.0
     return _edits(ref, hyp) / len(ref)
 
 
-def cer(reference: str, hypothesis: str) -> float:
-    ref = list(normalise(reference).replace(" ", ""))
-    hyp = list(normalise(hypothesis).replace(" ", ""))
+def cer(reference: str, hypothesis: str, roman: bool = False) -> float:
+    norm = normalise_roman if roman else normalise
+    ref = list(norm(reference).replace(" ", ""))
+    hyp = list(norm(hypothesis).replace(" ", ""))
     if not ref:
         return 0.0 if not hyp else 1.0
     return _edits(ref, hyp) / len(ref)
@@ -76,8 +91,12 @@ def score(
     models: list[str],
     transcribe: Callable[[Path, str], str],
     clock: Callable[[], float] = time.perf_counter,
+    roman: bool = False,
 ) -> list[dict]:
-    """One result per model: mean word and character error, how many files, how many failed, seconds per file."""
+    """One result per model: mean word and character error, how many files, how many failed, seconds per file.
+
+    ``roman=True`` scores Roman Hinglish with ``normalise_roman`` (see the module note); the default is unchanged.
+    """
     results: list[dict] = []
     for model in models:
         w: list[float] = []
@@ -90,8 +109,8 @@ def score(
             except Exception:  # noqa: BLE001 — a model that cannot run on a file counts as a failure of that file
                 failed += 1
                 continue
-            w.append(wer(reference, heard))
-            c.append(cer(reference, heard))
+            w.append(wer(reference, heard, roman))
+            c.append(cer(reference, heard, roman))
         elapsed = clock() - started
         done = len(w)
         results.append(

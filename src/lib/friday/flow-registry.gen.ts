@@ -326,7 +326,10 @@ export const FLOW_REGISTRY = {
     "voice.recognitionLang",
     "voice.speakReplies",
     "voice.speechLang",
+    "voice.speechPrep",
+    "voice.sttMultilingual",
     "voice.sttSize",
+    "voice.tidyDictation",
     "voice.vocabulary",
     "voice.voiceName",
     "voice.voicePreset",
@@ -4393,6 +4396,18 @@ export const FLOW_REGISTRY = {
       id: "hindi-ear",
       kind: "model",
       name: "Hindi ear (IndicConformer, int8)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hindi-fallback-ear",
+      kind: "model",
+      name: "Hindi fallback ear (Whisper small Hindi, credit: Collabora, CC-BY-4.0)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hinglish-ear",
+      kind: "model",
+      name: "Hinglish ear (Roman letters, Whisper base fine-tune by Oriserve, int8)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9426,12 +9441,12 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 141,
-      total: 141,
+      mapped: 144,
+      total: 144,
     },
     capabilities: {
-      mapped: 1105,
-      total: 1105,
+      mapped: 1107,
+      total: 1107,
     },
     ipc: {
       mapped: 498,

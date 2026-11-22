@@ -162,9 +162,8 @@ describe("pronunciation entries", () => {
   it("starts empty and is applied on the speak path", () => {
     expect(DEFAULT_PREFERENCES.voice.pronunciations).toEqual({});
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
-    expect(mode).toContain(
-      "prepareForSpeech(spoken, preferences.getSnapshot().voice.pronunciations)",
-    );
+    expect(mode).toContain("const voice = preferences.getSnapshot().voice;");
+    expect(mode).toContain("prepareForSpeech(spoken, voice.pronunciations, {");
     expect(
       readFileSync("src/components/friday/settings/VoiceEngineSettings.tsx", "utf8"),
     ).toContain("<PronunciationSettings />");

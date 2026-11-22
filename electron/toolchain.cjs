@@ -1643,6 +1643,15 @@ const TOOLS = [
     source: "pypi.org",
     latest: { kind: "pypi", ref: "pyrnnoise" },
   }),
+  T("pyaec", "Voice", {
+    pipDist: "pyaec",
+    pip: "pyaec",
+    url: "https://pypi.org/project/pyaec/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pyaec" },
+    manual:
+      "Optional FRIDAY Echo: SpeexDSP echo canceller for her own voice on the microphone (MIT, 83 KB Windows wheel). Not wired into live capture yet; without it nothing changes.",
+  }),
   T("ONNX DirectML", "Voice", {
     url: "https://pypi.org/project/onnxruntime-directml/",
     source: "pypi.org",

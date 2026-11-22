@@ -8,7 +8,8 @@
  * Pure text in, text out: no network, no clock. The Hindi number words are the standard forms written from
  * knowledge, not heard through a voice here; the owner should listen and correct entries through the dictionary.
  */
-import { segment, type SpeechLang } from "./language-segmenter";
+import { dominantLang, segment, type SpeechLang } from "./language-segmenter";
+import { maskInlineCode, prepareSpeechText, type SpeechPrepOptions } from "./speech-prep";
 
 const EN_ONES =
   "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split(
@@ -98,12 +99,98 @@ function number(text: string, lang: SpeechLang): string {
   return `${spoken} ${point} ${[...frac].map((d) => DIGIT_WORDS[lang][Number(d)]).join(" ")}`;
 }
 
+const HI_ORDINAL_STEMS: Record<number, string> = {
+  1: "पहल",
+  2: "दूसर",
+  3: "तीसर",
+  4: "चौथ",
+  6: "छठ",
+};
+const HI_ORDINAL_ENDINGS: Record<string, string> = { वाँ: "ा", वां: "ा", वीं: "ी", वें: "े" };
+const EN_ORDINAL_WORDS: Record<string, string> = {
+  one: "first",
+  two: "second",
+  three: "third",
+  five: "fifth",
+  eight: "eighth",
+  nine: "ninth",
+  twelve: "twelfth",
+};
+
+/** 21 becomes "twenty first"; 100 "one hundredth". From a thousand up the plain number is said. */
+function englishOrdinal(n: number): string {
+  const words = englishNumber(n).split(" ");
+  const last = words.pop() ?? "";
+  const ordinal =
+    EN_ORDINAL_WORDS[last] ?? (last.endsWith("y") ? `${last.slice(0, -1)}ieth` : `${last}th`);
+  return [...words, ordinal].join(" ");
+}
+
+/** Hindi ordinals: पहला, दूसरा, तीसरा, चौथा, पाँचवाँ, छठा, then the number and वाँ. */
+function hindiOrdinal(n: number, ending = "ा"): string {
+  const stem = HI_ORDINAL_STEMS[n];
+  if (stem) return `${stem}${ending}`;
+  const suffix = ending === "ा" ? "वाँ" : ending === "ी" ? "वीं" : "वें";
+  return `${hindiNumber(n)}${suffix}`;
+}
+
+const HI_PERIOD = (hour12: number, pm: boolean): string => {
+  if (pm) return hour12 === 12 || hour12 <= 3 ? "दोपहर" : hour12 <= 7 ? "शाम" : "रात";
+  return hour12 === 12 || hour12 <= 3 ? "रात" : "सुबह";
+};
+
+/** Hindi clock talk: सवा तीन, साढ़े तीन, पौने चार, तीन बजकर पाँच मिनट. `said` is true when "बजे" follows already. */
+function hindiClock(hour: number, minute: number, period: "am" | "pm" | "", said: boolean): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const word = HI[h12] ?? "";
+  const baje = said ? "" : " बजे";
+  let body: string;
+  if (minute === 0) body = `${word}${baje}`;
+  else if (minute === 15) body = `सवा ${word}${baje}`;
+  else if (minute === 30) body = `${h12 === 1 ? "डेढ़" : h12 === 2 ? "ढाई" : `साढ़े ${word}`}${baje}`;
+  else if (minute === 45) body = `पौने ${HI[(h12 % 12) + 1] ?? ""}${baje}`;
+  else body = said ? `${word} ${HI[minute] ?? ""}` : `${word} बजकर ${HI[minute] ?? ""} मिनट`;
+  return period ? `${HI_PERIOD(h12, period === "pm")} ${body}` : body;
+}
+
+/** Ordinals: 1st, 22nd (Latin suffix), 5वाँ, 21वीं, 2री, 4थी (Devanagari suffix). */
+export function spellOrdinals(text: string, lang: SpeechLang): string {
+  let line = text.replace(/\b(\d{1,3})(st|nd|rd|th)\b/g, (_m, n) =>
+    lang === "hi" ? hindiOrdinal(Number(n)) : englishOrdinal(Number(n)),
+  );
+  line = line.replace(/(?<!\d)(\d{1,3})(वाँ|वां|वीं|वें)/g, (_m, n, suffix: string) =>
+    HI_ORDINAL_STEMS[Number(n)] || lang === "hi"
+      ? hindiOrdinal(Number(n), HI_ORDINAL_ENDINGS[suffix])
+      : `${say(Number(n), lang)}${suffix}`,
+  );
+  return line.replace(/(?<!\d)([2346])(र[ाीे]|थ[ाीे]|ठ[ाीे])(?![ऀ-ॿ])/g, (m, n, suffix: string) => {
+    const stem = { 2: "र", 3: "र", 4: "थ", 6: "ठ" }[Number(n) as 2 | 3 | 4 | 6];
+    return suffix.startsWith(stem) ? hindiOrdinal(Number(n), suffix.slice(1)) : m;
+  });
+}
+
+const MONEY_UNIT = /(lakhs?|lacs?|crores?|thousand|k|लाख|करोड़|हज़ार|हजार)(?![A-Za-z])/i;
+
+function moneyUnit(unit: string, lang: SpeechLang): string {
+  const u = unit.toLowerCase();
+  if (u.startsWith("l") || unit === "लाख") return lang === "hi" ? "लाख" : "lakh";
+  if (u.startsWith("c") || unit === "करोड़") return lang === "hi" ? "करोड़" : "crore";
+  return lang === "hi" ? "हज़ार" : "thousand";
+}
+
 /** Numbers, money, dates, times and percentages in one span, in that span's language. */
 export function spellNumbers(span: string, lang: SpeechLang): string {
   const rupees = lang === "hi" ? "रुपये" : "rupees";
+  const paise = lang === "hi" ? "पैसे" : "paise";
   const percent = lang === "hi" ? "प्रतिशत" : "percent";
-  let line = span;
-  // Dates: 25/01/2026 or 25-01-2026 (day first, as written in India).
+  // Supertonic rejects Devanagari digits: they become ordinary digits first.
+  let line = span.replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x0966));
+  // Dates: 2026-01-25 (year first), 25/01/2026 or 25-01-2026 (day first, as written in India).
+  line = line.replace(
+    /\b(\d{4})-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])\b/g,
+    (_m, y, mo, d) =>
+      `${say(Number(d), lang)} ${(lang === "hi" ? MONTHS_HI : MONTHS_EN)[Number(mo) - 1] ?? ""} ${say(Number(y), lang)}`,
+  );
   line = line.replace(
     /\b(0?[1-9]|[12]\d|3[01])[/-](0?[1-9]|1[0-2])[/-](\d{4})\b/g,
     (_m, d, mo, y) => {
@@ -111,32 +198,81 @@ export function spellNumbers(span: string, lang: SpeechLang): string {
       return `${say(Number(d), lang)} ${month} ${say(Number(y), lang)}`;
     },
   );
-  // Times: 5:30 pm, 17:05.
-  line = line.replace(/\b([01]?\d|2[0-3]):([0-5]\d)\s*(am|pm|AM|PM)?/g, (_m, h, mi, ap) => {
-    const minutes = Number(mi);
-    const hours = say(Number(h), lang);
-    const minute = minutes === 0 ? (lang === "hi" ? "बजे" : "o'clock") : say(minutes, lang);
-    const suffix = ap ? ` ${String(ap).toUpperCase() === "AM" ? "A M" : "P M"}` : "";
-    return `${hours} ${minute}${suffix}`;
-  });
-  // Money before or after the number.
+  // Times: 5:30 pm, 17:05. Hindi says सवा, साढ़े, पौने; a "बजे" that follows is not said twice.
+  line = line.replace(
+    /\b([01]?\d|2[0-3]):([0-5]\d)(?:\s*(am|pm|AM|PM|एएम|पीएम)(?![A-Za-z]))?/g,
+    (match, h, mi, ap, offset: number, whole: string) => {
+      const minutes = Number(mi);
+      if (lang === "hi") {
+        const said = /^\s*बजे/.test(whole.slice(offset + match.length));
+        const period = ap ? (/^(am|एएम)$/i.test(String(ap)) ? "am" : "pm") : "";
+        return hindiClock(Number(h), minutes, period, said);
+      }
+      const hours = say(Number(h), lang);
+      const minute = minutes === 0 ? "o'clock" : say(minutes, lang);
+      const suffix = ap ? ` ${String(ap).toUpperCase() === "AM" ? "A M" : "P M"}` : "";
+      return `${hours} ${minute}${suffix}`;
+    },
+  );
+  line = spellOrdinals(line, lang);
+  // A phone number written as two groups of five digits, with or without +91: said digit by digit.
+  line = line.replace(
+    /(\+\d{1,3}[\s-]?)?\b(\d{5})[\s-](\d{5})\b/g,
+    (_m, cc: string | undefined, a: string, b: string) =>
+      [
+        ...(cc
+          ? [
+              lang === "hi" ? "प्लस" : "plus",
+              ...[...cc.replace(/\D/g, "")].map((d) => DIGIT_WORDS[lang][Number(d)]),
+            ]
+          : []),
+        ...[...(a + b)].map((d) => DIGIT_WORDS[lang][Number(d)]),
+      ].join(" "),
+  );
+  // A minus sign before a number or an amount.
+  line = line.replace(
+    /(^|[\s([{])[-−–](?=[\d₹$])/g,
+    (_m, lead) => `${lead}${lang === "hi" ? "माइनस" : "minus"} `,
+  );
+  line = line.replace(
+    /(^|[\s([{])\+(?=\d)/g,
+    (_m, lead) => `${lead}${lang === "hi" ? "प्लस" : "plus"} `,
+  );
+  // Money with a unit word (₹5 lakh), then rupees and paise (₹99.50), then plain money before or after the number.
+  line = line.replace(
+    new RegExp(`(?:₹|Rs\\.?|INR)\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*${MONEY_UNIT.source}`, "gi"),
+    (_m, n, unit) => `${number(n, lang)} ${moneyUnit(unit, lang)} ${rupees}`,
+  );
+  line = line.replace(/(?:₹|Rs\.?|INR)\s*(\d[\d,]*)\.(\d{2})(?!\d)/gi, (_m, n, p) =>
+    Number(p) === 0
+      ? `${number(n, lang)} ${rupees}`
+      : Number(n.replace(/,/g, "")) === 0
+        ? `${say(Number(p), lang)} ${paise}`
+        : `${number(n, lang)} ${rupees} ${say(Number(p), lang)} ${paise}`,
+  );
   line = line.replace(
     /(?:₹|Rs\.?|INR)\s*(\d[\d,]*(?:\.\d+)?)/gi,
     (_m, n) => `${number(n, lang)} ${rupees}`,
   );
   line = line.replace(
-    /(\d[\d,]*(?:\.\d+)?)\s*(?:₹|rs\b\.?|INR\b)/gi,
+    /(?<![\d,.])(\d[\d,]*(?:\.\d+)?)\s*(?:₹|rs\b\.?|INR\b)/gi,
     (_m, n) => `${number(n, lang)} ${rupees}`,
   );
   line = line.replace(
     /\$\s*(\d[\d,]*(?:\.\d+)?)/g,
     (_m, n) => `${number(n, lang)} ${lang === "hi" ? "डॉलर" : "dollars"}`,
   );
-  line = line.replace(/(\d[\d,]*(?:\.\d+)?)\s*%/g, (_m, n) => `${number(n, lang)} ${percent}`);
-  // Everything left that is a number.
-  line = line.replace(/\b\d[\d,]*(?:\.\d+)?\b/g, (n) =>
-    n.replace(/,/g, "").length > 9 ? n : number(n, lang),
+  line = line.replace(
+    /(?<![\d,.])(\d[\d,]*(?:\.\d+)?)\s*%/g,
+    (_m, n) => `${number(n, lang)} ${percent}`,
   );
+  // Everything left that is a number. A Hindi phone-length digit string is said digit by digit.
+  line = line.replace(/\b\d[\d,]*(?:\.\d+)?\b/g, (n) => {
+    const digits = n.replace(/,/g, "");
+    if (lang === "hi" && /^\d{10,13}$/.test(n))
+      return [...n].map((d) => DIGIT_WORDS.hi[Number(d)]).join(" ");
+    return digits.length > 9 ? n : number(n, lang);
+  });
   return line;
 }
 
@@ -193,23 +329,43 @@ export function stripMarkup(text: string): string {
     .trim();
 }
 
+/** Ordinals with a Latin suffix are said before the text is cut into spans, in the language of their sentence. */
+function ordinalsBySentence(text: string): string {
+  return text
+    .split(/(?<=[.!?।॥])(\s+)/)
+    .map((piece, i) =>
+      i % 2 === 1 || !/\d(?:st|nd|rd|th)\b/.test(piece)
+        ? piece
+        : spellOrdinals(piece, dominantLang(piece)),
+    )
+    .join("");
+}
+
 /**
- * The whole preparation for one reply: markup out, dictionary words replaced, then numbers spelled span by span
- * in each span's language. Newlines become sentence breaks so a list is read as separate sentences.
+ * The whole preparation for one reply: markup out, dictionary words replaced, Speech Prep (English words and Roman
+ * Hindi in Devanagari, see `speech-prep.ts`), then numbers spelled span by span in each span's language. Newlines
+ * become sentence breaks so a list is read as separate sentences. Speech Prep runs only when asked for.
  */
-export function prepareForSpeech(text: string, overrides: Record<string, string> = {}): string {
-  const cleaned = applyPronunciations(stripMarkup(text), overrides)
+export function prepareForSpeech(
+  text: string,
+  overrides: Record<string, string> = {},
+  prep?: SpeechPrepOptions,
+): string {
+  const masked = prep?.enabled === false || !prep ? null : maskInlineCode(text);
+  const cleaned = applyPronunciations(stripMarkup(masked ? masked.text : text), overrides)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => (/[.!?।:]$/.test(line) ? line : `${line}.`))
     .join(" ");
-  return segment(cleaned)
+  const prepared = ordinalsBySentence(prep ? prepareSpeechText(cleaned, prep) : cleaned);
+  const spoken = segment(prepared)
     .map((span) => spellNumbers(span.text, span.lang))
     .join(" ")
     .replace(/\s+([.,!?।])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
+  return masked ? masked.restore(spoken) : spoken;
 }
 
 const MAX_PRONUNCIATIONS = 100;

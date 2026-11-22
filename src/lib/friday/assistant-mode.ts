@@ -43,6 +43,7 @@ import {
   TARGET_RATE,
 } from "./pcm-capture";
 import { LiveWords } from "./voice-engine/live-words";
+import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
@@ -145,6 +146,7 @@ import {
 } from "./voice-engine/interruption-controller";
 import { speechRms } from "./character/speech-audio";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import { usesHindiVoice } from "./voice-engine/speech-prep";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
 import { autonomy } from "./self/autonomy";
@@ -187,7 +189,13 @@ import {
 } from "./voice-audio";
 import { rememberDevice } from "./mic-truth";
 import { affect, readFeeling } from "./brain/affect";
-import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
+import {
+  DesktopDictation,
+  reclaimUnowned,
+  sttHotwords,
+  sttInitialPrompt,
+  sttStatus,
+} from "./voice-stt";
 import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
 import {
   parseThreshold,
@@ -263,6 +271,8 @@ export type Caption = {
   tag?: "addressed" | "ambient" | "self";
   confidence?: number;
   language?: string;
+  /** FRIDAY Tidy edited this shown line: the words as heard and each edit, for a raw-versus-cleaned view. */
+  tidy?: { raw: string; changes: TidyChange[] };
 };
 
 export type PendingConfirm = {
@@ -1002,6 +1012,21 @@ class AssistantModeStore {
 
   /* ------------------------------------------------------------ captions */
 
+  /**
+   * The words shown for a spoken line. With the owner's tidy setting on, FRIDAY Tidy cleans only this shown text, on
+   * this PC; the command that goes to the Brain is never replaced, and an empty result falls back to what was heard.
+   */
+  private tidyShown(heard: string): { text: string; tidy?: Caption["tidy"] } {
+    const voice = preferences.getSnapshot().voice;
+    if (voice.tidyDictation === false) return { text: heard };
+    const done = tidyTranscript(heard, {
+      requested: voice.recognitionLang,
+      dictionary: parseVocabulary(voice.vocabulary).map((term) => ({ heard: term, write: term })),
+    });
+    if (!done.changed || !done.text.trim()) return { text: heard };
+    return { text: done.text, tidy: { raw: done.raw, changes: done.changes } };
+  }
+
   /** The brain echo of a line already captioned from speech is not a second turn. */
   private captionUserTurn(text: string) {
     if (this.pendingUserEcho > 0) {
@@ -1015,7 +1040,12 @@ class AssistantModeStore {
     who: Caption["who"],
     text: string,
     partial = false,
-    meta?: { tag?: Caption["tag"]; confidence?: number; language?: string },
+    meta?: {
+      tag?: Caption["tag"];
+      confidence?: number;
+      language?: string;
+      tidy?: Caption["tidy"];
+    },
   ) {
     const list = this.state.captions.slice();
     const last = list[list.length - 1];
@@ -1029,6 +1059,7 @@ class AssistantModeStore {
       ...(meta?.tag ? { tag: meta.tag } : {}),
       ...(typeof meta?.confidence === "number" ? { confidence: meta.confidence } : {}),
       ...(meta?.language ? { language: meta.language } : {}),
+      ...(meta?.tidy ? { tidy: meta.tidy } : {}),
     });
     this.state.captions = list.slice(-MAX_CAPTIONS);
   }
@@ -2142,6 +2173,14 @@ class AssistantModeStore {
           ].filter(Boolean),
         });
       },
+      hotwords: () => {
+        const voice = preferences.getSnapshot().voice;
+        return sttHotwords([
+          voice.addressName,
+          voice.wakeWord,
+          ...parseVocabulary(voice.vocabulary),
+        ]);
+      },
       // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
       voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
       admit: () => pttAdmits(this.listenStyle()),
@@ -2846,8 +2885,15 @@ class AssistantModeStore {
       return;
     }
     const lastCaption = this.state.captions[this.state.captions.length - 1];
-    if (!(lastCaption?.who === "user" && lastCaption.text.includes(command))) {
-      this.caption("user", command, false, { tag: "addressed" });
+    const shown = this.tidyShown(command);
+    if (!(
+      lastCaption?.who === "user" &&
+      (lastCaption.text.includes(command) || lastCaption.text.includes(shown.text))
+    )) {
+      this.caption("user", shown.text, false, {
+        tag: "addressed",
+        ...(shown.tidy ? { tidy: shown.tidy } : {}),
+      });
     }
 
     // A fluent sentence is not proof it was said: when the speech model itself was unsure (a weak per-token score, or a
@@ -3452,7 +3498,11 @@ class AssistantModeStore {
     }
     // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
     // pronunciation entries win. The echo filter then compares against what is really spoken.
-    const prepared = prepareForSpeech(spoken, preferences.getSnapshot().voice.pronunciations);
+    const voice = preferences.getSnapshot().voice;
+    const prepared = prepareForSpeech(spoken, voice.pronunciations, {
+      enabled: voice.speechPrep !== false,
+      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang),
+    });
     if (!prepared) {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;

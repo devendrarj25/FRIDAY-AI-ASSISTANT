@@ -169,6 +169,62 @@ const PINS = {
       },
     },
   },
+  // The Hinglish ear: a Whisper-base fine-tune (Oriserve) converted to CTranslate2 int8, 78 MB, Apache-2.0.
+  // It writes Hindi speech in Roman letters, so it is used only in the explicit Hinglish (Roman) listening mode.
+  "MSpider3/whisper-hindi2hinglish-swift-ct2": {
+    revision: "484362f23d657c07c2762ce1c52d7b4a7ab49d25",
+    license: "Apache-2.0",
+    files: {
+      "config.json": {
+        sha256: "7dcc85f06f98312a1146df7f28959c358c87ab3d01c369eacd4b22f1ec2c43e4",
+        bytes: 2789,
+      },
+      "model.bin": {
+        sha256: "223a6e80ea056a01a7bf748a44e7a1c11ab79601ce5f84720365aac38565b87f",
+        bytes: 76396677,
+      },
+      "preprocessor_config.json": {
+        sha256: "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+        bytes: 339,
+      },
+      "tokenizer.json": {
+        sha256: "7e146198186d5e3b9ce7d9d7f131b69b44569eaed9ad64a5516629a6c6a865c4",
+        bytes: 3930462,
+      },
+      "vocabulary.json": {
+        sha256: "22f3cb2fc2be1545b9a7db8e993ddd59aeccadfbc7d7b00ca517ca8960864766",
+        bytes: 1068101,
+      },
+    },
+  },
+  // The Hindi fallback: Collabora's Whisper-small Hindi fine-tune, CTranslate2. CC-BY-4.0: the credit is
+  // shown on the Models page. Used instead of generic small only when Hindi is chosen and the Hindi ear is missing.
+  "collabora/faster-whisper-small-hindi": {
+    revision: "92e09a8982af971cf2033ed592d4ef8b249baad2",
+    license: "CC-BY-4.0",
+    files: {
+      "config.json": {
+        sha256: "a009751ea519c21514a766f08b33784c0ce0aef4f3fafdc3687f56e33ef35b1a",
+        bytes: 1512,
+      },
+      "model.bin": {
+        sha256: "0ad00358a5dd71fc8e094a768caa1f67dad9dbb107641cc6323502a0bf7c2ef7",
+        bytes: 483546977,
+      },
+      "preprocessor_config.json": {
+        sha256: "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+        bytes: 339,
+      },
+      "tokenizer.json": {
+        sha256: "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+        bytes: 2480466,
+      },
+      "vocabulary.json": {
+        sha256: "5ad28279db5e546349708b9a74736e2c018737ac5a600f1048f1f26c99b85b47",
+        bytes: 1068103,
+      },
+    },
+  },
   "Supertone/supertonic-3": {
     revision: "3cadd1ee6394adea1bd021217a0e650ede09a323",
     license: "OpenRAIL-M",

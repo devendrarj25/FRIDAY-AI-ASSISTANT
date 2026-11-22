@@ -66,6 +66,8 @@ const OPTIONAL_INSTALL = {
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
   "hindi-ear": "hindi-ear",
+  "hinglish-ear": "hinglish-ear",
+  "hindi-fallback-ear": "hindi-fallback-ear",
 };
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];

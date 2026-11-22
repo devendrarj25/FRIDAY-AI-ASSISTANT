@@ -207,7 +207,7 @@ Run these on the Windows PC after `npm run setup` and `npm run build:win`. They 
 9. Open Teams or Zoom: listening pauses and FRIDAY does not talk over the call; close it and Auto listens again.
 10. Say "remember to check the build", then "why did you do that", then "stop everything": the order is kept, the reason is spoken, and the work stops. Reopen FRIDAY: the order is still listed.
 11. Leave the voice screen open for 10 minutes: no flicker or stutter. In Chat mode confirm the microphone is not used.
-12. In a checkout, `npm run voice:check` exits 0 with one PASS, FAIL, or OPTIONAL line per stage; `npm run voice:install` downloads Supertonic, Smart Turn, and the English Moonshine weights into the FRIDAY folder. For Hindi, install **Hindi ear (IndicConformer, int8)** from the Models page: when Hindi is your speech language it hears first and faster-whisper answers if it cannot. The voice check lists a pin row for each installed voice model.
+12. In a checkout, `npm run voice:check` exits 0 with one PASS, FAIL, or OPTIONAL line per stage; `npm run voice:install` downloads Supertonic, Smart Turn, and the English Moonshine weights into the FRIDAY folder. For Hindi, install **Hindi ear (IndicConformer, int8)** from the Models page: when Hindi is your speech language it hears first and faster-whisper answers if it cannot. Two more optional downloads: **Hindi fallback ear** (Whisper small Hindi by Collabora, CC-BY-4.0), used for Hindi only when the Hindi ear is not installed, and **Hinglish ear** (Hinglish in Roman letters, Apache-2.0), used only when you pick "Hinglish in Roman letters" under Recognition language. Neither is on by default. The voice check lists a pin row for each installed voice model.
 
 **Models** (real keys)
 

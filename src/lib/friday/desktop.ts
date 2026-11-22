@@ -704,6 +704,8 @@ type DesktopApi = {
     model?: string;
     localOnly?: boolean;
     initialPrompt?: string;
+    hotwords?: string;
+    multilingual?: boolean;
     speechPref?: string;
     sttSize?: string;
     keepWav?: boolean;

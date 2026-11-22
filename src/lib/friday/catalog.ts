@@ -2050,6 +2050,18 @@ export const catalog: CatalogEntry[] = [
     "Noise suppression on captured audio before the same speech worker. Apache-2.0.",
   ),
   E(
+    "pyaec",
+    "Voice",
+    "pypi.org",
+    "https://pypi.org/project/pyaec/",
+    "pip",
+    null,
+    "1.0.1",
+    "0.1 MB",
+    "optional",
+    "FRIDAY Echo: takes her own voice out of the microphone with the SpeexDSP echo canceller (MIT). Not wired into live capture yet.",
+  ),
+  E(
     "ONNX DirectML",
     "Voice",
     "pypi.org",

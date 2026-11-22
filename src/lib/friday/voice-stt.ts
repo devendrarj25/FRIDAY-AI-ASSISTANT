@@ -99,6 +99,24 @@ export function whisperLanguageArg(pref?: string | null): string {
   return /^[a-z]{2}$/.test(iso) ? iso : "";
 }
 
+/**
+ * The owner's own words as faster-whisper `hotwords`: one short line, no repeats. Empty when there are none, and an
+ * empty line is never sent, so listening is exactly as before for an owner without a dictionary.
+ */
+export function sttHotwords(words: readonly (string | null | undefined)[]): string {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const raw of words) {
+    const word = String(raw ?? "")
+      .replace(/[,;\s]+/g, " ")
+      .trim();
+    if (!word || seen.has(word.toLowerCase())) continue;
+    seen.add(word.toLowerCase());
+    kept.push(word);
+  }
+  return kept.join(", ").slice(0, 200);
+}
+
 /** Bias faster-whisper toward mixed speech without rewriting technical terms. */
 export function sttInitialPrompt(opts?: {
   preference?: string;
@@ -242,6 +260,8 @@ export interface DictationOptions {
   silenceMs?: number | (() => number);
   /** Optional faster-whisper initial_prompt (Hinglish + session topic). */
   initialPrompt?: string | (() => string);
+  /** The owner's dictionary as faster-whisper `hotwords` (see `sttHotwords`); nothing is sent when empty. */
+  hotwords?: string | (() => string);
   /** Hard cap so one long monologue still gets transcribed. */
   maxUtteranceMs?: number;
   /**
@@ -1130,6 +1150,9 @@ export class DesktopDictation {
           ? promptOpt()
           : (promptOpt ?? sttInitialPrompt({ preference: this.options.language ?? "" }));
       const sttSize = preferences.getSnapshot().voice.sttSize;
+      const hotOpt = this.options.hotwords;
+      const hotwords = (typeof hotOpt === "function" ? hotOpt() : (hotOpt ?? "")).trim();
+      const multilingual = preferences.getSnapshot().voice.sttMultilingual === true;
       const result = (await api.transcribe({
         audioBytes,
         mime: blob.type,
@@ -1138,6 +1161,8 @@ export class DesktopDictation {
         ...(sttSize && sttSize !== "auto" ? { model: sttSize, sttSize } : {}),
         localOnly: Boolean(this.options.localOnly),
         ...(initialPrompt ? { initialPrompt } : {}),
+        ...(hotwords ? { hotwords } : {}),
+        ...(multilingual ? { multilingual: true } : {}),
         ...(keepUtteranceWavs() ? { keepWav: true } : {}),
       })) as {
         ok: boolean;
