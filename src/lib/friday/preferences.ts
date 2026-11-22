@@ -15,6 +15,55 @@ import {
 } from "./voice-engine/voice-cloud-settings";
 import { registerFlush } from "./persist";
 
+/** How the voice task desk behaves while the owner keeps talking. Read by the voice conductor; stored in `voice.tasks`. */
+export type VoiceTaskPrefs = {
+  /** Tasks that may run at once (1 to 3). The settings page holds it at 1 until parallel lanes exist. */
+  maxParallel: number;
+  /** How much she says about a running task. */
+  narration: "quiet" | "normal" | "chatty";
+  /** Most spoken progress lines in one minute (0 to 6). */
+  progressLinesPerMinute: number;
+  /** Say a short line when a task is done. */
+  speakDone: boolean;
+  /** After a restart, ask before resuming tasks that were running; "auto" resumes read-only tasks under Full autonomy only. */
+  resumeAfterRestart: "ask" | "auto";
+  /** A quick question asked while a task runs is answered at once, beside the task. */
+  sideQuestionLane: boolean;
+};
+
+export const DEFAULT_VOICE_TASK_PREFS: VoiceTaskPrefs = {
+  maxParallel: 1,
+  narration: "normal",
+  progressLinesPerMinute: 3,
+  speakDone: true,
+  resumeAfterRestart: "ask",
+  sideQuestionLane: true,
+};
+
+const wholeIn = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.floor(value)))
+    : fallback;
+
+/** A stored or edited value is always made safe: unknown words fall back, numbers clamp, an old shape reads the defaults. */
+export function sanitizeVoiceTaskPrefs(
+  input: Partial<VoiceTaskPrefs> | null | undefined,
+): VoiceTaskPrefs {
+  const src = input ?? {};
+  const d = DEFAULT_VOICE_TASK_PREFS;
+  return {
+    maxParallel: wholeIn(src.maxParallel, 1, 3, d.maxParallel),
+    narration:
+      src.narration === "quiet" || src.narration === "chatty" || src.narration === "normal"
+        ? src.narration
+        : d.narration,
+    progressLinesPerMinute: wholeIn(src.progressLinesPerMinute, 0, 6, d.progressLinesPerMinute),
+    speakDone: src.speakDone !== false,
+    resumeAfterRestart: src.resumeAfterRestart === "auto" ? "auto" : "ask",
+    sideQuestionLane: src.sideQuestionLane !== false,
+  };
+}
+
 /** One selectable, individually tuned FRIDAY voice. */
 export type VoiceModel = {
   id: string;
@@ -70,6 +119,14 @@ export type VoicePreferences = {
   prewarm: boolean;
   /** When a reply is cut off, the conversation remembers only the part that was heard, marked as cut. */
   trimHistoryToPlayed: boolean;
+  /** Tasks that run while the owner keeps talking: narration, progress lines, restart, side questions. */
+  tasks: VoiceTaskPrefs;
+  /** Opt-in: a short acknowledgement is said while a task works. Off until tried on this PC. */
+  instantAck: boolean;
+  /** Opt-in, experimental: start thinking before the owner finishes speaking. Off until tried on this PC. */
+  eagerTurn: boolean;
+  /** Opt-in, experimental: her own voice is cancelled from the microphone. Off until tried on this PC. */
+  echoReference: boolean;
   /**
    * Cloud voice limits. Everything starts off: no cloud request, no spend. The numbers are the owner's; a free
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
@@ -270,6 +327,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pcmPlayback: false,
     prewarm: true,
     trimHistoryToPlayed: true,
+    tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+    instantAck: false,
+    eagerTurn: false,
+    echoReference: false,
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
     tidyDictation: true,
@@ -327,6 +388,11 @@ function merge(
       ...(patch.voice ?? {}),
       // A partial voice patch (a single slider) must never wipe the library.
       models: Array.isArray(patch.voice?.models) ? patch.voice.models : base.voice.models,
+      // Task settings merge key by key and are made safe; an old shape without them keeps the defaults.
+      tasks: sanitizeVoiceTaskPrefs({ ...base.voice.tasks, ...(patch.voice?.tasks ?? {}) }),
+      instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
+      eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
+      echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
     },
   };
 }
@@ -417,7 +483,12 @@ class PreferencesStore {
       theme: DEFAULT_PREFERENCES.theme,
       toggles: { ...DEFAULT_PREFERENCES.toggles },
       fields: { ...DEFAULT_PREFERENCES.fields },
-      voice: { ...DEFAULT_PREFERENCES.voice, models: [], activeId: "" },
+      voice: {
+        ...DEFAULT_PREFERENCES.voice,
+        tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+        models: [],
+        activeId: "",
+      },
     };
     this.emit();
     void this.flush();

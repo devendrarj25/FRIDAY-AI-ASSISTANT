@@ -56,12 +56,21 @@ describe("background request wiring", () => {
   const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
 
   it("runs the real Brain turn as a voice task, only in Auto mode, and cancels the turn with the task", () => {
-    const at = mode.indexOf("parseBackgroundRequest(command || text)");
+    const at = mode.indexOf("const background =");
+    expect(at).toBeGreaterThan(0);
     const block = mode.slice(at, at + 1400);
     expect(block).toContain('this.state.mode === "auto"');
-    expect(block).toContain("startVoiceTask(");
-    expect(block).toContain("askBrain(background.request");
-    expect(block).toContain("brain.stop({ taskId: task.id })");
+    // A consequential background order is asked about first; a confirmed one starts the same task.
+    expect(block).toContain("this.askToConfirm(command || text)");
+    expect(block).toContain("this.beginBackground(background)");
+    expect(mode).toMatch(
+      /runApproved\(command: string\) \{[\s\S]*?this\.beginBackground\(background\)/,
+    );
+    const start = mode.indexOf("private beginBackground(");
+    const method = mode.slice(start, start + 1100);
+    expect(method).toContain("startVoiceTask(");
+    expect(method).toContain("askBrain(background.request");
+    expect(method).toContain("brain.stop({ taskId: task.id })");
     expect(at).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))"));
   });
 

@@ -81,7 +81,10 @@ describe("voice latency budget wiring", () => {
 
   it("the true first brain token is stamped where the answer first appears, never in speak()", () => {
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
-    const speak = /private speak\(text: string\) \{[\s\S]*?\n {2}\}\n/.exec(mode)?.[0] ?? "";
+    const speak =
+      /private speak\(text: string, meta: SpeakMeta = \{\}\) \{[\s\S]*?\n {2}\}\n/.exec(
+        mode,
+      )?.[0] ?? "";
     expect(speak).toContain("tokenAt");
     expect(speak).not.toContain('mark("brainFirstToken")');
     expect(mode).toMatch(/if \(live\?\.answer\) \{\s*this\.turnStages\.mark\("brainFirstToken"\);/);

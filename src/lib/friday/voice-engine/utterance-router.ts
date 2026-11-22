@@ -467,7 +467,7 @@ const CHANGE_LEAD = lead(
 const CHANGE_TAIL = /\s(?:instead|iske bajay|इसके बजाय)$/u;
 
 /** Change-of-mind words taken off the front (and a trailing "instead"). */
-function stripChange(value: string): { changed: boolean; rest: string } {
+export function stripChange(value: string): { changed: boolean; rest: string } {
   let rest = value;
   let changed = false;
   for (let i = 0; i < 4; i += 1) {

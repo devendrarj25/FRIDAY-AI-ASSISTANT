@@ -420,6 +420,13 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     "handsFree does not start false",
   );
   const assistant = read("src/lib/friday/assistant-mode.ts");
+  check(
+    "system",
+    "spoken task words are classified by the router",
+    /classifyVoiceControl/.test(read("src/lib/friday/voice-engine/utterance-router.ts")),
+    "the utterance router classifies the spoken task words",
+    "utterance-router.ts does not use classifyVoiceControl",
+  );
   for (const [needle, why] of [
     ["createRealtimeStt", "live captions"],
     ["createStreamingSpeak", "streaming voice"],
@@ -429,7 +436,9 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["StageClock", "stage stamps"],
     ["speakWithCloud", "cloud voice clips"],
     ["startVoiceTask", "background tasks"],
-    ["classifyVoiceControl", "spoken task words"],
+    ["routeUtterance", "spoken task words"],
+    ["applyTaskRoute", "task routes"],
+    ["SpeechArbiter", "one speech queue"],
   ])
     check(
       "system",

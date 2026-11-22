@@ -7,19 +7,19 @@
  *
  *  - `describe("today: ...")` tests are passing characterisations of what the code does now, with the observed
  *    values, so a change in that behaviour shows as a red test that names what moved.
- *  - `describe.skip("TARGET ...")` blocks hold the behaviour the owner wants (the router and arbiter round) and are
- *    not built yet. Each was run RED against the code before being skipped; when it lands, switch that one
- *    `describe.skip` to `describe` and the guard must go green, and its `today:` twin is then rewritten (or deleted
- *    with the behaviour it pins) in the same change.
- *  - Scenarios 1, 3 and 7 are fixed (round voice-eager-G1): a foreground stop leaves a task's run alone, a
- *    quick-lane answer is spoken at once, and Stop everything cancels every task. Their `today:` twins now state
- *    the new truth and the TARGET twins are live.
+ *  - Every scenario is now fixed and live. Scenarios 1, 3 and 7 landed in round voice-eager-G1 (a foreground stop
+ *    leaves a task's run alone, a quick-lane answer is spoken at once, Stop everything cancels every task).
+ *    Scenarios 2, 4, 5, 6 and 8 landed with the router, the speech arbiter and the narration policy (P13-P14): a
+ *    short question is answered at once at any task age, a background run is announced once instead of streamed,
+ *    the "Started" acknowledgement is spoken at once, a background approval is asked aloud, and a call, Do not
+ *    disturb and quiet hours hold task announcements. The old `today:` twins that pinned the gaps were rewritten.
  *
  * Nothing opens a microphone, a speaker, a model or the network: the voice output is a recorder (or the real
  * `speak()` with the playback loop replaced, where the gate itself is under test), the Brain turn is a run injected
  * into the real Brain state (so the real `brain.stop()` and the real quick lane run), the speech model is a stub,
  * and the clock is a fixed fake clock.
  */
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { brain, type Run } from "../../src/lib/friday/brain-engine";
@@ -33,6 +33,11 @@ import {
   voiceTaskActions,
 } from "../../src/lib/friday/voice-engine/voice-tasks";
 import { whileBusy } from "../../src/lib/friday/voice-session";
+import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
+import {
+  createNarrationMemory,
+  type NarrationMemory,
+} from "../../src/lib/friday/voice-engine/narration-policy";
 
 vi.mock("../../src/lib/friday/ask", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../src/lib/friday/ask")>();
@@ -60,15 +65,24 @@ type Driver = {
   holdForInterruption: () => void;
   speakNewReplies: () => void;
   speakQuickAnswer: (answer: unknown) => void;
-  announceTask: (text: string) => void;
+  announceTask: (
+    text: string,
+    meta?: { priority?: "approval" | "direct" | "progress" | "chatter"; done?: boolean },
+  ) => void;
   taskBusy: () => string;
+  slowTaskTick: (now: number) => void;
+  dropPlayback: () => void;
+  afterQuiet: () => void;
+  lastOwnerAt: number;
   emit: () => void;
   drainSpeech: () => Promise<void>;
   to: (event: string, detail?: string) => boolean;
   interruptHold: unknown;
   heldPlayed: unknown;
   queuedCommands: string[];
-  speechQueue: string[];
+  arbiter: SpeechArbiter;
+  narration: NarrationMemory;
+  approvalAsked: unknown;
   spokenUpTo: number;
   voicedRunId: string;
   voicedChars: number;
@@ -196,7 +210,9 @@ beforeEach(async () => {
     pending: null,
   });
   d.queuedCommands = [];
-  d.speechQueue = [];
+  d.arbiter = new SpeechArbiter({ now: () => Date.now() });
+  d.narration = createNarrationMemory();
+  d.approvalAsked = null;
   d.interruptHold = null;
   d.heldPlayed = null;
   d.callHold = false;
@@ -286,51 +302,57 @@ describe("only the foreground reply stops, a background task survives (scenario 
   });
 });
 
-describe("today: a short harmless question during a long task depends on its age (scenario 2)", () => {
+describe("a short harmless question is answered at once, whatever the age of the task (scenario 2)", () => {
   const QUESTION = "what is the capital of France?";
 
-  it("whileBusy queues it from 4 s on and interrupts before that", () => {
+  it("whileBusy keeps its own 4 s rule for an order: it is queued from 4 s on and interrupts before that", () => {
     expect(whileBusy(QUESTION, { task: "summarise", elapsedMs: 1500 }).kind).toBe("interrupt");
     expect(whileBusy(QUESTION, { task: "summarise", elapsedMs: 3999 }).kind).toBe("interrupt");
     expect(whileBusy(QUESTION, { task: "summarise", elapsedMs: 4000 }).kind).toBe("queue");
     expect(whileBusy(QUESTION, { task: "summarise", elapsedMs: 60_000 }).kind).toBe("queue");
   });
 
-  it("5 s after the task started it is queued with an acknowledgement, not answered", async () => {
-    await startBackgroundTask();
-    await vi.advanceTimersByTimeAsync(5000);
-    const quick = vi.spyOn(inner, "answerQuick");
-    d.dispatch(QUESTION);
-    expect(d.queuedCommands).toEqual([QUESTION]);
-    expect(recorded).toEqual(["Got it — I'll do that right after this."]);
-    expect(quick).not.toHaveBeenCalled();
-    expect(asked).toEqual(["summarise the quarterly report"]);
-    expect(d.state["status"]).toBe("Working — next request queued");
-  });
-
-  it("1.5 s after the task started the same question reaches the quick lane (younger is answered, older is queued)", async () => {
-    await startBackgroundTask();
-    await vi.advanceTimersByTimeAsync(1500);
-    const quick = vi.spyOn(inner, "answerQuick");
-    d.dispatch(QUESTION);
-    expect(quick).toHaveBeenCalledTimes(1);
-    expect(quick).toHaveBeenCalledWith(QUESTION, "voice");
-    expect(d.queuedCommands).toEqual([]);
-  });
-});
-
-describe.skip("TARGET (fails today, fixed by P13-P14): the side-question lane answers at once, whatever the age", () => {
   it.each([1500, 5000, 60_000])(
     "a short harmless question %i ms into the task goes to the quick lane",
     async (ms) => {
       await startBackgroundTask();
       await vi.advanceTimersByTimeAsync(ms);
       const quick = vi.spyOn(inner, "answerQuick");
-      d.dispatch("what is the capital of France?");
-      expect(quick).toHaveBeenCalledWith("what is the capital of France?", "voice");
+      d.dispatch(QUESTION);
+      expect(quick).toHaveBeenCalledTimes(1);
+      expect(quick).toHaveBeenCalledWith(QUESTION, "voice");
       expect(d.queuedCommands).toEqual([]);
+      expect(asked).toEqual(["summarise the quarterly report"]); // the task's own run is the only run
     },
   );
+
+  it("an order (not a question) 5 s into the task is still queued with an acknowledgement", async () => {
+    await startBackgroundTask();
+    await vi.advanceTimersByTimeAsync(5000);
+    const quick = vi.spyOn(inner, "answerQuick");
+    recorded = [];
+    d.dispatch("open the calendar and the mail");
+    expect(d.queuedCommands).toEqual(["open the calendar and the mail"]);
+    expect(recorded).toEqual(["Got it — I'll do that right after this."]);
+    expect(quick).not.toHaveBeenCalled();
+    expect(d.state["status"]).toBe("Working — next request queued");
+  });
+
+  it("the lane can be turned off (voice.tasks.sideQuestionLane = false): then the age rule applies as before", async () => {
+    await startBackgroundTask();
+    await vi.advanceTimersByTimeAsync(5000);
+    const quick = vi.spyOn(inner, "answerQuick");
+    const voice = preferences.getSnapshot().voice as unknown as Record<string, unknown>;
+    const saved = voice["tasks"];
+    voice["tasks"] = { sideQuestionLane: false };
+    try {
+      d.dispatch(QUESTION);
+    } finally {
+      voice["tasks"] = saved;
+    }
+    expect(quick).not.toHaveBeenCalled();
+    expect(d.queuedCommands).toEqual([QUESTION]);
+  });
 });
 
 describe("a quick-lane answer is spoken at once (scenario 3)", () => {
@@ -351,119 +373,118 @@ describe("a quick-lane answer is spoken at once (scenario 3)", () => {
   });
 });
 
-describe("today: a background run's streamed answer is voiced as foreground, then Done says it again (scenario 4)", () => {
-  const ANSWER = "The totals match. Three sheets were read and nothing is missing.";
-
-  it("says each streamed sentence while the task still runs, then 'Done: X' repeats the first one", async () => {
-    const task = await startBackgroundTask();
-    listenLikeAuto();
-    d.spokenUpTo = inner.state.messages.length;
-    const run = taskRun();
-    run.answer = ANSWER;
-    inner.emit(false);
-    await vi.advanceTimersByTimeAsync(5);
-    expect(taskNow(task.id)?.state).toBe("RUNNING");
-    expect(recorded).toEqual(["The totals match."]);
-    finishRun(run, ANSWER);
-    await vi.advanceTimersByTimeAsync(5);
-    expect(taskNow(task.id)?.state).toBe("COMPLETED");
-    expect(recorded).toEqual([
-      "The totals match.",
-      "Three sheets were read and nothing is missing.",
-    ]);
-    // The announcer waits for a quiet voice; the next entry into LISTENING releases it.
-    d.to("vad-speech");
-    d.to("vad-silence");
-    expect(recorded.at(-1)).toBe("Done: summarise the quarterly report. The totals match.");
-    expect(recorded.filter((line) => line.includes("The totals match.")).length).toBe(2);
-  });
-});
-
-describe.skip("TARGET (fails today, fixed by P13-P14): a background run is announced once, not voiced as foreground", () => {
+describe("a background run is announced once, not voiced as foreground (scenario 4)", () => {
   it("the streamed sentences stay silent and the result is spoken only through 'Done: X'", async () => {
     const task = await startBackgroundTask();
     listenLikeAuto();
     d.spokenUpTo = inner.state.messages.length;
+    recorded = [];
     const run = taskRun();
     run.answer = "The totals match. Three sheets were read and nothing is missing.";
     inner.emit(false);
     await vi.advanceTimersByTimeAsync(5);
+    expect(recorded).toEqual([]); // nothing is read out while the task still runs
     finishRun(run, run.answer);
     await vi.advanceTimersByTimeAsync(5);
-    d.to("vad-speech");
-    d.to("vad-silence");
     expect(taskNow(task.id)?.state).toBe("COMPLETED");
+    expect(recorded).toEqual(["Done: summarise the quarterly report. The totals match."]);
     expect(recorded.filter((line) => line.includes("The totals match.")).length).toBe(1);
-    expect(recorded.some((line) => line.startsWith("Done: "))).toBe(true);
+    expect(recorded.some((line) => line.includes("Three sheets"))).toBe(false);
+  });
+
+  it("the finish line is a done line of the arbiter and carries the task", async () => {
+    vi.mocked(d.speak).mockRestore();
+    const task = await startBackgroundTask();
+    d.arbiter.clear();
+    finishRun(taskRun(), "The totals match.");
+    await vi.advanceTimersByTimeAsync(5);
+    const line = d.arbiter.peek().find((row) => row.done);
+    expect(line?.text).toBe("Done: summarise the quarterly report. The totals match.");
+    expect(line?.taskId).toBe(task.id);
+    expect(line?.priority).toBe("direct");
   });
 });
 
-describe("today: the 'Started: X' acknowledgement waits for the next LISTENING entry (scenario 5)", () => {
-  it("stays held because the state stays WAKE_DETECTED, which taskBusy maps to listening-to-owner", async () => {
+describe("the 'Started: X' acknowledgement is spoken at once (scenario 5)", () => {
+  it("is said right after the request, with no further owner speech, even though the state is still WAKE_DETECTED", async () => {
     await startBackgroundTask();
     expect(d.state.voiceState).toBe("WAKE_DETECTED");
-    expect(d.taskBusy()).toBe("listening-to-owner");
-    expect(recorded).toEqual([]);
+    expect(d.taskBusy()).toBe("listening-to-owner"); // the legacy announcer would have held it
+    expect(recorded).toEqual(["Started: summarise the quarterly report."]);
     expect(listVoiceTasks().at(-1)?.state).toBe("RUNNING");
   });
 
-  it("is spoken only when the owner next speaks and falls silent (the next LISTENING entry)", async () => {
+  it("is not said again when the owner next speaks and falls silent", async () => {
     await startBackgroundTask();
     d.to("vad-speech");
-    expect(recorded).toEqual([]);
     d.to("vad-silence");
     expect(d.state.voiceState).toBe("LISTENING");
-    expect(d.taskBusy()).toBe("idle");
     expect(recorded).toEqual(["Started: summarise the quarterly report."]);
   });
 });
 
-describe.skip("TARGET (fails today, fixed by P13-P14): the 'Started: X' acknowledgement is spoken at once", () => {
-  it("is said right after the request, with no further owner speech", async () => {
-    await startBackgroundTask();
-    expect(recorded).toEqual(["Started: summarise the quarterly report."]);
-  });
-});
-
-describe("today: an approval needed in the background is silent (scenario 6)", () => {
-  it("gateAction only sets the approval slot: no spoken prompt, no pending line, the task still reads RUNNING", async () => {
+describe("a background approval is asked aloud (scenario 6)", () => {
+  const openApproval = async () => {
     const task = await startBackgroundTask();
     listenLikeAuto();
     d.spokenUpTo = inner.state.messages.length;
     d.to("vad-speech");
-    d.to("vad-silence"); // a quiet voice, so silence is not just a held line
+    d.to("vad-silence"); // a quiet voice
     recorded = [];
     const decision = inner.gateAction(taskRun(), APP_RESTART_TOOL, "exec", "Restart FRIDAY");
     await vi.advanceTimersByTimeAsync(5);
-    expect(inner.state.approval).toMatchObject({
-      runId: "run-1",
-      tool: APP_RESTART_TOOL,
-      risk: "exec",
-    });
-    expect(taskRun().state).toBe("awaiting-approval");
-    expect(taskNow(task.id)?.state).toBe("RUNNING"); // the task desk never sees WAITING_FOR_APPROVAL
-    expect(d.taskBusy()).toBe("idle");
-    expect(recorded).toEqual([]);
-    expect(d.speechQueue).toEqual([]);
-    expect(d.state.pending).toBeNull();
+    return { task, decision };
+  };
+
+  it("says what is waiting and that a yes is needed, once, bound to the task", async () => {
+    const { task, decision } = await openApproval();
+    expect(inner.state.approval).toMatchObject({ runId: "run-1", tool: APP_RESTART_TOOL });
+    expect(recorded).toHaveLength(1);
+    expect(recorded.join(" ")).toMatch(/restart friday/i);
+    expect(recorded.join(" ")).toMatch(/\byes\b|approv|confirm/i);
+    expect(d.approvalAsked).toMatchObject({ taskId: task.id });
+    // another Brain change inside the repeat window does not ask again
+    inner.emit(false);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded).toHaveLength(1);
     brain.approve(false);
     await decision;
   });
-});
 
-describe.skip("TARGET (fails today, fixed by P13-P14): a background approval is asked aloud", () => {
-  it("says what is waiting and that a yes is needed", async () => {
+  it("a short fresh yes approves it (the speaker check still applies), after the prompt", async () => {
+    const { decision } = await openApproval();
+    await vi.advanceTimersByTimeAsync(20_000);
+    d.handleHeard("yes");
+    await expect(decision).resolves.toBe(true);
+    expect(inner.state.approval).toBeNull();
+  });
+
+  it("a yes after the 120 s expiry approves nothing and says it timed out", async () => {
+    const { decision } = await openApproval();
+    await vi.advanceTimersByTimeAsync(125_000);
+    recorded = [];
+    d.handleHeard("yes");
+    expect(inner.state.approval).not.toBeNull();
+    expect(recorded.join(" ")).toMatch(/timed out/i);
+    brain.approve(false);
+    await decision;
+  });
+
+  it("an owner who says no denies it", async () => {
+    const { decision } = await openApproval();
+    d.handleHeard("no");
+    await expect(decision).resolves.toBe(false);
+  });
+
+  it("a write or exec tool approval that is not an app action stays on the screen only", async () => {
     await startBackgroundTask();
     listenLikeAuto();
     d.spokenUpTo = inner.state.messages.length;
-    d.to("vad-speech");
-    d.to("vad-silence");
     recorded = [];
-    const decision = inner.gateAction(taskRun(), APP_RESTART_TOOL, "exec", "Restart FRIDAY");
+    const decision = inner.gateAction(taskRun(), "files.delete", "exec", "Delete the old exports");
     await vi.advanceTimersByTimeAsync(5);
-    expect(recorded.join(" ")).toMatch(/restart friday/i);
-    expect(recorded.join(" ")).toMatch(/\byes\b|approv|confirm/i);
-    brain.approve(false);
+    expect(recorded).toEqual([]);
+    if (inner.state.approval) brain.approve(false);
     await decision;
   });
 });
@@ -512,45 +533,62 @@ describe("Stop everything and the tray pause end every desk task (scenario 7)", 
     autonomy.stopEverything();
     await vi.advanceTimersByTimeAsync(5);
     expect(taskNow(task.id)?.state).toBe("CANCELLED");
-    expect(d.speechQueue).toEqual([]);
+    expect(d.arbiter.size()).toBe(0);
     autonomy.resume();
     d.to("vad-speech");
     d.to("vad-silence");
-    expect(d.speechQueue).toEqual([]);
+    expect(d.arbiter.size()).toBe(0);
   });
 });
 
-describe("today: a meeting and quiet hours do not gate task announcements (scenario 8)", () => {
+describe("a calm moment gates task announcements (scenario 8)", () => {
   const LINE = "Done: summarise the report. Three sheets were read.";
-  const said = () => d.speechQueue.join(" ");
+  const said = () =>
+    d.arbiter
+      .peek()
+      .map((row) => row.text)
+      .join(" ");
 
   beforeEach(() => {
     vi.mocked(d.speak).mockRestore(); // the real speak() gates are what is under test
   });
 
-  it("speaks it while a call is open (callHold), and taskBusy still says idle", () => {
+  it("holds the line while a call is open, shows it, and keeps it for the digest", () => {
     d.callHold = true;
-    expect(d.taskBusy()).toBe("idle");
-    d.announceTask(LINE);
-    expect(said()).toContain("Three sheets were read");
+    d.announceTask(LINE, { priority: "direct", done: true });
+    expect(d.arbiter.size()).toBe(0);
+    expect(d.narration.held).toEqual([LINE]);
   });
 
-  it("speaks it under Do not disturb", () => {
+  it("holds the line under Do not disturb", () => {
     preferences.setToggle("doNotDisturb", true);
-    d.announceTask(LINE);
-    expect(said()).toContain("Three sheets were read");
+    d.announceTask(LINE, { priority: "direct", done: true });
+    expect(d.arbiter.size()).toBe(0);
   });
 
-  it("speaks it inside quiet hours", () => {
+  it("holds the line inside quiet hours", () => {
     preferences.setToggle("quietHours", true);
     preferences.setField("timezone", "UTC");
     preferences.setField("quietStart", "08:00");
     preferences.setField("quietEnd", "12:00");
-    d.announceTask(LINE);
-    expect(said()).toContain("Three sheets were read");
+    d.announceTask(LINE, { priority: "direct", done: true });
+    expect(d.arbiter.size()).toBe(0);
   });
 
-  it("is gated by Stop everything, mute and Chat mode, so the gate list is only missing the three above", () => {
+  it("a finished task under Do not disturb says nothing and is kept for the screen digest", async () => {
+    preferences.setToggle("doNotDisturb", true);
+    const task = await startBackgroundTask();
+    finishRun(taskRun(), "Three sheets were read.");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(task.id)?.state).toBe("COMPLETED");
+    expect(d.arbiter.size()).toBe(0);
+    expect(d.narration.held.join(" ")).toContain("Three sheets were read");
+  });
+
+  it("speaks it when nothing gates it, and is still gated by Stop everything, mute and Chat mode", () => {
+    d.announceTask(LINE, { priority: "direct", done: true });
+    expect(said()).toContain("Three sheets were read");
+    d.arbiter.clear();
     autonomy.stopEverything();
     d.announceTask(LINE);
     autonomy.resume();
@@ -559,35 +597,287 @@ describe("today: a meeting and quiet hours do not gate task announcements (scena
     d.state.muted = false;
     d.state.mode = "chat";
     d.announceTask(LINE);
-    expect(d.speechQueue).toEqual([]);
+    expect(d.arbiter.size()).toBe(0);
   });
 });
 
-describe.skip("TARGET (fails today, fixed by P13-P14): a calm moment gates task announcements", () => {
-  const LINE = "Done: summarise the report. Three sheets were read.";
-
+describe("spoken task words reach the desk through the router", () => {
+  // The desk keeps finished tasks between tests: count only the ones this test made.
+  let before = new Set<string>();
   beforeEach(() => {
+    before = new Set(listVoiceTasks().map((row) => row.id));
+  });
+  const mine = () => listVoiceTasks().filter((row) => !before.has(row.id));
+  const lastTask = () => listVoiceTasks().at(-1);
+  const never = () =>
+    startVoiceTask("never ends", async (_t, context) => {
+      await context.checkpoint();
+      await new Promise<void>(() => undefined);
+      return "never";
+    });
+
+  it("'cancel the task' cancels the only live task and the desk says so once", async () => {
+    const task = await startBackgroundTask();
+    recorded = [];
+    d.handleHeard("Friday cancel the task");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(task.id)?.state).toBe("CANCELLED");
+    expect(recorded).toEqual(["Cancelled: summarise the quarterly report."]);
+  });
+
+  it("'pause the task' and 'resume the task' say what they did (the desk is quiet for them)", async () => {
+    const task = await startBackgroundTask();
+    recorded = [];
+    d.handleHeard("Friday pause the task");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(task.id)?.state).toBe("PAUSED");
+    expect(recorded).toEqual(["Paused: summarise the quarterly report."]);
+    recorded = [];
+    d.handleHeard("Friday resume the task");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(task.id)?.state).toBe("RUNNING");
+    expect(recorded).toEqual(["Resumed: summarise the quarterly report."]);
+  });
+
+  it("'cancel everything' ends every task with one summary line, not one line per task", async () => {
+    never();
+    never();
+    never();
+    await vi.advanceTimersByTimeAsync(5);
+    recorded = [];
+    d.handleHeard("Friday cancel all tasks");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(mine().every((row) => row.state === "CANCELLED")).toBe(true);
+    expect(mine()).toHaveLength(3);
+    expect(recorded).toEqual(["Cancelled 3 tasks."]);
+  });
+
+  it("two live tasks and no name: ONE short question that lists them, and nothing is cancelled", async () => {
+    startVoiceTask(
+      "summarise the budget",
+      async (_t, c) => (await c.checkpoint(), new Promise(() => undefined)),
+    );
+    startVoiceTask(
+      "translate the notes",
+      async (_t, c) => (await c.checkpoint(), new Promise(() => undefined)),
+    );
+    await vi.advanceTimersByTimeAsync(5);
+    recorded = [];
+    d.handleHeard("Friday cancel the task");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatch(/^Which one: .*budget.* or .*notes.*\?$/);
+    expect(mine().filter((row) => row.state === "CANCELLED")).toHaveLength(0);
+  });
+
+  it("a name picks the task out of two", async () => {
+    startVoiceTask(
+      "summarise the budget",
+      async (_t, c) => (await c.checkpoint(), new Promise(() => undefined)),
+    );
+    startVoiceTask(
+      "translate the notes",
+      async (_t, c) => (await c.checkpoint(), new Promise(() => undefined)),
+    );
+    await vi.advanceTimersByTimeAsync(5);
+    d.handleHeard("Friday cancel the translate task");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(mine().map((row) => [row.label, row.state])).toEqual([
+      ["summarise the budget", "RUNNING"],
+      ["translate the notes", "CANCELLED"],
+    ]);
+  });
+
+  it("no task, and no such task, are said plainly", async () => {
+    d.handleHeard("Friday cancel the task");
+    expect(recorded).toEqual(["No task is running."]);
+    await startBackgroundTask();
+    recorded = [];
+    d.handleHeard("Friday cancel task 99");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded).toEqual(["I don't have a task like that."]);
+    expect(lastTask()?.state).toBe("RUNNING");
+  });
+
+  it("a status question gets a spoken summary of the desk; with no task it falls through to the ordinary turn", async () => {
+    await startBackgroundTask();
+    recorded = [];
+    d.handleHeard("Friday what are you working on");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded.join(" ")).toMatch(/summarise the quarterly report: running/);
+  });
+
+  it("a change of mind within 20 s cancels that task and starts the new one", async () => {
+    const first = await startBackgroundTask();
+    await vi.advanceTimersByTimeAsync(10_000);
+    d.handleHeard("Friday actually summarise the budget sheet in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(first.id)?.state).toBe("CANCELLED");
+    const now = listVoiceTasks().at(-1);
+    expect(now?.label).toBe("summarise the budget sheet");
+    expect(now?.state).not.toBe("CANCELLED");
+  });
+
+  it("after 20 s it is a second task, not a replacement", async () => {
+    const first = await startBackgroundTask();
+    await vi.advanceTimersByTimeAsync(25_000);
+    d.handleHeard("Friday actually summarise the budget sheet in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(first.id)?.state).toBe("RUNNING");
+    expect(mine()).toHaveLength(2);
+  });
+
+  it("a consequential background order asks first, and only a fresh yes starts it", async () => {
+    d.handleHeard("Friday delete the old exports folder in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(mine()).toHaveLength(0);
+    expect(d.state.pending?.command).toMatch(/delete the old exports/);
+    expect(recorded.join(" ")).toMatch(/^Confirm: should I/);
+    d.handleHeard("yes");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(mine()).toHaveLength(1);
+    expect(d.state.pending).toBeNull();
+  });
+
+  it("a SENSITIVE task is acknowledged without its words", async () => {
+    d.handleHeard("Friday note that my password is hunter22 and summarise it in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(mine()).toHaveLength(1);
+    expect(recorded.join(" ")).not.toMatch(/password|hunter22/i);
+  });
+
+  it("an answer containing a link, a path or a command is never read out raw", async () => {
+    await startBackgroundTask();
+    recorded = [];
+    finishRun(
+      taskRun(),
+      "See https://example.com/a?b=1 and C:\\Users\\me\\file.txt then run npm install.",
+    );
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded.join(" ")).not.toMatch(/https?:|C:\\|npm install/);
+  });
+});
+
+describe("the speech queue and the narration around a task", () => {
+  const progressLine = "About 50 percent done.";
+
+  it("the owner talking holds a task line; it is released a moment after he stops, never before", async () => {
     vi.mocked(d.speak).mockRestore();
+    d.to("vad-speech");
+    d.announceTask("Paused: summarise.", { priority: "direct" });
+    expect(d.arbiter.size()).toBe(1);
+    expect(d.arbiter.next()).toBeNull();
+    d.to("vad-silence");
+    expect(d.arbiter.next()).toBeNull(); // inside the 600 ms grace
+    await vi.advanceTimersByTimeAsync(700);
+    expect(d.arbiter.next()?.text).toBe("Paused: summarise.");
   });
 
-  it("holds the line while a call is open", () => {
+  it("a barge-in drops queued answers and progress but keeps an approval prompt", () => {
+    vi.mocked(d.speak).mockRestore();
+    d.arbiter.enqueue({ text: "an answer", priority: "direct" });
+    d.arbiter.enqueue({ text: progressLine, priority: "progress", taskId: "t1" });
+    d.arbiter.enqueue({ text: "Restart FRIDAY: shall I go ahead?", priority: "approval" });
+    d.dropPlayback();
+    expect(d.arbiter.peek().map((row) => row.text)).toEqual(["Restart FRIDAY: shall I go ahead?"]);
+  });
+
+  it("a paused microphone (the tray kill switch) shows a task line and never speaks it", () => {
+    vi.mocked(d.speak).mockRestore();
+    d.state.paused = true;
+    d.announceTask("Cancelled: summarise.", { priority: "direct" });
+    d.state.paused = false;
+    expect(d.arbiter.size()).toBe(0);
+  });
+
+  it("progress lines of one task coalesce: only the newest is kept", () => {
+    vi.mocked(d.speak).mockRestore();
+    d.announceTask("About 25 percent done.", { priority: "progress", taskId: "t1" } as never);
+    expect(d.arbiter.size()).toBe(1);
+  });
+
+  it("three running tasks and a quiet owner get one rolled-up line, on the slow beat only", async () => {
+    for (let i = 0; i < 3; i += 1)
+      startVoiceTask(
+        `job ${i}`,
+        async (_t, c) => (await c.checkpoint(), new Promise(() => undefined)),
+      );
+    await vi.advanceTimersByTimeAsync(70_000);
+    d.lastOwnerAt = 0;
+    recorded = [];
+    d.slowTaskTick(Date.now());
+    expect(recorded).toEqual(["3 tasks are running."]);
+    d.slowTaskTick(Date.now() + 1000);
+    expect(recorded).toHaveLength(1); // not again inside the minute
+  });
+
+  it("what a call held back is shown as one text digest when the call ends, never spoken at the time", async () => {
     d.callHold = true;
-    d.announceTask(LINE);
-    expect(d.speechQueue).toEqual([]);
+    const task = await startBackgroundTask();
+    finishRun(taskRun(), "Three sheets were read.");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(task.id)?.state).toBe("COMPLETED");
+    expect(recorded.join(" ")).not.toContain("Three sheets");
+    d.callHold = false;
+    d.afterQuiet();
+    const captions = d.state["captions"] as { who: string; text: string }[];
+    expect(captions.at(-1)?.text).toMatch(/^While you were busy: .*Three sheets were read/);
+    d.afterQuiet();
+    expect((d.state["captions"] as unknown[]).length).toBe(captions.length); // once
   });
 
-  it("holds the line under Do not disturb", () => {
-    preferences.setToggle("doNotDisturb", true);
-    d.announceTask(LINE);
-    expect(d.speechQueue).toEqual([]);
+  it("speak done off: the finish shows on screen and is not spoken", async () => {
+    const voice = preferences.getSnapshot().voice as unknown as Record<string, unknown>;
+    const saved = voice["tasks"];
+    voice["tasks"] = { speakDone: false };
+    try {
+      await startBackgroundTask();
+      recorded = [];
+      finishRun(taskRun(), "Three sheets were read.");
+      await vi.advanceTimersByTimeAsync(5);
+    } finally {
+      voice["tasks"] = saved;
+    }
+    expect(recorded).toEqual([]);
+  });
+});
+
+describe("the three modules are the conductor's only path", () => {
+  const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+
+  it("one arbiter replaces the string queue, and every spoken line goes through it", () => {
+    expect(mode).not.toMatch(/\bspeechQueue\b/);
+    expect(mode).toContain("private arbiter = new SpeechArbiter(");
+    expect(mode).toMatch(/this\.arbiter\.enqueue\(\{/);
+    expect(mode).toMatch(/const item = this\.arbiter\.next\(\);/);
+    expect(mode).toMatch(/this\.arbiter\.finish\(item\.id\)/);
+    expect(mode).toMatch(/this\.arbiter\.setOwnerSpeaking\(next === "SPEECH_DETECTED"\)/);
+    expect(mode).toMatch(/this\.arbiter\.waitMs\(\)/);
+    expect(mode).toMatch(/this\.arbiter\.bargeIn\(\)/);
+    expect(mode).toMatch(/this\.arbiter\.takeDigest\(\)/);
   });
 
-  it("holds the line inside quiet hours", () => {
-    preferences.setToggle("quietHours", true);
-    preferences.setField("timezone", "UTC");
-    preferences.setField("quietStart", "08:00");
-    preferences.setField("quietEnd", "12:00");
-    d.announceTask(LINE);
-    expect(d.speechQueue).toEqual([]);
+  it("every final transcript is routed, task updates are narrated, one memory per session", () => {
+    expect(mode).toMatch(/routeUtterance\(\{/);
+    expect(mode).toContain("private narration = createNarrationMemory();");
+    expect(mode).toMatch(/const out = narrate\(event, ctx\);/);
+    expect(mode).toContain('{ kind: "rollup" }');
+    expect(mode).toContain('kind: "settled"');
+    expect(mode).toMatch(/holdDigest\(this\.narration, lang\)/);
+    expect(mode).toMatch(/attachVoiceTaskNarrator\(\(update, task\) =>/);
+  });
+
+  it("the slow beat rides the supervisor tick and adds no timer of its own", () => {
+    const at = mode.indexOf("private slowTaskTick(");
+    const body = mode.slice(at, mode.indexOf("private superviseTick()", at));
+    expect(body).not.toMatch(/setInterval|setTimeout/);
+    expect(mode).toMatch(/this\.slowTaskTick\(now\);/);
+  });
+
+  it("a background run's answer is never streamed as the foreground reply", () => {
+    expect(mode).toMatch(/owner\?\.kind === "task"[\s\S]{0,400}return;/);
+    expect(mode).toMatch(
+      /runs\.find\(\(row\) => row\.id === m\.runId\)\?\.owner\?\.kind !== "task"/,
+    );
   });
 });

@@ -13,6 +13,7 @@ import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { autonomy } from "../../src/lib/friday/self/autonomy";
 import { brain } from "../../src/lib/friday/brain-engine";
 import { voiceGate } from "../../src/lib/friday/voice-audio";
+import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
 
 type Driver = {
   state: Record<string, unknown> & {
@@ -24,7 +25,7 @@ type Driver = {
     pending: { command: string; reason: string; at: number } | null;
   };
   queuedCommands: string[];
-  speechQueue: string[];
+  arbiter: SpeechArbiter;
   handleHeard: (text: string) => void;
   dispatch: (command: string) => void;
   speak: (text: string) => void;
@@ -57,7 +58,7 @@ beforeEach(() => {
     pending: null,
   });
   d.queuedCommands = [];
-  d.speechQueue = [];
+  d.arbiter = new SpeechArbiter({ now: () => Date.now() });
   d.awakeUntil = Date.now() + 8000;
   d.followUpUntil = Date.now() + 8000;
   cancelled = 0;
@@ -121,7 +122,7 @@ describe("throwing the kill switch while Auto is running", () => {
   it("a reply is not spoken while the switch is on", () => {
     autonomy.stopEverything();
     d.speak("Here is your answer.");
-    expect(d.speechQueue).toEqual([]);
+    expect(d.arbiter.size()).toBe(0);
   });
 
   it("the owner cannot reopen the microphone while the switch is on", () => {

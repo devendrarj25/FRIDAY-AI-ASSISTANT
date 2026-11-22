@@ -174,7 +174,9 @@ describe("FRIDAY Tidy wiring", () => {
     expect(mode).toMatch(/if \(voice\.tidyDictation === false\) return \{ text: heard \};/);
     expect(mode).toMatch(/const shown = this\.tidyShown\(command\);/);
     expect(mode).toMatch(/this\.caption\("user", shown\.text, false, \{/);
-    expect(mode).toMatch(/this\.routeCommand\(command\);/);
+    expect(mode).toMatch(
+      /this\.routeCommand\(command, route\.kind === "new-task" && route\.needsConfirm === true\);/,
+    );
     expect(mode).not.toMatch(/routeCommand\(shown/);
   });
 

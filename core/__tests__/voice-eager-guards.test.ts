@@ -25,6 +25,7 @@ import { partialPlan, SPECULATIVE_STABLE_MS } from "../../src/lib/friday/assista
 import { commandNeedsApproval } from "../../src/lib/friday/brain/action-risk";
 import { looksSensitive } from "../../src/lib/friday/brain/memory-policy";
 import { ACK_LINES } from "../../src/lib/friday/voice-engine/prewarm";
+import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
 import { confirmationVerdict, voiceClaimsAuthority } from "../../src/lib/friday/voice-session";
 
 type PartialHandler = (payload: { text?: string }) => void;
@@ -72,7 +73,7 @@ type Driver = {
   callHold: boolean;
   bootWait: (() => void) | null;
   echoUntil: number;
-  speechQueue: string[];
+  arbiter: SpeechArbiter;
   queuedCommands: string[];
   awakeUntil: number;
   followUpUntil: number;
@@ -189,7 +190,7 @@ beforeEach(() => {
     callHold: false,
     bootWait: null,
     echoUntil: 0,
-    speechQueue: [],
+    arbiter: new SpeechArbiter({ now: () => Date.now() }),
     queuedCommands: [],
     awakeUntil: Date.now() + 60_000,
     followUpUntil: Date.now() + 60_000,

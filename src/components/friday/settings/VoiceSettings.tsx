@@ -13,7 +13,7 @@ import {
   voiceReadinessNote,
   voiceSelfTestPlan,
 } from "@/lib/friday/voice-doctor";
-import { preferences } from "@/lib/friday/preferences";
+import { preferences, sanitizeVoiceTaskPrefs } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useBilling } from "@/lib/friday/use-billing";
 import { realtimeStatus } from "@/lib/friday/voice-realtime";
@@ -321,6 +321,27 @@ export function VoiceSettings() {
             on={prefs.voice.realtimeExperiment === true}
             onToggle={() =>
               preferences.setVoice({ realtimeExperiment: prefs.voice.realtimeExperiment !== true })
+            }
+          />
+          <VoiceTasksCard />
+          <ToggleRow
+            label="Say a short acknowledgement while I work"
+            hint="Auto mode. When a task takes a while, she says one short line (like 'On it') so you know she heard you. It only adds a spoken line; nothing leaves this PC. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.instantAck === true}
+            onToggle={() => preferences.setVoice({ instantAck: prefs.voice.instantAck !== true })}
+          />
+          <ToggleRow
+            label="Start thinking before I finish speaking (experimental)"
+            hint="Auto mode. She begins a draft answer while you are still finishing the sentence, and throws it away if you say more. It never acts on a draft and uses more CPU. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.eagerTurn === true}
+            onToggle={() => preferences.setVoice({ eagerTurn: prefs.voice.eagerTurn !== true })}
+          />
+          <ToggleRow
+            label="Cancel her own voice from the microphone (experimental)"
+            hint="Auto mode. Her own voice is subtracted from what the microphone hears, so you can interrupt her without a headset. Runs on this PC and plays nothing extra. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.echoReference === true}
+            onToggle={() =>
+              preferences.setVoice({ echoReference: prefs.voice.echoReference !== true })
             }
           />
           <ToggleRow
@@ -818,6 +839,74 @@ function VoiceLibraryPanel() {
         ))}
       </div>
     </HudPanel>
+  );
+}
+
+/** Tasks that keep running while she talks: how much she says, and what happens after a restart. */
+function VoiceTasksCard() {
+  const prefs = usePreferences();
+  const tasks = sanitizeVoiceTaskPrefs(prefs.voice.tasks);
+  const set = (patch: Partial<typeof tasks>) =>
+    preferences.setVoice({ tasks: sanitizeVoiceTaskPrefs({ ...tasks, ...patch }) });
+  const selectClass =
+    "mt-1 h-8 w-full rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground";
+  return (
+    <div className="grid gap-2 rounded-md border border-border p-2 text-meta-sm text-muted-foreground">
+      <p className="text-foreground">Tasks while talking</p>
+      <p>
+        One task runs at a time for now; a second waits in line and shows in the task list in Auto
+        mode. These settings only change what she says, never what she is allowed to do.
+      </p>
+      <label className="block">
+        <span className="label-xs text-muted-foreground">How much she says about a task</span>
+        <select
+          value={tasks.narration}
+          onChange={(e) => set({ narration: e.target.value as typeof tasks.narration })}
+          className={selectClass}
+        >
+          <option value="quiet">Quiet (only the result)</option>
+          <option value="normal">Normal</option>
+          <option value="chatty">Chatty</option>
+        </select>
+      </label>
+      <TuneRow
+        label="Progress lines per minute"
+        value={tasks.progressLinesPerMinute}
+        min={0}
+        max={6}
+        step={1}
+        detail={tasks.progressLinesPerMinute === 0 ? "none" : `${tasks.progressLinesPerMinute}`}
+        onChange={(progressLinesPerMinute) => set({ progressLinesPerMinute })}
+      />
+      <ToggleRow
+        label="Say a short line when a task is done"
+        on={tasks.speakDone}
+        onToggle={() => set({ speakDone: !tasks.speakDone })}
+      />
+      <label className="block">
+        <span className="label-xs text-muted-foreground">After a restart</span>
+        <select
+          value={tasks.resumeAfterRestart}
+          onChange={(e) =>
+            set({ resumeAfterRestart: e.target.value as typeof tasks.resumeAfterRestart })
+          }
+          className={selectClass}
+        >
+          <option value="ask">Ask me before resuming</option>
+          <option value="auto">Resume on its own</option>
+        </select>
+        <span className="mt-1 block text-meta-sm text-muted-foreground">
+          Resume on its own only runs read-only tasks, and only under Full autonomy. A task that
+          changes something always asks.
+        </span>
+      </label>
+      <ToggleRow
+        label="Answer a quick question while a task runs"
+        hint="A short side question is answered at once, beside the task, instead of waiting for it."
+        on={tasks.sideQuestionLane}
+        onToggle={() => set({ sideQuestionLane: !tasks.sideQuestionLane })}
+      />
+    </div>
   );
 }
 

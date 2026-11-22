@@ -285,6 +285,14 @@ export class SpeechArbiter {
     return this.queue.length;
   }
 
+  /** The waiting lines in the order they will be served (a copy; nothing is taken). */
+  peek(): SpeechItem[] {
+    this.purge();
+    return [...this.queue]
+      .sort((a, b) => RANK[a.item.priority] - RANK[b.item.priority] || a.seq - b.seq)
+      .map((e) => e.item);
+  }
+
   /** The finish lines that aged out unsaid, once. */
   takeDigest(): SpeechDigest | null {
     this.purge();

@@ -8,6 +8,7 @@ import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { voiceGate } from "../../src/lib/friday/voice-audio";
 import { voiceNotes } from "../../src/lib/friday/voice-notes";
 import { listVoiceTasks } from "../../src/lib/friday/voice-engine/voice-tasks";
+import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
 
 type Driver = {
   state: {
@@ -32,7 +33,7 @@ type Driver = {
   deferredStream: unknown;
   interruptHold: unknown;
   unfinished: string;
-  speechQueue: string[];
+  arbiter: SpeechArbiter;
   queuedCommands: string[];
   speak: (text: string) => void;
   emit: () => void;
@@ -421,7 +422,8 @@ describe("talking over her", () => {
   const speakingNow = () => {
     const raw = drive as unknown as { spokenText: string };
     raw.spokenText = "First I will open the file. Then I will read the summary.";
-    drive.speechQueue = ["After that I will send it."];
+    drive.arbiter = new SpeechArbiter({ now: () => Date.now() });
+    drive.arbiter.enqueue({ text: "After that I will send it.", priority: "direct" });
     drive.state.speaking = true;
     drive.followUpUntil = Date.now() + 8000;
   };
