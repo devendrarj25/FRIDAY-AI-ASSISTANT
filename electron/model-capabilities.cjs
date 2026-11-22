@@ -83,7 +83,7 @@ const REGISTRY = [
   {
     id: "speech-to-text",
     match:
-      /whisper|transcribe|speech-to-text|parakeet|canary|moonshine|distil-whisper|scribe|asr($|[-_])|automatic-speech/,
+      /whisper|transcribe|speech-to-text|parakeet|canary|moonshine|indicconformer|hindi-ear|distil-whisper|scribe|asr($|[-_])|automatic-speech/,
     caps: { ...NON_CHAT, audio: true, speechToText: true },
   },
   {
@@ -191,7 +191,7 @@ const REGISTRY = [
   {
     id: "audio",
     match:
-      /whisper|piper|xtts|bark|parler|orpheus|kokoro|silero|supertonic|moonshine|smart-turn|rnnoise/,
+      /whisper|piper|xtts|bark|parler|orpheus|kokoro|silero|supertonic|moonshine|indicconformer|hindi-ear|smart-turn|rnnoise/,
     caps: { chat: false, tools: false, audio: true },
   },
 ];
@@ -430,7 +430,7 @@ function inferredCapabilities(name) {
     coding: /cod(er|e)|starcoder|devstral/.test(name),
     reasoning: /(^|[-_])r1($|[-_])|reason|think|qwq/.test(name),
     audio:
-      /whisper|tts|piper|xtts|bark|orpheus|kokoro|silero|supertonic|moonshine|smart-turn|rnnoise/.test(
+      /whisper|tts|piper|xtts|bark|orpheus|kokoro|silero|supertonic|moonshine|indicconformer|hindi-ear|smart-turn|rnnoise/.test(
         name,
       ),
     research: /research|search|sonar|perplex|compound/.test(name),

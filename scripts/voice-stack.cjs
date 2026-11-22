@@ -269,6 +269,7 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["kernel/voice_runtime.py", "VAD, Smart Turn, Supertonic voice"],
     ["kernel/wake_word.py", "wake scorer"],
     ["kernel/language_segmenter.py", "script spans"],
+    ["kernel/hindi_ear.py", "Hindi ear (IndicConformer int8)"],
     ["kernel/router.py", "model router"],
     ["kernel/privacy.py", "privacy firewall"],
     ["kernel/billing.py", "billing firewall"],

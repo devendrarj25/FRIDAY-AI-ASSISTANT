@@ -4390,6 +4390,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "hindi-ear",
+      kind: "model",
+      name: "Hindi ear (IndicConformer, int8)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "jan-nano",
       kind: "model",
       name: "Jan Nano 4B",
@@ -9424,8 +9430,8 @@ export const FLOW_REGISTRY = {
       total: 141,
     },
     capabilities: {
-      mapped: 1104,
-      total: 1104,
+      mapped: 1105,
+      total: 1105,
     },
     ipc: {
       mapped: 498,

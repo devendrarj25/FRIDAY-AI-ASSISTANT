@@ -24,8 +24,9 @@ _DEVANAGARI_DIGITS = {ord("०") + i: str(i) for i in range(10)}
 
 
 def normalise(text: str) -> str:
-    """NFC, lower case, Devanagari digits to ASCII, punctuation (including the danda) removed, spaces collapsed."""
-    t = unicodedata.normalize("NFC", str(text)).lower().translate(_DEVANAGARI_DIGITS)
+    """NFC, lower case, Devanagari digits to ASCII, nukta dropped (फ़ and फ are one spelling), punctuation (including
+    the danda) removed, spaces collapsed."""
+    t = unicodedata.normalize("NFC", str(text)).lower().translate(_DEVANAGARI_DIGITS).replace("\u093c", "")
     t = re.sub(r"[।॥]", " ", t)
     t = "".join(
         " " if unicodedata.category(c).startswith("P") or unicodedata.category(c).startswith("S") else c for c in t

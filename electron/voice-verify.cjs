@@ -65,6 +65,7 @@ const OPTIONAL_INSTALL = {
   "local-tts": "supertonic-3",
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
+  "hindi-ear": "hindi-ear",
 };
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
@@ -292,7 +293,16 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
     prepared = await weights.ensureSttWeights(size, paths.root() || "", {
       exists: (file) => fs.existsSync(file),
       downloadModel: require("./model-download.cjs").downloadModel,
+      verify: "hash",
     });
+    if (prepared.ok) {
+      checks.push(
+        ...(await weights.pinChecks(paths.root() || "", {
+          exists: (file) => fs.existsSync(file),
+          hash: true,
+        })),
+      );
+    }
     if (!prepared.ok) {
       checks.push({
         id: "stt-model",

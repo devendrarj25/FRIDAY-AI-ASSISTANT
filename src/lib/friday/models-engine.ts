@@ -240,6 +240,7 @@ export const VOICE_MODEL_IDS = [
   "silero-vad",
   "smart-turn",
   "supertonic-3",
+  "hindi-ear",
 ] as const;
 
 const baseRouting = (): Record<RoutingTask, string | null> => ({

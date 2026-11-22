@@ -1627,6 +1627,15 @@ const TOOLS = [
     manual:
       "MIT package. Only the English streaming weights are downloaded. Non-English Moonshine weights are not used.",
   }),
+  T("onnx-asr", "Voice", {
+    pipDist: "onnx-asr",
+    pip: "onnx-asr",
+    url: "https://pypi.org/project/onnx-asr/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "onnx-asr" },
+    manual:
+      "MIT package (numpy and onnxruntime only). It runs the Hindi ear weights, which download on demand and are not bundled in the EXE.",
+  }),
   T("pyrnnoise", "Voice", {
     pipDist: "pyrnnoise",
     pip: "pyrnnoise",

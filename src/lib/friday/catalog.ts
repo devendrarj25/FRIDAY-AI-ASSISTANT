@@ -2026,6 +2026,18 @@ export const catalog: CatalogEntry[] = [
     "English streaming model inside the one speech worker. Hindi and Hinglish stay on faster-whisper.",
   ),
   E(
+    "onnx-asr",
+    "Voice",
+    "pypi.org",
+    "https://pypi.org/project/onnx-asr/",
+    "pip",
+    null,
+    "0.12.0",
+    "1 MB",
+    "optional",
+    "Runs the Hindi ear (IndicConformer int8) inside the one speech worker when Hindi is chosen. Weights download on demand.",
+  ),
+  E(
     "pyrnnoise",
     "Voice",
     "pypi.org",

@@ -708,6 +708,19 @@ def fetch_models() -> dict:
     return {"ok": any(item.get("ok") for item in results), "results": results}
 
 
+def _hindi_ear_line() -> str:
+    """FRIDAY's Hindi ear (optional): the weights on disk and the package that runs them."""
+    import importlib.util
+
+    import hindi_ear
+
+    if not hindi_ear.ready():
+        return "OPTIONAL hindi-ear optional - not installed"
+    if importlib.util.find_spec("onnx_asr") is None:
+        return "FAIL hindi-ear the weights are on disk but the onnx-asr package is not installed"
+    return "PASS hindi-ear int8 weights present"
+
+
 def check_lines() -> list[str]:
     lines = ["PASS boot"]
     tts = tts_status()
@@ -737,6 +750,7 @@ def check_lines() -> list[str]:
         lines.append("PASS speaker wespeaker-ecapa")
     else:
         lines.append(f"OPTIONAL speaker {speaker['reason']}")
+    lines.append(_hindi_ear_line())
     providers = execution_providers()
     lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
     room = disk_room(voice_root(), SILERO_BYTES)

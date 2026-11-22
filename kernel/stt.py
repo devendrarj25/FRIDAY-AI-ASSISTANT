@@ -39,6 +39,7 @@ _KERNEL_DIR = str(Path(__file__).resolve().parent)
 if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
+import hindi_ear  # noqa: E402
 import voice_runtime  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
@@ -1148,6 +1149,12 @@ def _transcribe_prepared(
             moon_text = transcribe_moonshine(samples, moon_dir, on_partial)
             if moon_text:
                 engine = "moonshine-en"
+    hindi_text = None
+    if not moon_text and samples is not None and hindi_ear.wants_hindi(language, speech_pref):
+        # Hindi chosen and FRIDAY's Hindi ear on disk: it hears first and faster-whisper answers if it cannot.
+        hindi_text = hindi_ear.transcribe(samples)
+        if hindi_text:
+            engine = "hindi-ear"
     turn_probability = None
     if samples is not None:
         try:
@@ -1173,6 +1180,24 @@ def _transcribe_prepared(
             {"text": moon_text, "vadMs": None, "noSpeechProb": 0.0, "language": "en", "noSpeechNote": ""},
             "",
             ["moonshine"],
+        )
+    if hindi_text:
+        return _heard(
+            {
+                "ok": True,
+                "text": hindi_text,
+                "language": "hi",
+                "durationMs": 0,
+                "model": "indicconformer-hi-int8",
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": hindi_text, "vadMs": None, "noSpeechProb": 0.0, "language": "hi", "noSpeechNote": ""},
+            "",
+            ["hindi-ear"],
         )
     try:
         model = get_model(owner_model(owner_size, model_name), model_path or None)
@@ -1433,6 +1458,7 @@ def status_payload() -> dict:
         "inference": "verified" if _model is not None else "unverified",
         "error": None if cls is not None else _whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
+        "hindiEarReady": hindi_ear.ready(),
         "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
         "counters": counters_payload(),

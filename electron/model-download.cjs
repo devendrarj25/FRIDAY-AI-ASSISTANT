@@ -24,6 +24,7 @@ const path = require("node:path");
 // The one canonical FRIDAY root contract — downloads never stage outside it.
 const contract = require("./friday-contract.cjs");
 const voiceInstall = require("./voice-install.cjs");
+const voicePins = require("./voice-pins.cjs");
 const safety = require("./download-safety.cjs");
 const library = require("./local-library.cjs");
 
@@ -114,13 +115,15 @@ function assertSha256(file, expected) {
 
 // --------------------------------------------------------------- HF listing
 /** Real file listing for a Hugging Face repo (no guessing at filenames). */
-async function hfFiles(repo, signal) {
+async function hfFiles(repo, signal, revision = "") {
   let lastError = "unreachable";
   for (const host of HF_HOSTS) {
     try {
       // blobs=true makes the listing carry each LFS file's sha256 and size,
       // so every weight is verified against the publisher's own digest.
-      const listingUrl = `${host}/api/models/${repo}?blobs=true`;
+      const listingUrl = revision
+        ? `${host}/api/models/${repo}/revision/${revision}?blobs=true`
+        : `${host}/api/models/${repo}?blobs=true`;
       safety.assertAllowedUrl(listingUrl);
       const res = await fetch(listingUrl, withHfAuth(listingUrl, { signal }));
       if (!res.ok) {
@@ -1089,13 +1092,28 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
       }
 
       if (source.kind === "hf-repo") {
-        const listing = await hfFiles(source.repo, signal);
+        // A repository FRIDAY pins (electron/voice-pins.cjs) is fetched at its pinned revision, only the
+        // pinned files, each checked against the pinned SHA-256 and size. Any other repository is unchanged.
+        const pin = (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
+        const listing = await hfFiles(source.repo, signal, pin?.revision || "");
         if (!listing.ok) throw new Error(listing.error);
-        const wanted = listing.files.filter((f) =>
+        let wanted = listing.files.filter((f) =>
           /\.(safetensors|onnx|json|model|txt|bin)$/i.test(f),
         );
+        if (pin) {
+          const chosen = voicePins.selectPinned(listing, pin);
+          if (!chosen.ok) throw new Error(`${source.repo}: ${chosen.error}`);
+          wanted = chosen.files;
+          listing.meta = { ...listing.meta, ...chosen.meta };
+        }
         if (!wanted.length) throw new Error(`no weight files in ${source.repo}`);
         const dest = path.join(root, modelId);
+        if (pin) {
+          // Repair: a file with the wrong size is removed here so the loop below fetches it again.
+          const audit = await voicePins.auditDir(dest, pin);
+          const removed = voicePins.removeBad(dest, audit);
+          if (removed.length) onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });
+        }
         const todo = wanted.filter((file) => !fs.existsSync(path.join(dest, file)));
         const sizeOf = (file) => Number(listing.meta?.[file]?.size) || 0;
         let bytes = 0;
@@ -1132,6 +1150,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
               dest,
               python,
               files: hubFiles,
+              ...(pin ? { revision: pin.revision } : {}),
               onProgress: onEvent,
               signal,
             });
@@ -1146,6 +1165,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
                 dest,
                 python,
                 files: hubFiles,
+                ...(pin ? { revision: pin.revision } : {}),
                 onProgress: onEvent,
                 signal,
               });
@@ -1169,8 +1189,9 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         }
         if (engine === "own") {
           const progress = combinedProgress(todo.length, onEvent, todo.map(sizeOf));
+          const ref = pin?.revision || "main";
           const fileUrl = (host, file) =>
-            `${host}/${source.repo}/resolve/main/${encodeURI(file)}?download=true`;
+            `${host}/${source.repo}/resolve/${ref}/${encodeURI(file)}?download=true`;
           const sizes = await mapPool(todo, PARALLEL_FILES, async (file, index) => {
             const row = listing.meta && listing.meta[file] ? listing.meta[file] : {};
             return downloadUrl(fileUrl(listing.host, file), path.join(dest, file), {

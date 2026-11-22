@@ -395,6 +395,7 @@ async function prepareWeights(model, onEvent) {
   return weights.ensureSttWeights(model, paths.root() || "", {
     exists: (file) => fs.existsSync(file),
     downloadModel: require("./model-download.cjs").downloadModel,
+    verify: "size",
     onEvent,
   });
 }

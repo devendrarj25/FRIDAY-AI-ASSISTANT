@@ -1,8 +1,10 @@
 /**
  * Voice weights are fetched here, then the worker opens the folder.
- * The worker does not download. A hash is checked only when one is pinned.
+ * The worker does not download. Every speech size and the neural voice are pinned by revision and
+ * SHA-256 in `voice-pins.cjs`; the downloader enforces the pin and a repair removes only a bad file.
  */
 const path = require("path");
+const pins = require("./voice-pins.cjs");
 
 const STT_REPOS = {
   tiny: "Systran/faster-whisper-tiny",
@@ -23,6 +25,12 @@ const STT_REPOS = {
 const STT_FALLBACK_REPOS = {
   "large-v3-turbo": ["dropbox-dash/faster-whisper-large-v3-turbo"],
 };
+
+/** The neural voice repository; its folder is `<root>/models/supertonic-3`. */
+const TTS_REPO = "Supertone/supertonic-3";
+
+/** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
+const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
 const STT_FILES = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"];
 
@@ -60,6 +68,7 @@ function sttPlan(model, root) {
     dir,
     files: STT_FILES,
     sha256: null,
+    pin: pins.pinForRepo(STT_REPOS[size]),
     sources: [
       { kind: "hf-repo", repo: STT_REPOS[size], label: "Hugging Face" },
       ...(STT_FALLBACK_REPOS[size] || []).map((repo) => ({
@@ -108,16 +117,21 @@ function pinnedJobs() {
 }
 
 /**
- * Supertonic and the speaker file have no single pinned digest here.
- * They are not fetched by the worker. Wake audio ships with the app.
+ * Voices that the speech worker does not download. Supertonic is fetched by the Install Manager at its
+ * pinned revision (`voice-pins.cjs`), not by the worker, so `url` stays null. The speaker file is not
+ * downloaded, and the wake audio ships with the app.
  */
 function otherVoiceJobs() {
+  const tts = pins.pinForRepo(TTS_REPO);
   return [
     {
       id: "supertonic-3",
       sha256: null,
       url: null,
-      reason: "no pinned digest, so the worker does not download it",
+      repo: TTS_REPO,
+      revision: tts.revision,
+      pinned: true,
+      reason: "the Install Manager fetches it at a pinned revision; the worker does not download",
     },
     {
       id: "speaker",
@@ -170,6 +184,12 @@ function voiceModelsOnDisk(root, exists) {
       break;
     }
   }
+  const ear = path.join(root, "models", "hindi-ear");
+  if (
+    Object.keys(pins.pinForRepo(HINDI_EAR_REPO).files).every((name) => check(path.join(ear, name)))
+  ) {
+    found.push({ catalogId: "hindi-ear", path: ear, kind: "stt" });
+  }
   return found;
 }
 
@@ -180,6 +200,75 @@ function downloadTarget(catalogId, root) {
   return size ? { dir: path.join(root, "cache", "stt"), folderId: size } : null;
 }
 
+/** Audit a speech size against its pin. Size always; the SHA-256 too with `hash`. */
+function auditStt(model, root, deps = {}) {
+  const size = sttSize(model);
+  const pin = pins.pinForRepo(STT_REPOS[size]);
+  return pins.auditDir(path.join(root, "cache", "stt", size), pin, deps);
+}
+
+/** Audit the installed neural voice against its pin; null when it is not installed. */
+async function auditTts(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const pin = pins.pinForRepo(TTS_REPO);
+  for (const dir of [
+    path.join(root, "models", "supertonic-3"),
+    path.join(root, "models", "voice", "supertonic-3"),
+  ]) {
+    if (exists(path.join(dir, "onnx", "vocoder.onnx"))) {
+      return { dir, ...(await pins.auditDir(dir, pin, deps)) };
+    }
+  }
+  return null;
+}
+
+/**
+ * One row per installed voice model for the voice check: does it match its pin?
+ * A speech size is listed only when it is on disk. `hash` also verifies every SHA-256.
+ */
+async function pinChecks(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const rows = [];
+  const describe = (audit) =>
+    audit.ok
+      ? `${audit.checked} files match the pinned revision${audit.hashed ? " and SHA-256" : " and size"}`
+      : [
+          ...audit.missing.map((name) => `${name} missing`),
+          ...audit.wrongSize.map((name) => `${name} wrong size`),
+          ...audit.wrongDigest.map((name) => `${name} fails SHA-256`),
+        ].join(", ");
+  for (const size of installedSizes(root, exists)) {
+    const audit = await auditStt(size, root, deps);
+    rows.push({
+      id: `stt-pin-${size}`,
+      label: `speech ${size} matches its pin`,
+      ok: audit.ok,
+      detail: describe(audit),
+    });
+  }
+  const earDir = path.join(root, "models", "hindi-ear");
+  const earPin = pins.pinForRepo(HINDI_EAR_REPO);
+  if (Object.keys(earPin.files).every((name) => exists(path.join(earDir, name)))) {
+    const ear = await pins.auditDir(earDir, earPin, deps);
+    rows.push({
+      id: "hindi-ear-pin",
+      label: "Hindi ear matches its pin",
+      ok: ear.ok,
+      detail: describe(ear),
+    });
+  }
+  const tts = await auditTts(root, { ...deps, exists });
+  if (tts) {
+    rows.push({
+      id: "tts-pin",
+      label: "neural voice matches its pin",
+      ok: tts.ok,
+      detail: describe(tts),
+    });
+  }
+  return rows;
+}
+
 async function ensureSttWeights(model, root, deps = {}) {
   const plan = sttPlan(model, root);
   plan.skipped = otherVoiceJobs().map((row) => row.id);
@@ -187,12 +276,23 @@ async function ensureSttWeights(model, root, deps = {}) {
   const exists = deps.exists || (() => false);
   if (!root)
     return { ok: false, cause: "path", error: "no FRIDAY folder is selected", dir: plan.dir };
-  if (weightsReady(plan.dir, exists)) return { ok: true, dir: plan.dir, downloaded: false, plan };
+  // `verify: "size"` or `"hash"` checks the folder against its pin; a damaged or missing file is removed
+  // (only that file) and fetched again, so a half-written or tampered weight never reaches the worker.
+  const verify = deps.verify === "hash" ? "hash" : deps.verify === "size" ? "size" : "";
+  let repaired = [];
+  if (weightsReady(plan.dir, exists)) {
+    if (!verify || !plan.pin) return { ok: true, dir: plan.dir, downloaded: false, plan };
+    const audit = await pins.auditDir(plan.dir, plan.pin, { ...deps, hash: verify === "hash" });
+    if (audit.ok) return { ok: true, dir: plan.dir, downloaded: false, plan, verified: verify };
+    repaired = pins.removeBad(plan.dir, audit, deps.remove);
+  }
   if (typeof deps.downloadModel !== "function") {
     return {
       ok: false,
-      cause: "downloading",
-      error: "speech weights are not on disk and the downloader is unavailable",
+      cause: repaired.length ? "checksum" : "downloading",
+      error: repaired.length
+        ? `speech weights failed their pin (${repaired.join(", ")}) and the downloader is unavailable`
+        : "speech weights are not on disk and the downloader is unavailable",
       dir: plan.dir,
       plan,
     };
@@ -206,6 +306,11 @@ async function ensureSttWeights(model, root, deps = {}) {
     deps.onEvent,
     deps.signal,
   );
+  if (!result?.ok && !repaired.length && weightsReady(plan.dir, exists)) {
+    // Nothing was damaged: a pinned file was only missing (a vocabulary or preprocessor file) and the
+    // network is not there. The weights that opened before still open; this is not a reason to go silent.
+    return { ok: true, dir: plan.dir, downloaded: false, plan, unverified: true };
+  }
   if (!result?.ok) {
     return {
       ok: false,
@@ -224,7 +329,19 @@ async function ensureSttWeights(model, root, deps = {}) {
       plan,
     };
   }
-  return { ok: true, dir: plan.dir, downloaded: true, plan };
+  if (verify && plan.pin) {
+    const after = await pins.auditDir(plan.dir, plan.pin, { ...deps, hash: verify === "hash" });
+    if (!after.ok) {
+      return {
+        ok: false,
+        cause: "checksum",
+        error: `the speech weights do not match their pin (${[...after.missing, ...after.wrongSize, ...after.wrongDigest].join(", ")})`,
+        dir: plan.dir,
+        plan,
+      };
+    }
+  }
+  return { ok: true, dir: plan.dir, downloaded: true, plan, repaired };
 }
 
 module.exports = {
@@ -241,4 +358,9 @@ module.exports = {
   pinnedJobs,
   otherVoiceJobs,
   ensureSttWeights,
+  auditStt,
+  auditTts,
+  pinChecks,
+  TTS_REPO,
+  HINDI_EAR_REPO,
 };

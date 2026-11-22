@@ -45,3 +45,17 @@ def test_models_are_ranked_by_error_with_failures_counted_not_hidden(tmp_path):
     assert [r["model"] for r in out] == ["small", "tiny", "broken"]
     assert out[0]["wer"] == 0 and out[1]["wer"] > 0
     assert out[2]["wer"] is None and out[2]["failed"] == 2 and out[2]["scored"] == 0
+
+
+def test_the_shared_text_fixture_agrees_with_the_hand_set_edit_counts():
+    import json
+
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[2] / "core" / "fixtures" / "voice-wer-cases.json").read_text(encoding="utf-8")
+    )
+    assert len(fixture["cases"]) >= 24
+    for case in fixture["cases"]:
+        words = len(stt_bench.normalise(case["reference"]).split())
+        assert words == case["refWords"], case["id"]
+        got = stt_bench.wer(case["reference"], case["hypothesis"]) * words
+        assert round(got) == case["wordEdits"], case["id"]
