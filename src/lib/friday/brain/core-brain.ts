@@ -42,7 +42,10 @@ import {
   formulateQueries,
 } from "./research";
 import { experiences } from "../self/task-ledger";
+import { finishAnswer, recordAnswer } from "./answer-ledger";
+import { noteCardAnswer, noteLedgerTurn, watchLearnedAnswer } from "./intent-memory";
 import { considerMemory, looksSensitive } from "./memory-policy";
+import { modelRegistry as brainModelRegistry } from "./model-registry";
 import { shouldWriteLessons } from "../settings-runtime";
 import { brainKnowledge } from "./knowledge-base";
 import { walkOpsChain, localNeighborhood, inferMultiHop } from "./knowledge-graph";
@@ -235,6 +238,8 @@ export type Cognition = {
    * from the card and leave the model idle.
    */
   localMind?: LocalMindDecision;
+  /** Answer-ledger entry of this turn, settled with the model that really answered. */
+  ledgerId?: number;
 };
 
 export type Verification = {
@@ -267,6 +272,10 @@ const EMPTY: CoreBrainState = {
 
 let seq = 0;
 const newTaskId = () => `brain-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
+
+/** True only when every model on the route is local; an empty or mixed route is not. */
+const routeIsLocal = (ids: string[]): boolean =>
+  ids.length > 0 && ids.every((id) => brainModelRegistry.get(id)?.kind === "local");
 
 /** Coarse task kind — the key the brain learns routing quality against. */
 export function taskKind(prompt: string): string {
@@ -1522,13 +1531,46 @@ class CoreBrain {
       appliedToPolicy: false,
       omittedChars: 0,
     };
+    let ledgerId: number | undefined;
     try {
+      // A correction, or the same ask again, right after a saved answer lowers that card first.
+      const lowered = watchLearnedAnswer({ prompt, learn: autoLearn });
+      if (lowered) notes.push(`local mind: a saved answer was ${lowered} after your follow-up`);
       localMind = consultLocalMind({
         prompt,
         blocked,
         sensitive,
         ...(options.history ? { history: options.history } : {}),
       });
+      noteCardAnswer({
+        prompt,
+        cardId: localMind.skipModel ? localMind.cardId : null,
+        learn: autoLearn,
+      });
+      const gate = localMind.gate;
+      if (gate) {
+        const pct = (value: number) => Math.round(value * 100);
+        notes.push(
+          `brain-first gate: ${gate.skippedModel ? "answered by saved card" : "model kept"} (score ${pct(gate.score)}% of ${pct(gate.threshold)}% needed; ${gate.reason})`,
+        );
+        // The server is not known yet: only an all-local route is called local. finishAnswer settles it.
+        ledgerId = recordAnswer({
+          kind,
+          source: gate.skippedModel
+            ? "learned-card"
+            : routeIsLocal(modelIds)
+              ? "local-model"
+              : "unknown-model",
+          escalated: !gate.skippedModel,
+          confidence: localMind.confidence,
+          tier: sensitive ? "SENSITIVE" : "STANDARD",
+        });
+        noteLedgerTurn({ prompt, id: ledgerId, learn: autoLearn });
+        stage?.(
+          "thinking.cognition",
+          `brain-first gate: score ${pct(gate.score)}% / ${pct(gate.threshold)}% · ${gate.reason} · model ${gate.skippedModel ? "skipped" : "kept"}`,
+        );
+      }
       if (localMind.skipModel && localMind.cardId) {
         commitLocalAnswer(localMind.cardId, dispatch.system.length + prompt.length);
         notes.push("local mind: FRIDAY answers from what she already learned; model stays idle");
@@ -1592,6 +1634,7 @@ class CoreBrain {
       reasoningEffort: reasoningEffortFor(classified.action, depthPlan.depth),
       ...(control ? { control } : {}),
       localMind,
+      ...(ledgerId !== undefined ? { ledgerId } : {}),
       ...(meta ? { meta } : {}),
       ...(reasoning
         ? {
@@ -1638,8 +1681,36 @@ class CoreBrain {
         ms: Math.round((stat.ms * stat.runs + (answer.ms ?? 0)) / (stat.runs + 1)),
       };
     }
+    this.settleLedger(cognition, result.winner);
     this.emit();
     return result;
+  }
+
+  /**
+   * Settle this turn's ledger entry with the model that answered. With no served model the entry
+   * becomes local only when the whole route was local, else unknown: never guessed cloud or local.
+   */
+  settleLedger(cognition: Cognition, servedModelId?: string | null): void {
+    if (cognition.ledgerId === undefined) return;
+    const tier = looksSensitive(cognition.prompt) ? "SENSITIVE" : "STANDARD";
+    const record = servedModelId ? brainModelRegistry.get(servedModelId) : undefined;
+    if (!record) {
+      finishAnswer(cognition.ledgerId, {
+        source: routeIsLocal(cognition.modelIds) ? "local-model" : "unknown-model",
+        tier,
+      });
+      return;
+    }
+    if (record.kind === "local") {
+      finishAnswer(cognition.ledgerId, { source: "local-model", tier });
+      return;
+    }
+    finishAnswer(cognition.ledgerId, {
+      source: "cloud",
+      tier,
+      paid: record.cost === "metered",
+      paidApproved: allowedModelIds([record.id]).length > 0,
+    });
   }
 
   /** Strips a foreign engine identity from any single answer. */
@@ -1774,9 +1845,12 @@ class CoreBrain {
     error?: string;
     /** Personality → Learn from conversations. Default follows cognition.autoLearn. */
     learn?: boolean;
+    /** The model that actually answered, when the caller knows it. */
+    servedModelId?: string;
   }): Verification {
     this.load();
     const { cognition } = input;
+    this.settleLedger(cognition, input.servedModelId);
     const ms = input.ms ?? Date.now() - cognition.startedAt;
     const verification = this.verify(cognition, input.answer, input.ok, input.error);
     const kind = taskKind(cognition.prompt);

@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import {
+  listLedger,
+  recordAnswer,
+  resetAnswerLedger,
+} from "../../src/lib/friday/brain/answer-ledger";
 import { analyseIntent } from "../../src/lib/friday/brain-catalog";
 import { baselineRespond } from "../../src/lib/friday/brain/baseline-responder";
 import { resetConversationSession } from "../../src/lib/friday/brain/conversation-state";
@@ -7,15 +12,24 @@ import {
   calibrate,
   calibrationTable,
   describeIntentMemory,
+  noteLedgerTurn,
   expandShortcut,
   listPhrasings,
+  noteCardAnswer,
   noteOutcome,
   parseShortcutTeaching,
   phraseSimilarity,
   recallPhrasing,
   resetIntentMemory,
+  resetLearnedCardWatch,
   teachShortcut,
+  watchLearnedAnswer,
 } from "../../src/lib/friday/brain/intent-memory";
+import {
+  consultLocalMind,
+  distillLocalAnswer,
+  resetLocalMind,
+} from "../../src/lib/friday/brain/local-mind";
 import { impliedRequest, resetSlotMemory } from "../../src/lib/friday/brain/slot-understanding";
 
 beforeEach(() => {
@@ -220,5 +234,104 @@ describe("paraphrases that letters cannot see", () => {
   it("a taught shortcut is found by its meaning, not only its spelling", () => {
     teachShortcut("subah ka email dikhao", "gmail kholo aur inbox dikhao");
     expect(expandShortcut("morning mail show karo")?.expansion).toMatch(/gmail/);
+  });
+});
+
+describe("a saved answer only goes down after a correction or an immediate repeat", () => {
+  const ASK = "how does friday pack a cognitive context packet for a turn";
+  const teach = () => {
+    resetLocalMind();
+    resetLearnedCardWatch();
+    return distillLocalAnswer({
+      prompt: ASK,
+      answer:
+        "FRIDAY keeps the full chat on this PC and sends the model only the lines this turn needs.",
+      now: 1,
+    }).card!;
+  };
+  const answerFromCard = (cardId: string, learn = true) => {
+    watchLearnedAnswer({ prompt: ASK, learn });
+    noteCardAnswer({ prompt: ASK, cardId, learn });
+  };
+
+  it("an explicit correction lowers the card so the model answers again", () => {
+    const card = teach();
+    answerFromCard(card.id);
+    expect(watchLearnedAnswer({ prompt: "that's wrong, galat hai", learn: true })).toBe("lowered");
+    expect(consultLocalMind({ prompt: ASK }).skipModel).toBe(false);
+    expect(card.appliedToPolicy).toBe(false);
+  });
+
+  it("the same ask repeated at once lowers it too; an unrelated next turn does not", () => {
+    const card = teach();
+    answerFromCard(card.id);
+    expect(watchLearnedAnswer({ prompt: "thanks, what time is it", learn: true })).toBeNull();
+    expect(consultLocalMind({ prompt: ASK }).skipModel).toBe(true);
+    answerFromCard(card.id);
+    expect(watchLearnedAnswer({ prompt: ASK, learn: true })).toBe("lowered");
+    expect(consultLocalMind({ prompt: ASK }).skipModel).toBe(false);
+  });
+
+  it("does nothing when learning is off, and never watches sensitive text", () => {
+    const card = teach();
+    answerFromCard(card.id, false);
+    expect(watchLearnedAnswer({ prompt: "that's wrong", learn: false })).toBeNull();
+    expect(consultLocalMind({ prompt: ASK }).skipModel).toBe(true);
+    noteCardAnswer({ prompt: "my password is hunter2 for the bank", cardId: card.id, learn: true });
+    expect(
+      watchLearnedAnswer({ prompt: "my password is hunter2 for the bank", learn: true }),
+    ).toBeNull();
+    expect(consultLocalMind({ prompt: ASK }).skipModel).toBe(true);
+  });
+});
+
+describe("the ledger outcome follows the owner's next message", () => {
+  const AT = 1_700_000_000_000;
+  const turn = (prompt: string) => {
+    const id = recordAnswer({
+      kind: "chat",
+      source: "local-model",
+      escalated: true,
+      confidence: 0.6,
+      tier: "STANDARD",
+      at: AT,
+    });
+    noteLedgerTurn({ prompt, id, learn: true });
+    return id;
+  };
+  const outcome = (id: number) => listLedger().find((row) => row.id === id)?.outcome;
+
+  beforeEach(() => {
+    resetAnswerLedger();
+    resetLearnedCardWatch();
+  });
+
+  it("a correction marks the previous turn corrected", () => {
+    const id = turn("what is the capital of australia");
+    watchLearnedAnswer({ prompt: "no, i meant the state capital", learn: true });
+    expect(outcome(id)).toBe("corrected");
+  });
+
+  it("the same ask again marks it corrected", () => {
+    const id = turn("how do i pack a context packet");
+    watchLearnedAnswer({ prompt: "How do I pack a context packet?", learn: true });
+    expect(outcome(id)).toBe("corrected");
+  });
+
+  it("a new unrelated ask marks it confirmed (a weak proxy), and only once", () => {
+    const id = turn("how do i pack a context packet");
+    watchLearnedAnswer({ prompt: "play some music", learn: true });
+    expect(outcome(id)).toBe("confirmed");
+    watchLearnedAnswer({ prompt: "galat hai", learn: true });
+    expect(outcome(id)).toBe("confirmed");
+  });
+
+  it("leaves the outcome unknown when learning is off or the text is sensitive", () => {
+    const id = turn("how do i pack a context packet");
+    watchLearnedAnswer({ prompt: "play some music", learn: false });
+    expect(outcome(id)).toBe("unknown");
+    const second = turn("how do i pack a context packet");
+    watchLearnedAnswer({ prompt: "my password is hunter2", learn: true });
+    expect(outcome(second)).toBe("unknown");
   });
 });

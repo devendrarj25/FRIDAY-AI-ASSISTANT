@@ -7,6 +7,21 @@
  */
 import type { VoiceTurn } from "../voice-turn-trace";
 
+/** First sound should follow the end of speech within this many ms. */
+export const LATENCY_BUDGET_MS = 800;
+/** The stages that add up to first sound, in the order a turn meets them. */
+export const BUDGET_STAGES = ["eou", "finalAsr", "llmFirstToken", "ttsFirstByte"] as const;
+export type BudgetStage = (typeof BUDGET_STAGES)[number];
+export type BudgetTurn = Partial<Record<BudgetStage | "firstSound", number>>;
+export type BudgetVerdict = {
+  budgetMs: number;
+  turns: number;
+  firstSound: LatencySummary | null;
+  stages: Partial<Record<BudgetStage, LatencySummary>>;
+  biggestStage: BudgetStage | null;
+  verdict: "unmeasured" | "within" | "slow-tail" | "over";
+};
+
 export type LatencySummary = { count: number; p50: number; p95: number; last: number; max: number };
 
 const MAX_SAMPLES = 100;
@@ -72,6 +87,46 @@ export class LatencyMonitor {
     this.samples.clear();
   }
 
+  /** Record the per-turn budget stages (see `StageClock.budgetTurn`). Absent stages add no sample. */
+  recordBudget(turn: BudgetTurn): void {
+    for (const [name, ms] of Object.entries(turn)) {
+      if (typeof ms === "number") this.record(`budget.${name}`, ms);
+    }
+  }
+
+  /**
+   * Is first sound inside the budget? Judged on the turns kept: within when the slow end (p95) fits, slow-tail when
+   * only the typical turn (p50) fits, over otherwise. The biggest stage is the budget stage with the highest typical
+   * time, so the fix is aimed at it. Nothing measured gives no verdict.
+   */
+  budgetVerdict(budgetMs = LATENCY_BUDGET_MS): BudgetVerdict {
+    const total = this.summary("budget.firstSound");
+    const stages: BudgetVerdict["stages"] = {};
+    let biggest: BudgetStage | null = null;
+    for (const name of BUDGET_STAGES) {
+      const s = this.summary(`budget.${name}`);
+      if (!s) continue;
+      stages[name] = s;
+      const top = biggest ? stages[biggest] : undefined;
+      if (!top || s.p50 > top.p50) biggest = name;
+    }
+    const verdict: BudgetVerdict["verdict"] = !total
+      ? "unmeasured"
+      : total.p95 <= budgetMs
+        ? "within"
+        : total.p50 <= budgetMs
+          ? "slow-tail"
+          : "over";
+    return {
+      budgetMs,
+      turns: total?.count ?? 0,
+      firstSound: total,
+      stages,
+      biggestStage: biggest,
+      verdict,
+    };
+  }
+
   /** One plain line, or a statement that nothing was measured. */
   line(metric = "heardToSpoken"): string {
     const s = this.summary(metric);
@@ -86,6 +141,8 @@ export const voiceLatency = new LatencyMonitor();
 /** The stages one spoken turn passes through, in the order a turn meets them. Each is stamped at most once. */
 export const VOICE_STAGES = [
   "micSpeechStart",
+  "micSpeechEnd",
+  "endpointConfirmed",
   "wakeDetected",
   "sttAudioFirstSent",
   "sttPartialFirstReceived",
@@ -148,9 +205,32 @@ export class StageClock {
     return out;
   }
 
+  /**
+   * The budget stages of this turn, only for stamps that exist: eou (speech end to endpoint confirmed), finalAsr
+   * (endpoint to final transcript), llmFirstToken, ttsFirstByte, and firstSound (speech end to first audible sample).
+   */
+  budgetTurn(): BudgetTurn {
+    const span = (from: VoiceStage, to: VoiceStage): number | undefined => {
+      const a = this.stamps.get(from);
+      const b = this.stamps.get(to);
+      return a !== undefined && b !== undefined && b >= a ? Math.round(b - a) : undefined;
+    };
+    const out: BudgetTurn = {};
+    const set = (name: keyof BudgetTurn, ms: number | undefined) => {
+      if (ms !== undefined) out[name] = ms;
+    };
+    set("eou", span("micSpeechEnd", "endpointConfirmed"));
+    set("finalAsr", span("endpointConfirmed", "sttFinalReceived"));
+    set("llmFirstToken", span("brainRequestStarted", "brainFirstToken"));
+    set("ttsFirstByte", span("ttsRequestStarted", "ttsFirstAudioReceived"));
+    set("firstSound", span("micSpeechEnd", "playbackFirstSample"));
+    return out;
+  }
+
   finish(monitor: LatencyMonitor = voiceLatency): Record<string, number> {
     const out = this.durations();
     for (const [name, ms] of Object.entries(out)) monitor.record(name, ms);
+    monitor.recordBudget(this.budgetTurn());
     return out;
   }
 

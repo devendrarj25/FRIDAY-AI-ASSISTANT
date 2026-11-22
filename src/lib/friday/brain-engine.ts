@@ -806,6 +806,7 @@ class BrainStore {
   private lastUpdateCheckAt = 0;
   private updateWatch: ReturnType<typeof setInterval> | null = null;
   /** Per-engine stream buffers for the active run, used to reconcile answers. */
+  private servedModelIds = new Map<string, string>();
   private streamBuffers = new Map<string, { text: string; at: number }>();
   /** Runs that already used their single verification-repair retry. */
   private repairedRuns = new Set<string>();
@@ -1062,6 +1063,7 @@ class BrainStore {
       const waiting = run.trace?.some(
         (step) => step.nodeId === "router.select" && step.state === "running",
       );
+      if (event.modelId) this.servedModelIds.set(run.id, event.modelId);
       if (waiting) {
         this.finishTurnStep(run, "done", `first token from ${event.modelId ?? "selected model"}`);
       }
@@ -3169,14 +3171,17 @@ class BrainStore {
     // and record which engine actually earned the routing for this task kind.
     if (this.lastCognition?.runId === run.id) {
       const tVerify = Date.now();
+      const servedModelId = this.servedModelIds.get(run.id);
       const verification = coreBrain.reflect({
         cognition: this.lastCognition.cognition,
         answer: run.answer,
         ok,
         ms,
         learn: this.state.settings.autoLearn,
+        ...(servedModelId ? { servedModelId } : {}),
         ...(error ? { error } : {}),
       });
+      this.servedModelIds.delete(run.id);
       this.push(verification.ok ? "ok" : "warn", `verification — ${verification.detail}`);
       this.recordDoneTurn(run, "verify.answer", verification.detail, Date.now() - tVerify);
       this.lastCognition = null;

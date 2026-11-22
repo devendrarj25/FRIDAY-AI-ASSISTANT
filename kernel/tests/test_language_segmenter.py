@@ -218,5 +218,33 @@ class VoiceStyleTests(unittest.TestCase):
         self.assertEqual(asked, ["F3", "F5", voice_runtime.SUPERTONIC_VOICE, voice_runtime.SUPERTONIC_VOICE])
 
 
+class ScriptPolicyTests(unittest.TestCase):
+    """The script policy matches the shared Hinglish fixtures that the TypeScript test reads too."""
+
+    FIXTURE = Path(__file__).resolve().parents[2] / "core" / "fixtures" / "voice-hinglish-script.json"
+
+    def test_every_fixture_matches_the_shared_expectation(self) -> None:
+        import json
+
+        data = json.loads(self.FIXTURE.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(data["cases"]), 40)
+        for case in data["cases"]:
+            with self.subTest(case["input"]):
+                self.assertEqual(seg.script_policy(case["input"], data["requested"]), case["expected"])
+
+    def test_roman_hindi_is_reported_never_transliterated(self) -> None:
+        p = seg.script_policy("mujhe chai chahiye")
+        self.assertTrue(p["romanHindi"])
+        self.assertEqual(p["segments"][0]["script"], "roman-hindi")
+        self.assertEqual(p["text"], "mujhe chai chahiye")
+        self.assertNotRegex(str(p), "[\u0900-\u097f]")
+
+    def test_mixed_text_is_kept_as_spoken(self) -> None:
+        p = seg.script_policy("Chrome खोलो और report भेजो")
+        self.assertEqual((p["lang"], p["text"]), ("mixed", "Chrome खोलो और report भेजो"))
+        self.assertFalse(seg.script_policy("The main thing is to do it")["romanHindi"])
+        self.assertEqual(seg.script_policy("", "hi-IN")["lang"], "hi")
+
+
 if __name__ == "__main__":
     unittest.main()

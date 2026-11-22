@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import { assistantMode } from "@/lib/friday/assistant-mode";
+import { assistantMode, voiceBudgetLine } from "@/lib/friday/assistant-mode";
 import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
 import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
@@ -152,6 +152,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       label: "turn latency (heard to spoken)",
       value: voiceLatency.line(),
     },
+    { label: "Voice latency budget (speech end to first sound)", value: voiceBudgetLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
     {
       label: "barge-in shadow (acoustic detector vs the live pause)",

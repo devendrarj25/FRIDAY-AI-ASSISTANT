@@ -135,3 +135,70 @@ def dominant_lang(text: str, requested: str = "") -> str:
         return "hi" if deva >= latin else "en"
     raw = (requested or "").lower().replace("_", "-")
     return "hi" if raw.startswith("hi") else "en"
+
+
+# ---- Transcript script policy (mirror of `scriptPolicy` in language-segmenter.ts) ----
+
+# A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter.
+_POLICY_WORD = re.compile("[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*")
+_POLICY_BREAK = re.compile("(?<=[.!?।॥])\\s+|\\s*\\n+\\s*")
+_APOSTROPHE_TAIL = re.compile("['’].*$")
+
+
+def _roman_key(word: str) -> str:
+    return _APOSTROPHE_TAIL.sub("", word.lower())
+
+
+def _is_roman_hindi(latin: list[str]) -> bool:
+    """Roman Hindi: at least two common Hindi words, and they are half or more of the Latin words."""
+    hits = sum(1 for w in latin if _roman_key(w) in _ROMAN_HINDI)
+    return hits >= 2 and hits * 2 >= len(latin)
+
+
+def script_policy(text: str, requested: str = "") -> dict:
+    """Script policy for a transcript, as plain data (same keys and values as the TypeScript ``scriptPolicy``).
+
+    Hindi stays in Devanagari, English words and names stay in Latin, and the text is returned as spoken. Each
+    segment (a sentence) is tagged ``hi``, ``en`` or ``mixed``. Hindi written in Latin letters is never turned into
+    Devanagari without a model: it is reported as ``roman-hindi`` so speech or recognition can decide.
+    """
+    cleaned = (text or "").strip()
+    raw = (requested or "").lower().replace("_", "-")
+    fallback = "hi" if raw.startswith("hi") else "en"
+    segments: list[dict] = []
+    for piece in _POLICY_BREAK.split(cleaned) if cleaned else []:
+        seg = piece.strip()
+        if not seg:
+            continue
+        found = _POLICY_WORD.findall(seg)
+        latin = [w for w in found if _LATIN.search(w)]
+        roman = bool(latin) and _is_roman_hindi(latin)
+        words = []
+        for w in found:
+            if _DEVANAGARI.search(w) and not re.search("[०-९]", w):
+                words.append({"text": w, "kind": "hi"})
+            elif _LATIN.search(w):
+                hindi = roman and _roman_key(w) in _ROMAN_HINDI
+                words.append({"text": w, "kind": "roman-hindi" if hindi else "en"})
+            else:
+                words.append({"text": w, "kind": "number"})
+        has_hi = any(w["kind"] == "hi" for w in words)
+        has_en = any(w["kind"] in ("en", "roman-hindi") for w in words)
+        lang = "mixed" if has_hi and has_en else "hi" if has_hi else "en" if has_en else fallback
+        if has_hi and has_en:
+            script = "mixed"
+        elif has_hi:
+            script = "devanagari"
+        elif roman:
+            script = "roman-hindi"
+        elif has_en:
+            script = "latin"
+        else:
+            script = "neutral"
+        segments.append({"text": seg, "lang": lang, "script": script, "words": words})
+    langs = {s["lang"] for s in segments}
+    lang = "mixed" if len(langs) > 1 or "mixed" in langs else (segments[0]["lang"] if segments else fallback)
+    roman_any = any(
+        s["script"] == "roman-hindi" or any(w["kind"] == "roman-hindi" for w in s["words"]) for s in segments
+    )
+    return {"text": cleaned, "lang": lang, "romanHindi": roman_any, "segments": segments}

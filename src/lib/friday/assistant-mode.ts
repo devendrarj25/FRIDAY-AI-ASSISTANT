@@ -76,7 +76,7 @@ import { registerVoiceHealth, registerVoiceRepair } from "./voice-health";
 import { preferences } from "./preferences";
 import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
 import { createStreamingSpeak } from "./voice-engine/streaming-speak";
-import { StageClock } from "./voice-engine/latency-monitor";
+import { StageClock, voiceLatency } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
 import { SoakRecorder } from "./voice-engine/soak-recorder";
@@ -448,6 +448,49 @@ function heapMegabytes(): number | null {
 
 type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[0]["onFinal"]>[1];
 
+/**
+ * The mic reports end of speech only once the endpoint hold has run out, so the speech end is the confirm time minus
+ * that hold (never before the speech start). The confirm time is the moment the clip is handed to recognition.
+ */
+export function stampEndpoint(
+  clock: StageClock,
+  holdMs: number,
+  now: number = performance.now(),
+): void {
+  const start = clock.at("micSpeechStart");
+  const end = now - Math.max(0, holdMs);
+  clock.mark("micSpeechEnd", start === null ? end : Math.max(start, end));
+  clock.mark("endpointConfirmed", now);
+}
+
+/** Record the budget stages of the turn once its first sound is stamped. Returns whether anything was recorded. */
+export function recordTurnBudget(clock: StageClock, monitor = voiceLatency): boolean {
+  const turn = clock.budgetTurn();
+  if (turn.firstSound === undefined) return false;
+  monitor.recordBudget(turn);
+  return true;
+}
+
+/** One honest line for the diagnostics row: speech end to first sound against the budget, and the biggest stage. */
+export function voiceBudgetLine(monitor = voiceLatency): string {
+  const v = monitor.budgetVerdict();
+  if (v.verdict === "unmeasured" || !v.firstSound) return "no voice turn measured yet";
+  const words = {
+    within: "within budget",
+    "slow-tail": "typical turn fits, slow end is over budget",
+    over: "over budget",
+  }[v.verdict];
+  const biggest = v.biggestStage ? `, biggest stage ${v.biggestStage}` : "";
+  return `${v.firstSound.p50} ms typical, ${v.firstSound.p95} ms slow end of ${v.budgetMs} ms (${v.turns} turns), ${words}${biggest}`;
+}
+
+/** Record only the named stage gaps (the budget was already recorded for this turn). */
+function recordGapsOnly(clock: StageClock, monitor = voiceLatency): Record<string, number> {
+  const out = clock.durations();
+  for (const [name, ms] of Object.entries(out)) monitor.record(name, ms);
+  return out;
+}
+
 class AssistantModeStore {
   private listeners = new Set<() => void>();
   /** On-device transcription is Auto Mode's only recognition engine. */
@@ -546,6 +589,7 @@ class AssistantModeStore {
   private audit: VoiceAudit[] = [];
   /** Named stamps of this turn (speech start, speech requested, first sound) and of an interruption. */
   private turnStages = new StageClock();
+  private budgetRecorded = false;
   private interruptStages = new StageClock();
   private turnClock = {
     heardAt: null as number | null,
@@ -2062,6 +2106,18 @@ class AssistantModeStore {
     this.emit();
   }
 
+  /** How long the mic stays quiet before the turn gate confirms the end of the utterance. */
+  private endpointHoldMs(): number {
+    const open = Date.now() < this.awakeUntil || this.state.handsFree;
+    const base = endpointSilenceMs(open, this.state.interim);
+    return realtimeSilenceMs(
+      base,
+      this.realtimeActive(),
+      open,
+      utteranceIncomplete(this.state.interim),
+    );
+  }
+
   private startDesktopDictation() {
     void refreshVoiceProfile();
     this.stopWakeOnly();
@@ -2072,16 +2128,7 @@ class AssistantModeStore {
       language: preferences.getSnapshot().voice.recognitionLang || "hi-IN",
       deviceId: preferences.getSnapshot().voice.inputDeviceId || null,
       localOnly: true,
-      silenceMs: () => {
-        const open = Date.now() < this.awakeUntil || this.state.handsFree;
-        const base = endpointSilenceMs(open, this.state.interim);
-        return realtimeSilenceMs(
-          base,
-          this.realtimeActive(),
-          open,
-          utteranceIncomplete(this.state.interim),
-        );
-      },
+      silenceMs: () => this.endpointHoldMs(),
       initialPrompt: () => {
         const voice = preferences.getSnapshot().voice;
         return sttInitialPrompt({
@@ -2099,7 +2146,11 @@ class AssistantModeStore {
       voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
-        const finished = this.turnStages.finish();
+        // A turn whose budget was already recorded at its first sound adds only its stage gaps here.
+        const finished = this.budgetRecorded
+          ? recordGapsOnly(this.turnStages)
+          : this.turnStages.finish();
+        this.budgetRecorded = false;
         if (Object.keys(finished).length)
           this.soak.turn(Date.now(), finished["firstAudible"] ?? null);
         this.turnStages.reset();
@@ -2192,6 +2243,8 @@ class AssistantModeStore {
           this.trace("segment", "local text held for the Sarvam sentence");
       },
       onStateChange: (listening) => {
+        // "thinking" is the moment the endpoint hold ran out and the clip was sent: no new timer.
+        if (listening === "thinking") stampEndpoint(this.turnStages, this.endpointHoldMs());
         if (listening === "listening") {
           this.soak.recovered();
           this.to("mic-opened");
@@ -4187,6 +4240,7 @@ class AssistantModeStore {
       onStart: () => {
         if (gen !== this.speechGen) return;
         this.turnStages.mark("playbackFirstSample");
+        if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
         this.bargeDetector.playbackStarted(performance.now());
         this.echoUntil = Date.now() + 120_000;
         if (this.to("tts-start")) this.pauseForSpeech();

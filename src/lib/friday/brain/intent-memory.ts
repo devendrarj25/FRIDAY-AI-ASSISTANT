@@ -17,6 +17,9 @@
  */
 
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
+import { noteAnswerOutcome } from "./answer-ledger";
+import { lowerLocalCard } from "./local-mind";
+import { looksSensitive } from "./memory-policy";
 
 const KEY = "friday.brain.intent-memory.v1";
 const MAX_EXEMPLARS = 300;
@@ -335,4 +338,71 @@ export function describeIntentMemory(): string {
       : "I haven't tracked how often my confidence was right yet.",
   );
   return lines.join("\n");
+}
+
+/* ------------------------------------------------- learned cards, downward */
+
+const CORRECTION =
+  /\b(no,? (i meant|not that)|that'?s (wrong|not (right|correct))|galat(?: hai)?|ye galat|nahi,? wo nahi|you'?re wrong|incorrect)\b/i;
+
+/** The last turn a saved card answered. Kept in memory only, as a normalised phrase and a card id. */
+let lastCardTurn: { norm: string; cardId: string } | null = null;
+
+/** The last turn written to the answer ledger: its id and normalised ask, in memory only. */
+let lastLedgerTurn: { norm: string; id: number } | null = null;
+
+export function resetLearnedCardWatch(): void {
+  lastCardTurn = null;
+  lastLedgerTurn = null;
+}
+
+/** Call after a turn is recorded in the ledger, so the next message can settle its outcome. */
+export function noteLedgerTurn(turn: { prompt: string; id: number; learn: boolean }): void {
+  const norm = normalisePhrase(turn.prompt);
+  lastLedgerTurn =
+    turn.learn && norm && !looksSensitive(turn.prompt) ? { norm, id: turn.id } : null;
+}
+
+/**
+ * Call before the local mind is consulted. When the previous turn was answered from a saved
+ * card and this message corrects it, or asks the same thing again word for word, that card
+ * is lowered (and retired when it falls far enough). It can only go down. Nothing happens
+ * when learning is off, and sensitive text is never watched.
+ */
+export function watchLearnedAnswer(turn: {
+  prompt: string;
+  learn: boolean;
+}): "lowered" | "retired" | null {
+  const previous = lastCardTurn;
+  const ledgerTurn = lastLedgerTurn;
+  if (!turn.learn || looksSensitive(turn.prompt)) return null;
+  lastCardTurn = null;
+  lastLedgerTurn = null;
+  const norm = normalisePhrase(turn.prompt);
+  // A correction or the same ask again marks the previous turn corrected. A new, unrelated ask
+  // marks it confirmed: only a weak proxy (the owner moved on), so it stays off any precision claim.
+  if (ledgerTurn) {
+    const again = norm === ledgerTurn.norm || CORRECTION.test(turn.prompt);
+    noteAnswerOutcome(ledgerTurn.id, again ? "corrected" : "confirmed");
+  }
+  if (!previous) return null;
+  const repeated = norm === previous.norm;
+  if (!repeated && !CORRECTION.test(turn.prompt)) {
+    return null;
+  }
+  const result = lowerLocalCard(previous.cardId);
+  return result === "missing" ? null : result;
+}
+
+/** Call after the local mind decided: remember which card (if any) answered this ask. */
+export function noteCardAnswer(turn: {
+  prompt: string;
+  cardId: string | null;
+  learn: boolean;
+}): void {
+  const norm = normalisePhrase(turn.prompt);
+  lastCardTurn =
+    turn.learn && turn.cardId && norm && !looksSensitive(turn.prompt)
+      ? { norm, cardId: turn.cardId }
+      : null;
 }

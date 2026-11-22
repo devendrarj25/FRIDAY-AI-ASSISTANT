@@ -364,6 +364,13 @@ Follow-up fixes of the same day, each with a test that fails without it:
 
 Still true of the voice stack, and not changed: Chat dictation (the microphone button in Chat, the owner's own press) does not follow Stop everything; the owner's own Record and Stop in Settings → Voice → My voice is the one other use of the microphone outside Auto. In `AGENTS.md`, "Mute stops the mic" does not match the code: Mute is the output switch, and the microphone is closed by pause, Stop everything or leaving Auto.
 
+## Script policy and latency budget (2026-11-22)
+
+- **Script policy.** Hindi is written in Devanagari and English in Latin. Roman Hindi ("kal subah") is never transliterated automatically: the text stays as heard. The TypeScript segmenter (`voice-engine/language-segmenter.ts`) and its Python mirror (`kernel/language_segmenter.py`) follow it, pinned by `core/fixtures/voice-hinglish-script.json` and `core/__tests__/voice-engine-script-policy.test.ts`. Known gap: "Dr. Sharma" splits at the dot in the Python mirror.
+- **Latency budget.** The turn budget is 800 ms (`latency-monitor.ts`, `core/__tests__/voice-engine-latency-budget.test.ts`). `VoiceDiagnostics` shows each stage against it. `micSpeechEnd` is an estimate (confirm time minus the hold), not a measured edge. Wiring is pinned by `core/__tests__/voice-latency-wiring.test.ts`.
+- **Unverified.** Real latency, the microphone, the speaker and Hinglish accuracy have not run on the owner's Windows PC.
+- **Not built.** An optional Nemotron or other open speech engine, installed on demand with a pinned SHA-256 (never bundled in the EXE, no forbidden voice dependency); setup prefetch of pinned models; offline fixtures from the owner's own recordings; a known-reference echo canceller.
+
 ## Hardware acceptance checklist (needs the owner's PC)
 
 These cannot be done on the build machine. Each says what to do and where the number appears.

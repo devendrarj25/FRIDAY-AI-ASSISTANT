@@ -240,3 +240,85 @@ export function splitLongSpeech(text: string, maxChars = SPEECH_CALL_MAX_CHARS):
   if (trimmed.length <= maxChars) return trimmed ? [trimmed] : [];
   return chunkForSpeech(trimmed, { maxChars, firstMinChars: maxChars }).map((c) => c.text);
 }
+
+/* ---- Transcript script policy (mirror of `script_policy` in kernel/language_segmenter.py) ---- */
+
+export type PolicyLang = "hi" | "en" | "mixed";
+export type PolicyScript = "devanagari" | "latin" | "roman-hindi" | "mixed" | "neutral";
+export type WordKind = "hi" | "en" | "roman-hindi" | "number";
+export type PolicyWord = { text: string; kind: WordKind };
+export type PolicySegment = {
+  text: string;
+  lang: PolicyLang;
+  script: PolicyScript;
+  words: PolicyWord[];
+};
+export type ScriptPolicy = {
+  text: string;
+  lang: PolicyLang;
+  romanHindi: boolean;
+  segments: PolicySegment[];
+};
+
+/** A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter. */
+const POLICY_WORD = /[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*/g;
+const POLICY_BREAK = /(?<=[.!?।॥])\s+|\s*\n+\s*/;
+
+/** A Latin segment reads as Roman Hindi when at least two of its words are common Hindi and they are half or more. */
+function isRomanHindi(latin: string[]): boolean {
+  const hits = latin.filter((w) => ROMAN_HINDI.has(w.toLowerCase().replace(/['’].*$/, ""))).length;
+  return hits >= 2 && hits * 2 >= latin.length;
+}
+
+/**
+ * Script policy for a transcript: Hindi stays in Devanagari, English words and names stay in Latin, and the text is
+ * returned exactly as spoken. Each segment (a sentence) is tagged hi, en or mixed. Hindi written in Latin letters is
+ * never turned into Devanagari without a model: it is reported as `roman-hindi` so speech or recognition can decide.
+ */
+export function scriptPolicy(text: string, requested = ""): ScriptPolicy {
+  const cleaned = (text ?? "").trim();
+  const fallback: PolicyLang = requested.toLowerCase().replace("_", "-").startsWith("hi")
+    ? "hi"
+    : "en";
+  const segments: PolicySegment[] = [];
+  for (const piece of cleaned ? cleaned.split(POLICY_BREAK) : []) {
+    const seg = piece.trim();
+    if (!seg) continue;
+    const found = seg.match(POLICY_WORD) ?? [];
+    const latin = found.filter((w) => LATIN.test(w));
+    const roman = latin.length > 0 && isRomanHindi(latin);
+    const words: PolicyWord[] = found.map((w) => {
+      if (DEVANAGARI.test(w) && !/[०-९]/.test(w)) return { text: w, kind: "hi" };
+      if (LATIN.test(w)) {
+        const hindi = roman && ROMAN_HINDI.has(w.toLowerCase().replace(/['’].*$/, ""));
+        return { text: w, kind: hindi ? "roman-hindi" : "en" };
+      }
+      return { text: w, kind: "number" };
+    });
+    const hasHi = words.some((w) => w.kind === "hi");
+    const hasEn = words.some((w) => w.kind === "en" || w.kind === "roman-hindi");
+    const lang: PolicyLang = hasHi && hasEn ? "mixed" : hasHi ? "hi" : hasEn ? "en" : fallback;
+    const script: PolicyScript =
+      hasHi && hasEn
+        ? "mixed"
+        : hasHi
+          ? "devanagari"
+          : roman
+            ? "roman-hindi"
+            : hasEn
+              ? "latin"
+              : "neutral";
+    segments.push({ text: seg, lang, script, words });
+  }
+  const langs = new Set(segments.map((s) => s.lang));
+  const lang: PolicyLang =
+    langs.size > 1 || langs.has("mixed") ? "mixed" : (segments[0]?.lang ?? fallback);
+  return {
+    text: cleaned,
+    lang,
+    romanHindi: segments.some(
+      (s) => s.script === "roman-hindi" || s.words.some((w) => w.kind === "roman-hindi"),
+    ),
+    segments,
+  };
+}
