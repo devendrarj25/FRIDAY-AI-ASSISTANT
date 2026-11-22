@@ -129,33 +129,57 @@ const SENTENCE_END = /(?<=[.!?।॥\n])\s+/u;
 
 /** Words that end in a dot without ending the sentence. A cut after one would be spoken as "Please ask Dr." */
 const ABBREVIATIONS = new Set(
-  "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co".split(" "),
+  "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co rs govt dept डॉ प्रो".split(
+    " ",
+  ),
 );
 
+/** Only the end of a text decides whether its last dot is open, so a check never reads more than this. */
+const TAIL_WINDOW = 64;
+
 /**
- * Does this text end with a dot that is not the end of a sentence: an abbreviation (Dr., p.m., e.g.), an initial
- * (the "J." of "J. K. Rowling") or a bare list number ("3.")? Used wherever a reply is cut into sentences, so a
- * cut never lands inside a name, a time or a numbered list.
+ * Is the last dot of `tail` (the end of a text, trailing space already cut, at most TAIL_WINDOW characters) open?
+ * `whole` says the tail is the entire text, so a start-of-text anchor means the start of the text.
  */
-export function endsInOpenDot(text: string): boolean {
-  const t = (text ?? "").replace(/\s+$/, "");
-  if (!t.endsWith(".")) return false;
-  const before = t.slice(0, -1);
-  const word = /([A-Za-z.]+)$/.exec(before)?.[1] ?? "";
-  const bare = word.replace(/\./g, "").toLowerCase();
-  if (bare && ABBREVIATIONS.has(bare)) return true;
+function openDotTail(tail: string, whole: boolean): boolean {
+  if (!tail.endsWith(".")) return false;
+  const before = tail.slice(0, -1);
+  const word = /([\u0900-\u097FA-Za-z.]+)$/.exec(before)?.[1] ?? "";
+  // A word that fills a cut window may be the end of something longer: not an abbreviation.
+  if (word && (whole || word.length < before.length)) {
+    if (ABBREVIATIONS.has(word.replace(/\./g, "").toLowerCase())) return true;
+    if (/^[A-Za-z](?:\.[A-Za-z])+$/.test(word)) return true; // U.S., a.m., e.g.
+  }
   if (/(?:^|[\s(])[A-Z]$/.test(before) && !/(?:^|[\s(])I$/.test(before)) return true;
-  if (/(?:^|\n)\s*\d{1,2}$/.test(before)) return true;
-  return false;
+  if (/\n\s*[0-9]{1,2}$/.test(before)) return true;
+  return whole && /^\s*[0-9]{1,2}$/.test(before);
 }
 
-/** Cut text into sentences, putting a piece that ends in an open dot back with the one after it. */
+/**
+ * Does this text end with a dot that is not the end of a sentence: an abbreviation (Dr., Rs., p.m., e.g.), an initial
+ * (the "J." of "J. K. Rowling") or a bare list number ("3.")? Used wherever a reply is cut into sentences, so a
+ * cut never lands inside a name, a time or a numbered list. Reads only the last few characters: O(1) per call.
+ */
+export function endsInOpenDot(text: string): boolean {
+  const t = (text ?? "").trimEnd();
+  return openDotTail(t.slice(-TAIL_WINDOW), t.length <= TAIL_WINDOW);
+}
+
+/** Cut text into sentences, putting a piece that ends in an open dot back with the one after it. One pass. */
 export function splitSentences(text: string): string[] {
+  if (!text) return [];
   const out: string[] = [];
   let carry = "";
-  for (const raw of (text ?? "").split(SENTENCE_END)) {
+  let tail = "";
+  let length = 0;
+  for (const raw of text.split(SENTENCE_END)) {
+    const joined = carry ? `${tail} ${raw}` : raw;
+    const cut = joined.trimEnd();
+    tail = cut.slice(-TAIL_WINDOW);
+    length = (carry ? length + 1 : 0) + raw.length;
     const piece = carry ? `${carry} ${raw}` : raw;
-    if (endsInOpenDot(piece) && !raw.endsWith("\n")) {
+    const trimmedLength = length - (joined.length - cut.length);
+    if (openDotTail(tail, trimmedLength <= TAIL_WINDOW) && !raw.endsWith("\n")) {
       carry = piece;
       continue;
     }
@@ -262,7 +286,6 @@ export type ScriptPolicy = {
 
 /** A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter. */
 const POLICY_WORD = /[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*/g;
-const POLICY_BREAK = /(?<=[.!?।॥])\s+|\s*\n+\s*/;
 
 /** A Latin segment reads as Roman Hindi when at least two of its words are common Hindi and they are half or more. */
 function isRomanHindi(latin: string[]): boolean {
@@ -281,7 +304,8 @@ export function scriptPolicy(text: string, requested = ""): ScriptPolicy {
     ? "hi"
     : "en";
   const segments: PolicySegment[] = [];
-  for (const piece of cleaned ? cleaned.split(POLICY_BREAK) : []) {
+  // A line is a break, and so is a sentence end that is not an abbreviation, an initial or a time (Dr. Sharma).
+  for (const piece of cleaned ? cleaned.split("\n").flatMap(splitSentences) : []) {
     const seg = piece.trim();
     if (!seg) continue;
     const found = seg.match(POLICY_WORD) ?? [];

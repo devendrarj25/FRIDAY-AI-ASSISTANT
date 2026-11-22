@@ -4,13 +4,20 @@
  * `askFriday` goes straight to a model. A real turn goes through the Core Brain first: intent, memory, routing,
  * the checks and the one repair. To measure the Brain and not just a model, a request has to take the real
  * turn. This sends it the way typed chat does (`brain.send`) and waits until the run is finished, then returns
- * the answer. It waits for a busy Brain to be idle first, and gives up after the time it was given.
+ * the answer. It waits for a busy Brain to be idle first, and gives up after the time it was given. The run is
+ * found by the id `send` returned, so two turns with the same words cannot be mixed up; a Brain that returns no
+ * id is matched by its prompt, as before.
  */
 
 import type { Run } from "../brain-engine";
 
 export type BrainLike = {
-  send: (prompt: string) => { accepted: boolean; reason?: string; message?: string | null };
+  send: (prompt: string) => {
+    accepted: boolean;
+    reason?: string;
+    message?: string | null;
+    runId?: string;
+  };
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => { activeRunId: string | null; runs: Run[] };
 };
@@ -44,9 +51,9 @@ export async function askBrain(
     };
     const look = () => {
       const snapshot = brain.getSnapshot();
-      const run = snapshot.runs.find(
-        (row) => !before.has(row.id) && row.prompt.trim() === prompt.trim(),
-      );
+      const run = sent.runId
+        ? snapshot.runs.find((row) => row.id === sent.runId)
+        : snapshot.runs.find((row) => !before.has(row.id) && row.prompt.trim() === prompt.trim());
       if (
         !run ||
         snapshot.activeRunId === run.id ||

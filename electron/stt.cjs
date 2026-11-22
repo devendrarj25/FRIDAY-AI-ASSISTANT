@@ -962,12 +962,29 @@ function decodeExtras(req) {
   return {
     ...(hotwords ? { hotwords } : {}),
     ...(req.multilingual === true ? { multilingual: true } : {}),
+    // A provisional pass is a not-final read of the audio so far: the worker never counts or records it.
+    ...(req.provisional === true ? { provisional: true } : {}),
+  };
+}
+
+/** The not-final marker a provisional answer carries (the same text fields, plus final:false and the utterance). */
+function provisionalReply(req, result) {
+  if (req.provisional !== true || !result?.ok) return result;
+  const utteranceId = String(req.utteranceId || "")
+    .trim()
+    .slice(0, 64);
+  const heard = Number(result.audio?.durationMs ?? 0);
+  return {
+    ...result,
+    final: false,
+    audioMs: Number.isFinite(heard) && heard > 0 ? Math.round(heard) : 0,
+    ...(utteranceId ? { utteranceId } : {}),
   };
 }
 
 /**
  * Transcribe one utterance.
- * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean }} req
+ * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean, provisional?: boolean, utteranceId?: string }} req
  */
 async function transcribe(req = {}, onPartial) {
   const release = await turnGate.enter();
@@ -975,7 +992,7 @@ async function transcribe(req = {}, onPartial) {
     return { ok: false, reason: "busy", error: "A transcription is already running." };
   }
   try {
-    return await transcribeNow(req, onPartial);
+    return provisionalReply(req, await transcribeNow(req, onPartial));
   } finally {
     release();
   }
@@ -1349,6 +1366,8 @@ module.exports = {
   install,
   setProgressSink,
   transcribe,
+  provisionalReply,
+  decodeExtras,
   createTurnGate,
   workerRequest,
   scoreTurn,

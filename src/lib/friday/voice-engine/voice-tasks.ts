@@ -91,6 +91,17 @@ export const voiceTaskActions = {
     orchestrator.approve(id, yes) && (refresh(), true),
 };
 
+/**
+ * Stop everything: every task that has not finished is cancelled, so none ends as COMPLETED with the words of a
+ * stopped run. Returns how many were cancelled. A finished task is left as it is.
+ */
+export function cancelAllVoiceTasks(): number {
+  let count = 0;
+  for (const task of orchestrator.list()) if (orchestrator.cancel(task.id)) count += 1;
+  if (count) refresh();
+  return count;
+}
+
 /** Apply a spoken task word. Returns the line to say, or null when the words were not about a task. */
 export function runTaskControl(control: VoiceControl): string | null {
   if (

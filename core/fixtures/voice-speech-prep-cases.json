@@ -279,6 +279,78 @@
    "pronunciations": {
     "Devendra": "देवेंद्र"
    }
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 1",
+   "input": "तापमान -3.5 डिग्री है",
+   "expected": "तापमान माइनस तीन दशमलव पाँच डिग्री है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 2",
+   "input": "मीटिंग 9-10 बजे है",
+   "expected": "मीटिंग नौ से दस बजे है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 3",
+   "input": "बैटरी 12.5% बची है",
+   "expected": "बैटरी बारह दशमलव पाँच प्रतिशत बची है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 4",
+   "input": "सेवा 24x7 उपलब्ध है",
+   "expected": "सेवा चौबीस बाई सात उपलब्ध है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 5",
+   "input": "कीमत ₹1.5 लाख है",
+   "expected": "कीमत डेढ़ लाख रुपये है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 6",
+   "input": "आज 1st जनवरी 2026 है",
+   "expected": "आज पहली जनवरी दो हज़ार छब्बीस है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 7",
+   "input": "रेसिपी में 1 1/2 कप चीनी चाहिए",
+   "expected": "रेसिपी में डेढ़ कप चीनी चाहिए."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 8",
+   "input": "बजट ₹12,34,567 है",
+   "expected": "बजट बारह लाख चौंतीस हज़ार पाँच सौ सड़सठ रुपये है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 9",
+   "input": "Call +91 98765 43210 at 12 pm",
+   "expected": "Call plus nine one nine eight seven six five four three two one zero at twelve P M."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 10",
+   "input": "Pay ₹99.5 by 21st January 2026.",
+   "expected": "Pay ninety nine rupees fifty paise by twenty first January twenty twenty six."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 11",
+   "input": "The office is open 9-5, 24x7 support in 2026",
+   "expected": "The office is open nine to five, twenty four seven support in twenty twenty six."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 12",
+   "input": "Add 2 1/2 cups of sugar",
+   "expected": "Add two and a half cups of sugar."
   }
  ]
 }

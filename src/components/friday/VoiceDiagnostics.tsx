@@ -15,7 +15,11 @@ import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
 import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
-import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
+import {
+  figureLine,
+  unstampedStagesLine,
+  voiceLatency,
+} from "@/lib/friday/voice-engine/latency-monitor";
 import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
 import { desktopApi } from "@/lib/friday/desktop";
 import { useVoiceProfile } from "@/lib/friday/use-voice-profile";
@@ -153,6 +157,25 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: voiceLatency.line(),
     },
     { label: "Voice latency budget (speech end to first sound)", value: voiceBudgetLine() },
+    {
+      label: "first sound after the final transcript (final to first sample)",
+      value: figureLine("finalToFirstAudible"),
+    },
+    {
+      label: "first sound after speech end, brain included (speech end is an estimate)",
+      value: figureLine("endToFirstAudible"),
+    },
+    {
+      label: "brain first token to first sound",
+      value: figureLine("brainTokenToFirstAudible"),
+    },
+    {
+      label: "first clause to first sound (brain not included)",
+      value: figureLine("firstClauseToFirstAudible"),
+    },
+    { label: "early recognition overlap", value: figureLine("eagerOverlap") },
+    { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
+    { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
     {
       label: "barge-in shadow (acoustic detector vs the live pause)",

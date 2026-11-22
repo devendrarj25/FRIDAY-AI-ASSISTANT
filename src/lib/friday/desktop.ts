@@ -743,6 +743,21 @@ type DesktopApi = {
   duckAudio?: (payload: {
     on: boolean;
   }) => Promise<{ ok: boolean; ducked?: boolean; reason?: string }>;
+  /** Echo-canceller measurement for one 160 ms chunk (base64 int16 mono 16 kHz). Levels only, never audio. */
+  echoShadow?: (payload: { mic: string; ref?: string; reset?: boolean; seq?: number }) => Promise<{
+    ok: boolean;
+    ready?: boolean;
+    playing?: boolean;
+    cancelled?: boolean;
+    micDb?: number;
+    residualDb?: number;
+    reductionDb?: number | null;
+    delayMs?: number;
+    confidence?: number;
+    gate?: false;
+    seq?: number;
+    reason?: string;
+  }>;
   meetingStatus?: () => Promise<{
     ok?: boolean;
     meeting?: boolean;

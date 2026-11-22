@@ -13,7 +13,15 @@
  */
 import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expression";
 import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
+import { PlayedTextTracker, type PlayedReply } from "./voice-engine/played-text";
 import { attachSpeechAudio, pulseSpeechAudio, stopSpeechAudio } from "./character/speech-audio";
+import {
+  bytesToPcm16,
+  PcmClipPlayer,
+  pcm16ToWavBase64,
+  type PcmClip,
+  type PcmContext,
+} from "./voice-engine/pcm-clip-player";
 import { preferences, type VoiceModel } from "./preferences";
 import { bestVoiceFields, presetFields, type VoicePresetId } from "./voice-presets";
 import { alertsAudible } from "./settings-runtime";
@@ -45,6 +53,21 @@ type VoiceBridge = {
     cloud?: boolean;
     voice?: string;
     note?: string;
+  }>;
+  /** The same clause as `speakNeural`, from the local voice only, as raw 16-bit mono samples (no file, no WAV). */
+  speakNeuralPcm?: (payload: {
+    text: string;
+    rate: number;
+    lang?: string;
+    style?: string;
+    seq?: number;
+  }) => Promise<{
+    ok: boolean;
+    reason?: string;
+    engine?: string;
+    voice?: string;
+    sampleRate?: number;
+    pcm?: ArrayLike<number> & { length: number };
   }>;
   duckAudio?: (payload: {
     on: boolean;
@@ -561,15 +584,39 @@ function cancellable<T>(body: (settle: (value: T) => void) => () => void, onCanc
   });
 }
 
+/**
+ * What was really heard of the reply being spoken. Every clause registers as it starts; `playedReplySnapshot()`
+ * answers at any moment (a stop included) with the whole clauses played plus the words of the one in progress.
+ */
+const playedTracker = new PlayedTextTracker();
+
+/** A reply of this run is about to be spoken: forget the clauses of an earlier one (`force` also for the same run). */
+export function beginPlayedReply(runId: string, force = false): void {
+  playedTracker.begin(runId, force);
+}
+
+/** The part of the current reply that was heard so far. Changes nothing. */
+export function playedReplySnapshot(): PlayedReply {
+  return playedTracker.snapshot();
+}
+
 /** Stop whatever FRIDAY is saying right now (neural playback or SAPI). */
 export function stopSpeaking() {
   speechGeneration += 1;
+  // Before anything is paused: the clock and the audio element's position are still the moment of the stop.
+  playedTracker.stop();
   try {
     window.speechSynthesis?.cancel();
   } catch {
     /* not available */
   }
   stopSpeechAudio();
+  // The raw-sample player cannot pause: a stop flushes its queue and every audible source at once.
+  try {
+    pcmPlayer?.stop();
+  } catch {
+    /* nothing audible to stop */
+  }
   if (currentAudio) {
     try {
       currentAudio.pause();
@@ -598,6 +645,7 @@ function playBase64(
   volume: number,
   ready?: unknown,
   release?: () => void,
+  heardText = "",
 ): Promise<void> {
   // A clip that is still arriving comes as an element that is already attached to its stream and paused.
   const audio =
@@ -606,10 +654,28 @@ function playBase64(
   currentAudio = audio;
   // Feed the desktop companion the real speech envelope for lip-sync.
   attachSpeechAudio(audio);
+  // The element's own position says how much of the clause was heard when a stop comes.
+  const heard = heardText
+    ? playedTracker.startClip(heardText, 0, () => ({
+        elapsedMs: (Number(audio.currentTime) || 0) * 1000,
+        ...(Number.isFinite(audio.duration) && audio.duration > 0
+          ? { durMs: audio.duration * 1000 }
+          : {}),
+      }))
+    : null;
   return cancellable<void>((finish) => {
-    audio.onended = () => finish();
-    audio.onerror = () => finish();
-    void audio.play().catch(() => finish());
+    audio.onended = () => {
+      heard?.end();
+      finish();
+    };
+    audio.onerror = () => {
+      heard?.drop();
+      finish();
+    };
+    void audio.play().catch(() => {
+      heard?.drop();
+      finish();
+    });
     return () => {
       // Whether it ended, failed or was cancelled: detach, stop and give the clip's resources back.
       audio.onended = null;
@@ -624,6 +690,182 @@ function playBase64(
       stopSpeechAudio();
     };
   }, undefined);
+}
+
+/**
+ * Raw-sample playback (setting `voice.pcmPlayback`, local voice only). The player is made on first use; the first
+ * failure of any kind turns it off for the rest of the session and says why (`pcmPlaybackNote`), and speech goes on
+ * through the page audio element, so a PCM problem never costs the owner a sentence.
+ */
+let pcmPlayer: PcmClipPlayer | null = null;
+let pcmOffReason = "";
+let pcmSeq = 0;
+let pcmPlayedLast = false;
+
+const audioContextCtor = (): (new () => unknown) | null => {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    AudioContext?: new () => unknown;
+    webkitAudioContext?: new () => unknown;
+  };
+  return w.AudioContext ?? w.webkitAudioContext ?? null;
+};
+
+function pcmFailed(reason: string) {
+  if (!pcmOffReason) pcmOffReason = reason.replace(/\s+/g, " ").trim().slice(0, 160) || "unknown";
+}
+
+/** Why raw-sample playback is off for this session, as one line; empty while it works or the setting is off. */
+export function pcmPlaybackNote(): string {
+  if (preferences.getSnapshot().voice.pcmPlayback !== true || !pcmOffReason) return "";
+  return `PCM playback is off for this session (${pcmOffReason}); speech plays through the audio element.`;
+}
+
+/** True when the last clause played through the raw-sample player. */
+export const lastClipUsedPcm = (): boolean => pcmPlayedLast;
+
+/** Forget the player and the session decision (a new session, or a test). */
+export function resetPcmPlayback(): void {
+  try {
+    pcmPlayer?.dispose();
+  } catch {
+    /* nothing audible */
+  }
+  pcmPlayer = null;
+  pcmOffReason = "";
+  pcmSeq = 0;
+  pcmPlayedLast = false;
+}
+
+function getPcmPlayer(): PcmClipPlayer {
+  if (pcmPlayer) return pcmPlayer;
+  const Ctor = audioContextCtor();
+  if (!Ctor) throw new Error("no AudioContext");
+  pcmPlayer = new PcmClipPlayer(new Ctor() as PcmContext, {
+    onLevel: (rms) => {
+      // The measured loudness of the samples that are playing drives the companion's mouth.
+      try {
+        if (rms > 0) pulseSpeechAudio(Math.min(1, Math.pow(rms * 3.4, 0.72)));
+        else stopSpeechAudio();
+      } catch {
+        /* the companion is not on screen */
+      }
+    },
+  });
+  return pcmPlayer;
+}
+
+/** The clause as raw samples is wanted: the setting is on, the engine is the local voice, and nothing failed yet. */
+function pcmWanted(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | null): boolean {
+  return (
+    preferences.getSnapshot().voice.pcmPlayback === true &&
+    !pcmOffReason &&
+    tuning.kind === "neural" &&
+    plan.cloudVoice === "" &&
+    typeof api?.speakNeuralPcm === "function" &&
+    audioContextCtor() !== null
+  );
+}
+
+/** One clause as raw samples from the local voice; null (and a recorded reason) when it could not be made. */
+async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechClip | null> {
+  pcmSeq += 1;
+  const result = await Promise.resolve(
+    api.speakNeuralPcm?.({
+      text: plan.text,
+      rate: plan.rate,
+      lang: plan.lang,
+      style: preferences.getSnapshot().voice.localVoiceStyle || "",
+      seq: pcmSeq,
+    }),
+  ).catch((error: unknown) => ({
+    ok: false,
+    reason: String((error as Error)?.message || error),
+  }));
+  const rate = Number((result as { sampleRate?: number } | undefined)?.sampleRate) || 0;
+  const bytes = (result as { pcm?: ArrayLike<number> & { length: number } } | undefined)?.pcm;
+  if (!result?.ok || !bytes || !(rate > 0)) {
+    const reason = String((result as { reason?: string } | undefined)?.reason || "no samples");
+    // Nothing to say is not a failure of the player.
+    if (!/^nothing to speak|empty-text/i.test(reason)) pcmFailed(`synthesis: ${reason}`);
+    return null;
+  }
+  const samples = bytesToPcm16(bytes);
+  if (!samples.length) {
+    pcmFailed("synthesis: the voice returned no samples");
+    return null;
+  }
+  const info = result as { engine?: string; voice?: string };
+  return {
+    audioBase64: "",
+    mime: "audio/wav",
+    pcm: { samples, rate },
+    route: {
+      engine: String(info.engine || "supertonic-3"),
+      voiceId: String(info.voice || ""),
+      lang: plan.lang,
+      cloud: false,
+      note: "",
+    },
+  };
+}
+
+/**
+ * Play a raw-sample clip through the gapless scheduler. If the player cannot start (no audio context, a refused
+ * clip) this clause is played from the same samples through the audio element, and PCM playback stays off.
+ */
+async function playPcmClip(
+  clip: SpeechClip,
+  volume: number,
+  stale: () => boolean,
+  heardText = "",
+): Promise<void> {
+  const pcm = clip.pcm;
+  if (!pcm) return;
+  let playing: PcmClip;
+  try {
+    const player = getPcmPlayer();
+    await player.ready();
+    if (stale()) return;
+    playing = player.start(pcm.samples, pcm.rate, volume);
+  } catch (error) {
+    pcmFailed(`playback: ${String((error as Error)?.message || error)}`);
+    pcmPlayedLast = false;
+    if (stale()) return;
+    return playBase64(
+      pcm16ToWavBase64(pcm.samples, pcm.rate),
+      "audio/wav",
+      volume,
+      undefined,
+      undefined,
+      heardText,
+    );
+  }
+  pcmPlayedLast = true;
+  // The audio clock of the sample player says how much of the clause has been played.
+  const heard = heardText
+    ? playedTracker.startClip(heardText, playing.durationMs, () => ({
+        elapsedMs: playing.playedMs(),
+        durMs: playing.durationMs,
+      }))
+    : null;
+  return cancellable<void>((finish) => {
+    let natural = false;
+    void playing.ended.then(() => {
+      natural = true;
+      if (!stale()) heard?.end();
+      finish();
+    });
+    return () => {
+      // A stop or a newer reply: cut the queue and every audible source. A clip that ended by itself is left alone.
+      if (!natural) playing.stop();
+    };
+  }, undefined);
+}
+
+function playWavClip(clip: SpeechClip, volume: number, heardText = ""): Promise<void> {
+  pcmPlayedLast = false;
+  return playBase64(clip.audioBase64, clip.mime, volume, clip.audio, clip.release, heardText);
 }
 
 /** A pause between two clauses that a stop cuts short. */
@@ -684,6 +926,8 @@ type SpeechClip = {
   route: SpeechRoute;
   audio?: unknown;
   release?: () => void;
+  /** Raw samples from the local voice (setting `voice.pcmPlayback`); played by the scheduler, not the audio element. */
+  pcm?: { samples: Int16Array; rate: number };
 };
 
 type SegmentPlan = {
@@ -765,6 +1009,11 @@ async function makeClip(
         },
       };
     }
+  }
+  if (api && pcmWanted(plan, tuning, api)) {
+    const raw = await makePcmClip(plan, api);
+    if (raw) return raw;
+    // The clause is made again below, as a WAV, by the path that always worked.
   }
   if (!api?.speakNeural) return null;
   const result = await api
@@ -859,12 +1108,13 @@ export function resetPrefetchedSpeech(): void {
 export async function speakText(
   text: string,
   tuning: SpeechTuning,
-  hooks: { onStart?: () => void; onEnd?: () => void } = {},
+  hooks: { onStart?: () => void; onEnd?: () => void; onFirstAudio?: () => void } = {},
 ): Promise<"neural" | "system" | "none"> {
   const spoken = text.trim();
   if (!spoken) return "none";
   const generation = speechGeneration;
   const stale = () => generation !== speechGeneration;
+  const closeGroup = playedTracker.openGroup();
   const api = bridge();
   const playback = {
     onStart: () => {
@@ -893,11 +1143,15 @@ export async function speakText(
         play: (clip, plan) =>
           stale()
             ? Promise.resolve()
-            : playBase64(clip.audioBase64, clip.mime, plan.volume, clip.audio, clip.release),
+            : clip.pcm
+              ? playPcmClip(clip, plan.volume, stale, plan.text)
+              : playWavClip(clip, plan.volume, plan.text),
         stale,
         ahead: 2,
         onFirstClip: (clip) => {
           rememberSpeechRoute(clip.route);
+          // The first audio of this reply has been received from the engine: stamped before it is played.
+          hooks.onFirstAudio?.();
           playback.onStart();
         },
         gapAfter: (plan) => plan.pauseAfterMs,
@@ -930,6 +1184,7 @@ export async function speakText(
     const system = await speakWithSystemVoice(heard || spoken, tuning, playback, stale);
     return system ? "system" : "none";
   } finally {
+    closeGroup();
     duckOthers(false);
   }
 }
@@ -965,6 +1220,9 @@ function speakWithSystemVoice(
   return new Promise((resolve) => {
     let settled = false;
     let started = false;
+    // The system voice reports the character it is saying; that position says how much was heard at a stop.
+    let atChar = 0;
+    let heard: { end: () => void; drop: () => void } | null = null;
     const finish = () => {
       if (settled) return;
       settled = true;
@@ -984,12 +1242,22 @@ function speakWithSystemVoice(
         return;
       }
       started = true;
+      heard = playedTracker.startClip(spoken, 0, () => ({
+        elapsedMs: atChar,
+        durMs: spoken.length,
+      }));
       hooks.onStart?.();
     };
     // The system voice exposes no audio stream, so real word boundaries drive
     // the companion's mouth instead of a synthetic envelope.
-    utter.onboundary = () => pulseSpeechAudio(0.8);
-    utter.onend = () => finish();
+    utter.onboundary = (event) => {
+      atChar = Math.max(atChar, Number(event?.charIndex) || 0);
+      pulseSpeechAudio(0.8);
+    };
+    utter.onend = () => {
+      heard?.end();
+      finish();
+    };
     utter.onerror = () => finish();
     if (stale()) {
       settled = true;

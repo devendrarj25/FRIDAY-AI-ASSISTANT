@@ -2,9 +2,18 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scriptPolicy } from "../../src/lib/friday/voice-engine/language-segmenter";
+import {
+  endsInOpenDot,
+  scriptPolicy,
+  splitSentences,
+} from "../../src/lib/friday/voice-engine/language-segmenter";
 
-type Fixture = { requested: string; cases: Array<{ input: string; expected: unknown }> };
+type Fixture = {
+  requested: string;
+  cases: Array<{ input: string; expected: unknown }>;
+  sentences: Array<{ input: string; expected: string[] }>;
+  openDot: Array<{ input: string; expected: boolean }>;
+};
 const fixture = JSON.parse(
   readFileSync(resolve(__dirname, "../fixtures/voice-hinglish-script.json"), "utf8"),
 ) as Fixture;
@@ -49,5 +58,39 @@ describe("script policy", () => {
     ]);
     expect(scriptPolicy("   ").segments).toEqual([]);
     expect(scriptPolicy("", "hi-IN").lang).toBe("hi");
+  });
+});
+
+describe("sentence cuts (shared with the Python mirror)", () => {
+  it("covers a spread of abbreviations, initials, times, URLs, decimals and lists", () => {
+    expect(fixture.sentences.length).toBeGreaterThanOrEqual(20);
+    expect(fixture.openDot.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it("splitSentences matches the shared fixture", () => {
+    for (const c of fixture.sentences) expect(splitSentences(c.input), c.input).toEqual(c.expected);
+  });
+
+  it("endsInOpenDot matches the shared fixture", () => {
+    for (const c of fixture.openDot) expect(endsInOpenDot(c.input), c.input).toBe(c.expected);
+  });
+
+  it("the transcript policy never cuts a sentence inside a name, an amount or a time", () => {
+    const p = scriptPolicy("Please ask Dr. Singh about it. Pay Rs. 500 at 5 p.m. today. Done.");
+    expect(p.segments.map((s) => s.text)).toEqual([
+      "Please ask Dr. Singh about it.",
+      "Pay Rs. 500 at 5 p.m. today.",
+      "Done.",
+    ]);
+    expect(scriptPolicy("डॉ. शर्मा आए। वे बैठे।").segments).toHaveLength(2);
+    expect(scriptPolicy("First point.\nSecond point.").segments).toHaveLength(2);
+  });
+
+  it("is linear: a long run of abbreviations stays fast", () => {
+    const text = "Dr. A. K. Singh met Mr. Rao, e.g. at 5 p.m. etc. ".repeat(4000);
+    const started = performance.now();
+    splitSentences(text);
+    scriptPolicy(text.slice(0, 20000));
+    expect(performance.now() - started).toBeLessThan(800);
   });
 });

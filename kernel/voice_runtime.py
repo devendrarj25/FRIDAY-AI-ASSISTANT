@@ -308,8 +308,8 @@ def _synth_array(spoken: str, rate: float, lang: str, style: str = ""):
     return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
-def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> bytes | None:
-    """Local Supertonic speech. None when the model or package is absent.
+def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = ""):
+    """The one synthesis path. (float32 mono array, sample rate), or None when the model or package is absent.
 
     Text in one script is one call. Mixed Hindi and English is cut into a few
     phrase-sized spans (never one call per word); each is read in its own
@@ -322,10 +322,7 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = 
     if directory is None:
         return None
     try:
-        import io
-
         import numpy as np  # type: ignore
-        import soundfile as sf  # type: ignore
         from supertonic import TTS  # type: ignore
     except Exception:
         return None
@@ -345,13 +342,49 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = 
             if index:
                 parts.append(gap)
             parts.append(piece)
-        audio = np.concatenate(parts)
+        return np.concatenate(parts), int(_tts.sample_rate)
+    except Exception:
+        return None
+
+
+def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> bytes | None:
+    """Local Supertonic speech as WAV bytes. None when the model or package is absent."""
+    made = _speak_array(text, speed, lang, style)
+    if made is None:
+        return None
+    try:
+        import io
+
+        import soundfile as sf  # type: ignore
+
+        audio, rate = made
         buf = io.BytesIO()
-        sf.write(buf, audio, int(_tts.sample_rate), format="WAV")
+        sf.write(buf, audio, rate, format="WAV")
         data = buf.getvalue()
     except Exception:
         return None
     return data or None
+
+
+def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> tuple[bytes, int] | None:
+    """The same samples as ``speak_wav_bytes`` as raw little-endian int16 mono, plus the sample rate.
+
+    Nothing is written to disk. The float to int16 step matches what libsndfile
+    writes for a PCM_16 WAV (scale by 32768, floor, clip), so the samples agree
+    with the WAV path to within one sample on any libsndfile.
+    """
+    made = _speak_array(text, speed, lang, style)
+    if made is None:
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        audio, rate = made
+        pcm = np.clip(np.floor(audio * np.float32(32768.0)), -32768, 32767).astype("<i2")
+        data = pcm.tobytes()
+    except Exception:
+        return None
+    return (data, rate) if data else None
 
 
 # Speech quieter than this is silence. A denoised clip that loses this much
@@ -806,6 +839,106 @@ def load_pcm(path: str):
         return None
 
 
+def speak_pcm_payload(req: dict) -> dict:
+    """Reply body of the ``speak-pcm`` worker op: base64 int16 PCM, nothing on disk, no cache."""
+    import base64
+    import time
+
+    text = req.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return {"ok": False, "reason": "empty-text"}
+    try:
+        speed = float(req.get("speed") or 1)
+    except (TypeError, ValueError):
+        speed = 1.0
+    started = time.perf_counter()
+    made = speak_pcm16(text, speed, str(req.get("lang") or ""), str(req.get("style") or ""))
+    if made is None:
+        return {"ok": False, "reason": LOCAL_TTS_REASON}
+    data, rate = made
+    body: dict = {
+        "ok": True,
+        "sampleRate": rate,
+        "pcm16": base64.b64encode(data).decode("ascii"),
+        "ms": round((time.perf_counter() - started) * 1000),
+    }
+    if isinstance(req.get("seq"), int) and not isinstance(req.get("seq"), bool):
+        body["seq"] = req["seq"]
+    return body
+
+
+# One 160 ms microphone chunk at 16 kHz is 2560 samples; a caller may send up to one second.
+ECHO_SHADOW_MAX_SAMPLES = 16000
+_echo_shadow: echo_canceller.EchoCanceller | None = None
+
+
+def echo_shadow_payload(req: dict) -> dict:
+    """Reply body of the ``echo-shadow`` worker op: measure the echo canceller, never gate anything.
+
+    ``mic`` and ``ref`` are base64 little-endian int16 mono at 16 kHz, the same length (the reference is what
+    played during the microphone chunk, on the microphone clock). The canceller runs on a private instance that
+    keeps its delay estimate between calls; ``reset`` true starts it over. The reply carries levels only, never
+    audio: the loudness of the chunk and of what is left, in dBFS, and their difference when the canceller really
+    worked on this chunk (``cancelled``). Nothing here feeds a decision.
+    """
+    import base64
+
+    global _echo_shadow
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return {"ok": False, "reason": "numpy-missing"}
+    body: dict = {"ok": False}
+    if isinstance(req.get("seq"), int) and not isinstance(req.get("seq"), bool):
+        body["seq"] = req["seq"]
+    try:
+        mic_raw = base64.b64decode(str(req.get("mic") or ""), validate=True)
+        ref_raw = base64.b64decode(str(req.get("ref") or ""), validate=True) if req.get("ref") else b""
+    except Exception:
+        return {**body, "reason": "bad-audio"}
+    if len(mic_raw) < 2 or len(mic_raw) % 2 or len(ref_raw) % 2:
+        return {**body, "reason": "bad-audio"}
+    if len(mic_raw) // 2 > ECHO_SHADOW_MAX_SAMPLES:
+        return {**body, "reason": "too-long"}
+    if ref_raw and len(ref_raw) != len(mic_raw):
+        return {**body, "reason": "length-mismatch"}
+    if _echo_shadow is None or req.get("reset") is True:
+        if _echo_shadow is None:
+            _echo_shadow = echo_canceller.EchoCanceller()
+        else:
+            _echo_shadow.reset()
+    canceller = _echo_shadow
+    if not canceller.ready:
+        return {**body, "reason": canceller.status().get("reason") or "echo-canceller-unavailable", "ready": False}
+    mic = np.frombuffer(mic_raw, dtype="<i2").astype(np.int16)
+    ref = np.frombuffer(ref_raw, dtype="<i2").astype(np.int16) if ref_raw else None
+    before = canceller.status()["cancelledFrames"]
+    cleaned = canceller.process(mic, ref)
+    after = canceller.status()
+    cancelled = after["cancelledFrames"] > before
+
+    def level(samples) -> float:
+        power = float(np.mean(np.square(samples.astype(np.float64)))) / (32768.0 * 32768.0)
+        return round(10.0 * math.log10(power), 1) if power > 1e-12 else -120.0
+
+    mic_db = level(mic)
+    residual_db = level(cleaned)
+    playing = ref is not None and int(np.max(np.abs(ref.astype(np.int32)))) >= echo_canceller.SILENT_PEAK
+    return {
+        **body,
+        "ok": True,
+        "ready": True,
+        "playing": bool(playing),
+        "cancelled": bool(cancelled),
+        "micDb": mic_db,
+        "residualDb": residual_db,
+        "reductionDb": round(mic_db - residual_db, 1) if cancelled else None,
+        "delayMs": after["delayMs"],
+        "confidence": after["confidence"],
+        "gate": False,
+    }
+
+
 def serve() -> int:
     """Keep Supertonic loaded across speak calls. One JSON object per line."""
     import sys
@@ -853,6 +986,10 @@ def serve() -> int:
                 payload = {"ok": True, "path": str(dest), "mime": "audio/wav", "bytes": len(audio)}
             else:
                 payload = {"ok": False, "reason": LOCAL_TTS_REASON if not audio else "no output path"}
+        elif op == "speak-pcm":
+            payload = speak_pcm_payload(req)
+        elif op == "echo-shadow":
+            payload = echo_shadow_payload(req)
         else:
             payload = {"ok": False, "reason": "unknown-op"}
         if rid is not None:

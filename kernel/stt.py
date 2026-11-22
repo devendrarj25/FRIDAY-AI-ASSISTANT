@@ -898,6 +898,10 @@ def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
     return text or None
 
 
+# True only while a provisional (not-final) pass runs: it is neither counted nor recorded.
+_provisional_pass = False
+
+
 def transcribe_file(
     audio: str,
     model_name: str,
@@ -909,6 +913,41 @@ def transcribe_file(
     model_path: str = "",
     keep_wav: bool = False,
     extras: dict | None = None,
+    provisional: bool = False,
+) -> dict:
+    """One utterance file to text. A provisional pass runs every gate but is never counted or recorded."""
+    global _provisional_pass
+    _provisional_pass = bool(provisional)
+    try:
+        return _transcribe_file(
+            audio,
+            model_name,
+            language,
+            initial_prompt,
+            on_partial,
+            speech_pref,
+            owner_size,
+            model_path,
+            keep_wav,
+            extras,
+            provisional,
+        )
+    finally:
+        _provisional_pass = False
+
+
+def _transcribe_file(
+    audio: str,
+    model_name: str,
+    language: str,
+    initial_prompt: str,
+    on_partial,
+    speech_pref: str,
+    owner_size: str,
+    model_path: str,
+    keep_wav: bool,
+    extras: dict | None,
+    provisional: bool,
 ) -> dict:
     prepared, samples, cleanup, hearing = prepare_audio(audio)
     original = None
@@ -934,7 +973,8 @@ def transcribe_file(
             original,
             extras,
         )
-        _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
+        if not provisional:
+            _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
         return result
     finally:
         if cleanup and os.path.exists(cleanup):
@@ -1041,6 +1081,8 @@ _counters: dict = {"heard": 0, "dropped": {}}
 
 def note_outcome(code: str) -> None:
     """Count one utterance: heard when the code is empty, else dropped by that code."""
+    if _provisional_pass:
+        return
     if not code:
         _counters["heard"] += 1
         return
@@ -1839,6 +1881,20 @@ def run_hearing_self_test(levels=HEARING_LEVELS, synth=None, transcribe=None) ->
     }
 
 
+def provisional_reply(result: dict, req: dict) -> dict:
+    """A provisional answer says it is not final, how much audio it heard, and which utterance it belongs to."""
+    if not result.get("ok"):
+        return result
+    facts = result.get("audio") if isinstance(result.get("audio"), dict) else {}
+    millis = result.get("durationMs") or facts.get("durationMs") or 0
+    reply = {**result, "final": False, "audioMs": int(millis) if isinstance(millis, (int, float)) else 0}
+    reply["engine"] = str(result.get("engine") or "faster-whisper")
+    uid = req.get("utteranceId")
+    if isinstance(uid, str) and uid.strip():
+        reply["utteranceId"] = uid.strip()[:64]
+    return reply
+
+
 def handle_request(req: dict) -> dict:
     op = str(req.get("op") or "")
     if op in {"status", "probe"}:
@@ -1869,7 +1925,9 @@ def handle_request(req: dict) -> dict:
         except (TypeError, ValueError):
             duration = 0.0
         return {"ok": True, "windows": plan_partials(duration), "engine": "faster-whisper"}
-    if op == "transcribe":
+    if op in {"transcribe", "flush"}:
+        # "flush" is a provisional pass by name; "transcribe" with provisional:true is the same thing.
+        provisional = op == "flush" or req.get("provisional") is True
         audio = str(req.get("audio") or "")
         if not audio or not os.path.exists(audio):
             return {"ok": False, "reason": "no-audio", "error": "No audio file was supplied."}
@@ -1881,7 +1939,7 @@ def handle_request(req: dict) -> dict:
             emit({"id": rid, "stream": True, "text": text, "engine": "faster-whisper"})
 
         try:
-            return transcribe_file(
+            result = transcribe_file(
                 audio,
                 str(req.get("model") or DEFAULT_MODEL),
                 str(req.get("language") or ""),
@@ -1896,7 +1954,9 @@ def handle_request(req: dict) -> dict:
                     "multilingual": req.get("multilingual") is True,
                     "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
                 },
+                **({"provisional": True} if provisional else {}),
             )
+            return provisional_reply(result, req) if provisional else result
         except Exception as exc:  # noqa: BLE001
             fault = classify_stt_exception(exc)
             if _whisper_cls is None and fault.kind != "dependency-incompatible":

@@ -1,5 +1,5 @@
 {
- "note": "Hinglish script-policy fixtures; both language_segmenter.py and language-segmenter.ts must produce `expected`.",
+ "note": "Hinglish script-policy fixtures; both language_segmenter.py and language-segmenter.ts must produce `expected`. `sentences`: splitSentences / split_sentences cuts (an abbreviation, an initial, a time or a list number never ends a sentence). `openDot`: endsInOpenDot / ends_in_open_dot.",
  "requested": "",
  "cases": [
   {
@@ -960,21 +960,14 @@
     "romanHindi": true,
     "segments": [
      {
-      "text": "Dr.",
+      "text": "Dr. Sharma ka appointment kab hai?",
       "lang": "en",
-      "script": "latin",
+      "script": "roman-hindi",
       "words": [
        {
         "text": "Dr",
         "kind": "en"
-       }
-      ]
-     },
-     {
-      "text": "Sharma ka appointment kab hai?",
-      "lang": "en",
-      "script": "roman-hindi",
-      "words": [
+       },
        {
         "text": "Sharma",
         "kind": "en"
@@ -1008,21 +1001,14 @@
     "romanHindi": false,
     "segments": [
      {
-      "text": "Dr.",
-      "lang": "en",
-      "script": "latin",
+      "text": "Dr. Sharma से कब मिलना है?",
+      "lang": "mixed",
+      "script": "mixed",
       "words": [
        {
         "text": "Dr",
         "kind": "en"
-       }
-      ]
-     },
-     {
-      "text": "Sharma से कब मिलना है?",
-      "lang": "mixed",
-      "script": "mixed",
-      "words": [
+       },
        {
         "text": "Sharma",
         "kind": "en"
@@ -1137,7 +1123,7 @@
     "romanHindi": false,
     "segments": [
      {
-      "text": "ईमेल भेजो to Mr.",
+      "text": "ईमेल भेजो to Mr. Gupta",
       "lang": "mixed",
       "script": "mixed",
       "words": [
@@ -1156,14 +1142,7 @@
        {
         "text": "Mr",
         "kind": "en"
-       }
-      ]
-     },
-     {
-      "text": "Gupta",
-      "lang": "en",
-      "script": "latin",
-      "words": [
+       },
        {
         "text": "Gupta",
         "kind": "en"
@@ -1808,6 +1787,418 @@
      }
     ]
    }
+  },
+  {
+   "input": "Dr. शर्मा से कब मिलना है? Rs. 500 दे दो।",
+   "expected": {
+    "text": "Dr. शर्मा से कब मिलना है? Rs. 500 दे दो।",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Dr. शर्मा से कब मिलना है?",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Dr",
+        "kind": "en"
+       },
+       {
+        "text": "शर्मा",
+        "kind": "hi"
+       },
+       {
+        "text": "से",
+        "kind": "hi"
+       },
+       {
+        "text": "कब",
+        "kind": "hi"
+       },
+       {
+        "text": "मिलना",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "Rs. 500 दे दो।",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Rs",
+        "kind": "en"
+       },
+       {
+        "text": "500",
+        "kind": "number"
+       },
+       {
+        "text": "दे",
+        "kind": "hi"
+       },
+       {
+        "text": "दो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Please pay Rs. 500 at 5 p.m. today. Prof. Rao agrees.",
+   "expected": {
+    "text": "Please pay Rs. 500 at 5 p.m. today. Prof. Rao agrees.",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Please pay Rs. 500 at 5 p.m. today.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Please",
+        "kind": "en"
+       },
+       {
+        "text": "pay",
+        "kind": "en"
+       },
+       {
+        "text": "Rs",
+        "kind": "en"
+       },
+       {
+        "text": "500",
+        "kind": "number"
+       },
+       {
+        "text": "at",
+        "kind": "en"
+       },
+       {
+        "text": "5",
+        "kind": "number"
+       },
+       {
+        "text": "p",
+        "kind": "en"
+       },
+       {
+        "text": "m",
+        "kind": "en"
+       },
+       {
+        "text": "today",
+        "kind": "en"
+       }
+      ]
+     },
+     {
+      "text": "Prof. Rao agrees.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Prof",
+        "kind": "en"
+       },
+       {
+        "text": "Rao",
+        "kind": "en"
+       },
+       {
+        "text": "agrees",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "डॉ. शर्मा आए। kal meeting hai",
+   "expected": {
+    "text": "डॉ. शर्मा आए। kal meeting hai",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "डॉ. शर्मा आए।",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "डॉ",
+        "kind": "hi"
+       },
+       {
+        "text": "शर्मा",
+        "kind": "hi"
+       },
+       {
+        "text": "आए",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "kal meeting hai",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "kal",
+        "kind": "en"
+       },
+       {
+        "text": "meeting",
+        "kind": "en"
+       },
+       {
+        "text": "hai",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "sentences": [
+  {
+   "input": "Please ask Dr. Singh about it. Then call me back.",
+   "expected": [
+    "Please ask Dr. Singh about it.",
+    "Then call me back."
+   ]
+  },
+  {
+   "input": "Mr. and Mrs. Sharma are here. Welcome.",
+   "expected": [
+    "Mr. and Mrs. Sharma are here.",
+    "Welcome."
+   ]
+  },
+  {
+   "input": "Prof. Rao teaches at St. Xavier's. He is kind.",
+   "expected": [
+    "Prof. Rao teaches at St. Xavier's.",
+    "He is kind."
+   ]
+  },
+  {
+   "input": "Compare A vs. B carefully. Then decide.",
+   "expected": [
+    "Compare A vs. B carefully.",
+    "Then decide."
+   ]
+  },
+  {
+   "input": "Use tools, e.g. a hammer. Or i.e. a spanner.",
+   "expected": [
+    "Use tools, e.g. a hammer.",
+    "Or i.e. a spanner."
+   ]
+  },
+  {
+   "input": "Buy milk, eggs etc. before noon. Then go.",
+   "expected": [
+    "Buy milk, eggs etc. before noon.",
+    "Then go."
+   ]
+  },
+  {
+   "input": "Ask No. 5 about it. Done.",
+   "expected": [
+    "Ask No. 5 about it.",
+    "Done."
+   ]
+  },
+  {
+   "input": "Please pay Rs. 500 today. Thanks.",
+   "expected": [
+    "Please pay Rs. 500 today.",
+    "Thanks."
+   ]
+  },
+  {
+   "input": "Call at 5 p.m. tomorrow. Then rest.",
+   "expected": [
+    "Call at 5 p.m. tomorrow.",
+    "Then rest."
+   ]
+  },
+  {
+   "input": "Come at 9 a.m. sharp. Do not be late.",
+   "expected": [
+    "Come at 9 a.m. sharp.",
+    "Do not be late."
+   ]
+  },
+  {
+   "input": "A. K. Singh arrived. He sat down.",
+   "expected": [
+    "A. K. Singh arrived.",
+    "He sat down."
+   ]
+  },
+  {
+   "input": "The U.S. team won. Good game.",
+   "expected": [
+    "The U.S. team won.",
+    "Good game."
+   ]
+  },
+  {
+   "input": "Visit https://example.com/a.b now. Then leave.",
+   "expected": [
+    "Visit https://example.com/a.b now.",
+    "Then leave."
+   ]
+  },
+  {
+   "input": "See www.example.com. Then continue.",
+   "expected": [
+    "See www.example.com.",
+    "Then continue."
+   ]
+  },
+  {
+   "input": "The value is 3.14 today. Then 2.5 more.",
+   "expected": [
+    "The value is 3.14 today.",
+    "Then 2.5 more."
+   ]
+  },
+  {
+   "input": "It costs 3. Then 4.",
+   "expected": [
+    "It costs 3.",
+    "Then 4."
+   ]
+  },
+  {
+   "input": "First point.\nSecond point.",
+   "expected": [
+    "First point.",
+    "Second point."
+   ]
+  },
+  {
+   "input": "1. Open it\n2. Close it",
+   "expected": [
+    "1. Open it\n2. Close it"
+   ]
+  },
+  {
+   "input": "डॉ. शर्मा आए। वे बैठे।",
+   "expected": [
+    "डॉ. शर्मा आए।",
+    "वे बैठे।"
+   ]
+  },
+  {
+   "input": "Dr. शर्मा ने कहा। ठीक है।",
+   "expected": [
+    "Dr. शर्मा ने कहा।",
+    "ठीक है।"
+   ]
+  },
+  {
+   "input": "Ask Dr.",
+   "expected": [
+    "Ask Dr."
+   ]
+  },
+  {
+   "input": "मुझे Rs. 500 चाहिए। अभी दो।",
+   "expected": [
+    "मुझे Rs. 500 चाहिए।",
+    "अभी दो।"
+   ]
+  },
+  {
+   "input": "Is it ready? Yes! Go ahead.",
+   "expected": [
+    "Is it ready?",
+    "Yes!",
+    "Go ahead."
+   ]
+  },
+  {
+   "input": "",
+   "expected": []
+  }
+ ],
+ "openDot": [
+  {
+   "input": "Ask Dr.",
+   "expected": true
+  },
+  {
+   "input": "I am done.",
+   "expected": false
+  },
+  {
+   "input": "Item 3.",
+   "expected": false
+  },
+  {
+   "input": "\n3.",
+   "expected": true
+  },
+  {
+   "input": "Meet Mrs.",
+   "expected": true
+  },
+  {
+   "input": "Cost is Rs.",
+   "expected": true
+  },
+  {
+   "input": "At 5 p.m.",
+   "expected": true
+  },
+  {
+   "input": "See e.g.",
+   "expected": true
+  },
+  {
+   "input": "The U.S.",
+   "expected": true
+  },
+  {
+   "input": "by J. K.",
+   "expected": true
+  },
+  {
+   "input": "So I.",
+   "expected": false
+  },
+  {
+   "input": "डॉ.",
+   "expected": true
+  },
+  {
+   "input": "Hello world.",
+   "expected": false
+  },
+  {
+   "input": "no",
+   "expected": false
+  },
+  {
+   "input": "",
+   "expected": false
   }
  ]
 }

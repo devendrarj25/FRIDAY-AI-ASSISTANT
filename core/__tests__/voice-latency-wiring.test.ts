@@ -1,11 +1,17 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   recordTurnBudget,
   stampEndpoint,
   voiceBudgetLine,
 } from "../../src/lib/friday/assistant-mode";
-import { LatencyMonitor, StageClock } from "../../src/lib/friday/voice-engine/latency-monitor";
+import {
+  LatencyMonitor,
+  StageClock,
+  UNSTAMPED_STAGES,
+  VOICE_STAGES,
+} from "../../src/lib/friday/voice-engine/latency-monitor";
 
 /** A fixed-clock turn: speech 0..1000, endpoint hold 400, first sound 700 ms after the speech end. */
 function turn(firstSoundAt: number, monitor: LatencyMonitor) {
@@ -71,5 +77,45 @@ describe("voice latency budget wiring", () => {
     const ui = readFileSync("src/components/friday/VoiceDiagnostics.tsx", "utf8");
     expect(ui).toContain("Voice latency budget");
     expect(ui).toContain("voiceBudgetLine()");
+  });
+
+  it("the true first brain token is stamped where the answer first appears, never in speak()", () => {
+    const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const speak = /private speak\(text: string\) \{[\s\S]*?\n {2}\}\n/.exec(mode)?.[0] ?? "";
+    expect(speak).toContain("tokenAt");
+    expect(speak).not.toContain('mark("brainFirstToken")');
+    expect(mode).toMatch(/if \(live\?\.answer\) \{\s*this\.turnStages\.mark\("brainFirstToken"\);/);
+    expect(mode).toMatch(/mark\("firstClauseReady"\);\s*this\.voicedChars \+= chunk\.consumed/);
+    expect(mode).toMatch(/this\.narrator\.begin\(\);\s*this\.turnStages\.mark\("ackArmed"\)/);
+  });
+
+  it("every voice stage is stamped at a source site or listed as not yet used, and the list stays honest", () => {
+    const dir = "src/lib/friday";
+    const files = [
+      "assistant-mode.ts",
+      ...["sarvam-realtime-stt.ts", "sarvam-streaming-tts.ts"].map((f) => join("voice-engine", f)),
+    ];
+    const source = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+    for (const stage of VOICE_STAGES) {
+      const stamped = new RegExp(`mark\\(\\s*"${stage}"`).test(source);
+      const unused = (UNSTAMPED_STAGES as readonly string[]).includes(stage);
+      expect(stamped !== unused, `${stage}: stamped=${stamped} unused=${unused}`).toBe(true);
+    }
+  });
+
+  it("the diagnostics show the new figures and the stages nothing stamps", () => {
+    const ui = readFileSync("src/components/friday/VoiceDiagnostics.tsx", "utf8");
+    for (const metric of [
+      "finalToFirstAudible",
+      "endToFirstAudible",
+      "brainTokenToFirstAudible",
+      "firstClauseToFirstAudible",
+      "eagerOverlap",
+      "ackArmedToAudible",
+    ])
+      expect(ui).toContain(`figureLine("${metric}")`);
+    expect(ui).toContain("unstampedStagesLine()");
+    expect(ui).toContain("speech end is an estimate");
+    expect(ui).toContain("Voice latency budget (speech end to first sound)");
   });
 });

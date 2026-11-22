@@ -410,10 +410,10 @@ describe("hands-free conversation and the show-how offer", () => {
       path.resolve(process.cwd(), "src/lib/friday/assistant-mode.ts"),
       "utf8",
     );
-    const streamed = mode.slice(mode.indexOf("private speakStreamed("));
-    expect(streamed.slice(0, 1600)).toMatch(
-      /offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/,
-    );
+    const from = mode.indexOf("private speakStreamed(");
+    // The whole method, up to the next one: the pin follows the method, not a character count.
+    const streamed = mode.slice(from, mode.indexOf("\n  private ", from + 10));
+    expect(streamed).toMatch(/offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/);
   });
 
   it("keeps a hands-free follow-up open from the end of her reply", () => {

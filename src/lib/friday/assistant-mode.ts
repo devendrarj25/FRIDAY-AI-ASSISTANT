@@ -22,7 +22,8 @@
  */
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
-import { brain } from "./brain-engine";
+import { brain, type QuickAnswer } from "./brain-engine";
+import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { composer } from "./composer";
@@ -97,9 +98,16 @@ import { preferSpoken, socialRegister } from "./conversation-style";
 import { chooseFresh, vary, type RepeatBucket } from "./brain/anti-repeat";
 import { diagnoseVoice, problemLine, type SelfCheckResult } from "./voice-selfcheck";
 import { SUPERVISOR_COOLDOWN_MS, superviseVoice } from "./voice-supervisor";
+import { startPrewarm, cancelPrewarm } from "./voice-prewarm";
+import { prewarmLine, type PrewarmOutcome } from "./voice-engine/prewarm";
+import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
+  beginPlayedReply,
+  lastClipUsedPcm,
   lastSpeechRoute,
+  pcmPlaybackNote,
+  playedReplySnapshot,
   prefetchSpeech,
   speakText,
   spokenSummary,
@@ -145,6 +153,7 @@ import {
   classifyVoiceControl,
 } from "./voice-engine/interruption-controller";
 import { speechRms } from "./character/speech-audio";
+import { firstClauseCut } from "./voice-engine/clause-chunker";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
 import { usesHindiVoice } from "./voice-engine/speech-prep";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
@@ -152,6 +161,7 @@ import { askBrain } from "./self/ask-brain";
 import { autonomy } from "./self/autonomy";
 import {
   attachVoiceTaskSpeaker,
+  cancelAllVoiceTasks,
   releaseTaskUpdates,
   runTaskControl,
   startVoiceTask,
@@ -381,6 +391,8 @@ const MAX_VOICE_LOG = 30;
 const LIVE_WAKE_MS = 8_000;
 /** Live captions send audio only while speech was heard this recently (ms). */
 const CAPTION_TAIL_MS = 1_500;
+/** A quiet gap this long between provisional transcripts is a new utterance, so one more draft is allowed (ms). */
+const DRAFT_TURN_GAP_MS = 4_000;
 
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
@@ -447,6 +459,27 @@ const desktop = (): VoiceDesktop | null =>
     ? null
     : ((window as unknown as { friday?: VoiceDesktop }).friday ?? null);
 
+/**
+ * The Brain as one voice task sees it: every turn it sends carries the task as its owner, so a stop of the
+ * foreground reply (barge-in, the stop word, a change of mind) leaves the task's run alone.
+ */
+function ownedBrain(taskId: string): Parameters<typeof askBrain>[1]["brain"] {
+  return {
+    send: (prompt) => brain.send(prompt, { owner: { kind: "task", taskId } }),
+    subscribe: (listener) => brain.subscribe(listener),
+    getSnapshot: () => brain.getSnapshot(),
+  };
+}
+
+/** Join spoken pieces with one full stop between them: a piece that already ends a sentence adds no second one. */
+function joinSpoken(parts: readonly string[]): string {
+  let out = "";
+  for (const part of parts.map((p) => p.trim()).filter(Boolean)) {
+    out = out ? `${out}${/[.!?…।]["')\]]*$/u.test(out) ? " " : ". "}${part}` : part;
+  }
+  return out;
+}
+
 let cid = 0;
 const captionId = () => `cap-${Date.now().toString(36)}-${(cid += 1).toString(36)}`;
 
@@ -501,6 +534,14 @@ function recordGapsOnly(clock: StageClock, monitor = voiceLatency): Record<strin
   return out;
 }
 
+/** What a draft must still match when the final transcript arrives: nothing material may change in between. */
+type EagerSnapshot = {
+  privacyMode: boolean;
+  paidAccess: boolean;
+  approvalLevel: string;
+  halted: boolean;
+};
+
 class AssistantModeStore {
   private listeners = new Set<() => void>();
   /** On-device transcription is Auto Mode's only recognition engine. */
@@ -533,6 +574,10 @@ class AssistantModeStore {
   private lastFailure = "";
   /** Last text handed to the speech synthesiser, used for echo rejection. */
   private spokenText = "";
+  /** The part of the reply that was heard, taken at the moment the voice was cut for a possible interruption. */
+  private heldPlayed: PlayedReply | null = null;
+  /** The warm-up pass of this Auto session has run to the end once. */
+  private prewarmDone = false;
   /**
    * True only when the owner saved Hands-free off. A missing key leaves Auto
    * mode as the hands-free conversation and does not write the key.
@@ -573,6 +618,8 @@ class AssistantModeStore {
   private hydrated = false;
   private spokenUpTo = 0;
   private unBrain: (() => void) | null = null;
+  /** Hears a quick-lane answer (a short question asked beside a running task) so it is spoken at once. */
+  private unQuick: (() => void) | null = null;
   private awakeUntil = 0;
   private followUpUntil = 0;
   private readonly micRestarts: number[] = [];
@@ -587,6 +634,14 @@ class AssistantModeStore {
   private speculative = "";
   /** "brain" already dispatched. "conduct" waits for the final line. */
   private speculativeKind: "" | "brain" | "conduct" = "";
+  /** The Brain's handle for the live draft ("" when none). A draft is text only: it is never a run. */
+  private draftId = "";
+  /** Drafts started in this turn's partial stream: at most one (a changed line waits for the final transcript). */
+  private draftsThisTurn = 0;
+  /** When the last provisional transcript arrived: a long gap means a new utterance, so a new turn. */
+  private partialSeenAt = 0;
+  /** Privacy, paid access and autonomy when the draft started: a draft is adopted only when none of it changed. */
+  private draftSnapshot: EagerSnapshot | null = null;
   private narratedTool = "";
   /** What she says while work runs: varied, sparse, never twice the same. */
   private narrator = createNarrator();
@@ -600,6 +655,7 @@ class AssistantModeStore {
   /** Named stamps of this turn (speech start, speech requested, first sound) and of an interruption. */
   private turnStages = new StageClock();
   private budgetRecorded = false;
+  private pcmNoteSaid = "";
   private interruptStages = new StageClock();
   private turnClock = {
     heardAt: null as number | null,
@@ -704,6 +760,12 @@ class AssistantModeStore {
    */
   private followKillSwitch() {
     if (this.stopped()) {
+      cancelPrewarm();
+      this.discardEager();
+      // Stop everything ends every task on the desk first (so none reads as COMPLETED "Stopped."), then the
+      // Brain's turn, whoever owns it. The foreground-only stops (barge-in, stop word) never come this way.
+      cancelAllVoiceTasks();
+      brain.stop();
       this.queuedCommands = [];
       this.stopQueueTimer();
       this.state.pending = null;
@@ -735,8 +797,14 @@ class AssistantModeStore {
     if (this.state.paused && !paused) this.pausedByStop = false;
     this.state.paused = paused;
     if (paused) {
+      cancelPrewarm();
       this.stopRecognition();
+      this.discardEager();
       this.cancelSpeech();
+      // The tray pause is the kill switch: it ends every voice task and the Brain's turn too, whoever owns it
+      // (only the stop word and a barge-in are foreground-only).
+      cancelAllVoiceTasks();
+      brain.stop();
       this.to("pause");
       this.state.status = "Microphone paused";
     } else if (this.state.mode === "auto") {
@@ -746,6 +814,9 @@ class AssistantModeStore {
       if (this.autoMicDeferred) {
         this.autoMicDeferred = false;
         this.openAutoMic();
+      } else if (this.state.micReady) {
+        // A warm-up that a pause cut short starts again; one that finished is not repeated.
+        this.startPrewarmPass();
       }
       this.startRecognition();
     } else {
@@ -887,6 +958,8 @@ class AssistantModeStore {
       if (!text || this.state.mode !== "auto" || this.state.paused || this.callHold) return;
       this.state.interim = text;
       const now = Date.now();
+      if (now - this.partialSeenAt > DRAFT_TURN_GAP_MS) this.draftsThisTurn = 0;
+      this.partialSeenAt = now;
       const stableMs = text === this.partialText ? now - this.partialAt : 0;
       const plan = partialPlan({
         text,
@@ -899,12 +972,7 @@ class AssistantModeStore {
         this.partialAt = now;
       }
       if (plan === "cancel" && this.speculative) {
-        if (this.speculativeKind === "brain") {
-          brain.stop();
-          this.dropPlayback();
-        }
-        this.speculative = "";
-        this.speculativeKind = "";
+        this.discardEager();
       } else if (plan === "start" && !this.speculative) {
         const wake = matchWakeWord(text, wakeWord());
         const words = text.split(/\s+/).filter(Boolean).length;
@@ -924,18 +992,13 @@ class AssistantModeStore {
           meeting: this.callHold,
           address: preferences.getSnapshot().voice.addressName,
         });
-        if (preview.handled) {
+        if (!command || !this.eagerAllowed(command)) {
+          // The same gates as the final transcript: nothing starts, nothing is cut.
+        } else if (preview.handled) {
           this.speculative = command;
           this.speculativeKind = "conduct";
-        } else if (
-          accepted &&
-          command &&
-          !commandNeedsApproval(command, this.state.mode) &&
-          !voiceClaimsAuthority(command)
-        ) {
-          this.speculative = command;
-          this.speculativeKind = "brain";
-          this.dispatch(command);
+        } else if (accepted) {
+          this.startDraftRun(command);
         }
       }
       this.emit();
@@ -1025,6 +1088,91 @@ class AssistantModeStore {
     });
     if (!done.changed || !done.text.trim()) return { text: heard };
     return { text: done.text, tidy: { raw: done.raw, changes: done.changes } };
+  }
+
+  /**
+   * The one gate for a speculative start, read from the partial handler: every check the final transcript makes
+   * before it acts, plus the ones a provisional line needs (nothing pending, nothing sensitive, nothing that asks
+   * for approval or claims authority). The speaker is not known until the final transcript, so with "only my
+   * voice" on there is no early start at all. A start never speaks over FRIDAY and never touches a running turn.
+   */
+  private eagerAllowed(command: string): boolean {
+    if (this.state.mode !== "auto" || this.stopped()) return false;
+    if (this.state.paused || this.state.muted || this.callHold) return false;
+    if (this.bootWait || isBootHolding()) return false;
+    if (this.recentlySpeaking()) return false;
+    if (this.voiceSettings().ownerVoiceOnly) return false;
+    if (this.state.pending || this.pendingHeard || brain.getSnapshot().approval) return false;
+    if (looksSensitive(command)) return false;
+    return !commandNeedsApproval(command, this.state.mode) && !voiceClaimsAuthority(command);
+  }
+
+  /** What must still hold when the final transcript arrives for a draft to be adopted (see eagerAdoptable). */
+  private eagerSnapshot(): EagerSnapshot {
+    const level = autonomy.getSnapshot();
+    return {
+      privacyMode: preferences.getSnapshot().voice.privacyMode === true,
+      paidAccess: billing.getSnapshot().billing.paidAccess === true,
+      approvalLevel: level.approvalLevel,
+      halted: level.halted === true,
+    };
+  }
+
+  /** A line compared the way the owner reads it: tidied, then without case, punctuation or spacing. */
+  private eagerKey(text: string): string {
+    const tidy = tidyTranscript(text, {
+      requested: preferences.getSnapshot().voice.recognitionLang,
+    });
+    return (tidy.text.trim() ? tidy.text : text)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+      .trim();
+  }
+
+  /** The draft this voice started is the final line, tidied, and privacy, paid access and approval are unchanged. */
+  private eagerAdoptable(command: string): boolean {
+    if (this.speculativeKind !== "brain" || !this.speculative || !this.draftSnapshot) return false;
+    const then = this.draftSnapshot;
+    const now = this.eagerSnapshot();
+    return (
+      now.privacyMode === then.privacyMode &&
+      now.paidAccess === then.paidAccess &&
+      now.approvalLevel === then.approvalLevel &&
+      now.halted === then.halted &&
+      this.eagerKey(command) === this.eagerKey(this.speculative)
+    );
+  }
+
+  /**
+   * The only call site that starts a draft: the Brain's text-only draft (no run, no tools, no approval, no history,
+   * never shown or spoken). One draft per turn, and none while a turn runs. A refusal means nothing starts, and
+   * the final transcript runs as an ordinary turn. A draft never counts as a spoken user line (no pendingUserEcho).
+   */
+  private startDraftRun(command: string) {
+    if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
+    const started = brain.startDraft(command);
+    if (!started.started) return;
+    this.draftsThisTurn += 1;
+    this.speculative = command;
+    this.speculativeKind = "brain";
+    this.draftId = started.draft.draftId;
+    this.draftSnapshot = this.eagerSnapshot();
+  }
+
+  /**
+   * The only place a draft ends. `adopted` means the Brain took the draft over as the run, so there is nothing
+   * left to throw away; otherwise the draft is discarded in the Brain (its chat is aborted and nothing of it
+   * stays). A draft never ran, spoke or counted an echo, so no playback and no caption is touched here.
+   */
+  private discardEager(adopted = false) {
+    const kind = this.speculativeKind;
+    const draftId = this.draftId;
+    this.speculative = "";
+    this.speculativeKind = "";
+    this.draftId = "";
+    this.draftSnapshot = null;
+    if (adopted || kind !== "brain" || !draftId) return;
+    brain.discardDraft(draftId);
   }
 
   /** The brain echo of a line already captioned from speech is not a second turn. */
@@ -1262,6 +1410,8 @@ class AssistantModeStore {
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
     this.state.muted = muted;
+    if (muted) cancelPrewarm();
+    if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
     this.emit();
   }
@@ -1515,6 +1665,8 @@ class AssistantModeStore {
         reason: null,
       };
       this.state.micReady = true;
+      // Consent is given and the capture runs: only now are the engines warmed, and never in the way of the turn.
+      this.startPrewarmPass();
       const worked = typeof settings.deviceId === "string" ? settings.deviceId : null;
       const previous = preferences.getSnapshot().voice.inputDeviceId || null;
       const next = rememberDevice(worked, previous);
@@ -1546,6 +1698,7 @@ class AssistantModeStore {
     void this.refreshWakeEngine(true);
     this.spokenUpTo = brain.getSnapshot().messages.length;
     this.unBrain = brain.subscribe(() => this.speakNewReplies());
+    this.unQuick = brain.onQuickAnswer((answer) => this.speakQuickAnswer(answer));
     if (this.stopped() || this.state.paused) {
       // Stop everything persists across a restart, and the owner may have paused: Auto starts with the
       // microphone closed and the first Resume opens it.
@@ -1558,6 +1711,39 @@ class AssistantModeStore {
     }
     void this.refreshMeeting();
     this.startRecognition();
+  }
+
+  /**
+   * Warm the speech, voice, turn and kernel engines once per Auto session, right after the microphone opened. It
+   * plays nothing, never blocks the session and never raises an error: a failed step is a note in the voice log and
+   * a Warning row in Voice Doctor.
+   */
+  private startPrewarmPass() {
+    if (this.prewarmDone || this.state.mode !== "auto") return;
+    void startPrewarm(
+      {
+        mode: this.state.mode,
+        micOpen: this.state.micReady,
+        held: this.state.paused || this.state.muted || this.stopped(),
+        localVoice: this.offlineVoiceReady,
+      },
+      (outcome) => this.stampPrewarm(outcome),
+    )
+      .then((report) => {
+        if (this.state.mode !== "auto") return;
+        if (
+          report.outcomes.some((outcome) => outcome.state === "done" || outcome.state === "failed")
+        ) {
+          this.prewarmDone = !report.outcomes.some((outcome) => outcome.state === "cancelled");
+          this.trace("segment", prewarmLine(report));
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  /** The timing of one warm-up step goes into the same latency record as the turn stages. */
+  private stampPrewarm(outcome: PrewarmOutcome) {
+    if (outcome.state === "done") voiceLatency.record(`prewarm.${outcome.step}`, outcome.ms);
   }
 
   /** A known call app pauses listening. No spoken line, so the call is not interrupted. */
@@ -1594,6 +1780,10 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    cancelPrewarm();
+    this.prewarmDone = false;
+    this.heldPlayed = null;
+    beginPlayedReply("", true);
     this.bootWait?.();
     this.bootWait = null;
     this.autoMicDeferred = false;
@@ -1610,6 +1800,8 @@ class AssistantModeStore {
     brain.setAutoMode(false);
     this.unBrain?.();
     this.unBrain = null;
+    this.unQuick?.();
+    this.unQuick = null;
     this.stopRecognition();
     this.dropPlayback();
     void this.streamSpeaker?.stop();
@@ -1633,8 +1825,8 @@ class AssistantModeStore {
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
     this.callHold = false;
-    this.speculative = "";
-    this.speculativeKind = "";
+    this.discardEager();
+    this.draftsThisTurn = 0;
     this.narratedTool = "";
     this.partialText = "";
     voiceGate.setSpeakingGuard(false);
@@ -2520,6 +2712,8 @@ class AssistantModeStore {
   }
 
   private handleHeard(text: string, probe: WakeProbe | null = null) {
+    // The final transcript ends this turn's provisional stream: the next utterance may draft once more.
+    this.draftsThisTurn = 0;
     // A transcript that finished a moment after Stop everything was thrown is not a turn.
     if (this.stopped()) {
       this.trace("dropped", "Stop everything is on");
@@ -2833,12 +3027,15 @@ class AssistantModeStore {
     if (background && this.state.mode === "auto") {
       this.trace("wake", "background request — started as a voice task");
       markTurnStage("routed", true, "", "background task");
-      const made = startVoiceTask(background.label, async (_task, context) => {
+      const made = startVoiceTask(background.label, async (task, context) => {
         await context.checkpoint();
-        const stopOnCancel = () => brain.stop();
+        const stopOnCancel = () => brain.stop({ taskId: task.id });
         context.signal.addEventListener("abort", stopOnCancel, { once: true });
         try {
-          const done = await askBrain(background.request, { brain, timeoutMs: 300_000 });
+          const done = await askBrain(background.request, {
+            brain: ownedBrain(task.id),
+            timeoutMs: 300_000,
+          });
           await context.checkpoint();
           return completionLine(done.answer) || "Finished.";
         } finally {
@@ -2926,26 +3123,17 @@ class AssistantModeStore {
    */
   private routeCommand(command: string) {
     if (wantsContinue(command) && this.unfinished) {
+      this.discardEager();
       const rest = this.unfinished;
       this.unfinished = "";
       this.remember("continue", command, "resumed");
       this.speak(`Continuing. ${rest}`);
       return;
     }
-    if (this.speculative && command === this.speculative && this.speculativeKind === "brain") {
-      this.speculative = "";
-      this.speculativeKind = "";
-      this.remember("speculative", command, "already-started");
-      return;
-    }
-    if (this.speculative) {
-      if (this.speculativeKind === "brain") {
-        brain.stop();
-        this.dropPlayback();
-      }
-      this.speculative = "";
-      this.speculativeKind = "";
-    }
+    // A draft is taken over only after the logic below says this line goes to the brain, and only when it is the
+    // same words (tidied) with privacy, paid access and approval unchanged; anything else cancels it first.
+    const adopt = this.eagerAdoptable(command);
+    if (!adopt) this.discardEager();
     const voicePrefs = preferences.getSnapshot().voice;
     const conduct = reduceVoice(this.conduct, command, Date.now(), {
       quiet: !alertsAudible(),
@@ -2959,6 +3147,7 @@ class AssistantModeStore {
         this.cancelSpeech();
         this.state.pending = null;
       }
+      this.discardEager();
       this.remember(conduct.decision, command, conduct.action);
       this.caption("friday", conduct.spoken);
       this.state.status = conduct.spoken;
@@ -2968,6 +3157,7 @@ class AssistantModeStore {
     }
     // "haan" or "hmm" while she is speaking is the owner following along: she does not talk over herself.
     if (isHoldSound(command) && this.state.speaking) {
+      this.discardEager();
       this.remember("backchannel", command, "following along");
       return;
     }
@@ -2977,6 +3167,7 @@ class AssistantModeStore {
       mode: this.state.mode,
     });
     if (cue) {
+      this.discardEager();
       this.backchannelUsed = true;
       this.remember("backchannel", command, "held");
       this.speak(cue);
@@ -2991,6 +3182,7 @@ class AssistantModeStore {
       voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
     const speaker = this.speakerVerdict(heardSensitive);
     if (!speaker.allow) {
+      this.discardEager();
       const refused = this.speakerRefusal(speaker.reason);
       this.remember(
         speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
@@ -3003,6 +3195,7 @@ class AssistantModeStore {
       return;
     }
     if (heardSensitive && !selfLifecycleAction(command)) {
+      this.discardEager();
       this.state.pending = {
         command,
         reason: approvalReason("exec", this.state.mode),
@@ -3023,6 +3216,7 @@ class AssistantModeStore {
       Date.now() < this.followUpUntil && Boolean(this.spokenText.trim()),
     );
     if (clarify) {
+      this.discardEager();
       this.remember("clarify", command, "asked");
       this.caption("friday", clarify);
       this.speak(clarify);
@@ -3031,6 +3225,26 @@ class AssistantModeStore {
     }
 
     this.backchannelUsed = false;
+    if (adopt) {
+      // Eager adoption: the same words (tidied) as the draft, so the Brain is offered the draft's own words and
+      // applies its own checks (idle, no approval, Stop everything off, privacy). The echo is counted first
+      // because the adopted run's caption arrives while adoptDraft replays what the draft already heard.
+      this.clearHoldLines();
+      this.pendingUserEcho += 1;
+      this.markTurnAccepted();
+      if (brain.adoptDraft(this.draftId, this.speculative)) {
+        this.discardEager(true);
+        this.remember("speculative", command, "already-started");
+        this.openFollowUp();
+        affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
+        markTurnStage("routed", true, "", "draft adopted");
+        this.armHoldLines(command);
+        return;
+      }
+      // Refused (the brain moved on, privacy changed, the draft expired): an ordinary turn runs.
+      this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+      this.discardEager();
+    }
     this.remember("accepted", command, "dispatch");
     this.emit();
     this.dispatch(command);
@@ -3121,13 +3335,25 @@ class AssistantModeStore {
     this.applyVoiceHeal("mic-no-device", true);
   }
 
-  /** Run a command through the existing brain pipeline. */
-  private dispatch(command: string) {
+  /** A turn is on its way to the Brain: the speech bookkeeping of the last reply restarts, and she is Thinking. */
+  private markTurnAccepted() {
+    this.voicedRunId = "";
+    this.voicedChars = 0;
+    this.voicedPrefix = "";
+    this.to("command-accepted");
+    this.state.status = "Thinking…";
+    this.emit();
+  }
+
+  /**
+   * Run a command through the existing brain pipeline. True when a run was started.
+   */
+  private dispatch(command: string): boolean {
     if (this.stopped()) {
       this.remember("stopped", command, "not sent: Stop everything is on");
       this.state.status = "Stopped. Stop everything is on";
       this.emit();
-      return;
+      return false;
     }
     // A light remark while a turn is running (how is it going, are you there)
     // is answered at once and the turn keeps going. A real request falls
@@ -3157,17 +3383,14 @@ class AssistantModeStore {
           decision.kind === "queue" ? "Working — next request queued" : "Working — still on it";
         this.emit();
         this.speak(decision.line);
-        return;
+        return true;
       }
     }
     this.clearHoldLines();
+    const heard = this.heardOfReply();
     this.dropPlayback();
-    this.voicedRunId = "";
-    this.voicedChars = 0;
-    this.voicedPrefix = "";
-    this.to("command-accepted");
-    this.state.status = "Thinking…";
-    this.emit();
+    this.trimReplyToHeard(heard);
+    this.markTurnAccepted();
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
     const { extra, modelIds } = composer.directive();
@@ -3191,10 +3414,23 @@ class AssistantModeStore {
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
-    // A new spoken command is an interrupt: stop the in-flight turn, then start.
+    // A new spoken command is an interrupt: stop the in-flight foreground turn, then start. A background
+    // task's run is not the foreground: it keeps going, and the request waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
-      brain.stop();
+      brain.stop("foreground");
       result = brain.send(command, payload);
+      if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
+        this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+        this.queuedCommands.push(command);
+        this.remember("busy-queue", command, "queued behind the background task");
+        this.drainQueuedCommands();
+        const line = "Noted. That is next, once the background task is done.";
+        this.caption("friday", line);
+        this.state.status = "Working — next request queued";
+        this.emit();
+        this.speak(line);
+        return true;
+      }
     }
     markTurnStage(
       "routed",
@@ -3208,9 +3444,10 @@ class AssistantModeStore {
         result.message || "I couldn't start that request.",
         result.reason === "busy" ? "Still working on the last request" : "Nothing to run",
       );
-      return;
+      return false;
     }
     this.armHoldLines(command);
+    return true;
   }
 
   /**
@@ -3222,6 +3459,7 @@ class AssistantModeStore {
     this.clearHoldLines();
     if (this.state.mode !== "auto") return;
     this.narrator.begin();
+    this.turnStages.mark("ackArmed");
     const startedAt = Date.now();
     const say = (kind: "first" | "later") => {
       const active = brain.getSnapshot().activeRunId;
@@ -3240,6 +3478,13 @@ class AssistantModeStore {
       setTimeout(() => say("later"), 40000),
       setTimeout(() => say("later"), 90000),
     ];
+  }
+
+  /** The Brain's one run is a background task's, not the foreground turn. */
+  private laneHeldByTask(): boolean {
+    const live = brain.getSnapshot();
+    const run = live.runs.find((row) => row.id === live.activeRunId);
+    return run?.owner?.kind === "task";
   }
 
   /** Run the next queued request once nothing is running and nothing is being said. */
@@ -3355,6 +3600,8 @@ class AssistantModeStore {
     this.interruptStages.reset();
     this.interruptStages.mark("interruptCandidate");
     this.clearHoldLines();
+    // What was heard is read before the voice is cut, while the players still know where they were.
+    this.heldPlayed = this.heardOfReply();
     this.dropPlayback();
     // The stop was asked of the player here; the speaker itself was not measured.
     this.interruptStages.mark("playbackLastAudibleSample");
@@ -3385,6 +3632,8 @@ class AssistantModeStore {
     if (!hold) return;
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
+    // Only a nod: the reply goes on, so nothing of it is trimmed.
+    this.heldPlayed = null;
     this.interruptStages.finish();
     this.interruptStages.reset();
     const rest = this.unfinished;
@@ -3406,7 +3655,33 @@ class AssistantModeStore {
     this.interruptStages.mark("interruptConfirmed");
     this.interruptStages.finish();
     this.interruptStages.reset();
-    brain.stop();
+    brain.stop("foreground");
+    // A judged, real interruption: the conversation keeps what was heard, not the whole planned reply.
+    this.trimReplyToHeard(this.heldPlayed);
+    this.heldPlayed = null;
+  }
+
+  /**
+   * What the owner heard of the reply in progress, or null when nothing was cut, the reply is not this run's, or the
+   * setting is off. Read just before the voice is stopped.
+   */
+  private heardOfReply(): PlayedReply | null {
+    if (preferences.getSnapshot().voice.trimHistoryToPlayed === false) return null;
+    const runId = this.voicedRunId;
+    if (!runId) return null;
+    const heard = playedReplySnapshot();
+    if (heard.runId !== runId) return null;
+    const cut =
+      heard.interrupted || this.speechQueue.length > 0 || brain.getSnapshot().activeRunId === runId;
+    return cut ? heard : null;
+  }
+
+  /** Tell the Brain which part of its reply was heard; the saved transcript keeps the whole text. */
+  private trimReplyToHeard(heard: PlayedReply | null) {
+    if (!heard) return;
+    if (brain.truncateAssistantReply(heard.runId, heard.text)) {
+      this.trace("speech", `reply cut off — ${heard.words} words were heard`);
+    }
   }
 
   /** True when this line only resumed the paused reply and needs no further handling. */
@@ -3428,6 +3703,8 @@ class AssistantModeStore {
 
   /** Stop playback without touching the brain. A newer clip must not start. */
   private dropPlayback(hold = true) {
+    // A new speech generation ends a draft.
+    this.discardEager();
     if (hold && (this.state.speaking || this.speechQueue.length)) {
       const held = holdInterrupted([this.spokenText, ...this.speechQueue]);
       if (held) this.unfinished = held;
@@ -3443,9 +3720,12 @@ class AssistantModeStore {
   }
 
   private cancelSpeech() {
+    this.discardEager();
     this.clearHoldLines();
+    const heard = this.heardOfReply();
     this.dropPlayback();
-    brain.stop();
+    brain.stop("foreground");
+    this.trimReplyToHeard(heard);
     this.to("barge-in");
   }
 
@@ -3468,8 +3748,8 @@ class AssistantModeStore {
   }
 
   private speak(text: string) {
+    // tokenAt is the first speakable line, not the brain's first token (that is the brainFirstToken stamp).
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
-    this.turnStages.mark("brainFirstToken");
     if (isBootHolding()) {
       markTurnStage("spoken", false, "FRIDAY is still starting");
       return;
@@ -3695,9 +3975,12 @@ class AssistantModeStore {
     if (this.translateTo) {
       const to = this.translateTo;
       markTurnStage("routed", true, "", "translation");
-      const made = startVoiceTask("Translation", async (_task, context) => {
+      const made = startVoiceTask("Translation", async (task, context) => {
         await context.checkpoint();
-        const done = await askBrain(translationPrompt(heard, to), { brain, timeoutMs: 60_000 });
+        const done = await askBrain(translationPrompt(heard, to), {
+          brain: ownedBrain(task.id),
+          timeoutMs: 60_000,
+        });
         await context.checkpoint();
         return completionLine(done.answer, 400) || "I could not translate that.";
       });
@@ -3712,9 +3995,12 @@ class AssistantModeStore {
   private startMinutes(id: string) {
     const note = voiceNotes.getSnapshot().notes.find((n) => n.id === id);
     if (!note) return;
-    startVoiceTask("Meeting minutes", async (_task, context) => {
+    startVoiceTask("Meeting minutes", async (task, context) => {
       await context.checkpoint();
-      const done = await askBrain(minutesPrompt(note), { brain, timeoutMs: 300_000 });
+      const done = await askBrain(minutesPrompt(note), {
+        brain: ownedBrain(task.id),
+        timeoutMs: 300_000,
+      });
       await context.checkpoint();
       voiceNotes.setSummary(id, done.answer);
       return "The meeting minutes are saved with the note.";
@@ -4287,6 +4573,9 @@ class AssistantModeStore {
     // The next sentence, if it is already waiting, is made while this one plays.
     this.prefetchNext(gen);
     return speakText(spoken, plan.argTuning, {
+      onFirstAudio: () => {
+        if (gen === this.speechGen) this.turnStages.mark("ttsFirstAudioReceived");
+      },
       onStart: () => {
         if (gen !== this.speechGen) return;
         this.turnStages.mark("playbackFirstSample");
@@ -4343,11 +4632,17 @@ class AssistantModeStore {
           this.state.status = statusWithVoice(this.state.status);
         }
         this.trace("segment", `tts engine: ${how.toUpperCase()}`);
+        // Raw-sample playback is opt-in: say when a clause used it, and why it was given up (never silent).
+        const pcmNote = pcmPlaybackNote();
+        if (pcmNote && pcmNote !== this.pcmNoteSaid) {
+          this.pcmNoteSaid = pcmNote;
+          this.trace("segment", pcmNote);
+        }
         markTurnStage(
           "spoken",
           how !== "none",
           "no speech engine could speak the reply",
-          `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}`,
+          `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}${lastClipUsedPcm() ? " · pcm" : ""}${pcmNote ? ` · ${pcmNote}` : ""}`,
         );
         this.trace("segment", `turn: ${turnTraceLine(voiceTurn())}`);
         if (how !== "none") return;
@@ -4399,6 +4694,8 @@ class AssistantModeStore {
       this.voicedRunId = runId;
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      // The clauses heard of an earlier reply are not part of this one.
+      beginPlayedReply(runId);
     }
     const rewind = nextSpokenCursor(this.voicedChars, text.length, {
       prefix: this.voicedPrefix,
@@ -4407,18 +4704,32 @@ class AssistantModeStore {
     if (rewind.rewritten) {
       this.unfinished = "";
       this.dropPlayback(false);
+      // The whole reply is spoken again from its first word.
+      beginPlayedReply(runId, true);
       this.voicedChars = 0;
       this.voicedPrefix = "";
     }
     if (text.length < this.voicedChars) return;
+    // Fast first clause (opt-in): the first words go to the voice at once; everything after it is spoken as before.
+    const fast = this.voicedChars === 0 && preferences.getSnapshot().voice.fastFirstClause === true;
+    const cut = fast ? firstClauseCut(text, { final }) : null;
+    if (cut) {
+      this.turnStages.mark("firstClauseReady");
+      this.voicedChars += cut.consumed;
+      this.voicedPrefix = text.slice(0, this.voicedChars);
+      for (const part of splitLongSpeech(cut.spoken)) this.speak(part);
+    }
     const pending = text.slice(this.voicedChars);
     let chunk = takeSpeakable(pending, final);
-    if (!chunk.spoken && this.voicedChars === 0 && this.realtimeActive())
+    if (!chunk.spoken && this.voicedChars === 0 && !fast && this.realtimeActive())
       chunk = earlyClause(pending);
-    if (!chunk.spoken) return;
-    this.voicedChars += chunk.consumed;
-    this.voicedPrefix = text.slice(0, this.voicedChars);
-    for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+    if (!chunk.spoken && !cut) return;
+    if (chunk.spoken) {
+      this.turnStages.mark("firstClauseReady");
+      this.voicedChars += chunk.consumed;
+      this.voicedPrefix = text.slice(0, this.voicedChars);
+      for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+    }
     if (
       final &&
       this.state.mode === "auto" &&
@@ -4496,6 +4807,21 @@ class AssistantModeStore {
     return null;
   }
 
+  /**
+   * A short question asked beside a running task is answered by the quick lane: show it and say it now. The
+   * message is marked as read so the run's own answer, spoken when it ends, does not repeat it.
+   */
+  private speakQuickAnswer(answer: QuickAnswer) {
+    if (!spokenReplyAllowed(this.state.mode, false) || this.stopped()) return;
+    const { messages } = brain.getSnapshot();
+    const at = messages.findIndex((message) => message.id === answer.messageId);
+    if (at < 0 || at < this.spokenUpTo) return;
+    this.spokenUpTo = at + 1;
+    this.caption("friday", answer.text);
+    this.emit();
+    this.speak(answer.text);
+  }
+
   /** Read back FRIDAY's answers while auto mode is on. */
   private speakNewReplies() {
     if (!spokenReplyAllowed(this.state.mode, false)) return;
@@ -4536,6 +4862,7 @@ class AssistantModeStore {
         }
       }
       if (live?.answer) {
+        this.turnStages.mark("brainFirstToken");
         markTurnStage("model", true, "", live.answeredBy?.line || "answering");
         this.speakStreamed(live.id, live.answer, false);
       }
@@ -4550,11 +4877,7 @@ class AssistantModeStore {
     for (const message of fresh) {
       if (message.role === "user") this.captionUserTurn(message.text);
     }
-    const say = fresh
-      .filter((m) => m.role !== "user")
-      .map((m) => m.text)
-      .join(". ")
-      .trim();
+    const say = joinSpoken(fresh.filter((m) => m.role !== "user").map((m) => m.text));
     if (!say) {
       markTurnStage("reply", false, "the model returned an empty reply");
       this.emit();
@@ -4590,6 +4913,7 @@ class AssistantModeStore {
       return;
     }
     if (failed) this.voicedFaultFor = runId || "reply";
+    else this.turnStages.mark("brainFirstToken"); // an answer that never streamed is first seen whole
     this.speakStreamed(runId || "reply", spoken, true);
   }
 }

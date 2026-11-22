@@ -169,8 +169,80 @@ mathematics मैथमेटिक्स maths मैथ्स physics फ़�
 dictionary डिक्शनरी pronunciation प्रोनंसिएशन accent एक्सेंट
 `;
 
+/**
+ * Words Hindi chat borrows from English, by theme: apps and screens, work and office, time and seasons, food and
+ * kitchen, travel and places, social talk, money and banking, health and fitness, everyday verbs and adjectives.
+ * Brand-free. Words that are also sure Roman Hindi (do, main, to, me, ...) are not here.
+ */
+const CHAT_WORDS = `
+touchscreen टचस्क्रीन touchpad टचपैड webcam वेबकैम powerbank पावरबैंक processor प्रोसेसर graphics ग्राफ़िक्स os ओएस
+patch पैच plugin प्लगइन extension एक्सटेंशन dock डॉक fingerprint फ़िंगरप्रिंट biometric बायोमेट्रिक qr क्यूआर
+barcode बारकोड emoji इमोजी sticker स्टिकर gif जीआईएफ़ meme मीम hashtag हैशटैग handle हैंडल follower फ़ॉलोअर
+subscriber सबस्क्राइबर viewer व्यूअर streaming स्ट्रीमिंग buffering बफ़रिंग buffer बफ़र bandwidth बैंडविड्थ
+ethernet ईथरनेट vpn वीपीएन proxy प्रॉक्सी domain डोमेन hosting होस्टिंग ip आईपी ping पिंग latency लेटेंसी
+algorithm एल्गोरिदम framework फ़्रेमवर्क library लाइब्रेरी repository रिपॉज़िटरी repo रेपो commit कमिट branch ब्रांच
+pull पुल push पुश pipeline पाइपलाइन workflow वर्कफ़्लो automation ऑटोमेशन integration इंटीग्रेशन endpoint एंडपॉइंट
+json जेसन xml एक्सएमएल sql एसक्यूएल interface इंटरफ़ेस feature फ़ीचर module मॉड्यूल variable वेरिएबल loop लूप
+array ऐरे string स्ट्रिंग compile कंपाइल runtime रनटाइम newsletter न्यूज़लेटर unsubscribe अनसबस्क्राइब sender सेंडर
+mention मेंशन trash ट्रैश recycle रीसायकल clipboard क्लिपबोर्ड snapshot स्नैपशॉट bass बेस subtitle सबटाइटल
+caption कैप्शन trim ट्रिम layer लेयर brush ब्रश pen पेन pencil पेंसिल notebook नोटबुक diary डायरी printout प्रिंटआउट
+photocopy फ़ोटोकॉपी xerox ज़ेरॉक्स cabin केबिन desk डेस्क chair चेयर board बोर्ड whiteboard व्हाइटबोर्ड
+projector प्रोजेक्टर slide स्लाइड deck डेक pitch पिच startup स्टार्टअप founder फ़ाउंडर ceo सीईओ colleague कलीग
+coworker कोवर्कर supervisor सुपरवाइज़र director डायरेक्टर executive एग्ज़ीक्यूटिव secretary सेक्रेटरी clerk क्लर्क
+worker वर्कर vendor वेंडर supplier सप्लायर partner पार्टनर shift शिफ़्ट overtime ओवरटाइम attendance अटेंडेंस
+resign रिज़ाइन resignation रिज़िग्नेशन increment इंक्रीमेंट bonus बोनस purchase परचेज़ inventory इन्वेंटरी
+warehouse वेयरहाउस logistics लॉजिस्टिक्स supply सप्लाई demand डिमांड quarter क्वार्टर audit ऑडिट
+reschedule रीशेड्यूल postpone पोस्टपोन attend अटेंड join जॉइन invite इनवाइट invitation इनविटेशन remind रिमाइंड
+assign असाइन assigned असाइन्ड deliver डिलीवर revise रिवाइज़ discuss डिस्कस present प्रेज़ेंट manage मैनेज
+organize ऑर्गनाइज़ arrange अरेंज hybrid हाइब्रिड freelance फ़्रीलांस freelancer फ़्रीलांसर season सीज़न summer समर
+winter विंटर monsoon मॉनसून spring स्प्रिंग sunrise सनराइज़ sunset सनसेट overdue ओवरड्यू late लेट early अर्ली
+sharp शार्प around अराउंड before बिफ़ोर after आफ़्टर pasta पास्ता noodles नूडल्स momos मोमोज़ fries फ़्राइज़
+chips चिप्स salad सैलड soup सूप sauce सॉस butter बटर cheese चीज़ egg एग bread ब्रेड toast टोस्ट sugar शुगर
+milk मिल्क shake शेक soda सोडा tiffin टिफ़िन buffet बुफ़े dessert डेज़र्ट pastry पेस्ट्री cookie कुकी fruit फ़्रूट
+orange ऑरेंज grapes ग्रेप्स vegetable वेजिटेबल veg वेज organic ऑर्गेनिक spicy स्पाइसी sweet स्वीट tasty टेस्टी
+delicious डिलीशियस hungry हंग्री fresh फ़्रेश oil ऑयल gas गैस oven ओवन microwave माइक्रोवेव fridge फ़्रिज
+cooker कुकर kitchen किचन bottle बॉटल glass ग्लास plate प्लेट spoon स्पून cup कप visa वीज़ा luggage लगेज
+baggage बैगेज bag बैग suitcase सूटकेस backpack बैकपैक boarding बोर्डिंग gate गेट checkin चेकइन checkout चेकआउट
+reservation रिज़र्वेशन reserve रिज़र्व waiting वेटिंग platform प्लेटफ़ॉर्म coach कोच seat सीट sleeper स्लीपर ac एसी
+fare फ़ेयर toll टोल highway हाईवे bridge ब्रिज lane लेन driving ड्राइविंग ride राइड pickup पिकअप helmet हेलमेट
+scooter स्कूटर bicycle बाइसिकल cycle साइकिल truck ट्रक van वैन jeep जीप tractor ट्रैक्टर tour टूर tourist टूरिस्ट
+resort रिज़ॉर्ट beach बीच trek ट्रेक trekking ट्रेकिंग camping कैंपिंग camp कैंप picnic पिकनिक outing आउटिंग
+stay स्टे reception रिसेप्शन lift लिफ़्ट floor फ़्लोर bedroom बेडरूम bathroom बाथरूम toilet टॉयलेट flat फ़्लैट
+apartment अपार्टमेंट society सोसाइटी colony कॉलोनी sector सेक्टर street स्ट्रीट near नियर far फ़ार straight स्ट्रेट
+turn टर्न exit एग्ज़िट entry एंट्री entrance एंट्रेंस wish विश happy हैप्पी sad सैड excited एक्साइटेड boring बोरिंग
+funny फ़नी cute क्यूट lovely लवली awesome ऑसम amazing अमेज़िंग fantastic फ़ैंटास्टिक excellent एक्सीलेंट
+brilliant ब्रिलिएंट chill चिल fun फ़न enjoy एंजॉय mood मूड vibe वाइब crush क्रश dating डेटिंग couple कपल
+boyfriend बॉयफ़्रेंड girlfriend गर्लफ़्रेंड relationship रिलेशनशिप buddy बडी mate मेट neighbour नेबर
+community कम्युनिटी club क्लब celebration सेलिब्रेशन celebrate सेलिब्रेट festival फ़ेस्टिवल concert कॉन्सर्ट dj डीजे
+dance डांस singing सिंगिंग cheers चीयर्स bro ब्रो fan फ़ैन atm एटीएम cash कैश cheque चेक statement स्टेटमेंट
+banking बैंकिंग savings सेविंग्स saving सेविंग current करंट deposit डिपॉज़िट withdraw विदड्रॉ withdrawal विदड्रॉअल
+credited क्रेडिटेड debited डेबिटेड wallet वॉलेट kyc केवाईसी principal प्रिंसिपल installment इंस्टॉलमेंट due ड्यू
+penalty पेनल्टी charges चार्जेस charge चार्ज fee फ़ी commission कमीशन mutual म्यूचुअल equity इक्विटी coin कॉइन
+euro यूरो pound पाउंड currency करेंसी exchange एक्सचेंज rate रेट return रिटर्न cashless कैशलेस pension पेंशन
+pf पीएफ़ claim क्लेम renewal रिन्यूअल membership मेंबरशिप voucher वाउचर bargain बारगेन bp बीपी diabetes डायबिटीज़
+thyroid थायरॉइड cholesterol कोलेस्ट्रॉल allergy एलर्जी infection इन्फ़ेक्शन flu फ़्लू covid कोविड vaccine वैक्सीन
+vaccination वैक्सीनेशन dose डोज़ capsule कैप्सूल syrup सिरप injection इंजेक्शन mask मास्क sanitizer सैनिटाइज़र
+oxygen ऑक्सीजन ward वार्ड surgery सर्जरी operation ऑपरेशन specialist स्पेशलिस्ट therapy थेरेपी therapist थेरेपिस्ट
+sample सैंपल lab लैब blood ब्लड pressure प्रेशर pulse पल्स heartbeat हार्टबीट heart हार्ट anxiety एंग्ज़ाइटी
+depression डिप्रेशन meditation मेडिटेशन mindfulness माइंडफ़ुलनेस weight वेट calorie कैलोरी workout वर्कआउट
+cycling साइक्लिंग swimming स्विमिंग trainer ट्रेनर supplement सप्लीमेंट immunity इम्युनिटी try ट्राई tried ट्राइड
+used यूज़्ड using यूज़िंग work वर्क working वर्किंग worked वर्क्ड need नीड want वांट love लव hate हेट feel फ़ील
+think थिंक know नो remember रिमेंबर forget फ़ॉरगेट keep कीप take टेक give गिव make मेक pick पिक respond रिस्पॉन्ड
+react रिएक्ट reaction रिएक्शन accept एक्सेप्ट decline डिक्लाइन ignore इग्नोर avoid अवॉइड catch कैच prepare प्रिपेयर
+learn लर्न learning लर्निंग explain एक्सप्लेन understand अंडरस्टैंड confuse कन्फ़्यूज़ confused कन्फ़्यूज़्ड
+confusing कन्फ़्यूज़िंग sure श्योर maybe मेबी probably प्रोबेबली actually एक्चुअली basically बेसिकली
+seriously सीरियसली exactly एग्ज़ैक्टली totally टोटली just जस्ट only ओनली also ऑल्सो even ईवन still स्टिल
+already ऑलरेडी really रियली very वेरी much मच many मेनी more मोर most मोस्ट less लेस enough इनफ़ almost ऑलमोस्ट
+tension टेंशन confidence कॉन्फ़िडेंस attitude एटीट्यूड style स्टाइल stylish स्टाइलिश fashion फ़ैशन
+trending ट्रेंडिंग viral वायरल popular पॉपुलर famous फ़ेमस original ओरिजिनल fake फ़ेक real रियल genuine जेन्युइन
+official ऑफ़िशियल legal लीगल illegal इलीगल valid वैलिड invalid इनवैलिड correct करेक्ट wrong रॉन्ग exact एग्ज़ैक्ट
+accurate एक्यूरेट careful केयरफ़ुल serious सीरियस crazy क्रेज़ी lazy लेज़ी smart स्मार्ट positive पॉज़िटिव
+negative नेगेटिव neutral न्यूट्रल comfortable कंफ़र्टेबल comfort कंफ़र्ट tired टायर्ड relax रिलैक्स rest रेस्ट
+break ब्रेक peace पीस bright ब्राइट light लाइट
+`;
+
 /** English words said inside Hindi text, written in Devanagari. */
-export const ENGLISH_IN_HINDI = `${TECH}\n${TIME_AND_PLACE}\n${MONEY_AND_LIFE}\n${GENERAL}\n${WORK_AND_WORLD}`;
+export const ENGLISH_IN_HINDI = `${TECH}\n${TIME_AND_PLACE}\n${MONEY_AND_LIFE}\n${GENERAL}\n${WORK_AND_WORLD}\n${CHAT_WORDS}`;
 
 /**
  * Roman Hindi that no English word shares. Safe to turn into Devanagari once the sentence is Hinglish

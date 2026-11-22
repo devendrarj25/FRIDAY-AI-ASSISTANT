@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld("friday", {
   installNeuralVoice: () => ipcRenderer.invoke("voice:neural-install"),
   listNeuralVoices: () => ipcRenderer.invoke("voice:neural-voices"),
   speakNeural: (payload) => ipcRenderer.invoke("voice:neural-speak", payload),
+  speakNeuralPcm: (payload) => ipcRenderer.invoke("voice:neural-speak-pcm", payload),
+  echoShadow: (payload) => ipcRenderer.invoke("voice:echo-shadow", payload),
   duckAudio: (payload) => ipcRenderer.invoke("voice:duck", payload || {}),
   meetingStatus: () => ipcRenderer.invoke("voice:meeting"),
   voiceprintStatus: () => ipcRenderer.invoke("voice:voiceprint-status"),

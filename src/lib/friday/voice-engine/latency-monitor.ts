@@ -157,8 +157,27 @@ export const VOICE_STAGES = [
   "interruptCandidate",
   "interruptConfirmed",
   "playbackLastAudibleSample",
+  // Declared for the voice-mode blueprint (docs/FRIDAY_VOICE_ENGINE.md): overlapped recognition, the acknowledgement,
+  // and the first speakable clause. Stamped only where the code really does that thing.
+  "eagerStarted",
+  "eagerResolved",
+  "ackArmed",
+  "ackAudible",
+  "firstClauseReady",
 ] as const;
 export type VoiceStage = (typeof VOICE_STAGES)[number];
+
+/**
+ * Stages that no code stamps yet. They stay in the list so the diagnostics can say "not used" instead of showing a
+ * made-up number; a stage leaves this list in the same change that stamps it (a test pins both directions).
+ */
+export const UNSTAMPED_STAGES: readonly VoiceStage[] = [
+  "wakeDetected",
+  "audioFirstDecoded",
+  "eagerStarted",
+  "eagerResolved",
+  "ackAudible",
+];
 
 /** The named gaps between two stages. Both ends must have been stamped for a gap to count. */
 const STAGE_GAPS: Array<[string, VoiceStage, VoiceStage]> = [
@@ -171,9 +190,34 @@ const STAGE_GAPS: Array<[string, VoiceStage, VoiceStage]> = [
   ["ttsDecode", "ttsFirstAudioReceived", "audioFirstDecoded"],
   ["firstAudible", "ttsRequestStarted", "playbackFirstSample"],
   ["finalToFirstAudible", "sttFinalReceived", "playbackFirstSample"],
+  // Speech end (an estimate: the confirm time minus the endpoint hold) to the first audible sample, brain included.
+  ["endToFirstAudible", "micSpeechEnd", "playbackFirstSample"],
+  ["brainTokenToFirstAudible", "brainFirstToken", "playbackFirstSample"],
+  // The first speakable clause to the first sample: the old "first token" figure, which leaves the brain out.
+  ["firstClauseToFirstAudible", "firstClauseReady", "playbackFirstSample"],
+  ["eagerOverlap", "eagerStarted", "eagerResolved"],
+  ["ackArmedToAudible", "ackArmed", "ackAudible"],
   ["audibleStop", "interruptCandidate", "playbackLastAudibleSample"],
   ["interruptConfirm", "interruptCandidate", "interruptConfirmed"],
 ];
+
+/** True when a derived figure depends on a stage that no code stamps yet. */
+export function figureNotUsed(metric: string): boolean {
+  const gap = STAGE_GAPS.find(([name]) => name === metric);
+  return (
+    gap !== undefined && (UNSTAMPED_STAGES.includes(gap[1]) || UNSTAMPED_STAGES.includes(gap[2]))
+  );
+}
+
+/** One diagnostics line for a derived figure: "not used" when its stages are never stamped, never a fake number. */
+export function figureLine(metric: string, monitor: LatencyMonitor = voiceLatency): string {
+  return figureNotUsed(metric) ? "not used yet" : monitor.line(metric);
+}
+
+/** The declared stages that nothing stamps yet, as one plain line. */
+export function unstampedStagesLine(): string {
+  return UNSTAMPED_STAGES.join(", ");
+}
 
 /**
  * Monotonic stage stamps for one turn. "Requested" and "audible" are different stages: a request time is never

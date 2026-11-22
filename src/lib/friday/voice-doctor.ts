@@ -12,6 +12,7 @@ import { voicePackReport } from "./voice-pack";
 import { voiceGate } from "./voice-audio";
 import { lastSpeechRoute } from "./voice-library";
 import { currentVoiceHealth } from "./voice-health";
+import { prewarmDoctorRows } from "./voice-engine/prewarm";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -152,6 +153,8 @@ export function voiceLayerChecks(marks?: Partial<Record<VoiceLayer, LayerMark>>)
       ],
     });
   }
+  // A warm-up step that failed is a Warning of its own; a pass that went well adds nothing here.
+  rows.push(...prewarmDoctorRows());
   return rows;
 }
 

@@ -3283,6 +3283,9 @@ async function streamOnceRaw({
                 history: require("./chat-history.cjs").sanitiseHistory(request.history, prompt),
                 // Desktop already ran confirmEgress for this exact model.
                 privacyConfirmed: true,
+                // A Brain draft (a speculative text-only guess) is stored nowhere and runs no tool.
+                // Strict boolean: anything but `true` is a normal turn.
+                ephemeral: request.draft === true,
                 // Private is a hard local filter. The kernel must not widen it.
                 privacy:
                   request.requirements?.privacy || request.routingContract?.requirements?.privacy,
@@ -5102,6 +5105,8 @@ ipcMain.handle("voice:neural-status", () => neuralVoice.status(true));
 ipcMain.handle("voice:neural-install", () => neuralVoice.install());
 ipcMain.handle("voice:neural-voices", () => neuralVoice.voices());
 ipcMain.handle("voice:neural-speak", (_e, payload) => neuralVoice.speak(payload || {}));
+ipcMain.handle("voice:neural-speak-pcm", (_e, payload) => neuralVoice.speakPcm(payload || {}));
+ipcMain.handle("voice:echo-shadow", (_e, payload) => neuralVoice.echoShadow(payload || {}));
 // Push-to-talk toggle. A global shortcut reports a press and no release, so it
 // toggles; hold-to-talk is Ctrl+Space inside the window. Registered only while
 // the owner picked push-to-talk in Auto mode, and released again when not.

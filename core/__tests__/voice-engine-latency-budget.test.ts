@@ -1,9 +1,13 @@
 /** Per-turn latency budget: fixed clock, no devices. First sound is judged against 800 ms and the biggest stage is named. */
 import { describe, expect, it } from "vitest";
 import {
+  figureLine,
+  figureNotUsed,
   LATENCY_BUDGET_MS,
   LatencyMonitor,
   StageClock,
+  UNSTAMPED_STAGES,
+  VOICE_STAGES,
   type VoiceStage,
 } from "../../src/lib/friday/voice-engine/latency-monitor";
 
@@ -94,5 +98,56 @@ describe("voice latency budget", () => {
     clock.mark("micSpeechEnd", 1);
     clock.mark("endpointConfirmed", 2);
     expect(clock.durations()).toEqual({});
+  });
+
+  it("derives final-to-first-sound and a brain-inclusive end-to-first-sound from the stamps", () => {
+    const clock = new StageClock(() => 0);
+    clock.mark("micSpeechEnd", 1000);
+    clock.mark("endpointConfirmed", 1400);
+    clock.mark("sttFinalReceived", 1600);
+    clock.mark("brainRequestStarted", 1610);
+    clock.mark("brainFirstToken", 1900);
+    clock.mark("firstClauseReady", 2300);
+    clock.mark("playbackFirstSample", 2500);
+    expect(clock.durations()).toEqual({
+      brainFirstToken: 290,
+      finalToFirstAudible: 900,
+      endToFirstAudible: 1500,
+      brainTokenToFirstAudible: 600,
+      firstClauseToFirstAudible: 200,
+    });
+    // The old figure (first speakable clause to sound) leaves the brain out; the new ones include it.
+    const d = clock.durations();
+    expect(d["firstClauseToFirstAudible"] ?? Infinity).toBeLessThan(
+      d["brainTokenToFirstAudible"] ?? 0,
+    );
+    expect(clock.budgetTurn().firstSound).toBe(1500);
+  });
+
+  it("declares the five blueprint stages, and the unstamped ones are never shown as a number", () => {
+    for (const s of ["eagerStarted", "eagerResolved", "ackArmed", "ackAudible", "firstClauseReady"])
+      expect(VOICE_STAGES).toContain(s);
+    expect([...UNSTAMPED_STAGES].sort()).toEqual(
+      ["ackAudible", "audioFirstDecoded", "eagerResolved", "eagerStarted", "wakeDetected"].sort(),
+    );
+    const monitor = new LatencyMonitor();
+    monitor.record("eagerOverlap", 250); // even a stray sample cannot make an unused figure look measured
+    expect(figureNotUsed("eagerOverlap")).toBe(true);
+    expect(figureNotUsed("ackArmedToAudible")).toBe(true);
+    expect(figureLine("eagerOverlap", monitor)).toBe("not used yet");
+    expect(figureLine("ackArmedToAudible", monitor)).toBe("not used yet");
+    expect(figureNotUsed("endToFirstAudible")).toBe(false);
+    expect(figureLine("endToFirstAudible", new LatencyMonitor())).toBe(
+      "no finished turn measured yet",
+    );
+  });
+
+  it("a turn that stamps nothing new keeps the old figures only", () => {
+    const m = new LatencyMonitor();
+    turn(m, { eou: 100, asr: 60, llm: 200, tts: 90 });
+    expect(m.summary("endToFirstAudible")?.p50).toBe(100 + 60 + 5 + 200 + 5 + 90 + 20);
+    expect(m.summary("eagerOverlap")).toBeNull();
+    expect(m.summary("ackArmedToAudible")).toBeNull();
+    expect(m.budgetVerdict().firstSound?.p50).toBe(m.summary("endToFirstAudible")?.p50);
   });
 });

@@ -324,6 +324,36 @@ export function VoiceSettings() {
             }
           />
           <ToggleRow
+            label="Warm up the voice when Auto mode starts"
+            hint="Once the microphone is open, FRIDAY loads and tries her speech, voice, turn and kernel engines so your first question is not slow. Nothing is played, no microphone is added and nothing leaves this PC. It is skipped on the Lite profile and on battery, and a failure shows in Voice Doctor, not as an error. On by default."
+            on={prefs.voice.prewarm !== false}
+            onToggle={() => preferences.setVoice({ prewarm: prefs.voice.prewarm === false })}
+          />
+          <ToggleRow
+            label="Remember only what I heard when I cut her off"
+            hint="When you interrupt a spoken reply, the conversation keeps the part you heard and notes that she was cut off, so the next answer does not assume you heard the rest. The whole reply stays in the saved conversation on this PC. On by default."
+            on={prefs.voice.trimHistoryToPlayed !== false}
+            onToggle={() =>
+              preferences.setVoice({
+                trimHistoryToPlayed: prefs.voice.trimHistoryToPlayed === false,
+              })
+            }
+          />
+          <ToggleRow
+            label="Fast first clause (experimental)"
+            hint="Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. Off by default and not yet measured on a real speaker."
+            on={prefs.voice.fastFirstClause === true}
+            onToggle={() =>
+              preferences.setVoice({ fastFirstClause: prefs.voice.fastFirstClause !== true })
+            }
+          />
+          <ToggleRow
+            label="Play the local voice as raw samples (experimental)"
+            hint="Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. Off by default and not yet measured on a real speaker."
+            on={prefs.voice.pcmPlayback === true}
+            onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
+          />
+          <ToggleRow
             label="Check the language on every phrase (experimental)"
             hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
             on={prefs.voice.sttMultilingual === true}

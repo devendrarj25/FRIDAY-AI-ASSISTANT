@@ -366,6 +366,179 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
   };
 }
 
+/** The most text one local clause may carry (the kernel cuts at the same length). */
+const PCM_TEXT_CAP = 500;
+
+/**
+ * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
+ * fallback, no disk write and no cache, so sensitive text never leaves this PC. The samples are returned as a
+ * Buffer, which the renderer receives as a Uint8Array through the structured clone (no base64 round trip).
+ * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.
+ */
+async function speakPcm(
+  { text, rate = 1, lang = "", style = "", seq } = {},
+  { request = speakerRequest, resolvePy = python } = {},
+) {
+  const spoken = String(text || "")
+    .trim()
+    .slice(0, PCM_TEXT_CAP);
+  if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
+  const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const py = await resolvePy();
+  if (!py)
+    return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
+  const answered = await request(
+    py,
+    {
+      op: "speak-pcm",
+      text: spoken,
+      speed: Number(rate) || 1,
+      lang: String(lang || ""),
+      style: voiceStyle,
+      ...(Number.isInteger(seq) ? { seq } : {}),
+    },
+    60000,
+  );
+  if (!answered?.ok || typeof answered.pcm16 !== "string" || !answered.pcm16) {
+    return {
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason: answered?.reason || "local neural voice is not installed",
+    };
+  }
+  const pcm = Buffer.from(answered.pcm16, "base64");
+  if (pcm.length < 2) {
+    return {
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason: "the local voice returned no audio",
+    };
+  }
+  return {
+    ok: true,
+    engine: "supertonic-3",
+    cloud: false,
+    voice: voiceStyle || "F2",
+    sampleRate: Number(answered.sampleRate) || 0,
+    pcm,
+    ms: Number(answered.ms) || 0,
+    ...(Number.isInteger(seq) ? { seq } : {}),
+  };
+}
+
+/** One call per 160 ms microphone chunk at most; a faster caller is answered without touching the worker. */
+const ECHO_SHADOW_MIN_GAP_MS = 160;
+/** Base64 characters one call may carry: 160 ms at 16 kHz is 6828, so this leaves room for a slightly larger chunk. */
+const ECHO_SHADOW_MAX_B64 = 8192;
+const BASE64_BODY = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+/** A plain data object with own fields only: no class instance, no array, no getter tricks. */
+function isPlainRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** The decoded byte length of a well-formed base64 audio string, or 0 when it is not one. */
+function audioBase64Bytes(value) {
+  if (typeof value !== "string" || value.length < 4 || value.length > ECHO_SHADOW_MAX_B64) return 0;
+  if (value.length % 4 !== 0 || !BASE64_BODY.test(value)) return 0;
+  const pad = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return (value.length / 4) * 3 - pad;
+}
+
+/**
+ * Echo-shadow measurement from the persistent worker: how much the echo canceller would remove from one microphone
+ * chunk. Local only: no cloud, no SAPI fallback. The microphone and reference audio go to the worker over its pipe
+ * and are never written to disk, cached or logged here, and the answer carries levels only, never audio. Nothing
+ * runs unless the renderer asks. Each call is checked first (plain object, base64 strings of bounded length, equal
+ * decoded length, boolean reset, integer seq), then rate limited (one call per 160 ms and one in flight), so a
+ * flood never reaches the worker and never queues behind a speak.
+ */
+function createEchoShadow({
+  request = speakerRequest,
+  resolvePy = python,
+  now = monotonicMs,
+  minGapMs = ECHO_SHADOW_MIN_GAP_MS,
+} = {}) {
+  let lastAt = -Infinity;
+  let busy = false;
+  const refuse = (reason) => ({ ok: false, engine: "local", cloud: false, reason });
+  return async function echoShadow(payload) {
+    if (!isPlainRecord(payload)) return refuse("bad-request");
+    const { mic, ref, reset, seq } = payload;
+    const micBytes = audioBase64Bytes(mic);
+    if (micBytes < 2 || micBytes % 2) return refuse("bad-audio");
+    let refBytes = 0;
+    if (ref !== undefined && ref !== null && ref !== "") {
+      refBytes = audioBase64Bytes(ref);
+      if (refBytes < 2 || refBytes % 2) return refuse("bad-audio");
+      if (refBytes !== micBytes) return refuse("length-mismatch");
+    }
+    if (reset !== undefined && typeof reset !== "boolean") return refuse("bad-request");
+    if (seq !== undefined && !Number.isSafeInteger(seq)) return refuse("bad-request");
+    const at = now();
+    if (busy || at - lastAt < minGapMs) return refuse("rate-limited");
+    lastAt = at;
+    busy = true;
+    try {
+      const py = await resolvePy();
+      if (!py) return { ...refuse("Python 3.12+ was not found."), ready: false };
+      // The worker is the same process that speaks: a missed deadline kills it, so the wait is generous.
+      const answered = await request(
+        py,
+        {
+          op: "echo-shadow",
+          mic,
+          ...(refBytes ? { ref } : {}),
+          ...(reset === true ? { reset: true } : {}),
+          ...(seq !== undefined ? { seq } : {}),
+        },
+        5000,
+      );
+      if (!answered || typeof answered !== "object") {
+        return { ...refuse("the local voice worker did not answer"), ready: false };
+      }
+      if (!answered.ok) {
+        return {
+          ...refuse(String(answered.reason || "echo-shadow-failed")),
+          ready: answered.ready === true,
+          ...(seq !== undefined ? { seq } : {}),
+        };
+      }
+      const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+      return {
+        ok: true,
+        engine: "local",
+        cloud: false,
+        ready: answered.ready === true,
+        playing: answered.playing === true,
+        cancelled: answered.cancelled === true,
+        micDb: num(answered.micDb),
+        residualDb: num(answered.residualDb),
+        reductionDb:
+          typeof answered.reductionDb === "number" && Number.isFinite(answered.reductionDb)
+            ? answered.reductionDb
+            : null,
+        delayMs: num(answered.delayMs),
+        confidence: num(answered.confidence),
+        gate: false,
+        ...(seq !== undefined ? { seq } : {}),
+      };
+    } finally {
+      busy = false;
+    }
+  };
+}
+
+const echoShadow = createEchoShadow();
+
 /**
  * Pitch multiplier (1 = the voice's own pitch) to the Hz offset the online service takes. The old mapping sent
  * (pitch - 1) * 12 Hz, so the whole slider moved the voice by about 6 Hz, which cannot be heard; 150 Hz per 1.0
@@ -522,6 +695,11 @@ module.exports = {
   voices,
   speak,
   speakLocal,
+  speakPcm,
+  echoShadow,
+  createEchoShadow,
+  ECHO_SHADOW_MIN_GAP_MS,
+  ECHO_SHADOW_MAX_B64,
   shutdown,
   speakerRequest,
   PREFERRED,

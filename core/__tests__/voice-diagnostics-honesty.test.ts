@@ -4,6 +4,12 @@ import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import { formatVoiceProbeReport, type VoiceProbeCheck } from "../../src/lib/friday/voice-doctor";
 import { healFault } from "../../src/lib/friday/voice-heal";
+import {
+  figureLine,
+  LatencyMonitor,
+  UNSTAMPED_STAGES,
+  unstampedStagesLine,
+} from "../../src/lib/friday/voice-engine/latency-monitor";
 
 const verify = createRequire(import.meta.url)("../../electron/voice-verify.cjs") as Record<
   string,
@@ -55,5 +61,15 @@ describe("an optional part that is not installed is not a fault", () => {
     );
     expect(source).toMatch(/\(optional, not installed\)/);
     expect(source).not.toMatch(/`\$\{rest\} optional - not installed`/);
+  });
+});
+
+describe("a latency figure whose stage nothing stamps is shown as not used, never as a number", () => {
+  it("names every unstamped stage and keeps a measured figure a number", () => {
+    for (const stage of UNSTAMPED_STAGES) expect(unstampedStagesLine()).toContain(stage);
+    const monitor = new LatencyMonitor();
+    monitor.record("endToFirstAudible", 900);
+    expect(figureLine("endToFirstAudible", monitor)).toMatch(/^900 ms typical/);
+    expect(figureLine("eagerOverlap", monitor)).toBe("not used yet");
   });
 });

@@ -303,6 +303,7 @@ export const FLOW_REGISTRY = {
     "voice.duckOthers",
     "voice.englishVoice",
     "voice.expressiveSpeech",
+    "voice.fastFirstClause",
     "voice.heardKeepMin",
     "voice.heardKeepRows",
     "voice.hindiVoice",
@@ -316,8 +317,10 @@ export const FLOW_REGISTRY = {
     "voice.notesRetentionDays",
     "voice.ownerVoiceOnly",
     "voice.pauseDuringCalls",
+    "voice.pcmPlayback",
     "voice.personalWake",
     "voice.pitch",
+    "voice.prewarm",
     "voice.privacyMode",
     "voice.pronunciations",
     "voice.rate",
@@ -330,6 +333,7 @@ export const FLOW_REGISTRY = {
     "voice.sttMultilingual",
     "voice.sttSize",
     "voice.tidyDictation",
+    "voice.trimHistoryToPlayed",
     "voice.vocabulary",
     "voice.voiceName",
     "voice.voicePreset",
@@ -2172,6 +2176,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:echo-shadow",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:import",
       file: "electron/main.cjs",
     },
@@ -2189,6 +2197,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:neural-speak",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:neural-speak-pcm",
       file: "electron/main.cjs",
     },
     {
@@ -9441,16 +9453,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 144,
-      total: 144,
+      mapped: 148,
+      total: 148,
     },
     capabilities: {
       mapped: 1107,
       total: 1107,
     },
     ipc: {
-      mapped: 498,
-      total: 498,
+      mapped: 500,
+      total: 500,
     },
     kernel: {
       mapped: 14,

@@ -137,11 +137,79 @@ def dominant_lang(text: str, requested: str = "") -> str:
     return "hi" if raw.startswith("hi") else "en"
 
 
+# ---- Sentence cuts (mirror of `splitSentences` and `endsInOpenDot` in language-segmenter.ts) ----
+
+_SENTENCE_END = re.compile("(?<=[.!?।॥\n])\\s+")
+
+# Words that end in a dot without ending the sentence ("Please ask Dr. Singh"). Same table as the TypeScript one.
+ABBREVIATIONS = frozenset(
+    "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co rs govt dept डॉ प्रो".split()
+)
+
+# Only the end of a text decides whether its last dot is open, so a check never reads more than this.
+_TAIL_WINDOW = 64
+_TAIL_WORD = re.compile("([\u0900-\u097fA-Za-z.]+)\\Z")
+_DOTTED_INITIALISM = re.compile("[A-Za-z](?:\\.[A-Za-z])+")
+_INITIAL = re.compile("(?:^|[\\s(])[A-Z]\\Z")
+_PRONOUN_I = re.compile("(?:^|[\\s(])I\\Z")
+_LIST_NUMBER = re.compile("\n\\s*[0-9]{1,2}\\Z")
+_LIST_NUMBER_WHOLE = re.compile("\\s*[0-9]{1,2}\\Z")
+
+
+def _open_dot_tail(tail: str, whole: bool) -> bool:
+    """Is the last dot of ``tail`` (the end of a text, trailing space cut, at most 64 characters) an open one?"""
+    if not tail.endswith("."):
+        return False
+    before = tail[:-1]
+    found = _TAIL_WORD.search(before)
+    word = found.group(1) if found else ""
+    # A word that fills a cut window may be the end of something longer: not an abbreviation.
+    if word and (whole or len(word) < len(before)):
+        if word.replace(".", "").lower() in ABBREVIATIONS:
+            return True
+        if _DOTTED_INITIALISM.fullmatch(word):
+            return True
+    if _INITIAL.search(before) and not _PRONOUN_I.search(before):
+        return True
+    if _LIST_NUMBER.search(before):
+        return True
+    return whole and _LIST_NUMBER_WHOLE.fullmatch(before) is not None
+
+
+def ends_in_open_dot(text: str) -> bool:
+    """Does the text end with a dot that is no sentence end: Dr., Rs., p.m., an initial or a list number?"""
+    cut = (text or "").rstrip()
+    return _open_dot_tail(cut[-_TAIL_WINDOW:], len(cut) <= _TAIL_WINDOW)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Cut text into sentences, putting a piece that ends in an open dot back with the one after it. One pass."""
+    if not text:
+        return []
+    out: list[str] = []
+    carry: list[str] = []
+    tail = ""
+    length = 0
+    for raw in _SENTENCE_END.split(text):
+        joined = f"{tail} {raw}" if carry else raw
+        cut = joined.rstrip()
+        tail = cut[-_TAIL_WINDOW:]
+        length = (length + 1 if carry else 0) + len(raw)
+        trimmed_length = length - (len(joined) - len(cut))
+        carry.append(raw)
+        if _open_dot_tail(tail, trimmed_length <= _TAIL_WINDOW) and not raw.endswith("\n"):
+            continue
+        out.append(" ".join(carry))
+        carry = []
+    if carry:
+        out.append(" ".join(carry))
+    return out
+
+
 # ---- Transcript script policy (mirror of `scriptPolicy` in language-segmenter.ts) ----
 
 # A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter.
 _POLICY_WORD = re.compile("[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*")
-_POLICY_BREAK = re.compile("(?<=[.!?।॥])\\s+|\\s*\\n+\\s*")
 _APOSTROPHE_TAIL = re.compile("['’].*$")
 
 
@@ -166,7 +234,9 @@ def script_policy(text: str, requested: str = "") -> dict:
     raw = (requested or "").lower().replace("_", "-")
     fallback = "hi" if raw.startswith("hi") else "en"
     segments: list[dict] = []
-    for piece in _POLICY_BREAK.split(cleaned) if cleaned else []:
+    # A line is a break, and so is a sentence end that is not an abbreviation, an initial or a time (Dr. Sharma).
+    pieces = [piece for line in cleaned.split("\n") for piece in split_sentences(line)] if cleaned else []
+    for piece in pieces:
         seg = piece.strip()
         if not seg:
             continue

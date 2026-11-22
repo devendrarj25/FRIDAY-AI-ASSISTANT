@@ -35,6 +35,18 @@ import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks
 import { sandboxToolPort } from "./sandbox-agent";
 import { compactHistory } from "./brain/history-compact";
 import { QUICK_SYSTEM, quickLaneEligible } from "./brain/quick-lane";
+import { looksLikeLiveFact } from "./brain/research";
+import {
+  DRAFT_SYSTEM,
+  DRAFT_TTL_MS,
+  draftPool,
+  sameTranscript,
+  stopReaches,
+  type DraftHandle,
+  type DraftStart,
+  type RunOwner,
+  type StopScope,
+} from "./self/brain-draft";
 import { askFriday, canAsk } from "./ask";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { taskPreference } from "./brain/task-routing";
@@ -86,6 +98,14 @@ import { userProfileDigest, vocative } from "./brain/user-profile";
 import { conversationSight } from "./conversation-sight";
 import { replyKeepsHelp } from "./eval-corpus";
 import { thinkBudget, tracePlan, withinBudget } from "./think-budget";
+
+/** What the model is shown of a reply the owner cut off: the heard part and a marker, never the unheard rest. */
+export function cutReplyForModel(heard: string): string {
+  const text = heard.trim();
+  return text
+    ? `${text} … [interrupted: the owner cut this reply off here; the rest was not heard]`
+    : "[interrupted: the owner cut this reply off before any of it was heard]";
+}
 
 /**
  * Fill a turn's routing options from the single source of truth (the model
@@ -386,6 +406,8 @@ export type Run = {
   startedAt: number;
   ms: number;
   answeredBy?: AnsweredBy;
+  /** Set when a task owns this run: a foreground stop leaves it running. Absent for the foreground turn. */
+  owner?: RunOwner;
 };
 
 export function accessBadge(entry: { access?: string; type?: string | null }): string {
@@ -433,6 +455,11 @@ export type Message = {
   source?: "voice" | "chat";
   /** Which model actually answered, from the router trace. */
   answeredBy?: AnsweredBy;
+  /**
+   * Set when the owner cut a spoken reply off: the part that was really heard (may be empty). `text` keeps the whole
+   * reply for the transcript on this PC; the next turn is shown only the heard part and a note that it was cut.
+   */
+  playedText?: string;
 };
 
 export type MemoryHit = {
@@ -482,9 +509,35 @@ export type ScheduledJob = {
  */
 export type SendResult = {
   accepted: boolean;
-  reason: "accepted" | "empty" | "busy" | "quick-lane";
+  reason: "accepted" | "empty" | "busy" | "quick-lane" | "draft" | "draft-refused";
   message: string | null;
+  /** The run this send started. Absent for a quick-lane answer, a draft and a refused turn. */
+  runId?: string;
+  /** Set for a draft send: the handle, or why no draft was started. */
+  draft?: DraftStart;
 };
+
+export type { DraftHandle, DraftStart, RunOwner, StopScope };
+
+/** A short question answered beside a running task, handed to whoever speaks (the conductor). */
+export type QuickAnswer = {
+  text: string;
+  question: string;
+  surface: "voice" | "chat";
+  /** False when the line is the plain "I could not answer that" one. */
+  ok: boolean;
+  messageId: string;
+};
+
+type ChatBridge = NonNullable<typeof window.friday>;
+type ChatEventOf<K extends "onChatDelta" | "onChatTool" | "onChatDone" | "onChatError"> =
+  Parameters<Parameters<NonNullable<ChatBridge[K]>>[0]>[0];
+/** One chat stream event, as a draft keeps it until it is adopted. */
+type DraftEvent =
+  | { kind: "delta"; event: ChatEventOf<"onChatDelta"> }
+  | { kind: "tool"; event: ChatEventOf<"onChatTool"> }
+  | { kind: "done"; event: ChatEventOf<"onChatDone"> }
+  | { kind: "error"; event: ChatEventOf<"onChatError"> };
 
 export type BrainLogLevel = "info" | "ok" | "warn" | "error";
 export type BrainLog = { id: string; at: string; level: BrainLogLevel; line: string };
@@ -810,6 +863,24 @@ class BrainStore {
   private streamBuffers = new Map<string, { text: string; at: number }>();
   /** Runs that already used their single verification-repair retry. */
   private repairedRuns = new Set<string>();
+  /** The one live draft (a text-only guess made before the owner finished). It never owns the run lane. */
+  private draft: {
+    id: string;
+    requestId: string;
+    handle: DraftHandle;
+    startedAt: number;
+    /** Kept on this PC: privacy mode was on when it started. */
+    onlyLocal: boolean;
+    timer: ReturnType<typeof setTimeout>;
+    /** Stream events seen before adoption, replayed into the real run in order. */
+    events: DraftEvent[];
+    done: boolean;
+  } | null = null;
+  private quickListeners = new Set<(answer: QuickAnswer) => void>();
+  /** The four chat stream handlers, so a draft that is adopted can replay what it already heard. */
+  private chatHandlers: Partial<{
+    [K in DraftEvent["kind"]]: (event: Extract<DraftEvent, { kind: K }>["event"]) => void;
+  }> = {};
 
   private desktopListenersReady = false;
   // Guards against a desktop request that never reports back: without it the
@@ -1024,7 +1095,7 @@ class BrainStore {
     window.friday.onCompanionCognize?.((event) => {
       void this.askFromPhone(event);
     });
-    window.friday.onChatDelta?.((event) => {
+    const deltaHandler = (event: ChatEventOf<"onChatDelta">) => {
       if (event.requestId !== this.activeRequestId) return;
       this.armWatchdog();
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
@@ -1068,8 +1139,11 @@ class BrainStore {
         this.finishTurnStep(run, "done", `first token from ${event.modelId ?? "selected model"}`);
       }
       this.emit(false);
-    });
-    window.friday.onChatTool?.((event) => {
+    };
+    this.chatHandlers.delta = deltaHandler;
+    window.friday.onChatDelta?.(deltaHandler);
+    window.friday.onChatDelta?.((event) => this.noteDraftEvent({ kind: "delta", event }));
+    const toolHandler = (event: ChatEventOf<"onChatTool">) => {
       if (event.requestId !== this.activeRequestId) return;
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (!run) return;
@@ -1080,8 +1154,11 @@ class BrainStore {
         execute.ms = Date.now() - run.startedAt;
       }
       this.emit(false);
-    });
-    window.friday.onChatDone?.((event) => {
+    };
+    this.chatHandlers.tool = toolHandler;
+    window.friday.onChatTool?.(toolHandler);
+    window.friday.onChatTool?.((event) => this.noteDraftEvent({ kind: "tool", event }));
+    const doneHandler = (event: ChatEventOf<"onChatDone">) => {
       if (event.requestId !== this.activeRequestId) return;
       this.clearWatchdog();
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
@@ -1121,14 +1198,20 @@ class BrainStore {
       // first, but only when the ask or the answer calls for one and the owner's dial lets the sandbox run.
       if (this.toolCheckApplies(run)) void this.runToolChecks(run).then(settle, settle);
       else settle();
-    });
-    window.friday.onChatError?.((event) => {
+    };
+    this.chatHandlers.done = doneHandler;
+    window.friday.onChatDone?.(doneHandler);
+    window.friday.onChatDone?.((event) => this.noteDraftEvent({ kind: "done", event }));
+    const errorHandler = (event: ChatEventOf<"onChatError">) => {
       if (event.requestId !== this.activeRequestId) return;
       this.clearWatchdog();
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (run) this.failDesktopRun(run, event.error);
       else this.activeRequestId = null;
-    });
+    };
+    this.chatHandlers.error = errorHandler;
+    window.friday.onChatError?.(errorHandler);
+    window.friday.onChatError?.((event) => this.noteDraftEvent({ kind: "error", event }));
   }
 
   /**
@@ -1639,8 +1722,26 @@ class BrainStore {
       routeMode?: string;
       routingContract?: ModelRoutingContract;
       routingSurface?: "voice" | "chat";
+      /** A text-only guess made before the owner finished (see `adoptDraft`). Never a run. */
+      draft?: boolean;
+      /** The task this run belongs to: a foreground stop leaves it running. */
+      owner?: RunOwner;
     } = {},
   ): SendResult {
+    if (rawOptions.draft) {
+      // A guess, not a turn: no tools, no approval, no memory, no history. Only a local or proven-free
+      // model, and never a cloud model when privacy mode is on or the line looks sensitive.
+      const onlyLocal = preferences.getSnapshot().voice.privacyMode === true;
+      const started: DraftStart = looksSensitive(prompt)
+        ? { started: false, reason: "sensitive" }
+        : this.beginDraft(prompt, onlyLocal);
+      return {
+        accepted: started.started,
+        reason: started.started ? "draft" : "draft-refused",
+        message: null,
+        draft: started,
+      };
+    }
     // One routing decision for every surface: chat used to pass the owner's
     // route mode and pinned picks while voice/Auto Mode did not, so the same
     // question could reach a different model depending on how it was asked.
@@ -1666,8 +1767,13 @@ class BrainStore {
         message: "I'm still working on the last request — one moment.",
       };
     }
-    this.startRun(text, options);
-    return { accepted: true, reason: "accepted", message: null };
+    this.startRun(text, options, rawOptions.owner);
+    return {
+      accepted: true,
+      reason: "accepted",
+      message: null,
+      ...(this.state.activeRunId ? { runId: this.state.activeRunId } : {}),
+    };
   }
 
   /**
@@ -1724,6 +1830,53 @@ class BrainStore {
     return observeBrain();
   }
 
+  /** The row of one turn, before anything has run. Shared by a fresh turn and an adopted draft. */
+  private newRun(
+    text: string,
+    surface: "voice" | "chat",
+    found: { rule: ReturnType<typeof analyseIntent>["rule"]; score: number; matched: string[] },
+    agentIds: AgentId[],
+    owner?: RunOwner,
+  ): Run {
+    return {
+      id: nextId("run"),
+      prompt: text,
+      intent: found.rule.id,
+      intentLabel: found.rule.label,
+      confidence: found.score,
+      matched: found.matched,
+      stages: pipelineStages.map((s) => ({
+        id: s.id,
+        label: s.label,
+        state: "pending",
+        detail: s.note,
+        ms: 0,
+      })),
+      agents: agentIds.map((id) => {
+        const spec = agentById.get(id)!;
+        const model = this.routeModel(spec.task, surface);
+        return {
+          id,
+          name: spec.name,
+          task: spec.task,
+          modelId: model.id,
+          modelLabel: model.label,
+          state: "queued",
+          output: "",
+          tokens: 0,
+          ms: 0,
+        } satisfies AgentRun;
+      }),
+      recalled: [],
+      trace: [],
+      state: "running",
+      answer: "",
+      startedAt: Date.now(),
+      ms: 0,
+      ...(owner ? { owner } : {}),
+    };
+  }
+
   private startRun(
     text: string,
     options: {
@@ -1733,7 +1886,10 @@ class BrainStore {
       routingContract?: ModelRoutingContract;
       routingSurface?: "voice" | "chat";
     } = {},
+    owner?: RunOwner,
   ) {
+    // A real turn takes the lane: a guess made before it can no longer be adopted.
+    this.dropDraft();
     const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
     const budget = thinkBudget(surface);
     const traces = tracePlan(["understand", "evidence", "answer"], surface);
@@ -1792,43 +1948,8 @@ class BrainStore {
     const chosen = picked.length ? picked : (["developer"] as AgentId[]);
     const multi = this.state.settings.multiModel ? chosen : chosen.slice(0, 1);
 
-    const runId = nextId("run");
-    const run: Run = {
-      id: runId,
-      prompt: text,
-      intent: rule.id,
-      intentLabel: rule.label,
-      confidence: score,
-      matched,
-      stages: pipelineStages.map((s) => ({
-        id: s.id,
-        label: s.label,
-        state: "pending",
-        detail: s.note,
-        ms: 0,
-      })),
-      agents: multi.map((id) => {
-        const spec = agentById.get(id)!;
-        const model = this.routeModel(spec.task, surface);
-        return {
-          id,
-          name: spec.name,
-          task: spec.task,
-          modelId: model.id,
-          modelLabel: model.label,
-          state: "queued",
-          output: "",
-          tokens: 0,
-          ms: 0,
-        } satisfies AgentRun;
-      }),
-      recalled: [],
-      trace: [],
-      state: "running",
-      answer: "",
-      startedAt: Date.now(),
-      ms: 0,
-    };
+    const run = this.newRun(text, surface, { rule, score, matched }, multi, owner);
+    const runId = run.id;
     this.recordDoneTurn(
       run,
       "thinking.context",
@@ -2277,22 +2398,33 @@ class BrainStore {
     ];
     this.emit();
     let reply: string;
+    let failed = false;
     try {
       reply = (await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000 })).trim();
     } catch {
+      failed = true;
       reply = "I couldn't answer that right now; I'm still on the last task.";
     }
+    const messageId = nextId("msg");
+    const spoken = reply || "I don't know that one.";
     this.state.messages = [
       ...this.state.messages,
-      {
-        id: nextId("msg"),
-        role: "friday",
-        text: reply || "I don't know that one.",
-        at: Date.now(),
-        source: surface,
-      },
+      { id: messageId, role: "friday", text: spoken, at: Date.now(), source: surface },
     ];
     this.emit();
+    for (const listener of [...this.quickListeners]) {
+      try {
+        listener({
+          text: spoken,
+          question: text,
+          surface,
+          ok: Boolean(reply) && !failed,
+          messageId,
+        });
+      } catch {
+        /* a listener that throws must not break the thread */
+      }
+    }
   }
 
   private historyForModel(runId: string): {
@@ -2306,11 +2438,14 @@ class BrainStore {
         .filter((m) => !(m.role === "friday" && m.runId && failed.has(m.runId)))
         .filter((m) => !(m.role === "user" && m.runId === runId))
         .slice(-30)
-        .map((m) => ({
-          role: m.role,
-          text: m.text,
-          ...(looksSensitive(m.text) ? { sensitive: true as const } : {}),
-        })),
+        .map((m) => {
+          const text = m.playedText === undefined ? m.text : cutReplyForModel(m.playedText);
+          return {
+            role: m.role,
+            text,
+            ...(looksSensitive(m.text) ? { sensitive: true as const } : {}),
+          };
+        }),
     );
   }
 
@@ -2684,15 +2819,213 @@ class BrainStore {
     this.emit();
   }
 
-  /** Stop the run that is currently streaming so a new voice/chat turn can start. */
-  stop() {
+  /**
+   * The owner cut a spoken reply off: remember what was really heard. The stored message keeps its whole text (the
+   * transcript on this PC is complete); the model is shown `playedText` and a marker that the reply was cut, so the
+   * next turn does not assume the owner heard the rest. Returns false when the run has no reply of FRIDAY's.
+   */
+  truncateAssistantReply(runId: string, playedText: string): boolean {
+    const heard = String(playedText ?? "").trim();
+    let found = false;
+    this.state.messages = this.state.messages.map((message) => {
+      if (message.runId !== runId || message.role !== "friday") return message;
+      found = true;
+      return { ...message, playedText: heard };
+    });
+    if (found) this.emit();
+    return found;
+  }
+
+  /**
+   * Stop the run that is currently streaming so a new voice/chat turn can start. The default (`"all"`) is what the
+   * Stop button, Clear chat and the kill switch have always done. `"foreground"` ends the foreground turn and
+   * leaves a task-owned run running; `{ taskId }` ends only that task's run. A live draft is a foreground guess
+   * and goes with `"all"` and `"foreground"`.
+   */
+  stop(scope: StopScope = "all") {
+    if (scope === "all" || scope === "foreground") this.dropDraft();
     const run = this.state.runs.find((r) => r.id === this.state.activeRunId);
-    if (!run) return;
+    if (!run || !stopReaches(scope, run.owner)) return;
     this.clearWatchdog();
     if (this.activeRequestId && typeof window !== "undefined") {
       window.friday?.abortChat?.(this.activeRequestId);
     }
     this.failDesktopRun(run, "Stopped by you.");
+  }
+
+  /** The run a task owns, running or finished, so the conductor can find it again after a foreground stop. */
+  ownedRun(taskId: string): Run | undefined {
+    return this.state.runs.find((r) => r.owner?.kind === "task" && r.owner.taskId === taskId);
+  }
+
+  /** Hear the answer of a quick-lane question (a short question asked beside a running task). */
+  onQuickAnswer(listener: (answer: QuickAnswer) => void): () => void {
+    this.quickListeners.add(listener);
+    return () => {
+      this.quickListeners.delete(listener);
+    };
+  }
+
+  /** Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not. */
+  startDraft(prompt: string): DraftStart {
+    return this.send(prompt, { draft: true }).draft ?? { started: false, reason: "empty" };
+  }
+
+  /**
+   * Make the draft a real run, only when `finalText` is exactly the words it started from, nothing is running,
+   * no approval waits, Stop everything is off and privacy mode did not come on. Anything else throws the draft
+   * away without a trace and returns false. What the draft already streamed is replayed into the new run, and
+   * the rest of the stream reaches it through the ordinary handlers: one model call, no second one.
+   */
+  adoptDraft(draftId: string, finalText: string): boolean {
+    const draft = this.draft;
+    if (!draft || draft.id !== draftId) return false;
+    const expired = Date.now() - draft.startedAt >= DRAFT_TTL_MS;
+    const privacyNow = preferences.getSnapshot().voice.privacyMode === true;
+    if (
+      expired ||
+      !sameTranscript(finalText, draft.handle.prompt) ||
+      autonomy.getSnapshot().halted ||
+      this.state.activeRunId ||
+      this.state.approval ||
+      (privacyNow && !draft.onlyLocal)
+    ) {
+      this.dropDraft();
+      return false;
+    }
+    clearTimeout(draft.timer);
+    this.draft = null;
+    const text = draft.handle.prompt.trim();
+    const surface = "voice" as const;
+    const found = analyseIntent(text);
+    const first = found.rule.agents.find((a) => this.state.agentsEnabled[a]) ?? "developer";
+    const run = this.newRun(text, surface, found, [first]);
+    run.agents.forEach((agent) => (agent.state = "running"));
+    this.state.messages = [
+      ...this.state.messages,
+      { id: nextId("msg"), role: "user", text, at: Date.now(), runId: run.id, source: surface },
+    ];
+    this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);
+    this.state.activeRunId = run.id;
+    this.activeRequestId = draft.requestId;
+    this.state.stats.requests += 1;
+    this.push("info", `run ${run.id} — adopted the draft made while the owner was finishing`);
+    this.armWatchdog();
+    this.emit();
+    for (const item of draft.events) {
+      if (item.kind === "delta") this.chatHandlers.delta?.(item.event);
+      else if (item.kind === "tool") this.chatHandlers.tool?.(item.event);
+      else if (item.kind === "done") this.chatHandlers.done?.(item.event);
+      else this.chatHandlers.error?.(item.event);
+    }
+    return true;
+  }
+
+  /** Throw a draft away: the chat is aborted and nothing of it stays. False when that draft is not live. */
+  discardDraft(draftId: string): boolean {
+    if (!this.draft || this.draft.id !== draftId) return false;
+    this.dropDraft();
+    return true;
+  }
+
+  private dropDraft() {
+    const draft = this.draft;
+    if (!draft) return;
+    clearTimeout(draft.timer);
+    this.draft = null;
+    if (!draft.done && typeof window !== "undefined") window.friday?.abortChat?.(draft.requestId);
+  }
+
+  /** A stream event of the live draft: kept for adoption, never shown, never a run. */
+  private noteDraftEvent(item: DraftEvent) {
+    const draft = this.draft;
+    if (!draft || item.event.requestId !== draft.requestId) return;
+    draft.events.push(item);
+    if (item.kind === "delta") {
+      const piece = String(item.event.text || "");
+      draft.handle.text = item.event.replace ? piece : draft.handle.text + piece;
+      if (draft.handle.firstTokenAt === undefined && draft.handle.text) {
+        draft.handle.firstTokenAt = Date.now();
+      }
+    } else if (item.kind === "tool") {
+      this.dropDraft(); // nothing runs on a guess
+    } else if (item.kind === "done" && !item.event.cancelled) {
+      draft.done = true;
+    } else {
+      draft.done = true; // cancelled or failed: nothing more will come, nothing to abort
+      this.dropDraft();
+    }
+  }
+
+  private beginDraft(prompt: string, onlyLocal: boolean): DraftStart {
+    const text = prompt.trim();
+    const no = (reason: Extract<DraftStart, { started: false }>["reason"]): DraftStart => ({
+      started: false,
+      reason,
+    });
+    if (!text) return no("empty");
+    if (autonomy.getSnapshot().halted) return no("stopped");
+    if (this.state.activeRunId) return no("busy");
+    if (this.state.approval) return no("approval-pending");
+    if (this.draft) return no("draft-live");
+    // A guess is made only where a plain model call is a fair answer: a short, harmless question that needs no
+    // tool and no live data. Anything else waits for the real turn.
+    if (!quickLaneEligible({ text, busy: true }).ok) return no("not-a-plain-question");
+    if (coreBrain.needsWeb(text) || looksLikeLiveFact(text)) return no("needs-live-data");
+    const desktop = typeof window === "undefined" ? undefined : window.friday;
+    if (!desktop?.sendChat) return no("no-desktop");
+    let rows: ReturnType<typeof usageRegistry.getSnapshot>["models"];
+    try {
+      rows = usageRegistry.getSnapshot().models;
+    } catch {
+      rows = [];
+    }
+    if (!draftPool(rows, onlyLocal).length) return no("no-local-or-free-model");
+
+    const id = nextId("draft");
+    const contract = createRoutingContract({
+      routeMode: onlyLocal ? "local-only" : "auto",
+      costPolicy: "free-only",
+      task: "chat",
+      requirements: {
+        streaming: true,
+        tools: false,
+        ...(onlyLocal ? { privacy: "private" as const, locality: "local" as const } : {}),
+      },
+      qualityTarget: onlyLocal ? "private" : "balanced",
+      strategy: "single",
+    });
+    const handle: DraftHandle = { draftId: id, prompt: text, text: "" };
+    this.draft = {
+      id,
+      requestId: id,
+      handle,
+      startedAt: Date.now(),
+      onlyLocal,
+      timer: setTimeout(() => this.discardDraft(id), DRAFT_TTL_MS),
+      events: [],
+      done: false,
+    };
+    try {
+      // A draft never reaches the shared session, so it leaves no stored line behind.
+      const request = {
+        requestId: id,
+        sessionId: id,
+        prompt: text,
+        system: DRAFT_SYSTEM,
+        task: "chat",
+        routeMode: contract.routeMode,
+        routingContract: contract,
+        routingSurface: "voice" as const,
+        draft: true,
+        history: this.historyForModel(id),
+      };
+      desktop.sendChat(request);
+    } catch {
+      this.dropDraft();
+      return no("no-desktop");
+    }
+    return { started: true, draft: handle };
   }
 
   /** Re-run the last request, dropping the answer it produced. */

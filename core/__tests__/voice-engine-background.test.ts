@@ -61,7 +61,7 @@ describe("background request wiring", () => {
     expect(block).toContain('this.state.mode === "auto"');
     expect(block).toContain("startVoiceTask(");
     expect(block).toContain("askBrain(background.request");
-    expect(block).toContain("brain.stop()");
+    expect(block).toContain("brain.stop({ taskId: task.id })");
     expect(at).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))"));
   });
 
