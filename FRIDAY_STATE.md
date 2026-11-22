@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.1.5.7), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.2.5.7), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
 This briefing is the tree as it is now and nothing older. Evidence: [AUDIT.md](AUDIT.md). Features: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Rules: [AGENTS.md](AGENTS.md). Gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
@@ -12,10 +12,10 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 | Item                 | Live value                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Public version       | `1.1.5.7` (`config/friday-version.json`), published as GitHub release `v1.1.5.7` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
-| npm encoding         | `1.1.5` (`package.json`), never compared as an update identity                                                                                                           |
+| Public version       | `1.2.5.7` (`config/friday-version.json`), published as GitHub release `v1.2.5.7` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
+| npm encoding         | `1.2.5` (`package.json`), never compared as an update identity                                                                                                           |
 | Epoch                | 2 / `friday-2`                                                                                                                                                           |
-| Next public revision | `1.1.5.8`, not bumped until the owner asks                                                                                                                               |
+| Next public revision | `1.2.5.8`, not bumped until the owner asks                                                                                                                               |
 | Stack floors         | Electron ^45.2.3, electron-builder 26.18.0, Node `>=22.19.0`, Python `>=3.12.10`, TypeScript 6.0.3, Vite 8.3.7 (`package.json`, `config/toolchain-versions.json`)        |
 
 ## Architecture
@@ -88,7 +88,7 @@ These look like bugs. They are not. Do not "fix" them.
 - Windows CMD pack (`scripts\build-windows.cmd` / `npm run build:win`), NSIS Setup and Portable, install, boot, uninstall, and reinstall keep today's behaviour. Do not wrap `build:win` for Linux and do not invent a second pack or installer.
 - `electron-builder.yml`: `perMachine: false`, `signExecutable: false`, `nsis.deleteAppDataOnUninstall: false`.
 - TEST uses `dev.friday.desk.test` so it can sit beside Official.
-- The version moves only in `config/friday-version.json`, and only when the owner asks. From public `1.1.5.7`, patch is `1.1.5.8`, minor is `1.1.6.7`, major is `1.2.5.7`, and extreme is `2.1.5.7`. `mode` auto with `release_type` auto does not invent a number; `stage` publish with `mode` auto publishes an unpublished line once and stops once that GitHub release exists; `mode` rebuild is the only path that replaces assets. An explicit level moves only that counter, including on a never-published line. A stable git tag and a GitHub release both consume a number. `release_type` auto on an update chooses patch, minor, or major and never extreme. The release workflow applies the number and heals the docs.
+- The version moves only in `config/friday-version.json`, and only when the owner asks. From public `1.2.5.7`, patch is `1.2.5.8`, minor is `1.2.6.7`, major is `1.3.5.7`, and extreme is `2.2.5.7`. `mode` auto with `release_type` auto does not invent a number; `stage` publish with `mode` auto publishes an unpublished line once and stops once that GitHub release exists; `mode` rebuild is the only path that replaces assets. An explicit level moves only that counter, including on a never-published line. A stable git tag and a GitHub release both consume a number. `release_type` auto on an update chooses patch, minor, or major and never extreme. The release workflow applies the number and heals the docs.
 - Session `media` is allowed at Chromium so Windows can show its own privacy prompt; it is not a silent skip of that prompt.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 

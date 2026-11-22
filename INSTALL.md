@@ -1,6 +1,6 @@
 # FRIDAY — Windows Install and Build Guide
 
-**Shipping version: 1.1.5.7**  
+**Shipping version: 1.2.5.7**  
 **Publisher:** Devendra Singh Meena (devendrarj25)
 
 FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
@@ -33,7 +33,7 @@ Related documents (they are not copied here): version numbers [VERSIONING.md](VE
 | Word                       | Meaning                                                                                                                                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **CMD / Command Prompt**   | The black text window of Windows where you type commands. Open it: press the Windows key, type `cmd`, press Enter.                                                                                   |
-| **EXE**                    | A Windows program file. FRIDAY comes as two: **Setup** (`FRIDAY-Setup-1.1.5.7.exe`, installs FRIDAY and can uninstall it) and **Portable** (`FRIDAY-Portable-1.1.5.7.exe`, runs without installing). |
+| **EXE**                    | A Windows program file. FRIDAY comes as two: **Setup** (`FRIDAY-Setup-1.2.5.7.exe`, installs FRIDAY and can uninstall it) and **Portable** (`FRIDAY-Portable-1.2.5.7.exe`, runs without installing). |
 | **FRIDAY folder ("root")** | The one folder where FRIDAY keeps everything that is yours: models, memory, chats, settings, database. The program itself sits in `<root>\App`. Default for Setup: `%USERPROFILE%\FRIDAY`.           |
 | **Kernel**                 | FRIDAY's engine, a small Python program that runs on your PC next to the window. "Kernel ready" means the engine is running.                                                                         |
 | **Model**                  | The AI "brain" file or service that writes the answers. A **local** model runs on your PC and works offline. A **cloud** model runs at a company and needs the internet and a key.                   |
@@ -67,8 +67,8 @@ You need:
 
 ## 4. Path A: install the ready-made program from GitHub
 
-1. On the Windows PC open the GitHub releases page of the repository `devendrarj25/FRIDAY-AI-ASSISTANT` (https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases) and open the release tagged **v1.1.5.7**.
-2. Under **Assets** download `FRIDAY-Setup-1.1.5.7.exe`. (Optional check: the same page lists `SHA256SUMS.txt`; the SHA-256 of your download must match its line. In CMD: `certutil -hashfile FRIDAY-Setup-1.1.5.7.exe SHA256`.)
+1. On the Windows PC open the GitHub releases page of the repository `devendrarj25/FRIDAY-AI-ASSISTANT` (https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases) and open the release tagged **v1.2.5.7**.
+2. Under **Assets** download `FRIDAY-Setup-1.2.5.7.exe`. (Optional check: the same page lists `SHA256SUMS.txt`; the SHA-256 of your download must match its line. In CMD: `certutil -hashfile FRIDAY-Setup-1.2.5.7.exe SHA256`.)
 3. Double-click the file you downloaded.
    - Windows **SmartScreen** may say "Windows protected your PC". The default build is not signed with a paid certificate, which is the honest reason. Click **More info**, then **Run anyway**, only if you downloaded the file from the real repository above. Signing does not by itself clear SmartScreen for a new publisher.
 4. The wizard has **one page that matters: the FRIDAY folder.** Keep the default (`%USERPROFILE%\FRIDAY`) or type a short local path such as `D:\FRIDAY` (a whole drive such as `D:\` is refused: it must be a folder of its own). Click **Install**. If the folder is inside OneDrive, Setup asks once before accepting it (the default answer is No): syncing a database, a Python environment and multi-gigabyte models is slow and locks files. The folder is not recorded anywhere until files are really being installed, so pressing **Cancel** leaves an installed FRIDAY exactly as it was.
@@ -77,7 +77,7 @@ You need:
 
 **What you should see:** a FRIDAY window opens. Go to [section 7](#7-open-friday-the-first-time).
 
-**Portable instead of Setup.** `FRIDAY-Portable-1.1.5.7.exe` is the same version with no installer and no entry in Apps & Features. Put it in a folder you keep, double-click it, and pick your FRIDAY folder when asked. **The portable EXE is a program you run, not an installation:** it never starts at sign-in, never stays in the tray or the background after you close it (the X button asks first when tasks run, then quits FRIDAY and the programs she started), and in Settings the switches _Start Friday on system startup_, _Launch minimized to the tray_ and _Minimize to system tray_ show off with "Setup install only". It leaves nothing in the Windows start-up list.
+**Portable instead of Setup.** `FRIDAY-Portable-1.2.5.7.exe` is the same version with no installer and no entry in Apps & Features. Put it in a folder you keep, double-click it, and pick your FRIDAY folder when asked. **The portable EXE is a program you run, not an installation:** it never starts at sign-in, never stays in the tray or the background after you close it (the X button asks first when tasks run, then quits FRIDAY and the programs she started), and in Settings the switches _Start Friday on system startup_, _Launch minimized to the tray_ and _Minimize to system tray_ show off with "Setup install only". It leaves nothing in the Windows start-up list.
 
 **Portable and Setup run side by side and do not touch each other.** The portable EXE keeps its own settings, chats, memory, models, keys and logs in a folder named `FRIDAY-Portable-Data` next to the portable file (so the data travels with it; if that folder cannot be written, or the file sits in the `release\` folder of a source checkout, which the next `npm run build:win` deletes, it is `%LOCALAPPDATA%\FRIDAY-Portable-Data`; `FRIDAY_PORTABLE_DATA` names another folder, `FRIDAY_PORTABLE_ROOT` another FRIDAY folder, and a `FRIDAY_WORKSPACE_ROOT` left in your window belongs to the build and the installed FRIDAY, so the portable EXE ignores it). It never reads or changes the FRIDAY folder an installed FRIDAY uses, never writes the Windows registry, uses its own kernel port (8766; the installed FRIDAY keeps 8765) and its own taskbar identity, so you can run both at once, for example to test a fresh build with the portable EXE while your installed FRIDAY keeps working. Two portable copies in two folders are also separate. Because its data is separate, a new portable FRIDAY starts empty: connect your cloud keys again, and its first start prepares its own Python in its data folder: the boot screen shows _Preparing the portable Python environment_ while FRIDAY's Python packages install (a few minutes, needs the internet), then the kernel starts; open **Setup & Doctor** if it does not become ready. To bring your data across, close both FRIDAYs and copy the contents of your installed FRIDAY folder you want (for example `models`) into `FRIDAY-Portable-Data\FRIDAY`; keys are not copied because they are encrypted for each folder. An MCP client set up from the portable FRIDAY works only while it is open (the portable EXE runs from a temporary folder); set clients up from the installed FRIDAY. The portable EXE updates by replacing itself: **Settings → Updates** downloads the new `FRIDAY-Portable-<version>.exe`, checks its checksum, saves it beside the running file and starts it; it never runs the Setup installer, and the old file stays so you can go back. To remove it you delete the file yourself ([section 14](#14-uninstall-friday)). Prefer Setup when you want a Start-menu shortcut, easy updates and a proper uninstall with a keep-data or delete-all choice.
 
@@ -151,8 +151,8 @@ This packs **both** the Setup installer and the Portable EXE. It checks the PC a
 
 Your files are in the `release` folder inside your FRIDAY folder:
 
-- `release\FRIDAY-Setup-1.1.5.7.exe` (the installer)
-- `release\FRIDAY-Portable-1.1.5.7.exe` (no installer)
+- `release\FRIDAY-Setup-1.2.5.7.exe` (the installer)
+- `release\FRIDAY-Portable-1.2.5.7.exe` (no installer)
 - `release\win-unpacked\FRIDAY.exe` (the unpacked program)
 
 Optional: `npm run verify:install` runs the finished build once in a throwaway folder and chats with it (it needs a loaded local model or a cloud key for the chat part).
@@ -202,7 +202,7 @@ How to read the colours on a normal console (Windows Terminal, or CMD on Windows
 ## 6. Install the program you built
 
 1. Close any FRIDAY that is running.
-2. Open the `release` folder and double-click `release\FRIDAY-Setup-1.1.5.7.exe`. The wizard is the same as in [section 4](#4-path-a-install-the-ready-made-program-from-github). Because you built in your FRIDAY folder, the wizard already offers that folder as the install folder: accept it.
+2. Open the `release` folder and double-click `release\FRIDAY-Setup-1.2.5.7.exe`. The wizard is the same as in [section 4](#4-path-a-install-the-ready-made-program-from-github). Because you built in your FRIDAY folder, the wizard already offers that folder as the install folder: accept it.
 3. A packed **TEST** build (`FRIDAY-Test-Setup-…`) installs beside Official and keeps its own data; do not mix their folders.
 4. Installing a locally built Setup over an older Official of the **same** four-part version is a rebuild of that version, not a version bump. Changing the version number is the owner's decision (`config/friday-version.json`).
 
@@ -346,14 +346,14 @@ npm run doctor
 npm run build:win
 ```
 
-Then run the new `release\FRIDAY-Setup-1.1.5.7.exe` (the file name carries the version of the code you pulled). If `git pull` reports local changes, stop and ask before overwriting anything.
+Then run the new `release\FRIDAY-Setup-1.2.5.7.exe` (the file name carries the version of the code you pulled). If `git pull` reports local changes, stop and ask before overwriting anything.
 
 ## 13. Reinstall FRIDAY
 
 Reinstalling keeps your data when you do it right.
 
 1. Uninstall with the **keep data** choice ([section 14](#14-uninstall-friday)).
-2. Run `FRIDAY-Setup-1.1.5.7.exe` again and choose the **same FRIDAY folder**.
+2. Run `FRIDAY-Setup-1.2.5.7.exe` again and choose the **same FRIDAY folder**.
 3. Open FRIDAY: your chats, memory, models, settings and keys-to-reconnect are still there. Doctor repairs the Python engine if needed.
 
 A clean start instead: uninstall with **Delete all FRIDAY data**, then install.
@@ -367,7 +367,7 @@ A clean start instead: uninstall with **Delete all FRIDAY data**, then install.
 3. **Delete everything.** Tick **Delete all FRIDAY data and resources**, and confirm. The uninstaller first stops FRIDAY and every program that runs from the FRIDAY folder or stands in it (a leftover runner, an Ollama that FRIDAY started, a Python process; your own command windows, editors and file manager are never closed), then removes the folder, so the folder itself disappears and Windows no longer answers "try again". If a program of yours keeps a command window open inside that folder, close that window and delete the empty folder. This removes the whole FRIDAY folder. If your FRIDAY folder is the **source checkout** you built in (the usual case after `git clone ... C:\FRIDAY`), the page shows a second box, **...but keep my source code, Git history and build output in it**, unticked: with only the first box ticked and the question answered Yes, the whole folder is removed, source code and Git history included (the question says so). Tick the second box to remove only the data folders and downloaded models and keep the code. Close any command window or editor that is open inside the folder first: a window standing in a folder keeps Windows from removing it. A silent `/S /DELETEDATA` uninstall never removes a source checkout.
 4. From a script: `Uninstall FRIDAY.exe /S /DELETEDATA` does the delete-all uninstall silently.
 5. The uninstaller also removes the "start at sign-in" entry.
-6. **Portable:** delete the `FRIDAY-Portable-1.1.5.7.exe` file and, if you want its chats, memory, models and settings gone too, the `FRIDAY-Portable-Data` folder next to it; there is no entry in Apps & Features, and nothing of an installed FRIDAY is touched.
+6. **Portable:** delete the `FRIDAY-Portable-1.2.5.7.exe` file and, if you want its chats, memory, models and settings gone too, the `FRIDAY-Portable-Data` folder next to it; there is no entry in Apps & Features, and nothing of an installed FRIDAY is touched.
 
 Windows will not silently wipe your folder: the installer is set to keep data unless you tick the delete box.
 
@@ -520,8 +520,8 @@ The `.cmd` calls `scripts\build-pipeline.cjs`. The pipeline prints `build N/13` 
 
 Expected files after a full pack:
 
-- `release\FRIDAY-Setup-1.1.5.7.exe`
-- `release\FRIDAY-Portable-1.1.5.7.exe`
+- `release\FRIDAY-Setup-1.2.5.7.exe`
+- `release\FRIDAY-Portable-1.2.5.7.exe`
 - `release\win-unpacked\FRIDAY.exe` (always, including `dir`)
 
 Python wheels: floors, not pins. Missing capability extras do not fail kernel boot. Windows `setup-python` still fail-closes on missing voice imports.
@@ -618,7 +618,7 @@ One scannable root: the folder you run setup and `build:win` in is it, unless yo
 | Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`)                       |
 | Checkout `temporary\downloads`                           | Official installer payloads during `npm run setup`                                          |
 | Checkout `dist-desktop\`                                 | Renderer bundle                                                                             |
-| Checkout `release\`                                      | `FRIDAY-Setup-1.1.5.7.exe`, `FRIDAY-Portable-1.1.5.7.exe`, `win-unpacked\FRIDAY.exe`        |
+| Checkout `release\`                                      | `FRIDAY-Setup-1.2.5.7.exe`, `FRIDAY-Portable-1.2.5.7.exe`, `win-unpacked\FRIDAY.exe`        |
 
 ### 16.6 Troubleshooting (technical)
 
@@ -674,8 +674,8 @@ Typed plans: `installer/uninstall/index.ts`. Contract: [docs/FRIDAY_STORAGE_CONT
 
 No CMD pack is required for daily use.
 
-1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.1.5.7**.
-2. Download `FRIDAY-Setup-1.1.5.7.exe`. Optionally check `SHA256SUMS.txt` on that release.
+1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.2.5.7**.
+2. Download `FRIDAY-Setup-1.2.5.7.exe`. Optionally check `SHA256SUMS.txt` on that release.
 3. Double-click Setup while signed in as the user who will run FRIDAY. The product is per-user (`perMachine: false` in `electron-builder.yml`). Do not “Run as administrator” unless that account should own the install.
 4. The wizard has one folder page: where the FRIDAY root should live. Default is `%USERPROFILE%\FRIDAY`. Setup refuses `Program Files`, `Windows`, and a nested `FRIDAY\FRIDAY` folder.
 5. Program files go into `<chosen root>\App` (`$INSTDIR`). The chosen root is written to `HKCU\Software\FRIDAY\WorkspacePath`.
