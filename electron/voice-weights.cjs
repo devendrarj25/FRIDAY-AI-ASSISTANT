@@ -38,6 +38,12 @@ const HINGLISH_EAR_REPO = "MSpider3/whisper-hindi2hinglish-swift-ct2";
 /** The optional Hindi fallback (CC-BY-4.0, faster-whisper CT2) in `<root>/models/hindi-fallback-ear`. */
 const HINDI_FALLBACK_REPO = "collabora/faster-whisper-small-hindi";
 
+/** The optional Hindi punctuation model in `<root>/models/hindi-punct` (see kernel/hindi_punct.py). */
+const HINDI_PUNCT_REPO = "1-800-BAD-CODE/punct_cap_seg_47_language";
+
+/** The optional light Hindi voice (CC-BY-4.0, credit in the Models row) in `<root>/models/hindi-light-tts`. */
+const HINDI_LIGHT_REPO = "sulabhkatiyar/indic-tiny-tts-hindi";
+
 /**
  * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
  * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
@@ -55,6 +61,28 @@ const EAR_MODELS = [
     repo: HINDI_FALLBACK_REPO,
     rowId: "hindi-fallback-ear-pin",
     label: "Hindi fallback ear",
+  },
+];
+
+/**
+ * The two optional ONNX models that are not ears: the Hindi punctuation model (text, run on the Hindi ear's output)
+ * and the light Hindi voice (a speaker, never the default). Kept apart from EAR_MODELS, which lists the speech
+ * recognisers. Same rules: installed only when every pinned file is on disk, one Doctor pin row each.
+ */
+const EXTRA_MODELS = [
+  {
+    catalogId: "hindi-punct",
+    repo: HINDI_PUNCT_REPO,
+    rowId: "hindi-punct-pin",
+    label: "Hindi punctuation model",
+    kind: "stt",
+  },
+  {
+    catalogId: "hindi-light-tts",
+    repo: HINDI_LIGHT_REPO,
+    rowId: "hindi-light-tts-pin",
+    label: "Light Hindi voice",
+    kind: "tts",
   },
 ];
 
@@ -217,12 +245,12 @@ function voiceModelsOnDisk(root, exists) {
       break;
     }
   }
-  for (const ear of EAR_MODELS) {
+  for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
     if (earOnDisk(root, ear, check)) {
       found.push({
         catalogId: ear.catalogId,
         path: path.join(root, "models", ear.catalogId),
-        kind: "stt",
+        kind: ear.kind || "stt",
       });
     }
   }
@@ -282,7 +310,7 @@ async function pinChecks(root, deps = {}) {
       detail: describe(audit),
     });
   }
-  for (const ear of EAR_MODELS) {
+  for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
     // A row appears only when the ear is installed (every pinned file present). A short or tampered file is red.
     if (!earOnDisk(root, ear, exists)) continue;
     const audit = await pins.auditDir(
@@ -405,5 +433,8 @@ module.exports = {
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,
   HINDI_FALLBACK_REPO,
+  HINDI_PUNCT_REPO,
+  HINDI_LIGHT_REPO,
   EAR_MODELS,
+  EXTRA_MODELS,
 };

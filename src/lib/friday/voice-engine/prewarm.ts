@@ -13,6 +13,8 @@
  * never a block on entering Auto; mute, pause and Stop everything cancel it and drop what it made.
  */
 
+import { ackPrewarmLines } from "./instant-ack";
+
 export const PREWARM_STEPS = ["stt", "brain", "tts", "turn", "acks"] as const;
 export type PrewarmStep = (typeof PREWARM_STEPS)[number];
 
@@ -63,22 +65,19 @@ export type PrewarmPlan = {
   micOpen: boolean;
   /** Mute, pause or Stop everything is on. */
   held: boolean;
-  /** Which engines the saved settings select. */
-  engines: { stt: boolean; brain: boolean; tts: boolean; turn: boolean };
+  /**
+   * Which engines the saved settings select. `acks` (the instant acknowledgement lines) follows `tts` when absent;
+   * the conductor passes it from `voice.instantAck`, so a turned-off setting renders nothing.
+   */
+  engines: { stt: boolean; brain: boolean; tts: boolean; turn: boolean; acks?: boolean };
   /** Hardware profile Lite, or the PC is on battery. */
   light: boolean;
 };
 
 export type AckLine = { id: string; text: string; lang: "en" | "hi" };
 
-/** The short acknowledgement lines made into memory for the acknowledgement phase (a stub list until it lands). */
-export const ACK_LINES: readonly AckLine[] = [
-  { id: "ack-en-1", text: "One moment.", lang: "en" },
-  { id: "ack-en-2", text: "On it.", lang: "en" },
-  { id: "ack-en-3", text: "Let me check.", lang: "en" },
-  { id: "ack-hi-1", text: "जी, एक मिनट।", lang: "hi" },
-  { id: "ack-hi-2", text: "ठीक है।", lang: "hi" },
-];
+/** The short acknowledgement lines made into memory: the instant-acknowledgement catalogue, nothing else. */
+export const ACK_LINES: readonly AckLine[] = Object.freeze(ackPrewarmLines());
 
 /** Three words, in a language every voice graph handles, to compile the synthesis graph. Never spoken aloud. */
 export const WARM_SPEECH_TEXT = "Good to go";
@@ -113,7 +112,7 @@ export function planSteps(plan: PrewarmPlan): Array<{ step: PrewarmStep; skip: s
     brain: plan.engines.brain,
     tts: plan.engines.tts,
     turn: plan.engines.turn,
-    acks: plan.engines.tts,
+    acks: plan.engines.acks ?? plan.engines.tts,
   };
   return PREWARM_STEPS.map((step) => {
     if (!selected[step])

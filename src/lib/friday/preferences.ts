@@ -138,6 +138,8 @@ export type VoicePreferences = {
   expressiveSpeech: boolean;
   /** Speech Prep: English words and Roman Hindi in Hindi replies are written in Devanagari before the voice reads them. */
   speechPrep: boolean;
+  /** The optional light Hindi voice (Models, "Hindi light voice") for Devanagari-only Hindi lines. Off by default. */
+  hindiLightVoice: boolean;
   /** Clean the words shown for what the owner said (fillers, spoken punctuation, corrections); what the brain gets is unchanged. */
   tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
@@ -347,6 +349,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     notesRetentionDays: 30,
     expressiveSpeech: true,
     speechPrep: true,
+    hindiLightVoice: false,
     localVoiceStyle: "",
     sttSize: "auto",
     sttMultilingual: false,
@@ -393,6 +396,7 @@ function merge(
       instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
       eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
+      hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
     },
   };
 }

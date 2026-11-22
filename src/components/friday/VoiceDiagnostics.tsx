@@ -20,6 +20,8 @@ import {
   unstampedStagesLine,
   voiceLatency,
 } from "@/lib/friday/voice-engine/latency-monitor";
+import { echoDiagnostics } from "@/lib/friday/voice-engine/echo-live";
+import { earlyStartRows, echoReferenceRows } from "@/lib/friday/voice-diagnostics-rows";
 import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
 import { desktopApi } from "@/lib/friday/desktop";
 import { useVoiceProfile } from "@/lib/friday/use-voice-profile";
@@ -175,6 +177,8 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     },
     { label: "early recognition overlap", value: figureLine("eagerOverlap") },
     { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
+    ...earlyStartRows(preferences.getSnapshot().voice),
+    ...echoReferenceRows(echoDiagnostics()),
     { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
     {

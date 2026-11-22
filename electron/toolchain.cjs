@@ -1636,6 +1636,15 @@ const TOOLS = [
     manual:
       "MIT package (numpy and onnxruntime only). It runs the Hindi ear weights, which download on demand and are not bundled in the EXE.",
   }),
+  T("sentencepiece", "Voice", {
+    pipDist: "sentencepiece",
+    pip: "sentencepiece",
+    url: "https://pypi.org/project/sentencepiece/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "sentencepiece" },
+    manual:
+      "Apache-2.0 package (a 1.7 MB wheel, no torch). It is the tokeniser of the optional Hindi punctuation model, which downloads on demand and is not bundled in the EXE.",
+  }),
   T("pyrnnoise", "Voice", {
     pipDist: "pyrnnoise",
     pip: "pyrnnoise",

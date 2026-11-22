@@ -40,6 +40,10 @@ onnxruntime>=1.31.1
 supertonic>=1.3.1
 moonshine-voice>=0.1.6
 onnx-asr>=0.12.0
+# Hindi punctuation (kernel/hindi_punct.py): the SentencePiece tokeniser of the optional punctuation model, Apache-2.0,
+# a 1.7 MB wheel for Windows (cp312 to cp314) and Linux. It does not need torch. Optional at runtime: without it the
+# Hindi ear writes words without marks, as before.
+sentencepiece>=0.2.3
 pyrnnoise>=0.4.5
 # FRIDAY Echo (kernel/echo_canceller.py): SpeexDSP echo canceller, MIT, 83 KB win_amd64 wheel. Optional at runtime.
 pyaec>=1.0.1

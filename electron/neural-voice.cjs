@@ -368,6 +368,10 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
 
 /** The most text one local clause may carry (the kernel cuts at the same length). */
 const PCM_TEXT_CAP = 500;
+/** The two local engines a clause may ask for: the light Hindi voice, or Supertonic (the default). */
+const PCM_ENGINES = new Set(["hindi-light", "supertonic"]);
+/** A fallback reason the worker may report: a short kebab-case token, never free text. */
+const PCM_FALLBACK = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /**
  * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
@@ -376,7 +380,7 @@ const PCM_TEXT_CAP = 500;
  * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.
  */
 async function speakPcm(
-  { text, rate = 1, lang = "", style = "", seq } = {},
+  { text, rate = 1, lang = "", style = "", seq, engine } = {},
   { request = speakerRequest, resolvePy = python } = {},
 ) {
   const spoken = String(text || "")
@@ -384,6 +388,7 @@ async function speakPcm(
     .slice(0, PCM_TEXT_CAP);
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
   const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const askedEngine = typeof engine === "string" && PCM_ENGINES.has(engine) ? engine : "";
   const py = await resolvePy();
   if (!py)
     return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
@@ -395,6 +400,7 @@ async function speakPcm(
       speed: Number(rate) || 1,
       lang: String(lang || ""),
       style: voiceStyle,
+      ...(askedEngine ? { engine: askedEngine } : {}),
       ...(Number.isInteger(seq) ? { seq } : {}),
     },
     60000,
@@ -416,14 +422,19 @@ async function speakPcm(
       reason: "the local voice returned no audio",
     };
   }
+  const fallback =
+    typeof answered.fallback === "string" && PCM_FALLBACK.test(answered.fallback)
+      ? answered.fallback
+      : "";
   return {
     ok: true,
-    engine: "supertonic-3",
+    engine: answered.engine === "hindi-light" ? "hindi-light" : "supertonic-3",
     cloud: false,
     voice: voiceStyle || "F2",
     sampleRate: Number(answered.sampleRate) || 0,
     pcm,
     ms: Number(answered.ms) || 0,
+    ...(fallback ? { fallback } : {}),
     ...(Number.isInteger(seq) ? { seq } : {}),
   };
 }

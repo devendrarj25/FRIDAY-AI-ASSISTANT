@@ -221,7 +221,7 @@ class EchoCanceller:
         ref_pcm = None if ref is None else self._as_pcm(ref)
         if ref is not None and ref_pcm is None:
             ref_pcm = np.zeros(n, dtype=np.int16)  # an unusable reference counts as silence
-        if ref_pcm is None:
+        if ref_pcm is None or len(ref_pcm) == 0:  # no reference, or an empty one: nothing plays in this frame
             ref_pcm = np.zeros(n, dtype=np.int16)
         self._ref.write(ref_pcm)
         self._mic.write(mic_pcm)

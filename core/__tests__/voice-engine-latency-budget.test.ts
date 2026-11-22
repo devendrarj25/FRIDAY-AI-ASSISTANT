@@ -127,15 +127,20 @@ describe("voice latency budget", () => {
   it("declares the five blueprint stages, and the unstamped ones are never shown as a number", () => {
     for (const s of ["eagerStarted", "eagerResolved", "ackArmed", "ackAudible", "firstClauseReady"])
       expect(VOICE_STAGES).toContain(s);
+    // ackAudible left the list when the instant acknowledgement started stamping it (assistant-mode.ts).
     expect([...UNSTAMPED_STAGES].sort()).toEqual(
-      ["ackAudible", "audioFirstDecoded", "eagerResolved", "eagerStarted", "wakeDetected"].sort(),
+      ["audioFirstDecoded", "eagerResolved", "eagerStarted", "wakeDetected"].sort(),
     );
+    expect(UNSTAMPED_STAGES).not.toContain("ackArmed");
+    expect(UNSTAMPED_STAGES).not.toContain("ackAudible");
     const monitor = new LatencyMonitor();
     monitor.record("eagerOverlap", 250); // even a stray sample cannot make an unused figure look measured
     expect(figureNotUsed("eagerOverlap")).toBe(true);
-    expect(figureNotUsed("ackArmedToAudible")).toBe(true);
+    expect(figureNotUsed("ackArmedToAudible")).toBe(false);
     expect(figureLine("eagerOverlap", monitor)).toBe("not used yet");
-    expect(figureLine("ackArmedToAudible", monitor)).toBe("not used yet");
+    expect(figureLine("ackArmedToAudible", new LatencyMonitor())).toBe(
+      "no finished turn measured yet",
+    );
     expect(figureNotUsed("endToFirstAudible")).toBe(false);
     expect(figureLine("endToFirstAudible", new LatencyMonitor())).toBe(
       "no finished turn measured yet",

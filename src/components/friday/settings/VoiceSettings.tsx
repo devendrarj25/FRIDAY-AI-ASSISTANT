@@ -375,6 +375,14 @@ export function VoiceSettings() {
             onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
           />
           <ToggleRow
+            label="Use the light Hindi voice for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
+            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the Hindi light voice download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
+            on={prefs.voice.hindiLightVoice === true}
+            onToggle={() =>
+              preferences.setVoice({ hindiLightVoice: prefs.voice.hindiLightVoice !== true })
+            }
+          />
+          <ToggleRow
             label="Check the language on every phrase (experimental)"
             hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
             on={prefs.voice.sttMultilingual === true}

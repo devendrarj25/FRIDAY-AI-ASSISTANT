@@ -46,6 +46,13 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(rows.some((r) => r.layer === "speech" && r.name.startsWith("kernel/stt.py"))).toBe(true);
   });
 
+  it("lists the two optional Hindi kernel files as passing kernel rows", () => {
+    for (const file of ["kernel/hindi_punct.py", "kernel/tts_hindi_light.py"]) {
+      const row = rows.find((r) => r.layer === "kernel" && r.name === file);
+      expect(row?.state, file).toBe("PASS");
+    }
+  });
+
   it("checks what is on disk only when a folder is given", () => {
     expect(rows.some((r) => r.layer === "disk")).toBe(false);
     const withRoot: Row[] = stack.inventory({

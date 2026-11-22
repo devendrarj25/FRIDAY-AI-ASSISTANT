@@ -23,6 +23,11 @@ import {
   type PrewarmResult,
 } from "../../src/lib/friday/voice-engine/prewarm";
 import { DEFAULT_PREFERENCES, preferences } from "../../src/lib/friday/preferences";
+import {
+  ACK_CATALOGUE,
+  ackPrewarmLines,
+  isYesLike,
+} from "../../src/lib/friday/voice-engine/instant-ack";
 
 vi.mock("../../src/lib/friday/kernel-api", () => ({
   kernelApi: { status: vi.fn(async () => ({ connected: true })) },
@@ -350,7 +355,11 @@ describe("acknowledgement memory", () => {
     expect(memory.get("a")).toBeUndefined();
     expect(ACK_LINES.some((line) => line.lang === "hi")).toBe(true);
     expect(ACK_LINES.some((line) => line.lang === "en")).toBe(true);
-    expect(ACK_LINES.every((line) => line.text.split(/\s+/).length <= 3)).toBe(true);
+    // The lines are the instant-acknowledgement catalogue and nothing else: short, never a yes-word.
+    expect(ACK_LINES.map((line) => line.id)).toEqual(ACK_CATALOGUE.map((entry) => entry.id));
+    expect(ACK_LINES).toEqual(ackPrewarmLines());
+    expect(ACK_LINES.every((line) => line.text.split(/\s+/).length <= 4)).toBe(true);
+    expect(ACK_LINES.every((line) => !isYesLike(line.text))).toBe(true);
   });
 });
 
@@ -404,9 +413,29 @@ describe("the real engines behind the pass (fake bridge, no device)", () => {
   });
 
   const state = { mode: "auto", micOpen: true, held: false, localVoice: true };
+  /** The acknowledgement lines are made only for the owner who turned the instant acknowledgement on. */
+  const ackOn = () =>
+    preferences.update({ voice: { ...DEFAULT_PREFERENCES.voice, instantAck: true } });
+
+  it("with the instant acknowledgement off (the default) no acknowledgement line is made", async () => {
+    expect(DEFAULT_PREFERENCES.voice.instantAck).toBe(false);
+    g.window = bridge();
+    const report = await lib.startPrewarm(state);
+    expect(report.outcomes.map((o) => `${o.step}:${o.state}`)).toEqual([
+      "stt:done",
+      "brain:done",
+      "tts:done",
+      "turn:done",
+      "acks:skipped",
+    ]);
+    expect(sent["speak"]).toHaveLength(1); // only the three-word warm-up phrase
+    expect(lib.ackMemory.ids()).toEqual([]);
+    expect(lib.readyAckClipIds()).toEqual([]);
+  });
 
   it("is on by default and every call is local: silence, provisional, no microphone", async () => {
     expect(DEFAULT_PREFERENCES.voice.prewarm).toBe(true);
+    ackOn();
     g.window = bridge();
     const steps: string[] = [];
     const report = await lib.startPrewarm(state, (o) => steps.push(`${o.step}:${o.state}`));
@@ -420,6 +449,9 @@ describe("the real engines behind the pass (fake bridge, no device)", () => {
     expect((sent["speak"]?.[0] as { text: string }).text).toBe(WARM_SPEECH_TEXT);
     expect(sent["speak"]).toHaveLength(1 + ACK_LINES.length);
     expect(lib.ackMemory.ids()).toEqual(ACK_LINES.map((line) => line.id));
+    expect(lib.readyAckClipIds()).toEqual(ackPrewarmLines().map((line) => line.id));
+    expect(lib.ackClipFor("ack-en-1")).toMatchObject({ lang: "en", rate: 44_100 });
+    expect(lib.ackClipFor("no-such-line")).toBeUndefined();
     const hi = lib.ackMemory.get("ack-hi-1");
     expect(hi).toMatchObject({ lang: "hi", rate: 44_100 });
     expect(hi?.pcm).toBeInstanceOf(Int16Array);
@@ -450,6 +482,7 @@ describe("the real engines behind the pass (fake bridge, no device)", () => {
   });
 
   it("a missing optional model is skipped; a voice that is not installed is a failed step, not a throw", async () => {
+    ackOn();
     g.window = bridge({
       scoreTurn: async () => ({ ok: true, ready: false, reason: "smart-turn file absent" }),
       neuralVoiceStatus: async () => ({ available: false, reason: "Supertonic is not installed" }),
@@ -483,6 +516,7 @@ describe("the real engines behind the pass (fake bridge, no device)", () => {
   });
 
   it("cancelling drops the lines already made and a line that finishes afterwards", async () => {
+    ackOn();
     let release: (value: unknown) => void = () => undefined;
     let calls = 0;
     g.window = bridge({

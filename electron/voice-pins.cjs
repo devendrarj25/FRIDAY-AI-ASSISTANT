@@ -225,6 +225,60 @@ const PINS = {
       },
     },
   },
+  // The optional Hindi punctuation model (kernel/hindi_punct.py): an ONNX graph and its SentencePiece model, 234 MB,
+  // Apache-2.0. Run by onnxruntime and sentencepiece directly; the `punctuators` package needs torch and is not used.
+  "1-800-BAD-CODE/punct_cap_seg_47_language": {
+    revision: "1b9d51fc7989ebc61e844d407d9dadd08ff4ba28",
+    license: "Apache-2.0",
+    files: {
+      "config.yaml": {
+        sha256: "30eb8e05fcea3865828ab73f41fbba21dd7faf127a61950a706af9156f5b84f2",
+        bytes: 516,
+      },
+      "punct_cap_seg_47lang.onnx": {
+        sha256: "640d91c06b7cc5b3e065c12a7097188378aad3bc11568ff1d72c4c0a2acb0df4",
+        bytes: 232986305,
+      },
+      "spe_unigram_64k_lowercase_47lang.model": {
+        sha256: "1bc15b6e5fd80dfac9999582ce3efcad2ac1f7cf4e0e9769b329f5de9ca5af47",
+        bytes: 1186519,
+      },
+    },
+  },
+  // The optional light Hindi voice (kernel/tts_hindi_light.py): three ONNX graphs, 91 MB. The model files are
+  // CC-BY-4.0 (credit: Sulabh Katiyar, trained on AI4Bharat Rasa): the credit is shown in the Models page row and the
+  // licence text is kept next to the weights. The package code in the repository is not downloaded; FRIDAY's own
+  // thin Devanagari frontend replaces it.
+  "sulabhkatiyar/indic-tiny-tts-hindi": {
+    revision: "1fb1b108ee6ffb73ee74bd68b283ec13eb39e957",
+    license: "CC-BY-4.0",
+    files: {
+      "LICENSE.md": {
+        sha256: "64fa648284b590c9e62a0d40521ba8c40728ec16cfb485245ef620436f0579ed",
+        bytes: 2976,
+      },
+      "config.json": {
+        sha256: "4078fd217dc171808b58f05b5ed78f85d78126bf7bf46351186fcf039411f66d",
+        bytes: 3443,
+      },
+      "onnx/flow_decoder.onnx": {
+        sha256: "923a0472ec4d4c05c43bfc8ea512f8f762cf447b9f6ce1f01043144e1f6d1252",
+        bytes: 19169253,
+      },
+      "onnx/onnx_manifest.json": {
+        sha256: "30ce6bb339f2d27b0aada791c57f4197b2dd9ddd7d710dbcb36eb095bd5f762f",
+        bytes: 3117,
+      },
+      "onnx/text_encoder.onnx": {
+        sha256: "38df505ea822800d91a13bdc4a670f81ee964e9e0fe24a705590859fe7cfd08f",
+        bytes: 17695838,
+      },
+      "onnx/vocoder.onnx": {
+        sha256: "44d36238a761750447038895ab194e2378f6f4ba2c2d089a4766fa52810ef353",
+        bytes: 54150036,
+      },
+    },
+  },
   "Supertone/supertonic-3": {
     revision: "3cadd1ee6394adea1bd021217a0e650ede09a323",
     license: "OpenRAIL-M",

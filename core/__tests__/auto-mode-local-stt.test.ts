@@ -41,7 +41,9 @@ describe("Auto Mode local speech recognition contract", () => {
     expect(assistant).toContain("barge-in — pausing playback, listening to what is said");
     expect(assistant).toContain("this.holdForInterruption();");
     expect(assistant).toContain("this.cancelSpeech();");
-    expect(assistant).toContain("if (this.recentlySpeaking() && this.isSelfEcho(text))");
+    expect(assistant).toContain(
+      "if ((this.recentlySpeaking() && this.isSelfEcho(text)) || this.ackEchoHeard(text))",
+    );
 
     expect(assistant).toContain("this.handleHeard(text, meta?.wake ?? null)");
   });

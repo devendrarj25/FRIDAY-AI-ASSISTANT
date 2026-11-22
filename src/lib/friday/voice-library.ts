@@ -22,7 +22,15 @@ import {
   type PcmClip,
   type PcmContext,
 } from "./voice-engine/pcm-clip-player";
+import { echoLive } from "./voice-engine/echo-live";
 import { preferences, type VoiceModel } from "./preferences";
+import { models } from "./models-engine";
+import {
+  HINDI_LIGHT_ENGINE,
+  HINDI_LIGHT_MODEL_ID,
+  chooseHindiLightVoice,
+  hindiLightFallbackNote,
+} from "./tts-ladder";
 import { bestVoiceFields, presetFields, type VoicePresetId } from "./voice-presets";
 import { alertsAudible } from "./settings-runtime";
 import { readVoiceSurface, shouldDuck, spokenReplyAllowed } from "./voice-session";
@@ -61,10 +69,14 @@ type VoiceBridge = {
     lang?: string;
     style?: string;
     seq?: number;
+    /** `hindi-light` asks for the optional light Hindi voice; left out, the clause is made as it always was. */
+    engine?: string;
   }) => Promise<{
     ok: boolean;
     reason?: string;
     engine?: string;
+    /** Why another engine spoke than the one asked for (`hindi-light-not-installed`, `hindi-light-failed`...). */
+    fallback?: string;
     voice?: string;
     sampleRate?: number;
     pcm?: ArrayLike<number> & { length: number };
@@ -717,7 +729,8 @@ function pcmFailed(reason: string) {
 
 /** Why raw-sample playback is off for this session, as one line; empty while it works or the setting is off. */
 export function pcmPlaybackNote(): string {
-  if (preferences.getSnapshot().voice.pcmPlayback !== true || !pcmOffReason) return "";
+  const voice = preferences.getSnapshot().voice;
+  if ((voice.pcmPlayback !== true && voice.hindiLightVoice !== true) || !pcmOffReason) return "";
   return `PCM playback is off for this session (${pcmOffReason}); speech plays through the audio element.`;
 }
 
@@ -726,6 +739,11 @@ export const lastClipUsedPcm = (): boolean => pcmPlayedLast;
 
 /** Forget the player and the session decision (a new session, or a test). */
 export function resetPcmPlayback(): void {
+  try {
+    echoLive.detach();
+  } catch {
+    /* nothing to forget */
+  }
   try {
     pcmPlayer?.dispose();
   } catch {
@@ -741,7 +759,7 @@ function getPcmPlayer(): PcmClipPlayer {
   if (pcmPlayer) return pcmPlayer;
   const Ctor = audioContextCtor();
   if (!Ctor) throw new Error("no AudioContext");
-  pcmPlayer = new PcmClipPlayer(new Ctor() as PcmContext, {
+  const created = new PcmClipPlayer(new Ctor() as PcmContext, {
     onLevel: (rms) => {
       // The measured loudness of the samples that are playing drives the companion's mouth.
       try {
@@ -752,13 +770,46 @@ function getPcmPlayer(): PcmClipPlayer {
       }
     },
   });
-  return pcmPlayer;
+  pcmPlayer = created;
+  // The raw-sample path is the only one with a tap on what the speaker plays. With `voice.echoReference` on, the
+  // microphone frames are cleaned against it; with it off this listens and keeps nothing. The page audio element
+  // path has no tap: the browser's own echo cancellation is all that helps there.
+  echoLive.attach(created);
+  return created;
+}
+
+/**
+ * The light Hindi voice (setting `voice.hindiLightVoice`). The Models page is the source of what is installed; the
+ * probe is replaceable so a test can answer without a models store. One line says when a clause asked for it and
+ * another voice spoke (or it is switched on but not downloaded): `hindiLightNote`, never silent.
+ */
+let hindiLightProbe: (() => boolean | null) | null = null;
+let hindiLightSaid = "";
+
+export function setHindiLightInstalledProbe(probe: (() => boolean | null) | null): void {
+  hindiLightProbe = probe;
+}
+
+function hindiLightInstalled(): boolean | null {
+  if (hindiLightProbe) return hindiLightProbe();
+  try {
+    const state = models.getSnapshot();
+    if (state.installed[HINDI_LIGHT_MODEL_ID]) return true;
+    return state.lastScanAt ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Why the light Hindi voice did not speak a line of this session, as one line; empty while it works or is off. */
+export function hindiLightNote(): string {
+  return preferences.getSnapshot().voice.hindiLightVoice === true ? hindiLightSaid : "";
 }
 
 /** The clause as raw samples is wanted: the setting is on, the engine is the local voice, and nothing failed yet. */
 function pcmWanted(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | null): boolean {
   return (
-    preferences.getSnapshot().voice.pcmPlayback === true &&
+    (preferences.getSnapshot().voice.pcmPlayback === true || plan.engine === HINDI_LIGHT_ENGINE) &&
     !pcmOffReason &&
     tuning.kind === "neural" &&
     plan.cloudVoice === "" &&
@@ -777,6 +828,7 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
       lang: plan.lang,
       style: preferences.getSnapshot().voice.localVoiceStyle || "",
       seq: pcmSeq,
+      ...(plan.engine ? { engine: plan.engine } : {}),
     }),
   ).catch((error: unknown) => ({
     ok: false,
@@ -795,7 +847,8 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
     pcmFailed("synthesis: the voice returned no samples");
     return null;
   }
-  const info = result as { engine?: string; voice?: string };
+  const info = result as { engine?: string; voice?: string; fallback?: string };
+  if (plan.engine) hindiLightSaid = hindiLightFallbackNote(info);
   return {
     audioBase64: "",
     mime: "audio/wav",
@@ -938,6 +991,8 @@ type SegmentPlan = {
   pitch: number;
   volume: number;
   pauseAfterMs: number;
+  /** `hindi-light` when this clause asks the local voice op for the light Hindi voice; otherwise empty. */
+  engine: string;
   key: string;
 };
 
@@ -962,6 +1017,14 @@ function planSegments(
         : expressionFor(segment.text);
     const tone = applyExpression(tuning, expression);
     const cloudVoice = cloudVoiceFor(tuning, segment.lang, allowCloud);
+    const light = chooseHindiLightVoice({
+      enabled: preferences.getSnapshot().voice.hindiLightVoice === true,
+      installed: hindiLightInstalled(),
+      local: tuning.kind === "neural" && cloudVoice === "",
+      lang: segment.lang,
+      text: segment.text,
+    });
+    if (light.note) hindiLightSaid = light.note;
     return {
       text: segment.text,
       lang: segment.lang,
@@ -970,6 +1033,7 @@ function planSegments(
       pitch: tone.pitch,
       volume: tone.volume,
       pauseAfterMs: expression.pauseAfterMs,
+      engine: light.use ? HINDI_LIGHT_ENGINE : "",
       key: JSON.stringify([
         segment.text,
         segment.lang,
@@ -979,6 +1043,7 @@ function planSegments(
         round2(tone.volume),
         Boolean(tuning.cloudClip),
         preferences.getSnapshot().voice.localVoiceStyle || "",
+        ...(light.use ? [HINDI_LIGHT_ENGINE] : []),
       ]),
     };
   });

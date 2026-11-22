@@ -8,7 +8,8 @@ the Install Manager into ``<FRIDAY root>/models/hindi-ear`` at a pinned revision
 It is used only when the owner picks Hindi. English stays on Moonshine or faster-whisper, and Hinglish and
 auto stay on faster-whisper, which also answers whenever this ear is missing, fails, or hears nothing in
 Devanagari, so a missing file or a bad run can never lose an utterance. Text stays as heard; nothing is
-transliterated.
+transliterated. When the optional punctuation model (``hindi_punct.py``) is installed, marks are added to a line the
+ear wrote without any; the words themselves are never changed.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+
+import hindi_punct
 
 MODEL_DIR = "hindi-ear"
 MODEL_FILE = "model.int8.onnx"
@@ -53,7 +56,7 @@ def ready() -> bool:
 def wants_hindi(language: str, speech_pref: str) -> bool:
     """Only when Hindi is chosen. Hinglish, auto and English are not Hindi-only speech."""
     raw = (speech_pref or "").strip().lower().replace("_", "-") or (language or "").strip().lower().replace("_", "-")
-    if raw == "hi-latn":  # Hindi in Roman letters is the Hinglish (Roman) mode, which this Devanagari ear never serves
+    if raw == "hi-latn" or raw.startswith("hi-latn-"):  # Roman-letter Hindi (any region) is the Hinglish (Roman) mode
         return False
     return raw == "hi" or raw.startswith("hi-")
 
@@ -86,4 +89,4 @@ def transcribe(samples) -> str | None:
     except Exception:  # noqa: BLE001 — any failure here means faster-whisper hears it instead
         return None
     # A Hindi recogniser that wrote no Devanagari heard nothing it understands.
-    return text if _DEVANAGARI.search(text) else None
+    return hindi_punct.apply(text) if _DEVANAGARI.search(text) else None

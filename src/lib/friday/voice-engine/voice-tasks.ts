@@ -16,6 +16,8 @@ import {
 import type { VoiceControl } from "./interruption-controller";
 import { sanitizeForSpeech, type NarrateEvent, type NarrationLang } from "./narration-policy";
 import { stripChange, type Route, type RouterTask } from "./utterance-router";
+import { ledger as taskLedger, voiceLedgerId } from "../self/task-ledger";
+import { looksSensitive } from "../brain/memory-policy";
 
 export type TaskWork = (task: VoiceTask, context: TaskContext) => Promise<string>;
 
@@ -27,8 +29,65 @@ const listeners = new Set<() => void>();
 let snapshot: VoiceTask[] = [];
 const refresh = () => {
   snapshot = orchestrator.list();
+  mirrorToLedger(snapshot);
   for (const listener of listeners) listener();
 };
+
+/* ---------- the ledger copy (write-through) and the work of a task that came back after a restart ---------- */
+
+/** What the desk needs of the task ledger. A test can hand in its own. */
+export type VoiceTaskLedger = Pick<
+  typeof taskLedger,
+  "syncVoiceTask" | "restartVoiceRows" | "markVoiceRows"
+>;
+let ledgerSink: VoiceTaskLedger | null = taskLedger;
+/** Swap the ledger the desk mirrors into (a test), or null for none. Returns the previous one. */
+export function setVoiceTaskLedger(next: VoiceTaskLedger | null): VoiceTaskLedger | null {
+  const was = ledgerSink;
+  ledgerSink = next;
+  return was;
+}
+
+/** Desk id to ledger row id: a task that came back after a restart keeps the row it came from. */
+const ledgerIds = new Map<string, string>();
+const synced = new Map<string, string>();
+
+function mirrorToLedger(tasks: readonly VoiceTask[]): void {
+  if (!ledgerSink) return;
+  for (const task of tasks) {
+    // Only a task with its request is worth remembering (a redo needs it); progress is written in steps of ten.
+    if (!task.request) continue;
+    // A request that looks private (a password, a card number) is never written to local storage: that task simply
+    // cannot be redone after a restart.
+    if (looksSensitive(task.request) || looksSensitive(task.label)) continue;
+    const mark = `${task.state}|${Math.floor((task.percent ?? 0) / 10)}`;
+    if (synced.get(task.id) === mark) continue;
+    synced.set(task.id, mark);
+    try {
+      ledgerSink.syncVoiceTask({
+        id: ledgerIds.get(task.id) ?? voiceLedgerId(task.createdAt, task.id),
+        title: task.label,
+        state: task.state,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        percent: task.percent,
+        error: task.error ?? task.reason,
+        spokenName: task.spoken,
+        ordinal: task.ordinal,
+        request: task.request,
+      });
+    } catch {
+      /* the ledger is a copy: a write that fails must never stop a task */
+    }
+  }
+  for (const id of synced.keys()) if (!tasks.some((t) => t.id === id)) synced.delete(id);
+}
+
+/** The work for a request that has no closure any more. The conductor knows how a request runs (the Brain turn). */
+let workFactory: ((request: string) => TaskWork) | null = null;
+export function attachVoiceTaskWork(factory: ((request: string) => TaskWork) | null): void {
+  workFactory = factory;
+}
 
 /** The conductor's narrator: every update of every task goes here when one is attached (see narration-policy). */
 export type TaskNarrator = (update: TaskUpdate, task: VoiceTask) => void;
@@ -37,7 +96,20 @@ let narrator: TaskNarrator | null = null;
 let hushCancels = false;
 let focusTask = "";
 
+/**
+ * How many tasks run at once. The owner's `voice.tasks.maxParallel` is read and stored (so the setting and the panel
+ * keep working), but it is NOT applied yet: every task runs a Brain turn, and the Brain has one lane, so a second
+ * worker would only queue behind the first. The limit stays 1 until the Brain can run turns side by side.
+ */
+export const TASK_WORKER_LIMIT = 1;
+/** The worker count a stored `maxParallel` gives today: always `TASK_WORKER_LIMIT`. */
+export function taskWorkerLimit(prefs: Pick<TaskPrefs, "maxParallel">): number {
+  void prefs.maxParallel; // read, deliberately not applied: see TASK_WORKER_LIMIT
+  return TASK_WORKER_LIMIT;
+}
+
 const orchestrator: TaskOrchestrator = new TaskOrchestrator({
+  maxWorkers: TASK_WORKER_LIMIT,
   // The clock is read at each call (not captured), so a test clock and the router's "now" agree.
   now: () => Date.now(),
   run: (task, context, payload) =>
@@ -93,11 +165,99 @@ export function startVoiceTask(
   label: string,
   job: TaskWork,
   risk: TaskRisk = "safe",
+  meta: { request?: string } = {},
 ): { ok: true; task: VoiceTask } | { ok: false; error: string } {
-  const made = orchestrator.create({ label, risk, payload: job });
+  const spoken = speakableLabel(label);
+  const made = orchestrator.create({
+    label,
+    risk,
+    payload: job,
+    ...(meta.request ? { request: meta.request } : {}),
+    ...(spoken ? { spoken } : {}),
+  });
   refresh();
   return made;
 }
+
+/**
+ * The tasks that were live when the app closed, read back from the ledger and put on the desk as INTERRUPTED (they
+ * run nothing). The rows are marked "asked" so this happens once. Returns the desk tasks, oldest first, at most five.
+ */
+export function restoreInterruptedVoiceTasks(): VoiceTask[] {
+  if (!ledgerSink) return [];
+  const rows = ledgerSink.restartVoiceRows().slice(0, 5);
+  if (!rows.length) return [];
+  const made = orchestrator.restore(
+    rows.map((row) => {
+      const spoken = row.voice?.spokenName || speakableLabel(row.title);
+      return {
+        label: row.title,
+        ...(row.voice?.request ? { request: row.voice.request } : {}),
+        ...(spoken ? { spoken } : {}),
+        createdAt: row.startedAt,
+        reason: "FRIDAY was closed while it ran.",
+      };
+    }),
+  );
+  made.forEach((task, i) => {
+    const row = rows[i];
+    if (row) ledgerIds.set(task.id, row.id);
+  });
+  ledgerSink.markVoiceRows(
+    rows.map((row) => row.id),
+    "asked",
+  );
+  refresh();
+  return made;
+}
+
+/** The ledger row an interrupted desk task came from, so an answer can close it. */
+function closeRestored(id: string, redo: "redone" | "dropped"): void {
+  const row = ledgerIds.get(id);
+  if (row) ledgerSink?.markVoiceRows([row], redo);
+  ledgerIds.delete(id);
+}
+
+/** Run these interrupted tasks again (the owner said redo). Returns how many started. */
+export function redoInterruptedVoiceTasks(ids: readonly string[]): number {
+  let count = 0;
+  for (const id of ids) if (voiceTaskActions.retry(id)) count += 1;
+  return count;
+}
+
+/** The owner said no to redoing: the rows leave the desk and the ledger closes them. */
+export function dropInterruptedVoiceTasks(ids: readonly string[]): number {
+  let count = 0;
+  for (const id of ids) {
+    const task = orchestrator.get(id);
+    if (task?.state !== "INTERRUPTED") continue;
+    closeRestored(id, "dropped");
+    if (orchestrator.drop(id)) count += 1;
+  }
+  if (count) refresh();
+  return count;
+}
+
+/**
+ * True only for a request that asks to read or look something up and names no action. A conservative whitelist: it is
+ * what lets a restart redo itself under Full autonomy, so anything unclear is not read-only.
+ */
+export function isReadOnlyRequest(request: string): boolean {
+  const text = String(request ?? "")
+    .normalize("NFC")
+    .trim()
+    .toLowerCase();
+  if (!text || text.length > 300) return false;
+  if (ACTION_WORDS.test(text)) return false;
+  // "check the weather then ...": every step after a then, an also or a phir must itself start with a reading verb.
+  return text.split(SECOND_STEP).every((step) => READ_START.test(step.trim()));
+}
+
+const ACTION_WORDS =
+  /\b(send|delete|remove|erase|wipe|install|uninstall|open|launch|close|kill|run|execute|write|edit|create|make|save|move|rename|copy|paste|buy|order|pay|purchase|book|post|publish|upload|download|email|mail|message|text|call|restart|shut\s?down|reboot|log\s?in|sign\s?in|password|type|click|press|set|change|update|turn|enable|disable|schedule|remind|add|clear|reset|format|drop|push|commit|merge|deploy|reply|respond|forward|share|approve|transfer|cancel|accept|submit|sync|export|stop|start|play|bhejo|bhej|likho|likh|kar\s?do|karo|kholo|band|hatao|bana\s?do|chalao|rakh|bhijwa)\b/;
+const SECOND_STEP = /\b(?:and then|then|after that|afterwards|also|next|phir|aur phir|uske baad)\b/;
+const READ_START =
+  /^(?:(?:and|please|friday|can you|could you)[,\s]+)*(?:summari[sz]e|summary of|read|find|search|look up|check|show|list|explain|tell me|what|who|when|where|why|how|compare|translate|count|calculate|define|describe)\b/;
 
 /** The owner's yes or no to a task that asked for approval. */
 export function answerTaskApproval(yes: boolean): string | null {
@@ -124,6 +284,18 @@ export function subscribeVoiceTasks(listener: () => void): () => void {
 
 /** Buttons of the Tasks panel. Each returns whether it changed anything. */
 export const voiceTaskActions = {
+  /** Run a FAILED or INTERRUPTED task again with its original request. False when it is neither, or has nothing to run. */
+  retry: (id: string): boolean => {
+    const old = orchestrator.get(id);
+    if (!old) return false;
+    const fallback = old.request && workFactory ? workFactory(old.request) : undefined;
+    const done = orchestrator.retry(id, fallback);
+    if (done) {
+      closeRestored(id, "redone");
+      refresh();
+    }
+    return done;
+  },
   cancel: (id: string): boolean => orchestrator.cancel(id) && (refresh(), true),
   pause: (id: string): boolean => orchestrator.pause(id) && (refresh(), true),
   resume: (id: string): boolean => orchestrator.resume(id) && (refresh(), true),
@@ -227,6 +399,7 @@ export function speakableLabel(label: string): string {
 const STATE_WORDS: Record<NarrationLang, Partial<Record<VoiceTask["state"], string>>> = {
   en: {
     RUNNING: "running",
+    INTERRUPTED: "stopped when I closed",
     QUEUED: "waiting its turn",
     CREATED: "waiting its turn",
     PAUSED: "paused",
@@ -238,6 +411,7 @@ const STATE_WORDS: Record<NarrationLang, Partial<Record<VoiceTask["state"], stri
   },
   hi: {
     RUNNING: "chal raha hai",
+    INTERRUPTED: "band hone par ruk gaya",
     QUEUED: "apni baari ka intezaar",
     CREATED: "apni baari ka intezaar",
     PAUSED: "ruka hua hai",

@@ -61,16 +61,33 @@ describe("background request wiring", () => {
     const block = mode.slice(at, at + 1400);
     expect(block).toContain('this.state.mode === "auto"');
     // A consequential background order is asked about first; a confirmed one starts the same task.
-    expect(block).toContain("this.askToConfirm(command || text)");
+    expect(block).toContain("this.askToConfirm(ordered)");
+    expect(block).toMatch(
+      /const ordered = route\.supersedes\s*\?\s*withoutChangeOfMind\(command \|\| text\)\s*:\s*command \|\| text;/,
+    );
+    // A change of mind cancels the old task only after the yes (inside runApproved), never before the question.
+    expect(block.indexOf("this.askToConfirm(ordered)")).toBeLessThan(
+      block.indexOf("voiceTaskActions.cancel(route.supersedes)"),
+    );
+    expect(mode).toMatch(
+      /runApproved\(command: string\) \{[\s\S]*?voiceTaskActions\.cancel\(sup\.id\)[\s\S]*?this\.beginBackground\(background\)/,
+    );
     expect(block).toContain("this.beginBackground(background)");
     expect(mode).toMatch(
       /runApproved\(command: string\) \{[\s\S]*?this\.beginBackground\(background\)/,
     );
     const start = mode.indexOf("private beginBackground(");
-    const method = mode.slice(start, start + 1100);
+    const method = mode.slice(start, start + 600);
     expect(method).toContain("startVoiceTask(");
-    expect(method).toContain("askBrain(background.request");
-    expect(method).toContain("brain.stop({ taskId: task.id })");
+    expect(method).toContain("this.backgroundWork(background.request)");
+    // The work is the real Brain turn, and it is the same work a task redone after a restart runs.
+    const work = mode.slice(mode.indexOf("backgroundWork(request: string)"));
+    const body = work.slice(0, 700);
+    expect(body).toContain("askBrain(request");
+    expect(body).toContain("brain.stop({ taskId: task.id })");
+    expect(mode).toContain(
+      "attachVoiceTaskWork((request) => assistantMode.backgroundWork(request))",
+    );
     expect(at).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))"));
   });
 

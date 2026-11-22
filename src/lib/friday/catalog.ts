@@ -2038,6 +2038,18 @@ export const catalog: CatalogEntry[] = [
     "Runs the Hindi ear (IndicConformer int8) inside the one speech worker when Hindi is chosen. Weights download on demand.",
   ),
   E(
+    "sentencepiece",
+    "Voice",
+    "pypi.org",
+    "https://pypi.org/project/sentencepiece/",
+    "pip",
+    null,
+    "0.2.3",
+    "2 MB",
+    "optional",
+    "Tokeniser of the optional Hindi punctuation model, which adds marks to the Hindi ear's words. Weights download on demand.",
+  ),
+  E(
     "pyrnnoise",
     "Voice",
     "pypi.org",

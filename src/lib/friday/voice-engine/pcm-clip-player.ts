@@ -10,10 +10,18 @@
  * The context and the timers are injected, so the logic is tested without a speaker.
  */
 import { floatToPcm16, pcm16ToFloat, samplesToMs, StreamResampler } from "./audio-format";
-import { PcmPlayback, type ContextLike, type PlaybackStats } from "./playback-scheduler";
+import {
+  PcmPlayback,
+  type ContextLike,
+  type PlaybackStats,
+  type ScheduledListener,
+} from "./playback-scheduler";
 
 export type PcmContext = ContextLike & {
   sampleRate: number;
+  /** What the browser reports for the speaker path; the echo reference adds it to the audio-clock stamp. */
+  outputLatency?: number;
+  baseLatency?: number;
   state?: string;
   resume?: () => Promise<void>;
 };
@@ -52,6 +60,7 @@ export class PcmClipPlayer {
   private readonly playback: PcmPlayback;
   private readonly timers: PcmTimers;
   private readonly settle = new Set<() => void>();
+  private readonly stopListeners = new Set<(atSeconds: number) => void>();
 
   constructor(
     private readonly context: PcmContext,
@@ -75,6 +84,35 @@ export class PcmClipPlayer {
 
   stats(): PlaybackStats {
     return this.playback.stats();
+  }
+
+  /** The audio context the clauses are played on (its clock and latency), for the echo reference. */
+  get clock(): PcmContext {
+    return this.context;
+  }
+
+  /**
+   * Hear every chunk the moment it is scheduled (audio-clock start time and samples at `rate`). More than one
+   * listener may be added; returns the function that removes it.
+   */
+  addScheduledListener(listener: ScheduledListener): () => void {
+    return this.playback.addScheduledListener(listener);
+  }
+
+  /** Hear every stop or dispose with the audio-clock time it happened: what was queued after it was never heard. */
+  addStopListener(listener: (atSeconds: number) => void): () => void {
+    this.stopListeners.add(listener);
+    return () => void this.stopListeners.delete(listener);
+  }
+
+  private notifyStop(atSeconds: number): void {
+    for (const listener of [...this.stopListeners]) {
+      try {
+        listener(atSeconds);
+      } catch {
+        /* a listener never stops the stop */
+      }
+    }
   }
 
   /**
@@ -158,15 +196,20 @@ export class PcmClipPlayer {
 
   /** Stop at once: flush the scheduler and end every clip that was waiting for its audio to finish. */
   stop(): number {
+    const at = this.context.currentTime;
     const played = this.playback.flush();
     for (const finish of [...this.settle]) finish();
+    this.notifyStop(at);
     return played;
   }
 
   /** End of use: stop everything and refuse every later clip. */
   dispose(): number {
+    const at = this.context.currentTime;
     const played = this.playback.dispose();
     for (const finish of [...this.settle]) finish();
+    this.notifyStop(at);
+    this.stopListeners.clear();
     return played;
   }
 }

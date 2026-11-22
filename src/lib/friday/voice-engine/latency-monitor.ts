@@ -176,7 +176,6 @@ export const UNSTAMPED_STAGES: readonly VoiceStage[] = [
   "audioFirstDecoded",
   "eagerStarted",
   "eagerResolved",
-  "ackAudible",
 ];
 
 /** The named gaps between two stages. Both ends must have been stamped for a gap to count. */

@@ -68,6 +68,8 @@ const OPTIONAL_INSTALL = {
   "hindi-ear": "hindi-ear",
   "hinglish-ear": "hinglish-ear",
   "hindi-fallback-ear": "hindi-fallback-ear",
+  "hindi-punct": "hindi-punct",
+  "hindi-light-tts": "hindi-light-tts",
 };
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];

@@ -56,6 +56,7 @@ const { preferences } = await import("../../src/lib/friday/preferences");
 assistantMode.subscribe(() => undefined);
 
 type Driver = {
+  wakeWordRequired: boolean;
   state: Record<string, unknown> & {
     mode: string;
     paused: boolean;
@@ -291,6 +292,30 @@ describe("eager guards, live: the speculative start that ships", () => {
     ).toBe("wait");
   });
 
+  it("B3: ambient speech (a TV, a call, a bystander) never starts a draft: no name and no open conversation", () => {
+    Object.assign(d, { awakeUntil: 0, followUpUntil: 0 });
+    d.wakeWordRequired = false;
+    settle("what is the capital of france?");
+    expect(sent).toEqual([]);
+    expect(d.speculative).toBe("");
+    expect(brain.startDraft).not.toHaveBeenCalled();
+    // The same words with her name are a request.
+    d.partialText = "";
+    settle("Friday, what is the capital of france?");
+    expect(sent.map((s) => s.text)).toEqual(["what is the capital of france"]);
+    expect(sent[0]?.options.draft).toBe(true);
+  });
+
+  it("B3: another assistant's name keeps the line out of the draft path, and an open follow-up still drafts", () => {
+    Object.assign(d, { awakeUntil: 0, followUpUntil: 0 });
+    settle("Alexa, what is the weather in Jaipur today?");
+    expect(sent).toEqual([]);
+    d.partialText = "";
+    Object.assign(d, { followUpUntil: Date.now() + 60_000 });
+    settle("what is the weather in Jaipur today?");
+    expect(sent).toHaveLength(1);
+  });
+
   it("a changed partial discards the started draft in the Brain (never brain.stop) and the draft state is cleared", () => {
     settle("what is the weather in Jaipur today.");
     expect(d.speculative).not.toBe("");
@@ -381,7 +406,9 @@ describe("eager guards, live today: what the final transcript path already enfor
   });
 
   it("the final path drops FRIDAY's own voice coming back (recentlySpeaking and isSelfEcho)", () => {
-    expect(modeSource).toMatch(/if \(this\.recentlySpeaking\(\) && this\.isSelfEcho\(text\)\)/);
+    expect(modeSource).toMatch(
+      /if \(\(this\.recentlySpeaking\(\) && this\.isSelfEcho\(text\)\) \|\| this\.ackEchoHeard\(text\)\)/,
+    );
     expect(method(modeSource, /\n {2}private recentlySpeaking\([^{]*\{/)).toMatch(
       /this\.state\.speaking \|\| Date\.now\(\) < this\.echoUntil/,
     );
@@ -463,7 +490,8 @@ describe("eager guards, live today: what the final transcript path already enfor
     expect(stopCalls).toBe(0);
     d.draftsThisTurn = 0; // the final transcript ended that turn
     fakeRun = ""; // and the adopted run finished
-    settle("जयपुर का मौसम कैसा है।");
+    // (named: a Hindi follow-up that the addressing rule reads as unrelated to the last work is not drafted at all)
+    settle("Friday, जयपुर का मौसम कैसा है।");
     d.routeCommand("जयपुर का मौसम कैसा है");
     expect(sent).toHaveLength(2);
     expect(adopted).toEqual(["draft-1", "draft-2"]);

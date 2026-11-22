@@ -347,10 +347,13 @@ describe("instant acknowledgement: the text never comes from the input", () => {
       "x".repeat(40),
       "",
       "<b>x</b>",
+      "आशा",
+      " देवेन्द्र  सिंह ",
     ]) {
       expect(cleanAddressName(raw)).toBe(addressName(raw));
     }
     expect(cleanAddressName("आशा")).toBe("आशा");
+    expect(addressName("आशा")).toBe("आशा");
   });
 
   it("handles huge and odd input quickly without throwing", () => {

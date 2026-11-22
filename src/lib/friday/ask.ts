@@ -19,6 +19,11 @@ export type AskOptions = {
   /** Give up after this long so a stalled model can never hang the UI. */
   timeoutMs?: number;
   onDelta?: (text: string) => void;
+  /**
+   * A text-only turn that leaves nothing behind: the kernel stores no chat row, mirrors nothing to the phone and offers
+   * no tool (the same flag a Brain draft sends). Only `true` counts.
+   */
+  ephemeral?: boolean;
 };
 
 export function canAsk(): boolean {
@@ -84,6 +89,7 @@ export async function askFriday(prompt: string, options: AskOptions = {}): Promi
         prompt,
         ...(system ? { system } : {}),
         ...(modelIds?.length ? { modelIds } : {}),
+        ...(options.ephemeral === true ? { draft: true } : {}),
       });
     } catch (error) {
       finish(() => reject(error instanceof Error ? error : new Error("Could not reach a model.")));

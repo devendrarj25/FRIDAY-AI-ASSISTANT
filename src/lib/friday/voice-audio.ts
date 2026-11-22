@@ -13,7 +13,13 @@
  */
 
 import { captureRate } from "./mic-session";
-import { markWorklet, noteCaptureFrame, workletCapturing } from "./pcm-capture";
+import {
+  cleanedLevel,
+  markWorklet,
+  noteCaptureFrame,
+  setCaptureLatency,
+  workletCapturing,
+} from "./pcm-capture";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 
@@ -766,6 +772,12 @@ export class VoiceGate {
       };
       source.connect(node);
       this.worklet = node;
+      // The echo reference places each frame on the clock with this latency; a missing value is 0.
+      const trackLatency = Number(
+        (this.stream?.getAudioTracks()[0]?.getSettings?.() as { latency?: number } | undefined)
+          ?.latency,
+      );
+      setCaptureLatency(Math.max(trackLatency || 0, Number(ctx.baseLatency) || 0));
       markWorklet(true);
     } catch {
       markWorklet(false);
@@ -799,7 +811,12 @@ export class VoiceGate {
       const v = this.buffer[i] ?? 0;
       sum += v * v;
     }
-    const level = Math.sqrt(sum / this.buffer.length);
+    const analyserLevel = Math.sqrt(sum / this.buffer.length);
+    // While the live echo reference cleans the frames, the level is the cleaned one, so her own voice does not
+    // count as speech; otherwise (setting off, nothing played, any error) it is the analyser's, as before.
+    const cleaned = cleanedLevel(performance.now());
+    const level =
+      cleaned === null ? analyserLevel : cleaned * (this.softwareGain > 1 ? this.softwareGain : 1);
     if (!workletCapturing()) {
       noteCaptureFrame(this.buffer, performance.now(), this.ctx?.sampleRate || 48000, Date.now());
     }

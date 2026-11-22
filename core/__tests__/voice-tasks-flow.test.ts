@@ -88,6 +88,18 @@ type Driver = {
   voicedChars: number;
   voicedPrefix: string;
   callHold: boolean;
+  noteApprovalSpoken: () => void;
+  speakPlan: (
+    text: string,
+    localOnly?: boolean,
+  ) => { argTuning: { allowCloud?: boolean; cloudClip?: unknown; kind?: string } };
+  unfinished: string;
+  restartAsk: unknown;
+  supersedeOnConfirm: unknown;
+  cancelSpeech: () => void;
+  followKillSwitch: () => void;
+  playingItem: { priority: string; taskId?: string } | null;
+  approvalSpoken: { at: number; taskId?: string } | null;
   awakeUntil: number;
   followUpUntil: number;
   lastWakeAt: number;
@@ -213,6 +225,8 @@ beforeEach(async () => {
   d.arbiter = new SpeechArbiter({ now: () => Date.now() });
   d.narration = createNarrationMemory();
   d.approvalAsked = null;
+  d.approvalSpoken = null;
+  d.playingItem = null;
   d.interruptHold = null;
   d.heldPlayed = null;
   d.callHold = false;
@@ -424,7 +438,14 @@ describe("the 'Started: X' acknowledgement is spoken at once (scenario 5)", () =
 });
 
 describe("a background approval is asked aloud (scenario 6)", () => {
-  const openApproval = async () => {
+  /** The prompt really sounded: the speech queue handed it out and the voice started (the player is not run here). */
+  const promptSounds = (taskId: string) => {
+    d.playingItem = { priority: "approval", taskId };
+    d.noteApprovalSpoken();
+    d.playingItem = null;
+  };
+
+  const openApproval = async (options: { sounded?: boolean } = {}) => {
     const task = await startBackgroundTask();
     listenLikeAuto();
     d.spokenUpTo = inner.state.messages.length;
@@ -433,16 +454,21 @@ describe("a background approval is asked aloud (scenario 6)", () => {
     recorded = [];
     const decision = inner.gateAction(taskRun(), APP_RESTART_TOOL, "exec", "Restart FRIDAY");
     await vi.advanceTimersByTimeAsync(5);
+    if (options.sounded !== false) promptSounds(task.id);
     return { task, decision };
   };
 
   it("says what is waiting and that a yes is needed, once, bound to the task", async () => {
-    const { task, decision } = await openApproval();
+    const { task, decision } = await openApproval({ sounded: false });
     expect(inner.state.approval).toMatchObject({ runId: "run-1", tool: APP_RESTART_TOOL });
     expect(recorded).toHaveLength(1);
     expect(recorded.join(" ")).toMatch(/restart friday/i);
     expect(recorded.join(" ")).toMatch(/\byes\b|approv|confirm/i);
+    // Queued is not heard: the prompt is bound to a yes only once it has sounded.
+    expect(d.approvalAsked).toBeNull();
+    promptSounds(task.id);
     expect(d.approvalAsked).toMatchObject({ taskId: task.id });
+    expect(d.approvalSpoken).toMatchObject({ taskId: task.id });
     // another Brain change inside the repeat window does not ask again
     inner.emit(false);
     await vi.advanceTimersByTimeAsync(5);
@@ -468,6 +494,134 @@ describe("a background approval is asked aloud (scenario 6)", () => {
     expect(recorded.join(" ")).toMatch(/timed out/i);
     brain.approve(false);
     await decision;
+  });
+
+  it("B1: a yes before the prompt ever sounded approves nothing and points to the screen", async () => {
+    const { decision } = await openApproval({ sounded: false });
+    recorded = [];
+    const approve = vi.spyOn(brain, "approve");
+    d.handleHeard("yes");
+    expect(approve).not.toHaveBeenCalled();
+    expect(inner.state.approval).not.toBeNull();
+    expect(taskRun().state).toBe("awaiting-approval");
+    expect(recorded.join(" ")).toMatch(/check the screen/i);
+    // Once the prompt has really sounded, the same yes is the answer.
+    promptSounds(
+      taskRun().owner?.kind === "task" ? (taskRun().owner as { taskId: string }).taskId : "",
+    );
+    d.handleHeard("yes");
+    await expect(decision).resolves.toBe(true);
+  });
+
+  it("B1: a call hold keeps the prompt off the speaker, so a bare yes from the call approves nothing", async () => {
+    await startBackgroundTask();
+    listenLikeAuto();
+    d.callHold = true;
+    // The real announcer (not the recorder): a held line is shown and kept, never played.
+    vi.mocked(d.speak).mockRestore();
+    const approve = vi.spyOn(brain, "approve");
+    const decision = inner.gateAction(taskRun(), APP_RESTART_TOOL, "exec", "Restart FRIDAY");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(d.arbiter.size()).toBe(0);
+    expect(d.approvalSpoken).toBeNull();
+    d.handleHeard("yes");
+    d.handleHeard("ok");
+    d.handleHeard("sure");
+    expect(approve).not.toHaveBeenCalled();
+    expect(inner.state.approval).not.toBeNull();
+    expect(taskRun().state).toBe("awaiting-approval");
+    d.callHold = false;
+    brain.approve(false);
+    await decision;
+  });
+
+  it("R1: a foreground app-restart approval is screen-only: another prompt's stamp (no task id) never binds a yes to it", async () => {
+    injectRun("run-fg", "restart the app", Date.now());
+    const run = inner.state.runs.find((r) => r.id === "run-fg") as Run;
+    const decision = inner.gateAction(run, APP_RESTART_TOOL, "exec", "Restart FRIDAY");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(run.state).toBe("awaiting-approval");
+    // "Confirm: should I X?" sounded a moment ago: an approval-priority line with no task.
+    d.playingItem = { priority: "approval" };
+    d.noteApprovalSpoken();
+    d.playingItem = null;
+    expect(d.approvalSpoken).not.toBeNull();
+    recorded = [];
+    const approve = vi.spyOn(brain, "approve");
+    d.handleHeard("yes");
+    expect(approve).not.toHaveBeenCalled();
+    expect(run.state).toBe("awaiting-approval");
+    expect(recorded.join(" ")).toMatch(/check the screen/i);
+    brain.approve(false);
+    await decision;
+  });
+
+  it("R1: the restart question's stamp (a different task id) never approves a waiting approval, foreground or task-owned", async () => {
+    const task = await startBackgroundTask();
+    const decision = inner.gateAction(taskRun(), APP_RESTART_TOOL, "exec", "Restart FRIDAY");
+    await vi.advanceTimersByTimeAsync(5);
+    d.playingItem = { priority: "approval", taskId: "restart-redo" };
+    d.noteApprovalSpoken();
+    d.playingItem = null;
+    const approve = vi.spyOn(brain, "approve");
+    d.handleHeard("yes");
+    expect(approve).not.toHaveBeenCalled();
+    expect(inner.state.approval).not.toBeNull();
+    // Its own prompt sounding is what binds it.
+    promptSounds(task.id);
+    d.handleHeard("yes");
+    await expect(decision).resolves.toBe(true);
+  });
+
+  it("B1: a prompt that sounded earlier than the approval it was for does not bind the newer one", async () => {
+    const { decision } = await openApproval({ sounded: false });
+    d.approvalSpoken = {
+      at: (inner.state.approval as unknown as { at: number }).at - 5000,
+    };
+    const approve = vi.spyOn(brain, "approve");
+    d.handleHeard("yes");
+    expect(approve).not.toHaveBeenCalled();
+    brain.approve(false);
+    await decision;
+  });
+
+  it("B2: Stop clears the approval slot, and a later yes cannot revive the stopped run", async () => {
+    const { decision } = await openApproval();
+    brain.stop();
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(decision).resolves.toBe(false);
+    expect(inner.state.approval).toBeNull();
+    expect(taskRun().state).toBe("failed");
+    d.handleHeard("yes");
+    expect(taskRun().state).toBe("failed");
+    expect(inner.state.activeRunId).not.toBe(taskRun().id);
+  });
+
+  it("B2: stopping only the task that owns the run clears its approval too", async () => {
+    const { task, decision } = await openApproval();
+    brain.stop({ taskId: task.id });
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(decision).resolves.toBe(false);
+    expect(inner.state.approval).toBeNull();
+    expect(taskRun().state).toBe("failed");
+  });
+
+  it("B2: a slot left over for a run that is no longer awaiting approval is never approved", async () => {
+    await startBackgroundTask();
+    const run = taskRun();
+    run.state = "failed";
+    inner.state.approval = {
+      runId: run.id,
+      tool: APP_RESTART_TOOL,
+      reason: "Restart FRIDAY — exec",
+      at: Date.now(),
+    } as never;
+    d.approvalSpoken = { at: Date.now() };
+    const approve = vi.spyOn(brain, "approve");
+    d.handleHeard("yes");
+    expect(approve).not.toHaveBeenCalled();
+    expect(run.state).toBe("failed");
+    inner.state.approval = null;
   });
 
   it("an owner who says no denies it", async () => {
@@ -746,6 +900,61 @@ describe("spoken task words reach the desk through the router", () => {
     expect(recorded.join(" ")).not.toMatch(/password|hunter22/i);
   });
 
+  it("I2: a task whose ANSWER is sensitive is announced without its words, whatever its label said", async () => {
+    await startBackgroundTask("summarise the notes");
+    recorded = [];
+    finishRun(taskRun(), "Your PAN is ABCDE1234F, filed under the new regime.");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(recorded.length).toBeGreaterThan(0);
+    expect(recorded.join(" ")).not.toMatch(/ABCDE1234F|PAN\b/);
+  });
+
+  it("I2: a sensitive line is never sent to a cloud voice: the plan is local and the system voice", () => {
+    for (const line of [
+      "my password is hunter2",
+      "the card number is 4111 1111 1111 1111",
+      "your OTP is 482913",
+    ]) {
+      const plan = d.speakPlan(line);
+      expect(plan.argTuning.allowCloud, line).toBe(false);
+      expect(plan.argTuning.cloudClip, line).toBeUndefined();
+      expect(plan.argTuning.kind, line).toBe("system");
+    }
+    // An ordinary line keeps the owner's chosen route (the cloud is still allowed when nothing forbids it).
+    expect(d.speakPlan("It is sunny in Jaipur today.").argTuning.kind).not.toBe("system");
+  });
+
+  it("I3: a change of mind that needs a yes leaves the old task RUNNING until the yes", async () => {
+    const first = await startBackgroundTask();
+    await vi.advanceTimersByTimeAsync(5000);
+    d.handleHeard("Friday actually delete the old exports folder in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(d.state.pending?.command).toMatch(/delete the old exports/);
+    expect(taskNow(first.id)?.state).toBe("RUNNING");
+    expect(mine()).toHaveLength(1);
+    d.handleHeard("yes");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(first.id)?.state).toBe("CANCELLED");
+    expect(mine().filter((t) => t.state !== "CANCELLED")).toHaveLength(1);
+    expect(mine().at(-1)?.label).toBe("delete the old exports folder");
+  });
+
+  it("I3: a no to the confirmation leaves the old task running for good", async () => {
+    const first = await startBackgroundTask();
+    d.handleHeard("Friday actually delete the old exports folder in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    d.handleHeard("no");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(first.id)?.state).toBe("RUNNING");
+    expect(d.supersedeOnConfirm).toBeNull();
+    // the same order confirmed much later is a new order, not a change of mind about the old task
+    d.handleHeard("Friday delete the old exports folder in the background");
+    await vi.advanceTimersByTimeAsync(5);
+    d.handleHeard("yes");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(taskNow(first.id)?.state).toBe("RUNNING");
+  });
+
   it("an answer containing a link, a path or a command is never read out raw", async () => {
     await startBackgroundTask();
     recorded = [];
@@ -755,6 +964,51 @@ describe("spoken task words reach the desk through the router", () => {
     );
     await vi.advanceTimersByTimeAsync(5);
     expect(recorded.join(" ")).not.toMatch(/https?:|C:\\|npm install/);
+  });
+});
+
+describe("I4: Stop, the tray pause and the stop word forget what was open", () => {
+  const openState = () => {
+    d.approvalAsked = { askedAt: Date.now(), taskId: "task-1" };
+    d.approvalSpoken = { at: Date.now(), taskId: "task-1" };
+    d.restartAsk = { ids: ["task-9"] };
+    d.supersedeOnConfirm = { id: "task-1", command: "x", at: Date.now() };
+    d.unfinished = "and the rest of the old answer";
+    d.arbiter.enqueue({ text: "Done: a.", priority: "direct", done: true, ttlMs: 1 });
+  };
+  const digestWaits = async () => {
+    await vi.advanceTimersByTimeAsync(700_000); // a finish line that aged out becomes a digest
+    return d.arbiter.takeDigest();
+  };
+
+  it("the tray pause clears the asked prompt, the unfinished remainder and the digest", async () => {
+    openState();
+    d.setPaused(true);
+    expect(d.approvalAsked).toBeNull();
+    expect(d.approvalSpoken).toBeNull();
+    expect(d.restartAsk).toBeNull();
+    expect(d.supersedeOnConfirm).toBeNull();
+    expect(d.unfinished).toBe("");
+    expect(await digestWaits()).toBeNull();
+    d.setPaused(false);
+  });
+
+  it("Stop everything clears them too, so a continue after resume speaks nothing old", async () => {
+    openState();
+    autonomy.stopEverything();
+    await vi.advanceTimersByTimeAsync(5);
+    expect(d.approvalAsked).toBeNull();
+    expect(d.unfinished).toBe("");
+    expect(await digestWaits()).toBeNull();
+  });
+
+  it("the stop word (cancelSpeech) clears the open prompt, the remainder and the digest", async () => {
+    openState();
+    d.cancelSpeech();
+    expect(d.approvalAsked).toBeNull();
+    expect(d.approvalSpoken).toBeNull();
+    expect(d.unfinished).toBe("");
+    expect(await digestWaits()).toBeNull();
   });
 });
 

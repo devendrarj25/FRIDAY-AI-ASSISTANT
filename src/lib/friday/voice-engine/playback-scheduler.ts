@@ -35,6 +35,9 @@ export type PlaybackStats = {
   underruns: number;
 };
 
+/** Hears one scheduled chunk: the audio-clock time it starts, and its samples at the playback rate. */
+export type ScheduledListener = (whenSeconds: number, pcm: Int16Array) => void;
+
 export class PcmPlayback {
   private nextTime = 0;
   private startedAt: number | null = null;
@@ -42,7 +45,8 @@ export class PcmPlayback {
   private dropped = 0;
   private underruns = 0;
   private scheduledMs = 0;
-  private listener: ((whenSeconds: number, pcm: Int16Array) => void) | null = null;
+  private listener: ScheduledListener | null = null;
+  private readonly extraListeners = new Set<ScheduledListener>();
   private generation = 0;
   private disposed = false;
 
@@ -55,8 +59,28 @@ export class PcmPlayback {
    * Hear every chunk the moment it is scheduled, with the audio-clock time it will start. The echo canceller uses
    * this as its reference: what is about to leave the speaker. Pass null to stop listening.
    */
-  onScheduled(listener: ((whenSeconds: number, pcm: Int16Array) => void) | null): void {
+  onScheduled(listener: ScheduledListener | null): void {
     this.listener = listener;
+  }
+
+  /**
+   * Another listener next to the one `onScheduled` holds (the live echo reference taps here while the realtime
+   * voice keeps its own). Returns the function that removes it. A listener that throws is skipped for that chunk:
+   * it can never stop the audio or the listeners after it.
+   */
+  addScheduledListener(listener: ScheduledListener): () => void {
+    this.extraListeners.add(listener);
+    return () => void this.extraListeners.delete(listener);
+  }
+
+  private notifyScheduled(whenSeconds: number, pcm: Int16Array): void {
+    for (const listener of [...(this.listener ? [this.listener] : []), ...this.extraListeners]) {
+      try {
+        listener(whenSeconds, pcm);
+      } catch {
+        /* a listener is only a listener: the chunk is already scheduled */
+      }
+    }
   }
 
   /**
@@ -101,7 +125,7 @@ export class PcmPlayback {
     source.onended = () => this.sources.delete(source);
     this.sources.add(source);
     source.start(when);
-    this.listener?.(when, pcm);
+    this.notifyScheduled(when, pcm);
     this.nextTime = when + ms / 1000;
     this.scheduledMs += ms;
     return true;
@@ -141,6 +165,7 @@ export class PcmPlayback {
   dispose(): number {
     const played = this.flush();
     this.listener = null;
+    this.extraListeners.clear();
     this.disposed = true;
     return played;
   }

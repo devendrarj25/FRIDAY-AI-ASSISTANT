@@ -306,15 +306,19 @@ def decode_options(extras: dict | None, language_locked: bool) -> dict:
     return out
 
 
+# One utterance never runs this long; a longer (or endless) duration is cut here so a plan cannot fill memory.
+MAX_PARTIAL_WINDOWS = 600
+
+
 def plan_partials(duration_s: float, window_s: float = 2.0, hop_s: float = 1.0) -> list[dict]:
-    """Chunk plan for this same worker. Not a second speech engine."""
-    if duration_s <= 0 or window_s <= 0 or hop_s <= 0:
+    """Chunk plan for this same worker. Not a second speech engine. At most ``MAX_PARTIAL_WINDOWS`` windows."""
+    if not (duration_s > 0 and window_s > 0 and hop_s > 0) or not math.isfinite(duration_s):
         return []
     if duration_s <= window_s:
         return [{"start": 0.0, "end": round(float(duration_s), 3), "final": True}]
     out: list[dict] = []
     start = 0.0
-    while start < duration_s - 1e-6:
+    while start < duration_s - 1e-6 and len(out) < MAX_PARTIAL_WINDOWS:
         end = min(duration_s, start + window_s)
         out.append({"start": round(start, 3), "end": round(end, 3), "final": end >= duration_s - 1e-6})
         if end >= duration_s - 1e-6:
@@ -1996,7 +2000,10 @@ def serve() -> int:
             emit({"ok": False, "reason": "bad-request", "error": "request must be an object"})
             continue
         rid = req.get("id")
-        result = handle_request(req)
+        try:
+            result = handle_request(req)
+        except Exception as exc:  # noqa: BLE001 — one bad request never stops the worker
+            result = {"ok": False, "reason": "worker-error", "error": f"{type(exc).__name__}: {exc}"[-300:]}
         if rid is not None:
             result = {"id": rid, **result}
         emit(result)

@@ -32,6 +32,7 @@ from pathlib import Path
 
 import echo_canceller
 import language_segmenter
+import tts_hindi_light
 
 SILERO_NAME = "silero_vad.onnx"
 SILERO_SHA256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
@@ -264,6 +265,7 @@ def status() -> dict:
         "echoCancellerReady": bool(echo["ready"]),
         "speaker": speaker_status(),
         "providers": execution_providers(),
+        "hindiLight": tts_hindi_light.status(),
     }
 
 
@@ -366,6 +368,13 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = 
     return data or None
 
 
+def _int16_pcm(audio) -> bytes:
+    """The float to int16 step of ``speak_pcm16``: scale by 32768, floor, clip."""
+    import numpy as np  # type: ignore
+
+    return np.clip(np.floor(audio * np.float32(32768.0)), -32768, 32767).astype("<i2").tobytes()
+
+
 def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> tuple[bytes, int] | None:
     """The same samples as ``speak_wav_bytes`` as raw little-endian int16 mono, plus the sample rate.
 
@@ -377,11 +386,8 @@ def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "") 
     if made is None:
         return None
     try:
-        import numpy as np  # type: ignore
-
         audio, rate = made
-        pcm = np.clip(np.floor(audio * np.float32(32768.0)), -32768, 32767).astype("<i2")
-        data = pcm.tobytes()
+        data = _int16_pcm(audio)
     except Exception:
         return None
     return (data, rate) if data else None
@@ -759,6 +765,33 @@ def _hindi_ear_line() -> str:
     return "PASS hindi-ear int8 weights present"
 
 
+def _hindi_punct_line() -> str:
+    """The optional Hindi punctuation model: the weights on disk and the two packages that run them."""
+    import importlib.util
+
+    import hindi_punct
+
+    if not hindi_punct.ready():
+        return "OPTIONAL hindi-punct optional - not installed"
+    missing = [name for name in ("sentencepiece", "onnxruntime") if importlib.util.find_spec(name) is None]
+    if missing:
+        return f"FAIL hindi-punct the weights are on disk but the {' and '.join(missing)} package is not installed"
+    return "PASS hindi-punct pinned weights present"
+
+
+def _hindi_light_line() -> str:
+    """The optional light Hindi voice: the weights on disk and the two packages that run them."""
+    import importlib.util
+
+    if not tts_hindi_light.ready():
+        return f"OPTIONAL {tts_hindi_light.MODEL_DIR} optional - not installed"
+    missing = [name for name in ("onnxruntime", "numpy") if importlib.util.find_spec(name) is None]
+    if missing:
+        names = " and ".join(missing)
+        return f"FAIL {tts_hindi_light.MODEL_DIR} the weights are on disk but the {names} package is not installed"
+    return f"PASS {tts_hindi_light.MODEL_DIR} pinned weights present"
+
+
 def _whisper_ear_lines() -> list[str]:
     """The two optional faster-whisper ears: weights on disk and the package that runs them (faster-whisper)."""
     import importlib.util
@@ -814,6 +847,8 @@ def check_lines() -> list[str]:
     else:
         lines.append(f"OPTIONAL speaker {speaker['reason']}")
     lines.append(_hindi_ear_line())
+    lines.append(_hindi_punct_line())
+    lines.append(_hindi_light_line())
     lines.extend(_whisper_ear_lines())
     providers = execution_providers()
     lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
@@ -839,8 +874,36 @@ def load_pcm(path: str):
         return None
 
 
+HINDI_LIGHT_ENGINE = "hindi-light"
+DEFAULT_ENGINE = "supertonic-3"
+
+
+def _hindi_light_pcm16(text: str, speed: float, lang: str, style: str) -> tuple[tuple[bytes, int] | None, str]:
+    """The light Hindi voice as (int16 PCM, rate), or (None, why it did not speak). Never raises."""
+    if not tts_hindi_light.ready():
+        return None, "hindi-light-not-installed"
+    if speech_lang(text, lang) != "hi":
+        return None, "hindi-light-needs-hindi"
+    if not tts_hindi_light.speakable(text):
+        return None, "hindi-light-needs-devanagari-only"
+    made = tts_hindi_light.synthesize(text, speed, style)
+    if made is None:
+        return None, "hindi-light-failed"
+    try:
+        audio, rate = made
+        data = _int16_pcm(audio)
+    except Exception:  # noqa: BLE001
+        return None, "hindi-light-failed"
+    return ((data, rate), "") if data else (None, "hindi-light-failed")
+
+
 def speak_pcm_payload(req: dict) -> dict:
-    """Reply body of the ``speak-pcm`` worker op: base64 int16 PCM, nothing on disk, no cache."""
+    """Reply body of the ``speak-pcm`` worker op: base64 int16 PCM, nothing on disk, no cache.
+
+    ``engine`` is optional. Without it, or with ``supertonic``, the reply is exactly what it always was.
+    ``hindi-light`` asks for the light Hindi voice; it speaks only when installed, for Devanagari-only Hindi, and
+    otherwise (or when it fails) Supertonic speaks the same text and the reply says which engine did and why.
+    """
     import base64
     import time
 
@@ -852,7 +915,18 @@ def speak_pcm_payload(req: dict) -> dict:
     except (TypeError, ValueError):
         speed = 1.0
     started = time.perf_counter()
-    made = speak_pcm16(text, speed, str(req.get("lang") or ""), str(req.get("style") or ""))
+    lang = str(req.get("lang") or "")
+    style = str(req.get("style") or "")
+    asked = str(req.get("engine") or "").strip().lower()
+    extra: dict = {}
+    made = None
+    if asked == HINDI_LIGHT_ENGINE:
+        made, why = _hindi_light_pcm16(text, speed, lang, style)
+        extra = {"engine": HINDI_LIGHT_ENGINE} if made else {"engine": DEFAULT_ENGINE, "fallback": why}
+    elif asked and asked not in ("supertonic", DEFAULT_ENGINE):
+        extra = {"engine": DEFAULT_ENGINE, "fallback": "unknown-engine"}
+    if made is None:
+        made = speak_pcm16(text, speed, lang, style)
     if made is None:
         return {"ok": False, "reason": LOCAL_TTS_REASON}
     data, rate = made
@@ -861,6 +935,7 @@ def speak_pcm_payload(req: dict) -> dict:
         "sampleRate": rate,
         "pcm16": base64.b64encode(data).decode("ascii"),
         "ms": round((time.perf_counter() - started) * 1000),
+        **extra,
     }
     if isinstance(req.get("seq"), int) and not isinstance(req.get("seq"), bool):
         body["seq"] = req["seq"]
@@ -981,9 +1056,13 @@ def serve() -> int:
             )
             if audio and out:
                 dest = Path(out)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(audio)
-                payload = {"ok": True, "path": str(dest), "mime": "audio/wav", "bytes": len(audio)}
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(audio)
+                except (OSError, ValueError) as exc:  # a path that cannot be written never stops the worker
+                    payload = {"ok": False, "reason": "cannot-write-output", "error": str(exc)[:200]}
+                else:
+                    payload = {"ok": True, "path": str(dest), "mime": "audio/wav", "bytes": len(audio)}
             else:
                 payload = {"ok": False, "reason": LOCAL_TTS_REASON if not audio else "no output path"}
         elif op == "speak-pcm":

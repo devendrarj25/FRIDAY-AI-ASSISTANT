@@ -790,7 +790,8 @@ export function stepSubject(detail: string): string {
 }
 
 const NARRATION_MIN_GAP_MS = 8000;
-const NARRATION_MAX_LINES = 4;
+/** The most lines said while one request runs. An instant acknowledgement spends one of them. */
+export const NARRATION_MAX_LINES = 4;
 const NARRATION_TOOL_AFTER_MS = 2000;
 
 export function createNarrator(now: () => number = Date.now) {
@@ -810,6 +811,15 @@ export function createNarrator(now: () => number = Date.now) {
     begin() {
       said = 0;
       lastAt = 0;
+    },
+    /** How many more lines this request may still hear. */
+    remaining(): number {
+      return Math.max(0, NARRATION_MAX_LINES - said);
+    },
+    /** A line said by someone else (the instant acknowledgement) counts as one of ours, and starts the quiet gap. */
+    spend() {
+      said = Math.min(NARRATION_MAX_LINES, said + 1);
+      lastAt = now();
     },
     /** The line to say now, or "" when saying nothing is better. */
     say(kind: NarrationKind, ctx: NarrationContext): string {

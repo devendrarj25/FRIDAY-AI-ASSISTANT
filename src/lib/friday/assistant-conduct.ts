@@ -58,7 +58,7 @@ const MEETING = [/teams/i, /zoom/i, /cpthost/i, /webex/i, /skype/i];
 export function addressName(raw: string): string {
   return String(raw || "")
     .trim()
-    .replace(/[^\p{L}\s'-]/gu, "")
+    .replace(/[^\p{L}\p{M}\s'-]/gu, "")
     .replace(/\s+/g, " ")
     .slice(0, 24)
     .trim();

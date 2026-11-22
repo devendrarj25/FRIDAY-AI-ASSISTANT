@@ -1442,6 +1442,8 @@ class BrainStore {
     this.clearWatchdog();
     this.pendingAction?.(false);
     this.pendingAction = null;
+    // A run that ends cannot keep the one approval slot: a late yes would otherwise find it and revive the run.
+    if (this.state.approval?.runId === run.id) this.state.approval = null;
     run.state = "failed";
     run.ms = Date.now() - run.startedAt;
     run.stages.forEach((stage) => {
@@ -2400,7 +2402,9 @@ class BrainStore {
     let reply: string;
     let failed = false;
     try {
-      reply = (await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000 })).trim();
+      reply = (
+        await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000, ephemeral: true })
+      ).trim();
     } catch {
       failed = true;
       reply = "I couldn't answer that right now; I'm still on the last task.";
@@ -2781,6 +2785,8 @@ class BrainStore {
     }
     const run = this.state.runs.find((r) => r.id === req.runId);
     this.state.approval = null;
+    // A slot whose run already ended (stopped, failed, done) approves nothing: it is only cleared.
+    if (run && (run.state === "failed" || run.state === "done")) return this.emit();
     this.state.stats.approvals += 1;
     if (!run) return this.emit();
 

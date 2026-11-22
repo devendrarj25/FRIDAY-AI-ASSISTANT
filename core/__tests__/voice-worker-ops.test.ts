@@ -63,6 +63,79 @@ describe("speak-pcm wiring", () => {
     expect(result.seq).toBe(4);
   });
 
+  it("passes only the two known engine names to the worker and drops everything else", async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const deps = {
+      resolvePy: async () => ["python", []],
+      request: async (_py: unknown, payload: Record<string, unknown>) => {
+        sent.push(payload);
+        return { ok: true, sampleRate: 22050, pcm16: Buffer.from([1, 0, 2, 0]).toString("base64") };
+      },
+    };
+    await neuralVoice.speakPcm({ text: "नमस्ते", engine: "hindi-light" }, deps);
+    await neuralVoice.speakPcm({ text: "hi", engine: "supertonic" }, deps);
+    for (const bad of [
+      "HINDI-LIGHT",
+      " hindi-light",
+      "edge-tts",
+      "cloud",
+      "../x",
+      "hindi-light\n",
+      "",
+      42,
+      null,
+      ["hindi-light"],
+      { toString: () => "hindi-light" },
+    ]) {
+      await neuralVoice.speakPcm({ text: "hi", engine: bad }, deps);
+    }
+    await neuralVoice.speakPcm({ text: "hi" }, deps);
+    expect(sent[0]).toEqual({
+      op: "speak-pcm",
+      text: "नमस्ते",
+      speed: 1,
+      lang: "",
+      style: "",
+      engine: "hindi-light",
+    });
+    expect(sent[1]?.["engine"]).toBe("supertonic");
+    for (const payload of sent.slice(2)) expect("engine" in payload).toBe(false);
+    expect(sent).toHaveLength(2 + 11 + 1);
+  });
+
+  it("returns the engine that answered and the fallback reason, and trusts neither blindly", async () => {
+    const pcm = Buffer.from([1, 0, 2, 0]).toString("base64");
+    const run = (answer: Record<string, unknown>) =>
+      neuralVoice.speakPcm(
+        { text: "नमस्ते", engine: "hindi-light" },
+        {
+          resolvePy: async () => ["python", []],
+          request: async () => ({ ok: true, pcm16: pcm, ...answer }),
+        },
+      );
+    const light = await run({ engine: "hindi-light" });
+    expect(light).toMatchObject({ ok: true, engine: "hindi-light", cloud: false });
+    expect("fallback" in light).toBe(false);
+    const fell = await run({ engine: "supertonic-3", fallback: "hindi-light-failed" });
+    expect(fell).toMatchObject({
+      ok: true,
+      engine: "supertonic-3",
+      fallback: "hindi-light-failed",
+    });
+    const plain = await run({});
+    expect(plain.engine).toBe("supertonic-3");
+    expect("fallback" in plain).toBe(false);
+    for (const engine of ["edge-tts", "cloud", "", 7, null, "hindi-light "]) {
+      const odd = await run({ engine });
+      expect(odd.engine).toBe("supertonic-3");
+      expect(odd.cloud).toBe(false);
+    }
+    for (const fallback of ["x".repeat(65), "has space", "<b>", 5, "", "../up", "a\nb"]) {
+      const odd = await run({ engine: "supertonic-3", fallback });
+      expect("fallback" in odd).toBe(false);
+    }
+  });
+
   it("never reaches a cloud voice, the disk or the system voice, even for sensitive text", async () => {
     const source = read("electron/neural-voice.cjs");
     const body = source.slice(

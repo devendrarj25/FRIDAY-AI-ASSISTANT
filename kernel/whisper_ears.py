@@ -60,7 +60,7 @@ def hindi_fallback_ready() -> bool:
 def wants_roman_hinglish(language: str, speech_pref: str) -> bool:
     """True only for the explicit Hinglish (Roman) mode. Hindi, English, Hinglish in Devanagari and auto are not."""
     raw = _norm(speech_pref) or _norm(language)
-    return raw in ROMAN_MODES
+    return raw in ROMAN_MODES or raw.startswith("hi-latn-")  # a region or variant subtag keeps the Roman mode
 
 
 def mark_failed(ear_id: str) -> None:

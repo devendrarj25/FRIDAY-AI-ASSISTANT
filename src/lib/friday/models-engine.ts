@@ -243,6 +243,8 @@ export const VOICE_MODEL_IDS = [
   "hindi-ear",
   "hinglish-ear",
   "hindi-fallback-ear",
+  "hindi-punct",
+  "hindi-light-tts",
 ] as const;
 
 const baseRouting = (): Record<RoutingTask, string | null> => ({

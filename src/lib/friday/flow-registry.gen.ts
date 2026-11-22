@@ -308,6 +308,7 @@ export const FLOW_REGISTRY = {
     "voice.fastFirstClause",
     "voice.heardKeepMin",
     "voice.heardKeepRows",
+    "voice.hindiLightVoice",
     "voice.hindiVoice",
     "voice.hinglish",
     "voice.inputDeviceId",
@@ -4418,6 +4419,18 @@ export const FLOW_REGISTRY = {
       id: "hindi-fallback-ear",
       kind: "model",
       name: "Hindi fallback ear (Whisper small Hindi, credit: Collabora, CC-BY-4.0)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hindi-light-tts",
+      kind: "model",
+      name: "Light Hindi voice (credit: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hindi-punct",
+      kind: "model",
+      name: "Hindi punctuation (47 languages, adds commas and the danda, Apache-2.0)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9457,12 +9470,12 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 152,
-      total: 152,
+      mapped: 153,
+      total: 153,
     },
     capabilities: {
-      mapped: 1107,
-      total: 1107,
+      mapped: 1109,
+      total: 1109,
     },
     ipc: {
       mapped: 500,

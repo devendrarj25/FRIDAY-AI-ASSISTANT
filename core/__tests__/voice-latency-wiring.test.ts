@@ -90,6 +90,14 @@ describe("voice latency budget wiring", () => {
     expect(mode).toMatch(/if \(live\?\.answer\) \{\s*this\.turnStages\.mark\("brainFirstToken"\);/);
     expect(mode).toMatch(/mark\("firstClauseReady"\);\s*this\.voicedChars \+= chunk\.consumed/);
     expect(mode).toMatch(/this\.narrator\.begin\(\);\s*this\.turnStages\.mark\("ackArmed"\)/);
+    // The acknowledgement's own first sample is stamped as ackAudible, spends a narrator line, and is never the
+    // answer's first sound (playbackFirstSample stays in playSpoken's onStart only).
+    expect(mode).toMatch(
+      /this\.turnStages\.mark\("ackAudible"\);\s*this\.ackSaid \+= 1;[\s\S]*?this\.narrator\.spend\(\)/,
+    );
+    const playAck = /private async playAck\([\s\S]*?\n {2}\}\n/.exec(mode)?.[0] ?? "";
+    expect(playAck).toContain('mark("ackAudible")');
+    expect(playAck).not.toContain("playbackFirstSample");
   });
 
   it("every voice stage is stamped at a source site or listed as not yet used, and the list stays honest", () => {

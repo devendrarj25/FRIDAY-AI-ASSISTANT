@@ -23,7 +23,9 @@ import {
   type PrewarmReport,
   type PrewarmResult,
 } from "./voice-engine/prewarm";
+import { stopAckClip } from "./voice-engine/ack-player";
 import { bytesToPcm16 } from "./voice-engine/pcm-clip-player";
+import { prepareForSpeech } from "./voice-engine/text-normalizer";
 
 /** An acknowledgement line made in advance: raw samples, kept in memory only. */
 export type AckClip = { text: string; lang: "en" | "hi"; pcm: Int16Array; rate: number };
@@ -152,7 +154,12 @@ export function createPrewarmIO(alive: () => boolean = () => true): PrewarmIO {
     },
     makeAck: async (line: AckLine) => {
       if (!bridge()) return NO_BRIDGE;
-      const made = await speak(line.text, line.lang === "hi" ? "hi-IN" : "en-IN");
+      // A Hindi line may be Roman ("Ek minute."): Speech Prep puts it in Devanagari for the Hindi voice, as for a reply.
+      const spoken =
+        line.lang === "hi"
+          ? prepareForSpeech(line.text, {}, { enabled: true, hindiVoice: true }) || line.text
+          : line.text;
+      const made = await speak(spoken, line.lang === "hi" ? "hi-IN" : "en-IN");
       if (!made.ok || !made.pcm || !made.rate)
         return { ok: false, reason: made.reason ?? "no samples" };
       if (alive())
@@ -195,6 +202,8 @@ export function startPrewarm(
       brain: true,
       tts: state.localVoice && voice.speakReplies !== false,
       turn: true,
+      // The acknowledgement lines are made only for the owner who turned the instant acknowledgement on.
+      acks: voice.instantAck === true && state.localVoice && voice.speakReplies !== false,
     },
     light: prewarmLight(),
   };
@@ -218,5 +227,16 @@ export function startPrewarm(
 export function cancelPrewarm(): void {
   session?.cancel();
   session = null;
+  stopAckClip();
   ackMemory.clear();
+}
+
+/** The ids of the lines that are ready to play. A line with no clip here is never said as an acknowledgement. */
+export function readyAckClipIds(): string[] {
+  return ackMemory.ids();
+}
+
+/** One line made in advance, or nothing. The samples never leave this PC. */
+export function ackClipFor(id: string): AckClip | undefined {
+  return ackMemory.get(id);
 }
