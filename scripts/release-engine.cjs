@@ -2861,6 +2861,10 @@ function versionDrift({ root = ROOT, version } = {}) {
         });
       }
     }
+    if (rel === "FRIDAY_STATE.md") {
+      for (const drift of stateSnapshotDrift(text, expected))
+        stale.push({ file: rel, line: 0, ...drift });
+    }
     const npmExpected = identity?.npmVersion || npmVersionFor(expected);
     if (npmExpected) {
       text.split("\n").forEach((line, i) => {
@@ -2909,6 +2913,65 @@ function rewriteDeclarations(text, clean, rel) {
       return out;
     })
     .join("\n");
+}
+
+/**
+ * FRIDAY_STATE.md's Snapshot table names the public version, the release it is published as, the next public
+ * revision, and a worked bump example from the current version. They are live facts (core/__tests__/state-snapshot-
+ * truth.test.ts), so a release that moves the version must move them too: FRIDAY Release run 3 (a major bump to
+ * 1.2.5.7) stopped in its own prepare tests because heal rewrote only the "(currently version X)" sentence.
+ */
+const STATE_PUBLIC_ROW_PATTERN =
+  /(\| Public version\s*\| `)([\d.]+)(` \(`config\/friday-version\.json`\), published as GitHub release `v)([\d.]+)(`)/;
+const STATE_NEXT_ROW_PATTERN = /(\| Next public revision\s*\| `)([\d.]+)(`)/;
+const STATE_BUMP_EXAMPLE_PATTERN =
+  /From public `[\d.]+`, patch is `[\d.]+`, minor is `[\d.]+`, major is `[\d.]+`, and extreme is `[\d.]+`/;
+
+/** The worked example: each level moves only its own counter (FRIDAY's scheme). */
+function stateBumpExample(version) {
+  const parts = String(version || "")
+    .split(".")
+    .map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n))) return "";
+  const moved = (index) =>
+    parts.map((value, place) => (place === index ? value + 1 : value)).join(".");
+  return `From public \`${version}\`, patch is \`${moved(3)}\`, minor is \`${moved(2)}\`, major is \`${moved(1)}\`, and extreme is \`${moved(0)}\``;
+}
+
+function rewriteStateSnapshot(text, version) {
+  const clean = String(version || "").replace(/^v/i, "");
+  const next = nextPublicRevision(clean);
+  const example = stateBumpExample(clean);
+  let out = String(text || "");
+  out = out.replace(
+    STATE_PUBLIC_ROW_PATTERN,
+    (_m, a, _v, b, _t, c) => `${a}${clean}${b}${clean}${c}`,
+  );
+  if (next) out = out.replace(STATE_NEXT_ROW_PATTERN, (_m, a, _v, c) => `${a}${next}${c}`);
+  if (example) out = out.replace(STATE_BUMP_EXAMPLE_PATTERN, example);
+  return out;
+}
+
+/** Where FRIDAY_STATE.md's Snapshot disagrees with the version (empty when it agrees). */
+function stateSnapshotDrift(text, version) {
+  const clean = String(version || "").replace(/^v/i, "");
+  const found = [];
+  const row = STATE_PUBLIC_ROW_PATTERN.exec(text);
+  if (row && (row[2] !== clean || row[4] !== clean))
+    found.push({
+      found: `${row[2]} / v${row[4]}`,
+      expected: clean,
+      text: "Snapshot: Public version",
+    });
+  const next = nextPublicRevision(clean);
+  const nextRow = STATE_NEXT_ROW_PATTERN.exec(text);
+  if (next && nextRow && nextRow[2] !== next)
+    found.push({ found: nextRow[2], expected: next, text: "Snapshot: Next public revision" });
+  const example = stateBumpExample(clean);
+  const exampleNow = STATE_BUMP_EXAMPLE_PATTERN.exec(text);
+  if (example && exampleNow && exampleNow[0] !== example)
+    found.push({ found: exampleNow[0], expected: example, text: "worked bump example" });
+  return found;
 }
 
 function rewriteNextPublicRevision(text, shippingVersion) {
@@ -2968,6 +3031,7 @@ function syncDocs(previous, clean, { root = ROOT } = {}) {
     after = rewriteDeclarations(after, clean, rel);
     after = rewriteNpmEncodingClaims(after, npmVersionFor(clean));
     if (rel === "AGENTS.md") after = rewriteNextPublicRevision(after, clean);
+    if (rel === "FRIDAY_STATE.md") after = rewriteStateSnapshot(after, clean);
     if (after !== before) {
       fs.writeFileSync(file, after);
       touched.push(rel);
@@ -3540,6 +3604,8 @@ function healRelease({ root = ROOT, version, date = new Date() } = {}) {
 }
 
 module.exports = {
+  rewriteStateSnapshot,
+  stateSnapshotDrift,
   parseVersion,
   parseFridayVersion,
   compareVersions,

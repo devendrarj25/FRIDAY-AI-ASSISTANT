@@ -108,3 +108,41 @@ describe("the Brain benchmark counts are the registry's", () => {
     }
   });
 });
+
+describe("a release moves the Snapshot with the version", () => {
+  // FRIDAY Release run 3 (a major bump to 1.2.5.7) stopped in its own prepare tests: heal moved the version
+  // everywhere except these Snapshot facts. The release engine now rewrites them and reports them as drift.
+  const engine = require("../../scripts/release-engine.cjs") as {
+    rewriteStateSnapshot: (text: string, version: string) => string;
+    stateSnapshotDrift: (text: string, version: string) => { found: string; expected: string }[];
+  };
+  const sample = [
+    "| Public version       | `1.1.5.7` (`config/friday-version.json`), published as GitHub release `v1.1.5.7` (Setup) |",
+    "| Next public revision | `1.1.5.8`, not bumped until the owner asks |",
+    "- From public `1.1.5.7`, patch is `1.1.5.8`, minor is `1.1.6.7`, major is `1.2.5.7`, and extreme is `2.1.5.7`. Rest.",
+    "- History: the release of 1.1.5.7 stays as written.",
+  ].join("\n");
+
+  it("rewrites the public version, the release, the next revision and the worked example, and nothing else", () => {
+    const out = engine.rewriteStateSnapshot(sample, "1.2.5.7");
+    expect(out).toContain(
+      "| `1.2.5.7` (`config/friday-version.json`), published as GitHub release `v1.2.5.7` (Setup)",
+    );
+    expect(out).toContain("| Next public revision | `1.2.5.8`, not bumped");
+    expect(out).toContain(
+      "From public `1.2.5.7`, patch is `1.2.5.8`, minor is `1.2.6.7`, major is `1.3.5.7`, and extreme is `2.2.5.7`. Rest.",
+    );
+    expect(out).toContain("- History: the release of 1.1.5.7 stays as written.");
+    expect(engine.rewriteStateSnapshot(out, "1.2.5.7")).toBe(out);
+  });
+
+  it("reports a Snapshot that disagrees with the version, so verify:version catches it before a release", () => {
+    expect(engine.stateSnapshotDrift(sample, "1.1.5.7")).toEqual([]);
+    const drift = engine.stateSnapshotDrift(sample, "1.2.5.7");
+    expect(drift.map((d) => d.expected)).toEqual([
+      "1.2.5.7",
+      "1.2.5.8",
+      "From public `1.2.5.7`, patch is `1.2.5.8`, minor is `1.2.6.7`, major is `1.3.5.7`, and extreme is `2.2.5.7`",
+    ]);
+  });
+});

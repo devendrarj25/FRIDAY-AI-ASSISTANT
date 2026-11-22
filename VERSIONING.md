@@ -83,7 +83,7 @@ Most pages only need the name FRIDAY. The number stays in:
 - What's New for that release
 - the one “current shipping version” line in a document that has to name it
 
-`npm run verify:version` and `npm run release:heal` rewrite those lines from the version file. Do not add a second What's New store, and do not paste the number into a page that only needs the name.
+`npm run verify:version` and `npm run release:heal` rewrite those lines from the version file. That includes the Snapshot of `FRIDAY_STATE.md` (Public version and its release, Next public revision, the worked bump example), which `verify:version` also reports when it drifts (2026-11-22, after FRIDAY Release run 3 stopped on it). Do not add a second What's New store, and do not paste the number into a page that only needs the name.
 
 ## 7. Research decisions
 
