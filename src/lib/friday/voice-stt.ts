@@ -11,7 +11,12 @@
  * returns false and the caller keeps using Web Speech.
  */
 import { notifications } from "./notifications";
-import { suggestLargerSpeech } from "./voice-session";
+import {
+  CONFIRMED_END_MS,
+  TURN_CONFIRM_PROBABILITY,
+  TURN_SCORE_ASK_MS,
+  suggestLargerSpeech,
+} from "./voice-session";
 import { desktopApi as desktop } from "./desktop";
 import {
   admitUtterance,
@@ -448,6 +453,48 @@ export function reclaimUnowned(holder: DictationHolder | null): boolean {
 /** Skip the turn-score process after the file is known to be missing. */
 let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 
+export type TurnHold = "idle" | "scoring" | "extend" | "confirmed" | "done";
+
+/** What the end-of-turn model's answer means for the closing pause. A missing or middling score changes nothing. */
+export function turnHoldAfterScore(probability: unknown): TurnHold {
+  if (typeof probability !== "number" || !Number.isFinite(probability)) return "done";
+  if (probability < 0.5) return "extend";
+  return probability >= TURN_CONFIRM_PROBABILITY ? "confirmed" : "done";
+}
+
+/**
+ * One tick of the closing-pause rule (a pure function, so the clock can be faked in a test).
+ *
+ * - The model is asked once, after `TURN_SCORE_ASK_MS` of quiet, and never again for the same pause.
+ * - A model-confirmed end closes at `CONFIRMED_END_MS`, but never when the text itself asked for a longer wait
+ *   (`silenceMs` of a second or more): that wait is the unfinished-sentence rule and stays.
+ * - A low score waits up to `capMs`. A score that has not come back is not waited for past `silenceMs`:
+ *   a slow model must not hold every turn open to the cap, which is what a fresh process per turn did.
+ */
+export function turnHoldPlan(input: {
+  hold: TurnHold;
+  speech: boolean;
+  quietMs: number;
+  silenceMs: number;
+  capMs: number;
+  canScore: boolean;
+  tooLong?: boolean;
+}): { ask: boolean; close: boolean } {
+  if (input.speech) return { ask: false, close: Boolean(input.tooLong) };
+  const askAt = Math.min(TURN_SCORE_ASK_MS, input.silenceMs);
+  const ask =
+    input.hold === "idle" &&
+    input.canScore &&
+    !input.tooLong &&
+    input.quietMs >= askAt &&
+    input.quietMs < input.capMs;
+  let budget = input.silenceMs;
+  if (input.hold === "extend") budget = input.capMs;
+  else if (input.hold === "confirmed" && input.silenceMs < 1000)
+    budget = Math.min(input.silenceMs, CONFIRMED_END_MS);
+  return { ask, close: Boolean(input.tooLong) || input.quietMs >= budget };
+}
+
 export class DesktopDictation {
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
@@ -491,7 +538,9 @@ export class DesktopDictation {
   private earlyWakeTried = false;
   private earlyWakeGen = 0;
   /** idle → scoring once → extend (probability under 0.5) or done. */
-  private turnHold: "idle" | "scoring" | "extend" | "done" = "idle";
+  private turnHold: TurnHold = "idle";
+  /** Bumps whenever a segment opens or speech resumes, so a late score for an older pause is ignored. */
+  private turnGen = 0;
   private captureHealthy = true;
   private startedMono = 0;
   private pcmFrom = 0;
@@ -858,6 +907,7 @@ export class DesktopDictation {
   private openSegmentClock(): void {
     this.chunks = [];
     this.turnHold = "idle";
+    this.turnGen += 1;
     this.startedAt = Date.now();
     this.startedMono = performance.now();
     this.pcmFrom = this.startedMono - PRE_ROLL_MS;
@@ -951,54 +1001,60 @@ export class DesktopDictation {
       const tooLong = performance.now() - this.startedMono > maxMs;
       const silenceMs = this.silenceBudget();
       const cap = Math.min(1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
-      if (this.turnHold === "scoring" && quietFor < cap && !tooLong) return;
-      if (
-        !snapshot.speech &&
-        this.turnHold === "idle" &&
-        quietFor >= silenceMs &&
-        quietFor < cap &&
-        !tooLong
-      ) {
+      if (snapshot.speech && this.turnHold !== "idle") {
+        // Speech resumed: whatever the model said about the earlier pause no longer applies.
+        this.turnHold = "idle";
+        this.turnGen += 1;
+      }
+      const plan = turnHoldPlan({
+        hold: this.turnHold,
+        speech: snapshot.speech,
+        quietMs: quietFor,
+        silenceMs,
+        capMs: cap,
+        canScore: turnScoreReady !== "absent" && Boolean(desktop()?.scoreTurn),
+        tooLong,
+      });
+      if (plan.ask) {
         this.turnHold = "scoring";
-        void this.requestTurnScore();
+        void this.requestTurnScore(this.turnGen);
+      }
+      if (!plan.close && !tooLong) return;
+      if (this.pcmSegment || !this.recorder) {
+        this.finishSegment(tooLong ? "segment closed" : "silence");
         return;
       }
-      const budget = this.turnHold === "extend" ? cap : silenceMs;
-      if ((!snapshot.speech && quietFor >= budget) || tooLong) {
-        if (this.pcmSegment || !this.recorder) {
-          this.finishSegment(tooLong ? "segment closed" : "silence");
-          return;
-        }
-        if (this.timer) window.clearInterval(this.timer);
-        this.timer = null;
-        this.speaking = false;
-        try {
-          if (this.recorder.state !== "inactive") this.recorder.stop();
-        } catch {
-          /* already stopped */
-        }
+      if (this.timer) window.clearInterval(this.timer);
+      this.timer = null;
+      this.speaking = false;
+      try {
+        if (this.recorder.state !== "inactive") this.recorder.stop();
+      } catch {
+        /* already stopped */
       }
     }, 80);
     void speech;
   }
 
-  private async requestTurnScore(): Promise<void> {
+  private async requestTurnScore(gen: number): Promise<void> {
     const api = desktop();
     const wav = this.takePcm();
     if (!api?.scoreTurn || !wav || turnScoreReady === "absent") {
-      this.turnHold = "done";
+      if (gen === this.turnGen) this.turnHold = "done";
       return;
     }
+    let next: TurnHold;
     try {
       const audioBytes = wav.slice();
       const scored = await api.scoreTurn({ audioBytes, mime: "audio/wav" });
       if (scored?.ready) turnScoreReady = "ready";
       else if (/absent/.test(scored?.reason || "")) turnScoreReady = "absent";
-      const probability = scored?.probability;
-      this.turnHold = typeof probability === "number" && probability < 0.5 ? "extend" : "done";
+      next = turnHoldAfterScore(scored?.probability);
     } catch {
-      this.turnHold = "done";
+      next = "done";
     }
+    // A score for an older pause (speech resumed, or a new segment opened) is dropped.
+    if (gen === this.turnGen) this.turnHold = next;
   }
 
   private silenceBudget(): number {

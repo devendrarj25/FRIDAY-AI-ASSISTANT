@@ -206,8 +206,9 @@ describe("both ears have a Models row, a disk check, a Doctor pin row and a repa
 });
 
 describe("the default path never uses the Hinglish ear", () => {
-  it("keeps Hindi as the default and the new settings off", () => {
-    expect(DEFAULT_PREFERENCES.voice.recognitionLang).toBe("hi-IN");
+  it("listens in auto by default (never the Roman mode) and keeps the new settings off", () => {
+    expect(DEFAULT_PREFERENCES.voice.recognitionLang).toBe("auto");
+    expect(DEFAULT_PREFERENCES.voice.recognitionLang).not.toMatch(/latn|roman/i);
     expect(DEFAULT_PREFERENCES.voice.sttMultilingual).toBe(false);
   });
 
@@ -215,6 +216,7 @@ describe("the default path never uses the Hinglish ear", () => {
     const source = read("src/components/friday/settings/VoiceSettings.tsx");
     const list = /const RECOGNITION_LANGS = \[([\s\S]*?)\];/.exec(source)?.[1] ?? "";
     expect(list).toContain('value: "hi-Latn"');
+    expect(list.indexOf('"auto"')).toBeLessThan(list.indexOf('"hi-IN"'));
     expect(list.indexOf('"hi-IN"')).toBeLessThan(list.indexOf('"hi-Latn"'));
     expect(source).toContain("sttMultilingual");
   });
@@ -222,6 +224,7 @@ describe("the default path never uses the Hinglish ear", () => {
   it("does not lock Whisper's language for the Roman mode (the kernel decodes it as English itself)", () => {
     expect(whisperLanguageArg("hi-Latn")).toBe("");
     expect(whisperLanguageArg("hi-IN")).toBe("");
+    expect(whisperLanguageArg("auto")).toBe("");
   });
 
   it("the kernel reaches it only for hi-Latn and hinglish-roman", () => {

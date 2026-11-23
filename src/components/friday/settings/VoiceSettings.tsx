@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,11 @@ import {
   voiceReadinessNote,
   voiceSelfTestPlan,
 } from "@/lib/friday/voice-doctor";
-import { preferences, sanitizeVoiceTaskPrefs } from "@/lib/friday/preferences";
+import {
+  preferences,
+  sanitizeConfirmLevel,
+  sanitizeVoiceTaskPrefs,
+} from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useBilling } from "@/lib/friday/use-billing";
 import { realtimeStatus } from "@/lib/friday/voice-realtime";
@@ -43,6 +48,7 @@ import {
 } from "@/lib/friday/voice-library";
 
 const RECOGNITION_LANGS = [
+  { value: "auto", label: "Auto (Hindi, English or mixed)" },
   { value: "hi-IN", label: "Hindi (India)" },
   {
     value: "hi-Latn",
@@ -55,6 +61,7 @@ const RECOGNITION_LANGS = [
 export function VoiceSettings() {
   const prefs = usePreferences();
   const voice = useAssistantMode();
+  const router = useRouter({ warn: false });
   const [busy, setBusy] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
 
@@ -89,6 +96,38 @@ export function VoiceSettings() {
                 </option>
               ))}
             </select>
+          </label>
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2">
+            <p className="min-w-0 text-xs text-muted-foreground">
+              Voice language packs: install Hindi, English or Hinglish in one click
+            </p>
+            <Button size="sm" variant="outline" onClick={() => router?.navigate({ to: "/models" })}>
+              Open voice language packs
+            </Button>
+          </div>
+          <label className="block sm:col-span-2">
+            <span className="label-xs text-muted-foreground">How often she asks yes or no</span>
+            <select
+              value={sanitizeConfirmLevel(prefs.voice.confirmLevel)}
+              onChange={(e) =>
+                preferences.setVoice({ confirmLevel: sanitizeConfirmLevel(e.target.value) })
+              }
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="rare" className="bg-background">
+                Rare: only for things that cannot be undone, or when she clearly did not understand
+              </option>
+              <option value="normal" className="bg-background">
+                Normal: also for cautious things like install or rename
+              </option>
+              <option value="always" className="bg-background">
+                Always: asks like Ask every time
+              </option>
+            </select>
+            <span className="mt-1 block text-meta-sm text-muted-foreground">
+              Default is rare. Dangerous actions (delete, send, pay, shutdown, uninstall) always
+              ask, in every position.
+            </span>
           </label>
           <EditField
             label="Reply language"
@@ -559,7 +598,7 @@ export function VoiceSettings() {
             onClick={() => {
               preferences.setVoice({
                 wakeWord: "friday",
-                recognitionLang: "hi-IN",
+                recognitionLang: "auto",
                 speechLang: "hi-IN",
                 voiceName: "",
                 speakReplies: true,

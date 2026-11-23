@@ -10,7 +10,7 @@
  *      repeat, cancel all) with a spoken name, an ordinal or "the
  *      last one"; more than one candidate returns `ambiguous`        -> task-control / status
  *   d. a short harmless question, at ANY task age                    -> side-question
- *   e. a consequential order                                         -> new-task, needsConfirm
+ *   e. an irreversible or cautious order (voiceNeedsConfirmation)    -> new-task, needsConfirm
  *   f. any other order                                               -> new-task
  *   g. change-of-mind words ("actually", "instead", "rukko") in front
  *      of an order replace the newest task started in the last 20 s  -> new-task with `supersedes`
@@ -18,7 +18,6 @@
  * A yes never approves anything here: the route only says the owner answered, and the approval path decides.
  * English, Hindi (Devanagari) and Hinglish (Roman) phrases are all read; nothing is transliterated.
  */
-import { isConsequential } from "../brain/action-risk";
 import { quickLaneEligible } from "../brain/quick-lane";
 import {
   approvalFresh,
@@ -26,7 +25,9 @@ import {
   isBoundConfirmation,
   isFollowingAlong,
   isHoldSound,
+  voiceNeedsConfirmation,
 } from "../voice-session";
+import type { ApprovalLevel } from "../self/autonomy";
 import { parseBackgroundRequest } from "./background-request";
 import { classifyVoiceControl, isBackchannel } from "./interruption-controller";
 import { TERMINAL, type TaskState } from "./task-orchestrator";
@@ -86,6 +87,8 @@ export type RouterInput = {
   /** A task or a foreground reply is running. */
   busy: boolean;
   hasExtra?: boolean | undefined;
+  /** How often she asks first (the autonomy dial, adjusted by the owner's confirm level). Balanced when absent. */
+  approvalLevel?: ApprovalLevel | undefined;
 };
 
 /* ---------- text ---------- */
@@ -485,7 +488,7 @@ export function stripChange(value: string): { changed: boolean; rest: string } {
 
 type OrderRead = { order: boolean; consequential: boolean; background: boolean };
 
-function readOrder(raw: string, value: string): OrderRead {
+function readOrder(raw: string, value: string, level: ApprovalLevel): OrderRead {
   const background = parseBackgroundRequest(raw) !== null;
   let body = value;
   let polite = false;
@@ -500,7 +503,7 @@ function readOrder(raw: string, value: string): OrderRead {
   const question = !polite && (raw.trim().endsWith("?") || QUESTION_START.test(value));
   const order =
     background || (!question && (polite || ORDER_LEAD_EN.test(body) || ORDER_HI.test(body)));
-  return { order, consequential: order && isConsequential(raw), background };
+  return { order, consequential: order && voiceNeedsConfirmation(raw, level), background };
 }
 
 function recentTask(tasks: readonly RouterTask[], now: number): RouterTask | undefined {
@@ -573,7 +576,7 @@ export function routeUtterance(input: RouterInput): Route {
   }
 
   // (e) and (f) orders, (g) a replacement
-  const read = readOrder(heard, heardValue);
+  const read = readOrder(heard, heardValue, input.approvalLevel ?? "balanced");
   if (read.order) {
     const old = mind.changed ? recentTask(input.tasks, input.now) : undefined;
     return {

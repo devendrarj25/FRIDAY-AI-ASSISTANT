@@ -594,6 +594,7 @@ const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
 const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
 const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
 const voiceEnroll = loadNamed("voice-enroll", () => require("./voice-enroll.cjs"));
+const voicePrivacy = loadNamed("voice-privacy", () => require("./voice-privacy.cjs"));
 const stt = loadNamed("stt", () => require("./stt.cjs"));
 const wakeEngine = loadNamed("wake", () => require("./wake-engine.cjs"));
 const voiceVerify = loadNamed("voice-verify", () => require("./voice-verify.cjs"));
@@ -5083,6 +5084,22 @@ ipcMain.handle("character:show-app", () => {
 app.whenReady().then(() => {
   if (!readinessTrace.backgroundWorkAllowed()) return;
   startupTasks.register({
+    id: "voice-privacy-prune",
+    phase: "idle",
+    timeoutMs: 1000,
+    readiness: false,
+    run() {
+      // Kept utterance clips older than the owner's retention (or all of them when it is off) go at every start.
+      setTimeout(() => {
+        try {
+          voicePrivacy.pruneWavs();
+        } catch (error) {
+          log(`voice privacy: prune failed — ${String(error?.message || error)}`);
+        }
+      }, 7000);
+    },
+  });
+  startupTasks.register({
     id: "character-autostart",
     phase: "idle",
     timeoutMs: 1000,
@@ -5151,6 +5168,14 @@ ipcMain.handle("voice-enroll:build", () => voiceEnroll.build());
 ipcMain.handle("voice-enroll:score", (_e, payload) => voiceEnroll.score(payload || {}));
 ipcMain.handle("voice-enroll:clear-recordings", () => voiceEnroll.clearRecordings());
 ipcMain.handle("voice-enroll:forget", () => voiceEnroll.forget());
+// Consent before a voice sample is stored, the retention of kept utterance clips, and "Delete my voice data"
+// (electron/voice-privacy.cjs). No raw audio is kept unless the owner turns retention on.
+ipcMain.handle("voice-privacy:status", () => voicePrivacy.status());
+ipcMain.handle("voice-privacy:consent", () => voicePrivacy.grantConsent());
+ipcMain.handle("voice-privacy:set-retention", (_e, payload) =>
+  voicePrivacy.setRetention(payload || {}),
+);
+ipcMain.handle("voice-privacy:delete-all", () => voicePrivacy.deleteAll());
 
 // ------------------------------------------- desktop speech-to-text (STT) --
 // Real on-device transcription. Auto Mode sets localOnly so neither status
@@ -5223,6 +5248,29 @@ ipcMain.handle("voice:wake-frames", (_e, payload) => wakeEngine.scoreFrames(payl
 // Real post-install verification of the voice runtime (imports + model load +
 // a real neural voice), used by first-run and Voice Diagnostics.
 ipcMain.handle("voice:verify", (_e, payload) => voiceVerify.verifyVoiceRuntime(payload || {}));
+
+// What this PC can carry for speech (profile, speech size, resident cap), from Electron's own GPU answer plus Node's
+// memory reading, and the Doctor repair that puts a previous verified voice model revision back.
+ipcMain.handle("voice:budget", async () => {
+  const weights = require("./voice-weights.cjs");
+  let gpuInfo = null;
+  try {
+    gpuInfo = await app.getGPUInfo("basic");
+  } catch {
+    /* no GPU answer: the budget is the CPU one */
+  }
+  return { ok: true, ...weights.budgetForProbe(weights.probeHardware({ gpuInfo })) };
+});
+ipcMain.handle("voice:restore", (_e, id) => {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) {
+    return { ok: false, revision: "", error: "unknown voice model id" };
+  }
+  try {
+    return voiceVerify.restoreVoiceModel(id);
+  } catch (error) {
+    return { ok: false, revision: "", error: String(error?.message || error).slice(0, 200) };
+  }
+});
 
 ipcMain.on("chat:send", (_event, request) => void startChat(request));
 // Explicit multi-model collaboration. Never automatic: the renderer's Brain

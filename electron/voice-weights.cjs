@@ -337,6 +337,532 @@ async function pinChecks(root, deps = {}) {
   return rows;
 }
 
+/**
+ * The voice language packs: named bundles of models that are already pinned above. Each pack installs in one action
+ * from the Models page (`src/lib/friday/model-catalog.ts` `voicePacks` holds the labels, sizes and credits; a test
+ * keeps the two member lists equal). The English ear is the one swappable member: `faster-whisper-small` on Auto,
+ * the owner's locked size otherwise. Members are listed in the order they install.
+ */
+const VOICE_PACKS = [
+  {
+    id: "voice-pack-english",
+    label: "English pack",
+    members: [
+      { id: "silero-vad" },
+      { id: "smart-turn" },
+      { id: "faster-whisper-small", swap: "english-ear" },
+      { id: "supertonic-3" },
+    ],
+  },
+  {
+    id: "voice-pack-hindi",
+    label: "Hindi pack",
+    members: [
+      { id: "hindi-ear" },
+      { id: "hindi-punct" },
+      { id: "hindi-light-tts" },
+      { id: "supertonic-3" },
+      { id: "hindi-fallback-ear" },
+    ],
+  },
+  {
+    id: "voice-pack-hinglish",
+    label: "Hinglish pack",
+    members: [
+      { id: "hinglish-ear" },
+      { id: "hindi-ear" },
+      { id: "hindi-punct" },
+      { id: "silero-vad" },
+      { id: "smart-turn" },
+      { id: "faster-whisper-small", swap: "english-ear" },
+      { id: "supertonic-3" },
+    ],
+  },
+];
+
+/** The catalog ids of a pack, with the English ear resolved to `sttSize` (Auto or an unknown size means small). */
+function packMemberIds(pack, sttSize) {
+  const size = Object.prototype.hasOwnProperty.call(STT_CATALOG, String(sttSize))
+    ? String(sttSize)
+    : "small";
+  return pack.members.map((member) =>
+    member.swap === "english-ear" ? STT_CATALOG[size] : member.id,
+  );
+}
+
+/** The catalog id a failed pin row belongs to, or "" for a row that is not a pack member. */
+function catalogIdOfPinRow(rowId) {
+  if (rowId === "tts-pin") return "supertonic-3";
+  const ear = [...EAR_MODELS, ...EXTRA_MODELS].find((row) => row.rowId === rowId);
+  if (ear) return ear.catalogId;
+  const size = String(rowId).startsWith("stt-pin-") ? String(rowId).slice("stt-pin-".length) : "";
+  return STT_CATALOG[size] || "";
+}
+
+/**
+ * One Doctor row per voice language pack. A pack is optional, so a row is never required: it is green when every member
+ * is on disk and matches its pin, and otherwise offers the pack's install button (the Models page installs what is
+ * missing and fetches only the damaged files again). `pinRows` are the rows of `pinChecks`, passed in so a large file
+ * is not hashed twice; without them the pins are checked here.
+ */
+async function packChecks(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const onDisk = new Set(voiceModelsOnDisk(root, exists).map((row) => row.catalogId));
+  const pinRows = deps.pinRows || (await pinChecks(root, { ...deps, exists }));
+  const damaged = new Set(pinRows.filter((row) => !row.ok).map((row) => catalogIdOfPinRow(row.id)));
+  return VOICE_PACKS.map((pack) => {
+    const members = packMemberIds(pack, deps.sttSize);
+    const missing = members.filter((id) => !onDisk.has(id));
+    const bad = members.filter((id) => onDisk.has(id) && damaged.has(id));
+    const none = missing.length === members.length;
+    const ok = !missing.length && !bad.length;
+    let detail;
+    if (ok) detail = `all ${members.length} models are on disk and match their pins`;
+    else if (none) detail = "not installed; optional, voice works without it";
+    else {
+      detail = [
+        missing.length ? `partly installed, missing ${missing.join(", ")}` : "",
+        bad.length
+          ? `damaged: ${bad.join(", ")} (installing again fetches only the files that fail)`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+    }
+    return {
+      id: pack.id,
+      label: ok ? `${pack.label} is complete` : `${pack.label} (optional, not complete)`,
+      ok,
+      optional: true,
+      required: false,
+      installId: ok ? "" : pack.id,
+      detail,
+    };
+  });
+}
+
+/* ---------------------------------------------------------------- registry and manifest
+ * One list of every pinned voice model with the folder it lives in, so the manifest, the Doctor rows, the rollback and
+ * the install plan all read the same table. `kind` is the Models-page kind: stt, tts or voice (a helper).
+ */
+function modelRegistry() {
+  const rows = [];
+  for (const size of SIZE_ORDER) {
+    rows.push({
+      catalogId: STT_CATALOG[size],
+      kind: "stt",
+      repo: STT_REPOS[size],
+      dir: ["cache", "stt", size],
+      label: `Speech ${size}`,
+    });
+  }
+  for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
+    rows.push({
+      catalogId: ear.catalogId,
+      kind: ear.kind || "stt",
+      repo: ear.repo,
+      dir: ["models", ear.catalogId],
+      label: ear.label,
+    });
+  }
+  rows.push({
+    catalogId: "supertonic-3",
+    kind: "tts",
+    repo: TTS_REPO,
+    dir: ["models", "supertonic-3"],
+    label: "Neural voice",
+  });
+  for (const row of PINNED) {
+    rows.push({
+      catalogId: row.id,
+      kind: "voice",
+      repo: null,
+      file: row.file,
+      bytes: row.bytes,
+      dir: [...row.dir],
+      label: row.id === "silero-vad" ? "Silero VAD" : "Smart Turn",
+    });
+  }
+  return rows;
+}
+
+/** The manifest of one model by catalog id: the pinned facts with `diskBytes` from the pinned bytes; null if unknown. */
+function manifestOf(catalogId) {
+  const row = modelRegistry().find((item) => item.catalogId === catalogId);
+  if (!row) return null;
+  if (row.repo) {
+    const facts = pins.manifestFor(row.repo);
+    return facts ? { catalogId, kind: row.kind, ...facts } : null;
+  }
+  const facts = pins.FILE_FACTS[catalogId];
+  return facts ? { catalogId, kind: row.kind, repo: null, diskBytes: row.bytes, ...facts } : null;
+}
+
+/** Where a model lives under a FRIDAY root (the folder, or the single file for a helper). */
+function modelPath(root, catalogId) {
+  const row = modelRegistry().find((item) => item.catalogId === catalogId);
+  if (!row || !root) return "";
+  const dir = path.join(root, ...row.dir);
+  return row.file ? path.join(dir, row.file) : dir;
+}
+
+/** The pinned models that are folders (not the two single-file helpers), with their pin. */
+function folderModels() {
+  return modelRegistry().filter((row) => row.repo && pins.pinForRepo(row.repo));
+}
+
+/** Put the previous verified revision of a model back (the Doctor repair for a revision that fails to verify or load). */
+function restoreModel(root, catalogId) {
+  const row = modelRegistry().find((item) => item.catalogId === catalogId);
+  if (!row) return { ok: false, revision: "", error: `unknown voice model: ${catalogId}` };
+  if (!row.repo || !root) {
+    return {
+      ok: false,
+      revision: "",
+      error: "this model is a single file; there is no previous revision to restore",
+    };
+  }
+  return pins.rollbackToPrevious(modelPath(root, catalogId));
+}
+
+/**
+ * Doctor rows about the model folders themselves, from the same registry as the pin rows:
+ *   · `extras-<id>`: the folder holds files the pin does not list; installing again moves them to quarantine;
+ *   · `rollback-<id>`: a previous verified revision is kept as `<folder>.prev`. Green while the current revision is
+ *     healthy, red (with `rollbackId`) when its pin row fails or the caller reports it did not load (`loadFailed`).
+ * With `adopt`, a folder whose hashed pin row passed gets the verification marker, which is what lets the next pinned
+ * revision keep this one as `.prev`. `pinRows` are the rows of `pinChecks`; a clean folder yields no row.
+ */
+async function folderChecks(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  if (!root) return [];
+  const pinRows = deps.pinRows || (await pinChecks(root, { ...deps, exists }));
+  const failing = new Set([
+    ...pinRows.filter((row) => !row.ok).map((row) => catalogIdOfPinRow(row.id)),
+    ...(deps.loadFailed || []),
+  ]);
+  const passing = new Set(pinRows.filter((row) => row.ok).map((row) => catalogIdOfPinRow(row.id)));
+  const rows = [];
+  for (const row of folderModels()) {
+    const dir = path.join(root, ...row.dir);
+    const pin = pins.pinForRepo(row.repo);
+    if (!exists(dir)) continue;
+    const onDisk = voiceModelsOnDisk(root, exists).some(
+      (found) => found.catalogId === row.catalogId,
+    );
+    if (onDisk && deps.adopt && passing.has(row.catalogId) && !pins.readMarker(dir)) {
+      pins.writeMarker(dir, row.repo, pin);
+    }
+    if (onDisk) {
+      const extras = pins.unexpectedFiles(dir, pin, deps.list ? { list: deps.list } : {});
+      if (extras.length) {
+        rows.push({
+          id: `extras-${row.catalogId}`,
+          label: `${row.label} holds only its pinned files`,
+          ok: false,
+          optional: true,
+          required: false,
+          installId: row.catalogId,
+          detail: `${extras.length} unexpected file(s): ${extras.slice(0, 5).join(", ")}${extras.length > 5 ? ", ..." : ""} (installing again moves them to quarantine)`,
+        });
+      }
+    }
+    const prev = pins.previousInfo(dir);
+    if (prev.exists) {
+      const bad = failing.has(row.catalogId);
+      const at = prev.revision ? prev.revision.slice(0, 8) : "unknown";
+      rows.push({
+        id: `rollback-${row.catalogId}`,
+        label: bad
+          ? `${row.label}: restore the previous verified revision`
+          : `${row.label} keeps its previous verified revision`,
+        ok: !bad,
+        optional: true,
+        required: false,
+        rollbackId: row.catalogId,
+        detail: bad
+          ? `the pinned revision fails verification or load; restore revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB kept)`
+          : `revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB) is kept beside the current one; it can be discarded to free disk`,
+      });
+    }
+  }
+  return rows;
+}
+
+/* ---------------------------------------------------------------- the 16 GB budget
+ * The owner's memory policy for a 16 GB PC: Windows, Electron and FRIDAY keep about 4 to 6 GB, active speech uses 2 to
+ * 4 GB, and 1 to 2 GB stay free. The low end of each range applies to an 8 GB PC and the high end from 16 GB. Speech
+ * never gets more than 4 GB of RAM, and only one recogniser and one voice are resident (`maxResidentModels`).
+ * A GPU counts only when the kernel's own runtime check (kernel/stt.py cuda_runtime_ready: cuBLAS 12 and cuDNN 9 found)
+ * has passed, and FRIDAY never downloads CUDA libraries from anyone else. `src/lib/friday/voice-engine/hardware-profile.ts`
+ * `budgetFor` is the same table for the Models page; core/__tests__/voice-hardware-budget.test.ts keeps them equal.
+ */
+const SPEECH_CAP_GB = 4;
+/** The resident memory a speech size needs with the voice and the two helpers loaded beside it (from the manifest). */
+function residentNeedGb(size) {
+  const gbOf = (id) => manifestOf(id)?.minRamGb || 0;
+  return round1(
+    gbOf(STT_CATALOG[size]) + gbOf("supertonic-3") + gbOf("silero-vad") + gbOf("smart-turn"),
+  );
+}
+const LANGUAGE_PACKS = ["voice-pack-english", "voice-pack-hindi", "voice-pack-hinglish"];
+const IDLE_UNLOAD_MS = { lite: 180_000, balanced: 600_000, quality: 900_000 };
+
+const round1 = (value) => Math.round(value * 10) / 10;
+
+function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
+  const notes = [];
+  let total = Number(totalRamGb);
+  if (!(total > 0)) {
+    total = 8;
+    notes.push("the memory of this PC is unknown, so it is treated as an 8 GB PC");
+  }
+  const freeKnown = Number.isFinite(Number(freeRamGb)) && Number(freeRamGb) > 0;
+  const free = freeKnown ? Math.min(Number(freeRamGb), total) : Infinity;
+  if (!freeKnown) notes.push("free memory is unknown; only the total is used");
+  const cpuThreads = Math.max(1, Math.floor(Number(options.cpuThreads) || 4));
+  // 8 GB uses the low end of the owner's ranges, 16 GB and up the high end.
+  const t = Math.min(1, Math.max(0, (total - 8) / 8));
+  const baselineGb = 4 + 2 * t;
+  const headroomGb = 1 + t;
+  const byTotal = Math.max(0, total - baselineGb - headroomGb);
+  const byFree = free === Infinity ? Infinity : Math.max(0, free - headroomGb);
+  const speechBudgetGb = round1(Math.min(SPEECH_CAP_GB, byTotal, byFree));
+  const need = residentNeedGb;
+  notes.push(
+    `memory policy: about ${round1(baselineGb)} GB for Windows, Electron and FRIDAY, up to ${SPEECH_CAP_GB} GB for speech (${speechBudgetGb} GB here), ${round1(headroomGb)} GB kept free`,
+  );
+
+  const vram =
+    Number(vramGb) > 0 ? Number(vramGb) : Number(gpuInfo?.vramGb) > 0 ? Number(gpuInfo.vramGb) : 0;
+  const verified = gpuInfo?.cudaRuntimeReady === true;
+  let device = "cpu";
+  let size;
+  if (verified && vram >= 4 && total >= 16 && byFree >= 4) {
+    device = "cuda";
+    size = vram >= 8 ? "large-v3-turbo" : "medium";
+  } else {
+    if (speechBudgetGb >= need("small")) size = "small";
+    else if (total >= 4 && !(freeKnown && byFree < 0.9)) size = "base";
+    else size = "tiny";
+    if (verified && vram >= 3) device = "cuda";
+  }
+  if (!verified && (vram > 0 || gpuInfo?.name)) {
+    notes.push(
+      `${gpuInfo?.name || "a GPU"} was found but the CUDA 12 libraries (cuBLAS 12, cuDNN 9) are not verified, so speech stays on the CPU in int8; FRIDAY never downloads CUDA libraries from third parties`,
+    );
+  } else if (device === "cuda") {
+    notes.push(
+      `GPU speech: the CUDA 12 libraries are verified and ${vram} GB of video memory is present`,
+    );
+  } else if (verified) {
+    notes.push(
+      `the GPU has ${vram} GB of video memory, too little for speech, so it stays on the CPU`,
+    );
+  }
+  if (device === "cpu") {
+    notes.push(
+      `CPU only: ${size} int8 is the primary ear; medium, large-v3-turbo and large-v3 are never loaded automatically (they need a verified GPU and 16 GB); choose one in Settings to load it yourself`,
+    );
+  }
+  if (freeKnown && byFree < byTotal && byFree < SPEECH_CAP_GB) {
+    notes.push(
+      `free memory is low (${round1(free)} GB free), so the speech budget was lowered to ${speechBudgetGb} GB`,
+    );
+  }
+
+  const ladder = ["tiny", "base", "small", "medium", "large-v3-turbo"];
+  const allowedSizes = ladder.slice(0, ladder.indexOf(size) + 1);
+  const profile =
+    device === "cuda" && size !== "small" ? "quality" : size === "small" ? "balanced" : "lite";
+  const ear = STT_CATALOG[size];
+  const hindiPunct = size !== "tiny" && profile !== "lite";
+  // What a fresh setup fetches (the rest of each pack stays optional, on demand): the helpers, the primary ear, the
+  // voice, and the Hindi ear (with its punctuation model when the budget is not the lite one).
+  const wanted = [
+    "silero-vad",
+    "smart-turn",
+    ear,
+    "supertonic-3",
+    "hindi-ear",
+    ...(hindiPunct ? ["hindi-punct"] : []),
+  ];
+  const install = wanted.filter((id, at) => wanted.indexOf(id) === at);
+  const packs = VOICE_PACKS.filter((pack) => LANGUAGE_PACKS.includes(pack.id)).map((pack) => {
+    const members = packMemberIds(pack, size);
+    return {
+      id: pack.id,
+      install: members.filter((id) => install.includes(id)),
+      optional: members.filter((id) => !install.includes(id)),
+      skipped: [],
+    };
+  });
+  return {
+    profile,
+    sttSize: size,
+    sttDevice: device,
+    sttCompute: device === "cuda" ? "float16" : "int8",
+    ttsEngine: "supertonic",
+    packs,
+    install,
+    allowedSizes,
+    maxResidentModels: 2,
+    idleUnloadMs: IDLE_UNLOAD_MS[profile],
+    threads: Math.min(cpuThreads, Math.max(4, Math.min(8, Math.floor(cpuThreads / 2)))),
+    speechBudgetGb,
+    notes,
+  };
+}
+
+function defaultNvidiaSmi() {
+  return require("child_process").execFileSync(
+    "nvidia-smi",
+    ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+    { timeout: 4000, windowsHide: true, encoding: "utf8" },
+  );
+}
+
+/**
+ * What this PC has, from Node's own `os` (memory, processors) and, for the GPU, the answer Electron's
+ * `app.getGPUInfo("basic")` already gave (pass it as `gpuInfo`) with `nvidia-smi` for the video memory. No new package.
+ * `cudaRuntimeReady` is false unless the caller passes the kernel's own verdict: this probe never decides that CUDA works.
+ */
+function probeHardware(deps = {}) {
+  const host = deps.os || require("os");
+  const gb = (bytes) => round1(Number(bytes) / 1024 ** 3);
+  const gpu = {
+    name: "",
+    vramGb: 0,
+    source: "none",
+    cudaRuntimeReady: deps.cudaRuntimeReady === true,
+  };
+  const devices = Array.isArray(deps.gpuInfo?.gpuDevice) ? deps.gpuInfo.gpuDevice : [];
+  const device = devices.find((row) => row?.active) || devices[0];
+  if (device?.deviceString) {
+    gpu.name = String(device.deviceString);
+    gpu.source = "electron";
+  }
+  try {
+    const first = String((deps.nvidiaSmi || defaultNvidiaSmi)() || "")
+      .split(/\r?\n/)
+      .find((line) => line.trim());
+    if (first) {
+      const at = first.lastIndexOf(",");
+      const mib = Number(first.slice(at + 1));
+      if (at > 0 && mib > 0) {
+        gpu.name = first.slice(0, at).trim();
+        gpu.vramGb = Math.round(mib / 1024);
+        gpu.source = "nvidia-smi";
+      }
+    }
+  } catch {
+    /* no NVIDIA driver on this PC: the GPU stays unused */
+  }
+  return {
+    totalRamGb: gb(host.totalmem()),
+    freeRamGb: gb(host.freemem()),
+    cpuThreads: host.cpus().length,
+    platform: host.platform(),
+    gpu,
+  };
+}
+
+/** The budget of this PC, in one call for setup, Doctor and the Models page. */
+function budgetForProbe(probe, options = {}) {
+  return budgetFor(probe.totalRamGb, probe.freeRamGb, probe.gpu.vramGb, probe.gpu, {
+    cpuThreads: probe.cpuThreads,
+    ...options,
+  });
+}
+
+const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
+
+/**
+ * What a fresh setup does about the voice on THIS PC, from the probe: which pinned models are fetched, which are already
+ * on disk, which are skipped and why, and what stays optional on demand. Pure: `deps.exists` and `deps.statfs` stand in
+ * for the disk, so a test needs no hardware. The essentials (the two helpers, the primary ear, the voice) are always
+ * planned; the optional ones (the Hindi ear and punctuation) are skipped, with the reason, when the RAM budget or the
+ * disk (1.3 times the bytes) cannot carry them. `lines` is the text setup and `--dry-run` print.
+ */
+function voiceInstallPlan(root, probe, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const budget = budgetForProbe(probe);
+  const onDisk = new Set(voiceModelsOnDisk(root, exists).map((row) => row.catalogId));
+  const essential = new Set([
+    "silero-vad",
+    "smart-turn",
+    STT_CATALOG[budget.sttSize],
+    "supertonic-3",
+  ]);
+  const items = [];
+  let planned = 0;
+  for (const id of budget.install) {
+    const facts = manifestOf(id);
+    const item = { id, kind: facts.kind, bytes: facts.diskBytes, state: "download", reason: "" };
+    if (onDisk.has(id)) item.state = "on-disk";
+    else if (!essential.has(id) && facts.minRamGb > budget.speechBudgetGb) {
+      item.state = "skipped";
+      item.reason = `not enough RAM: needs ${facts.minRamGb} GB, the speech budget here is ${budget.speechBudgetGb} GB`;
+    } else if (!essential.has(id)) {
+      const room = pins.diskPreflight(
+        root,
+        planned + facts.diskBytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (!room.ok) {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    if (item.state === "download") planned += item.bytes;
+    items.push(item);
+  }
+  const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
+    id: size,
+    size,
+    reason:
+      size === "small" || size === "base"
+        ? `needs about ${manifestOf(STT_CATALOG[size]).minRamGb} GB of RAM for the ear alone, the speech budget here is ${budget.speechBudgetGb} GB`
+        : "not auto-loaded here: it needs a verified GPU (cuBLAS 12, cuDNN 9) and 16 GB of RAM; install it from the Models page",
+  }));
+  const packed = new Set(budget.install);
+  const optional = [
+    ...new Set(budget.packs.flatMap((pack) => pack.optional).filter((id) => !packed.has(id))),
+  ];
+  const gpu = probe.gpu?.name
+    ? `${probe.gpu.name}${probe.gpu.vramGb ? `, ${probe.gpu.vramGb} GB` : ""}${budget.sttDevice === "cuda" ? "" : ", not used"}`
+    : "no usable GPU";
+  const lines = [
+    `[friday] INFO     voice profile: ${budget.profile} (${probe.totalRamGb} GB RAM, ${probe.freeRamGb} GB free, ${gpu}): ${budget.sttSize} ${budget.sttCompute} on the ${budget.sttDevice === "cuda" ? "GPU" : "CPU"}, up to ${budget.speechBudgetGb} GB of RAM for speech`,
+    ...budget.notes.map((note) => `[friday] INFO     ${note}`),
+  ];
+  for (const item of items) {
+    if (item.state === "on-disk")
+      lines.push(`[friday] ok       ${item.id} already on disk (${mb(item.bytes)})`);
+    else if (item.state === "download")
+      lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
+    else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
+  }
+  for (const row of blocked) {
+    row.line = `[friday] INFO     ${row.id} skipped: ${row.reason}`;
+    lines.push(row.line);
+  }
+  if (optional.length) {
+    lines.push(
+      `[friday] INFO     optional, on demand from the Models page: ${optional.join(", ")}`,
+    );
+  }
+  return {
+    probe,
+    budget,
+    items,
+    blocked,
+    optional,
+    downloadBytes: planned,
+    lines,
+  };
+}
+
 async function ensureSttWeights(model, root, deps = {}) {
   const plan = sttPlan(model, root);
   plan.skipped = otherVoiceJobs().map((row) => row.id);
@@ -429,6 +955,17 @@ module.exports = {
   auditStt,
   auditTts,
   pinChecks,
+  packChecks,
+  VOICE_PACKS,
+  modelRegistry,
+  folderChecks,
+  restoreModel,
+  manifestOf,
+  modelPath,
+  budgetFor,
+  budgetForProbe,
+  voiceInstallPlan,
+  probeHardware,
   TTS_REPO,
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,

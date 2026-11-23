@@ -329,6 +329,8 @@ export type VoiceProbeCheck = {
   /** False for a probe the voice can work without; the repair ladder never starts from it. */
   required?: boolean;
   installId?: string;
+  /** Set on a Doctor row that can put a previous verified voice model revision back (`voice:restore`). */
+  rollbackId?: string;
 };
 
 /** One PASS, OPTIONAL, or FAIL line per probe, plus a diagnostics block with secrets removed. */
@@ -344,6 +346,7 @@ export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
     optional: Boolean(check.optional),
     required: check.required !== false,
     installId: String(check.installId || ""),
+    ...(check.rollbackId ? { rollbackId: String(check.rollbackId) } : {}),
     detail: redactDiagnostics(check.detail),
   }));
   const lines = safe.map(

@@ -145,6 +145,11 @@ import {
   takeSpeakable,
   utteranceIncomplete,
   voiceClaimsAuthority,
+  confirmQuestion,
+  effectiveConfirmLevel,
+  heardNeedsReadBack,
+  heardQuestion,
+  voiceNeedsConfirmation,
   wakeOnCooldown,
   wantsContinue,
   type VoiceAudit,
@@ -199,6 +204,7 @@ import {
   type NarrateEvent,
   type NarrationLang,
 } from "./voice-engine/narration-policy";
+import { createFinalDeduper } from "./voice-engine/final-dedupe";
 import { routeUtterance, type Route } from "./voice-engine/utterance-router";
 import {
   ackStillDue,
@@ -210,14 +216,10 @@ import { notifications } from "./notifications";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
-  confidenceRepeat,
   heardConfidence,
-  heardReadBack,
-  needsHeardConfirmation,
   type HeardQuality,
   languageId,
   learnCorrection,
-  utteranceConfidence,
 } from "./asr-bias";
 import { noteArc } from "./conversation-arc";
 import { voiceBudgets } from "./failure-guard";
@@ -247,7 +249,13 @@ import {
   sttInitialPrompt,
   sttStatus,
 } from "./voice-stt";
-import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
+import {
+  isPlainStop,
+  isSelfEchoTranscript,
+  isStopCommand,
+  matchWakeWord,
+  normalizeTranscript,
+} from "./wake-word";
 import {
   parseThreshold,
   parseVocabulary,
@@ -447,6 +455,8 @@ const MAX_CAPTIONS = 40;
 const AWAKE_MS = () => attentionWindowMs();
 /** How long a read-back waits for the owner's yes or no. */
 const HEARD_CONFIRM_MS = 25_000;
+/** After one read-back she goes ahead (or asks the one action question) instead of reading back again. */
+const READBACK_COOLDOWN_MS = 60_000;
 /** A spoken failure is once per cause for this session. The screen keeps the detail. */
 
 /** The configured name, matched through the shared local wake-word engine. */
@@ -691,6 +701,10 @@ class AssistantModeStore {
   /** Last finalized transcript, so the same utterance is not run twice. */
   private lastFinalText = "";
   private lastFinalAt = 0;
+  /** One utterance, one turn: the same final words from a retried call or the other recogniser run once. */
+  private readonly finalDeduper = createFinalDeduper();
+  /** When her latest reply began to sound: a repeat after that is said on purpose, not a second copy. */
+  private replyStartedAt: number | null = null;
   private chartOfferedFor = "";
   /** Hangover so echo STT that arrives after tts-end is still rejected. */
   private echoUntil = 0;
@@ -1629,6 +1643,8 @@ class AssistantModeStore {
   private lastHeardQuality: HeardQuality | null = null;
   /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
   private pendingHeard: { command: string; at: number } | null = null;
+  /** When she last read words back: she does not do it twice in a row. */
+  private lastReadBackAt = 0;
 
   /** The speech model's own scores for the last utterance, for the diagnostics panel. */
   heardQuality(): HeardQuality | null {
@@ -3168,7 +3184,6 @@ class AssistantModeStore {
     const corrected = applyCorrections(text);
     const heardLang = languageId(corrected);
     noteStyleCorrection(corrected);
-    const repeat = confidenceRepeat(corrected, utteranceConfidence(corrected));
     if (/\bnot\b.+\bbut\b/i.test(text)) learnCorrection(text, corrected);
     noteArc({
       topic: corrected.slice(0, 120),
@@ -3176,14 +3191,6 @@ class AssistantModeStore {
       at: Date.now(),
       source: "voice",
     });
-    if (repeat && !this.isStopHeard(corrected, false)) {
-      markTurnStage("routed", false, "unclear transcript — asked to repeat");
-      this.caption("friday", repeat);
-      this.speak(repeat);
-      this.state.interim = "";
-      this.emit();
-      return;
-    }
     text = corrected;
     this.state.heard = text.slice(0, 160);
 
@@ -3449,7 +3456,7 @@ class AssistantModeStore {
       this.trace("wake", "background request — started as a voice task");
       markTurnStage("routed", true, "", "background task");
       this.approvalAsked = null;
-      if (route.needsConfirm || commandNeedsApproval(command || text, this.state.mode)) {
+      if (route.needsConfirm || this.needsConfirm(command || text)) {
         // The old task keeps running until the owner says yes: a change of mind that is never confirmed changes nothing.
         const ordered = route.supersedes ? withoutChangeOfMind(command || text) : command || text;
         this.askToConfirm(ordered);
@@ -3514,17 +3521,39 @@ class AssistantModeStore {
       });
     }
 
-    // A fluent sentence is not proof it was said: when the speech model itself was unsure (a weak per-token score, or a
-    // weak guess about the language), read the words back and act only on a yes. A stop command is never held up.
-    if (
-      needsHeardConfirmation(
-        command,
-        this.lastHeardQuality,
-        this.isStopHeard(command, wake.matched),
-      )
-    ) {
-      const ask = heardReadBack(command);
+    // A fluent sentence is not proof it was said, but she asks only when the speech model was clearly unsure AND a wrong
+    // guess would cost something (see heardNeedsReadBack). A harmless line goes straight on, a dangerous one gets the one
+    // action question below (which names what she heard), and she never reads back twice in a row. A stop is never held up.
+    const isStop = this.isStopHeard(command, wake.matched);
+    const sensitive =
+      route.needsConfirm === true || voiceClaimsAuthority(command) || this.needsConfirm(command);
+    const doubtful = heardNeedsReadBack(
+      command,
+      this.lastHeardQuality,
+      isStop,
+      this.confirmPreference(),
+    );
+    const askedLately = Date.now() - this.lastReadBackAt < READBACK_COOLDOWN_MS;
+    if (this.lastHeardQuality) {
+      const trust = heardConfidence(command, this.lastHeardQuality);
+      const scores = `token ${this.lastHeardQuality.avgLogprob ?? "?"}, language ${this.lastHeardQuality.languageProbability ?? "?"}`;
+      this.trace(
+        "segment",
+        `heard trust ${trust.toFixed(2)} (${scores}) — ${
+          doubtful
+            ? sensitive
+              ? "doubtful, one action question"
+              : askedLately
+                ? "doubtful, asked a moment ago"
+                : "doubtful, read back"
+            : "trusted"
+        }`,
+      );
+    }
+    if (doubtful && !sensitive && !askedLately) {
+      const ask = heardQuestion(command);
       this.pendingHeard = { command, at: Date.now() };
+      this.lastReadBackAt = Date.now();
       markTurnStage("routed", false, "read back — waiting for a yes");
       this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
       this.caption("friday", ask);
@@ -3557,9 +3586,24 @@ class AssistantModeStore {
         ? { askedAt: asked.askedAt, ...(asked.taskId ? { taskId: asked.taskId } : {}) }
         : null,
       focusTaskId: taskFocusId(),
+      approvalLevel: this.confirmDial(),
       busy:
         Boolean(brain.getSnapshot().activeRunId) || tasks.some((t) => !TERMINAL.includes(t.state)),
     });
+  }
+
+  /** How often she asks first: the autonomy dial, adjusted by the owner's own `voice.confirmLevel` (rare when absent). */
+  private confirmDial(): ReturnType<typeof effectiveConfirmLevel> {
+    return effectiveConfirmLevel(autonomy.getSnapshot().approvalLevel, this.confirmPreference());
+  }
+
+  private confirmPreference(): unknown {
+    return (preferences.getSnapshot().voice as unknown as Record<string, unknown>)["confirmLevel"];
+  }
+
+  /** Must this order be confirmed before it runs? Manual always; Auto by what the order is (see voiceNeedsConfirmation). */
+  private needsConfirm(command: string): boolean {
+    return this.state.mode === "manual" || voiceNeedsConfirmation(command, this.confirmDial());
   }
 
   /** A task word or a status question: act on the desk and return the one line to say. */
@@ -3604,7 +3648,7 @@ class AssistantModeStore {
       reason: approvalReason("exec", this.state.mode),
       at: Date.now(),
     };
-    const ask = `Confirm: should I ${command}? Say yes to proceed, or no to cancel.`;
+    const ask = confirmQuestion(command);
     this.caption("friday", ask);
     this.to("confirm-required");
     this.state.status = "Waiting for confirmation";
@@ -3717,8 +3761,7 @@ class AssistantModeStore {
     // always get an explicit confirmation. Speech never approves itself.
     // A speaker score is an extra signal only. No saved voiceprint means
     // the line is still heard, and a match still does not run the action.
-    const heardSensitive =
-      confirm || voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
+    const heardSensitive = confirm || voiceClaimsAuthority(command) || this.needsConfirm(command);
     const speaker = this.speakerVerdict(heardSensitive);
     if (!speaker.allow) {
       this.discardEager();
@@ -4252,6 +4295,7 @@ class AssistantModeStore {
           audioBytes: wav,
           mime: "audio/wav",
           language,
+          ...(voice.recognitionLang ? { speechPref: voice.recognitionLang } : {}),
           localOnly: true,
           ...(voice.sttSize && voice.sttSize !== "auto"
             ? { model: voice.sttSize, sttSize: voice.sttSize }
@@ -4454,7 +4498,9 @@ class AssistantModeStore {
     return (
       Boolean(this.ackEcho.text) &&
       Date.now() < this.ackEcho.until &&
-      isSelfEchoTranscript(heard, this.ackEcho.text, { speaking: true })
+      // A very short line ("Mm.") is under the echo filter's three-letter floor, so the same word back is matched whole.
+      (normalizeTranscript(heard) === normalizeTranscript(this.ackEcho.text) ||
+        isSelfEchoTranscript(heard, this.ackEcho.text, { speaking: true }))
     );
   }
 
@@ -5062,8 +5108,34 @@ class AssistantModeStore {
     if (utterance.source === "sarvam")
       this.trace("segment", "the Sarvam sentence starts this turn");
     const trimmed = text.trim();
-    if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
-      this.trace("dropped", "duplicate finalized utterance");
+    // A short line while a yes or no is open is the answer: it is never held back as a copy (once per id).
+    const approvalOpen = Boolean(
+      this.state.pending ||
+      this.pendingHeard ||
+      this.approvalAsked ||
+      this.restartAsk ||
+      brain.getSnapshot().approval,
+    );
+    const copy = this.finalDeduper.check({
+      text: trimmed,
+      source: utterance.source,
+      approvalOpen,
+      alwaysPass: this.isStopHeard(trimmed, false),
+      replyStartedAt: this.replyStartedAt,
+      ...(utterance.turnId ? { utteranceId: utterance.turnId } : {}),
+    });
+    if (
+      !copy.pass ||
+      (!copy.exempt &&
+        !(this.replyStartedAt !== null && this.replyStartedAt >= this.lastFinalAt) &&
+        duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt))
+    ) {
+      this.trace(
+        "dropped",
+        copy.pass
+          ? "duplicate finalized utterance"
+          : `duplicate finalized utterance (${copy.reason}, ${Math.round(copy.ageMs)} ms after the first)`,
+      );
       this.state.interim = "";
       this.to("transcript");
       this.emit();
@@ -5374,6 +5446,7 @@ class AssistantModeStore {
         if (gen !== this.speechGen) return;
         this.turnStages.mark("playbackFirstSample");
         if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
+        this.replyStartedAt = Date.now();
         this.noteApprovalSpoken();
         this.bargeDetector.playbackStarted(performance.now());
         this.echoUntil = Date.now() + 120_000;

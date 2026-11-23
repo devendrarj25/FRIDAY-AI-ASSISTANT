@@ -207,6 +207,46 @@ let lastLocalLayers = {
   windowsSpeech: false,
 };
 
+/** What the speech worker last said it holds (models, load times, idle time, unloads, memory, fallbacks). */
+let lastWorkerCache = null;
+
+const finiteOrNull = (value) =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+/**
+ * The cache fields of a worker `status` answer, trimmed to plain values for the Voice Diagnostics rows. Null when the
+ * answer carries none (an older worker): the rows then say so instead of showing zeros.
+ */
+function workerCacheOf(ping) {
+  if (!ping || typeof ping !== "object" || !Array.isArray(ping.loadedModels)) return null;
+  const level = String(ping.memory?.level || "");
+  const byKind = {};
+  for (const [kind, count] of Object.entries(ping.fallbacks?.byKind || {}).slice(0, 16)) {
+    if (finiteOrNull(count) !== null) byKind[String(kind).slice(0, 40)] = count;
+  }
+  return {
+    loadedModels: ping.loadedModels.slice(0, 8).map((row) => ({
+      name: String(row?.name || "").slice(0, 80),
+      engine: String(row?.engine || "").slice(0, 24),
+      loadMs: finiteOrNull(row?.loadMs),
+    })),
+    idleSec: finiteOrNull(ping.idleSec),
+    unloadCount: finiteOrNull(ping.unloadCount) ?? 0,
+    memory: {
+      level: level === "high" || level === "critical" ? level : "ok",
+      known: ping.memory?.known === true,
+      availableMb: finiteOrNull(ping.memory?.availableMb),
+      totalMb: finiteOrNull(ping.memory?.totalMb),
+    },
+    fallbacks: { total: finiteOrNull(ping.fallbacks?.total) ?? 0, byKind },
+  };
+}
+
+function noteWorkerCache(ping) {
+  const cache = workerCacheOf(ping);
+  if (cache) lastWorkerCache = cache;
+}
+
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
   if (typeof parsed.moonshineReady === "boolean")
@@ -435,12 +475,28 @@ function downloadReporter(size, label) {
   };
 }
 
-/** Which small sizes are on disk, so the first choice is one that needs no download. */
+/** The listening language the last real request named (a warm-up or a turn). A preview sends none and keeps it. */
+let listeningPref = "";
+
+function noteListeningPref(req) {
+  const pref = String(req?.speechPref || req?.speech_pref || "").trim();
+  if (pref) listeningPref = pref.slice(0, 32);
+}
+
+/**
+ * Which small sizes are on disk, so the first choice is one that needs no download, and what this PC and the
+ * listening language allow (memory, language) so Auto picks a size that fits instead of always small.
+ */
 function cachedSizes() {
   const have = require("./voice-weights.cjs").installedSizes(paths.root() || "", (file) =>
     fs.existsSync(file),
   );
-  return { baseCached: have.includes("base"), smallCached: have.includes("small") };
+  return {
+    baseCached: have.includes("base"),
+    smallCached: have.includes("small"),
+    ramGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+    language: listeningPref,
+  };
 }
 
 const backgroundFetches = new Map();
@@ -575,6 +631,7 @@ async function ensureWorker(model, onEvent, options = {}) {
   lastLocalLayers.worker = "ready";
   const ping = await workerRequest(session, { op: "status" }, 30000);
   copyLadder(ping);
+  noteWorkerCache(ping);
   if (ping?.dependency === "missing" || ping?.available === false) {
     lastLocalLayers.dependency = "missing";
     lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
@@ -658,6 +715,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   }
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
+  value.cache = worker?.alive ? lastWorkerCache : null;
   if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
     value.available = true;
     value.ready = false;
@@ -770,6 +828,7 @@ async function status(force = false, options = {}) {
     try {
       const ping = await workerRequest(worker, { op: "status" }, 15000);
       copyLadder(ping);
+      noteWorkerCache(ping);
       lastLocalLayers.dependency =
         ping?.dependency === "ready" || ping?.available ? "ready" : "missing";
       lastLocalLayers.worker = "ready";
@@ -999,6 +1058,7 @@ async function transcribe(req = {}, onPartial) {
 }
 
 async function transcribeNow(req = {}, onPartial) {
+  noteListeningPref(req);
   const state = await status(false, { localOnly: Boolean(req.localOnly) });
   const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
   if (!state.available && !ladderReady)
@@ -1240,6 +1300,34 @@ function turnAudioBuffer(req = {}) {
   return Buffer.from(String(req.audioBase64 || ""), "base64");
 }
 
+/**
+ * Score the clip in the speech worker that is already running, which holds the model: about a tenth of a second,
+ * where a fresh interpreter with its imports took one to three on Windows and held every turn open until the cap.
+ * Not while a transcription runs (the answer would only arrive after it, and a quiet turn is better closed on
+ * the plain pause than held for a score). Null means no worker is up, and the one-shot process answers as before.
+ */
+async function scoreInWorker(file, session = worker) {
+  if (!session?.alive) return null;
+  // A score is a short request with its own 20 s deadline, and a request that misses its deadline kills the worker.
+  // Queued behind a cold load (or a model reload) it would take the half-loaded worker down with it: only a loaded
+  // worker with nothing in flight is asked, and anything else closes the turn on the plain pause.
+  if (turnGate.busy() || !session.loaded || session.pending.size > 0) {
+    return { ok: true, ready: false, probability: null, reason: "busy" };
+  }
+  try {
+    const parsed = await workerRequest(session, { op: "score-turn", audio: file }, 20000);
+    if (!parsed || typeof parsed !== "object" || parsed.reason === "unknown-op") return null;
+    return {
+      ok: true,
+      ready: Boolean(parsed.ready),
+      probability: typeof parsed.probability === "number" ? parsed.probability : null,
+      reason: String(parsed.reason || ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function scoreTurn(req = {}) {
   const bytes = turnAudioBuffer(req);
   if (!bytes.length) return { ok: true, ready: false, probability: null, reason: "no-audio" };
@@ -1251,6 +1339,8 @@ async function scoreTurn(req = {}) {
     return { ok: true, ready: false, probability: null, reason: String(error?.message || error) };
   }
   try {
+    const warm = await scoreInWorker(file);
+    if (warm) return warm;
     const py = await python();
     if (!py) return { ok: true, ready: false, probability: null, reason: "no-python" };
     const runtime =
@@ -1370,6 +1460,8 @@ module.exports = {
   decodeExtras,
   createTurnGate,
   workerRequest,
+  scoreInWorker,
+  workerCacheOf,
   scoreTurn,
   turnAudioBuffer,
   sweep,

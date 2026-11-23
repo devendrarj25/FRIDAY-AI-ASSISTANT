@@ -1,3 +1,4 @@
+import type { SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
 
@@ -61,5 +62,98 @@ export function earlyStartRows(
       value: `${onOff(switches.eagerTurn)} · ${stampedFigure("eagerOverlap", monitor)}`,
     },
     { label: "echo reference (setting)", value: onOff(switches.echoReference) },
+  ];
+}
+
+/** What the speech-worker rows know: still reading, could not read, no desktop app, or the answers (each may be absent). */
+export type SpeechWorkerView =
+  | { phase: "loading" }
+  | { phase: "offline" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; cache: SttWorkerCache | null; budget: VoiceBudget | null };
+
+const seconds = (value: number): string => {
+  if (value < 90) return `${Math.round(value)} s`;
+  return `${Math.round(value / 60)} min`;
+};
+
+/** The one profile line: profile name, speech size and device, resident cap, and the memory speech may use. */
+export function voiceBudgetProfileLine(budget: VoiceBudget): string {
+  const gb = Number.isFinite(budget.speechBudgetGb)
+    ? `${budget.speechBudgetGb} GB`
+    : "unknown memory";
+  return `${budget.profile} profile · speech ${budget.sttSize} (${budget.sttDevice}) · at most ${budget.maxResidentModels} resident · up to ${gb} for speech`;
+}
+
+/**
+ * The speech worker's cache and this PC's budget as read-only rows. Loading, offline and error each say so on every row
+ * instead of showing a number; a worker that is not running (or an older one that reports nothing) says that.
+ */
+export function speechWorkerRows(view: SpeechWorkerView): DiagnosticsRow[] {
+  const labels = {
+    models: "speech models loaded",
+    load: "speech model load time",
+    idle: "speech idle time · unloads",
+    memory: "speech memory pressure",
+    fallbacks: "speech fallbacks",
+    budget: "speech budget (this PC)",
+  };
+  const all = (value: string, bad = false): DiagnosticsRow[] =>
+    Object.values(labels).map((label) => ({ label, value, ...(bad ? { bad: true } : {}) }));
+  if (view.phase === "loading") return all("reading the speech worker…");
+  if (view.phase === "offline") return all("shown in the installed FRIDAY app");
+  if (view.phase === "error") {
+    return all(
+      `could not read the speech worker: ${view.message || "no answer"}. Use refresh to retry`,
+      true,
+    );
+  }
+  const { cache, budget } = view;
+  const budgetRow: DiagnosticsRow = {
+    label: labels.budget,
+    value: budget ? voiceBudgetProfileLine(budget) : "this PC's speech budget is not available",
+    ...(budget ? {} : { bad: true }),
+  };
+  if (!cache) {
+    const none = "no speech worker is running yet; it starts on the first turn";
+    return [
+      { label: labels.models, value: none },
+      { label: labels.load, value: none },
+      { label: labels.idle, value: none },
+      { label: labels.memory, value: none },
+      { label: labels.fallbacks, value: none },
+      budgetRow,
+    ];
+  }
+  const kinds = Object.entries(cache.fallbacks.byKind).map(([kind, count]) => `${kind} ${count}`);
+  const level = cache.memory.level;
+  const memory = cache.memory.known
+    ? `${level} · ${cache.memory.availableMb ?? "?"} MB free of ${cache.memory.totalMb ?? "?"} MB`
+    : "unknown (this PC could not be read)";
+  return [
+    {
+      label: labels.models,
+      value: cache.loadedModels.length
+        ? cache.loadedModels.map((row) => `${row.name} (${row.engine})`).join(", ")
+        : "none loaded (they load on the next turn)",
+    },
+    {
+      label: labels.load,
+      value: cache.loadedModels.length
+        ? cache.loadedModels
+            .map((row) => `${row.name} ${row.loadMs === null ? "not timed" : `${row.loadMs} ms`}`)
+            .join(", ")
+        : "nothing loaded",
+    },
+    {
+      label: labels.idle,
+      value: `${cache.idleSec === null ? "nothing loaded" : `idle ${seconds(cache.idleSec)}`} · ${cache.unloadCount} unload(s)`,
+    },
+    { label: labels.memory, value: memory, ...(level === "ok" ? {} : { bad: true }) },
+    {
+      label: labels.fallbacks,
+      value: cache.fallbacks.total ? `${cache.fallbacks.total} (${kinds.join(", ")})` : "none",
+    },
+    budgetRow,
   ];
 }

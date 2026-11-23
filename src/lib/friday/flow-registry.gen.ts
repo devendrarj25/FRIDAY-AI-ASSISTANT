@@ -300,6 +300,7 @@ export const FLOW_REGISTRY = {
     "voice.addressWindowSec",
     "voice.allowAmbientCloud",
     "voice.cloudVoice",
+    "voice.confirmLevel",
     "voice.duckOthers",
     "voice.eagerTurn",
     "voice.echoReference",
@@ -313,6 +314,7 @@ export const FLOW_REGISTRY = {
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.instantAck",
+    "voice.keepUtteranceWavs",
     "voice.listenStyle",
     "voice.liveWake",
     "voice.liveWords",
@@ -339,6 +341,7 @@ export const FLOW_REGISTRY = {
     "voice.tasks",
     "voice.tidyDictation",
     "voice.trimHistoryToPlayed",
+    "voice.utteranceWavDays",
     "voice.vocabulary",
     "voice.voiceName",
     "voice.voicePreset",
@@ -2165,6 +2168,22 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice-privacy:consent",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-privacy:delete-all",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-privacy:set-retention",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-privacy:status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice-stream:close",
       file: "electron/main.cjs",
     },
@@ -2174,6 +2193,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice-stream:send",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:budget",
       file: "electron/main.cjs",
     },
     {
@@ -2222,6 +2245,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:remove",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:restore",
       file: "electron/main.cjs",
     },
     {
@@ -9470,16 +9497,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 153,
-      total: 153,
+      mapped: 156,
+      total: 156,
     },
     capabilities: {
       mapped: 1109,
       total: 1109,
     },
     ipc: {
-      mapped: 500,
-      total: 500,
+      mapped: 506,
+      total: 506,
     },
     kernel: {
       mapped: 14,

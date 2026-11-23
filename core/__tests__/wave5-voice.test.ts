@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyCorrections,
   biasPrompt,
-  confidenceRepeat,
   languageId,
   learnCorrection,
   resetCorrections,
@@ -186,7 +185,7 @@ describe("speech and reply", () => {
     expect(understandSpoken("haan ji kal").fillerStripped).not.toMatch(/haan ji/);
   });
 
-  it("biases names, learns a correction, and repeats only a weak short line", () => {
+  it("biases names, learns a correction, and scores a weak line", () => {
     resetCorrections();
     expect(biasPrompt(["Chrome", "FRIDAY"], "Hinglish.")).toMatch(/Chrome/);
     expect(learnCorrection("password is secret", "no")).toBeNull();
@@ -195,8 +194,8 @@ describe("speech and reply", () => {
     expect(languageId("kholo yaar")).toBe("hinglish");
     expect(languageId("खोलो")).toBe("hi");
     expect(utteranceConfidence("the the file")).toBe(0.5);
-    expect(confidenceRepeat("the the file", 0.5)).toMatch(/Did you say/);
-    expect(confidenceRepeat("open the report now", 0.9)).toBeNull();
+    // a repeated word is a weak text score but is not a reason to ask: the live path no longer repeats it back
+    expect(utteranceConfidence("open the report now")).toBe(0.9);
     resetCorrections();
   });
 

@@ -419,7 +419,8 @@ describe("eager guards, live today: what the final transcript path already enfor
       /^\{\s*if \(this\.stopped\(\)\)/,
     );
     const route = method(modeSource, /\n {2}private routeCommand\([^{]*\{/);
-    expect(route).toContain("commandNeedsApproval(");
+    expect(route).toContain("this.needsConfirm(");
+    expect(modeSource).toContain("voiceNeedsConfirmation(command, this.confirmDial())");
     expect(route).toContain("voiceClaimsAuthority(");
   });
 

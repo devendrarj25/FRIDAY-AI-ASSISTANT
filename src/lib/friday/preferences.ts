@@ -45,6 +45,23 @@ const wholeIn = (value: unknown, min: number, max: number, fallback: number): nu
     ? Math.min(max, Math.max(min, Math.floor(value)))
     : fallback;
 
+/** How often she asks yes or no before a spoken order: only when it cannot be undone, also when cautious, or every time. */
+export const CONFIRM_LEVELS = ["rare", "normal", "always"] as const;
+export type VoiceConfirmLevel = (typeof CONFIRM_LEVELS)[number];
+
+/** An unknown or missing word (an old stored shape) reads `rare`. */
+export function sanitizeConfirmLevel(value: unknown): VoiceConfirmLevel {
+  return (CONFIRM_LEVELS as readonly unknown[]).includes(value)
+    ? (value as VoiceConfirmLevel)
+    : "rare";
+}
+
+/** Days a kept utterance clip stays: a whole number from 1 to 90; anything else reads 7. */
+export function sanitizeWavDays(value: unknown): number {
+  const n = typeof value === "number" ? Math.round(value) : Number.NaN;
+  return Number.isFinite(n) ? Math.min(90, Math.max(1, n)) : 7;
+}
+
 /** A stored or edited value is always made safe: unknown words fall back, numbers clamp, an old shape reads the defaults. */
 export function sanitizeVoiceTaskPrefs(
   input: Partial<VoiceTaskPrefs> | null | undefined,
@@ -138,8 +155,14 @@ export type VoicePreferences = {
   expressiveSpeech: boolean;
   /** Speech Prep: English words and Roman Hindi in Hindi replies are written in Devanagari before the voice reads them. */
   speechPrep: boolean;
+  /** How often she asks yes or no first: rare (default), normal, always. Dangerous orders always ask in every position. */
+  confirmLevel: VoiceConfirmLevel;
   /** The optional light Hindi voice (Models, "Hindi light voice") for Devanagari-only Hindi lines. Off by default. */
   hindiLightVoice: boolean;
+  /** Keep the last spoken clips as WAV files for the voice diagnostics. Off by default: no raw audio is saved. */
+  keepUtteranceWavs: boolean;
+  /** Days a kept clip stays when `keepUtteranceWavs` is on (1 to 90). */
+  utteranceWavDays: number;
   /** Clean the words shown for what the owner said (fillers, spoken punctuation, corrections); what the brain gets is unchanged. */
   tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
@@ -309,7 +332,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
   },
   voice: {
     wakeWord: "friday",
-    recognitionLang: "hi-IN",
+    // A fresh install listens in auto: Hindi, English or mixed speech is each heard by the right engine. An install
+    // that already stored a choice (hi-IN included) keeps it: a stored value cannot be told from an explicit pick.
+    recognitionLang: "auto",
     inputDeviceId: "",
     speechLang: "hi-IN",
     voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
@@ -349,7 +374,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     notesRetentionDays: 30,
     expressiveSpeech: true,
     speechPrep: true,
+    confirmLevel: "rare",
     hindiLightVoice: false,
+    keepUtteranceWavs: false,
+    utteranceWavDays: 7,
     localVoiceStyle: "",
     sttSize: "auto",
     sttMultilingual: false,
@@ -397,6 +425,11 @@ function merge(
       eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
       hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
+      confirmLevel: sanitizeConfirmLevel(patch.voice?.confirmLevel ?? base.voice.confirmLevel),
+      keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
+      utteranceWavDays: sanitizeWavDays(
+        patch.voice?.utteranceWavDays ?? base.voice.utteranceWavDays,
+      ),
     },
   };
 }

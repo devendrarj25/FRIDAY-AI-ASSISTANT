@@ -11,6 +11,11 @@
 
 import { endsInOpenDot } from "./voice-engine/language-segmenter";
 import { socialLine } from "./conversation-style";
+import { transcriptDoubtful, type HeardQuality } from "./asr-bias";
+import { isConsequential } from "./brain/action-risk";
+import { isRoutineSandboxCommand, extractSandboxRun } from "./sandbox-command";
+import { extractTerminalRun } from "./terminal-command";
+import type { ApprovalLevel } from "./self/autonomy";
 
 export type VoiceSurface = "auto" | "manual";
 
@@ -46,6 +51,16 @@ export function acceptsVoiceTurn(input: {
   if (input.wakeWordRequired && !input.handsFree) return false;
   return input.words >= 2;
 }
+
+/**
+ * The end-of-turn model is asked after this much quiet, not after the whole closing pause, so its answer is
+ * ready by the time the pause is up (a persistent session answers in about a tenth of a second).
+ */
+export const TURN_SCORE_ASK_MS = 240;
+/** A model-confirmed end closes the turn at this much quiet instead of the longer closing pause. */
+export const CONFIRMED_END_MS = 280;
+/** The model must be at least this sure the turn is over before the closing pause is shortened. */
+export const TURN_CONFIRM_PROBABILITY = 0.6;
 
 /**
  * Trailing silence before an utterance is closed.
@@ -245,6 +260,348 @@ export function voiceClaimsAuthority(text: string): boolean {
   return /\b(ignore (?:all |any )?(?:previous|prior|above)|disable (?:the )?approval|auto-?approve|skip (?:the )?confirmation|without asking|you are now)\b/i.test(
     text ?? "",
   );
+}
+
+/* ---------- when she may ask "should I?" or "did you say?" ----------
+ * A yes or no costs the owner a turn, so it is asked only for what cannot be taken back (delete, send, pay, power off,
+ * install) or, when the transcript is clearly doubtful, for an action that is not harmless. A question, a search,
+ * opening something, media, volume, a timer, a note, a translation and a draft are never asked about. The rules are per
+ * language (English, Hinglish, Devanagari) and match whole words, so "restart the song" is not "restart the PC". */
+
+const NOT_WORD = "(?<![\\p{L}\\p{M}\\p{N}])";
+const NOT_WORD_AFTER = "(?![\\p{L}\\p{M}\\p{N}])";
+/** A whole word (or phrase) in Latin script. */
+const whole = (source: string) => new RegExp(`${NOT_WORD}(?:${source})${NOT_WORD_AFTER}`, "iu");
+/** The start of a word in Devanagari, where the endings change ("हटाओ", "हटाना"). */
+const stem = (source: string) => new RegExp(`${NOT_WORD}(?:${source})`, "u");
+
+const THE = "(?:the\\s+|my\\s+|this\\s+|that\\s+|these\\s+|those\\s+|all\\s+|your\\s+)*";
+const COMPUTER_WORDS = "pc|computer|laptop|system|windows|machine|device|kampyutar";
+const COMPUTER = `(?:${COMPUTER_WORDS})`;
+const KAR = "\\s*(?:kar|karo|kardo|kar\\s*do|kar\\s*dena|kar\\s*de|kijiye|kariye)";
+
+/** "remove the bookmark" and "remove it from the cart" are routine; "remove chrome" and "remove the old logs" are not. */
+const SAFE_REMOVE =
+  "(?:bookmarks?|tabs?|filters?|reminders?|alarms?|timers?|duplicates?|background|watermark|highlights?|formatting|noise|words?|lines?|sentences?|punctuation|spaces?|text|tags?|labels?|shortcuts?|pins?|pinned|last|item|items)\\b";
+const SAFE_REMOVE_FROM =
+  "(?:cart|basket|list|playlist|queue|favou?rites|wishlist|bookmarks|selection)\\b";
+/** What cannot be taken back, or leaves the machine, or costs money, or switches it off. */
+const IRREVERSIBLE_LATIN = whole(
+  [
+    "delete|erase|wipe|uninstall|overwrite|shut\\s?down|power\\s+off|sign\\s+out|log\\s+(?:out|off)|sign\\s+off",
+    "(?:re)?boot|restart(?:\\s+(?:the\\s+|my\\s+|this\\s+)?" + COMPUTER + "|\\s+now)?$",
+    "restart\\s+(?:the\\s+|my\\s+|this\\s+)?" + COMPUTER,
+    "send|tweet|publish|purchase|buy|donate|checkout|subscribe|transfer|kill|terminate|deploy",
+    "pay(?!\\s+attention)",
+    "forward\\s+" + THE + "(?:e-?mails?|mails?|messages?)",
+    "empty\\s+" + THE + "(?:recycle\\s+bin|trash|bin)",
+    "factory\\s+reset|force\\s+push|git\\s+(?:push|reset|clean)",
+    "remove\\s+" +
+      THE +
+      "(?:files?|folders?|director(?:y|ies)|apps?|programs?|software|drivers?|accounts?|users?|backups?|history|data|everything)",
+    "post\\s+(?:this|that|it|the|my|a|an|on|to)",
+    "submit\\s+" + THE + "(?:form|application|payment|order|assignment|report|exam)",
+    "(?:place|make)\\s+(?:an?\\s+)?order|order\\s+(?:a|an|the|some|me|my|food|online)",
+    "book\\s+(?:a|an|the|my|me)\\s+(?:ticket|tickets|flight|cab|taxi|hotel|table|room|appointment|seat)",
+    "disable\\s+" + THE + "(?:firewall|antivirus|defender|uac|security)",
+    "(?:turn|switch)\\s+off\\s+" + THE + "(?:firewall|antivirus|defender|" + COMPUTER_WORDS + ")",
+    "hibernate|put\\s+" + THE + COMPUTER + "\\s+to\\s+sleep",
+    "write\\s+over(?!\\s+to\\b)",
+    "drop\\s+" + THE + "(?:\\w+\\s+)?(?:database|db|table|schema|collection)",
+    "(?:run|execute|launch)\\s+" +
+      THE +
+      "(?:\\w+\\s+)?(?:payload|malware|exploit|dropper|shellcode|ransomware|trojan|virus)",
+    "remove(?!\\s+" +
+      THE +
+      SAFE_REMOVE +
+      ")(?![^.]*?\\bfrom\\s+" +
+      THE +
+      SAFE_REMOVE_FROM +
+      ")(?=\\s+\\S)",
+  ].join("|"),
+);
+/** "email Bob the report", "message Rahul": a leading verb sends. "email me" and "my email" do not. */
+const SEND_VERB = whole(
+  "^(?:e-?mail|whatsapp|sms|dm|message|msg)(?=\\s+(?!me\\b|myself\\b|settings|app|history|notifications?|count|box|sound|tone|inbox|address|likho|likh|kholo|khol|padho|dekho|dikhao|check|read|open|draft|compose|write)\\S)",
+);
+/** "format D:" names a volume without the word drive. */
+const FORMAT_VOLUME =
+  /(?<![\p{L}\p{N}])format\s+(?:(?:the|my|this)\s+)?(?:(?:drive|disk|volume|partition)\s+)?[a-z]:/iu;
+/** "download and run it": the "and" would split the order, so it is read on the whole line. */
+const DOWNLOAD_AND_RUN =
+  /(?<![\p{L}\p{N}])download(?:ed|ing)?\b[^.;]*?(?:\band|\bthen|&)\s+(?:run|execute|install)(?![\p{L}\p{N}])/iu;
+const IRREVERSIBLE_HINGLISH = whole(
+  [
+    "hata\\s*(?:do|dena|de|o|ao|dijiye|diye)|hatao|mita\\s*(?:do|dena|de|o)|mitao",
+    "saaf\\s*kar|safa\\s*kar|uda\\s*(?:do|dena|de)|udao",
+    "bhej\\s*(?:do|dena|de|na|diya|dijiye)|bhejo|bhejna",
+    "(?:delete|send|post|publish|submit|forward|mail|email|message|msg|sms|text|whatsapp|payment|pay|transfer|book|booking|uninstall|overwrite|shutdown|shut\\s*down|restart|reboot|sign\\s*out|log\\s*out|log\\s*off)" +
+      KAR +
+      "(?=\\s|$)",
+    "kharid(?:o|na|lo|\\s*lo|\\s*do|\\s*dena)|khareed(?:o|na|lo|\\s*lo|\\s*do)|bhugtan",
+    "paise\\s*(?:bhej|bhejo|transfer|de\\s*do|dedo)",
+    "order\\s*(?:kar|karo|kardo|do|de\\s*do)",
+    COMPUTER + "\\s*(?:ko\\s*)?(?:band|bandh|off)\\s*(?:kar|karo|kardo|do|dena)",
+    "(?:band|bandh|off)\\s*(?:kar|karo|kardo)\\s*(?:do\\s*)?(?:the\\s+|apna\\s+|mera\\s+)?" +
+      COMPUTER,
+  ].join("|"),
+);
+const IRREVERSIBLE_DEVANAGARI = stem(
+  [
+    "हटा|मिटा|डिलीट|डिलिट|साफ\\u093c?\\s*कर|भेज|खरीद|पेमेंट|भुगतान|ट्रांसफर",
+    "शटडाउन|शट\\s*डाउन|रीस्टार्ट|रिस्टार्ट|रीबूट|रिबूट|साइन\\s*आउट|लॉग\\s*आउट|लॉग\\s*ऑफ|ओवरराइट|अनइंस्टॉल",
+    "(?:कंप्यूटर|कम्प्यूटर|पीसी|लैपटॉप|सिस्टम)\\s*(?:को\\s*)?बंद|बंद\\s*(?:कर\\s*)?(?:दो\\s*)?(?:कंप्यूटर|कम्प्यूटर|पीसी|लैपटॉप|सिस्टम)",
+  ].join("|"),
+);
+/** Formatting a disk is irreversible; formatting a paragraph is not: it takes a drive word as well. */
+const FORMAT_WORD = whole("format|formatting|फॉर्मेट|फार्मेट|फॉरमैट");
+const DRIVE_WORD = whole(
+  "pen\\s*drive|usb|drive|disk|hard\\s*disk|partition|sd\\s*card|ड्राइव|पेनड्राइव|डिस्क",
+);
+
+/** What changes the machine but can be undone or repeated: asked in Balanced, not under Full autonomy. */
+const CAUTION_LATIN = whole(
+  [
+    "install|reinstall|rename|regedit|unsubscribe|pull\\s+model|git\\s+clone",
+    "(?:update|upgrade)\\s+" +
+      THE +
+      "(?:windows|drivers?|bios|firmware|apps?|software|system|packages|friday)",
+    "(?:windows|drivers?|bios|firmware|software|system|friday|apps?)\\s+(?:ko\\s+)?(?:update|upgrade)\\s*(?:kar|karo|kardo|do)",
+    "move\\s+" + THE + "(?:files?|folders?|documents?|photos|pictures|videos|downloads|everything)",
+    "save\\s+(?:the\\s+)?file|registry\\s+(?:edit|key|value)",
+    "(?:run|execute)\\s+(?:the\\s+|this\\s+|that\\s+|a\\s+|an\\s+)?(?:\\w+\\s+)?(?:script|installer|setup|batch|bat|exe|ps1|powershell|cmd|shell|terminal|command|as\\s+admin(?:istrator)?)",
+    "(?:stop|disable|enable)\\s+" + THE + "service",
+    "disable\\s+" +
+      THE +
+      "(?:\\w+\\s+){0,2}(?:adapter|network|wi-?fi|ethernet|internet|bluetooth|driver|device)",
+    "(?:run|execute)\\s+" + THE + "(?:\\w+\\s+)?(?:binary|executable|downloaded)",
+    "cancel\\s+" + THE + "(?:subscription|order|booking|account|membership)",
+    "reset\\s+" + THE + "(?:settings|password|" + COMPUTER_WORDS + "|phone)",
+    "change\\s+" + THE + "password",
+    "naam\\s*badal|rename\\s*kar",
+  ].join("|"),
+);
+const CAUTION_DEVANAGARI = stem("इंस्टॉल|रीनेम|नाम\\s*बदल");
+
+/** A question about something is not a request to do it. "can you / kya aap" is still a request. */
+const QUESTION_LATIN =
+  /^(?:what|who|whom|whose|when|where|why|how|which|is|are|was|were|does|did|do you|do i|do we|should i|tell me|explain|describe|define|meaning of|batao|bata|samjhao)(?![\p{L}\p{N}])/iu;
+const QUESTION_HINGLISH =
+  /^(?:kya|kaun|kab|kahan|kahaan|kyun|kyu|kaise|kaisa|kitna|kitne|kitni|kis|kisne|kidhar)(?![\p{L}\p{N}])/iu;
+const POLITE_HINGLISH = /^kya\s+(?:tum|aap|aap\s+log|friday)(?![\p{L}\p{N}])/iu;
+const QUESTION_DEVANAGARI = /^(?:क्या|कौन|कब|कहाँ|कहां|क्यों|कैसे|कितना|कितने|कितनी|किस)/u;
+const POLITE_DEVANAGARI = /^क्या\s+(?:तुम|आप|फ्राइडे)/u;
+const ADDRESS_LEAD = /^(?:(?:hey|hi|ok|okay)\s+)?(?:friday|फ्राइडे)\b[\s,:!.-]*/iu;
+const POLITE_LEAD = /^(?:please|kindly|zara|jara|ek\s+baar)\s+/iu;
+
+/** Opening, playing, searching, reading, showing, volume, timers, notes, drafting: the broad rule never asks about these. */
+const HARMLESS_LEAD = new RegExp(
+  `^(?:open|launch|start|play|pause|resume|skip|next|previous|search|find|look\\s+up|google|show|display|read|check|list|set|turn\\s+(?:up|down|on)|volume|brightness|mute|unmute|increase|decrease|remind|call|go\\s+to|take\\s+a\\s+screenshot|translate|summari[sz]e|draft|compose|write|create|make|give)${NOT_WORD_AFTER}`,
+  "iu",
+);
+const HARMLESS_VERB_FINAL = whole(
+  "kholo|khol|chalao|chala|dikhao|dikha|dhundo|dhoondo|dhundh|khojo|sunao|sun|batao|bata|lagao|laga|padho|badha|badhao|kam|likho|likh|dekho|dikhaiye|खोलो|खोल|चलाओ|दिखाओ|ढूंढो|सुनाओ|बताओ|लगाओ|पढ़ो|बढ़ाओ|घटाओ|लिखो",
+);
+
+/** How much a spoken order matters. "none" never asks, whatever the dial says. */
+export type VoiceConfirmKind = "none" | "broad" | "caution" | "irreversible";
+
+function plain(text: string): string {
+  return String(text ?? "")
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(ADDRESS_LEAD, "")
+    .replace(POLITE_LEAD, "")
+    .trim();
+}
+
+function isQuestionAbout(value: string): boolean {
+  if (QUESTION_LATIN.test(value)) return true;
+  if (QUESTION_HINGLISH.test(value) && !POLITE_HINGLISH.test(value)) return true;
+  return QUESTION_DEVANAGARI.test(value) && !POLITE_DEVANAGARI.test(value);
+}
+
+const RANK: Record<VoiceConfirmKind, number> = { none: 0, broad: 1, caution: 2, irreversible: 3 };
+/** "and", "then", "aur", "phir", a full stop: each part of a chained order is judged on its own. */
+const CLAUSE_BREAK =
+  /[.;,?!]|(?<![\p{L}\p{M}\p{N}])(?:and then|and|then|also|plus|but|aur phir|aur|phir|lekin)(?![\p{L}\p{M}\p{N}])|(?:और|फिर|लेकिन)/giu;
+/** A question that is really an order in disguise ("why don't you just delete it") is not a question. */
+const DISGUISED_ORDER =
+  /(?:why don'?t you|why not|how about you|what if you|you (?:should|could|can|must|need to)|just)(?![\p{L}\p{N}])/iu;
+
+/** "the difference between sleep and shut down" is one question, not two orders. */
+const BETWEEN_AND = /\bbetween\s+(\S+(?:\s+\S+)?)\s+and\s+/giu;
+/**
+ * A question that only asks about something: "how do I delete a file", "what does delete mean", "is it safe to
+ * uninstall chrome". Anything else that starts with a question word and still holds a risky verb is an order that
+ * hides behind the question ("what time is it delete my files").
+ */
+const INFO_FRAME =
+  /^(?:how\s+(?:do|does|did|can|could|would|should|to|come)|what\s+(?:does|do|did|happens|would\s+happen|if\b|is\s+(?:the\s+)?(?:meaning|definition|difference|purpose|point|use|best|safest|command|shortcut|way|risk)|is\s+(?:a|an)\b|is\s+\S+$|are\s+the\s+(?:risks?|dangers?|steps?|differences?))|why\s+(?:do|does|did|would|should|is\s+it\s+(?:bad|risky|dangerous|unsafe|safe))|is\s+it\s+(?:safe|ok|okay|fine|possible|bad|risky|dangerous|wise)|(?:is|are)\s+\S+\s+(?:safe|dangerous|risky)|should\s+i|do\s+you\s+(?:know|think)|explain|describe|define|meaning\s+of|difference\s+between|tell\s+me\s+(?:about|how|what\s+is|the\s+difference|more))(?![\p{L}\p{N}])/iu;
+/** Hinglish and Hindi questions end on the question: "delete karna safe hai", "हटाना सही है क्या". */
+const INFO_TAIL_INDIC =
+  /(?:(?<![\p{L}\p{N}])(?:hai|hain|hota|hoti|hote|hoga|hogi|kaise|kyun|kyu|matlab|safe|theek|sahi|chahiye|kya)|सही|ठीक|है|हैं|होता|होती|होगा|कैसे|क्यों|मतलब|चाहिए|क्या)\s*$/iu;
+
+function holdsRiskyWord(value: string): boolean {
+  return (
+    IRREVERSIBLE_LATIN.test(value) ||
+    IRREVERSIBLE_HINGLISH.test(value) ||
+    IRREVERSIBLE_DEVANAGARI.test(value) ||
+    CAUTION_LATIN.test(value) ||
+    CAUTION_DEVANAGARI.test(value) ||
+    FORMAT_VOLUME.test(value) ||
+    (FORMAT_WORD.test(value) && DRIVE_WORD.test(value))
+  );
+}
+
+function onlyAsksAbout(value: string): boolean {
+  if (INFO_FRAME.test(value)) return true;
+  return !QUESTION_LATIN.test(value) && INFO_TAIL_INDIC.test(value);
+}
+
+export function voiceConfirmKind(text: string): VoiceConfirmKind {
+  let worst: VoiceConfirmKind = "none";
+  const line = plain(text).replace(BETWEEN_AND, "between $1 / ");
+  if (DOWNLOAD_AND_RUN.test(line)) worst = "irreversible";
+  for (const part of line.split(CLAUSE_BREAK)) {
+    const kind = clauseKind(part.trim());
+    if (RANK[kind] > RANK[worst]) worst = kind;
+  }
+  return worst;
+}
+
+function clauseKind(value: string): VoiceConfirmKind {
+  if (!value) return "none";
+  if (isQuestionAbout(value) && !DISGUISED_ORDER.test(value)) {
+    if (!holdsRiskyWord(value) || onlyAsksAbout(value)) return "none";
+  }
+  if (
+    IRREVERSIBLE_LATIN.test(value) ||
+    IRREVERSIBLE_HINGLISH.test(value) ||
+    IRREVERSIBLE_DEVANAGARI.test(value) ||
+    FORMAT_VOLUME.test(value) ||
+    SEND_VERB.test(value) ||
+    (FORMAT_WORD.test(value) && DRIVE_WORD.test(value))
+  ) {
+    return "irreversible";
+  }
+  if (CAUTION_LATIN.test(value) || CAUTION_DEVANAGARI.test(value)) return "caution";
+  if (HARMLESS_LEAD.test(value) || HARMLESS_VERB_FINAL.test(value)) return "none";
+  return isConsequential(value) ? "broad" : "none";
+}
+
+/**
+ * Must this spoken order be confirmed before it runs? Balanced (and Trusted) asks for the irreversible and the
+ * cautious set, Full autonomy only for the irreversible set, Ask every time also for the broad old list. Words that
+ * claim authority, and a shell or sandbox command that is not routine, always ask. A spoken yes still has to be bound,
+ * short and fresh, and a speaker match never approves it.
+ */
+export function voiceNeedsConfirmation(text: string, level: ApprovalLevel = "balanced"): boolean {
+  if (voiceClaimsAuthority(text)) return true;
+  if (isRoutineSandboxCommand(text)) return false;
+  const sandbox = extractSandboxRun(text);
+  if (sandbox) return sandbox.risk !== "safe";
+  const shell = extractTerminalRun(text);
+  if (shell && shell.risk !== "safe") return true;
+  const kind = voiceConfirmKind(text);
+  if (kind === "none") return false;
+  if (level === "strict") return true;
+  if (level === "full") return kind === "irreversible";
+  return kind === "irreversible" || kind === "caution";
+}
+
+/**
+ * The dial and the owner's own word about how often she asks (`voice.confirmLevel`: rare, normal, always; rare when
+ * absent or unknown). "rare" follows the dial, "normal" never goes below Balanced, "always" asks like Ask every time.
+ */
+export function effectiveConfirmLevel(dial: ApprovalLevel, preference?: unknown): ApprovalLevel {
+  if (preference === "always") return "strict";
+  if (preference === "normal" && dial === "full") return "balanced";
+  return dial;
+}
+
+const HINGLISH_MARK = whole(
+  "kar|karo|kardo|dena|hata|hatao|mita|mitao|bhej|bhejo|ko|se|ka|ki|ke|hai|hain|nahi|yaar|baje|mujhe|kholo|chalao|band|purani|purana|saari|saare|sab|ye|yeh|wo|woh|aur|kal|aaj|abhi|zara|thoda|batao|likho|dhundo|kitne|kharid|kharido|paise|bhugtan|pakka",
+);
+
+/** The language she speaks the question in: Hindi script, Hinglish (Hindi words in Latin letters), or English. */
+function askLanguage(text: string): "hi" | "hinglish" | "en" {
+  if (/[\u0900-\u097F]/.test(text)) return "hi";
+  return HINGLISH_MARK.test(text) ? "hinglish" : "en";
+}
+
+/** "to Rahul Sharma", "from the finance folder": where an English order is aimed. */
+const DESTINATION_WORD = new Set(["to", "into", "onto", "from", "on", "in", "at", "for"]);
+
+/**
+ * Short enough to say, but never cut before the object or the destination. English keeps the verb, the last of the
+ * object and the destination ("send… final version to Rahul Sharma"); Hindi and Hinglish put the verb last, so they
+ * keep the start and the end.
+ */
+function shortOrder(words: string[], lang: "hi" | "hinglish" | "en"): string {
+  if (words.length <= 7 && words.join(" ").length <= 56) return words.join(" ");
+  if (lang !== "en") {
+    return `${words.slice(0, 3).join(" ")}… ${words.slice(-4).join(" ")}`;
+  }
+  let at = -1;
+  for (let i = words.length - 1; i >= 2; i--) {
+    if (DESTINATION_WORD.has((words[i] ?? "").toLowerCase())) {
+      at = i;
+      break;
+    }
+  }
+  if (at < 0) {
+    let first = words.slice(0, 7).join(" ");
+    if (first.length > 56) first = first.slice(0, 56).replace(/\s+\S*$/u, "");
+    return `${first}…`;
+  }
+  const pre = words.slice(0, at);
+  const head = pre.length > 5 ? `${pre[0]}… ${pre.slice(-3).join(" ")}` : pre.join(" ");
+  const end = Math.min(words.length, at + 4);
+  const tail = `${words.slice(at, end).join(" ")}${end < words.length ? "…" : ""}`;
+  return `${head} ${tail}`;
+}
+
+/** The line she says before a consequential order: short, in the owner's language, not the whole sentence again. */
+export function confirmQuestion(command: string): string {
+  const clean = plain(command)
+    .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
+    .replace(/^kya\s+(?:tum|aap)\s+/i, "")
+    .replace(/[?.!]+$/u, "");
+  const lang = askLanguage(clean);
+  const said = shortOrder(clean.split(" "), lang);
+  if (lang === "hi") return `क्या मैं यह करूँ: ${said}?`;
+  if (lang === "hinglish") return `Kya main ye karun: ${said}?`;
+  return `Should I ${said.charAt(0).toLowerCase()}${said.slice(1)}?`;
+}
+
+/** The doubt line, short: she is unsure of the words and says what she thinks they were. */
+export function heardQuestion(text: string): string {
+  const clean = plain(text).replace(/[?.!]+$/u, "");
+  const words = clean.split(" ");
+  const said = words.length > 8 ? `${words.slice(0, 8).join(" ")}…` : clean;
+  const lang = askLanguage(clean);
+  if (lang === "hi") return `क्या आप “${said}” कह रहे थे?`;
+  if (lang === "hinglish") return `Kya aap “${said}” keh rahe the?`;
+  return `Did you mean “${said}”?`;
+}
+
+/**
+ * Read the words back before acting? Only when the transcript is clearly doubtful and the action is not harmless. A
+ * stop is never held up. Anything harmless goes straight on, because a wrong guess costs nothing and the owner can say
+ * it again.
+ */
+export function heardNeedsReadBack(
+  text: string,
+  quality: HeardQuality | null | undefined,
+  isStop = false,
+  preference?: unknown,
+): boolean {
+  if (isStop || !String(text ?? "").trim()) return false;
+  if (!transcriptDoubtful(quality, preference)) return false;
+  const kind = voiceConfirmKind(text);
+  return kind === "irreversible" || kind === "caution";
 }
 
 export type VoiceFault =

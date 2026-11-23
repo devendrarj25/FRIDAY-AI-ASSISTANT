@@ -4,11 +4,13 @@ import {
   CONFIRM_BELOW,
   heardConfidence,
   heardQualityLine,
+  DOUBT_LANGUAGE,
+  DOUBT_LOGPROB,
   speechModelHint,
-  heardReadBack,
-  needsHeardConfirmation,
+  transcriptDoubtful,
   utteranceConfidence,
 } from "../../src/lib/friday/asr-bias";
+import { heardNeedsReadBack, heardQuestion } from "../../src/lib/friday/voice-session";
 
 describe("how far a heard sentence is trusted", () => {
   it("before: a made-up fluent sentence scored as high as a real one, because only the words were looked at", () => {
@@ -41,28 +43,50 @@ describe("how far a heard sentence is trusted", () => {
     ).toBe(0.9);
   });
 
-  it("the words are read back only when the model was unsure, and never for a stop", () => {
-    const unsure = { languageProbability: 0.65, avgLogprob: -0.9 };
+  it("the words are read back only when the model was clearly unsure AND the action is not harmless, and never for a stop", () => {
+    const unsure = { languageProbability: 0.35, avgLogprob: -1.7 };
     expect(heardConfidence("x y z", unsure)).toBeLessThan(CONFIRM_BELOW);
-    expect(needsHeardConfirmation("delete the invoice folder", unsure)).toBe(true);
-    expect(needsHeardConfirmation("stop", unsure, true)).toBe(false);
-    expect(needsHeardConfirmation("", unsure)).toBe(false);
+    expect(heardNeedsReadBack("delete the invoice folder", unsure)).toBe(true);
+    expect(heardNeedsReadBack("open notepad", unsure)).toBe(false);
+    expect(heardNeedsReadBack("stop", unsure, true)).toBe(false);
+    expect(heardNeedsReadBack("", unsure)).toBe(false);
     expect(
-      needsHeardConfirmation("delete the invoice folder", {
+      heardNeedsReadBack("delete the invoice folder", {
         languageProbability: 0.97,
         avgLogprob: -0.25,
       }),
     ).toBe(false);
     expect(
-      needsHeardConfirmation("open notepad", { languageProbability: 0.8, avgLogprob: -0.3 }),
+      heardNeedsReadBack("delete the invoice folder", {
+        languageProbability: 0.8,
+        avgLogprob: -0.3,
+      }),
     ).toBe(false);
   });
 
-  it("the read-back is in the language the words were in", () => {
-    expect(heardReadBack("open notepad")).toBe("Did you say “open notepad”? Say yes or no.");
-    expect(heardReadBack("chrome kholo yaar")).toMatch(/^Kya aapne kaha: “chrome kholo yaar”\?/);
-    expect(heardReadBack("क्रोम खोलो")).toBe("क्या आपने कहा: “क्रोम खोलो”?");
-    expect(heardReadBack("a".repeat(300)).length).toBeLessThan(140);
+  it("a usual Hinglish score is not doubt; the thresholds and the owner's confirm level decide", () => {
+    expect(DOUBT_LOGPROB).toBe(-1.0);
+    expect(DOUBT_LANGUAGE).toBe(0.5);
+    const usual = { languageProbability: 0.6, avgLogprob: -0.8 };
+    expect(transcriptDoubtful(usual)).toBe(false);
+    expect(transcriptDoubtful(usual, "rare")).toBe(false);
+    expect(transcriptDoubtful(usual, "normal")).toBe(false);
+    expect(transcriptDoubtful({ avgLogprob: -0.9, languageProbability: 0.7 }, "normal")).toBe(true);
+    expect(transcriptDoubtful({ avgLogprob: -0.9, languageProbability: 0.7 })).toBe(false);
+    expect(transcriptDoubtful(usual, "always")).toBe(true);
+    expect(transcriptDoubtful({ avgLogprob: -1.0 })).toBe(true);
+    expect(transcriptDoubtful({ languageProbability: 0.49 })).toBe(true);
+    expect(transcriptDoubtful(null)).toBe(false);
+    expect(transcriptDoubtful({ avgLogprob: null, languageProbability: null })).toBe(false);
+  });
+
+  it("the read-back is short and in the language the words were in", () => {
+    expect(heardQuestion("open notepad")).toBe("Did you mean “open notepad”?");
+    expect(heardQuestion("purani files hata do")).toBe(
+      "Kya aap “purani files hata do” keh rahe the?",
+    );
+    expect(heardQuestion("क्रोम खोलो")).toBe("क्या आप “क्रोम खोलो” कह रहे थे?");
+    expect(heardQuestion("a ".repeat(300)).length).toBeLessThan(140);
   });
 });
 
@@ -80,8 +104,12 @@ describe("the read-back is wired into the live voice path", () => {
 
   it("an addressed command is held for a yes when the model was unsure, a stop is not, and a yes or no is answered", () => {
     expect(mode).toMatch(
-      /needsHeardConfirmation\(\s*command,\s*this\.lastHeardQuality,\s*this\.isStopHeard\(command, wake\.matched\),?\s*\)/,
+      /heardNeedsReadBack\(\s*command,\s*this\.lastHeardQuality,\s*isStop,\s*this\.confirmPreference\(\),?\s*\)/,
     );
+    // a dangerous order gets its one action question instead of a read-back first, and she never reads back twice in a row
+    expect(mode).toContain("if (doubtful && !sensitive && !askedLately) {");
+    expect(mode).toContain("READBACK_COOLDOWN_MS");
+    expect(mode).not.toContain("confidenceRepeat");
     expect(mode).toContain("this.pendingHeard = { command, at: Date.now() };");
     expect(mode).toContain('markTurnStage("routed", false, "read back — waiting for a yes");');
     expect(mode).toContain("this.routeCommand(readBack.command);");
@@ -90,8 +118,8 @@ describe("the read-back is wired into the live voice path", () => {
 
   it("the read-back is not counted as a dropped utterance", () => {
     const gate = mode.slice(
-      mode.indexOf("needsHeardConfirmation(command"),
-      mode.indexOf("needsHeardConfirmation(command") + 900,
+      mode.indexOf("if (doubtful && !sensitive && !askedLately) {"),
+      mode.indexOf("if (doubtful && !sensitive && !askedLately) {") + 900,
     );
     expect(gate).not.toContain("dropLine");
   });
@@ -105,7 +133,15 @@ describe("what the diagnostics say about how sure she was", () => {
         { language: "en", languageProbability: 0.65, avgLogprob: -0.9 },
         "I'm going to get a car.",
       ),
-    ).toBe("language en (0.65) · token score -0.90 · trust 0.60 · read back before acting");
+    ).toBe("language en (0.65) · token score -0.90 · trust 0.60");
+    expect(
+      heardQualityLine(
+        { language: "en", languageProbability: 0.35, avgLogprob: -1.7 },
+        "I'm going to get a car.",
+      ),
+    ).toBe(
+      "language en (0.35) · token score -1.70 · trust 0.40 · doubtful: asks before a risky action",
+    );
     expect(
       heardQualityLine(
         { language: "hi", languageProbability: 0.99, avgLogprob: -0.2 },

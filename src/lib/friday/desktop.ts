@@ -80,6 +80,26 @@ export type VoiceEnrollStatus = {
   profile: { built: boolean; builtAt: number; stale: boolean; summary: VoiceProfileSummary | null };
 };
 
+export type VoicePrivacyStatus = {
+  ok: boolean;
+  /** The time the owner agreed to store a voice sample. No name or device is kept with it. */
+  consent: { given: boolean; givenAt: number };
+  enrolment: { samples: number; profile: boolean };
+  /** Kept utterance clips: none unless the owner turned retention on. */
+  wavs: { folder: string; count: number; bytes: number };
+  retention: { keep: boolean; days: number };
+  limits: { minDays: number; maxDays: number; defaultDays: number };
+};
+
+export type VoicePrivacyDeleteResult = {
+  ok: boolean;
+  reason?: string;
+  detail?: string;
+  removed?: { samples: number; profile: boolean; wavs: number; consent: boolean };
+  left: string[];
+  status?: VoicePrivacyStatus;
+};
+
 export type VoiceMatchResult = {
   ok: boolean;
   enrolled?: boolean;
@@ -101,6 +121,32 @@ export type VoiceMatchResult = {
     threshold?: number;
     reason: string;
   } | null;
+};
+
+/** What this PC can carry for speech (electron/voice-weights.cjs `budgetForProbe`). */
+export type VoiceBudget = {
+  ok: boolean;
+  profile: string;
+  sttSize: string;
+  sttDevice: string;
+  maxResidentModels: number;
+  speechBudgetGb: number;
+  idleUnloadMs: number;
+  notes: string[];
+};
+
+/** The speech worker's own account of what it holds (electron/stt.cjs `workerCacheOf`). */
+export type SttWorkerCache = {
+  loadedModels: Array<{ name: string; engine: string; loadMs: number | null }>;
+  idleSec: number | null;
+  unloadCount: number;
+  memory: {
+    level: "ok" | "high" | "critical";
+    known: boolean;
+    availableMb: number | null;
+    totalMb: number | null;
+  };
+  fallbacks: { total: number; byKind: Record<string, number> };
 };
 
 export type DataClassification = "public" | "internal" | "private" | "sensitive";
@@ -687,6 +733,8 @@ type DesktopApi = {
     worker?: string;
     inference?: string;
     loadCount?: number;
+    /** What the speech worker holds right now; null while no worker is up or an older worker sends none. */
+    cache?: SttWorkerCache | null;
   }>;
   onSttProgress?: (cb: (payload: SttProgressPayload) => void) => () => void;
   installStt?: (options?: { upgrade?: boolean }) => Promise<{
@@ -790,6 +838,22 @@ type DesktopApi = {
   }) => Promise<VoiceMatchResult>;
   voiceEnrollClearRecordings?: () => Promise<{ ok: boolean; counts?: VoiceEnrollCounts }>;
   voiceEnrollForget?: () => Promise<VoiceEnrollStatus>;
+  voicePrivacyStatus?: () => Promise<VoicePrivacyStatus>;
+  voicePrivacyConsent?: () => Promise<{
+    ok: boolean;
+    reason?: string;
+    detail?: string;
+    consent?: { givenAt: number; notice: number };
+  }>;
+  voicePrivacySetRetention?: (payload: { keep: boolean; days: number }) => Promise<{
+    ok: boolean;
+    reason?: string;
+    detail?: string;
+    removed?: number;
+    count?: number;
+    bytes?: number;
+  }>;
+  voicePrivacyDeleteAll?: () => Promise<VoicePrivacyDeleteResult>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   onSystemResume?: (cb: () => void) => () => void;
   onSystemSuspend?: (cb: () => void) => () => void;
@@ -844,6 +908,10 @@ type DesktopApi = {
     python: string | null;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
   }>;
+  /** The speech budget of this PC: profile, the size of the primary ear, the resident cap, the memory it may use. */
+  voiceBudget?: () => Promise<VoiceBudget>;
+  /** The Doctor repair: put the previous verified revision of a voice model back. */
+  restoreVoiceModel?: (id: string) => Promise<{ ok: boolean; revision: string; error?: string }>;
 
   modelRouteMode?: () => Promise<{ mode: string }>;
   setModelRouteMode?: (mode: string) => Promise<{ mode: string }>;

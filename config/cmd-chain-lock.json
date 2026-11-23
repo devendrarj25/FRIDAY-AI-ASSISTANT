@@ -10,7 +10,7 @@
     "scripts/electron-pack.cjs": "d4a9bb6c1ad95fde6ebfa69ada2cb1a1202278e7ad9e9a24da6894be15dda617",
     "scripts/ensure-electron.cjs": "f9953965ab65b09ee8d4e99c2a06f60e177570cfc099e0d19489026daa8c3d09",
     "scripts/live-console.cjs": "ea4065aec47f77b399020480556747f10e33a4b4466f11b36cc50303b5344f7f",
-    "scripts/prefetch-models.cjs": "21eeedab7e8958906d494c03855591003c8649048786848fa373f4cbb698bdcf",
+    "scripts/prefetch-models.cjs": "7b1a1d902aa5aae952a11cd3127b0c03ffb8f34b5602e97edbb13ac54d66a610",
     "scripts/prefetch-toolkit.cjs": "116371ee962d02bafda40ae7f631ffb0edda717d0c6b8ff9bee8e3f0b8d68870",
     "scripts/setup-python.cjs": "83092f78916ea9adec808f97bc3b393a80e2e12b2fe73f84a945592a227008e1",
     "scripts/setup-windows.ps1": "229583001613be637014f582bc145fb28fc2fc98643f621c18f12bab2dee6d7d",

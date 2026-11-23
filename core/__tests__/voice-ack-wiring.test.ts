@@ -421,6 +421,13 @@ describe("privacy and the cloud: the clip is local, a named line is rendered loc
 });
 
 describe("echo and stamps", () => {
+  it("a very short acknowledgement heard back whole is her own voice, whatever line the rotation picked", () => {
+    d.ackEcho = { text: "Mm.", until: Date.now() + 2500 };
+    expect(d.isSelfEcho("mm")).toBe(true);
+    expect(d.isSelfEcho("open the calendar please")).toBe(false);
+    d.ackEcho = { text: "", until: 0 };
+  });
+
   it("the line that just sounded is her own voice for the echo filter, for a moment, and is not the reply", async () => {
     turn();
     await vi.advanceTimersByTimeAsync(601);

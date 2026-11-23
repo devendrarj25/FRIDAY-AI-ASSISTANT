@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { voiceGate } from "../../src/lib/friday/voice-audio";
 import { voiceNotes } from "../../src/lib/friday/voice-notes";
+import { autonomy } from "../../src/lib/friday/self/autonomy";
 import { listVoiceTasks } from "../../src/lib/friday/voice-engine/voice-tasks";
 import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
 
@@ -63,6 +64,7 @@ beforeEach(() => {
   drive.translateTo = null;
   drive.lastHeardQuality = null;
   drive.pendingHeard = null;
+  (drive as unknown as { lastReadBackAt: number }).lastReadBackAt = 0;
   drive.voicedRunId = "";
   drive.voicedChars = 0;
   drive.voicedPrefix = "";
@@ -260,7 +262,7 @@ describe("what she does with a line once it is addressed", () => {
     drive.handleHeard("Friday delete all the old invoices");
     expect(sent).toEqual([]);
     expect(drive.state.pending?.command).toBe("delete all the old invoices");
-    expect(spoken.join(" ")).toMatch(/Confirm: should I delete all the old invoices/);
+    expect(spoken).toEqual(["Should I delete all the old invoices?"]);
   });
 
   it("answers just her name with a short prompt and runs nothing", () => {
@@ -525,35 +527,47 @@ describe("when the speech model was unsure of the words", () => {
     drive.lastHeardQuality = { avgLogprob: -1.7, languageProbability: 0.35, language: "en" };
   };
 
-  it("reads the words back and goes ahead only on a yes", () => {
+  it("goes straight on for a harmless request, however unsure she is: a wrong guess costs nothing", () => {
     unsure();
     drive.handleHeard("Friday open the calculator");
-    expect(sent).toEqual([]);
-    expect(spoken.join(" ")).toMatch(/Did you say .open the calculator/);
-    drive.lastHeardQuality = null;
-    drive.handleHeard("yes");
     expect(sent).toEqual(["open the calculator"]);
+    expect(spoken.join(" ")).not.toMatch(/did you|yes or no/i);
   });
 
-  it("drops the words on a no and asks again", () => {
+  it("reads back a doubtful, cautious order and goes ahead only on a yes", () => {
+    autonomy.update({ approvalLevel: "full" });
     unsure();
-    drive.handleHeard("Friday open the calculator");
+    drive.handleHeard("Friday install the calculator");
+    expect(sent).toEqual([]);
+    expect(spoken).toEqual(["Did you mean “install the calculator”?"]);
+    drive.lastHeardQuality = null;
+    drive.handleHeard("yes");
+    expect(sent).toEqual(["install the calculator"]);
+    autonomy.update({ approvalLevel: "balanced" });
+  });
+
+  it("drops the words on a no and asks to hear it again", () => {
+    autonomy.update({ approvalLevel: "full" });
+    unsure();
+    drive.handleHeard("Friday install the calculator");
     drive.lastHeardQuality = null;
     drive.handleHeard("no");
     expect(sent).toEqual([]);
     expect(spoken.join(" ")).toMatch(/say it again/i);
+    autonomy.update({ approvalLevel: "balanced" });
   });
 
-  it("does not take a yes to the read-back as approval of a consequential command", () => {
+  it("asks one question, not two, for a doubtful consequential command, and its yes is the approval", () => {
     unsure();
     drive.handleHeard("Friday delete all the old invoices");
-    drive.lastHeardQuality = null;
-    drive.handleHeard("yes"); // yes, that is what I said
-    expect(sent).toEqual([]); // not run yet
+    expect(sent).toEqual([]); // nothing runs before a bound yes
+    expect(drive.pendingHeard).toBeNull(); // no read-back first
     expect(drive.state.pending?.command).toBe("delete all the old invoices");
-    expect(spoken.join(" ")).toMatch(/Confirm: should I delete all the old invoices/);
-    drive.handleHeard("yes"); // yes, do it
+    expect(spoken).toEqual(["Should I delete all the old invoices?"]);
+    drive.lastHeardQuality = null;
+    drive.handleHeard("yes");
     expect(sent).toEqual(["delete all the old invoices"]);
+    expect(spoken).toHaveLength(1);
   });
 
   it("never holds up a stop word", () => {

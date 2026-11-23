@@ -160,10 +160,7 @@ def test_the_worker_falls_back_to_faster_whisper_when_the_ear_hears_nothing(monk
     assert seen  # faster-whisper heard it
 
 
-def test_other_languages_never_reach_the_hindi_ear(monkeypatch):
-    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: pytest.fail("not Hindi"))
-    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
-
+def _english_model(monkeypatch):
     class FakeModel:
         pass
 
@@ -183,24 +180,113 @@ def test_other_languages_never_reach_the_hindi_ear(monkeypatch):
             "durationMs": 1000,
         },
     )
-    for language in ("en", "auto", "hinglish"):
+
+
+def test_english_and_other_languages_never_reach_the_hindi_ear(monkeypatch):
+    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: pytest.fail("not Hindi"))
+    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
+    _english_model(monkeypatch)
+    for language in ("en", "en-IN", "en-US", "hinglish", "hi-Latn", "fr"):
         result = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", language, "", None, language)
         assert result["engine"] == "faster-whisper"
 
 
-def test_the_status_says_whether_the_ear_is_installed(tmp_path):
-    assert stt.status_payload()["hindiEarReady"] is False
+def test_auto_tries_the_ear_but_only_keeps_a_line_it_is_sure_of(monkeypatch):
+    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
+    _english_model(monkeypatch)
+    seen: list[int] = []
+    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: seen.append(1) or "ओपन क्रोम")
+    for pref in ("auto", "mixed", ""):
+        monkeypatch.setattr(stt.hindi_ear, "_last_confidence", -0.9)  # English read as Devanagari: unsure
+        result = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "", "", None, pref)
+        assert result["engine"] == "faster-whisper" and result["text"] == "open chrome"
+        assert "unsure" in result["languageNote"]
+    assert len(seen) == 3
+    monkeypatch.setattr(stt.hindi_ear, "_last_confidence", -0.1)  # a clear Hindi line
+    result = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "", "", None, "auto")
+    assert result["engine"] == "hindi-ear" and result["language"] == "hi"
+
+
+def test_hindi_chosen_is_more_lenient_than_auto(monkeypatch):
+    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
+    _english_model(monkeypatch)
+    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: "मुझे चाय चाहिए")
+    monkeypatch.setattr(stt.hindi_ear, "_last_confidence", -0.37)
+    assert stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi-IN")["engine"] == "hindi-ear"
+    assert stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "", "", None, "auto")["engine"] == "faster-whisper"
+    monkeypatch.setattr(stt.hindi_ear, "_last_confidence", -1.4)  # garbled even for a Hindi owner
+    assert (
+        stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi-IN")["engine"] == "faster-whisper"
+    )
+
+
+@pytest.mark.parametrize(
+    ("language", "pref", "mode"),
+    [
+        ("hi", "", "hi"),
+        ("hi-IN", "", "hi"),
+        ("en", "hi", "hi"),
+        ("hi", "en", "en"),
+        ("en-IN", "", "en"),
+        ("en-US", "", "en"),
+        ("", "", "auto"),
+        ("auto", "", "auto"),
+        ("mixed", "", "auto"),
+        ("", "AUTO", "auto"),
+        ("hi-Latn", "", "roman"),
+        ("hi_latn_in", "", "roman"),
+        ("hinglish-roman", "", "roman"),
+        ("fr", "", "other"),
+        ("hinglish", "", "other"),
+        ("he", "", "other"),
+    ],
+)
+def test_the_listening_mode_table(language, pref, mode):
+    assert hindi_ear.listen_mode(language, pref) == mode
+    assert hindi_ear.tries_ear(language, pref) is (mode in {"hi", "auto"})
+
+
+def test_the_ear_keeps_a_line_by_its_own_scores(tmp_path):
+    assert hindi_ear.confident("hi", None) and hindi_ear.confident("auto", None)  # unmeasured: today's behaviour
+    assert hindi_ear.confident("auto", -0.27) and not hindi_ear.confident("auto", -0.36)
+    assert hindi_ear.confident("hi", -0.37) and not hindi_ear.confident("hi", -0.5)
+    assert hindi_ear.confident("en", -5.0)  # no other mode is ever judged here
+
+
+def test_the_ear_reports_its_mean_token_score_when_the_runtime_gives_one(monkeypatch, tmp_path):
     _stage(tmp_path)
-    assert stt.status_payload()["hindiEarReady"] is True
+
+    class Heard:
+        text = "आज मौसम अच्छा है"
+        logprobs = [-0.1, -0.3, -0.2]
+
+    class Timed:
+        def recognize(self, audio, sample_rate=16000):
+            return Heard()
+
+    class Model:
+        def with_timestamps(self):
+            return Timed()
+
+    monkeypatch.setitem(sys.modules, "onnx_asr", types.SimpleNamespace(load_model=lambda *a, **k: Model()))
+    assert hindi_ear.transcribe([0.01] * 16000) == "आज मौसम अच्छा है"
+    assert hindi_ear.last_confidence() == pytest.approx(-0.2)
+    monkeypatch.setitem(
+        sys.modules,
+        "onnx_asr",
+        types.SimpleNamespace(load_model=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))),
+    )
+    monkeypatch.setattr(hindi_ear, "_model", None)
+    assert hindi_ear.transcribe([0.01] * 16000) is None
+    assert hindi_ear.last_confidence() is None  # a failed reading carries no score
 
 
-def test_the_voice_check_has_a_hindi_ear_line(monkeypatch, tmp_path):
-    import voice_runtime
-
-    assert voice_runtime._hindi_ear_line() == "OPTIONAL hindi-ear optional - not installed"
-    _stage(tmp_path)
-    monkeypatch.setitem(sys.modules, "onnx_asr", None)  # not importable, so not found either
-    monkeypatch.setattr("importlib.util.find_spec", lambda name: None)
-    assert voice_runtime._hindi_ear_line().startswith("FAIL hindi-ear")
-    monkeypatch.setattr("importlib.util.find_spec", lambda name: object())
-    assert voice_runtime._hindi_ear_line() == "PASS hindi-ear int8 weights present"
+def test_unload_drops_the_model_the_reader_and_the_folder_and_reports_it(monkeypatch):
+    monkeypatch.setattr(hindi_ear, "_model", object())
+    monkeypatch.setattr(hindi_ear, "_timed", (object(), object()))
+    monkeypatch.setattr(hindi_ear, "_model_dir", "C:\\ears\\hi")
+    assert hindi_ear.loaded() is True
+    assert hindi_ear.unload() is True
+    assert (hindi_ear._model, hindi_ear._timed, hindi_ear._model_dir) == (None, None, "")
+    assert hindi_ear.loaded() is False
+    assert hindi_ear.unload() is False  # nothing open: a second call is a quiet no-op

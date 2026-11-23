@@ -2723,6 +2723,460 @@ export function sttSizeOf(modelId: string | null | undefined): string | null {
 /** The only text-to-speech model FRIDAY's own voice stack loads (the neural voice). */
 export const NEURAL_VOICE_MODEL = "supertonic-3";
 
+/* ------------------------------------------------------------ voice language packs */
+
+/**
+ * The English ear sizes a pack can name, with the bytes the pinned files add up to
+ * (electron/voice-pins.cjs; a test sums the pins, so a repinned weight cannot leave this stale).
+ */
+export const ENGLISH_EAR_CHOICES: Record<string, { id: string; bytes: number }> = {
+  tiny: { id: "faster-whisper-tiny", bytes: 78203619 },
+  base: { id: "faster-whisper-base", bytes: 147882941 },
+  small: { id: "faster-whisper-small", bytes: 486212372 },
+  medium: { id: "faster-whisper-medium", bytes: 1530571735 },
+  "large-v3-turbo": { id: "faster-whisper-large-v3-turbo", bytes: 1621665983 },
+  "large-v3": { id: "faster-whisper", bytes: 3090835702 },
+};
+
+/**
+ * The English ear a pack installs: the size the owner locked in Settings, otherwise `small`, which is what the
+ * listening path opens on Auto (electron/voice-install.cjs bootModel; larger sizes load only when locked).
+ */
+export function englishEarSize(pref?: string | null): string {
+  const key = String(pref ?? "").trim();
+  return Object.prototype.hasOwnProperty.call(ENGLISH_EAR_CHOICES, key) ? key : "small";
+}
+
+export type VoicePackMember = {
+  /** A catalog id (a row of `modelCatalog`). */
+  id: string;
+  /** What this member does for the owner, in plain words. */
+  role: string;
+  /** The pinned bytes (electron/voice-pins.cjs), never an estimate. */
+  bytes: number;
+  /** The English ear: the id is the Auto default and `packMembers` swaps in the locked size. */
+  swap?: "english-ear";
+};
+
+/**
+ * A named bundle of voice models that are already pinned in this repository. The members are listed in the
+ * order they install: the small helpers and the ear first, so a download that stops part way still leaves the
+ * PC able to listen, then the punctuation and the voices, and the optional fallback ear last.
+ */
+export type VoicePack = {
+  kind: "voice-pack";
+  id: string;
+  label: string;
+  description: string;
+  /** The Settings recognition language under which the listening path uses this pack's ear. */
+  recognitionLang: string;
+  members: VoicePackMember[];
+  /** Licence credit lines that must stay visible (CC-BY needs its author named). */
+  credits: string[];
+};
+
+const ENGLISH_EAR_MEMBER: VoicePackMember = {
+  id: "faster-whisper-small",
+  role: "English ear (Whisper, int8)",
+  bytes: 486212372,
+  swap: "english-ear",
+};
+const VAD_MEMBER: VoicePackMember = {
+  id: "silero-vad",
+  role: "Hears when you start and stop speaking",
+  bytes: 2327524,
+};
+const TURN_MEMBER: VoicePackMember = {
+  id: "smart-turn",
+  role: "Knows when you have finished a sentence",
+  bytes: 8679182,
+};
+const NEURAL_VOICE_MEMBER: VoicePackMember = {
+  id: "supertonic-3",
+  role: "Fast neural voice that speaks back",
+  bytes: 401276918,
+};
+const HINDI_EAR_MEMBER: VoicePackMember = {
+  id: "hindi-ear",
+  role: "Hindi ear (IndicConformer, int8)",
+  bytes: 137680132,
+};
+const HINDI_PUNCT_MEMBER: VoicePackMember = {
+  id: "hindi-punct",
+  role: "Adds commas and the danda to Hindi text",
+  bytes: 234173340,
+};
+
+export const voicePacks: VoicePack[] = [
+  {
+    kind: "voice-pack",
+    id: "voice-pack-english",
+    label: "English pack",
+    description:
+      "Everything to hear and answer in English on this PC: the Whisper English ear, the voice-activity and sentence-end helpers, and the fast Supertonic voice. One action downloads what is missing.",
+    recognitionLang: "en-IN",
+    members: [VAD_MEMBER, TURN_MEMBER, ENGLISH_EAR_MEMBER, NEURAL_VOICE_MEMBER],
+    credits: [
+      "Whisper (faster-whisper conversion): MIT. Silero VAD: MIT. Smart Turn: BSD-2-Clause (Pipecat).",
+      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
+    ],
+  },
+  {
+    kind: "voice-pack",
+    id: "voice-pack-hindi",
+    label: "Hindi pack",
+    description:
+      "Hindi in Devanagari: the IndicConformer Hindi ear, Hindi punctuation, a light Hindi voice, the Supertonic voice, and a Whisper Hindi ear that listens if the main one cannot. Choose Hindi in Settings to use it.",
+    recognitionLang: "hi-IN",
+    members: [
+      HINDI_EAR_MEMBER,
+      HINDI_PUNCT_MEMBER,
+      {
+        id: "hindi-light-tts",
+        role: "Light Hindi voice",
+        bytes: 91024663,
+      },
+      NEURAL_VOICE_MEMBER,
+      {
+        id: "hindi-fallback-ear",
+        role: "Hindi fallback ear (Whisper small Hindi)",
+        bytes: 487097397,
+      },
+    ],
+    credits: [
+      "Hindi fallback ear: Whisper small Hindi by Collabora, CC-BY-4.0 (faster-whisper conversion).",
+      "Light Hindi voice: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0.",
+      "Hindi ear: AI4Bharat IndicConformer, MIT. Hindi punctuation: 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
+      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
+    ],
+  },
+  {
+    kind: "voice-pack",
+    id: "voice-pack-hinglish",
+    label: "Hinglish pack",
+    description:
+      "Hindi and English mixed in Roman letters: the Hinglish ear, the Hindi ear and punctuation behind it, and the English essentials. Choose Hinglish in Settings to use the Roman-letter ear.",
+    recognitionLang: "hi-Latn",
+    members: [
+      {
+        id: "hinglish-ear",
+        role: "Hinglish ear (Roman letters)",
+        bytes: 81398368,
+      },
+      HINDI_EAR_MEMBER,
+      HINDI_PUNCT_MEMBER,
+      VAD_MEMBER,
+      TURN_MEMBER,
+      ENGLISH_EAR_MEMBER,
+      NEURAL_VOICE_MEMBER,
+    ],
+    credits: [
+      "Hinglish ear: Whisper base Hindi-to-Hinglish fine-tune (Oriserve, MSpider3 CT2 conversion), Apache-2.0.",
+      "Hindi ear: AI4Bharat IndicConformer, MIT. Hindi punctuation: 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
+      "Whisper: MIT. Silero VAD: MIT. Smart Turn: BSD-2-Clause (Pipecat).",
+      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
+    ],
+  },
+];
+
+export const voicePackById = new Map(voicePacks.map((pack) => [pack.id, pack] as const));
+
+/**
+ * What each pinned voice model needs from the machine, by catalog id. The same numbers as `FACTS` in
+ * electron/voice-pins.cjs (a test compares them, and `diskBytes` with the sum of the pinned bytes). Memory is the
+ * model's own working set while loaded (peak resident memory), not the PC's RAM; `basis` says whether the peak was
+ * measured on a Linux x86-64 CPU run or estimated from a model of the same architecture.
+ */
+export type VoiceModelFacts = {
+  minRamGb: number;
+  recommendedRamGb: number;
+  /** Video memory a GPU run needs; 0 when the CPU is enough. */
+  minVramGb: number;
+  diskBytes: number;
+  /** Keeps up with live speech on a typical CPU. */
+  cpuOk: boolean;
+  gpuOk: boolean;
+  quantization: string;
+  fallbackPriority: "primary" | "lightweight" | "accuracy" | "experimental" | "optional-cloud";
+  basis: "measured" | "estimated";
+};
+
+const CT2_INT8 = "int8 (CTranslate2, from float16)";
+const CT2_BIG = "int8 on CPU, float16 on GPU (CTranslate2)";
+
+export const voiceModelFacts: Record<string, VoiceModelFacts> = {
+  "faster-whisper-tiny": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    diskBytes: 78203619,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: CT2_INT8,
+    fallbackPriority: "lightweight",
+    basis: "measured",
+  },
+  "faster-whisper-base": {
+    minRamGb: 0.4,
+    recommendedRamGb: 0.6,
+    minVramGb: 0,
+    diskBytes: 147882941,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: CT2_INT8,
+    fallbackPriority: "lightweight",
+    basis: "measured",
+  },
+  "faster-whisper-small": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    diskBytes: 486212372,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: CT2_INT8,
+    fallbackPriority: "primary",
+    basis: "measured",
+  },
+  "faster-whisper-medium": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    diskBytes: 1530571735,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: CT2_BIG,
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "faster-whisper-large-v3-turbo": {
+    minRamGb: 2.2,
+    recommendedRamGb: 3.3,
+    minVramGb: 3,
+    diskBytes: 1621665983,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: CT2_BIG,
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "faster-whisper": {
+    minRamGb: 3.8,
+    recommendedRamGb: 5.7,
+    minVramGb: 5,
+    diskBytes: 3090835702,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: CT2_BIG,
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "hindi-ear": {
+    minRamGb: 0.4,
+    recommendedRamGb: 0.6,
+    minVramGb: 0,
+    diskBytes: 137680132,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "measured",
+  },
+  "hinglish-ear": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    diskBytes: 81398368,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: CT2_INT8,
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "hindi-fallback-ear": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    diskBytes: 487097397,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: CT2_INT8,
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "hindi-punct": {
+    minRamGb: 0.5,
+    recommendedRamGb: 0.7,
+    minVramGb: 0,
+    diskBytes: 234173340,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "accuracy",
+    basis: "measured",
+  },
+  "hindi-light-tts": {
+    minRamGb: 0.2,
+    recommendedRamGb: 0.4,
+    minVramGb: 0,
+    diskBytes: 91024663,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "supertonic-3": {
+    minRamGb: 0.5,
+    recommendedRamGb: 0.8,
+    minVramGb: 0,
+    diskBytes: 401276918,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "measured",
+  },
+  "silero-vad": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    diskBytes: 2327524,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
+  "smart-turn": {
+    minRamGb: 0.2,
+    recommendedRamGb: 0.3,
+    minVramGb: 0,
+    diskBytes: 8679182,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
+};
+
+/** The members with the English ear resolved to the size the owner uses. */
+export function packMembers(
+  pack: VoicePack,
+  options: { sttSize?: string | undefined } = {},
+): VoicePackMember[] {
+  const size = englishEarSize(options.sttSize);
+  return pack.members.map((member) => {
+    if (member.swap !== "english-ear") return member;
+    const choice = ENGLISH_EAR_CHOICES[size]!;
+    return { ...member, id: choice.id, bytes: choice.bytes };
+  });
+}
+
+/** The pinned bytes of a whole pack. */
+export function packBytes(pack: VoicePack, options: { sttSize?: string | undefined } = {}): number {
+  return packMembers(pack, options).reduce((sum, member) => sum + member.bytes, 0);
+}
+
+/** What the Models page and the voice check know is on disk: a set, a list, or the `installed` record. */
+export type InstalledIds =
+  ReadonlySet<string> | readonly string[] | Readonly<Record<string, string | null | undefined>>;
+
+function installedSet(installed: InstalledIds): Set<string> {
+  if (installed instanceof Set) return new Set(installed as ReadonlySet<string>);
+  if (Array.isArray(installed)) return new Set(installed as readonly string[]);
+  return new Set(
+    Object.entries(installed as Record<string, string | null | undefined>)
+      .filter(([, version]) => Boolean(version))
+      .map(([id]) => id),
+  );
+}
+
+export type PackOptions = {
+  /** Members found on disk but failing their pin (the voice check names them): installed again in place. */
+  damaged?: readonly string[] | undefined;
+  /** The owner's locked speech size, for the English ear. */
+  sttSize?: string | undefined;
+};
+
+export type PackMemberState = "installed" | "missing" | "damaged";
+
+export type PackStatus = {
+  id: string;
+  state: "installed" | "partial" | "not-installed";
+  have: string[];
+  missing: string[];
+  damaged: string[];
+  bytesTotal: number;
+  bytesMissing: number;
+  members: Array<VoicePackMember & { state: PackMemberState }>;
+};
+
+/** The state of a pack from what is really installed. A damaged member is on disk but is not complete. */
+export function packStatus(
+  pack: VoicePack,
+  installed: InstalledIds,
+  options: PackOptions = {},
+): PackStatus {
+  const have = installedSet(installed);
+  const bad = new Set(options.damaged ?? []);
+  const members = packMembers(pack, options).map((member) => {
+    const state: PackMemberState = !have.has(member.id)
+      ? "missing"
+      : bad.has(member.id)
+        ? "damaged"
+        : "installed";
+    return { ...member, state };
+  });
+  const present = members.filter((m) => m.state !== "missing");
+  const complete = members.filter((m) => m.state === "installed");
+  return {
+    id: pack.id,
+    state:
+      complete.length === members.length
+        ? "installed"
+        : present.length
+          ? "partial"
+          : "not-installed",
+    have: present.map((m) => m.id),
+    missing: members.filter((m) => m.state === "missing").map((m) => m.id),
+    damaged: members.filter((m) => m.state === "damaged").map((m) => m.id),
+    bytesTotal: members.reduce((sum, m) => sum + m.bytes, 0),
+    bytesMissing: members
+      .filter((m) => m.state !== "installed")
+      .reduce((sum, m) => sum + m.bytes, 0),
+    members,
+  };
+}
+
+export type PackStep = { id: string; role: string; bytes: number; action: "install" | "repair" };
+
+export type PackPlan = { packId: string; steps: PackStep[]; skipped: string[]; bytes: number };
+
+/** What one action would do: every member that is missing or damaged, in the pack's order; the rest is skipped. */
+export function packPlan(
+  pack: VoicePack,
+  installed: InstalledIds,
+  options: PackOptions = {},
+): PackPlan {
+  const status = packStatus(pack, installed, options);
+  const steps: PackStep[] = status.members
+    .filter((member) => member.state !== "installed")
+    .map((member) => ({
+      id: member.id,
+      role: member.role,
+      bytes: member.bytes,
+      action: member.state === "damaged" ? "repair" : "install",
+    }));
+  return {
+    packId: pack.id,
+    steps,
+    skipped: status.members.filter((m) => m.state === "installed").map((m) => m.id),
+    bytes: steps.reduce((sum, step) => sum + step.bytes, 0),
+  };
+}
+
 export const routingTasks: {
   key: RoutingTask;
   label: string;

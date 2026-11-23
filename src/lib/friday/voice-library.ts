@@ -25,6 +25,14 @@ import {
 import { echoLive } from "./voice-engine/echo-live";
 import { preferences, type VoiceModel } from "./preferences";
 import { models } from "./models-engine";
+import { looksSensitive } from "./brain/memory-policy";
+import { profileVoiceStyle } from "./voice-engine/friday-voice-profile";
+import {
+  TTS_INFO,
+  TtsFallbackManager,
+  type TtsProvider,
+  type TtsProviderInfo,
+} from "./voice-engine/tts-provider";
 import {
   HINDI_LIGHT_ENGINE,
   HINDI_LIGHT_MODEL_ID,
@@ -826,7 +834,7 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
       text: plan.text,
       rate: plan.rate,
       lang: plan.lang,
-      style: preferences.getSnapshot().voice.localVoiceStyle || "",
+      style: localStyle(),
       seq: pcmSeq,
       ...(plan.engine ? { engine: plan.engine } : {}),
     }),
@@ -1042,39 +1050,46 @@ function planSegments(
         round2(tone.pitch),
         round2(tone.volume),
         Boolean(tuning.cloudClip),
-        preferences.getSnapshot().voice.localVoiceStyle || "",
+        localStyle(),
         ...(light.use ? [HINDI_LIGHT_ENGINE] : []),
       ]),
     };
   });
 }
 
-/** Make the audio for one clause. Null when no engine could make it. */
-async function makeClip(
+/** The female style of the standard local voice that FRIDAY's voice profile asks for ("" keeps the default). */
+function localStyle(): string {
+  return profileVoiceStyle(preferences.getSnapshot().voice, "supertonic");
+}
+
+/** The cloud voice the owner picked, for one clause; null when it gave nothing. */
+async function cloudClipOf(plan: SegmentPlan, tuning: SpeechTuning): Promise<SpeechClip | null> {
+  if (!tuning.cloudClip) return null;
+  const cloud = await tuning
+    .cloudClip(plan.text, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
+    .catch(() => null);
+  if (!cloud?.audioBase64 && !cloud?.audio) return null;
+  return {
+    audioBase64: cloud.audioBase64,
+    mime: cloud.mime,
+    ...(cloud.audio ? { audio: cloud.audio } : {}),
+    ...(cloud.release ? { release: cloud.release } : {}),
+    route: {
+      engine: cloud.engine,
+      voiceId: cloud.voice ?? "",
+      lang: plan.lang,
+      cloud: true,
+      note: "",
+    },
+  };
+}
+
+/** The voice op of this PC for one clause: raw samples first when wanted, then a WAV (or the online voice's file). */
+async function localClipOf(
   plan: SegmentPlan,
   tuning: SpeechTuning,
   api: VoiceBridge | null,
 ): Promise<SpeechClip | null> {
-  if (tuning.cloudClip) {
-    const cloud = await tuning
-      .cloudClip(plan.text, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
-      .catch(() => null);
-    if (cloud?.audioBase64 || cloud?.audio) {
-      return {
-        audioBase64: cloud.audioBase64,
-        mime: cloud.mime,
-        ...(cloud.audio ? { audio: cloud.audio } : {}),
-        ...(cloud.release ? { release: cloud.release } : {}),
-        route: {
-          engine: cloud.engine,
-          voiceId: cloud.voice ?? "",
-          lang: plan.lang,
-          cloud: true,
-          note: "",
-        },
-      };
-    }
-  }
   if (api && pcmWanted(plan, tuning, api)) {
     const raw = await makePcmClip(plan, api);
     if (raw) return raw;
@@ -1089,7 +1104,7 @@ async function makeClip(
       volume: plan.volume,
       pitch: plan.pitch,
       lang: plan.lang,
-      style: preferences.getSnapshot().voice.localVoiceStyle || "",
+      style: localStyle(),
     })
     .catch(() => null);
   if (!result?.ok || !result.audioBase64) return null;
@@ -1104,6 +1119,76 @@ async function makeClip(
       note: String(result.note || ""),
     },
   };
+}
+
+/** One clip maker as a voice of the single text-to-speech interface; it yields the clip as one chunk. */
+function clipVoice(info: TtsProviderInfo, make: () => Promise<SpeechClip | null>): TtsProvider {
+  return {
+    ...info,
+    health: () => ({ state: "ready" }),
+    cancel: () => undefined,
+    async *speak(_text, options) {
+      const clip = await make();
+      if (clip)
+        yield { generation: options.generation, seq: 0, engine: clip.route.engine, payload: clip };
+    },
+  };
+}
+
+const CLOUD_CLIP_INFO: TtsProviderInfo = {
+  id: "cloud-clip",
+  label: "the cloud voice",
+  kind: "cloud",
+  languages: ["*"],
+  cost: "free-quota",
+  privacy: "cloud",
+  viaRouter: true,
+};
+
+/**
+ * Make the audio for one clause. Null when no engine could make it. The voices are the ones this path always
+ * used, in the same order (the cloud voice the owner picked, then this PC's voice op); the fallback manager runs
+ * them, keeps the privacy and sensitive-line rules in front of any cloud voice, tries at most two, and says which
+ * one really spoke and why a better one did not.
+ */
+async function makeClip(
+  plan: SegmentPlan,
+  tuning: SpeechTuning,
+  api: VoiceBridge | null,
+): Promise<SpeechClip | null> {
+  const localId = plan.cloudVoice
+    ? "edge"
+    : plan.engine === HINDI_LIGHT_ENGINE
+      ? HINDI_LIGHT_ENGINE
+      : "supertonic";
+  const order: string[] = [];
+  const voices: TtsProvider[] = [];
+  if (tuning.cloudClip) {
+    order.push(CLOUD_CLIP_INFO.id);
+    voices.push(clipVoice(CLOUD_CLIP_INFO, () => cloudClipOf(plan, tuning)));
+  }
+  order.push(localId);
+  voices.push(clipVoice(TTS_INFO[localId], () => localClipOf(plan, tuning, api)));
+  const out = await new TtsFallbackManager(voices, { maxAttempts: 2 }).speakOrdered(
+    { text: plan.text, lang: plan.lang },
+    {
+      online: true,
+      allowCloud: true,
+      privacyMode: preferences.getSnapshot().voice.privacyMode === true,
+      sensitive: looksSensitive(plan.text),
+      billingAllowsPaid: false,
+    },
+    order,
+    { generation: speechGeneration },
+  );
+  const clip = out.ok ? (out.chunks[0]?.payload as SpeechClip | undefined) : undefined;
+  if (!clip) return null;
+  return out.note && out.attempts.length > 1
+    ? {
+        ...clip,
+        route: { ...clip.route, note: [clip.route.note, out.note].filter(Boolean).join(" ") },
+      }
+    : clip;
 }
 
 /** Clips being made ahead of time for the next sentence of a reply. Each is used once, then forgotten. */

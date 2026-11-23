@@ -77,6 +77,24 @@ def disk_room(path: Path, need_bytes: int) -> dict:
     return {"ok": True, "measured": True, "free": free, "reason": ""}
 
 
+def memory_status() -> dict:
+    """Total and free physical memory in GB, from the one reader in stt.py (ctypes on Windows, /proc on Linux).
+
+    The voice budget itself (which speech size this PC carries) is chosen in electron/voice-weights.cjs ``budgetFor``;
+    this only reports what the kernel sees, so the check and the Doctor show the same machine.
+    """
+    try:
+        import stt
+
+        reading = stt.read_memory_mb()
+    except Exception:  # noqa: BLE001 - an unreadable machine is unknown, never an error
+        reading = None
+    if not reading:
+        return {"known": False, "totalGb": None, "freeGb": None}
+    available_mb, total_mb = reading
+    return {"known": True, "totalGb": round(total_mb / 1024, 1), "freeGb": round(available_mb / 1024, 1)}
+
+
 def execution_providers() -> dict:
     available: list[str] = []
     try:
@@ -266,6 +284,7 @@ def status() -> dict:
         "speaker": speaker_status(),
         "providers": execution_providers(),
         "hindiLight": tts_hindi_light.status(),
+        "memory": memory_status(),
     }
 
 
@@ -560,6 +579,27 @@ def denoise_pcm(samples, sample_rate: int = 16000):
         return mono
 
 
+# The smart-turn session and its feature extractor are opened once per process. Opening them per call cost about
+# 90 ms of session set-up on top of the 100 ms run, and the one-shot ``--score`` process also paid the imports.
+_turn_model: dict = {}
+
+
+def _turn_session(path: Path):
+    """``(session, extractor)`` for the smart-turn file, kept for the life of this process. A failure is not kept."""
+    key = str(path)
+    held = _turn_model.get(key)
+    if held is not None:
+        return held
+    import onnxruntime as ort  # type: ignore
+    from faster_whisper.feature_extractor import FeatureExtractor  # type: ignore
+
+    session = ort.InferenceSession(key, providers=session_providers(False))
+    extractor = FeatureExtractor(feature_size=80, chunk_length=8)
+    _turn_model.clear()
+    _turn_model[key] = (session, extractor)
+    return session, extractor
+
+
 def score_turn(samples, sample_rate: int = 16000) -> dict:
     """Semantic end-of-turn. Missing file or a bad feature is not a cut-off."""
     path = smart_turn_path()
@@ -569,13 +609,11 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
         return {"ok": True, "ready": False, "probability": None, "reason": "smart-turn expects 16000 Hz"}
     try:
         import numpy as np  # type: ignore
-        import onnxruntime as ort  # type: ignore
-        from faster_whisper.feature_extractor import FeatureExtractor  # type: ignore
 
         audio = np.asarray(samples, dtype=np.float32).reshape(-1)
         if audio.size < 1600:
             return {"ok": True, "ready": False, "probability": None, "reason": "audio too short"}
-        extractor = FeatureExtractor(feature_size=80, chunk_length=8)
+        session, extractor = _turn_session(path)
         if audio.size < extractor.n_samples:
             real = (audio - audio.mean()) / np.sqrt(float(audio.var()) + 1e-7)
             audio = np.pad(real, (extractor.n_samples - real.size, 0))
@@ -587,7 +625,6 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
             feat = feat[:, :800]
         elif feat.shape[1] < 800:
             feat = np.pad(feat, ((0, 0), (0, 800 - feat.shape[1])), constant_values=-1.5)
-        session = ort.InferenceSession(str(path), providers=session_providers(False))
         out = session.run(None, {"input_features": feat[None].astype(np.float32)})[0]
         probability = float(np.asarray(out).reshape(-1)[0])
     except Exception as exc:  # noqa: BLE001
@@ -599,6 +636,30 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
         "complete": probability >= 0.5,
         "reason": "",
     }
+
+
+# An utterance is capped at 20 s of 16 kHz 16-bit mono (about 640 kB); anything far larger is not a turn clip.
+MAX_SCORE_BYTES = 8 * 1024 * 1024
+
+
+def score_turn_payload(req: dict) -> dict:
+    """Worker op ``score-turn``: the end-of-turn probability of the clip at ``audio``. Never raises, whatever arrives.
+
+    The same answer as ``--score``, from a process that already holds the model, so a turn is scored in about
+    a tenth of a second instead of a fresh interpreter start.
+    """
+    audio = req.get("audio") if isinstance(req, dict) else None
+    if not isinstance(audio, str) or not audio or len(audio) > 1024 or "\x00" in audio:
+        return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
+    try:
+        if not os.path.isfile(audio) or os.path.getsize(audio) > MAX_SCORE_BYTES:
+            return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
+    except OSError:
+        return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
+    samples = load_pcm(audio)
+    if samples is None:
+        return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
+    return score_turn(samples, 16000)
 
 
 def speaker_decision(similarity: float | None, enrolled: bool, sensitive: bool) -> dict:
@@ -852,6 +913,11 @@ def check_lines() -> list[str]:
     lines.extend(_whisper_ear_lines())
     providers = execution_providers()
     lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
+    memory = memory_status()
+    if memory["known"]:
+        lines.append(f"PASS memory total={memory['totalGb']}GB free={memory['freeGb']}GB")
+    else:
+        lines.append("OPTIONAL memory unmeasured on this system")
     room = disk_room(voice_root(), SILERO_BYTES)
     if room["measured"] and room["ok"]:
         lines.append(f"PASS disk free={room['free']}")

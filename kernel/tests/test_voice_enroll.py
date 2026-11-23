@@ -170,7 +170,7 @@ def test_the_wake_worker_builds_loads_scores_and_clears_the_profile(tmp_path):
         path = tmp_path / f"{clip['id']}.wav"
         _write_wav(path, clip["pcm"])
         samples.append({"id": clip["id"], "kind": clip["kind"], "path": str(path)})
-    built = wake_word.handle_request({"op": "enroll_build", "samples": samples})
+    built = wake_word.handle_request({"op": "enroll_build", "samples": samples, "consent": True})
     assert built["ok"] and built["summary"]["speaker"]["ready"] and built["summary"]["wake"]["ready"]
     assert "templates" not in str(built["summary"])
     probe = tmp_path / "probe.wav"
@@ -198,3 +198,24 @@ def test_the_owner_baseline_is_measured_by_the_apps_own_prosody_function():
     assert ve.public_summary(profile)["baseline"] == base
     # too few measurable clips: no baseline, and the profile still builds
     assert ve.build_profile(owner_clips(rng, wakes=6, sentences=2))["baseline"] is None
+
+
+def test_the_wake_worker_builds_no_voiceprint_without_the_owners_consent(tmp_path):
+    import wake_word
+
+    rng = np.random.default_rng(11)
+    samples = []
+    for clip in owner_clips(rng):
+        path = tmp_path / f"{clip['id']}.wav"
+        _write_wav(path, clip["pcm"])
+        samples.append({"id": clip["id"], "kind": clip["kind"], "path": str(path)})
+    wake_word.handle_request({"op": "enroll_clear"})
+    for consent in (None, False, "yes", 1):
+        req = {"op": "enroll_build", "samples": samples}
+        if consent is not None:
+            req["consent"] = consent
+        refused = wake_word.handle_request(req)
+        assert refused["ok"] is False and refused["reason"] == "consent-required"
+        assert "profile" not in refused
+    # nothing was kept in the worker either
+    assert wake_word.handle_request({"op": "enroll_summary"})["summary"]["built"] is False

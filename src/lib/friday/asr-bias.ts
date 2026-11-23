@@ -118,7 +118,7 @@ export function heardQualityLine(quality: HeardQuality | null | undefined, text 
   const lp = typeof quality.avgLogprob === "number" ? quality.avgLogprob.toFixed(2) : "?";
   const sure = heardConfidence(text, quality);
   return `language ${lang} (${prob}) · token score ${lp} · trust ${sure.toFixed(2)}${
-    sure < CONFIRM_BELOW ? " · read back before acting" : ""
+    transcriptDoubtful(quality) ? " · doubtful: asks before a risky action" : ""
   }`;
 }
 
@@ -145,31 +145,31 @@ export function speechModelHint(model: string, recognitionLang: string): string 
   return `the ${name} model is small for Hindi and Hinglish, so words can come out wrong: choose small or larger in Voice settings`;
 }
 
-/** Below this the words are read back before anything is done with them. */
+/** The old, quick rule ("always" confirm level): below this the words were read back. */
 export const CONFIRM_BELOW = 0.65;
 
 /**
- * Should she read the words back and wait for a yes? Only for something she was about to act on, and only when the model
- * itself was unsure. A stop command is never held up.
+ * Clearly doubtful, not merely usual: a token score at or below this, or a language guess below the next one. A usual
+ * Hinglish score (about -0.8 and 0.6) is not doubt, so ordinary requests are never held up for it.
  */
-export function needsHeardConfirmation(
-  text: string,
-  quality: HeardQuality | null | undefined,
-  isStop = false,
-): boolean {
-  if (isStop || !String(text || "").trim()) return false;
-  return heardConfidence(text, quality) < CONFIRM_BELOW;
-}
+export const DOUBT_LOGPROB = -1.0;
+export const DOUBT_LANGUAGE = 0.5;
 
-/** The read-back, in the language the words were in. */
-export function heardReadBack(text: string): string {
-  const clean = String(text || "")
-    .trim()
-    .slice(0, 90);
-  const lang = languageId(clean);
-  if (lang === "hi") return `क्या आपने कहा: “${clean}”?`;
-  if (lang === "hinglish") return `Kya aapne kaha: “${clean}”? Haan ya nahi bolo.`;
-  return `Did you say “${clean}”? Say yes or no.`;
+/**
+ * The speech model's own scores say the words may be wrong. `preference` is the owner's `voice.confirmLevel`:
+ * "rare" (default) uses the clear thresholds above, "normal" a little earlier, "always" the old quick rule.
+ */
+export function transcriptDoubtful(
+  quality: HeardQuality | null | undefined,
+  preference?: unknown,
+): boolean {
+  if (!quality) return false;
+  if (preference === "always") return heardConfidence("x", quality) < CONFIRM_BELOW;
+  const earlier = preference === "normal";
+  const lp = quality.avgLogprob;
+  const lang = quality.languageProbability;
+  if (typeof lp === "number" && lp <= (earlier ? -0.85 : DOUBT_LOGPROB)) return true;
+  return typeof lang === "number" && lang < (earlier ? 0.6 : DOUBT_LANGUAGE);
 }
 
 /** A repeated word or a very long token is a weak read. Everything else is trusted. */
@@ -178,12 +178,4 @@ export function utteranceConfidence(text: string): number {
   if (/\b(\w+)\s+\1\b/i.test(value)) return 0.5;
   if (/\b\w{18,}\b/.test(value)) return 0.5;
   return 0.9;
-}
-
-/** Ask again only when the guess is weak and the phrase is short enough to repeat. */
-export function confidenceRepeat(text: string, confidence: number): string | null {
-  const clean = String(text || "").trim();
-  if (!clean || confidence >= 0.72 || clean.length > 80) return null;
-  if (confidence < 0.35) return null;
-  return `Did you say “${clean.slice(0, 60)}”?`;
 }

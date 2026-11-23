@@ -886,7 +886,9 @@ describe("spoken task words reach the desk through the router", () => {
     await vi.advanceTimersByTimeAsync(5);
     expect(mine()).toHaveLength(0);
     expect(d.state.pending?.command).toMatch(/delete the old exports/);
-    expect(recorded.join(" ")).toMatch(/^Confirm: should I/);
+    expect(recorded).toHaveLength(1); // one short question, never two in a row
+    expect(recorded[0]).toMatch(/^Should I delete the old exports/);
+    expect(recorded[0]?.length).toBeLessThan(80);
     d.handleHeard("yes");
     await vi.advanceTimersByTimeAsync(5);
     expect(mine()).toHaveLength(1);

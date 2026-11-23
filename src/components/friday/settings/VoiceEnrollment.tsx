@@ -4,8 +4,9 @@ import { Mic, Play, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleRow } from "@/components/friday/ui";
 import { EditField } from "@/components/friday/settings/fields";
+import { VoicePrivacy } from "@/components/friday/settings/VoicePrivacy";
 import { desktopApi } from "@/lib/friday/desktop";
-import type { VoiceMatchResult } from "@/lib/friday/desktop";
+import type { VoiceMatchResult, VoicePrivacyStatus } from "@/lib/friday/desktop";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useVoiceProfile } from "@/lib/friday/use-voice-profile";
@@ -18,6 +19,7 @@ import {
   deleteSample,
   enrollProgress,
   forgetMyVoice,
+  loadVoicePrivacy,
   parseThreshold,
   promptText,
   saveSample,
@@ -59,6 +61,7 @@ export function VoiceEnrollment() {
   const [confirmForget, setConfirmForget] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<VoiceMatchResult | null>(null);
+  const [privacy, setPrivacy] = useState<VoicePrivacyStatus | null>(null);
   const recorder = useRef<EnrollRecorder | null>(null);
   const playing = useRef<HTMLAudioElement | null>(null);
 
@@ -68,6 +71,13 @@ export function VoiceEnrollment() {
   const summary = status?.profile.summary ?? null;
   const built = status?.profile.built === true;
   const desktop = Boolean(desktopApi()?.voiceEnrollStatus);
+  const consented = privacy?.consent.given === true;
+
+  const reloadPrivacy = () => void loadVoicePrivacy().then(setPrivacy);
+
+  useEffect(() => {
+    reloadPrivacy();
+  }, []);
 
   useEffect(
     () => () => {
@@ -114,6 +124,7 @@ export function VoiceEnrollment() {
     setBusy(false);
     setNote(saved.ok ? null : saved.message);
     if (saved.ok) toast.success("Sample saved");
+    reloadPrivacy();
   };
 
   const stop = async (prompt: EnrollPrompt, take: number) => {
@@ -181,6 +192,7 @@ export function VoiceEnrollment() {
     setConfirmForget(false);
     await forgetMyVoice();
     setTestResult(null);
+    reloadPrivacy();
     toast.success("Your voice recordings and profile were removed");
   };
 
@@ -244,7 +256,7 @@ export function VoiceEnrollment() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={!desktop || busy || Boolean(recordingId) || testing}
+                    disabled={!desktop || !consented || busy || Boolean(recordingId) || testing}
                     onClick={() => record(prompt, take)}
                     aria-label={`${done ? "Re-record" : "Record"}: ${promptText(prompt, wakeWord)}`}
                   >
@@ -314,6 +326,7 @@ export function VoiceEnrollment() {
         {testing ? <Meter level={level} /> : null}
       </div>
       {note ? <p className="text-foreground">{note}</p> : null}
+      <VoicePrivacy privacy={privacy} desktop={desktop} onChanged={reloadPrivacy} />
 
       {summary?.speaker || summary?.wake ? (
         <div className="grid gap-1">

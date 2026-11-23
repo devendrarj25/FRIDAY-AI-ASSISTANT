@@ -84,7 +84,8 @@ describe("continuous background work", () => {
 describe("FRIDAY's default voice and language", () => {
   it("defaults to a natural female Indian voice (Swara for Hindi, Neerja for English) with Hinglish replies", () => {
     expect(DEFAULT_PREFERENCES.voice.speechLang).toBe("hi-IN");
-    expect(DEFAULT_PREFERENCES.voice.recognitionLang).toBe("hi-IN");
+    // A fresh install listens in auto (Hindi, English or mixed, each by the right engine); replies stay Hindi.
+    expect(DEFAULT_PREFERENCES.voice.recognitionLang).toBe("auto");
     expect(DEFAULT_PREFERENCES.voice.hinglish).toBe(true);
     expect(DEFAULT_PREFERENCES.voice.hindiVoice).toBe("hi-IN-SwaraNeural");
     expect(DEFAULT_PREFERENCES.voice.englishVoice).toBe("en-IN-NeerjaNeural");

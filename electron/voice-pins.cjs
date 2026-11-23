@@ -360,6 +360,188 @@ const ALIASES = {
   "mobiuslabsgmbh/faster-whisper-large-v3-turbo": "dropbox-dash/faster-whisper-large-v3-turbo",
 };
 
+/**
+ * What each pinned model needs from the machine, for the hardware budget (`voice-weights.cjs` `budgetFor`) and the
+ * Models page. Keyed by repository, merged with the pin by `manifestFor`; `diskBytes` is never typed here, it is the sum
+ * of the pinned bytes. The numbers are the model's own working set while loaded, not the PC's RAM:
+ *   · minRamGb          peak resident memory (RSS) the loaded model needs, rounded up to 0.1 GB;
+ *   · recommendedRamGb  free memory to have before loading it (about 1.5 times the peak, for a long utterance);
+ *   · minVramGb         video memory a GPU run needs, 0 when the CPU is enough;
+ *   · cpuOk             keeps up with live speech on a typical CPU (an estimate, not a benchmark of one PC);
+ *   · gpuOk             FRIDAY runs it on a GPU (CTranslate2 float16); the ONNX models ship the CPU provider only;
+ *   · basis             "measured": peak RSS read on a Linux x86-64 box (4 cores, CPU int8, onnxruntime 1.32,
+ *                       faster-whisper 1.2.1) while loading and decoding 8 s of audio, 2026-11-23; "estimated":
+ *                       not run here, taken from the measured model of the same architecture or the publisher's size.
+ * Windows adds its own overhead, so these are floors; a measured value is a floor too (real speech decodes a little more).
+ */
+const FACTS = {
+  "Systran/faster-whisper-tiny": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: "int8 (CTranslate2, from float16)",
+    fallbackPriority: "lightweight",
+    basis: "measured",
+    peakRssMb: 256,
+  },
+  "Systran/faster-whisper-base": {
+    minRamGb: 0.4,
+    recommendedRamGb: 0.6,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: "int8 (CTranslate2, from float16)",
+    fallbackPriority: "lightweight",
+    basis: "measured",
+    peakRssMb: 347,
+  },
+  "Systran/faster-whisper-small": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: "int8 (CTranslate2, from float16)",
+    fallbackPriority: "primary",
+    basis: "measured",
+    peakRssMb: 736,
+  },
+  "Systran/faster-whisper-medium": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: "int8 on CPU, float16 on GPU (CTranslate2)",
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "dropbox-dash/faster-whisper-large-v3-turbo": {
+    minRamGb: 2.2,
+    recommendedRamGb: 3.3,
+    minVramGb: 3,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: "int8 on CPU, float16 on GPU (CTranslate2)",
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "Systran/faster-whisper-large-v3": {
+    minRamGb: 3.8,
+    recommendedRamGb: 5.7,
+    minVramGb: 5,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: "int8 on CPU, float16 on GPU (CTranslate2)",
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx": {
+    minRamGb: 0.4,
+    recommendedRamGb: 0.6,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "measured",
+    peakRssMb: 394,
+  },
+  "MSpider3/whisper-hindi2hinglish-swift-ct2": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: "int8 (CTranslate2, from float16)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "collabora/faster-whisper-small-hindi": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: true,
+    quantization: "int8 (CTranslate2, from float16)",
+    fallbackPriority: "accuracy",
+    basis: "estimated",
+  },
+  "1-800-BAD-CODE/punct_cap_seg_47_language": {
+    minRamGb: 0.5,
+    recommendedRamGb: 0.7,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "accuracy",
+    basis: "measured",
+    peakRssMb: 416,
+  },
+  "sulabhkatiyar/indic-tiny-tts-hindi": {
+    minRamGb: 0.2,
+    recommendedRamGb: 0.4,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 196,
+  },
+  "Supertone/supertonic-3": {
+    minRamGb: 0.5,
+    recommendedRamGb: 0.8,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "measured",
+    peakRssMb: 489,
+  },
+};
+
+/** The two helpers that are single files, not repositories (see `voice-weights.cjs` PINNED); they carry facts too. */
+const FILE_FACTS = {
+  "silero-vad": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
+  "smart-turn": {
+    minRamGb: 0.2,
+    recommendedRamGb: 0.3,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
+};
+
+/** Pinned facts of one repository, with `diskBytes` summed from the pin; null for a repository that is not pinned. */
+function manifestFor(repo) {
+  const key = ALIASES[repo] || repo;
+  if (!Object.prototype.hasOwnProperty.call(PINS, key) || !FACTS[key]) return null;
+  const pin = PINS[key];
+  return {
+    repo: key,
+    revision: pin.revision,
+    license: pin.license,
+    diskBytes: pinnedBytes(pin),
+    ...FACTS[key],
+  };
+}
+
 function pinForRepo(repo) {
   const key = ALIASES[repo] || repo;
   return Object.prototype.hasOwnProperty.call(PINS, key) ? PINS[key] : null;
@@ -410,6 +592,7 @@ function sha256File(file) {
  * repair removes only the files that failed and downloads only those again.
  */
 async function auditDir(dir, pin, options = {}) {
+  recoverSwap(dir);
   const stat = options.stat || ((file) => fs.statSync(file, { throwIfNoEntry: false }));
   const hashOf = options.hashFile || sha256File;
   const missing = [];
@@ -454,8 +637,356 @@ function removeBad(dir, audit, remove) {
   return bad;
 }
 
+/* ------------------------------------------------------------------ folder safety
+ * What keeps a pinned model folder trustworthy on disk: derived states, the disk preflight, the unexpected-file
+ * quarantine, the verified move, and the `<folder>.prev` revision swap with its rollback. Every function takes its
+ * file-system calls through `deps`, so a test needs no weights and no second volume.
+ */
+
+/** FRIDAY's own record inside a verified model folder: which revision and which files were checked. */
+const MARKER = ".friday-pin.json";
+/** Free space needed before a download starts, as a multiple of its bytes (room for the part files and the swap). */
+const DISK_FACTOR = 1.3;
+
+/** Files FRIDAY and its downloaders write into a model folder themselves; never "unexpected". */
+function isOwnFile(rel) {
+  return (
+    rel === MARKER ||
+    rel === ".friday-complete" ||
+    rel === ".cache" ||
+    rel.startsWith(".cache/") ||
+    /\.part(?:\.json)?$/.test(rel)
+  );
+}
+
+function walkFiles(dir, base = "") {
+  const found = [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(path.join(dir, ...(base ? base.split("/") : [])), {
+      withFileTypes: true,
+    });
+  } catch {
+    return found;
+  }
+  for (const entry of entries) {
+    const rel = base ? `${base}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) found.push(...walkFiles(dir, rel));
+    else found.push(rel);
+  }
+  return found;
+}
+
+/** Installed and verified state, derived from the folder every time: nothing about it is stored. */
+async function stateOf(dir, pin, options = {}) {
+  const audit = await auditDir(dir, pin, options);
+  const total = Object.keys(pin.files).length;
+  if (audit.missing.length === total) return { installState: "missing", verifyState: "unverified" };
+  if (audit.missing.length) return { installState: "partial", verifyState: "unverified" };
+  return { installState: "installed", verifyState: audit.ok ? "ok" : "damaged" };
+}
+
+/** The room a download needs, measured on the nearest folder that exists. An unreadable volume is not called full. */
+function diskPreflight(dir, needBytes, options = {}) {
+  const need = Math.max(0, Math.floor(Number(needBytes) || 0));
+  const requiredBytes = Math.ceil((need * 13) / 10);
+  if (!need) return { ok: true, requiredBytes: 0, freeBytes: null, error: "" };
+  const statfs = options.statfs || ((where) => fs.statfsSync(where));
+  let where = path.resolve(dir);
+  const exists = options.exists || ((file) => fs.existsSync(file));
+  while (!exists(where) && path.dirname(where) !== where) where = path.dirname(where);
+  let free = null;
+  try {
+    const stat = statfs(where);
+    free = Number(stat.bavail) * Number(stat.bsize);
+  } catch {
+    return { ok: true, requiredBytes, freeBytes: null, error: "" };
+  }
+  if (free >= requiredBytes) return { ok: true, requiredBytes, freeBytes: free, error: "" };
+  return {
+    ok: false,
+    requiredBytes,
+    freeBytes: free,
+    error: `not enough disk space: ${requiredBytes} bytes are needed (1.3 times the ${need}-byte download), ${free} bytes are free`,
+  };
+}
+
+/** Files in a pinned model folder that the pin does not list (README, a stray weight, a dropped program). */
+function unexpectedFiles(dir, pin, options = {}) {
+  const list = options.list || walkFiles;
+  return list(dir)
+    .filter((rel) => !isOwnFile(rel) && !Object.prototype.hasOwnProperty.call(pin.files, rel))
+    .sort();
+}
+
+function sha256FileSync(file) {
+  const hash = crypto.createHash("sha256");
+  const fd = fs.openSync(file, "r");
+  const buffer = Buffer.alloc(1024 * 1024);
+  try {
+    let read = 0;
+    while ((read = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Move a file and never lose it: a rename inside one volume, and when the rename crosses volumes (EXDEV, a folder
+ * junction on Windows) copy beside the target, compare size and SHA-256 with the source, rename the copy into place and
+ * only then delete the source. A failed or unequal copy is removed and the source stays where it was.
+ */
+function moveVerified(src, dest, options = {}) {
+  const rename = options.rename || fs.renameSync;
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    rename(src, dest);
+    return { ok: true, via: "rename" };
+  } catch (err) {
+    if (err?.code !== "EXDEV")
+      return { ok: false, via: "rename", error: String(err?.message || err) };
+  }
+  const copy = options.copy || fs.copyFileSync;
+  const staged = `${dest}.moving`;
+  try {
+    copy(src, staged);
+    if (fs.statSync(staged).size !== fs.statSync(src).size)
+      throw new Error("the copy has a different size");
+    if (sha256FileSync(staged) !== sha256FileSync(src))
+      throw new Error("the copy fails its SHA-256");
+    fs.renameSync(staged, dest);
+    fs.rmSync(src, { force: true });
+    return { ok: true, via: "copy" };
+  } catch (err) {
+    fs.rmSync(staged, { force: true });
+    return { ok: false, via: "copy", error: String(err?.message || err) };
+  }
+}
+
+/** A relative name that stays inside its folder (no `..`, no drive, no absolute path). */
+function insideFolder(rel) {
+  const text = String(rel || "");
+  if (!text || path.isAbsolute(text) || /^[a-zA-Z]:/.test(text)) return false;
+  return !text.split(/[\\/]+/).includes("..");
+}
+
+/**
+ * Move the files a pin does not list out of the model folder into `to` (kept, reversible, nothing is deleted),
+ * keeping their relative paths, then remove the folders that this left empty.
+ */
+function quarantineFiles(dir, names, to, options = {}) {
+  const moved = [];
+  const failed = [];
+  for (const rel of names) {
+    if (!insideFolder(rel)) {
+      failed.push(rel);
+      continue;
+    }
+    const parts = rel.split("/");
+    const result = moveVerified(path.join(dir, ...parts), path.join(to, ...parts), options);
+    (result.ok ? moved : failed).push(rel);
+    if (!result.ok) continue;
+    for (let depth = parts.length - 1; depth > 0; depth -= 1) {
+      const folder = path.join(dir, ...parts.slice(0, depth));
+      try {
+        if (fs.readdirSync(folder).length) break;
+        fs.rmdirSync(folder);
+      } catch {
+        break;
+      }
+    }
+  }
+  return { moved, failed, to };
+}
+
+/** Record that this folder was checked against this pin (written only after the size and SHA-256 checks pass). */
+function writeMarker(dir, repo, pin, options = {}) {
+  try {
+    const record = {
+      schema: 1,
+      repo: ALIASES[repo] || repo,
+      revision: pin.revision,
+      verifiedAt: (options.now ? options.now() : new Date()).toISOString(),
+      files: Object.fromEntries(
+        Object.entries(pin.files).map(([name, row]) => [
+          name,
+          { bytes: row.bytes, sha256: row.sha256 },
+        ]),
+      ),
+    };
+    const file = path.join(dir, MARKER);
+    fs.writeFileSync(`${file}.part`, JSON.stringify(record, null, 2));
+    fs.renameSync(`${file}.part`, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readMarker(dir) {
+  try {
+    const record = JSON.parse(fs.readFileSync(path.join(dir, MARKER), "utf8"));
+    if (
+      typeof record?.repo === "string" &&
+      typeof record?.revision === "string" &&
+      record.files &&
+      typeof record.files === "object"
+    ) {
+      return record;
+    }
+  } catch {
+    /* no marker, or one that cannot be read: the folder is simply not certified */
+  }
+  return null;
+}
+
+const prevOf = (dir) => `${dir}.prev`;
+
+/** The kept previous revision of a model folder, if any: its revision and the bytes it takes. */
+function previousInfo(dir) {
+  const marker = readMarker(prevOf(dir));
+  if (!fs.existsSync(prevOf(dir))) return { exists: false, revision: "", bytes: 0 };
+  const bytes = marker
+    ? Object.values(marker.files).reduce((sum, row) => sum + (Number(row?.bytes) || 0), 0)
+    : 0;
+  return { exists: true, revision: marker?.revision || "", bytes };
+}
+
+function discardPrevious(dir) {
+  if (!fs.existsSync(prevOf(dir))) return false;
+  fs.rmSync(prevOf(dir), { recursive: true, force: true });
+  return true;
+}
+
+/**
+ * A kill between the steps of a swap leaves the verified copy only as `<folder>.swap`, with the folder itself gone.
+ * Put it back (the folder missing and `.swap` present is the whole test); called at the start of every swap and audit,
+ * so the copy is never left aside and never deleted while it is the only one.
+ */
+function recoverSwap(dir, rename = fs.renameSync) {
+  const aside = `${dir}.swap`;
+  try {
+    if (fs.existsSync(dir) || !fs.existsSync(aside)) return { recovered: false };
+    rename(aside, dir);
+    return { recovered: true };
+  } catch {
+    return { recovered: false };
+  }
+}
+
+/**
+ * The pinned revision changed and the folder on disk is a complete, verified copy of an older one: keep it whole as
+ * `<folder>.prev` (one generation; an older `.prev` is dropped) and start the new revision in a fresh folder, seeded with
+ * the files whose pinned SHA-256 did not change (a hard link, or a copy where links are not allowed). A folder with no
+ * marker, the same revision, or an incomplete old copy is left to the ordinary repair, which only replaces bad files.
+ */
+function beginRevisionSwap(dir, repo, pin, options = {}) {
+  const rename = options.rename || fs.renameSync;
+  const none = (reason) => ({ swapped: false, prev: prevOf(dir), seeded: [], reason });
+  recoverSwap(dir);
+  const marker = readMarker(dir);
+  if (!marker) return none("the folder has no verification marker");
+  if (marker.repo !== (ALIASES[repo] || repo))
+    return none("the marker belongs to another repository");
+  if (marker.revision === pin.revision) return none("the pinned revision did not change");
+  for (const [name, row] of Object.entries(marker.files)) {
+    const info = fs.statSync(path.join(dir, ...name.split("/")), { throwIfNoEntry: false });
+    if (!info || !info.isFile() || info.size !== row.bytes)
+      return none("the old copy is not complete");
+  }
+  const prev = prevOf(dir);
+  const aside = `${dir}.swap`;
+  try {
+    // The folder moves aside first: if that fails (a file is open on Windows) nothing has been lost, not even an older .prev.
+    // A leftover `.swap` is only removed here because the folder beside it is certified and complete (checked above).
+    fs.rmSync(aside, { recursive: true, force: true });
+    rename(dir, aside);
+  } catch (err) {
+    return none(`the folder could not be moved (${String(err?.message || err)})`);
+  }
+  try {
+    fs.rmSync(prev, { recursive: true, force: true });
+    rename(aside, prev);
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    try {
+      if (!fs.existsSync(dir)) rename(fs.existsSync(aside) ? aside : prev, dir);
+    } catch {
+      /* the error below says where the folder is */
+    }
+    return none(`the folder could not be kept (${String(err?.message || err)})`);
+  }
+  const seeded = [];
+  for (const [name, row] of Object.entries(pin.files)) {
+    const old = marker.files[name];
+    if (!old || old.sha256 !== row.sha256 || old.bytes !== row.bytes) continue;
+    const from = path.join(prev, ...name.split("/"));
+    const to = path.join(dir, ...name.split("/"));
+    try {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      try {
+        fs.linkSync(from, to);
+      } catch {
+        fs.copyFileSync(from, to);
+      }
+      seeded.push(name);
+    } catch {
+      /* a file that could not be seeded is simply downloaded again */
+    }
+  }
+  return { swapped: true, prev, seeded, reason: "" };
+}
+
+/** Put the previous verified revision back in place of a new one that failed to verify or to load. */
+function rollbackToPrevious(dir) {
+  const prev = prevOf(dir);
+  if (!fs.existsSync(prev)) {
+    return { ok: false, revision: "", error: "no previous revision is kept for this model" };
+  }
+  const revision = readMarker(prev)?.revision || "";
+  const failed = `${dir}.failed`;
+  try {
+    fs.rmSync(failed, { recursive: true, force: true });
+    if (fs.existsSync(dir)) fs.renameSync(dir, failed);
+    fs.renameSync(prev, dir);
+    fs.rmSync(failed, { recursive: true, force: true });
+  } catch (err) {
+    if (!fs.existsSync(dir) && fs.existsSync(failed)) {
+      try {
+        fs.renameSync(failed, dir);
+      } catch {
+        /* the folder stays where it is; the error below says why */
+      }
+    }
+    return { ok: false, revision, error: String(err?.message || err) };
+  }
+  return { ok: true, revision, error: "" };
+}
+
 module.exports = {
   PINS,
+  FACTS,
+  FILE_FACTS,
+  MARKER,
+  DISK_FACTOR,
+  manifestFor,
+  stateOf,
+  diskPreflight,
+  unexpectedFiles,
+  quarantineFiles,
+  moveVerified,
+  insideFolder,
+  writeMarker,
+  readMarker,
+  previousInfo,
+  discardPrevious,
+  beginRevisionSwap,
+  recoverSwap,
+  rollbackToPrevious,
+  sha256FileSync,
   pinForRepo,
   pinnedRepos,
   pinnedBytes,

@@ -677,6 +677,15 @@ def enroll_op(req: dict) -> dict:
     if op == "enroll_summary":
         return {"ok": True, "op": op, "summary": ve.public_summary(_owner_profile)}
     if op == "enroll_build":
+        # A voiceprint is made only after the owner agreed (electron/voice-privacy.cjs checks the consent record
+        # and says so here). A request without it builds nothing and keeps no profile.
+        if req.get("consent") is not True:
+            return {
+                "ok": False,
+                "op": op,
+                "reason": "consent-required",
+                "error": "the owner has not agreed to store a voice sample",
+            }
         clips = []
         skipped = []
         for item in req.get("samples") or []:

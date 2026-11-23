@@ -132,6 +132,38 @@ function smallerModel(name) {
   return MODEL_ORDER[Math.min(MODEL_ORDER.length - 1, index + 1)];
 }
 
+/**
+ * The size this PC and this listening language can carry on Auto, or null when small (today's default) is right.
+ * Memory follows the same thresholds as applySttTier and kernel select_model (under 4 GB tiny, under 8 GB base), but
+ * never steps UP past small: a larger size is slower, and only the owner's lock opens it. Plain English (en-US) is
+ * heard as well by base on clean speech and about 2.4 times faster; Indian English, Hindi, Hinglish and auto keep small.
+ */
+function hardwareSize(input) {
+  const ram = Number(input?.ramGb || 0);
+  if (ram > 0 && ram < 4) {
+    return {
+      model: "tiny",
+      upgrade: null,
+      reason: "this PC has under 4 GB of memory, so the smallest size listens",
+    };
+  }
+  if (ram > 0 && ram < 8) {
+    return {
+      model: "base",
+      upgrade: null,
+      reason: "this PC has under 8 GB of memory, so base listens",
+    };
+  }
+  if (/^en-us\b/i.test(String(input?.language || "").replace(/_/g, "-"))) {
+    return {
+      model: "base",
+      upgrade: null,
+      reason: "English (US) is heard as well by base, and sooner",
+    };
+  }
+  return null;
+}
+
 function bootModel(input) {
   const known = new Set(MODEL_ORDER);
   const requested = String(input?.requested || "auto");
@@ -156,6 +188,8 @@ function bootModel(input) {
       reason: "the first load was slow, so listening starts on a smaller model",
     };
   }
+  const hardware = hardwareSize(input);
+  if (hardware) return hardware;
   if (input?.baseCached && !input?.smallCached) {
     return {
       model: "base",
@@ -196,6 +230,17 @@ function classifyDownloadError(text) {
   }
   if (/checksum mismatch/i.test(s)) {
     return { cause: "checksum", line: "checksum mismatch" };
+  }
+  if (/not enough disk space/i.test(s)) {
+    // The preflight in the downloader names the bytes it needs and the bytes that are free.
+    return {
+      cause: "disk",
+      line: s
+        .replace(/^.*?(not enough disk space)/i, "$1")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 200),
+    };
   }
   if (/ENOSPC|disk full|No space/i.test(s)) {
     return { cause: "disk", line: "disk full" };

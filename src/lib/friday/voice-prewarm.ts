@@ -117,6 +117,9 @@ export function createPrewarmIO(alive: () => boolean = () => true): PrewarmIO {
         audioBytes: silence(),
         mime: "audio/wav",
         ...(language ? { language } : {}),
+        // The same listening choice as a real turn, so the warm-up wakes the engine this turn will use (the Hindi ear
+        // loads only when Hindi or auto is chosen).
+        ...(voice.recognitionLang ? { speechPref: voice.recognitionLang } : {}),
         localOnly: true,
         // A provisional pass is never counted as heard or dropped and never written to the hearing log.
         provisional: true,
