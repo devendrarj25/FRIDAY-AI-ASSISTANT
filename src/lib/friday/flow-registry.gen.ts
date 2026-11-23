@@ -1203,6 +1203,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "governor:status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "hardware:detect",
       file: "electron/main.cjs",
     },
@@ -1284,6 +1288,18 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "import:verify-packs",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "installer:catalog",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "installer:refresh",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "installer:update",
       file: "electron/main.cjs",
     },
     {
@@ -9514,8 +9530,8 @@ export const FLOW_REGISTRY = {
       total: 1108,
     },
     ipc: {
-      mapped: 509,
-      total: 509,
+      mapped: 513,
+      total: 513,
     },
     kernel: {
       mapped: 14,

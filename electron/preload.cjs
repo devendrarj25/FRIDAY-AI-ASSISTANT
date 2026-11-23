@@ -162,6 +162,9 @@ contextBridge.exposeInMainWorld("friday", {
   detectComponents: () => ipcRenderer.invoke("components:detect"),
   detectHardware: () => ipcRenderer.invoke("hardware:detect"),
   hardwareFacts: (force) => ipcRenderer.invoke("hardware:facts", force === true),
+  // The resource governor (electron/resource-governor.cjs): a read-only status and its one-line notices.
+  governorStatus: () => ipcRenderer.invoke("governor:status"),
+  onGovernorNotice: on("governor:notice"),
   detectSensors: () => ipcRenderer.invoke("system:sensors"),
   detectSecurity: () => ipcRenderer.invoke("system:security"),
   detectReliability: () => ipcRenderer.invoke("system:reliability"),
@@ -574,6 +577,10 @@ contextBridge.exposeInMainWorld("friday", {
   setToolServiceIdle: (minutes) => ipcRenderer.invoke("tools:service-idle", minutes),
   onToolServicesChanged: on("tools:services-changed"),
   latestToolVersions: (force) => ipcRenderer.invoke("tools:latest", Boolean(force)),
+  // The Install Manager catalogue: fit, installed and latest version, update status per row.
+  installerCatalog: () => ipcRenderer.invoke("installer:catalog"),
+  refreshInstallerCatalog: () => ipcRenderer.invoke("installer:refresh"),
+  updateInstallerRow: (request) => ipcRenderer.invoke("installer:update", request),
   runToolJob: (job) => ipcRenderer.invoke("tools:run", job),
   cancelToolJob: (job) => ipcRenderer.invoke("tools:cancel", job),
   listToolExtensions: () => ipcRenderer.invoke("tools:extensions"),

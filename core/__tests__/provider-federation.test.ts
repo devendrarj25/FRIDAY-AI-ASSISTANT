@@ -276,9 +276,22 @@ describe("provider federation", () => {
 
   it("pins the Windows CPU pack and unpacks a zip instead of running it", () => {
     const tool = toolchain.TOOLS.find((row: { id: string }) => row.id === "llama.cpp");
-    expect(tool?.sha256).toBe("29f91327f4e98fcac93e3b44e6cc54beda26468eb9ffeb804a08cfa67bda8c5b");
-    expect(tool?.needBytes).toBe(19161151);
-    expect(tool?.installerUrl).toContain("llama-b11243-bin-win-cpu-x64.zip");
+    // One source of truth: the pin in config/local-runners.json (setup downloads it too). No literal tag here.
+    const pin = JSON.parse(
+      fs.readFileSync(path.resolve(import.meta.dirname, "../../config/local-runners.json"), "utf8"),
+    ).runners.find((r: { id: string }) => r.id === "llamacpp").release;
+    expect(pin.tag).toMatch(/^b\d+$/);
+    expect(pin.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(tool?.sha256).toBe(pin.sha256);
+    expect(tool?.needBytes).toBe(pin.bytes);
+    expect(tool?.installerUrl).toBe(pin.url);
+    expect(tool?.installerUrl).toContain(pin.asset);
+    expect(pin.url).toContain(`/${pin.tag}/`);
+    // the engine installer's last-resort source is the same pin
+    expect(require_("../../electron/engine-install.cjs").llamaPin()).toMatchObject({
+      tag: pin.tag,
+      assets: [{ url: pin.url, sha256: pin.sha256, bytes: pin.bytes }],
+    });
     expect(tool?.archiveBin).toBe("llama-server.exe");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-llama-"));
     const zip = path.join(root, "pack.zip");

@@ -78,6 +78,7 @@ import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
 import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/installer-engine";
 import { useInstaller } from "@/lib/friday/use-installer";
 import { ModelsLivePanel } from "@/components/friday/ModelsLivePanel";
+import { InstallerFitPanel } from "@/components/friday/InstallerFitPanel";
 import { VoicePacksCard } from "@/components/friday/VoicePacksCard";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
@@ -1163,7 +1164,10 @@ function ModelsPage() {
         />
 
         {section === "local" && (tab === "catalog" || tab === "installed") ? (
-          <VoicePacksCard />
+          <>
+            <VoicePacksCard />
+            <InstallerFitPanel scope="models" />
+          </>
         ) : null}
 
         {/* --------------------------------------------------------- catalog */}

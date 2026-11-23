@@ -350,6 +350,8 @@ function attachWorker(child, generation) {
     pending: new Map(),
     intentional: false,
     err: "",
+    // A worker that has not been asked anything yet is new, not idle (releaseIdle).
+    lastUsedAt: Date.now(),
   };
   child.stderr?.on("data", (chunk) => {
     session.err += String(chunk);
@@ -406,6 +408,7 @@ function attachWorker(child, generation) {
 
 function workerRequest(session, payload, timeoutMs, onStream) {
   const id = ++workerSeq;
+  if (session) session.lastUsedAt = Date.now();
   return new Promise((resolve, reject) => {
     if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) {
       reject(new Error("STT worker is not running"));
@@ -585,7 +588,130 @@ async function chooseWeights(wanted, onEvent) {
   };
 }
 
+// The resource governor's load leases (electron/load-lease.cjs). Absent: the worker loads exactly as it always did.
+let loadLeases = null;
+let speechHeld = null;
+/** The most the speech worker waits for the governor's answer before it loads as before (ms). */
+const SPEECH_LEASE_BOUND_MS = 400;
+function setLoadLeases(api) {
+  loadLeases = api && typeof api.acquire === "function" ? api : null;
+}
+
+/** Speech sizes the PC could load for `wanted`: itself first, then smaller installed ones, each with its weight memory. */
+function speechLoadOptions(wanted) {
+  const weights = require("./voice-weights.cjs");
+  const have = new Set(weights.installedSizes(paths.root() || "", (file) => fs.existsSync(file)));
+  const at = weights.SIZE_ORDER.indexOf(wanted);
+  const sizes = [wanted, ...weights.SIZE_ORDER.slice(0, Math.max(0, at)).reverse()].filter(
+    (size, index) => index === 0 || have.has(size),
+  );
+  const onGpu = process.env.FRIDAY_STT_CUDA === "1";
+  return sizes
+    .map((size) => ({
+      size,
+      need: Number(weights.manifestOf(weights.STT_CATALOG[size])?.minRamGb) || 0,
+    }))
+    .filter((row) => row.need > 0)
+    .map((row) => ({
+      size: row.size,
+      option: { [onGpu ? "vramGb" : "ramGb"]: row.need, hint: row.size },
+    }));
+}
+
+/**
+ * Ask the governor for the speech worker's memory before it loads, as the voice priority. Resolves the size to load
+ * (a smaller installed one when `wanted` does not fit) and `done` / `fail` for the caller to settle the lease. The
+ * lease stays held while the worker lives (its `alive` check lets the governor drop it when the worker is gone).
+ * Voice is never blocked: a refusal loads the smallest installed size anyway, and the owner already has the reason.
+ */
+async function leaseSpeechLoad(wanted) {
+  const plain = { size: wanted, done() {}, fail() {}, release() {} };
+  try {
+    const rows = speechLoadOptions(wanted);
+    if (!rows.length) return plain;
+    const holder = { loading: true };
+    const asked = loadLeases.acquire({
+      owner: "speech-worker",
+      kind: "speech",
+      priority: "voice",
+      label: "The speech model",
+      options: rows.map((row) => row.option),
+      alive: () => holder.loading || Boolean(worker?.alive),
+    });
+    // Voice never waits long for the governor: past the bound the worker loads as before, and a lease that lands
+    // afterwards is handed back, since no worker holds it.
+    let timer = null;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), SPEECH_LEASE_BOUND_MS);
+      timer.unref?.();
+    });
+    const taken = await Promise.race([Promise.resolve(asked), late]);
+    clearTimeout(timer);
+    if (!taken) {
+      Promise.resolve(asked).then(
+        (after) => {
+          try {
+            after?.lease?.release?.();
+          } catch {
+            /* already gone */
+          }
+        },
+        () => {},
+      );
+      return plain;
+    }
+    if (taken.state === "refused") return { ...plain, size: rows[rows.length - 1].size };
+    if (taken.state !== "granted") return plain;
+    const size = rows.find((row) => row.size === taken.hint)?.size ?? wanted;
+    const giveBack = () => {
+      holder.loading = false;
+      taken.lease.release();
+    };
+    return {
+      size,
+      done() {
+        holder.loading = false;
+        taken.lease.loaded?.();
+      },
+      fail: giveBack,
+      // The worker is gone (closed for memory, muted, shut down): its lease goes back with it.
+      release: giveBack,
+    };
+  } catch {
+    return plain;
+  }
+}
+
+/** The load itself runs in the governor's one-at-a-time model-load slot; voice never gives up waiting for it. */
+async function guardedLoad(run) {
+  if (!loadLeases) return run();
+  const slot = await loadLeases.runLoad("voice", run);
+  return slot.ran ? slot.value : run();
+}
+
 async function ensureWorker(model, onEvent, options = {}) {
+  const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
+  const resident =
+    worker?.alive && worker.loaded && (worker.modelName === wanted || worker.leasedFor === wanted);
+  if (!loadLeases || options.load === false || resident) return loadWorker(model, onEvent, options);
+  // One lease per resident worker: the one it holds is replaced, never stacked.
+  speechHeld?.fail();
+  const held = await leaseSpeechLoad(wanted);
+  speechHeld = held;
+  try {
+    const session = await loadWorker(held.size, onEvent, options);
+    // Only a worker that got the size it asked for counts as already leased for it; a smaller one asks again later.
+    if (session && held.size === wanted) session.leasedFor = wanted;
+    return session;
+  } catch (error) {
+    held.fail();
+    throw error;
+  } finally {
+    held.done();
+  }
+}
+
+async function loadWorker(model, onEvent, options = {}) {
   let wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
   const loadModel = options.load !== false;
   let modelPath = "";
@@ -598,10 +724,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   if (worker?.alive) {
     if (!loadModel) return worker;
     if (worker.modelName && worker.modelName !== wanted) {
-      const loaded = await workerRequest(
-        worker,
-        { op: "load", model: wanted, model_path: modelPath },
-        180000,
+      const loaded = await guardedLoad(() =>
+        workerRequest(worker, { op: "load", model: wanted, model_path: modelPath }, 180000),
       );
       if (!loaded?.ok) throw new Error(loaded?.error || "STT model reload failed");
       worker.loaded = true;
@@ -657,10 +781,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   }
   if (!loadModel) return session;
   lastLocalLayers.dependency = "ready";
-  const loaded = await workerRequest(
-    session,
-    { op: "load", model: wanted, model_path: modelPath },
-    180000,
+  const loaded = await guardedLoad(() =>
+    workerRequest(session, { op: "load", model: wanted, model_path: modelPath }, 180000),
   );
   if (!loaded?.ok) {
     lastLocalLayers.inference = "failed";
@@ -1530,10 +1652,13 @@ async function openWhisperServer(found) {
   return session;
 }
 
-function shutdown() {
+function shutdown(session = worker) {
   onMute(true);
-  const session = worker;
-  worker = null;
+  if (worker === session) {
+    worker = null;
+    speechHeld?.release();
+    speechHeld = null;
+  }
   lastLocalLayers.worker = "stopped";
   lastLocalLayers.inference = "unverified";
   cachedStatus = null;
@@ -1549,6 +1674,17 @@ function shutdown() {
   rejectPending(session, new Error("STT worker shutting down"));
   const child = session.child;
   setTimeout(() => killTree(child), 400);
+}
+
+/**
+ * Memory pressure (electron/resource-governor.cjs): close the speech worker when it has nothing in flight and has
+ * not been asked anything for `minIdleMs`. It starts again on the next turn. Returns whether it was closed.
+ */
+function releaseIdle(minIdleMs = 60_000, session = worker) {
+  if (!session?.alive || session.pending.size > 0) return false;
+  if (Date.now() - (session.lastUsedAt || 0) < minIdleMs) return false;
+  shutdown(session);
+  return true;
 }
 
 /** Drop stale capture files left behind by a crash. Called at startup. */
@@ -1578,6 +1714,9 @@ module.exports = {
   cudaRuntimeVerdict,
   install,
   setProgressSink,
+  setLoadLeases,
+  speechLoadOptions,
+  leaseSpeechLoad,
   transcribe,
   runProvisional,
   cancelTranscribe,
@@ -1591,6 +1730,7 @@ module.exports = {
   turnAudioBuffer,
   sweep,
   shutdown,
+  releaseIdle,
   onMute,
   MODELS,
   DEFAULT_MODEL,

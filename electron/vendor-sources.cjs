@@ -517,6 +517,623 @@ function parseWingetUpgrade(text) {
   return out;
 }
 
+/* ------------------------------------------------- ordered source chains */
+/**
+ * One row, several official places to ask. A chain is an ordered list of source specs; each is tried with its own
+ * short timeout and the first that answers wins, so a rate limit, an outage or a slow host never blocks the catalogue.
+ *
+ *   github-api    api.github.com releases/latest      version, assets and their `digest`
+ *   github-atom   github.com releases.atom            version only (no API quota, no digest)
+ *   pypi-json     pypi.org/pypi/<pkg>/json            newest release with a wheel for the platform, sha256 per file
+ *   pypi-simple   pypi.org/simple/<pkg>/ (PEP 691)    the same answer from the index itself
+ *   npm, npm-mirror   registry.npmjs.org, registry.npmmirror.com
+ *   hf-api        huggingface.co/api/models/<repo>    the revision and the LFS sha256 of each file
+ *   feed          a vendor feed above (nodejs.org, go.dev, ...)
+ *   pinned        the catalogue's own pin; used last, after the cached answer
+ *
+ * A source that sent an ETag or Last-Modified is asked again with If-None-Match / If-Modified-Since, so a 304 costs
+ * no body (and no GitHub quota). Answers live in a small JSON file in the data root; with every source down the last
+ * answer is served marked `stale`, never an empty row. Nothing here owns a timer: the daily pass is planned by
+ * `planFeedRefresh` and started by the refresh scheduler that already runs.
+ */
+const nodeFs = require("node:fs");
+const nodePath = require("node:path");
+const nodeCrypto = require("node:crypto");
+
+const FEED_FRESH_MS = 24 * 60 * 60 * 1000;
+const MANUAL_MIN_MS = 60 * 1000;
+const SOURCE_TIMEOUT_MS = 6000;
+const STORE_SCHEMA = 1;
+
+const shortError = (error) =>
+  String(error?.message || error || "failed")
+    .replace(/\s+/g, " ")
+    .slice(0, 160);
+
+/** Numeric dotted compare; a pre-release (1.0.0rc1, 2.0a3, 1.0.dev4) is older than its release. */
+function compareVersions(a, b) {
+  const parse = (v) => {
+    const m = /^v?(\d+(?:\.\d+)*)(.*)$/.exec(String(v ?? "").trim());
+    if (!m) return { n: [], pre: false };
+    return {
+      n: m[1].split(".").map(Number),
+      pre: /^[-._]?(a|b|c|rc|alpha|beta|dev|pre)/i.test(m[2]),
+    };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < Math.max(x.n.length, y.n.length); i += 1) {
+    const d = (x.n[i] || 0) - (y.n[i] || 0);
+    if (d) return d;
+  }
+  return Number(y.pre) - Number(x.pre);
+}
+const isPrerelease = (version) => /\d[-._]?(a|b|c|rc|alpha|beta|dev|pre)\d*/i.test(String(version));
+
+/** One GET with a hard deadline (abort signal AND a race, for a fetch that ignores the signal). */
+async function httpGet(
+  url,
+  { fetchImpl = fetchCompat, timeout = SOURCE_TIMEOUT_MS, headers = {}, cond = null } = {},
+) {
+  const host = new URL(url).hostname;
+  const controller = new AbortController();
+  let timer = null;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${host} timed out after ${timeout} ms`));
+    }, timeout);
+  });
+  const send = {
+    ...UA,
+    ...headers,
+    ...(cond?.etag ? { "if-none-match": cond.etag } : {}),
+    ...(cond?.lastModified ? { "if-modified-since": cond.lastModified } : {}),
+  };
+  try {
+    return await Promise.race([
+      (async () => {
+        const res = await fetchImpl(url, {
+          headers: send,
+          signal: controller.signal,
+          redirect: "follow",
+        });
+        const status = Number(res.status) || 0;
+        const header = (name) =>
+          (typeof res.headers?.get === "function" ? res.headers.get(name) : null) || null;
+        const meta = {
+          status,
+          etag: header("etag"),
+          lastModified: header("last-modified"),
+          url: res.url || url,
+        };
+        if (status === 304) return { ...meta, notModified: true, text: "" };
+        if (!res.ok) throw new Error(`${host} answered ${status}`);
+        return { ...meta, notModified: false, text: await res.text() };
+      })(),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const parseJson = (text, what) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${what} sent a document that is not JSON`);
+  }
+};
+
+function stripTag(tag, strip) {
+  const text = String(tag || "");
+  if (strip) return text.replace(new RegExp(strip), "");
+  return text.replace(/^v(?=\d)/, "");
+}
+
+function parseGithubRelease(json, strip) {
+  const tag = String(json?.tag_name || "");
+  if (!tag) throw new Error("the release has no tag");
+  return {
+    version: stripTag(tag, strip),
+    tag,
+    assets: (Array.isArray(json.assets) ? json.assets : []).map((a) => ({
+      name: String(a.name || ""),
+      url: String(a.browser_download_url || ""),
+      bytes: Number(a.size) || 0,
+      sha256: stripSha(a.digest),
+    })),
+  };
+}
+
+function parseAtomTag(xml, strip) {
+  const m = /<entry>[\s\S]*?href="[^"]*\/releases\/tag\/([^"]+)"/.exec(String(xml || ""));
+  if (!m) throw new Error("the feed lists no release");
+  const tag = decodeURIComponent(m[1]);
+  return { version: stripTag(tag, strip), tag, assets: [] };
+}
+
+const wheelVersion = (filename) => {
+  const parts = String(filename)
+    .replace(/\.(whl|tar\.gz|zip)$/i, "")
+    .split("-");
+  return parts.length >= 2 ? parts[1] : "";
+};
+
+/** The newest non-pre-release version in `byVersion` ({ version: files[] }) whose files satisfy `fits`. */
+function newestWithFiles(byVersion, fits) {
+  const versions = Object.keys(byVersion)
+    .filter((v) => !isPrerelease(v))
+    .filter((v) => (byVersion[v] || []).some(fits))
+    .sort((a, b) => compareVersions(b, a));
+  return versions[0] || null;
+}
+
+function parsePypiJson(json, platform) {
+  const releases = json?.releases && typeof json.releases === "object" ? json.releases : {};
+  const fits = (f) => !f.yanked && (!platform || String(f.filename).includes(platform));
+  const version = platform ? newestWithFiles(releases, fits) : String(json?.info?.version || "");
+  if (!version) throw new Error(`no ${platform || "release"} file is published`);
+  return {
+    version,
+    assets: (releases[version] || []).filter(fits).map((f) => ({
+      name: f.filename,
+      url: f.url,
+      bytes: Number(f.size) || 0,
+      sha256: stripSha(f.digests?.sha256),
+    })),
+  };
+}
+
+function parsePypiSimple(json, platform) {
+  const files = (Array.isArray(json?.files) ? json.files : []).filter((f) => !f.yanked);
+  const byVersion = {};
+  for (const f of files) {
+    const v = wheelVersion(f.filename);
+    if (v) (byVersion[v] ||= []).push(f);
+  }
+  const fits = (f) => !platform || String(f.filename).includes(platform);
+  const version = newestWithFiles(byVersion, fits);
+  if (!version) throw new Error(`no ${platform || "release"} file is published`);
+  return {
+    version,
+    assets: byVersion[version].filter(fits).map((f) => ({
+      name: f.filename,
+      url: f.url,
+      bytes: Number(f.size) || 0,
+      sha256: stripSha(f.hashes?.sha256),
+    })),
+  };
+}
+
+function parseHfModel(json, repo) {
+  const sha = String(json?.sha || "");
+  if (!sha) throw new Error("the model page has no revision");
+  return {
+    version: sha,
+    revision: sha,
+    assets: (Array.isArray(json.siblings) ? json.siblings : []).map((s) => ({
+      name: String(s.rfilename || ""),
+      url: `https://huggingface.co/${repo}/resolve/${sha}/${s.rfilename}`,
+      bytes: Number(s.lfs?.size ?? s.size) || 0,
+      sha256: stripSha(s.lfs?.sha256),
+    })),
+  };
+}
+
+const pepName = (pkg) =>
+  String(pkg)
+    .toLowerCase()
+    .replace(/[-_.]+/g, "-");
+
+/** Readers return `{ value }` (a fresh answer) or `{ notModified: true }`, plus the validators to send next time. */
+const SOURCE_READERS = {
+  "github-api": async (s, ctx) => {
+    const got = await httpGet(`https://api.github.com/repos/${s.repo}/releases/latest`, {
+      ...ctx,
+      headers: { accept: "application/vnd.github+json" },
+    });
+    if (got.notModified) return got;
+    return { ...got, value: parseGithubRelease(parseJson(got.text, "api.github.com"), s.strip) };
+  },
+  "github-atom": async (s, ctx) => {
+    const got = await httpGet(`https://github.com/${s.repo}/releases.atom`, {
+      ...ctx,
+      headers: { accept: "application/atom+xml, application/xml;q=0.9, */*;q=0.5" },
+    });
+    if (got.notModified) return got;
+    return { ...got, value: parseAtomTag(got.text, s.strip) };
+  },
+  "pypi-json": async (s, ctx) => {
+    const got = await httpGet(`https://pypi.org/pypi/${s.pkg}/json`, ctx);
+    if (got.notModified) return got;
+    return { ...got, value: parsePypiJson(parseJson(got.text, "pypi.org"), s.platform) };
+  },
+  "pypi-simple": async (s, ctx) => {
+    const got = await httpGet(`https://pypi.org/simple/${pepName(s.pkg)}/`, {
+      ...ctx,
+      headers: { accept: "application/vnd.pypi.simple.v1+json" },
+    });
+    if (got.notModified) return got;
+    return { ...got, value: parsePypiSimple(parseJson(got.text, "pypi.org"), s.platform) };
+  },
+  npm: async (s, ctx) => {
+    const got = await httpGet(`https://registry.npmjs.org/${s.pkg}/latest`, ctx);
+    if (got.notModified) return got;
+    return {
+      ...got,
+      value: {
+        version: String(parseJson(got.text, "registry.npmjs.org").version || ""),
+        assets: [],
+      },
+    };
+  },
+  "npm-mirror": async (s, ctx) => {
+    const got = await httpGet(`https://registry.npmmirror.com/${s.pkg}/latest`, ctx);
+    if (got.notModified) return got;
+    return {
+      ...got,
+      value: {
+        version: String(parseJson(got.text, "registry.npmmirror.com").version || ""),
+        assets: [],
+      },
+    };
+  },
+  "hf-api": async (s, ctx) => {
+    const got = await httpGet(`https://huggingface.co/api/models/${s.repo}?blobs=true`, ctx);
+    if (got.notModified) return got;
+    return { ...got, value: parseHfModel(parseJson(got.text, "huggingface.co"), s.repo) };
+  },
+  feed: async (s, ctx) => {
+    const feed = await resolveFeed(s.id, {
+      fetchImpl: ctx.fetchImpl,
+      timeout: ctx.timeout,
+      force: true,
+    });
+    if (!feed?.version) throw new Error(feedFailure(s.id) || "the vendor feed gave no answer");
+    const install = feed.install;
+    return {
+      status: 200,
+      value: {
+        version: String(feed.version),
+        assets: install
+          ? [
+              {
+                name: decodeURIComponent(String(install.url).split("?")[0].split("/").pop() || ""),
+                url: install.url,
+                bytes: Number(feed.bytes) || 0,
+                sha256: stripSha(install.sha256),
+              },
+            ]
+          : [],
+      },
+    };
+  },
+};
+
+/**
+ * The answers kept between runs: `{ schema, rows: { id: { row, sources } } }` in one JSON file (the data root's
+ * `cache/vendor-feeds.json`). Reads once, never throws, writes atomically and only when something changed.
+ */
+function createFeedStore({ file, fs: fsApi = nodeFs } = {}) {
+  let data = null;
+  let dirty = false;
+  const load = () => {
+    if (data) return data;
+    data = { schema: STORE_SCHEMA, rows: {} };
+    try {
+      const parsed = JSON.parse(fsApi.readFileSync(file, "utf8"));
+      if (parsed?.schema === STORE_SCHEMA && parsed.rows && typeof parsed.rows === "object")
+        data = parsed;
+    } catch {
+      /* no file yet, or one that is damaged: start empty */
+    }
+    return data;
+  };
+  const slot = (id) => (load().rows[id] ||= { row: null, sources: {} });
+  return {
+    file,
+    getRow: (id) => load().rows[id]?.row ?? null,
+    putRow(id, row) {
+      slot(id).row = row;
+      dirty = true;
+    },
+    getSource: (id, key) => load().rows[id]?.sources?.[key] ?? null,
+    putSource(id, key, entry) {
+      slot(id).sources[key] = entry;
+      dirty = true;
+    },
+    /** Oldest `checkedAt` over every row (the minimum), or null with no row: the age of the stalest row sets how old the whole catalogue is. */
+    oldestCheckedAt() {
+      const times = Object.values(load().rows)
+        .map((r) => Number(r?.row?.checkedAt))
+        .filter(Number.isFinite);
+      return times.length ? Math.min(...times) : null;
+    },
+    ids: () => Object.keys(load().rows),
+    flush() {
+      if (!dirty || !file) return false;
+      try {
+        fsApi.mkdirSync(nodePath.dirname(file), { recursive: true });
+        const tmp = `${file}.tmp`;
+        fsApi.writeFileSync(tmp, JSON.stringify(load()));
+        fsApi.renameSync(tmp, file);
+        dirty = false;
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+const stores = new Map();
+/** The one feed store of a data root (`<root>/cache/vendor-feeds.json`), shared by the catalogue and the installers. */
+function storeFor(root, options = {}) {
+  const file = nodePath.join(String(root), "cache", "vendor-feeds.json");
+  if (options.fresh) stores.delete(file);
+  if (!stores.has(file)) stores.set(file, createFeedStore({ file, fs: options.fs }));
+  return stores.get(file);
+}
+
+/**
+ * The newest version of one row, from the first source in `sources` that answers.
+ * Order of fallbacks: each listed source; the last stored answer (marked `stale`); the `pinned` entry; an error.
+ */
+async function resolveLatest(rowId, sources, options = {}) {
+  const {
+    fetchImpl = fetchCompat,
+    store = null,
+    now = Date.now,
+    timeoutMs = SOURCE_TIMEOUT_MS,
+  } = options;
+  const list = (Array.isArray(sources) ? sources : []).filter((s) => s && typeof s === "object");
+  const attempts = [];
+  const record = (entry) => attempts.push(entry);
+  for (const spec of list) {
+    if (spec.kind === "pinned") continue;
+    const reader = SOURCE_READERS[spec.kind];
+    if (!reader) {
+      record({ source: spec.kind, ok: false, error: "unknown source kind" });
+      continue;
+    }
+    const prior = store?.getSource(rowId, spec.kind) || null;
+    try {
+      const got = await reader(spec, {
+        fetchImpl,
+        timeout: spec.timeoutMs ?? timeoutMs,
+        cond:
+          prior && !options.force ? { etag: prior.etag, lastModified: prior.lastModified } : null,
+      });
+      let value = got.value;
+      const notModified = Boolean(got.notModified);
+      if (notModified) {
+        if (!prior?.value) throw new Error("answered 304 but nothing is stored");
+        value = prior.value;
+      }
+      if (!value?.version) throw new Error("answered without a version");
+      const at = now();
+      store?.putSource(rowId, spec.kind, {
+        etag: got.etag || (notModified ? prior?.etag : null) || null,
+        lastModified: got.lastModified || (notModified ? prior?.lastModified : null) || null,
+        value,
+        at,
+      });
+      store?.putRow(rowId, { value, source: spec.kind, checkedAt: at });
+      store?.flush();
+      return {
+        ok: true,
+        ...value,
+        source: spec.kind,
+        via: attempts.length ? "fallback" : "primary",
+        stale: false,
+        pinned: false,
+        notModified,
+        checkedAt: at,
+        attempts: [...attempts, { source: spec.kind, ok: true, status: got.status ?? 200 }],
+      };
+    } catch (error) {
+      record({ source: spec.kind, ok: false, error: shortError(error) });
+    }
+  }
+  const cached = store?.getRow(rowId);
+  if (cached?.value?.version) {
+    return {
+      ok: true,
+      ...cached.value,
+      source: cached.source,
+      via: "cache",
+      stale: true,
+      pinned: false,
+      notModified: false,
+      checkedAt: cached.checkedAt ?? null,
+      attempts,
+      error: "every source failed; this is the last answer",
+    };
+  }
+  const pin = list.find((s) => s.kind === "pinned");
+  if (pin?.version) {
+    return {
+      ok: true,
+      version: String(pin.version),
+      ...(pin.tag ? { tag: pin.tag } : {}),
+      ...(pin.revision ? { revision: pin.revision } : {}),
+      assets: Array.isArray(pin.assets) ? pin.assets : [],
+      source: "pinned",
+      via: "pinned",
+      stale: false,
+      pinned: true,
+      notModified: false,
+      checkedAt: null,
+      attempts,
+    };
+  }
+  const why = attempts.map((a) => `${a.source}: ${a.error}`).join("; ");
+  return { ok: false, error: `no official source answered (${why || "none listed"})`, attempts };
+}
+
+/**
+ * The source list for a catalogue row: its own `sources` when it names them, else built from the registry it already
+ * records (`latest: { kind, ref }`), then a vendor feed when there is one, then its pin.
+ */
+function chainFor(row, { platform } = {}) {
+  if (Array.isArray(row?.sources) && row.sources.length) return row.sources;
+  const out = [];
+  const latest = row?.latest;
+  const plat = platform || row?.platform || null;
+  const plain = (extra = {}) => ({ ...(plat ? { platform: plat } : {}), ...extra });
+  if (latest?.kind === "pypi") {
+    out.push(
+      { kind: "pypi-json", pkg: latest.ref, ...plain() },
+      { kind: "pypi-simple", pkg: latest.ref, ...plain() },
+    );
+  } else if (latest?.kind === "github") {
+    const strip = latest.strip ? { strip: latest.strip } : {};
+    out.push(
+      { kind: "github-api", repo: latest.ref, ...strip },
+      { kind: "github-atom", repo: latest.ref, ...strip },
+    );
+  } else if (latest?.kind === "npm") {
+    out.push({ kind: "npm", pkg: latest.ref }, { kind: "npm-mirror", pkg: latest.ref });
+  } else if (latest?.kind === "hf") {
+    out.push({ kind: "hf-api", repo: latest.ref });
+  }
+  if (row?.id && hasFeed(row.id)) out.push({ kind: "feed", id: row.id });
+  if (row?.pinnedLatest?.version) out.push({ kind: "pinned", ...row.pinnedLatest });
+  return out;
+}
+
+/**
+ * Whether and when to ask the feeds again. Pure: the caller owns the clock, the jitter and the network state.
+ * Daily (24 h) with a start delay under a minute so a fleet never asks at once; privacy and offline keep to the cache;
+ * a manual refresh is immediate but not more often than once a minute.
+ */
+function planFeedRefresh({
+  trigger = "startup",
+  ageMs = null,
+  jitterMs = 0,
+  privacy = false,
+  online = true,
+  sinceManualMs = null,
+} = {}) {
+  const manual = trigger === "manual" || trigger === "foreground";
+  if (privacy)
+    return { refresh: false, delayMs: 0, reason: "privacy mode keeps the cached versions" };
+  if (online === false)
+    return {
+      refresh: false,
+      delayMs: 0,
+      reason: "offline: the cached versions are shown, marked stale",
+    };
+  if (manual) {
+    const since = Number(sinceManualMs);
+    if (sinceManualMs !== null && Number.isFinite(since) && since >= 0 && since < MANUAL_MIN_MS) {
+      return {
+        refresh: false,
+        delayMs: 0,
+        retryInMs: MANUAL_MIN_MS - since,
+        reason: "refreshed a moment ago; wait before asking again",
+      };
+    }
+    return { refresh: true, delayMs: 0, reason: "the owner asked for a refresh" };
+  }
+  const age = Number(ageMs);
+  if (ageMs !== null && Number.isFinite(age) && age < FEED_FRESH_MS) {
+    return { refresh: false, delayMs: 0, reason: "the versions were checked within 24 hours" };
+  }
+  return {
+    refresh: true,
+    delayMs: Math.abs(Number(jitterMs) || 0) % 60_000,
+    reason: "the versions are missing or older than 24 hours",
+  };
+}
+
+/* ------------------------------------------------------- digest checks */
+
+/** SHA-256 of a file against the digest the vendor published ("sha256:" prefix and case ignored). */
+function verifyFile(file, expected, { fs: fsApi = nodeFs } = {}) {
+  const want = stripSha(expected);
+  if (!isSha(want))
+    return Promise.resolve({ ok: false, error: "no SHA-256 digest to check against" });
+  return new Promise((resolve) => {
+    const hash = nodeCrypto.createHash("sha256");
+    const stream = fsApi.createReadStream(file);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", () =>
+      resolve({ ok: false, error: "the downloaded file could not be read" }),
+    );
+    stream.on("end", () => {
+      const actual = hash.digest("hex");
+      resolve(
+        actual === want
+          ? { ok: true, actual }
+          : { ok: false, actual, error: "SHA-256 digest mismatch" },
+      );
+    });
+  });
+}
+
+/**
+ * Download one file from the first candidate that delivers exactly the published digest. A candidate is
+ * `{ url, sha256, source }`; one without a digest is never fetched, a failed fetch moves to the next candidate, and
+ * a file that hashes differently is deleted. Nothing is left in place unless the digest matched.
+ */
+async function downloadVerified(
+  candidates,
+  { download, dest, verify = verifyFile, fs: fsApi = nodeFs } = {},
+) {
+  const failures = [];
+  const drop = () => {
+    try {
+      fsApi.rmSync(dest, { force: true });
+    } catch {
+      /* nothing to drop */
+    }
+  };
+  for (const c of Array.isArray(candidates) ? candidates : []) {
+    const source = c?.source || "unknown";
+    if (!c?.url || !isSha(stripSha(c.sha256))) {
+      failures.push({
+        source,
+        error: "no SHA-256 digest was published for this file; nothing was downloaded",
+      });
+      continue;
+    }
+    try {
+      await download(c.url, dest, { sha256: stripSha(c.sha256), source });
+    } catch (error) {
+      drop();
+      failures.push({ source, error: shortError(error) });
+      continue;
+    }
+    const checked = await verify(dest, c.sha256);
+    if (checked.ok) return { ok: true, file: dest, source, sha256: stripSha(c.sha256), failures };
+    drop();
+    failures.push({
+      source,
+      error: `SHA-256 digest mismatch${checked.actual ? ` (got ${checked.actual.slice(0, 12)}...)` : ""}; the file was discarded`,
+    });
+  }
+  const why = failures.map((f) => `${f.source}: ${f.error}`).join("; ");
+  return {
+    ok: false,
+    error: `no source delivered a verified file (${why || "none listed"})`,
+    failures,
+  };
+}
+
+/** The official digest and the catalogue's pin must agree when they describe the same version. */
+function agreeOnDigest(pinned, official) {
+  if (!pinned?.sha256 || !official?.sha256 || String(pinned.version) !== String(official.version))
+    return { ok: true };
+  if (stripSha(pinned.sha256) === stripSha(official.sha256)) return { ok: true };
+  return {
+    ok: false,
+    error: `the vendor's digest for ${official.version} differs from the pinned one; refusing the download`,
+  };
+}
+
 module.exports = {
   FEEDS,
   hasFeed,
@@ -529,4 +1146,22 @@ module.exports = {
   parseWingetUpgrade,
   newestAppcastVersion,
   compareDotted,
+  // ordered source chains
+  FEED_FRESH_MS,
+  MANUAL_MIN_MS,
+  SOURCE_TIMEOUT_MS,
+  compareVersions,
+  createFeedStore,
+  storeFor,
+  resolveLatest,
+  chainFor,
+  planFeedRefresh,
+  verifyFile,
+  downloadVerified,
+  agreeOnDigest,
+  parsePypiJson,
+  parsePypiSimple,
+  parseGithubRelease,
+  parseAtomTag,
+  parseHfModel,
 };

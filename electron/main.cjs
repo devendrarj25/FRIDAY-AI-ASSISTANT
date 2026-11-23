@@ -327,7 +327,11 @@ const loginItem = require("./login-item.cjs");
 const bootPlan = require("./boot-plan.cjs");
 const gpuStatus = require("./gpu-status.cjs");
 const processPriority = require("./process-priority.cjs");
-const loopLag = require("./loop-lag.cjs").createLoopLag({ log: (message) => log(message) });
+const loopLag = require("./loop-lag.cjs").createLoopLag({
+  log: (message) => log(message),
+  // The resource governor rides this existing window (no timer of its own): see governorWindow below.
+  onWindow: (window) => governorWindow(window),
+});
 // The window and the games come first: the AI service runs below normal, the window above normal while in use.
 const priority = processPriority.createPriorityManager({
   getMetrics: () => {
@@ -948,7 +952,44 @@ function routingHardwareFacts() {
   return hardwareFacts(lastHardware, {
     freeRamGb: require("node:os").freemem() / 1024 ** 3,
     gpuInfo: electronGpuInfo,
+    power: livePowerState(),
   });
+}
+
+/**
+ * Electron's powerMonitor is the better word on "unplugged" than a battery status code. Its thermal state exists on
+ * macOS only, so on Windows it is null and the facts say "not measured" (never a made-up "nominal").
+ */
+function livePowerState() {
+  try {
+    const monitor = require("electron").powerMonitor;
+    if (!monitor || typeof monitor.isOnBatteryPower !== "function") return null;
+    return {
+      onBatteryPower: monitor.isOnBatteryPower() === true,
+      thermalState:
+        process.platform === "darwin" && typeof monitor.getCurrentThermalState === "function"
+          ? monitor.getCurrentThermalState()
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the hardware probe needs beyond the folder: where the model cache is, and whether the network round trip may be
+ * measured. A latency probe touches the network, so it runs only when the owner already allows it (neither privacy
+ * mode nor a local-only route, and the PC is online); otherwise latency stays "not measured".
+ */
+function hardwareProbeOptions() {
+  const root = getWorkspaceRoot();
+  let allowNetwork = false;
+  try {
+    allowNetwork = !egressLocalOnly() && !netStatus.isOffline();
+  } catch {
+    allowNetwork = false;
+  }
+  return { root, modelCacheRoot: root ? path.join(root, "models") : null, allowNetwork };
 }
 const bootSteps = [];
 const activeChats = new Map();
@@ -2302,6 +2343,12 @@ async function refreshPricingKnowledge() {
 }
 
 async function runCatalogueRefresh(trigger) {
+  // The Install Manager's version feeds ride this same daily pass (no timer of their own; jittered, privacy aware).
+  if (trigger !== "foreground") {
+    void getInstallerCatalog()
+      .refresh({ trigger, jitterMs: Math.floor(Math.random() * 60_000) })
+      .catch(() => {});
+  }
   const store = require("./model-catalogue-store.cjs");
   const loaded = seedCatalogueFromDisk();
   const ageMs = loaded.oldestFetchedAt
@@ -2448,9 +2495,12 @@ function stopModelRegistryRefresh() {
   catalogueTimer = null;
 }
 
-require("./net-fetch.cjs").setEgressPolicy(() => ({
-  localOnly: voicePrivacyOn() || modelRouteMode() === "local-only",
-}));
+/** The owner's own switch: privacy mode or a local-only route keeps every request on this PC. */
+function egressLocalOnly() {
+  return voicePrivacyOn() || modelRouteMode() === "local-only";
+}
+
+require("./net-fetch.cjs").setEgressPolicy(() => ({ localOnly: egressLocalOnly() }));
 
 /** Register everything reachable with the kernel router — idempotent. */
 async function syncKernelModels(force = false) {
@@ -3181,8 +3231,75 @@ function shortRateWaitMs(result) {
     : 0;
 }
 
+/**
+ * The resource governor's say before a local model loads (electron/load-lease.cjs). Sized from this PC's own facts
+ * (model-router hardwareFit); a model whose size or fit is unknown, or one already resident, loads as it always did.
+ * The Auto-mode turn asks as voice, foreground chat as chat. A smaller option that fits (the same model on the CPU)
+ * is passed to the kernel as the offload hint; a refusal is one plain line and the turn moves to its next model.
+ */
+async function leaseLocalModel({ model, request, hardwareOffload, requestId }) {
+  const nothing = { lease: null, refused: null };
+  try {
+    if (!governor || model?.type !== "local") return nothing;
+    const fit = modelRouter.hardwareFit(model, routingHardwareFacts());
+    if (!fit || !(fit.needGb > 0) || fit.fit === "unknown" || fit.fit === "resident") {
+      return nothing;
+    }
+    const onGpu = fit.offload === "gpu" || fit.offload === "gpu-if-supported";
+    const priority = request?.routingSurface === "voice" ? "voice" : "chat";
+    const taken = await loadLeases.acquire({
+      // `chat:<Ollama tag>` for an Ollama model: the idle unload compares it with the tag Ollama reports.
+      owner: `chat:${model.meta?.providerId === "ollama" && model.meta?.modelName ? model.meta.modelName : model.id}`,
+      kind: "llm",
+      priority,
+      label: model.displayName || model.label || model.id,
+      // Held for the turn, never longer: the finally in streamOnce releases it.
+      ttlMs: 15 * 60 * 1000,
+      options: onGpu
+        ? [
+            { vramGb: fit.needGb, hint: null },
+            { ramGb: fit.needGb, hint: "cpu" },
+          ]
+        : [{ ramGb: fit.needGb, hint: null }],
+    });
+    if (taken.state === "refused") return { lease: null, refused: taken.line };
+    if (taken.state !== "granted") return nothing;
+    if (taken.hint === "cpu") hardwareOffload?.set(model.id, "cpu");
+    // Ollama loads a model on its first request; loading it here, inside the governor's one-at-a-time model-load
+    // slot, keeps two big loads from landing on the PC together. A shrunk plan loads through the turn itself, since
+    // a different placement would only make the engine load it twice.
+    const tag = model.meta?.providerId === "ollama" ? model.meta?.modelName : null;
+    if (tag && !taken.shrunk) {
+      const warmed = await loadLeases.runLoad(priority, () => modelsApi.ollamaWarm(tag, "5m"));
+      if (!warmed.ran) {
+        taken.lease?.release();
+        const line = `${model.displayName || model.label || model.id} was not loaded: other models are still loading.`;
+        send("governor:notice", { line });
+        return { lease: null, refused: line };
+      }
+    }
+    taken.lease?.loaded?.();
+    return { lease: taken.lease, refused: null };
+  } catch (error) {
+    log(`chat ${requestId}: the load lease failed (${error?.message || error}); loading as before`);
+    return nothing;
+  }
+}
+
 async function streamOnce(args) {
   await ensureLocalService(args.model);
+  const held = await leaseLocalModel(args);
+  if (held.refused) {
+    return { ok: false, received: false, resourceRefused: true, error: held.refused };
+  }
+  try {
+    return await streamOnceLeased(args);
+  } finally {
+    held.lease?.release();
+  }
+}
+
+async function streamOnceLeased(args) {
   let result = await streamOnceRaw(args);
   const pause = shortRateWaitMs(result);
   if (pause) {
@@ -3608,6 +3725,13 @@ async function startChat(request) {
         send("chat:done", { requestId, modelId: model.id, answeredBy });
         return;
       }
+      // The governor held this model back for lack of memory: nothing is wrong with the model, so it is not marked
+      // unhealthy; the turn goes on to the next candidate (the owner already has the one-line reason).
+      if (result.resourceRefused) {
+        log(`chat ${requestId}: ${model.id} skipped for now (${result.error})`);
+        index += 1;
+        continue;
+      }
       if (result.code === "IPC_BUDGET" || /ipc budget expired/i.test(String(result.error || ""))) {
         send("chat:error", {
           requestId,
@@ -3927,7 +4051,9 @@ async function runParallelChat(request = {}) {
       collect: true,
     });
     if (result.ok) providerHealth.noteSuccess(model.id, result.latencyMs);
-    else if (!result.cancelled) providerHealth.noteFailure(model.id, result.error);
+    else if (!result.cancelled && !result.resourceRefused) {
+      providerHealth.noteFailure(model.id, result.error);
+    }
     persistRouterHealth();
     return {
       modelId: model.id,
@@ -4469,6 +4595,7 @@ function createWindow() {
 
   win.webContents.on("render-process-gone", (_e, details) => {
     log(`render process gone: ${details.reason}`);
+    governor?.note("render-process-gone", details.reason);
     if (process.env.FRIDAY_BOOT_SELFTEST) {
       // Reloading here starts another renderer that crashes the same way, and
       // the process never reaches app.exit. The smoke test then waits 240s.
@@ -4488,7 +4615,16 @@ function createWindow() {
   // to wait or to reload the interface (electron/window-hang.cjs). Not in the boot self-test, which has no one
   // to answer.
   if (!process.env.FRIDAY_BOOT_SELFTEST) {
-    require("./window-hang.cjs").watchWindowHang(win, { dialog, log });
+    require("./window-hang.cjs").watchWindowHang(win, {
+      dialog,
+      log: (message) => {
+        log(message);
+        governor?.note("window", message);
+      },
+      // A native notice (the stuck page cannot draw one), then one automatic reload if it never recovers.
+      onPersist: (autoMs) => notifyWindowStuck(autoMs),
+      autoReloadMs: 90_000,
+    });
   }
 
   // Windows: a shutdown, restart or log-off ends the session without `will-quit` (Electron's app docs say so)
@@ -5251,10 +5387,13 @@ ipcMain.handle("voice-privacy:delete-all", () => voicePrivacy.deleteAll());
 let fastChatWarmedAt = 0;
 function warmFastChatModel() {
   if (Date.now() - fastChatWarmedAt < 10 * 60 * 1000) return;
+  // A speed-up, never worth memory: not under pressure, on battery or while the app is lagging.
+  if (governor && !governor.allowsPrefetch()) return;
   fastChatWarmedAt = Date.now();
   try {
     const tag = require("./local-library.cjs").ollamaModels()[0]?.tag;
-    if (tag) void modelsApi.ollamaWarm(tag).catch(() => {});
+    // Through the model-load slot at prefetch priority: it never waits behind a real load, it just does not happen.
+    if (tag) void loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag)).catch(() => {});
   } catch {
     /* warming is a speed-up, never a requirement */
   }
@@ -6852,10 +6991,16 @@ ipcMain.handle("models:pull", async (_e, model, jobId) => {
   modelJobs.set(id, controller);
   send("models:pull-progress", { jobId: id, model, status: "starting", progress: 0 });
   try {
-    const result = await modelsApi.ollamaPull(
-      model,
-      (event) => send("models:pull-progress", { jobId: id, model, ...event }),
+    const result = await cappedJob(
+      "download",
+      () =>
+        modelsApi.ollamaPull(
+          model,
+          (event) => send("models:pull-progress", { jobId: id, model, ...event }),
+          controller.signal,
+        ),
       controller.signal,
+      (line) => send("models:pull-progress", { jobId: id, model, status: line, progress: 0 }),
     );
     const verification = result.ok ? await verifyLocalModel(model, id, model) : null;
     const payload = { ...result, ...(verification || {}) };
@@ -6883,7 +7028,8 @@ ipcMain.handle("models:download", async (_e, payload) => {
   if (!modelId) return { ok: false, error: "modelId is required" };
   const id = jobId || `dl-${Date.now()}`;
   if (modelJobs.has(id)) return { ok: false, error: "job already running" };
-  const cap = Math.max(1, Number(payload?.concurrency) || 2);
+  // The renderer may ask for fewer parallel downloads, never more than the governor's cap for this class.
+  const cap = Math.max(1, Math.min(Number(payload?.concurrency) || 2, DOWNLOAD_CONCURRENCY_MAX));
   const gate = modelDownload.safety.admitJobs(
     [
       ...[...modelJobs.keys()].map((runningId) => ({ id: runningId, status: "downloading" })),
@@ -7070,10 +7216,15 @@ ipcMain.handle("components:detect", async () => {
 // probe spawns a process — so it is cached and never re-run per UI tick.
 let hardwareAt = 0;
 let hardwareJob = null;
+// While the wider capability probes (OS build, CPU flags, drives, network, power) are still running, the answer holds
+// nothing for them; the next ask a few seconds later finds them cached, so a probe-less answer is not kept for 30 s.
+const HARDWARE_FRESH_MS = 30000;
+const HARDWARE_PENDING_RETRY_MS = 3000;
 function detectHardwareCached(force = false) {
-  if (!force && lastHardware && Date.now() - hardwareAt < 30000)
+  const freshMs = lastHardware?.capabilities ? HARDWARE_FRESH_MS : HARDWARE_PENDING_RETRY_MS;
+  if (!force && lastHardware && Date.now() - hardwareAt < freshMs)
     return Promise.resolve(lastHardware);
-  hardwareJob ??= detectHardware({ root: getWorkspaceRoot() })
+  hardwareJob ??= detectHardware(hardwareProbeOptions())
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();
@@ -7112,6 +7263,107 @@ ipcMain.handle("hardware:facts", async (_e, force) => {
     return { ok: false, error: String(error?.message || error).slice(0, 200) };
   }
 });
+
+// ------------------------------------------------ resource governor ---
+// One scheduler for video memory, RAM and heavy jobs (electron/resource-governor.cjs). It owns no timer: pressure
+// is read on the loop-lag window that already runs, and the pieces it acts on (Ollama, the speech worker, queued
+// downloads) are the ones that exist. A governor that failed to build leaves FRIDAY running without it.
+const DOWNLOAD_CONCURRENCY_MAX = 4;
+const governorApi = require("./resource-governor.cjs");
+const idleLocalModels = governorApi.createIdleTracker({ minIdleMs: 45_000 });
+const governor = (() => {
+  try {
+    const osApi = require("node:os");
+    const MB = 1024 * 1024;
+    return governorApi.createResourceGovernor({
+      log: (line) => log(line),
+      readMemory: () => ({ freeMb: osApi.freemem() / MB, totalMb: osApi.totalmem() / MB }),
+      readVram: () => {
+        const reading = systemMonitor.cachedVram();
+        return reading && Date.now() - reading.at < 120_000 ? reading : null;
+      },
+      refreshVram: () => systemMonitor.refreshVram(),
+      getFacts: () => {
+        try {
+          return routingHardwareFacts();
+        } catch {
+          return null;
+        }
+      },
+      getPower: () => {
+        const snapshot = pressureMonitor ? pressureMonitor.snapshot() : null;
+        return {
+          onBattery: Boolean(snapshot?.onBattery),
+          speedLimit: Number(snapshot?.speedLimit) || 100,
+          saver: false,
+        };
+      },
+      actions: {
+        // Ollama keeps a model resident; one that nothing has used since the last look is unloaded for real.
+        unloadIdleModels: ({ busyOwners = [] } = {}) =>
+          governorApi.unloadIdleOllama({
+            ollamaRunning: () => modelsApi.ollamaRunning(),
+            ollamaUnload: (id) => modelsApi.ollamaUnload(id),
+            tracker: idleLocalModels,
+            busyOwners,
+          }),
+        // The speech worker holds its lease for as long as it lives, so a held lease says nothing about a turn: the
+        // worker itself knows (nothing in flight, not asked anything for a minute) and closes only then.
+        unloadSpeech: async () => stt.releaseIdle(60_000),
+      },
+      notify: (line) => send("governor:notice", { line }),
+    });
+  } catch (error) {
+    log(`resource governor not started: ${String(error?.message || error)}`);
+    return null;
+  }
+})();
+
+// Every heavy model load asks the governor first (electron/load-lease.cjs): the local chat model here, the speech
+// worker in electron/stt.cjs. With no governor the loads run exactly as before.
+const loadLeases = require("./load-lease.cjs").createLoadLeases({
+  governor,
+  log: (line) => log(line),
+  notify: (line) => send("governor:notice", { line }),
+});
+stt.setLoadLeases(loadLeases);
+
+/** One window of the main event loop (electron/loop-lag.cjs): feed the lag rule, then take a pressure reading. */
+function governorWindow(window) {
+  if (!governor) return;
+  void governor
+    .onLag(window)
+    .then(() => governor.tick())
+    .catch((error) => log(`resource governor tick failed: ${String(error?.message || error)}`));
+}
+
+/** Run `fn` inside the governor's cap for `cls`; tells the caller once when it has to wait. */
+function cappedJob(cls, fn, signal, onWaiting) {
+  if (!governor) return fn();
+  const lane = governor.status().jobs[cls];
+  if (lane && lane.running >= lane.cap && typeof onWaiting === "function") {
+    onWaiting(`waiting for a free ${cls} slot (${lane.queued + 1} in line)`);
+  }
+  return governor.run(cls, () => fn(), { priority: "chat", signal });
+}
+
+/** The page is stuck: a native notice (the page itself cannot draw one). */
+function notifyWindowStuck(autoMs) {
+  try {
+    const { Notification } = require("electron");
+    if (!Notification.isSupported()) return;
+    const body = autoMs
+      ? "FRIDAY is busy and not answering. It will offer to reload, and reload by itself if it stays stuck."
+      : "FRIDAY is busy and not answering. It will offer to reload.";
+    new Notification({ title: "FRIDAY is not responding", body, silent: true }).show();
+  } catch {
+    /* the reload prompt still follows */
+  }
+}
+
+ipcMain.handle("governor:status", () =>
+  governor ? governor.status() : { ok: false, error: "resource governor is not running" },
+);
 
 // Video memory the resident local language models hold right now (Ollama /api/ps), or 0 when none is loaded or the
 // engine does not answer. The voice budget leaves that memory to the model that is already loaded.
@@ -7596,6 +7848,65 @@ ipcMain.handle("tools:latest", async (_e, force) => {
   latestSeen = await toolchain.latestVersions({ force: Boolean(force) });
   recordInventory(toolchain.lastDetected());
   return latestSeen;
+});
+
+// ---- Install Manager catalogue (electron/installer-catalog.cjs) -----------------------------------------------
+// Every row with its fit for this PC, installed and latest version, update status and the official source that
+// answered. The read is quick (memory and the feed cache only); a stale cache starts a background refresh.
+let installerCatalogMemo = null;
+function getInstallerCatalog() {
+  if (installerCatalogMemo) return installerCatalogMemo;
+  const api = require("./installer-catalog.cjs");
+  installerCatalogMemo = api.createInstallerCatalog({
+    root: () => getWorkspaceRoot(),
+    facts: () => routingHardwareFacts(),
+    tools: () => toolchain.TOOLS,
+    detected: () => toolchain.lastDetected(),
+    packs: () => require("./toolchain-pack.cjs").readManifest().packs || [],
+    runners: () =>
+      require("./resource-paths.cjs").readConfigJson("local-runners.json", {}).value?.runners || [],
+    privacy: () => voicePrivacyOn() || modelRouteMode() === "local-only",
+    online: () => routingHardwareFacts()?.network?.online ?? null,
+    // gpus[].computeCap of the facts (nvidia-smi compute_cap, driver 510+): CUDA builds are ruled out below 7.5 before
+    // any install. Null (an older driver) never rules CUDA out; the health check after the install decides.
+    computeCap: () => require("./hardware.cjs").computeCapOf(routingHardwareFacts()),
+    run: (kind, fn) => cappedJob(kind, fn, null),
+    // One-shot, unref'd delay for the jitter, like the model catalogue's: not a timer that keeps running.
+    sleep: (ms) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        if (timer.unref) timer.unref();
+      }),
+    log: (line) => log(line),
+  });
+  return installerCatalogMemo;
+}
+// Engine installs (llama.cpp build by facts, CUDA libraries, ONNX Runtime variants) read the same facts and run their
+// heavy steps in the governor's download and install lanes.
+toolchain.setFactsProvider(() => routingHardwareFacts());
+toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
+ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
+ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
+// An update starts only with the owner's consent for this row, or when the autonomy dial is Full; never by itself.
+ipcMain.handle("installer:update", async (_e, request) => {
+  const catalogApi = getInstallerCatalog();
+  const id = String(request?.id || "");
+  const row = catalogApi.snapshot().rows.find((item) => item.id === id);
+  const decision = catalogApi.planUpdate({
+    row,
+    autonomy: request?.autonomy,
+    consent: request?.consent,
+  });
+  if (!decision.allowed) return { ok: false, ...decision };
+  if (!toolchain.toolById(id)) {
+    return { ok: false, allowed: false, reason: "this row updates through its own installer" };
+  }
+  log(`installer update ${id} allowed (${decision.via})`);
+  const result = await toolchain.runJob(
+    { id, action: "update", root: getWorkspaceRoot() },
+    (event) => send("tools:progress", event),
+  );
+  return { ...result, allowed: true, via: decision.via };
 });
 // Tools the owner adds by data (config/install-extensions.user.json). Nothing here runs a command: an entry is
 // checked by electron/install-extensions.cjs and installs through the same winget, npm or pip paths as the rest.
@@ -10653,7 +10964,7 @@ function startAfterKernel(root, bootStartedAt) {
     })
     .catch(() => boot("Detecting AI providers", "warn"));
 
-  hardwareBoot = detectHardware({ root: getWorkspaceRoot() })
+  hardwareBoot = detectHardware(hardwareProbeOptions())
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();
@@ -10720,6 +11031,10 @@ ipcMain.handle("system:pressure", () => (pressureMonitor ? pressureMonitor.snaps
 // A graphics process that crashed twice in ten minutes means the driver cannot be trusted this week: tell the
 // owner, restart FRIDAY once, and draw in software (the marker is read at the next start).
 app.on("child-process-gone", (_event, details) => {
+  governor?.note(
+    "child-process-gone",
+    `${details?.type || "process"}: ${details?.reason || "gone"}`,
+  );
   const verdict = gpuGuard.recordChildGone(details);
   if (verdict.action !== "fallback" || app.__fridayQuitting) return;
   const owner = win && !win.isDestroyed() ? win : null;

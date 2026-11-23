@@ -72,25 +72,68 @@ function machine(opts: {
 }
 
 describe("hardwareFacts shape and sources", () => {
-  it("returns exactly the documented keys", () => {
+  const CORE_KEYS = [
+    "cpuClass",
+    "cudaReady",
+    "diskFreeGb",
+    "driverVersion",
+    "gpuName",
+    "gpuVendor",
+    "gpus",
+    "npu",
+    "ramFreeGb",
+    "ramGb",
+    "sources",
+    "vramFreeGb",
+    "vramGb",
+  ];
+  // Added by the capability probes (pc-w1): every one optional for a reader, always present with null when unmeasured.
+  const CAPABILITY_KEYS = [
+    "cpu",
+    "cuda",
+    "cudaRuntimeFilesFound",
+    "dataRootDrive",
+    "directxLevel",
+    "driverDate",
+    "drives",
+    "health",
+    "integrated",
+    "memory",
+    "modelCacheDrive",
+    "modelDrive",
+    "multiGpu",
+    "network",
+    "os",
+    "power",
+    "vulkan",
+  ];
+
+  it("returns exactly the documented keys: the original ones, untouched, plus the capability ones", () => {
     const facts = hwMod.hardwareFacts(machine({}));
-    expect(Object.keys(facts).sort()).toEqual(
+    const keys = Object.keys(facts).sort();
+    for (const key of CORE_KEYS) expect(keys).toContain(key);
+    expect(keys).toEqual([...CORE_KEYS, ...CAPABILITY_KEYS].sort());
+  });
+
+  it("every gpus[] row has exactly these keys, computeCap (string like 7.5, or null) the newest", () => {
+    const row = hwMod.hardwareFacts(
+      machine({ smiText: `${smi("Some Card", 8192, 512)}, 7.5`, smiPlain: smiHeader("12.6") }),
+    ).gpus[0] as Record<string, unknown>;
+    expect(Object.keys(row).sort()).toEqual(
       [
-        "cpuClass",
-        "cudaReady",
-        "diskFreeGb",
-        "driverVersion",
-        "gpuName",
-        "gpuVendor",
-        "gpus",
-        "npu",
-        "ramFreeGb",
-        "ramGb",
-        "sources",
-        "vramFreeGb",
+        "computeCap",
+        "driver",
+        "driverDate",
+        "integrated",
+        "name",
+        "vendor",
+        "vramCapped",
         "vramGb",
       ].sort(),
     );
+    expect(row["computeCap"]).toBe("7.5");
+    const old = hwMod.hardwareFacts(machine({ smiText: smi("Old Card", 8192, 512) })).gpus[0];
+    expect(old).toHaveProperty("computeCap", null);
   });
 
   it("reads NVIDIA cards of 6, 12, 16 and 24 GB from nvidia-smi MiB and reports free VRAM", () => {

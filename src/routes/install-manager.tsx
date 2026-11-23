@@ -26,6 +26,7 @@ import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { InstallerFitPanel } from "@/components/friday/InstallerFitPanel";
 import { OwnToolsPanel } from "@/components/friday/OwnToolsPanel";
 import {
   DataTable,
@@ -491,6 +492,7 @@ function InstallManagerPage() {
 
         {section === "software" && (
           <>
+            <InstallerFitPanel scope="installManager" />
             <HudPanel
               title="Software Catalog"
               hint={`${rows.length} shown · ${state.bridge === "desktop" ? "kernel bridge" : "preview engine"}`}

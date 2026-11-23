@@ -1,4 +1,4 @@
-import type { HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
+import type { GovernorStatus, HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
 
@@ -249,5 +249,98 @@ export function thisPcRows(view: PcFactsView): DiagnosticsRow[] {
     },
     { label: labels[5] ?? "", value: facts.cpuClass ?? "–" },
     { label: labels[6] ?? "", value: probes, ...(facts.sources.length ? {} : { bad: true }) },
+  ];
+}
+
+/** What the "Resources" rows know: still reading, no desktop app, could not read, or the governor's status. */
+export type ResourceView =
+  | { phase: "loading" }
+  | { phase: "offline" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; status: GovernorStatus };
+
+const mbText = (mb: number): string => `${(Math.round((mb / 1024) * 10) / 10).toString()} GB`;
+
+const POWER_LINES: Record<GovernorStatus["power"]["stress"], string> = {
+  none: "plugged in, no speed limit",
+  battery: "on battery: smaller models are preferred and prefetch waits",
+  saver: "battery saver: smaller models are preferred and background work waits",
+  thermal: "the PC is slowing itself down (heat): smaller models, background work waits",
+};
+
+/**
+ * The read-only "Resources" group of the Voice diagnostics (electron/resource-governor.cjs `status`): memory and
+ * video memory pressure, what holds a lease, the job queues, the main process lag and the last things the
+ * governor did. Loading, offline and error say so on every row.
+ */
+export function resourceRows(view: ResourceView): DiagnosticsRow[] {
+  const labels = [
+    "resources: memory (free · level)",
+    "resources: video memory (free · level)",
+    "resources: leases held",
+    "resources: jobs (running/cap · waiting)",
+    "resources: main process lag",
+    "resources: power",
+    "resources: last action",
+  ];
+  const all = (value: string, bad = false): DiagnosticsRow[] =>
+    labels.map((label) => ({ label, value, ...(bad ? { bad: true } : {}) }));
+  if (view.phase === "loading") return all("reading resources…");
+  if (view.phase === "offline") return all("shown in the installed FRIDAY app");
+  if (view.phase === "error") {
+    return all(
+      `could not read resources: ${view.message || "no answer"}. Use refresh resources to retry`,
+      true,
+    );
+  }
+  const s = view.status;
+  const memory = s.memory
+    ? `${mbText(s.memory.freeMb)} of ${mbText(s.memory.totalMb)} · ${s.memory.level}`
+    : "not measured";
+  const vram = s.vram
+    ? `${mbText(s.vram.freeMb)} of ${mbText(s.vram.totalMb)} · ${s.vram.level}`
+    : "not measured (no NVIDIA reading)";
+  const leases = s.leases.length
+    ? s.leases
+        .slice(0, 6)
+        .map((l) => `${l.owner} (${l.priority}, ${l.state})`)
+        .join(" · ") + (s.queued.length ? ` · ${s.queued.length} waiting` : "")
+    : s.queued.length
+      ? `none held · ${s.queued.length} waiting`
+      : "none held";
+  const jobs = Object.entries(s.jobs)
+    .map(([name, lane]) => `${name} ${lane.running}/${lane.cap} · ${lane.queued} waiting`)
+    .join(" · ");
+  const last = s.actions.at(-1);
+  return [
+    {
+      label: labels[0] ?? "",
+      value: memory,
+      ...(s.memory && s.memory.level !== "ok" ? { bad: true } : {}),
+    },
+    {
+      label: labels[1] ?? "",
+      value: vram,
+      ...(s.vram && s.vram.level !== "ok" ? { bad: true } : {}),
+    },
+    { label: labels[2] ?? "", value: leases },
+    {
+      label: labels[3] ?? "",
+      value: jobs || "none",
+      ...(Object.values(s.jobs).some((lane) => lane.saturated) ? { bad: true } : {}),
+    },
+    {
+      label: labels[4] ?? "",
+      value: s.lag.paused
+        ? `p99 ${s.lag.p99Ms} ms, longest ${s.lag.maxMs} ms: background work is paused`
+        : `p99 ${s.lag.p99Ms} ms, longest ${s.lag.maxMs} ms`,
+      ...(s.lag.paused ? { bad: true } : {}),
+    },
+    { label: labels[5] ?? "", value: POWER_LINES[s.power.stress] ?? POWER_LINES.none },
+    {
+      label: labels[6] ?? "",
+      value: s.notice ?? (last ? `${last.kind}: ${last.detail}` : "nothing yet"),
+      ...(s.notice ? { bad: true } : {}),
+    },
   ];
 }

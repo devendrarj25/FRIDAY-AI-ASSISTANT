@@ -32,6 +32,8 @@ import {
   presenceStatus,
 } from "@/lib/friday/status-presentation";
 import { wiringPanel } from "@/lib/friday/wiring";
+import { PcStatusPanel } from "@/components/friday/PcStatusPanel";
+import { usePcStatus } from "@/lib/friday/use-pc-status";
 
 export const Route = createFileRoute("/status")({
   head: () => ({
@@ -80,6 +82,7 @@ function StatusPage() {
   const startup = useStartup();
   const services = useServiceHealth();
   const kernel = useKernelStatus();
+  const pc = usePcStatus();
   const kernelLive = useKernelLive();
   const refreshCaps = caps.refresh;
 
@@ -320,6 +323,8 @@ function StatusPage() {
             })}
           </div>
         </HudPanel>
+
+        <PcStatusPanel state={pc} compact />
 
         <div className="grid gap-4 xl:grid-cols-2">
           <ConnectivityPanel />
