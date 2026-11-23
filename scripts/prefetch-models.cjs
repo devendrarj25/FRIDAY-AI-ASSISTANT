@@ -1073,7 +1073,7 @@ async function prefetch(
   let voicePlan = null;
   if (root && enabled(env, "FRIDAY_PREFETCH_VOICE_BUDGET") && (probe || !download)) {
     try {
-      voicePlan = voiceWeights.voiceInstallPlan(root, probe || voiceWeights.probeHardware(), {
+      voicePlan = voiceWeights.voiceInstallPlan(root, probe || setupProbe(env), {
         exists: fs.existsSync,
       });
     } catch (err) {
@@ -1420,6 +1420,8 @@ module.exports = {
   alreadyThere,
   bytesOnDisk,
   voiceDryRun,
+  setupCudaVerdict,
+  setupProbe,
   MOONSHINE_DIR,
 };
 
@@ -1457,12 +1459,58 @@ async function prefetchWithRetries(root, options = {}, { wait, rounds } = {}) {
 }
 
 /**
+ * Whether the speech kernel itself finds cuBLAS 12 and cuDNN 9 (kernel/stt.py `cuda_runtime_ready`, the one verdict
+ * that may pick a GPU speech size). Setup asks it once, only when the first hardware probe saw a graphics card and a
+ * Python runtime exists; the driver alone never counts. Any failure, timeout or odd answer is "no": the plan then keeps
+ * the CPU default and offers the CUDA libraries instead.
+ */
+function setupCudaVerdict(env = process.env, first, deps = {}) {
+  try {
+    if (!first || !first.gpu || !(Number(first.gpu.vramGb) > 0)) return false;
+    const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
+    if (!python) return false;
+    const script = path.join(__dirname, "..", "kernel", "stt.py");
+    const run = deps.spawnSync || require("node:child_process").spawnSync;
+    const out = run(python, [script, "--probe"], {
+      encoding: "utf8",
+      timeout: 30000,
+      windowsHide: true,
+      shell: false,
+      env: { ...env, FRIDAY_STT_CUDA: "1" },
+    });
+    if (!out || out.error || out.status !== 0) return false;
+    const lines = String(out.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("{"));
+    for (let at = lines.length - 1; at >= 0; at -= 1) {
+      try {
+        const parsed = JSON.parse(lines[at]);
+        if (parsed && typeof parsed === "object") return parsed.cudaRuntimeReady === true;
+      } catch {
+        /* an earlier line may be the JSON */
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** The voice-plan probe of this PC with the speech kernel's CUDA verdict (see setupCudaVerdict). */
+function setupProbe(env = process.env, deps = {}) {
+  const first = voiceWeights.probeHardware();
+  const verdict = setupCudaVerdict(env, first, deps);
+  return verdict ? voiceWeights.probeHardware({ cudaRuntimeReady: true }) : first;
+}
+
+/**
  * `node scripts/prefetch-models.cjs --voice [--dry-run]` (npm run voice:install): the voice models this PC can carry,
  * chosen from the hardware probe. `--dry-run` prints this plan and downloads nothing; without it only the voice is
  * fetched (the speech sizes, helpers, neural voice and Hindi ear), and the same plan is printed first by the run itself.
  */
 function voiceDryRun(root, log = console.log) {
-  const plan = voiceWeights.voiceInstallPlan(root, voiceWeights.probeHardware(), {
+  const plan = voiceWeights.voiceInstallPlan(root, setupProbe(process.env), {
     exists: fs.existsSync,
   });
   for (const line of plan.lines) log(line);

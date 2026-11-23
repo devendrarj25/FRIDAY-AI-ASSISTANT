@@ -135,8 +135,12 @@ describe("voice:budget and voice:verify forward the kernel verdict", () => {
     expect(file).toMatch(/cudaRuntimeReady === true \? \{ cudaRuntimeReady: true \} : \{\}/);
   });
 
-  it("scripts/prefetch-models.cjs (locked CMD chain) is left alone and keeps its CPU default", () => {
-    expect(read("scripts/prefetch-models.cjs")).not.toMatch(/cudaRuntimeReady/);
+  it("scripts/prefetch-models.cjs asks the speech kernel for the verdict at setup (owner approved 2026-11-23)", () => {
+    const file = read("scripts/prefetch-models.cjs");
+    expect(file).toMatch(/function setupCudaVerdict\(/);
+    expect(file).toMatch(/cudaRuntimeReady: true/);
+    expect(file).toMatch(/voiceInstallPlan\(root, probe \|\| setupProbe\(env\)/);
+    expect(file).toMatch(/voiceInstallPlan\(root, setupProbe\(process\.env\)/);
   });
 
   it("verdict true picks the GPU size; false (or absent) is the CPU default plus the upgrade offer", () => {
