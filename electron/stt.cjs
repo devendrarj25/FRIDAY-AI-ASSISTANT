@@ -188,6 +188,15 @@ function createTurnGate({
         queue.push(entry);
       });
     },
+    /**
+     * For a provisional (speculative) decode: the gate only when it is free right now, never a place in the line.
+     * A speculative read that waited would take the place of a final one, or run after it for nothing.
+     */
+    tryEnter() {
+      if (running) return null;
+      running = true;
+      return once(leave);
+    },
     waiting: () => queue.length,
     busy: () => running,
   };
@@ -206,6 +215,46 @@ let lastLocalLayers = {
   moonshineReady: false,
   windowsSpeech: false,
 };
+
+/** What the speech worker last said it holds (models, load times, idle time, unloads, memory, fallbacks). */
+let lastWorkerCache = null;
+
+const finiteOrNull = (value) =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+/**
+ * The cache fields of a worker `status` answer, trimmed to plain values for the Voice Diagnostics rows. Null when the
+ * answer carries none (an older worker): the rows then say so instead of showing zeros.
+ */
+function workerCacheOf(ping) {
+  if (!ping || typeof ping !== "object" || !Array.isArray(ping.loadedModels)) return null;
+  const level = String(ping.memory?.level || "");
+  const byKind = {};
+  for (const [kind, count] of Object.entries(ping.fallbacks?.byKind || {}).slice(0, 16)) {
+    if (finiteOrNull(count) !== null) byKind[String(kind).slice(0, 40)] = count;
+  }
+  return {
+    loadedModels: ping.loadedModels.slice(0, 8).map((row) => ({
+      name: String(row?.name || "").slice(0, 80),
+      engine: String(row?.engine || "").slice(0, 24),
+      loadMs: finiteOrNull(row?.loadMs),
+    })),
+    idleSec: finiteOrNull(ping.idleSec),
+    unloadCount: finiteOrNull(ping.unloadCount) ?? 0,
+    memory: {
+      level: level === "high" || level === "critical" ? level : "ok",
+      known: ping.memory?.known === true,
+      availableMb: finiteOrNull(ping.memory?.availableMb),
+      totalMb: finiteOrNull(ping.memory?.totalMb),
+    },
+    fallbacks: { total: finiteOrNull(ping.fallbacks?.total) ?? 0, byKind },
+  };
+}
+
+function noteWorkerCache(ping) {
+  const cache = workerCacheOf(ping);
+  if (cache) lastWorkerCache = cache;
+}
 
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
@@ -395,6 +444,7 @@ async function prepareWeights(model, onEvent) {
   return weights.ensureSttWeights(model, paths.root() || "", {
     exists: (file) => fs.existsSync(file),
     downloadModel: require("./model-download.cjs").downloadModel,
+    verify: "size",
     onEvent,
   });
 }
@@ -434,12 +484,28 @@ function downloadReporter(size, label) {
   };
 }
 
-/** Which small sizes are on disk, so the first choice is one that needs no download. */
+/** The listening language the last real request named (a warm-up or a turn). A preview sends none and keeps it. */
+let listeningPref = "";
+
+function noteListeningPref(req) {
+  const pref = String(req?.speechPref || req?.speech_pref || "").trim();
+  if (pref) listeningPref = pref.slice(0, 32);
+}
+
+/**
+ * Which small sizes are on disk, so the first choice is one that needs no download, and what this PC and the
+ * listening language allow (memory, language) so Auto picks a size that fits instead of always small.
+ */
 function cachedSizes() {
   const have = require("./voice-weights.cjs").installedSizes(paths.root() || "", (file) =>
     fs.existsSync(file),
   );
-  return { baseCached: have.includes("base"), smallCached: have.includes("small") };
+  return {
+    baseCached: have.includes("base"),
+    smallCached: have.includes("small"),
+    ramGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+    language: listeningPref,
+  };
 }
 
 const backgroundFetches = new Map();
@@ -574,6 +640,7 @@ async function ensureWorker(model, onEvent, options = {}) {
   lastLocalLayers.worker = "ready";
   const ping = await workerRequest(session, { op: "status" }, 30000);
   copyLadder(ping);
+  noteWorkerCache(ping);
   if (ping?.dependency === "missing" || ping?.available === false) {
     lastLocalLayers.dependency = "missing";
     lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
@@ -657,6 +724,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   }
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
+  value.cache = worker?.alive ? lastWorkerCache : null;
   if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
     value.available = true;
     value.ready = false;
@@ -769,6 +837,7 @@ async function status(force = false, options = {}) {
     try {
       const ping = await workerRequest(worker, { op: "status" }, 15000);
       copyLadder(ping);
+      noteWorkerCache(ping);
       lastLocalLayers.dependency =
         ping?.dependency === "ready" || ping?.available ? "ready" : "missing";
       lastLocalLayers.worker = "ready";
@@ -951,10 +1020,118 @@ async function install(options = {}) {
 }
 
 /**
+ * The owner's decoding settings, sent to the worker only when set: `hotwords` (the owner's dictionary, never empty)
+ * and `multilingual` (the opt-in language check on every phrase). Nothing is sent otherwise, so listening is as before.
+ */
+function decodeExtras(req) {
+  const hotwords = String(req.hotwords || "")
+    .trim()
+    .slice(0, 200);
+  return {
+    ...(hotwords ? { hotwords } : {}),
+    ...(req.multilingual === true ? { multilingual: true } : {}),
+    // A provisional pass is a not-final read of the audio so far: the worker never counts or records it, and it
+    // alone can be cancelled by the utterance id it carries.
+    ...(req.provisional === true ? { provisional: true } : {}),
+    ...(req.provisional === true && cleanUtteranceId(req.utteranceId)
+      ? { utteranceId: cleanUtteranceId(req.utteranceId) }
+      : {}),
+  };
+}
+
+/** A plain token (letters, digits, dot, dash, underscore, colon; 64 at most) or empty: it is written to the worker. */
+function cleanUtteranceId(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z0-9._:-]{1,64}$/.test(text) ? text : "";
+}
+
+/** Provisional decodes in flight, by utterance id ("" for one without a clean id). A cancel marks the entry. */
+const provisionals = new Map();
+
+/**
+ * Run one provisional decode: it never waits for the gate (a final decode owns the worker, or it is not wanted), a
+ * cancel makes its answer "cancelled" whatever the worker returned, and the text of a cancelled one is never given
+ * back. `run` is the decode itself (injected so a test needs no worker).
+ */
+async function runProvisional(req, run, gate = turnGate) {
+  const release = gate.tryEnter();
+  if (!release) {
+    return { ok: false, reason: "busy", error: "A transcription is already running." };
+  }
+  const key = cleanUtteranceId(req.utteranceId);
+  const entry = { cancelled: false };
+  provisionals.set(key, entry);
+  try {
+    const result = await run(req);
+    if (entry.cancelled || result?.reason === "cancelled") {
+      return {
+        ok: false,
+        reason: "cancelled",
+        cancelled: true,
+        final: false,
+        ...(key ? { utteranceId: key } : {}),
+      };
+    }
+    return provisionalReply(req, result);
+  } finally {
+    if (provisionals.get(key) === entry) provisionals.delete(key);
+    release();
+  }
+}
+
+/**
+ * Cancel a provisional decode (this utterance, or every one when the id is empty). It does not enter the gate and
+ * does not wait for the decode: it marks the entry and writes one cancel line to the worker, which reads its input on
+ * its own thread. The worker is never killed and the line carries no id, so nothing is left pending.
+ */
+function cancelTranscribe(req = {}, session = worker) {
+  const key = cleanUtteranceId(req.utteranceId);
+  let flagged = 0;
+  for (const [id, entry] of provisionals) {
+    if (key && id !== key) continue;
+    entry.cancelled = true;
+    flagged += 1;
+  }
+  let signalled = false;
+  if (flagged > 0 && session?.alive && session.child?.stdin && !session.child.stdin.destroyed) {
+    try {
+      session.child.stdin.write(`${JSON.stringify({ op: "cancel", utteranceId: key })}\n`);
+      signalled = true;
+    } catch {
+      /* the worker went away; the decode is flagged and its answer is dropped anyway */
+    }
+  }
+  return { ok: true, cancelled: flagged > 0, signalled };
+}
+
+/** The not-final marker a provisional answer carries (the same text fields, plus final:false and the utterance). */
+function provisionalReply(req, result) {
+  if (req.provisional !== true || !result?.ok) return result;
+  const utteranceId = String(req.utteranceId || "")
+    .trim()
+    .slice(0, 64);
+  const heard = Number(result.audio?.durationMs ?? 0);
+  return {
+    ...result,
+    final: false,
+    audioMs: Number.isFinite(heard) && heard > 0 ? Math.round(heard) : 0,
+    ...(utteranceId ? { utteranceId } : {}),
+  };
+}
+
+/**
  * Transcribe one utterance.
- * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, localOnly?: boolean }} req
+ * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean, provisional?: boolean, utteranceId?: string }} req
  */
 async function transcribe(req = {}, onPartial) {
+  if (req.provisional === true) {
+    // Only a worker that is already up and loaded reads speculatively: a cold start is never paid for a guess.
+    return runProvisional(req, (r) =>
+      worker?.alive && worker.loaded
+        ? transcribeNow(r, onPartial)
+        : { ok: false, reason: "not-ready", error: "The speech worker is not loaded yet." },
+    );
+  }
   const release = await turnGate.enter();
   if (!release) {
     return { ok: false, reason: "busy", error: "A transcription is already running." };
@@ -967,10 +1144,17 @@ async function transcribe(req = {}, onPartial) {
 }
 
 async function transcribeNow(req = {}, onPartial) {
+  noteListeningPref(req);
   const state = await status(false, { localOnly: Boolean(req.localOnly) });
   const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
   if (!state.available && !ladderReady)
     return { ok: false, reason: "unavailable", error: state.reason };
+
+  // A speculative read is only ever made by the local speech worker that already holds the model. A cloud engine
+  // (a paid, remote call for every guess, and not cancellable) or a one-shot process never reads early.
+  if (req.provisional === true && state.engine !== "faster-whisper") {
+    return { ok: false, reason: "not-ready", error: "Early reads need the local speech worker." };
+  }
 
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
   let temporary = false;
@@ -1083,6 +1267,7 @@ async function transcribeNow(req = {}, onPartial) {
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
           sttSize: String(req.sttSize || req.stt_size || ""),
           keep_wav: Boolean(req.keepWav || req.keep_wav),
+          ...decodeExtras(req),
         },
         loadBudget,
         onPartial,
@@ -1114,6 +1299,7 @@ async function transcribeNow(req = {}, onPartial) {
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
               keep_wav: Boolean(req.keepWav || req.keep_wav),
+              ...decodeExtras(req),
             },
             loadBudget,
             onPartial,
@@ -1138,6 +1324,7 @@ async function transcribeNow(req = {}, onPartial) {
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
               keep_wav: Boolean(req.keepWav || req.keep_wav),
+              ...decodeExtras(req),
             },
             voiceInstall.loadBudgetMs(fallback),
             onPartial,
@@ -1205,6 +1392,34 @@ function turnAudioBuffer(req = {}) {
   return Buffer.from(String(req.audioBase64 || ""), "base64");
 }
 
+/**
+ * Score the clip in the speech worker that is already running, which holds the model: about a tenth of a second,
+ * where a fresh interpreter with its imports took one to three on Windows and held every turn open until the cap.
+ * Not while a transcription runs (the answer would only arrive after it, and a quiet turn is better closed on
+ * the plain pause than held for a score). Null means no worker is up, and the one-shot process answers as before.
+ */
+async function scoreInWorker(file, session = worker) {
+  if (!session?.alive) return null;
+  // A score is a short request with its own 20 s deadline, and a request that misses its deadline kills the worker.
+  // Queued behind a cold load (or a model reload) it would take the half-loaded worker down with it: only a loaded
+  // worker with nothing in flight is asked, and anything else closes the turn on the plain pause.
+  if (turnGate.busy() || !session.loaded || session.pending.size > 0) {
+    return { ok: true, ready: false, probability: null, reason: "busy" };
+  }
+  try {
+    const parsed = await workerRequest(session, { op: "score-turn", audio: file }, 20000);
+    if (!parsed || typeof parsed !== "object" || parsed.reason === "unknown-op") return null;
+    return {
+      ok: true,
+      ready: Boolean(parsed.ready),
+      probability: typeof parsed.probability === "number" ? parsed.probability : null,
+      reason: String(parsed.reason || ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function scoreTurn(req = {}) {
   const bytes = turnAudioBuffer(req);
   if (!bytes.length) return { ok: true, ready: false, probability: null, reason: "no-audio" };
@@ -1216,6 +1431,8 @@ async function scoreTurn(req = {}) {
     return { ok: true, ready: false, probability: null, reason: String(error?.message || error) };
   }
   try {
+    const warm = await scoreInWorker(file);
+    if (warm) return warm;
     const py = await python();
     if (!py) return { ok: true, ready: false, probability: null, reason: "no-python" };
     const runtime =
@@ -1331,8 +1548,14 @@ module.exports = {
   install,
   setProgressSink,
   transcribe,
+  runProvisional,
+  cancelTranscribe,
+  provisionalReply,
+  decodeExtras,
   createTurnGate,
   workerRequest,
+  scoreInWorker,
+  workerCacheOf,
   scoreTurn,
   turnAudioBuffer,
   sweep,

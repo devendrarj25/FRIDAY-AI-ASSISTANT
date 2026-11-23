@@ -129,33 +129,57 @@ const SENTENCE_END = /(?<=[.!?।॥\n])\s+/u;
 
 /** Words that end in a dot without ending the sentence. A cut after one would be spoken as "Please ask Dr." */
 const ABBREVIATIONS = new Set(
-  "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co".split(" "),
+  "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co rs govt dept डॉ प्रो".split(
+    " ",
+  ),
 );
 
+/** Only the end of a text decides whether its last dot is open, so a check never reads more than this. */
+const TAIL_WINDOW = 64;
+
 /**
- * Does this text end with a dot that is not the end of a sentence: an abbreviation (Dr., p.m., e.g.), an initial
- * (the "J." of "J. K. Rowling") or a bare list number ("3.")? Used wherever a reply is cut into sentences, so a
- * cut never lands inside a name, a time or a numbered list.
+ * Is the last dot of `tail` (the end of a text, trailing space already cut, at most TAIL_WINDOW characters) open?
+ * `whole` says the tail is the entire text, so a start-of-text anchor means the start of the text.
  */
-export function endsInOpenDot(text: string): boolean {
-  const t = (text ?? "").replace(/\s+$/, "");
-  if (!t.endsWith(".")) return false;
-  const before = t.slice(0, -1);
-  const word = /([A-Za-z.]+)$/.exec(before)?.[1] ?? "";
-  const bare = word.replace(/\./g, "").toLowerCase();
-  if (bare && ABBREVIATIONS.has(bare)) return true;
+function openDotTail(tail: string, whole: boolean): boolean {
+  if (!tail.endsWith(".")) return false;
+  const before = tail.slice(0, -1);
+  const word = /([\u0900-\u097FA-Za-z.]+)$/.exec(before)?.[1] ?? "";
+  // A word that fills a cut window may be the end of something longer: not an abbreviation.
+  if (word && (whole || word.length < before.length)) {
+    if (ABBREVIATIONS.has(word.replace(/\./g, "").toLowerCase())) return true;
+    if (/^[A-Za-z](?:\.[A-Za-z])+$/.test(word)) return true; // U.S., a.m., e.g.
+  }
   if (/(?:^|[\s(])[A-Z]$/.test(before) && !/(?:^|[\s(])I$/.test(before)) return true;
-  if (/(?:^|\n)\s*\d{1,2}$/.test(before)) return true;
-  return false;
+  if (/\n\s*[0-9]{1,2}$/.test(before)) return true;
+  return whole && /^\s*[0-9]{1,2}$/.test(before);
 }
 
-/** Cut text into sentences, putting a piece that ends in an open dot back with the one after it. */
+/**
+ * Does this text end with a dot that is not the end of a sentence: an abbreviation (Dr., Rs., p.m., e.g.), an initial
+ * (the "J." of "J. K. Rowling") or a bare list number ("3.")? Used wherever a reply is cut into sentences, so a
+ * cut never lands inside a name, a time or a numbered list. Reads only the last few characters: O(1) per call.
+ */
+export function endsInOpenDot(text: string): boolean {
+  const t = (text ?? "").trimEnd();
+  return openDotTail(t.slice(-TAIL_WINDOW), t.length <= TAIL_WINDOW);
+}
+
+/** Cut text into sentences, putting a piece that ends in an open dot back with the one after it. One pass. */
 export function splitSentences(text: string): string[] {
+  if (!text) return [];
   const out: string[] = [];
   let carry = "";
-  for (const raw of (text ?? "").split(SENTENCE_END)) {
+  let tail = "";
+  let length = 0;
+  for (const raw of text.split(SENTENCE_END)) {
+    const joined = carry ? `${tail} ${raw}` : raw;
+    const cut = joined.trimEnd();
+    tail = cut.slice(-TAIL_WINDOW);
+    length = (carry ? length + 1 : 0) + raw.length;
     const piece = carry ? `${carry} ${raw}` : raw;
-    if (endsInOpenDot(piece) && !raw.endsWith("\n")) {
+    const trimmedLength = length - (joined.length - cut.length);
+    if (openDotTail(tail, trimmedLength <= TAIL_WINDOW) && !raw.endsWith("\n")) {
       carry = piece;
       continue;
     }
@@ -239,4 +263,86 @@ export function splitLongSpeech(text: string, maxChars = SPEECH_CALL_MAX_CHARS):
   const trimmed = (text ?? "").trim();
   if (trimmed.length <= maxChars) return trimmed ? [trimmed] : [];
   return chunkForSpeech(trimmed, { maxChars, firstMinChars: maxChars }).map((c) => c.text);
+}
+
+/* ---- Transcript script policy (mirror of `script_policy` in kernel/language_segmenter.py) ---- */
+
+export type PolicyLang = "hi" | "en" | "mixed";
+export type PolicyScript = "devanagari" | "latin" | "roman-hindi" | "mixed" | "neutral";
+export type WordKind = "hi" | "en" | "roman-hindi" | "number";
+export type PolicyWord = { text: string; kind: WordKind };
+export type PolicySegment = {
+  text: string;
+  lang: PolicyLang;
+  script: PolicyScript;
+  words: PolicyWord[];
+};
+export type ScriptPolicy = {
+  text: string;
+  lang: PolicyLang;
+  romanHindi: boolean;
+  segments: PolicySegment[];
+};
+
+/** A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter. */
+const POLICY_WORD = /[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*/g;
+
+/** A Latin segment reads as Roman Hindi when at least two of its words are common Hindi and they are half or more. */
+function isRomanHindi(latin: string[]): boolean {
+  const hits = latin.filter((w) => ROMAN_HINDI.has(w.toLowerCase().replace(/['’].*$/, ""))).length;
+  return hits >= 2 && hits * 2 >= latin.length;
+}
+
+/**
+ * Script policy for a transcript: Hindi stays in Devanagari, English words and names stay in Latin, and the text is
+ * returned exactly as spoken. Each segment (a sentence) is tagged hi, en or mixed. Hindi written in Latin letters is
+ * never turned into Devanagari without a model: it is reported as `roman-hindi` so speech or recognition can decide.
+ */
+export function scriptPolicy(text: string, requested = ""): ScriptPolicy {
+  const cleaned = (text ?? "").trim();
+  const fallback: PolicyLang = requested.toLowerCase().replace("_", "-").startsWith("hi")
+    ? "hi"
+    : "en";
+  const segments: PolicySegment[] = [];
+  // A line is a break, and so is a sentence end that is not an abbreviation, an initial or a time (Dr. Sharma).
+  for (const piece of cleaned ? cleaned.split("\n").flatMap(splitSentences) : []) {
+    const seg = piece.trim();
+    if (!seg) continue;
+    const found = seg.match(POLICY_WORD) ?? [];
+    const latin = found.filter((w) => LATIN.test(w));
+    const roman = latin.length > 0 && isRomanHindi(latin);
+    const words: PolicyWord[] = found.map((w) => {
+      if (DEVANAGARI.test(w) && !/[०-९]/.test(w)) return { text: w, kind: "hi" };
+      if (LATIN.test(w)) {
+        const hindi = roman && ROMAN_HINDI.has(w.toLowerCase().replace(/['’].*$/, ""));
+        return { text: w, kind: hindi ? "roman-hindi" : "en" };
+      }
+      return { text: w, kind: "number" };
+    });
+    const hasHi = words.some((w) => w.kind === "hi");
+    const hasEn = words.some((w) => w.kind === "en" || w.kind === "roman-hindi");
+    const lang: PolicyLang = hasHi && hasEn ? "mixed" : hasHi ? "hi" : hasEn ? "en" : fallback;
+    const script: PolicyScript =
+      hasHi && hasEn
+        ? "mixed"
+        : hasHi
+          ? "devanagari"
+          : roman
+            ? "roman-hindi"
+            : hasEn
+              ? "latin"
+              : "neutral";
+    segments.push({ text: seg, lang, script, words });
+  }
+  const langs = new Set(segments.map((s) => s.lang));
+  const lang: PolicyLang =
+    langs.size > 1 || langs.has("mixed") ? "mixed" : (segments[0]?.lang ?? fallback);
+  return {
+    text: cleaned,
+    lang,
+    romanHindi: segments.some(
+      (s) => s.script === "roman-hindi" || s.words.some((w) => w.kind === "roman-hindi"),
+    ),
+    segments,
+  };
 }

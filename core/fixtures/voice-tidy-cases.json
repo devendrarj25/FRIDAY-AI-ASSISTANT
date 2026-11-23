@@ -1,0 +1,498 @@
+{
+  "note": "Synthetic cases for FRIDAY Tidy (transcript-tidy.ts). Each case: input, optional options (dictionary, snippets), expected text, and the ordered change kinds.",
+  "cases": [
+    {
+      "name": "english sound fillers",
+      "input": "um I think uh we should go",
+      "expected": "I think we should go",
+      "kinds": [
+        "filler",
+        "filler"
+      ]
+    },
+    {
+      "name": "set-off like is a filler",
+      "input": "It was, like, really big",
+      "expected": "It was, really big",
+      "kinds": [
+        "filler"
+      ]
+    },
+    {
+      "name": "unset like stays",
+      "input": "I like it, you know what I mean",
+      "expected": "I like it, you know what I mean",
+      "kinds": []
+    },
+    {
+      "name": "question you know stays",
+      "input": "do you know, I never",
+      "expected": "do you know, I never",
+      "kinds": []
+    },
+    {
+      "name": "sentence-start filler capitalises",
+      "input": "Um, the plan is ready",
+      "expected": "The plan is ready",
+      "kinds": [
+        "filler",
+        "case"
+      ]
+    },
+    {
+      "name": "trailing filler keeps the full stop",
+      "input": "The plan is ready um.",
+      "expected": "The plan is ready.",
+      "kinds": [
+        "filler"
+      ]
+    },
+    {
+      "name": "hindi fillers",
+      "input": "मतलब, मैं कल आऊँगा हम्म ठीक है",
+      "expected": "मैं कल आऊँगा ठीक है",
+      "kinds": [
+        "filler",
+        "filler"
+      ]
+    },
+    {
+      "name": "roman hinglish fillers",
+      "input": "woh, matlab, kal aana",
+      "expected": "kal aana",
+      "kinds": [
+        "filler",
+        "filler"
+      ]
+    },
+    {
+      "name": "matlab as a word stays",
+      "input": "iska matlab kya hai",
+      "expected": "iska matlab kya hai",
+      "kinds": []
+    },
+    {
+      "name": "woh as a word stays",
+      "input": "woh kal aayega",
+      "expected": "woh kal aayega",
+      "kinds": []
+    },
+    {
+      "name": "only fillers",
+      "input": "um uh hmm",
+      "expected": "",
+      "kinds": [
+        "filler",
+        "filler",
+        "filler"
+      ]
+    },
+    {
+      "name": "filler inside a word stays",
+      "input": "umbrella human hummus",
+      "expected": "umbrella human hummus",
+      "kinds": []
+    },
+    {
+      "name": "english spoken punctuation",
+      "input": "hello comma how are you question mark",
+      "expected": "hello, how are you?",
+      "kinds": [
+        "punctuation",
+        "punctuation"
+      ]
+    },
+    {
+      "name": "roman hindi purn viram",
+      "input": "main kal aaunga purn viram phir milte hain",
+      "expected": "main kal aaunga. Phir milte hain",
+      "kinds": [
+        "punctuation",
+        "case"
+      ]
+    },
+    {
+      "name": "devanagari purn viram becomes danda",
+      "input": "मैं कल आऊँगा पूर्ण विराम",
+      "expected": "मैं कल आऊँगा।",
+      "kinds": [
+        "punctuation"
+      ]
+    },
+    {
+      "name": "hinglish comma and question",
+      "input": "bhai kal ka plan koma ek meeting hai prashn chinh",
+      "expected": "bhai kal ka plan, ek meeting hai?",
+      "kinds": [
+        "punctuation",
+        "punctuation"
+      ]
+    },
+    {
+      "name": "new line and paragraph",
+      "input": "first line new line second line new paragraph third",
+      "expected": "first line\nSecond line\n\nThird",
+      "kinds": [
+        "punctuation",
+        "case",
+        "punctuation",
+        "case"
+      ]
+    },
+    {
+      "name": "naya line",
+      "input": "pehli baat naya line doosri baat",
+      "expected": "pehli baat\nDoosri baat",
+      "kinds": [
+        "punctuation",
+        "case"
+      ]
+    },
+    {
+      "name": "mentioned symbol word stays",
+      "input": "type the word comma please",
+      "expected": "type the word comma please",
+      "kinds": []
+    },
+    {
+      "name": "mentioned full stop key stays",
+      "input": "the full stop key",
+      "expected": "the full stop key",
+      "kinds": []
+    },
+    {
+      "name": "punctuation word at the start stays",
+      "input": "comma is a mark",
+      "expected": "comma is a mark",
+      "kinds": []
+    },
+    {
+      "name": "number correction",
+      "input": "let's meet at two, actually three",
+      "expected": "let's meet at three",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "hinglish double no",
+      "input": "meet at do nahi nahi teen",
+      "expected": "meet at teen",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "devanagari double no",
+      "input": "मुझे दो नहीं नहीं तीन चाहिए",
+      "expected": "मुझे तीन चाहिए",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "i mean a name",
+      "input": "send it to John, I mean Jane",
+      "expected": "send it to Jane",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "two word name",
+      "input": "call Rahul Sharma, I mean Rohit Sharma",
+      "expected": "call Rohit Sharma",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "longer correction after a pause",
+      "input": "I want coffee, actually tea and a biscuit",
+      "expected": "I want tea and a biscuit",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "scratch that",
+      "input": "buy milk, scratch that, buy bread",
+      "expected": "buy bread",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "nested backtrack",
+      "input": "two actually three actually four",
+      "expected": "four",
+      "kinds": [
+        "backtrack",
+        "backtrack"
+      ]
+    },
+    {
+      "name": "sentence start correction keeps the capital",
+      "input": "Two, actually three",
+      "expected": "Three",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "devanagari i mean",
+      "input": "मीटिंग कल, मेरा मतलब परसों है",
+      "expected": "मीटिंग परसों है",
+      "kinds": [
+        "backtrack"
+      ]
+    },
+    {
+      "name": "actually without a pause stays",
+      "input": "I actually like it",
+      "expected": "I actually like it",
+      "kinds": []
+    },
+    {
+      "name": "emphatic no no with comma stays",
+      "input": "note: no no, don't do that",
+      "expected": "note: no no, don't do that",
+      "kinds": []
+    },
+    {
+      "name": "nothing to replace stays",
+      "input": "wait no I mean it",
+      "expected": "wait no I mean it",
+      "kinds": []
+    },
+    {
+      "name": "held text is never corrected",
+      "input": "open `run it`, actually `run all`",
+      "expected": "open `run it`, actually `run all`",
+      "kinds": []
+    },
+    {
+      "name": "list with commas",
+      "input": "make a list one milk, two eggs, three bread",
+      "expected": "make a list:\n1. milk\n2. eggs\n3. bread",
+      "kinds": [
+        "list"
+      ]
+    },
+    {
+      "name": "list words only",
+      "input": "list one milk two eggs three bread",
+      "expected": "list:\n1. milk\n2. eggs\n3. bread",
+      "kinds": [
+        "list"
+      ]
+    },
+    {
+      "name": "roman hindi suchi",
+      "input": "suchi ek doodh, do ande, teen roti",
+      "expected": "suchi:\n1. doodh\n2. ande\n3. roti",
+      "kinds": [
+        "list"
+      ]
+    },
+    {
+      "name": "devanagari suchi",
+      "input": "suchi एक दूध, दो अंडे, तीन रोटी",
+      "expected": "suchi:\n1. दूध\n2. अंडे\n3. रोटी",
+      "kinds": [
+        "list"
+      ]
+    },
+    {
+      "name": "numbers without the word list stay",
+      "input": "I have two eggs and one milk",
+      "expected": "I have two eggs and one milk",
+      "kinds": []
+    },
+    {
+      "name": "one item is not a list",
+      "input": "list one",
+      "expected": "list one",
+      "kinds": []
+    },
+    {
+      "name": "count words without a list word stay",
+      "input": "one milk, two eggs, three bread",
+      "expected": "one milk, two eggs, three bread",
+      "kinds": []
+    },
+    {
+      "name": "quoted text is untouched",
+      "input": "he said \"um, two, actually three\" and left",
+      "expected": "he said \"um, two, actually three\" and left",
+      "kinds": []
+    },
+    {
+      "name": "code is untouched",
+      "input": "use `um uh comma` in code",
+      "expected": "use `um uh comma` in code",
+      "kinds": []
+    },
+    {
+      "name": "link and mail are untouched",
+      "input": "write to a_b@site.test um now",
+      "expected": "write to a_b@site.test now",
+      "kinds": [
+        "filler"
+      ]
+    },
+    {
+      "name": "snake_case is untouched",
+      "input": "call my_func_name um now",
+      "expected": "call my_func_name now",
+      "kinds": [
+        "filler"
+      ]
+    },
+    {
+      "name": "dictionary whole word",
+      "input": "chat gpt is good",
+      "expected": "ChatGPT is good",
+      "kinds": [
+        "dictionary"
+      ],
+      "options": {
+        "dictionary": [
+          {
+            "heard": "chat gpt",
+            "write": "ChatGPT"
+          },
+          {
+            "heard": "fridayy",
+            "write": "friday"
+          },
+          {
+            "heard": "devendra",
+            "write": "Devendra"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dictionary keeps heard capital",
+      "input": "Devendra aur devendra aur DEVENDRA",
+      "expected": "Devendra aur Devendra aur Devendra",
+      "kinds": [
+        "dictionary",
+        "dictionary"
+      ],
+      "options": {
+        "dictionary": [
+          {
+            "heard": "chat gpt",
+            "write": "ChatGPT"
+          },
+          {
+            "heard": "fridayy",
+            "write": "friday"
+          },
+          {
+            "heard": "devendra",
+            "write": "Devendra"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dictionary lower written mirrors case",
+      "input": "Fridayy is here",
+      "expected": "Friday is here",
+      "kinds": [
+        "dictionary"
+      ],
+      "options": {
+        "dictionary": [
+          {
+            "heard": "chat gpt",
+            "write": "ChatGPT"
+          },
+          {
+            "heard": "fridayy",
+            "write": "friday"
+          },
+          {
+            "heard": "devendra",
+            "write": "Devendra"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dictionary never inside a word",
+      "input": "fridayyland chat gptx",
+      "expected": "fridayyland chat gptx",
+      "kinds": [],
+      "options": {
+        "dictionary": [
+          {
+            "heard": "chat gpt",
+            "write": "ChatGPT"
+          },
+          {
+            "heard": "fridayy",
+            "write": "friday"
+          },
+          {
+            "heard": "devendra",
+            "write": "Devendra"
+          }
+        ]
+      }
+    },
+    {
+      "name": "snippet",
+      "input": "send it to my email please",
+      "expected": "send it to owner@example.test please",
+      "kinds": [
+        "snippet"
+      ],
+      "options": {
+        "snippets": [
+          {
+            "trigger": "my email",
+            "text": "owner@example.test"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed script stays as spoken",
+      "input": "um मुझे meeting का agenda चाहिए",
+      "expected": "मुझे meeting का agenda चाहिए",
+      "kinds": [
+        "filler"
+      ]
+    },
+    {
+      "name": "clean sentence is not reflowed",
+      "input": "Hello    world",
+      "expected": "Hello    world",
+      "kinds": []
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "expected": "",
+      "kinds": []
+    },
+    {
+      "name": "blank",
+      "input": "   ",
+      "expected": "   ",
+      "kinds": []
+    },
+    {
+      "name": "trailing new line",
+      "input": "ok new line",
+      "expected": "ok\n",
+      "kinds": [
+        "punctuation"
+      ]
+    }
+  ]
+}

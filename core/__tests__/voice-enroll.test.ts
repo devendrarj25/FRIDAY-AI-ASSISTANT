@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const paths = require("../../electron/friday-paths.cjs") as {
   setRoot: (dir: string | null) => string | null;
 };
+const privacy = require("../../electron/voice-privacy.cjs") as {
+  grantConsent: () => { ok: boolean };
+};
 const enroll = require("../../electron/voice-enroll.cjs") as {
   inspectWav: (bytes: Uint8Array) => { ok: boolean; reason?: string; durationMs?: number };
   saveSample: (input: Record<string, unknown>) => {
@@ -123,6 +126,8 @@ beforeEach(() => {
   generation = 1;
   held = null;
   enroll.useForTests({ wake: fakeWake, safeStorage: fakeSafe });
+  // Storing a voice sample needs the owner's agreement (see voice-privacy.test.ts for the refusal).
+  privacy.grantConsent();
 });
 
 afterEach(() => {

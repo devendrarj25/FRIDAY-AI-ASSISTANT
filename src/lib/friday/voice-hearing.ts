@@ -3,20 +3,43 @@
  * The microphone and the speaker stay on the Auto session.
  */
 
+import { desktopApi } from "./desktop";
 import { encodeWav, TARGET_RATE } from "./pcm-capture";
+import { preferences, sanitizeWavDays } from "./preferences";
 import { resampleLinear, rms } from "./speech-dsp";
 
 export const MIC_TEST_MS = 3000;
 export const MIC_SILENT_RMS = 0.008;
 
-let keepWavs = false;
-
-export function setKeepUtteranceWavs(on: boolean): void {
-  keepWavs = Boolean(on);
+/**
+ * Kept utterance clips. No raw audio is saved unless the owner turns this on (`voice.keepUtteranceWavs`, off by
+ * default); a kept clip stays `voice.utteranceWavDays` days. The desktop is told at every change so it can remove
+ * what is out of date at once and at every start (electron/voice-privacy.cjs).
+ */
+export function keepUtteranceWavs(): boolean {
+  return preferences.getSnapshot().voice.keepUtteranceWavs === true;
 }
 
-export function keepUtteranceWavs(): boolean {
-  return keepWavs;
+export function utteranceWavDays(): number {
+  return sanitizeWavDays(preferences.getSnapshot().voice.utteranceWavDays);
+}
+
+function syncRetention(): void {
+  const send = desktopApi()?.voicePrivacySetRetention;
+  if (!send) return;
+  void Promise.resolve(send({ keep: keepUtteranceWavs(), days: utteranceWavDays() })).catch(
+    () => undefined,
+  );
+}
+
+export function setKeepUtteranceWavs(on: boolean): void {
+  preferences.setVoice({ keepUtteranceWavs: Boolean(on) });
+  syncRetention();
+}
+
+export function setUtteranceWavDays(days: number): void {
+  preferences.setVoice({ utteranceWavDays: sanitizeWavDays(days) });
+  syncRetention();
 }
 
 /** The kernel's `DROP_CODES` (voice_runtime.py), same order. A test keeps them equal. */

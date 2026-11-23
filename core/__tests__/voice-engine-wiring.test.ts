@@ -83,11 +83,13 @@ describe("live wiring", () => {
 
   it("assistant mode sends task words to the task desk before the plain stop word and keeps stop to speech", () => {
     const mode = source("src/lib/friday/assistant-mode.ts");
-    const control = mode.indexOf("classifyVoiceControl(command || text)");
+    const control = mode.indexOf("this.routeHeard(command || text, this.approvalAsked)");
     const stop = mode.indexOf("if (this.isStopHeard(text, wake.matched))");
     expect(control).toBeGreaterThan(0);
     expect(control).toBeLessThan(stop);
+    expect(mode.slice(control, stop)).toContain("this.runTaskRoute(route)");
     expect(mode).toContain("attachVoiceTaskSpeaker(");
+    expect(mode).toContain("attachVoiceTaskNarrator(");
     expect(mode).toContain("releaseTaskUpdates()");
     expect(mode).toContain("splitLongSpeech(chunk.spoken)");
     const stopBranch = mode.slice(stop, stop + 400);
@@ -147,15 +149,22 @@ describe("voice task panel store", () => {
     expect(readFileSync("src/components/friday/AutoMode.tsx", "utf8")).toContain(
       "<VoiceTaskPanel />",
     );
-    const panel = readFileSync("src/components/friday/VoiceTaskPanel.tsx", "utf8");
+    const panel =
+      readFileSync("src/components/friday/VoiceTaskPanel.tsx", "utf8") +
+      readFileSync("src/lib/friday/voice-task-rows.ts", "utf8");
     for (const action of [
-      "approve(task.id, true)",
-      "approve(task.id, false)",
-      "pause(task.id)",
-      "resume(task.id)",
-      "cancel(task.id)",
+      "actions.approve(row.id, true)",
+      "actions.approve(row.id, false)",
+      "actions.pause(row.id)",
+      "actions.resume(row.id)",
+      "actions.cancel(row.id)",
+      "actions.cancelAll()",
     ]) {
       expect(panel).toContain(action);
+    }
+    // The panel's actions are the task desk's own exports.
+    for (const own of ["approve", "pause", "resume", "cancel"]) {
+      expect(panel).toContain(`${own}: voiceTaskActions.${own}`);
     }
   });
 });

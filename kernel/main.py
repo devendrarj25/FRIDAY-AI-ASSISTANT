@@ -33,6 +33,7 @@ from db import Storage
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from http_contract import HealthBody, VersionBody, product_version
 from planner import Planner
+from router import NO_TOOLS as router_no_tools
 from router import ModelRouter, describe_failure, is_local_model
 from runner import ProjectRunner
 from runtimes import RuntimeManager
@@ -755,9 +756,13 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "chat.stream":
         # Fans out to one or many models; streams partial deltas back.
         session_id = params.get("sessionId", "main")
-        globals()["ACTIVE_SESSION"] = session_id  # the phone joins THIS conversation
         phone_cognize = session_id in _PHONE_COGNIZE
-        if not phone_cognize:
+        # A speculative draft from the local desktop bridge (strict boolean; a phone turn is never one):
+        # it leaves no chat row, no active session, no phone mirror and runs no tool.
+        ephemeral = params.get("ephemeral") is True and not phone_cognize
+        if not ephemeral:
+            globals()["ACTIVE_SESSION"] = session_id  # the phone joins THIS conversation
+        if not phone_cognize and not ephemeral:
             await asyncio.to_thread(storage.append_chat, session_id, "user", params["prompt"], origin="desktop")
             # One shared conversation: a turn typed on the PC is mirrored to any
             # paired phone that is watching, exactly as a phone turn is mirrored
@@ -785,45 +790,52 @@ async def dispatch(method: str, params: dict, send) -> dict:
         run_id = run_trace.valid_run_id(params.get("runId"))
         trace_t0 = time.perf_counter()
         run_trace.record(run_id, "chat.start", effort=params.get("reasoningEffort") or "none")
-        async for delta in router.stream(
-            prompt=params["prompt"],
-            model_ids=params.get("modelIds"),
-            allow_fallback=bool(params.get("allowFallback", True)),
-            explicit_paid=bool(params.get("explicitPaid", False)),
-            system=params.get("system"),
-            context=recalled,
-            privacy_confirmed=bool(params.get("privacyConfirmed", False)),
-            route_mode=route_mode,
-            privacy=str(privacy_mode) if privacy_mode else None,
-            surface=params.get("routingSurface") if params.get("routingSurface") in ("voice", "chat") else None,
-            reasoning_effort=params.get("reasoningEffort")
-            if params.get("reasoningEffort") in ("low", "medium", "high")
-            else None,
-            history=history,
-        ):
-            if delta.get("delta"):
-                replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])
-            if delta.get("error"):
-                errors.append(str(delta["error"]))
-            if run_id and (delta.get("done") or delta.get("error")):
-                run_trace.record(
-                    run_id,
-                    "chat.error" if delta.get("error") else "chat.done",
-                    model=str(delta.get("modelId") or ""),
-                    ms=round((time.perf_counter() - trace_t0) * 1000),
-                )
-            await send({"type": "chat.delta", "data": delta})
-            if phone_cognize:
-                q = _PHONE_COGNIZE.get(session_id)
-                if q is not None:
-                    await q.put(
-                        {
-                            "delta": delta.get("delta"),
-                            "modelId": delta.get("modelId"),
-                            "error": delta.get("error"),
-                        }
+        no_tools_token = router_no_tools.set(True) if ephemeral else None
+        try:
+            async for delta in router.stream(
+                prompt=params["prompt"],
+                model_ids=params.get("modelIds"),
+                allow_fallback=bool(params.get("allowFallback", True)),
+                explicit_paid=bool(params.get("explicitPaid", False)),
+                system=params.get("system"),
+                context=recalled,
+                privacy_confirmed=bool(params.get("privacyConfirmed", False)),
+                route_mode=route_mode,
+                privacy=str(privacy_mode) if privacy_mode else None,
+                surface=params.get("routingSurface") if params.get("routingSurface") in ("voice", "chat") else None,
+                reasoning_effort=params.get("reasoningEffort")
+                if params.get("reasoningEffort") in ("low", "medium", "high")
+                else None,
+                history=history,
+            ):
+                if delta.get("delta"):
+                    replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])
+                if delta.get("error"):
+                    errors.append(str(delta["error"]))
+                if run_id and (delta.get("done") or delta.get("error")):
+                    run_trace.record(
+                        run_id,
+                        "chat.error" if delta.get("error") else "chat.done",
+                        model=str(delta.get("modelId") or ""),
+                        ms=round((time.perf_counter() - trace_t0) * 1000),
                     )
+                await send({"type": "chat.delta", "data": delta})
+                if phone_cognize:
+                    q = _PHONE_COGNIZE.get(session_id)
+                    if q is not None:
+                        await q.put(
+                            {
+                                "delta": delta.get("delta"),
+                                "modelId": delta.get("modelId"),
+                                "error": delta.get("error"),
+                            }
+                        )
+        finally:
+            if no_tools_token is not None:
+                router_no_tools.reset(no_tools_token)
         for model_id, chunks in replies.items():
+            if ephemeral:
+                break  # a draft is never stored, mirrored or learned from
             answer = "".join(chunks)
             origin = "phone" if phone_cognize else "desktop"
             await asyncio.to_thread(storage.append_chat, session_id, "assistant", answer, model_id, origin=origin)

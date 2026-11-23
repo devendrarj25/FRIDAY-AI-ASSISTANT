@@ -121,3 +121,17 @@ describe("local mind", () => {
     expect(localMindGrowth().localAnswers).toBe(1);
   });
 });
+
+describe("local mind learns downward only", () => {
+  it("a corrected card no longer skips the model, and a second correction retires it", async () => {
+    const { lowerLocalCard } = await import("../../src/lib/friday/brain/local-mind");
+    resetLocalMind();
+    const card = distillLocalAnswer({ prompt: PROMPT, answer: ANSWER, now: 1 }).card;
+    expect(consultLocalMind({ prompt: PROMPT }).skipModel).toBe(true);
+    expect(lowerLocalCard(card!.id)).toBe("lowered");
+    expect(consultLocalMind({ prompt: PROMPT }).skipModel).toBe(false);
+    expect(lowerLocalCard(card!.id)).toBe("retired");
+    expect(lowerLocalCard(card!.id)).toBe("missing");
+    expect(localMindGrowth().cards).toBe(0);
+  });
+});

@@ -174,7 +174,7 @@ describe("nothing is heard or said behind the boot screen", () => {
     expect(mode).toContain("private enterAutoWhenStarted()");
     expect(mode).toContain("this.enterAutoWhenStarted();");
     expect(mode).toContain("whenBootDone(");
-    const speak = mode.slice(mode.indexOf("private speak(text: string)"));
+    const speak = mode.slice(mode.indexOf("private speak(text: string, meta: SpeakMeta = {})"));
     expect(speak.slice(0, 600)).toContain("isBootHolding()");
     const streamed = mode.slice(mode.indexOf("private speakStreamed("));
     expect(streamed.slice(0, 300)).toContain("isBootHolding()");

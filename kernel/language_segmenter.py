@@ -135,3 +135,140 @@ def dominant_lang(text: str, requested: str = "") -> str:
         return "hi" if deva >= latin else "en"
     raw = (requested or "").lower().replace("_", "-")
     return "hi" if raw.startswith("hi") else "en"
+
+
+# ---- Sentence cuts (mirror of `splitSentences` and `endsInOpenDot` in language-segmenter.ts) ----
+
+_SENTENCE_END = re.compile("(?<=[.!?।॥\n])\\s+")
+
+# Words that end in a dot without ending the sentence ("Please ask Dr. Singh"). Same table as the TypeScript one.
+ABBREVIATIONS = frozenset(
+    "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co rs govt dept डॉ प्रो".split()
+)
+
+# Only the end of a text decides whether its last dot is open, so a check never reads more than this.
+_TAIL_WINDOW = 64
+_TAIL_WORD = re.compile("([\u0900-\u097fA-Za-z.]+)\\Z")
+_DOTTED_INITIALISM = re.compile("[A-Za-z](?:\\.[A-Za-z])+")
+_INITIAL = re.compile("(?:^|[\\s(])[A-Z]\\Z")
+_PRONOUN_I = re.compile("(?:^|[\\s(])I\\Z")
+_LIST_NUMBER = re.compile("\n\\s*[0-9]{1,2}\\Z")
+_LIST_NUMBER_WHOLE = re.compile("\\s*[0-9]{1,2}\\Z")
+
+
+def _open_dot_tail(tail: str, whole: bool) -> bool:
+    """Is the last dot of ``tail`` (the end of a text, trailing space cut, at most 64 characters) an open one?"""
+    if not tail.endswith("."):
+        return False
+    before = tail[:-1]
+    found = _TAIL_WORD.search(before)
+    word = found.group(1) if found else ""
+    # A word that fills a cut window may be the end of something longer: not an abbreviation.
+    if word and (whole or len(word) < len(before)):
+        if word.replace(".", "").lower() in ABBREVIATIONS:
+            return True
+        if _DOTTED_INITIALISM.fullmatch(word):
+            return True
+    if _INITIAL.search(before) and not _PRONOUN_I.search(before):
+        return True
+    if _LIST_NUMBER.search(before):
+        return True
+    return whole and _LIST_NUMBER_WHOLE.fullmatch(before) is not None
+
+
+def ends_in_open_dot(text: str) -> bool:
+    """Does the text end with a dot that is no sentence end: Dr., Rs., p.m., an initial or a list number?"""
+    cut = (text or "").rstrip()
+    return _open_dot_tail(cut[-_TAIL_WINDOW:], len(cut) <= _TAIL_WINDOW)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Cut text into sentences, putting a piece that ends in an open dot back with the one after it. One pass."""
+    if not text:
+        return []
+    out: list[str] = []
+    carry: list[str] = []
+    tail = ""
+    length = 0
+    for raw in _SENTENCE_END.split(text):
+        joined = f"{tail} {raw}" if carry else raw
+        cut = joined.rstrip()
+        tail = cut[-_TAIL_WINDOW:]
+        length = (length + 1 if carry else 0) + len(raw)
+        trimmed_length = length - (len(joined) - len(cut))
+        carry.append(raw)
+        if _open_dot_tail(tail, trimmed_length <= _TAIL_WINDOW) and not raw.endswith("\n"):
+            continue
+        out.append(" ".join(carry))
+        carry = []
+    if carry:
+        out.append(" ".join(carry))
+    return out
+
+
+# ---- Transcript script policy (mirror of `scriptPolicy` in language-segmenter.ts) ----
+
+# A Devanagari word, a Latin word (apostrophes inside stay), or a number. The danda is punctuation, not a letter.
+_POLICY_WORD = re.compile("[ऀ-ॣॱ-ॿ]+|[A-Za-z]+(?:['’][A-Za-z]+)*|[0-9०-९]+(?:[.,][0-9०-९]+)*")
+_APOSTROPHE_TAIL = re.compile("['’].*$")
+
+
+def _roman_key(word: str) -> str:
+    return _APOSTROPHE_TAIL.sub("", word.lower())
+
+
+def _is_roman_hindi(latin: list[str]) -> bool:
+    """Roman Hindi: at least two common Hindi words, and they are half or more of the Latin words."""
+    hits = sum(1 for w in latin if _roman_key(w) in _ROMAN_HINDI)
+    return hits >= 2 and hits * 2 >= len(latin)
+
+
+def script_policy(text: str, requested: str = "") -> dict:
+    """Script policy for a transcript, as plain data (same keys and values as the TypeScript ``scriptPolicy``).
+
+    Hindi stays in Devanagari, English words and names stay in Latin, and the text is returned as spoken. Each
+    segment (a sentence) is tagged ``hi``, ``en`` or ``mixed``. Hindi written in Latin letters is never turned into
+    Devanagari without a model: it is reported as ``roman-hindi`` so speech or recognition can decide.
+    """
+    cleaned = (text or "").strip()
+    raw = (requested or "").lower().replace("_", "-")
+    fallback = "hi" if raw.startswith("hi") else "en"
+    segments: list[dict] = []
+    # A line is a break, and so is a sentence end that is not an abbreviation, an initial or a time (Dr. Sharma).
+    pieces = [piece for line in cleaned.split("\n") for piece in split_sentences(line)] if cleaned else []
+    for piece in pieces:
+        seg = piece.strip()
+        if not seg:
+            continue
+        found = _POLICY_WORD.findall(seg)
+        latin = [w for w in found if _LATIN.search(w)]
+        roman = bool(latin) and _is_roman_hindi(latin)
+        words = []
+        for w in found:
+            if _DEVANAGARI.search(w) and not re.search("[०-९]", w):
+                words.append({"text": w, "kind": "hi"})
+            elif _LATIN.search(w):
+                hindi = roman and _roman_key(w) in _ROMAN_HINDI
+                words.append({"text": w, "kind": "roman-hindi" if hindi else "en"})
+            else:
+                words.append({"text": w, "kind": "number"})
+        has_hi = any(w["kind"] == "hi" for w in words)
+        has_en = any(w["kind"] in ("en", "roman-hindi") for w in words)
+        lang = "mixed" if has_hi and has_en else "hi" if has_hi else "en" if has_en else fallback
+        if has_hi and has_en:
+            script = "mixed"
+        elif has_hi:
+            script = "devanagari"
+        elif roman:
+            script = "roman-hindi"
+        elif has_en:
+            script = "latin"
+        else:
+            script = "neutral"
+        segments.append({"text": seg, "lang": lang, "script": script, "words": words})
+    langs = {s["lang"] for s in segments}
+    lang = "mixed" if len(langs) > 1 or "mixed" in langs else (segments[0]["lang"] if segments else fallback)
+    roman_any = any(
+        s["script"] == "roman-hindi" or any(w["kind"] == "roman-hindi" for w in s["words"]) for s in segments
+    )
+    return {"text": cleaned, "lang": lang, "romanHindi": roman_any, "segments": segments}

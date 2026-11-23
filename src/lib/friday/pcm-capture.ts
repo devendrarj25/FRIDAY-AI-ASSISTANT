@@ -238,6 +238,18 @@ export class PcmRing {
     return this.filled ? this.filled - this.firstSince(fromMono) : 0;
   }
 
+  /** RMS of the newest `count` samples (fewer when the ring holds fewer), 0 when empty. No copy. */
+  recentRms(count: number): number {
+    const n = Math.min(this.filled, Math.max(1, Math.floor(count)));
+    if (!this.filled) return 0;
+    let sum = 0;
+    for (let i = 1; i <= n; i += 1) {
+      const v = this.data[(this.write - i + this.data.length) % this.data.length] ?? 0;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / n);
+  }
+
   /** Samples from `fromMono` to now, including audio already in the ring. */
   takeSince(fromMono: number): Float32Array {
     if (!this.filled) return new Float32Array(0);
@@ -258,6 +270,61 @@ let workletOn = false;
 let frameSequence = 0;
 let sampleClock = 0;
 let tapsDropped = 0;
+let cleanedAtMono = 0;
+let captureLatency = 0;
+let processor: CaptureProcessor | null = null;
+let processorFailures = 0;
+
+/**
+ * Takes the frames of the one microphone capture before the VAD level and the STT ring read them (the live echo
+ * canceller is the one user). `process` gets the raw frame and returns that frame cleaned as 16 kHz samples, or null
+ * for "leave this frame exactly as it is" (off, nothing played, anything wrong). `clear` forgets everything it
+ * holds when the microphone closes. It runs only while the audio worklet captures (the analyser fallback re-reads
+ * overlapping windows, which cannot be cancelled in order). Listeners added with `subscribeCaptureFrames` always get
+ * the raw frame.
+ */
+export type CaptureProcessor = {
+  process: (samples: ArrayLike<number>, fromRate: number, atMono: number) => Float32Array | null;
+  clear: () => void;
+};
+
+/** Consecutive failures after which the processor is removed for good: the frames then pass through untouched. */
+const MAX_PROCESSOR_FAILURES = 5;
+
+export function setCaptureProcessor(next: CaptureProcessor | null): void {
+  if (processor && processor !== next) {
+    try {
+      processor.clear();
+    } catch {
+      /* nothing to forget */
+    }
+  }
+  processor = next;
+  processorFailures = 0;
+  cleanedAtMono = 0;
+}
+
+export function captureProcessorInstalled(): boolean {
+  return processor !== null;
+}
+
+/** The latency of the microphone path in seconds (track and context), set where the capture graph is built. */
+export function setCaptureLatency(seconds: number): void {
+  captureLatency = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 1) : 0;
+}
+
+export function captureLatencySeconds(): number {
+  return captureLatency;
+}
+
+/**
+ * The loudness (RMS, 0..1) of the newest cleaned stretch of the capture, or null when the last frame was not
+ * cleaned (off, nothing played, no worklet): the caller then keeps its own level. `maxAgeMs` on the capture clock.
+ */
+export function cleanedLevel(nowMono: number, maxAgeMs = 120, windowSamples = 341): number | null {
+  if (!processor || cleanedAtMono <= 0 || nowMono - cleanedAtMono > maxAgeMs) return null;
+  return ring.recentRms(windowSamples);
+}
 
 /** Counters of the one capture: frames and samples seen, and listeners removed because they threw. */
 export function captureCounters(): { frames: number; samples: number; tapsDropped: number } {
@@ -272,6 +339,7 @@ export function resetCaptureRing(): void {
   lastFrameMono = 0;
   lastFrameWall = 0;
   workletOn = false;
+  cleanedAtMono = 0;
 }
 
 /** Where a frame sits in the capture: a number that only goes up, and the sample index it starts at. */
@@ -309,7 +377,23 @@ export function noteCaptureFrame(
   wall = 0,
 ): void {
   if (!samples || samples.length === 0) return;
-  ring.push(samples, atMono, fromRate);
+  let fed = false;
+  if (processor && workletOn) {
+    try {
+      const cleaned = processor.process(samples, fromRate, atMono);
+      if (cleaned && cleaned.length > 0) {
+        ring.push(cleaned, atMono, TARGET_RATE);
+        cleanedAtMono = atMono;
+        fed = true;
+      }
+      processorFailures = 0;
+    } catch {
+      // Fail closed: this frame goes in untouched, and a processor that keeps failing is removed.
+      processorFailures += 1;
+      if (processorFailures >= MAX_PROCESSOR_FAILURES) processor = null;
+    }
+  }
+  if (!fed) ring.push(samples, atMono, fromRate);
   lastFrameMono = atMono;
   if (wall) lastFrameWall = wall;
   const meta: CaptureFrameMeta = { sequence: (frameSequence += 1), sampleStart: sampleClock };
@@ -326,6 +410,15 @@ export function noteCaptureFrame(
 
 export function markWorklet(on: boolean): void {
   workletOn = on;
+  if (!on && processor) {
+    // The microphone closed (leave Auto, a reopen, a stop): nothing the processor remembers may outlive it.
+    cleanedAtMono = 0;
+    try {
+      processor.clear();
+    } catch {
+      /* nothing to forget */
+    }
+  }
 }
 
 export function workletCapturing(): boolean {

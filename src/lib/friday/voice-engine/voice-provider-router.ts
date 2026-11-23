@@ -276,7 +276,7 @@ export type RouteDecision = {
   refused: { id: string; why: string }[];
 };
 
-const PAID_BY_DEFAULT = new Set(["openai", "xai"]);
+export const PAID_BY_DEFAULT = new Set(["openai", "xai"]);
 
 export function routeVoice(
   request: RouteRequest,

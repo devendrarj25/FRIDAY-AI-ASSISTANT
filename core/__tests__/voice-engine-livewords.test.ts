@@ -139,3 +139,59 @@ describe("live words wiring", () => {
     );
   });
 });
+
+describe("LiveWords on a slow recogniser", () => {
+  function slowRig(passMs: number) {
+    let t = 0;
+    const calls: number[] = [];
+    const lw = new LiveWords({
+      audioSince: () => ({ samples: new Float32Array(16_000 * 2), rate: 16_000 }),
+      encodeWav: (s) => new Uint8Array(s.length),
+      transcribe: async () => {
+        calls.push(t);
+        t += passMs; // the pass itself takes this long
+        return { ok: true, text: "aaj ka weather" };
+      },
+      speaking: () => true,
+      onUpdate: () => {},
+      now: () => t,
+      hopMs: 1000,
+    });
+    lw.start(0);
+    return { lw, calls, advance: (ms: number) => (t += ms) };
+  }
+
+  it("keeps the plain hop while passes are quick", async () => {
+    const r = slowRig(200);
+    await r.lw.tick();
+    r.advance(800); // 200 pass + 800 = 1000 since the pass began
+    await r.lw.tick();
+    expect(r.calls.length).toBe(2);
+  });
+
+  it("waits one and a half pass lengths when a pass is slower than the hop", async () => {
+    const r = slowRig(3000);
+    await r.lw.tick(); // began at 0, ended at 3000
+    r.advance(1000); // 4000: past the plain hop, not past 1.5 x 3000
+    await r.lw.tick();
+    expect(r.calls.length).toBe(1);
+    r.advance(500); // 4500 = 1.5 x 3000
+    await r.lw.tick();
+    expect(r.calls.length).toBe(2);
+  });
+
+  it("never waits longer than six seconds from the start of a pass, however slow", async () => {
+    const r = slowRig(5_000); // 1.5 x 5000 would be 7500; the cap is 6000
+    await r.lw.tick();
+    r.advance(900); // 5900
+    await r.lw.tick();
+    expect(r.calls.length).toBe(1);
+    r.advance(100); // 6000
+    await r.lw.tick();
+    expect(r.calls.length).toBe(2);
+  });
+
+  it("is still off by default and opt-in", () => {
+    expect(DEFAULT_PREFERENCES.voice.liveWords).toBe(false);
+  });
+});

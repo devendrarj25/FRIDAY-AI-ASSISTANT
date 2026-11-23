@@ -1,0 +1,305 @@
+{
+  "note": "Synthetic text only: no audio, no recording, no person. Each wordEdits was set by hand when the hypothesis was written and agrees with the Python scorer (kernel/stt_bench.py). They test the scorer, not any model.",
+  "cases": [
+    {
+      "id": "en-exact",
+      "lang": "en",
+      "reference": "What time is the meeting tomorrow",
+      "hypothesis": "what time is the meeting tomorrow",
+      "refWords": 6,
+      "wordEdits": 0,
+      "why": "case ignored"
+    },
+    {
+      "id": "en-punct",
+      "lang": "en",
+      "reference": "Open Chrome, please.",
+      "hypothesis": "open chrome please",
+      "refWords": 3,
+      "wordEdits": 0,
+      "why": "punctuation ignored"
+    },
+    {
+      "id": "en-sub",
+      "lang": "en",
+      "reference": "Send the report to Rahul",
+      "hypothesis": "Send the report to Rohan",
+      "refWords": 5,
+      "wordEdits": 1,
+      "why": "one substitution"
+    },
+    {
+      "id": "en-del",
+      "lang": "en",
+      "reference": "Turn the volume down a little",
+      "hypothesis": "Turn the volume down little",
+      "refWords": 6,
+      "wordEdits": 1,
+      "why": "one deletion"
+    },
+    {
+      "id": "en-ins",
+      "lang": "en",
+      "reference": "Call mom",
+      "hypothesis": "Call my mom",
+      "refWords": 2,
+      "wordEdits": 1,
+      "why": "one insertion"
+    },
+    {
+      "id": "en-digits",
+      "lang": "en",
+      "reference": "Set an alarm for 7 30",
+      "hypothesis": "set an alarm for 7 30",
+      "refWords": 6,
+      "wordEdits": 0,
+      "why": "digits kept"
+    },
+    {
+      "id": "en-two",
+      "lang": "en",
+      "reference": "Remind me to drink water at noon",
+      "hypothesis": "remind me drink water at new",
+      "refWords": 7,
+      "wordEdits": 2,
+      "why": "one deletion, one substitution"
+    },
+    {
+      "id": "en-all-wrong",
+      "lang": "en",
+      "reference": "good morning",
+      "hypothesis": "bad evening",
+      "refWords": 2,
+      "wordEdits": 2,
+      "why": "every word wrong"
+    },
+    {
+      "id": "hi-exact",
+      "lang": "hi",
+      "reference": "आज मौसम अच्छा है",
+      "hypothesis": "आज मौसम अच्छा है",
+      "refWords": 4,
+      "wordEdits": 0,
+      "why": "exact"
+    },
+    {
+      "id": "hi-danda",
+      "lang": "hi",
+      "reference": "आज मौसम अच्छा है।",
+      "hypothesis": "आज मौसम अच्छा है",
+      "refWords": 4,
+      "wordEdits": 0,
+      "why": "danda ignored"
+    },
+    {
+      "id": "hi-sub",
+      "lang": "hi",
+      "reference": "मुझे चाय चाहिए",
+      "hypothesis": "मुझे कॉफी चाहिए",
+      "refWords": 3,
+      "wordEdits": 1,
+      "why": "one substitution"
+    },
+    {
+      "id": "hi-del",
+      "lang": "hi",
+      "reference": "कल सुबह मुझे जल्दी उठाना",
+      "hypothesis": "कल सुबह जल्दी उठाना",
+      "refWords": 5,
+      "wordEdits": 1,
+      "why": "one deletion"
+    },
+    {
+      "id": "hi-nukta",
+      "lang": "hi",
+      "reference": "फ़ोन उठाओ",
+      "hypothesis": "फोन उठाओ",
+      "refWords": 2,
+      "wordEdits": 0,
+      "why": "nukta and no nukta are one spelling"
+    },
+    {
+      "id": "hi-ins",
+      "lang": "hi",
+      "reference": "फोन उठाओ",
+      "hypothesis": "फोन को उठाओ",
+      "refWords": 2,
+      "wordEdits": 1,
+      "why": "one insertion"
+    },
+    {
+      "id": "hi-digits",
+      "lang": "hi",
+      "reference": "मेरे २ दोस्त हैं",
+      "hypothesis": "मेरे 2 दोस्त हैं",
+      "refWords": 4,
+      "wordEdits": 0,
+      "why": "Devanagari digit equals ASCII digit"
+    },
+    {
+      "id": "hi-two",
+      "lang": "hi",
+      "reference": "अगली मीटिंग कब है",
+      "hypothesis": "अगली बैठक है",
+      "refWords": 4,
+      "wordEdits": 2,
+      "why": "one substitution, one deletion"
+    },
+    {
+      "id": "hi-script",
+      "lang": "hi",
+      "reference": "मुझे चाय चाहिए",
+      "hypothesis": "mujhe chai chahiye",
+      "refWords": 3,
+      "wordEdits": 3,
+      "why": "right words, wrong script: counted as wrong and flagged"
+    },
+    {
+      "id": "hinglish-exact",
+      "lang": "hinglish",
+      "reference": "Chrome खोलो और report भेजो",
+      "hypothesis": "chrome खोलो और report भेजो",
+      "refWords": 5,
+      "wordEdits": 0,
+      "why": "case ignored"
+    },
+    {
+      "id": "hinglish-sub",
+      "lang": "hinglish",
+      "reference": "kal subah meeting hai",
+      "hypothesis": "kal subah meeting nahi",
+      "refWords": 4,
+      "wordEdits": 1,
+      "why": "one substitution"
+    },
+    {
+      "id": "hinglish-del",
+      "lang": "hinglish",
+      "reference": "mujhe ek chai chahiye",
+      "hypothesis": "mujhe chai chahiye",
+      "refWords": 4,
+      "wordEdits": 1,
+      "why": "one deletion"
+    },
+    {
+      "id": "hinglish-mixed-sub",
+      "lang": "hinglish",
+      "reference": "WhatsApp पर message भेजो",
+      "hypothesis": "WhatsApp पर मैसेज भेजो",
+      "refWords": 4,
+      "wordEdits": 1,
+      "why": "English word heard in Devanagari"
+    },
+    {
+      "id": "hinglish-ins",
+      "lang": "hinglish",
+      "reference": "aaj ka weather batao",
+      "hypothesis": "aaj ka mausam weather batao",
+      "refWords": 4,
+      "wordEdits": 1,
+      "why": "one insertion"
+    },
+    {
+      "id": "hinglish-two",
+      "lang": "hinglish",
+      "reference": "Rahul ko call karo abhi",
+      "hypothesis": "Rahul ko karo",
+      "refWords": 5,
+      "wordEdits": 2,
+      "why": "two deletions"
+    },
+    {
+      "id": "hinglish-digits",
+      "lang": "hinglish",
+      "reference": "5 baje alarm laga do",
+      "hypothesis": "५ baje alarm laga do",
+      "refWords": 5,
+      "wordEdits": 0,
+      "why": "Devanagari digit equals ASCII digit"
+    },
+    {
+      "id": "hinglish-empty-ref",
+      "lang": "hinglish",
+      "reference": "",
+      "hypothesis": "",
+      "refWords": 0,
+      "wordEdits": 0,
+      "why": "nothing said, nothing heard"
+    },
+    {
+      "id": "en-empty-hyp",
+      "lang": "en",
+      "reference": "stop",
+      "hypothesis": "",
+      "refWords": 1,
+      "wordEdits": 1,
+      "why": "a word lost entirely"
+    },
+    {
+      "id": "roman-spelling",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "mujhe kaam hai",
+      "hypothesis": "mujhe kam hai",
+      "refWords": 3,
+      "wordEdits": 1,
+      "romanWordEdits": 0,
+      "why": "Roman spelling variant: one word to the plain scorer, none to the Roman scorer"
+    },
+    {
+      "id": "roman-accents",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "aaj bahut garmi hai",
+      "hypothesis": "āj bahut garmī hai",
+      "refWords": 4,
+      "wordEdits": 2,
+      "romanWordEdits": 0,
+      "why": "accents and a doubled vowel are spelling, not hearing"
+    },
+    {
+      "id": "roman-punct",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "Aaj ka mausam kaisa hai?",
+      "hypothesis": "aaj ka mausam kaisa hai",
+      "refWords": 5,
+      "wordEdits": 0,
+      "romanWordEdits": 0,
+      "why": "case and punctuation ignored"
+    },
+    {
+      "id": "roman-real-error",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "kal office mein meeting hai",
+      "hypothesis": "kal office mein meeting nahi hai",
+      "refWords": 5,
+      "wordEdits": 1,
+      "romanWordEdits": 1,
+      "why": "a heard word that was not said is still an error"
+    },
+    {
+      "id": "roman-wrong-word",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "kya aap mujhe chai doge",
+      "hypothesis": "kyaa aap mujhe chaay doge",
+      "refWords": 5,
+      "wordEdits": 2,
+      "romanWordEdits": 1,
+      "why": "kyaa is spelling, chaay is not chai"
+    },
+    {
+      "id": "roman-devanagari-answer",
+      "lang": "hinglish",
+      "script": "roman",
+      "reference": "mujhe chai chahiye",
+      "hypothesis": "मुझे चाय चाहिए",
+      "refWords": 3,
+      "wordEdits": 3,
+      "romanWordEdits": 3,
+      "why": "right words in the other script: still wrong, never transliterated"
+    }
+  ]
+}

@@ -24,6 +24,7 @@ const path = require("node:path");
 // The one canonical FRIDAY root contract — downloads never stage outside it.
 const contract = require("./friday-contract.cjs");
 const voiceInstall = require("./voice-install.cjs");
+const voicePins = require("./voice-pins.cjs");
 const safety = require("./download-safety.cjs");
 const library = require("./local-library.cjs");
 
@@ -101,12 +102,12 @@ function assertDiskRoom(dir, needBytes) {
   return { ok: true, free, measured: true };
 }
 
-function assertSha256(file, expected) {
+function assertSha256(file, expected, label) {
   if (!expected) return;
   const got = hashFile(file);
   if (got !== String(expected).toLowerCase()) {
     fs.rmSync(file, { force: true });
-    const error = new Error(`checksum mismatch for ${path.basename(file)}`);
+    const error = new Error(`checksum mismatch for ${path.basename(label || file)}`);
     error.code = "SHA_MISMATCH";
     throw error;
   }
@@ -114,13 +115,15 @@ function assertSha256(file, expected) {
 
 // --------------------------------------------------------------- HF listing
 /** Real file listing for a Hugging Face repo (no guessing at filenames). */
-async function hfFiles(repo, signal) {
+async function hfFiles(repo, signal, revision = "") {
   let lastError = "unreachable";
   for (const host of HF_HOSTS) {
     try {
       // blobs=true makes the listing carry each LFS file's sha256 and size,
       // so every weight is verified against the publisher's own digest.
-      const listingUrl = `${host}/api/models/${repo}?blobs=true`;
+      const listingUrl = revision
+        ? `${host}/api/models/${repo}/revision/${revision}?blobs=true`
+        : `${host}/api/models/${repo}?blobs=true`;
       safety.assertAllowedUrl(listingUrl);
       const res = await fetch(listingUrl, withHfAuth(listingUrl, { signal }));
       if (!res.ok) {
@@ -763,8 +766,12 @@ async function downloadOnce(url, dest, options) {
     throw new Error(`incomplete download (${stat.size}/${total} bytes)`);
   }
   await fsp.rm(table, { force: true });
-  await fsp.rename(part, dest);
-  assertSha256(dest, sha256);
+  // The bytes are checked while they are still a part file: a working file at `dest` is never replaced by
+  // something unverified, and a bad download leaves no file behind. The move is a rename inside one volume, and a
+  // verified copy when the rename crosses volumes.
+  assertSha256(part, sha256, dest);
+  const moved = voicePins.moveVerified(part, dest);
+  if (!moved.ok) throw new Error(`could not put ${path.basename(dest)} in place: ${moved.error}`);
   onEvent?.({
     status: "downloaded",
     gbTotal: gb(stat.size),
@@ -1089,103 +1096,211 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
       }
 
       if (source.kind === "hf-repo") {
-        const listing = await hfFiles(source.repo, signal);
+        // A repository FRIDAY pins (electron/voice-pins.cjs) is fetched at its pinned revision, only the
+        // pinned files, each checked against the pinned SHA-256 and size. Any other repository is unchanged.
+        const pin = (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
+        const listing = await hfFiles(source.repo, signal, pin?.revision || "");
         if (!listing.ok) throw new Error(listing.error);
-        const wanted = listing.files.filter((f) =>
+        let wanted = listing.files.filter((f) =>
           /\.(safetensors|onnx|json|model|txt|bin)$/i.test(f),
         );
+        if (pin) {
+          const chosen = voicePins.selectPinned(listing, pin);
+          if (!chosen.ok) throw new Error(`${source.repo}: ${chosen.error}`);
+          wanted = chosen.files;
+          listing.meta = { ...listing.meta, ...chosen.meta };
+        }
         if (!wanted.length) throw new Error(`no weight files in ${source.repo}`);
         const dest = path.join(root, modelId);
-        const todo = wanted.filter((file) => !fs.existsSync(path.join(dest, file)));
-        const sizeOf = (file) => Number(listing.meta?.[file]?.size) || 0;
-        let bytes = 0;
-        let engine = "own";
-        // First choice: Hugging Face's official client with hf_xet (see hf-hub-download.cjs). It is
-        // used only against huggingface.co itself, and any failure falls through to the downloader below.
-        const hub = deps.hub || require("./hf-hub-download.cjs");
-        const mode = hub.engineMode(process.env);
-        // A client that already failed in this run (no byte, or a dead route) is not waited for again:
-        // each large model used to cost another minute before FRIDAY's own downloader took over.
-        const hubFailedEarlier = mode === "auto" && Boolean(hub.isBroken && hub.isBroken());
-        if (hubFailedEarlier && todo.length) {
+        // A pinned revision that changed over a complete, verified folder keeps that folder whole as `<id>.prev`
+        // and starts the new revision beside it, so the working model is never overwritten part way.
+        const swap = pin
+          ? voicePins.beginRevisionSwap(dest, source.repo, pin)
+          : { swapped: false, seeded: [] };
+        if (swap.swapped) {
           onEvent?.({
-            status:
-              "the Hugging Face client failed earlier in this run; using FRIDAY's own downloader",
+            status: `kept the previous verified revision as ${path.basename(swap.prev)}; fetching the pinned revision ${pin.revision.slice(0, 8)}`,
           });
         }
-        if (
-          todo.length &&
-          mode !== "own" &&
-          !hubFailedEarlier &&
-          listing.host === "https://huggingface.co"
-        ) {
-          const python = deps.hubPython !== undefined ? deps.hubPython : hub.findPython({ root });
-          if (await hubReady(hub, python)) {
-            onEvent?.({ status: "source: Hugging Face official client (hf_xet)" });
-            const hubFiles = todo.map((file) => ({
-              name: file,
-              size: sizeOf(file),
-              sha256: listing.meta?.[file]?.sha256 || "",
-            }));
-            let res = await hub.download({
-              repo: source.repo,
-              dest,
-              python,
-              files: hubFiles,
-              onProgress: onEvent,
-              signal,
+        // Until the new revision is whole and verified, a failure puts the previous one back.
+        const keepPrevious = (error) => {
+          if (!swap.swapped) return error;
+          const back = voicePins.rollbackToPrevious(dest);
+          if (back.ok) {
+            onEvent?.({
+              status: `the pinned revision did not verify; restored the previous verified revision ${back.revision.slice(0, 8)}`,
             });
-            // A client that had started (bytes moved) and then dropped is a network hiccup, not a dead
-            // route: once more, resuming from what it kept, before FRIDAY's slower own downloader.
-            if (!res.ok && res.reached > 0 && !signal?.aborted && mode !== "own") {
-              onEvent?.({
-                status: `the Hugging Face client dropped after ${Math.round(res.reached / 1024 ** 2)} MB (${res.error}); trying it once more`,
-              });
-              res = await hub.download({
+          } else {
+            // The old verified copy is still beside the folder; say where, so it is never a silent loss.
+            const note = `the pinned revision did not verify and the previous revision could not restore (${back.error || "unknown reason"}); it is kept as ${path.basename(swap.prev)}`;
+            onEvent?.({ status: note });
+            console.warn(`[model-download] ${note}`);
+          }
+          return error;
+        };
+        let bytes = 0;
+        let engine = "own";
+        try {
+          if (pin) {
+            // Repair: a file with the wrong size is removed here so the loop below fetches it again.
+            const audit = await voicePins.auditDir(dest, pin);
+            const removed = voicePins.removeBad(dest, audit);
+            if (removed.length)
+              onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });
+          }
+          const todo = wanted.filter((file) => !fs.existsSync(path.join(dest, file)));
+          const sizeOf = (file) => Number(listing.meta?.[file]?.size) || 0;
+          if (pin && todo.length) {
+            // Room for the whole download and its part files before the first byte: 1.3 times the bytes still to fetch.
+            const room = voicePins.diskPreflight(
+              dest,
+              todo.reduce((sum, file) => sum + sizeOf(file), 0),
+              deps.statfs ? { statfs: deps.statfs } : {},
+            );
+            if (!room.ok) {
+              onEvent?.({ status: room.error });
+              const error = new Error(`disk full: ${room.error}`);
+              error.code = "ENOSPC";
+              throw error;
+            }
+          }
+          // First choice: Hugging Face's official client with hf_xet (see hf-hub-download.cjs). It is
+          // used only against huggingface.co itself, and any failure falls through to the downloader below.
+          const hub = deps.hub || require("./hf-hub-download.cjs");
+          const mode = hub.engineMode(process.env);
+          // A client that already failed in this run (no byte, or a dead route) is not waited for again:
+          // each large model used to cost another minute before FRIDAY's own downloader took over.
+          const hubFailedEarlier = mode === "auto" && Boolean(hub.isBroken && hub.isBroken());
+          if (hubFailedEarlier && todo.length) {
+            onEvent?.({
+              status:
+                "the Hugging Face client failed earlier in this run; using FRIDAY's own downloader",
+            });
+          }
+          if (
+            todo.length &&
+            mode !== "own" &&
+            !hubFailedEarlier &&
+            listing.host === "https://huggingface.co"
+          ) {
+            const python = deps.hubPython !== undefined ? deps.hubPython : hub.findPython({ root });
+            if (await hubReady(hub, python)) {
+              onEvent?.({ status: "source: Hugging Face official client (hf_xet)" });
+              const hubFiles = todo.map((file) => ({
+                name: file,
+                size: sizeOf(file),
+                sha256: listing.meta?.[file]?.sha256 || "",
+              }));
+              let res = await hub.download({
                 repo: source.repo,
                 dest,
                 python,
                 files: hubFiles,
+                ...(pin ? { revision: pin.revision } : {}),
                 onProgress: onEvent,
                 signal,
               });
+              // A client that had started (bytes moved) and then dropped is a network hiccup, not a dead
+              // route: once more, resuming from what it kept, before FRIDAY's slower own downloader.
+              if (!res.ok && res.reached > 0 && !signal?.aborted && mode !== "own") {
+                onEvent?.({
+                  status: `the Hugging Face client dropped after ${Math.round(res.reached / 1024 ** 2)} MB (${res.error}); trying it once more`,
+                });
+                res = await hub.download({
+                  repo: source.repo,
+                  dest,
+                  python,
+                  files: hubFiles,
+                  ...(pin ? { revision: pin.revision } : {}),
+                  onProgress: onEvent,
+                  signal,
+                });
+              }
+              if (signal?.aborted) throw abortError(signal);
+              if (res.ok) {
+                bytes = res.bytes;
+                engine = "hub";
+              } else {
+                if (hub.markBroken) hub.markBroken();
+                onEvent?.({
+                  status: `the Hugging Face client did not finish (${res.error}); using FRIDAY's own downloader`,
+                });
+                if (mode === "hub") throw new Error(`Hugging Face client: ${res.error}`);
+              }
+            } else if (mode === "hub") {
+              throw new Error(
+                "the Hugging Face client (huggingface_hub with hf_xet) is not installed",
+              );
             }
-            if (signal?.aborted) throw abortError(signal);
-            if (res.ok) {
-              bytes = res.bytes;
-              engine = "hub";
-            } else {
-              if (hub.markBroken) hub.markBroken();
-              onEvent?.({
-                status: `the Hugging Face client did not finish (${res.error}); using FRIDAY's own downloader`,
-              });
-              if (mode === "hub") throw new Error(`Hugging Face client: ${res.error}`);
-            }
-          } else if (mode === "hub") {
-            throw new Error(
-              "the Hugging Face client (huggingface_hub with hf_xet) is not installed",
-            );
           }
-        }
-        if (engine === "own") {
-          const progress = combinedProgress(todo.length, onEvent, todo.map(sizeOf));
-          const fileUrl = (host, file) =>
-            `${host}/${source.repo}/resolve/main/${encodeURI(file)}?download=true`;
-          const sizes = await mapPool(todo, PARALLEL_FILES, async (file, index) => {
-            const row = listing.meta && listing.meta[file] ? listing.meta[file] : {};
-            return downloadUrl(fileUrl(listing.host, file), path.join(dest, file), {
-              alternates: HF_HOSTS.filter((host) => host !== listing.host).map((host) =>
-                fileUrl(host, file),
-              ),
-              onEvent: progress.forFile(index, path.basename(file)),
-              signal,
-              label: `downloading ${path.basename(file)}`,
-              control: job.control,
-              sha256: row.sha256 || "",
-              needBytes: row.size || 0,
+          if (engine === "own") {
+            const progress = combinedProgress(todo.length, onEvent, todo.map(sizeOf));
+            const ref = pin?.revision || "main";
+            const fileUrl = (host, file) =>
+              `${host}/${source.repo}/resolve/${ref}/${encodeURI(file)}?download=true`;
+            const sizes = await mapPool(todo, PARALLEL_FILES, async (file, index) => {
+              const row = listing.meta && listing.meta[file] ? listing.meta[file] : {};
+              return downloadUrl(fileUrl(listing.host, file), path.join(dest, file), {
+                alternates: HF_HOSTS.filter((host) => host !== listing.host).map((host) =>
+                  fileUrl(host, file),
+                ),
+                onEvent: progress.forFile(index, path.basename(file)),
+                signal,
+                label: `downloading ${path.basename(file)}`,
+                control: job.control,
+                sha256: row.sha256 || "",
+                needBytes: row.size || 0,
+              });
             });
-          });
-          bytes = sizes.reduce((sum, size) => sum + size, 0);
+            bytes = sizes.reduce((sum, size) => sum + size, 0);
+          }
+          if (pin) {
+            // Everything downloaded was checked against its pinned SHA-256 as it arrived. Files that were already on
+            // disk (not fetched this run) are hashed once, before a folder is certified; then the sizes of all of them.
+            const fetched = new Set(todo);
+            const kept = Object.fromEntries(
+              Object.entries(pin.files).filter(([name]) => !fetched.has(name)),
+            );
+            const marker = voicePins.readMarker(dest);
+            const certified = marker && marker.revision === pin.revision;
+            const final = await voicePins.auditDir(dest, pin);
+            const recheck = certified
+              ? { ok: true, wrongDigest: [] }
+              : await voicePins.auditDir(dest, { ...pin, files: kept }, { hash: true });
+            if (!final.ok || !recheck.ok) {
+              const bad = [...final.missing, ...final.wrongSize, ...recheck.wrongDigest];
+              voicePins.removeBad(dest, { wrongSize: [], wrongDigest: recheck.wrongDigest });
+              throw new Error(
+                `checksum mismatch: ${bad.join(", ")} do not match the pinned revision`,
+              );
+            }
+            // A pinned model folder holds the pinned files and nothing else: the rest is moved out, kept, not deleted.
+            const extras = voicePins.unexpectedFiles(dest, pin);
+            if (extras.length) {
+              const stamp = (deps.now ? deps.now() : new Date())
+                .toISOString()
+                .replace(/[:.]/g, "-");
+              const where =
+                deps.quarantineRoot ||
+                path.join(
+                  canonical ? path.join(canonical, "cache") : path.dirname(root),
+                  "quarantine",
+                );
+              const out = voicePins.quarantineFiles(
+                dest,
+                extras,
+                path.join(where, `${modelId}-${stamp}`),
+              );
+              onEvent?.({
+                status: `moved ${out.moved.length} unexpected file(s) out of ${modelId} to ${out.to}${out.failed.length ? `; ${out.failed.length} could not be moved` : ""}`,
+              });
+            }
+            voicePins.writeMarker(dest, source.repo, pin);
+          }
+        } catch (err) {
+          // A pause keeps the part files so the download carries on; anything else puts the working revision back.
+          if (signal?.aborted && signal.reason === "pause") throw err;
+          throw keepPrevious(err);
         }
         remember(root, job, {
           status: "installed",

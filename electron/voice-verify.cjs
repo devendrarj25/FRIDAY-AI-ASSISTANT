@@ -65,6 +65,11 @@ const OPTIONAL_INSTALL = {
   "local-tts": "supertonic-3",
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
+  "hindi-ear": "hindi-ear",
+  "hinglish-ear": "hinglish-ear",
+  "hindi-fallback-ear": "hindi-fallback-ear",
+  "hindi-punct": "hindi-punct",
+  "hindi-light-tts": "hindi-light-tts",
 };
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
@@ -269,6 +274,32 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
     detail: `${found.executable} (${found.version})`,
   });
 
+  // What this PC can carry (the 16 GB budget) and what setup would fetch or leave out: one informational row, so a small
+  // or slow PC is named, not guessed. Nothing is downloaded.
+  try {
+    const weightsApi = require("./voice-weights.cjs");
+    const plan = weightsApi.voiceInstallPlan(paths.root() || "", weightsApi.probeHardware(), {
+      exists: (file) => fs.existsSync(file),
+    });
+    const budget = plan.budget;
+    const counts = (state) => plan.items.filter((item) => item.state === state);
+    const skipped = counts("skipped").map((item) => `${item.id} (${item.reason})`);
+    checks.push({
+      id: "voice-budget",
+      label: "voice budget for this PC",
+      ok: true,
+      optional: true,
+      required: false,
+      detail:
+        `${budget.profile}: ${budget.sttSize} ${budget.sttCompute} on the ${budget.sttDevice === "cuda" ? "GPU" : "CPU"}, up to ${budget.speechBudgetGb} GB for speech, ${budget.maxResidentModels} models resident, idle unload after ${Math.round(budget.idleUnloadMs / 60000)} min; ${counts("on-disk").length} planned model(s) on disk, ${counts("download").length} to fetch${skipped.length ? `, skipped: ${skipped.join("; ")}` : ""}`.slice(
+          0,
+          600,
+        ),
+    });
+  } catch {
+    /* the budget is advice; the checks below do not depend on it */
+  }
+
   const whisperImport = await run(
     exe,
     [...prefix, "-c", "import faster_whisper;print(faster_whisper.__version__)"],
@@ -292,7 +323,23 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
     prepared = await weights.ensureSttWeights(size, paths.root() || "", {
       exists: (file) => fs.existsSync(file),
       downloadModel: require("./model-download.cjs").downloadModel,
+      verify: "hash",
     });
+    let pinRows = [];
+    if (prepared.ok) {
+      pinRows = await weights.pinChecks(paths.root() || "", {
+        exists: (file) => fs.existsSync(file),
+        hash: true,
+      });
+      checks.push(...pinRows);
+      // The voice language packs (English, Hindi, Hinglish): one optional row each, from the same pin rows.
+      checks.push(
+        ...(await weights.packChecks(paths.root() || "", {
+          exists: (file) => fs.existsSync(file),
+          pinRows,
+        })),
+      );
+    }
     if (!prepared.ok) {
       checks.push({
         id: "stt-model",
@@ -316,6 +363,17 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
           ? `model "${parsed.model}" loaded in ${parsed.elapsedMs}ms`
           : tail(parsed?.error || load.stderr, "the speech model could not be loaded"),
       });
+      // The model folders themselves: a folder that passed its hashed pin check is certified (so the next pinned
+      // revision keeps it as `.prev`), files the pin does not list are named, and a kept previous revision is offered
+      // for restore when the current one failed its pin or did not load.
+      checks.push(
+        ...(await weights.folderChecks(paths.root() || "", {
+          exists: (file) => fs.existsSync(file),
+          pinRows,
+          adopt: true,
+          loadFailed: parsed?.ok ? [] : [weights.STT_CATALOG[size]].filter(Boolean),
+        })),
+      );
     }
   } else if (loadModel) {
     checks.push({
@@ -431,8 +489,14 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
   };
 }
 
+/** The Doctor repair for a `rollback-<id>` row: put the previous verified revision of a voice model back. */
+function restoreVoiceModel(catalogId) {
+  return require("./voice-weights.cjs").restoreModel(paths.root() || "", String(catalogId || ""));
+}
+
 module.exports = {
   verifyVoiceRuntime,
+  restoreVoiceModel,
   speechSelfTest,
   hearingSelfTest,
   sttEnv,

@@ -161,6 +161,28 @@ export class EchoCanceller {
     return out;
   }
 
+  /**
+   * Same as `process`, with the far-end reference for this very frame supplied alongside it, already on the
+   * microphone clock (`echo-reference.ts` produces it): `reference` holds the samples the speaker played during
+   * the frame, the same length as `near`. A null or empty reference is exactly `process(near, start)`, so
+   * nothing changes for a caller that has none. The bulk delay between speaker and microphone is still found by
+   * the search below.
+   */
+  processWithReference(
+    near: ArrayLike<number>,
+    reference: ArrayLike<number> | null,
+    start?: number,
+  ): Float32Array {
+    const first = start ?? this.nearIndexNext ?? 0;
+    if (reference && reference.length > 0) this.pushReference(first, reference);
+    return this.process(near, first);
+  }
+
+  /** The absolute index the next microphone frame continues from, or null before the first frame. */
+  nextNearIndex(): number | null {
+    return this.nearIndexNext;
+  }
+
   private trackEnvelope(i: number, d: number): void {
     const bin = Math.floor(i / this.binSamples);
     if (bin !== this.lastBinSeen) {

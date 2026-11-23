@@ -1,4 +1,5 @@
 import { voiceForLanguage } from "./speech-normalize";
+import { legacyEngineChoice } from "./voice-engine/tts-provider";
 
 export type TtsEngine = "sapi" | "supertonic" | "neural" | "formant";
 
@@ -56,6 +57,7 @@ export function formantSynth(text: string, rate = 16000): Float32Array {
   return out;
 }
 
+/** The voice for a line, from the one ranking in `voice-engine/tts-provider.ts` (the fallback manager's order). */
 export function chooseTts(input: {
   network: boolean;
   privacy: boolean;
@@ -63,15 +65,22 @@ export function chooseTts(input: {
   windows: boolean;
 }): TtsChoice {
   const voice = "hi-IN";
-  if (input.privacy || input.windows) {
-    if (input.privacy) return { engine: "sapi", quality: "system", voice };
-  }
-  if (input.supertonicReady && !input.network)
-    return { engine: "supertonic", quality: "neural-local", voice };
-  if (input.network && !input.privacy) return { engine: "neural", quality: "neural-online", voice };
-  if (input.supertonicReady) return { engine: "supertonic", quality: "neural-local", voice };
-  if (input.windows) return { engine: "sapi", quality: "system", voice };
-  return { engine: "formant", quality: "low-rule", voice };
+  const engine = legacyEngineChoice({
+    network: input.network,
+    privacy: input.privacy,
+    supertonicReady: input.supertonicReady,
+    systemVoice: input.windows,
+    formantLast: true,
+  });
+  const quality: TtsChoice["quality"] =
+    engine === "sapi"
+      ? "system"
+      : engine === "supertonic"
+        ? "neural-local"
+        : engine === "neural"
+          ? "neural-online"
+          : "low-rule";
+  return { engine, quality, voice };
 }
 
 export function switchMidSentence(
@@ -81,9 +90,13 @@ export function switchMidSentence(
   windows: boolean,
 ): TtsEngine {
   if (engine !== "neural" || network) return engine;
-  if (supertonicReady) return "supertonic";
-  if (windows) return "sapi";
-  return "formant";
+  return legacyEngineChoice({
+    network: false,
+    privacy: false,
+    supertonicReady,
+    systemVoice: windows,
+    formantLast: true,
+  });
 }
 
 export function firstAudioLatency(

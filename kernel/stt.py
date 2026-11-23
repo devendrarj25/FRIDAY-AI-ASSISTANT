@@ -21,15 +21,21 @@ stay on faster-whisper.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import gc
 import json
 import math
 import os
+import queue
 import re
 import struct
 import sys
 import tempfile
+import threading
+import time
 import unicodedata
 import wave
+from collections import deque
 from pathlib import Path
 
 # The packaged self-check and the speech worker run this file with the bundled
@@ -39,7 +45,9 @@ _KERNEL_DIR = str(Path(__file__).resolve().parent)
 if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
+import hindi_ear  # noqa: E402
 import voice_runtime  # noqa: E402
+import whisper_ears  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -56,6 +64,13 @@ _model = None
 _model_name: str | None = None
 _load_count = 0
 _whisper_cls = None
+_now = time.time  # one clock for idle time and load time; tests replace it
+_last_used: float | None = None
+_idle_limit_s = 600.0
+_load_ms: dict[str, int] = {}
+_fallbacks: dict[str, int] = {}
+_unloads = 0
+_cache_lock = threading.RLock()  # held for a whole request, so the idle watch never unloads a model mid-decode
 _whisper_error: str | None = None
 _device_name = "cpu"
 _compute_type = "int8"
@@ -99,11 +114,13 @@ def select_model(ram_gb: float, gpu: bool, battery: bool, auto: bool, requested:
     return tier
 
 
+OWNER_SIZES = frozenset({"tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"})
+
+
 def owner_model(size: str, requested: str) -> str:
     """An owner-chosen size wins. Auto tiering stays for the auto setting."""
     locked = (size or "").strip().lower()
-    known = {"tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"}
-    if locked in known:
+    if locked in OWNER_SIZES:
         return select_model(0.0, False, False, False, locked)
     return resolve_model_name(requested)
 
@@ -263,15 +280,60 @@ def resolve_model_name(requested: str) -> str:
     return select_model(ram, gpu, battery, auto, requested or DEFAULT_MODEL)
 
 
+# faster-whisper 1.2.1 skips a silent stretch longer than this when it suspects a hallucination; it needs word timings.
+HALLUCINATION_SILENCE_S = 2.0
+MAX_HOTWORDS_CHARS = 200
+
+
+def clean_hotwords(raw) -> str:
+    """The owner's own words (names, project terms) as one short line for faster-whisper's `hotwords`, or "" (off)."""
+    if isinstance(raw, (list, tuple)):
+        raw = ", ".join(str(item) for item in raw)
+    words: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[,\n;]+", str(raw or "")):
+        word = " ".join(part.split())
+        if word and word.lower() not in seen:
+            seen.add(word.lower())
+            words.append(word)
+    return ", ".join(words)[:MAX_HOTWORDS_CHARS].strip(" ,")
+
+
+def decode_options(extras: dict | None, language_locked: bool) -> dict:
+    """Extra faster-whisper 1.2.1 options from the owner's settings. Everything is off unless it is asked for.
+
+    * ``hotwords``: the owner's dictionary; nothing is passed when it is empty.
+    * ``multilingual``: a language guess on every segment, only when the owner turned it on and no language is locked.
+    * ``hallucination_silence_threshold``: only together with word timings (``word_timestamps``), which the library
+      requires; word timings are off unless the request or ``FRIDAY_STT_WORD_TIMESTAMPS`` asks for them.
+    """
+    extras = extras or {}
+    out: dict = {}
+    hot = clean_hotwords(extras.get("hotwords"))
+    if hot:
+        out["hotwords"] = hot
+    if extras.get("multilingual") is True and not language_locked:
+        out["multilingual"] = True
+    env_words = os.environ.get("FRIDAY_STT_WORD_TIMESTAMPS", "").strip().lower() in {"1", "true", "yes", "on"}
+    if extras.get("word_timestamps") is True or env_words:
+        out["word_timestamps"] = True
+        out["hallucination_silence_threshold"] = HALLUCINATION_SILENCE_S
+    return out
+
+
+# One utterance never runs this long; a longer (or endless) duration is cut here so a plan cannot fill memory.
+MAX_PARTIAL_WINDOWS = 600
+
+
 def plan_partials(duration_s: float, window_s: float = 2.0, hop_s: float = 1.0) -> list[dict]:
-    """Chunk plan for this same worker. Not a second speech engine."""
-    if duration_s <= 0 or window_s <= 0 or hop_s <= 0:
+    """Chunk plan for this same worker. Not a second speech engine. At most ``MAX_PARTIAL_WINDOWS`` windows."""
+    if not (duration_s > 0 and window_s > 0 and hop_s > 0) or not math.isfinite(duration_s):
         return []
     if duration_s <= window_s:
         return [{"start": 0.0, "end": round(float(duration_s), 3), "final": True}]
     out: list[dict] = []
     start = 0.0
-    while start < duration_s - 1e-6:
+    while start < duration_s - 1e-6 and len(out) < MAX_PARTIAL_WINDOWS:
         end = min(duration_s, start + window_s)
         out.append({"start": round(start, 3), "end": round(end, 3), "final": end >= duration_s - 1e-6})
         if end >= duration_s - 1e-6:
@@ -287,9 +349,14 @@ def cache_dir() -> str:
     return str(base)
 
 
+_emit_lock = threading.Lock()  # the reader thread answers a cancel while the main thread streams a decode
+
+
 def emit(payload: dict) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    with _emit_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _import_whisper():
@@ -308,8 +375,272 @@ def _import_whisper():
         return None
 
 
-def get_model(name: str, model_path: str | None = None):
-    """Load WhisperModel once per worker. `local_files_only` blocks a silent download."""
+# --- the model cache: idle unload, memory pressure, load time ------------------------------------------------------
+# A resident model costs RAM for as long as it sits there. A 16 GB CPU-only PC keeps the engine only while the owner is
+# talking, never loads a bigger one while memory is short, and reports what it holds so the app can show it.
+
+IDLE_UNLOAD_S = 600.0
+IDLE_UNLOAD_MIN_S = 1.0
+IDLE_UNLOAD_MAX_S = 86_400.0
+IDLE_WATCH_S = 30.0
+HINDI_EAR_NAME = "indicconformer-hi-int8"
+# Windows reports a little under the installed size, so "16 GB" machines read 15.4 to 16.0 GiB.
+LOW_MEMORY_TOTAL_MB = 16 * 1024 + 512
+# Free memory below a share of the whole is pressure, kept between a floor and a ceiling so 4 GB and 64 GB PCs both
+# read sensibly: high from 15% (2 to 3 GB), critical from 7% (1 to 1.5 GB).
+PRESSURE_HIGH = (0.15, 2048, 3072)
+PRESSURE_CRITICAL = (0.07, 1024, 1536)
+# Substring order matters: "large-v3-turbo" must read as turbo before it reads as large.
+_MODEL_RANKS = (("tiny", 1), ("base", 2), ("small", 3), ("medium", 4), ("turbo", 5), ("large", 6))
+HEAVY_RANK = 4
+USE_OPS = frozenset({"load", "transcribe", "flush", "self-test", "hearing-self-test"})
+
+
+class MemoryStatusEx(ctypes.Structure):
+    """The Windows MEMORYSTATUSEX record (64 bytes) that GlobalMemoryStatusEx fills."""
+
+    _fields_ = [
+        ("dwLength", ctypes.c_uint32),
+        ("dwMemoryLoad", ctypes.c_uint32),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def _windows_memory_mb() -> tuple[float, float] | None:
+    """``(available, total)`` physical memory in MB from GlobalMemoryStatusEx, or None when the call fails."""
+    if sys.platform != "win32":
+        return None
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    status = MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(MemoryStatusEx)
+    kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(MemoryStatusEx)]
+    kernel32.GlobalMemoryStatusEx.restype = ctypes.c_int
+    if not kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return None
+    return status.ullAvailPhys / 1048576, status.ullTotalPhys / 1048576
+
+
+def parse_meminfo(text: str) -> tuple[float, float] | None:
+    """``(available, total)`` in MB from the text of /proc/meminfo, or None when it cannot be read."""
+    kb: dict[str, float] = {}
+    for line in text.splitlines():
+        key, _sep, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            kb[key.strip()] = float(parts[0])
+    total = kb.get("MemTotal", 0.0)
+    if total <= 0:
+        return None
+    available = kb.get("MemAvailable")
+    if available is None:
+        if "MemFree" not in kb:
+            return None
+        available = kb["MemFree"] + kb.get("Buffers", 0.0) + kb.get("Cached", 0.0)
+    return available / 1024, total / 1024
+
+
+def _linux_memory_mb(path: str = "/proc/meminfo") -> tuple[float, float] | None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return parse_meminfo(handle.read())
+    except OSError:
+        return None
+
+
+def read_memory_mb() -> tuple[float, float] | None:
+    """The machine's ``(available, total)`` physical memory in MB: ctypes on Windows, /proc on Linux, no package."""
+    if sys.platform == "win32":
+        return _windows_memory_mb()
+    if sys.platform.startswith("linux"):
+        return _linux_memory_mb()
+    return None
+
+
+def _pressure_line(total_mb: float, rule: tuple[float, int, int]) -> float:
+    share, floor, ceiling = rule
+    return min(ceiling, max(floor, total_mb * share))
+
+
+def memory_pressure(reader=None) -> dict:
+    """``level`` ok, high or critical from the free memory. A machine that cannot be read is ok with ``known`` false."""
+    try:
+        reading = (reader or read_memory_mb)()
+    except Exception:  # noqa: BLE001 — an unreadable machine never stops speech
+        reading = None
+    if not reading:
+        return {"level": "ok", "availableMb": None, "totalMb": None, "known": False}
+    available, total = float(reading[0]), float(reading[1])
+    level = "ok"
+    if available < _pressure_line(total, PRESSURE_CRITICAL):
+        level = "critical"
+    elif available < _pressure_line(total, PRESSURE_HIGH):
+        level = "high"
+    return {"level": level, "availableMb": int(available), "totalMb": int(total), "known": True}
+
+
+def model_rank(name: str | None) -> int | None:
+    """Size order of a model id or folder (tiny 1 ... large 6), or None when the name says nothing about its size."""
+    leaf = re.split(r"[\\/]", (name or "").strip().lower())[-1]
+    for word, rank in _MODEL_RANKS:
+        if word in leaf:
+            return rank
+    return None
+
+
+def is_heavy_model(name: str | None) -> bool:
+    rank = model_rank(name)
+    return rank is not None and rank >= HEAVY_RANK
+
+
+def is_auto_pick(owner_size: str) -> bool:
+    """True when the tier setting chose the model, not the owner's locked size."""
+    if (owner_size or "").strip().lower() in OWNER_SIZES:
+        return False
+    return os.environ.get("FRIDAY_STT_TIER", "").strip().lower() == "auto"
+
+
+def auto_flag(owner_size: str) -> dict:
+    """The ``auto`` keyword for get_model, only when the tier setting picked the size (an owner's size sends none)."""
+    return {"auto": True} if is_auto_pick(owner_size) else {}
+
+
+def note_fallback(kind: str) -> None:
+    """Count one time the worker answered with something other than what was asked for."""
+    _fallbacks[kind] = _fallbacks.get(kind, 0) + 1
+
+
+def touch() -> None:
+    global _last_used
+    _last_used = _now()
+
+
+def _ear_loaded() -> bool:
+    return hindi_ear.loaded()
+
+
+def loaded_names() -> list[str]:
+    names = [_model_name] if _model is not None and _model_name else []
+    return names + ([HINDI_EAR_NAME] if _ear_loaded() else [])
+
+
+def unload_models() -> list[str]:
+    """Drop every resident model and give the memory back. Returns what was open."""
+    global _model, _model_name, _unloads
+    names = loaded_names()
+    _model, _model_name = None, None
+    hindi_ear.unload()
+    if names:
+        _unloads += 1
+        gc.collect()
+    return names
+
+
+def idle_seconds() -> float | None:
+    """Seconds since a model was last used; None while nothing is loaded."""
+    if _last_used is None or not loaded_names():
+        return None
+    return max(0.0, _now() - _last_used)
+
+
+def unload_idle() -> list[str]:
+    """Unload the models when they have sat unused for the idle time (0 turns this off)."""
+    idle = idle_seconds()
+    if idle is None or _idle_limit_s <= 0 or idle < _idle_limit_s:
+        return []
+    return unload_models()
+
+
+def configure_idle(req: dict) -> None:
+    """A request may set the idle time in seconds: 0 turns the unload off, other values stay within the limits."""
+    raw = req.get("idleUnloadSec", req.get("idle_unload_sec"))
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        return
+    try:
+        if not math.isfinite(raw):
+            return
+        seconds = float(raw)
+    except OverflowError:
+        # An integer past the float range (10**400) is "as long as allowed", never an exception in the request loop.
+        seconds = IDLE_UNLOAD_MAX_S
+    global _idle_limit_s
+    _idle_limit_s = 0.0 if raw == 0 else min(IDLE_UNLOAD_MAX_S, max(IDLE_UNLOAD_MIN_S, seconds))
+
+
+def start_idle_watch(interval_s: float = IDLE_WATCH_S, stop: threading.Event | None = None) -> threading.Thread:
+    """A daemon thread that unloads idle models between requests, so memory returns while the owner is silent."""
+    halt = stop or threading.Event()
+
+    def watch() -> None:
+        while not halt.wait(interval_s):
+            try:
+                with _cache_lock:
+                    unload_idle()
+            except Exception as error:  # one failed tick must not end idle unloading for the rest of the session
+                print(f"stt idle watch: {error}", file=sys.stderr, flush=True)
+
+    thread = threading.Thread(target=watch, name="stt-idle-watch", daemon=True)
+    thread.start()
+    return thread
+
+
+def cache_status() -> dict:
+    """What the worker holds and how it got there: loaded models, load times, idle time, fallbacks and memory."""
+    idle = idle_seconds()
+    loaded = [
+        {
+            "name": name,
+            "engine": "hindi-ear" if name == HINDI_EAR_NAME else "faster-whisper",
+            "loadMs": _load_ms.get(name),
+        }
+        for name in loaded_names()
+    ]
+    return {
+        "loadedModels": loaded,
+        "loadMs": dict(_load_ms),
+        "idleSec": None if idle is None else round(idle, 1),
+        "lastUsed": _last_used if loaded else None,
+        "idleUnloadSec": int(_idle_limit_s),
+        "unloadCount": _unloads,
+        "fallbacks": {"total": sum(_fallbacks.values()), "byKind": dict(_fallbacks)},
+        "memory": memory_pressure(),
+    }
+
+
+def admit_load(wanted: str, auto: bool) -> str:
+    """``load``, ``reuse`` (the resident model answers) or ``evict`` (drop the resident one first), by memory pressure.
+
+    Under pressure a model larger than the resident one is never opened, and an automatic pick of medium or larger on a
+    16 GB PC is refused with the low-memory fault.
+    """
+    pressure = memory_pressure()
+    if pressure["level"] == "ok":
+        return "load"
+    rank, resident = model_rank(wanted), model_rank(_model_name)
+    if _model is not None and rank is not None and resident is not None and rank > resident:
+        return "reuse"
+    total = pressure["totalMb"]
+    if auto and is_heavy_model(wanted) and total is not None and total <= LOW_MEMORY_TOTAL_MB:
+        note_fallback("low-memory-refused")
+        raise SttFault(
+            "low-memory",
+            f"low-memory: {wanted} needs more free memory than this PC has right now "
+            f"({pressure['availableMb']} MB of {total} MB free)",
+            "Close other apps, or pick the small speech size in Settings.",
+        )
+    return "evict" if _model is not None else "load"
+
+
+def get_model(name: str, model_path: str | None = None, auto: bool = False):
+    """Load WhisperModel once per worker. `local_files_only` blocks a silent download.
+
+    `auto` marks a size the tier setting picked (not the owner), which memory pressure may refuse.
+    """
     global _model, _model_name, _load_count, _device_name, _compute_type
     cls = _import_whisper()
     if cls is None:
@@ -317,9 +648,20 @@ def get_model(name: str, model_path: str | None = None):
     spec = model_load_kwargs(name, model_path or os.environ.get("FRIDAY_STT_MODEL_PATH"))
     wanted = spec["target"]
     if _model is not None and _model_name == wanted:
+        touch()
         return _model
+    verdict = admit_load(wanted, auto)
+    if verdict == "reuse":
+        note_fallback("low-memory-resident")
+        touch()
+        return _model
+    if verdict == "evict":
+        _model, _model_name = None, None
+        gc.collect()
+    started = _now()
     _model, _used = open_whisper(cls, wanted, spec)
     if _used != spec["device"]:
+        note_fallback("cuda-to-cpu")
         spec["reason"] = "CPU int8 — CUDA load failed"
         spec["device"] = "cpu"
         spec["compute_type"] = "int8"
@@ -327,7 +669,35 @@ def get_model(name: str, model_path: str | None = None):
     _compute_type = spec["compute_type"]
     _model_name = wanted
     _load_count += 1
+    _load_ms[wanted] = int((_now() - started) * 1000)
+    touch()
     return _model
+
+
+def warm_model(model) -> int:
+    """Two short decodes of quiet noise, so the first spoken turn does not pay the engine's first-run set-up.
+
+    A silent clip is stopped by the voice filter before the model runs at all (so a warm-up with silence warmed only the
+    filter). The first pass loads the filter; the second runs the encoder and decoder once with the filter off. Words
+    it may invent from noise are thrown away. Returns the milliseconds it took, or -1 when it could not run: a failed
+    warm-up never stops a load.
+    """
+    import time
+
+    started = time.time()
+    try:
+        import numpy as np  # type: ignore
+
+        noise = (np.random.default_rng(7).standard_normal(16000) * 0.01).astype(np.float32)
+        segments, _info = model.transcribe(noise, language="en", beam_size=1, vad_filter=True)
+        list(segments)
+        segments, _info = model.transcribe(
+            noise, language="en", beam_size=1, vad_filter=False, without_timestamps=True, max_new_tokens=8
+        )
+        list(segments)
+    except Exception:  # noqa: BLE001 — the real turn loads whatever this did not
+        return -1
+    return int((time.time() - started) * 1000)
 
 
 def wants_english_stream(language: str, speech_pref: str) -> bool:
@@ -369,6 +739,7 @@ AV_FIX = 'python -m pip install "av>=17.0.0,<19"'
 STT_CLASSES = (
     "dependency-incompatible",
     "model-missing",
+    "low-memory",
     "oom",
     "timeout",
     "audio-invalid",
@@ -855,6 +1226,73 @@ def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
     return text or None
 
 
+# True only while a provisional (not-final) pass runs: it is neither counted nor recorded.
+_provisional_pass = False
+
+
+class DecodeCancelled(BaseException):  # noqa: N818 — not an error, and a BaseException so no `except Exception` swallows it
+    """Raised at a segment or pass boundary when the owner's speech resumed and a provisional decode is not wanted."""
+
+
+# A cancel is cooperative: it sets a flag that the decode reads between segments and passes (a decode that is inside
+# one model call finishes that call first). Only a provisional decode can be cancelled; a final one never is.
+_cancel_lock = threading.Lock()
+_active_decode: dict = {"key": "", "event": None}
+_cancelled_keys: deque = deque(maxlen=32)  # cancels that arrived before their decode began (bounded)
+
+
+def begin_decode(key: str, provisional: bool) -> None:
+    """Open the cancel window of one decode. A cancel that arrived first ends it before any work."""
+    key = (key or "")[:64]
+    with _cancel_lock:
+        if not provisional:
+            _active_decode["key"], _active_decode["event"] = "", None
+            return
+        early = bool(key) and key in _cancelled_keys
+        if early:
+            _cancelled_keys.remove(key)
+        event = threading.Event()
+        if early:
+            event.set()
+        _active_decode["key"], _active_decode["event"] = key, event
+    check_cancel()
+
+
+def end_decode() -> None:
+    with _cancel_lock:
+        _active_decode["key"], _active_decode["event"] = "", None
+
+
+def check_cancel() -> None:
+    """Raise DecodeCancelled when this decode was cancelled. Cheap: called between segments and passes."""
+    event = _active_decode["event"]
+    if event is not None and event.is_set():
+        raise DecodeCancelled()
+
+
+def request_cancel(key: str = "") -> dict:
+    """Cancel the running provisional decode (this key, or any when the key is empty), or remember the key for one
+    that has not begun. Called from the reader thread; never takes the model lock, so it answers during a decode."""
+    key = str(key or "")[:64]
+    with _cancel_lock:
+        event = _active_decode["event"]
+        if event is not None and (not key or _active_decode["key"] == key):
+            event.set()
+            return {"ok": True, "cancelled": True, "queued": False, "utteranceId": _active_decode["key"]}
+        if key and key not in _cancelled_keys:
+            _cancelled_keys.append(key)
+        return {"ok": True, "cancelled": False, "queued": bool(key), "utteranceId": key}
+
+
+def cancelled_reply(req: dict) -> dict:
+    """What a cancelled decode answers: not ok, never final, never counted as heard, never a fault."""
+    reply = {"ok": False, "reason": "cancelled", "cancelled": True, "final": False}
+    uid = req.get("utteranceId")
+    if isinstance(uid, str) and uid.strip():
+        reply["utteranceId"] = uid.strip()[:64]
+    return reply
+
+
 def transcribe_file(
     audio: str,
     model_name: str,
@@ -865,6 +1303,46 @@ def transcribe_file(
     owner_size: str = "",
     model_path: str = "",
     keep_wav: bool = False,
+    extras: dict | None = None,
+    provisional: bool = False,
+    utterance_id: str = "",
+) -> dict:
+    """One utterance file to text. A provisional pass runs every gate but is never counted or recorded, and it alone
+    can be cancelled (``request_cancel``): that raises DecodeCancelled out of here, with nothing counted."""
+    global _provisional_pass
+    _provisional_pass = bool(provisional)
+    try:
+        begin_decode(utterance_id, bool(provisional))
+        return _transcribe_file(
+            audio,
+            model_name,
+            language,
+            initial_prompt,
+            on_partial,
+            speech_pref,
+            owner_size,
+            model_path,
+            keep_wav,
+            extras,
+            provisional,
+        )
+    finally:
+        end_decode()
+        _provisional_pass = False
+
+
+def _transcribe_file(
+    audio: str,
+    model_name: str,
+    language: str,
+    initial_prompt: str,
+    on_partial,
+    speech_pref: str,
+    owner_size: str,
+    model_path: str,
+    keep_wav: bool,
+    extras: dict | None,
+    provisional: bool,
 ) -> dict:
     prepared, samples, cleanup, hearing = prepare_audio(audio)
     original = None
@@ -888,8 +1366,10 @@ def transcribe_file(
             model_path,
             hearing,
             original,
+            extras,
         )
-        _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
+        if not provisional:
+            _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
         return result
     finally:
         if cleanup and os.path.exists(cleanup):
@@ -901,12 +1381,14 @@ def transcribe_file(
 
 def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     """One whisper pass. Segment text is kept even when no-speech is high."""
+    check_cancel()
     segments, info = model.transcribe(payload, **kwargs)
     parts: list[str] = []
     no_speech: list[float] = []
     logprobs: list[float] = []
     partials = 0
     for seg in segments:
+        check_cancel()
         text = (getattr(seg, "text", "") or "").strip()
         if text:
             parts.append(text)
@@ -996,6 +1478,8 @@ _counters: dict = {"heard": 0, "dropped": {}}
 
 def note_outcome(code: str) -> None:
     """Count one utterance: heard when the code is empty, else dropped by that code."""
+    if _provisional_pass:
+        return
     if not code:
         _counters["heard"] += 1
         return
@@ -1139,6 +1623,7 @@ def _transcribe_prepared(
     model_path: str = "",
     hearing: dict | None = None,
     original=None,
+    extras: dict | None = None,
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
@@ -1148,8 +1633,31 @@ def _transcribe_prepared(
             moon_text = transcribe_moonshine(samples, moon_dir, on_partial)
             if moon_text:
                 engine = "moonshine-en"
+    hindi_text = None
+    ear_note = ""
+    if not moon_text and samples is not None and hindi_ear.tries_ear(language, speech_pref):
+        # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
+        # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
+        # words that mean nothing, and its own token scores say so).
+        ear_was_open, ear_started = _ear_loaded(), _now()
+        hindi_text = hindi_ear.transcribe(samples)
+        if _ear_loaded():
+            if not ear_was_open:
+                # The first reading opens the ear, so this time includes that one decode.
+                _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
+            touch()
+        check_cancel()
+        mode = hindi_ear.listen_mode(language, speech_pref)
+        if hindi_text and not hindi_ear.confident(mode, hindi_ear.last_confidence()):
+            hindi_text = None
+            note_fallback("hindi-ear-to-whisper")
+            ear_note = "the Hindi ear was unsure (English or mixed speech): faster-whisper heard it"
+        if hindi_text:
+            engine = "hindi-ear"
     turn_probability = None
-    if samples is not None:
+    # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
+    # for: it used to run before every decode and add its own model run to the wait for the words.
+    if samples is not None and (extras or {}).get("turn_score") is True:
         try:
             scored = voice_runtime.score_turn(samples, 16000)
             if isinstance(scored.get("probability"), (int, float)):
@@ -1174,12 +1682,44 @@ def _transcribe_prepared(
             "",
             ["moonshine"],
         )
+    if hindi_text:
+        return _heard(
+            {
+                "ok": True,
+                "text": hindi_text,
+                "language": "hi",
+                "durationMs": 0,
+                "model": "indicconformer-hi-int8",
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": hindi_text, "vadMs": None, "noSpeechProb": 0.0, "language": "hi", "noSpeechNote": ""},
+            "",
+            ["hindi-ear"],
+        )
+    # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
+    # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
+    check_cancel()  # the ear is done and nothing was heard: do not open a model for a decode nobody wants
+    alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
+    model = None
+    if alt is not None:
+        try:
+            model = get_model(alt["id"], alt["path"])
+        except Exception:  # noqa: BLE001 — the generic model answers instead
+            whisper_ears.mark_failed(alt["id"])
+            note_fallback("ear-to-generic")
+            alt = None
     try:
-        model = get_model(owner_model(owner_size, model_name), model_path or None)
+        if model is None:
+            model = get_model(owner_model(owner_size, model_name), model_path or None, **auto_flag(owner_size))
     except Exception:
         windows_text = transcribe_windows(audio)
         if not windows_text:
             raise
+        note_fallback("model-to-windows-speech")
         return _heard(
             {
                 "ok": True,
@@ -1197,7 +1737,9 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    lang = resolve_language(language)
+    lang = alt["decode"] if alt is not None else resolve_language(language)
+    if alt is not None:
+        engine = alt["engine"]
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
         hint = DEFAULT_HINT
@@ -1209,6 +1751,7 @@ def _transcribe_prepared(
         "vad_parameters": dict(VAD_PARAMETERS),
         "beam_size": 1,
         "condition_on_previous_text": False,
+        **decode_options(extras, lang is not None),
     }
     if hint:
         kwargs["initial_prompt"] = hint[:800]
@@ -1216,6 +1759,13 @@ def _transcribe_prepared(
     try:
         first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
+        if alt is not None:
+            # The optional ear could not decode: remember it and let the engine of today hear this utterance.
+            whisper_ears.mark_failed(alt["id"])
+            return _transcribe_prepared(
+                audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
+                owner_size, model_path, hearing, original, extras,
+            )  # fmt: skip
         fault = classify_stt_exception(exc)
         windows_text = None
         if fault.kind in {"oom", "timeout", "dependency-incompatible"} and isinstance(audio, str):
@@ -1242,8 +1792,10 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    language_note = ""
-    if should_recheck_language(first, lang is not None):
+    language_note = ear_note
+    check_cancel()
+    if not ear_note and should_recheck_language(first, lang is not None):
+        # (Not after the Hindi ear judged this audio: a second Hindi-locked decode would repeat that look at full cost.)
         try:
             again_hi = _consume_whisper(model, payload, {**kwargs, "language": "hi"}, None)
             first, language_note = choose_language_pass(first, again_hi)
@@ -1253,6 +1805,7 @@ def _transcribe_prepared(
     bare["vad_filter"] = False
 
     def again(kind: str) -> dict:
+        check_cancel()
         clip = original if kind == HEARING_ORIGINAL and original is not None else payload
         return _consume_whisper(model, clip, bare, on_partial)
 
@@ -1262,9 +1815,10 @@ def _transcribe_prepared(
         {
             "ok": True,
             "text": text,
-            "language": chosen.get("language") or lang or "",
+            "language": alt["report"] if alt is not None else chosen.get("language") or lang or "",
             "languageProbability": chosen.get("languageProbability"),
-            "languageNote": language_note,
+            "languageNote": language_note
+            or ("Hinglish ear: Roman letters" if alt is not None and alt["id"] == whisper_ears.HINGLISH_ID else ""),
             "avgLogprob": chosen.get("avgLogprob"),
             "durationMs": chosen.get("durationMs") or 0,
             "model": _model_name or model_name,
@@ -1433,8 +1987,12 @@ def status_payload() -> dict:
         "inference": "verified" if _model is not None else "unverified",
         "error": None if cls is not None else _whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
+        "hindiEarReady": hindi_ear.ready(),
+        "hinglishEarReady": whisper_ears.hinglish_ready(),
+        "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
         "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
+        **cache_status(),
         "counters": counters_payload(),
         "noSpeechThreshold": voice_runtime.NO_SPEECH_THRESHOLD,
         "local": True,
@@ -1744,7 +2302,34 @@ def run_hearing_self_test(levels=HEARING_LEVELS, synth=None, transcribe=None) ->
     }
 
 
+def provisional_reply(result: dict, req: dict) -> dict:
+    """A provisional answer says it is not final, how much audio it heard, and which utterance it belongs to."""
+    if not result.get("ok"):
+        return result
+    audio = result.get("audio")
+    facts: dict = audio if isinstance(audio, dict) else {}
+    millis = result.get("durationMs") or facts.get("durationMs") or 0
+    reply = {**result, "final": False, "audioMs": int(millis) if isinstance(millis, (int, float)) else 0}
+    reply["engine"] = str(result.get("engine") or "faster-whisper")
+    uid = req.get("utteranceId")
+    if isinstance(uid, str) and uid.strip():
+        reply["utteranceId"] = uid.strip()[:64]
+    return reply
+
+
 def handle_request(req: dict) -> dict:
+    """One request. A use of the models (load, transcribe) restarts the idle clock; a status question does not."""
+    configure_idle(req)
+    op = str(req.get("op") or "")
+    if op in USE_OPS:
+        unload_idle()
+    result = _handle_op(req)
+    if op in USE_OPS and loaded_names():
+        touch()
+    return result
+
+
+def _handle_op(req: dict) -> dict:
     op = str(req.get("op") or "")
     if op in {"status", "probe"}:
         return status_payload()
@@ -1757,24 +2342,40 @@ def handle_request(req: dict) -> dict:
 
         started = time.time()
         try:
-            get_model(str(req.get("model") or DEFAULT_MODEL), str(req.get("model_path") or "") or None)
+            before = _load_count
+            model = get_model(
+                str(req.get("model") or DEFAULT_MODEL),
+                str(req.get("model_path") or "") or None,
+                **auto_flag(str(req.get("sttSize") or req.get("stt_size") or "")),
+            )
+            loaded_ms = int((time.time() - started) * 1000)
+            # Only a model this call opened is warmed; a request for the one already open costs nothing.
+            warm_ms = warm_model(model) if _load_count != before else 0
             return {
                 "ok": True,
                 "model": _model_name,
                 "cache": cache_dir(),
-                "elapsedMs": int((time.time() - started) * 1000),
+                "elapsedMs": loaded_ms,
+                "loadMs": _load_ms.get(_model_name or ""),
+                "warmMs": warm_ms,
                 "loadCount": _load_count,
                 "inference": "verified",
             }
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "reason": "model-load-failed", "error": str(exc)[-600:], "loadCount": _load_count}
+    if op == "cancel":
+        return request_cancel(str(req.get("utteranceId") or ""))
+    if op == "score-turn":
+        return voice_runtime.score_turn_payload(req)
     if op == "partial-plan":
         try:
             duration = float(req.get("duration") or 0)
         except (TypeError, ValueError):
             duration = 0.0
         return {"ok": True, "windows": plan_partials(duration), "engine": "faster-whisper"}
-    if op == "transcribe":
+    if op in {"transcribe", "flush"}:
+        # "flush" is a provisional pass by name; "transcribe" with provisional:true is the same thing.
+        provisional = op == "flush" or req.get("provisional") is True
         audio = str(req.get("audio") or "")
         if not audio or not os.path.exists(audio):
             return {"ok": False, "reason": "no-audio", "error": "No audio file was supplied."}
@@ -1785,8 +2386,9 @@ def handle_request(req: dict) -> dict:
                 return
             emit({"id": rid, "stream": True, "text": text, "engine": "faster-whisper"})
 
+        uid = req.get("utteranceId")
         try:
-            return transcribe_file(
+            result = transcribe_file(
                 audio,
                 str(req.get("model") or DEFAULT_MODEL),
                 str(req.get("language") or ""),
@@ -1796,7 +2398,16 @@ def handle_request(req: dict) -> dict:
                 str(req.get("sttSize") or req.get("stt_size") or ""),
                 str(req.get("model_path") or ""),
                 bool(req.get("keep_wav") or req.get("keepWav")),
+                {
+                    "hotwords": req.get("hotwords"),
+                    "multilingual": req.get("multilingual") is True,
+                    "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
+                },
+                **({"provisional": True, "utterance_id": uid if isinstance(uid, str) else ""} if provisional else {}),
             )
+            return provisional_reply(result, req) if provisional else result
+        except DecodeCancelled:
+            return cancelled_reply(req)
         except Exception as exc:  # noqa: BLE001
             fault = classify_stt_exception(exc)
             if _whisper_cls is None and fault.kind != "dependency-incompatible":
@@ -1823,26 +2434,49 @@ def serve() -> int:
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
-    for raw in sys.stdin:
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-        except Exception as exc:  # noqa: BLE001
-            emit({"ok": False, "reason": "bad-request", "error": str(exc)[-200:]})
-            continue
-        if not isinstance(req, dict):
-            emit({"ok": False, "reason": "bad-request", "error": "request must be an object"})
-            continue
+    start_idle_watch()
+    # Input is read on its own thread, so a cancel is answered while a decode holds this one. Every other request
+    # waits in order; only "cancel" jumps the line, and it only sets a flag.
+    inbox: queue.Queue = queue.Queue()
+    threading.Thread(target=_read_requests, args=(inbox,), name="stt-reader", daemon=True).start()
+    while True:
+        req = inbox.get()
+        if req is None:
+            return 0
         rid = req.get("id")
-        result = handle_request(req)
+        try:
+            with _cache_lock:
+                result = handle_request(req)
+        except Exception as exc:  # noqa: BLE001 — one bad request never stops the worker
+            result = {"ok": False, "reason": "worker-error", "error": f"{type(exc).__name__}: {exc}"[-300:]}
         if rid is not None:
             result = {"id": rid, **result}
         emit(result)
         if str(req.get("op") or "") == "shutdown":
             return 0
-    return 0
+
+
+def _read_requests(inbox: queue.Queue) -> None:
+    try:
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                req = json.loads(line)
+            except Exception as exc:  # noqa: BLE001
+                emit({"ok": False, "reason": "bad-request", "error": str(exc)[-200:]})
+                continue
+            if not isinstance(req, dict):
+                emit({"ok": False, "reason": "bad-request", "error": "request must be an object"})
+                continue
+            if str(req.get("op") or "") == "cancel":
+                answer = request_cancel(str(req.get("utteranceId") or ""))
+                emit({"id": req["id"], **answer} if req.get("id") is not None else answer)
+                continue
+            inbox.put(req)
+    finally:
+        inbox.put(None)
 
 
 def main() -> int:
@@ -1859,7 +2493,13 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.serve:
-        return serve()
+        code = serve()
+        # The reader thread may still be blocked on stdin. Leaving through interpreter shutdown with it there can end
+        # in "could not acquire lock for <stdin> at interpreter shutdown", so the worker leaves at once, flushed.
+        try:
+            sys.stdout.flush()
+        finally:
+            os._exit(code)
 
     if args.hearing_self_test:
         payload = run_hearing_self_test()

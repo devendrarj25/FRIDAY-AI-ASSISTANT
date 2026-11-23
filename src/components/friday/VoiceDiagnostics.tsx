@@ -10,12 +10,23 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import { assistantMode } from "@/lib/friday/assistant-mode";
+import { assistantMode, voiceBudgetLine } from "@/lib/friday/assistant-mode";
 import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
 import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
-import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
+import {
+  figureLine,
+  unstampedStagesLine,
+  voiceLatency,
+} from "@/lib/friday/voice-engine/latency-monitor";
+import { echoDiagnostics } from "@/lib/friday/voice-engine/echo-live";
+import {
+  earlyStartRows,
+  echoReferenceRows,
+  speechWorkerRows,
+  type SpeechWorkerView,
+} from "@/lib/friday/voice-diagnostics-rows";
 import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
 import { desktopApi } from "@/lib/friday/desktop";
 import { useVoiceProfile } from "@/lib/friday/use-voice-profile";
@@ -52,8 +63,12 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       detail: string;
       optional?: boolean;
       installId?: string;
+      rollbackId?: string;
     }>
   >([]);
+  const [worker, setWorker] = useState<SpeechWorkerView>({ phase: "loading" });
+  const [restoreAsk, setRestoreAsk] = useState("");
+  const [restoreLine, setRestoreLine] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
   const [speakBusy, setSpeakBusy] = useState(false);
@@ -83,6 +98,29 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     paint();
     return voiceGate.subscribe(() => paint());
   }, [gate.running]);
+
+  const readWorker = async (): Promise<SpeechWorkerView> => {
+    const api = desktopApi();
+    if (!api?.sttStatus) return { phase: "offline" };
+    try {
+      const [status, budget] = await Promise.all([
+        api.sttStatus(true, true, false),
+        api.voiceBudget?.() ?? Promise.resolve(null),
+      ]);
+      return { phase: "ready", cache: status?.cache ?? null, budget: budget?.ok ? budget : null };
+    } catch (error) {
+      return { phase: "error", message: String((error as Error)?.message || error).slice(0, 120) };
+    }
+  };
+  useEffect(() => {
+    let live = true;
+    void readWorker().then((view) => {
+      if (live) setWorker(view);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const rows: Array<{ label: string; value: string; bad?: boolean }> = [
     { label: "state", value: voice.voiceState },
@@ -152,6 +190,28 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       label: "turn latency (heard to spoken)",
       value: voiceLatency.line(),
     },
+    { label: "Voice latency budget (speech end to first sound)", value: voiceBudgetLine() },
+    {
+      label: "first sound after the final transcript (final to first sample)",
+      value: figureLine("finalToFirstAudible"),
+    },
+    {
+      label: "first sound after speech end, brain included (speech end is an estimate)",
+      value: figureLine("endToFirstAudible"),
+    },
+    {
+      label: "brain first token to first sound",
+      value: figureLine("brainTokenToFirstAudible"),
+    },
+    {
+      label: "first clause to first sound (brain not included)",
+      value: figureLine("firstClauseToFirstAudible"),
+    },
+    { label: "early recognition overlap", value: figureLine("eagerOverlap") },
+    { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
+    ...earlyStartRows(preferences.getSnapshot().voice),
+    ...echoReferenceRows(echoDiagnostics()),
+    { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
     {
       label: "barge-in shadow (acoustic detector vs the live pause)",
@@ -212,6 +272,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         voice.handsFree ? "on" : "off"
       }`,
     },
+    ...speechWorkerRows(worker),
     ...(voice.error ? [{ label: "error", value: voice.error, bad: true }] : []),
   ];
 
@@ -320,6 +381,18 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </button>
         <button
           type="button"
+          onClick={() => {
+            setWorker({ phase: "loading" });
+            void readWorker().then(setWorker);
+          }}
+          disabled={worker.phase === "loading"}
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+        >
+          <RefreshCw className="size-3" aria-hidden="true" />
+          {worker.phase === "loading" ? "reading…" : "refresh speech worker"}
+        </button>
+        <button
+          type="button"
           onClick={() => assistantMode.refreshWakeEngine(true)}
           className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
@@ -395,6 +468,55 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                   <Download className="size-3" aria-hidden="true" />
                   Install
                 </button>
+              ) : null}
+              {check.rollbackId ? (
+                <span className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = check.rollbackId || "";
+                      if (restoreAsk !== id) {
+                        setRestoreAsk(id);
+                        return;
+                      }
+                      setRestoreAsk("");
+                      setRestoreLine((lines) => ({ ...lines, [id]: "restoring…" }));
+                      const restore = desktopApi()?.restoreVoiceModel;
+                      void (
+                        restore
+                          ? restore(id)
+                          : Promise.resolve({
+                              ok: false,
+                              revision: "",
+                              error: "restore runs in the installed FRIDAY app",
+                            })
+                      )
+                        .then((result) =>
+                          setRestoreLine((lines) => ({
+                            ...lines,
+                            [id]: result.ok
+                              ? `restored revision ${(result.revision || "").slice(0, 8) || "previous"}; run the voice self-test again`
+                              : `not restored: ${result.error || "unknown error"}`,
+                          })),
+                        )
+                        .catch((error: unknown) =>
+                          setRestoreLine((lines) => ({
+                            ...lines,
+                            [id]: `not restored: ${String((error as Error)?.message || error).slice(0, 120)}`,
+                          })),
+                        );
+                    }}
+                    className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+                  >
+                    <RotateCcw className="size-3" aria-hidden="true" />
+                    {restoreAsk === check.rollbackId ? "Confirm restore" : "Restore"}
+                  </button>
+                  {restoreLine[check.rollbackId] ? (
+                    <span className="text-meta-sm text-foreground/80">
+                      {restoreLine[check.rollbackId]}
+                    </span>
+                  ) : null}
+                </span>
               ) : null}
             </li>
           ))}

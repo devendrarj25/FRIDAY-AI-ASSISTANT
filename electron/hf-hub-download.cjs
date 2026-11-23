@@ -61,6 +61,7 @@ const SCRIPT = [
   "from tqdm.auto import tqdm",
   "from huggingface_hub import snapshot_download",
   "repo, dest, files = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])",
+  "revision = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None",
   "class Beat(tqdm):",
   "    def __init__(self, *a, **k):",
   "        k['disable'] = False",
@@ -77,7 +78,7 @@ const SCRIPT = [
   "                sys.stdout.write('FRIDAYBYTES\\t%s\\t%d\\t%d\\n' % (name, self.n, self.total))",
   "                sys.stdout.flush()",
   "        return out",
-  "snapshot_download(repo_id=repo, local_dir=dest, allow_patterns=files, tqdm_class=Beat)",
+  "snapshot_download(repo_id=repo, local_dir=dest, allow_patterns=files, revision=revision, tqdm_class=Beat)",
 ].join("\n");
 
 /** Which engine to use: auto (this one first), hub (this one only) or own (the built-in one). */
@@ -229,6 +230,7 @@ async function download({
   dest,
   files,
   python,
+  revision = "",
   env = process.env,
   onProgress = null,
   signal = null,
@@ -253,7 +255,14 @@ async function download({
     HF_HUB_DISABLE_SYMLINKS_WARNING: "1",
     PYTHONIOENCODING: "utf-8",
   };
-  const args = ["-c", SCRIPT, repo, dest, JSON.stringify(wanted.map((file) => file.name))];
+  const args = [
+    "-c",
+    SCRIPT,
+    repo,
+    dest,
+    JSON.stringify(wanted.map((file) => file.name)),
+    revision,
+  ];
   const started = Date.now();
   let failure = "";
   let reached = 0; // the most bytes the client reported or left on disk, even when it then failed

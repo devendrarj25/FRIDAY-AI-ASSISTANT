@@ -59,7 +59,13 @@ describe("a spoken approval", () => {
   it("is the one rule at every approval site", () => {
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
     expect(mode).not.toMatch(/\bAFFIRM\b|\bDENY\b/);
-    expect(mode.match(/confirmationVerdict\(/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(mode.match(/confirmationVerdict\(/g)?.length).toBeGreaterThanOrEqual(4);
+    // The app-control approval reads its yes or no through the router, which is built on the same rule.
+    const router = readFileSync("src/lib/friday/voice-engine/utterance-router.ts", "utf8");
+    expect(router).toMatch(/const base = confirmationVerdict\(text\);/);
+    expect(mode).toMatch(
+      /answer\.kind === "approval-answer"[\s\S]{0,200}approvalVoiceAllows\(text\)/,
+    );
   });
 });
 

@@ -81,6 +81,8 @@ declare global {
         reasoningEffort?: "low" | "medium" | "high";
         /** The turn's run id, so a local trace can follow it into the kernel. */
         runId?: string;
+        /** A speculative text-only draft: no stored line, no phone mirror, no tool. Only `true` counts. */
+        draft?: boolean;
         system?: string;
         /** Recent turns of the one shared thread, so the model answers inside the conversation. */
         history?: { role: "user" | "friday"; text: string; sensitive?: boolean }[];

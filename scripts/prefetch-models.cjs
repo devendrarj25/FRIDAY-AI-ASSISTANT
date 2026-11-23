@@ -41,6 +41,13 @@
  * setup (FRIDAY fetches it from inside the app when it is chosen); FRIDAY_PREFETCH_STT_BIG=1 adds it.
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
+ *
+ * The voice follows this PC: the hardware probe (memory, free memory, GPU) picks the profile in electron/voice-weights.cjs
+ * (budgetFor), and setup fetches only the pinned voice models that profile can carry, plus the Hindi ear and its punctuation
+ * model; a speech size the PC does not load on its own (medium, large-v3-turbo, large-v3 without a verified GPU) and a model
+ * that does not fit the RAM or the disk is skipped with its reason, and stays an install from the Models page.
+ * FRIDAY_PREFETCH_VOICE_BUDGET=0 returns to the plain list. `node scripts/prefetch-models.cjs --voice` fetches the voice
+ * alone, and `--voice --dry-run` prints the plan and downloads nothing.
  */
 const fs = require("node:fs");
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
@@ -68,6 +75,8 @@ const APPROX_BYTES = {
   "stt-large-v3-turbo": 1620 * 1024 ** 2,
   "stt-large-v3": 3100 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
+  "hindi-ear": 131 * 1024 ** 2,
+  "hindi-punct": 223 * 1024 ** 2,
   "qwen3-4b": 2500 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
 };
@@ -206,6 +215,13 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     });
   }
   if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
+  // The voice plan of this PC (voice-weights.cjs voiceInstallPlan): the pinned models its RAM and disk can carry for
+  // Hindi, English and Hinglish. Without a plan the list is exactly what it was.
+  for (const item of have.plan?.items || []) {
+    if (item.state === "skipped" || jobs.some((job) => job.id === voiceJobId(item.id))) continue;
+    const added = voiceModelJob(root, item.id);
+    if (added) jobs.push(added);
+  }
   // llama.cpp is installed beside Ollama and serves the same small chat model from its GGUF file, so the file is
   // fetched even when Ollama serves chat too.
   const llamaWanted = llamaCppWanted(env, platform);
@@ -301,10 +317,56 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       kind: "stt",
       ready: plan.dir,
       minRamGb: STT_BIG.minRamGb,
+      explicit: true,
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
+  // A speech size this PC does not load on its own stays out of setup (the owner can still install it from the Models
+  // page, or ask for it here with FRIDAY_PREFETCH_STT_BIG=1); the run says why, in the same line as a RAM skip.
+  for (const blocked of have.plan?.blocked || []) {
+    const job = jobs.find((row) => row.id === `stt-${blocked.size}` && !row.explicit);
+    if (job) job.skipReason = blocked.reason;
+  }
   return jobs;
+}
+
+/** The setup job id of a catalog id: a speech size is `stt-<size>`, every other voice model keeps its own id. */
+function voiceJobId(catalogId) {
+  const size = Object.keys(voiceWeights.STT_CATALOG).find(
+    (key) => voiceWeights.STT_CATALOG[key] === catalogId,
+  );
+  return size ? `stt-${size}` : catalogId;
+}
+
+/**
+ * The job for a pinned voice model that setup does not already fetch by its own rule: a speech size, the Hindi ear and its
+ * punctuation model (fetched at their pinned revision into `<root>/models/<id>`, like the neural voice).
+ */
+function voiceModelJob(root, catalogId) {
+  const size = Object.keys(voiceWeights.STT_CATALOG).find(
+    (key) => voiceWeights.STT_CATALOG[key] === catalogId,
+  );
+  if (size) {
+    const plan = voiceWeights.sttPlan(size, root);
+    return {
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    };
+  }
+  const row = voiceWeights.modelRegistry().find((item) => item.catalogId === catalogId);
+  if (!row?.repo || row.dir[0] !== "models") return null;
+  return {
+    id: catalogId,
+    kind: "voice-model",
+    ready: path.join(root, ...row.dir),
+    job: {
+      modelId: catalogId,
+      dir: path.join(root, "models"),
+      sources: [{ kind: "hf-repo", repo: row.repo, label: `Hugging Face (${row.label})` }],
+    },
+  };
 }
 
 /** Done only when a whole run finished: the repo is fetched file by file, so one file proves nothing. */
@@ -349,6 +411,12 @@ function bytesOnDisk(target) {
 function alreadyThere(row) {
   if (!row.ready) return false;
   if (row.kind === "stt") return voiceWeights.weightsReady(row.ready, fs.existsSync);
+  // A pinned model folder is here when every pinned file is (the repair and the pin audit run in the app).
+  if (row.kind === "voice-model") {
+    return voiceWeights
+      .voiceModelsOnDisk(path.dirname(path.dirname(row.ready)), fs.existsSync)
+      .some((found) => found.catalogId === row.id);
+  }
   // The zip is kept only as the installer: the piece is here when the server it holds is unpacked.
   if (row.kind === "archive") return llamaRuntime.installed(row.root);
   if (row.kind === "chat") {
@@ -987,6 +1055,7 @@ async function prefetch(
     moonshine,
     board,
     llama,
+    probe,
   } = {},
 ) {
   const rows = [];
@@ -999,10 +1068,29 @@ async function prefetch(
       existing = { installed: false };
     }
   }
-  const jobs = prefetchPlan(root, env, platform, { ollama: existing.installed });
+  // The voice profile of this PC decides which pinned voice models are fetched. A caller that injects its own
+  // downloader (the tests) gets the plain list unless it also hands over a probe; FRIDAY_PREFETCH_VOICE_BUDGET=0 opts out.
+  let voicePlan = null;
+  if (root && enabled(env, "FRIDAY_PREFETCH_VOICE_BUDGET") && (probe || !download)) {
+    try {
+      voicePlan = voiceWeights.voiceInstallPlan(root, probe || voiceWeights.probeHardware(), {
+        exists: fs.existsSync,
+      });
+    } catch (err) {
+      log(
+        `[friday] INFO     the voice profile could not be chosen (${String((err && err.message) || err)}); using the plain list`,
+      );
+    }
+  }
+  const jobs = prefetchPlan(root, env, platform, { ollama: existing.installed, plan: voicePlan });
   if (!jobs.length) {
     log("[friday] model prefetch skipped");
     return rows;
+  }
+  if (voicePlan) {
+    // The skipped speech sizes are named once, by their own job, when the run reaches them.
+    const sizeLines = new Set(voicePlan.blocked.map((row) => row.line));
+    for (const line of voicePlan.lines) if (!sizeLines.has(line)) log(line);
   }
   const installer = jobs.find((row) => row.kind === "installer");
   if (installer) {
@@ -1112,6 +1200,11 @@ async function prefetch(
         return { id: row.id, ok: true, downloaded: false };
       }
       say(`[friday] update   ${row.id}: ${stale.length} file(s) changed upstream, fetching them`);
+    }
+    if (row.skipReason) {
+      if (ui) ui.finish(row.id, { ok: true, note: `skipped: ${row.skipReason}`.slice(0, 80) });
+      say(`[friday] INFO     ${row.id} skipped: ${row.skipReason}`);
+      return { id: row.id, ok: true, downloaded: false, skipped: true };
     }
     if (row.minRamGb && ramGb < row.minRamGb) {
       if (ui) ui.finish(row.id, { ok: true, note: `skipped: needs ${row.minRamGb} GB RAM` });
@@ -1326,6 +1419,7 @@ module.exports = {
   moonshineReady,
   alreadyThere,
   bytesOnDisk,
+  voiceDryRun,
   MOONSHINE_DIR,
 };
 
@@ -1362,9 +1456,40 @@ async function prefetchWithRetries(root, options = {}, { wait, rounds } = {}) {
   return rows;
 }
 
-if (require.main === module) {
+/**
+ * `node scripts/prefetch-models.cjs --voice [--dry-run]` (npm run voice:install): the voice models this PC can carry,
+ * chosen from the hardware probe. `--dry-run` prints this plan and downloads nothing; without it only the voice is
+ * fetched (the speech sizes, helpers, neural voice and Hindi ear), and the same plan is printed first by the run itself.
+ */
+function voiceDryRun(root, log = console.log) {
+  const plan = voiceWeights.voiceInstallPlan(root, voiceWeights.probeHardware(), {
+    exists: fs.existsSync,
+  });
+  for (const line of plan.lines) log(line);
+  log(
+    `[friday] INFO     dry run: nothing was downloaded (${Math.round(plan.downloadBytes / 1024 ** 2)} MB would be fetched)`,
+  );
+  return plan;
+}
+
+if (
+  require.main === module &&
+  process.argv.includes("--voice") &&
+  process.argv.includes("--dry-run")
+) {
+  voiceDryRun(require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root);
+} else if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
+  if (process.argv.includes("--voice")) {
+    // Only the voice: the chat model, Ollama and llama.cpp belong to setup.
+    Object.assign(process.env, {
+      FRIDAY_PREFETCH: "1",
+      FRIDAY_PREFETCH_CHAT: "0",
+      FRIDAY_PREFETCH_OLLAMA: "0",
+      FRIDAY_PREFETCH_LLAMACPP: "0",
+    });
+  }
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
   // A FRIDAY_PYTHON that points nowhere is dropped; the kernel virtual environment is used instead.
   require("./explicit-python.cjs").dropStalePython(process.env);

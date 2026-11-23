@@ -148,3 +148,45 @@ describe("echo canceller (simulated rooms only)", () => {
     expect(ms).toBeLessThan(1500);
   });
 });
+
+describe("echo canceller with a reference supplied per frame", () => {
+  it("gives the same answer as pushing the reference first, and removes the echo", () => {
+    const far = farEnd(8);
+    const near = room(90)(far);
+    const frame = 320;
+    const pushed = run(new EchoCanceller({ rate: RATE }), far, near, frame);
+    const live = new EchoCanceller({ rate: RATE });
+    const out = new Float32Array(near.length);
+    for (let at = 0; at < near.length; at += frame)
+      out.set(
+        live.processWithReference(near.subarray(at, at + frame), far.subarray(at, at + frame)),
+        at,
+      );
+    expect(Array.from(out)).toEqual(Array.from(pushed));
+    expect(live.nextNearIndex()).toBe(near.length);
+    expect(db(power(near, 6 * RATE, 8 * RATE) / power(out, 6 * RATE, 8 * RATE))).toBeGreaterThan(
+      15,
+    );
+  });
+
+  it("without a reference it is the plain process, frame for frame", () => {
+    const near = room(60)(farEnd(3, 4));
+    const a = new EchoCanceller({ rate: RATE });
+    const b = new EchoCanceller({ rate: RATE });
+    for (let at = 0; at < near.length; at += 320) {
+      const part = near.subarray(at, at + 320);
+      expect(Array.from(a.processWithReference(part, null, at))).toEqual(
+        Array.from(b.process(part, at)),
+      );
+    }
+    expect(a.stats()).toEqual(b.stats());
+  });
+
+  it("honours an explicit start index after a stretch with no frames", () => {
+    const echo = new EchoCanceller({ rate: RATE });
+    echo.processWithReference(new Float32Array(320), null, 1000);
+    expect(echo.nextNearIndex()).toBe(1320);
+    echo.processWithReference(new Float32Array(320), new Float32Array(320).fill(0.1), 5000);
+    expect(echo.nextNearIndex()).toBe(5320);
+  });
+});

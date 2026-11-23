@@ -27,8 +27,19 @@ export type LocalCard = {
   appliedToPolicy: false;
 };
 
+/** What the brain-first gate saw. Numbers and a reason only, never the prompt. */
+export type LocalMindGate = {
+  /** Best card overlap (Jaccard), 0 with no card. */
+  score: number;
+  /** The Jaccard a card must reach to skip the model. */
+  threshold: number;
+  reason: string;
+  skippedModel: boolean;
+};
+
 export type LocalMindDecision = {
   skipModel: boolean;
+  gate?: LocalMindGate;
   reply: string | null;
   reason: string;
   confidence: number;
@@ -46,6 +57,12 @@ export type LocalGrowth = {
 
 const STORAGE_KEY = "friday.local-mind.v1";
 const MAX_CARDS = 64;
+const MIN_COVERAGE = 0.8;
+const MIN_JACCARD = 0.55;
+const MIN_SHARED = 2;
+const MIN_CARD_CONFIDENCE = 0.62;
+const RETIRE_BELOW = 0.3;
+const DOWNGRADE_STEP = 0.25;
 const STOP = new Set([
   "the",
   "and",
@@ -301,6 +318,12 @@ export function consultLocalMind(input: {
 }): LocalMindDecision {
   hydrate();
   const history = packHistory(input.history ?? []);
+  const gateOf = (score: number, reason: string, skippedModel: boolean): LocalMindGate => ({
+    score: Math.round(score * 1000) / 1000,
+    threshold: MIN_JACCARD,
+    reason,
+    skippedModel,
+  });
   const empty: LocalMindDecision = {
     skipModel: false,
     reply: null,
@@ -309,9 +332,15 @@ export function consultLocalMind(input: {
     cardId: null,
     appliedToPolicy: false,
     omittedChars: history.omittedChars,
+    gate: gateOf(0, "no saved answer yet", false),
   };
-  if (input.sensitive) return { ...empty, reason: "sensitive text is not reused" };
-  if (input.blocked) return { ...empty, reason: "this turn stays with the model" };
+  const stay = (reason: string, score = 0): LocalMindDecision => ({
+    ...empty,
+    reason,
+    gate: gateOf(score, reason, false),
+  });
+  if (input.sensitive) return stay("sensitive text is not reused");
+  if (input.blocked) return stay("this turn stays with the model");
   const asked = terms(input.prompt);
   let best: { card: LocalCard; coverage: number; jaccard: number; shared: number } | null = null;
   for (const card of cards) {
@@ -320,12 +349,12 @@ export function consultLocalMind(input: {
   }
   if (
     !best ||
-    best.coverage < 0.8 ||
-    best.jaccard < 0.55 ||
-    best.shared < 2 ||
-    best.card.confidence < 0.62
+    best.coverage < MIN_COVERAGE ||
+    best.jaccard < MIN_JACCARD ||
+    best.shared < MIN_SHARED ||
+    best.card.confidence < MIN_CARD_CONFIDENCE
   ) {
-    return best ? { ...empty, reason: "saved answers do not cover this ask" } : empty;
+    return best ? stay("saved answers do not cover this ask", best.jaccard) : empty;
   }
   return {
     skipModel: true,
@@ -335,7 +364,27 @@ export function consultLocalMind(input: {
     cardId: best.card.id,
     appliedToPolicy: false,
     omittedChars: history.omittedChars,
+    gate: gateOf(best.jaccard, "saved answer covers this ask", true),
   };
+}
+
+/**
+ * The owner corrected a saved answer, or asked it again at once. A card can only
+ * go down: its confidence drops, and a card that falls far enough is retired.
+ * Never raises a card. Returns what happened.
+ */
+export function lowerLocalCard(cardId: string): "lowered" | "retired" | "missing" {
+  hydrate();
+  const card = cards.find((row) => row.id === cardId);
+  if (!card) return "missing";
+  card.confidence = clamp(Math.min(card.confidence, card.confidence - DOWNGRADE_STEP));
+  if (card.confidence < RETIRE_BELOW) {
+    cards = cards.filter((row) => row.id !== cardId);
+    persist();
+    return "retired";
+  }
+  persist();
+  return "lowered";
 }
 
 /** Count one local answer after the desk actually uses it. */

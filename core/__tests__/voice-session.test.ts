@@ -235,8 +235,16 @@ describe("FRIDAY stays responsive while a turn is running", () => {
     expect(assistant).toContain("this.clearHoldLines()");
     // A real spoken request still interrupts, and a stop word still stops.
     expect(assistant).toContain("brain.stop()");
-    const dispatch = assistant.slice(assistant.indexOf("private dispatch(command: string)"));
+    const dispatch = assistant.slice(assistant.indexOf("private dispatch(command: string"));
+    expect(dispatch.indexOf("whileBusy(")).toBeGreaterThan(-1);
     expect(dispatch.indexOf("whileBusy(")).toBeLessThan(dispatch.indexOf("this.dropPlayback()"));
+    // The early draft is the Brain's own text-only run (startDraft), not a second dispatch: dispatch has no draft
+    // branch. A real command interrupts only the foreground turn, never a background task's run.
+    expect(dispatch.slice(0, dispatch.indexOf("\n  }\n"))).not.toContain("draft");
+    expect(dispatch).toMatch(/const heard = this\.heardOfReply\(\);\s*this\.dropPlayback\(\)/);
+    expect(dispatch).toMatch(
+      /!result\.accepted && result\.reason === "busy"\) \{\s*brain\.stop\("foreground"\)/,
+    );
   });
 });
 

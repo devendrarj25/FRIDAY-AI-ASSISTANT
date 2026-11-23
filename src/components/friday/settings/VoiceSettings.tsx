@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
+import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPickers";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
 import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
@@ -13,7 +15,11 @@ import {
   voiceReadinessNote,
   voiceSelfTestPlan,
 } from "@/lib/friday/voice-doctor";
-import { preferences } from "@/lib/friday/preferences";
+import {
+  preferences,
+  sanitizeConfirmLevel,
+  sanitizeVoiceTaskPrefs,
+} from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useBilling } from "@/lib/friday/use-billing";
 import { realtimeStatus } from "@/lib/friday/voice-realtime";
@@ -43,7 +49,12 @@ import {
 } from "@/lib/friday/voice-library";
 
 const RECOGNITION_LANGS = [
+  { value: "auto", label: "Auto (Hindi, English or mixed)" },
   { value: "hi-IN", label: "Hindi (India)" },
+  {
+    value: "hi-Latn",
+    label: "Hinglish in Roman letters (optional Hinglish ear, downloads on demand)",
+  },
   { value: "en-IN", label: "English (India)" },
   { value: "en-US", label: "English (US)" },
 ];
@@ -51,16 +62,8 @@ const RECOGNITION_LANGS = [
 export function VoiceSettings() {
   const prefs = usePreferences();
   const voice = useAssistantMode();
+  const router = useRouter({ warn: false });
   const [busy, setBusy] = useState(false);
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
-    void navigator.mediaDevices
-      .enumerateDevices()
-      .then((list) => setDevices(list.filter((d) => d.kind === "audioinput")))
-      .catch(() => setDevices([]));
-  }, []);
 
   return (
     <div className="space-y-4">
@@ -85,6 +88,38 @@ export function VoiceSettings() {
                 </option>
               ))}
             </select>
+          </label>
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2">
+            <p className="min-w-0 text-xs text-muted-foreground">
+              Voice language packs: install Hindi, English or Hinglish in one click
+            </p>
+            <Button size="sm" variant="outline" onClick={() => router?.navigate({ to: "/models" })}>
+              Open voice language packs
+            </Button>
+          </div>
+          <label className="block sm:col-span-2">
+            <span className="label-xs text-muted-foreground">How often she asks yes or no</span>
+            <select
+              value={sanitizeConfirmLevel(prefs.voice.confirmLevel)}
+              onChange={(e) =>
+                preferences.setVoice({ confirmLevel: sanitizeConfirmLevel(e.target.value) })
+              }
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="rare" className="bg-background">
+                Rare: only for things that cannot be undone, or when she clearly did not understand
+              </option>
+              <option value="normal" className="bg-background">
+                Normal: also for cautious things like install or rename
+              </option>
+              <option value="always" className="bg-background">
+                Always: asks like Ask every time
+              </option>
+            </select>
+            <span className="mt-1 block text-meta-sm text-muted-foreground">
+              Default is rare. Dangerous actions (delete, send, pay, shutdown, uninstall) always
+              ask, in every position.
+            </span>
           </label>
           <EditField
             label="Reply language"
@@ -179,23 +214,7 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
-          <label className="block sm:col-span-2">
-            <span className="label-xs text-muted-foreground">Microphone</span>
-            <select
-              value={prefs.voice.inputDeviceId}
-              onChange={(e) => preferences.setVoice({ inputDeviceId: e.target.value })}
-              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-            >
-              <option value="" className="bg-background">
-                System default
-              </option>
-              {devices.map((device) => (
-                <option key={device.deviceId} value={device.deviceId} className="bg-background">
-                  {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <VoiceAudioPickers />
         </div>
         <div className="mt-4 space-y-3">
           <ToggleRow
@@ -282,6 +301,20 @@ export function VoiceSettings() {
             }
           />
           <ToggleRow
+            label="Tidy the words shown for what I say"
+            hint="Auto mode. Drops um and uh, turns spoken punctuation (comma, full stop, purn viram, new line) into symbols, and lets a spoken correction (two, actually three) replace what it corrects, in Hindi, English and Hinglish. It runs on this PC and never changes what FRIDAY acts on or the script you spoke. On by default."
+            on={prefs.voice.tidyDictation !== false}
+            onToggle={() =>
+              preferences.setVoice({ tidyDictation: prefs.voice.tidyDictation === false })
+            }
+          />
+          <ToggleRow
+            label="Speech Prep for Hindi and Hinglish"
+            hint="Before she speaks, English words inside a Hindi reply and Roman Hindi (kal meeting hai) are written in Devanagari so the Hindi voice says them properly, and numbers, times and rupee amounts are said as words. English sentences, quoted names, code and links are never changed. On by default."
+            on={prefs.voice.speechPrep !== false}
+            onToggle={() => preferences.setVoice({ speechPrep: prefs.voice.speechPrep === false })}
+          />
+          <ToggleRow
             label="Show words while I speak (experimental)"
             hint="Auto mode only. Reads what you have said so far about once a second and shows the words two readings agree on. Uses more CPU while you talk; the answer still waits for the normal final reading. Off by default."
             on={prefs.voice.liveWords === true}
@@ -305,40 +338,73 @@ export function VoiceSettings() {
               preferences.setVoice({ realtimeExperiment: prefs.voice.realtimeExperiment !== true })
             }
           />
-          <label className="block">
-            <span className="label-xs text-muted-foreground">Speech model size</span>
-            <select
-              value={prefs.voice.sttSize || "auto"}
-              onChange={(e) =>
-                preferences.setVoice({
-                  sttSize: e.target.value as typeof prefs.voice.sttSize,
-                })
-              }
-              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-            >
-              <option value="auto" className="bg-background">
-                Auto
-              </option>
-              <option value="tiny" className="bg-background">
-                Tiny
-              </option>
-              <option value="base" className="bg-background">
-                Base
-              </option>
-              <option value="small" className="bg-background">
-                Small
-              </option>
-              <option value="medium" className="bg-background">
-                Medium
-              </option>
-              <option value="large-v3-turbo" className="bg-background">
-                Large turbo (fast, big)
-              </option>
-              <option value="large-v3" className="bg-background">
-                Large
-              </option>
-            </select>
-          </label>
+          <VoiceTasksCard />
+          <ToggleRow
+            label="Say a short acknowledgement while I work"
+            hint="Auto mode. When a task takes a while, she says one short line (like 'On it') so you know she heard you. It only adds a spoken line; nothing leaves this PC. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.instantAck === true}
+            onToggle={() => preferences.setVoice({ instantAck: prefs.voice.instantAck !== true })}
+          />
+          <ToggleRow
+            label="Start thinking before I finish speaking (experimental)"
+            hint="Auto mode. She begins a draft answer while you are still finishing the sentence, and throws it away if you say more. It never acts on a draft and uses more CPU. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.eagerTurn === true}
+            onToggle={() => preferences.setVoice({ eagerTurn: prefs.voice.eagerTurn !== true })}
+          />
+          <ToggleRow
+            label="Cancel her own voice from the microphone (experimental)"
+            hint="Auto mode. Her own voice is subtracted from what the microphone hears, so you can interrupt her without a headset. Runs on this PC and plays nothing extra. Off by default and unverified on your PC until you try it."
+            on={prefs.voice.echoReference === true}
+            onToggle={() =>
+              preferences.setVoice({ echoReference: prefs.voice.echoReference !== true })
+            }
+          />
+          <ToggleRow
+            label="Warm up the voice when Auto mode starts"
+            hint="Once the microphone is open, FRIDAY loads and tries her speech, voice, turn and kernel engines so your first question is not slow. Nothing is played, no microphone is added and nothing leaves this PC. It is skipped on the Lite profile and on battery, and a failure shows in Voice Doctor, not as an error. On by default."
+            on={prefs.voice.prewarm !== false}
+            onToggle={() => preferences.setVoice({ prewarm: prefs.voice.prewarm === false })}
+          />
+          <ToggleRow
+            label="Remember only what I heard when I cut her off"
+            hint="When you interrupt a spoken reply, the conversation keeps the part you heard and notes that she was cut off, so the next answer does not assume you heard the rest. The whole reply stays in the saved conversation on this PC. On by default."
+            on={prefs.voice.trimHistoryToPlayed !== false}
+            onToggle={() =>
+              preferences.setVoice({
+                trimHistoryToPlayed: prefs.voice.trimHistoryToPlayed === false,
+              })
+            }
+          />
+          <ToggleRow
+            label="Fast first clause (experimental)"
+            hint="Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. Off by default and not yet measured on a real speaker."
+            on={prefs.voice.fastFirstClause === true}
+            onToggle={() =>
+              preferences.setVoice({ fastFirstClause: prefs.voice.fastFirstClause !== true })
+            }
+          />
+          <ToggleRow
+            label="Play the local voice as raw samples (experimental)"
+            hint="Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. Off by default and not yet measured on a real speaker."
+            on={prefs.voice.pcmPlayback === true}
+            onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
+          />
+          <ToggleRow
+            label="Use the light Hindi voice for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
+            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the Hindi light voice download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
+            on={prefs.voice.hindiLightVoice === true}
+            onToggle={() =>
+              preferences.setVoice({ hindiLightVoice: prefs.voice.hindiLightVoice !== true })
+            }
+          />
+          <ToggleRow
+            label="Check the language on every phrase (experimental)"
+            hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
+            on={prefs.voice.sttMultilingual === true}
+            onToggle={() =>
+              preferences.setVoice({ sttMultilingual: prefs.voice.sttMultilingual !== true })
+            }
+          />
           <label className="block">
             <span className="label-xs text-muted-foreground">Talkativeness</span>
             <select
@@ -474,7 +540,7 @@ export function VoiceSettings() {
             onClick={() => {
               preferences.setVoice({
                 wakeWord: "friday",
-                recognitionLang: "hi-IN",
+                recognitionLang: "auto",
                 speechLang: "hi-IN",
                 voiceName: "",
                 speakReplies: true,
@@ -762,6 +828,74 @@ function VoiceLibraryPanel() {
         ))}
       </div>
     </HudPanel>
+  );
+}
+
+/** Tasks that keep running while she talks: how much she says, and what happens after a restart. */
+function VoiceTasksCard() {
+  const prefs = usePreferences();
+  const tasks = sanitizeVoiceTaskPrefs(prefs.voice.tasks);
+  const set = (patch: Partial<typeof tasks>) =>
+    preferences.setVoice({ tasks: sanitizeVoiceTaskPrefs({ ...tasks, ...patch }) });
+  const selectClass =
+    "mt-1 h-8 w-full rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground";
+  return (
+    <div className="grid gap-2 rounded-md border border-border p-2 text-meta-sm text-muted-foreground">
+      <p className="text-foreground">Tasks while talking</p>
+      <p>
+        One task runs at a time for now; a second waits in line and shows in the task list in Auto
+        mode. These settings only change what she says, never what she is allowed to do.
+      </p>
+      <label className="block">
+        <span className="label-xs text-muted-foreground">How much she says about a task</span>
+        <select
+          value={tasks.narration}
+          onChange={(e) => set({ narration: e.target.value as typeof tasks.narration })}
+          className={selectClass}
+        >
+          <option value="quiet">Quiet (only the result)</option>
+          <option value="normal">Normal</option>
+          <option value="chatty">Chatty</option>
+        </select>
+      </label>
+      <TuneRow
+        label="Progress lines per minute"
+        value={tasks.progressLinesPerMinute}
+        min={0}
+        max={6}
+        step={1}
+        detail={tasks.progressLinesPerMinute === 0 ? "none" : `${tasks.progressLinesPerMinute}`}
+        onChange={(progressLinesPerMinute) => set({ progressLinesPerMinute })}
+      />
+      <ToggleRow
+        label="Say a short line when a task is done"
+        on={tasks.speakDone}
+        onToggle={() => set({ speakDone: !tasks.speakDone })}
+      />
+      <label className="block">
+        <span className="label-xs text-muted-foreground">After a restart</span>
+        <select
+          value={tasks.resumeAfterRestart}
+          onChange={(e) =>
+            set({ resumeAfterRestart: e.target.value as typeof tasks.resumeAfterRestart })
+          }
+          className={selectClass}
+        >
+          <option value="ask">Ask me before resuming</option>
+          <option value="auto">Resume on its own</option>
+        </select>
+        <span className="mt-1 block text-meta-sm text-muted-foreground">
+          Resume on its own only runs read-only tasks, and only under Full autonomy. A task that
+          changes something always asks.
+        </span>
+      </label>
+      <ToggleRow
+        label="Answer a quick question while a task runs"
+        hint="A short side question is answered at once, beside the task, instead of waiting for it."
+        on={tasks.sideQuestionLane}
+        onToggle={() => set({ sideQuestionLane: !tasks.sideQuestionLane })}
+      />
+    </div>
   );
 }
 

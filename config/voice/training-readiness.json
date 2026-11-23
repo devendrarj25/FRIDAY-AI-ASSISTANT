@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "about": "The three levels of training readiness for FRIDAY's own speech recognition, and what each needs as evidence. The checker (npm run voice:readiness) reads this file, the owner's manifest and the owner's training records, and reports PASS, PARTIAL or UNVERIFIED per level. The thresholds are starting policy for a result to be a claim, not published guidance. Nothing here is a trained model, and no recording is kept in the repository.",
+  "thresholds": {
+    "minTestItemsPerLanguage": 100,
+    "minTestRooms": 2,
+    "minTestConditions": 2,
+    "minTrainHours": 1,
+    "adapterTolerance": 0.02
+  },
+  "baseModelLicences": ["MIT", "Apache-2.0", "BSD-3-Clause", "CC-BY-4.0"],
+  "levels": [
+    {
+      "level": 1,
+      "id": "collect-label-consent",
+      "title": "Collect, label and consent",
+      "needs": "A valid manifest of the owner's own recordings with a consent record, labelled sentences held by hash, a frozen held-out test set with enough items per language, more than one room and more than one condition, and enough training hours.",
+      "tooling": [
+        "src/lib/friday/voice-engine/voice-eval-set.ts",
+        "scripts/voice-eval.cjs",
+        "config/voice/eval-manifest.json"
+      ],
+      "notBuilt": []
+    },
+    {
+      "level": 2,
+      "id": "adapt-offline",
+      "title": "Fine-tune an adapter offline on the owner's consented data",
+      "needs": "A run record for each adapter or LoRA run: an open base model with its licence and revision, trained offline (no network), only on listed train items of sources cleared for training, none of them a dev or test item, the frozen test set unchanged since, and a hashed artifact.",
+      "tooling": [
+        "src/lib/friday/voice-engine/voice-training-readiness.ts",
+        "scripts/voice-readiness.cjs"
+      ],
+      "notBuilt": [
+        "the training run itself: it is done by the owner on his PC in a separate offline environment (Hugging Face PEFT needs torch, which the app never imports or bundles); no loader for a trained adapter exists in the app runtime yet"
+      ]
+    },
+    {
+      "level": 3,
+      "id": "evaluate-version-rollback",
+      "title": "Evaluate, version and roll back",
+      "needs": "For each release: the adapter and the base model scored on the same frozen test set (claimable groups), the adapter not worse than the base model beyond the tolerance, a unique version tied to a run and a hashed artifact, one active release, and a rollback target that was tried on a stated date.",
+      "tooling": [
+        "src/lib/friday/voice-engine/voice-training-readiness.ts",
+        "scripts/voice-eval.cjs",
+        "src/lib/friday/voice-engine/transcript-scorer.ts"
+      ],
+      "notBuilt": [
+        "switching the app between versions: no adapter loader exists, so rollback is recorded and checked here, not performed by the app"
+      ]
+    }
+  ]
+}

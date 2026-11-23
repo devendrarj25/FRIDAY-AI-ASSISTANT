@@ -15,6 +15,104 @@ import {
 } from "./voice-engine/voice-cloud-settings";
 import { registerFlush } from "./persist";
 
+/** How the voice task desk behaves while the owner keeps talking. Read by the voice conductor; stored in `voice.tasks`. */
+export type VoiceTaskPrefs = {
+  /** Tasks that may run at once (1 to 3). The settings page holds it at 1 until parallel lanes exist. */
+  maxParallel: number;
+  /** How much she says about a running task. */
+  narration: "quiet" | "normal" | "chatty";
+  /** Most spoken progress lines in one minute (0 to 6). */
+  progressLinesPerMinute: number;
+  /** Say a short line when a task is done. */
+  speakDone: boolean;
+  /** After a restart, ask before resuming tasks that were running; "auto" resumes read-only tasks under Full autonomy only. */
+  resumeAfterRestart: "ask" | "auto";
+  /** A quick question asked while a task runs is answered at once, beside the task. */
+  sideQuestionLane: boolean;
+};
+
+export const DEFAULT_VOICE_TASK_PREFS: VoiceTaskPrefs = {
+  maxParallel: 1,
+  narration: "normal",
+  progressLinesPerMinute: 3,
+  speakDone: true,
+  resumeAfterRestart: "ask",
+  sideQuestionLane: true,
+};
+
+const wholeIn = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.floor(value)))
+    : fallback;
+
+/** How often she asks yes or no before a spoken order: only when it cannot be undone, also when cautious, or every time. */
+export const CONFIRM_LEVELS = ["rare", "normal", "always"] as const;
+export type VoiceConfirmLevel = (typeof CONFIRM_LEVELS)[number];
+
+/** An unknown or missing word (an old stored shape) reads `rare`. */
+export function sanitizeConfirmLevel(value: unknown): VoiceConfirmLevel {
+  return (CONFIRM_LEVELS as readonly unknown[]).includes(value)
+    ? (value as VoiceConfirmLevel)
+    : "rare";
+}
+
+/** The engines the owner may pin; the names are the ones `rankTtsProviders` takes as `prefer`. */
+export const TTS_ENGINE_PICKS = ["auto", "supertonic", "sapi"] as const;
+export type TtsEnginePick = (typeof TTS_ENGINE_PICKS)[number];
+
+/** An unknown or missing word (an old stored shape) reads `auto`, today's order. */
+export function sanitizeTtsEngine(value: unknown): TtsEnginePick {
+  return (TTS_ENGINE_PICKS as readonly unknown[]).includes(value)
+    ? (value as TtsEnginePick)
+    : "auto";
+}
+
+export const STT_SIZE_PICKS = [
+  "auto",
+  "tiny",
+  "base",
+  "small",
+  "medium",
+  "large-v3-turbo",
+  "large-v3",
+] as const;
+export type SttSizePick = (typeof STT_SIZE_PICKS)[number];
+
+/** An unknown or missing size reads `auto`, the size measured for this PC. */
+export function sanitizeSttSize(value: unknown): SttSizePick {
+  return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
+}
+
+/** A device id is a short string; anything else (an old or hand-edited shape) reads the system default. */
+export function sanitizeDeviceId(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 400) : "";
+}
+
+/** Days a kept utterance clip stays: a whole number from 1 to 90; anything else reads 7. */
+export function sanitizeWavDays(value: unknown): number {
+  const n = typeof value === "number" ? Math.round(value) : Number.NaN;
+  return Number.isFinite(n) ? Math.min(90, Math.max(1, n)) : 7;
+}
+
+/** A stored or edited value is always made safe: unknown words fall back, numbers clamp, an old shape reads the defaults. */
+export function sanitizeVoiceTaskPrefs(
+  input: Partial<VoiceTaskPrefs> | null | undefined,
+): VoiceTaskPrefs {
+  const src = input ?? {};
+  const d = DEFAULT_VOICE_TASK_PREFS;
+  return {
+    maxParallel: wholeIn(src.maxParallel, 1, 3, d.maxParallel),
+    narration:
+      src.narration === "quiet" || src.narration === "chatty" || src.narration === "normal"
+        ? src.narration
+        : d.narration,
+    progressLinesPerMinute: wholeIn(src.progressLinesPerMinute, 0, 6, d.progressLinesPerMinute),
+    speakDone: src.speakDone !== false,
+    resumeAfterRestart: src.resumeAfterRestart === "auto" ? "auto" : "ask",
+    sideQuestionLane: src.sideQuestionLane !== false,
+  };
+}
+
 /** One selectable, individually tuned FRIDAY voice. */
 export type VoiceModel = {
   id: string;
@@ -42,6 +140,12 @@ export type VoicePreferences = {
   recognitionLang: string;
   /** Preferred Windows audio input device id ("" = system default). */
   inputDeviceId: string;
+  /** Preferred speaker (audio output) device id ("" = system default). A missing device falls back to the default. */
+  outputDeviceId: string;
+  /** The browser's own noise suppression on the microphone. On is how FRIDAY has always opened it. */
+  noiseSuppression: boolean;
+  /** Which engine speaks: auto keeps today's order; supertonic is the local voice only; sapi is the system voice only. */
+  ttsEngine: TtsEnginePick;
   /** Spoken reply language. */
   speechLang: string;
   /** Preferred voice name, e.g. Microsoft Swara Online (Natural) - Hindi. */
@@ -62,6 +166,22 @@ export type VoicePreferences = {
   pauseDuringCalls: boolean;
   /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
   realtimeExperiment: boolean;
+  /** Opt-in: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
+  fastFirstClause: boolean;
+  /** Opt-in: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file. */
+  pcmPlayback: boolean;
+  /** Warm the speech, voice, turn and brain engines once when Auto mode opens the microphone. Changes no audio. */
+  prewarm: boolean;
+  /** When a reply is cut off, the conversation remembers only the part that was heard, marked as cut. */
+  trimHistoryToPlayed: boolean;
+  /** Tasks that run while the owner keeps talking: narration, progress lines, restart, side questions. */
+  tasks: VoiceTaskPrefs;
+  /** Opt-in: a short acknowledgement is said while a task works. Off until tried on this PC. */
+  instantAck: boolean;
+  /** Opt-in, experimental: start thinking before the owner finishes speaking. Off until tried on this PC. */
+  eagerTurn: boolean;
+  /** Opt-in, experimental: her own voice is cancelled from the microphone. Off until tried on this PC. */
+  echoReference: boolean;
   /**
    * Cloud voice limits. Everything starts off: no cloud request, no spend. The numbers are the owner's; a free
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
@@ -71,6 +191,18 @@ export type VoicePreferences = {
   localVoiceStyle: "" | "F1" | "F2" | "F3" | "F4" | "F5";
   /** Small changes of pace, pitch and volume per clause (a question rises, an apology softens). */
   expressiveSpeech: boolean;
+  /** Speech Prep: English words and Roman Hindi in Hindi replies are written in Devanagari before the voice reads them. */
+  speechPrep: boolean;
+  /** How often she asks yes or no first: rare (default), normal, always. Dangerous orders always ask in every position. */
+  confirmLevel: VoiceConfirmLevel;
+  /** The optional light Hindi voice (Models, "Hindi light voice") for Devanagari-only Hindi lines. Off by default. */
+  hindiLightVoice: boolean;
+  /** Keep the last spoken clips as WAV files for the voice diagnostics. Off by default: no raw audio is saved. */
+  keepUtteranceWavs: boolean;
+  /** Days a kept clip stays when `keepUtteranceWavs` is on (1 to 90). */
+  utteranceWavDays: number;
+  /** Clean the words shown for what the owner said (fillers, spoken punctuation, corrections); what the brain gets is unchanged. */
+  tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
@@ -96,7 +228,9 @@ export type VoicePreferences = {
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
-  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
+  sttSize: SttSizePick;
+  /** Listen for the language again on every phrase (faster-whisper multilingual). Off by default; auto language only. */
+  sttMultilingual: boolean;
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */
@@ -236,8 +370,13 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
   },
   voice: {
     wakeWord: "friday",
-    recognitionLang: "hi-IN",
+    // A fresh install listens in auto: Hindi, English or mixed speech is each heard by the right engine. An install
+    // that already stored a choice (hi-IN included) keeps it: a stored value cannot be told from an explicit pick.
+    recognitionLang: "auto",
     inputDeviceId: "",
+    outputDeviceId: "",
+    noiseSuppression: true,
+    ttsEngine: "auto",
     speechLang: "hi-IN",
     voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
     // A soft, warm Indian-girl delivery: slightly slower, slightly brighter.
@@ -252,8 +391,17 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     privacyMode: false,
     pauseDuringCalls: true,
     realtimeExperiment: false,
+    fastFirstClause: false,
+    pcmPlayback: false,
+    prewarm: true,
+    trimHistoryToPlayed: true,
+    tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+    instantAck: false,
+    eagerTurn: false,
+    echoReference: false,
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
+    tidyDictation: true,
     liveWords: false,
     liveWake: false,
     recogniseMyVoice: true,
@@ -266,8 +414,14 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     voicePresetVersion: 1,
     notesRetentionDays: 30,
     expressiveSpeech: true,
+    speechPrep: true,
+    confirmLevel: "rare",
+    hindiLightVoice: false,
+    keepUtteranceWavs: false,
+    utteranceWavDays: 7,
     localVoiceStyle: "",
     sttSize: "auto",
+    sttMultilingual: false,
     addressName: "",
     addressMode: "conversation",
     listenStyle: "always",
@@ -306,6 +460,23 @@ function merge(
       ...(patch.voice ?? {}),
       // A partial voice patch (a single slider) must never wipe the library.
       models: Array.isArray(patch.voice?.models) ? patch.voice.models : base.voice.models,
+      // Task settings merge key by key and are made safe; an old shape without them keeps the defaults.
+      tasks: sanitizeVoiceTaskPrefs({ ...base.voice.tasks, ...(patch.voice?.tasks ?? {}) }),
+      instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
+      eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
+      echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
+      hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
+      confirmLevel: sanitizeConfirmLevel(patch.voice?.confirmLevel ?? base.voice.confirmLevel),
+      // Device, engine and size choices: an old or odd stored shape reads the shipped default.
+      inputDeviceId: sanitizeDeviceId(patch.voice?.inputDeviceId ?? base.voice.inputDeviceId),
+      outputDeviceId: sanitizeDeviceId(patch.voice?.outputDeviceId ?? base.voice.outputDeviceId),
+      noiseSuppression: (patch.voice?.noiseSuppression ?? base.voice.noiseSuppression) !== false,
+      ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
+      sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
+      keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
+      utteranceWavDays: sanitizeWavDays(
+        patch.voice?.utteranceWavDays ?? base.voice.utteranceWavDays,
+      ),
     },
   };
 }
@@ -396,7 +567,12 @@ class PreferencesStore {
       theme: DEFAULT_PREFERENCES.theme,
       toggles: { ...DEFAULT_PREFERENCES.toggles },
       fields: { ...DEFAULT_PREFERENCES.fields },
-      voice: { ...DEFAULT_PREFERENCES.voice, models: [], activeId: "" },
+      voice: {
+        ...DEFAULT_PREFERENCES.voice,
+        tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+        models: [],
+        activeId: "",
+      },
     };
     this.emit();
     void this.flush();

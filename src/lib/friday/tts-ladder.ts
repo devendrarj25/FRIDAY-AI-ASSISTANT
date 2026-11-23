@@ -1,17 +1,43 @@
+import { HINDI_LIGHT_ENGINE, legacyEngineChoice } from "./voice-engine/tts-provider";
+
+export {
+  HINDI_LIGHT_ENGINE,
+  HINDI_LIGHT_MODEL_ID,
+  chooseHindiLightVoice,
+  hindiLightSpeakable,
+  type HindiLightChoice,
+} from "./voice-engine/tts-provider";
+
 export type TtsEngine = "neural" | "supertonic" | "sapi";
 
-/** Neural online, Supertonic offline, then the system voice. Privacy stays on the system voice. */
+/**
+ * Neural online, Supertonic offline, then the system voice. Privacy stays on the system voice.
+ * The decision is the one ranking in `voice-engine/tts-provider.ts` (the fallback manager's order).
+ */
 export function chooseTtsEngine(input: {
   network: boolean;
   supertonicReady: boolean;
   privacy: boolean;
   prefer?: "auto" | TtsEngine;
 }): TtsEngine {
-  if (input.privacy || input.prefer === "sapi") return "sapi";
-  if (input.prefer === "supertonic") return input.supertonicReady ? "supertonic" : "sapi";
-  if (!input.network) return input.supertonicReady ? "supertonic" : "sapi";
-  if (input.prefer === "neural") return "neural";
-  return "neural";
+  return legacyEngineChoice(input) as TtsEngine;
+}
+
+const HINDI_LIGHT_WHY: Record<string, string> = {
+  "hindi-light-not-installed": "it is not downloaded (Models, Hindi light voice)",
+  "hindi-light-needs-hindi": "the line was not Hindi",
+  "hindi-light-needs-devanagari-only": "the line was not Devanagari only",
+  "hindi-light-failed": "it failed on this line",
+  "unknown-engine": "this FRIDAY did not know the engine asked for",
+};
+
+/** One honest line for a clause that asked for the light Hindi voice and was spoken by another engine. */
+export function hindiLightFallbackNote(reply: { engine?: string; fallback?: string }): string {
+  if (String(reply.engine || "").toLowerCase() === HINDI_LIGHT_ENGINE) return "";
+  const code = String(reply.fallback || "").trim();
+  const why =
+    HINDI_LIGHT_WHY[code] ?? (code ? `reason: ${code.slice(0, 60)}` : "no reason was given");
+  return `The light Hindi voice did not speak a line (${why}); the standard voice did.`;
 }
 
 export function switchMidSentence(input: {
@@ -20,7 +46,11 @@ export function switchMidSentence(input: {
   supertonicReady: boolean;
 }): TtsEngine {
   if (!input.networkDropped || input.current !== "neural") return input.current;
-  return input.supertonicReady ? "supertonic" : "sapi";
+  return legacyEngineChoice({
+    network: false,
+    supertonicReady: input.supertonicReady,
+    privacy: false,
+  }) as TtsEngine;
 }
 
 export function voiceForLanguage(lang: string): { lang: string; note: string } {

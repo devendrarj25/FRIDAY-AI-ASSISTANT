@@ -9,6 +9,7 @@ by job instead of by name, and several models can answer the same prompt.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import re
 import time
@@ -81,6 +82,10 @@ def openai_frame_text(frame: dict) -> str | None:
 # A tool notice is not answer text. The record separator never appears in a reply.
 TOOL_NOTICE = "\x1etool:"
 USAGE_NOTICE = "\x1eusage:"
+
+#: True while an ephemeral (speculative draft) turn streams: the model is offered no tool and any call it
+#: makes anyway is refused. A ContextVar, so a draft never switches tools off for a concurrent real turn.
+NO_TOOLS: contextvars.ContextVar[bool] = contextvars.ContextVar("friday_no_tools", default=False)
 
 
 def usage_notice(prompt_tokens: object, completion_tokens: object) -> str:
@@ -1601,7 +1606,7 @@ class ModelRouter:
     def _model_tools(self, model: Model) -> list[dict]:
         """The read-only tools this model may call, or [] when unavailable."""
         registry = self.tools
-        if registry is None or model.options.get("tools") is False:
+        if registry is None or NO_TOOLS.get() or model.options.get("tools") is False:
             return []
         try:
             return registry.model_schemas()
@@ -1613,6 +1618,9 @@ class ModelRouter:
         import json as _json
 
         t0 = time.perf_counter()
+        if NO_TOOLS.get():
+            # A draft is text-only: a model that asks for a tool anyway gets this refusal, never a run.
+            return _json.dumps({"ok": False, "error": "This reply is a text-only draft; no tool may run."})
         _turn_debug("model_tool", extra=str(name))
         try:
             args = _json.loads(raw_args or "{}")

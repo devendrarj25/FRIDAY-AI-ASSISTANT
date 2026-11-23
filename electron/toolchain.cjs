@@ -1627,12 +1627,39 @@ const TOOLS = [
     manual:
       "MIT package. Only the English streaming weights are downloaded. Non-English Moonshine weights are not used.",
   }),
+  T("onnx-asr", "Voice", {
+    pipDist: "onnx-asr",
+    pip: "onnx-asr",
+    url: "https://pypi.org/project/onnx-asr/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "onnx-asr" },
+    manual:
+      "MIT package (numpy and onnxruntime only). It runs the Hindi ear weights, which download on demand and are not bundled in the EXE.",
+  }),
+  T("sentencepiece", "Voice", {
+    pipDist: "sentencepiece",
+    pip: "sentencepiece",
+    url: "https://pypi.org/project/sentencepiece/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "sentencepiece" },
+    manual:
+      "Apache-2.0 package (a 1.7 MB wheel, no torch). It is the tokeniser of the optional Hindi punctuation model, which downloads on demand and is not bundled in the EXE.",
+  }),
   T("pyrnnoise", "Voice", {
     pipDist: "pyrnnoise",
     pip: "pyrnnoise",
     url: "https://pypi.org/project/pyrnnoise/",
     source: "pypi.org",
     latest: { kind: "pypi", ref: "pyrnnoise" },
+  }),
+  T("pyaec", "Voice", {
+    pipDist: "pyaec",
+    pip: "pyaec",
+    url: "https://pypi.org/project/pyaec/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pyaec" },
+    manual:
+      "Optional FRIDAY Echo: SpeexDSP echo canceller for her own voice on the microphone (MIT, 83 KB Windows wheel). Not wired into live capture yet; without it nothing changes.",
   }),
   T("ONNX DirectML", "Voice", {
     url: "https://pypi.org/project/onnxruntime-directml/",

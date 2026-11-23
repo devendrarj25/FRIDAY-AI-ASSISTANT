@@ -56,12 +56,38 @@ describe("background request wiring", () => {
   const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
 
   it("runs the real Brain turn as a voice task, only in Auto mode, and cancels the turn with the task", () => {
-    const at = mode.indexOf("parseBackgroundRequest(command || text)");
+    const at = mode.indexOf("const background =");
+    expect(at).toBeGreaterThan(0);
     const block = mode.slice(at, at + 1400);
     expect(block).toContain('this.state.mode === "auto"');
-    expect(block).toContain("startVoiceTask(");
-    expect(block).toContain("askBrain(background.request");
-    expect(block).toContain("brain.stop()");
+    // A consequential background order is asked about first; a confirmed one starts the same task.
+    expect(block).toContain("this.askToConfirm(ordered)");
+    expect(block).toMatch(
+      /const ordered = route\.supersedes\s*\?\s*withoutChangeOfMind\(command \|\| text\)\s*:\s*command \|\| text;/,
+    );
+    // A change of mind cancels the old task only after the yes (inside runApproved), never before the question.
+    expect(block.indexOf("this.askToConfirm(ordered)")).toBeLessThan(
+      block.indexOf("voiceTaskActions.cancel(route.supersedes)"),
+    );
+    expect(mode).toMatch(
+      /runApproved\(command: string\) \{[\s\S]*?voiceTaskActions\.cancel\(sup\.id\)[\s\S]*?this\.beginBackground\(background\)/,
+    );
+    expect(block).toContain("this.beginBackground(background)");
+    expect(mode).toMatch(
+      /runApproved\(command: string\) \{[\s\S]*?this\.beginBackground\(background\)/,
+    );
+    const start = mode.indexOf("private beginBackground(");
+    const method = mode.slice(start, start + 600);
+    expect(method).toContain("startVoiceTask(");
+    expect(method).toContain("this.backgroundWork(background.request)");
+    // The work is the real Brain turn, and it is the same work a task redone after a restart runs.
+    const work = mode.slice(mode.indexOf("backgroundWork(request: string)"));
+    const body = work.slice(0, 700);
+    expect(body).toContain("askBrain(request");
+    expect(body).toContain("brain.stop({ taskId: task.id })");
+    expect(mode).toContain(
+      "attachVoiceTaskWork((request) => assistantMode.backgroundWork(request))",
+    );
     expect(at).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))"));
   });
 

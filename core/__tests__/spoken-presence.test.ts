@@ -17,6 +17,7 @@ import {
 } from "../../src/lib/friday/conversation-style";
 import { toolNarration } from "../../src/lib/friday/assistant-conduct";
 import {
+  NARRATION_MAX_LINES,
   createNarrator,
   holdLines,
   stepSubject,
@@ -175,6 +176,30 @@ describe("what she says while work runs", () => {
     expect(first).toMatch(/Opening Chrome/);
     clock += 2000;
     expect(narrator.say("later", { text: "x", elapsedMs: 9000 })).toBe("");
+  });
+
+  it("an acknowledgement spends from the same budget: remaining() and spend() (and the 8 s gap)", () => {
+    let clock = 50_000;
+    const narrator = createNarrator(() => clock);
+    narrator.begin();
+    expect(NARRATION_MAX_LINES).toBe(4);
+    expect(narrator.remaining()).toBe(NARRATION_MAX_LINES);
+    narrator.spend();
+    expect(narrator.remaining()).toBe(NARRATION_MAX_LINES - 1);
+    // The spent line counts as said: a hold line right after it waits for the minimum gap.
+    clock += 2500;
+    expect(narrator.say("first", { text: "open the report", elapsedMs: 2500 })).toBe("");
+    expect(narrator.remaining()).toBe(NARRATION_MAX_LINES - 1);
+    clock += 9000;
+    expect(narrator.say("later", { text: "open the report", elapsedMs: 11_500 })).not.toBe("");
+    expect(narrator.remaining()).toBe(NARRATION_MAX_LINES - 2);
+    // It never goes below zero, and begin() gives the budget back.
+    for (let i = 0; i < 10; i += 1) narrator.spend();
+    expect(narrator.remaining()).toBe(0);
+    clock += 60_000;
+    expect(narrator.say("later", { text: "x", elapsedMs: 99_000 })).toBe("");
+    narrator.begin();
+    expect(narrator.remaining()).toBe(NARRATION_MAX_LINES);
   });
 
   it("speaks Hinglish to Hinglish", () => {

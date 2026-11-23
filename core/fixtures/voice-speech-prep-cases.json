@@ -1,0 +1,356 @@
+{
+ "note": "Synthetic Speech Prep cases (written for this test, no recorded speech). kind prep = prepareSpeechText; kind full = prepareForSpeech. Options default to enabled and the Hindi voice. Expected text is reviewed output, not heard through a voice.",
+ "cases": [
+  {
+   "kind": "prep",
+   "name": "devanagari with english nouns",
+   "input": "कल मेरी meeting है और मुझे report भेजनी है।",
+   "expected": "कल मेरी मीटिंग है और मुझे रिपोर्ट भेजनी है।"
+  },
+  {
+   "kind": "prep",
+   "name": "hinglish short",
+   "input": "kal meeting hai",
+   "expected": "कल मीटिंग है"
+  },
+  {
+   "kind": "prep",
+   "name": "hinglish with ambiguous words",
+   "input": "Kal meeting hai, aap mujhe do minute mein call kar do.",
+   "expected": "कल मीटिंग है, आप मुझे दो मिनट में कॉल कर दो."
+  },
+  {
+   "kind": "prep",
+   "name": "hinglish first person main",
+   "input": "main kal office ja raha hoon",
+   "expected": "मैं कल ऑफ़िस जा रहा हूँ"
+  },
+  {
+   "kind": "prep",
+   "name": "hinglish not for an english voice",
+   "input": "kal meeting hai",
+   "expected": "kal meeting hai",
+   "options": {
+    "hindiVoice": false
+   }
+  },
+  {
+   "kind": "prep",
+   "name": "english sentence untouched",
+   "input": "Please do send the main report to me.",
+   "expected": "Please do send the main report to me."
+  },
+  {
+   "kind": "prep",
+   "name": "english with do and main untouched",
+   "input": "I do not know what to do, main thing is fine.",
+   "expected": "I do not know what to do, main thing is fine."
+  },
+  {
+   "kind": "prep",
+   "name": "english sentence next to hindi sentence",
+   "input": "Send the report. कल meeting है।",
+   "expected": "Send the report. कल मीटिंग है।"
+  },
+  {
+   "kind": "prep",
+   "name": "off switch",
+   "input": "कल मेरी meeting है और मुझे report भेजनी है।",
+   "expected": "कल मेरी meeting है और मुझे report भेजनी है।",
+   "options": {
+    "enabled": false
+   }
+  },
+  {
+   "kind": "prep",
+   "name": "apps and plurals",
+   "input": "आपके Gmail और WhatsApp apps में notification आया है",
+   "expected": "आपके जीमेल और व्हाट्सऐप ऐप्स में नोटिफ़िकेशन आया है"
+  },
+  {
+   "kind": "prep",
+   "name": "inline path untouched",
+   "input": "मेरा file `src/lib/a_b.ts` में है",
+   "expected": "मेरा फ़ाइल `src/lib/a_b.ts` में है"
+  },
+  {
+   "kind": "prep",
+   "name": "double quotes untouched",
+   "input": "मुझे \"Windows Defender\" में meeting notes चाहिए",
+   "expected": "मुझे \"Windows Defender\" में मीटिंग नोट्स चाहिए"
+  },
+  {
+   "kind": "prep",
+   "name": "curly quotes untouched",
+   "input": "मुझे “Google Drive” में meeting notes चाहिए, ठीक है",
+   "expected": "मुझे “Google Drive” में मीटिंग नोट्स चाहिए, ठीक है"
+  },
+  {
+   "kind": "prep",
+   "name": "single quotes untouched",
+   "input": "मुझे 'Project X' चाहिए",
+   "expected": "मुझे 'Project X' चाहिए"
+  },
+  {
+   "kind": "prep",
+   "name": "apostrophe is not a quote",
+   "input": "यह John's file है",
+   "expected": "यह John's फ़ाइल है"
+  },
+  {
+   "kind": "prep",
+   "name": "email and windows path untouched",
+   "input": "यह user@example.com है और C:\\Users\\a पर है",
+   "expected": "यह user@example.com है और C:\\Users\\a पर है"
+  },
+  {
+   "kind": "prep",
+   "name": "code identifiers untouched",
+   "input": "इस camelCase और snake_case word को पढ़ो",
+   "expected": "इस camelCase और snake_case वर्ड को पढ़ो"
+  },
+  {
+   "kind": "prep",
+   "name": "long english run stays english",
+   "input": "मुझे Windows Defender real time protection चाहिए",
+   "expected": "मुझे Windows Defender real time protection चाहिए"
+  },
+  {
+   "kind": "prep",
+   "name": "names the lexicon lacks stay",
+   "input": "मैं Devendra से meeting में मिलूँगा",
+   "expected": "मैं Devendra से मीटिंग में मिलूँगा"
+  },
+  {
+   "kind": "prep",
+   "name": "day names",
+   "input": "आज Friday है, कल Saturday",
+   "expected": "आज फ़्राइडे है, कल सैटरडे"
+  },
+  {
+   "kind": "prep",
+   "name": "plural rule",
+   "input": "आपने मेरी mails देखी? movies और files भी",
+   "expected": "आपने मेरी मेल्स देखी? मूवीज़ और फ़ाइल्स भी"
+  },
+  {
+   "kind": "prep",
+   "name": "empty",
+   "input": "",
+   "expected": ""
+  },
+  {
+   "kind": "prep",
+   "name": "only spaces",
+   "input": "   ",
+   "expected": "   "
+  },
+  {
+   "kind": "prep",
+   "name": "only punctuation",
+   "input": "...!?",
+   "expected": "...!?"
+  },
+  {
+   "kind": "prep",
+   "name": "only digits",
+   "input": "12345",
+   "expected": "12345"
+  },
+  {
+   "kind": "full",
+   "name": "rupees in the indian system",
+   "input": "बिल ₹1,50,000 है",
+   "expected": "बिल एक लाख पचास हज़ार रुपये है."
+  },
+  {
+   "kind": "full",
+   "name": "rupee with unit word",
+   "input": "1 crore 20 lakh ₹ 2 करोड़ ₹3k",
+   "expected": "एक करोड़ बीस लाख दो करोड़ रुपये तीन हज़ार रुपये."
+  },
+  {
+   "kind": "full",
+   "name": "paise",
+   "input": "रक़म ₹0.50 और ₹100.00 और ₹99.50",
+   "expected": "रक़म पचास पैसे और एक सौ रुपये और निन्यानवे रुपये पचास पैसे."
+  },
+  {
+   "kind": "full",
+   "name": "time said the Hindi way",
+   "input": "मीटिंग 3:45 बजे, 12:30 pm और 0:15 am तक",
+   "expected": "मीटिंग पौने चार बजे, दोपहर साढ़े बारह बजे और रात सवा बारह बजे तक."
+  },
+  {
+   "kind": "full",
+   "name": "time 3:15 and 2:30 and 1:30",
+   "input": "3:15 बजे, 2:30 बजे, 1:30",
+   "expected": "सवा तीन बजे, ढाई बजे, डेढ़ बजे."
+  },
+  {
+   "kind": "full",
+   "name": "time not said twice",
+   "input": "7:00 बजे शुरू होगी",
+   "expected": "सात बजे शुरू होगी."
+  },
+  {
+   "kind": "full",
+   "name": "time with minutes",
+   "input": "ट्रेन 17:05 पर है",
+   "expected": "ट्रेन पाँच बजकर पाँच मिनट पर है."
+  },
+  {
+   "kind": "full",
+   "name": "dates",
+   "input": "आज 25/01/2026, कल 2026-01-26 है",
+   "expected": "आज पच्चीस जनवरी दो हज़ार छब्बीस, कल छब्बीस जनवरी दो हज़ार छब्बीस है."
+  },
+  {
+   "kind": "full",
+   "name": "ordinals in Hindi",
+   "input": "मेरी 21वीं 1वाँ 2री 4थी तारीख, 3rd 11th 1st",
+   "expected": "मेरी इक्कीसवीं पहला दूसरी चौथी तारीख, तीसरा ग्यारहवाँ पहला."
+  },
+  {
+   "kind": "full",
+   "name": "English sentence numbers",
+   "input": "The 21st and 3rd, at 3:45 pm, -5 degrees, 12.5%",
+   "expected": "The twenty first and third, at three forty five P M, minus five degrees, twelve point five percent."
+  },
+  {
+   "kind": "full",
+   "name": "negative and plus",
+   "input": "तापमान −5 डिग्री और -12.5 है",
+   "expected": "तापमान माइनस पाँच डिग्री और माइनस बारह दशमलव पाँच है."
+  },
+  {
+   "kind": "full",
+   "name": "phone number",
+   "input": "फ़ोन +91 98765 43210 या 9876543210 पर",
+   "expected": "फ़ोन प्लस नौ एक नौ आठ सात छह पाँच चार तीन दो एक शून्य या नौ आठ सात छह पाँच चार तीन दो एक शून्य पर."
+  },
+  {
+   "kind": "full",
+   "name": "devanagari digits",
+   "input": "१२३४५ और ३.५ और ५:३० बजे",
+   "expected": "बारह हज़ार तीन सौ पैंतालीस और तीन दशमलव पाँच और साढ़े पाँच बजे."
+  },
+  {
+   "kind": "full",
+   "name": "big numbers stay",
+   "input": "1234567890123 digits और 25,00,00,000",
+   "expected": "1234567890123 digits और पच्चीस करोड़."
+  },
+  {
+   "kind": "full",
+   "name": "percent and decimal",
+   "input": "छूट 12.5% और 3.14 है",
+   "expected": "छूट बारह दशमलव पाँच प्रतिशत और तीन दशमलव एक चार है."
+  },
+  {
+   "kind": "full",
+   "name": "inline code kept",
+   "input": "चलाओ `npm run build 2` और फिर 5 बार",
+   "expected": "चलाओ npm run build 2 और फिर पाँच बार."
+  },
+  {
+   "kind": "full",
+   "name": "url becomes a word",
+   "input": "देखें https://example.com/a/b?x=1 यहाँ",
+   "expected": "देखें एक लिंक यहाँ."
+  },
+  {
+   "kind": "full",
+   "name": "letters spelled",
+   "input": "मेरा API और PDF और GST ठीक है",
+   "expected": "मेरा ए पी आई और पी डी एफ़ और जी एस टी ठीक है."
+  },
+  {
+   "kind": "full",
+   "name": "whole hinglish reply",
+   "input": "kal 5 baje meeting hai, ₹2,000 ka bill bhi bhej do",
+   "expected": "कल पाँच बजे मीटिंग है, दो हज़ार रुपये का बिल भी भेज दो."
+  },
+  {
+   "kind": "full",
+   "name": "owner pronunciation wins",
+   "input": "Devendra को meeting बताओ",
+   "expected": "देवेंद्र को मीटिंग बताओ.",
+   "pronunciations": {
+    "Devendra": "देवेंद्र"
+   }
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 1",
+   "input": "तापमान -3.5 डिग्री है",
+   "expected": "तापमान माइनस तीन दशमलव पाँच डिग्री है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 2",
+   "input": "मीटिंग 9-10 बजे है",
+   "expected": "मीटिंग नौ से दस बजे है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 3",
+   "input": "बैटरी 12.5% बची है",
+   "expected": "बैटरी बारह दशमलव पाँच प्रतिशत बची है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 4",
+   "input": "सेवा 24x7 उपलब्ध है",
+   "expected": "सेवा चौबीस बाई सात उपलब्ध है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 5",
+   "input": "कीमत ₹1.5 लाख है",
+   "expected": "कीमत डेढ़ लाख रुपये है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 6",
+   "input": "आज 1st जनवरी 2026 है",
+   "expected": "आज पहली जनवरी दो हज़ार छब्बीस है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 7",
+   "input": "रेसिपी में 1 1/2 कप चीनी चाहिए",
+   "expected": "रेसिपी में डेढ़ कप चीनी चाहिए."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 8",
+   "input": "बजट ₹12,34,567 है",
+   "expected": "बजट बारह लाख चौंतीस हज़ार पाँच सौ सड़सठ रुपये है."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 9",
+   "input": "Call +91 98765 43210 at 12 pm",
+   "expected": "Call plus nine one nine eight seven six five four three two one zero at twelve P M."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 10",
+   "input": "Pay ₹99.5 by 21st January 2026.",
+   "expected": "Pay ninety nine rupees fifty paise by twenty first January twenty twenty six."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 11",
+   "input": "The office is open 9-5, 24x7 support in 2026",
+   "expected": "The office is open nine to five, twenty four seven support in twenty twenty six."
+  },
+  {
+   "kind": "full",
+   "name": "numbers edge 12",
+   "input": "Add 2 1/2 cups of sugar",
+   "expected": "Add two and a half cups of sugar."
+  }
+ ]
+}

@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "id": "friday-speech-eval",
+  "title": "FRIDAY held-out speech evaluation set: catalogue of candidate public sources, no items yet",
+  "createdOn": "2026-11-23",
+  "sources": [
+    {
+      "id": "fleurs",
+      "name": "FLEURS (Google), Hindi hi_in and English en_us",
+      "kind": "public-dataset",
+      "licence": "CC-BY-4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "licenceCheckedOn": "2026-11-23",
+      "access": "open",
+      "origin": "https://huggingface.co/datasets/google/fleurs",
+      "languages": ["hi", "en"],
+      "uses": ["evaluate", "train"],
+      "consent": { "basis": "public-licence" },
+      "note": "Read Wikipedia-derived sentences, about 12 hours per language, unprocessed recordings. Not downloaded here."
+    },
+    {
+      "id": "common-voice",
+      "name": "Mozilla Common Voice, Hindi and English",
+      "kind": "public-dataset",
+      "licence": "CC0-1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceCheckedOn": "2026-11-23",
+      "access": "gated",
+      "origin": "https://datacollective.mozillafoundation.org/",
+      "languages": ["hi", "en"],
+      "uses": ["evaluate", "train"],
+      "consent": { "basis": "public-licence" },
+      "note": "Distributed through Mozilla Data Collective since October 2025 (terms accepted there). The release version and the Hindi size are unverified. Keep each client_id in one split."
+    },
+    {
+      "id": "kathbath",
+      "name": "Kathbath (AI4Bharat), Hindi read speech",
+      "kind": "public-dataset",
+      "licence": "CC-BY-4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "licenceCheckedOn": "2026-11-23",
+      "access": "gated",
+      "origin": "https://huggingface.co/datasets/ai4bharat/Kathbath",
+      "languages": ["hi"],
+      "uses": ["evaluate", "train"],
+      "consent": { "basis": "public-licence" },
+      "note": "The dataset card lists cc-by-4.0 while its licensing text says CC0 for the packaging; the stricter CC-BY-4.0 is used until that is settled."
+    },
+    {
+      "id": "indicvoices",
+      "name": "IndicVoices (AI4Bharat), Hindi read, extempore and conversational speech",
+      "kind": "public-dataset",
+      "licence": "CC-BY-4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "licenceCheckedOn": "2026-11-23",
+      "access": "gated",
+      "origin": "https://huggingface.co/datasets/ai4bharat/IndicVoices",
+      "languages": ["hi"],
+      "uses": ["evaluate", "train"],
+      "consent": { "basis": "public-licence" },
+      "note": "Access needs accepting the dataset conditions and a Hugging Face token. Mostly extempore and conversational speech, the closest public match to how the owner talks."
+    }
+  ],
+  "items": [],
+  "testLock": null
+}

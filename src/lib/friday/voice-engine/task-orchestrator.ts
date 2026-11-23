@@ -20,7 +20,9 @@ export type TaskState =
   | "PAUSED"
   | "COMPLETED"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  /** It was running when the app closed. Nothing runs it again until the owner says redo (or retries it). */
+  | "INTERRUPTED";
 
 export type TaskRisk = "safe" | "needs-approval";
 
@@ -35,6 +37,14 @@ export type VoiceTask = {
   note?: string;
   result?: string;
   error?: string;
+  /** The task as it is said aloud (the owner's own words, nothing unsafe). Absent when there is nothing to say. */
+  spoken?: string;
+  /** Its number on the desk ("task 2"); the router also reads it as an ordinal. */
+  ordinal?: number;
+  /** Why it did not finish: the error of a failed task, or what interrupted it. */
+  reason?: string;
+  /** The owner's original request, kept so a failed or interrupted task can be run again. */
+  request?: string;
 };
 
 export type TaskContext = {
@@ -67,9 +77,10 @@ const NEXT: Record<TaskState, TaskState[]> = {
   COMPLETED: [],
   FAILED: [],
   CANCELLED: [],
+  INTERRUPTED: [],
 };
 
-export const TERMINAL: TaskState[] = ["COMPLETED", "FAILED", "CANCELLED"];
+export const TERMINAL: TaskState[] = ["COMPLETED", "FAILED", "CANCELLED", "INTERRUPTED"];
 
 export function canMoveTask(from: TaskState, to: TaskState): boolean {
   return NEXT[from].includes(to);
@@ -124,6 +135,8 @@ export class TaskOrchestrator {
     label: string;
     risk?: TaskRisk;
     payload?: unknown;
+    request?: string;
+    spoken?: string;
   }): { ok: true; task: VoiceTask } | { ok: false; error: string } {
     const waiting = [...this.tasks.values()].filter(
       (t) => t.state === "QUEUED" || t.state === "WAITING_FOR_APPROVAL" || t.state === "CREATED",
@@ -138,6 +151,9 @@ export class TaskOrchestrator {
       risk: input.risk ?? "safe",
       createdAt: t,
       updatedAt: t,
+      ordinal: this.seq,
+      ...(input.spoken ? { spoken: input.spoken.slice(0, 120) } : {}),
+      ...(input.request ? { request: input.request.slice(0, 600) } : {}),
     };
     this.tasks.set(task.id, task);
     this.aborts.set(task.id, new AbortController());
@@ -155,6 +171,74 @@ export class TaskOrchestrator {
     }
     this.trim();
     return { ok: true, task: { ...task } };
+  }
+
+  /**
+   * Tasks that were live when the app closed come back as INTERRUPTED rows (no work, nothing runs). They show on the
+   * desk with their name and request so the owner can redo or drop them; they hold no worker and no waiting slot.
+   */
+  restore(
+    rows: ReadonlyArray<{
+      label: string;
+      request?: string;
+      spoken?: string;
+      risk?: TaskRisk;
+      createdAt?: number;
+      reason?: string;
+    }>,
+  ): VoiceTask[] {
+    const out: VoiceTask[] = [];
+    for (const row of rows) {
+      const t = this.now();
+      const task: VoiceTask = {
+        id: `task-${(this.seq += 1)}`,
+        label: row.label.slice(0, 120),
+        state: "INTERRUPTED",
+        risk: row.risk ?? "safe",
+        createdAt: row.createdAt ?? t,
+        updatedAt: t,
+        ordinal: this.seq,
+        reason: (row.reason ?? "FRIDAY was closed while it ran.").slice(0, 160),
+        ...(row.spoken ? { spoken: row.spoken.slice(0, 120) } : {}),
+        ...(row.request ? { request: row.request.slice(0, 600) } : {}),
+      };
+      this.tasks.set(task.id, task);
+      out.push({ ...task });
+    }
+    this.trim();
+    return out;
+  }
+
+  /**
+   * Run a failed or interrupted task again with its original request: a new task takes its place on the desk (the old
+   * row is dropped only once the new one exists). `fallback` is the work for a task that has none any more (one that
+   * came back after a restart). False when the task is not failed or interrupted, or there is nothing to run.
+   */
+  retry(id: string, fallback?: unknown): boolean {
+    const old = this.tasks.get(id);
+    if (!old || (old.state !== "FAILED" && old.state !== "INTERRUPTED")) return false;
+    const payload = this.payloads.get(id) ?? fallback;
+    if (typeof payload !== "function") return false;
+    const made = this.create({
+      label: old.label,
+      risk: old.risk,
+      payload,
+      ...(old.request ? { request: old.request } : {}),
+      ...(old.spoken ? { spoken: old.spoken } : {}),
+    });
+    if (!made.ok) return false;
+    this.tasks.delete(id);
+    this.payloads.delete(id);
+    return true;
+  }
+
+  /** Forget a finished, failed or interrupted task (the owner said no to redoing it). */
+  drop(id: string): boolean {
+    const task = this.tasks.get(id);
+    if (!task || !TERMINAL.includes(task.state)) return false;
+    this.tasks.delete(id);
+    this.payloads.delete(id);
+    return true;
   }
 
   /** The owner's answer to a task that asked for approval. A no cancels it. */
@@ -276,12 +360,14 @@ export class TaskOrchestrator {
         if (!TERMINAL.includes(task.state)) {
           this.unpause(task);
           task.error = error instanceof Error ? error.message : String(error);
+          task.reason = task.error.slice(0, 160);
           this.move(task, "FAILED", "failed", `${task.label} failed: ${task.error}`);
         }
       } finally {
         this.gates.delete(task.id);
         this.aborts.delete(task.id);
-        this.payloads.delete(task.id);
+        // A failed task keeps its work so the owner can retry it; every other end lets it go.
+        if (task.state !== "FAILED") this.payloads.delete(task.id);
         this.pump();
         this.trim();
       }
@@ -295,7 +381,9 @@ export class TaskOrchestrator {
 
   private trim(): void {
     const finished = [...this.tasks.values()].filter((t) => TERMINAL.includes(t.state));
-    for (const old of finished.slice(0, Math.max(0, finished.length - this.keepFinished)))
+    for (const old of finished.slice(0, Math.max(0, finished.length - this.keepFinished))) {
       this.tasks.delete(old.id);
+      this.payloads.delete(old.id);
+    }
   }
 }

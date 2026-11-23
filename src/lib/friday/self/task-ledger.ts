@@ -50,7 +50,55 @@ export type TaskRecord = {
     idempotencyKey?: string;
     checked?: boolean;
   };
+  /**
+   * Set only on a row mirrored from the voice task desk (additive: an old row without it loads as before). `state` is
+   * the desk's own state, `spokenName` how it is said aloud, `ordinal` its number on the desk, `request` the owner's
+   * request for a redo, `redo` what became of an interrupted row once she asked about it.
+   */
+  voice?: {
+    state: string;
+    spokenName?: string;
+    ordinal?: number;
+    request?: string;
+    redo?: "asked" | "redone" | "dropped";
+  };
 };
+
+/** The ledger status a voice desk state is written as. A live one reloads as interrupted (see `settleInterrupted`). */
+export function voiceStatusOf(state: string): TaskStatus {
+  switch (state) {
+    case "CREATED":
+    case "QUEUED":
+      return "queued";
+    case "WAITING_FOR_APPROVAL":
+      return "awaiting-approval";
+    case "COMPLETED":
+      return "done";
+    case "FAILED":
+      return "failed";
+    case "CANCELLED":
+      return "cancelled";
+    case "INTERRUPTED":
+      return "interrupted";
+    default:
+      return "running";
+  }
+}
+
+/** The stable ledger id of a desk task: the desk numbers restart with the app, the creation time does not. */
+export const voiceLedgerId = (createdAt: number, deskId: string): string =>
+  `voice-${Math.max(0, Math.round(createdAt)).toString(36)}-${deskId}`;
+
+/** The voice rows that were live when the app closed and have not been asked about yet. */
+export function restartVoiceRows(tasks: readonly TaskRecord[]): TaskRecord[] {
+  return tasks.filter(
+    (task) =>
+      task.kind === "voice-task" &&
+      task.status === "interrupted" &&
+      Boolean(task.voice?.request) &&
+      task.voice?.redo === undefined,
+  );
+}
 
 /** A reload keeps the checkpoint and offers the run again. It does not cancel it. */
 export function settleInterrupted(tasks: TaskRecord[]): TaskRecord[] {
@@ -293,6 +341,75 @@ class TaskLedger {
 
   cancelAll() {
     [...this.live.keys()].forEach((id) => this.cancel(id, "cancelled — all tasks"));
+  }
+
+  /**
+   * Write-through of one voice desk task. The row is made or replaced, never duplicated; `redo` of an existing row is
+   * kept. Nothing here starts, cancels or runs a task: the ledger only remembers it.
+   */
+  syncVoiceTask(row: {
+    id: string;
+    title: string;
+    state: string;
+    createdAt: number;
+    updatedAt: number;
+    percent?: number | undefined;
+    error?: string | undefined;
+    spokenName?: string | undefined;
+    ordinal?: number | undefined;
+    request?: string | undefined;
+  }) {
+    this.load();
+    const status = voiceStatusOf(row.state);
+    const done = status === "done" || status === "failed" || status === "cancelled";
+    const prev = this.get(row.id);
+    const record: TaskRecord = {
+      id: row.id,
+      key: row.id,
+      kind: "voice-task",
+      title: row.title.slice(0, 120),
+      status,
+      progress: status === "done" ? 100 : (row.percent ?? prev?.progress ?? 0),
+      startedAt: row.createdAt,
+      ...(done ? { endedAt: row.updatedAt } : {}),
+      logs: prev?.logs ?? [],
+      ...(row.error ? { error: row.error.slice(0, 200) } : {}),
+      voice: {
+        state: row.state,
+        ...(row.spokenName ? { spokenName: row.spokenName } : {}),
+        ...(row.ordinal !== undefined ? { ordinal: row.ordinal } : {}),
+        ...((row.request ?? prev?.voice?.request)
+          ? { request: (row.request ?? prev?.voice?.request ?? "").slice(0, 600) }
+          : {}),
+        ...(prev?.voice?.redo ? { redo: prev.voice.redo } : {}),
+      },
+    };
+    this.tasks = prev
+      ? this.tasks.map((t) => (t.id === row.id ? record : t))
+      : [record, ...this.tasks].slice(0, MAX_HISTORY);
+    this.emit();
+  }
+
+  /** The voice rows to ask about after a restart (see `restartVoiceRows`). */
+  restartVoiceRows(): TaskRecord[] {
+    this.load();
+    return restartVoiceRows(this.tasks);
+  }
+
+  /** She asked about these rows (`asked`), or the owner answered: redone or dropped rows are closed for good. */
+  markVoiceRows(ids: readonly string[], redo: "asked" | "redone" | "dropped") {
+    this.load();
+    let changed = false;
+    this.tasks = this.tasks.map((task) => {
+      if (!ids.includes(task.id) || task.kind !== "voice-task" || !task.voice) return task;
+      changed = true;
+      return {
+        ...task,
+        ...(redo === "asked" ? {} : { status: "cancelled" as const }),
+        voice: { ...task.voice, redo },
+      };
+    });
+    if (changed) this.emit();
   }
 
   clearHistory() {

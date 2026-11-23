@@ -86,9 +86,11 @@ describe("the voice loop pauses first and decides on the words", () => {
       heard.indexOf("const sure ="),
     );
     const confirm = source.slice(source.indexOf("private confirmInterruption()"));
-    expect(confirm.slice(0, confirm.indexOf("}\n\n")).includes("brain.stop()")).toBe(true);
+    expect(confirm.slice(0, confirm.indexOf("}\n\n")).includes('brain.stop("foreground")')).toBe(
+      true,
+    );
     const resume = source.slice(source.indexOf("private resumeAfterInterruption()"));
-    expect(resume.slice(0, resume.indexOf("\n  }\n")).includes("brain.stop()")).toBe(false);
+    expect(resume.slice(0, resume.indexOf("\n  }\n")).includes("brain.stop(")).toBe(false);
   });
 
   it("an answer that keeps arriving while paused is kept and said on resume; silence resumes too", () => {

@@ -37,12 +37,17 @@ export type LiveWordsDeps = {
   maxPasses?: number;
 };
 
+/** The longest the gap between two passes grows to when passes are slow. */
+const MAX_ADAPTIVE_HOP_MS = 6_000;
+
 export class LiveWords {
   private from = 0;
   private active = false;
   private busy = false;
   private passes = 0;
   private lastPassAt: number | null = null;
+  /** How long the last pass took: the next one waits longer when passes are slow, so they never run back to back. */
+  private lastPassMs = 0;
   private stabilizer = new TranscriptStabilizer({ minActionWords: 9_999 });
   private readonly now: () => number;
 
@@ -57,6 +62,7 @@ export class LiveWords {
     this.busy = false;
     this.passes = 0;
     this.lastPassAt = null;
+    this.lastPassMs = 0;
     this.stabilizer = new TranscriptStabilizer({ minActionWords: 9_999 });
   }
 
@@ -79,13 +85,17 @@ export class LiveWords {
       return;
     }
     const t = this.now();
-    if (this.lastPassAt !== null && t - this.lastPassAt < hop) return;
+    // A pass that takes longer than the hop (a slow engine reading a long window) would otherwise keep the one
+    // recogniser busy until the owner stops, and the final reading would queue behind it.
+    const wait = Math.max(hop, Math.min(MAX_ADAPTIVE_HOP_MS, Math.round(this.lastPassMs * 1.5)));
+    if (this.lastPassAt !== null && t - this.lastPassAt < wait) return;
     const { samples, rate } = this.deps.audioSince(this.from, this.deps.maxWindowMs ?? 12_000);
     if ((samples.length / rate) * 1000 < (this.deps.minAudioMs ?? 900)) return;
     this.busy = true;
     this.lastPassAt = t;
     try {
       const out = await this.deps.transcribe(this.deps.encodeWav(samples, rate));
+      this.lastPassMs = Math.max(0, this.now() - t);
       if (!this.active || !out.ok) return;
       const text = (out.text ?? "").trim();
       if (!text) return;

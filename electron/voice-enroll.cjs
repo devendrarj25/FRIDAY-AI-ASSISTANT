@@ -8,7 +8,8 @@
  * the samples, and handed to the worker when it starts, so it is never on disk in the clear.
  *
  * Nothing here leaves the PC. A voice match never approves an action (src/lib/friday/voice-session.ts), and
- * "Forget my voice" removes the samples, the profile and the older voiceprint file.
+ * "Forget my voice" removes the samples, the profile and the older voiceprint file. Nothing is stored before the
+ * owner has agreed (the consent record, electron/voice-privacy.cjs): a sample and a voiceprint need it.
  */
 "use strict";
 
@@ -18,6 +19,7 @@ const os = require("node:os");
 const path = require("node:path");
 const paths = require("./friday-paths.cjs");
 const secretBox = require("./secret-box.cjs");
+const privacy = require("./voice-privacy.cjs");
 
 const RATE = 16_000;
 const MIN_MS = 400;
@@ -27,6 +29,12 @@ const CLIP_LEVEL = 0.985;
 const MAX_CLIPPED = 0.01;
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const KINDS = new Set(["wake", "speech"]);
+
+const CONSENT_REFUSAL = Object.freeze({
+  ok: false,
+  reason: "consent-required",
+  detail: "agree to store your voice on this PC first",
+});
 
 /** The worker generation the profile was last loaded into. A restarted worker has none. */
 let loadedGeneration = -1;
@@ -175,6 +183,7 @@ function saveSample({ id, kind, promptId, text, language, wavBytes } = {}) {
   if (!KINDS.has(kind)) return { ok: false, reason: "bad-kind", detail: "kind is wake or speech" };
   if (!paths.root())
     return { ok: false, reason: "no-root", detail: "choose a FRIDAY folder first" };
+  if (!privacy.hasConsent()) return CONSENT_REFUSAL;
   const verdict = inspectWav(wavBytes);
   if (!verdict.ok) return verdict;
   fs.mkdirSync(samplesDir(), { recursive: true });
@@ -324,6 +333,7 @@ async function build() {
       error: "the Windows safe store is not available, so the voiceprint cannot be saved encrypted",
     };
   }
+  if (!privacy.hasConsent()) return { ...CONSENT_REFUSAL, error: CONSENT_REFUSAL.detail };
   const manifest = readManifest();
   if (!manifest.samples.length)
     return { ok: false, reason: "no-samples", error: "record some samples first" };
@@ -334,7 +344,7 @@ async function build() {
   }));
   let answer;
   try {
-    answer = await wake().workerCall({ op: "enroll_build", samples }, 180_000);
+    answer = await wake().workerCall({ op: "enroll_build", samples, consent: true }, 180_000);
   } catch (error) {
     return { ok: false, reason: "worker", error: String((error && error.message) || error) };
   }

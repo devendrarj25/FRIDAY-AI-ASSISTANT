@@ -138,7 +138,16 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     FRIDAY_PREFETCH: "1",
     FRIDAY_AUTO_INSTALL: "1",
   };
-  const plan = prefetch.prefetchPlan(root || "/friday", winEnv, "win32", {});
+  // With a folder given, the plan is the one setup follows on this PC (the voice profile of its memory and GPU), so a
+  // speech size that setup deliberately leaves out is not reported as missing.
+  const voicePlan = root
+    ? require(path.join(REPO, "electron", "voice-weights.cjs")).voiceInstallPlan(
+        root,
+        require(path.join(REPO, "electron", "voice-weights.cjs")).probeHardware(),
+        { exists: fs.existsSync },
+      )
+    : null;
+  const plan = prefetch.prefetchPlan(root || "/friday", winEnv, "win32", { plan: voicePlan });
   const planned = new Set(plan.map((job) => job.id));
   for (const [id, why] of [
     ["smart-turn", "end-of-turn detector"],
@@ -189,7 +198,9 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       }
       // Setup skips a size this PC has too little memory for, and an optional download may not have landed:
       // neither is a gap, so they are reported but never fail the check.
-      if (!here && job.minRamGb && ramGb < job.minRamGb) {
+      if (!here && job.skipReason) {
+        row("disk", job.id, "INFO", `not fetched on this PC: ${job.skipReason}`);
+      } else if (!here && job.minRamGb && ramGb < job.minRamGb) {
         row(
           "disk",
           job.id,
@@ -220,7 +231,7 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   const lists = {
     "kernel/stt.py known sizes": sizesIn(
       read("kernel/stt.py").replace(/'/g, '"'),
-      "known = {",
+      "OWNER_SIZES = frozenset({",
       140,
     ),
     "electron/stt.cjs MODELS": sizesIn(read("electron/stt.cjs"), "const MODELS = [", 120),
@@ -239,7 +250,11 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       "const SPEECH_LADDER = [",
       120,
     ),
-    "src preferences sttSize": sizesIn(read("src/lib/friday/preferences.ts"), "sttSize:", 120),
+    "src preferences sttSize": sizesIn(
+      read("src/lib/friday/preferences.ts"),
+      "export const STT_SIZE_PICKS = [",
+      200,
+    ),
   };
   for (const [name, found] of Object.entries(lists)) {
     const missing = sizes.filter((size) => !found.includes(size));
@@ -269,6 +284,10 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["kernel/voice_runtime.py", "VAD, Smart Turn, Supertonic voice"],
     ["kernel/wake_word.py", "wake scorer"],
     ["kernel/language_segmenter.py", "script spans"],
+    ["kernel/hindi_ear.py", "Hindi ear (IndicConformer int8)"],
+    ["kernel/whisper_ears.py", "Hinglish ear and Hindi fallback (faster-whisper folders)"],
+    ["kernel/hindi_punct.py", "optional Hindi punctuation (sentencepiece)"],
+    ["kernel/tts_hindi_light.py", "optional light Hindi voice (speak-pcm engine hindi-light)"],
     ["kernel/router.py", "model router"],
     ["kernel/privacy.py", "privacy firewall"],
     ["kernel/billing.py", "billing firewall"],
@@ -418,6 +437,13 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     "handsFree does not start false",
   );
   const assistant = read("src/lib/friday/assistant-mode.ts");
+  check(
+    "system",
+    "spoken task words are classified by the router",
+    /classifyVoiceControl/.test(read("src/lib/friday/voice-engine/utterance-router.ts")),
+    "the utterance router classifies the spoken task words",
+    "utterance-router.ts does not use classifyVoiceControl",
+  );
   for (const [needle, why] of [
     ["createRealtimeStt", "live captions"],
     ["createStreamingSpeak", "streaming voice"],
@@ -427,7 +453,9 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["StageClock", "stage stamps"],
     ["speakWithCloud", "cloud voice clips"],
     ["startVoiceTask", "background tasks"],
-    ["classifyVoiceControl", "spoken task words"],
+    ["routeUtterance", "spoken task words"],
+    ["applyTaskRoute", "task routes"],
+    ["SpeechArbiter", "one speech queue"],
   ])
     check(
       "system",

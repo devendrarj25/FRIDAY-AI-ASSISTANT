@@ -22,7 +22,8 @@
  */
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
-import { brain } from "./brain-engine";
+import { brain, type QuickAnswer } from "./brain-engine";
+import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { composer } from "./composer";
@@ -43,6 +44,7 @@ import {
   TARGET_RATE,
 } from "./pcm-capture";
 import { LiveWords } from "./voice-engine/live-words";
+import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
@@ -76,7 +78,7 @@ import { registerVoiceHealth, registerVoiceRepair } from "./voice-health";
 import { preferences } from "./preferences";
 import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
 import { createStreamingSpeak } from "./voice-engine/streaming-speak";
-import { StageClock } from "./voice-engine/latency-monitor";
+import { StageClock, voiceLatency } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
 import { SoakRecorder } from "./voice-engine/soak-recorder";
@@ -96,9 +98,18 @@ import { preferSpoken, socialRegister } from "./conversation-style";
 import { chooseFresh, vary, type RepeatBucket } from "./brain/anti-repeat";
 import { diagnoseVoice, problemLine, type SelfCheckResult } from "./voice-selfcheck";
 import { SUPERVISOR_COOLDOWN_MS, superviseVoice } from "./voice-supervisor";
+import { startPrewarm, cancelPrewarm, ackClipFor, readyAckClipIds } from "./voice-prewarm";
+import { playAckSamples, stopAckClip } from "./voice-engine/ack-player";
+import { clearEchoReference } from "./voice-engine/echo-live";
+import { prewarmLine, type PrewarmOutcome } from "./voice-engine/prewarm";
+import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
+  beginPlayedReply,
+  lastClipUsedPcm,
   lastSpeechRoute,
+  pcmPlaybackNote,
+  playedReplySnapshot,
   prefetchSpeech,
   speakText,
   spokenSummary,
@@ -118,6 +129,7 @@ import {
   duplicateFinalUtterance,
   nextSpokenCursor,
   isBoundConfirmation,
+  replyLanguage,
   confirmationVerdict,
   createNarrator,
   whileBusy,
@@ -133,38 +145,81 @@ import {
   takeSpeakable,
   utteranceIncomplete,
   voiceClaimsAuthority,
+  confirmQuestion,
+  effectiveConfirmLevel,
+  heardNeedsReadBack,
+  heardQuestion,
+  voiceNeedsConfirmation,
   wakeOnCooldown,
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
-import {
-  BargeInDetector,
-  BargeShadow,
-  classifyVoiceControl,
-} from "./voice-engine/interruption-controller";
+import { BargeInDetector, BargeShadow } from "./voice-engine/interruption-controller";
 import { speechRms } from "./character/speech-audio";
+import { firstClauseCut } from "./voice-engine/clause-chunker";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import { usesHindiVoice } from "./voice-engine/speech-prep";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
 import { autonomy } from "./self/autonomy";
 import {
+  applyTaskRoute,
+  attachVoiceTaskNarrator,
   attachVoiceTaskSpeaker,
+  attachVoiceTaskWork,
+  cancelAllVoiceTasks,
+  dropInterruptedVoiceTasks,
+  isReadOnlyRequest,
+  listVoiceTasks,
+  redoInterruptedVoiceTasks,
+  restoreInterruptedVoiceTasks,
+  narrationEventFor,
   releaseTaskUpdates,
-  runTaskControl,
+  routerTasks,
+  setTaskFocus,
+  speakableLabel,
   startVoiceTask,
+  taskFocusId,
+  progressLinesFor,
+  taskPrefsFrom,
+  taskStatusLine,
+  voiceTaskActions,
+  type TaskWork,
+  withoutChangeOfMind,
+  type TaskUpdate,
 } from "./voice-engine/voice-tasks";
+import { TERMINAL, type VoiceTask } from "./voice-engine/task-orchestrator";
+import { quickLaneEligible } from "./brain/quick-lane";
+import { SpeechArbiter, type SpeechPriority } from "./voice-engine/speech-arbiter";
+import {
+  APPROVAL_REPEAT_MS,
+  ROLLUP_GAP_MS,
+  ROLLUP_MIN_TASKS,
+  createNarrationMemory,
+  digestLine,
+  holdDigest,
+  narrate,
+  sanitizeForSpeech,
+  type NarrateEvent,
+  type NarrationLang,
+} from "./voice-engine/narration-policy";
+import { createFinalDeduper } from "./voice-engine/final-dedupe";
+import { routeUtterance, type Route } from "./voice-engine/utterance-router";
+import {
+  ackStillDue,
+  shouldAck,
+  type AckDecision,
+  type AckTurnKind,
+} from "./voice-engine/instant-ack";
+import { notifications } from "./notifications";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
-  confidenceRepeat,
   heardConfidence,
-  heardReadBack,
-  needsHeardConfirmation,
   type HeardQuality,
   languageId,
   learnCorrection,
-  utteranceConfidence,
 } from "./asr-bias";
 import { noteArc } from "./conversation-arc";
 import { voiceBudgets } from "./failure-guard";
@@ -187,8 +242,20 @@ import {
 } from "./voice-audio";
 import { rememberDevice } from "./mic-truth";
 import { affect, readFeeling } from "./brain/affect";
-import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
-import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
+import {
+  DesktopDictation,
+  reclaimUnowned,
+  sttHotwords,
+  sttInitialPrompt,
+  sttStatus,
+} from "./voice-stt";
+import {
+  isPlainStop,
+  isSelfEchoTranscript,
+  isStopCommand,
+  matchWakeWord,
+  normalizeTranscript,
+} from "./wake-word";
 import {
   parseThreshold,
   parseVocabulary,
@@ -263,6 +330,8 @@ export type Caption = {
   tag?: "addressed" | "ambient" | "self";
   confidence?: number;
   language?: string;
+  /** FRIDAY Tidy edited this shown line: the words as heard and each edit, for a raw-versus-cleaned view. */
+  tidy?: { raw: string; changes: TidyChange[] };
 };
 
 export type PendingConfirm = {
@@ -371,6 +440,8 @@ const MAX_VOICE_LOG = 30;
 const LIVE_WAKE_MS = 8_000;
 /** Live captions send audio only while speech was heard this recently (ms). */
 const CAPTION_TAIL_MS = 1_500;
+/** A quiet gap this long between provisional transcripts is a new utterance, so one more draft is allowed (ms). */
+const DRAFT_TURN_GAP_MS = 4_000;
 
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
@@ -384,6 +455,8 @@ const MAX_CAPTIONS = 40;
 const AWAKE_MS = () => attentionWindowMs();
 /** How long a read-back waits for the owner's yes or no. */
 const HEARD_CONFIRM_MS = 25_000;
+/** After one read-back she goes ahead (or asks the one action question) instead of reading back again. */
+const READBACK_COOLDOWN_MS = 60_000;
 /** A spoken failure is once per cause for this session. The screen keeps the detail. */
 
 /** The configured name, matched through the shared local wake-word engine. */
@@ -437,6 +510,27 @@ const desktop = (): VoiceDesktop | null =>
     ? null
     : ((window as unknown as { friday?: VoiceDesktop }).friday ?? null);
 
+/**
+ * The Brain as one voice task sees it: every turn it sends carries the task as its owner, so a stop of the
+ * foreground reply (barge-in, the stop word, a change of mind) leaves the task's run alone.
+ */
+function ownedBrain(taskId: string): Parameters<typeof askBrain>[1]["brain"] {
+  return {
+    send: (prompt) => brain.send(prompt, { owner: { kind: "task", taskId } }),
+    subscribe: (listener) => brain.subscribe(listener),
+    getSnapshot: () => brain.getSnapshot(),
+  };
+}
+
+/** Join spoken pieces with one full stop between them: a piece that already ends a sentence adds no second one. */
+function joinSpoken(parts: readonly string[]): string {
+  let out = "";
+  for (const part of parts.map((p) => p.trim()).filter(Boolean)) {
+    out = out ? `${out}${/[.!?…।]["')\]]*$/u.test(out) ? " " : ". "}${part}` : part;
+  }
+  return out;
+}
+
 let cid = 0;
 const captionId = () => `cap-${Date.now().toString(36)}-${(cid += 1).toString(36)}`;
 
@@ -447,6 +541,70 @@ function heapMegabytes(): number | null {
 }
 
 type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[0]["onFinal"]>[1];
+
+/** The bound-answer id of the restart question ("Redo them?"): it is not a desk task. */
+const RESTART_ASK = "restart-redo";
+
+/**
+ * The mic reports end of speech only once the endpoint hold has run out, so the speech end is the confirm time minus
+ * that hold (never before the speech start). The confirm time is the moment the clip is handed to recognition.
+ */
+export function stampEndpoint(
+  clock: StageClock,
+  holdMs: number,
+  now: number = performance.now(),
+): void {
+  const start = clock.at("micSpeechStart");
+  const end = now - Math.max(0, holdMs);
+  clock.mark("micSpeechEnd", start === null ? end : Math.max(start, end));
+  clock.mark("endpointConfirmed", now);
+}
+
+/** Record the budget stages of the turn once its first sound is stamped. Returns whether anything was recorded. */
+export function recordTurnBudget(clock: StageClock, monitor = voiceLatency): boolean {
+  const turn = clock.budgetTurn();
+  if (turn.firstSound === undefined) return false;
+  monitor.recordBudget(turn);
+  return true;
+}
+
+/** One honest line for the diagnostics row: speech end to first sound against the budget, and the biggest stage. */
+export function voiceBudgetLine(monitor = voiceLatency): string {
+  const v = monitor.budgetVerdict();
+  if (v.verdict === "unmeasured" || !v.firstSound) return "no voice turn measured yet";
+  const words = {
+    within: "within budget",
+    "slow-tail": "typical turn fits, slow end is over budget",
+    over: "over budget",
+  }[v.verdict];
+  const biggest = v.biggestStage ? `, biggest stage ${v.biggestStage}` : "";
+  return `${v.firstSound.p50} ms typical, ${v.firstSound.p95} ms slow end of ${v.budgetMs} ms (${v.turns} turns), ${words}${biggest}`;
+}
+
+/** Record only the named stage gaps (the budget was already recorded for this turn). */
+function recordGapsOnly(clock: StageClock, monitor = voiceLatency): Record<string, number> {
+  const out = clock.durations();
+  for (const [name, ms] of Object.entries(out)) monitor.record(name, ms);
+  return out;
+}
+
+/** What a draft must still match when the final transcript arrives: nothing material may change in between. */
+/** How a spoken line takes its turn in the speech queue (see speech-arbiter). A line with no meta is a direct answer. */
+type SpeakMeta = {
+  priority?: SpeechPriority;
+  taskId?: string;
+  coalesceKey?: string;
+  sensitive?: boolean;
+  done?: boolean;
+  whisper?: boolean;
+};
+
+type EagerSnapshot = {
+  privacyMode: boolean;
+  paidAccess: boolean;
+  approvalLevel: string;
+  halted: boolean;
+};
 
 class AssistantModeStore {
   private listeners = new Set<() => void>();
@@ -480,6 +638,10 @@ class AssistantModeStore {
   private lastFailure = "";
   /** Last text handed to the speech synthesiser, used for echo rejection. */
   private spokenText = "";
+  /** The part of the reply that was heard, taken at the moment the voice was cut for a possible interruption. */
+  private heldPlayed: PlayedReply | null = null;
+  /** The warm-up pass of this Auto session has run to the end once. */
+  private prewarmDone = false;
   /**
    * True only when the owner saved Hands-free off. A missing key leaves Auto
    * mode as the hands-free conversation and does not write the key.
@@ -499,7 +661,32 @@ class AssistantModeStore {
   /** Shows the words while the owner is still speaking (opt-in, `voice.liveWords`). */
   private liveWords: LiveWords | null = null;
   private liveWordsTimer: ReturnType<typeof setInterval> | null = null;
-  private speechQueue: string[] = [];
+  /** Who speaks next: approvals, then direct answers, then progress, then chatter. One queue for every voice line. */
+  private arbiter = new SpeechArbiter({ now: () => Date.now() });
+  /** One short wait for the owner to finish talking; never an always-on timer. */
+  private speechPoll: ReturnType<typeof setTimeout> | null = null;
+  /** What the narration policy remembers between task updates (this session only). */
+  private narration = createNarrationMemory();
+  /** Her approval prompt, while it is the last thing she said and the owner has not answered it. */
+  private approvalAsked: { askedAt: number; taskId?: string } | null = null;
+  /** The last approval prompt that was voiced for the Brain's slot, so it is asked once. */
+  private approvalVoicedAt = 0;
+  /**
+   * The last approval prompt that really sounded (the speech queue handed it out and the voice started), and when.
+   * A spoken yes is bound to this, never to the moment an approval was created or queued: a prompt held back by a
+   * call, quiet hours or Do not disturb, or one that has not played yet, can be answered on the screen only.
+   */
+  private approvalSpoken: { at: number; taskId?: string } | null = null;
+  /** The line the speech queue is playing now, for the approval stamp. */
+  private playingItem: { priority: SpeechPriority; taskId?: string } | null = null;
+  /** "I was working on A and B when I closed. Redo them?": asked once per app session. */
+  private restartAsked = false;
+  private restartAsk: { ids: string[] } | null = null;
+  /** The task a confirmed change of mind replaces: cancelled only when the new order is approved. */
+  private supersedeOnConfirm: { id: string; command: string; at: number } | null = null;
+  private approvalRemindedAt = 0;
+  private lastOwnerAt = 0;
+  private lastRollupAt = 0;
   private draining = false;
   /** How much of the live answer has already been handed to speech. */
   private voicedRunId = "";
@@ -514,12 +701,18 @@ class AssistantModeStore {
   /** Last finalized transcript, so the same utterance is not run twice. */
   private lastFinalText = "";
   private lastFinalAt = 0;
+  /** One utterance, one turn: the same final words from a retried call or the other recogniser run once. */
+  private readonly finalDeduper = createFinalDeduper();
+  /** When her latest reply began to sound: a repeat after that is said on purpose, not a second copy. */
+  private replyStartedAt: number | null = null;
   private chartOfferedFor = "";
   /** Hangover so echo STT that arrives after tts-end is still rejected. */
   private echoUntil = 0;
   private hydrated = false;
   private spokenUpTo = 0;
   private unBrain: (() => void) | null = null;
+  /** Hears a quick-lane answer (a short question asked beside a running task) so it is spoken at once. */
+  private unQuick: (() => void) | null = null;
   private awakeUntil = 0;
   private followUpUntil = 0;
   private readonly micRestarts: number[] = [];
@@ -534,9 +727,36 @@ class AssistantModeStore {
   private speculative = "";
   /** "brain" already dispatched. "conduct" waits for the final line. */
   private speculativeKind: "" | "brain" | "conduct" = "";
+  /** The Brain's handle for the live draft ("" when none). A draft is text only: it is never a run. */
+  private draftId = "";
+  /** Drafts started in this turn's partial stream: at most one (a changed line waits for the final transcript). */
+  private draftsThisTurn = 0;
+  /** When the last provisional transcript arrived: a long gap means a new utterance, so a new turn. */
+  private partialSeenAt = 0;
+  /** Privacy, paid access and autonomy when the draft started: a draft is adopted only when none of it changed. */
+  private draftSnapshot: EagerSnapshot | null = null;
   private narratedTool = "";
   /** What she says while work runs: varied, sparse, never twice the same. */
   private narrator = createNarrator();
+  /**
+   * The instant acknowledgement (setting `voice.instantAck`, off by default): the turn it is armed for moves on with
+   * every new turn, barge-in, pause, mute and Stop; one timer, one line in the speech queue, one per turn.
+   */
+  private ackGen = 0;
+  private ackTimer: ReturnType<typeof setTimeout> | null = null;
+  private ackQueued: {
+    id: string;
+    decision: Extract<AckDecision, { ack: true }>;
+    gen: number;
+  } | null = null;
+  private ackSaid = 0;
+  private ackTurns = 0;
+  private ackLastLineId = "";
+  private ackSeed = Date.now() % 2_147_483_647;
+  /** What the router called the line that is going to the Brain; read once by the acknowledgement. */
+  private ackTurnKind: AckTurnKind = "control";
+  /** The line just sounded, for the echo filter only (it is never `spokenText`, so "continue" never repeats it). */
+  private ackEcho = { text: "", until: 0 };
   /** Requests heard while a turn ran; each runs once the one before has finished and been spoken. */
   private queuedCommands: string[] = [];
   private queueTimer: ReturnType<typeof setInterval> | null = null;
@@ -546,6 +766,8 @@ class AssistantModeStore {
   private audit: VoiceAudit[] = [];
   /** Named stamps of this turn (speech start, speech requested, first sound) and of an interruption. */
   private turnStages = new StageClock();
+  private budgetRecorded = false;
+  private pcmNoteSaid = "";
   private interruptStages = new StageClock();
   private turnClock = {
     heardAt: null as number | null,
@@ -650,6 +872,14 @@ class AssistantModeStore {
    */
   private followKillSwitch() {
     if (this.stopped()) {
+      cancelPrewarm();
+      this.discardEager();
+      clearEchoReference("stop");
+      this.forgetOpenQuestions();
+      // Stop everything ends every task on the desk first (so none reads as COMPLETED "Stopped."), then the
+      // Brain's turn, whoever owns it. The foreground-only stops (barge-in, stop word) never come this way.
+      cancelAllVoiceTasks();
+      brain.stop();
       this.queuedCommands = [];
       this.stopQueueTimer();
       this.state.pending = null;
@@ -658,7 +888,7 @@ class AssistantModeStore {
         this.pausedByStop = true;
         this.setPaused(true);
         this.state.status = "Stopped. Stop everything is on";
-      } else if (this.state.speaking || this.speechQueue.length) {
+      } else if (this.state.speaking || this.arbiter.size()) {
         this.cancelSpeech();
       }
       this.emit();
@@ -681,8 +911,16 @@ class AssistantModeStore {
     if (this.state.paused && !paused) this.pausedByStop = false;
     this.state.paused = paused;
     if (paused) {
+      cancelPrewarm();
       this.stopRecognition();
+      this.discardEager();
       this.cancelSpeech();
+      clearEchoReference("paused");
+      this.forgetOpenQuestions();
+      // The tray pause is the kill switch: it ends every voice task and the Brain's turn too, whoever owns it
+      // (only the stop word and a barge-in are foreground-only).
+      cancelAllVoiceTasks();
+      brain.stop();
       this.to("pause");
       this.state.status = "Microphone paused";
     } else if (this.state.mode === "auto") {
@@ -692,6 +930,9 @@ class AssistantModeStore {
       if (this.autoMicDeferred) {
         this.autoMicDeferred = false;
         this.openAutoMic();
+      } else if (this.state.micReady) {
+        // A warm-up that a pause cut short starts again; one that finished is not repeated.
+        this.startPrewarmPass();
       }
       this.startRecognition();
     } else {
@@ -770,7 +1011,7 @@ class AssistantModeStore {
     document.documentElement.classList.toggle("friday-hidden", document.hidden);
     document.addEventListener("visibilitychange", () => {
       document.documentElement.classList.toggle("friday-hidden", document.hidden);
-      if (this.state.mode !== "auto" || this.state.paused) return;
+      if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
       if (document.hidden) return;
       const track = voiceGate.micStream()?.getAudioTracks()[0];
       const dead = !track || track.readyState === "ended";
@@ -787,7 +1028,7 @@ class AssistantModeStore {
       if (!this.dictation?.active) this.noteVoiceTrigger("focus");
     });
     desktop()?.onSystemResume?.(() => {
-      if (this.state.mode !== "auto" || this.state.paused) return;
+      if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
       this.trace("segment", "sleep-resume — reopening the microphone");
       this.applyVoiceHeal("mic-no-device", false);
     });
@@ -833,6 +1074,8 @@ class AssistantModeStore {
       if (!text || this.state.mode !== "auto" || this.state.paused || this.callHold) return;
       this.state.interim = text;
       const now = Date.now();
+      if (now - this.partialSeenAt > DRAFT_TURN_GAP_MS) this.draftsThisTurn = 0;
+      this.partialSeenAt = now;
       const stableMs = text === this.partialText ? now - this.partialAt : 0;
       const plan = partialPlan({
         text,
@@ -845,12 +1088,7 @@ class AssistantModeStore {
         this.partialAt = now;
       }
       if (plan === "cancel" && this.speculative) {
-        if (this.speculativeKind === "brain") {
-          brain.stop();
-          this.dropPlayback();
-        }
-        this.speculative = "";
-        this.speculativeKind = "";
+        this.discardEager();
       } else if (plan === "start" && !this.speculative) {
         const wake = matchWakeWord(text, wakeWord());
         const words = text.split(/\s+/).filter(Boolean).length;
@@ -870,18 +1108,13 @@ class AssistantModeStore {
           meeting: this.callHold,
           address: preferences.getSnapshot().voice.addressName,
         });
-        if (preview.handled) {
+        if (!command || !this.eagerAllowed(command)) {
+          // The same gates as the final transcript: nothing starts, nothing is cut.
+        } else if (preview.handled) {
           this.speculative = command;
           this.speculativeKind = "conduct";
-        } else if (
-          accepted &&
-          command &&
-          !commandNeedsApproval(command, this.state.mode) &&
-          !voiceClaimsAuthority(command)
-        ) {
-          this.speculative = command;
-          this.speculativeKind = "brain";
-          this.dispatch(command);
+        } else if (accepted && this.eagerAddressed(text, wake.matched)) {
+          this.startDraftRun(command);
         }
       }
       this.emit();
@@ -958,6 +1191,137 @@ class AssistantModeStore {
 
   /* ------------------------------------------------------------ captions */
 
+  /**
+   * The words shown for a spoken line. With the owner's tidy setting on, FRIDAY Tidy cleans only this shown text, on
+   * this PC; the command that goes to the Brain is never replaced, and an empty result falls back to what was heard.
+   */
+  private tidyShown(heard: string): { text: string; tidy?: Caption["tidy"] } {
+    const voice = preferences.getSnapshot().voice;
+    if (voice.tidyDictation === false) return { text: heard };
+    const done = tidyTranscript(heard, {
+      requested: voice.recognitionLang,
+      dictionary: parseVocabulary(voice.vocabulary).map((term) => ({ heard: term, write: term })),
+    });
+    if (!done.changed || !done.text.trim()) return { text: heard };
+    return { text: done.text, tidy: { raw: done.raw, changes: done.changes } };
+  }
+
+  /** Who a line is for: her (by name, or inside the open conversation), another assistant, or the room. */
+  private addressingFor(text: string): AddressDecision {
+    return decideAddressing({
+      text,
+      mode: normalizeAddressMode(preferences.getSnapshot().voice.addressMode),
+      wakeWord: wakeWord(),
+      // Hands-free keeps the conversation open for the attention window after
+      // FRIDAY last woke or answered, so a follow-up needs no name.
+      wakeHeard: Date.now() - this.liveWakeAt < LIVE_WAKE_MS,
+      followUpOpen:
+        Date.now() < this.followUpUntil ||
+        (this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil),
+      lastSpoken: this.spokenText,
+      recentlySpeaking: this.recentlySpeaking(),
+      speaking: this.state.speaking,
+      recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
+    });
+  }
+
+  /**
+   * A provisional line may start a draft only when it is for her: her name was said, or it is a follow-up inside the
+   * open conversation (the same addressing rule the final transcript uses). Speech from a TV, a call or a bystander
+   * is ambient and never reaches a model, not even a free cloud one.
+   */
+  private eagerAddressed(text: string, wakeMatched: boolean): boolean {
+    if (foreignAssistant(text) && !wakeMatched) return false;
+    if (wakeMatched) return true;
+    const decision = this.addressingFor(text);
+    return decision.tag !== "self" && decision.answer && decision.tools;
+  }
+
+  /**
+   * The one gate for a speculative start, read from the partial handler: every check the final transcript makes
+   * before it acts, plus the ones a provisional line needs (nothing pending, nothing sensitive, nothing that asks
+   * for approval or claims authority). The speaker is not known until the final transcript, so with "only my
+   * voice" on there is no early start at all. A start never speaks over FRIDAY and never touches a running turn.
+   */
+  private eagerAllowed(command: string): boolean {
+    if (this.state.mode !== "auto" || this.stopped()) return false;
+    if (this.state.paused || this.state.muted || this.callHold) return false;
+    if (this.bootWait || isBootHolding()) return false;
+    if (this.recentlySpeaking()) return false;
+    if (this.voiceSettings().ownerVoiceOnly) return false;
+    if (this.state.pending || this.pendingHeard || brain.getSnapshot().approval) return false;
+    if (looksSensitive(command)) return false;
+    return !commandNeedsApproval(command, this.state.mode) && !voiceClaimsAuthority(command);
+  }
+
+  /** What must still hold when the final transcript arrives for a draft to be adopted (see eagerAdoptable). */
+  private eagerSnapshot(): EagerSnapshot {
+    const level = autonomy.getSnapshot();
+    return {
+      privacyMode: preferences.getSnapshot().voice.privacyMode === true,
+      paidAccess: billing.getSnapshot().billing.paidAccess === true,
+      approvalLevel: level.approvalLevel,
+      halted: level.halted === true,
+    };
+  }
+
+  /** A line compared the way the owner reads it: tidied, then without case, punctuation or spacing. */
+  private eagerKey(text: string): string {
+    const tidy = tidyTranscript(text, {
+      requested: preferences.getSnapshot().voice.recognitionLang,
+    });
+    return (tidy.text.trim() ? tidy.text : text)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+      .trim();
+  }
+
+  /** The draft this voice started is the final line, tidied, and privacy, paid access and approval are unchanged. */
+  private eagerAdoptable(command: string): boolean {
+    if (this.speculativeKind !== "brain" || !this.speculative || !this.draftSnapshot) return false;
+    const then = this.draftSnapshot;
+    const now = this.eagerSnapshot();
+    return (
+      now.privacyMode === then.privacyMode &&
+      now.paidAccess === then.paidAccess &&
+      now.approvalLevel === then.approvalLevel &&
+      now.halted === then.halted &&
+      this.eagerKey(command) === this.eagerKey(this.speculative)
+    );
+  }
+
+  /**
+   * The only call site that starts a draft: the Brain's text-only draft (no run, no tools, no approval, no history,
+   * never shown or spoken). One draft per turn, and none while a turn runs. A refusal means nothing starts, and
+   * the final transcript runs as an ordinary turn. A draft never counts as a spoken user line (no pendingUserEcho).
+   */
+  private startDraftRun(command: string) {
+    if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
+    const started = brain.startDraft(command);
+    if (!started.started) return;
+    this.draftsThisTurn += 1;
+    this.speculative = command;
+    this.speculativeKind = "brain";
+    this.draftId = started.draft.draftId;
+    this.draftSnapshot = this.eagerSnapshot();
+  }
+
+  /**
+   * The only place a draft ends. `adopted` means the Brain took the draft over as the run, so there is nothing
+   * left to throw away; otherwise the draft is discarded in the Brain (its chat is aborted and nothing of it
+   * stays). A draft never ran, spoke or counted an echo, so no playback and no caption is touched here.
+   */
+  private discardEager(adopted = false) {
+    const kind = this.speculativeKind;
+    const draftId = this.draftId;
+    this.speculative = "";
+    this.speculativeKind = "";
+    this.draftId = "";
+    this.draftSnapshot = null;
+    if (adopted || kind !== "brain" || !draftId) return;
+    brain.discardDraft(draftId);
+  }
+
   /** The brain echo of a line already captioned from speech is not a second turn. */
   private captionUserTurn(text: string) {
     if (this.pendingUserEcho > 0) {
@@ -971,7 +1335,12 @@ class AssistantModeStore {
     who: Caption["who"],
     text: string,
     partial = false,
-    meta?: { tag?: Caption["tag"]; confidence?: number; language?: string },
+    meta?: {
+      tag?: Caption["tag"];
+      confidence?: number;
+      language?: string;
+      tidy?: Caption["tidy"];
+    },
   ) {
     const list = this.state.captions.slice();
     const last = list[list.length - 1];
@@ -985,6 +1354,7 @@ class AssistantModeStore {
       ...(meta?.tag ? { tag: meta.tag } : {}),
       ...(typeof meta?.confidence === "number" ? { confidence: meta.confidence } : {}),
       ...(meta?.language ? { language: meta.language } : {}),
+      ...(meta?.tidy ? { tidy: meta.tidy } : {}),
     });
     this.state.captions = list.slice(-MAX_CAPTIONS);
   }
@@ -1184,10 +1554,32 @@ class AssistantModeStore {
     this.setHandsFree(!this.state.handsFree);
   }
 
+  /**
+   * Mute silences FRIDAY and closes the microphone (the owner's decision: Mute stops the mic). Recognition stops and
+   * the Auto microphone is released, the way the tray pause does it; unmute reopens it through the same deferred open
+   * Resume uses, and never under the tray pause or Stop everything, which keep their own meaning.
+   */
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
     this.state.muted = muted;
+    if (muted) cancelPrewarm();
+    if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
+    if (muted) clearEchoReference("muted");
+    if (muted && this.state.mode === "auto") {
+      this.stopRecognition();
+      voiceGate.release("auto-mode");
+      this.autoMicDeferred = true;
+      this.state.micReady = false;
+      this.state.status = "Muted. Microphone is off";
+    } else if (!muted && this.state.mode === "auto" && !this.state.paused && !this.stopped()) {
+      this.resetVoiceRecovery();
+      if (this.autoMicDeferred) {
+        this.autoMicDeferred = false;
+        this.openAutoMic();
+      }
+      this.startRecognition();
+    }
     this.emit();
   }
 
@@ -1226,9 +1618,18 @@ class AssistantModeStore {
     return status;
   }
 
+  /**
+   * Settings > Voice changed the microphone or the noise-suppression choice: open the input again now, with the
+   * saved device (a missing one falls back to the default and says so). Nothing happens outside Auto, while paused,
+   * muted or stopped; the choice is then read the next time the microphone opens.
+   */
+  applyInputChoice(): Promise<void> {
+    return this.reopenInput("hotplug");
+  }
+
   /** Hot-plug, sleep, and resume. A missing saved device falls back and says so. */
   private async reopenInput(reason: "hotplug" | "resume") {
-    if (this.state.mode !== "auto" || this.state.paused) return;
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
     applySession(reason === "hotplug" ? "hotplug" : "resume");
     const listed = await listAudioDevices();
     const saved = preferences.getSnapshot().voice.inputDeviceId || "";
@@ -1270,6 +1671,8 @@ class AssistantModeStore {
   private lastHeardQuality: HeardQuality | null = null;
   /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
   private pendingHeard: { command: string; at: number } | null = null;
+  /** When she last read words back: she does not do it twice in a row. */
+  private lastReadBackAt = 0;
 
   /** The speech model's own scores for the last utterance, for the diagnostics panel. */
   heardQuality(): HeardQuality | null {
@@ -1371,6 +1774,11 @@ class AssistantModeStore {
    * the AudioContext start. Not done while Stop everything or the owner's pause is on.
    */
   private openAutoMic() {
+    if (this.state.muted) {
+      // Mute keeps the microphone closed; unmute opens it.
+      this.autoMicDeferred = true;
+      return;
+    }
     const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
     // A throwaway probeMicrophone capture afterwards would fight Windows exclusive-mode devices and leave the
     // analyser silent, so nothing awaits before the acquire.
@@ -1440,6 +1848,8 @@ class AssistantModeStore {
         reason: null,
       };
       this.state.micReady = true;
+      // Consent is given and the capture runs: only now are the engines warmed, and never in the way of the turn.
+      this.startPrewarmPass();
       const worked = typeof settings.deviceId === "string" ? settings.deviceId : null;
       const previous = preferences.getSnapshot().voice.inputDeviceId || null;
       const next = rememberDevice(worked, previous);
@@ -1471,6 +1881,7 @@ class AssistantModeStore {
     void this.refreshWakeEngine(true);
     this.spokenUpTo = brain.getSnapshot().messages.length;
     this.unBrain = brain.subscribe(() => this.speakNewReplies());
+    this.unQuick = brain.onQuickAnswer((answer) => this.speakQuickAnswer(answer));
     if (this.stopped() || this.state.paused) {
       // Stop everything persists across a restart, and the owner may have paused: Auto starts with the
       // microphone closed and the first Resume opens it.
@@ -1483,6 +1894,39 @@ class AssistantModeStore {
     }
     void this.refreshMeeting();
     this.startRecognition();
+  }
+
+  /**
+   * Warm the speech, voice, turn and kernel engines once per Auto session, right after the microphone opened. It
+   * plays nothing, never blocks the session and never raises an error: a failed step is a note in the voice log and
+   * a Warning row in Voice Doctor.
+   */
+  private startPrewarmPass() {
+    if (this.prewarmDone || this.state.mode !== "auto") return;
+    void startPrewarm(
+      {
+        mode: this.state.mode,
+        micOpen: this.state.micReady,
+        held: this.state.paused || this.state.muted || this.stopped(),
+        localVoice: this.offlineVoiceReady,
+      },
+      (outcome) => this.stampPrewarm(outcome),
+    )
+      .then((report) => {
+        if (this.state.mode !== "auto") return;
+        if (
+          report.outcomes.some((outcome) => outcome.state === "done" || outcome.state === "failed")
+        ) {
+          this.prewarmDone = !report.outcomes.some((outcome) => outcome.state === "cancelled");
+          this.trace("segment", prewarmLine(report));
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  /** The timing of one warm-up step goes into the same latency record as the turn stages. */
+  private stampPrewarm(outcome: PrewarmOutcome) {
+    if (outcome.state === "done") voiceLatency.record(`prewarm.${outcome.step}`, outcome.ms);
   }
 
   /** A known call app pauses listening. No spoken line, so the call is not interrupted. */
@@ -1509,6 +1953,7 @@ class AssistantModeStore {
       this.state.status = "Paused — a call is open";
     } else if (this.state.mode === "auto" && !this.state.paused) {
       this.startRecognition();
+      this.afterQuiet(); // what the call held back, as text
     }
     this.emit();
   }
@@ -1519,6 +1964,10 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    cancelPrewarm();
+    this.prewarmDone = false;
+    this.heldPlayed = null;
+    beginPlayedReply("", true);
     this.bootWait?.();
     this.bootWait = null;
     this.autoMicDeferred = false;
@@ -1535,6 +1984,8 @@ class AssistantModeStore {
     brain.setAutoMode(false);
     this.unBrain?.();
     this.unBrain = null;
+    this.unQuick?.();
+    this.unQuick = null;
     this.stopRecognition();
     this.dropPlayback();
     void this.streamSpeaker?.stop();
@@ -1558,8 +2009,8 @@ class AssistantModeStore {
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
     this.callHold = false;
-    this.speculative = "";
-    this.speculativeKind = "";
+    this.discardEager();
+    this.draftsThisTurn = 0;
     this.narratedTool = "";
     this.partialText = "";
     voiceGate.setSpeakingGuard(false);
@@ -1584,12 +2035,17 @@ class AssistantModeStore {
     }
   }
 
+  /** The microphone may be read: Auto, not paused by the owner or the kill switch, and not muted. */
+  private micAllowed(): boolean {
+    return microphoneAllowed(this.state.mode, this.state.paused) && !this.state.muted;
+  }
+
   /** Start FRIDAY's own on-device transcriber. Browser cloud speech is never used. */
   private startRecognition() {
     if (this.callHold) return;
     // A session that begins while Stop everything is on (it persists across a restart) must not open the microphone.
     if (this.stopped()) this.followKillSwitch();
-    if (!microphoneAllowed(this.state.mode, this.state.paused)) {
+    if (!this.micAllowed()) {
       this.wantRunning = false;
       return;
     }
@@ -1624,7 +2080,7 @@ class AssistantModeStore {
     };
     void sttStatus(false, true, true)
       .then((state) => {
-        if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
+        if (!this.wantRunning || !this.micAllowed()) return;
         const lang = preferences.getSnapshot().voice.recognitionLang || "hi-IN";
         const live = liveSttFromStatus(
           state,
@@ -1703,7 +2159,7 @@ class AssistantModeStore {
   /** Immediate retry for install, model, settings, device, focus, toggle, and Fix voice. */
   noteVoiceTrigger(trigger: string) {
     if (!shouldRetryNow(trigger)) return;
-    if (this.state.mode !== "auto" || this.state.paused) return;
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
     this.resetVoiceRecovery();
     this.startRecognition();
   }
@@ -1731,6 +2187,83 @@ class AssistantModeStore {
     const line = this.variedLine("ready", this.lastOwnerLine);
     this.caption("friday", line);
     this.speak(line);
+    this.offerRestartRedo();
+  }
+
+  /** Task names as one spoken list: "A", "A and B", "A, B and C". */
+  private nameList(tasks: readonly VoiceTask[]): string {
+    // A task that looks private is named neutrally: its words are never said aloud.
+    const names = tasks.map((t) =>
+      this.taskIsSensitive(t) ? "a private task" : t.spoken || speakableLabel(t.label) || "a task",
+    );
+    return names.length < 3
+      ? names.join(" and ")
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  }
+
+  /**
+   * Once per app session, when Auto is ready: work that was live when FRIDAY closed comes back on the desk as
+   * INTERRUPTED. She says it once and asks whether to redo it; the yes is the ordinary bound yes (it counts only once
+   * the question has sounded, and the speaker check applies). She never redoes it on her own, except when the owner
+   * chose "auto" in the task settings, autonomy is Full, and every task only reads (see `isReadOnlyRequest`).
+   */
+  private offerRestartRedo() {
+    if (this.restartAsked) return;
+    this.restartAsked = true;
+    const tasks = restoreInterruptedVoiceTasks();
+    if (!tasks.length) return;
+    const ids = tasks.map((t) => t.id);
+    const lang = this.narrationLang();
+    const names = this.nameList(tasks);
+    const readOnly = tasks.every((t) => isReadOnlyRequest(t.request ?? ""));
+    if (
+      this.taskPrefs().resumeAfterRestart === "auto" &&
+      readOnly &&
+      autonomy.getSnapshot().approvalLevel === "full" &&
+      !this.stopped()
+    ) {
+      const redone = redoInterruptedVoiceTasks(ids);
+      if (redone) {
+        const said =
+          lang === "hi"
+            ? `${names} par dobara lag gayi.`
+            : `Picking ${names} up again, since it only reads.`;
+        this.announceTask(said, { priority: "direct" });
+        return;
+      }
+    }
+    this.restartAsk = { ids };
+    const ask =
+      lang === "hi"
+        ? `Band hone par main ${names} par kaam kar rahi thi. Dobara karu?`
+        : `I was working on ${names} when I closed. Redo them?`;
+    this.announceTask(ask, { priority: "approval", taskId: RESTART_ASK });
+  }
+
+  /** The bound yes or no to the restart question. A yes redoes the tasks, a no drops them. False when it is not that. */
+  private answerRestartAsk(text: string, route: Route): boolean {
+    const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
+    if (id !== RESTART_ASK) return false;
+    const ask = this.restartAsk;
+    if (!ask || !route.verdict) {
+      this.approvalAsked = null;
+      return false;
+    }
+    if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
+    this.approvalAsked = null;
+    this.restartAsk = null;
+    this.caption("user", text);
+    if (route.verdict === "yes") redoInterruptedVoiceTasks(ask.ids);
+    else {
+      dropInterruptedVoiceTasks(ask.ids);
+      this.announceTask(
+        this.narrationLang() === "hi" ? "Theek hai, chhod diye." : "Okay, I dropped them.",
+        { priority: "direct" },
+      );
+    }
+    this.state.status = "Listening";
+    this.emit();
+    return true;
   }
 
   /** When the session entered its present state, for the supervisor. */
@@ -1743,6 +2276,27 @@ class AssistantModeStore {
   private reportedStuck = false;
 
   /**
+   * The slow beat of the task desk, run from the supervisor's tick (no timer of its own): the one reminder of an
+   * open approval, and a rolled-up line when three or more tasks run and the owner has been quiet.
+   */
+  private slowTaskTick(now: number) {
+    if (this.state.mode !== "auto" || this.state.paused) return;
+    const waiting = brain.getSnapshot().approval;
+    if (
+      waiting?.at &&
+      this.approvalVoicedAt === waiting.at &&
+      this.approvalRemindedAt !== waiting.at &&
+      now - waiting.at >= APPROVAL_REPEAT_MS
+    ) {
+      this.approvalRemindedAt = waiting.at;
+      this.voiceBrainApproval(true);
+    }
+    if (now - this.lastRollupAt < ROLLUP_GAP_MS || this.liveTasks() < ROLLUP_MIN_TASKS) return;
+    this.lastRollupAt = now;
+    this.narrateEvent({ kind: "rollup" }, this.narrationCtx(false));
+  }
+
+  /**
    * The supervisor's turn, run from the microphone analyser's own beat (no timer of its own): if the session
    * has sat in one state longer than that state can last, mend it through the one heal policy, quietly.
    */
@@ -1751,13 +2305,14 @@ class AssistantModeStore {
     if (now - this.lastSupervisorTick < 5000) return;
     this.lastSupervisorTick = now;
     this.soak.sample(now, heapMegabytes());
+    this.slowTaskTick(now);
     const verdict = superviseVoice({
       mode: this.state.mode,
       paused: this.state.paused,
       state: this.state.voiceState,
       ageMs: now - this.stateSince,
       brainActive: Boolean(brain.getSnapshot().activeRunId),
-      speechQueued: this.speechQueue.length > 0,
+      speechQueued: this.arbiter.size() > 0 || this.arbiter.playing() !== null,
       speaking: voiceGate.isSpeakingGuarded(),
       downloading: Boolean(this.state.download && this.state.download.stage === "download"),
     });
@@ -1805,6 +2360,7 @@ class AssistantModeStore {
     this.state.speaking = false;
     this.state.status = statusWithVoice(stateLabel("LISTENING"));
     this.stateSince = Date.now();
+    this.arbiter.setOwnerSpeaking(false); // a stuck "owner is talking" must not hold her lines for good
     this.trace("segment", `back to listening — ${reason}`);
     this.emit();
   }
@@ -2028,7 +2584,8 @@ class AssistantModeStore {
     if (this.wakeOnlyUnsub || this.dictation) return;
     let wasSpeech = false;
     this.wakeOnlyUnsub = voiceGate.subscribe((snapshot) => {
-      if (this.dictation || this.state.mode !== "auto" || this.state.paused) return;
+      if (this.dictation || this.state.mode !== "auto" || this.state.paused || this.state.muted)
+        return;
       if (snapshot.speech && !wasSpeech) {
         this.wakeOnlySpeechAt = performance.now();
         wasSpeech = true;
@@ -2062,26 +2619,29 @@ class AssistantModeStore {
     this.emit();
   }
 
+  /** How long the mic stays quiet before the turn gate confirms the end of the utterance. */
+  private endpointHoldMs(): number {
+    const open = Date.now() < this.awakeUntil || this.state.handsFree;
+    const base = endpointSilenceMs(open, this.state.interim);
+    return realtimeSilenceMs(
+      base,
+      this.realtimeActive(),
+      open,
+      utteranceIncomplete(this.state.interim),
+    );
+  }
+
   private startDesktopDictation() {
     void refreshVoiceProfile();
     this.stopWakeOnly();
-    if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
+    if (!this.micAllowed()) return;
     if (this.dictation?.active) return;
     reclaimUnowned(this.dictation);
     const dictation = new DesktopDictation({
       language: preferences.getSnapshot().voice.recognitionLang || "hi-IN",
       deviceId: preferences.getSnapshot().voice.inputDeviceId || null,
       localOnly: true,
-      silenceMs: () => {
-        const open = Date.now() < this.awakeUntil || this.state.handsFree;
-        const base = endpointSilenceMs(open, this.state.interim);
-        return realtimeSilenceMs(
-          base,
-          this.realtimeActive(),
-          open,
-          utteranceIncomplete(this.state.interim),
-        );
-      },
+      silenceMs: () => this.endpointHoldMs(),
       initialPrompt: () => {
         const voice = preferences.getSnapshot().voice;
         return sttInitialPrompt({
@@ -2095,11 +2655,23 @@ class AssistantModeStore {
           ].filter(Boolean),
         });
       },
+      hotwords: () => {
+        const voice = preferences.getSnapshot().voice;
+        return sttHotwords([
+          voice.addressName,
+          voice.wakeWord,
+          ...parseVocabulary(voice.vocabulary),
+        ]);
+      },
       // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
       voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
-        const finished = this.turnStages.finish();
+        // A turn whose budget was already recorded at its first sound adds only its stage gaps here.
+        const finished = this.budgetRecorded
+          ? recordGapsOnly(this.turnStages)
+          : this.turnStages.finish();
+        this.budgetRecorded = false;
         if (Object.keys(finished).length)
           this.soak.turn(Date.now(), finished["firstAudible"] ?? null);
         this.turnStages.reset();
@@ -2192,6 +2764,8 @@ class AssistantModeStore {
           this.trace("segment", "local text held for the Sarvam sentence");
       },
       onStateChange: (listening) => {
+        // "thinking" is the moment the endpoint hold ran out and the clip was sent: no new timer.
+        if (listening === "thinking") stampEndpoint(this.turnStages, this.endpointHoldMs());
         if (listening === "listening") {
           this.soak.recovered();
           this.to("mic-opened");
@@ -2359,7 +2933,13 @@ class AssistantModeStore {
     this.state.speaking = stateIsSpeaking(next);
     this.state.status = statusWithVoice(stateLabel(next));
     if (next !== from && detail) this.trace("segment", `${from} → ${next} (${event}) · ${detail}`);
-    if (next === "LISTENING" && from !== "LISTENING") releaseTaskUpdates();
+    // Only the VAD hearing the owner holds her lines back; once a transcript is in hand he is done talking.
+    this.arbiter.setOwnerSpeaking(next === "SPEECH_DETECTED");
+    if (next === "LISTENING" && from !== "LISTENING") {
+      releaseTaskUpdates();
+      this.afterQuiet();
+    }
+    if (next !== from && this.arbiter.size()) void this.drainSpeech();
     return true;
   }
 
@@ -2373,10 +2953,159 @@ class AssistantModeStore {
     return vary(bucket, { register: socialRegister(said) });
   }
 
-  /** A background task update, said in Auto mode (Chat and Manual stay silent) and shown in the captions. */
-  announceTask(text: string) {
+  /**
+   * A background task update, said in Auto mode (Chat and Manual stay silent) and shown in the captions. A call
+   * hold, Do not disturb and quiet hours keep it off the speaker: it is shown, and kept for the digest afterwards.
+   */
+  announceTask(text: string, meta: SpeakMeta = { priority: "progress" }) {
     this.caption("friday", text);
-    this.speak(text);
+    // The tray pause is the kill switch: a paused session announces nothing, it only shows.
+    if (this.state.paused) return;
+    if (this.callHold || !alertsAudible()) {
+      if (meta.priority !== "progress") this.narration.held.push(text);
+      return;
+    }
+    this.speak(text, meta);
+  }
+
+  /** The language a task line is said in: the owner's own, from the last full line he spoke. */
+  private narrationLang(): NarrationLang {
+    return replyLanguage(this.lastOwnerLine);
+  }
+
+  /** Said once the voice goes quiet: finish lines that aged out unsaid, and what a call or quiet hours held. */
+  private afterQuiet() {
+    if (this.callHold || !alertsAudible()) return;
+    const lang = this.narrationLang();
+    const digest = this.arbiter.takeDigest();
+    const line = digest ? digestLine(digest, lang) : null;
+    if (line) this.announceTask(line, { priority: "direct" });
+    const held = holdDigest(this.narration, lang);
+    if (held) this.caption("friday", held.text);
+  }
+
+  /** The desk's own settings (`voice.tasks`), safe whatever is stored. */
+  private taskPrefs() {
+    return taskPrefsFrom(
+      (preferences.getSnapshot().voice as unknown as Record<string, unknown>)["tasks"],
+    );
+  }
+
+  /**
+   * One task update through the narration policy: it decides what is said, what only shows on screen and what
+   * becomes a notification. Raw tool output never reaches the speaker; a SENSITIVE task gets a neutral line.
+   */
+  narrateTask(update: TaskUpdate, task: VoiceTask) {
+    // What is said about a task is judged by its label AND by what it answered or failed with: a harmless label can
+    // end with a private answer.
+    const base = this.narrationCtx(this.taskIsSensitive(task));
+    const event = narrationEventFor(update, task);
+    if (!event) {
+      // A cancel the owner asked for: said plainly, never held back by the progress cap.
+      this.announceTask(update.text, { priority: "direct", taskId: task.id });
+      narrate({ kind: "settled", taskId: task.id }, base);
+      return;
+    }
+    this.narrateEvent(event, base, task);
+  }
+
+  /** What the narration policy needs to know right now. */
+  private narrationCtx(sensitive: boolean): Parameters<typeof narrate>[1] {
+    const now = Date.now();
+    return {
+      now,
+      lang: this.narrationLang(),
+      speakReplies:
+        preferences.getSnapshot().voice.speakReplies !== false && this.state.mode === "auto",
+      muted: this.state.muted,
+      callHold: this.callHold,
+      alertsAudible: alertsAudible(),
+      whisperMode: preferences.getSnapshot().voice.whisperMode === true,
+      progressLinesPerMinute: progressLinesFor(this.taskPrefs()),
+      runningTasks: this.liveTasks(),
+      ownerIdleMs: this.lastOwnerAt ? now - this.lastOwnerAt : Number.POSITIVE_INFINITY,
+      sensitive,
+      memory: this.narration,
+    };
+  }
+
+  /** The desk task with this id, if it is still on the desk. */
+  private deskTask(id: string): VoiceTask | undefined {
+    return listVoiceTasks().find((row) => row.id === id);
+  }
+
+  /**
+   * A background run asked for approval of an app action (restart, shut down): say once what is waiting and that a
+   * yes is needed, bound to the task. The existing short, fresh, speaker-checked yes answers it. Write and exec
+   * tool approvals stay on the screen only. `again` asks the one reminder the policy allows.
+   */
+  private voiceBrainApproval(again = false) {
+    const waiting = brain.getSnapshot().approval;
+    if (!waiting || typeof waiting.at !== "number" || !appControlNeedsApproval(waiting.tool))
+      return;
+    if (again ? this.approvalVoicedAt !== waiting.at : this.approvalVoicedAt === waiting.at) return;
+    const run = brain.getSnapshot().runs.find((row) => row.id === waiting.runId);
+    const taskId = run?.owner?.kind === "task" ? run.owner.taskId : "";
+    const task = taskId ? this.deskTask(taskId) : undefined;
+    if (!task) return;
+    this.approvalVoicedAt = waiting.at;
+    const what = speakableLabel((waiting.reason.split(" — ")[0] ?? "").trim());
+    this.narrateEvent(
+      { kind: "needs-approval", taskId: task.id, ...(what ? { label: what } : {}) },
+      this.narrationCtx(this.taskIsSensitive(task)),
+      task,
+    );
+  }
+
+  /** The task's own words, its result or its error look private: it is announced without them. */
+  private taskIsSensitive(task: VoiceTask): boolean {
+    return [task.label, task.result, task.error].some((text) => looksSensitive(text ?? ""));
+  }
+
+  private narrateEvent(event: NarrateEvent, ctx: Parameters<typeof narrate>[1], task?: VoiceTask) {
+    const out = narrate(event, ctx);
+    const prefs = this.taskPrefs();
+    if (out.screenOnly) this.caption("friday", out.screenOnly);
+    if (out.notify)
+      notifications.push({
+        id: `voice-task:${task?.id ?? "x"}:approval`,
+        level: "action",
+        title: "A task needs your yes",
+        detail: out.notify,
+        source: "Voice tasks",
+        route: "/tasks",
+      });
+    if (out.say) {
+      let say = out.say;
+      const done = event.kind === "done";
+      if (done && !ctx.sensitive) {
+        // The first words of a finish say which task it was: "Done: X. <its first sentence>".
+        const name = speakableLabel(task?.label ?? "");
+        if (name && !say.toLowerCase().includes(name.toLowerCase())) say = `Done: ${name}. ${say}`;
+      } else if (event.kind === "ack" && !ctx.sensitive) {
+        // The owner's own acknowledgement keeps its plain words and goes out as a direct line.
+        const name = speakableLabel(task?.label ?? "");
+        if (name) say = `Started: ${name}.`;
+      }
+      if (done && !prefs.speakDone) {
+        this.caption("friday", say);
+      } else {
+        const priority: SpeechPriority =
+          event.kind === "ack" ? "direct" : (out.priority ?? "progress");
+        this.announceTask(say, {
+          priority,
+          ...(task ? { taskId: task.id } : {}),
+          ...(priority === "progress" && task ? { coalesceKey: `progress:${task.id}` } : {}),
+          ...(ctx.sensitive ? { sensitive: true } : {}),
+          ...(out.done ? { done: true } : {}),
+          ...(out.whisper ? { whisper: true } : {}),
+        });
+        if (task) setTaskFocus(task.id);
+      }
+    }
+    if (event.kind === "done" || event.kind === "failed") {
+      narrate({ kind: "settled", taskId: event.taskId }, ctx);
+    }
   }
 
   /** Whether a task update may be spoken now: not while the owner talks or FRIDAY answers. */
@@ -2428,6 +3157,8 @@ class AssistantModeStore {
   }
 
   private handleHeard(text: string, probe: WakeProbe | null = null) {
+    // The final transcript ends this turn's provisional stream: the next utterance may draft once more.
+    this.draftsThisTurn = 0;
     // A transcript that finished a moment after Stop everything was thrown is not a turn.
     if (this.stopped()) {
       this.trace("dropped", "Stop everything is on");
@@ -2435,6 +3166,7 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    this.lastOwnerAt = Date.now();
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
@@ -2491,7 +3223,6 @@ class AssistantModeStore {
     const corrected = applyCorrections(text);
     const heardLang = languageId(corrected);
     noteStyleCorrection(corrected);
-    const repeat = confidenceRepeat(corrected, utteranceConfidence(corrected));
     if (/\bnot\b.+\bbut\b/i.test(text)) learnCorrection(text, corrected);
     noteArc({
       topic: corrected.slice(0, 120),
@@ -2499,14 +3230,6 @@ class AssistantModeStore {
       at: Date.now(),
       source: "voice",
     });
-    if (repeat && !this.isStopHeard(corrected, false)) {
-      markTurnStage("routed", false, "unclear transcript — asked to repeat");
-      this.caption("friday", repeat);
-      this.speak(repeat);
-      this.state.interim = "";
-      this.emit();
-      return;
-    }
     text = corrected;
     this.state.heard = text.slice(0, 160);
 
@@ -2533,25 +3256,54 @@ class AssistantModeStore {
       }
     }
 
+    // An app-control approval (restart, shut down) is answered by a short bound yes or no that is still fresh.
+    // The router reads the words; it never approves: the approval below still needs the speaker check. The yes is
+    // bound to the prompt that really sounded (never to the moment the approval was made or queued), and to a run
+    // that is still waiting: a prompt held back by a call or quiet hours, or one for a run that was stopped, can
+    // only be answered on the screen.
     const waiting = brain.state.approval;
-    if (
-      waiting &&
-      appControlNeedsApproval(waiting.tool) &&
-      typeof waiting.at === "number" &&
-      approvalFresh(waiting.at, Date.now())
-    ) {
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
-        if (!this.approvalVoiceAllows(text)) return;
-        brain.approve(true);
+    if (waiting && appControlNeedsApproval(waiting.tool) && typeof waiting.at === "number") {
+      const live = brain.getSnapshot();
+      const run = live.runs.find((row) => row.id === waiting.runId);
+      const taskId = run?.owner?.kind === "task" ? run.owner.taskId : undefined;
+      const spoken = this.approvalSpoken;
+      // Only this run's own prompt binds a yes: a foreground approval is never voiced, so it stays on the screen.
+      const heardPrompt =
+        spoken !== null &&
+        taskId !== undefined &&
+        spoken.at >= waiting.at &&
+        spoken.taskId === taskId;
+      const answer = this.routeHeard(text, {
+        askedAt: heardPrompt && spoken ? spoken.at : waiting.at,
+        ...(taskId ? { taskId } : {}),
+      });
+      if (answer.kind === "chitchat" && answer.reason === "approval-expired") {
+        const line = "That approval timed out. Ask me again if you still want it.";
         this.caption("user", text);
-        this.caption("friday", "Approved.");
+        this.caption("friday", line);
         this.emit();
+        this.speak(line);
         return;
       }
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "no")) {
-        brain.approve(false);
+      if (answer.kind === "approval-answer") {
+        if (answer.verdict === "yes" && !this.approvalVoiceAllows(text)) return;
+        const stillWaiting =
+          run !== undefined && live.activeRunId === run.id && run.state === "awaiting-approval";
+        // A no is always safe to take; a yes needs the prompt to have sounded and the run to still wait.
+        if (!stillWaiting || (answer.verdict === "yes" && !heardPrompt)) {
+          const line = stillWaiting
+            ? "Check the screen. That one needs your answer there."
+            : "That one is no longer waiting.";
+          this.caption("user", text);
+          this.caption("friday", line);
+          this.emit();
+          this.speak(line);
+          return;
+        }
+        brain.approve(answer.verdict === "yes");
+        this.approvalAsked = null;
         this.caption("user", text);
-        this.caption("friday", "Cancelled.");
+        this.caption("friday", answer.verdict === "yes" ? "Approved." : "Cancelled.");
         this.emit();
         return;
       }
@@ -2561,6 +3313,7 @@ class AssistantModeStore {
     if (this.state.pending) {
       if (!approvalFresh(this.state.pending.at, Date.now())) {
         this.state.pending = null;
+        this.supersedeOnConfirm = null;
         this.remember("approval-expired", text, "dropped");
         const expired = this.variedLine("expired", text);
         this.caption("friday", expired);
@@ -2578,11 +3331,12 @@ class AssistantModeStore {
         this.caption("user", text);
         this.state.status = "Confirmed — running";
         this.emit();
-        this.dispatch(cmd);
+        this.runApproved(cmd);
         return;
       }
       if (confirmationVerdict(text) === "no") {
         this.state.pending = null;
+        this.supersedeOnConfirm = null;
         this.caption("user", text);
         const dropped = this.variedLine("cancelled", text);
         this.caption("friday", dropped);
@@ -2636,21 +3390,7 @@ class AssistantModeStore {
       this.emit();
       return;
     }
-    const decision = decideAddressing({
-      text,
-      mode: normalizeAddressMode(preferences.getSnapshot().voice.addressMode),
-      wakeWord: wakeWord(),
-      // Hands-free keeps the conversation open for the attention window after
-      // FRIDAY last woke or answered, so a follow-up needs no name.
-      wakeHeard: Date.now() - this.liveWakeAt < LIVE_WAKE_MS,
-      followUpOpen:
-        Date.now() < this.followUpUntil ||
-        (this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil),
-      lastSpoken: this.spokenText,
-      recentlySpeaking: this.recentlySpeaking(),
-      speaking: this.state.speaking,
-      recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
-    });
+    const decision = this.addressingFor(text);
     // A push-to-talk turn is addressed by the key press itself: no wake word.
     if (this.listenStyle() === "push-to-talk" && decision.tag !== "self") {
       decision.tag = "addressed";
@@ -2671,7 +3411,7 @@ class AssistantModeStore {
     // the lines need no wake word, and a stop phrase ends it without her name.
     if (
       this.state.mode === "auto" &&
-      microphoneAllowed(this.state.mode, this.state.paused) &&
+      this.micAllowed() &&
       (voiceNotes.active() || this.translateTo)
     ) {
       const line = (wake.matched && wake.command ? wake.command : text).trim();
@@ -2679,9 +3419,7 @@ class AssistantModeStore {
     }
     const awake = Date.now() < this.awakeUntil;
     const stop = this.isStopHeard(text, wake.matched);
-    const accepted =
-      microphoneAllowed(this.state.mode, this.state.paused) &&
-      (stop || (decision.answer && decision.tools));
+    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools));
     this.trace(
       "wake",
       wake.matched
@@ -2697,7 +3435,7 @@ class AssistantModeStore {
       markTurnStage(
         "routed",
         false,
-        microphoneAllowed(this.state.mode, this.state.paused)
+        this.micAllowed()
           ? `not meant for FRIDAY (${decision.tag}${decision.reason ? `: ${decision.reason}` : ""})`
           : "listening is paused or not in Auto mode",
       );
@@ -2719,43 +3457,53 @@ class AssistantModeStore {
     this.turnStages.mark("sttFinalReceived");
     this.turnStages.mark("brainRequestStarted");
     this.to("wake-matched");
-    // Task words ("cancel the task", "pause the task", "resume the task") act on background work only.
-    // A plain stop below ends speech and never touches a task.
-    const control = classifyVoiceControl(command || text);
-    if (
-      control.kind === "cancel-task" ||
-      control.kind === "pause-task" ||
-      control.kind === "resume-task"
-    ) {
-      this.trace("wake", `task control — ${control.kind}`);
+    // One router names what this line is for (see utterance-router). It reads, it never acts: a yes it finds is
+    // only an answer, and the approval paths below decide. Task words act on tasks, a plain stop never does.
+    const route = this.routeHeard(command || text, this.approvalAsked);
+    if (route.kind === "chitchat" && route.reason === "approval-expired") {
+      this.approvalAsked = null;
+      const line = "That approval timed out. Ask me again if you still want it.";
+      this.caption("friday", line);
+      this.state.status = "Approval expired";
+      this.emit();
+      this.speak(line);
+      return;
+    }
+    if (route.kind === "approval-answer" && this.answerRestartAsk(text, route)) return;
+    if (route.kind === "approval-answer" && this.answerTaskApprovalAloud(text, route)) return;
+    if (route.kind === "task-control" || (route.kind === "status" && this.liveTasks() > 0)) {
+      this.trace("wake", `task control — ${route.action ?? route.kind} (${route.reason})`);
       markTurnStage("routed", true, "", "task control");
-      const said = runTaskControl(control);
+      this.approvalAsked = null;
+      const said = this.runTaskRoute(route);
       if (said) this.speak(said);
       this.state.status = "Listening";
       this.emit();
       return;
     }
     // "Do this in the background": the work becomes a voice task that runs the real Brain turn; the answer is
-    // announced when it finishes. The Brain takes one turn at a time, so a new question during the task waits.
-    const background = parseBackgroundRequest(command || text);
+    // announced when it finishes. A consequential one is asked about first; a change of mind replaces the task.
+    const background =
+      route.kind === "new-task"
+        ? parseBackgroundRequest(
+            route.supersedes ? withoutChangeOfMind(command || text) : command || text,
+          )
+        : null;
     if (background && this.state.mode === "auto") {
       this.trace("wake", "background request — started as a voice task");
       markTurnStage("routed", true, "", "background task");
-      const made = startVoiceTask(background.label, async (_task, context) => {
-        await context.checkpoint();
-        const stopOnCancel = () => brain.stop();
-        context.signal.addEventListener("abort", stopOnCancel, { once: true });
-        try {
-          const done = await askBrain(background.request, { brain, timeoutMs: 300_000 });
-          await context.checkpoint();
-          return completionLine(done.answer) || "Finished.";
-        } finally {
-          context.signal.removeEventListener("abort", stopOnCancel);
+      this.approvalAsked = null;
+      if (route.needsConfirm || this.needsConfirm(command || text)) {
+        // The old task keeps running until the owner says yes: a change of mind that is never confirmed changes nothing.
+        const ordered = route.supersedes ? withoutChangeOfMind(command || text) : command || text;
+        this.askToConfirm(ordered);
+        if (route.supersedes) {
+          this.supersedeOnConfirm = { id: route.supersedes, command: ordered, at: Date.now() };
         }
-      });
-      if (!made.ok) this.speak(made.error);
-      this.state.status = "Listening";
-      this.emit();
+        return;
+      }
+      if (route.supersedes) voiceTaskActions.cancel(route.supersedes);
+      this.beginBackground(background);
       return;
     }
     // Voice notes, meeting notes and live translation: only on the owner's words, shown while they run.
@@ -2768,6 +3516,12 @@ class AssistantModeStore {
       this.stopQueueTimer();
       markTurnStage("routed", true, "", "stop word");
       this.cancelSpeech();
+      if (route.stopListening) {
+        // "Stop listening" also ends the attention window: the next line needs her name again.
+        this.awakeUntil = 0;
+        this.followUpUntil = 0;
+        this.state.awake = false;
+      }
       this.state.status = "Stopped — listening";
       this.emit();
       return;
@@ -2793,21 +3547,50 @@ class AssistantModeStore {
       return;
     }
     const lastCaption = this.state.captions[this.state.captions.length - 1];
-    if (!(lastCaption?.who === "user" && lastCaption.text.includes(command))) {
-      this.caption("user", command, false, { tag: "addressed" });
+    const shown = this.tidyShown(command);
+    if (!(
+      lastCaption?.who === "user" &&
+      (lastCaption.text.includes(command) || lastCaption.text.includes(shown.text))
+    )) {
+      this.caption("user", shown.text, false, {
+        tag: "addressed",
+        ...(shown.tidy ? { tidy: shown.tidy } : {}),
+      });
     }
 
-    // A fluent sentence is not proof it was said: when the speech model itself was unsure (a weak per-token score, or a
-    // weak guess about the language), read the words back and act only on a yes. A stop command is never held up.
-    if (
-      needsHeardConfirmation(
-        command,
-        this.lastHeardQuality,
-        this.isStopHeard(command, wake.matched),
-      )
-    ) {
-      const ask = heardReadBack(command);
+    // A fluent sentence is not proof it was said, but she asks only when the speech model was clearly unsure AND a wrong
+    // guess would cost something (see heardNeedsReadBack). A harmless line goes straight on, a dangerous one gets the one
+    // action question below (which names what she heard), and she never reads back twice in a row. A stop is never held up.
+    const isStop = this.isStopHeard(command, wake.matched);
+    const sensitive =
+      route.needsConfirm === true || voiceClaimsAuthority(command) || this.needsConfirm(command);
+    const doubtful = heardNeedsReadBack(
+      command,
+      this.lastHeardQuality,
+      isStop,
+      this.confirmPreference(),
+    );
+    const askedLately = Date.now() - this.lastReadBackAt < READBACK_COOLDOWN_MS;
+    if (this.lastHeardQuality) {
+      const trust = heardConfidence(command, this.lastHeardQuality);
+      const scores = `token ${this.lastHeardQuality.avgLogprob ?? "?"}, language ${this.lastHeardQuality.languageProbability ?? "?"}`;
+      this.trace(
+        "segment",
+        `heard trust ${trust.toFixed(2)} (${scores}) — ${
+          doubtful
+            ? sensitive
+              ? "doubtful, one action question"
+              : askedLately
+                ? "doubtful, asked a moment ago"
+                : "doubtful, read back"
+            : "trusted"
+        }`,
+      );
+    }
+    if (doubtful && !sensitive && !askedLately) {
+      const ask = heardQuestion(command);
       this.pendingHeard = { command, at: Date.now() };
+      this.lastReadBackAt = Date.now();
       markTurnStage("routed", false, "read back — waiting for a yes");
       this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
       this.caption("friday", ask);
@@ -2817,7 +3600,140 @@ class AssistantModeStore {
       return;
     }
 
-    this.routeCommand(command);
+    this.ackTurnKind = route.kind;
+    this.routeCommand(command, route.kind === "new-task" && route.needsConfirm === true);
+  }
+
+  /** How many desk tasks have not finished. */
+  private liveTasks(): number {
+    return routerTasks().filter((t) => !TERMINAL.includes(t.state)).length;
+  }
+
+  /** What one line the owner just said is for, read from the desk, the Brain and the prompt she last spoke. */
+  private routeHeard(
+    text: string,
+    asked: { askedAt: number; taskId?: string } | null = this.approvalAsked,
+  ): Route {
+    const tasks = routerTasks();
+    return routeUtterance({
+      text,
+      now: Date.now(),
+      tasks,
+      pendingApproval: asked
+        ? { askedAt: asked.askedAt, ...(asked.taskId ? { taskId: asked.taskId } : {}) }
+        : null,
+      focusTaskId: taskFocusId(),
+      approvalLevel: this.confirmDial(),
+      busy:
+        Boolean(brain.getSnapshot().activeRunId) || tasks.some((t) => !TERMINAL.includes(t.state)),
+    });
+  }
+
+  /** How often she asks first: the autonomy dial, adjusted by the owner's own `voice.confirmLevel` (rare when absent). */
+  private confirmDial(): ReturnType<typeof effectiveConfirmLevel> {
+    return effectiveConfirmLevel(autonomy.getSnapshot().approvalLevel, this.confirmPreference());
+  }
+
+  private confirmPreference(): unknown {
+    return (preferences.getSnapshot().voice as unknown as Record<string, unknown>)["confirmLevel"];
+  }
+
+  /** Must this order be confirmed before it runs? Manual always; Auto by what the order is (see voiceNeedsConfirmation). */
+  private needsConfirm(command: string): boolean {
+    return this.state.mode === "manual" || voiceNeedsConfirmation(command, this.confirmDial());
+  }
+
+  /** A task word or a status question: act on the desk and return the one line to say. */
+  private runTaskRoute(route: Route): string | null {
+    const lang = this.narrationLang();
+    if (route.kind === "status") return taskStatusLine(lang);
+    if (route.action === "repeat" && !route.ref && !route.ambiguous) {
+      return (
+        this.spokenText.trim() ||
+        (lang === "hi" ? "Dohrane ko kuch nahi hai." : "I have nothing to repeat.")
+      );
+    }
+    return applyTaskRoute(route, lang);
+  }
+
+  /** A bound yes or no to a desk task that asked for approval. The speaker check still applies to a yes. */
+  private answerTaskApprovalAloud(text: string, route: Route): boolean {
+    const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
+    const waiting = id
+      ? routerTasks().find((t) => t.id === id && t.state === "WAITING_FOR_APPROVAL")
+      : undefined;
+    if (!waiting || !route.verdict) {
+      this.approvalAsked = null;
+      return false;
+    }
+    if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
+    this.approvalAsked = null;
+    voiceTaskActions.approve(waiting.id, route.verdict === "yes");
+    this.caption("user", text);
+    this.state.status = "Listening";
+    this.emit();
+    return true;
+  }
+
+  /** Ask before a consequential order runs. Speech never approves itself: only a fresh bound yes does. */
+  private askToConfirm(command: string) {
+    this.ackTurnKind = "control";
+    this.supersedeOnConfirm = null;
+    this.discardEager();
+    this.state.pending = {
+      command,
+      reason: approvalReason("exec", this.state.mode),
+      at: Date.now(),
+    };
+    const ask = confirmQuestion(command);
+    this.caption("friday", ask);
+    this.to("confirm-required");
+    this.state.status = "Waiting for confirmation";
+    this.emit();
+    this.speak(ask, { priority: "approval" });
+    this.remember("needs-approval", command, "paused");
+  }
+
+  /** A confirmed command: a background one starts its task, anything else goes to the Brain. */
+  private runApproved(command: string) {
+    this.ackTurnKind = "confirm-turn";
+    const sup = this.supersedeOnConfirm;
+    this.supersedeOnConfirm = null;
+    if (sup && sup.command === command && approvalFresh(sup.at, Date.now())) {
+      voiceTaskActions.cancel(sup.id);
+    }
+    const background = this.state.mode === "auto" ? parseBackgroundRequest(command) : null;
+    if (background) this.beginBackground(background);
+    else this.dispatch(command);
+  }
+
+  /** The work of a background task: the real Brain turn for one request. Also how a restored task runs again. */
+  backgroundWork(request: string): TaskWork {
+    return async (task, context) => {
+      await context.checkpoint();
+      const stopOnCancel = () => brain.stop({ taskId: task.id });
+      context.signal.addEventListener("abort", stopOnCancel, { once: true });
+      try {
+        const done = await askBrain(request, {
+          brain: ownedBrain(task.id),
+          timeoutMs: 300_000,
+        });
+        await context.checkpoint();
+        return completionLine(done.answer) || "Finished.";
+      } finally {
+        context.signal.removeEventListener("abort", stopOnCancel);
+      }
+    };
+  }
+
+  /** Start a voice task that runs the real Brain turn; the Brain takes one turn at a time. */
+  private beginBackground(background: { label: string; request: string }) {
+    const made = startVoiceTask(background.label, this.backgroundWork(background.request), "safe", {
+      request: background.request,
+    });
+    if (!made.ok) this.speak(made.error);
+    this.state.status = "Listening";
+    this.emit();
   }
 
   /**
@@ -2825,28 +3741,19 @@ class AssistantModeStore {
    * conduct words, a backchannel, the approval a consequential command needs, a clarifying question, or dispatch.
    * A read-back "yes" comes through here too, so confirming what was heard never approves the action itself.
    */
-  private routeCommand(command: string) {
+  private routeCommand(command: string, confirm = false) {
     if (wantsContinue(command) && this.unfinished) {
+      this.discardEager();
       const rest = this.unfinished;
       this.unfinished = "";
       this.remember("continue", command, "resumed");
       this.speak(`Continuing. ${rest}`);
       return;
     }
-    if (this.speculative && command === this.speculative && this.speculativeKind === "brain") {
-      this.speculative = "";
-      this.speculativeKind = "";
-      this.remember("speculative", command, "already-started");
-      return;
-    }
-    if (this.speculative) {
-      if (this.speculativeKind === "brain") {
-        brain.stop();
-        this.dropPlayback();
-      }
-      this.speculative = "";
-      this.speculativeKind = "";
-    }
+    // A draft is taken over only after the logic below says this line goes to the brain, and only when it is the
+    // same words (tidied) with privacy, paid access and approval unchanged; anything else cancels it first.
+    const adopt = this.eagerAdoptable(command);
+    if (!adopt) this.discardEager();
     const voicePrefs = preferences.getSnapshot().voice;
     const conduct = reduceVoice(this.conduct, command, Date.now(), {
       quiet: !alertsAudible(),
@@ -2860,6 +3767,7 @@ class AssistantModeStore {
         this.cancelSpeech();
         this.state.pending = null;
       }
+      this.discardEager();
       this.remember(conduct.decision, command, conduct.action);
       this.caption("friday", conduct.spoken);
       this.state.status = conduct.spoken;
@@ -2869,6 +3777,7 @@ class AssistantModeStore {
     }
     // "haan" or "hmm" while she is speaking is the owner following along: she does not talk over herself.
     if (isHoldSound(command) && this.state.speaking) {
+      this.discardEager();
       this.remember("backchannel", command, "following along");
       return;
     }
@@ -2878,6 +3787,7 @@ class AssistantModeStore {
       mode: this.state.mode,
     });
     if (cue) {
+      this.discardEager();
       this.backchannelUsed = true;
       this.remember("backchannel", command, "held");
       this.speak(cue);
@@ -2888,10 +3798,10 @@ class AssistantModeStore {
     // always get an explicit confirmation. Speech never approves itself.
     // A speaker score is an extra signal only. No saved voiceprint means
     // the line is still heard, and a match still does not run the action.
-    const heardSensitive =
-      voiceClaimsAuthority(command) || commandNeedsApproval(command, this.state.mode);
+    const heardSensitive = confirm || voiceClaimsAuthority(command) || this.needsConfirm(command);
     const speaker = this.speakerVerdict(heardSensitive);
     if (!speaker.allow) {
+      this.discardEager();
       const refused = this.speakerRefusal(speaker.reason);
       this.remember(
         speaker.reason === "speaker-unverified" ? "speaker-unverified" : "speaker-mismatch",
@@ -2904,18 +3814,7 @@ class AssistantModeStore {
       return;
     }
     if (heardSensitive && !selfLifecycleAction(command)) {
-      this.state.pending = {
-        command,
-        reason: approvalReason("exec", this.state.mode),
-        at: Date.now(),
-      };
-      const ask = `Confirm: should I ${command}? Say yes to proceed, or no to cancel.`;
-      this.caption("friday", ask);
-      this.to("confirm-required");
-      this.state.status = "Waiting for confirmation";
-      this.emit();
-      this.speak(ask);
-      this.remember("needs-approval", command, "paused");
+      this.askToConfirm(command);
       return;
     }
 
@@ -2924,6 +3823,7 @@ class AssistantModeStore {
       Date.now() < this.followUpUntil && Boolean(this.spokenText.trim()),
     );
     if (clarify) {
+      this.discardEager();
       this.remember("clarify", command, "asked");
       this.caption("friday", clarify);
       this.speak(clarify);
@@ -2932,6 +3832,26 @@ class AssistantModeStore {
     }
 
     this.backchannelUsed = false;
+    if (adopt) {
+      // Eager adoption: the same words (tidied) as the draft, so the Brain is offered the draft's own words and
+      // applies its own checks (idle, no approval, Stop everything off, privacy). The echo is counted first
+      // because the adopted run's caption arrives while adoptDraft replays what the draft already heard.
+      this.clearHoldLines();
+      this.pendingUserEcho += 1;
+      this.markTurnAccepted();
+      if (brain.adoptDraft(this.draftId, this.speculative)) {
+        this.discardEager(true);
+        this.remember("speculative", command, "already-started");
+        this.openFollowUp();
+        affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
+        markTurnStage("routed", true, "", "draft adopted");
+        this.armHoldLines(command);
+        return;
+      }
+      // Refused (the brain moved on, privacy changed, the draft expired): an ordinary turn runs.
+      this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+      this.discardEager();
+    }
     this.remember("accepted", command, "dispatch");
     this.emit();
     this.dispatch(command);
@@ -3022,13 +3942,25 @@ class AssistantModeStore {
     this.applyVoiceHeal("mic-no-device", true);
   }
 
-  /** Run a command through the existing brain pipeline. */
-  private dispatch(command: string) {
+  /** A turn is on its way to the Brain: the speech bookkeeping of the last reply restarts, and she is Thinking. */
+  private markTurnAccepted() {
+    this.voicedRunId = "";
+    this.voicedChars = 0;
+    this.voicedPrefix = "";
+    this.to("command-accepted");
+    this.state.status = "Thinking…";
+    this.emit();
+  }
+
+  /**
+   * Run a command through the existing brain pipeline. True when a run was started.
+   */
+  private dispatch(command: string): boolean {
     if (this.stopped()) {
       this.remember("stopped", command, "not sent: Stop everything is on");
       this.state.status = "Stopped. Stop everything is on";
       this.emit();
-      return;
+      return false;
     }
     // A light remark while a turn is running (how is it going, are you there)
     // is answered at once and the turn keeps going. A real request falls
@@ -3038,11 +3970,17 @@ class AssistantModeStore {
       ? live.runs.find((run) => run.id === live.activeRunId)
       : undefined;
     if (running && this.state.mode === "auto") {
-      const decision = whileBusy(
-        command,
-        { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
-        { queued: this.queuedCommands.length },
-      );
+      // A short harmless question is answered by the quick lane whatever the age of the work: the lane is a
+      // plain model call beside the run, so there is no age at which it should wait or cut the work short.
+      const lane =
+        this.taskPrefs().sideQuestionLane && quickLaneEligible({ text: command, busy: true }).ok;
+      const decision = lane
+        ? ({ kind: "interrupt" } as const)
+        : whileBusy(
+            command,
+            { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
+            { queued: this.queuedCommands.length },
+          );
       if (decision.kind === "reply" || decision.kind === "queue") {
         if (decision.kind === "queue") {
           // She keeps working and keeps talking: the new request is heard, answered with a
@@ -3058,17 +3996,14 @@ class AssistantModeStore {
           decision.kind === "queue" ? "Working — next request queued" : "Working — still on it";
         this.emit();
         this.speak(decision.line);
-        return;
+        return true;
       }
     }
     this.clearHoldLines();
+    const heard = this.heardOfReply();
     this.dropPlayback();
-    this.voicedRunId = "";
-    this.voicedChars = 0;
-    this.voicedPrefix = "";
-    this.to("command-accepted");
-    this.state.status = "Thinking…";
-    this.emit();
+    this.trimReplyToHeard(heard);
+    this.markTurnAccepted();
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
     const { extra, modelIds } = composer.directive();
@@ -3092,10 +4027,23 @@ class AssistantModeStore {
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
-    // A new spoken command is an interrupt: stop the in-flight turn, then start.
+    // A new spoken command is an interrupt: stop the in-flight foreground turn, then start. A background
+    // task's run is not the foreground: it keeps going, and the request waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
-      brain.stop();
+      brain.stop("foreground");
       result = brain.send(command, payload);
+      if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
+        this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+        this.queuedCommands.push(command);
+        this.remember("busy-queue", command, "queued behind the background task");
+        this.drainQueuedCommands();
+        const line = "Noted. That is next, once the background task is done.";
+        this.caption("friday", line);
+        this.state.status = "Working — next request queued";
+        this.emit();
+        this.speak(line);
+        return true;
+      }
     }
     markTurnStage(
       "routed",
@@ -3109,9 +4057,15 @@ class AssistantModeStore {
         result.message || "I couldn't start that request.",
         result.reason === "busy" ? "Still working on the last request" : "Nothing to run",
       );
-      return;
+      return false;
+    }
+    if (result.reason === "quick-lane") {
+      // The answer comes from the lane in a moment; the run beside it carries on and needs no hold line.
+      this.remember("side-question", command, "answered by the quick lane while the run continues");
+      return true;
     }
     this.armHoldLines(command);
+    return true;
   }
 
   /**
@@ -3123,15 +4077,17 @@ class AssistantModeStore {
     this.clearHoldLines();
     if (this.state.mode !== "auto") return;
     this.narrator.begin();
+    this.turnStages.mark("ackArmed");
+    this.armAck(command);
     const startedAt = Date.now();
     const say = (kind: "first" | "later") => {
       const active = brain.getSnapshot().activeRunId;
       if (this.state.mode !== "auto" || !active) return;
-      if (this.voicedChars > 0 || this.state.speaking || this.speechQueue.length) return;
+      if (this.voicedChars > 0 || this.state.speaking || this.arbiter.size()) return;
       const line = this.narrator.say(kind, { text: command, elapsedMs: Date.now() - startedAt });
       if (!line) return;
       this.caption("friday", line);
-      this.speak(line);
+      this.speak(line, { priority: "chatter" });
     };
     // A short line after a couple of seconds, then a different one now and then while it runs;
     // the narrator keeps these few and never repeats itself.
@@ -3143,6 +4099,13 @@ class AssistantModeStore {
     ];
   }
 
+  /** The Brain's one run is a background task's, not the foreground turn. */
+  private laneHeldByTask(): boolean {
+    const live = brain.getSnapshot();
+    const run = live.runs.find((row) => row.id === live.activeRunId);
+    return run?.owner?.kind === "task";
+  }
+
   /** Run the next queued request once nothing is running and nothing is being said. */
   private drainQueuedCommands() {
     if (this.queueTimer) return;
@@ -3152,10 +4115,13 @@ class AssistantModeStore {
         return;
       }
       if (brain.getSnapshot().activeRunId) return;
-      if (this.state.speaking || this.speechQueue.length) return;
+      if (this.state.speaking || this.arbiter.size()) return;
       const next = this.queuedCommands.shift();
       if (!this.queuedCommands.length) this.stopQueueTimer();
-      if (next) this.dispatch(next);
+      if (next) {
+        this.ackTurnKind = "control"; // a request that waited is not followed by an instant acknowledgement
+        this.dispatch(next);
+      }
     }, 700);
   }
 
@@ -3167,6 +4133,153 @@ class AssistantModeStore {
   private clearHoldLines() {
     for (const timer of this.holdTimers) clearTimeout(timer);
     this.holdTimers = [];
+    this.cancelAck();
+  }
+
+  // ---- the instant acknowledgement ----------------------------------------------------------------------------
+
+  /** Mute, pause, Stop everything or the boot hold: speech is not welcome. */
+  private ackHeld(): boolean {
+    return this.state.muted || this.state.paused || this.stopped() || isBootHolding();
+  }
+
+  /** A yes or no is being waited for (an approval, a read-back, a task approval): an acknowledgement stays out. */
+  private ackAwaitingAnswer(): boolean {
+    const now = Date.now();
+    return Boolean(
+      this.state.pending ||
+      this.pendingHeard ||
+      brain.getSnapshot().approval ||
+      (this.approvalAsked && approvalFresh(this.approvalAsked.askedAt, now)),
+    );
+  }
+
+  /** The first clause of the real answer is voiced or ready. */
+  private ackFirstClause(): boolean {
+    return this.voicedChars > 0 || this.turnStages.at("firstClauseReady") !== null;
+  }
+
+  /** Asked again after every wait: false means the acknowledgement is dropped and nothing is played. */
+  private ackDue(gen: number): boolean {
+    const voice = preferences.getSnapshot().voice;
+    if (voice.instantAck !== true || this.state.mode !== "auto") return false;
+    return ackStillDue(
+      { generation: gen },
+      {
+        generation: this.ackGen,
+        firstClauseReady: this.ackFirstClause(),
+        speaking: this.state.speaking || this.arbiter.size() > 0,
+        ownerSpeaking: voiceGate.heardSpeechWithin(400) || Boolean(this.interruptHold),
+        held: this.ackHeld() || voice.speakReplies === false,
+        pendingConfirmation: this.ackAwaitingAnswer(),
+        callHold: this.callHold,
+      },
+    ).due;
+  }
+
+  /**
+   * After the endpoint is confirmed and the turn is on its way to the Brain: decide whether a short pre-rendered sound
+   * is welcome, and if so arm one timer for it. Nothing here runs with the setting off, and the transcript is never
+   * spoken (the line comes from the catalogue; only its language is read from what was heard).
+   */
+  private armAck(command: string) {
+    const kind = this.ackTurnKind;
+    this.ackTurnKind = "control";
+    this.ackSaid = 0;
+    const voice = preferences.getSnapshot().voice;
+    if (voice.instantAck !== true) return;
+    const decision = shouldAck({
+      mode: this.state.mode,
+      speakReplies: voice.speakReplies !== false,
+      held: this.ackHeld(),
+      turnKind: kind,
+      heard: command,
+      fallbackLang: ownerVoiceLang(voice.recognitionLang),
+      pendingConfirmation: this.ackAwaitingAnswer(),
+      firstClauseReady: this.ackFirstClause(),
+      speaking: this.state.speaking || this.arbiter.size() > 0,
+      ownerSpeaking: voiceGate.heardSpeechWithin(400) || Boolean(this.interruptHold),
+      callHold: this.callHold,
+      quiet: !alertsAudible(),
+      whisperMode: voice.whisperMode === true,
+      narratorLinesLeft: this.narrator.remaining(),
+      ackedThisTurn: this.ackSaid,
+      endpointAtMs: this.turnStages.at("endpointConfirmed") ?? performance.now(),
+      generation: this.ackGen,
+      liveGeneration: this.ackGen,
+      seed: this.ackSeed,
+      turn: this.ackTurns,
+      lastLineId: this.ackLastLineId,
+      readyClipIds: readyAckClipIds(),
+      // Privacy mode keeps to the clips that were rendered in advance: a line with the name needs a fresh render.
+      addressName: voice.privacyMode === true ? "" : voice.addressName,
+    });
+    if (!decision.ack) return;
+    this.ackTurns += 1;
+    const gen = this.ackGen;
+    this.ackTimer = setTimeout(
+      () => void this.fireAck(decision, gen),
+      Math.max(0, decision.atMs - performance.now()),
+    );
+  }
+
+  /** The timer fired: put the line in the speech queue as a direct line, unless the moment has passed. */
+  private fireAck(decision: Extract<AckDecision, { ack: true }>, gen: number) {
+    this.ackTimer = null;
+    if (!this.ackDue(gen)) return;
+    const queued = this.arbiter.enqueue({ text: decision.line, priority: "direct", ttlMs: 1500 });
+    if (!queued.accepted) return;
+    this.ackQueued = { id: queued.id, decision, gen };
+    void this.drainSpeech();
+  }
+
+  /** Drop an armed or waiting acknowledgement and stop one that is sounding. A newer turn starts a new generation. */
+  private cancelAck() {
+    this.ackGen += 1;
+    if (this.ackTimer) clearTimeout(this.ackTimer);
+    this.ackTimer = null;
+    this.ackQueued = null;
+    stopAckClip();
+  }
+
+  /** The speech queue handed out the acknowledgement: play the clip made in advance, or a local render of the named line. */
+  private async playAck(ack: NonNullable<typeof this.ackQueued>, speechGen: number): Promise<void> {
+    const { decision } = ack;
+    const wanted = () => speechGen === this.speechGen && this.ackDue(ack.gen);
+    if (!wanted()) return;
+    let heard = false;
+    const sounding = () => {
+      if (speechGen !== this.speechGen) return;
+      heard = true;
+      // The first sample of the acknowledgement: stamped here, never as the first sound of the answer.
+      this.turnStages.mark("ackAudible");
+      this.ackSaid += 1;
+      this.ackLastLineId = decision.clipId;
+      this.narrator.spend();
+      this.ackEcho = { text: decision.line, until: Date.now() + 2500 };
+      voiceGate.setSpeakingGuard(true);
+    };
+    try {
+      const clip = decision.named ? undefined : ackClipFor(decision.clipId);
+      if (clip) {
+        await playAckSamples(clip.pcm, clip.rate, {
+          volume: activeVoiceSettings().volume,
+          stillWanted: wanted,
+          onStart: sounding,
+        });
+      } else if (decision.named) {
+        // The line carries the owner's name, so there is no clip for it: render it with the local voice, never a cloud one.
+        const plan = this.speakPlan(decision.line, true);
+        await speakText(decision.line, plan.argTuning, { onStart: sounding });
+      }
+    } finally {
+      if (heard) {
+        // The window counts from the end of the sound: a transcript that finishes late is still her own voice.
+        this.ackEcho = { text: decision.line, until: Date.now() + 2500 };
+        if (!this.state.speaking) voiceGate.setSpeakingGuard(false);
+        this.echoUntil = Math.max(this.echoUntil, Date.now() + 600);
+      }
+    }
   }
 
   /** Confirm / cancel from the Auto Mode screen (same path as speech). */
@@ -3175,6 +4288,7 @@ class AssistantModeStore {
     if (!pending) return;
     if (!approvalFresh(pending.at, Date.now())) {
       this.state.pending = null;
+      this.supersedeOnConfirm = null;
       this.remember("approval-expired", pending.command, "dropped");
       this.caption("friday", "That confirmation expired. Ask again if you still want it.");
       this.state.status = "Confirmation expired";
@@ -3186,8 +4300,9 @@ class AssistantModeStore {
     if (ok) {
       this.state.status = "Confirmed — running";
       this.emit();
-      this.dispatch(pending.command);
+      this.runApproved(pending.command);
     } else {
+      this.supersedeOnConfirm = null;
       const dropped = this.variedLine("cancelled", this.lastOwnerLine);
       this.caption("friday", dropped);
       this.state.status = "Cancelled";
@@ -3217,6 +4332,7 @@ class AssistantModeStore {
           audioBytes: wav,
           mime: "audio/wav",
           language,
+          ...(voice.recognitionLang ? { speechPref: voice.recognitionLang } : {}),
           localOnly: true,
           ...(voice.sttSize && voice.sttSize !== "auto"
             ? { model: voice.sttSize, sttSize: voice.sttSize }
@@ -3256,6 +4372,8 @@ class AssistantModeStore {
     this.interruptStages.reset();
     this.interruptStages.mark("interruptCandidate");
     this.clearHoldLines();
+    // What was heard is read before the voice is cut, while the players still know where they were.
+    this.heldPlayed = this.heardOfReply();
     this.dropPlayback();
     // The stop was asked of the player here; the speaker itself was not measured.
     this.interruptStages.mark("playbackLastAudibleSample");
@@ -3286,6 +4404,8 @@ class AssistantModeStore {
     if (!hold) return;
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
+    // Only a nod: the reply goes on, so nothing of it is trimmed.
+    this.heldPlayed = null;
     this.interruptStages.finish();
     this.interruptStages.reset();
     const rest = this.unfinished;
@@ -3307,7 +4427,33 @@ class AssistantModeStore {
     this.interruptStages.mark("interruptConfirmed");
     this.interruptStages.finish();
     this.interruptStages.reset();
-    brain.stop();
+    brain.stop("foreground");
+    // A judged, real interruption: the conversation keeps what was heard, not the whole planned reply.
+    this.trimReplyToHeard(this.heldPlayed);
+    this.heldPlayed = null;
+  }
+
+  /**
+   * What the owner heard of the reply in progress, or null when nothing was cut, the reply is not this run's, or the
+   * setting is off. Read just before the voice is stopped.
+   */
+  private heardOfReply(): PlayedReply | null {
+    if (preferences.getSnapshot().voice.trimHistoryToPlayed === false) return null;
+    const runId = this.voicedRunId;
+    if (!runId) return null;
+    const heard = playedReplySnapshot();
+    if (heard.runId !== runId) return null;
+    const cut =
+      heard.interrupted || this.arbiter.size() > 0 || brain.getSnapshot().activeRunId === runId;
+    return cut ? heard : null;
+  }
+
+  /** Tell the Brain which part of its reply was heard; the saved transcript keeps the whole text. */
+  private trimReplyToHeard(heard: PlayedReply | null) {
+    if (!heard) return;
+    if (brain.truncateAssistantReply(heard.runId, heard.text)) {
+      this.trace("speech", `reply cut off — ${heard.words} words were heard`);
+    }
   }
 
   /** True when this line only resumed the paused reply and needs no further handling. */
@@ -3329,12 +4475,21 @@ class AssistantModeStore {
 
   /** Stop playback without touching the brain. A newer clip must not start. */
   private dropPlayback(hold = true) {
-    if (hold && (this.state.speaking || this.speechQueue.length)) {
-      const held = holdInterrupted([this.spokenText, ...this.speechQueue]);
+    // A new speech generation ends a draft.
+    this.discardEager();
+    if (hold && (this.state.speaking || this.arbiter.size())) {
+      const waiting = this.arbiter
+        .peek()
+        .filter((row) => row.priority === "direct")
+        .map((row) => row.text);
+      const held = holdInterrupted([this.spokenText, ...waiting]);
       if (held) this.unfinished = held;
     }
     this.speechGen += 1;
-    this.speechQueue = [];
+    stopAckClip();
+    // A real interruption drops what was queued to say, but an approval prompt still has to be asked.
+    this.arbiter.bargeIn();
+    this.arbiter.flush(["direct"]);
     this.bargeDetector.playbackEnded();
     this.streamSpeaker?.cancel();
     stopSpeaking();
@@ -3344,10 +4499,30 @@ class AssistantModeStore {
   }
 
   private cancelSpeech() {
+    this.discardEager();
     this.clearHoldLines();
+    const heard = this.heardOfReply();
     this.dropPlayback();
-    brain.stop();
+    this.arbiter.clear();
+    this.forgetOpenQuestions();
+    brain.stop("foreground");
+    this.trimReplyToHeard(heard);
     this.to("barge-in");
+  }
+
+  /**
+   * After a stop, a pause or the stop word nothing she asked or was about to say is still open: the prompt she asked
+   * is closed (a later yes binds to nothing), the remainder of a cut reply is dropped (a "continue" after resume
+   * speaks nothing old), and the finish lines that aged out unsaid are not announced as a count afterwards.
+   */
+  private forgetOpenQuestions() {
+    this.approvalAsked = null;
+    this.approvalSpoken = null;
+    this.restartAsk = null;
+    this.supersedeOnConfirm = null;
+    this.unfinished = "";
+    this.arbiter.takeDigest();
+    this.narration.held.length = 0;
   }
 
   private recentlySpeaking(): boolean {
@@ -3355,7 +4530,20 @@ class AssistantModeStore {
   }
 
   /** True when the recognised text is just FRIDAY's own voice coming back. */
+  /** The words are the acknowledgement that sounded within the last 2.5 s (her own voice, never a request). */
+  private ackEchoHeard(heard: string): boolean {
+    return (
+      Boolean(this.ackEcho.text) &&
+      Date.now() < this.ackEcho.until &&
+      // A very short line ("Mm.") is under the echo filter's three-letter floor, so the same word back is matched whole.
+      (normalizeTranscript(heard) === normalizeTranscript(this.ackEcho.text) ||
+        isSelfEchoTranscript(heard, this.ackEcho.text, { speaking: true }))
+    );
+  }
+
   private isSelfEcho(heard: string): boolean {
+    // The acknowledgement that just sounded is her own voice too, though it is never the reply being spoken.
+    if (this.ackEchoHeard(heard)) return true;
     return isSelfEchoTranscript(heard, this.spokenText, { speaking: this.state.speaking });
   }
 
@@ -3368,9 +4556,9 @@ class AssistantModeStore {
     });
   }
 
-  private speak(text: string) {
+  private speak(text: string, meta: SpeakMeta = {}) {
+    // tokenAt is the first speakable line, not the brain's first token (that is the brainFirstToken stamp).
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
-    this.turnStages.mark("brainFirstToken");
     if (isBootHolding()) {
       markTurnStage("spoken", false, "FRIDAY is still starting");
       return;
@@ -3399,35 +4587,75 @@ class AssistantModeStore {
     }
     // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
     // pronunciation entries win. The echo filter then compares against what is really spoken.
-    const prepared = prepareForSpeech(spoken, preferences.getSnapshot().voice.pronunciations);
+    const voice = preferences.getSnapshot().voice;
+    const prepared = prepareForSpeech(spoken, voice.pronunciations, {
+      enabled: voice.speechPrep !== false,
+      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang),
+    });
     if (!prepared) {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
-    this.speechQueue.push(prepared);
-    if (this.speechQueue.length === 1 && this.state.speaking) this.prefetchNext(this.speechGen);
+    // An old caller says a plain line: it is a direct answer. Task lines name their own priority. A direct line
+    // is the last thing she said, so an earlier approval prompt is no longer the open question.
+    if ((meta.priority ?? "direct") === "direct") this.approvalAsked = null;
+    const queued = this.arbiter.enqueue({
+      text: prepared,
+      priority: meta.priority ?? "direct",
+      ...(meta.taskId ? { taskId: meta.taskId } : {}),
+      ...(meta.coalesceKey ? { coalesceKey: meta.coalesceKey } : {}),
+      ...(meta.sensitive ? { sensitive: true } : {}),
+      ...(meta.done ? { done: true } : {}),
+      ...(meta.whisper ? { whisper: true } : {}),
+    });
+    if (!queued.accepted) {
+      markTurnStage("spoken", false, "the line was dropped by the speech queue");
+      return;
+    }
+    if (this.arbiter.size() === 1 && this.state.speaking) this.prefetchNext(this.speechGen);
     void this.drainSpeech();
   }
 
+  /** Play what the arbiter hands out, one clause at a time; a line is never cut by a later one. */
   private async drainSpeech() {
     if (this.draining) return;
     this.draining = true;
     try {
-      while (this.speechQueue.length) {
+      for (;;) {
         if (!spokenReplyAllowed(this.state.mode, this.state.muted) || this.stopped()) {
-          this.speechQueue = [];
+          this.arbiter.clear();
           break;
         }
-        const spoken = this.speechQueue.shift();
-        if (!spoken) break;
+        const item = this.arbiter.next();
+        if (!item) {
+          this.armSpeechPoll();
+          break;
+        }
         const gen = this.speechGen;
-        await this.playSpoken(spoken, gen);
+        const ack = this.ackQueued?.id === item.id ? this.ackQueued : null;
+        if (ack) this.ackQueued = null;
+        try {
+          if (ack) await this.playAck(ack, gen);
+          else {
+            // Said after a prompt, a direct line is the open question: an earlier approval prompt is closed.
+            if (item.priority === "direct") this.approvalAsked = null;
+            this.playingItem = {
+              priority: item.priority,
+              ...(item.taskId ? { taskId: item.taskId } : {}),
+            };
+            await this.playSpoken(item.text, gen);
+          }
+        } finally {
+          this.playingItem = null;
+          this.arbiter.finish(item.id);
+        }
         if (gen !== this.speechGen) break;
       }
     } finally {
       this.draining = false;
       if (
-        this.speechQueue.length &&
+        this.arbiter.size() &&
+        this.arbiter.waitMs() === 0 &&
         spokenReplyAllowed(this.state.mode, this.state.muted) &&
         !this.stopped()
       ) {
@@ -3436,13 +4664,43 @@ class AssistantModeStore {
     }
   }
 
+  /**
+   * The line being played is an approval prompt: it sounded now, so a short yes may answer it for the next 120 s.
+   * Called when the voice starts and again when it ends (the window counts from the end of the prompt).
+   */
+  private noteApprovalSpoken() {
+    const item = this.playingItem;
+    if (!item || item.priority !== "approval") return;
+    const at = Date.now();
+    this.approvalSpoken = { at, ...(item.taskId ? { taskId: item.taskId } : {}) };
+    if (item.taskId) this.approvalAsked = { askedAt: at, taskId: item.taskId };
+  }
+
+  /** Lines wait while the owner talks and for a moment after: look again once, when that moment is over. */
+  private armSpeechPoll() {
+    if (this.speechPoll || !this.arbiter.size()) return;
+    const wait = this.arbiter.waitMs();
+    if (!Number.isFinite(wait) || wait <= 0) return; // speaking: leaving that state wakes the loop
+    this.speechPoll = setTimeout(
+      () => {
+        this.speechPoll = null;
+        void this.drainSpeech();
+      },
+      Math.max(50, wait),
+    );
+  }
+
   /** How a reply will be spoken: the engine, the owner's voice settings, the mood of the moment. */
-  private speakPlan(spoken: string) {
-    const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+  private speakPlan(spoken: string, localOnly = false) {
+    const online =
+      !localOnly && (typeof navigator === "undefined" ? true : navigator.onLine !== false);
+    const voicePrivacy = preferences.getSnapshot().voice.privacyMode === true;
+    // A line that looks private (a password, a PIN, a card number) is said by a local voice, whatever the settings.
+    const sensitive = looksSensitive(spoken);
     const engine = chooseTtsEngine({
       network: online,
       supertonicReady: this.offlineVoiceReady,
-      privacy: preferences.getSnapshot().voice.privacyMode === true,
+      privacy: voicePrivacy || sensitive,
       prefer: this.ttsPrefer,
     });
     const fallen = switchMidSentence({
@@ -3470,16 +4728,16 @@ class AssistantModeStore {
       quiet: !alertsAudible(),
       whisper: voicePrefs.whisperMode === true,
     });
-    const privacy = voicePrefs.privacyMode === true;
+    const privacy = voicePrivacy || sensitive;
     const localVoice = fallen !== "neural" || privacy;
-    const cloudClip = privacy ? undefined : this.cloudClipFor();
+    const cloudClip = privacy || localOnly ? undefined : this.cloudClipFor();
     const argTuning = {
       ...tuning,
       lang: spokenLang.lang || tuning.lang || "hi-IN",
       rate: tone.rate,
       pitch: tone.pitch,
       volume: tone.volume,
-      allowCloud: fallen === "neural" && !privacy,
+      allowCloud: fallen === "neural" && !privacy && !localOnly,
       expressive: voicePrefs.expressiveSpeech !== false,
       ...(localVoice
         ? {
@@ -3494,7 +4752,7 @@ class AssistantModeStore {
 
   /** Start making the audio of the next waiting sentence so the gap between two sentences stays short. */
   private prefetchNext(gen: number) {
-    const next = this.speechQueue[0];
+    const next = this.arbiter.peek()[0]?.text;
     if (!next || gen !== this.speechGen) return;
     try {
       const plan = this.speakPlan(next);
@@ -3592,9 +4850,12 @@ class AssistantModeStore {
     if (this.translateTo) {
       const to = this.translateTo;
       markTurnStage("routed", true, "", "translation");
-      const made = startVoiceTask("Translation", async (_task, context) => {
+      const made = startVoiceTask("Translation", async (task, context) => {
         await context.checkpoint();
-        const done = await askBrain(translationPrompt(heard, to), { brain, timeoutMs: 60_000 });
+        const done = await askBrain(translationPrompt(heard, to), {
+          brain: ownedBrain(task.id),
+          timeoutMs: 60_000,
+        });
         await context.checkpoint();
         return completionLine(done.answer, 400) || "I could not translate that.";
       });
@@ -3609,9 +4870,12 @@ class AssistantModeStore {
   private startMinutes(id: string) {
     const note = voiceNotes.getSnapshot().notes.find((n) => n.id === id);
     if (!note) return;
-    startVoiceTask("Meeting minutes", async (_task, context) => {
+    startVoiceTask("Meeting minutes", async (task, context) => {
       await context.checkpoint();
-      const done = await askBrain(minutesPrompt(note), { brain, timeoutMs: 300_000 });
+      const done = await askBrain(minutesPrompt(note), {
+        brain: ownedBrain(task.id),
+        timeoutMs: 300_000,
+      });
       await context.checkpoint();
       voiceNotes.setSummary(id, done.answer);
       return "The meeting minutes are saved with the note.";
@@ -3881,8 +5145,34 @@ class AssistantModeStore {
     if (utterance.source === "sarvam")
       this.trace("segment", "the Sarvam sentence starts this turn");
     const trimmed = text.trim();
-    if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
-      this.trace("dropped", "duplicate finalized utterance");
+    // A short line while a yes or no is open is the answer: it is never held back as a copy (once per id).
+    const approvalOpen = Boolean(
+      this.state.pending ||
+      this.pendingHeard ||
+      this.approvalAsked ||
+      this.restartAsk ||
+      brain.getSnapshot().approval,
+    );
+    const copy = this.finalDeduper.check({
+      text: trimmed,
+      source: utterance.source,
+      approvalOpen,
+      alwaysPass: this.isStopHeard(trimmed, false),
+      replyStartedAt: this.replyStartedAt,
+      ...(utterance.turnId ? { utteranceId: utterance.turnId } : {}),
+    });
+    if (
+      !copy.pass ||
+      (!copy.exempt &&
+        !(this.replyStartedAt !== null && this.replyStartedAt >= this.lastFinalAt) &&
+        duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt))
+    ) {
+      this.trace(
+        "dropped",
+        copy.pass
+          ? "duplicate finalized utterance"
+          : `duplicate finalized utterance (${copy.reason}, ${Math.round(copy.ageMs)} ms after the first)`,
+      );
       this.state.interim = "";
       this.to("transcript");
       this.emit();
@@ -3890,7 +5180,9 @@ class AssistantModeStore {
     }
     this.lastFinalText = trimmed;
     this.lastFinalAt = Date.now();
-    if (this.recentlySpeaking() && this.isSelfEcho(text)) {
+    // The acknowledgement's own words come back late too: they are dropped on their own clock, whether or not a
+    // reply is playing (the ack never sets the speaking state).
+    if ((this.recentlySpeaking() && this.isSelfEcho(text)) || this.ackEchoHeard(text)) {
       this.trace("dropped", "ignored FRIDAY's own voice (echo)");
       this.to("transcript");
       return;
@@ -4184,9 +5476,15 @@ class AssistantModeStore {
     // The next sentence, if it is already waiting, is made while this one plays.
     this.prefetchNext(gen);
     return speakText(spoken, plan.argTuning, {
+      onFirstAudio: () => {
+        if (gen === this.speechGen) this.turnStages.mark("ttsFirstAudioReceived");
+      },
       onStart: () => {
         if (gen !== this.speechGen) return;
         this.turnStages.mark("playbackFirstSample");
+        if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
+        this.replyStartedAt = Date.now();
+        this.noteApprovalSpoken();
         this.bargeDetector.playbackStarted(performance.now());
         this.echoUntil = Date.now() + 120_000;
         if (this.to("tts-start")) this.pauseForSpeech();
@@ -4196,6 +5494,7 @@ class AssistantModeStore {
         if (gen !== this.speechGen) return;
         this.bargeDetector.playbackEnded();
         this.echoUntil = Date.now() + 1500;
+        this.noteApprovalSpoken();
         // The follow-up window counts from the end of her reply, not its start,
         // so a long answer does not use up the owner's turn.
         this.openFollowUp();
@@ -4239,11 +5538,17 @@ class AssistantModeStore {
           this.state.status = statusWithVoice(this.state.status);
         }
         this.trace("segment", `tts engine: ${how.toUpperCase()}`);
+        // Raw-sample playback is opt-in: say when a clause used it, and why it was given up (never silent).
+        const pcmNote = pcmPlaybackNote();
+        if (pcmNote && pcmNote !== this.pcmNoteSaid) {
+          this.pcmNoteSaid = pcmNote;
+          this.trace("segment", pcmNote);
+        }
         markTurnStage(
           "spoken",
           how !== "none",
           "no speech engine could speak the reply",
-          `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}`,
+          `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}${lastClipUsedPcm() ? " · pcm" : ""}${pcmNote ? ` · ${pcmNote}` : ""}`,
         );
         this.trace("segment", `turn: ${turnTraceLine(voiceTurn())}`);
         if (how !== "none") return;
@@ -4295,6 +5600,8 @@ class AssistantModeStore {
       this.voicedRunId = runId;
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      // The clauses heard of an earlier reply are not part of this one.
+      beginPlayedReply(runId);
     }
     const rewind = nextSpokenCursor(this.voicedChars, text.length, {
       prefix: this.voicedPrefix,
@@ -4303,18 +5610,32 @@ class AssistantModeStore {
     if (rewind.rewritten) {
       this.unfinished = "";
       this.dropPlayback(false);
+      // The whole reply is spoken again from its first word.
+      beginPlayedReply(runId, true);
       this.voicedChars = 0;
       this.voicedPrefix = "";
     }
     if (text.length < this.voicedChars) return;
+    // Fast first clause (opt-in): the first words go to the voice at once; everything after it is spoken as before.
+    const fast = this.voicedChars === 0 && preferences.getSnapshot().voice.fastFirstClause === true;
+    const cut = fast ? firstClauseCut(text, { final }) : null;
+    if (cut) {
+      this.turnStages.mark("firstClauseReady");
+      this.voicedChars += cut.consumed;
+      this.voicedPrefix = text.slice(0, this.voicedChars);
+      for (const part of splitLongSpeech(cut.spoken)) this.speak(part);
+    }
     const pending = text.slice(this.voicedChars);
     let chunk = takeSpeakable(pending, final);
-    if (!chunk.spoken && this.voicedChars === 0 && this.realtimeActive())
+    if (!chunk.spoken && this.voicedChars === 0 && !fast && this.realtimeActive())
       chunk = earlyClause(pending);
-    if (!chunk.spoken) return;
-    this.voicedChars += chunk.consumed;
-    this.voicedPrefix = text.slice(0, this.voicedChars);
-    for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+    if (!chunk.spoken && !cut) return;
+    if (chunk.spoken) {
+      this.turnStages.mark("firstClauseReady");
+      this.voicedChars += chunk.consumed;
+      this.voicedPrefix = text.slice(0, this.voicedChars);
+      for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+    }
     if (
       final &&
       this.state.mode === "auto" &&
@@ -4392,9 +5713,25 @@ class AssistantModeStore {
     return null;
   }
 
+  /**
+   * A short question asked beside a running task is answered by the quick lane: show it and say it now. The
+   * message is marked as read so the run's own answer, spoken when it ends, does not repeat it.
+   */
+  private speakQuickAnswer(answer: QuickAnswer) {
+    if (!spokenReplyAllowed(this.state.mode, false) || this.stopped()) return;
+    const { messages } = brain.getSnapshot();
+    const at = messages.findIndex((message) => message.id === answer.messageId);
+    if (at < 0 || at < this.spokenUpTo) return;
+    this.spokenUpTo = at + 1;
+    this.caption("friday", answer.text);
+    this.emit();
+    this.speak(answer.text);
+  }
+
   /** Read back FRIDAY's answers while auto mode is on. */
   private speakNewReplies() {
     if (!spokenReplyAllowed(this.state.mode, false)) return;
+    this.voiceBrainApproval();
     const { messages, activeRunId, runs } = brain.getSnapshot();
     if (messages.length === 0) {
       if (this.spokenUpTo !== 0 || this.state.captions.length) {
@@ -4418,6 +5755,18 @@ class AssistantModeStore {
       const step = [...(live?.trace ?? [])].reverse().find((row) => row.state === "running");
       const detail = toolNarration(step);
       const toolKey = live && step ? `${live.id}:${step.id}` : "";
+      const owner = live?.owner;
+      if (owner?.kind === "task") {
+        // A background run is not the foreground turn: its words are never streamed as a reply. The task desk
+        // announces it once, through the narration policy, and a named tool step may be said now and then.
+        const task =
+          detail && toolKey !== this.narratedTool ? this.deskTask(owner.taskId) : undefined;
+        if (task && detail) {
+          this.narratedTool = toolKey;
+          this.narrateTask({ taskId: task.id, kind: "progress", text: detail }, task);
+        }
+        return;
+      }
       if (detail && toolKey && toolKey !== this.narratedTool && !this.callHold) {
         this.narratedTool = toolKey;
         // Said only when the step has really taken a while, in different words each time.
@@ -4426,12 +5775,13 @@ class AssistantModeStore {
           detail,
           elapsedMs: Date.now() - (live?.startedAt ?? Date.now()),
         });
-        if (line && !this.state.speaking && !this.speechQueue.length && this.voicedChars === 0) {
+        if (line && !this.state.speaking && !this.arbiter.size() && this.voicedChars === 0) {
           this.caption("friday", line);
-          this.speak(line);
+          this.speak(line, { priority: "chatter" });
         }
       }
       if (live?.answer) {
+        this.turnStages.mark("brainFirstToken");
         markTurnStage("model", true, "", live.answeredBy?.line || "answering");
         this.speakStreamed(live.id, live.answer, false);
       }
@@ -4441,16 +5791,20 @@ class AssistantModeStore {
       this.spokenUpTo = messages.length;
       return;
     }
-    const fresh = messages.slice(this.spokenUpTo);
+    const everything = messages.slice(this.spokenUpTo);
     this.spokenUpTo = messages.length;
-    for (const message of fresh) {
+    for (const message of everything) {
       if (message.role === "user") this.captionUserTurn(message.text);
     }
-    const say = fresh
-      .filter((m) => m.role !== "user")
-      .map((m) => m.text)
-      .join(". ")
-      .trim();
+    // A background run's answer is announced by the task desk ("Done: X"), not read out as a foreground reply.
+    const fresh = everything.filter(
+      (m) => m.role === "user" || runs.find((row) => row.id === m.runId)?.owner?.kind !== "task",
+    );
+    if (fresh.length < everything.length && !fresh.some((m) => m.role !== "user")) {
+      this.emit();
+      return;
+    }
+    const say = joinSpoken(fresh.filter((m) => m.role !== "user").map((m) => m.text));
     if (!say) {
       markTurnStage("reply", false, "the model returned an empty reply");
       this.emit();
@@ -4486,15 +5840,19 @@ class AssistantModeStore {
       return;
     }
     if (failed) this.voicedFaultFor = runId || "reply";
+    else this.turnStages.mark("brainFirstToken"); // an answer that never streamed is first seen whole
     this.speakStreamed(runId || "reply", spoken, true);
   }
 }
 
 export const assistantMode = new AssistantModeStore();
+// The narration policy decides what a task update says; the plain announcer is only the fallback without it.
 attachVoiceTaskSpeaker(
-  (text) => assistantMode.announceTask(text),
+  (text) => assistantMode.announceTask(text, { priority: "direct" }),
   () => assistantMode.taskBusy(),
 );
+attachVoiceTaskNarrator((update, task) => assistantMode.narrateTask(update, task));
+attachVoiceTaskWork((request) => assistantMode.backgroundWork(request));
 
 // The self-check and a chat question about her voice read the live session.
 registerVoiceHealth(() => {

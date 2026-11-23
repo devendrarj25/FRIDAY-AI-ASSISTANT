@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "id": "synthetic-fixture",
+  "title": "Synthetic fixture: tests the tooling, says nothing about any model",
+  "createdOn": "2026-11-23",
+  "sources": [
+    {
+      "id": "synthetic-fixture",
+      "name": "Hand-written sentences, no audio exists",
+      "kind": "synthetic",
+      "licence": "synthetic-own",
+      "licenceCheckedOn": "2026-11-23",
+      "access": "open",
+      "origin": "written for this repository",
+      "languages": [
+        "hi",
+        "en",
+        "hinglish"
+      ],
+      "uses": [
+        "evaluate",
+        "train"
+      ],
+      "consent": {
+        "basis": "synthetic"
+      },
+      "note": "item sha256 values are of the text synthetic-audio:<id>, since there is no audio"
+    }
+  ],
+  "items": [
+    {
+      "id": "t-en-1",
+      "source": "synthetic-fixture",
+      "language": "en",
+      "split": "test",
+      "condition": "quiet",
+      "speaker": "spk-t-en-1",
+      "room": "room-a",
+      "sha256": "5ff6d28afa19405d80a71f68a9325a945d88a63b0034351ad7ed3ce1e1e85d05",
+      "referenceSha256": "87f6e4f13e21506c8bb49f062f3cd561d250cd5682aa70841ba0bc945cdc4ad5",
+      "durationMs": 2000
+    },
+    {
+      "id": "t-en-2",
+      "source": "synthetic-fixture",
+      "language": "en",
+      "split": "test",
+      "condition": "noisy",
+      "speaker": "spk-t-en-2",
+      "room": "room-b",
+      "sha256": "53f122e60f4809b40db7a304d2c9272525382ec304c1ea26264450ba6f6605a3",
+      "referenceSha256": "8fd5f7ac3322ce34e03d3ed96af3905cef6569846779c92ec0d0f7d7ce252fc2",
+      "durationMs": 2100
+    },
+    {
+      "id": "t-en-3",
+      "source": "synthetic-fixture",
+      "language": "en",
+      "split": "test",
+      "condition": "quiet",
+      "speaker": "spk-t-en-3",
+      "room": "room-a",
+      "sha256": "7fd7b6088592a461f2202a570e1efd50ed5f0ba7083455c2321cda6de0eba22a",
+      "referenceSha256": "7ca5a2f62a010597abbdf01de2733bca3f98df0d9c64ff378d35b6e08cec923d",
+      "durationMs": 2200
+    },
+    {
+      "id": "t-hi-1",
+      "source": "synthetic-fixture",
+      "language": "hi",
+      "split": "test",
+      "condition": "quiet",
+      "speaker": "spk-t-hi-1",
+      "room": "room-b",
+      "sha256": "a262cd6c1bdabae55b8d55958816b384fb9cfebf1e81686a68b8fcd4d8ea9400",
+      "referenceSha256": "d0ceb7d5b1a62c43867e4a1c496cc24d2377ba36e0c9e1c7353bdae3d1c55bbc",
+      "durationMs": 2300
+    },
+    {
+      "id": "t-hi-2",
+      "source": "synthetic-fixture",
+      "language": "hi",
+      "split": "test",
+      "condition": "noisy",
+      "speaker": "spk-t-hi-2",
+      "room": "room-a",
+      "sha256": "1d3b64376fbf4ab5013cda8e8fe90c037777f4b2cbeecb446714b02e4ae30848",
+      "referenceSha256": "3c61e1059d7c340bcf3adf5802d3175868e6d5ab7151388cca3916262ee589bb",
+      "durationMs": 2400
+    },
+    {
+      "id": "t-hx-1",
+      "source": "synthetic-fixture",
+      "language": "hinglish",
+      "split": "test",
+      "condition": "quiet",
+      "speaker": "spk-t-hx-1",
+      "room": "room-b",
+      "sha256": "e753a600fa242348152dba7a74a3ce57445dd55a9ed39455aec7653199afcefa",
+      "referenceSha256": "6bbcdf4ba218cba53ae3312ba2f0796474a1849d3f9f3ae2337cd581ec564bbc",
+      "durationMs": 2500
+    },
+    {
+      "id": "t-hx-2",
+      "source": "synthetic-fixture",
+      "language": "hinglish",
+      "split": "test",
+      "condition": "noisy",
+      "speaker": "spk-t-hx-2",
+      "room": "room-a",
+      "sha256": "84af5615e24f17380ce09252850238ba402d901d67e4a1d85f57d229bfef8281",
+      "referenceSha256": "4419c00235bbea53abe83d9fa12ae996ab2186b17d330d9834543576ac9469e4",
+      "durationMs": 2600
+    },
+    {
+      "id": "d-en-1",
+      "source": "synthetic-fixture",
+      "language": "en",
+      "split": "dev",
+      "condition": "quiet",
+      "speaker": "spk-d-en-1",
+      "room": "room-b",
+      "sha256": "7ba65a66e99f8dde813fe09519557de6b8580b206e26ad484834e033507c955d",
+      "referenceSha256": "712b35a2fb914138ba68790d60bb89294eebd1f522ba6666684cc67e767c1d30",
+      "durationMs": 2700
+    },
+    {
+      "id": "r-en-1",
+      "source": "synthetic-fixture",
+      "language": "en",
+      "split": "train",
+      "condition": "quiet",
+      "speaker": "spk-r-en-1",
+      "room": "room-a",
+      "sha256": "e81a227e00bf2a2f5e247faa3fe6cbf06f01c5aed1e41ec1176601372850e84d",
+      "referenceSha256": "86af86147ab7444934054f455af5c298161301e2d89140f9792934b577f06059",
+      "durationMs": 2800
+    },
+    {
+      "id": "r-hi-1",
+      "source": "synthetic-fixture",
+      "language": "hi",
+      "split": "train",
+      "condition": "quiet",
+      "speaker": "spk-r-hi-1",
+      "room": "room-b",
+      "sha256": "d5fb420af7a0bbd9fa9aa0a37c86ee6b0ac763ddcf2e2cc09cba25f3b37957dc",
+      "referenceSha256": "92d2a7cb418e6f2d7afd59d06ada8e196adcbf66f4b6d733a0b9147cd50e9814",
+      "durationMs": 2900
+    }
+  ],
+  "testLock": null
+}

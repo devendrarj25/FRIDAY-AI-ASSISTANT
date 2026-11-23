@@ -5,6 +5,7 @@ import { switchesFromToggles } from "../../src/lib/friday/senses";
 import {
   CRASH_LIMIT,
   EMPTY_CONDUCT,
+  addressName,
   RUN_BUDGET,
   SPECULATIVE_STABLE_MS,
   classifyStep,
@@ -37,6 +38,18 @@ import {
 const ROOT = path.resolve(__dirname, "../..");
 
 describe("assistant conduct", () => {
+  it("keeps the vowel signs of a Devanagari address name and still cleans a Latin one", () => {
+    expect(addressName("आशा")).toBe("आशा");
+    expect(addressName("  देवेन्द्र  सिंह ")).toBe("देवेन्द्र सिंह");
+    expect(addressName("आशा<i>1</i>")).toBe("आशाii");
+    expect(addressName("O'Neil-Rao")).toBe("O'Neil-Rao");
+    expect(addressName("A$ha123")).toBe("Aha");
+    expect(addressName("x".repeat(40))).toHaveLength(24);
+    expect(addressName("")).toBe("");
+    const saved = reduceVoice(EMPTY_CONDUCT, "remember to check the build", 10, { address: "आशा" });
+    expect(saved.spoken).toContain("आशा");
+  });
+
   it("stores a standing order and does not treat it as approval", () => {
     const saved = reduceVoice(EMPTY_CONDUCT, "remember to check the build", 10, { address: "Dev" });
     expect(saved.handled).toBe(true);
@@ -410,10 +423,10 @@ describe("hands-free conversation and the show-how offer", () => {
       path.resolve(process.cwd(), "src/lib/friday/assistant-mode.ts"),
       "utf8",
     );
-    const streamed = mode.slice(mode.indexOf("private speakStreamed("));
-    expect(streamed.slice(0, 1600)).toMatch(
-      /offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/,
-    );
+    const from = mode.indexOf("private speakStreamed(");
+    // The whole method, up to the next one: the pin follows the method, not a character count.
+    const streamed = mode.slice(from, mode.indexOf("\n  private ", from + 10));
+    expect(streamed).toMatch(/offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/);
   });
 
   it("keeps a hands-free follow-up open from the end of her reply", () => {

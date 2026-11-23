@@ -17,6 +17,7 @@ import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { desktopApi, type ModelPullProgress, type OnlineModel } from "./desktop";
 import {
   checkSupport,
+  englishEarSize,
   modelById,
   modelByTag,
   modelsByTag,
@@ -25,10 +26,15 @@ import {
   sttSizeOf,
   registryTag,
   modelCatalog,
+  packPlan,
+  packStatus,
   providerById,
   providers,
   routingTasks,
+  voicePackById,
+  type InstalledIds,
   type ModelSpec,
+  type VoicePack,
   type ProviderId,
   type RoutingTask,
   type SystemProfile,
@@ -158,6 +164,8 @@ export type ModelsState = {
   localAnswer: "show-all" | "first-good" | "majority" | "judged";
   device: "auto" | "gpu" | "cpu";
   imported: ImportedModel[];
+  /** The latest run of each voice language pack, by pack id. Not stored: a restart starts clean. */
+  packRuns: Record<string, PackRunState>;
   log: LogLine[];
   bridge: "desktop" | "simulated";
 };
@@ -240,7 +248,119 @@ export const VOICE_MODEL_IDS = [
   "silero-vad",
   "smart-turn",
   "supertonic-3",
+  "hindi-ear",
+  "hinglish-ear",
+  "hindi-fallback-ear",
+  "hindi-punct",
+  "hindi-light-tts",
 ] as const;
+
+/* ------------------------------------------------------------ voice language packs */
+
+export type PackInstallResult = { ok: true } | { ok: false; error: string };
+
+/** Installs one member through the existing Install Manager path. `repair` fetches only the damaged files again. */
+export type PackInstaller = (
+  memberId: string,
+  action: "install" | "repair",
+) => Promise<PackInstallResult>;
+
+export type PackMemberEvent = {
+  id: string;
+  action: "install" | "repair";
+  state: "installing" | "done" | "failed";
+  error?: string;
+};
+
+export type PackRunResult = {
+  packId: string;
+  ok: boolean;
+  cancelled: boolean;
+  /** Members this run installed or repaired, in order. */
+  installed: string[];
+  /** Members already complete, left alone. */
+  skipped: string[];
+  /** The member that stopped the run, with the reason; null when the run finished or was cancelled. */
+  failed: { id: string; error: string } | null;
+  /** Members still to do (the failed one first): the next run starts here, because it skips what is installed. */
+  remaining: string[];
+};
+
+/** The run of a pack on this PC, for the page: which member is moving, what is done, and what stopped it. */
+export type PackRunState = {
+  phase: "running" | "done" | "failed" | "cancelled";
+  current: string | null;
+  done: string[];
+  remaining: string[];
+  failed: { id: string; error: string } | null;
+  startedAt: number;
+  finishedAt: number | null;
+};
+
+/**
+ * Install a pack: every missing member once, in the pack's order, repairing damaged ones, skipping the rest.
+ * It stops at the first failure and names that member, so a run is resumable: the next run re-reads what is
+ * installed and starts where this one stopped. The installer is injected, so the run itself needs no network.
+ */
+export async function runPackInstall(
+  packOrId: VoicePack | string,
+  deps: {
+    installed: InstalledIds;
+    installer: PackInstaller;
+    damaged?: readonly string[] | undefined;
+    sttSize?: string | undefined;
+    signal?: AbortSignal | undefined;
+    onMember?: ((event: PackMemberEvent) => void) | undefined;
+  },
+): Promise<PackRunResult> {
+  const pack = typeof packOrId === "string" ? voicePackById.get(packOrId) : packOrId;
+  if (!pack) {
+    return {
+      packId: String(packOrId),
+      ok: false,
+      cancelled: false,
+      installed: [],
+      skipped: [],
+      failed: { id: String(packOrId), error: `unknown voice pack: ${String(packOrId)}` },
+      remaining: [],
+    };
+  }
+  const plan = packPlan(pack, deps.installed, {
+    damaged: deps.damaged,
+    sttSize: deps.sttSize,
+  });
+  const result: PackRunResult = {
+    packId: pack.id,
+    ok: true,
+    cancelled: false,
+    installed: [],
+    skipped: plan.skipped,
+    failed: null,
+    remaining: plan.steps.map((step) => step.id),
+  };
+  for (const step of plan.steps) {
+    if (deps.signal?.aborted) {
+      return { ...result, ok: false, cancelled: true };
+    }
+    deps.onMember?.({ id: step.id, action: step.action, state: "installing" });
+    let outcome: PackInstallResult;
+    try {
+      outcome = await deps.installer(step.id, step.action);
+    } catch (err) {
+      outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (!outcome.ok) {
+      deps.onMember?.({ id: step.id, action: step.action, state: "failed", error: outcome.error });
+      return { ...result, ok: false, failed: { id: step.id, error: outcome.error } };
+    }
+    deps.onMember?.({ id: step.id, action: step.action, state: "done" });
+    result.installed.push(step.id);
+    result.remaining = result.remaining.filter((id) => id !== step.id);
+  }
+  if (deps.signal?.aborted && result.remaining.length)
+    return { ...result, ok: false, cancelled: true };
+  return result;
+}
 
 const baseRouting = (): Record<RoutingTask, string | null> => ({
   brain: "qwen2.5-32b",
@@ -301,6 +421,7 @@ class ModelsStore {
     discoveryAt: null,
     discoveryError: null,
     imported: [],
+    packRuns: {},
     log: [],
     bridge: "simulated",
   };
@@ -1225,6 +1346,11 @@ class ModelsStore {
   }
 
   install(modelId: string) {
+    if (voicePackById.has(modelId)) {
+      // The voice check's install button names a pack id: one action installs every missing member.
+      void this.installPack(modelId);
+      return;
+    }
     const model = modelById.get(modelId);
     if (!model) return;
     if (this.state.jobs.some((j) => j.modelId === modelId && isJobActive(j.phase))) return;
@@ -1306,6 +1432,114 @@ class ModelsStore {
 
     this.ensureTimer();
     this.emit();
+  }
+
+  /** Start one member through `install` and wait for its job to end, so a pack installs one model at a time. */
+  private installAndWait(modelId: string): Promise<PackInstallResult> {
+    this.install(modelId);
+    const job = this.state.jobs.find((j) => j.modelId === modelId);
+    if (!job) return Promise.resolve({ ok: false, error: `${modelId} is not in the catalog` });
+    const verdict = (): PackInstallResult | null => {
+      if (isJobActive(job.phase)) return null;
+      if (job.phase === "Done") return { ok: true };
+      return { ok: false, error: job.error ?? (job.detail || job.phase.toLowerCase()) };
+    };
+    const now = verdict();
+    if (now) return Promise.resolve(now);
+    return new Promise((resolve) => {
+      const listener = () => {
+        const done = verdict();
+        if (!done) return;
+        this.listeners.delete(listener);
+        resolve(done);
+      };
+      this.listeners.add(listener);
+    });
+  }
+
+  private packControllers = new Map<string, AbortController>();
+
+  /**
+   * Install every missing member of a voice language pack, one after another, through the same path as the
+   * Models page (`install`): pinned revision, SHA-256 checked, a damaged file fetched again. It stops at the
+   * first member that fails and says which; running it again skips what is installed and carries on.
+   */
+  async installPack(
+    packId: string,
+    options: { damaged?: readonly string[] } = {},
+  ): Promise<PackRunResult> {
+    const pack = voicePackById.get(packId);
+    if (!pack)
+      return runPackInstall(packId, { installed: [], installer: async () => ({ ok: true }) });
+    if (this.packControllers.has(packId)) {
+      return {
+        packId,
+        ok: false,
+        cancelled: false,
+        installed: [],
+        skipped: [],
+        failed: { id: packId, error: "this pack is already running" },
+        remaining: [],
+      };
+    }
+    const controller = new AbortController();
+    this.packControllers.set(packId, controller);
+    const sttSize = englishEarSize(preferences.getSnapshot().voice.sttSize);
+    const plan = packPlan(pack, this.state.installed, { damaged: options.damaged, sttSize });
+    const run: PackRunState = {
+      phase: "running",
+      current: null,
+      done: [],
+      remaining: plan.steps.map((step) => step.id),
+      failed: null,
+      startedAt: Date.now(),
+      finishedAt: null,
+    };
+    this.state.packRuns[packId] = run;
+    this.push("info", `${pack.label} — ${plan.steps.length} model(s) to fetch`);
+    this.emit();
+    const result = await runPackInstall(pack, {
+      installed: this.state.installed,
+      damaged: options.damaged,
+      sttSize,
+      signal: controller.signal,
+      installer: (id) => this.installAndWait(id),
+      onMember: (event) => {
+        if (event.state === "installing") run.current = event.id;
+        if (event.state === "done") {
+          run.done = [...run.done, event.id];
+          run.remaining = run.remaining.filter((id) => id !== event.id);
+        }
+        this.emit(false);
+      },
+    }).finally(() => this.packControllers.delete(packId));
+    run.current = null;
+    run.failed = result.failed;
+    run.remaining = result.remaining;
+    run.finishedAt = Date.now();
+    run.phase = result.ok ? "done" : result.cancelled ? "cancelled" : "failed";
+    this.push(
+      result.ok ? "ok" : "error",
+      result.ok
+        ? `${pack.label} is installed`
+        : result.cancelled
+          ? `${pack.label} stopped — run it again to continue`
+          : `${pack.label} stopped at ${result.failed?.id} — ${result.failed?.error}. Run it again to continue.`,
+    );
+    this.emit();
+    return result;
+  }
+
+  /** Stop a pack run after the member that is downloading now is cancelled; what finished stays installed. */
+  cancelPack(packId: string) {
+    const controller = this.packControllers.get(packId);
+    if (!controller) return;
+    controller.abort();
+    const current = this.state.packRuns[packId]?.current;
+    const job = current
+      ? this.state.jobs.find((j) => j.modelId === current && isJobActive(j.phase))
+      : undefined;
+    if (job) this.cancel(job.id);
   }
 
   remove(modelId: string) {

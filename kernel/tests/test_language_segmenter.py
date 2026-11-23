@@ -218,5 +218,94 @@ class VoiceStyleTests(unittest.TestCase):
         self.assertEqual(asked, ["F3", "F5", voice_runtime.SUPERTONIC_VOICE, voice_runtime.SUPERTONIC_VOICE])
 
 
+class ScriptPolicyTests(unittest.TestCase):
+    """The script policy matches the shared Hinglish fixtures that the TypeScript test reads too."""
+
+    FIXTURE = Path(__file__).resolve().parents[2] / "core" / "fixtures" / "voice-hinglish-script.json"
+
+    def test_every_fixture_matches_the_shared_expectation(self) -> None:
+        import json
+
+        data = json.loads(self.FIXTURE.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(data["cases"]), 40)
+        for case in data["cases"]:
+            with self.subTest(case["input"]):
+                self.assertEqual(seg.script_policy(case["input"], data["requested"]), case["expected"])
+
+    def test_roman_hindi_is_reported_never_transliterated(self) -> None:
+        p = seg.script_policy("mujhe chai chahiye")
+        self.assertTrue(p["romanHindi"])
+        self.assertEqual(p["segments"][0]["script"], "roman-hindi")
+        self.assertEqual(p["text"], "mujhe chai chahiye")
+        self.assertNotRegex(str(p), "[\u0900-\u097f]")
+
+    def test_mixed_text_is_kept_as_spoken(self) -> None:
+        p = seg.script_policy("Chrome खोलो और report भेजो")
+        self.assertEqual((p["lang"], p["text"]), ("mixed", "Chrome खोलो और report भेजो"))
+        self.assertFalse(seg.script_policy("The main thing is to do it")["romanHindi"])
+        self.assertEqual(seg.script_policy("", "hi-IN")["lang"], "hi")
+
+
+class SentenceCutTests(unittest.TestCase):
+    """The sentence cuts match the shared fixture that the TypeScript test reads, and the tables are the same."""
+
+    ROOT = Path(__file__).resolve().parents[2]
+    FIXTURE = ROOT / "core" / "fixtures" / "voice-hinglish-script.json"
+    TS_SOURCE = ROOT / "src" / "lib" / "friday" / "voice-engine" / "language-segmenter.ts"
+
+    @classmethod
+    def data(cls) -> dict:
+        import json
+
+        return json.loads(cls.FIXTURE.read_text(encoding="utf-8"))
+
+    def test_split_sentences_matches_the_shared_fixture(self) -> None:
+        cases = self.data()["sentences"]
+        self.assertGreaterEqual(len(cases), 20)
+        for case in cases:
+            with self.subTest(case["input"]):
+                self.assertEqual(seg.split_sentences(case["input"]), case["expected"])
+
+    def test_ends_in_open_dot_matches_the_shared_fixture(self) -> None:
+        cases = self.data()["openDot"]
+        self.assertGreaterEqual(len(cases), 12)
+        for case in cases:
+            with self.subTest(case["input"]):
+                self.assertIs(seg.ends_in_open_dot(case["input"]), case["expected"])
+
+    def test_dr_sharma_is_one_name_not_two_sentences(self) -> None:
+        self.assertEqual(seg.split_sentences("Dr. Sharma is here. Sit."), ["Dr. Sharma is here.", "Sit."])
+        policy = seg.script_policy("Please ask Dr. Singh about it. Pay Rs. 500 at 5 p.m. today. Done.")
+        self.assertEqual(
+            [s["text"] for s in policy["segments"]],
+            ["Please ask Dr. Singh about it.", "Pay Rs. 500 at 5 p.m. today.", "Done."],
+        )
+
+    def test_abbreviation_table_is_the_typescript_table(self) -> None:
+        import re
+
+        source = self.TS_SOURCE.read_text(encoding="utf-8")
+        match = re.search(r'const ABBREVIATIONS = new Set\(\s*"([^"]+)"\.split', source)
+        self.assertIsNotNone(match)
+        self.assertEqual(set((match.group(1) if match else "").split()), set(seg.ABBREVIATIONS))
+
+    def test_roman_hindi_hint_list_is_the_typescript_list(self) -> None:
+        import re
+
+        source = self.TS_SOURCE.read_text(encoding="utf-8")
+        block = re.search(r"const ROMAN_HINDI = new Set\((.*?)\.split\(", source, re.S)
+        self.assertIsNotNone(block)
+        words = set(re.findall(r"[a-z]+", " ".join(re.findall(r'"([^"]*)"', block.group(1) if block else ""))))
+        self.assertEqual(words, set(seg._ROMAN_HINDI))
+
+    def test_long_runs_stay_linear(self) -> None:
+        import time
+
+        text = "Dr. A. K. Singh met Mr. Rao, e.g. at 5 p.m. etc. " * 4000
+        started = time.perf_counter()
+        seg.split_sentences(text)
+        self.assertLess(time.perf_counter() - started, 0.8)
+
+
 if __name__ == "__main__":
     unittest.main()

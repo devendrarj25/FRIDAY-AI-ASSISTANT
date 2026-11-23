@@ -9,6 +9,8 @@
  *   · a model that is not on disk is listed as a download that needs the owner's yes; nothing is fetched here.
  */
 
+import { STT_SIZE_MODEL, packMembers, voiceModelFacts, voicePackById } from "../model-catalog";
+
 export type HardwareFacts = {
   cpuModel?: string;
   cpuThreads: number;
@@ -164,4 +166,166 @@ export function checkModelFits(
     "fits",
   );
   return { ok: level !== "too-big", level, reasons };
+}
+
+/* ------------------------------------------------------------------ the 16 GB voice budget
+ * The owner's memory policy: Windows, Electron and FRIDAY keep about 4 to 6 GB, active speech uses 2 to 4 GB and 1 to
+ * 2 GB stay free (the low end applies to an 8 GB PC, the high end from 16 GB). Speech never gets more than 4 GB, only one
+ * recogniser and one voice are resident, and a GPU counts only after the kernel's runtime check (kernel/stt.py
+ * `cuda_runtime_ready`) has passed. This is the same table as `budgetFor` in electron/voice-weights.cjs, which setup and
+ * Doctor call; core/__tests__/voice-hardware-budget.test.ts keeps the two equal.
+ */
+
+export type BudgetGpu = { name?: string; vramGb?: number; cudaRuntimeReady?: boolean };
+
+export type VoiceBudget = {
+  profile: ProfileName;
+  sttSize: string;
+  sttDevice: "cpu" | "cuda";
+  sttCompute: "int8" | "float16";
+  ttsEngine: "supertonic";
+  packs: {
+    id: string;
+    install: string[];
+    optional: string[];
+    skipped: { id: string; reason: string }[];
+  }[];
+  /** Catalog ids a fresh setup fetches, in install order. */
+  install: string[];
+  /** Speech sizes this machine may load on its own, smallest first. */
+  allowedSizes: string[];
+  maxResidentModels: 2;
+  idleUnloadMs: number;
+  threads: number;
+  speechBudgetGb: number;
+  notes: string[];
+};
+
+const SPEECH_CAP_GB = 4;
+const IDLE_UNLOAD_MS: Record<ProfileName, number> = {
+  lite: 180_000,
+  balanced: 600_000,
+  quality: 900_000,
+};
+const LANGUAGE_PACKS = ["voice-pack-english", "voice-pack-hindi", "voice-pack-hinglish"];
+const LADDER = ["tiny", "base", "small", "medium", "large-v3-turbo"];
+const round1 = (value: number) => Math.round(value * 10) / 10;
+const minRam = (id: string) => voiceModelFacts[id]?.minRamGb ?? 0;
+
+/** Resident memory a speech size needs with the voice and the two helpers loaded beside it. */
+export function residentNeedGb(size: string): number {
+  return round1(
+    minRam(STT_SIZE_MODEL[size] ?? "") +
+      minRam("supertonic-3") +
+      minRam("silero-vad") +
+      minRam("smart-turn"),
+  );
+}
+
+export function budgetFor(
+  totalRamGb: number,
+  freeRamGb: number,
+  vramGb: number,
+  gpuInfo: BudgetGpu = {},
+  options: { cpuThreads?: number } = {},
+): VoiceBudget {
+  const notes: string[] = [];
+  let total = Number(totalRamGb);
+  if (!(total > 0)) {
+    total = 8;
+    notes.push("the memory of this PC is unknown, so it is treated as an 8 GB PC");
+  }
+  const freeKnown = Number.isFinite(Number(freeRamGb)) && Number(freeRamGb) > 0;
+  const free = freeKnown ? Math.min(Number(freeRamGb), total) : Infinity;
+  if (!freeKnown) notes.push("free memory is unknown; only the total is used");
+  const cpuThreads = Math.max(1, Math.floor(Number(options.cpuThreads) || 4));
+  const t = Math.min(1, Math.max(0, (total - 8) / 8));
+  const baselineGb = 4 + 2 * t;
+  const headroomGb = 1 + t;
+  const byTotal = Math.max(0, total - baselineGb - headroomGb);
+  const byFree = free === Infinity ? Infinity : Math.max(0, free - headroomGb);
+  const speechBudgetGb = round1(Math.min(SPEECH_CAP_GB, byTotal, byFree));
+  notes.push(
+    `memory policy: about ${round1(baselineGb)} GB for Windows, Electron and FRIDAY, up to ${SPEECH_CAP_GB} GB for speech (${speechBudgetGb} GB here), ${round1(headroomGb)} GB kept free`,
+  );
+
+  const vram =
+    Number(vramGb) > 0 ? Number(vramGb) : Number(gpuInfo.vramGb) > 0 ? Number(gpuInfo.vramGb) : 0;
+  const verified = gpuInfo.cudaRuntimeReady === true;
+  let device: "cpu" | "cuda" = "cpu";
+  let size: string;
+  if (verified && vram >= 4 && total >= 16 && byFree >= 4) {
+    device = "cuda";
+    size = vram >= 8 ? "large-v3-turbo" : "medium";
+  } else {
+    if (speechBudgetGb >= residentNeedGb("small")) size = "small";
+    else if (total >= 4 && !(freeKnown && byFree < 0.9)) size = "base";
+    else size = "tiny";
+    if (verified && vram >= 3) device = "cuda";
+  }
+  if (!verified && (vram > 0 || gpuInfo.name)) {
+    notes.push(
+      `${gpuInfo.name || "a GPU"} was found but the CUDA 12 libraries (cuBLAS 12, cuDNN 9) are not verified, so speech stays on the CPU in int8; FRIDAY never downloads CUDA libraries from third parties`,
+    );
+  } else if (device === "cuda") {
+    notes.push(
+      `GPU speech: the CUDA 12 libraries are verified and ${vram} GB of video memory is present`,
+    );
+  } else if (verified) {
+    notes.push(
+      `the GPU has ${vram} GB of video memory, too little for speech, so it stays on the CPU`,
+    );
+  }
+  if (device === "cpu") {
+    notes.push(
+      `CPU only: ${size} int8 is the primary ear; medium, large-v3-turbo and large-v3 are never loaded automatically (they need a verified GPU and 16 GB); choose one in Settings to load it yourself`,
+    );
+  }
+  if (freeKnown && byFree < byTotal && byFree < SPEECH_CAP_GB) {
+    notes.push(
+      `free memory is low (${round1(free)} GB free), so the speech budget was lowered to ${speechBudgetGb} GB`,
+    );
+  }
+
+  const allowedSizes = LADDER.slice(0, LADDER.indexOf(size) + 1);
+  const profile: ProfileName =
+    device === "cuda" && size !== "small" ? "quality" : size === "small" ? "balanced" : "lite";
+  const ear = STT_SIZE_MODEL[size] ?? "faster-whisper-small";
+  const wanted = [
+    "silero-vad",
+    "smart-turn",
+    ear,
+    "supertonic-3",
+    "hindi-ear",
+    ...(size !== "tiny" && profile !== "lite" ? ["hindi-punct"] : []),
+  ];
+  const install = wanted.filter((id, at) => wanted.indexOf(id) === at);
+  const packs = LANGUAGE_PACKS.flatMap((id) => {
+    const pack = voicePackById.get(id);
+    if (!pack) return [];
+    const members = packMembers(pack, { sttSize: size }).map((member) => member.id);
+    return [
+      {
+        id,
+        install: members.filter((member) => install.includes(member)),
+        optional: members.filter((member) => !install.includes(member)),
+        skipped: [],
+      },
+    ];
+  });
+  return {
+    profile,
+    sttSize: size,
+    sttDevice: device,
+    sttCompute: device === "cuda" ? "float16" : "int8",
+    ttsEngine: "supertonic",
+    packs,
+    install,
+    allowedSizes,
+    maxResidentModels: 2,
+    idleUnloadMs: IDLE_UNLOAD_MS[profile],
+    threads: Math.min(cpuThreads, Math.max(4, Math.min(8, Math.floor(cpuThreads / 2)))),
+    speechBudgetGb,
+    notes,
+  };
 }

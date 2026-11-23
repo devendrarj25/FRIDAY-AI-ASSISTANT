@@ -87,6 +87,17 @@ These are the findings that the rest of the documents act on. Each is traced to 
 | 7        | Trace export in OpenTelemetry shape from the existing turn trace.                                                                                                                         | Standard tooling can then read it.                                                             | Microsoft Agent Framework (read)           |
 | 8        | MCP revision check and tasks support review once `modelcontextprotocol.io` can be read.                                                                                                   | The spec has moved.                                                                            | MCP repo (read), changelog (blocked)       |
 
+## 4b. Answer ledger and brain-first gate (2026-11-22)
+
+Built in `src/lib/friday/brain/answer-ledger.ts`, `local-mind.ts`, `intent-memory.ts` and `brain-engine.ts`; tests `core/__tests__/answer-ledger.test.ts`, `brain-first-gate.test.ts`, `local-mind.test.ts`, `intent-learning.test.ts` (Linux only).
+
+- **ADOPT** calibration measures: Wilson interval, expected calibration error and Brier score, with a hard gate on the lower bound. They need no model and no new dependency.
+- **ADAPT** a per-answer ledger with source types local, cloud and unknown-model. `finishAnswer` settles the model that really served the turn (the id from the first-token event, passed through `reflect`). The gate trace records score, threshold, reason and the skipped model.
+- **ADAPT** card learning that only goes down: a wrong local card loses 0.25 and is retired below 0.3. A local card never gains trust from one answer.
+- **ADAPT** outcomes set by the next owner message: corrected or confirmed. Confirmed is a weak proxy and is never read as precision.
+- **REJECT** a learned router: the same reason as section 5.
+- **Not built:** a cheap-first cascade, a verified-answer store, and a brain-ab metric for the ledger.
+
 ## 5. What is deliberately not adopted
 
 - **A new agent framework** (LangGraph, CrewAI, ADK, Microsoft Agent Framework, OpenAI Agents SDK). Each solves a problem FRIDAY's `task-graph.ts`, `agent-scheduler.ts` and governance already solve, would be a second runtime, and none is built for approval-gated local Windows control. Their patterns are adopted, their code is not.

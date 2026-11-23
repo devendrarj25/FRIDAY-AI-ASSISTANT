@@ -97,6 +97,88 @@ export class StreamResampler {
   }
 }
 
+/**
+ * Streaming band-limited resampler (windowed sinc) for a path where the error matters, such as the echo
+ * reference: it low-passes below the new Nyquist and interpolates in one pass, so nothing folds back and the
+ * samples stay on the original timeline. It needs a little look-ahead, so a push returns the samples whose
+ * neighbourhood has arrived; `lastOffset` says where the first returned sample sits, in input samples, relative
+ * to the start of the frame just pushed (about minus the look-ahead when a stream is running).
+ */
+export class StreamSincResampler {
+  /** Input samples from the start of the last pushed frame to where its first output sample sits. */
+  lastOffset = 0;
+  private readonly step: number;
+  private readonly cutoff: number;
+  private readonly reach: number;
+  private tail = new Float32Array(0);
+  private tailStart = 0;
+  private total = 0;
+  private next = 0;
+
+  constructor(
+    private readonly fromRate: number,
+    private readonly toRate: number,
+    zeroCrossings = 12,
+  ) {
+    if (!(fromRate > 0) || !(toRate > 0)) throw new Error("sample rates must be positive");
+    this.step = fromRate / toRate;
+    this.cutoff = toRate < fromRate ? 0.92 * (toRate / fromRate) : 1;
+    this.reach = Math.ceil(zeroCrossings / this.cutoff);
+  }
+
+  private weight(d: number): number {
+    const x = d / this.reach;
+    if (x <= -1 || x >= 1) return 0;
+    const arg = Math.PI * this.cutoff * d;
+    const sinc = d === 0 ? 1 : Math.sin(arg) / arg;
+    const blackman = 0.42 + 0.5 * Math.cos(Math.PI * x) + 0.08 * Math.cos(2 * Math.PI * x);
+    return this.cutoff * sinc * blackman;
+  }
+
+  push(input: ArrayLike<number>): Float32Array {
+    const before = this.total;
+    this.lastOffset = this.next - before;
+    if (input.length === 0) return new Float32Array();
+    if (this.fromRate === this.toRate) {
+      this.total += input.length;
+      this.next = this.total;
+      this.lastOffset = 0;
+      return Float32Array.from(input, (v) => Number(v) || 0);
+    }
+    const data = new Float32Array(this.tail.length + input.length);
+    data.set(this.tail, 0);
+    for (let i = 0; i < input.length; i += 1) data[this.tail.length + i] = Number(input[i]) || 0;
+    const origin = this.tailStart;
+    this.total = before + input.length;
+    const last = this.total - 1;
+    const out: number[] = [];
+    while (Math.floor(this.next) + this.reach <= last) {
+      const centre = Math.floor(this.next);
+      let acc = 0;
+      let norm = 0;
+      for (let i = centre - this.reach + 1; i <= centre + this.reach; i += 1) {
+        const w = this.weight(this.next - i);
+        norm += w;
+        if (i >= 0) acc += w * (data[i - origin] ?? 0);
+      }
+      out.push(norm !== 0 ? acc / norm : 0);
+      this.next += this.step;
+    }
+    const keepFrom = Math.max(0, Math.floor(this.next) - this.reach);
+    this.tail = data.slice(Math.max(0, keepFrom - origin));
+    this.tailStart = Math.max(origin, keepFrom);
+    return Float32Array.from(out);
+  }
+
+  reset(): void {
+    this.tail = new Float32Array(0);
+    this.tailStart = 0;
+    this.total = 0;
+    this.next = 0;
+    this.lastOffset = 0;
+  }
+}
+
 export function pcm16ToBase64(pcm: Int16Array): string {
   const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
   let binary = "";

@@ -17,6 +17,8 @@ import { seedToneBaseline } from "./voice-tone";
 import type {
   VoiceEnrollCounts,
   VoiceEnrollStatus,
+  VoicePrivacyDeleteResult,
+  VoicePrivacyStatus,
   VoiceMatchResult,
   VoiceProfileSummary,
 } from "./desktop";
@@ -395,6 +397,73 @@ export async function clearRecordings(): Promise<void> {
 export async function forgetMyVoice(): Promise<void> {
   const status = await desktopApi()?.voiceEnrollForget?.();
   publish(status?.ok ? status : null);
+}
+
+// ----------------------------------------------------------------------------- consent and "Delete my voice data"
+/** What is kept, and whether the owner agreed to it. `null` outside the desktop app. */
+export async function loadVoicePrivacy(): Promise<VoicePrivacyStatus | null> {
+  const api = desktopApi();
+  if (!api?.voicePrivacyStatus) return null;
+  try {
+    const status = await api.voicePrivacyStatus();
+    return status?.ok ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The owner agrees that a voice sample may be stored on this PC. Needed before the first recording is saved. */
+export async function giveVoiceConsent(): Promise<{ ok: boolean; message: string }> {
+  const api = desktopApi();
+  if (!api?.voicePrivacyConsent)
+    return { ok: false, message: "Saving a voice sample needs the desktop app." };
+  try {
+    const result = await api.voicePrivacyConsent();
+    return result?.ok
+      ? { ok: true, message: "Saved. You can delete your voice data at any time." }
+      : { ok: false, message: result?.detail || "Your agreement could not be saved." };
+  } catch {
+    return { ok: false, message: "Your agreement could not be saved." };
+  }
+}
+
+/** One plain line for what "Delete my voice data" removed, or what stayed. */
+export function describeVoiceDelete(result: VoicePrivacyDeleteResult | null | undefined): string {
+  if (!result) return "Voice data could not be deleted: FRIDAY did not answer.";
+  if (!result.ok && !result.removed) return result.detail || "Voice data could not be deleted.";
+  const removed = result.removed;
+  const parts: string[] = [];
+  if (removed) {
+    parts.push(`${removed.samples} recording${removed.samples === 1 ? "" : "s"}`);
+    if (removed.profile) parts.push("the voiceprint");
+    parts.push(`${removed.wavs} kept clip${removed.wavs === 1 ? "" : "s"}`);
+    if (removed.consent) parts.push("the consent record");
+  }
+  const done = `Deleted ${parts.join(", ")}.`;
+  return result.left.length ? `${done} Still there: ${result.left.join(", ")}.` : done;
+}
+
+/** Delete every piece of voice data: enrolment samples and voiceprint, kept utterance clips, the consent record. */
+export async function deleteMyVoiceData(): Promise<{
+  ok: boolean;
+  message: string;
+  status: VoicePrivacyStatus | null;
+}> {
+  const api = desktopApi();
+  if (!api?.voicePrivacyDeleteAll)
+    return { ok: false, message: "Deleting voice data needs the desktop app.", status: null };
+  let result: VoicePrivacyDeleteResult | null;
+  try {
+    result = await api.voicePrivacyDeleteAll();
+  } catch {
+    result = null;
+  }
+  await refreshVoiceProfile();
+  return {
+    ok: result?.ok === true,
+    message: describeVoiceDelete(result),
+    status: result?.status ?? null,
+  };
 }
 
 /** Reset the cache (tests). */

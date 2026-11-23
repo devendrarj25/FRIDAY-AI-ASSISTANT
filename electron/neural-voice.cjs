@@ -309,6 +309,21 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
   });
 }
 
+/**
+ * One line to the running speaker with no reply wanted (the per-utterance cancel). It never starts a worker: with
+ * none running there is nothing to cancel. True when the line was written.
+ */
+function speakerNotify(payload) {
+  const session = speaker;
+  if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) return false;
+  try {
+    session.child.stdin.write(`${JSON.stringify(payload)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const LOCAL_STYLE = /^[FM][1-5]$/i;
 
 async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
@@ -365,6 +380,235 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
     path: file,
   };
 }
+
+/** The most text one local clause may carry (the kernel cuts at the same length). */
+const PCM_TEXT_CAP = 500;
+/** The two local engines a clause may ask for: the light Hindi voice, or Supertonic (the default). */
+const PCM_ENGINES = new Set(["hindi-light", "supertonic"]);
+/** A fallback reason the worker may report: a short kebab-case token, never free text. */
+const PCM_FALLBACK = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** An utterance id the renderer tags its clauses with: short, ASCII, safe to log and to send as one JSON field. */
+const PCM_UTTERANCE = /^[A-Za-z0-9_-]{1,64}$/;
+/** How many cancelled utterance ids are remembered (the newest win). */
+const PCM_CANCELLED_KEEP = 512;
+const pcmCancelled = new Set();
+
+const cleanUtterance = (value) =>
+  typeof value === "string" && PCM_UTTERANCE.test(value) ? value : "";
+
+/** A clause of a cancelled utterance: no audio, and the reason says so. */
+function pcmCancelledAnswer(utt, seq) {
+  return {
+    ok: false,
+    engine: "local",
+    cloud: false,
+    reason: "cancelled",
+    cancelled: true,
+    utt,
+    ...(Number.isInteger(seq) ? { seq } : {}),
+  };
+}
+
+/**
+ * Cancel one utterance (barge-in or stop). The id is remembered here, so a clause that is still in flight or
+ * arrives later is dropped, and the running worker is told so it stops between language spans. The worker is never
+ * killed and never started for this.
+ */
+async function cancelPcm(payload, { notify = speakerNotify } = {}) {
+  const utt = cleanUtterance(payload?.utt);
+  if (!utt) return { ok: false, reason: "bad-request" };
+  pcmCancelled.delete(utt);
+  pcmCancelled.add(utt);
+  while (pcmCancelled.size > PCM_CANCELLED_KEEP)
+    pcmCancelled.delete(pcmCancelled.values().next().value);
+  return { ok: true, utt, sent: notify({ op: "cancel", utt }) === true };
+}
+
+/**
+ * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
+ * fallback, no disk write and no cache, so sensitive text never leaves this PC. The samples are returned as a
+ * Buffer, which the renderer receives as a Uint8Array through the structured clone (no base64 round trip).
+ * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.
+ */
+async function speakPcm(
+  { text, rate = 1, lang = "", style = "", seq, engine, utt } = {},
+  { request = speakerRequest, resolvePy = python } = {},
+) {
+  const spoken = String(text || "")
+    .trim()
+    .slice(0, PCM_TEXT_CAP);
+  if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
+  const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const askedEngine = typeof engine === "string" && PCM_ENGINES.has(engine) ? engine : "";
+  const utterance = cleanUtterance(utt);
+  if (utterance && pcmCancelled.has(utterance)) return pcmCancelledAnswer(utterance, seq);
+  const py = await resolvePy();
+  if (!py)
+    return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
+  const answered = await request(
+    py,
+    {
+      op: "speak-pcm",
+      text: spoken,
+      speed: Number(rate) || 1,
+      lang: String(lang || ""),
+      style: voiceStyle,
+      ...(askedEngine ? { engine: askedEngine } : {}),
+      ...(Number.isInteger(seq) ? { seq } : {}),
+      ...(utterance ? { utt: utterance } : {}),
+    },
+    60000,
+  );
+  // Cancelled while it ran (here, or the worker saw the cancel first): the samples are dropped, never played.
+  if (utterance && (pcmCancelled.has(utterance) || answered?.reason === "cancelled")) {
+    return pcmCancelledAnswer(utterance, seq);
+  }
+  if (!answered?.ok || typeof answered.pcm16 !== "string" || !answered.pcm16) {
+    return {
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason: answered?.reason || "local neural voice is not installed",
+    };
+  }
+  const pcm = Buffer.from(answered.pcm16, "base64");
+  if (pcm.length < 2) {
+    return {
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason: "the local voice returned no audio",
+    };
+  }
+  const fallback =
+    typeof answered.fallback === "string" && PCM_FALLBACK.test(answered.fallback)
+      ? answered.fallback
+      : "";
+  return {
+    ok: true,
+    engine: answered.engine === "hindi-light" ? "hindi-light" : "supertonic-3",
+    cloud: false,
+    voice: voiceStyle || "F2",
+    sampleRate: Number(answered.sampleRate) || 0,
+    pcm,
+    ms: Number(answered.ms) || 0,
+    ...(fallback ? { fallback } : {}),
+    ...(Number.isInteger(seq) ? { seq } : {}),
+    ...(utterance ? { utt: utterance } : {}),
+  };
+}
+
+/** One call per 160 ms microphone chunk at most; a faster caller is answered without touching the worker. */
+const ECHO_SHADOW_MIN_GAP_MS = 160;
+/** Base64 characters one call may carry: 160 ms at 16 kHz is 6828, so this leaves room for a slightly larger chunk. */
+const ECHO_SHADOW_MAX_B64 = 8192;
+const BASE64_BODY = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+/** A plain data object with own fields only: no class instance, no array, no getter tricks. */
+function isPlainRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** The decoded byte length of a well-formed base64 audio string, or 0 when it is not one. */
+function audioBase64Bytes(value) {
+  if (typeof value !== "string" || value.length < 4 || value.length > ECHO_SHADOW_MAX_B64) return 0;
+  if (value.length % 4 !== 0 || !BASE64_BODY.test(value)) return 0;
+  const pad = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return (value.length / 4) * 3 - pad;
+}
+
+/**
+ * Echo-shadow measurement from the persistent worker: how much the echo canceller would remove from one microphone
+ * chunk. Local only: no cloud, no SAPI fallback. The microphone and reference audio go to the worker over its pipe
+ * and are never written to disk, cached or logged here, and the answer carries levels only, never audio. Nothing
+ * runs unless the renderer asks. Each call is checked first (plain object, base64 strings of bounded length, equal
+ * decoded length, boolean reset, integer seq), then rate limited (one call per 160 ms and one in flight), so a
+ * flood never reaches the worker and never queues behind a speak.
+ */
+function createEchoShadow({
+  request = speakerRequest,
+  resolvePy = python,
+  now = monotonicMs,
+  minGapMs = ECHO_SHADOW_MIN_GAP_MS,
+} = {}) {
+  let lastAt = -Infinity;
+  let busy = false;
+  const refuse = (reason) => ({ ok: false, engine: "local", cloud: false, reason });
+  return async function echoShadow(payload) {
+    if (!isPlainRecord(payload)) return refuse("bad-request");
+    const { mic, ref, reset, seq } = payload;
+    const micBytes = audioBase64Bytes(mic);
+    if (micBytes < 2 || micBytes % 2) return refuse("bad-audio");
+    let refBytes = 0;
+    if (ref !== undefined && ref !== null && ref !== "") {
+      refBytes = audioBase64Bytes(ref);
+      if (refBytes < 2 || refBytes % 2) return refuse("bad-audio");
+      if (refBytes !== micBytes) return refuse("length-mismatch");
+    }
+    if (reset !== undefined && typeof reset !== "boolean") return refuse("bad-request");
+    if (seq !== undefined && !Number.isSafeInteger(seq)) return refuse("bad-request");
+    const at = now();
+    if (busy || at - lastAt < minGapMs) return refuse("rate-limited");
+    lastAt = at;
+    busy = true;
+    try {
+      const py = await resolvePy();
+      if (!py) return { ...refuse("Python 3.12+ was not found."), ready: false };
+      // The worker is the same process that speaks: a missed deadline kills it, so the wait is generous.
+      const answered = await request(
+        py,
+        {
+          op: "echo-shadow",
+          mic,
+          ...(refBytes ? { ref } : {}),
+          ...(reset === true ? { reset: true } : {}),
+          ...(seq !== undefined ? { seq } : {}),
+        },
+        5000,
+      );
+      if (!answered || typeof answered !== "object") {
+        return { ...refuse("the local voice worker did not answer"), ready: false };
+      }
+      if (!answered.ok) {
+        return {
+          ...refuse(String(answered.reason || "echo-shadow-failed")),
+          ready: answered.ready === true,
+          ...(seq !== undefined ? { seq } : {}),
+        };
+      }
+      const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+      return {
+        ok: true,
+        engine: "local",
+        cloud: false,
+        ready: answered.ready === true,
+        playing: answered.playing === true,
+        cancelled: answered.cancelled === true,
+        micDb: num(answered.micDb),
+        residualDb: num(answered.residualDb),
+        reductionDb:
+          typeof answered.reductionDb === "number" && Number.isFinite(answered.reductionDb)
+            ? answered.reductionDb
+            : null,
+        delayMs: num(answered.delayMs),
+        confidence: num(answered.confidence),
+        gate: false,
+        ...(seq !== undefined ? { seq } : {}),
+      };
+    } finally {
+      busy = false;
+    }
+  };
+}
+
+const echoShadow = createEchoShadow();
 
 /**
  * Pitch multiplier (1 = the voice's own pitch) to the Hz offset the online service takes. The old mapping sent
@@ -522,6 +766,13 @@ module.exports = {
   voices,
   speak,
   speakLocal,
+  speakPcm,
+  cancelPcm,
+  PCM_CANCELLED_KEEP,
+  echoShadow,
+  createEchoShadow,
+  ECHO_SHADOW_MIN_GAP_MS,
+  ECHO_SHADOW_MAX_B64,
   shutdown,
   speakerRequest,
   PREFERRED,

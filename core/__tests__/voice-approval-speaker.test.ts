@@ -215,9 +215,28 @@ describe("a spoken yes for a waiting app restart or shutdown", () => {
     approve.mockReset();
     d.state.pending = null;
     (brain as unknown as { approve: unknown }).approve = approve;
-    (brain.state as { approval: unknown }).approval = {
+    // The approval belongs to a task-owned run that is really waiting, and its own prompt has sounded (a yes binds to both).
+    const inner = brain as unknown as {
+      state: { runs: unknown[]; activeRunId: string | null; approval: unknown };
+    };
+    inner.state.runs = [
+      {
+        id: "run-speaker",
+        state: "awaiting-approval",
+        prompt: "restart",
+        owner: { kind: "task", taskId: "task-speaker" },
+      },
+    ];
+    inner.state.activeRunId = "run-speaker";
+    inner.state.approval = {
+      runId: "run-speaker",
       tool: APP_RESTART_TOOL,
+      reason: "Restart FRIDAY",
       at: Date.now(),
+    };
+    (d as unknown as { approvalSpoken: unknown }).approvalSpoken = {
+      at: Date.now(),
+      taskId: "task-speaker",
     };
   });
 

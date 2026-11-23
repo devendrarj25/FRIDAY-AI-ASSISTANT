@@ -1,0 +1,2204 @@
+{
+ "note": "Hinglish script-policy fixtures; both language_segmenter.py and language-segmenter.ts must produce `expected`. `sentences`: splitSentences / split_sentences cuts (an abbreviation, an initial, a time or a list number never ends a sentence). `openDot`: endsInOpenDot / ends_in_open_dot.",
+ "requested": "",
+ "cases": [
+  {
+   "input": "नमस्ते, आप कैसे हैं?",
+   "expected": {
+    "text": "नमस्ते, आप कैसे हैं?",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "नमस्ते, आप कैसे हैं?",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "नमस्ते",
+        "kind": "hi"
+       },
+       {
+        "text": "आप",
+        "kind": "hi"
+       },
+       {
+        "text": "कैसे",
+        "kind": "hi"
+       },
+       {
+        "text": "हैं",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मुझे चाय चाहिए।",
+   "expected": {
+    "text": "मुझे चाय चाहिए।",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मुझे चाय चाहिए।",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "मुझे",
+        "kind": "hi"
+       },
+       {
+        "text": "चाय",
+        "kind": "hi"
+       },
+       {
+        "text": "चाहिए",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "आज मौसम बहुत अच्छा है।",
+   "expected": {
+    "text": "आज मौसम बहुत अच्छा है।",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "आज मौसम बहुत अच्छा है।",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "आज",
+        "kind": "hi"
+       },
+       {
+        "text": "मौसम",
+        "kind": "hi"
+       },
+       {
+        "text": "बहुत",
+        "kind": "hi"
+       },
+       {
+        "text": "अच्छा",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "क्या आप मेरी मदद कर सकते हैं?",
+   "expected": {
+    "text": "क्या आप मेरी मदद कर सकते हैं?",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "क्या आप मेरी मदद कर सकते हैं?",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "क्या",
+        "kind": "hi"
+       },
+       {
+        "text": "आप",
+        "kind": "hi"
+       },
+       {
+        "text": "मेरी",
+        "kind": "hi"
+       },
+       {
+        "text": "मदद",
+        "kind": "hi"
+       },
+       {
+        "text": "कर",
+        "kind": "hi"
+       },
+       {
+        "text": "सकते",
+        "kind": "hi"
+       },
+       {
+        "text": "हैं",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Open Chrome and search for the weather.",
+   "expected": {
+    "text": "Open Chrome and search for the weather.",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Open Chrome and search for the weather.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Open",
+        "kind": "en"
+       },
+       {
+        "text": "Chrome",
+        "kind": "en"
+       },
+       {
+        "text": "and",
+        "kind": "en"
+       },
+       {
+        "text": "search",
+        "kind": "en"
+       },
+       {
+        "text": "for",
+        "kind": "en"
+       },
+       {
+        "text": "the",
+        "kind": "en"
+       },
+       {
+        "text": "weather",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "What time is the meeting tomorrow?",
+   "expected": {
+    "text": "What time is the meeting tomorrow?",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "What time is the meeting tomorrow?",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "What",
+        "kind": "en"
+       },
+       {
+        "text": "time",
+        "kind": "en"
+       },
+       {
+        "text": "is",
+        "kind": "en"
+       },
+       {
+        "text": "the",
+        "kind": "en"
+       },
+       {
+        "text": "meeting",
+        "kind": "en"
+       },
+       {
+        "text": "tomorrow",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Please send the report to Rahul.",
+   "expected": {
+    "text": "Please send the report to Rahul.",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Please send the report to Rahul.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Please",
+        "kind": "en"
+       },
+       {
+        "text": "send",
+        "kind": "en"
+       },
+       {
+        "text": "the",
+        "kind": "en"
+       },
+       {
+        "text": "report",
+        "kind": "en"
+       },
+       {
+        "text": "to",
+        "kind": "en"
+       },
+       {
+        "text": "Rahul",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Don't forget to call mom.",
+   "expected": {
+    "text": "Don't forget to call mom.",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Don't forget to call mom.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Don't",
+        "kind": "en"
+       },
+       {
+        "text": "forget",
+        "kind": "en"
+       },
+       {
+        "text": "to",
+        "kind": "en"
+       },
+       {
+        "text": "call",
+        "kind": "en"
+       },
+       {
+        "text": "mom",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Chrome खोलो और report भेजो",
+   "expected": {
+    "text": "Chrome खोलो और report भेजो",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Chrome खोलो और report भेजो",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Chrome",
+        "kind": "en"
+       },
+       {
+        "text": "खोलो",
+        "kind": "hi"
+       },
+       {
+        "text": "और",
+        "kind": "hi"
+       },
+       {
+        "text": "report",
+        "kind": "en"
+       },
+       {
+        "text": "भेजो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मेरा laptop बहुत slow चल रहा है",
+   "expected": {
+    "text": "मेरा laptop बहुत slow चल रहा है",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मेरा laptop बहुत slow चल रहा है",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "मेरा",
+        "kind": "hi"
+       },
+       {
+        "text": "laptop",
+        "kind": "en"
+       },
+       {
+        "text": "बहुत",
+        "kind": "hi"
+       },
+       {
+        "text": "slow",
+        "kind": "en"
+       },
+       {
+        "text": "चल",
+        "kind": "hi"
+       },
+       {
+        "text": "रहा",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "कल शाम को Amazon से order किया था",
+   "expected": {
+    "text": "कल शाम को Amazon से order किया था",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "कल शाम को Amazon से order किया था",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "कल",
+        "kind": "hi"
+       },
+       {
+        "text": "शाम",
+        "kind": "hi"
+       },
+       {
+        "text": "को",
+        "kind": "hi"
+       },
+       {
+        "text": "Amazon",
+        "kind": "en"
+       },
+       {
+        "text": "से",
+        "kind": "hi"
+       },
+       {
+        "text": "order",
+        "kind": "en"
+       },
+       {
+        "text": "किया",
+        "kind": "hi"
+       },
+       {
+        "text": "था",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "WhatsApp पर Priya को message भेजो",
+   "expected": {
+    "text": "WhatsApp पर Priya को message भेजो",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "WhatsApp पर Priya को message भेजो",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "WhatsApp",
+        "kind": "en"
+       },
+       {
+        "text": "पर",
+        "kind": "hi"
+       },
+       {
+        "text": "Priya",
+        "kind": "en"
+       },
+       {
+        "text": "को",
+        "kind": "hi"
+       },
+       {
+        "text": "message",
+        "kind": "en"
+       },
+       {
+        "text": "भेजो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Set an alarm for 6:30 am",
+   "expected": {
+    "text": "Set an alarm for 6:30 am",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Set an alarm for 6:30 am",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Set",
+        "kind": "en"
+       },
+       {
+        "text": "an",
+        "kind": "en"
+       },
+       {
+        "text": "alarm",
+        "kind": "en"
+       },
+       {
+        "text": "for",
+        "kind": "en"
+       },
+       {
+        "text": "6",
+        "kind": "number"
+       },
+       {
+        "text": "30",
+        "kind": "number"
+       },
+       {
+        "text": "am",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मुझे ३ बजे उठाना है",
+   "expected": {
+    "text": "मुझे ३ बजे उठाना है",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मुझे ३ बजे उठाना है",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "मुझे",
+        "kind": "hi"
+       },
+       {
+        "text": "३",
+        "kind": "number"
+       },
+       {
+        "text": "बजे",
+        "kind": "hi"
+       },
+       {
+        "text": "उठाना",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मीटिंग 10.30 बजे है",
+   "expected": {
+    "text": "मीटिंग 10.30 बजे है",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मीटिंग 10.30 बजे है",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "मीटिंग",
+        "kind": "hi"
+       },
+       {
+        "text": "10.30",
+        "kind": "number"
+       },
+       {
+        "text": "बजे",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मेरे पास 2,500 रुपये हैं",
+   "expected": {
+    "text": "मेरे पास 2,500 रुपये हैं",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मेरे पास 2,500 रुपये हैं",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "मेरे",
+        "kind": "hi"
+       },
+       {
+        "text": "पास",
+        "kind": "hi"
+       },
+       {
+        "text": "2,500",
+        "kind": "number"
+       },
+       {
+        "text": "रुपये",
+        "kind": "hi"
+       },
+       {
+        "text": "हैं",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "aap kaise ho",
+   "expected": {
+    "text": "aap kaise ho",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "aap kaise ho",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "aap",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "kaise",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "ho",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "mujhe chai chahiye",
+   "expected": {
+    "text": "mujhe chai chahiye",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "mujhe chai chahiye",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "mujhe",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "chai",
+        "kind": "en"
+       },
+       {
+        "text": "chahiye",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "kal meeting hai, report bhej do",
+   "expected": {
+    "text": "kal meeting hai, report bhej do",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "kal meeting hai, report bhej do",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "kal",
+        "kind": "en"
+       },
+       {
+        "text": "meeting",
+        "kind": "en"
+       },
+       {
+        "text": "hai",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "report",
+        "kind": "en"
+       },
+       {
+        "text": "bhej",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "do",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Rahul ko call karo aur batao ki main late hoon",
+   "expected": {
+    "text": "Rahul ko call karo aur batao ki main late hoon",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "Rahul ko call karo aur batao ki main late hoon",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "Rahul",
+        "kind": "en"
+       },
+       {
+        "text": "ko",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "call",
+        "kind": "en"
+       },
+       {
+        "text": "karo",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "aur",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "batao",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "ki",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "main",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "late",
+        "kind": "en"
+       },
+       {
+        "text": "hoon",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "ye kaam abhi karo",
+   "expected": {
+    "text": "ye kaam abhi karo",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "ye kaam abhi karo",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "ye",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "kaam",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "abhi",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "karo",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "kya aap mujhe bata sakte hain",
+   "expected": {
+    "text": "kya aap mujhe bata sakte hain",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "kya aap mujhe bata sakte hain",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "kya",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "aap",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "mujhe",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "bata",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "sakte",
+        "kind": "en"
+       },
+       {
+        "text": "hain",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Hello! नमस्ते! How are you?",
+   "expected": {
+    "text": "Hello! नमस्ते! How are you?",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Hello!",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Hello",
+        "kind": "en"
+       }
+      ]
+     },
+     {
+      "text": "नमस्ते!",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "नमस्ते",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "How are you?",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "How",
+        "kind": "en"
+       },
+       {
+        "text": "are",
+        "kind": "en"
+       },
+       {
+        "text": "you",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "It's raining, बाहर मत जाओ।",
+   "expected": {
+    "text": "It's raining, बाहर मत जाओ।",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "It's raining, बाहर मत जाओ।",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "It's",
+        "kind": "en"
+       },
+       {
+        "text": "raining",
+        "kind": "en"
+       },
+       {
+        "text": "बाहर",
+        "kind": "hi"
+       },
+       {
+        "text": "मत",
+        "kind": "hi"
+       },
+       {
+        "text": "जाओ",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Dr. Sharma ka appointment kab hai?",
+   "expected": {
+    "text": "Dr. Sharma ka appointment kab hai?",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "Dr. Sharma ka appointment kab hai?",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "Dr",
+        "kind": "en"
+       },
+       {
+        "text": "Sharma",
+        "kind": "en"
+       },
+       {
+        "text": "ka",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "appointment",
+        "kind": "en"
+       },
+       {
+        "text": "kab",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "hai",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Dr. Sharma से कब मिलना है?",
+   "expected": {
+    "text": "Dr. Sharma से कब मिलना है?",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Dr. Sharma से कब मिलना है?",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Dr",
+        "kind": "en"
+       },
+       {
+        "text": "Sharma",
+        "kind": "en"
+       },
+       {
+        "text": "से",
+        "kind": "hi"
+       },
+       {
+        "text": "कब",
+        "kind": "hi"
+       },
+       {
+        "text": "मिलना",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "I'm fine. मैं ठीक हूँ।",
+   "expected": {
+    "text": "I'm fine. मैं ठीक हूँ।",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "I'm fine.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "I'm",
+        "kind": "en"
+       },
+       {
+        "text": "fine",
+        "kind": "en"
+       }
+      ]
+     },
+     {
+      "text": "मैं ठीक हूँ।",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "मैं",
+        "kind": "hi"
+       },
+       {
+        "text": "ठीक",
+        "kind": "hi"
+       },
+       {
+        "text": "हूँ",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "play Arijit Singh के गाने",
+   "expected": {
+    "text": "play Arijit Singh के गाने",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "play Arijit Singh के गाने",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "play",
+        "kind": "en"
+       },
+       {
+        "text": "Arijit",
+        "kind": "en"
+       },
+       {
+        "text": "Singh",
+        "kind": "en"
+       },
+       {
+        "text": "के",
+        "kind": "hi"
+       },
+       {
+        "text": "गाने",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "ईमेल भेजो to Mr. Gupta",
+   "expected": {
+    "text": "ईमेल भेजो to Mr. Gupta",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "ईमेल भेजो to Mr. Gupta",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "ईमेल",
+        "kind": "hi"
+       },
+       {
+        "text": "भेजो",
+        "kind": "hi"
+       },
+       {
+        "text": "to",
+        "kind": "en"
+       },
+       {
+        "text": "Mr",
+        "kind": "en"
+       },
+       {
+        "text": "Gupta",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "",
+   "expected": {
+    "text": "",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": []
+   }
+  },
+  {
+   "input": "   ",
+   "expected": {
+    "text": "",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": []
+   }
+  },
+  {
+   "input": "12345",
+   "expected": {
+    "text": "12345",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "12345",
+      "lang": "en",
+      "script": "neutral",
+      "words": [
+       {
+        "text": "12345",
+        "kind": "number"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "???",
+   "expected": {
+    "text": "???",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "???",
+      "lang": "en",
+      "script": "neutral",
+      "words": []
+     }
+    ]
+   }
+  },
+  {
+   "input": "...",
+   "expected": {
+    "text": "...",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "...",
+      "lang": "en",
+      "script": "neutral",
+      "words": []
+     }
+    ]
+   }
+  },
+  {
+   "input": "यह एक परीक्षण है॥",
+   "expected": {
+    "text": "यह एक परीक्षण है॥",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "यह एक परीक्षण है॥",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "यह",
+        "kind": "hi"
+       },
+       {
+        "text": "एक",
+        "kind": "hi"
+       },
+       {
+        "text": "परीक्षण",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "line one\nलाइन दो\nline three",
+   "expected": {
+    "text": "line one\nलाइन दो\nline three",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "line one",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "line",
+        "kind": "en"
+       },
+       {
+        "text": "one",
+        "kind": "en"
+       }
+      ]
+     },
+     {
+      "text": "लाइन दो",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "लाइन",
+        "kind": "hi"
+       },
+       {
+        "text": "दो",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "line three",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "line",
+        "kind": "en"
+       },
+       {
+        "text": "three",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Tum kya kar rahe ho? Main ghar par hoon.",
+   "expected": {
+    "text": "Tum kya kar rahe ho? Main ghar par hoon.",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "Tum kya kar rahe ho?",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "Tum",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "kya",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "kar",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "rahe",
+        "kind": "en"
+       },
+       {
+        "text": "ho",
+        "kind": "roman-hindi"
+       }
+      ]
+     },
+     {
+      "text": "Main ghar par hoon.",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "Main",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "ghar",
+        "kind": "en"
+       },
+       {
+        "text": "par",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "hoon",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "The main thing is कि आप खुश रहें",
+   "expected": {
+    "text": "The main thing is कि आप खुश रहें",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "The main thing is कि आप खुश रहें",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "The",
+        "kind": "en"
+       },
+       {
+        "text": "main",
+        "kind": "en"
+       },
+       {
+        "text": "thing",
+        "kind": "en"
+       },
+       {
+        "text": "is",
+        "kind": "en"
+       },
+       {
+        "text": "कि",
+        "kind": "hi"
+       },
+       {
+        "text": "आप",
+        "kind": "hi"
+       },
+       {
+        "text": "खुश",
+        "kind": "hi"
+       },
+       {
+        "text": "रहें",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "बैटरी 80% बची है",
+   "expected": {
+    "text": "बैटरी 80% बची है",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "बैटरी 80% बची है",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "बैटरी",
+        "kind": "hi"
+       },
+       {
+        "text": "80",
+        "kind": "number"
+       },
+       {
+        "text": "बची",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Google Maps खोलो",
+   "expected": {
+    "text": "Google Maps खोलो",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Google Maps खोलो",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Google",
+        "kind": "en"
+       },
+       {
+        "text": "Maps",
+        "kind": "en"
+       },
+       {
+        "text": "खोलो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "ok",
+   "expected": {
+    "text": "ok",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "ok",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "ok",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "हाँ",
+   "expected": {
+    "text": "हाँ",
+    "lang": "hi",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "हाँ",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "हाँ",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "haan haan",
+   "expected": {
+    "text": "haan haan",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "haan haan",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "haan",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "haan",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Nahi, abhi nahi.",
+   "expected": {
+    "text": "Nahi, abhi nahi.",
+    "lang": "en",
+    "romanHindi": true,
+    "segments": [
+     {
+      "text": "Nahi, abhi nahi.",
+      "lang": "en",
+      "script": "roman-hindi",
+      "words": [
+       {
+        "text": "Nahi",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "abhi",
+        "kind": "roman-hindi"
+       },
+       {
+        "text": "nahi",
+        "kind": "roman-hindi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Open YouTube पर लता मंगेशकर के पुराने गाने सुनाओ और volume बढ़ाओ",
+   "expected": {
+    "text": "Open YouTube पर लता मंगेशकर के पुराने गाने सुनाओ और volume बढ़ाओ",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Open YouTube पर लता मंगेशकर के पुराने गाने सुनाओ और volume बढ़ाओ",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Open",
+        "kind": "en"
+       },
+       {
+        "text": "YouTube",
+        "kind": "en"
+       },
+       {
+        "text": "पर",
+        "kind": "hi"
+       },
+       {
+        "text": "लता",
+        "kind": "hi"
+       },
+       {
+        "text": "मंगेशकर",
+        "kind": "hi"
+       },
+       {
+        "text": "के",
+        "kind": "hi"
+       },
+       {
+        "text": "पुराने",
+        "kind": "hi"
+       },
+       {
+        "text": "गाने",
+        "kind": "hi"
+       },
+       {
+        "text": "सुनाओ",
+        "kind": "hi"
+       },
+       {
+        "text": "और",
+        "kind": "hi"
+       },
+       {
+        "text": "volume",
+        "kind": "en"
+       },
+       {
+        "text": "बढ़ाओ",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Chromeखोलो",
+   "expected": {
+    "text": "Chromeखोलो",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Chromeखोलो",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Chrome",
+        "kind": "en"
+       },
+       {
+        "text": "खोलो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Call 100 now",
+   "expected": {
+    "text": "Call 100 now",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Call 100 now",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Call",
+        "kind": "en"
+       },
+       {
+        "text": "100",
+        "kind": "number"
+       },
+       {
+        "text": "now",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "what's up भाई",
+   "expected": {
+    "text": "what's up भाई",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "what's up भाई",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "what's",
+        "kind": "en"
+       },
+       {
+        "text": "up",
+        "kind": "en"
+       },
+       {
+        "text": "भाई",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "d'accord merci",
+   "expected": {
+    "text": "d'accord merci",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "d'accord merci",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "d'accord",
+        "kind": "en"
+       },
+       {
+        "text": "merci",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "मैंने कहा था, “don’t go”।",
+   "expected": {
+    "text": "मैंने कहा था, “don’t go”।",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "मैंने कहा था, “don’t go”।",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "मैंने",
+        "kind": "hi"
+       },
+       {
+        "text": "कहा",
+        "kind": "hi"
+       },
+       {
+        "text": "था",
+        "kind": "hi"
+       },
+       {
+        "text": "don’t",
+        "kind": "en"
+       },
+       {
+        "text": "go",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Dr. शर्मा से कब मिलना है? Rs. 500 दे दो।",
+   "expected": {
+    "text": "Dr. शर्मा से कब मिलना है? Rs. 500 दे दो।",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Dr. शर्मा से कब मिलना है?",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Dr",
+        "kind": "en"
+       },
+       {
+        "text": "शर्मा",
+        "kind": "hi"
+       },
+       {
+        "text": "से",
+        "kind": "hi"
+       },
+       {
+        "text": "कब",
+        "kind": "hi"
+       },
+       {
+        "text": "मिलना",
+        "kind": "hi"
+       },
+       {
+        "text": "है",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "Rs. 500 दे दो।",
+      "lang": "mixed",
+      "script": "mixed",
+      "words": [
+       {
+        "text": "Rs",
+        "kind": "en"
+       },
+       {
+        "text": "500",
+        "kind": "number"
+       },
+       {
+        "text": "दे",
+        "kind": "hi"
+       },
+       {
+        "text": "दो",
+        "kind": "hi"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "Please pay Rs. 500 at 5 p.m. today. Prof. Rao agrees.",
+   "expected": {
+    "text": "Please pay Rs. 500 at 5 p.m. today. Prof. Rao agrees.",
+    "lang": "en",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "Please pay Rs. 500 at 5 p.m. today.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Please",
+        "kind": "en"
+       },
+       {
+        "text": "pay",
+        "kind": "en"
+       },
+       {
+        "text": "Rs",
+        "kind": "en"
+       },
+       {
+        "text": "500",
+        "kind": "number"
+       },
+       {
+        "text": "at",
+        "kind": "en"
+       },
+       {
+        "text": "5",
+        "kind": "number"
+       },
+       {
+        "text": "p",
+        "kind": "en"
+       },
+       {
+        "text": "m",
+        "kind": "en"
+       },
+       {
+        "text": "today",
+        "kind": "en"
+       }
+      ]
+     },
+     {
+      "text": "Prof. Rao agrees.",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "Prof",
+        "kind": "en"
+       },
+       {
+        "text": "Rao",
+        "kind": "en"
+       },
+       {
+        "text": "agrees",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "input": "डॉ. शर्मा आए। kal meeting hai",
+   "expected": {
+    "text": "डॉ. शर्मा आए। kal meeting hai",
+    "lang": "mixed",
+    "romanHindi": false,
+    "segments": [
+     {
+      "text": "डॉ. शर्मा आए।",
+      "lang": "hi",
+      "script": "devanagari",
+      "words": [
+       {
+        "text": "डॉ",
+        "kind": "hi"
+       },
+       {
+        "text": "शर्मा",
+        "kind": "hi"
+       },
+       {
+        "text": "आए",
+        "kind": "hi"
+       }
+      ]
+     },
+     {
+      "text": "kal meeting hai",
+      "lang": "en",
+      "script": "latin",
+      "words": [
+       {
+        "text": "kal",
+        "kind": "en"
+       },
+       {
+        "text": "meeting",
+        "kind": "en"
+       },
+       {
+        "text": "hai",
+        "kind": "en"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "sentences": [
+  {
+   "input": "Please ask Dr. Singh about it. Then call me back.",
+   "expected": [
+    "Please ask Dr. Singh about it.",
+    "Then call me back."
+   ]
+  },
+  {
+   "input": "Mr. and Mrs. Sharma are here. Welcome.",
+   "expected": [
+    "Mr. and Mrs. Sharma are here.",
+    "Welcome."
+   ]
+  },
+  {
+   "input": "Prof. Rao teaches at St. Xavier's. He is kind.",
+   "expected": [
+    "Prof. Rao teaches at St. Xavier's.",
+    "He is kind."
+   ]
+  },
+  {
+   "input": "Compare A vs. B carefully. Then decide.",
+   "expected": [
+    "Compare A vs. B carefully.",
+    "Then decide."
+   ]
+  },
+  {
+   "input": "Use tools, e.g. a hammer. Or i.e. a spanner.",
+   "expected": [
+    "Use tools, e.g. a hammer.",
+    "Or i.e. a spanner."
+   ]
+  },
+  {
+   "input": "Buy milk, eggs etc. before noon. Then go.",
+   "expected": [
+    "Buy milk, eggs etc. before noon.",
+    "Then go."
+   ]
+  },
+  {
+   "input": "Ask No. 5 about it. Done.",
+   "expected": [
+    "Ask No. 5 about it.",
+    "Done."
+   ]
+  },
+  {
+   "input": "Please pay Rs. 500 today. Thanks.",
+   "expected": [
+    "Please pay Rs. 500 today.",
+    "Thanks."
+   ]
+  },
+  {
+   "input": "Call at 5 p.m. tomorrow. Then rest.",
+   "expected": [
+    "Call at 5 p.m. tomorrow.",
+    "Then rest."
+   ]
+  },
+  {
+   "input": "Come at 9 a.m. sharp. Do not be late.",
+   "expected": [
+    "Come at 9 a.m. sharp.",
+    "Do not be late."
+   ]
+  },
+  {
+   "input": "A. K. Singh arrived. He sat down.",
+   "expected": [
+    "A. K. Singh arrived.",
+    "He sat down."
+   ]
+  },
+  {
+   "input": "The U.S. team won. Good game.",
+   "expected": [
+    "The U.S. team won.",
+    "Good game."
+   ]
+  },
+  {
+   "input": "Visit https://example.com/a.b now. Then leave.",
+   "expected": [
+    "Visit https://example.com/a.b now.",
+    "Then leave."
+   ]
+  },
+  {
+   "input": "See www.example.com. Then continue.",
+   "expected": [
+    "See www.example.com.",
+    "Then continue."
+   ]
+  },
+  {
+   "input": "The value is 3.14 today. Then 2.5 more.",
+   "expected": [
+    "The value is 3.14 today.",
+    "Then 2.5 more."
+   ]
+  },
+  {
+   "input": "It costs 3. Then 4.",
+   "expected": [
+    "It costs 3.",
+    "Then 4."
+   ]
+  },
+  {
+   "input": "First point.\nSecond point.",
+   "expected": [
+    "First point.",
+    "Second point."
+   ]
+  },
+  {
+   "input": "1. Open it\n2. Close it",
+   "expected": [
+    "1. Open it\n2. Close it"
+   ]
+  },
+  {
+   "input": "डॉ. शर्मा आए। वे बैठे।",
+   "expected": [
+    "डॉ. शर्मा आए।",
+    "वे बैठे।"
+   ]
+  },
+  {
+   "input": "Dr. शर्मा ने कहा। ठीक है।",
+   "expected": [
+    "Dr. शर्मा ने कहा।",
+    "ठीक है।"
+   ]
+  },
+  {
+   "input": "Ask Dr.",
+   "expected": [
+    "Ask Dr."
+   ]
+  },
+  {
+   "input": "मुझे Rs. 500 चाहिए। अभी दो।",
+   "expected": [
+    "मुझे Rs. 500 चाहिए।",
+    "अभी दो।"
+   ]
+  },
+  {
+   "input": "Is it ready? Yes! Go ahead.",
+   "expected": [
+    "Is it ready?",
+    "Yes!",
+    "Go ahead."
+   ]
+  },
+  {
+   "input": "",
+   "expected": []
+  }
+ ],
+ "openDot": [
+  {
+   "input": "Ask Dr.",
+   "expected": true
+  },
+  {
+   "input": "I am done.",
+   "expected": false
+  },
+  {
+   "input": "Item 3.",
+   "expected": false
+  },
+  {
+   "input": "\n3.",
+   "expected": true
+  },
+  {
+   "input": "Meet Mrs.",
+   "expected": true
+  },
+  {
+   "input": "Cost is Rs.",
+   "expected": true
+  },
+  {
+   "input": "At 5 p.m.",
+   "expected": true
+  },
+  {
+   "input": "See e.g.",
+   "expected": true
+  },
+  {
+   "input": "The U.S.",
+   "expected": true
+  },
+  {
+   "input": "by J. K.",
+   "expected": true
+  },
+  {
+   "input": "So I.",
+   "expected": false
+  },
+  {
+   "input": "डॉ.",
+   "expected": true
+  },
+  {
+   "input": "Hello world.",
+   "expected": false
+  },
+  {
+   "input": "no",
+   "expected": false
+  },
+  {
+   "input": "",
+   "expected": false
+  }
+ ]
+}
