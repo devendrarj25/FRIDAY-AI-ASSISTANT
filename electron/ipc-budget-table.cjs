@@ -219,6 +219,7 @@ const CHANNEL_CLASS = Object.freeze({
   "github:test": "quick",
   "github:update-state": "quick",
   "hardware:detect": "quick",
+  "hardware:facts": "quick",
   "hub:analyze": "quick",
   "hub:extract": "quick",
   "hub:files": "quick",

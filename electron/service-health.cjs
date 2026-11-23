@@ -16,15 +16,23 @@ const paths = require("./friday-paths.cjs");
 const PROBE_MS = 5000;
 const TIMEOUT_MS = 1500;
 
-const OLLAMA = (process.env.OLLAMA_HOST || "http://127.0.0.1:11434").replace(/\/+$/, "");
+const localEngines = require("./local-engines.cjs");
+
+const OLLAMA = localEngines.endpointFromEnv("ollama").replace(/\/+$/, "");
 
 function engineProbeList(context = {}) {
   const { LOCAL_ENGINES, localEndpointCandidates } = require("./models.cjs");
   const userData =
     typeof context.userData === "function" ? context.userData() : context.userData || null;
-  const probes = [{ id: "ollama", name: "Ollama", urls: [`${OLLAMA}/api/tags`] }];
+  const probes = [
+    {
+      id: "ollama",
+      name: localEngines.getEngine("ollama")?.name || "Ollama",
+      urls: [`${OLLAMA}${localEngines.healthPath("ollama")}`],
+    },
+  ];
   for (const [id, spec] of Object.entries(LOCAL_ENGINES || {})) {
-    const path = id === "llamacpp" ? "/health" : "/v1/models";
+    const path = localEngines.healthPath(id);
     const endpoints = localEndpointCandidates(id, userData);
     probes.push({
       id,

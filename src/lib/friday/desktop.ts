@@ -123,6 +123,34 @@ export type VoiceMatchResult = {
   } | null;
 };
 
+/**
+ * The measured facts about this PC (electron/hardware.cjs `hardwareFacts`): one object for the speech budget, the model
+ * router and the "This PC" rows. A number is null when no probe measured it; nothing is guessed.
+ */
+export type HardwareFacts = {
+  vramGb: number | null;
+  vramFreeGb: number | null;
+  ramGb: number | null;
+  ramFreeGb: number | null;
+  diskFreeGb: number | null;
+  gpuVendor: string | null;
+  gpuName: string | null;
+  gpus: Array<{
+    vendor: string;
+    name: string | null;
+    vramGb: number | null;
+    /** True when vramGb is null only because the sole figure was the clipped 32-bit one (a card of at least that size). */
+    vramCapped: boolean;
+    driver: string | null;
+  }>;
+  cudaReady: boolean;
+  driverVersion: string | null;
+  npu: boolean;
+  /** Null when no processor reading was available. */
+  cpuClass: "low" | "mid" | "high" | null;
+  sources: string[];
+};
+
 /** What this PC can carry for speech (electron/voice-weights.cjs `budgetForProbe`). */
 export type VoiceBudget = {
   ok: boolean;
@@ -133,6 +161,8 @@ export type VoiceBudget = {
   speechBudgetGb: number;
   idleUnloadMs: number;
   notes: string[];
+  /** Present when an NVIDIA driver was found but the speech kernel did not confirm cuBLAS 12 and cuDNN 9. */
+  gpuUpgrade?: { needs: "cuda-runtime"; vramGb: number; detail: string };
 };
 
 /** The speech worker's own account of what it holds (electron/stt.cjs `workerCacheOf`). */
@@ -448,6 +478,9 @@ type DesktopApi = {
   listOllamaModels?: () => Promise<{ running: boolean; models: unknown[] }>;
   detectComponents?: () => Promise<{ detectedAt: number; components: DetectedComponent[] }>;
   detectHardware?: () => Promise<DetectedHardware>;
+  hardwareFacts?: (
+    force?: boolean,
+  ) => Promise<{ ok: boolean; facts?: HardwareFacts; error?: string }>;
   checkUpdates?: () => Promise<{ checkedAt: number; updates: UpdateInfo[] }>;
   applyUpdate?: (update: UpdateInfo) => Promise<UpdateApplyResult>;
   rollbackUpdate?: (entry: {

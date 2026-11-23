@@ -1207,6 +1207,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "hardware:facts",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "hub:analyze",
       file: "electron/main.cjs",
     },
@@ -5864,12 +5868,6 @@ export const FLOW_REGISTRY = {
       file: "electron/models.cjs",
     },
     {
-      id: "provider.jan",
-      kind: "model",
-      name: "jan",
-      file: "electron/models.cjs",
-    },
-    {
       id: "provider.mistral",
       kind: "model",
       name: "mistral",
@@ -9512,12 +9510,12 @@ export const FLOW_REGISTRY = {
       total: 159,
     },
     capabilities: {
-      mapped: 1109,
-      total: 1109,
+      mapped: 1108,
+      total: 1108,
     },
     ipc: {
-      mapped: 508,
-      total: 508,
+      mapped: 509,
+      total: 509,
     },
     kernel: {
       mapped: 14,

@@ -6,6 +6,9 @@
  * exact structure so no layer can silently translate or downgrade routing mode.
  */
 
+import { languageId } from "./asr-bias";
+import { replyLanguage } from "./voice-session";
+
 export const ROUTE_MODES = [
   "auto",
   "local-only",
@@ -273,6 +276,115 @@ export function rankForSurface<T extends RankedModel>(
     return (b.priority ?? 0) - (a.priority ?? 0);
   });
   return ranked;
+}
+
+/** The typed outcome when no live registry row can answer this turn. The id is always null. */
+export const NO_LIVE_MODEL = "no-live-model" as const;
+
+export type NoLiveModelReason = "no-rows" | "none-eligible" | "offline" | "private";
+
+export interface LiveRouteRow extends RankedModel {
+  id: string;
+  label: string;
+  modelName?: string;
+  type?: "local" | "cloud";
+}
+
+export type LiveRoute =
+  | { outcome: "model"; id: string; label: string }
+  | { outcome: "auto"; id: null; label: string }
+  | { outcome: typeof NO_LIVE_MODEL; id: null; label: string; reason: NoLiveModelReason };
+
+/**
+ * The one place a turn's model is resolved against the live registry, for chat and for voice.
+ * Only a live row that is available and eligible (the billing gate already applied by the registry) is
+ * ever returned. A private turn takes local rows only; offline takes local rows only. A static
+ * catalogue id that no live row confirms is never returned: with nothing live the outcome is
+ * `no-live-model`. Surfaces differ only in the order of the pool.
+ */
+export function resolveLiveRoute(input: {
+  live: { models: readonly LiveRouteRow[]; selected: readonly string[]; routeMode: string };
+  routing: Readonly<Record<string, string | null | undefined>>;
+  task: string;
+  surface: "voice" | "chat" | string;
+  privacy?: "private" | "standard";
+  offline?: boolean;
+}): LiveRoute {
+  const { live, routing, task, surface } = input;
+  const usable = live.models.filter((m) => {
+    if (!m.available || !m.eligible) return false;
+    if (m.type === "cloud" && (input.privacy === "private" || input.offline)) return false;
+    return true;
+  });
+  const none = (): LiveRoute => {
+    const cloudOnlyBlocked = live.models.some(
+      (m) => m.available && m.eligible && m.type === "cloud",
+    );
+    const reason: NoLiveModelReason =
+      live.models.length === 0
+        ? "no-rows"
+        : cloudOnlyBlocked && input.privacy === "private"
+          ? "private"
+          : cloudOnlyBlocked && input.offline
+            ? "offline"
+            : "none-eligible";
+    return { outcome: NO_LIVE_MODEL, id: null, label: "no live model", reason };
+  };
+  if (usable.length === 0) return none();
+  const find = (ref: string) => usable.find((m) => m.id === ref || m.modelName === ref);
+  if (live.routeMode === "auto" && live.selected.length === 0) {
+    return { outcome: "auto", id: null, label: "Auto" };
+  }
+  for (const ref of live.selected) {
+    const picked = find(ref);
+    if (picked) return { outcome: "model", id: picked.id, label: picked.label };
+  }
+  const candidate = routing[task] ?? routing["brain"];
+  const match = candidate ? find(candidate) : undefined;
+  if (match) return { outcome: "model", id: match.id, label: match.label };
+  const first = rankForSurface(usable, surface)[0];
+  return first ? { outcome: "model", id: first.id, label: first.label } : none();
+}
+
+type OwnerLanguage = "en" | "hi" | "hinglish";
+
+/** Devanagari is Hindi; Roman Hindi words are Hinglish; the rest English. Reuses the two language helpers. */
+function ownerLanguage(prompt: string): OwnerLanguage {
+  const id = languageId(prompt);
+  if (id !== "en") return id;
+  return replyLanguage(prompt) === "hi" ? "hinglish" : "en";
+}
+
+const NO_LIVE_LINES: Record<NoLiveModelReason, Record<OwnerLanguage, string>> = {
+  "no-rows": {
+    en: "No AI model is reachable right now, so I can't answer this one; connect or start a model in Models.",
+    hi: "अभी कोई एआई मॉडल जुड़ा नहीं है, इसलिए मैं इसका जवाब नहीं दे सकती; मॉडल्स में कोई मॉडल जोड़ें या शुरू करें।",
+    hinglish:
+      "Abhi koi AI model connected nahi hai, isliye main iska jawab nahi de sakti; Models mein model jodo ya start karo.",
+  },
+  "none-eligible": {
+    en: "No model I'm allowed to use is ready (paid models are off), so I can't answer this one; start a local or free model in Models.",
+    hi: "अभी कोई ऐसा मॉडल तैयार नहीं है जिसे मैं इस्तेमाल कर सकूँ (पेड मॉडल बंद हैं); मॉडल्स में लोकल या फ्री मॉडल शुरू करें।",
+    hinglish:
+      "Abhi koi allowed model ready nahi hai (paid models band hain), isliye main jawab nahi de sakti; Models mein local ya free model start karo.",
+  },
+  offline: {
+    en: "You're offline and no local model is ready, so I can't answer this one; start a local model in Models.",
+    hi: "आप ऑफ़लाइन हैं और कोई लोकल मॉडल तैयार नहीं है, इसलिए मैं जवाब नहीं दे सकती; मॉडल्स में लोकल मॉडल शुरू करें।",
+    hinglish:
+      "Aap offline ho aur koi local model ready nahi hai, isliye main jawab nahi de sakti; Models mein local model start karo.",
+  },
+  private: {
+    en: "This line is private and must stay on this PC, but no local model is ready; start one in Models.",
+    hi: "यह बात निजी है और इसी पीसी पर रहनी चाहिए, पर कोई लोकल मॉडल तैयार नहीं है; मॉडल्स में एक शुरू करें।",
+    hinglish:
+      "Yeh baat private hai aur is PC par hi rehni chahiye, par koi local model ready nahi hai; Models mein ek start karo.",
+  },
+};
+
+/** One plain line, in the language the owner wrote, for a turn that has no live model. */
+export function noLiveModelLine(prompt: string, reason: NoLiveModelReason): string {
+  return NO_LIVE_LINES[reason][ownerLanguage(prompt)];
 }
 
 export function validateRoutingContract(contract: unknown): { ok: boolean; errors: string[] } {

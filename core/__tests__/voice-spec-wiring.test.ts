@@ -51,7 +51,7 @@ describe("voice:budget and voice:restore wiring", () => {
     );
     const main = read("electron/main.cjs");
     expect(main).toMatch(
-      /ipcMain\.handle\("voice:budget"[\s\S]*app\.getGPUInfo\("basic"\)[\s\S]*weights\.budgetForProbe\(weights\.probeHardware\(\{ gpuInfo \}\)\)/,
+      /ipcMain\.handle\("voice:budget"[\s\S]*app\.getGPUInfo\("basic"\)[\s\S]*weights\.probeHardware\(\{ gpuInfo, hardwareFacts: \(\) => facts, cudaRuntimeReady \}\)[\s\S]*weights\.budgetForProbe\(/,
     );
     expect(main).toMatch(
       /ipcMain\.handle\("voice:restore"[\s\S]*typeof id !== "string"[\s\S]*voiceVerify\.restoreVoiceModel\(id\)/,

@@ -171,12 +171,29 @@ export function checkModelFits(
 /* ------------------------------------------------------------------ the 16 GB voice budget
  * The owner's memory policy: Windows, Electron and FRIDAY keep about 4 to 6 GB, active speech uses 2 to 4 GB and 1 to
  * 2 GB stay free (the low end applies to an 8 GB PC, the high end from 16 GB). Speech never gets more than 4 GB, only one
- * recogniser and one voice are resident, and a GPU counts only after the kernel's runtime check (kernel/stt.py
- * `cuda_runtime_ready`) has passed. This is the same table as `budgetFor` in electron/voice-weights.cjs, which setup and
+ * recogniser and one voice are resident, and a GPU size is chosen only after the kernel's runtime check (kernel/stt.py
+ * `cuda_runtime_ready`: cuBLAS 12 and cuDNN 9) has passed; the NVIDIA driver alone only adds `gpuUpgrade`. This is the same table as `budgetFor` in electron/voice-weights.cjs, which setup and
  * Doctor call; core/__tests__/voice-hardware-budget.test.ts keeps the two equal.
  */
 
-export type BudgetGpu = { name?: string; vramGb?: number; cudaRuntimeReady?: boolean };
+export type BudgetGpu = {
+  name?: string;
+  vramGb?: number;
+  /** Video memory free right now (a resident model already counted); omit when no probe measured it. */
+  vramFreeGb?: number;
+  /** The kernel's own verdict (cuBLAS 12 and cuDNN 9 found): the only thing that lets a GPU size be chosen. */
+  cudaRuntimeReady?: boolean;
+  /** The NVIDIA driver can run CUDA 12 programs. Alone it picks no GPU size; it only offers `gpuUpgrade`. */
+  cudaDriverReady?: boolean;
+};
+
+export type BudgetOptions = {
+  cpuThreads?: number;
+  /** "low" steps a CPU-only PC down to base; any other value changes nothing. */
+  cpuClass?: string;
+  /** Video memory a resident language model is expected to hold, used only when no free reading is given. */
+  llmResidentVramGb?: number;
+};
 
 export type VoiceBudget = {
   profile: ProfileName;
@@ -199,9 +216,13 @@ export type VoiceBudget = {
   threads: number;
   speechBudgetGb: number;
   notes: string[];
+  /** Set when the driver is ready but the runtime libraries are not verified: what the installer and Doctor can show. */
+  gpuUpgrade?: { needs: "cuda-runtime"; vramGb: number; detail: string };
 };
 
 const SPEECH_CAP_GB = 4;
+/** Video memory kept free beside speech (the screen, the desktop, the resident model's growth). */
+const GPU_HEADROOM_GB = 1;
 const IDLE_UNLOAD_MS: Record<ProfileName, number> = {
   lite: 180_000,
   balanced: 600_000,
@@ -227,7 +248,7 @@ export function budgetFor(
   freeRamGb: number,
   vramGb: number,
   gpuInfo: BudgetGpu = {},
-  options: { cpuThreads?: number } = {},
+  options: BudgetOptions = {},
 ): VoiceBudget {
   const notes: string[] = [];
   let total = Number(totalRamGb);
@@ -252,28 +273,52 @@ export function budgetFor(
   const vram =
     Number(vramGb) > 0 ? Number(vramGb) : Number(gpuInfo.vramGb) > 0 ? Number(gpuInfo.vramGb) : 0;
   const verified = gpuInfo.cudaRuntimeReady === true;
+  const driverOnly = !verified && gpuInfo.cudaDriverReady === true && (vram > 0 || !!gpuInfo.name);
+  // Video memory speech may really use: the measured free amount when a probe gave one, otherwise the total less the
+  // model the caller expects to keep resident (`llmResidentVramGb`), then a fixed headroom. No GPU-name matching.
+  const freeVramKnown =
+    gpuInfo.vramFreeGb !== undefined &&
+    Number.isFinite(Number(gpuInfo.vramFreeGb)) &&
+    Number(gpuInfo.vramFreeGb) >= 0;
+  const plannedLlmGb = Math.max(0, Number(options.llmResidentVramGb) || 0);
+  const offeredVram = freeVramKnown
+    ? Math.min(vram, Number(gpuInfo.vramFreeGb))
+    : vram - plannedLlmGb;
+  const usableVram = vram > 0 ? Math.max(0, round1(offeredVram - GPU_HEADROOM_GB)) : 0;
+  const weakCpu = options.cpuClass === "low";
   let device: "cpu" | "cuda" = "cpu";
   let size: string;
-  if (verified && vram >= 4 && total >= 16 && byFree >= 4) {
+  if (verified && usableVram >= 3 && total >= 16 && byFree >= 4) {
     device = "cuda";
-    size = vram >= 8 ? "large-v3-turbo" : "medium";
+    size = usableVram >= 7 ? "large-v3-turbo" : "medium";
   } else {
     if (speechBudgetGb >= residentNeedGb("small")) size = "small";
     else if (total >= 4 && !(freeKnown && byFree < 0.9)) size = "base";
     else size = "tiny";
-    if (verified && vram >= 3) device = "cuda";
+    if (verified && usableVram >= 2) device = "cuda";
+    if (device === "cpu" && weakCpu && size === "small") {
+      size = "base";
+      notes.push(
+        "a low-end processor listens with base, which keeps the reply inside the latency budget",
+      );
+    }
   }
   if (!verified && (vram > 0 || gpuInfo.name)) {
     notes.push(
       `${gpuInfo.name || "a GPU"} was found but the CUDA 12 libraries (cuBLAS 12, cuDNN 9) are not verified, so speech stays on the CPU in int8; FRIDAY never downloads CUDA libraries from third parties`,
     );
+    if (driverOnly) {
+      notes.push(
+        "the NVIDIA driver can run CUDA 12 programs, so installing the CUDA runtime libraries would let the GPU carry speech",
+      );
+    }
   } else if (device === "cuda") {
     notes.push(
       `GPU speech: the CUDA 12 libraries are verified and ${vram} GB of video memory is present`,
     );
   } else if (verified) {
     notes.push(
-      `the GPU has ${vram} GB of video memory, too little for speech, so it stays on the CPU`,
+      `the GPU has ${vram} GB of video memory (${usableVram} GB usable beside what is already resident), too little for speech, so it stays on the CPU`,
     );
   }
   if (device === "cpu") {
@@ -327,5 +372,14 @@ export function budgetFor(
     threads: Math.min(cpuThreads, Math.max(4, Math.min(8, Math.floor(cpuThreads / 2)))),
     speechBudgetGb,
     notes,
+    ...(driverOnly
+      ? {
+          gpuUpgrade: {
+            needs: "cuda-runtime" as const,
+            vramGb: round1(vram),
+            detail: `${gpuInfo.name || "GPU"} found; install the CUDA runtime libraries (cuBLAS 12, cuDNN 9) to use it for speech`,
+          },
+        }
+      : {}),
   };
 }

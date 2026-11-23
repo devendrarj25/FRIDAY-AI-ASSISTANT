@@ -328,11 +328,15 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     "capability table, quota ledger, zero-spend default",
     "routeVoice or UsageLedger is missing",
   );
+  // The local engines are one table (kernel/local_engines.json) read by the router and the billing firewall.
+  const engineTable = read("kernel/local_engines.json");
+  const tableHasBothEngines = /"llamacpp"/.test(engineTable) && /"ollama"/.test(engineTable);
   const modelRouter = read("electron/model-router.cjs");
   check(
     "router",
     "model router knows llama.cpp and Ollama as local",
-    /"llamacpp"/.test(modelRouter) && /ollama/.test(modelRouter),
+    (/"llamacpp"/.test(modelRouter) && /ollama/.test(modelRouter)) ||
+      (/local-engines/.test(modelRouter) && tableHasBothEngines),
     "both are local providers",
     "a local engine is missing from the model router",
   );
@@ -377,7 +381,8 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   check(
     "gate",
     "billing firewall treats local engines as free",
-    /llamacpp/.test(billing) && /ollama/.test(billing),
+    (/llamacpp/.test(billing) && /ollama/.test(billing)) ||
+      (/local-engines/.test(billing) && tableHasBothEngines),
     "llama.cpp and Ollama are local",
     "a local engine is not in the billing firewall's local list",
   );

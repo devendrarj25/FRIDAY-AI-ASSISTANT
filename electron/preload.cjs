@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld("friday", {
   listOllamaModels: () => ipcRenderer.invoke("providers:ollama-models"),
   detectComponents: () => ipcRenderer.invoke("components:detect"),
   detectHardware: () => ipcRenderer.invoke("hardware:detect"),
+  hardwareFacts: (force) => ipcRenderer.invoke("hardware:facts", force === true),
   detectSensors: () => ipcRenderer.invoke("system:sensors"),
   detectSecurity: () => ipcRenderer.invoke("system:security"),
   detectReliability: () => ipcRenderer.invoke("system:reliability"),

@@ -246,7 +246,13 @@ async function hearingSelfTest(env) {
 /**
  * @returns {Promise<{ok:boolean, python:string|null, checks:Array<{id:string,label:string,ok:boolean,detail:string}>}>}
  */
-async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
+async function verifyVoiceRuntime({
+  loadModel = true,
+  model = "",
+  hardwareFacts,
+  cudaRuntimeReady,
+  llmResidentVramGb,
+} = {}) {
   let size = STT_SIZES.includes(model) ? model : liveAutoSize();
   let prepared = null;
   const checks = [];
@@ -278,9 +284,19 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
   // or slow PC is named, not guessed. Nothing is downloaded.
   try {
     const weightsApi = require("./voice-weights.cjs");
-    const plan = weightsApi.voiceInstallPlan(paths.root() || "", weightsApi.probeHardware(), {
-      exists: (file) => fs.existsSync(file),
-    });
+    // The main process passes the shared detected facts (electron/hardware.cjs hardwareFacts, already resolved) and the
+    // video memory its resident local model holds; without them this is today's nvidia-smi-only read.
+    const plan = weightsApi.voiceInstallPlan(
+      paths.root() || "",
+      weightsApi.probeHardware({
+        ...(typeof hardwareFacts === "function" ? { hardwareFacts } : {}),
+        ...(cudaRuntimeReady === true ? { cudaRuntimeReady: true } : {}),
+      }),
+      {
+        exists: (file) => fs.existsSync(file),
+        ...(Number(llmResidentVramGb) > 0 ? { llmResidentVramGb: Number(llmResidentVramGb) } : {}),
+      },
+    );
     const budget = plan.budget;
     const counts = (state) => plan.items.filter((item) => item.state === state);
     const skipped = counts("skipped").map((item) => `${item.id} (${item.reason})`);

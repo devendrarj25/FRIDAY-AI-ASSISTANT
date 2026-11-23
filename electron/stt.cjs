@@ -214,6 +214,7 @@ let lastLocalLayers = {
   reason: null,
   moonshineReady: false,
   windowsSpeech: false,
+  cudaRuntimeReady: false,
 };
 
 /** What the speech worker last said it holds (models, load times, idle time, unloads, memory, fallbacks). */
@@ -258,6 +259,9 @@ function noteWorkerCache(ping) {
 
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
+  // The kernel's own verdict (kernel/stt.py cuda_runtime_ready: cuBLAS 12 and cuDNN 9 found), never a driver reading.
+  if (typeof parsed.cudaRuntimeReady === "boolean")
+    lastLocalLayers.cudaRuntimeReady = parsed.cudaRuntimeReady;
   if (typeof parsed.moonshineReady === "boolean")
     lastLocalLayers.moonshineReady = parsed.moonshineReady;
   if (typeof parsed.windowsSpeech === "boolean")
@@ -613,6 +617,7 @@ async function ensureWorker(model, onEvent, options = {}) {
         reason: null,
         moonshineReady: Boolean(lastLocalLayers.moonshineReady),
         windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+        cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
       };
     }
     return worker;
@@ -675,6 +680,7 @@ async function ensureWorker(model, onEvent, options = {}) {
     reason: null,
     moonshineReady: Boolean(lastLocalLayers.moonshineReady),
     windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+    cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
   };
   return session;
 }
@@ -724,6 +730,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   }
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
+  value.cudaRuntimeReady = Boolean(layers.cudaRuntimeReady);
   value.cache = worker?.alive ? lastWorkerCache : null;
   if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
     value.available = true;
@@ -814,6 +821,7 @@ async function status(force = false, options = {}) {
       reason: require("./voice-install.cjs").explain("no-python"),
       moonshineReady: false,
       windowsSpeech: false,
+      cudaRuntimeReady: false,
     };
     const value = snapshotStatus({ localOnly, py: null, pythonPath: null });
     if (!localOnly) cachedStatus = { at: Date.now(), value };
@@ -869,6 +877,28 @@ async function status(force = false, options = {}) {
   const value = snapshotStatus({ localOnly, py, pythonPath: py[0] });
   if (!localOnly) cachedStatus = { at: Date.now(), value };
   return value;
+}
+
+/**
+ * The kernel's own CUDA verdict for the voice budget: true only when the speech kernel found cuBLAS 12 and cuDNN 9 (and
+ * the card was asked for). Read from the cached status, or from the one-shot probe that status already runs when nothing
+ * is cached; it never starts a worker. Anything slow, failed or unknown is false: the budget then stays on the CPU.
+ */
+async function cudaRuntimeVerdict({ statusFn = status, timeoutMs = 8000 } = {}) {
+  let timer = null;
+  try {
+    const value = await Promise.race([
+      Promise.resolve().then(() => statusFn(false)),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    return value?.cudaRuntimeReady === true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 const PACKAGE_FLOOR = { "faster-whisper": "1.2.1", av: "17.0.0" };
@@ -1545,6 +1575,7 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 
 module.exports = {
   status,
+  cudaRuntimeVerdict,
   install,
   setProgressSink,
   transcribe,

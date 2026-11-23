@@ -189,39 +189,53 @@ async function detectDrives(root) {
     : [];
 }
 
+/** NVIDIA cards from `nvidia-smi --query-gpu=name,memory.total,memory.used,driver_version,utilization.gpu,temperature.gpu`. */
+function parseNvidiaSmi(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.split(",").map((s) => s.trim()))
+    .filter((parts) => parts.length >= 4 && parts[0] && !/^\[|nvidia-smi/i.test(parts[0]))
+    .map(([name, total, used, driver, utilization, temperature]) => ({
+      vendor: "nvidia",
+      name,
+      vramTotalMb: Number(total) > 0 ? Number(total) : null,
+      vramKnown: Number(total) > 0,
+      vramUsedMb: Number(used) > 0 ? Number(used) : null,
+      driver: driver && !/^\[/.test(driver) ? driver : null,
+      // "[N/A]" or "[Not Supported]" on cards that do not report these: null, never a made-up zero.
+      utilizationPercent: Number.isFinite(parseFloat(utilization)) ? Number(utilization) : null,
+      temperatureC: Number.isFinite(parseFloat(temperature)) ? Number(temperature) : null,
+    }));
+}
+
+/** The highest CUDA version the installed driver supports, from the header of plain `nvidia-smi`. */
+function parseCudaDriverVersion(text) {
+  return /CUDA Version:\s*(\d+(?:\.\d+)?)/i.exec(String(text || ""))?.[1] ?? null;
+}
+
 async function detectNvidia() {
   const exe = nvidiaSmiPath();
   if (!exe) {
     probeErrors.nvidiaSmi =
       "nvidia-smi not found (checked PATH, System32 and NVIDIA Corporation\\NVSMI)";
-    return [];
+    return { gpus: [], cudaDriverVersion: null };
   }
-  const result = await runProbe(
-    exe,
-    [
-      "--query-gpu=name,memory.total,memory.used,driver_version,utilization.gpu,temperature.gpu",
-      "--format=csv,noheader,nounits",
-    ],
-    8000,
-  );
+  const [result, plain] = await Promise.all([
+    runProbe(
+      exe,
+      [
+        "--query-gpu=name,memory.total,memory.used,driver_version,utilization.gpu,temperature.gpu",
+        "--format=csv,noheader,nounits",
+      ],
+      8000,
+    ),
+    runProbe(exe, [], 8000),
+  ]);
   probeErrors.nvidiaSmi = result.ok ? null : result.error;
-  const out = result.ok ? result.stdout : null;
-  if (!out) return [];
-  return out
-    .split(/\r?\n/)
-    .map((line) => line.split(",").map((s) => s.trim()))
-    .filter((parts) => parts.length >= 4 && parts[0])
-    .map(([name, total, used, driver, utilization, temperature]) => ({
-      vendor: "nvidia",
-      name,
-      vramTotalMb: Number(total) || null,
-      vramKnown: Number(total) > 0,
-      vramUsedMb: Number(used) || null,
-      driver,
-      // "[N/A]" or "[Not Supported]" on cards that do not report these: null, never a made-up zero.
-      utilizationPercent: Number.isFinite(Number(utilization)) ? Number(utilization) : null,
-      temperatureC: Number.isFinite(Number(temperature)) ? Number(temperature) : null,
-    }));
+  return {
+    gpus: result.ok && result.stdout ? parseNvidiaSmi(result.stdout) : [],
+    cudaDriverVersion: plain.ok ? parseCudaDriverVersion(plain.stdout) : null,
+  };
 }
 
 // Every graphics card on Windows, with the driver's own 64-bit video memory figure (see UINT32_CAP above).
@@ -321,7 +335,8 @@ function bestGpuFirst(gpus) {
 
 async function detectHardware({ root = null } = {}) {
   const cpus = os.cpus() || [];
-  const [nvidia, topology] = await Promise.all([detectNvidia(), detectCpuTopology()]);
+  const [nvidiaProbe, topology] = await Promise.all([detectNvidia(), detectCpuTopology()]);
+  const nvidia = nvidiaProbe.gpus;
   // On Windows every card is listed, not only NVIDIA: a laptop with an Intel chip and an NVIDIA card showed
   // only the NVIDIA one. nvidia-smi is the better source for NVIDIA (live memory, load, temperature), so its
   // cards win and only the CIM entries for other vendors are added.
@@ -369,6 +384,8 @@ async function detectHardware({ root = null } = {}) {
       available: cudaToolkit,
       version: cudaVersion ? (/release ([\d.]+)/.exec(cudaVersion)?.[1] ?? null) : null,
       driverAvailable: nvidiaDriver,
+      // The newest CUDA the display driver supports (nvidia-smi header); not the toolkit, never cuDNN.
+      driverCudaVersion: nvidiaProbe.cudaDriverVersion,
       toolkitAvailable: cudaToolkit,
       reason: cudaToolkit ? null : probeErrors.cuda,
     },
@@ -385,6 +402,168 @@ async function detectHardware({ root = null } = {}) {
     gpuAcceleration: nvidiaDriver,
   });
   return hardware;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// hardwareFacts: what the model router may know about this PC. Pure and injectable: it reads the object
+// detectHardware() returned (plus optional live values and Electron's gpuInfo) and never probes, never throws.
+// Nothing here branches on a card's marketing name: only vendor, driver number and measured sizes count.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A finite positive number, or null. Strings, NaN, negatives and zero are "not measured". */
+const positive = (value) => {
+  const n = typeof value === "string" && value.trim() === "" ? NaN : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+const round1 = (n) => (n === null ? null : Math.round(n * 10) / 10);
+
+// PCI vendor ids (a fact of the bus, not a card name) for Electron's gpuInfo.
+const PCI_VENDOR = { 0x10de: "nvidia", 0x1002: "amd", 0x1022: "amd", 0x8086: "intel" };
+
+// NVIDIA's display driver 527 (Windows) is the first that runs CUDA 12 applications.
+const CUDA12_MIN_DRIVER_MAJOR = 527;
+
+function cpuClassOf(cpu) {
+  const physical = positive(cpu?.physicalCores);
+  const threads = positive(cpu?.threads) ?? positive(cpu?.cores);
+  const cores = physical ?? (threads ? Math.max(1, Math.ceil(threads / 2)) : null);
+  // No CPU reading is "not measured", never "weak": a guessed class would demote models on an unknown PC.
+  if (cores === null) return null;
+  return cores <= 4 ? "low" : cores <= 8 ? "mid" : "high";
+}
+
+function hardwareFacts(hw, deps = {}) {
+  const sources = [];
+  try {
+    const src = hw && typeof hw === "object" ? hw : {};
+    const gpuRows = [];
+    for (const raw of Array.isArray(src.gpus) ? src.gpus : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const total = positive(raw.vramTotalMb);
+      const used = positive(raw.vramUsedMb);
+      const vendor = typeof raw.vendor === "string" && raw.vendor ? raw.vendor : "other";
+      const known = raw.vramKnown === true && total !== null;
+      gpuRows.push({
+        vendor,
+        name: typeof raw.name === "string" && raw.name ? raw.name : null,
+        // A 32-bit AdapterRAM caps at 4 GB: such a figure ranks the card but is never reported as its memory.
+        vramGb: known ? round1(total / 1024) : null,
+        rankGb: total !== null ? total / 1024 : -1,
+        freeGb: known && used !== null && used <= total ? round1((total - used) / 1024) : null,
+        // The figure exists but only from the capped 32-bit AdapterRAM reading: a lower bound, not the card's memory.
+        capped: total !== null && !known,
+        driver: typeof raw.driver === "string" && raw.driver ? raw.driver : null,
+        fromSmi: vendor === "nvidia" && raw.vramKnown === true,
+      });
+      sources.push(
+        vendor === "nvidia" && raw.vramKnown === true ? "nvidia-smi" : "Win32_VideoController",
+      );
+    }
+    // Electron's own GPU list: no memory figure, but it names devices and drivers no other probe found.
+    const infoDevices = Array.isArray(deps?.gpuInfo?.gpuDevice) ? deps.gpuInfo.gpuDevice : [];
+    let usedInfo = false;
+    for (const dev of infoDevices) {
+      if (!dev || typeof dev !== "object") continue;
+      const vendor = PCI_VENDOR[Number(dev.vendorId)] || null;
+      if (!vendor) continue;
+      const driver =
+        typeof dev.driverVersion === "string" && dev.driverVersion ? dev.driverVersion : null;
+      const same = gpuRows.find((g) => g.vendor === vendor);
+      if (same) {
+        if (!same.driver && driver) {
+          same.driver = driver;
+          usedInfo = true;
+        }
+        continue;
+      }
+      const label =
+        typeof dev.deviceString === "string" && dev.deviceString ? dev.deviceString : null;
+      gpuRows.push({
+        vendor,
+        name: label,
+        vramGb: null,
+        rankGb: -1,
+        freeGb: null,
+        capped: false,
+        driver,
+        fromSmi: false,
+      });
+      usedInfo = true;
+    }
+    if (usedInfo) sources.push("electron-gpuInfo");
+
+    // The card a model would run on: the most dedicated memory (a capped figure still ranks), then NVIDIA, which
+    // is the vendor the bundled engines can offload to.
+    const ranked = [...gpuRows].sort(
+      (a, b) =>
+        b.rankGb - a.rankGb ||
+        Number(b.vendor === "nvidia") - Number(a.vendor === "nvidia") ||
+        String(a.name).localeCompare(String(b.name)),
+    );
+    const best = ranked[0] || null;
+
+    const smiDriver = gpuRows.find((g) => g.fromSmi)?.driver ?? null;
+    const cudaText = src.cuda && typeof src.cuda === "object" ? src.cuda.driverCudaVersion : null;
+    const cudaMajor = positive(String(cudaText ?? "").split(".")[0]);
+    const driverMajor = positive(String(smiDriver ?? "").split(".")[0]);
+    const driverPresent =
+      gpuRows.some((g) => g.vendor === "nvidia") && src.cuda?.driverAvailable === true;
+    // "Ready" means the NVIDIA display driver can run CUDA 12 applications. It never says cuDNN is installed.
+    const cudaReady =
+      driverPresent &&
+      (cudaMajor !== null
+        ? cudaMajor >= 12
+        : driverMajor !== null && driverMajor >= CUDA12_MIN_DRIVER_MAJOR);
+
+    const ramGb = round1(positive(src.memory?.totalGb));
+    // Free memory only means something next to a measured total: with no memory probe there is no number at all
+    // (a live os.freemem() figure alone would make the router call any model too large).
+    const liveFree = ramGb !== null ? positive(deps?.freeRamGb) : null;
+    const ramFreeGb = ramGb !== null ? round1(liveFree ?? positive(src.memory?.freeGb)) : null;
+    if (ramGb !== null) sources.push(liveFree !== null ? "os-memory-live" : "os-memory");
+
+    const diskFreeGb = round1(positive(src.disk?.freeGb));
+    if (diskFreeGb !== null) sources.push("model-drive");
+
+    return {
+      vramGb: best ? best.vramGb : null,
+      vramFreeGb: best ? best.freeGb : null,
+      ramGb,
+      ramFreeGb,
+      diskFreeGb,
+      gpuVendor: best ? best.vendor : null,
+      gpuName: best ? best.name : null,
+      gpus: ranked.map((g) => ({
+        vendor: g.vendor,
+        name: g.name,
+        vramGb: g.vramGb,
+        // True when vramGb is null only because the sole figure was the capped 32-bit one (a card of at least this size).
+        vramCapped: g.capped,
+        driver: g.driver,
+      })),
+      cudaReady,
+      driverVersion: best ? best.driver : null,
+      npu: src.npu === true,
+      cpuClass: cpuClassOf(src.cpu),
+      sources: [...new Set(sources)],
+    };
+  } catch {
+    return {
+      vramGb: null,
+      vramFreeGb: null,
+      ramGb: null,
+      ramFreeGb: null,
+      diskFreeGb: null,
+      gpuVendor: null,
+      gpuName: null,
+      gpus: [],
+      cudaReady: false,
+      driverVersion: null,
+      npu: false,
+      cpuClass: null,
+      sources: [],
+    };
+  }
 }
 
 /**
@@ -895,6 +1074,9 @@ module.exports = {
   detectHardware,
   buildPlan,
   parseVideoControllers,
+  parseNvidiaSmi,
+  parseCudaDriverVersion,
+  hardwareFacts,
   parseLogicalDisks,
   parseCpuTopology,
   physicalCoresFromProcCpuinfo,

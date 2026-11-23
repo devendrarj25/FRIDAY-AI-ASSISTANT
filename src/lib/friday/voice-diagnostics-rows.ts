@@ -1,4 +1,4 @@
-import type { SttWorkerCache, VoiceBudget } from "./desktop";
+import type { HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
 
@@ -86,6 +86,27 @@ export function voiceBudgetProfileLine(budget: VoiceBudget): string {
 }
 
 /**
+ * The "GPU speech" row: the upgrade offer (a GPU was found but the CUDA runtime libraries were not confirmed) or the
+ * confirmed GPU size. Null when the budget has nothing to say about a GPU. The driver alone never claims CUDA works.
+ */
+function gpuSpeechRow(budget: VoiceBudget | null): DiagnosticsRow | null {
+  if (!budget) return null;
+  if (budget.gpuUpgrade) {
+    return {
+      label: "GPU speech",
+      value: `${budget.gpuUpgrade.detail} (FRIDAY never calls CUDA working from the driver alone; only the speech kernel finding the libraries counts)`,
+    };
+  }
+  if (budget.sttDevice === "cuda") {
+    return {
+      label: "GPU speech",
+      value: `on (the speech kernel found cuBLAS 12 and cuDNN 9): ${budget.sttSize} on the GPU`,
+    };
+  }
+  return null;
+}
+
+/**
  * The speech worker's cache and this PC's budget as read-only rows. Loading, offline and error each say so on every row
  * instead of showing a number; a worker that is not running (or an older one that reports nothing) says that.
  */
@@ -114,6 +135,8 @@ export function speechWorkerRows(view: SpeechWorkerView): DiagnosticsRow[] {
     value: budget ? voiceBudgetProfileLine(budget) : "this PC's speech budget is not available",
     ...(budget ? {} : { bad: true }),
   };
+  const gpuRow = gpuSpeechRow(budget);
+  const gpuRows: DiagnosticsRow[] = gpuRow ? [gpuRow] : [];
   if (!cache) {
     const none = "no speech worker is running yet; it starts on the first turn";
     return [
@@ -123,6 +146,7 @@ export function speechWorkerRows(view: SpeechWorkerView): DiagnosticsRow[] {
       { label: labels.memory, value: none },
       { label: labels.fallbacks, value: none },
       budgetRow,
+      ...gpuRows,
     ];
   }
   const kinds = Object.entries(cache.fallbacks.byKind).map(([kind, count]) => `${kind} ${count}`);
@@ -155,5 +179,75 @@ export function speechWorkerRows(view: SpeechWorkerView): DiagnosticsRow[] {
       value: cache.fallbacks.total ? `${cache.fallbacks.total} (${kinds.join(", ")})` : "none",
     },
     budgetRow,
+    ...gpuRows,
+  ];
+}
+
+/** What the "This PC" rows know: still reading, no desktop app, could not read, or the measured facts. */
+export type PcFactsView =
+  | { phase: "loading" }
+  | { phase: "offline" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; facts: HardwareFacts };
+
+const gbText = (value: number | null): string => (value === null ? "not measured" : `${value} GB`);
+
+/** Why CUDA is or is not ready, from the facts alone (never from a card name). */
+export function cudaReasonLine(facts: HardwareFacts): string {
+  const nvidia = facts.gpus.find((gpu) => gpu.vendor === "nvidia");
+  if (facts.cudaReady) {
+    return `yes: the NVIDIA driver${facts.driverVersion ? ` ${facts.driverVersion}` : ""} can run CUDA 12 programs (cuDNN is checked separately)`;
+  }
+  if (facts.gpus.length === 0) return "no: no GPU was found";
+  if (!nvidia) return "no: the GPU is not NVIDIA, so CUDA does not apply";
+  if (!nvidia.driver && !facts.driverVersion) return "no: no NVIDIA driver version could be read";
+  return `no: the NVIDIA driver ${nvidia.driver ?? facts.driverVersion} does not report CUDA 12 (driver 527 or newer is needed)`;
+}
+
+/**
+ * The read-only "This PC" group of the Voice diagnostics: GPU, video memory, CUDA, memory, free disk on the model
+ * drive, processor class and which probes answered. Loading, offline and error say so on every row; a number that no
+ * probe measured says "not measured" and is never made up.
+ */
+export function thisPcRows(view: PcFactsView): DiagnosticsRow[] {
+  const labels = [
+    "this PC: graphics card",
+    "this PC: video memory (total · free)",
+    "this PC: CUDA ready",
+    "this PC: memory (total · free)",
+    "this PC: free disk on the model drive",
+    "this PC: processor class",
+    "this PC: probes that answered",
+  ];
+  const all = (value: string, bad = false): DiagnosticsRow[] =>
+    labels.map((label) => ({ label, value, ...(bad ? { bad: true } : {}) }));
+  if (view.phase === "loading") return all("reading this PC…");
+  if (view.phase === "offline") return all("shown in the installed FRIDAY app");
+  if (view.phase === "error") {
+    return all(
+      `could not read this PC: ${view.message || "no answer"}. Use refresh this PC to retry`,
+      true,
+    );
+  }
+  const facts = view.facts;
+  const gpuName = facts.gpuName || (facts.gpuVendor ? `${facts.gpuVendor} graphics` : "");
+  const probes = facts.sources.length
+    ? facts.sources.join(" · ")
+    : "none (nothing could be measured)";
+  return [
+    { label: labels[0] ?? "", value: gpuName || "no GPU found", ...(gpuName ? {} : { bad: true }) },
+    {
+      label: labels[1] ?? "",
+      value: `${gbText(facts.vramGb)} · ${gbText(facts.vramFreeGb)}`,
+    },
+    { label: labels[2] ?? "", value: cudaReasonLine(facts) },
+    { label: labels[3] ?? "", value: `${gbText(facts.ramGb)} · ${gbText(facts.ramFreeGb)}` },
+    {
+      label: labels[4] ?? "",
+      value: gbText(facts.diskFreeGb),
+      ...(facts.diskFreeGb !== null && facts.diskFreeGb < 5 ? { bad: true } : {}),
+    },
+    { label: labels[5] ?? "", value: facts.cpuClass ?? "–" },
+    { label: labels[6] ?? "", value: probes, ...(facts.sources.length ? {} : { bad: true }) },
   ];
 }

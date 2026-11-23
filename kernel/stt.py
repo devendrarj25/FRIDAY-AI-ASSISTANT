@@ -1972,9 +1972,11 @@ def live_ladder(facts: dict | None) -> dict:
 
 def status_payload() -> dict:
     cls = _import_whisper()
-    device = choose_stt_device(cuda_runtime_ready())
+    cuda_ready = cuda_runtime_ready()
+    device = choose_stt_device(cuda_ready)
     return {
         "ok": True,
+        "cudaRuntimeReady": cuda_ready,
         "available": cls is not None,
         "dependency": "ready" if cls is not None else "missing",
         "modelLoaded": _model is not None,

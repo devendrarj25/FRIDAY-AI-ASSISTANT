@@ -27,9 +27,10 @@ const voiceInstall = require("./voice-install.cjs");
 const voicePins = require("./voice-pins.cjs");
 const safety = require("./download-safety.cjs");
 const library = require("./local-library.cjs");
+const localEngines = require("./local-engines.cjs");
 
 const HF_HOSTS = voiceInstall.hfHostList(process.env);
-const OLLAMA = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
+const OLLAMA = process.env.OLLAMA_HOST || localEngines.defaultEndpoint("ollama");
 
 /**
  * The Hugging Face token of the owner's own account, set for the length of one

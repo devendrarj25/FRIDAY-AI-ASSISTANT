@@ -234,7 +234,8 @@ const DOCUMENTS = [
     audience: "owner, developers",
     answers:
       "The target architecture for one Brain with replaceable capability engines, the hardware-detected model ladder, the capability-by-capability model map with licences, the cloud lane facts, the self-growth loop and the phased roadmap",
-    topic: "Master roadmap, capability registry, hardware detection ladder, model catalogue, cloud lane, self-growth loop",
+    topic:
+      "Master roadmap, capability registry, hardware detection ladder, model catalogue, cloud lane, self-growth loop",
   },
   {
     file: "docs/FRIDAY_MCP.md",

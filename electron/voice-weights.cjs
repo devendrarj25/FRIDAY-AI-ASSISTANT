@@ -598,6 +598,8 @@ async function folderChecks(root, deps = {}) {
  * `budgetFor` is the same table for the Models page; core/__tests__/voice-hardware-budget.test.ts keeps them equal.
  */
 const SPEECH_CAP_GB = 4;
+/** Video memory kept free beside speech (the screen, the desktop, the resident model's growth). */
+const GPU_HEADROOM_GB = 1;
 /** The resident memory a speech size needs with the voice and the two helpers loaded beside it (from the manifest). */
 function residentNeedGb(size) {
   const gbOf = (id) => manifestOf(id)?.minRamGb || 0;
@@ -635,29 +637,57 @@ function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
 
   const vram =
     Number(vramGb) > 0 ? Number(vramGb) : Number(gpuInfo?.vramGb) > 0 ? Number(gpuInfo.vramGb) : 0;
+  // `cudaRuntimeReady` is the KERNEL's verdict (cuBLAS 12 and cuDNN 9 found) and is the only thing that picks a GPU size.
+  // `cudaDriverReady` (the NVIDIA driver can run CUDA 12) alone only offers an upgrade the installer and Doctor can show.
   const verified = gpuInfo?.cudaRuntimeReady === true;
+  const driverOnly =
+    !verified && gpuInfo?.cudaDriverReady === true && (vram > 0 || !!gpuInfo?.name);
+  // Video memory speech may really use: the measured free amount when a probe gave one, otherwise the total less the
+  // model the caller expects to keep resident (`llmResidentVramGb`), then a fixed headroom. No GPU-name matching.
+  const freeVramKnown =
+    gpuInfo?.vramFreeGb !== undefined &&
+    gpuInfo?.vramFreeGb !== null &&
+    Number.isFinite(Number(gpuInfo.vramFreeGb)) &&
+    Number(gpuInfo.vramFreeGb) >= 0;
+  const plannedLlmGb = Math.max(0, Number(options.llmResidentVramGb) || 0);
+  const offeredVram = freeVramKnown
+    ? Math.min(vram, Number(gpuInfo.vramFreeGb))
+    : vram - plannedLlmGb;
+  const usableVram = vram > 0 ? Math.max(0, round1(offeredVram - GPU_HEADROOM_GB)) : 0;
+  const weakCpu = options.cpuClass === "low";
   let device = "cpu";
   let size;
-  if (verified && vram >= 4 && total >= 16 && byFree >= 4) {
+  if (verified && usableVram >= 3 && total >= 16 && byFree >= 4) {
     device = "cuda";
-    size = vram >= 8 ? "large-v3-turbo" : "medium";
+    size = usableVram >= 7 ? "large-v3-turbo" : "medium";
   } else {
     if (speechBudgetGb >= need("small")) size = "small";
     else if (total >= 4 && !(freeKnown && byFree < 0.9)) size = "base";
     else size = "tiny";
-    if (verified && vram >= 3) device = "cuda";
+    if (verified && usableVram >= 2) device = "cuda";
+    if (device === "cpu" && weakCpu && size === "small") {
+      size = "base";
+      notes.push(
+        "a low-end processor listens with base, which keeps the reply inside the latency budget",
+      );
+    }
   }
   if (!verified && (vram > 0 || gpuInfo?.name)) {
     notes.push(
       `${gpuInfo?.name || "a GPU"} was found but the CUDA 12 libraries (cuBLAS 12, cuDNN 9) are not verified, so speech stays on the CPU in int8; FRIDAY never downloads CUDA libraries from third parties`,
     );
+    if (driverOnly) {
+      notes.push(
+        "the NVIDIA driver can run CUDA 12 programs, so installing the CUDA runtime libraries would let the GPU carry speech",
+      );
+    }
   } else if (device === "cuda") {
     notes.push(
       `GPU speech: the CUDA 12 libraries are verified and ${vram} GB of video memory is present`,
     );
   } else if (verified) {
     notes.push(
-      `the GPU has ${vram} GB of video memory, too little for speech, so it stays on the CPU`,
+      `the GPU has ${vram} GB of video memory (${usableVram} GB usable beside what is already resident), too little for speech, so it stays on the CPU`,
     );
   }
   if (device === "cpu") {
@@ -711,6 +741,17 @@ function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
     threads: Math.min(cpuThreads, Math.max(4, Math.min(8, Math.floor(cpuThreads / 2)))),
     speechBudgetGb,
     notes,
+    // The driver is ready but the runtime libraries are not verified: the CPU default above stays, and this is what the
+    // installer and Doctor show. It never says CUDA works.
+    ...(driverOnly
+      ? {
+          gpuUpgrade: {
+            needs: "cuda-runtime",
+            vramGb: round1(vram),
+            detail: `${gpuInfo?.name || "GPU"} found; install the CUDA runtime libraries (cuBLAS 12, cuDNN 9) to use it for speech`,
+          },
+        }
+      : {}),
   };
 }
 
@@ -722,25 +763,71 @@ function defaultNvidiaSmi() {
   );
 }
 
+/** The most video memory a card may claim when its reading came only from `AdapterRAM`: a 32-bit number that wraps or clips. */
+const ADAPTER_RAM_CAP_GB = 4;
+
 /**
- * What this PC has, from Node's own `os` (memory, processors) and, for the GPU, the answer Electron's
- * `app.getGPUInfo("basic")` already gave (pass it as `gpuInfo`) with `nvidia-smi` for the video memory. No new package.
- * `cudaRuntimeReady` is false unless the caller passes the kernel's own verdict: this probe never decides that CUDA works.
+ * What the shared hardware reader (`deps.hardwareFacts`, see electron/hardware.cjs) found, or null when it is absent,
+ * throws or answers asynchronously: the probe then keeps today's nvidia-smi-only read, so nothing breaks.
+ */
+function readFacts(deps) {
+  if (typeof deps.hardwareFacts !== "function") return null;
+  try {
+    const facts = deps.hardwareFacts();
+    return facts && typeof facts === "object" && typeof facts.then !== "function" ? facts : null;
+  } catch {
+    return null;
+  }
+}
+
+const positive = (value) => (Number(value) > 0 ? Number(value) : 0);
+
+/**
+ * What this PC has, from Node's own `os` (memory, processors), the answer Electron's `app.getGPUInfo("basic")` already
+ * gave (pass it as `gpuInfo`), `nvidia-smi` for the video memory, and the shared detected facts (`deps.hardwareFacts`)
+ * when given. Video memory is the largest trusted reading of the probes; when the chosen GPU row says its reading was
+ * clipped (`gpus[].vramCapped === true`) it is never trusted above 4 GB. `cudaRuntimeReady` is true only when the caller
+ * passes the kernel's own verdict (`deps.cudaRuntimeReady`: cuBLAS 12 and cuDNN 9 found). The facts' `cudaReady` is the
+ * NVIDIA driver only and becomes `cudaDriverReady`, which never picks a GPU size. No GPU-name guess. No new package.
  */
 function probeHardware(deps = {}) {
   const host = deps.os || require("os");
   const gb = (bytes) => round1(Number(bytes) / 1024 ** 3);
+  const facts = readFacts(deps);
   const gpu = {
     name: "",
     vramGb: 0,
+    vramFreeGb: undefined,
     source: "none",
     cudaRuntimeReady: deps.cudaRuntimeReady === true,
+    cudaDriverReady: facts?.cudaReady === true,
   };
   const devices = Array.isArray(deps.gpuInfo?.gpuDevice) ? deps.gpuInfo.gpuDevice : [];
   const device = devices.find((row) => row?.active) || devices[0];
   if (device?.deviceString) {
     gpu.name = String(device.deviceString);
     gpu.source = "electron";
+  }
+  if (facts) {
+    const sources = Array.isArray(facts.sources) ? facts.sources.map(String) : [];
+    const rows = Array.isArray(facts.gpus)
+      ? facts.gpus.filter((row) => row && typeof row === "object")
+      : [];
+    const chosen = rows.find((row) => facts.gpuName && row.name === facts.gpuName) || rows[0];
+    let factsVram = positive(facts.vramGb);
+    if (chosen?.vramCapped === true) factsVram = Math.min(factsVram, ADAPTER_RAM_CAP_GB);
+    if (factsVram > 0) {
+      gpu.vramGb = round1(factsVram);
+      gpu.source = sources.length ? sources.join("+") : "facts";
+    }
+    if (
+      facts.vramFreeGb !== undefined &&
+      facts.vramFreeGb !== null &&
+      Number(facts.vramFreeGb) >= 0
+    ) {
+      gpu.vramFreeGb = round1(Number(facts.vramFreeGb));
+    }
+    if (!gpu.name && facts.gpuName) gpu.name = String(facts.gpuName);
   }
   try {
     const first = String((deps.nvidiaSmi || defaultNvidiaSmi)() || "")
@@ -751,18 +838,26 @@ function probeHardware(deps = {}) {
       const mib = Number(first.slice(at + 1));
       if (at > 0 && mib > 0) {
         gpu.name = first.slice(0, at).trim();
-        gpu.vramGb = Math.round(mib / 1024);
-        gpu.source = "nvidia-smi";
+        const smiGb = Math.round(mib / 1024);
+        if (smiGb >= gpu.vramGb) {
+          gpu.vramGb = smiGb;
+          gpu.source = "nvidia-smi";
+        }
       }
     }
   } catch {
     /* no NVIDIA driver on this PC: the GPU stays unused */
   }
+  if (gpu.vramFreeGb === undefined) delete gpu.vramFreeGb;
+  else gpu.vramFreeGb = Math.min(gpu.vramFreeGb, gpu.vramGb || gpu.vramFreeGb);
+  const totalRamGb = positive(gb(host.totalmem())) || positive(facts?.ramGb);
+  const freeRamGb = positive(gb(host.freemem())) || positive(facts?.ramFreeGb);
   return {
-    totalRamGb: gb(host.totalmem()),
-    freeRamGb: gb(host.freemem()),
+    totalRamGb,
+    freeRamGb,
     cpuThreads: host.cpus().length,
     platform: host.platform(),
+    ...(typeof facts?.cpuClass === "string" && facts.cpuClass ? { cpuClass: facts.cpuClass } : {}),
     gpu,
   };
 }
@@ -771,6 +866,7 @@ function probeHardware(deps = {}) {
 function budgetForProbe(probe, options = {}) {
   return budgetFor(probe.totalRamGb, probe.freeRamGb, probe.gpu.vramGb, probe.gpu, {
     cpuThreads: probe.cpuThreads,
+    ...(probe.cpuClass ? { cpuClass: probe.cpuClass } : {}),
     ...options,
   });
 }
@@ -786,7 +882,10 @@ const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
  */
 function voiceInstallPlan(root, probe, deps = {}) {
   const exists = deps.exists || (() => false);
-  const budget = budgetForProbe(probe);
+  const budget = budgetForProbe(
+    probe,
+    Number(deps.llmResidentVramGb) > 0 ? { llmResidentVramGb: Number(deps.llmResidentVramGb) } : {},
+  );
   const onDisk = new Set(voiceModelsOnDisk(root, exists).map((row) => row.catalogId));
   const essential = new Set([
     "silero-vad",
@@ -835,6 +934,7 @@ function voiceInstallPlan(root, probe, deps = {}) {
   const lines = [
     `[friday] INFO     voice profile: ${budget.profile} (${probe.totalRamGb} GB RAM, ${probe.freeRamGb} GB free, ${gpu}): ${budget.sttSize} ${budget.sttCompute} on the ${budget.sttDevice === "cuda" ? "GPU" : "CPU"}, up to ${budget.speechBudgetGb} GB of RAM for speech`,
     ...budget.notes.map((note) => `[friday] INFO     ${note}`),
+    ...(budget.gpuUpgrade ? [`[friday] INFO     ${budget.gpuUpgrade.detail}`] : []),
   ];
   for (const item of items) {
     if (item.state === "on-disk")

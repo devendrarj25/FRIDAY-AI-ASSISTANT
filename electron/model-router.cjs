@@ -13,6 +13,7 @@
 
 const modelCapabilities = require("./model-capabilities.cjs");
 const modelAccess = require("./model-access.cjs");
+const localEngines = require("./local-engines.cjs");
 
 // ---------------------------------------------------------------- policy ---
 /** Billing policy. Free-first is the default; paid use is gated separately. */
@@ -340,19 +341,8 @@ const NEXT_STEP = Object.freeze({
   provider_error: "The provider failed. FRIDAY will try a different provider.",
 });
 
-const LOCAL_PROVIDERS = new Set([
-  "ollama",
-  "lmstudio",
-  "llamacpp",
-  "vllm",
-  "localai",
-  "jan",
-  "koboldcpp",
-  "transformers",
-  "gpt4all",
-  "mlx",
-  "local",
-]);
+// Engine ids and the generic "local" kind come from kernel/local_engines.json (electron/local-engines.cjs).
+const LOCAL_PROVIDERS = localEngines.localProviderIds();
 
 function spendCapAllows(model) {
   const cap = Number(model?.spendCapUsd ?? model?.meta?.spendCapUsd);
@@ -1057,6 +1047,118 @@ function describe(model, health, now = Date.now()) {
  * Extra score for an explicit quality target. Omitted and `balanced` add
  * nothing, so the default order stays the formula below.
  */
+// ---------------------------------------------------------------------------------------------------------------
+// Hardware fit. Measured facts only (electron/hardware.cjs hardwareFacts): sizes, free memory, a CUDA-ready flag.
+// A local model that does not fit is demoted, never hidden; with no facts nothing changes.
+// ---------------------------------------------------------------------------------------------------------------
+const FIT_RAM_HEADROOM_GB = 1.5; // left for Windows and FRIDAY itself
+const FIT_VRAM_HEADROOM_GB = 0.5; // left for the display
+const FIT_MIN_USEFUL_VRAM_GB = 2; // an integrated chip's slice of memory is not a place to run a model
+
+const positiveGb = (value) => {
+  const n = typeof value === "string" && value.trim() === "" ? NaN : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** Size of a local model's weights in GB as the engine reports it, or null. */
+function modelSizeGb(model) {
+  return positiveGb(model?.meta?.sizeGb ?? model?.sizeGb ?? model?.ramGb);
+}
+
+// The vendors the local engines can offload to. A list that holds none of them (empty, or only adapters with no
+// known vendor) is a measured "no usable GPU"; a facts object with no `gpus` list says nothing about GPUs.
+const OFFLOAD_VENDORS = new Set(["nvidia", "amd", "intel"]);
+function hasNoUsableGpu(facts) {
+  return (
+    Array.isArray(facts.gpus) &&
+    facts.gpus.every(
+      (gpu) => !OFFLOAD_VENDORS.has(gpu && typeof gpu === "object" ? gpu.vendor : null),
+    )
+  );
+}
+
+/**
+ * Where a local model would run on this PC, from measured facts.
+ * fit: gpu (fits free video memory), cpu (fits free RAM with headroom), split (needs both),
+ * tight (fits only if other apps close), too-large, resident (already loaded), unknown (nothing measured).
+ * unknown also covers facts with no measured total RAM (no probe ran): free memory alone proves nothing.
+ * offload: gpu (CUDA 12 driver confirmed), gpu-if-supported (a card fits it; the engine decides), cpu, or null.
+ * `cpu` is only said when the probe found no usable GPU at all. On a PC with a GPU whose memory is unmeasured, or
+ * a model bigger than free video memory, it is null: the engine keeps its own partial offload (num_gpu is never
+ * forced to 0). The fit category still drives the demotion either way.
+ */
+function hardwareFit(model, facts) {
+  const size = modelSizeGb(model);
+  if (size === null || !facts || typeof facts !== "object") return { fit: "unknown" };
+  const vramTotal = positiveGb(facts.vramGb);
+  const vramFree = positiveGb(facts.vramFreeGb) ?? vramTotal;
+  const ramTotal = positiveGb(facts.ramGb);
+  if (ramTotal === null) return { fit: "unknown" };
+  const ramFree = positiveGb(facts.ramFreeGb) ?? ramTotal * 0.5;
+  const needGb = Math.round((size + Math.max(0.5, size * 0.15)) * 10) / 10;
+  if (model?.meta?.resident === true) return { fit: "resident", needGb, offload: null };
+  const useVram =
+    vramTotal !== null && vramTotal >= FIT_MIN_USEFUL_VRAM_GB
+      ? Math.max(0, (vramFree ?? 0) - FIT_VRAM_HEADROOM_GB)
+      : 0;
+  const useRam = Math.max(0, ramFree - FIT_RAM_HEADROOM_GB);
+  const cudaReady = facts.cudaReady === true;
+  const gpuOffload = cudaReady ? "gpu" : "gpu-if-supported";
+  const cpuOnly = hasNoUsableGpu(facts) ? "cpu" : null;
+  let fit;
+  let offload;
+  if (needGb <= useVram && (cudaReady || needGb > useRam)) {
+    fit = "gpu";
+    offload = gpuOffload;
+  } else if (needGb <= useRam) {
+    fit = "cpu";
+    offload = useVram >= needGb ? gpuOffload : cpuOnly;
+  } else if (useVram > 0 && needGb <= useVram + useRam) {
+    fit = "split";
+    offload = gpuOffload;
+  } else if (needGb <= ramTotal - FIT_RAM_HEADROOM_GB) {
+    fit = "tight";
+    offload = cpuOnly;
+  } else {
+    fit = "too-large";
+    offload = cpuOnly;
+  }
+  return {
+    fit,
+    offload,
+    needGb,
+    useVramGb: Math.round(useVram * 10) / 10,
+    useRamGb: Math.round(useRam * 10) / 10,
+  };
+}
+
+/** Score change from the fit. Demotes what does not fit; prefers the larger model only when there is room. */
+function hardwareAdjustment(model, facts, { normTask, surface } = {}) {
+  if (model?.type !== "local" || !facts) return 0;
+  const fit = hardwareFit(model, facts);
+  const size = modelSizeGb(model) || 0;
+  const wantsSpeed = surface === "voice" || normTask === "fast";
+  const slowCpu = facts.cpuClass === "low" ? 1.5 : facts.cpuClass === "mid" ? 0.75 : 0;
+  switch (fit.fit) {
+    case "gpu": {
+      const boost = fit.offload === "gpu" ? 1 : 0;
+      return boost + (wantsSpeed ? 0 : Math.min(2, size / 6));
+    }
+    case "cpu": {
+      const bigOnSlow = fit.offload === "cpu" && size > 4 ? -slowCpu : 0;
+      return bigOnSlow + (wantsSpeed ? 0 : Math.min(2, size / 6));
+    }
+    case "split":
+      return -1.5;
+    case "tight":
+      return -4;
+    case "too-large":
+      return -12;
+    default:
+      return 0;
+  }
+}
+
 function qualityAdjustment(model, qualityTarget, normTask) {
   if (qualityTarget == null || qualityTarget === "") return 0;
   const target = normaliseQualityTarget(qualityTarget);
@@ -1101,6 +1203,7 @@ function scoreModel(
     requirements = {},
     qualityTarget = null,
     surface = null,
+    hardware = null,
   } = {},
 ) {
   const normTask = normaliseRoutingTask(task);
@@ -1200,6 +1303,7 @@ function scoreModel(
     score -= 1.5;
 
   score += qualityAdjustment(model, qualityTarget, normTask);
+  score += hardwareAdjustment(model, hardware, { normTask, surface });
 
   return Number(score.toFixed(3));
 }
@@ -1225,16 +1329,7 @@ const PROVIDER_NAMES = Object.freeze({
   perplexity: "Perplexity",
   nebius: "Nebius",
   openrouter: "OpenRouter",
-  ollama: "Ollama",
-  lmstudio: "LM Studio",
-  llamacpp: "llama.cpp",
-  vllm: "vLLM",
-  localai: "LocalAI",
-  jan: "Jan",
-  koboldcpp: "KoboldCpp",
-  transformers: "Hugging Face runner",
-  gpt4all: "GPT4All",
-  mlx: "MLX",
+  ...localEngines.displayNames(),
   local: "Local",
 });
 
@@ -1707,6 +1802,7 @@ function prepareRoute(models, options = {}) {
         requirements,
         qualityTarget,
         surface: options.surface,
+        hardware: options.hardware,
       }),
     }))
     .sort((a, b) => b.score - a.score || a.m.id.localeCompare(b.m.id))
@@ -1934,7 +2030,10 @@ function zeroSpendTarget(model) {
   const kind = String(model.type || model.kind || model.meta?.kind || "");
   const local = kind === "local" || provider === "ollama" || model.local === true;
   if (provider === "ollama") {
-    const base = String(model.endpoint || "http://127.0.0.1:11434").replace(/\/$/, "");
+    const base = String(model.endpoint || localEngines.defaultEndpoint("ollama")).replace(
+      /\/$/,
+      "",
+    );
     return {
       id: model.id,
       provider,
@@ -2098,7 +2197,7 @@ function freeLaneModel(model) {
   if (!model) return false;
   if (model.access === "free") return true;
   const type = String(model.type || model.kind || model.meta?.kind || "").toLowerCase();
-  return LOCAL_PROVIDERS.has(type) || type === "llama.cpp";
+  return LOCAL_PROVIDERS.has(type) || localEngines.isLocalKind(type);
 }
 
 /** A priced OpenRouter free router or `:free` id. A name alone is not this. */
@@ -3074,6 +3173,12 @@ function packRoute(modelsOut, decision, options, surface) {
   const exclusions = Array.isArray(options.traceExclusions) ? options.traceExclusions : [];
   const providerId = winner ? winner.providerId || winner.meta?.providerId || null : null;
   const nativeId = winner ? winner.meta?.modelName || winner.providerModelId || winner.id : null;
+  const hardwareHints = {};
+  for (const model of modelsOut) {
+    if (model?.type !== "local" && !modelAccess.isLocalModel(model)) continue;
+    const fit = hardwareFit(model, options.hardware);
+    if (fit.fit !== "unknown") hardwareHints[model.id] = fit;
+  }
   return {
     lane: decision.lane,
     handoff: decision.handoff,
@@ -3092,6 +3197,8 @@ function packRoute(modelsOut, decision, options, surface) {
     why: publicDecision(`${decision.lane}: ${decision.reason}`),
     whyThisModel,
     handler: handler ? handler.id : null,
+    // Where each local model would run on this PC (fit and GPU-offload hint), from measured facts only.
+    hardwareHints,
     decisionTrace: {
       catalogue: "canonical",
       evidence:
@@ -3105,6 +3212,9 @@ function packRoute(modelsOut, decision, options, surface) {
       choice: winner ? winner.id : null,
       catalogueId: winner && providerId ? `${providerId}/${nativeId}` : null,
       lane: decision.lane,
+      hardware: Object.keys(hardwareHints).length
+        ? { fits: Object.fromEntries(Object.entries(hardwareHints).map(([id, h]) => [id, h.fit])) }
+        : null,
     },
   };
 }
@@ -3404,15 +3514,48 @@ function combineLocalAnswers(answers, options = {}) {
   return { strategy: "show-all", answers: drafts, text: null };
 }
 
+/**
+ * May these local models run at the same time? They may when their weights fit free memory together:
+ * free video memory first (a GPU run), then free RAM. Reads hardwareFacts (`ramFreeGb`, `vramFreeGb`) and the
+ * older `freeRamGb`; a model's size comes from `ramGb` or the engine's `meta.sizeGb`.
+ */
 function localFanout(models, hardware = {}) {
-  const ram = Number(hardware.freeRamGb);
-  const need = (models || []).reduce((sum, model) => sum + (Number(model?.ramGb) || 0), 0);
-  if (!Number.isFinite(ram) || ram <= 0) {
+  const facts = hardware && typeof hardware === "object" ? hardware : {};
+  const ram = positiveGb(facts.ramFreeGb ?? facts.freeRamGb);
+  const vram = positiveGb(facts.vramFreeGb);
+  const need = (models || []).reduce((sum, model) => sum + (modelSizeGb(model) || 0), 0);
+  if (ram === null && vram === null) {
     return { mode: "sequential", reason: "free memory was not measured" };
   }
-  if (need > ram)
+  if (
+    vram !== null &&
+    need > 0 &&
+    need <= vram - FIT_VRAM_HEADROOM_GB &&
+    facts.cudaReady === true
+  ) {
+    return { mode: "parallel", reason: "the models fit in free video memory together" };
+  }
+  if (ram === null || need > ram - (facts.ramFreeGb === undefined ? 0 : FIT_RAM_HEADROOM_GB)) {
     return { mode: "sequential", reason: "the models do not fit in free memory together" };
+  }
   return { mode: "parallel", reason: "the models fit in free memory" };
+}
+
+/**
+ * Splits a parallel or race shortlist into what may start together and what must queue. Cloud models always
+ * start together; local models queue one after another when they do not fit memory together.
+ */
+function fanoutLanes(models, hardware = {}) {
+  const rows = models || [];
+  const locals = rows.filter((model) => modelAccess.isLocalModel(model));
+  if (locals.length < 2) return { parallel: rows, sequential: [], fanout: null };
+  const fanout = localFanout(locals, hardware);
+  if (fanout.mode === "parallel") return { parallel: rows, sequential: [], fanout };
+  return {
+    parallel: rows.filter((model) => !locals.includes(model)),
+    sequential: locals,
+    fanout,
+  };
 }
 
 module.exports = {
@@ -3480,6 +3623,8 @@ module.exports = {
   LOCAL_ANSWER_STRATEGIES,
   combineLocalAnswers,
   localFanout,
+  fanoutLanes,
+  hardwareFit,
   nudgePrior,
   cooldownJitter,
   localSafetyNet,
@@ -3488,6 +3633,7 @@ module.exports = {
   choiceLabelOf,
   providerDisplayName,
   PROVIDER_NAMES,
+  LOCAL_PROVIDERS,
   selectParallel,
   isExclusiveMode,
   usesOwnerPool,

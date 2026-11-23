@@ -11,6 +11,8 @@
  * never enough on its own. UNKNOWN never becomes FREE by fallback.
  */
 
+const localEngines = require("./local-engines.cjs");
+
 const BILLING_MODES = Object.freeze(["ZERO_COST", "FREE_QUOTA", "FREE_CREDIT", "PAID", "UNKNOWN"]);
 
 const ELIGIBILITY = Object.freeze([
@@ -41,34 +43,10 @@ const FREE_CREDIT_SOURCES = new Set(["TRIAL", "PROMOTIONAL", "GRANT"]);
 
 const FREE_BILLING = new Set(["ZERO_COST", "FREE_QUOTA", "FREE_CREDIT"]);
 
-const LOCAL_KINDS = new Set([
-  "local",
-  "ollama",
-  "llama.cpp",
-  "llamacpp",
-  "lmstudio",
-  "vllm",
-  "localai",
-  "jan",
-  "koboldcpp",
-  "transformers",
-  "gpt4all",
-  "mlx",
-]);
+// One table of local engines: kernel/local_engines.json (electron/local-engines.cjs).
+const LOCAL_KINDS = new Set(localEngines.LOCAL_KINDS);
 
-const LOCAL_PROVIDERS = new Set([
-  "ollama",
-  "lmstudio",
-  "llamacpp",
-  "vllm",
-  "localai",
-  "jan",
-  "koboldcpp",
-  "transformers",
-  "gpt4all",
-  "mlx",
-  "local",
-]);
+const LOCAL_PROVIDERS = localEngines.localProviderIds();
 
 /** Dynamic TTLs for caching and background refresh. */
 const CATALOGUE_TTL_MS = 10 * 60 * 1000;

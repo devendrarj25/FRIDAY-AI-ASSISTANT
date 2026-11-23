@@ -3,6 +3,9 @@
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const localEngines = require("./local-engines.cjs");
+
+const OLLAMA_ENDPOINT = localEngines.defaultEndpoint("ollama");
 
 const run = (cmd, args, timeout = 4000) =>
   new Promise((resolve) => {
@@ -142,14 +145,14 @@ async function detectComponents() {
 // ---------------------------------------------------------- AI providers ---
 async function detectOllama() {
   const bin = await which("ollama");
-  const tags = await fetchJson("http://127.0.0.1:11434/api/tags");
+  const tags = await fetchJson(`${OLLAMA_ENDPOINT}${localEngines.modelsPath("ollama")}`);
   return {
     id: "ollama",
     name: "Ollama",
     kind: "local",
     installed: Boolean(bin || tags),
     path: bin,
-    endpoint: "http://127.0.0.1:11434",
+    endpoint: OLLAMA_ENDPOINT,
     running: Boolean(tags),
     models: (tags?.models || []).map((m) => ({
       id: m.name,
@@ -263,7 +266,7 @@ async function detectProviders(options = {}) {
 
 /** Ollama model list on demand (never pulls anything). */
 async function listOllamaModels() {
-  const tags = await fetchJson("http://127.0.0.1:11434/api/tags", 3000);
+  const tags = await fetchJson(`${OLLAMA_ENDPOINT}${localEngines.modelsPath("ollama")}`, 3000);
   return { running: Boolean(tags), models: tags?.models || [] };
 }
 

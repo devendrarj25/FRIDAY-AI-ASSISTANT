@@ -193,6 +193,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = re
 // it can run beside an installed FRIDAY without touching it. This must run before anything reads `userData`, asks for
 // the single-instance lock or registers a window.
 const portableData = require("./portable-data.cjs");
+const localEngines = require("./local-engines.cjs");
 const portableMode = portableData.prepare(app, process.env);
 const PORTABLE_RUN = portableMode.portable;
 
@@ -531,7 +532,7 @@ const { detectComponents, detectProviders, listOllamaModels } = loadNamed("provi
   require("./providers.cjs"),
 );
 const providerRegistry = loadNamed("provider-registry", () => require("./provider-registry.cjs"));
-const { detectHardware } = loadNamed("hardware", () => require("./hardware.cjs"));
+const { detectHardware, hardwareFacts } = loadNamed("hardware", () => require("./hardware.cjs"));
 const systemMonitor = loadNamed("system-monitor", () => require("./system-monitor.cjs"));
 const serviceHealth = loadNamed("service-health", () => require("./service-health.cjs"));
 const { applyUpdate, rollbackUpdate } = loadNamed("updater-apply", () => require("./updater.cjs"));
@@ -902,6 +903,8 @@ let lastHardware = null;
 // The hardware probe the app starts at launch. The kernel waits for it (up to 5 s) so its first start already has
 // the plan; before this, the kernel usually started first and ran with no plan at all.
 let hardwareBoot = null;
+// The first chat turn after launch waits for the probe once; later turns route with whatever is known.
+let hardwareBootWaited = false;
 let pressureMonitor = null;
 /**
  * Speech recognition runs on the graphics card only when it is asked to (FRIDAY_STT_CUDA) and both CUDA 12 libraries
@@ -925,6 +928,27 @@ function currentPlan() {
     lastHardware.plan,
     pressureMonitor ? pressureMonitor.snapshot() : null,
   );
+}
+/**
+ * What the model router may know about this PC: the last hardware probe plus the free memory right now, and
+ * Electron's own GPU list once it has answered. Before the first probe finishes the memory, CPU-class and GPU fields
+ * are null (no live number stands in for a probe, see hardwareFacts), so routing keeps its normal order.
+ */
+let electronGpuInfo = null;
+function routingHardwareFacts() {
+  if (!electronGpuInfo && app && typeof app.getGPUInfo === "function") {
+    electronGpuInfo = {};
+    app
+      .getGPUInfo("basic")
+      .then((info) => {
+        electronGpuInfo = info || {};
+      })
+      .catch(() => {});
+  }
+  return hardwareFacts(lastHardware, {
+    freeRamGb: require("node:os").freemem() / 1024 ** 3,
+    gpuInfo: electronGpuInfo,
+  });
 }
 const bootSteps = [];
 const activeChats = new Map();
@@ -2478,6 +2502,22 @@ async function resolveChatModels(
 ) {
   const { models } = await refreshRoutable();
   if (!models.length) return [];
+  // The first turn right after launch waits a moment for the hardware probe so a local choice sees real facts.
+  // Once per app run, and never for the voice surface (its 800 ms budget has no room for a wait).
+  if (!lastHardware && hardwareBoot && !hardwareBootWaited && extraOptions.surface !== "voice") {
+    hardwareBootWaited = true;
+    let waitTimer = null;
+    try {
+      await Promise.race([
+        hardwareBoot,
+        new Promise((resolve) => {
+          waitTimer = setTimeout(resolve, 1500);
+        }),
+      ]);
+    } finally {
+      clearTimeout(waitTimer);
+    }
+  }
   const preferred = requested.filter(Boolean).length ? requested.filter(Boolean) : modelSelection();
   // A paid model may only be used when the OWNER picked it for this request.
   const explicitPaid = preferred.some((id) => {
@@ -2508,6 +2548,8 @@ async function resolveChatModels(
     qualityTarget: extraOptions.qualityTarget || modelQualityTarget(),
     strategy: extraOptions.strategy || modelRouteStrategy(),
     now: Date.now(),
+    // Measured facts only: a local model that does not fit this PC is demoted, never hidden.
+    hardware: routingHardwareFacts(),
     ...(extraOptions.surface === "voice" || extraOptions.surface === "chat"
       ? { surface: extraOptions.surface }
       : {}),
@@ -2539,6 +2581,19 @@ async function resolveChatModels(
   log(
     `route plan (${plan.planType}) lane ${plan.lane}: ${plan.why}${plan.whyThisModel ? ` — ${plan.whyThisModel}` : ""}`,
   );
+  const tooBig = Object.entries(plan.hardwareHints || {})
+    .filter(([, hint]) => hint.fit === "too-large" || hint.fit === "tight")
+    .map(([id, hint]) => `${id} (${hint.fit})`);
+  if (tooBig.length) log(`route hardware: demoted for this PC's memory: ${tooBig.join(", ")}`);
+  // Where the plan says each local model runs on this PC ("gpu" | "gpu-if-supported" | "cpu"), kept on the request
+  // that asked (a Map the caller owns), never shared between turns. A hint for a model already chosen, not a choice.
+  const hardwareOffload =
+    extraOptions.hardwareOffload instanceof Map ? extraOptions.hardwareOffload : null;
+  for (const planned of plan.models) {
+    const offload = plan.hardwareHints?.[planned.id]?.offload;
+    if (typeof offload === "string") hardwareOffload?.set(planned.id, offload);
+    else hardwareOffload?.delete(planned.id);
+  }
   if (plan.selected) {
     providerHealth.noteDecision({
       modelId: plan.selected,
@@ -3014,21 +3069,7 @@ function kernelChatModel(payload) {
   const first = String((payload?.modelIds || [])[0] || "");
   const keys = Object.keys(modelsApi.readKeys(keyStoreRoot()) || {});
   const prefix = (first.includes(":") ? first.slice(0, first.indexOf(":")) : first).toLowerCase();
-  const localKinds = new Set([
-    "local",
-    "ollama",
-    "llamacpp",
-    "lmstudio",
-    "vllm",
-    "llama.cpp",
-    "localai",
-    "jan",
-    "koboldcpp",
-    "transformers",
-    "gpt4all",
-    "mlx",
-  ]);
-  if (localKinds.has(prefix) || localKinds.has(first.toLowerCase())) {
+  if (localEngines.isLocalKind(prefix) || localEngines.isLocalKind(first.toLowerCase())) {
     return { id: first || "local", type: "ollama" };
   }
   if (keys.length) {
@@ -3176,6 +3217,7 @@ async function streamOnceRaw({
   model,
   explicitPaid = false,
   collect = false,
+  hardwareOffload = null,
 }) {
   // BILLING FIREWALL — the last gate before a CHAT request leaves this
   // machine. Every caller of a chat turn (chat, agents, tools, workflows,
@@ -3300,6 +3342,13 @@ async function streamOnceRaw({
                   : {}),
                 ...(typeof request.runId === "string" && /^[\w.-]{1,64}$/.test(request.runId)
                   ? { runId: request.runId }
+                  : {}),
+                // Where this PC's facts say the chosen local model runs. The kernel applies it only to
+                // that model, only where the engine takes it, and ignores any other value.
+                ...(hardwareOffload?.has(model.id)
+                  ? {
+                      hardwareHints: { [model.id]: { offload: hardwareOffload.get(model.id) } },
+                    }
                   : {}),
               },
             }),
@@ -3459,7 +3508,10 @@ async function startChat(request) {
   const selectedProviderIds = Array.isArray(request.selectedProviderIds)
     ? request.selectedProviderIds
     : contract?.selectedProviderIds || [];
+  // This request's own placement hints: filled by the plan that resolves the models, read by the stream below.
+  const hardwareOffload = new Map();
   const routingOptions = {
+    hardwareOffload,
     requirements,
     selectedProviderIds,
     costPolicy: request.costPolicy || contract?.costPolicy,
@@ -3501,6 +3553,7 @@ async function startChat(request) {
         prompt,
         model,
         explicitPaid: ownerPicked(model),
+        hardwareOffload,
       });
       if (result.cancelled) {
         send("chat:done", { requestId, cancelled: true });
@@ -3891,11 +3944,24 @@ async function runParallelChat(request = {}) {
 
   let results;
   if (strategy === "parallel" || strategy === "race") {
-    const rows = await Promise.all(
-      candidates.map((model, index) =>
-        runRole(model, index, prompt, strategy === "race" ? "racer" : "peer"),
-      ),
-    );
+    // Cloud models start together; local models queue one by one when they do not fit memory together.
+    const lanes = modelRouter.fanoutLanes(candidates, routingHardwareFacts());
+    if (lanes.sequential.length)
+      log(`parallel chat ${baseId}: local models one at a time (${lanes.fanout.reason})`);
+    const role = strategy === "race" ? "racer" : "peer";
+    const rows = new Array(candidates.length);
+    await Promise.all([
+      ...lanes.parallel.map(async (model) => {
+        const index = candidates.indexOf(model);
+        rows[index] = await runRole(model, index, prompt, role);
+      }),
+      (async () => {
+        for (const model of lanes.sequential) {
+          const index = candidates.indexOf(model);
+          rows[index] = await runRole(model, index, prompt, role);
+        }
+      })(),
+    ]);
     if (strategy === "race") {
       const first = rows.find((row) => row && row.ok);
       results = first ? [first, ...rows.filter((row) => row !== first)] : rows;
@@ -5249,7 +5315,18 @@ ipcMain.handle("voice:wake-frames", (_e, payload) => wakeEngine.scoreFrames(payl
 
 // Real post-install verification of the voice runtime (imports + model load +
 // a real neural voice), used by first-run and Voice Diagnostics.
-ipcMain.handle("voice:verify", (_e, payload) => voiceVerify.verifyVoiceRuntime(payload || {}));
+ipcMain.handle("voice:verify", async (_e, payload) => {
+  const facts = await currentHardwareFacts();
+  const llmResidentVramGb = await residentLlmVramGb();
+  // The speech kernel's own CUDA verdict (cuBLAS 12 and cuDNN 9 found); the driver alone never picks a GPU size.
+  const cudaRuntimeReady = await stt.cudaRuntimeVerdict();
+  return voiceVerify.verifyVoiceRuntime({
+    ...(payload || {}),
+    hardwareFacts: () => facts,
+    llmResidentVramGb,
+    cudaRuntimeReady,
+  });
+});
 
 // What this PC can carry for speech (profile, speech size, resident cap), from Electron's own GPU answer plus Node's
 // memory reading, and the Doctor repair that puts a previous verified voice model revision back.
@@ -5261,7 +5338,14 @@ ipcMain.handle("voice:budget", async () => {
   } catch {
     /* no GPU answer: the budget is the CPU one */
   }
-  return { ok: true, ...weights.budgetForProbe(weights.probeHardware({ gpuInfo })) };
+  const facts = await currentHardwareFacts();
+  const llmResidentVramGb = await residentLlmVramGb();
+  const cudaRuntimeReady = await stt.cudaRuntimeVerdict();
+  const probe = weights.probeHardware({ gpuInfo, hardwareFacts: () => facts, cudaRuntimeReady });
+  return {
+    ok: true,
+    ...weights.budgetForProbe(probe, llmResidentVramGb > 0 ? { llmResidentVramGb } : {}),
+  };
 });
 ipcMain.handle("voice:restore", (_e, id) => {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) {
@@ -6986,8 +7070,9 @@ ipcMain.handle("components:detect", async () => {
 // probe spawns a process — so it is cached and never re-run per UI tick.
 let hardwareAt = 0;
 let hardwareJob = null;
-ipcMain.handle("hardware:detect", async (_e, force = false) => {
-  if (!force && lastHardware && Date.now() - hardwareAt < 30000) return lastHardware;
+function detectHardwareCached(force = false) {
+  if (!force && lastHardware && Date.now() - hardwareAt < 30000)
+    return Promise.resolve(lastHardware);
   hardwareJob ??= detectHardware({ root: getWorkspaceRoot() })
     .then((hw) => {
       lastHardware = hw;
@@ -6999,7 +7084,50 @@ ipcMain.handle("hardware:detect", async (_e, force = false) => {
       hardwareJob = null;
     });
   return hardwareJob;
+}
+ipcMain.handle("hardware:detect", (_e, force = false) => detectHardwareCached(force));
+
+// The shared hardware facts (electron/hardware.cjs hardwareFacts) once the probe has answered: the one object the
+// voice budget, the Doctor "This PC" rows and the model router all read. Never throws; a probe that failed gives the
+// all-unknown facts (cudaReady false), never a guess.
+async function currentHardwareFacts(force = false) {
+  try {
+    await detectHardwareCached(force);
+  } catch {
+    /* the facts below describe an unknown PC */
+  }
+  try {
+    if (!electronGpuInfo?.gpuDevice && app && typeof app.getGPUInfo === "function") {
+      electronGpuInfo = (await app.getGPUInfo("basic")) || {};
+    }
+  } catch {
+    /* no GPU answer from Electron */
+  }
+  return routingHardwareFacts();
+}
+ipcMain.handle("hardware:facts", async (_e, force) => {
+  try {
+    return { ok: true, facts: await currentHardwareFacts(force === true) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
 });
+
+// Video memory the resident local language models hold right now (Ollama /api/ps), or 0 when none is loaded or the
+// engine does not answer. The voice budget leaves that memory to the model that is already loaded.
+async function residentLlmVramGb() {
+  try {
+    const running = await Promise.race([
+      modelsApi.ollamaRunning(),
+      new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
+    if (!running?.ok) return 0;
+    const total = running.models.reduce((sum, model) => sum + (Number(model.vramGb) || 0), 0);
+    return total > 0 ? Math.round(total * 10) / 10 : 0;
+  } catch {
+    return 0;
+  }
+}
 
 // Live measured telemetry. The renderer subscribes once; the main process
 // samples on a single interval and broadcasts to every screen.
