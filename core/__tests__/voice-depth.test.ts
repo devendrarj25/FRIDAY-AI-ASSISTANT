@@ -227,6 +227,8 @@ describe("the auto-mode store uses the same policy", () => {
     expect(audio).toContain("echoCancellation: true");
     const baseline = source("src/lib/friday/brain/baseline-responder.ts");
     expect(baseline).toContain("backgroundNotice");
-    expect(audio).toContain("noiseSuppression: true");
+    // Noise suppression follows the stored setting (default on), not a fixed constraint.
+    expect(audio).toContain("noiseSuppressionWanted");
+    expect(source("src/lib/friday/preferences.ts")).toContain("noiseSuppression: true");
   });
 });

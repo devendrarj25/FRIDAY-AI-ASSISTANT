@@ -757,10 +757,16 @@ type DesktopApi = {
     speechPref?: string;
     sttSize?: string;
     keepWav?: boolean;
+    /** A not-final read of the audio so far: never counted or recorded, and it alone can be cancelled. */
+    provisional?: boolean;
+    utteranceId?: string;
   }) => Promise<{
     ok: boolean;
     text?: string;
     error?: string;
+    reason?: string;
+    cancelled?: boolean;
+    final?: boolean;
     language?: string;
     noSpeechProb?: number;
     turnProbability?: number | null;
@@ -783,6 +789,10 @@ type DesktopApi = {
       denoiseNote?: string;
     } | null;
   }>;
+  /** Cancel a provisional decode (no id: all). The worker keeps running; only the speculative read stops. */
+  cancelTranscribe?: (payload: {
+    utteranceId?: string;
+  }) => Promise<{ ok: boolean; cancelled?: boolean; signalled?: boolean }>;
   scoreTurn?: (payload: {
     audioBytes?: Uint8Array;
     audioBase64?: string;

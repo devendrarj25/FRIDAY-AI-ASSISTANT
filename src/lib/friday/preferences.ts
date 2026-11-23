@@ -56,6 +56,38 @@ export function sanitizeConfirmLevel(value: unknown): VoiceConfirmLevel {
     : "rare";
 }
 
+/** The engines the owner may pin; the names are the ones `rankTtsProviders` takes as `prefer`. */
+export const TTS_ENGINE_PICKS = ["auto", "supertonic", "sapi"] as const;
+export type TtsEnginePick = (typeof TTS_ENGINE_PICKS)[number];
+
+/** An unknown or missing word (an old stored shape) reads `auto`, today's order. */
+export function sanitizeTtsEngine(value: unknown): TtsEnginePick {
+  return (TTS_ENGINE_PICKS as readonly unknown[]).includes(value)
+    ? (value as TtsEnginePick)
+    : "auto";
+}
+
+export const STT_SIZE_PICKS = [
+  "auto",
+  "tiny",
+  "base",
+  "small",
+  "medium",
+  "large-v3-turbo",
+  "large-v3",
+] as const;
+export type SttSizePick = (typeof STT_SIZE_PICKS)[number];
+
+/** An unknown or missing size reads `auto`, the size measured for this PC. */
+export function sanitizeSttSize(value: unknown): SttSizePick {
+  return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
+}
+
+/** A device id is a short string; anything else (an old or hand-edited shape) reads the system default. */
+export function sanitizeDeviceId(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 400) : "";
+}
+
 /** Days a kept utterance clip stays: a whole number from 1 to 90; anything else reads 7. */
 export function sanitizeWavDays(value: unknown): number {
   const n = typeof value === "number" ? Math.round(value) : Number.NaN;
@@ -108,6 +140,12 @@ export type VoicePreferences = {
   recognitionLang: string;
   /** Preferred Windows audio input device id ("" = system default). */
   inputDeviceId: string;
+  /** Preferred speaker (audio output) device id ("" = system default). A missing device falls back to the default. */
+  outputDeviceId: string;
+  /** The browser's own noise suppression on the microphone. On is how FRIDAY has always opened it. */
+  noiseSuppression: boolean;
+  /** Which engine speaks: auto keeps today's order; supertonic is the local voice only; sapi is the system voice only. */
+  ttsEngine: TtsEnginePick;
   /** Spoken reply language. */
   speechLang: string;
   /** Preferred voice name, e.g. Microsoft Swara Online (Natural) - Hindi. */
@@ -190,7 +228,7 @@ export type VoicePreferences = {
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
-  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
+  sttSize: SttSizePick;
   /** Listen for the language again on every phrase (faster-whisper multilingual). Off by default; auto language only. */
   sttMultilingual: boolean;
   /** Short name used in status lines. Empty keeps the line unnamed. */
@@ -336,6 +374,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     // that already stored a choice (hi-IN included) keeps it: a stored value cannot be told from an explicit pick.
     recognitionLang: "auto",
     inputDeviceId: "",
+    outputDeviceId: "",
+    noiseSuppression: true,
+    ttsEngine: "auto",
     speechLang: "hi-IN",
     voiceName: "Microsoft Swara Online (Natural) - Hindi (India)",
     // A soft, warm Indian-girl delivery: slightly slower, slightly brighter.
@@ -426,6 +467,12 @@ function merge(
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
       hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
       confirmLevel: sanitizeConfirmLevel(patch.voice?.confirmLevel ?? base.voice.confirmLevel),
+      // Device, engine and size choices: an old or odd stored shape reads the shipped default.
+      inputDeviceId: sanitizeDeviceId(patch.voice?.inputDeviceId ?? base.voice.inputDeviceId),
+      outputDeviceId: sanitizeDeviceId(patch.voice?.outputDeviceId ?? base.voice.outputDeviceId),
+      noiseSuppression: (patch.voice?.noiseSuppression ?? base.voice.noiseSuppression) !== false,
+      ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
+      sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
       keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
       utteranceWavDays: sanitizeWavDays(
         patch.voice?.utteranceWavDays ?? base.voice.utteranceWavDays,

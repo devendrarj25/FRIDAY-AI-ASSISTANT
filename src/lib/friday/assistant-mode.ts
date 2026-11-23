@@ -1011,7 +1011,7 @@ class AssistantModeStore {
     document.documentElement.classList.toggle("friday-hidden", document.hidden);
     document.addEventListener("visibilitychange", () => {
       document.documentElement.classList.toggle("friday-hidden", document.hidden);
-      if (this.state.mode !== "auto" || this.state.paused) return;
+      if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
       if (document.hidden) return;
       const track = voiceGate.micStream()?.getAudioTracks()[0];
       const dead = !track || track.readyState === "ended";
@@ -1028,7 +1028,7 @@ class AssistantModeStore {
       if (!this.dictation?.active) this.noteVoiceTrigger("focus");
     });
     desktop()?.onSystemResume?.(() => {
-      if (this.state.mode !== "auto" || this.state.paused) return;
+      if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
       this.trace("segment", "sleep-resume — reopening the microphone");
       this.applyVoiceHeal("mic-no-device", false);
     });
@@ -1554,6 +1554,11 @@ class AssistantModeStore {
     this.setHandsFree(!this.state.handsFree);
   }
 
+  /**
+   * Mute silences FRIDAY and closes the microphone (the owner's decision: Mute stops the mic). Recognition stops and
+   * the Auto microphone is released, the way the tray pause does it; unmute reopens it through the same deferred open
+   * Resume uses, and never under the tray pause or Stop everything, which keep their own meaning.
+   */
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
     this.state.muted = muted;
@@ -1561,6 +1566,20 @@ class AssistantModeStore {
     if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
     if (muted) clearEchoReference("muted");
+    if (muted && this.state.mode === "auto") {
+      this.stopRecognition();
+      voiceGate.release("auto-mode");
+      this.autoMicDeferred = true;
+      this.state.micReady = false;
+      this.state.status = "Muted. Microphone is off";
+    } else if (!muted && this.state.mode === "auto" && !this.state.paused && !this.stopped()) {
+      this.resetVoiceRecovery();
+      if (this.autoMicDeferred) {
+        this.autoMicDeferred = false;
+        this.openAutoMic();
+      }
+      this.startRecognition();
+    }
     this.emit();
   }
 
@@ -1599,9 +1618,18 @@ class AssistantModeStore {
     return status;
   }
 
+  /**
+   * Settings > Voice changed the microphone or the noise-suppression choice: open the input again now, with the
+   * saved device (a missing one falls back to the default and says so). Nothing happens outside Auto, while paused,
+   * muted or stopped; the choice is then read the next time the microphone opens.
+   */
+  applyInputChoice(): Promise<void> {
+    return this.reopenInput("hotplug");
+  }
+
   /** Hot-plug, sleep, and resume. A missing saved device falls back and says so. */
   private async reopenInput(reason: "hotplug" | "resume") {
-    if (this.state.mode !== "auto" || this.state.paused) return;
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
     applySession(reason === "hotplug" ? "hotplug" : "resume");
     const listed = await listAudioDevices();
     const saved = preferences.getSnapshot().voice.inputDeviceId || "";
@@ -1746,6 +1774,11 @@ class AssistantModeStore {
    * the AudioContext start. Not done while Stop everything or the owner's pause is on.
    */
   private openAutoMic() {
+    if (this.state.muted) {
+      // Mute keeps the microphone closed; unmute opens it.
+      this.autoMicDeferred = true;
+      return;
+    }
     const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
     // A throwaway probeMicrophone capture afterwards would fight Windows exclusive-mode devices and leave the
     // analyser silent, so nothing awaits before the acquire.
@@ -2002,12 +2035,17 @@ class AssistantModeStore {
     }
   }
 
+  /** The microphone may be read: Auto, not paused by the owner or the kill switch, and not muted. */
+  private micAllowed(): boolean {
+    return microphoneAllowed(this.state.mode, this.state.paused) && !this.state.muted;
+  }
+
   /** Start FRIDAY's own on-device transcriber. Browser cloud speech is never used. */
   private startRecognition() {
     if (this.callHold) return;
     // A session that begins while Stop everything is on (it persists across a restart) must not open the microphone.
     if (this.stopped()) this.followKillSwitch();
-    if (!microphoneAllowed(this.state.mode, this.state.paused)) {
+    if (!this.micAllowed()) {
       this.wantRunning = false;
       return;
     }
@@ -2042,7 +2080,7 @@ class AssistantModeStore {
     };
     void sttStatus(false, true, true)
       .then((state) => {
-        if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
+        if (!this.wantRunning || !this.micAllowed()) return;
         const lang = preferences.getSnapshot().voice.recognitionLang || "hi-IN";
         const live = liveSttFromStatus(
           state,
@@ -2121,7 +2159,7 @@ class AssistantModeStore {
   /** Immediate retry for install, model, settings, device, focus, toggle, and Fix voice. */
   noteVoiceTrigger(trigger: string) {
     if (!shouldRetryNow(trigger)) return;
-    if (this.state.mode !== "auto" || this.state.paused) return;
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
     this.resetVoiceRecovery();
     this.startRecognition();
   }
@@ -2546,7 +2584,8 @@ class AssistantModeStore {
     if (this.wakeOnlyUnsub || this.dictation) return;
     let wasSpeech = false;
     this.wakeOnlyUnsub = voiceGate.subscribe((snapshot) => {
-      if (this.dictation || this.state.mode !== "auto" || this.state.paused) return;
+      if (this.dictation || this.state.mode !== "auto" || this.state.paused || this.state.muted)
+        return;
       if (snapshot.speech && !wasSpeech) {
         this.wakeOnlySpeechAt = performance.now();
         wasSpeech = true;
@@ -2595,7 +2634,7 @@ class AssistantModeStore {
   private startDesktopDictation() {
     void refreshVoiceProfile();
     this.stopWakeOnly();
-    if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
+    if (!this.micAllowed()) return;
     if (this.dictation?.active) return;
     reclaimUnowned(this.dictation);
     const dictation = new DesktopDictation({
@@ -3372,7 +3411,7 @@ class AssistantModeStore {
     // the lines need no wake word, and a stop phrase ends it without her name.
     if (
       this.state.mode === "auto" &&
-      microphoneAllowed(this.state.mode, this.state.paused) &&
+      this.micAllowed() &&
       (voiceNotes.active() || this.translateTo)
     ) {
       const line = (wake.matched && wake.command ? wake.command : text).trim();
@@ -3380,9 +3419,7 @@ class AssistantModeStore {
     }
     const awake = Date.now() < this.awakeUntil;
     const stop = this.isStopHeard(text, wake.matched);
-    const accepted =
-      microphoneAllowed(this.state.mode, this.state.paused) &&
-      (stop || (decision.answer && decision.tools));
+    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools));
     this.trace(
       "wake",
       wake.matched
@@ -3398,7 +3435,7 @@ class AssistantModeStore {
       markTurnStage(
         "routed",
         false,
-        microphoneAllowed(this.state.mode, this.state.paused)
+        this.micAllowed()
           ? `not meant for FRIDAY (${decision.tag}${decision.reason ? `: ${decision.reason}` : ""})`
           : "listening is paused or not in Auto mode",
       );

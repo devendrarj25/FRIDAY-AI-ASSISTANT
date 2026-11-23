@@ -250,7 +250,11 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       "const SPEECH_LADDER = [",
       120,
     ),
-    "src preferences sttSize": sizesIn(read("src/lib/friday/preferences.ts"), "sttSize:", 120),
+    "src preferences sttSize": sizesIn(
+      read("src/lib/friday/preferences.ts"),
+      "export const STT_SIZE_PICKS = [",
+      200,
+    ),
   };
   for (const [name, found] of Object.entries(lists)) {
     const missing = sizes.filter((size) => !found.includes(size));

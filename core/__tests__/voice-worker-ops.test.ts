@@ -193,6 +193,148 @@ describe("speak-pcm wiring", () => {
   });
 });
 
+describe("per-utterance cancel of speak-pcm", () => {
+  const pcm = Buffer.from(Int16Array.from([0, 900, -900, 20000]).buffer);
+  const okAnswer = { ok: true, sampleRate: 22050, pcm16: pcm.toString("base64") };
+  const deps = (request: (py: unknown, payload: Record<string, unknown>) => unknown) => ({
+    resolvePy: async () => ["python", []],
+    request: request as never,
+  });
+
+  it("sends a clean utterance id to the worker and returns it; a request without one is unchanged", async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const request = async (_py: unknown, payload: Record<string, unknown>) => {
+      sent.push(payload);
+      return { ...okAnswer, utt: payload["utt"] };
+    };
+    const tagged = await neuralVoice.speakPcm({ text: "one", utt: "p1-7", seq: 2 }, deps(request));
+    expect(sent[0]).toMatchObject({ op: "speak-pcm", utt: "p1-7", seq: 2 });
+    expect(tagged).toMatchObject({ ok: true, utt: "p1-7", seq: 2 });
+    for (const bad of [
+      "",
+      "has space",
+      "x".repeat(65),
+      "../up",
+      7,
+      null,
+      ["a"],
+      "a\nb",
+      "\u0928\u092e",
+    ]) {
+      const before = sent.length;
+      const answered = await neuralVoice.speakPcm({ text: "one", utt: bad }, deps(request));
+      expect("utt" in (sent[before] ?? {})).toBe(false);
+      expect("utt" in answered).toBe(false);
+    }
+  });
+
+  it("answers a cancelled utterance as cancelled without asking the worker, and keeps others working", async () => {
+    let asked = 0;
+    const request = async () => {
+      asked += 1;
+      return okAnswer;
+    };
+    const notified: Array<Record<string, unknown>> = [];
+    const done = await neuralVoice.cancelPcm(
+      { utt: "c-1" },
+      { notify: (payload: Record<string, unknown>) => (notified.push(payload), true) },
+    );
+    expect(done).toEqual({ ok: true, utt: "c-1", sent: true });
+    expect(notified).toEqual([{ op: "cancel", utt: "c-1" }]);
+    const dropped = await neuralVoice.speakPcm(
+      { text: "late clause", utt: "c-1", seq: 5 },
+      deps(request),
+    );
+    expect(dropped).toEqual({
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason: "cancelled",
+      cancelled: true,
+      utt: "c-1",
+      seq: 5,
+    });
+    expect(asked).toBe(0);
+    const next = await neuralVoice.speakPcm({ text: "next", utt: "c-2" }, deps(request));
+    expect(next.ok).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  it("drops a result that comes back after its utterance was cancelled while it was running", async () => {
+    let release: (value: unknown) => void = () => {};
+    const request = () => new Promise<unknown>((resolve) => (release = resolve));
+    const pending = neuralVoice.speakPcm({ text: "slow clause", utt: "c-3" }, deps(request));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await neuralVoice.cancelPcm({ utt: "c-3" }, { notify: () => true });
+    release(okAnswer);
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, cancelled: true, reason: "cancelled", utt: "c-3" });
+    expect("pcm" in result).toBe(false);
+  });
+
+  it("turns the worker's own cancelled answer into the same refusal", async () => {
+    const result = await neuralVoice.speakPcm(
+      { text: "one", utt: "c-4" },
+      deps(async () => ({ ok: false, reason: "cancelled", utt: "c-4" })),
+    );
+    expect(result).toMatchObject({ ok: false, cancelled: true, reason: "cancelled", utt: "c-4" });
+  });
+
+  it("refuses a cancel without a clean id and never throws when there is no worker to tell", async () => {
+    for (const bad of [undefined, "", "bad id", 4, null, "x".repeat(65)]) {
+      const refused = await neuralVoice.cancelPcm({ utt: bad }, { notify: () => true });
+      expect(refused).toMatchObject({ ok: false, reason: "bad-request" });
+    }
+    expect(await neuralVoice.cancelPcm(undefined, { notify: () => true })).toMatchObject({
+      ok: false,
+    });
+    // No worker running: the id is still remembered here, so a clause that arrives later is refused.
+    const idle = await neuralVoice.cancelPcm({ utt: "c-5" }, { notify: () => false });
+    expect(idle).toEqual({ ok: true, utt: "c-5", sent: false });
+    const late = await neuralVoice.speakPcm(
+      { text: "late", utt: "c-5" },
+      deps(async () => okAnswer),
+    );
+    expect(late).toMatchObject({ ok: false, cancelled: true });
+  });
+
+  it("does not start a worker just to cancel, and remembers only the newest ids", async () => {
+    const source = read("electron/neural-voice.cjs");
+    expect(source).toMatch(/function speakerNotify\(/);
+    const notify = source.slice(source.indexOf("function speakerNotify("));
+    expect(notify.slice(0, notify.indexOf("\n}\n"))).not.toMatch(/spawn\(/);
+    for (let index = 0; index < neuralVoice.PCM_CANCELLED_KEEP + 20; index += 1) {
+      await neuralVoice.cancelPcm({ utt: `bulk-${index}` }, { notify: () => false });
+    }
+    let asked = 0;
+    const request = async () => {
+      asked += 1;
+      return okAnswer;
+    };
+    const oldest = await neuralVoice.speakPcm({ text: "old", utt: "bulk-0" }, deps(request));
+    expect(oldest.ok).toBe(true);
+    const newest = await neuralVoice.speakPcm(
+      { text: "new", utt: `bulk-${neuralVoice.PCM_CANCELLED_KEEP + 19}` },
+      deps(request),
+    );
+    expect(newest).toMatchObject({ ok: false, cancelled: true });
+    expect(asked).toBe(1);
+  });
+
+  it("registers one cancel handler, one preload entry and one quick budget row", () => {
+    const main = read("electron/main.cjs");
+    expect(main.match(/ipcMain\.handle\("voice:neural-cancel-pcm"/g)).toHaveLength(1);
+    expect(main).toMatch(
+      /ipcMain\.handle\("voice:neural-cancel-pcm",\s*\(_e, payload\) =>\s*neuralVoice\.cancelPcm\(payload \|\| \{\}\)/,
+    );
+    expect(read("electron/preload.cjs")).toMatch(
+      /cancelNeuralPcm: \(payload\) => ipcRenderer\.invoke\("voice:neural-cancel-pcm", payload\)/,
+    );
+    expect(budget.CHANNEL_CLASS["voice:neural-cancel-pcm"]).toBe("quick");
+    expect(budget.CHANNEL_CLASS[CHANNEL]).toBe("stream");
+  });
+});
+
 describe("provisional speech-to-text", () => {
   it("passes provisional and the utterance id through, with no new channel and the same class", () => {
     expect(budget.CHANNEL_CLASS["voice:transcribe"]).toBe("stream");

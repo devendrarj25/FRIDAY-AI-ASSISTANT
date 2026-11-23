@@ -9,7 +9,8 @@ onnxruntime FRIDAY already installs. Otherwise the desktop energy VAD
 remains the listener. The Silero pip package is not used; it requires torch.
 Smart Turn, when its ONNX file is present, can only lengthen a pause. Noise
 suppression is pyrnnoise on PCM when that wheel imports. FRIDAY Echo
-(echo_canceller.py, pyaec) is optional and only reported here, not yet in capture.
+(echo_canceller.py, pyaec) is optional: the live microphone path cleans with the renderer's own canceller
+(`audio-aec.ts`, setting `voice.echoReference`); this module only measures it (`echo-shadow`, levels, never a gate).
 
 Speaking: Supertonic 3 (code MIT, weights OpenRAIL-M), voice F2, when
 ``models/supertonic-3`` is on disk. No automatic download on a speak call.
@@ -26,8 +27,11 @@ import argparse
 import json
 import math
 import os
+import queue
 import re
 import shutil
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import echo_canceller
@@ -307,6 +311,56 @@ def voice_style_name(requested: str = "") -> str:
     return name if _STYLE.match(name) else SUPERTONIC_VOICE
 
 
+# ---- per-utterance cancel -------------------------------------------------------------------------------------
+# The renderer tags every ``speak-pcm`` clause with an utterance id (``utt``, 1 to 64 characters of A-Z a-z 0-9 _ -).
+# A ``cancel`` line for that id marks it dead. The worker is never killed: the line is read by a reader thread while a
+# clause is being made, the synthesis checks between language spans, and a clause of a dead utterance (running,
+# queued, or arriving late) answers ``{ok: false, reason: "cancelled"}`` with no audio. A request without an id is
+# never tracked, so every older caller behaves exactly as before.
+UTTERANCE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+CANCELLED_KEEP = 512
+_cancelled: OrderedDict[str, None] = OrderedDict()
+_cancel_lock = threading.Lock()
+
+
+class SpeechCancelled(Exception):
+    """Raised between synthesis steps when the utterance being made was cancelled."""
+
+
+def utterance_id(value) -> str:
+    """The utterance id of a request, or '' when it carries none or a malformed one (then it is not tracked)."""
+    return value if isinstance(value, str) and UTTERANCE_ID.match(value) else ""
+
+
+def cancel_utterance(utt: str) -> bool:
+    """Mark one utterance dead. Keeps the newest ``CANCELLED_KEEP`` ids. False for a malformed id."""
+    if not utterance_id(utt):
+        return False
+    with _cancel_lock:
+        _cancelled.pop(utt, None)
+        _cancelled[utt] = None
+        while len(_cancelled) > CANCELLED_KEEP:
+            _cancelled.popitem(last=False)
+    return True
+
+
+def is_cancelled(utt: str) -> bool:
+    if not utt:
+        return False
+    with _cancel_lock:
+        return utt in _cancelled
+
+
+def reset_cancelled() -> None:
+    with _cancel_lock:
+        _cancelled.clear()
+
+
+def _check(stop) -> None:
+    if stop is not None and stop():
+        raise SpeechCancelled()
+
+
 def _synth_array(spoken: str, rate: float, lang: str, style: str = ""):
     """One Supertonic call. Returns a float32 mono array."""
     import numpy as np  # type: ignore
@@ -329,8 +383,11 @@ def _synth_array(spoken: str, rate: float, lang: str, style: str = ""):
     return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
-def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = ""):
+def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None):
     """The one synthesis path. (float32 mono array, sample rate), or None when the model or package is absent.
+
+    ``stop`` is an optional callable checked before every span and once more before the pieces are joined; when it
+    answers true the call raises ``SpeechCancelled`` (the only exception that leaves this function).
 
     Text in one script is one call. Mixed Hindi and English is cut into a few
     phrase-sized spans (never one call per word); each is read in its own
@@ -356,7 +413,11 @@ def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = "")
         spans = language_segmenter.segment(spoken[:500], lang)
         if not spans:
             return None
-        pieces = [_synth_array(span.text, rate, span.lang, style) for span in spans]
+        pieces = []
+        for span in spans:
+            _check(stop)
+            pieces.append(_synth_array(span.text, rate, span.lang, style))
+        _check(stop)
         gap = np.zeros(int(int(_tts.sample_rate) * SPAN_GAP_SECONDS), dtype=np.float32)
         parts = []
         for index, piece in enumerate(pieces):
@@ -364,6 +425,8 @@ def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = "")
                 parts.append(gap)
             parts.append(piece)
         return np.concatenate(parts), int(_tts.sample_rate)
+    except SpeechCancelled:
+        raise
     except Exception:
         return None
 
@@ -394,14 +457,15 @@ def _int16_pcm(audio) -> bytes:
     return np.clip(np.floor(audio * np.float32(32768.0)), -32768, 32767).astype("<i2").tobytes()
 
 
-def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> tuple[bytes, int] | None:
+def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None) -> tuple[bytes, int] | None:
     """The same samples as ``speak_wav_bytes`` as raw little-endian int16 mono, plus the sample rate.
 
     Nothing is written to disk. The float to int16 step matches what libsndfile
     writes for a PCM_16 WAV (scale by 32768, floor, clip), so the samples agree
-    with the WAV path to within one sample on any libsndfile.
+    with the WAV path to within one sample on any libsndfile. ``stop`` is the cooperative cancel check of
+    ``_speak_array``.
     """
-    made = _speak_array(text, speed, lang, style)
+    made = _speak_array(text, speed, lang, style) if stop is None else _speak_array(text, speed, lang, style, stop)
     if made is None:
         return None
     try:
@@ -976,6 +1040,16 @@ def speak_pcm_payload(req: dict) -> dict:
     text = req.get("text")
     if not isinstance(text, str) or not text.strip():
         return {"ok": False, "reason": "empty-text"}
+    utt = utterance_id(req.get("utt"))
+    tag: dict = {"utt": utt} if utt else {}
+    if isinstance(req.get("seq"), int) and not isinstance(req.get("seq"), bool):
+        tag["seq"] = req["seq"]
+
+    def stop() -> bool:
+        return is_cancelled(utt)
+
+    if stop():
+        return {"ok": False, "reason": "cancelled", **tag}
     try:
         speed = float(req.get("speed") or 1)
     except (TypeError, ValueError):
@@ -986,26 +1060,33 @@ def speak_pcm_payload(req: dict) -> dict:
     asked = str(req.get("engine") or "").strip().lower()
     extra: dict = {}
     made = None
-    if asked == HINDI_LIGHT_ENGINE:
-        made, why = _hindi_light_pcm16(text, speed, lang, style)
-        extra = {"engine": HINDI_LIGHT_ENGINE} if made else {"engine": DEFAULT_ENGINE, "fallback": why}
-    elif asked and asked not in ("supertonic", DEFAULT_ENGINE):
-        extra = {"engine": DEFAULT_ENGINE, "fallback": "unknown-engine"}
-    if made is None:
-        made = speak_pcm16(text, speed, lang, style)
+    try:
+        if asked == HINDI_LIGHT_ENGINE:
+            made, why = _hindi_light_pcm16(text, speed, lang, style)
+            extra = {"engine": HINDI_LIGHT_ENGINE} if made else {"engine": DEFAULT_ENGINE, "fallback": why}
+            # The light voice cannot be interrupted mid-clause: a cancel that landed meanwhile drops its result.
+            if made is not None and stop():
+                return {"ok": False, "reason": "cancelled", **tag}
+        elif asked and asked not in ("supertonic", DEFAULT_ENGINE):
+            extra = {"engine": DEFAULT_ENGINE, "fallback": "unknown-engine"}
+        if made is None:
+            # A request with no utterance id is made exactly as it always was (no check to pass).
+            made = speak_pcm16(text, speed, lang, style, stop=stop) if utt else speak_pcm16(text, speed, lang, style)
+        if stop():
+            return {"ok": False, "reason": "cancelled", **tag}
+    except SpeechCancelled:
+        return {"ok": False, "reason": "cancelled", **tag}
     if made is None:
         return {"ok": False, "reason": LOCAL_TTS_REASON}
     data, rate = made
-    body: dict = {
+    return {
         "ok": True,
         "sampleRate": rate,
         "pcm16": base64.b64encode(data).decode("ascii"),
         "ms": round((time.perf_counter() - started) * 1000),
         **extra,
+        **tag,
     }
-    if isinstance(req.get("seq"), int) and not isinstance(req.get("seq"), bool):
-        body["seq"] = req["seq"]
-    return body
 
 
 # One 160 ms microphone chunk at 16 kHz is 2560 samples; a caller may send up to one second.
@@ -1080,8 +1161,56 @@ def echo_shadow_payload(req: dict) -> dict:
     }
 
 
+def _cancel_payload(req: dict) -> dict:
+    """Reply body of the ``cancel`` op: mark one utterance dead. Runs on the reader thread, never behind a clause."""
+    utt = utterance_id(req.get("utt"))
+    if not utt:
+        return {"ok": False, "reason": "bad-request"}
+    cancel_utterance(utt)
+    return {"ok": True, "utt": utt}
+
+
+def _handle(req: dict) -> tuple[dict, bool]:
+    """One worker op as (reply body, stop serving)."""
+    op = str(req.get("op") or "")
+    if op == "shutdown":
+        return {"ok": True}, True
+    if op == "status":
+        return status(), False
+    if op == "speak":
+        out = str(req.get("out") or "")
+        try:
+            speed = float(req.get("speed") or 1)
+        except (TypeError, ValueError):
+            speed = 1.0
+        audio = speak_wav_bytes(
+            str(req.get("text") or ""),
+            speed,
+            str(req.get("lang") or ""),
+            str(req.get("style") or ""),
+        )
+        if audio and out:
+            dest = Path(out)
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(audio)
+            except (OSError, ValueError) as exc:  # a path that cannot be written never stops the worker
+                return {"ok": False, "reason": "cannot-write-output", "error": str(exc)[:200]}, False
+            return {"ok": True, "path": str(dest), "mime": "audio/wav", "bytes": len(audio)}, False
+        return {"ok": False, "reason": LOCAL_TTS_REASON if not audio else "no output path"}, False
+    if op == "speak-pcm":
+        return speak_pcm_payload(req), False
+    if op == "echo-shadow":
+        return echo_shadow_payload(req), False
+    return {"ok": False, "reason": "unknown-op"}, False
+
+
 def serve() -> int:
-    """Keep Supertonic loaded across speak calls. One JSON object per line."""
+    """Keep Supertonic loaded across speak calls. One JSON object per line.
+
+    A reader thread takes the lines. ``cancel`` is answered there at once (it must not wait behind the clause the
+    worker is making); every other line goes in order to this thread, so replies keep the order of the requests.
+    """
     import sys
 
     try:
@@ -1089,60 +1218,53 @@ def serve() -> int:
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
     except Exception:  # noqa: S110 — a console that cannot be reconfigured still reads lines
         pass
-    for raw in sys.stdin:
-        line = raw.strip()
-        if not line:
-            continue
+    stdin = sys.stdin
+    out_lock = threading.Lock()
+
+    def emit(payload: dict) -> None:
+        with out_lock:
+            print(json.dumps(payload), flush=True)
+
+    inbox: queue.Queue[object] = queue.Queue()
+
+    def read() -> None:
         try:
-            req = json.loads(line)
-        except Exception as exc:  # noqa: BLE001
-            print(json.dumps({"ok": False, "reason": "bad-request", "error": str(exc)[:200]}), flush=True)
-            continue
+            for raw in stdin:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    req = json.loads(line)
+                except Exception as exc:  # noqa: BLE001
+                    inbox.put({"_bad": {"ok": False, "reason": "bad-request", "error": str(exc)[:200]}})
+                    continue
+                if not isinstance(req, dict):
+                    inbox.put({"_bad": {"ok": False, "reason": "bad-request"}})
+                    continue
+                if req.get("op") == "cancel":
+                    reply = _cancel_payload(req)
+                    if req.get("id") is not None:
+                        emit({"id": req["id"], **reply})
+                    continue
+                inbox.put(req)
+        finally:
+            inbox.put(None)
+
+    threading.Thread(target=read, name="voice-reader", daemon=True).start()
+    while True:
+        req = inbox.get()
         if not isinstance(req, dict):
-            print(json.dumps({"ok": False, "reason": "bad-request"}), flush=True)
+            return 0
+        if "_bad" in req:
+            emit(req["_bad"])
             continue
         rid = req.get("id")
-        op = str(req.get("op") or "")
-        payload: dict
-        if op == "shutdown":
-            payload = {"ok": True}
-        elif op == "status":
-            payload = status()
-        elif op == "speak":
-            out = str(req.get("out") or "")
-            try:
-                speed = float(req.get("speed") or 1)
-            except (TypeError, ValueError):
-                speed = 1.0
-            audio = speak_wav_bytes(
-                str(req.get("text") or ""),
-                speed,
-                str(req.get("lang") or ""),
-                str(req.get("style") or ""),
-            )
-            if audio and out:
-                dest = Path(out)
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(audio)
-                except (OSError, ValueError) as exc:  # a path that cannot be written never stops the worker
-                    payload = {"ok": False, "reason": "cannot-write-output", "error": str(exc)[:200]}
-                else:
-                    payload = {"ok": True, "path": str(dest), "mime": "audio/wav", "bytes": len(audio)}
-            else:
-                payload = {"ok": False, "reason": LOCAL_TTS_REASON if not audio else "no output path"}
-        elif op == "speak-pcm":
-            payload = speak_pcm_payload(req)
-        elif op == "echo-shadow":
-            payload = echo_shadow_payload(req)
-        else:
-            payload = {"ok": False, "reason": "unknown-op"}
+        payload, stop = _handle(req)
         if rid is not None:
             payload = {"id": rid, **payload}
-        print(json.dumps(payload), flush=True)
-        if op == "shutdown":
+        emit(payload)
+        if stop:
             return 0
-    return 0
 
 
 def main() -> int:

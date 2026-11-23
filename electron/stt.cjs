@@ -188,6 +188,15 @@ function createTurnGate({
         queue.push(entry);
       });
     },
+    /**
+     * For a provisional (speculative) decode: the gate only when it is free right now, never a place in the line.
+     * A speculative read that waited would take the place of a final one, or run after it for nothing.
+     */
+    tryEnter() {
+      if (running) return null;
+      running = true;
+      return once(leave);
+    },
     waiting: () => queue.length,
     busy: () => running,
   };
@@ -1021,9 +1030,78 @@ function decodeExtras(req) {
   return {
     ...(hotwords ? { hotwords } : {}),
     ...(req.multilingual === true ? { multilingual: true } : {}),
-    // A provisional pass is a not-final read of the audio so far: the worker never counts or records it.
+    // A provisional pass is a not-final read of the audio so far: the worker never counts or records it, and it
+    // alone can be cancelled by the utterance id it carries.
     ...(req.provisional === true ? { provisional: true } : {}),
+    ...(req.provisional === true && cleanUtteranceId(req.utteranceId)
+      ? { utteranceId: cleanUtteranceId(req.utteranceId) }
+      : {}),
   };
+}
+
+/** A plain token (letters, digits, dot, dash, underscore, colon; 64 at most) or empty: it is written to the worker. */
+function cleanUtteranceId(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z0-9._:-]{1,64}$/.test(text) ? text : "";
+}
+
+/** Provisional decodes in flight, by utterance id ("" for one without a clean id). A cancel marks the entry. */
+const provisionals = new Map();
+
+/**
+ * Run one provisional decode: it never waits for the gate (a final decode owns the worker, or it is not wanted), a
+ * cancel makes its answer "cancelled" whatever the worker returned, and the text of a cancelled one is never given
+ * back. `run` is the decode itself (injected so a test needs no worker).
+ */
+async function runProvisional(req, run, gate = turnGate) {
+  const release = gate.tryEnter();
+  if (!release) {
+    return { ok: false, reason: "busy", error: "A transcription is already running." };
+  }
+  const key = cleanUtteranceId(req.utteranceId);
+  const entry = { cancelled: false };
+  provisionals.set(key, entry);
+  try {
+    const result = await run(req);
+    if (entry.cancelled || result?.reason === "cancelled") {
+      return {
+        ok: false,
+        reason: "cancelled",
+        cancelled: true,
+        final: false,
+        ...(key ? { utteranceId: key } : {}),
+      };
+    }
+    return provisionalReply(req, result);
+  } finally {
+    if (provisionals.get(key) === entry) provisionals.delete(key);
+    release();
+  }
+}
+
+/**
+ * Cancel a provisional decode (this utterance, or every one when the id is empty). It does not enter the gate and
+ * does not wait for the decode: it marks the entry and writes one cancel line to the worker, which reads its input on
+ * its own thread. The worker is never killed and the line carries no id, so nothing is left pending.
+ */
+function cancelTranscribe(req = {}, session = worker) {
+  const key = cleanUtteranceId(req.utteranceId);
+  let flagged = 0;
+  for (const [id, entry] of provisionals) {
+    if (key && id !== key) continue;
+    entry.cancelled = true;
+    flagged += 1;
+  }
+  let signalled = false;
+  if (flagged > 0 && session?.alive && session.child?.stdin && !session.child.stdin.destroyed) {
+    try {
+      session.child.stdin.write(`${JSON.stringify({ op: "cancel", utteranceId: key })}\n`);
+      signalled = true;
+    } catch {
+      /* the worker went away; the decode is flagged and its answer is dropped anyway */
+    }
+  }
+  return { ok: true, cancelled: flagged > 0, signalled };
 }
 
 /** The not-final marker a provisional answer carries (the same text fields, plus final:false and the utterance). */
@@ -1046,12 +1124,20 @@ function provisionalReply(req, result) {
  * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean, provisional?: boolean, utteranceId?: string }} req
  */
 async function transcribe(req = {}, onPartial) {
+  if (req.provisional === true) {
+    // Only a worker that is already up and loaded reads speculatively: a cold start is never paid for a guess.
+    return runProvisional(req, (r) =>
+      worker?.alive && worker.loaded
+        ? transcribeNow(r, onPartial)
+        : { ok: false, reason: "not-ready", error: "The speech worker is not loaded yet." },
+    );
+  }
   const release = await turnGate.enter();
   if (!release) {
     return { ok: false, reason: "busy", error: "A transcription is already running." };
   }
   try {
-    return provisionalReply(req, await transcribeNow(req, onPartial));
+    return await transcribeNow(req, onPartial);
   } finally {
     release();
   }
@@ -1063,6 +1149,12 @@ async function transcribeNow(req = {}, onPartial) {
   const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
   if (!state.available && !ladderReady)
     return { ok: false, reason: "unavailable", error: state.reason };
+
+  // A speculative read is only ever made by the local speech worker that already holds the model. A cloud engine
+  // (a paid, remote call for every guess, and not cancellable) or a one-shot process never reads early.
+  if (req.provisional === true && state.engine !== "faster-whisper") {
+    return { ok: false, reason: "not-ready", error: "Early reads need the local speech worker." };
+  }
 
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
   let temporary = false;
@@ -1456,6 +1548,8 @@ module.exports = {
   install,
   setProgressSink,
   transcribe,
+  runProvisional,
+  cancelTranscribe,
   provisionalReply,
   decodeExtras,
   createTurnGate,

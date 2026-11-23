@@ -36,6 +36,11 @@ import {
 import { preferences } from "./preferences";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
+import {
+  ProvisionalDecoder,
+  provisionalWanted,
+  type ProvisionalHandle,
+} from "./voice-engine/provisional-decode";
 import type { WakeProbe } from "./wake-engine";
 import type { VoiceProsody } from "./voice-tone";
 import {
@@ -495,6 +500,30 @@ export function turnHoldPlan(input: {
   return { ask, close: Boolean(input.tooLong) || input.quietMs >= budget };
 }
 
+/** What a decode returns to the renderer (the early read returns the same fields, marked not final). */
+type TranscribeReply = {
+  ok: boolean;
+  text?: string;
+  error?: string;
+  reason?: string;
+  cancelled?: boolean;
+  elapsedMs?: number;
+  language?: string;
+  noSpeechProb?: number;
+  languageProbability?: number | null;
+  avgLogprob?: number | null;
+  languageNote?: string;
+  dropCode?: string;
+  sttClass?: string;
+  fix?: string;
+  notice?: string;
+  emptyReason?: string;
+  audio?: HearingAudio | null;
+};
+type ProvisionalReply = TranscribeReply;
+/** The early read of a sealed pause, carried with its utterance through the queue. */
+type EarlyRead = ProvisionalHandle<ProvisionalReply> | null;
+
 export class DesktopDictation {
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
@@ -532,7 +561,22 @@ export class DesktopDictation {
 
   private lastErrorDetail = "";
   /** Utterances captured while whisper was busy, transcribed in order. */
-  private queue: Array<{ blob: Blob; wake: WakeProbe | null }> = [];
+  private queue: Array<{
+    blob: Blob;
+    wake: WakeProbe | null;
+    provisional: EarlyRead;
+  }> = [];
+  /** The early read of this pause: started at the model-confirmed end, cancelled when speech resumes. */
+  private readonly provisional = new ProvisionalDecoder<ProvisionalReply>({
+    now: () => Date.now(),
+    transcribe: ({ utteranceId, samples }) => this.readEarly(utteranceId, samples),
+    cancel: (utteranceId) => desktop()?.cancelTranscribe?.({ utteranceId }),
+  });
+  /** The end-of-turn model's probability for the current pause (null until it answers). */
+  private turnScore: number | null = null;
+  private lastSamples: Float32Array | null = null;
+  /** A running average of how long the last final decodes took, for the early-read gate (null until one ran). */
+  private decodeMs: number | null = null;
   /** In-utterance wake score (once); reused at send if it already matched. */
   private earlyWake: WakeProbe | null = null;
   private earlyWakeTried = false;
@@ -705,7 +749,9 @@ export class DesktopDictation {
     this.recorder = null;
     this.pcmSegment = false;
     this.chunks = [];
+    for (const row of this.queue) row.provisional?.cancel();
     this.queue = [];
+    this.provisional.invalidate();
     this.earlyWake = null;
     this.earlyWakeTried = false;
     this.earlyWakeGen += 1;
@@ -908,6 +954,8 @@ export class DesktopDictation {
     this.chunks = [];
     this.turnHold = "idle";
     this.turnGen += 1;
+    this.turnScore = null;
+    this.provisional.openSegment();
     this.startedAt = Date.now();
     this.startedMono = performance.now();
     this.pcmFrom = this.startedMono - PRE_ROLL_MS;
@@ -921,14 +969,14 @@ export class DesktopDictation {
 
   /** Pull the shared ring, including the pre-roll, and prefer that over a late recorder. */
   private takePcm(): Uint8Array | null {
-    const samples = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
-    this.segmentSamples = samples.length;
-    if (samples.length < 1600) return null;
+    const samples = this.takeSamples();
+    if (!samples) return null;
     return encodeWav(samples);
   }
 
   private finishSegment(reason: string) {
     const wav = this.pcmFrom ? this.takePcm() : null;
+    if (!wav) this.provisional.cancel();
     const clock = segmentClock({
       startedMono: this.startedMono || performance.now(),
       nowMono: performance.now(),
@@ -948,7 +996,15 @@ export class DesktopDictation {
       });
       const pcm = new ArrayBuffer(wav.byteLength);
       new Uint8Array(pcm).set(wav);
-      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake);
+      // The early read stands only if this is the same audio plus the quiet since (otherwise it is cancelled).
+      const sealed = this.lastSamples
+        ? this.provisional.seal({
+            samples: this.lastSamples,
+            quietMs: voiceGate.getSnapshot().sinceSpeech ?? 0,
+            signature: JSON.stringify(this.decodeFields()),
+          })
+        : null;
+      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake, sealed);
     } else if (clock.bug && !this.bugLogged) {
       this.bugLogged = true;
       this.options.onDiagnostic?.({ stage: "error", detail: clock.reason, ms: clock.reportMs });
@@ -1005,6 +1061,9 @@ export class DesktopDictation {
         // Speech resumed: whatever the model said about the earlier pause no longer applies.
         this.turnHold = "idle";
         this.turnGen += 1;
+        this.turnScore = null;
+        // ... and an early read of that pause is for audio that is no longer the whole of what was said.
+        this.provisional.invalidate();
       }
       const plan = turnHoldPlan({
         hold: this.turnHold,
@@ -1019,6 +1078,8 @@ export class DesktopDictation {
         this.turnHold = "scoring";
         void this.requestTurnScore(this.turnGen);
       }
+      if (!plan.close && !tooLong)
+        this.maybeReadEarly({ speech: snapshot.speech, tooLong, quietMs: quietFor });
       if (!plan.close && !tooLong) return;
       if (this.pcmSegment || !this.recorder) {
         this.finishSegment(tooLong ? "segment closed" : "silence");
@@ -1044,17 +1105,91 @@ export class DesktopDictation {
       return;
     }
     let next: TurnHold;
+    let score: number | null = null;
     try {
       const audioBytes = wav.slice();
       const scored = await api.scoreTurn({ audioBytes, mime: "audio/wav" });
       if (scored?.ready) turnScoreReady = "ready";
       else if (/absent/.test(scored?.reason || "")) turnScoreReady = "absent";
       next = turnHoldAfterScore(scored?.probability);
+      score = typeof scored?.probability === "number" ? scored.probability : null;
     } catch {
       next = "done";
     }
     // A score for an older pause (speech resumed, or a new segment opened) is dropped.
-    if (gen === this.turnGen) this.turnHold = next;
+    if (gen === this.turnGen) {
+      this.turnHold = next;
+      this.turnScore = score;
+    }
+  }
+
+  /** Everything about a decode except the audio, read once per request so an early read and the final one agree. */
+  private decodeFields() {
+    const language = whisperLanguageArg(this.options.language) || undefined;
+    const promptOpt = this.options.initialPrompt;
+    const initialPrompt =
+      typeof promptOpt === "function"
+        ? promptOpt()
+        : (promptOpt ?? sttInitialPrompt({ preference: this.options.language ?? "" }));
+    const sttSize = preferences.getSnapshot().voice.sttSize;
+    const hotOpt = this.options.hotwords;
+    const hotwords = (typeof hotOpt === "function" ? hotOpt() : (hotOpt ?? "")).trim();
+    const multilingual = preferences.getSnapshot().voice.sttMultilingual === true;
+    return {
+      language,
+      ...(this.options.language ? { speechPref: this.options.language } : {}),
+      ...(sttSize && sttSize !== "auto" ? { model: sttSize, sttSize } : {}),
+      localOnly: Boolean(this.options.localOnly),
+      ...(initialPrompt ? { initialPrompt } : {}),
+      ...(hotwords ? { hotwords } : {}),
+      ...(multilingual ? { multilingual: true } : {}),
+    };
+  }
+
+  /** One early (not final, never counted) read of the audio so far. A bridge that cannot do it answers not ok. */
+  private async readEarly(utteranceId: string, samples: Float32Array): Promise<ProvisionalReply> {
+    const api = desktop();
+    if (!api?.transcribe) return { ok: false, reason: "no-bridge" };
+    const wav = encodeWav(samples);
+    return (await api.transcribe({
+      audioBytes: wav,
+      mime: "audio/wav",
+      ...this.decodeFields(),
+      provisional: true,
+      utteranceId,
+    })) as ProvisionalReply;
+  }
+
+  /** The audio of this segment so far from the shared ring, or null when there is too little to read. */
+  private takeSamples(): Float32Array | null {
+    const samples = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    this.segmentSamples = samples.length;
+    this.lastSamples = samples;
+    return samples.length < 1600 ? null : samples;
+  }
+
+  /** At the model-confirmed end of the pause: read what was said now, so the answer is ready when the pause closes. */
+  private maybeReadEarly(input: { speech: boolean; tooLong: boolean; quietMs: number }) {
+    if (
+      !provisionalWanted({
+        score: this.turnScore,
+        speech: input.speech,
+        tooLong: input.tooLong,
+        busy: this.busy || this.queue.length > 0,
+        running: this.provisional.attempted(),
+        keepClips: keepUtteranceWavs(),
+        pcm: this.pcmSegment && Boolean(desktop()?.cancelTranscribe),
+      })
+    )
+      return;
+    if (!this.provisional.worthwhile(this.decodeMs)) return;
+    const samples = this.takeSamples();
+    if (!samples) return;
+    this.provisional.start({
+      samples,
+      quietMs: input.quietMs,
+      signature: JSON.stringify(this.decodeFields()),
+    });
   }
 
   private silenceBudget(): number {
@@ -1106,13 +1241,18 @@ export class DesktopDictation {
    * transcribed in order; only a genuine backlog (more than three waiting)
    * drops the OLDEST one, and even that is reported.
    */
-  private enqueue(blob: Blob, wake: WakeProbe | null = null) {
+  private enqueue(blob: Blob, wake: WakeProbe | null = null, provisional: EarlyRead = null) {
+    const entry = { blob, wake, provisional };
     const admitted = admitUtterance(
       this.queue.map((row) => ({ item: row, samples: row.blob.size })),
-      { blob, wake },
+      entry,
       blob.size,
     );
+    const before = this.queue;
     this.queue = admitted.queue.map((row) => row.item);
+    // A dropped utterance is never transcribed: its early read is stopped, not left running for nothing.
+    for (const row of before) if (!this.queue.includes(row)) row.provisional?.cancel();
+    if (!this.queue.includes(entry)) entry.provisional?.cancel();
     if (admitted.dropped) {
       this.droppedCount += admitted.dropped;
       this.options.onDiagnostic?.({
@@ -1139,19 +1279,21 @@ export class DesktopDictation {
     while (this.queue.length) {
       const next = this.queue.shift();
       if (!next) break;
-      await this.send(next.blob, next.wake);
+      await this.send(next.blob, next.wake, next.provisional);
     }
   }
 
-  private async send(blob: Blob, early: WakeProbe | null = null) {
+  private async send(blob: Blob, early: WakeProbe | null = null, provisional: EarlyRead = null) {
     const api = desktop();
     if (!api?.transcribe) {
+      provisional?.cancel();
       this.speaking = false;
       this.options.onError?.("the desktop transcriber bridge is unavailable");
       this.options.onDiagnostic?.({ stage: "error", detail: "no transcribe bridge" });
       return;
     }
     if (blob.size < 2000) {
+      provisional?.cancel();
       // Too short to hold speech — but never silently: a mic that captures
       // nothing looks exactly like this, and the owner deserves to see it.
       this.speaking = false;
@@ -1194,50 +1336,37 @@ export class DesktopDictation {
           )
         : Promise.resolve(null);
       this.options.onStateChange?.("thinking");
-      this.options.onDiagnostic?.({
-        stage: "transcribing",
-        detail: "sent to faster-whisper",
-        bytes: blob.size,
-      });
-      const language = whisperLanguageArg(this.options.language) || undefined;
-      const promptOpt = this.options.initialPrompt;
-      const initialPrompt =
-        typeof promptOpt === "function"
-          ? promptOpt()
-          : (promptOpt ?? sttInitialPrompt({ preference: this.options.language ?? "" }));
-      const sttSize = preferences.getSnapshot().voice.sttSize;
-      const hotOpt = this.options.hotwords;
-      const hotwords = (typeof hotOpt === "function" ? hotOpt() : (hotOpt ?? "")).trim();
-      const multilingual = preferences.getSnapshot().voice.sttMultilingual === true;
-      const result = (await api.transcribe({
-        audioBytes,
-        mime: blob.type,
-        language,
-        ...(this.options.language ? { speechPref: this.options.language } : {}),
-        ...(sttSize && sttSize !== "auto" ? { model: sttSize, sttSize } : {}),
-        localOnly: Boolean(this.options.localOnly),
-        ...(initialPrompt ? { initialPrompt } : {}),
-        ...(hotwords ? { hotwords } : {}),
-        ...(multilingual ? { multilingual: true } : {}),
-        ...(keepUtteranceWavs() ? { keepWav: true } : {}),
-      })) as {
-        ok: boolean;
-        text?: string;
-        error?: string;
-        language?: string;
-        noSpeechProb?: number;
-        languageProbability?: number | null;
-        avgLogprob?: number | null;
-        languageNote?: string;
-        dropCode?: string;
-        sttClass?: string;
-        fix?: string;
-        notice?: string;
-        emptyReason?: string;
-        audio?: HearingAudio | null;
-      };
+      if (!provisional) {
+        this.options.onDiagnostic?.({
+          stage: "transcribing",
+          detail: "sent to faster-whisper",
+          bytes: blob.size,
+        });
+      }
+      // A read of this very audio, started at the model-confirmed end, stands as the answer when it finished clean.
+      const adopted = provisional ? await provisional.take() : null;
+      if (adopted) {
+        this.options.onDiagnostic?.({
+          stage: "transcribing",
+          detail: "adopted the early read (same audio, no second decode)",
+          bytes: blob.size,
+        });
+      }
+      const result = (adopted ??
+        (await api.transcribe({
+          audioBytes,
+          mime: blob.type,
+          ...this.decodeFields(),
+          ...(keepUtteranceWavs() ? { keepWav: true } : {}),
+        }))) as TranscribeReply;
       if (result?.ok) {
         this.lastErrorDetail = "";
+        if (typeof result.elapsedMs === "number" && result.elapsedMs > 0) {
+          this.decodeMs =
+            this.decodeMs === null
+              ? result.elapsedMs
+              : this.decodeMs * 0.6 + result.elapsedMs * 0.4;
+        }
         if (result.notice) this.reportOnce(result.notice);
         const text = (result.text || "").trim();
         const heard = transcriptDropDetail(result);

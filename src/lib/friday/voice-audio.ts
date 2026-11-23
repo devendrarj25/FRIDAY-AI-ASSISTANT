@@ -13,6 +13,7 @@
  */
 
 import { captureRate } from "./mic-session";
+import { preferences } from "./preferences";
 import {
   cleanedLevel,
   markWorklet,
@@ -199,13 +200,7 @@ type CaptureAttempt =
 async function tryCapture(md: MediaDevices, deviceId?: string): Promise<CaptureAttempt> {
   let last: unknown = null;
   for (let step = 0; step < 3; step += 1) {
-    const plan =
-      step === 0
-        ? {
-            ...(deviceId && deviceId !== "default" ? { deviceId } : {}),
-            audio: audioConstraints(deviceId),
-          }
-        : relaxedCapture(step, deviceId);
+    const plan = capturePlan(step, deviceId);
     if (!plan) break;
     try {
       const stream = await md.getUserMedia({ audio: plan.audio });
@@ -287,11 +282,46 @@ export function gateSpeechKey(snapshot: {
   return `${snapshot.running ? 1 : 0}|${snapshot.speech ? 1 : 0}|${snapshot.speakingGuard ? 1 : 0}|${snapshot.noiseFloor.toFixed(3)}`;
 }
 
-export function audioConstraints(deviceId?: string): MediaTrackConstraints {
+/** The owner's noise-suppression choice (Settings > Voice). On is how the microphone has always been opened. */
+export function noiseSuppressionWanted(): boolean {
+  try {
+    return preferences.getSnapshot().voice.noiseSuppression !== false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * One step of opening the microphone: strict constraints first, then the relaxed ones. The owner's noise-suppression
+ * choice applies to every step that names processing; the bare last step asks the browser for nothing.
+ */
+export function capturePlan(
+  step: number,
+  deviceId?: string | null,
+  noiseSuppression: boolean = noiseSuppressionWanted(),
+): { deviceId?: string; audio: true | MediaTrackConstraints } | null {
+  const id = deviceId ?? undefined;
+  if (step === 0) {
+    return {
+      ...(id && id !== "default" ? { deviceId: id } : {}),
+      audio: audioConstraints(id, noiseSuppression),
+    };
+  }
+  const relaxed = relaxedCapture(step, id);
+  if (!relaxed) return null;
+  return typeof relaxed.audio === "object"
+    ? { ...relaxed, audio: { ...relaxed.audio, noiseSuppression } }
+    : relaxed;
+}
+
+export function audioConstraints(
+  deviceId?: string,
+  noiseSuppression: boolean = noiseSuppressionWanted(),
+): MediaTrackConstraints {
   return {
     ...(deviceId && deviceId !== "default" ? { deviceId: { exact: deviceId } } : {}),
     echoCancellation: true,
-    noiseSuppression: true,
+    noiseSuppression,
     autoGainControl: true,
     channelCount: 1,
     sampleRate: captureRate(),
@@ -644,10 +674,7 @@ export class VoiceGate {
     let last: unknown = null;
     for (const id of ids) {
       for (let step = 0; step < 3; step += 1) {
-        const plan =
-          step === 0
-            ? { ...(id && id !== "default" ? { deviceId: id } : {}), audio: audioConstraints(id) }
-            : relaxedCapture(step, id);
+        const plan = capturePlan(step, id);
         if (!plan) break;
         try {
           return await md.getUserMedia({ audio: plan.audio });

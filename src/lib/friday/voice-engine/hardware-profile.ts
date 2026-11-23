@@ -213,7 +213,7 @@ const round1 = (value: number) => Math.round(value * 10) / 10;
 const minRam = (id: string) => voiceModelFacts[id]?.minRamGb ?? 0;
 
 /** Resident memory a speech size needs with the voice and the two helpers loaded beside it. */
-function residentNeedGb(size: string): number {
+export function residentNeedGb(size: string): number {
   return round1(
     minRam(STT_SIZE_MODEL[size] ?? "") +
       minRam("supertonic-3") +

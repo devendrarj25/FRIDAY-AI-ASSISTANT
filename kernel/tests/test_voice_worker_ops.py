@@ -9,8 +9,10 @@ import base64
 import io
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
 import types
 import wave
 from pathlib import Path
@@ -212,6 +214,224 @@ def test_the_real_worker_process_answers_speak_pcm_without_a_model(tmp_path):
     lines = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
     assert lines[0]["id"] == 1 and lines[0]["ok"] is False
     assert lines[1]["reason"] == "bad-request"
+
+
+# ---------------------------------------------------------------- per-utterance cancel
+# A cancelled utterance stops being synthesised and its result is dropped with reason "cancelled". The worker stays
+# up: a reader thread reads the `cancel` line while a clause is being made and the synthesis checks between spans.
+
+MIXED = "मुझे यह बताओ कि आज का मौसम कैसा है। Please open the calendar and tell me what is next today."
+
+
+@pytest.fixture(autouse=True)
+def _fresh_cancel_state():
+    voice_runtime.reset_cancelled()
+    yield
+    voice_runtime.reset_cancelled()
+
+
+def _speak_utt(rid: int, utt: str | None = None, text: str = "Good morning sir", **extra) -> dict:
+    return {"id": rid, "op": "speak-pcm", "text": text, **({"utt": utt} if utt is not None else {}), **extra}
+
+
+def test_a_request_without_an_utterance_id_keeps_its_old_shape(fake_engine, monkeypatch):
+    replies = _serve(monkeypatch, [_speak_utt(1, seq=2)])
+    assert replies[0]["ok"] is True and replies[0]["seq"] == 2
+    assert "utt" not in replies[0]
+
+
+def test_the_utterance_id_comes_back_on_a_normal_reply(fake_engine, monkeypatch):
+    replies = _serve(monkeypatch, [_speak_utt(1, "a1")])
+    assert replies[0]["ok"] is True and replies[0]["utt"] == "a1"
+
+
+def test_a_request_for_an_already_cancelled_utterance_is_rejected_without_synthesis(fake_engine, monkeypatch):
+    replies = _serve(
+        monkeypatch,
+        [{"id": 1, "op": "cancel", "utt": "a1"}, _speak_utt(2, "a1", seq=9), _speak_utt(3, "a2")],
+    )
+    cancel_reply = next(item for item in replies if item["id"] == 1)
+    assert cancel_reply == {"id": 1, "ok": True, "utt": "a1"}
+    stale = next(item for item in replies if item["id"] == 2)
+    assert stale == {"id": 2, "ok": False, "reason": "cancelled", "utt": "a1", "seq": 9}
+    # The next utterance is a different id and is spoken; the cancelled one cost no synthesis at all.
+    later = next(item for item in replies if item["id"] == 3)
+    assert later["ok"] is True and later["utt"] == "a2"
+    assert FakeTTS.seen == ["Good morning sir"]
+
+
+def test_cancel_between_spans_stops_the_rest_and_drops_the_audio(fake_engine, monkeypatch):
+    uncancelled = _serve(monkeypatch, [_speak_utt(1, "a1", text=MIXED, lang="hi-IN")])
+    assert uncancelled[0]["ok"] is True
+    spans = len(FakeTTS.seen)
+    assert spans >= 2, "the mixed Hindi and English text must be more than one span for this test to mean anything"
+
+    FakeTTS.seen = []
+    original = FakeTTS.synthesize
+
+    def cancel_after_the_first_span(self, text, *args, **kwargs):
+        made = original(self, text, *args, **kwargs)
+        voice_runtime.cancel_utterance("a2")
+        return made
+
+    monkeypatch.setattr(FakeTTS, "synthesize", cancel_after_the_first_span)
+    replies = _serve(monkeypatch, [_speak_utt(2, "a2", text=MIXED, lang="hi-IN", seq=4)])
+    assert replies[0] == {"id": 2, "ok": False, "reason": "cancelled", "utt": "a2", "seq": 4}
+    assert len(FakeTTS.seen) == 1
+    assert "pcm16" not in replies[0]
+
+
+def test_a_cancel_that_lands_during_the_last_span_still_drops_the_result(fake_engine, monkeypatch):
+    original = FakeTTS.synthesize
+
+    def cancel_during(self, text, *args, **kwargs):
+        voice_runtime.cancel_utterance("a3")
+        return original(self, text, *args, **kwargs)
+
+    monkeypatch.setattr(FakeTTS, "synthesize", cancel_during)
+    replies = _serve(monkeypatch, [_speak_utt(1, "a3")])
+    assert replies[0]["ok"] is False and replies[0]["reason"] == "cancelled"
+    assert "pcm16" not in replies[0]
+
+
+def test_the_light_hindi_voice_is_checked_before_and_after_it_runs(fake_engine, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(voice_runtime.tts_hindi_light, "ready", lambda: True)
+    monkeypatch.setattr(voice_runtime.tts_hindi_light, "speakable", lambda text: True)
+
+    def light(text, speed=1.0, style="", seed=None):
+        calls.append(text)
+        voice_runtime.cancel_utterance("h1")
+        import numpy as np
+
+        return np.zeros(2205, dtype=np.float32), 22050
+
+    monkeypatch.setattr(voice_runtime.tts_hindi_light, "synthesize", light)
+    replies = _serve(monkeypatch, [_speak_utt(1, "h1", text="नमस्ते दोस्तों", lang="hi", engine="hindi-light")])
+    assert calls == ["नमस्ते दोस्तों"]
+    assert replies[0]["ok"] is False and replies[0]["reason"] == "cancelled"
+    # And a cancelled utterance never starts the light voice at all.
+    calls.clear()
+    replies = _serve(monkeypatch, [_speak_utt(2, "h1", text="नमस्ते दोस्तों", lang="hi", engine="hindi-light")])
+    assert calls == [] and replies[0]["reason"] == "cancelled"
+
+
+def test_cancel_needs_a_clean_utterance_id(fake_engine, monkeypatch):
+    replies = _serve(
+        monkeypatch,
+        [
+            {"id": 1, "op": "cancel"},
+            {"id": 2, "op": "cancel", "utt": ""},
+            {"id": 3, "op": "cancel", "utt": 7},
+            {"id": 4, "op": "cancel", "utt": "x" * 65},
+            {"id": 5, "op": "cancel", "utt": "bad id!"},
+            {"id": 6, "op": "status"},
+        ],
+    )
+    for item in replies[:5]:
+        assert item["ok"] is False and item["reason"] == "bad-request"
+    assert replies[5]["id"] == 6
+
+
+def test_a_request_with_a_malformed_utterance_id_is_spoken_untracked(fake_engine, monkeypatch):
+    replies = _serve(monkeypatch, [_speak_utt(1, "no good id!"), _speak_utt(2, 12)])
+    assert replies[0]["ok"] is True and "utt" not in replies[0]
+    assert replies[1]["ok"] is True and "utt" not in replies[1]
+
+
+def test_the_cancelled_set_is_bounded_and_forgets_the_oldest(fake_engine):
+    for index in range(voice_runtime.CANCELLED_KEEP + 50):
+        voice_runtime.cancel_utterance(f"u{index}")
+    assert voice_runtime.is_cancelled(f"u{voice_runtime.CANCELLED_KEEP + 49}")
+    assert not voice_runtime.is_cancelled("u0")
+
+
+def test_the_worker_stays_up_after_a_cancel(fake_engine, monkeypatch):
+    replies = _serve(
+        monkeypatch,
+        [
+            {"id": 1, "op": "cancel", "utt": "a1"},
+            {"id": 2, "op": "status"},
+            _speak_utt(3, "a9"),
+            {"id": 4, "op": "shutdown"},
+        ],
+    )
+    by_id = {item["id"]: item for item in replies}
+    assert by_id[1]["ok"] is True and by_id[2]["ok"] is True
+    assert by_id[3]["ok"] is True and by_id[4] == {"id": 4, "ok": True}
+
+
+def test_a_cancel_is_answered_while_a_clause_is_still_being_synthesised(fake_engine, monkeypatch):
+    """The reader thread reads the cancel line while the worker is busy: it does not wait for the clause."""
+    started = threading.Event()
+    release = threading.Event()
+    original = FakeTTS.synthesize
+
+    def blocked(self, text, *args, **kwargs):
+        started.set()
+        assert release.wait(10), "the test never released the synthesis"
+        return original(self, text, *args, **kwargs)
+
+    monkeypatch.setattr(FakeTTS, "synthesize", blocked)
+
+    feed: queue.Queue = queue.Queue()
+
+    class Stdin:
+        def __iter__(self):
+            while True:
+                item = feed.get()
+                if item is None:
+                    return
+                yield item
+
+    out = io.StringIO()
+    lock = threading.Lock()
+
+    class Stdout(io.StringIO):
+        def write(self, text):
+            with lock:
+                return out.write(text)
+
+    monkeypatch.setattr(sys, "stdin", Stdin())
+    monkeypatch.setattr(sys, "stdout", Stdout())
+    done: list[int] = []
+    worker = threading.Thread(target=lambda: done.append(voice_runtime.serve()), daemon=True)
+    worker.start()
+
+    def lines() -> list[dict]:
+        with lock:
+            return [json.loads(line) for line in out.getvalue().splitlines() if line.strip()]
+
+    def wait_for(rid: int, timeout: float = 10.0) -> dict:
+        end = threading.Event()
+        waited = 0.0
+        while waited < timeout:
+            for item in lines():
+                if item.get("id") == rid:
+                    return item
+            end.wait(0.02)
+            waited += 0.02
+        raise AssertionError(f"no reply for id {rid}")
+
+    feed.put(json.dumps(_speak_utt(1, "live1")) + "\n")
+    assert started.wait(10)
+    # A second clause of the same utterance waits in the queue behind the first.
+    feed.put(json.dumps(_speak_utt(4, "live1", text="Second clause")) + "\n")
+    feed.put(json.dumps({"id": 2, "op": "cancel", "utt": "live1"}) + "\n")
+    # The cancel is answered although clause 1 is still blocked inside the engine.
+    assert wait_for(2) == {"id": 2, "ok": True, "utt": "live1"}
+    assert not any(item.get("id") == 1 for item in lines())
+    release.set()
+    first = wait_for(1)
+    assert first["ok"] is False and first["reason"] == "cancelled" and first["utt"] == "live1"
+    queued = wait_for(4)
+    assert queued["ok"] is False and queued["reason"] == "cancelled"
+    # The queued clause never reached the engine.
+    assert FakeTTS.seen == ["Good morning sir"]
+    feed.put(json.dumps({"id": 3, "op": "shutdown"}) + "\n")
+    wait_for(3)
+    worker.join(10)
+    assert done == [0]
 
 
 def _real_model_ready() -> bool:

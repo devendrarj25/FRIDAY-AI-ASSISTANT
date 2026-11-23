@@ -5123,6 +5123,7 @@ ipcMain.handle("voice:neural-install", () => neuralVoice.install());
 ipcMain.handle("voice:neural-voices", () => neuralVoice.voices());
 ipcMain.handle("voice:neural-speak", (_e, payload) => neuralVoice.speak(payload || {}));
 ipcMain.handle("voice:neural-speak-pcm", (_e, payload) => neuralVoice.speakPcm(payload || {}));
+ipcMain.handle("voice:neural-cancel-pcm", (_e, payload) => neuralVoice.cancelPcm(payload || {}));
 ipcMain.handle("voice:echo-shadow", (_e, payload) => neuralVoice.echoShadow(payload || {}));
 // Push-to-talk toggle. A global shortcut reports a press and no release, so it
 // toggles; hold-to-talk is Ctrl+Space inside the window. Registered only while
@@ -5233,6 +5234,7 @@ ipcMain.handle("voice:transcribe", (e, payload) =>
   }),
 );
 ipcMain.handle("voice:score-turn", (_e, payload) => stt.scoreTurn(payload || {}));
+ipcMain.handle("voice:cancel-transcribe", (_e, payload) => stt.cancelTranscribe(payload || {}));
 
 // ------------------------------------------ low-latency wake word (openWW) --
 // The REAL detector when openWakeWord is installed with a model for the

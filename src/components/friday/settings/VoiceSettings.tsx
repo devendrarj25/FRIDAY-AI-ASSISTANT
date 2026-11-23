@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
+import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPickers";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
 import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
@@ -63,15 +64,6 @@ export function VoiceSettings() {
   const voice = useAssistantMode();
   const router = useRouter({ warn: false });
   const [busy, setBusy] = useState(false);
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
-    void navigator.mediaDevices
-      .enumerateDevices()
-      .then((list) => setDevices(list.filter((d) => d.kind === "audioinput")))
-      .catch(() => setDevices([]));
-  }, []);
 
   return (
     <div className="space-y-4">
@@ -222,23 +214,7 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
-          <label className="block sm:col-span-2">
-            <span className="label-xs text-muted-foreground">Microphone</span>
-            <select
-              value={prefs.voice.inputDeviceId}
-              onChange={(e) => preferences.setVoice({ inputDeviceId: e.target.value })}
-              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-            >
-              <option value="" className="bg-background">
-                System default
-              </option>
-              {devices.map((device) => (
-                <option key={device.deviceId} value={device.deviceId} className="bg-background">
-                  {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <VoiceAudioPickers />
         </div>
         <div className="mt-4 space-y-3">
           <ToggleRow
@@ -429,40 +405,6 @@ export function VoiceSettings() {
               preferences.setVoice({ sttMultilingual: prefs.voice.sttMultilingual !== true })
             }
           />
-          <label className="block">
-            <span className="label-xs text-muted-foreground">Speech model size</span>
-            <select
-              value={prefs.voice.sttSize || "auto"}
-              onChange={(e) =>
-                preferences.setVoice({
-                  sttSize: e.target.value as typeof prefs.voice.sttSize,
-                })
-              }
-              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-            >
-              <option value="auto" className="bg-background">
-                Auto
-              </option>
-              <option value="tiny" className="bg-background">
-                Tiny
-              </option>
-              <option value="base" className="bg-background">
-                Base
-              </option>
-              <option value="small" className="bg-background">
-                Small
-              </option>
-              <option value="medium" className="bg-background">
-                Medium
-              </option>
-              <option value="large-v3-turbo" className="bg-background">
-                Large turbo (fast, big)
-              </option>
-              <option value="large-v3" className="bg-background">
-                Large
-              </option>
-            </select>
-          </label>
           <label className="block">
             <span className="label-xs text-muted-foreground">Talkativeness</span>
             <select

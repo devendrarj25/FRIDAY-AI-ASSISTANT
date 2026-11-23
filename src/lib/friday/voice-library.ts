@@ -24,6 +24,9 @@ import {
 } from "./voice-engine/pcm-clip-player";
 import { echoLive } from "./voice-engine/echo-live";
 import { preferences, type VoiceModel } from "./preferences";
+import { listAudioDevices } from "./voice-audio";
+import { routeToSpeaker, type SinkTarget } from "./voice-engine/audio-devices";
+import { ttsEnginePlan } from "./voice-engine/voice-choices";
 import { models } from "./models-engine";
 import { looksSensitive } from "./brain/memory-policy";
 import { profileVoiceStyle } from "./voice-engine/friday-voice-profile";
@@ -79,9 +82,13 @@ type VoiceBridge = {
     seq?: number;
     /** `hindi-light` asks for the optional light Hindi voice; left out, the clause is made as it always was. */
     engine?: string;
+    /** The utterance this clause belongs to; `cancelNeuralPcm` for the same id drops it (running, queued or late). */
+    utt?: string;
   }) => Promise<{
     ok: boolean;
     reason?: string;
+    /** True when the utterance was cancelled: no samples, and not a failure of the voice. */
+    cancelled?: boolean;
     engine?: string;
     /** Why another engine spoke than the one asked for (`hindi-light-not-installed`, `hindi-light-failed`...). */
     fallback?: string;
@@ -89,6 +96,8 @@ type VoiceBridge = {
     sampleRate?: number;
     pcm?: ArrayLike<number> & { length: number };
   }>;
+  /** Drop one utterance in the local voice (barge-in or stop). The worker keeps running. */
+  cancelNeuralPcm?: (payload: { utt: string }) => Promise<{ ok: boolean; reason?: string }>;
   duckAudio?: (payload: {
     on: boolean;
   }) => Promise<{ ok: boolean; ducked?: boolean; reason?: string }>;
@@ -622,7 +631,10 @@ export function playedReplySnapshot(): PlayedReply {
 
 /** Stop whatever FRIDAY is saying right now (neural playback or SAPI). */
 export function stopSpeaking() {
+  // The local voice may still be making a clause of this utterance: tell it to drop the utterance (worker stays up).
+  const dead = pcmUttAsked !== "" && pcmUttAsked === utteranceId() ? pcmUttAsked : "";
   speechGeneration += 1;
+  if (dead) cancelPcmUtterance(dead);
   // Before anything is paused: the clock and the audio element's position are still the moment of the stop.
   playedTracker.stop();
   try {
@@ -659,6 +671,49 @@ export function stopSpeaking() {
 /** How many playbacks or pauses are waiting to be cancelled (a stuck count means a leak). */
 export const pendingSpeechOperations = (): number => cancelHooks.size;
 
+/* ------------------------------------------------------------- speaker choice */
+
+/** The speaker the owner saved in Settings > Voice; "" is the system default. */
+const savedSpeaker = (): string => preferences.getSnapshot().voice.outputDeviceId || "";
+
+let speakerNoteText = "";
+
+/** One line when the saved speaker could not be used and the default plays instead; empty otherwise. */
+export const speakerFallbackNote = (): string => (savedSpeaker() ? speakerNoteText : "");
+
+/** Send one playback target (an audio element or the PCM player's context) to the saved speaker. Never throws. */
+async function routeSpeaker(target: SinkTarget): Promise<void> {
+  try {
+    const { outputs } = await listAudioDevices();
+    const result = await routeToSpeaker(
+      target,
+      savedSpeaker(),
+      outputs.map((row) => ({ id: row.id, label: row.label })),
+    );
+    speakerNoteText = result.fellBack ? result.note : "";
+  } catch {
+    speakerNoteText = "";
+  }
+}
+
+/**
+ * The owner changed the speaker (or plugged one in or out): the speech that is playing and the PCM player move to
+ * it now, and what plays next follows. A browser that cannot choose a speaker keeps the default and says so.
+ */
+export async function applySpeakerChoice(): Promise<void> {
+  if (currentAudio) await routeSpeaker(currentAudio as unknown as SinkTarget);
+  if (pcmContext) await routeSpeaker(pcmContext as unknown as SinkTarget);
+  if (!currentAudio && !pcmContext && savedSpeaker()) {
+    const { outputs } = await listAudioDevices();
+    const result = await routeToSpeaker(
+      {},
+      savedSpeaker(),
+      outputs.map((row) => ({ id: row.id, label: row.label })),
+    );
+    speakerNoteText = result.fellBack ? result.note : "";
+  }
+}
+
 function playBase64(
   audioBase64: string,
   mime: string,
@@ -692,10 +747,16 @@ function playBase64(
       heard?.drop();
       finish();
     };
-    void audio.play().catch(() => {
+    const failed = () => {
       heard?.drop();
       finish();
-    });
+    };
+    // A saved speaker is set before the first sample; with none saved the clip plays at once, as it always did.
+    if (savedSpeaker())
+      void routeSpeaker(audio)
+        .then(() => audio.play())
+        .catch(failed);
+    else void audio.play().catch(failed);
     return () => {
       // Whether it ended, failed or was cancelled: detach, stop and give the clip's resources back.
       audio.onended = null;
@@ -718,8 +779,24 @@ function playBase64(
  * through the page audio element, so a PCM problem never costs the owner a sentence.
  */
 let pcmPlayer: PcmClipPlayer | null = null;
+let pcmContext: PcmContext | null = null;
 let pcmOffReason = "";
 let pcmSeq = 0;
+/** Tags one page load, so an utterance id of an older page can never match this one's. */
+const PAGE_TAG = Math.random().toString(36).slice(2, 8) || "p";
+/** The utterance id the local voice was last asked to make a clause for ("" when none this session). */
+let pcmUttAsked = "";
+
+/** The id of the utterance being spoken now: one per speech generation (a stop starts a new one). */
+const utteranceId = (): string => `${PAGE_TAG}-${speechGeneration}`;
+
+function cancelPcmUtterance(utt: string): void {
+  try {
+    void Promise.resolve(bridge()?.cancelNeuralPcm?.({ utt })).catch(() => undefined);
+  } catch {
+    /* no bridge, or it threw: the stale clause is dropped by the playback generation anyway */
+  }
+}
 let pcmPlayedLast = false;
 
 const audioContextCtor = (): (new () => unknown) | null => {
@@ -758,8 +835,10 @@ export function resetPcmPlayback(): void {
     /* nothing audible */
   }
   pcmPlayer = null;
+  pcmContext = null;
   pcmOffReason = "";
   pcmSeq = 0;
+  pcmUttAsked = "";
   pcmPlayedLast = false;
 }
 
@@ -767,7 +846,10 @@ function getPcmPlayer(): PcmClipPlayer {
   if (pcmPlayer) return pcmPlayer;
   const Ctor = audioContextCtor();
   if (!Ctor) throw new Error("no AudioContext");
-  const created = new PcmClipPlayer(new Ctor() as PcmContext, {
+  const context = new Ctor() as PcmContext;
+  pcmContext = context;
+  if (savedSpeaker()) void routeSpeaker(context as unknown as SinkTarget);
+  const created = new PcmClipPlayer(context, {
     onLevel: (rms) => {
       // The measured loudness of the samples that are playing drives the companion's mouth.
       try {
@@ -829,6 +911,8 @@ function pcmWanted(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | n
 /** One clause as raw samples from the local voice; null (and a recorded reason) when it could not be made. */
 async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechClip | null> {
   pcmSeq += 1;
+  const utt = utteranceId();
+  pcmUttAsked = utt;
   const result = await Promise.resolve(
     api.speakNeuralPcm?.({
       text: plan.text,
@@ -836,6 +920,7 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
       lang: plan.lang,
       style: localStyle(),
       seq: pcmSeq,
+      utt,
       ...(plan.engine ? { engine: plan.engine } : {}),
     }),
   ).catch((error: unknown) => ({
@@ -845,6 +930,13 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
   const rate = Number((result as { sampleRate?: number } | undefined)?.sampleRate) || 0;
   const bytes = (result as { pcm?: ArrayLike<number> & { length: number } } | undefined)?.pcm;
   if (!result?.ok || !bytes || !(rate > 0)) {
+    // A cancelled utterance is the stop doing its job, not a fault: no samples, and PCM playback stays on.
+    if (
+      (result as { cancelled?: boolean } | undefined)?.cancelled === true ||
+      (result as { reason?: string } | undefined)?.reason === "cancelled"
+    ) {
+      return null;
+    }
     const reason = String((result as { reason?: string } | undefined)?.reason || "no samples");
     // Nothing to say is not a failure of the player.
     if (!/^nothing to speak|empty-text/i.test(reason)) pcmFailed(`synthesis: ${reason}`);
@@ -942,6 +1034,14 @@ function duckOthers(speaking: boolean) {
   const enabled = preferences.getSnapshot().voice.duckOthers !== false;
   const on = shouldDuck({ enabled, speaking, quiet: !alertsAudible() });
   void api.duckAudio({ on }).catch(() => undefined);
+}
+
+/** A pinned engine (Settings > Voice) takes the owner's cloud clip maker out of the line: nothing online is asked. */
+function pinnedEngine(tuning: SpeechTuning, pick: { cloud: boolean }): SpeechTuning {
+  if (pick.cloud || !tuning.cloudClip) return tuning;
+  const { cloudClip: _dropped, ...rest } = tuning;
+  void _dropped;
+  return rest;
 }
 
 /**
@@ -1091,8 +1191,11 @@ async function localClipOf(
   api: VoiceBridge | null,
 ): Promise<SpeechClip | null> {
   if (api && pcmWanted(plan, tuning, api)) {
+    const utterance = utteranceId();
     const raw = await makePcmClip(plan, api);
     if (raw) return raw;
+    // Stopped meanwhile: a stale clause is not made again as a WAV.
+    if (utterance !== utteranceId()) return null;
     // The clause is made again below, as a WAV, by the path that always worked.
   }
   if (!api?.speakNeural) return null;
@@ -1236,8 +1339,14 @@ async function clipFor(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge
 export function prefetchSpeech(text: string, tuning: SpeechTuning): void {
   const spoken = text.trim();
   const api = bridge();
-  if (!spoken || !api?.speakNeural || tuning.kind === "file") return;
-  const plans = planSegments(spokenClauses(spoken), tuning, tuning.allowCloud !== false);
+  const pick = ttsEnginePlan(preferences.getSnapshot().voice.ttsEngine);
+  if (!spoken || !api?.speakNeural || tuning.kind === "file" || !pick.neural) return;
+  tuning = pinnedEngine(tuning, pick);
+  const plans = planSegments(
+    spokenClauses(spoken),
+    tuning,
+    tuning.allowCloud !== false && pick.cloud,
+  );
   for (const plan of plans.slice(0, 3)) {
     if (!clipAhead.has(plan.key)) remember(plan.key, makeClip(plan, tuning, api));
   }
@@ -1276,8 +1385,10 @@ export async function speakText(
       hooks.onEnd?.();
     },
   };
-  const neuralAllowed = tuning.kind !== "file";
-  const allowCloud = tuning.allowCloud !== false;
+  const pick = ttsEnginePlan(preferences.getSnapshot().voice.ttsEngine);
+  tuning = pinnedEngine(tuning, pick);
+  const neuralAllowed = tuning.kind !== "file" && pick.neural;
+  const allowCloud = tuning.allowCloud !== false && pick.cloud;
   const segments = spokenClauses(spoken);
   try {
     if ((api?.speakNeural || tuning.cloudClip) && neuralAllowed) {

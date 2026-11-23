@@ -309,6 +309,21 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
   });
 }
 
+/**
+ * One line to the running speaker with no reply wanted (the per-utterance cancel). It never starts a worker: with
+ * none running there is nothing to cancel. True when the line was written.
+ */
+function speakerNotify(payload) {
+  const session = speaker;
+  if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) return false;
+  try {
+    session.child.stdin.write(`${JSON.stringify(payload)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const LOCAL_STYLE = /^[FM][1-5]$/i;
 
 async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
@@ -373,6 +388,43 @@ const PCM_ENGINES = new Set(["hindi-light", "supertonic"]);
 /** A fallback reason the worker may report: a short kebab-case token, never free text. */
 const PCM_FALLBACK = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/** An utterance id the renderer tags its clauses with: short, ASCII, safe to log and to send as one JSON field. */
+const PCM_UTTERANCE = /^[A-Za-z0-9_-]{1,64}$/;
+/** How many cancelled utterance ids are remembered (the newest win). */
+const PCM_CANCELLED_KEEP = 512;
+const pcmCancelled = new Set();
+
+const cleanUtterance = (value) =>
+  typeof value === "string" && PCM_UTTERANCE.test(value) ? value : "";
+
+/** A clause of a cancelled utterance: no audio, and the reason says so. */
+function pcmCancelledAnswer(utt, seq) {
+  return {
+    ok: false,
+    engine: "local",
+    cloud: false,
+    reason: "cancelled",
+    cancelled: true,
+    utt,
+    ...(Number.isInteger(seq) ? { seq } : {}),
+  };
+}
+
+/**
+ * Cancel one utterance (barge-in or stop). The id is remembered here, so a clause that is still in flight or
+ * arrives later is dropped, and the running worker is told so it stops between language spans. The worker is never
+ * killed and never started for this.
+ */
+async function cancelPcm(payload, { notify = speakerNotify } = {}) {
+  const utt = cleanUtterance(payload?.utt);
+  if (!utt) return { ok: false, reason: "bad-request" };
+  pcmCancelled.delete(utt);
+  pcmCancelled.add(utt);
+  while (pcmCancelled.size > PCM_CANCELLED_KEEP)
+    pcmCancelled.delete(pcmCancelled.values().next().value);
+  return { ok: true, utt, sent: notify({ op: "cancel", utt }) === true };
+}
+
 /**
  * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
  * fallback, no disk write and no cache, so sensitive text never leaves this PC. The samples are returned as a
@@ -380,7 +432,7 @@ const PCM_FALLBACK = /^[a-z0-9][a-z0-9-]{0,63}$/;
  * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.
  */
 async function speakPcm(
-  { text, rate = 1, lang = "", style = "", seq, engine } = {},
+  { text, rate = 1, lang = "", style = "", seq, engine, utt } = {},
   { request = speakerRequest, resolvePy = python } = {},
 ) {
   const spoken = String(text || "")
@@ -389,6 +441,8 @@ async function speakPcm(
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
   const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
   const askedEngine = typeof engine === "string" && PCM_ENGINES.has(engine) ? engine : "";
+  const utterance = cleanUtterance(utt);
+  if (utterance && pcmCancelled.has(utterance)) return pcmCancelledAnswer(utterance, seq);
   const py = await resolvePy();
   if (!py)
     return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
@@ -402,9 +456,14 @@ async function speakPcm(
       style: voiceStyle,
       ...(askedEngine ? { engine: askedEngine } : {}),
       ...(Number.isInteger(seq) ? { seq } : {}),
+      ...(utterance ? { utt: utterance } : {}),
     },
     60000,
   );
+  // Cancelled while it ran (here, or the worker saw the cancel first): the samples are dropped, never played.
+  if (utterance && (pcmCancelled.has(utterance) || answered?.reason === "cancelled")) {
+    return pcmCancelledAnswer(utterance, seq);
+  }
   if (!answered?.ok || typeof answered.pcm16 !== "string" || !answered.pcm16) {
     return {
       ok: false,
@@ -436,6 +495,7 @@ async function speakPcm(
     ms: Number(answered.ms) || 0,
     ...(fallback ? { fallback } : {}),
     ...(Number.isInteger(seq) ? { seq } : {}),
+    ...(utterance ? { utt: utterance } : {}),
   };
 }
 
@@ -707,6 +767,8 @@ module.exports = {
   speak,
   speakLocal,
   speakPcm,
+  cancelPcm,
+  PCM_CANCELLED_KEEP,
   echoShadow,
   createEchoShadow,
   ECHO_SHADOW_MIN_GAP_MS,

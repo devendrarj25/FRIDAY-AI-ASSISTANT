@@ -64,7 +64,9 @@ describe("echo-shadow wiring", () => {
   });
 
   it("the worker answers the op the bridge sends", () => {
-    expect(read("kernel/voice_runtime.py")).toMatch(/elif op == "echo-shadow":/);
+    expect(read("kernel/voice_runtime.py")).toMatch(
+      /if op == "echo-shadow":\s*\n\s*return echo_shadow_payload\(req\), False/,
+    );
     expect(read("electron/neural-voice.cjs")).toMatch(/op: "echo-shadow"/);
   });
 });

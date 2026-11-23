@@ -26,6 +26,7 @@ import gc
 import json
 import math
 import os
+import queue
 import re
 import struct
 import sys
@@ -34,6 +35,7 @@ import threading
 import time
 import unicodedata
 import wave
+from collections import deque
 from pathlib import Path
 
 # The packaged self-check and the speech worker run this file with the bundled
@@ -347,9 +349,14 @@ def cache_dir() -> str:
     return str(base)
 
 
+_emit_lock = threading.Lock()  # the reader thread answers a cancel while the main thread streams a decode
+
+
 def emit(payload: dict) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    with _emit_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _import_whisper():
@@ -1223,6 +1230,69 @@ def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
 _provisional_pass = False
 
 
+class DecodeCancelled(BaseException):  # noqa: N818 — not an error, and a BaseException so no `except Exception` swallows it
+    """Raised at a segment or pass boundary when the owner's speech resumed and a provisional decode is not wanted."""
+
+
+# A cancel is cooperative: it sets a flag that the decode reads between segments and passes (a decode that is inside
+# one model call finishes that call first). Only a provisional decode can be cancelled; a final one never is.
+_cancel_lock = threading.Lock()
+_active_decode: dict = {"key": "", "event": None}
+_cancelled_keys: deque = deque(maxlen=32)  # cancels that arrived before their decode began (bounded)
+
+
+def begin_decode(key: str, provisional: bool) -> None:
+    """Open the cancel window of one decode. A cancel that arrived first ends it before any work."""
+    key = (key or "")[:64]
+    with _cancel_lock:
+        if not provisional:
+            _active_decode["key"], _active_decode["event"] = "", None
+            return
+        early = bool(key) and key in _cancelled_keys
+        if early:
+            _cancelled_keys.remove(key)
+        event = threading.Event()
+        if early:
+            event.set()
+        _active_decode["key"], _active_decode["event"] = key, event
+    check_cancel()
+
+
+def end_decode() -> None:
+    with _cancel_lock:
+        _active_decode["key"], _active_decode["event"] = "", None
+
+
+def check_cancel() -> None:
+    """Raise DecodeCancelled when this decode was cancelled. Cheap: called between segments and passes."""
+    event = _active_decode["event"]
+    if event is not None and event.is_set():
+        raise DecodeCancelled()
+
+
+def request_cancel(key: str = "") -> dict:
+    """Cancel the running provisional decode (this key, or any when the key is empty), or remember the key for one
+    that has not begun. Called from the reader thread; never takes the model lock, so it answers during a decode."""
+    key = str(key or "")[:64]
+    with _cancel_lock:
+        event = _active_decode["event"]
+        if event is not None and (not key or _active_decode["key"] == key):
+            event.set()
+            return {"ok": True, "cancelled": True, "queued": False, "utteranceId": _active_decode["key"]}
+        if key and key not in _cancelled_keys:
+            _cancelled_keys.append(key)
+        return {"ok": True, "cancelled": False, "queued": bool(key), "utteranceId": key}
+
+
+def cancelled_reply(req: dict) -> dict:
+    """What a cancelled decode answers: not ok, never final, never counted as heard, never a fault."""
+    reply = {"ok": False, "reason": "cancelled", "cancelled": True, "final": False}
+    uid = req.get("utteranceId")
+    if isinstance(uid, str) and uid.strip():
+        reply["utteranceId"] = uid.strip()[:64]
+    return reply
+
+
 def transcribe_file(
     audio: str,
     model_name: str,
@@ -1235,11 +1305,14 @@ def transcribe_file(
     keep_wav: bool = False,
     extras: dict | None = None,
     provisional: bool = False,
+    utterance_id: str = "",
 ) -> dict:
-    """One utterance file to text. A provisional pass runs every gate but is never counted or recorded."""
+    """One utterance file to text. A provisional pass runs every gate but is never counted or recorded, and it alone
+    can be cancelled (``request_cancel``): that raises DecodeCancelled out of here, with nothing counted."""
     global _provisional_pass
     _provisional_pass = bool(provisional)
     try:
+        begin_decode(utterance_id, bool(provisional))
         return _transcribe_file(
             audio,
             model_name,
@@ -1254,6 +1327,7 @@ def transcribe_file(
             provisional,
         )
     finally:
+        end_decode()
         _provisional_pass = False
 
 
@@ -1307,12 +1381,14 @@ def _transcribe_file(
 
 def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     """One whisper pass. Segment text is kept even when no-speech is high."""
+    check_cancel()
     segments, info = model.transcribe(payload, **kwargs)
     parts: list[str] = []
     no_speech: list[float] = []
     logprobs: list[float] = []
     partials = 0
     for seg in segments:
+        check_cancel()
         text = (getattr(seg, "text", "") or "").strip()
         if text:
             parts.append(text)
@@ -1570,6 +1646,7 @@ def _transcribe_prepared(
                 # The first reading opens the ear, so this time includes that one decode.
                 _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
             touch()
+        check_cancel()
         mode = hindi_ear.listen_mode(language, speech_pref)
         if hindi_text and not hindi_ear.confident(mode, hindi_ear.last_confidence()):
             hindi_text = None
@@ -1625,6 +1702,7 @@ def _transcribe_prepared(
         )
     # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
     # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
+    check_cancel()  # the ear is done and nothing was heard: do not open a model for a decode nobody wants
     alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
     model = None
     if alt is not None:
@@ -1715,6 +1793,7 @@ def _transcribe_prepared(
             ["windows-speech"],
         )
     language_note = ear_note
+    check_cancel()
     if not ear_note and should_recheck_language(first, lang is not None):
         # (Not after the Hindi ear judged this audio: a second Hindi-locked decode would repeat that look at full cost.)
         try:
@@ -1726,6 +1805,7 @@ def _transcribe_prepared(
     bare["vad_filter"] = False
 
     def again(kind: str) -> dict:
+        check_cancel()
         clip = original if kind == HEARING_ORIGINAL and original is not None else payload
         return _consume_whisper(model, clip, bare, on_partial)
 
@@ -2226,7 +2306,8 @@ def provisional_reply(result: dict, req: dict) -> dict:
     """A provisional answer says it is not final, how much audio it heard, and which utterance it belongs to."""
     if not result.get("ok"):
         return result
-    facts = result.get("audio") if isinstance(result.get("audio"), dict) else {}
+    audio = result.get("audio")
+    facts: dict = audio if isinstance(audio, dict) else {}
     millis = result.get("durationMs") or facts.get("durationMs") or 0
     reply = {**result, "final": False, "audioMs": int(millis) if isinstance(millis, (int, float)) else 0}
     reply["engine"] = str(result.get("engine") or "faster-whisper")
@@ -2282,6 +2363,8 @@ def _handle_op(req: dict) -> dict:
             }
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "reason": "model-load-failed", "error": str(exc)[-600:], "loadCount": _load_count}
+    if op == "cancel":
+        return request_cancel(str(req.get("utteranceId") or ""))
     if op == "score-turn":
         return voice_runtime.score_turn_payload(req)
     if op == "partial-plan":
@@ -2303,6 +2386,7 @@ def _handle_op(req: dict) -> dict:
                 return
             emit({"id": rid, "stream": True, "text": text, "engine": "faster-whisper"})
 
+        uid = req.get("utteranceId")
         try:
             result = transcribe_file(
                 audio,
@@ -2319,9 +2403,11 @@ def _handle_op(req: dict) -> dict:
                     "multilingual": req.get("multilingual") is True,
                     "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
                 },
-                **({"provisional": True} if provisional else {}),
+                **({"provisional": True, "utterance_id": uid if isinstance(uid, str) else ""} if provisional else {}),
             )
             return provisional_reply(result, req) if provisional else result
+        except DecodeCancelled:
+            return cancelled_reply(req)
         except Exception as exc:  # noqa: BLE001
             fault = classify_stt_exception(exc)
             if _whisper_cls is None and fault.kind != "dependency-incompatible":
@@ -2349,18 +2435,14 @@ def serve() -> int:
     except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
     start_idle_watch()
-    for raw in sys.stdin:
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-        except Exception as exc:  # noqa: BLE001
-            emit({"ok": False, "reason": "bad-request", "error": str(exc)[-200:]})
-            continue
-        if not isinstance(req, dict):
-            emit({"ok": False, "reason": "bad-request", "error": "request must be an object"})
-            continue
+    # Input is read on its own thread, so a cancel is answered while a decode holds this one. Every other request
+    # waits in order; only "cancel" jumps the line, and it only sets a flag.
+    inbox: queue.Queue = queue.Queue()
+    threading.Thread(target=_read_requests, args=(inbox,), name="stt-reader", daemon=True).start()
+    while True:
+        req = inbox.get()
+        if req is None:
+            return 0
         rid = req.get("id")
         try:
             with _cache_lock:
@@ -2372,7 +2454,29 @@ def serve() -> int:
         emit(result)
         if str(req.get("op") or "") == "shutdown":
             return 0
-    return 0
+
+
+def _read_requests(inbox: queue.Queue) -> None:
+    try:
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                req = json.loads(line)
+            except Exception as exc:  # noqa: BLE001
+                emit({"ok": False, "reason": "bad-request", "error": str(exc)[-200:]})
+                continue
+            if not isinstance(req, dict):
+                emit({"ok": False, "reason": "bad-request", "error": "request must be an object"})
+                continue
+            if str(req.get("op") or "") == "cancel":
+                answer = request_cancel(str(req.get("utteranceId") or ""))
+                emit({"id": req["id"], **answer} if req.get("id") is not None else answer)
+                continue
+            inbox.put(req)
+    finally:
+        inbox.put(None)
 
 
 def main() -> int:
@@ -2389,7 +2493,13 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.serve:
-        return serve()
+        code = serve()
+        # The reader thread may still be blocked on stdin. Leaving through interpreter shutdown with it there can end
+        # in "could not acquire lock for <stdin> at interpreter shutdown", so the worker leaves at once, flushed.
+        try:
+            sys.stdout.flush()
+        finally:
+            os._exit(code)
 
     if args.hearing_self_test:
         payload = run_hearing_self_test()

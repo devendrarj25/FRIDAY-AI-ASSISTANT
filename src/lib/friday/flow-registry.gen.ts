@@ -320,7 +320,9 @@ export const FLOW_REGISTRY = {
     "voice.liveWords",
     "voice.localVoiceStyle",
     "voice.models",
+    "voice.noiseSuppression",
     "voice.notesRetentionDays",
+    "voice.outputDeviceId",
     "voice.ownerVoiceOnly",
     "voice.pauseDuringCalls",
     "voice.pcmPlayback",
@@ -341,6 +343,7 @@ export const FLOW_REGISTRY = {
     "voice.tasks",
     "voice.tidyDictation",
     "voice.trimHistoryToPlayed",
+    "voice.ttsEngine",
     "voice.utteranceWavDays",
     "voice.vocabulary",
     "voice.voiceName",
@@ -2200,6 +2203,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:cancel-transcribe",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:duck",
       file: "electron/main.cjs",
     },
@@ -2217,6 +2224,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:meeting",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:neural-cancel-pcm",
       file: "electron/main.cjs",
     },
     {
@@ -9497,16 +9508,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 156,
-      total: 156,
+      mapped: 159,
+      total: 159,
     },
     capabilities: {
       mapped: 1109,
       total: 1109,
     },
     ipc: {
-      mapped: 506,
-      total: 506,
+      mapped: 508,
+      total: 508,
     },
     kernel: {
       mapped: 14,

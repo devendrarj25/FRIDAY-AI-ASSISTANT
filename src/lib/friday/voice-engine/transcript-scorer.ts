@@ -126,6 +126,9 @@ export function percentile(values: readonly number[], p: number): number | null 
   return sorted[rank - 1] ?? null;
 }
 
+type Rate = { edits: number; total: number };
+type Range95 = { low: number; high: number };
+
 export type GroupScore = {
   samples: number;
   referenceWords: number;
@@ -135,6 +138,12 @@ export type GroupScore = {
   /** 95% range from resampling the sentences (seeded), or null with fewer than 2 samples. */
   corpusWerRange: { low: number; high: number } | null;
   meanCer: number;
+  /** Letters of the normalised references (spaces ignored) and the character edits over them. */
+  referenceChars: number;
+  charEdits: number;
+  /** Total character edits over total reference letters, with the same seeded 95% resampled range. */
+  corpusCer: number;
+  corpusCerRange: Range95 | null;
   /** Sentences heard exactly, with the 95% Wilson interval for that rate. */
   exact: number;
   exactRate: number;
@@ -150,25 +159,37 @@ export type GroupScore = {
 
 const RESAMPLES = 400;
 
+function charCounts(reference: string, hypothesis: string): Rate {
+  const ref = [...normaliseTranscript(reference).replace(/ /g, "")];
+  const hyp = [...normaliseTranscript(hypothesis).replace(/ /g, "")];
+  return { edits: editDistance(ref, hyp), total: ref.length };
+}
+
+function rate(rows: readonly Rate[]): number {
+  const e = rows.reduce((sum, c) => sum + c.edits, 0);
+  const t = rows.reduce((sum, c) => sum + c.total, 0);
+  return t ? e / t : e ? 1 : 0;
+}
+
+/** 95% range of an edit rate from resampling the sentences with a seeded generator; null below 2 sentences. */
+function resampledRange(rows: readonly Rate[], seed: number): Range95 | null {
+  if (rows.length < 2) return null;
+  const next = seeded(seed);
+  const draws: number[] = [];
+  for (let r = 0; r < RESAMPLES; r += 1) {
+    draws.push(rate(rows.map(() => rows[Math.floor(next() * rows.length)]!)));
+  }
+  return { low: percentile(draws, 2.5) ?? 0, high: percentile(draws, 97.5) ?? 0 };
+}
+
 function scoreGroup(samples: readonly ScoredSample[], budgetMs: number): GroupScore {
   const counts = samples.map((s) => wordCounts(s.reference, s.hypothesis));
   const edits = counts.reduce((sum, c) => sum + c.edits, 0);
   const words = counts.reduce((sum, c) => sum + c.words, 0);
-  const wer = (rows: readonly { edits: number; words: number }[]) => {
-    const e = rows.reduce((sum, c) => sum + c.edits, 0);
-    const w = rows.reduce((sum, c) => sum + c.words, 0);
-    return w ? e / w : e ? 1 : 0;
-  };
-  let range: GroupScore["corpusWerRange"] = null;
-  if (samples.length >= 2) {
-    const next = seeded(samples.length * 7919 + words);
-    const draws: number[] = [];
-    for (let r = 0; r < RESAMPLES; r += 1) {
-      const pick = counts.map(() => counts[Math.floor(next() * counts.length)]!);
-      draws.push(wer(pick));
-    }
-    range = { low: percentile(draws, 2.5) ?? 0, high: percentile(draws, 97.5) ?? 0 };
-  }
+  const wordRows = counts.map((c) => ({ edits: c.edits, total: c.words }));
+  const charRows = samples.map((s) => charCounts(s.reference, s.hypothesis));
+  const range = resampledRange(wordRows, samples.length * 7919 + words);
+  const charTotal = charRows.reduce((sum, c) => sum + c.total, 0);
   const exact = samples.filter(
     (s) => normaliseTranscript(s.reference) === normaliseTranscript(s.hypothesis),
   ).length;
@@ -177,12 +198,16 @@ function scoreGroup(samples: readonly ScoredSample[], budgetMs: number): GroupSc
     samples: samples.length,
     referenceWords: words,
     wordEdits: edits,
-    corpusWer: wer(counts),
+    corpusWer: rate(wordRows),
     corpusWerRange: range,
     meanCer: samples.length
       ? samples.reduce((sum, s) => sum + charErrorRate(s.reference, s.hypothesis), 0) /
         samples.length
       : 0,
+    referenceChars: charTotal,
+    charEdits: charRows.reduce((sum, c) => sum + c.edits, 0),
+    corpusCer: rate(charRows),
+    corpusCerRange: resampledRange(charRows, samples.length * 6151 + charTotal),
     exact,
     exactRate: samples.length ? exact / samples.length : 0,
     exactRange: wilson(exact, samples.length),

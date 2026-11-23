@@ -29,7 +29,7 @@ Sidebar labels come from `src/lib/friday/navigation.ts`. Settings is the shell f
 ### The Auto mode bar
 
 1. **Listen:** the microphone chip (listening, paused, off, or error), hands-free, hold to talk, pause or resume, reset microphone.
-2. **Speak:** speaking while FRIDAY talks, and Mute voice in the Transcript size.
+2. **Speak:** speaking while FRIDAY talks, and Mute voice in the Transcript size. Mute silences FRIDAY and turns the microphone off too; unmute turns it back on. Settings, Voice lets you pick the microphone, speaker, speech model size and voice engine, and switch noise suppression off.
 3. **Safety:** Ask every time, Balanced, Full autonomy, and Stop everything.
 4. **Tools:** Voice flow, Voice settings (opens Settings, Voice), and in the Transcript size Diagnostics and Pipeline.
 
