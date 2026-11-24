@@ -50,6 +50,108 @@ function packageNames(text) {
     );
 }
 
+/**
+ * Is a setup job verified, and how? A source digest; the publisher's own listing (speech, voice, chat); or a repository
+ * pin in electron/voice-pins.cjs with a full revision AND a SHA-256 for every file (the Hindi ears and the other
+ * pinned models, fetched by revision). Anything else is not verified.
+ */
+function verifiedBy(job, pins = require(path.join(REPO, "electron", "voice-pins.cjs"))) {
+  const src = job.job?.sources?.[0];
+  if (src?.sha256) return { ok: true, how: "pinned SHA-256" };
+  if (["stt", "tts", "chat"].includes(job.kind))
+    return { ok: true, how: "checked against the publisher's listing" };
+  const pin = src?.kind === "hf-repo" && src.repo ? pins.pinForRepo(src.repo) : null;
+  const files = Object.values(pin?.files || {});
+  if (
+    /^[0-9a-f]{40}$/.test(pin?.revision || "") &&
+    files.length > 0 &&
+    files.every((file) => /^[0-9a-f]{64}$/.test(file?.sha256 || ""))
+  )
+    return {
+      ok: true,
+      how: `pinned revision ${pin.revision.slice(0, 8)}, SHA-256 for ${files.length} files`,
+    };
+  return { ok: false, how: `${job.id} has no digest` };
+}
+
+/** Engines that need no download: always there, so every role has a last fallback. */
+const BUILT_IN_ENGINES = new Set([
+  "edge-tts",
+  "sapi",
+  "formant",
+  "energy-vad",
+  "silence-timer",
+  "transcript-wake",
+  "script-ratio",
+]);
+
+/** Engines that live in a Python package or the kernel, not in a model folder: Doctor's voice-files step checks them. */
+const UNCHECKED_ENGINES = new Set([
+  "rnnoise",
+  "openwakeword",
+  "wespeaker-ecapa",
+  "fasttext-lid218",
+  "moonshine-en",
+]);
+
+/** The fallback chains of src/lib/friday/voice-engine/voice-engine-table.ts, read as text (node cannot load TS). */
+function engineChains(text) {
+  const whisper = [
+    ...(/const WHISPER_SIZES = \[([^\]]*)\]/.exec(text)?.[1] || "").matchAll(/"([^"]+)"/g),
+  ].map((m) => m[1]);
+  const at = text.indexOf("export const VOICE_CHAINS");
+  const chains = {};
+  let role = "";
+  const scan = /^ {2}(\w+): \{|\b(hi|en|hinglish):\s*\[([^\]]*)\]/gm;
+  for (const m of at < 0 ? [] : text.slice(at).matchAll(scan)) {
+    if (m[1]) {
+      role = m[1];
+      chains[role] = {};
+    } else if (role) {
+      chains[role][m[2]] = [...m[3].matchAll(/"([^"]+)"|\.\.\.WHISPER_SIZES/g)].flatMap((x) =>
+        x[1] ? [x[1]] : whisper,
+      );
+    }
+  }
+  return chains;
+}
+
+/** INFO rows: per role (and language for listening and speaking) the engine in use and the installed fallbacks. */
+function engineRows(chains, installed) {
+  const rows = [];
+  for (const [role, langs] of Object.entries(chains)) {
+    const perLang = role === "stt" || role === "tts";
+    for (const lang of perLang ? ["hi", "en", "hinglish"] : ["hi"]) {
+      const chain = langs[lang] || [];
+      if (!chain.length) continue;
+      const name = perLang ? `${role} ${lang}` : role;
+      if (!installed) {
+        rows.push({
+          layer: "engine",
+          name,
+          state: "INFO",
+          detail: `chain ${chain.join(" > ")} (disk state needs --root)`,
+        });
+        continue;
+      }
+      const here = chain.filter((id) => BUILT_IN_ENGINES.has(id) || installed.has(id));
+      const unchecked = chain.filter((id) => UNCHECKED_ENGINES.has(id) && !here.includes(id));
+      const missing = chain.filter((id) => !here.includes(id) && !unchecked.includes(id));
+      const none = role === "stt" ? "no listening engine installed" : "no engine installed";
+      const detail = here.length
+        ? `active ${here[0]}${here.length > 1 ? `; fallbacks ${here.slice(1).join(", ")}` : "; no fallback installed"}`
+        : none;
+      rows.push({
+        layer: "engine",
+        name,
+        state: "INFO",
+        detail: `${detail}${missing.length ? ` (not installed: ${missing.length})` : ""}${unchecked.length ? ` (not checked here: ${unchecked.join(", ")})` : ""}`,
+      });
+    }
+  }
+  return rows;
+}
+
 function ipcChannels(source, pattern) {
   return [...source.matchAll(pattern)].map((m) => m[1]);
 }
@@ -166,15 +268,8 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       `${why} is NOT in the setup plan`,
     );
   for (const job of plan) {
-    const src = job.job?.sources?.[0];
-    const digest = Boolean(src?.sha256) || ["stt", "tts", "chat"].includes(job.kind);
-    check(
-      "setup",
-      `${job.id} is verified`,
-      digest,
-      src?.sha256 ? "pinned SHA-256" : "checked against the publisher's listing",
-      `${job.id} has no digest`,
-    );
+    const verdict = verifiedBy(job);
+    check("setup", `${job.id} is verified`, verdict.ok, verdict.how, verdict.how);
   }
   const bigStt = [...planned].filter((id) => /^stt-(medium|large-v3$)/.test(id));
   // Planned is the good answer (the big sizes are part of setup); INFO only when none is planned.
@@ -220,8 +315,16 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     }
   }
 
-  // ---- speech sizes: every list that names a size must agree with the weights map ---------------------------------
   const weights = require(path.join(REPO, "electron", "voice-weights.cjs"));
+  // ---- engines per role: the one in use and the fallbacks that are installed (information, never a verdict) -------
+  const onDisk = root
+    ? new Set(weights.voiceModelsOnDisk(root, fs.existsSync).map((found) => found.catalogId))
+    : null;
+  rows.push(
+    ...engineRows(engineChains(read("src/lib/friday/voice-engine/voice-engine-table.ts")), onDisk),
+  );
+
+  // ---- speech sizes: every list that names a size must agree with the weights map ---------------------------------
   const sizes = Object.keys(weights.STT_REPOS || {});
   const SIZE = /"(tiny|base|small|medium|large-v3-turbo|large-v3)"/g;
   const sizesIn = (text, startMarker, span) => {
@@ -492,7 +595,7 @@ function print(rows, log = console.log, { summary = false } = {}) {
   return fails.length;
 }
 
-module.exports = { inventory, print, packageNames, BANNED_PACKAGES };
+module.exports = { inventory, print, packageNames, verifiedBy, engineChains, BANNED_PACKAGES };
 
 if (require.main === module) {
   const args = process.argv.slice(2);

@@ -963,7 +963,10 @@ def check_lines() -> list[str]:
         lines.append(f"FAIL rnnoise {noise['reason']}")
     echo = echo_canceller.echo_status()
     if echo["ready"]:
-        lines.append("PASS echo-canceller speexdsp-aec (not wired into live capture)")
+        lines.append(
+            "PASS echo-canceller pyaec available (measure-only in the kernel; "
+            "live reference behind voice.echoReference)"
+        )
     else:
         lines.append(f"OPTIONAL echo-canceller {echo['reason']}")
     speaker = speaker_status()
