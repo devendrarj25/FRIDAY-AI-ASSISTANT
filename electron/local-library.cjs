@@ -312,6 +312,78 @@ function ollamaModels(options = {}) {
     }));
 }
 
+/** Ollama writes a tag with no variant as `name:latest`; the two spellings are one model. */
+const bareTag = (name) =>
+  String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/:latest$/, "");
+
+/**
+ * The chat model this PC really has in Ollama. The setup plan (electron/setup-plan.cjs) chooses the chat model by
+ * this PC's memory, so the app must not assume one tag. Order: `options.prefer` (the tag in use) when installed; else
+ * the installed chat model ranked best by the plan's `qualityOf`, among those whose weights plus margin fit the plan's
+ * usable memory (`options.facts` = hardware facts; without them every installed chat model counts), the plan's own
+ * tier tag winning a tie; else the default row of `ollamaModels()` (qwen3:4b), which is also what a PC with only
+ * that model gets. `installed`: tag strings or `{ name|model, size }` rows. Pure; null only when nothing is configured.
+ * Returns `{ tag, source: "prefer" | "installed" | "default" }`.
+ */
+function installedChatModel(installed, options = {}) {
+  const fallback = () => {
+    const tag = (options.runner ? ollamaModels({ runner: options.runner }) : ollamaModels())[0]
+      ?.tag;
+    return tag ? { tag, source: "default" } : null;
+  };
+  try {
+    const plan = require("./setup-plan.cjs");
+    const cfg = plan.loadTiers(options);
+    const rows = [];
+    const seen = new Set();
+    for (const raw of Array.isArray(installed) ? installed : []) {
+      const name = typeof raw === "string" ? raw : String(raw?.name || raw?.model || "");
+      const key = bareTag(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      rows.push({ name: name.trim(), key, bytes: Number(raw?.size) > 0 ? Number(raw.size) : 0 });
+    }
+    const wanted = bareTag(options.prefer);
+    const preferred = wanted ? rows.find((row) => row.key === wanted) : null;
+    if (preferred) return { tag: preferred.name, source: "prefer" };
+    if (!cfg || !rows.length) return fallback();
+
+    const pick = options.facts ? plan.chatModelFor(options.facts, { tiers: cfg }) : null;
+    const usable = Number(pick?.memory?.usableGb);
+    const margin = Number(cfg.rules?.weightsMargin) > 0 ? Number(cfg.rules.weightsMargin) : 1.2;
+    const listed = new Map();
+    for (const tier of cfg.tiers || []) {
+      listed.set(bareTag(tier.tag), Number(tier.downloadGb) || null);
+      for (const alt of tier.alternatives || [])
+        listed.set(bareTag(alt.tag), Number(alt.downloadGb) || null);
+    }
+    const ranked = rows
+      .map((row) => ({
+        ...row,
+        quality: plan.qualityOf(row.name, cfg),
+        weightsGb: row.bytes ? row.bytes / 1024 ** 3 : (listed.get(row.key) ?? null),
+      }))
+      .filter((row) => row.quality !== null)
+      .filter(
+        (row) =>
+          !Number.isFinite(usable) ||
+          row.weightsGb === null ||
+          row.weightsGb * margin <= usable + 1e-9,
+      )
+      .sort(
+        (a, b) =>
+          b.quality - a.quality ||
+          Number(b.key === bareTag(pick?.tag)) - Number(a.key === bareTag(pick?.tag)),
+      );
+    return ranked[0] ? { tag: ranked[0].name, source: "installed" } : fallback();
+  } catch {
+    return fallback();
+  }
+}
+
 /**
  * The newest official installer for one launcher. A live GitHub release wins
  * only when it carries the asset and the sha256 GitHub itself computed for it
@@ -361,6 +433,7 @@ module.exports = {
   ollamaClientVersion,
   findInstalledOllama,
   ollamaModels,
+  installedChatModel,
   latestOfficialRelease,
   runners,
   runnerById,

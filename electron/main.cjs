@@ -5390,13 +5390,36 @@ function warmFastChatModel() {
   // A speed-up, never worth memory: not under pressure, on battery or while the app is lagging.
   if (governor && !governor.allowsPrefetch()) return;
   fastChatWarmedAt = Date.now();
+  // The chat model this PC really holds (setup picks it by memory, not always qwen3:4b), never a single hard-coded tag.
+  void localChatTag()
+    .then((tag) => {
+      // Through the model-load slot at prefetch priority: it never waits behind a real load, it just does not happen.
+      if (tag) return loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag));
+      return undefined;
+    })
+    .catch(() => {
+      /* warming is a speed-up, never a requirement */
+    });
+}
+/** The Ollama chat model to warm: what Ollama holds, ranked by the setup plan for this PC's memory (local-library). */
+async function localChatTag() {
+  const library = require("./local-library.cjs");
+  let held = [];
   try {
-    const tag = require("./local-library.cjs").ollamaModels()[0]?.tag;
-    // Through the model-load slot at prefetch priority: it never waits behind a real load, it just does not happen.
-    if (tag) void loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag)).catch(() => {});
+    held = ((await modelsApi.ollamaModels()).models || []).map((m) => ({
+      name: m.name,
+      size: m.catalogue?.size,
+    }));
   } catch {
-    /* warming is a speed-up, never a requirement */
+    /* Ollama is not answering: the default row below is tried, as before */
   }
+  let facts = null;
+  try {
+    facts = await currentHardwareFacts();
+  } catch {
+    /* no facts: every installed chat model counts */
+  }
+  return library.installedChatModel(held, { facts })?.tag || null;
 }
 
 // Every speech download (first install, a size fetched while another listens, the engine package) reports

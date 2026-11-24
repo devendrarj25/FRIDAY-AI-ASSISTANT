@@ -86,9 +86,10 @@ describe("main process: leases at the heavy load sites", () => {
   });
 
   it("warms the fast chat model only through the prefetch slot", () => {
-    expect(main).toContain(
-      'loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag)).catch(() => {});',
+    expect(main).toMatch(
+      /return loadLeases\.runLoad\("prefetch", \(\) => modelsApi\.ollamaWarm\(tag\)\);[\s\S]{0,80}\.catch\(\(\) => \{/,
     );
+    expect(main.match(/modelsApi\.ollamaWarm\(tag\)/g)?.length).toBe(1);
     expect(main).not.toMatch(/void modelsApi\.ollamaWarm\(tag\)/);
   });
 

@@ -63,8 +63,14 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(disk.length).toBeGreaterThan(0);
     // Nothing is there, and it says so: what setup always fetches fails, what it may skip is information.
     expect(disk.every((r) => r.state === "FAIL" || r.state === "INFO")).toBe(true);
-    expect(disk.filter((r) => r.state === "FAIL").length).toBeGreaterThan(5);
-    expect(disk.find((r) => r.name === "stt-small")?.state).toBe("FAIL");
+    const failing = disk.filter((r) => r.state === "FAIL").map((r) => r.name);
+    for (const name of ["stt-small", "supertonic-3", "hindi-ear", "hindi-punct", "ollama-setup"]) {
+      expect(failing).toContain(name);
+    }
+    // Optional helpers have a fallback (energy VAD, silence timer), so a missing file is information only.
+    for (const name of ["silero-vad", "smart-turn"]) {
+      expect(disk.find((r) => r.name === name)?.state).toBe("INFO");
+    }
   });
 
   it("reads package names from a requirements file and finds a banned one", () => {
