@@ -21,6 +21,7 @@ const { parseJsonLine } = require("./json-line.cjs");
 
 const STT_SCRIPT = path.join(__dirname, "..", "kernel", "stt.py");
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
+const PIN_SELFTEST_SCRIPT = path.join(__dirname, "..", "kernel", "voice_pin_selftest.py");
 
 function sttScript() {
   if (fs.existsSync(STT_SCRIPT)) return STT_SCRIPT;
@@ -32,6 +33,12 @@ function runtimeScript() {
   if (fs.existsSync(RUNTIME_SCRIPT)) return RUNTIME_SCRIPT;
   const packaged = path.join(process.resourcesPath || "", "kernel", "voice_runtime.py");
   return fs.existsSync(packaged) ? packaged : RUNTIME_SCRIPT;
+}
+
+function pinSelfTestScript() {
+  if (fs.existsSync(PIN_SELFTEST_SCRIPT)) return PIN_SELFTEST_SCRIPT;
+  const packaged = path.join(process.resourcesPath || "", "kernel", "voice_pin_selftest.py");
+  return fs.existsSync(packaged) ? packaged : PIN_SELFTEST_SCRIPT;
 }
 
 function run(exe, args, timeout = 120000, env) {
@@ -466,6 +473,28 @@ async function verifyVoiceRuntime({
       });
     }
   }
+
+  // The optional pins (denoiser, speaker model, Hindi Vaani ear): installed ones open and run one pass, the rest offer
+  // their install button. Never required, and a green row does not mean the engine is used (see voice-pins.cjs SELF_TESTS).
+  checks.push(
+    ...(await require("./voice-weights.cjs").pinSelfTests(paths.root() || "", {
+      exists: (file) => fs.existsSync(file),
+      runSelfTest: async ({ dir, spec }) => {
+        const out = await run(
+          exe,
+          [...prefix, pinSelfTestScript(), "--dir", dir, "--spec", JSON.stringify(spec)],
+          120000,
+        );
+        return (
+          parseJsonLine(out.stdout) || {
+            ok: false,
+            reason: "no-answer",
+            detail: tail(out.stderr, "the self-test printed nothing"),
+          }
+        );
+      },
+    })),
+  );
 
   const speech = await speechSelfTest(sttEnv(size, prepared));
   checks.push({

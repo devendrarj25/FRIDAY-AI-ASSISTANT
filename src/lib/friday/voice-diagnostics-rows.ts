@@ -1,6 +1,7 @@
 import type { GovernorStatus, HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
+import type { WakeGuardSnapshot } from "./wake-guard";
 
 /** One read-only diagnostics row in the shape the Voice diagnostics list already uses. */
 export type DiagnosticsRow = { label: string; value: string; bad?: boolean };
@@ -18,6 +19,32 @@ export function stampedFigure(metric: string, monitor: LatencyMonitor = voiceLat
 
 const decibels = (value: number | null): string =>
   value === null || !Number.isFinite(value) ? "no measurement yet" : `${value.toFixed(1)} dB`;
+
+/** Hands-free wake gates: the state, the false-wake count, what was blocked and why. Counts only, no audio. */
+export function wakeGuardRows(snapshot: WakeGuardSnapshot): DiagnosticsRow[] {
+  const { counters } = snapshot;
+  const blocked = Object.entries(counters.blocked)
+    .filter(([, count]) => count > 0)
+    .map(([reason, count]) => `${reason} ${count}`)
+    .join(" · ");
+  return [
+    {
+      label: "hands-free state",
+      value: `${snapshot.state}${snapshot.locked ? ` (locked: ${snapshot.locked})` : ""} · hands-free ${onOff(snapshot.handsFree)}`,
+    },
+    {
+      label: "wakes (accepted / false)",
+      value: `${counters.accepted} accepted · ${counters.falseWakes} false`,
+      bad: counters.falseWakes > 0,
+    },
+    { label: "wakes blocked", value: blocked || "none" },
+    {
+      label: "wake threshold raise (room noise) · cooldown",
+      value: `+${snapshot.thresholdBoost.toFixed(2)} · ${Math.round(snapshot.cooldownLeftMs / 1000)} s`,
+    },
+    { label: "forced asleep (mute, pause, stop)", value: String(counters.forcedAsleep) },
+  ];
+}
 
 /** The echo reference rows. Empty when the reference is switched off: nothing to report, nothing invented. */
 export function echoReferenceRows(diagnostics: EchoLiveDiagnostics): DiagnosticsRow[] {

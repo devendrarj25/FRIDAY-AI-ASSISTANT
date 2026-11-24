@@ -493,7 +493,9 @@ describe("E: pause, mute and Stop everything forget the echo reference", () => {
     expect(clear).toHaveBeenCalledWith("stop");
     autonomy.resume();
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
-    expect(mode).toContain('import { clearEchoReference } from "./voice-engine/echo-live"');
+    expect(mode).toContain(
+      'import { clearEchoReference, echoDiagnostics } from "./voice-engine/echo-live"',
+    );
     for (const reason of ["muted", "paused", "stop"])
       expect(mode).toContain(`clearEchoReference("${reason}")`);
   });

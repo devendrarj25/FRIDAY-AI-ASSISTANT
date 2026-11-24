@@ -43,7 +43,7 @@ import {
   subscribeCaptureFrames,
   TARGET_RATE,
 } from "./pcm-capture";
-import { LiveWords } from "./voice-engine/live-words";
+import { LiveWords, livePassDeps } from "./voice-engine/live-words";
 import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
@@ -60,12 +60,21 @@ import {
   normalizeListenStyle,
   pttActive,
   pttAdmits,
+  pttCloseNow,
+  pttFocusLost,
+  pttPhase,
   pttPress,
   pttRelease,
+  pttSetAllowed,
+  pttTailMs,
   pttToggle,
   resetPtt,
+  setPttTailMs,
+  subscribePtt,
   type ListenStyle,
+  type PttPhase,
 } from "./push-to-talk";
+import { wakeThreshold } from "./wake-room";
 import { assessTone, type VoiceTone } from "./voice-tone";
 import {
   beginVoiceTurn,
@@ -100,15 +109,17 @@ import { diagnoseVoice, problemLine, type SelfCheckResult } from "./voice-selfch
 import { SUPERVISOR_COOLDOWN_MS, superviseVoice } from "./voice-supervisor";
 import { startPrewarm, cancelPrewarm, ackClipFor, readyAckClipIds } from "./voice-prewarm";
 import { playAckSamples, stopAckClip } from "./voice-engine/ack-player";
-import { clearEchoReference } from "./voice-engine/echo-live";
+import { clearEchoReference, echoDiagnostics } from "./voice-engine/echo-live";
 import { prewarmLine, type PrewarmOutcome } from "./voice-engine/prewarm";
 import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
   beginPlayedReply,
+  duckSpeech,
   lastClipUsedPcm,
   lastSpeechRoute,
   pcmPlaybackNote,
+  playedReplyCut,
   playedReplySnapshot,
   prefetchSpeech,
   speakText,
@@ -155,7 +166,14 @@ import {
   type VoiceAudit,
 } from "./voice-session";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
-import { BargeInDetector, BargeShadow } from "./voice-engine/interruption-controller";
+import {
+  BargeInDetector,
+  BargeShadow,
+  InterruptGate,
+  sanitizeInterruptGate,
+  type GateInput,
+  type GateVerdict,
+} from "./voice-engine/interruption-controller";
 import { speechRms } from "./character/speech-audio";
 import { firstClauseCut } from "./voice-engine/clause-chunker";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
@@ -640,6 +658,21 @@ class AssistantModeStore {
   private spokenText = "";
   /** The part of the reply that was heard, taken at the moment the voice was cut for a possible interruption. */
   private heldPlayed: PlayedReply | null = null;
+  /**
+   * The backchannel gate: the owner's voice while she speaks only lowers her volume until words show it is a real
+   * interruption (see `InterruptGate`). `gateText` is the newest words the recogniser gave, `gatePlayed` what was
+   * heard at full volume when the voice began.
+   */
+  private interruptGate = new InterruptGate(() =>
+    sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate),
+  );
+  private gateTimer: ReturnType<typeof setInterval> | null = null;
+  private gateText = "";
+  private gatePlayed: PlayedReply | null = null;
+  /** The live-words follower was started for the candidate (and is stopped with it). */
+  private gateLiveWords = false;
+  /** `holdForInterruption(true)` keeps the candidate open: paused, but the words still decide. */
+  private gateKeep = false;
   /** The warm-up pass of this Auto session has run to the end once. */
   private prewarmDone = false;
   /**
@@ -880,6 +913,7 @@ class AssistantModeStore {
       // Brain's turn, whoever owns it. The foreground-only stops (barge-in, stop word) never come this way.
       cancelAllVoiceTasks();
       brain.stop();
+      this.gateSleep("stopped");
       this.queuedCommands = [];
       this.stopQueueTimer();
       this.state.pending = null;
@@ -898,6 +932,7 @@ class AssistantModeStore {
       this.pausedByStop = false;
       this.setPaused(false);
     }
+    this.gateRelease();
   }
 
   setPaused(paused: boolean) {
@@ -913,6 +948,7 @@ class AssistantModeStore {
     if (paused) {
       cancelPrewarm();
       this.stopRecognition();
+      this.gateSleep(this.pausedByStop || this.stopped() ? "stopped" : "paused");
       this.discardEager();
       this.cancelSpeech();
       clearEchoReference("paused");
@@ -925,6 +961,7 @@ class AssistantModeStore {
       this.state.status = "Microphone paused";
     } else if (this.state.mode === "auto") {
       // An explicit resume is the owner asking again: retry immediately.
+      this.gateRelease();
       this.resetVoiceRecovery();
       this.to("resume");
       if (this.autoMicDeferred) {
@@ -1073,6 +1110,10 @@ class AssistantModeStore {
       const text = String(payload?.text || "").trim();
       if (!text || this.state.mode !== "auto" || this.state.paused || this.callHold) return;
       this.state.interim = text;
+      if (this.interruptGate.active) {
+        this.gateText = text;
+        this.stepInterruptGate(false);
+      }
       const now = Date.now();
       if (now - this.partialSeenAt > DRAFT_TURN_GAP_MS) this.draftsThisTurn = 0;
       this.partialSeenAt = now;
@@ -1296,6 +1337,8 @@ class AssistantModeStore {
    * the final transcript runs as an ordinary turn. A draft never counts as a spoken user line (no pendingUserEcho).
    */
   private startDraftRun(command: string) {
+    // The owner's switch (Settings > Voice, off by default): without it no guess is ever made.
+    if (preferences.getSnapshot().voice.eagerTurn !== true) return;
     if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
     const started = brain.startDraft(command);
     if (!started.started) return;
@@ -1529,6 +1572,7 @@ class AssistantModeStore {
    */
   setHandsFree(on: boolean, persist = true) {
     this.wakeWordRequired = !on;
+    voiceGate.wake.setHandsFree(on);
     if (this.state.handsFree === on) {
       if (persist) {
         try {
@@ -1562,6 +1606,8 @@ class AssistantModeStore {
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
     this.state.muted = muted;
+    // The talk key, the toggle and the wake gates follow the microphone's permission at once.
+    if (muted) this.gateSleep("muted");
     if (muted) cancelPrewarm();
     if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
@@ -1573,6 +1619,7 @@ class AssistantModeStore {
       this.state.micReady = false;
       this.state.status = "Muted. Microphone is off";
     } else if (!muted && this.state.mode === "auto" && !this.state.paused && !this.stopped()) {
+      this.gateRelease();
       this.resetVoiceRecovery();
       if (this.autoMicDeferred) {
         this.autoMicDeferred = false;
@@ -1683,12 +1730,118 @@ class AssistantModeStore {
     return this.lastTone;
   }
 
+  /**
+   * Mute, the tray pause, Stop everything and leaving Auto: the talk key, the toggle and its tail end now, and the
+   * hands-free wake gate is asleep and locked until the microphone may be read again. Never opens or closes the
+   * microphone itself.
+   */
+  private gateSleep(reason: "muted" | "paused" | "stopped") {
+    pttSetAllowed(false);
+    pttCloseNow();
+    this.wakeAwaitingCommand = false;
+    if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
+    this.wakeFalseTimer = null;
+    voiceGate.wake.forceAsleep(reason, performance.now());
+  }
+
+  /** Unmute, resume, entering Auto: the talk key works again and the wake gate listens, only if the mic is allowed. */
+  private gateRelease() {
+    const allowed = this.micAllowed() && !this.stopped();
+    pttSetAllowed(allowed);
+    if (allowed) voiceGate.wake.release(performance.now());
+  }
+
+  private pttShown: PttPhase = "idle";
+  private pttPhaseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A wake word with no command after it, waiting to be proved a real wake or reported false. */
+  private wakeAwaitingCommand = false;
+  private wakeFalseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Show "Listening" while the talk key is held and "Finishing" through the release tail. */
+  private publishPttPhase() {
+    if (this.state.mode !== "auto") return;
+    const language = (preferences.getSnapshot().voice.recognitionLang || "hi-IN").toLowerCase();
+    const phase = pttPhase(Date.now(), language);
+    if (phase === "finishing" && !this.pttPhaseTimer) {
+      this.pttPhaseTimer = setTimeout(
+        () => {
+          this.pttPhaseTimer = null;
+          this.publishPttPhase();
+        },
+        pttTailMs(language) + 40,
+      );
+    }
+    if (phase === this.pttShown) return;
+    this.pttShown = phase;
+    if (phase === "listening") this.state.status = "Listening";
+    else if (phase === "finishing") this.state.status = "Finishing";
+    else if (this.state.status === "Listening" || this.state.status === "Finishing")
+      this.state.status = stateLabel(this.state.voiceState);
+    this.emit();
+  }
+
+  /**
+   * One decision on a wake word that was heard: the hands-free gates (locked, cooldown, her own voice, no speech
+   * before it) rule on it. A push-to-talk turn and a stop word are never held up. A refused wake only loses the
+   * wake privilege; what follows is judged by the ordinary addressing rules, so nothing is executed because of it.
+   */
+  private wakeGuardAllows(text: string): boolean {
+    if (this.listenStyle() === "push-to-talk" || this.isStopHeard(text, true)) return true;
+    // No open microphone means no frames for the gate to judge by: it cannot rule, so the transcript decides.
+    if (!this.state.micReady) return true;
+    const verdict = voiceGate.wake.consider({
+      nowMs: performance.now(),
+      score: 1,
+      threshold: wakeThreshold(0.02, null),
+      kind: "utterance",
+      ...(performance.now() - this.bargeMicAt <= 1000 ? { ownerEnergy: this.bargeMicLevel } : {}),
+      playbackEnergy: speechRms(),
+      echoRefLive: this.echoReferenceLive(),
+      selfEchoText: this.recentlySpeaking() && this.isSelfEcho(text),
+    });
+    if (!verdict.accept) {
+      this.trace("wake", `wake word not taken (${verdict.reason})`);
+      if (verdict.reason === "self-voice") this.reportFalseWake();
+    }
+    return verdict.accept;
+  }
+
+  /** The echo reference is cleaning the microphone frames right now (it is on, attached and has cleaned some). */
+  private echoReferenceLive(): boolean {
+    const echo = echoDiagnostics();
+    return echo.enabled && echo.attached && echo.cancelledFrames > 0;
+  }
+
+  /** The wake turned out wrong (her own voice, or nothing followed): she sleeps and stays quiet for a while. */
+  private reportFalseWake() {
+    this.wakeAwaitingCommand = false;
+    if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
+    this.wakeFalseTimer = null;
+    voiceGate.wake.reportFalseWake(performance.now());
+  }
+
+  /** A wake word with nothing after it: if no command comes inside the awake window, it was a false wake. */
+  private expectCommandAfterWake() {
+    this.wakeAwaitingCommand = true;
+    if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
+    this.wakeFalseTimer = setTimeout(() => {
+      this.wakeFalseTimer = null;
+      if (!this.wakeAwaitingCommand) return;
+      this.trace("wake", "no command followed the wake word — counted as a false wake");
+      this.reportFalseWake();
+    }, AWAKE_MS() + 500);
+  }
+
   /** Hold Ctrl+Space in the window, or press the global toggle, to talk. */
   private armPushToTalk() {
     this.disarmPushToTalk();
     const api = desktop();
     let shortcutWanted: boolean | null = null;
     const syncShortcut = () => {
+      // The owner's release tail and wake-gate numbers, each bounded where they are read.
+      const voice = preferences.getSnapshot().voice;
+      setPttTailMs(voice.pttTailMs);
+      voiceGate.wake.configure(voice.wake);
       const want = this.state.mode === "auto" && this.listenStyle() === "push-to-talk";
       if (want === shortcutWanted) return;
       shortcutWanted = want;
@@ -1698,6 +1851,7 @@ class AssistantModeStore {
     };
     syncShortcut();
     this.pttCleanup.push(preferences.subscribe(syncShortcut));
+    this.pttCleanup.push(subscribePtt(() => this.publishPttPhase()));
     const off = api?.onPttToggle?.(() => {
       if (this.listenStyle() !== "push-to-talk") return;
       const open = pttToggle();
@@ -1719,7 +1873,7 @@ class AssistantModeStore {
         this.emit();
       };
       const blur = () => {
-        pttRelease();
+        pttFocusLost();
         this.emit();
       };
       window.addEventListener("keydown", down);
@@ -1745,6 +1899,10 @@ class AssistantModeStore {
       }
     }
     resetPtt();
+    // The next session starts with nothing shown: a stale phase would hide its first press.
+    this.pttShown = "idle";
+    if (this.pttPhaseTimer) clearTimeout(this.pttPhaseTimer);
+    this.pttPhaseTimer = null;
   }
 
   /** On-screen talk button: press and release, the same path as the key. */
@@ -1873,6 +2031,8 @@ class AssistantModeStore {
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
+    voiceGate.wake.setHandsFree(this.state.handsFree);
+    this.gateRelease();
     this.state.error = null;
     // Turning Auto Mode on is an explicit request — retry the engine now.
     this.resetVoiceRecovery();
@@ -1964,6 +2124,7 @@ class AssistantModeStore {
 
   private leaveAuto() {
     this.disarmPushToTalk();
+    this.gateSleep("stopped");
     cancelPrewarm();
     this.prewarmDone = false;
     this.heldPlayed = null;
@@ -2003,6 +2164,7 @@ class AssistantModeStore {
     this.unfinished = "";
     if (this.interruptHold?.timer) clearTimeout(this.interruptHold.timer);
     this.interruptHold = null;
+    this.endInterruptCandidate(true);
     // A note that was running stops with the microphone: the banner must never show a recording that is not heard.
     voiceNotes.stop();
     this.cancelVoiceRecoveryTimer();
@@ -2683,9 +2845,16 @@ class AssistantModeStore {
           audioAt: null,
         };
         // Barge-in: FRIDAY stops talking the moment the owner starts.
+        // Speech from the owner while she speaks: with the gate on it only lowers her volume until words decide
+        // (`beginInterruptCandidate`); with it off, voice activity pauses her at once as before.
+        // A draft started in a pause of this sentence is stale the moment the voice resumes.
+        if (this.speculativeKind === "brain") this.discardEager();
         if (this.state.speaking) {
-          this.trace("speech", "barge-in — pausing playback, listening to what is said");
-          this.holdForInterruption();
+          if (this.gateEnabled()) this.beginInterruptCandidate();
+          else {
+            this.trace("speech", "barge-in — pausing playback, listening to what is said");
+            this.holdForInterruption();
+          }
         }
         this.to("vad-speech");
         if (
@@ -3358,7 +3527,11 @@ class AssistantModeStore {
     // and can miss a clearly spoken name (weak or missing model); the
     // transcript matcher is a real, equal detection path, not a consolation
     // prize — so a name that is visible in the transcript always counts.
-    const matched = Boolean(probe?.detected) || transcriptWake.matched || this.turnPersonalWake;
+    const heardWake = Boolean(probe?.detected) || transcriptWake.matched || this.turnPersonalWake;
+    // The hands-free gates rule on a wake word that was heard (cooldown, her own voice, speech before it).
+    const guardAllows = heardWake ? this.wakeGuardAllows(text) : true;
+    // In hands-free a refused wake still names her: the "Friday," prefix is stripped from the command text.
+    const matched = heardWake && (guardAllows || this.state.handsFree);
     const wake = {
       matched,
       command: transcriptWake.command,
@@ -3401,6 +3574,7 @@ class AssistantModeStore {
     this.noteAddress(text, decision);
     if (decision.closeFollowUp) this.followUpUntil = 0;
     if (decision.tag === "self") {
+      if (wake.matched) this.reportFalseWake();
       this.trace("dropped", "ignored FRIDAY's own voice (echo)");
       markTurnStage("routed", false, "FRIDAY's own voice (echo)");
       this.to("transcript");
@@ -3539,6 +3713,7 @@ class AssistantModeStore {
     }
 
     if (!command) {
+      this.expectCommandAfterWake();
       const ready = this.variedLine("wake", text);
       this.caption("friday", ready);
       this.state.status = "Awake — go ahead";
@@ -3546,6 +3721,13 @@ class AssistantModeStore {
       this.speak(ready);
       return;
     }
+    // A command arrived: the wake was real, the follow-up window (if open) is used, and the turn goes to the brain.
+    const turnAt = performance.now();
+    if (!wake.matched) voiceGate.wake.followUpSpeech(turnAt);
+    voiceGate.wake.turnAccepted(turnAt);
+    this.wakeAwaitingCommand = false;
+    if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
+    this.wakeFalseTimer = null;
     const lastCaption = this.state.captions[this.state.captions.length - 1];
     const shown = this.tidyShown(command);
     if (!(
@@ -4316,6 +4498,7 @@ class AssistantModeStore {
     const api = desktopApi();
     if (!api?.transcribe) return;
     this.liveWords ??= new LiveWords({
+      timed: true,
       audioSince: (from, maxMs) => {
         const all = preRollFrom(from, 0);
         const keep = Math.round((maxMs / 1000) * TARGET_RATE);
@@ -4325,23 +4508,28 @@ class AssistantModeStore {
         };
       },
       encodeWav,
-      transcribe: async (wav) => {
-        const voice = preferences.getSnapshot().voice;
-        const language = whisperLanguageArg(voice.recognitionLang) || undefined;
-        const out = await api.transcribe!({
-          audioBytes: wav,
-          mime: "audio/wav",
-          language,
-          ...(voice.recognitionLang ? { speechPref: voice.recognitionLang } : {}),
-          localOnly: true,
-          ...(voice.sttSize && voice.sttSize !== "auto"
-            ? { model: voice.sttSize, sttSize: voice.sttSize }
-            : {}),
-        });
-        return out?.ok ? { ok: true, text: out.text ?? "" } : { ok: false };
-      },
+      // Timed words: only a prefix two passes agree on is settled, the rest is shown dim. A live pass is a
+      // provisional, cancellable, local-only read; it only sets the caption and is never executed, never counted
+      // as heard and never sent to the Brain.
+      ...livePassDeps(api, () => {
+        const v = preferences.getSnapshot().voice;
+        return {
+          language: whisperLanguageArg(v.recognitionLang),
+          speechPref: v.recognitionLang,
+          sttSize: v.sttSize,
+        };
+      }),
       speaking: () => voiceGate.heardSpeechWithin(1200),
       onUpdate: (update) => {
+        // While she speaks, the settled words only feed the interruption gate (never the caption or a turn).
+        if (this.interruptGate.active || this.interruptHold) {
+          const settled = update.settled.trim();
+          if (settled && this.interruptGate.active) {
+            this.gateText = settled;
+            this.stepInterruptGate(false);
+          }
+          return;
+        }
         if (this.state.mode !== "auto" || this.state.paused || this.state.speaking) return;
         this.state.interim = update.shown;
         this.emit();
@@ -4362,8 +4550,106 @@ class AssistantModeStore {
     this.liveWordsTimer = null;
   }
 
+  /** The backchannel gate is on (Settings > Voice, default on). */
+  private gateEnabled(): boolean {
+    return sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).enabled;
+  }
+
+  /** An answer is awaited from the owner: a read-back, an approval, a question. A bare "yes" then is the answer. */
+  private waitingForOwner(): boolean {
+    return Boolean(this.state.pending || this.pendingHeard || brain.getSnapshot().approval);
+  }
+
+  /**
+   * The owner's voice began while she speaks. Her voice goes down at once and keeps playing; nothing is stopped
+   * until words show it is a real interruption. What was heard at full volume so far is kept for the history cut.
+   */
+  private beginInterruptCandidate() {
+    if (this.interruptHold) return;
+    const fresh = !this.interruptGate.active;
+    this.interruptGate.begin(Date.now());
+    if (!fresh) return;
+    this.gateText = "";
+    this.gatePlayed = this.heardOfReply();
+    duckSpeech(
+      true,
+      sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).duckLevel,
+    );
+    this.trace(
+      "speech",
+      "voice while she talks — her volume is down, waiting for words before stopping",
+    );
+    this.gateTimer = setInterval(() => this.stepInterruptGate(false), 100);
+    // With live words on, the words so far reach the gate while the voice goes on, so a stop word is known early.
+    if (preferences.getSnapshot().voice.liveWords === true && !this.liveWords?.isActive()) {
+      this.gateLiveWords = true;
+      this.startLiveWords();
+    }
+  }
+
+  /** The candidate is over (escalated, judged false, or speech ended): stop its clock and forget its words. */
+  private endInterruptCandidate(restoreVolume = false) {
+    if (this.gateTimer) clearInterval(this.gateTimer);
+    this.gateTimer = null;
+    this.interruptGate.end();
+    this.gateText = "";
+    this.gatePlayed = null;
+    if (this.gateLiveWords) {
+      this.gateLiveWords = false;
+      this.stopLiveWords();
+    }
+    if (restoreVolume) duckSpeech(false);
+  }
+
+  /** Judge the candidate with what is known now. `final` says `text` is the final transcript. */
+  private stepInterruptGate(final: boolean, text: string | null = this.gateText) {
+    if (!this.interruptGate.active) return;
+    // A paused voice is no longer "speaking": the candidate lives on until the words (or the wait) decide.
+    if ((!this.state.speaking && !this.interruptHold) || this.state.mode !== "auto") {
+      this.endInterruptCandidate(true);
+      return;
+    }
+    const heard = text?.trim() ? text : null;
+    const input: GateInput = {
+      t: Date.now(),
+      speechActive: voiceGate.heardSpeechWithin(250),
+      text: heard,
+      final,
+      waitingForAnswer: this.waitingForOwner(),
+      selfEcho: heard ? this.isSelfEcho(heard) : false,
+    };
+    this.applyGateVerdict(this.interruptGate.evaluate(input));
+  }
+
+  private applyGateVerdict(verdict: GateVerdict) {
+    if (verdict.kind === "wait") return;
+    if (verdict.kind === "pause") {
+      // Pause on voice, decide on words: the audio stops now, the answer keeps being written, and it resumes
+      // if the words turn out to be a nod, noise or her own echo.
+      this.trace("speech", "voice goes on — pausing her, the words decide whether she carries on");
+      this.holdForInterruption(true);
+      return;
+    }
+    if (verdict.kind === "restore") {
+      this.trace(
+        "speech",
+        `not an interruption (${verdict.why}) — her volume is back, carrying on`,
+      );
+      this.endInterruptCandidate(true);
+      if (this.interruptHold) this.resumeAfterInterruption();
+      return;
+    }
+    this.trace("speech", `interruption (${verdict.why}) — stopping her voice`);
+    if (this.interruptHold) {
+      // Already paused: the final transcript confirms the cut (settleInterruption).
+      this.endInterruptCandidate();
+      return;
+    }
+    this.holdForInterruption();
+  }
+
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
-  private holdForInterruption() {
+  private holdForInterruption(keepGate = false) {
     if (this.interruptHold) return;
     this.bargeShadow.liveFired(performance.now(), {
       playbackLevel: speechRms(),
@@ -4374,7 +4660,13 @@ class AssistantModeStore {
     this.clearHoldLines();
     // What was heard is read before the voice is cut, while the players still know where they were.
     this.heldPlayed = this.heardOfReply();
+    // With the gate, the voice began some time ago: only what was audible at full volume by then counts as heard.
+    if (this.gatePlayed && this.heldPlayed && this.gatePlayed.runId === this.heldPlayed.runId)
+      this.heldPlayed = this.gatePlayed;
+    if (!keepGate) this.endInterruptCandidate();
+    this.gateKeep = keepGate;
     this.dropPlayback();
+    this.gateKeep = false;
     // The stop was asked of the player here; the speaker itself was not measured.
     this.interruptStages.mark("playbackLastAudibleSample");
     this.to("barge-in");
@@ -4402,6 +4694,7 @@ class AssistantModeStore {
   private resumeAfterInterruption() {
     const hold = this.interruptHold;
     if (!hold) return;
+    this.endInterruptCandidate(true);
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
     // Only a nod: the reply goes on, so nothing of it is trimmed.
@@ -4421,6 +4714,7 @@ class AssistantModeStore {
   private confirmInterruption() {
     const hold = this.interruptHold;
     if (!hold) return;
+    this.endInterruptCandidate();
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
     this.deferredStream = null;
@@ -4441,7 +4735,10 @@ class AssistantModeStore {
     if (preferences.getSnapshot().voice.trimHistoryToPlayed === false) return null;
     const runId = this.voicedRunId;
     if (!runId) return null;
-    const heard = playedReplySnapshot();
+    // The sample player's own clock, when it played the reply, cuts it at a clause boundary by the milliseconds
+    // the speaker really played; otherwise the clause progress of the audio element counts words.
+    const clock = playedReplyCut();
+    const heard = clock && clock.runId === runId ? clock : playedReplySnapshot();
     if (heard.runId !== runId) return null;
     const cut =
       heard.interrupted || this.arbiter.size() > 0 || brain.getSnapshot().activeRunId === runId;
@@ -4451,16 +4748,51 @@ class AssistantModeStore {
   /** Tell the Brain which part of its reply was heard; the saved transcript keeps the whole text. */
   private trimReplyToHeard(heard: PlayedReply | null) {
     if (!heard) return;
-    if (brain.truncateAssistantReply(heard.runId, heard.text)) {
-      this.trace("speech", `reply cut off — ${heard.words} words were heard`);
+    const playedMs =
+      "playedMs" in heard && typeof heard.playedMs === "number" ? heard.playedMs : undefined;
+    if (brain.truncateAssistantReply(heard.runId, heard.text, playedMs)) {
+      this.trace(
+        "speech",
+        `reply cut off — ${heard.words} words were heard${playedMs === undefined ? "" : ` (${Math.round(playedMs)} ms played)`}`,
+      );
     }
   }
 
   /** True when this line only resumed the paused reply and needs no further handling. */
   private settleInterruption(text: string): boolean {
+    if (this.interruptGate.active && !this.state.speaking && !this.interruptHold)
+      this.endInterruptCandidate(true);
+    if (this.interruptGate.active) {
+      // The final words arrived while she was only ducked: the gate rules on them before anything is stopped.
+      const heard = text.trim() ? text : null;
+      const verdict = this.interruptGate.evaluate({
+        t: Date.now(),
+        speechActive: false,
+        text: heard,
+        final: true,
+        waitingForAnswer: this.waitingForOwner(),
+        selfEcho: heard ? this.isSelfEcho(heard) : false,
+      });
+      if (verdict.kind === "restore") {
+        this.trace(
+          "speech",
+          `"${text.trim().slice(0, 40)}" is not an interruption (${verdict.why}) — carrying on`,
+        );
+        this.remember("following-along", text, "resumed");
+        this.endInterruptCandidate(true);
+        // Paused on voice: the nod lets her carry on from where the pause held her.
+        if (this.interruptHold) this.resumeAfterInterruption();
+        return true;
+      }
+      this.trace(
+        "speech",
+        `interruption (${verdict.kind === "interrupt" ? verdict.why : "words"}) — stopping her voice`,
+      );
+      this.holdForInterruption();
+    }
     if (!this.interruptHold) return false;
     const verdict = judgeInterruption(text, {
-      waitingForAnswer: Boolean(this.state.pending || this.pendingHeard),
+      waitingForAnswer: this.waitingForOwner(),
       selfEcho: this.isSelfEcho(text),
     });
     if (verdict === "resume") {
@@ -4477,6 +4809,7 @@ class AssistantModeStore {
   private dropPlayback(hold = true) {
     // A new speech generation ends a draft.
     this.discardEager();
+    if (!this.gateKeep) this.endInterruptCandidate();
     if (hold && (this.state.speaking || this.arbiter.size())) {
       const waiting = this.arbiter
         .peek()
@@ -4494,6 +4827,7 @@ class AssistantModeStore {
     this.streamSpeaker?.cancel();
     stopSpeaking();
     voiceGate.setSpeakingGuard(false);
+    voiceGate.wake.speakEnd(performance.now());
     this.state.speaking = false;
     this.echoUntil = Date.now() + 800;
   }
@@ -4897,6 +5231,8 @@ class AssistantModeStore {
   private bargeShadow = new BargeShadow(700, (outcome) => this.bargeLedger.record(outcome));
   private bargeShadowOff: (() => void) | null = null;
   private bargeMicLevel = 0;
+  /** When `bargeMicLevel` was measured: it is read only while fresh (frames flow only while she speaks). */
+  private bargeMicAt = 0;
   private bargeSavedAt = 0;
 
   private saveBargeLedger() {
@@ -4924,6 +5260,7 @@ class AssistantModeStore {
         const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
         const playbackLevel = speechRms();
         this.bargeMicLevel = micLevel;
+        this.bargeMicAt = performance.now();
         // Time spent playing with the detector listening: the denominator of "false interruptions per hour".
         if (rate > 0) this.bargeLedger.addExposure((samples.length / rate) * 1000);
         const fired = this.bargeDetector.push({
@@ -5513,6 +5850,9 @@ class AssistantModeStore {
           this.state.voiceState !== "STOPPING"
         ) {
           this.resumeAfterSpeech();
+        } else {
+          // The state machine skipped the resume (an error, a pause, off): her reply is still over for the wake gate.
+          voiceGate.wake.speakEnd(performance.now());
         }
         this.emit();
       },
@@ -5555,6 +5895,7 @@ class AssistantModeStore {
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
+        voiceGate.wake.speakEnd(performance.now());
         this.echoUntil = Date.now() + 400;
         this.state.error =
           "voice output failed — no speech engine could speak the reply (install a voice in Install Manager)";
@@ -5568,6 +5909,7 @@ class AssistantModeStore {
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
+        voiceGate.wake.speakEnd(performance.now());
         this.state.error = `voice output failed — ${detail}`;
         this.emit();
       });
@@ -5662,11 +6004,13 @@ class AssistantModeStore {
 
   /** Keep the local listener live so speech can interrupt FRIDAY (barge-in). */
   private pauseForSpeech() {
+    voiceGate.wake.speakStart(performance.now());
     voiceGate.setSpeakingGuard(true);
     voiceGate.duck(false);
   }
 
   private resumeAfterSpeech() {
+    voiceGate.wake.speakEnd(performance.now());
     voiceGate.setSpeakingGuard(false);
     voiceGate.duck(false);
     if (

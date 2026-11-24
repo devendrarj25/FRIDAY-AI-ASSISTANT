@@ -22,6 +22,7 @@ import {
   type ProviderCaps,
   type RouteDecision,
 } from "./voice-provider-router";
+import { ttsLadderOrder } from "./voice-engine-registry";
 
 /* ------------------------------------------------------------------ light Hindi voice rule */
 
@@ -239,7 +240,8 @@ export function cloudBlockReason(ctx: TtsContext): string {
   return "";
 }
 
-const LADDER_ORDER = ["edge", HINDI_LIGHT_ENGINE, "supertonic", "sapi", "formant"] as const;
+/** The ladder is the registry's TTS chain (voice-engine-table.ts): online voice, light Hindi, Supertonic, system, formant. */
+const LADDER_ORDER = ttsLadderOrder();
 
 /**
  * Rank the voices for one clause. The order is the ladder FRIDAY always had: a cloud voice the router allows,

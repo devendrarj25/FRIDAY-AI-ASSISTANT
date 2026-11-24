@@ -57,6 +57,7 @@
     "voice:stack": "node scripts/voice-stack.cjs",
     "voice:install": "node scripts/prefetch-models.cjs --voice",
     "voice:eval": "node scripts/voice-eval.cjs",
+    "voice:bench": "node scripts/voice-bench.cjs",
     "voice:readiness": "node scripts/voice-readiness.cjs",
     "setup:python:test": "python -m pip install -r kernel/requirements-dev.txt",
     "build:all": "node scripts/build-pipeline.cjs --channel production --targets nsis,portable --caller npm",

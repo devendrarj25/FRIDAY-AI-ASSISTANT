@@ -10,6 +10,7 @@
  */
 
 import { endsInOpenDot } from "./voice-engine/language-segmenter";
+import { isBackchannel } from "./voice-engine/interruption-controller";
 import { socialLine } from "./conversation-style";
 import { transcriptDoubtful, type HeardQuality } from "./asr-bias";
 import { isConsequential } from "./brain/action-risk";
@@ -1298,12 +1299,15 @@ export function isHoldSound(text: string): boolean {
  * "go on". ChatGPT's voice and Gemini Live keep talking through these; they are not an interruption and not a new
  * request, so the reply carries on where it paused. Anything with real content, a question, or a stop word is not one.
  */
-const FOLLOWING_ALONG =
-  /^(?:ok(?:ay)?(?:[\s,]+ok(?:ay)?)?|yeah|yes|yep|yup|right|sure|got it|i see|i know|mm+(?:[\s-]*hmm+)?|uh[\s-]*huh|hmm+|haan+(?:\s+ji)?|han+|ji(?:\s+haan)?|jee|a+c+h+a+|theek(?:\s+hai)?|thik(?:\s+hai)?|samajh\s+(?:gaya|gayi|gaye)|sahi|bilkul|ho\s+gaya|go\s+on|carry\s+on|continue|keep\s+going|aage\s+bolo|bolo|jaari\s+rakho)[\s.!,।]*$/i;
+/** "Go on", "carry on": not a nod but the same request to keep going, so the reply resumes. */
+const KEEP_GOING =
+  /^(?:go\s+on|carry\s+on|continue|keep\s+going|aage\s+bolo|bolo|jaari\s+rakho)[\s.!,।]*$/i;
 
 export function isFollowingAlong(text: string): boolean {
   const clean = text.trim();
-  return clean.length > 0 && clean.length <= 28 && FOLLOWING_ALONG.test(clean);
+  if (clean.length === 0 || clean.length > 28) return false;
+  // The nods are the one shared list (interruption-controller.ts); only the keep-going phrases are kept here.
+  return isBackchannel(clean) || KEEP_GOING.test(clean);
 }
 
 export type InterruptionVerdict = "resume" | "interrupt";

@@ -1188,7 +1188,44 @@ function decodeExtras(req) {
     ...(req.provisional === true && cleanUtteranceId(req.utteranceId)
       ? { utteranceId: cleanUtteranceId(req.utteranceId) }
       : {}),
+    // A live pass (live words) is a provisional read that wants timed words from the lean path of the worker.
+    ...(req.provisional === true && req.livePass === true ? { live: true } : {}),
   };
+}
+
+/** What an early read answers on an engine that is not the local speech worker; live words then read the plain way. */
+const EARLY_READ_UNSUPPORTED = {
+  error: "Early reads need the local speech worker.",
+  unsupportedEngine: true,
+};
+
+const LIVE_MAX_WORDS = 400;
+const LIVE_MAX_SEGMENTS = 64;
+const finite = (n) => typeof n === "number" && Number.isFinite(n);
+
+/** The timed words and segments of a live pass, kept only when well formed and bounded; nothing for any other reply. */
+function liveReplyFields(parsed) {
+  if (!parsed || !Array.isArray(parsed.words)) return {};
+  const words = [];
+  for (const w of parsed.words) {
+    if (words.length >= LIVE_MAX_WORDS) break;
+    const text = typeof w?.text === "string" ? w.text.trim().slice(0, 64) : "";
+    if (text && finite(w.start) && finite(w.end)) words.push({ text, start: w.start, end: w.end });
+  }
+  const segments = (Array.isArray(parsed.segments) ? parsed.segments : [])
+    .filter((g) => finite(g?.start) && finite(g?.end))
+    .slice(0, LIVE_MAX_SEGMENTS)
+    .map((g) => ({ start: g.start, end: g.end }));
+  return { words, segments };
+}
+
+/**
+ * The model name a live pass reads with: the one the worker already holds (a guess never loads or switches a model),
+ * or "" when this is not a live pass or no worker is loaded.
+ */
+function liveModel(req, session) {
+  if (req?.provisional !== true || req.livePass !== true) return "";
+  return session?.alive && session.loaded && session.modelName ? String(session.modelName) : "";
 }
 
 /** A plain token (letters, digits, dot, dash, underscore, colon; 64 at most) or empty: it is written to the worker. */
@@ -1305,7 +1342,7 @@ async function transcribeNow(req = {}, onPartial) {
   // A speculative read is only ever made by the local speech worker that already holds the model. A cloud engine
   // (a paid, remote call for every guess, and not cancellable) or a one-shot process never reads early.
   if (req.provisional === true && state.engine !== "faster-whisper") {
-    return { ok: false, reason: "not-ready", error: "Early reads need the local speech worker." };
+    return { ok: false, reason: "not-ready", ...EARLY_READ_UNSUPPORTED };
   }
 
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
@@ -1397,16 +1434,17 @@ async function transcribeNow(req = {}, onPartial) {
       };
     }
     const voiceInstall = require("./voice-install.cjs");
+    const liveWith = liveModel(req, worker);
     const explicit = MODELS.includes(req.model) ? req.model : "";
     const boot = voiceInstall.bootModel({ requested: explicit || "auto", ...cachedSizes() });
-    const model = explicit || boot.model;
+    const model = liveWith || explicit || boot.model;
     const loadBudget = voiceInstall.loadBudgetMs(model);
     const locked = whisperLanguage(req.language);
     const prompt = String(req.initialPrompt || req.initial_prompt || "").trim();
     let parsed;
     const ladderEngine = state.engine === "moonshine" || state.engine === "windows-speech";
     try {
-      const session = await ensureWorker(model, undefined, { load: !ladderEngine });
+      const session = await ensureWorker(model, undefined, { load: !ladderEngine && !liveWith });
       parsed = await workerRequest(
         session,
         {
@@ -1524,6 +1562,7 @@ async function transcribeNow(req = {}, onPartial) {
       loadCount: parsed.loadCount,
       emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),
       audio: parsed.audio || null,
+      ...liveReplyFields(parsed),
     };
   } finally {
     if (temporary) {
@@ -1722,6 +1761,8 @@ module.exports = {
   cancelTranscribe,
   provisionalReply,
   decodeExtras,
+  liveReplyFields,
+  liveModel,
   createTurnGate,
   workerRequest,
   scoreInWorker,

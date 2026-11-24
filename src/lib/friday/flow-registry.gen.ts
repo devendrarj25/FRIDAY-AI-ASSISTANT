@@ -314,6 +314,7 @@ export const FLOW_REGISTRY = {
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.instantAck",
+    "voice.interruptGate",
     "voice.keepUtteranceWavs",
     "voice.listenStyle",
     "voice.liveWake",
@@ -331,6 +332,7 @@ export const FLOW_REGISTRY = {
     "voice.prewarm",
     "voice.privacyMode",
     "voice.pronunciations",
+    "voice.pttTailMs",
     "voice.rate",
     "voice.realtimeExperiment",
     "voice.recogniseMyVoice",
@@ -350,6 +352,7 @@ export const FLOW_REGISTRY = {
     "voice.voicePreset",
     "voice.voicePresetVersion",
     "voice.volume",
+    "voice.wake",
     "voice.wakeWord",
     "voice.whisperMode",
   ],
@@ -2541,6 +2544,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "ct2-folder",
+      file: "kernel/voice_pin_selftest.py",
+    },
+    {
       kind: "docx",
       file: "kernel/doc_writer.py",
     },
@@ -2627,6 +2634,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "odt",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "onnx-signature",
+      file: "kernel/voice_pin_selftest.py",
     },
     {
       kind: "paid",
@@ -4258,6 +4269,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "denoise-dpdfnet",
+      kind: "model",
+      name: "DPDFNet denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "e5-large",
       kind: "model",
       name: "E5 Large v2",
@@ -4489,6 +4506,12 @@ export const FLOW_REGISTRY = {
       id: "hindi-punct",
       kind: "model",
       name: "Hindi punctuation (47 languages, adds commas and the danda, Apache-2.0)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hindi-vaani-ear",
+      kind: "model",
+      name: "Hindi Vaani ear (candidate, Whisper large-v3 fine-tune by ARTPARK-IISc, Apache-2.0)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7522,6 +7545,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "speaker-wespeaker",
+      kind: "model",
+      name: "WeSpeaker speaker model (candidate, credit: WeSpeaker, ONNX by onnx-community, CC-BY-4.0)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "starcoder-7b",
       kind: "model",
       name: "StarCoder 7B",
@@ -9522,12 +9551,12 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 159,
-      total: 159,
+      mapped: 162,
+      total: 162,
     },
     capabilities: {
-      mapped: 1108,
-      total: 1108,
+      mapped: 1111,
+      total: 1111,
     },
     ipc: {
       mapped: 513,

@@ -132,6 +132,78 @@ def unload() -> bool:
     return was_open
 
 
+# A word ends this long after its last token at the latest, or where the next word starts, whichever is first.
+LAST_TOKEN_S = 0.35
+MIN_WORD_S = 0.05
+
+
+def _word_rows(pieces: list[tuple[str, float]], duration: float) -> list[dict]:
+    """``(text, start)`` per word to rows with an end: a word ends at the next one's start or a short time after it."""
+    rows: list[dict] = []
+    for index, (text, start) in enumerate(pieces):
+        later = pieces[index + 1][1] if index + 1 < len(pieces) else duration
+        end = min(later, start + LAST_TOKEN_S)
+        end = max(end, start + MIN_WORD_S)
+        rows.append({"text": text, "start": round(start, 3), "end": round(end, 3)})
+    return rows
+
+
+def group_words(tokens, timestamps, duration: float, text: str = "") -> list[dict]:
+    """Words with times from the ear's tokens: ``[{"text", "start", "end"}]`` in seconds.
+
+    The runtime (onnx-asr) marks the first token of a word with a leading space (or the SentencePiece ``▁``) and gives
+    each token the time of its first frame. Without usable token times the words of ``text`` are spread over the clip
+    by letter count, which keeps the order but not the real timing.
+    """
+    duration = max(0.0, float(duration or 0.0))
+    if tokens and timestamps and len(tokens) == len(timestamps):
+        pieces: list[tuple[str, float]] = []
+        for token, stamp in zip(tokens, timestamps, strict=True):
+            raw = str(token)
+            starts_word = raw[:1] in {" ", "\u2581"} or not pieces
+            body = raw.replace("\u2581", " ").strip()
+            if not body:
+                continue
+            if starts_word:
+                pieces.append((body, float(stamp)))
+            else:
+                pieces[-1] = (pieces[-1][0] + body, pieces[-1][1])
+        if pieces:
+            return _word_rows(pieces, max(duration, pieces[-1][1] + MIN_WORD_S))
+    spoken = str(text or "").split()
+    if not spoken or duration <= 0:
+        return []
+    total = sum(len(word) for word in spoken)
+    at = 0.0
+    rows = []
+    for word in spoken:
+        end = at + duration * len(word) / total
+        rows.append({"text": word, "start": round(at, 3), "end": round(end, 3)})
+        at = end
+    rows[-1]["end"] = round(duration, 3)
+    return rows
+
+
+def _read_timed(model, audio):
+    """``(text, mean token logprob or None, words)``; words are timed from the tokens when the runtime gives them."""
+    global _timed
+    timed = None
+    if getattr(model, "with_timestamps", None) is not None:
+        if _timed is None or _timed[0] is not model:
+            _timed = (model, model.with_timestamps())
+        timed = _timed[1]
+    seconds = len(audio) / SAMPLE_RATE
+    if timed is not None:
+        heard = timed.recognize(audio, sample_rate=SAMPLE_RATE)
+        scores = [float(v) for v in (getattr(heard, "logprobs", None) or [])]
+        mean = sum(scores) / len(scores) if scores else None
+        text = str(getattr(heard, "text", "") or "").strip()
+        words = group_words(getattr(heard, "tokens", None), getattr(heard, "timestamps", None), seconds, text)
+        return text, mean, words
+    text = str(model.recognize(audio, sample_rate=SAMPLE_RATE) or "").strip()
+    return text, None, group_words(None, None, seconds, text)
+
+
 def _read(model, audio):
     """``(text, mean token logprob or None)``. The timed reader is the same decode and also reports the scores."""
     global _timed
@@ -168,3 +240,30 @@ def transcribe(samples) -> str | None:
         return None
     # A Hindi recogniser that wrote no Devanagari heard nothing it understands.
     return hindi_punct.apply(text) if _DEVANAGARI.search(text) else None
+
+
+def transcribe_words(samples) -> dict | None:
+    """One live reading: ``{"text", "words", "confidence"}`` with word times in seconds, or None to let whisper answer.
+
+    The same ear, the same gates and the same score as ``transcribe`` (so a partial and its final agree on who hears
+    it), but the words carry times and no punctuation model runs: this is a guess made while the owner still speaks.
+    """
+    global _last_confidence
+    _last_confidence = None
+    folder = model_dir()
+    if folder is None:
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if audio.size < int(SAMPLE_RATE * MIN_SECONDS):
+            return None
+        audio = audio[: SAMPLE_RATE * MAX_SECONDS]
+        text, _last_confidence, words = _read_timed(_load(folder), audio)
+    except Exception:  # noqa: BLE001 — any failure here means faster-whisper hears it instead
+        _last_confidence = None
+        return None
+    if not _DEVANAGARI.search(text) or not words:
+        return None
+    return {"text": " ".join(w["text"] for w in words), "words": words, "confidence": _last_confidence}

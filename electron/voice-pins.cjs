@@ -353,6 +353,66 @@ const PINS = {
       },
     },
   },
+  // Optional, off by default, never fetched on its own. Read from the Hugging Face API on 2026-11-23 and the small files
+  // fetched at the pinned revision and hashed here. Only the one 16 kHz ONNX graph is pinned (the repository also holds
+  // 8 kHz, 48 kHz, TFLite and checkpoint files, none of which FRIDAY uses). A streaming speech-enhancement model
+  // (Apache-2.0, Ceva-IP): one 10 ms frame in, one frame out, with a state vector. No wrapper in FRIDAY runs it yet.
+  "Ceva-IP/DPDFNet": {
+    revision: "dd6818d00f50c836fed43a6243ebe49116de5964",
+    license: "Apache-2.0",
+    files: {
+      "onnx/dpdfnet8.onnx": {
+        sha256: "899d4f23f3ff86edbffa8c537e4bcbdc49da1b4e84e0ef390611e0604a3b26cb",
+        bytes: 14542517,
+      },
+    },
+  },
+  // Optional speaker-verification candidate (CC-BY-4.0, credit shown in the Models row): WeSpeaker ResNet34-LM, int8,
+  // 80-bin Kaldi filterbank in, one 256-number voice embedding out. Only the int8 graph and its two small configs are pinned.
+  "onnx-community/wespeaker-voxceleb-resnet34-LM": {
+    revision: "6a61a1833ff2583aabeba044f5c8221f00b67ceb",
+    license: "CC-BY-4.0",
+    files: {
+      "config.json": {
+        sha256: "4a65a1544d2085d7819632f130583d83f6815f49ef6c8ba6c8eb460bd4085041",
+        bytes: 38,
+      },
+      "onnx/model_int8.onnx": {
+        sha256: "6416fae0599c33bdaf7188e99695edc5fafde190a102c511c881245a109de4c3",
+        bytes: 6685123,
+      },
+      "preprocessor_config.json": {
+        sha256: "a81bbded0530b1bf5c3d395d2c5c7c266686e348be5989171290ace960f24ec2",
+        bytes: 371,
+      },
+    },
+  },
+  // A Hindi Whisper large-v3 fine-tune (ARTPARK-IISc Vaani, Apache-2.0) converted to CTranslate2 by a community account.
+  // A CANDIDATE, never a default: the publisher's own WER table is in the registry, FRIDAY has not measured it. The
+  // repository carries no `tokenizer.json`, and faster-whisper then asks the network for one, so it stays unusable until
+  // the large-v3 `tokenizer.json` pinned under Systran/faster-whisper-large-v3 is put beside it (see voice-engine-registry.ts).
+  "bjollans/whisper-large-v3-vaani-hindi-ct2": {
+    revision: "27e81d52186393a5e7ee6f3a64ebd5c627dc25ed",
+    license: "Apache-2.0",
+    files: {
+      "config.json": {
+        sha256: "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
+        bytes: 2394,
+      },
+      "model.bin": {
+        sha256: "34c0d6c1c80fabd91af9d8c91c5089c2f3f314bda9ee3169b3e844c7ad2d011b",
+        bytes: 3087284237,
+      },
+      "preprocessor_config.json": {
+        sha256: "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+        bytes: 340,
+      },
+      "vocabulary.json": {
+        sha256: "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+        bytes: 1068114,
+      },
+    },
+  },
 };
 
 /** The turbo repository was renamed; the old name redirects to the same revision and files. */
@@ -502,6 +562,38 @@ const FACTS = {
     basis: "measured",
     peakRssMb: 489,
   },
+  "Ceva-IP/DPDFNet": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 85,
+  },
+  "onnx-community/wespeaker-voxceleb-resnet34-LM": {
+    minRamGb: 0.2,
+    recommendedRamGb: 0.3,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 110,
+  },
+  "bjollans/whisper-large-v3-vaani-hindi-ct2": {
+    minRamGb: 3.8,
+    recommendedRamGb: 5.7,
+    minVramGb: 5,
+    cpuOk: false,
+    gpuOk: true,
+    quantization: "int8 on CPU, float16 on GPU (CTranslate2)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
 };
 
 /** The two helpers that are single files, not repositories (see `voice-weights.cjs` PINNED); they carry facts too. */
@@ -525,6 +617,55 @@ const FILE_FACTS = {
     quantization: "int8 (ONNX)",
     fallbackPriority: "primary",
     basis: "estimated",
+  },
+};
+
+/**
+ * What each optional pin must do before it may be called usable: the engine's own self-test, run by
+ * `kernel/voice_pin_selftest.py` on the owner's PC (Doctor row `selftest-<catalogId>`), keyed by repository.
+ * `onnx-signature`: onnxruntime opens `file`, the graph declares exactly these inputs and outputs, and one pass over
+ * zeros of `run` (or the declared shape) returns the declared output shape. Signatures were read from the pinned files
+ * with onnxruntime 1.29 on 2026-11-23; a dimension written as a string ("B", "T") is dynamic. `ct2-folder`: the
+ * CTranslate2 folder is whole and carries `needs`; a `companion` file that is absent (one this pin cannot hold) is
+ * reported "blocked" with its reason, not as a failure. `wrapper` is the repository file that runs the engine in the live
+ * path, or null when none does yet: while it is null the engine is downloadable and verifiable but never "usable"
+ * (`voice-engine-registry.ts` reads it). A pin that is not listed here has no self-test and is never "usable".
+ */
+const SELF_TESTS = {
+  "Ceva-IP/DPDFNet": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "onnx/dpdfnet8.onnx",
+    inputs: [
+      { name: "spec", shape: [1, 1, 161, 2], type: "float32" },
+      { name: "state_in", shape: [66928], type: "float32" },
+    ],
+    outputs: [
+      { name: "spec_e", shape: [1, 1, 161, 2] },
+      { name: "state_out", shape: [66928] },
+    ],
+  },
+  "onnx-community/wespeaker-voxceleb-resnet34-LM": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "onnx/model_int8.onnx",
+    inputs: [{ name: "input_features", shape: ["B", "T", 80], type: "float32", run: [1, 200, 80] }],
+    outputs: [{ name: "last_hidden_state", shape: ["B", 256] }],
+  },
+  "bjollans/whisper-large-v3-vaani-hindi-ct2": {
+    kind: "ct2-folder",
+    wrapper: null,
+    needs: ["config.json", "model.bin", "vocabulary.json"],
+    // The repository holds no tokenizer.json and the installer fetches one repository per pin, so the file is named here
+    // as a companion: the large-v3 tokenizer already pinned under Systran/faster-whisper-large-v3 (this repository's
+    // vocabulary.json is byte-identical to that one). Until it sits beside the model the self-test says "blocked" with
+    // this reason, not "failed", and the Doctor offers no repair that could not help.
+    companion: {
+      file: "tokenizer.json",
+      sourceRepo: "Systran/faster-whisper-large-v3",
+      reason:
+        "needs the large-v3 tokenizer.json (pinned under Systran/faster-whisper-large-v3) beside the model; without it faster-whisper would fetch one from the network",
+    },
   },
 };
 
@@ -970,6 +1111,7 @@ module.exports = {
   PINS,
   FACTS,
   FILE_FACTS,
+  SELF_TESTS,
   MARKER,
   DISK_FACTOR,
   manifestFor,

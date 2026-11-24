@@ -394,7 +394,7 @@ describe("wiring of the played text (source-pinned; the live path cannot run her
 
   it("the heard part is read before the voice is stopped and stored only on a judged interruption", () => {
     const hold = mode.slice(
-      mode.indexOf("private holdForInterruption()"),
+      mode.indexOf("private holdForInterruption("),
       mode.indexOf("private armInterruptTimer"),
     );
     expect(hold.indexOf("this.heldPlayed = this.heardOfReply()")).toBeGreaterThan(-1);
@@ -420,7 +420,10 @@ describe("wiring of the played text (source-pinned; the live path cannot run her
     );
     expect(gate).toContain("voice.trimHistoryToPlayed === false");
     expect(gate).toContain("heard.runId !== runId");
-    expect(mode).toContain("brain.truncateAssistantReply(heard.runId, heard.text)");
+    expect(mode).toContain("brain.truncateAssistantReply(heard.runId, heard.text, playedMs)");
+    // The sample player's clock cuts at a clause boundary; the element path falls back to counted words.
+    expect(gate).toContain("playedReplyCut()");
+    expect(gate).toContain("playedReplySnapshot()");
   });
 
   it("a reply starts its own record and a rewrite starts it again", () => {
@@ -432,8 +435,9 @@ describe("wiring of the played text (source-pinned; the live path cannot run her
 
   it("the Brain exposes the cut and shows the model the marker, never the unheard rest", () => {
     expect(brainSrc).toContain(
-      "truncateAssistantReply(runId: string, playedText: string): boolean",
+      "truncateAssistantReply(runId: string, playedText: string, playedMs?: number): boolean",
     );
+    expect(brainSrc).toMatch(/playedText: heard,\s*interrupted: true,/);
     expect(brainSrc).toMatch(
       /m\.playedText === undefined \? m\.text : cutReplyForModel\(m\.playedText\)/,
     );

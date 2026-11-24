@@ -14,6 +14,8 @@ export const PRE_ROLL_MS = 500;
 export const TARGET_RATE = 16_000;
 /** Default utterance cap in voice-stt plus its 1.5 s grace and the pre-roll, rounded up. */
 export const RING_MS = 30_000;
+/** No ring is ever larger than this, whatever a caller asks for (16 kHz mono float: about 3.8 MB). */
+export const MAX_RING_MS = 60_000;
 
 export type SegmentClock = {
   close: boolean;
@@ -185,7 +187,8 @@ export class PcmRing {
   private readonly stamps: number[] = [];
 
   constructor(preRollMs = PRE_ROLL_MS, ringMs = RING_MS) {
-    const samples = Math.round((TARGET_RATE * Math.max(preRollMs, ringMs)) / 1000);
+    const span = Math.min(MAX_RING_MS, Math.max(preRollMs, ringMs));
+    const samples = Math.round((TARGET_RATE * (Number.isFinite(span) ? span : RING_MS)) / 1000);
     this.data = new Float32Array(samples);
     this.stampAt = new Float64Array(samples);
   }

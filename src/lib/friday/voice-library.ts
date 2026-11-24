@@ -13,7 +13,7 @@
  */
 import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expression";
 import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
-import { PlayedTextTracker, type PlayedReply } from "./voice-engine/played-text";
+import { PlayedTextTracker, type PlayedCut, type PlayedReply } from "./voice-engine/played-text";
 import { attachSpeechAudio, pulseSpeechAudio, stopSpeechAudio } from "./character/speech-audio";
 import {
   bytesToPcm16,
@@ -619,6 +619,40 @@ function cancellable<T>(body: (settle: (value: T) => void) => () => void, onCanc
  */
 const playedTracker = new PlayedTextTracker();
 
+/**
+ * What was heard of the reply, cut at the last clause boundary by the milliseconds the speaker really played (the
+ * sample player's clock minus its output buffer). Null when the last clause did not go through the sample player:
+ * then only `playedReplySnapshot()` can say. Changes nothing.
+ */
+export function playedReplyCut(): PlayedCut | null {
+  if (!pcmPlayer || !pcmPlayedLast) return null;
+  return playedTracker.heardAtMs(pcmPlayer.playedMs());
+}
+
+/** How far FRIDAY's own voice is lowered while the owner may be talking over her (1 = not lowered). */
+let duckLevel = 1;
+let currentAudioVolume = 1;
+
+/**
+ * Lower her voice at once without stopping it (`on`), or bring it back. The raw-sample player ducks through its gain
+ * stage, the audio element through its volume; a system voice cannot be lowered and keeps going unchanged.
+ */
+export function duckSpeech(on: boolean, level = 0.3): void {
+  duckLevel = on ? Math.min(1, Math.max(0, level)) : 1;
+  try {
+    pcmPlayer?.setDuck(duckLevel);
+  } catch {
+    /* nothing audible to lower */
+  }
+  if (currentAudio) {
+    try {
+      currentAudio.volume = Math.min(1, Math.max(0, currentAudioVolume * duckLevel));
+    } catch {
+      /* the element is gone */
+    }
+  }
+}
+
 /** A reply of this run is about to be spoken: forget the clauses of an earlier one (`force` also for the same run). */
 export function beginPlayedReply(runId: string, force = false): void {
   playedTracker.begin(runId, force);
@@ -637,6 +671,8 @@ export function stopSpeaking() {
   if (dead) cancelPcmUtterance(dead);
   // Before anything is paused: the clock and the audio element's position are still the moment of the stop.
   playedTracker.stop();
+  // What follows starts at its own loudness, never at a lowered one left from a hold.
+  duckSpeech(false);
   try {
     window.speechSynthesis?.cancel();
   } catch {
@@ -725,7 +761,8 @@ function playBase64(
   // A clip that is still arriving comes as an element that is already attached to its stream and paused.
   const audio =
     (ready as HTMLAudioElement | undefined) ?? new Audio(`data:${mime};base64,${audioBase64}`);
-  audio.volume = Math.min(Math.max(volume, 0), 1);
+  currentAudioVolume = Math.min(Math.max(volume, 0), 1);
+  audio.volume = currentAudioVolume * duckLevel;
   currentAudio = audio;
   // Feed the desktop companion the real speech envelope for lip-sync.
   attachSpeechAudio(audio);
@@ -997,10 +1034,13 @@ async function playPcmClip(
   pcmPlayedLast = true;
   // The audio clock of the sample player says how much of the clause has been played.
   const heard = heardText
-    ? playedTracker.startClip(heardText, playing.durationMs, () => ({
-        elapsedMs: playing.playedMs(),
-        durMs: playing.durationMs,
-      }))
+    ? playedTracker.startClip(
+        heardText,
+        playing.durationMs,
+        () => ({ elapsedMs: playing.playedMs(), durMs: playing.durationMs }),
+        undefined,
+        playing.span,
+      )
     : null;
   return cancellable<void>((finish) => {
     let natural = false;

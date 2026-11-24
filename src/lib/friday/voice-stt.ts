@@ -34,6 +34,7 @@ import {
   type MicFaultKind,
 } from "./pcm-capture";
 import { preferences } from "./preferences";
+import { normalizeListenStyle, pttCapturing, pttHeldForMs } from "./push-to-talk";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import {
@@ -107,6 +108,42 @@ export function whisperLanguageArg(pref?: string | null): string {
   if (/^(hi|en)(-|$)/.test(raw)) return "";
   const iso = raw.slice(0, 2);
   return /^[a-z]{2}$/.test(iso) ? iso : "";
+}
+
+/** A hold may reach back this far to the key-down; longer waiting before speaking is only silence to decode. */
+export const PTT_LEAD_MAX_MS = 3000;
+
+/**
+ * Where a segment starts. Speech heard while the talk key is down began at or after the key-down, so the segment
+ * starts there (the owner's first syllable as the finger lands is kept), with the one pre-roll before it.
+ */
+export function pttSegmentStart(
+  nowMono: number,
+  heldMs: number,
+): { startedMono: number; pcmFrom: number } {
+  const lead = Number.isFinite(heldMs) ? Math.min(PTT_LEAD_MAX_MS, Math.max(0, heldMs)) : 0;
+  const startedMono = nowMono - lead;
+  return { startedMono, pcmFrom: startedMono - PRE_ROLL_MS };
+}
+
+/**
+ * Whether a segment closes now. A segment a hold opened is held open through pauses while the key is down and in
+ * the release tail, and is finalised the moment the tail is over; any other segment closes on silence, as before.
+ * The segment cap always closes.
+ */
+export function pttCloseDecision(input: {
+  pttSegment: boolean;
+  capturing: boolean;
+  silenceClose: boolean;
+  tooLong: boolean;
+}): { close: boolean; reason: string } {
+  if (input.tooLong) return { close: true, reason: "segment closed" };
+  if (input.pttSegment) {
+    return input.capturing
+      ? { close: false, reason: "" }
+      : { close: true, reason: "push-to-talk released" };
+  }
+  return input.silenceClose ? { close: true, reason: "silence" } : { close: false, reason: "" };
 }
 
 /**
@@ -588,6 +625,8 @@ export class DesktopDictation {
   private captureHealthy = true;
   private startedMono = 0;
   private pcmFrom = 0;
+  /** True while the open segment was started by a push-to-talk hold: the key, not the pause, ends it. */
+  private pttSegment = false;
   private segmentSamples = 0;
   private delivered = false;
   private watchTimer: number | null = null;
@@ -956,15 +995,27 @@ export class DesktopDictation {
     this.turnGen += 1;
     this.turnScore = null;
     this.provisional.openSegment();
-    this.startedAt = Date.now();
-    this.startedMono = performance.now();
-    this.pcmFrom = this.startedMono - PRE_ROLL_MS;
+    const start = pttSegmentStart(performance.now(), this.pttLeadMs());
+    this.pttSegment = this.pttFollows() && pttCapturing(Date.now(), this.options.language ?? "en");
+    this.startedMono = start.startedMono;
+    this.startedAt = Date.now() - (performance.now() - start.startedMono);
+    this.pcmFrom = start.pcmFrom;
     this.segmentSamples = 0;
     this.delivered = false;
     this.bugLogged = false;
     this.earlyWake = null;
     this.earlyWakeTried = false;
     this.earlyWakeGen += 1;
+  }
+
+  /** The talk key matters only in the push-to-talk style; in Always a pressed key changes nothing here. */
+  private pttFollows(): boolean {
+    return normalizeListenStyle(preferences.getSnapshot().voice.listenStyle) === "push-to-talk";
+  }
+
+  /** How long the talk key has been down (0 when it is not, or the style is Always). */
+  private pttLeadMs(): number {
+    return this.pttFollows() ? pttHeldForMs(Date.now()) : 0;
   }
 
   /** Pull the shared ring, including the pre-roll, and prefer that over a late recorder. */
@@ -1078,11 +1129,17 @@ export class DesktopDictation {
         this.turnHold = "scoring";
         void this.requestTurnScore(this.turnGen);
       }
-      if (!plan.close && !tooLong)
+      const verdict = pttCloseDecision({
+        pttSegment: this.pttSegment,
+        capturing: pttCapturing(Date.now(), this.options.language ?? "en"),
+        silenceClose: plan.close,
+        tooLong,
+      });
+      if (!verdict.close && !tooLong && !this.pttSegment)
         this.maybeReadEarly({ speech: snapshot.speech, tooLong, quietMs: quietFor });
-      if (!plan.close && !tooLong) return;
+      if (!verdict.close) return;
       if (this.pcmSegment || !this.recorder) {
-        this.finishSegment(tooLong ? "segment closed" : "silence");
+        this.finishSegment(verdict.reason);
         return;
       }
       if (this.timer) window.clearInterval(this.timer);

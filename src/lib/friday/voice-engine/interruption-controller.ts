@@ -272,17 +272,69 @@ export function classifyVoiceControl(heard: string): VoiceControl {
   return { kind: "none" };
 }
 
-const BACKCHANNEL = new Set(
-  (
-    "hmm hm haan han ha ji accha acha theek thik ok okay yes yeah yep right sure oh uh um achha hanji haanji " +
-    "हाँ हां जी अच्छा ठीक हम्म"
-  ).split(" "),
-);
+/**
+ * The one list of nods ("I am following you"), shared by the interruption gate and by `isFollowingAlong` in
+ * voice-session.ts. Single words first, then the phrases that are a nod only together.
+ */
+export const BACKCHANNEL_WORDS: readonly string[] = (
+  "hmm hm haan han ha ji jee accha acha achha theek thik ok okay yes yeah yep yup right sure oh uh um hanji haanji " +
+  "mhm mmhmm hmmm sahi bilkul हाँ हां जी अच्छा ठीक हम्म"
+).split(" ");
+export const BACKCHANNEL_PHRASES: readonly string[] = [
+  "theek hai",
+  "theek hai ji",
+  "thik hai",
+  "thik hai ji",
+  "sahi hai",
+  "accha hai",
+  "achha hai",
+  "acha hai",
+  "ho gaya",
+  "samajh gaya",
+  "samajh gayi",
+  "samajh gaye",
+  "got it",
+  "i see",
+  "i know",
+  "uh huh",
+  "mm hmm",
+  "ठीक है",
+  "हां जी",
+  "हाँ जी",
+  "अच्छा जी",
+];
+const BACKCHANNEL = new Set(BACKCHANNEL_WORDS);
+const BACKCHANNEL_PHRASE_SET = new Set(BACKCHANNEL_PHRASES);
+/** Filled sounds in any length: "hmmmm", "mmm", "uhh", "aaa". */
+const FILLED_SOUND = /^(?:h?m{1,}|hm+h?m*|u+h+|u+m+|a+h+|o+h+|a+c+h+a+|ha+n+|ji+)$/u;
 
-/** A short sound of agreement ("haan", "hmm", "ok") is not an interruption. */
+/** A short sound of agreement ("haan", "hmm", "ok", "theek hai") is not an interruption. */
 export function isBackchannel(heard: string): boolean {
-  const words = norm(heard).split(" ").filter(Boolean);
-  return words.length > 0 && words.length <= 2 && words.every((w) => BACKCHANNEL.has(w));
+  const text = norm(heard);
+  if (!text) return false;
+  if (BACKCHANNEL_PHRASE_SET.has(text)) return true;
+  const words = text.split(" ").filter(Boolean);
+  const nod = (w: string) => BACKCHANNEL.has(w) || FILLED_SOUND.test(w);
+  if (words.length > 0 && words.length <= 2 && words.every(nod)) return true;
+  // "haan theek hai", "ok ok right": up to three nods, where "hai" may stand beside one.
+  return words.length === 3 && words.every((w) => nod(w) || w === "hai") && words.some(nod);
+}
+
+/**
+ * Words that always stop her at once, whatever their length: a voice control ("ruk jao", "stop", a task word) and
+ * a plain request to hold ("wait", "ruko", "ek minute", "one second", "hold on"). Ending speech is all this does.
+ */
+const HOLD_REQUEST =
+  /^(?:(?:wait|ruko|ruk|rukiye|ek (?:minute|min|second|sec|pal)|one (?:minute|second|sec|moment)|just a (?:minute|second|sec|moment)|hold on|hold it|stop|bas|hang on)\b|रुको|रुक|रुकिए|एक (?:मिनट|सेकंड|पल)|बस)/u;
+
+/** A bare refusal ("no", "nahi", "cancel", "galat") is a stop only when it is the whole line (or said twice). */
+const REFUSAL_ONLY =
+  /^(?:no|nope|nahi|nahin|nai|cancel|galat|नहीं|नही|गलत)(?: (?:no|nope|nahi|nahin|nai|cancel|it|please|yaar|ji))?$/u;
+
+export function isImmediateStop(heard: string): boolean {
+  if (classifyVoiceControl(heard).kind !== "none") return true;
+  const text = norm(heard.replace(/^(hey\s+)?friday\b[, ]*/i, ""));
+  return HOLD_REQUEST.test(text) || REFUSAL_ONLY.test(text);
 }
 
 export type InterruptionVerdict = "interrupt" | "resume" | "wait";
@@ -303,4 +355,211 @@ export function judgeInterruption(
   if (classifyVoiceControl(heard).kind !== "none") return "interrupt";
   if (isBackchannel(heard)) return "resume";
   return norm(heard).split(" ").length < minWords ? "resume" : "interrupt";
+}
+
+/**
+ * The backchannel gate (adapted from the adaptive-interruption idea of LiveKit Agents: voice activity alone does not
+ * stop an agent that is talking). While FRIDAY speaks, the owner's voice only lowers her volume and starts a
+ * candidate. The candidate becomes a real interruption only when the speech lasts `minDurationMs` and the recogniser
+ * gives `minWords` words that are not a backchannel and not her own voice coming back. A stop or hold word ("ruko",
+ * "wait", "ek minute") interrupts at once. Anything said while an answer is awaited (an approval question) reaches
+ * the approval path at once, because a bare "yes" there is an answer, not a nod. Otherwise, after
+ * `falseTimeoutMs` of silence the volume comes back and she carries on. The gate never hears who is speaking: a
+ * speaker match cannot approve, interrupt or release anything here.
+ */
+export type InterruptGatePrefs = {
+  /** Off: voice activity alone pauses her, as before the gate existed. */
+  enabled: boolean;
+  /** Speech must last this long before words can escalate it. */
+  minDurationMs: number;
+  /** Words that are not a backchannel before it escalates. */
+  minWords: number;
+  /** Silence after which a candidate with no words is judged false and the volume is restored. */
+  falseTimeoutMs: number;
+  /** Voice that continues this long (and is not a nod or her echo) pauses her playback; 0 never pauses. */
+  pauseAfterMs: number;
+  /** Voice that goes on this long with no word from the recogniser at all is treated as a real interruption. */
+  noWordsEscalateMs: number;
+  /** Real sound with no words yet: how long after it ends the final transcript is waited for. */
+  finalWaitMs: number;
+  /** How loud her voice is while the owner may be talking over her (0.05 to 0.8 of its own level). */
+  duckLevel: number;
+};
+
+export const DEFAULT_INTERRUPT_GATE: InterruptGatePrefs = {
+  enabled: true,
+  minDurationMs: 400,
+  minWords: 2,
+  falseTimeoutMs: 1200,
+  pauseAfterMs: 600,
+  noWordsEscalateMs: 2500,
+  finalWaitMs: 4000,
+  duckLevel: 0.3,
+};
+
+const clampInt = (value: unknown, min: number, max: number, fallback: number): number => {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
+  return Math.min(max, Math.max(min, n));
+};
+
+const clampNum = (value: unknown, min: number, max: number, fallback: number): number => {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.round(Math.min(max, Math.max(min, n)) * 100) / 100;
+};
+
+/** A stored or odd shape reads the shipped defaults; every number is held inside a range that keeps her usable. */
+export function sanitizeInterruptGate(raw: unknown): InterruptGatePrefs {
+  const row: Partial<Record<keyof InterruptGatePrefs, unknown>> =
+    raw && typeof raw === "object"
+      ? (raw as Partial<Record<keyof InterruptGatePrefs, unknown>>)
+      : {};
+  const d = DEFAULT_INTERRUPT_GATE;
+  return {
+    enabled: row.enabled === undefined ? d.enabled : row.enabled === true,
+    minDurationMs: clampInt(row.minDurationMs, 100, 3000, d.minDurationMs),
+    minWords: clampInt(row.minWords, 1, 6, d.minWords),
+    falseTimeoutMs: clampInt(row.falseTimeoutMs, 400, 5000, d.falseTimeoutMs),
+    pauseAfterMs: clampInt(row.pauseAfterMs, 0, 3000, d.pauseAfterMs),
+    noWordsEscalateMs: clampInt(row.noWordsEscalateMs, 1000, 10_000, d.noWordsEscalateMs),
+    finalWaitMs: clampInt(row.finalWaitMs, 1000, 15_000, d.finalWaitMs),
+    duckLevel: clampNum(row.duckLevel, 0.05, 0.8, d.duckLevel),
+  };
+}
+
+export type GateWhy =
+  | "stop-word"
+  | "approval-answer"
+  | "words"
+  | "long-speech"
+  | "backchannel"
+  | "echo"
+  | "too-few-words"
+  | "noise"
+  | "silence";
+
+export type GateVerdict =
+  | { kind: "wait" }
+  | { kind: "pause" }
+  | { kind: "interrupt"; why: GateWhy }
+  | { kind: "restore"; why: GateWhy };
+
+export type GateInput = {
+  /** Milliseconds from any monotonic clock. */
+  t: number;
+  /** The VAD hears speech now. */
+  speechActive: boolean;
+  /** The recogniser's words so far (a partial) or in all (the final), null when none came. */
+  text: string | null;
+  /** `text` is the final transcript of the utterance. */
+  final?: boolean;
+  /** A yes or no is being waited for (an approval, a read-back, a question). */
+  waitingForAnswer?: boolean;
+  /** `text` is FRIDAY's own voice coming back through the microphone. */
+  selfEcho?: boolean;
+};
+
+export class InterruptGate {
+  private startedAt: number | null = null;
+  private lastSpeechAt = 0;
+  /** Time the voice was really heard (a gap of silence between two coughs is not speech). */
+  private speechAccumMs = 0;
+  private lastTick = 0;
+  private echoSeen = false;
+  private pausedSent = false;
+
+  constructor(private readonly config: () => InterruptGatePrefs = () => DEFAULT_INTERRUPT_GATE) {}
+
+  get active(): boolean {
+    return this.startedAt !== null;
+  }
+
+  /** The owner's voice was heard while she speaks. A second call during a candidate only notes the voice again. */
+  begin(t: number): void {
+    if (this.startedAt === null) {
+      this.startedAt = t;
+      this.echoSeen = false;
+      this.pausedSent = false;
+      this.speechAccumMs = 0;
+    }
+    this.lastSpeechAt = t;
+    this.lastTick = t;
+  }
+
+  /** The candidate is over, whatever the outcome. */
+  end(): void {
+    this.startedAt = null;
+    this.echoSeen = false;
+    this.pausedSent = false;
+  }
+
+  /** How long the voice has lasted so far (0 when no candidate). */
+  speechMs(): number {
+    return this.startedAt === null ? 0 : this.speechAccumMs;
+  }
+
+  evaluate(input: GateInput): GateVerdict {
+    if (this.startedAt === null) return { kind: "wait" };
+    const cfg = this.config();
+    if (input.speechActive) {
+      // Count the time between looks, never more than one poll's worth, so a stalled page cannot fake a long voice.
+      this.speechAccumMs += Math.min(250, Math.max(0, input.t - this.lastTick));
+      this.lastSpeechAt = Math.max(this.lastSpeechAt, input.t);
+    }
+    this.lastTick = Math.max(this.lastTick, input.t);
+    const text = input.text?.trim() ? input.text : null;
+    const final = input.final === true;
+    if (text && input.selfEcho) this.echoSeen = true;
+    let shortWhy: GateWhy | null = null;
+    if (text && !input.selfEcho) {
+      if (isImmediateStop(text)) return { kind: "interrupt", why: "stop-word" };
+      if (input.waitingForAnswer) return { kind: "interrupt", why: "approval-answer" };
+      if (isBackchannel(text)) {
+        if (final) return { kind: "restore", why: "backchannel" };
+        shortWhy = "backchannel";
+      } else {
+        // A final line that is not a nod and not her own voice is a turn of the owner's: it is never dropped,
+        // however few words it has ("kya", "wapas"). Earlier, a partial must reach `minWords` and `minDurationMs`.
+        if (final) return { kind: "interrupt", why: "words" };
+        const words = norm(text).split(" ").filter(Boolean).length;
+        if (words >= cfg.minWords && this.speechMs() >= cfg.minDurationMs)
+          return { kind: "interrupt", why: "words" };
+        shortWhy = "too-few-words";
+      }
+    } else if (text && final) {
+      return { kind: "restore", why: "echo" };
+    }
+    const silentFor = input.t - this.lastSpeechAt;
+    // Pause on voice, decide on words: playback stops (it can resume) once real voice has gone on long enough.
+    if (
+      !this.pausedSent &&
+      cfg.pauseAfterMs > 0 &&
+      this.speechAccumMs >= cfg.pauseAfterMs &&
+      !this.echoSeen &&
+      shortWhy !== "backchannel"
+    ) {
+      this.pausedSent = true;
+      return { kind: "pause" };
+    }
+    if (input.speechActive) {
+      const heardNothing = text === null && !this.echoSeen;
+      if (heardNothing && input.t - this.startedAt >= cfg.noWordsEscalateMs)
+        return { kind: "interrupt", why: "long-speech" };
+      return { kind: "wait" };
+    }
+    if (shortWhy) {
+      return silentFor >= cfg.falseTimeoutMs
+        ? { kind: "restore", why: shortWhy }
+        : { kind: "wait" };
+    }
+    if (this.echoSeen) {
+      return silentFor >= cfg.falseTimeoutMs ? { kind: "restore", why: "echo" } : { kind: "wait" };
+    }
+    if (this.speechMs() < cfg.minDurationMs) {
+      return silentFor >= cfg.falseTimeoutMs ? { kind: "restore", why: "noise" } : { kind: "wait" };
+    }
+    // Real sound and no words yet: the final transcript can still come.
+    return silentFor >= Math.max(cfg.finalWaitMs, cfg.falseTimeoutMs)
+      ? { kind: "restore", why: "silence" }
+      : { kind: "wait" };
+  }
 }

@@ -69,6 +69,6 @@ describe("Auto Mode never fails silently at any stage", () => {
     // speakText resolving "none" means nothing was actually spoken.
     expect(assistant).toContain('if (how !== "none") return;');
     expect(assistant).toMatch(/voice output failed — no speech engine could speak the reply/);
-    expect(assistant).toMatch(/\.catch\(\(error: unknown\) => \{[\s\S]{0,400}voice output failed/);
+    expect(assistant).toMatch(/\.catch\(\(error: unknown\) => \{[\s\S]{0,600}voice output failed/);
   });
 });

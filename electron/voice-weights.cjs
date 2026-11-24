@@ -44,6 +44,15 @@ const HINDI_PUNCT_REPO = "1-800-BAD-CODE/punct_cap_seg_47_language";
 /** The optional light Hindi voice (CC-BY-4.0, credit in the Models row) in `<root>/models/hindi-light-tts`. */
 const HINDI_LIGHT_REPO = "sulabhkatiyar/indic-tiny-tts-hindi";
 
+/** The optional streaming denoiser (Apache-2.0) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
+const DENOISE_REPO = "Ceva-IP/DPDFNet";
+
+/** The optional speaker-verification candidate (CC-BY-4.0, credit in the Models row) in `<root>/models/speaker-wespeaker`. */
+const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
+
+/** The optional Hindi Whisper large-v3 fine-tune (Apache-2.0, a candidate, never a default) in `<root>/models/hindi-vaani-ear`. */
+const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
+
 /**
  * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
  * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
@@ -83,6 +92,29 @@ const EXTRA_MODELS = [
     rowId: "hindi-light-tts-pin",
     label: "Light Hindi voice",
     kind: "tts",
+  },
+  // The three below are optional pins with no live wrapper yet: they download and verify, and each has a self-test
+  // (`voice-pins.cjs` SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
+  {
+    catalogId: "denoise-dpdfnet",
+    repo: DENOISE_REPO,
+    rowId: "denoise-dpdfnet-pin",
+    label: "DPDFNet denoiser",
+    kind: "voice",
+  },
+  {
+    catalogId: "speaker-wespeaker",
+    repo: SPEAKER_REPO,
+    rowId: "speaker-wespeaker-pin",
+    label: "WeSpeaker speaker model",
+    kind: "voice",
+  },
+  {
+    catalogId: "hindi-vaani-ear",
+    repo: HINDI_VAANI_REPO,
+    rowId: "hindi-vaani-ear-pin",
+    label: "Hindi Vaani ear (candidate)",
+    kind: "stt",
   },
 ];
 
@@ -332,6 +364,71 @@ async function pinChecks(root, deps = {}) {
       label: "neural voice matches its pin",
       ok: tts.ok,
       detail: describe(tts),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Doctor rows for the optional pins that have a self-test (`voice-pins.cjs` SELF_TESTS): one "optional, not installed"
+ * row with the install button when the folder is not whole, and one `selftest-<id>` row when it is. `runSelfTest`
+ * ({ catalogId, dir, spec }) returns { ok, reason, detail }; the Doctor passes the kernel runner, a test passes a fake.
+ * The rows are never required: the voice works without every one of these engines. An engine with no live wrapper
+ * says so in its green row, so a pass never reads as "in use".
+ */
+async function pinSelfTests(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const rows = [];
+  for (const row of EXTRA_MODELS) {
+    const spec = pins.SELF_TESTS[row.repo];
+    if (!spec) continue;
+    if (!root || !earOnDisk(root, row, exists)) {
+      rows.push({
+        id: `optional-${row.catalogId}`,
+        label: `${row.label} (optional, not installed)`,
+        ok: true,
+        optional: true,
+        required: false,
+        installId: row.catalogId,
+        detail: "not installed; optional, voice works without it",
+      });
+      continue;
+    }
+    let result;
+    try {
+      result = deps.runSelfTest
+        ? await deps.runSelfTest({
+            catalogId: row.catalogId,
+            dir: path.join(root, "models", row.catalogId),
+            spec,
+          })
+        : { ok: false, reason: "no-runner", detail: "the self-test runner is not available" };
+    } catch (error) {
+      result = { ok: false, reason: "run-failed", detail: String(error?.message || error) };
+    }
+    const ok = Boolean(result?.ok);
+    if (ok && result.blocked) {
+      // Nothing is wrong with the files, and a repair would fetch the same files again: say what is missing, offer no button.
+      rows.push({
+        id: `selftest-${row.catalogId}`,
+        label: `${row.label} self-test (blocked)`,
+        ok: true,
+        blocked: true,
+        required: false,
+        installId: "",
+        detail: `blocked: ${String(result.detail || result.reason || "a companion file is missing").slice(0, 200)}; no repair applies`,
+      });
+      continue;
+    }
+    rows.push({
+      id: `selftest-${row.catalogId}`,
+      label: `${row.label} self-test`,
+      ok,
+      required: false,
+      installId: ok ? "" : row.catalogId,
+      detail: ok
+        ? `${String(result.detail || "passed")}${spec.wrapper ? "" : "; no live wrapper runs it yet, so it is not used"}`
+        : `${String(result?.reason || "failed")}: ${String(result?.detail || "").slice(0, 200)}`,
     });
   }
   return rows;
@@ -1055,6 +1152,7 @@ module.exports = {
   auditStt,
   auditTts,
   pinChecks,
+  pinSelfTests,
   packChecks,
   VOICE_PACKS,
   modelRegistry,
@@ -1072,6 +1170,9 @@ module.exports = {
   HINDI_FALLBACK_REPO,
   HINDI_PUNCT_REPO,
   HINDI_LIGHT_REPO,
+  DENOISE_REPO,
+  SPEAKER_REPO,
+  HINDI_VAANI_REPO,
   EAR_MODELS,
   EXTRA_MODELS,
 };

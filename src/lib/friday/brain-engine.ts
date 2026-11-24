@@ -463,6 +463,10 @@ export type Message = {
    * reply for the transcript on this PC; the next turn is shown only the heard part and a note that it was cut.
    */
   playedText?: string;
+  /** The owner cut this spoken reply off (set with `playedText`). */
+  interrupted?: boolean;
+  /** Milliseconds of the reply the speaker had played at the cut, when the sample player's clock said. */
+  playedMs?: number;
 };
 
 export type MemoryHit = {
@@ -2450,7 +2454,11 @@ class BrainStore {
     const failed = new Set(this.state.runs.filter((r) => r.state === "failed").map((r) => r.id));
     return compactHistory(
       this.state.messages
-        .filter((m) => !(m.role === "friday" && m.runId && failed.has(m.runId)))
+        // A run stopped by the owner's interruption keeps the part that was heard (the model sees it cut, marked).
+        .filter(
+          (m) =>
+            !(m.role === "friday" && m.runId && failed.has(m.runId) && m.playedText === undefined),
+        )
         .filter((m) => !(m.role === "user" && m.runId === runId))
         .slice(-30)
         .map((m) => {
@@ -2841,13 +2849,18 @@ class BrainStore {
    * transcript on this PC is complete); the model is shown `playedText` and a marker that the reply was cut, so the
    * next turn does not assume the owner heard the rest. Returns false when the run has no reply of FRIDAY's.
    */
-  truncateAssistantReply(runId: string, playedText: string): boolean {
+  truncateAssistantReply(runId: string, playedText: string, playedMs?: number): boolean {
     const heard = String(playedText ?? "").trim();
     let found = false;
     this.state.messages = this.state.messages.map((message) => {
       if (message.runId !== runId || message.role !== "friday") return message;
       found = true;
-      return { ...message, playedText: heard };
+      return {
+        ...message,
+        playedText: heard,
+        interrupted: true,
+        ...(Number.isFinite(playedMs) ? { playedMs: Math.round(Number(playedMs)) } : {}),
+      };
     });
     if (found) this.emit();
     return found;

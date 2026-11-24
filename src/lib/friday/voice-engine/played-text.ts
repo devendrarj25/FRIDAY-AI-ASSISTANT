@@ -37,10 +37,22 @@ export type PlayedReply = {
   interrupted: boolean;
 };
 
+/** Where a clause sits on the sample player's answer clock, from the TTS chunks it was made of. */
+export type ClipSpan = { startMs: number; endMs: number };
+
+/** The heard part cut at a clause boundary by the milliseconds the speaker really played. */
+export type PlayedCut = PlayedReply & {
+  /** The player's played milliseconds the cut was made for. */
+  playedMs: number;
+  /** End of the last whole clause that was heard, on the same clock (0 when none). */
+  cutMs: number;
+};
+
 type Entry = PlayedClip & {
   group: number;
   done: boolean;
   probe: ClipProbe | undefined;
+  span: ClipSpan | null;
 };
 
 const WORD = /\S+/g;
@@ -97,6 +109,7 @@ export class PlayedTextTracker {
     durMs: number,
     probe?: ClipProbe,
     startedAtMs?: number,
+    span?: ClipSpan | null,
   ): { end: () => void; drop: () => void } {
     const wordCount = countWords(text);
     const none = { end: () => undefined, drop: () => undefined };
@@ -109,6 +122,7 @@ export class PlayedTextTracker {
       group: this.group,
       done: false,
       probe,
+      span: span && Number.isFinite(span.startMs) && Number.isFinite(span.endMs) ? span : null,
     };
     this.entries.push(entry);
     return {
@@ -149,6 +163,45 @@ export class PlayedTextTracker {
   }
 
   /**
+   * The heard part cut at the last clause boundary at or before `playedMs`, the milliseconds the speaker really
+   * played (the sample player's clock minus its output buffer). A clause that carries its chunk span is whole when
+   * its end is at or before `playedMs`; one with no span (the audio element, the system voice) is whole when its own
+   * progress says so. The clause in progress is never part of it: the model is told only what was heard to the end
+   * of a clause. Does not change the record.
+   */
+  heardAtMs(playedMs: number): PlayedCut {
+    const at = Number.isFinite(playedMs) && playedMs > 0 ? playedMs : 0;
+    const parts: string[] = [];
+    let words = 0;
+    let whole = 0;
+    let cutMs = 0;
+    let interrupted = this.open.size > 0;
+    const now = this.clock();
+    for (const entry of this.entries) {
+      const complete = entry.span
+        ? entry.span.endMs <= at + 0.5
+        : this.progress(entry, now).fraction >= 1;
+      if (!complete) {
+        interrupted = true;
+        break;
+      }
+      parts.push(entry.text);
+      words += entry.wordCount;
+      whole += 1;
+      if (entry.span) cutMs = Math.max(cutMs, entry.span.endMs);
+    }
+    return {
+      runId: this.runId,
+      text: parts.join(" "),
+      words,
+      wholeClips: whole,
+      interrupted,
+      playedMs: at,
+      cutMs,
+    };
+  }
+
+  /**
    * The voice was stopped. Returns what was heard. A sentence that was cut leaves the record (it is said again from
    * its start if the reply resumes); the sentences before it stay.
    */
@@ -159,7 +212,11 @@ export class PlayedTextTracker {
       const cutGroup = cut ? cut.group : this.group;
       this.entries = this.entries.filter((entry) => entry.group < cutGroup);
     }
-    for (const entry of this.entries) entry.done = true;
+    for (const entry of this.entries) {
+      entry.done = true;
+      // The player's clock restarts after a stop: a span of the old clock means nothing to the next reply.
+      entry.span = null;
+    }
     this.open.clear();
     return heard;
   }
