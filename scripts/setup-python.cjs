@@ -662,6 +662,26 @@ function installGpuSpeechLibraries() {
   if (!win || process.env.FRIDAY_GPU_SPEECH_LIBS === "0") return;
   const smi = capture("nvidia-smi", ["-L"]);
   if (smi.status !== 0 || !/GPU/i.test(String(smi.stdout || ""))) return;
+  // This PC's plan decides (electron/setup-plan.cjs): the libraries are installed only when it says install (an NVIDIA
+  // card whose driver reports CUDA 12, a compute capability the libraries support, room on the disk, a line that may
+  // carry about 1.2 GB). Without a readable plan the card alone decides, as before.
+  const plan = require("./prefetch-models.cjs").readPlanSync(process.env);
+  const libs = plan?.required.find((row) => row.id === "cuda-libs");
+  if (plan && libs?.action !== "install" && libs?.action !== "defer") {
+    const why = (plan.skipped || []).find((row) => row.id === "cuda-libs")?.reason;
+    log(
+      libs?.action === "present"
+        ? "GPU speech libraries ok (this PC's plan: already present)"
+        : `GPU speech libraries not installed: ${why || "this PC's plan does not need them"}`,
+    );
+    return;
+  }
+  if (libs?.action === "defer") {
+    log(
+      "GPU speech libraries wait for a better moment (offline, metered line or battery); npm run doctor installs them later",
+    );
+    return;
+  }
   const probe = [
     "-c",
     [

@@ -701,6 +701,8 @@ if (win) {
   }
 }
 
+// This PC's setup plan as plain data (prefetch-models.cjs --plan --json), read once by the model rows below.
+let setupPlanData = null;
 {
   // The installed client, on PATH or in its standard folders: a per-user
   // install is not on the PATH of a shell opened before it was installed.
@@ -735,34 +737,144 @@ if (win) {
       "smart-turn": "Voice model: end-of-turn detector",
       "silero-vad": "Voice model: speech detector",
       "supertonic-3": "Voice model: offline voice (Supertonic 3)",
+      "hindi-ear": "Voice model: Hindi ear",
+      "hindi-punct": "Voice model: Hindi punctuation",
       "qwen3-4b": "Chat model file: Qwen3 4B",
       "llamacpp-runtime": "Local engine: llama.cpp (llama-server)",
     };
-    // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
-    const llamaPlanned = require("./prefetch-models.cjs")
-      .prefetchPlan(pickedRoot, process.env, process.platform, { ollama: true })
-      .some((job) => job.id === "llamacpp-runtime");
-    for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
-      ollama: true,
-    })) {
-      if (!labels[job.id]) continue;
-      if (job.minRamGb && ramGb < job.minRamGb) continue;
-      // Ollama provides the small chat model on Windows; its file copy is only a fallback.
-      if (job.id === "qwen3-4b" && win && !llamaPlanned) continue;
-      const here = prefetchModels.alreadyThere(job);
-      add({
-        name: labels[job.id],
-        required: toolsRequired && !job.optional,
-        group: "local-models",
-        ok: here,
-        found: here ? "on disk" : "missing",
-        want:
-          job.id === "llamacpp-runtime"
-            ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
-            : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
-        fix: "npm run doctor",
-        url: "https://huggingface.co",
+    // ONE required set for this PC: the plan setup itself followed (electron/setup-plan.cjs through prefetch-models.cjs
+    // --plan --json), so a model the plan skipped here is shown as skipped, never missing, and a required one that is
+    // absent is a real failure. Without a readable plan the older fixed list below is checked as before.
+    const planData = prefetchModels.readPlanSync(process.env);
+    setupPlanData = planData;
+    if (planData) {
+      const weights = require("../electron/voice-weights.cjs");
+      const needed = new Map(planData.required.map((row) => [row.id, row]));
+      const neededJobs = new Set(
+        planData.required
+          .filter((row) => row.kind === "voice-model")
+          .map((row) => prefetchModels.voiceJobId(row.id)),
+      );
+      const skippedBy = new Map((planData.skipped || []).map((row) => [row.id, row.reason]));
+      const jobIdOfSkipped = (id) => (weights.SIZE_ORDER.includes(id) ? `stt-${id}` : id);
+      const skippedJobs = new Map(
+        [...skippedBy].map(([id, reason]) => [jobIdOfSkipped(id), reason]),
+      );
+      const llamaNeeded =
+        needed.has("llama.cpp") && ["install", "present"].includes(needed.get("llama.cpp").action);
+      const synthetic = {
+        items: planData.required
+          .filter((row) => row.kind === "voice-model")
+          .map((row) => ({
+            id: row.id,
+            state: row.action === "present" ? "on-disk" : "download",
+          })),
+        blocked: weights.SIZE_ORDER.filter((size) => skippedBy.has(size)).map((size) => ({
+          id: size,
+          size,
+          reason: skippedBy.get(size),
+        })),
+      };
+      const jobs = prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
+        ollama: true,
+        plan: synthetic,
+        ...(llamaNeeded ? { llama: { action: "install" } } : {}),
       });
+      const shown = new Set();
+      for (const job of jobs) {
+        if (!labels[job.id]) continue;
+        if (job.id === "qwen3-4b" && win) continue; // Ollama holds the chat model; the file copy is a fallback
+        shown.add(job.id);
+        const planned = neededJobs.has(job.id) || (job.id === "llamacpp-runtime" && llamaNeeded);
+        const reason = skippedJobs.get(job.id) || job.skipReason;
+        const here =
+          job.id === "llamacpp-runtime"
+            ? require("../electron/llama-runtime.cjs").installed(pickedRoot) ||
+              prefetchModels.alreadyThere(job)
+            : prefetchModels.alreadyThere(job);
+        if (!planned && reason) {
+          add({
+            name: labels[job.id],
+            required: false,
+            group: "local-models",
+            ok: true,
+            found: `skipped on this PC: ${reason}`.slice(0, 160),
+            want: "not part of this PC's plan; install it from the Models page if you want it",
+            fix: "npm run doctor",
+            url: "https://huggingface.co",
+          });
+          continue;
+        }
+        add({
+          name: labels[job.id],
+          required: planned && toolsRequired && !job.optional,
+          group: "local-models",
+          // A piece setup fetches that this PC's plan does not need is an extra: never a failure.
+          ok: planned ? here : true,
+          found: here
+            ? "on disk"
+            : planned
+              ? "missing"
+              : "not on disk (extra, not part of this PC's plan)",
+          want:
+            job.id === "llamacpp-runtime"
+              ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
+              : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
+      for (const [id, reason] of skippedJobs) {
+        if (shown.has(id) || !labels[id] || neededJobs.has(id)) continue;
+        add({
+          name: labels[id],
+          required: false,
+          group: "local-models",
+          ok: true,
+          found: `skipped on this PC: ${reason}`.slice(0, 160),
+          want: "not part of this PC's plan; install it from the Models page if you want it",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
+    } else {
+      add({
+        name: "This PC's setup plan",
+        required: false,
+        group: "local-models",
+        ok: false,
+        found: "could not be read; the fixed model list is checked instead",
+        want: "node scripts/prefetch-models.cjs --plan prints it",
+        skip: "the plan needs the hardware probe; the older fixed list below is checked as before",
+        fix: "npm run doctor",
+        url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+      });
+      // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
+      const llamaPlanned = prefetchModels
+        .prefetchPlan(pickedRoot, process.env, process.platform, { ollama: true })
+        .some((job) => job.id === "llamacpp-runtime");
+      for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
+        ollama: true,
+      })) {
+        if (!labels[job.id]) continue;
+        if (job.minRamGb && ramGb < job.minRamGb) continue;
+        // Ollama provides the small chat model on Windows; its file copy is only a fallback.
+        if (job.id === "qwen3-4b" && win && !llamaPlanned) continue;
+        const here = prefetchModels.alreadyThere(job);
+        add({
+          name: labels[job.id],
+          required: toolsRequired && !job.optional,
+          group: "local-models",
+          ok: here,
+          found: here ? "on disk" : "missing",
+          want:
+            job.id === "llamacpp-runtime"
+              ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
+              : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
     }
     const english = prefetchModels.moonshineReady(
       path.join(pickedRoot, ...prefetchModels.MOONSHINE_DIR),
@@ -778,21 +890,50 @@ if (win) {
       url: "https://github.com/moonshine-ai/moonshine",
     });
     if (win && installedOllama) {
-      const listed = capture(installedOllama.exe || "ollama", ["list"]) || "";
-      // The light model is required; the bigger tiers are checked only on a PC with the memory and never block.
-      for (const model of prefetchModels.OLLAMA_MODELS) {
-        if (model.minRamGb && ramGb < model.minRamGb) continue;
-        const has = listed.toLowerCase().includes(model.tag.toLowerCase());
+      const listed = (capture(installedOllama.exe || "ollama", ["list"]) || "").toLowerCase();
+      const holds = (tag) => listed.includes(String(tag).toLowerCase());
+      const chat = planData?.required.find((row) => row.kind === "chat-model");
+      if (planData && chat) {
+        // The tier model for this PC (or the installed model that stays in use). The light Qwen registered from its file
+        // when the registry could not be reached also answers.
+        const light = prefetchModels.OLLAMA_MODELS[0]?.tag;
+        const has = holds(chat.id);
+        const fallback = !has && chat.action === "pull" && light && holds(light);
+        const waiting = !has && !fallback && chat.action === "defer";
         add({
-          name: `Chat model in Ollama: ${model.tag}`,
-          required: toolsRequired && !model.optional,
+          name: `Chat model in Ollama: ${chat.id}`,
+          required: toolsRequired && !waiting,
           group: "local-models",
-          ok: has,
-          found: has ? "pulled" : "not pulled",
-          want: model.role || "a local chat model",
+          ok: has || fallback || waiting,
+          found: has
+            ? chat.action === "keep" || chat.action === "offer-upgrade"
+              ? "installed and in use (kept, never replaced)"
+              : "pulled (this PC's tier)"
+            : fallback
+              ? `${light} is in use; the tier model ${chat.id} was not pulled`
+              : waiting
+                ? "waiting for a better moment (offline, metered line or battery)"
+                : "not pulled",
+          want: `the chat model this PC's memory carries (${planData.pc?.ramGb ?? "unknown"} GB RAM${planData.pc?.gpu ? `, ${planData.pc.gpu.vramGb ?? "unknown"} GB video memory` : ", no GPU"})`,
           fix: "npm run doctor",
           url: "https://ollama.com/library",
         });
+      } else if (!planData) {
+        // The light model is required; the bigger tiers are checked only on a PC with the memory and never block.
+        for (const model of prefetchModels.OLLAMA_MODELS) {
+          if (model.minRamGb && ramGb < model.minRamGb) continue;
+          const has = holds(model.tag);
+          add({
+            name: `Chat model in Ollama: ${model.tag}`,
+            required: toolsRequired && !model.optional,
+            group: "local-models",
+            ok: has,
+            found: has ? "pulled" : "not pulled",
+            want: model.role || "a local chat model",
+            fix: "npm run doctor",
+            url: "https://ollama.com/library",
+          });
+        }
       }
     }
   } catch (error) {
@@ -856,17 +997,57 @@ if (win) {
     url: "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
   });
   const cuda = !!capture("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"]);
-  // Hardware, not software: no NVIDIA GPU means the CUDA Toolkit does not apply, so this row
-  // describes the PC and never warns.
+  // Hardware, not software: no NVIDIA GPU means the CUDA libraries do not apply, so this row describes the PC and never
+  // warns. With this PC's plan it names the measured facts (card, video memory, compute capability, driver, CUDA version).
+  const pc = setupPlanData?.pc;
+  const card = pc?.gpu && pc.gpu.vendor === "nvidia" ? pc.gpu : null;
+  const known = (value, unit = "") =>
+    value === null || value === undefined ? "unknown" : `${value}${unit}`;
   add({
     name: "NVIDIA GPU / CUDA",
     required: false,
     ok: true,
-    found: cuda ? "GPU detected" : "not applicable: no NVIDIA GPU (CPU inference is used)",
-    want: cuda ? "CUDA Toolkit is installed by setup" : "nothing to install on this PC",
+    found: card
+      ? `${card.name || "NVIDIA card"}, ${known(card.vramGb, " GB")} video memory, compute ${known(card.computeCap)}, driver ${known(card.driver)}, CUDA ${known(pc.cudaVersion)}`
+      : cuda
+        ? "GPU detected"
+        : "not applicable: no NVIDIA GPU (CPU inference is used)",
+    want: cuda
+      ? "CUDA libraries are installed by setup when the plan says so"
+      : "nothing to install on this PC",
     fix: "Install the NVIDIA driver, then npm run doctor",
     url: "https://developer.nvidia.com/cuda-downloads",
   });
+  // The CUDA 12 libraries (cuBLAS, cuDNN): required only when this PC's plan installs them; the plan never installs them
+  // without an NVIDIA card whose driver reports CUDA 12.
+  const libs = setupPlanData?.required.find((row) => row.id === "cuda-libs");
+  if (libs) {
+    const python = require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON);
+    const probe = [
+      "import importlib.util as u, pathlib",
+      "def ok(m, d):",
+      "    s = u.find_spec(m)",
+      "    return bool(s and s.submodule_search_locations and any((pathlib.Path(p) / 'bin' / d).is_file() for p in s.submodule_search_locations))",
+      "raise SystemExit(0 if ok('nvidia.cublas', 'cublas64_12.dll') and ok('nvidia.cudnn', 'cudnn64_9.dll') else 1)",
+    ].join("\n");
+    const have = python ? capture(python, ["-c", probe]) !== null : false;
+    add({
+      name: "CUDA 12 libraries (cuBLAS, cuDNN)",
+      required: toolsRequired && libs.action !== "defer" && !!python,
+      group: "local-models",
+      ok: have || libs.action === "defer",
+      found: have
+        ? "present"
+        : libs.action === "defer"
+          ? "waiting for a better moment (offline, metered line or battery)"
+          : python
+            ? "not installed"
+            : "cannot be checked (no Python runtime yet)",
+      want: "installed by npm run setup:python on an NVIDIA PC whose driver reports CUDA 12",
+      fix: "npm run doctor",
+      url: "https://developer.nvidia.com/cuda-downloads",
+    });
+  }
 }
 
 // ---------------------------------------------------------------- agent toolkit

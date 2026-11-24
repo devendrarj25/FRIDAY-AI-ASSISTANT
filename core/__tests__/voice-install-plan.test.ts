@@ -156,7 +156,13 @@ describe("what does not fit is skipped with the reason, never failed", () => {
 });
 
 describe("setup uses the plan (prefetch-models.cjs)", () => {
-  const env = { FRIDAY_PREFETCH: "1", FRIDAY_PREFETCH_CHAT: "0", FRIDAY_PREFETCH_OLLAMA: "0" };
+  const env = {
+    FRIDAY_PREFETCH: "1",
+    FRIDAY_PREFETCH_CHAT: "0",
+    FRIDAY_PREFETCH_OLLAMA: "0",
+    // llama.cpp follows the PC's plan by default now and has its own tests; the stand-in downloader writes no zip.
+    FRIDAY_PREFETCH_LLAMACPP: "0",
+  };
 
   it("without a budget the list is exactly what it was", () => {
     const ids = prefetch.prefetchPlan("C:/f", env, "win32").map((job) => job.id);

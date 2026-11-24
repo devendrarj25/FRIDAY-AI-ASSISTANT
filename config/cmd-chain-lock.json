@@ -3,17 +3,17 @@
   "files": {
     "scripts/build-pipeline.cjs": "1b12b6ceeb8a97ec2d3a37bf2d08432f514ad8978e201e3fb99eac575a5b164a",
     "scripts/build-windows.cmd": "d7aae9b5382d9fd42fae98185f5ecdd35cfbd0948774fa2bf6e7bd9abe60e558",
-    "scripts/check-environment.cjs": "2067f33566544a942ac2b3b18f1568c99060c5e4cc6b9eb06f63dbadf0986f65",
+    "scripts/check-environment.cjs": "edff4c4466992e62836fed1c9af7ce8eecb54d8b1da861e472a22115708bd499",
     "scripts/console-bar.cjs": "d152fe9f73f13e9170430b00d944cc58347eb962490725175f06ce5d8e9cf041",
     "scripts/doctor.cjs": "33b226ef758e25cbf217db764371747c1394193bdb3911fc004825c7f82a0bd3",
     "scripts/download-board.cjs": "177807ce384933186b1a2203cb9845c5b30dd0358cd098fef485e63f05b92610",
     "scripts/electron-pack.cjs": "d4a9bb6c1ad95fde6ebfa69ada2cb1a1202278e7ad9e9a24da6894be15dda617",
     "scripts/ensure-electron.cjs": "f9953965ab65b09ee8d4e99c2a06f60e177570cfc099e0d19489026daa8c3d09",
     "scripts/live-console.cjs": "ea4065aec47f77b399020480556747f10e33a4b4466f11b36cc50303b5344f7f",
-    "scripts/prefetch-models.cjs": "51339730a7ab025e9695a761ab33d30645be6b7c9f8255f38b2377f47a6a8171",
+    "scripts/prefetch-models.cjs": "b2cb96e1d3c566999a76206ca65740b0eb63ea1a36105ae80b5fb052f38fa406",
     "scripts/prefetch-toolkit.cjs": "116371ee962d02bafda40ae7f631ffb0edda717d0c6b8ff9bee8e3f0b8d68870",
-    "scripts/setup-python.cjs": "83092f78916ea9adec808f97bc3b393a80e2e12b2fe73f84a945592a227008e1",
-    "scripts/setup-windows.ps1": "229583001613be637014f582bc145fb28fc2fc98643f621c18f12bab2dee6d7d",
+    "scripts/setup-python.cjs": "c776354a993752a4473381ce261317bf7949bed36f60afd45d640c7d86788f91",
+    "scripts/setup-windows.ps1": "01aa6cbe9d9ce2ddc3b3219c28f0edd37819cca50e5cd4326772bc6d85f4fdb1",
     "scripts/stage-toolchain.cjs": "57e3c0044bd5a245b9b76cf13176eff46f16b0e04404826c47b1ee8376d49c8d",
     "scripts/verify-build.cjs": "e9d5240c2dbec37fd6d633ca624e12b2db37ce48a45c72ae79336e56293f468b"
   }

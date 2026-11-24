@@ -38,8 +38,19 @@ describe("build-time model prefetch", () => {
       "stt-medium", // the larger sizes are the biggest pieces, so they go last
       "stt-large-v3", // the most accurate size, optional
     ]);
-    expect(jobs[7]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
-    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 15, optional: true });
+    // No memory threshold lives in setup: the voice plan (voice-weights budgetFor) says whether this PC carries a size.
+    expect(jobs[7]).toMatchObject({ id: "stt-medium" });
+    expect(jobs[7].minRamGb).toBeUndefined();
+    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", optional: true });
+    expect(jobs[8].minRamGb).toBeUndefined();
+    // Both pinned helpers carry every source of their pin and the line that names a failed fetch; both are optional.
+    expect(jobs[0]).toMatchObject({ id: "smart-turn", optional: true });
+    expect(jobs[1]).toMatchObject({ id: "silero-vad", optional: true });
+    expect(jobs[1].job.sources.length).toBeGreaterThanOrEqual(2);
+    expect(
+      jobs[1].job.sources.every((s: { sha256: string }) => /^[0-9a-f]{64}$/.test(s.sha256)),
+    ).toBe(true);
+    expect(typeof jobs[1].failureLine).toBe("function");
     // large-v3-turbo is fetched from inside FRIDAY; only FRIDAY_PREFETCH_STT_BIG=1 adds it to setup.
     const withTurbo = prefetch.prefetchPlan(
       "/friday",
@@ -47,7 +58,8 @@ describe("build-time model prefetch", () => {
       "linux",
     );
     const turbo = withTurbo[withTurbo.length - 1];
-    expect(turbo).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 15 });
+    expect(turbo).toMatchObject({ id: "stt-large-v3-turbo", explicit: true });
+    expect(turbo.minRamGb).toBeUndefined();
     expect(turbo.job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
@@ -117,7 +129,12 @@ describe("build-time model prefetch", () => {
         download: async (job: { modelId: string }) => {
           asked.push(job.modelId);
           if (job.modelId === "small") throw new Error("offline");
-          return { ok: job.modelId !== "smart-turn", error: "HTTP 503", source: "stand-in" };
+          return {
+            ok: job.modelId !== "smart-turn",
+            error: "HTTP 503",
+            source: "stand-in",
+            attempts: [{ source: "Hugging Face (pinned commit)", error: "HTTP 503" }],
+          };
         },
       });
       expect(asked).not.toContain("base");
@@ -128,12 +145,21 @@ describe("build-time model prefetch", () => {
       expect(rows.find((row: { id: string }) => row.id === "stt-small")?.ok).toBe(false);
       expect(rows.find((row: { id: string }) => row.id === "smart-turn")?.error).toBe("HTTP 503");
       expect(lines.join("\n")).toContain("stt-small was not downloaded (offline)");
-      expect(lines.join("\n")).toContain("smart-turn was not downloaded (HTTP 503)");
-      // The step then fails with a report that names each model and the way forward.
+      // An optional helper (it has a built-in fallback) is a NOTE with every source it tried, never a FAIL.
+      const note = lines.find((line) => line.includes("smart-turn did not download")) || "";
+      expect(note).toContain("NOTE");
+      expect(note).toContain("Hugging Face (pinned commit): HTTP 503");
+      expect(note).toContain("optional");
+      expect(lines.join("\n")).not.toContain("FAIL     smart-turn");
+      expect(rows.find((row: { id: string }) => row.id === "smart-turn")).toMatchObject({
+        ok: false,
+        optional: true,
+      });
+      // The step then fails with a report that names each required model and the way forward.
       const report = prefetch.failureReport(rows).join("\n");
       expect(report).toContain("ACTION REQUIRED");
       expect(report).toContain("stt-small: offline");
-      expect(report).toContain("smart-turn: HTTP 503");
+      expect(report).not.toContain("smart-turn");
       expect(report).toContain("npm run setup:python");
       expect(prefetch.failureReport([{ id: "x", ok: true }])).toEqual([]);
     } finally {
@@ -898,13 +924,20 @@ describe("speech sizes", () => {
       }
       return { fetched, log: lines.join("\n") };
     };
+    // The sizes come from the voice plan alone: without a verified GPU, medium and larger are never auto-loaded,
+    // whatever the memory, and a PC whose speech budget cannot carry small keeps base.
     const roomy = await run(16);
-    expect(roomy.fetched).toEqual(expect.arrayContaining(["base", "small", "medium"]));
+    expect(roomy.fetched).toEqual(expect.arrayContaining(["base", "small"]));
+    expect(roomy.fetched).not.toContain("medium");
     expect(roomy.fetched).not.toContain("large-v3-turbo"); // fetched from inside FRIDAY
+    expect(roomy.log).toContain("stt-medium skipped: not auto-loaded here");
+    expect(roomy.log).not.toContain("GB RAM, this PC has");
     const tight = await run(4);
-    expect(tight.fetched).toEqual(expect.arrayContaining(["base", "small"]));
+    expect(tight.fetched).toContain("base");
+    expect(tight.fetched).not.toContain("small");
     expect(tight.fetched).not.toContain("medium");
-    expect(tight.log).toContain("stt-medium skipped: needs 8 GB RAM");
+    expect(tight.log).toContain("stt-small skipped: needs about");
+    expect(tight.log).toContain("stt-medium skipped: not auto-loaded here");
     const off = await run(16, { FRIDAY_PREFETCH_STT_LARGE: "0" });
     expect(off.fetched).not.toContain("medium");
   });
@@ -1320,7 +1353,8 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
     const tiny = jobs.find((j: { id: string }) => j.id === "stt-tiny");
     expect(tiny.minRamGb).toBeUndefined();
     const max = jobs.find((j: { id: string }) => j.id === "stt-large-v3");
-    expect(max).toMatchObject({ minRamGb: 15, optional: true });
+    expect(max).toMatchObject({ optional: true });
+    expect(max.minRamGb).toBeUndefined();
   });
 
   it("lets the owner leave the lite and max sizes out", () => {

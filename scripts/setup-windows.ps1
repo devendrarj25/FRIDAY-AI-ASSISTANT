@@ -934,8 +934,14 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Electron binary installation failed after every official method.' }
 
   Write-Stage 4 'Python environment and voice models'
+  # Hardware first: this PC's plan (chat model, speech sizes, llama.cpp, CUDA libraries) is printed before anything
+  # downloads, and the model step reads the same plan. It only measures and prints; a failure here changes nothing.
+  Write-Step 'Measuring this PC: the plan below decides every model and GPU package setup downloads'
+  & node.exe scripts\prefetch-models.cjs --plan
+  if ($LASTEXITCODE -eq 0) { $env:FRIDAY_PLAN_PRINTED = '1' }
   Write-Step 'Creating the isolated Python environment and runtime storage'
   & node.exe scripts\setup-python.cjs
+  Remove-Item Env:FRIDAY_PLAN_PRINTED -ErrorAction SilentlyContinue
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
 
   Write-Stage 5 'Agent tools'
