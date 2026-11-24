@@ -37,6 +37,7 @@ import unicodedata
 import wave
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 # The packaged self-check and the speech worker run this file with the bundled
 # embeddable Python. Its ._pth file means the script folder is not on sys.path,
@@ -1306,13 +1307,17 @@ def transcribe_file(
     extras: dict | None = None,
     provisional: bool = False,
     utterance_id: str = "",
+    live: bool = False,
 ) -> dict:
     """One utterance file to text. A provisional pass runs every gate but is never counted or recorded, and it alone
-    can be cancelled (``request_cancel``): that raises DecodeCancelled out of here, with nothing counted."""
+    can be cancelled (``request_cancel``): that raises DecodeCancelled out of here, with nothing counted. A live pass
+    (a provisional one that asks for timed words) takes the lean path ``transcribe_live`` instead."""
     global _provisional_pass
     _provisional_pass = bool(provisional)
     try:
         begin_decode(utterance_id, bool(provisional))
+        if live and provisional:
+            return transcribe_live(audio, language, speech_pref, extras)
         return _transcribe_file(
             audio,
             model_name,
@@ -1377,6 +1382,173 @@ def _transcribe_file(
                 os.remove(cleanup)
             except OSError:
                 pass
+
+
+# ---- Live words: one lean pass over the audio spoken so far -------------------------------------------------------
+
+LIVE_MAX_S = 30.0  # the renderer keeps its buffer to about this; a longer clip loses its oldest audio
+LIVE_MIN_S = 0.2
+LIVE_NOISE_NO_SPEECH = 0.6
+LIVE_NOISE_LOGPROB = -1.0
+LIVE_PAD_S = 0.1  # a Roman Hindi phrase is cut this much wider before the Hindi ear re-reads it
+
+
+def _live_empty(seconds: float) -> dict:
+    return {"ok": True, "text": "", "words": [], "segments": [], "language": "", "languageProbability": None,
+            "engine": "faster-whisper", "durationMs": int(seconds * 1000)}  # fmt: skip
+
+
+def live_segment_is_noise(text: str, no_speech, logprob) -> bool:
+    """A segment that is a loop, a stock sign-off from noise, or silence the model made words for."""
+    if is_repetition_loop(text):
+        return True
+    ns = float(no_speech) if isinstance(no_speech, (int, float)) else 0.0
+    lp = float(logprob) if isinstance(logprob, (int, float)) else None
+    if lp is not None and ns >= LIVE_NOISE_NO_SPEECH and lp <= LIVE_NOISE_LOGPROB:
+        return True
+    return is_noise_hallucination(text, ns, lp)
+
+
+def _shifted(words: list[dict], by: float) -> list[dict]:
+    return [{"text": w["text"], "start": round(w["start"] + by, 3), "end": round(w["end"] + by, 3)} for w in words]
+
+
+def _live_script(words: list[dict]) -> str:
+    """``hi`` (all Devanagari), ``latin`` (all Latin), ``mixed`` or "" (no letters)."""
+    text = " ".join(w["text"] for w in words)
+    deva = bool(re.search("[\u0900-\u097f]", text))
+    latin = bool(re.search("[A-Za-z]", text))
+    return "mixed" if deva and latin else "hi" if deva else "latin" if latin else ""
+
+
+def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | None = None) -> dict:
+    """Timed words for the audio so far, by the fastest engine that fits, never counted, recorded or loaded for.
+
+    * The Hindi ear reads first when Hindi is chosen or nothing is (auto) and keeps the line by its own score, exactly
+      as the final decode does, so a partial and its final agree on who hears it.
+    * Otherwise the faster-whisper model that is already resident reads it with word times (English locked to ``en``,
+      Hindi to ``hi``, auto left to detect). A model that is not loaded, or a model of medium size or more on the
+      processor, is not asked: a guess is never worth a model load or a slow pass (the renderer skips the pass).
+    * In auto, a Roman Hindi phrase of a mixed reading is re-read by the Hindi ear alone, so Hindi words come out in
+      Devanagari and English words stay Latin, by phrase. Nothing else is routed.
+    """
+    import numpy as np  # type: ignore
+
+    loaded = load_audio_array(audio)
+    clip = np.asarray(loaded, dtype=np.float32).reshape(-1)
+    rate = float(PROBE_RATE)
+    total = len(clip) / rate
+    if total < LIVE_MIN_S:
+        return _live_empty(total)
+    shift = 0.0
+    if total > LIVE_MAX_S:
+        shift = total - LIVE_MAX_S
+        clip = clip[-int(LIVE_MAX_S * rate) :]
+    duration_ms = int(total * 1000)
+    check_cancel()
+    mode = hindi_ear.listen_mode(language, speech_pref)
+    if mode in {"hi", "auto"} and hindi_ear.ready():
+        heard = hindi_ear.transcribe_words(clip)
+        if _ear_loaded():
+            touch()
+        check_cancel()
+        if heard and hindi_ear.confident(mode, heard.get("confidence")):
+            words = _shifted(heard["words"], shift)
+            return {
+                "ok": True,
+                "text": " ".join(w["text"] for w in words),
+                "words": words,
+                "segments": [{"start": words[0]["start"], "end": words[-1]["end"]}],
+                "language": "hi",
+                "languageProbability": None,
+                "engine": "hindi-ear",
+                "durationMs": duration_ms,
+            }
+    alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
+    if _model is None or (alt is not None and _model_name != alt["path"]):
+        return {
+            "ok": False,
+            "reason": "not-ready",
+            "error": "The speech model for this listening mode is not loaded yet.",
+        }
+    if is_heavy_model(_model_name) and _device_name == "cpu":
+        return {
+            "ok": False,
+            "reason": "live-too-heavy",
+            "error": "This model is too slow on the processor for live words.",
+        }
+    if alt is not None:
+        lang = alt["decode"]
+    elif mode in {"en", "hi"}:
+        lang = mode
+    elif mode == "other":
+        lang = resolve_language(speech_pref or language)
+    else:
+        lang = None
+    kwargs: dict = {
+        "language": lang,
+        "vad_filter": True,
+        "vad_parameters": dict(VAD_PARAMETERS),
+        "beam_size": 1,
+        "condition_on_previous_text": False,
+        "temperature": 0.0,
+        **decode_options({**(extras or {}), "word_timestamps": True}, lang is not None),
+    }
+    hint = DEFAULT_HINT if lang is None else ""
+    if hint:
+        kwargs["initial_prompt"] = hint[:800]
+    check_cancel()
+    segments, info = _model.transcribe(clip, **kwargs)
+    rows: list[dict] = []  # {"start", "end", "text", "words"} per kept segment, in the clip's clock
+    for seg in segments:
+        check_cancel()
+        text = (getattr(seg, "text", "") or "").strip()
+        if not text or live_segment_is_noise(
+            text, getattr(seg, "no_speech_prob", None), getattr(seg, "avg_logprob", None)
+        ):
+            continue
+        if hint and prompt_echo(text, hint):
+            continue
+        begin, end = float(getattr(seg, "start", 0.0) or 0.0), float(getattr(seg, "end", 0.0) or 0.0)
+        words = [
+            {"text": str(getattr(w, "word", "") or "").strip(), "start": float(w.start), "end": float(w.end)}
+            for w in (getattr(seg, "words", None) or [])
+        ]
+        words = [w for w in words if w["text"]]
+        if not words:
+            words = _shifted(hindi_ear.group_words(None, None, max(0.0, end - begin), text), begin)
+        rows.append({"start": begin, "end": end, "text": text, "words": words})
+    routed = False
+    if mode == "auto" and alt is None and hindi_ear.ready():
+        for row in rows:
+            if not whisper_ears.roman_hindi_segment(row["text"]):
+                continue
+            lo = max(0.0, row["start"] - LIVE_PAD_S)
+            hi = min(len(clip) / rate, row["end"] + LIVE_PAD_S)
+            heard = hindi_ear.transcribe_words(clip[int(lo * rate) : int(hi * rate)])
+            check_cancel()
+            if heard and hindi_ear.confident("auto", heard.get("confidence")):
+                row["words"] = _shifted(heard["words"], lo)
+                routed = True
+    words = _shifted([w for row in rows for w in row["words"]], shift)
+    spans = [{"start": round(row["start"] + shift, 3), "end": round(row["end"] + shift, 3)} for row in rows]
+    script = _live_script(words)
+    if routed or script == "mixed":
+        spoken, probability = "mixed", None
+    else:
+        spoken = alt["report"] if alt is not None else (getattr(info, "language", "") or lang or "")
+        probability = _language_probability(info)
+    return {
+        "ok": True,
+        "text": " ".join(w["text"] for w in words),
+        "words": words,
+        "segments": spans,
+        "language": spoken,
+        "languageProbability": probability,
+        "engine": alt["engine"] if alt is not None else "faster-whisper",
+        "durationMs": duration_ms,
+        "model": _model_name or "",
+    }
 
 
 def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
@@ -1972,9 +2144,11 @@ def live_ladder(facts: dict | None) -> dict:
 
 def status_payload() -> dict:
     cls = _import_whisper()
-    device = choose_stt_device(cuda_runtime_ready())
+    cuda_ready = cuda_runtime_ready()
+    device = choose_stt_device(cuda_ready)
     return {
         "ok": True,
+        "cudaRuntimeReady": cuda_ready,
         "available": cls is not None,
         "dependency": "ready" if cls is not None else "missing",
         "modelLoaded": _model is not None,
@@ -2387,6 +2561,13 @@ def _handle_op(req: dict) -> dict:
             emit({"id": rid, "stream": True, "text": text, "engine": "faster-whisper"})
 
         uid = req.get("utteranceId")
+        # Only a provisional pass carries these (an older caller or test double never sees them).
+        pass_kwargs: dict[str, Any] = {}
+        if provisional:
+            pass_kwargs["provisional"] = True
+            pass_kwargs["utterance_id"] = uid if isinstance(uid, str) else ""
+            if req.get("live") is True:
+                pass_kwargs["live"] = True
         try:
             result = transcribe_file(
                 audio,
@@ -2403,7 +2584,7 @@ def _handle_op(req: dict) -> dict:
                     "multilingual": req.get("multilingual") is True,
                     "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
                 },
-                **({"provisional": True, "utterance_id": uid if isinstance(uid, str) else ""} if provisional else {}),
+                **pass_kwargs,
             )
             return provisional_reply(result, req) if provisional else result
         except DecodeCancelled:

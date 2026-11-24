@@ -20,21 +20,13 @@ from pathlib import Path
 
 import billing
 import httpx
+import local_engines
 import privacy
 import reasoning_control
 
-OPENAI_COMPATIBLE = {
-    "llamacpp",
-    "lmstudio",
-    "vllm",
-    "localai",
-    "jan",
-    "koboldcpp",
-    "transformers",
-    "gpt4all",
-    "mlx",
-    "online",
-}
+# Local engines come from kernel/local_engines.json (one table, also read by the desktop). "online" is the
+# generic wire label the desktop sends for a cloud model.
+OPENAI_COMPATIBLE = set(local_engines.openai_compatible_ids()) | {"online"}
 
 
 def ollama_keep_alive() -> str | int:
@@ -45,6 +37,40 @@ def ollama_keep_alive() -> str | int:
     if raw.lstrip("-").isdigit():
         return int(raw)
     return raw
+
+
+# The desktop's per-model placement hint (electron/model-router.cjs `hardwareHints`). Only these values mean anything.
+_OFFLOAD_VALUES = frozenset({"gpu", "gpu-if-supported", "cpu"})
+_MAX_HINTS = 64
+_MAX_HINT_ID = 200
+
+
+def normalise_hardware_hints(raw) -> dict[str, dict]:
+    """Keep `{model id: {"offload": gpu|gpu-if-supported|cpu}}` and drop everything else, so a bad hint is ignored."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for key, value in raw.items():
+        if len(out) >= _MAX_HINTS:
+            break
+        if not isinstance(key, str) or not key or len(key) > _MAX_HINT_ID or not isinstance(value, dict):
+            continue
+        offload = value.get("offload")
+        if isinstance(offload, str) and offload in _OFFLOAD_VALUES:
+            out[key] = {"offload": offload}
+    return out
+
+
+def gpu_options_for(hint) -> dict:
+    """Ollama `options` for a hint. Only a measured CPU placement is sent (`num_gpu: 0`).
+
+    A GPU hint sends nothing: Ollama already places layers on the GPU it finds, and the kernel never forces a GPU
+    the desktop's facts did not prove. llama.cpp server (`-ngl`) and LM Studio (load settings) take GPU offload at
+    launch or load time, not per request, so their requests carry no placement field.
+    """
+    if isinstance(hint, dict) and hint.get("offload") == "cpu":
+        return {"num_gpu": 0}
+    return {}
 
 
 def coerce_stream_text(raw) -> str | None:
@@ -185,17 +211,8 @@ def ollama_calls_from_message(message: dict) -> list[dict]:
 # `base`      → the exact documented base the handler is given
 # `chat_path` → the path appended to that base (already resolved, no guessing)
 PROVIDER_SURFACES: dict[str, dict] = {
-    # local engines
-    "ollama": {"wire": "ollama", "base": "http://127.0.0.1:11434", "chat_path": "/api/chat"},
-    "lmstudio": {"wire": "openai", "base": "http://127.0.0.1:1234/v1"},
-    "llamacpp": {"wire": "openai", "base": "http://127.0.0.1:8080/v1"},
-    "vllm": {"wire": "openai", "base": "http://127.0.0.1:8000/v1"},
-    "localai": {"wire": "openai", "base": "http://127.0.0.1:8081/v1"},
-    "jan": {"wire": "openai", "base": "http://127.0.0.1:1337/v1"},
-    "koboldcpp": {"wire": "openai", "base": "http://127.0.0.1:5001/v1"},
-    "transformers": {"wire": "openai", "base": "http://127.0.0.1:8083/v1"},
-    "gpt4all": {"wire": "openai", "base": "http://127.0.0.1:4891/v1"},
-    "mlx": {"wire": "openai", "base": "http://127.0.0.1:8082/v1"},
+    # local engines (and the generic "local" kind): one row each in kernel/local_engines.json
+    **local_engines.surfaces(),
     # cloud providers — bases copied from each vendor's own documentation
     "openai": {"wire": "openai", "base": "https://api.openai.com/v1"},
     "anthropic": {"wire": "anthropic", "base": "https://api.anthropic.com/v1"},
@@ -228,7 +245,6 @@ PROVIDER_SURFACES: dict[str, dict] = {
     # the kernel (it sends the WIRE, not always the provider id)
     "online": {"wire": "openai", "base": None},
     "openai-compatible": {"wire": "openai", "base": None},
-    "local": {"wire": "openai", "base": None},
 }
 
 #: Base tails that already carry the provider's API version segment, so the
@@ -418,7 +434,7 @@ class Model:
         if named:
             return str(named)
         prefix = f"{self.provider}:"
-        if self.provider in {"ollama", "lmstudio", "llamacpp", "jan", "koboldcpp"} and self.id.startswith(prefix):
+        if self.provider in local_engines.registry_prefix_ids() and self.id.startswith(prefix):
             return self.id[len(prefix) :]
         return self.id
 
@@ -464,20 +480,7 @@ _NETWORK_MARKERS = (
 def is_local_model(model: Model) -> bool:
     """True when the model answers from this machine (Ollama, llama.cpp, ...)."""
     endpoint = (model.endpoint or "").lower()
-    if model.provider and model.provider.lower() in {
-        "ollama",
-        "llamacpp",
-        "llama.cpp",
-        "lmstudio",
-        "vllm",
-        "localai",
-        "jan",
-        "koboldcpp",
-        "transformers",
-        "gpt4all",
-        "mlx",
-        "local",
-    }:
+    if model.provider and local_engines.is_local_kind(model.provider):
         return True
     return any(host in endpoint for host in _LOCAL_HOSTS)
 
@@ -842,6 +845,10 @@ class ModelRouter:
         self._policy: str | None = "free-preferred"
         # Guards the check-then-spend window around a billable request.
         self._billing_lock = asyncio.Lock()
+        # Local engines/models that just failed to connect or load: tried last, not first,
+        # until the mark expires (key -> monotonic expiry). A mark never removes a candidate.
+        self._dead: dict[str, float] = {}
+        self._dead_clock = time.monotonic
         # Set by the app so a kernel-side grant spend is reported back to the
         # desktop, which owns the persisted record.
         self.on_billing_spent = None
@@ -1010,19 +1017,7 @@ class ModelRouter:
         until discovery marks one ready."""
         row = dict(raw or {})
         provider = str(row.get("provider") or "").lower()
-        if provider in {
-            "ollama",
-            "lmstudio",
-            "llamacpp",
-            "vllm",
-            "localai",
-            "jan",
-            "koboldcpp",
-            "transformers",
-            "gpt4all",
-            "mlx",
-            "local",
-        } and not row.get("status"):
+        if local_engines.is_local_kind(provider) and not row.get("status"):
             row["status"] = "unavailable"
         return row
 
@@ -1057,49 +1052,85 @@ class ModelRouter:
         ready = [m for m in self._models.values() if m.status == "ready" and self.can_chat(m) and self.spendable(m)]
         if not ready:
             return None
-
-        def score(model: Model) -> tuple:
-            options = model.options if isinstance(model.options, dict) else {}
-            reliability = 0.0
-            raw = options.get("reliability")
-            if isinstance(raw, (int, float)):
-                reliability = float(raw)
-            latency = float(options.get("avg_ms") or options.get("latency_ms") or 0)
-            latency_score = (1.0 / latency) if latency > 0 else 0.0
-            base = (
-                1 if model.role == role else 0,
-                1 if is_local_model(model) else 0,
-                reliability,
-                latency_score,
-                int(model.context_k or 0),
-                min(float(options.get("wins") or 0), 5.0),
-            )
-            if surface == "voice":
-                return (base[0], base[1], latency_score, reliability, base[4], base[5])
-            if surface == "chat":
-                quality = float(options.get("quality") or 0.0)
-                return (base[0], base[1], quality, reliability, latency_score, base[4], base[5])
-            return base
-
-        ready.sort(key=score, reverse=True)
+        ready.sort(key=lambda m: self.rank_key(m, role, surface), reverse=True)
         return ready[0]
+
+    @staticmethod
+    def rank_key(model: Model, role: str = "brain", surface: str | None = None) -> tuple:
+        """The one surface score: voice is latency-first, chat is quality-first (higher is better)."""
+        options = model.options if isinstance(model.options, dict) else {}
+        reliability = 0.0
+        raw = options.get("reliability")
+        if isinstance(raw, (int, float)):
+            reliability = float(raw)
+        latency = float(options.get("avg_ms") or options.get("latency_ms") or 0)
+        latency_score = (1.0 / latency) if latency > 0 else 0.0
+        base = (
+            1 if model.role == role else 0,
+            1 if is_local_model(model) else 0,
+            reliability,
+            latency_score,
+            int(model.context_k or 0),
+            min(float(options.get("wins") or 0), 5.0),
+        )
+        if surface == "voice":
+            return (base[0], base[1], latency_score, reliability, base[4], base[5])
+        if surface == "chat":
+            quality = float(options.get("quality") or 0.0)
+            return (base[0], base[1], quality, reliability, latency_score, base[4], base[5])
+        return base
+
+    # How long a dead local engine (nothing listening) or a missing model stays last in line.
+    _ENGINE_DEAD_SECONDS = 20.0
+    _MODEL_DEAD_SECONDS = 60.0
+
+    @staticmethod
+    def _engine_key(model: Model) -> str:
+        return "engine:" + (model.endpoint or model.provider or "").lower().rstrip("/")
+
+    def _dead_key_for(self, model: Model, exc: BaseException) -> tuple[str, float] | None:
+        """A local engine that refuses connections, or a local model that is missing or not loaded."""
+        if not is_local_model(model):
+            return None
+        low = str(exc).lower()
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)) or any(
+            t in low for t in ("connection refused", "all connection attempts failed", "connect call failed")
+        ):
+            return self._engine_key(model), self._ENGINE_DEAD_SECONDS
+        if "http 404" in low or any(t in low for t in ("not found", "not loaded", "no models loaded")):
+            return f"model:{model.id}", self._MODEL_DEAD_SECONDS
+        return None
+
+    def _note_failure(self, model: Model, exc: BaseException) -> None:
+        marked = self._dead_key_for(model, exc)
+        if marked:
+            self._dead[marked[0]] = self._dead_clock() + marked[1]
+
+    def _note_success(self, model: Model) -> None:
+        self._dead.pop(self._engine_key(model), None)
+        self._dead.pop(f"model:{model.id}", None)
+
+    def _is_dead(self, model: Model) -> bool:
+        now = self._dead_clock()
+        for key in (self._engine_key(model), f"model:{model.id}"):
+            until = self._dead.get(key)
+            if until is None:
+                continue
+            if until > now:
+                return True
+            self._dead.pop(key, None)
+        return False
+
+    def _next_live(self, pending: list[Model]) -> Model:
+        """Take the first candidate not marked dead; when all are marked, the first one (never drop a route)."""
+        pick = next((m for m in pending if not self._is_dead(m)), pending[0])
+        pending.remove(pick)
+        return pick
 
     def _kind(self, model: Model) -> str:
         options = model.options if isinstance(model.options, dict) else {}
         kind = str(options.get("type") or "").lower()
-        if kind == "local" or str(model.provider or "").lower() in {
-            "ollama",
-            "lmstudio",
-            "llamacpp",
-            "vllm",
-            "localai",
-            "jan",
-            "koboldcpp",
-            "transformers",
-            "gpt4all",
-            "mlx",
-            "local",
-        }:
+        if kind == "local" or local_engines.is_local_kind(model.provider):
             return "local"
         return "cloud"
 
@@ -1218,10 +1249,17 @@ class ModelRouter:
         surface: str | None = None,
         history: list | None = None,
         reasoning_effort: str | None = None,
+        hardware_hints: dict | None = None,
     ) -> AsyncIterator[dict]:
         """Fan out to the chosen models, or auto-select with ordered fallback."""
         # Passed down only when asked for, so a caller that never sets it sees the old call shape.
         effort_kw = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
+        # A placement hint rides along only for the model it names. It never picks, adds or unblocks a model.
+        hints = normalise_hardware_hints(hardware_hints)
+
+        def hint_kw(model: Model) -> dict:
+            return {"hardware_hint": hints[model.id]} if model.id in hints else {}
+
         norm_mode = str(route_mode).strip().lower() if route_mode else None
         privacy_mode = str(privacy or "").strip().lower()
         if norm_mode == "manual":
@@ -1289,6 +1327,9 @@ class ModelRouter:
             if allow_fallback
             else []
         )
+        # Only the tail is ranked, by the same surface score best_available uses; the targets keep the
+        # order the desktop sent (it ranked them after the firewalls). Ranking never adds a model.
+        fallbacks.sort(key=lambda m: self.rank_key(m, "brain", surface), reverse=True)
 
         if not targets:
             missing = self.uninstalled_local_detail()
@@ -1326,7 +1367,9 @@ class ModelRouter:
         # before producing a single token. The UI reports which one answered.
         if auto or len(targets) == 1 or parallel is False:
             attempts: list[str] = []
-            for model in [*targets, *fallbacks]:
+            pending = [*targets, *fallbacks]
+            while pending:
+                model = self._next_live(pending)
                 produced = False
                 try:
                     async for delta in self._stream_one(
@@ -1335,6 +1378,7 @@ class ModelRouter:
                         explicit_paid and model in targets,
                         privacy_confirmed=privacy_confirmed,
                         **effort_kw,
+                        **hint_kw(model),
                     ):
                         piece = fold_stream_piece(model.id, delta)
                         if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
@@ -1346,11 +1390,13 @@ class ModelRouter:
                 except Exception as exc:  # noqa: BLE001 — reported to the UI verbatim
                     failure = describe_failure(model, exc)
                     attempts.append(failure)
+                    self._note_failure(model, exc)
                     if produced:
                         yield {"modelId": model.id, "error": failure}
                         return
                     continue
                 if produced:
+                    self._note_success(model)
                     return
             # Every route failed. Report ALL of them, not just the last one:
             # "the cloud model hit a DNS error" and "no local model was ready"
@@ -1368,6 +1414,7 @@ class ModelRouter:
                     explicit_paid and model in targets,
                     privacy_confirmed=privacy_confirmed,
                     **effort_kw,
+                    **hint_kw(model),
                 ):
                     piece = fold_stream_piece(model.id, delta)
                     if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
@@ -1378,6 +1425,7 @@ class ModelRouter:
                     elif delta:
                         await queue.put({"modelId": model.id, "delta": delta})
             except Exception as exc:
+                self._note_failure(model, exc)
                 await queue.put({"modelId": model.id, "error": describe_failure(model, exc)})
             finally:
                 await queue.put({"modelId": model.id, "done": True})
@@ -1399,7 +1447,9 @@ class ModelRouter:
         await asyncio.gather(*tasks, return_exceptions=True)
         if not produced_any:
             # Every selected model failed — try the rest before giving up.
-            for model in fallbacks:
+            pending = list(fallbacks)
+            while pending:
+                model = self._next_live(pending)
                 produced = False
                 try:
                     async for delta in self._stream_one(
@@ -1408,6 +1458,7 @@ class ModelRouter:
                         explicit_paid and model in targets,
                         privacy_confirmed=privacy_confirmed,
                         **effort_kw,
+                        **hint_kw(model),
                     ):
                         piece = fold_stream_piece(model.id, delta)
                         if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
@@ -1418,8 +1469,10 @@ class ModelRouter:
                             yield piece
                 except Exception as exc:  # noqa: BLE001
                     errors.append(describe_failure(model, exc))
+                    self._note_failure(model, exc)
                     continue
                 if produced:
+                    self._note_success(model)
                     return
             yield {"error": _no_route_error(errors, [*targets, *fallbacks])}
 
@@ -1431,6 +1484,7 @@ class ModelRouter:
         *,
         privacy_confirmed: bool = False,
         reasoning_effort: str | None = None,
+        hardware_hint: dict | None = None,
     ) -> AsyncIterator[str]:
         # FINAL PRIVACY FIREWALL (mirrors electron/privacy-firewall.cjs).
         # Privacy outranks cost: SENSITIVE content never leaves without a
@@ -1475,7 +1529,9 @@ class ModelRouter:
             "openai": self._stream_openai,
         }[wire]
         # Firewalls already saw the full transcript. The model gets the tail.
-        async for chunk in handler(model, model_view(messages), reasoning_effort):
+        # Only the Ollama wire takes a per-request placement; the other wires keep their call shape.
+        extra = {"hardware_hint": hardware_hint} if wire == "ollama" and hardware_hint else {}
+        async for chunk in handler(model, model_view(messages), reasoning_effort, **extra):
             yield chunk
 
     async def _stream_anthropic(
@@ -1809,7 +1865,11 @@ class ModelRouter:
                 yield "\n"
 
     async def _stream_ollama(
-        self, model: Model, messages: list[dict], reasoning_effort: str | None = None
+        self,
+        model: Model,
+        messages: list[dict],
+        reasoning_effort: str | None = None,
+        hardware_hint: dict | None = None,
     ) -> AsyncIterator[str]:
         """Ollama /api/chat, including the same read-only tool loop as the other wires.
 
@@ -1838,6 +1898,9 @@ class ModelRouter:
             thinking = reasoning_control.spec_for(model.options, reasoning_effort)
             if thinking.active:
                 reasoning_control.ollama_fields(thinking, body)
+            gpu = gpu_options_for(hardware_hint)
+            if gpu:
+                body["options"] = gpu
             content_parts: list[str] = []
             raw_calls: list = []
             usage_seen: tuple[object, object] | None = None

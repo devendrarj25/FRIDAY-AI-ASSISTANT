@@ -11,9 +11,11 @@ import {
 import { ErrorState } from "@/components/friday/PageStates";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { isDesktopApp } from "@/lib/friday/desktop";
-import { voicePacks } from "@/lib/friday/model-catalog";
+import { packMembers, voicePacks } from "@/lib/friday/model-catalog";
+import { bundleFit, fitTitle, type FitState } from "@/lib/friday/installer-fit";
 import { models } from "@/lib/friday/models-engine";
 import { preferences } from "@/lib/friday/preferences";
+import { useInstallerCatalog } from "@/lib/friday/use-installer-catalog";
 import { useKernelStatus } from "@/lib/friday/use-kernel-status";
 import { useModels } from "@/lib/friday/use-models";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -38,6 +40,8 @@ export type VoicePacksCardViewProps = PackCardInput & {
   /** One line about the last button press. */
   notice: string;
   actions: VoicePackActions;
+  /** Each pack's fit for this PC, from the installer catalogue (absent until it has been read). */
+  fit?: Record<string, { state: FitState; lines: string[] }>;
 };
 
 /**
@@ -53,6 +57,7 @@ export function VoicePacksCardView({
   checking,
   notice,
   actions,
+  fit,
   ...input
 }: VoicePacksCardViewProps) {
   const cards = voicePacks.map((pack) => packCardModel(pack, input));
@@ -122,6 +127,25 @@ export function VoicePacksCardView({
                   </div>
                   <p className="text-xs text-muted-foreground">{pack.description}</p>
                   <p className="text-meta-sm text-muted-foreground">{languageHint(pack)}</p>
+                  {fit?.[pack.id] ? (
+                    <div data-pack-fit={fit[pack.id]!.state} className="space-y-0.5">
+                      <StatusPill
+                        label={fitTitle(fit[pack.id]!.state)}
+                        tone={
+                          fit[pack.id]!.state === "supported"
+                            ? "accent"
+                            : fit[pack.id]!.state === "limited"
+                              ? "warning"
+                              : "muted"
+                        }
+                      />
+                      {fit[pack.id]!.lines.map((line) => (
+                        <p key={line} className="text-meta-sm text-warning">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-2">
                     {card.action !== "none" ? (
                       <ActionButton
@@ -224,6 +248,7 @@ export function VoicePacksCardView({
 /** Reads the real model store, the kernel status and the saved recognition language. */
 export function VoicePacksCard() {
   const state = useModels();
+  const catalog = useInstallerCatalog().catalog;
   const prefs = usePreferences();
   const kernel = useKernelStatus();
   const [damaged, setDamaged] = useState<string[]>([]);
@@ -267,6 +292,18 @@ export function VoicePacksCard() {
     };
   }, []);
 
+  const packFits = useMemo(() => {
+    const out: Record<string, { state: FitState; lines: string[] }> = {};
+    for (const pack of voicePacks) {
+      const found = bundleFit(
+        catalog,
+        packMembers(pack, { sttSize: prefs.voice.sttSize }).map((member) => `voice:${member.id}`),
+      );
+      if (found) out[pack.id] = found;
+    }
+    return out;
+  }, [catalog, prefs.voice.sttSize]);
+
   return (
     <VoicePacksCardView
       installed={state.installed}
@@ -281,6 +318,7 @@ export function VoicePacksCard() {
       checking={checking}
       notice={notice}
       actions={actions}
+      fit={packFits}
     />
   );
 }

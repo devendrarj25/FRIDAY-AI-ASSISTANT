@@ -16,20 +16,9 @@
  */
 
 const modelAccess = require("./model-access.cjs");
+const localEngines = require("./local-engines.cjs");
 
-const LOCAL_PROVIDER_IDS = new Set([
-  "ollama",
-  "lmstudio",
-  "llamacpp",
-  "vllm",
-  "localai",
-  "jan",
-  "koboldcpp",
-  "transformers",
-  "gpt4all",
-  "mlx",
-  "local",
-]);
+const LOCAL_PROVIDER_IDS = localEngines.localProviderIds();
 
 /** Route modes. Each one decides which provider kinds may serve a request. */
 const MODES = ["local-only", "cloud-only", "hybrid", "auto", "multi"];

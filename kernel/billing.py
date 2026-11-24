@@ -19,6 +19,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import local_engines
+
 GRANT_SCOPES = ("off", "request", "session", "always")
 
 # Same list as electron/model-access.cjs officialFreeUsable().
@@ -148,21 +150,7 @@ def billing_class(model: Any) -> str:
     options, record = _as_record(model)
     kind = str(options.get("type") or getattr(model, "kind", "") or "").lower()
     provider = str(options.get("provider") or getattr(model, "provider", "") or "").lower()
-    local_ids = (
-        "ollama",
-        "llamacpp",
-        "llama.cpp",
-        "lmstudio",
-        "vllm",
-        "localai",
-        "jan",
-        "koboldcpp",
-        "transformers",
-        "gpt4all",
-        "mlx",
-        "local",
-    )
-    if kind == "local" or kind in local_ids or provider in local_ids:
+    if kind == "local" or local_engines.is_local_kind(kind) or local_engines.is_local_kind(provider):
         return "free"
     if isinstance(record, dict):
         mode = str(record.get("billingMode") or "").upper()

@@ -23,22 +23,10 @@
 
 const billingPolicy = require("./billing-policy.cjs");
 const modelAccess = require("./model-access.cjs");
+const localEngines = require("./local-engines.cjs");
 
 /** Local inference costs nothing; everything else must prove it is free. */
-const LOCAL_KINDS = new Set([
-  "local",
-  "ollama",
-  "llama.cpp",
-  "llamacpp",
-  "lmstudio",
-  "vllm",
-  "localai",
-  "jan",
-  "koboldcpp",
-  "transformers",
-  "gpt4all",
-  "mlx",
-]);
+const LOCAL_KINDS = new Set(localEngines.LOCAL_KINDS);
 
 /**
  * The billing class of one concrete request.

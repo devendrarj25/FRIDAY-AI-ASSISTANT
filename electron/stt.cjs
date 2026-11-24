@@ -214,6 +214,7 @@ let lastLocalLayers = {
   reason: null,
   moonshineReady: false,
   windowsSpeech: false,
+  cudaRuntimeReady: false,
 };
 
 /** What the speech worker last said it holds (models, load times, idle time, unloads, memory, fallbacks). */
@@ -258,6 +259,9 @@ function noteWorkerCache(ping) {
 
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
+  // The kernel's own verdict (kernel/stt.py cuda_runtime_ready: cuBLAS 12 and cuDNN 9 found), never a driver reading.
+  if (typeof parsed.cudaRuntimeReady === "boolean")
+    lastLocalLayers.cudaRuntimeReady = parsed.cudaRuntimeReady;
   if (typeof parsed.moonshineReady === "boolean")
     lastLocalLayers.moonshineReady = parsed.moonshineReady;
   if (typeof parsed.windowsSpeech === "boolean")
@@ -346,6 +350,8 @@ function attachWorker(child, generation) {
     pending: new Map(),
     intentional: false,
     err: "",
+    // A worker that has not been asked anything yet is new, not idle (releaseIdle).
+    lastUsedAt: Date.now(),
   };
   child.stderr?.on("data", (chunk) => {
     session.err += String(chunk);
@@ -402,6 +408,7 @@ function attachWorker(child, generation) {
 
 function workerRequest(session, payload, timeoutMs, onStream) {
   const id = ++workerSeq;
+  if (session) session.lastUsedAt = Date.now();
   return new Promise((resolve, reject) => {
     if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) {
       reject(new Error("STT worker is not running"));
@@ -581,7 +588,130 @@ async function chooseWeights(wanted, onEvent) {
   };
 }
 
+// The resource governor's load leases (electron/load-lease.cjs). Absent: the worker loads exactly as it always did.
+let loadLeases = null;
+let speechHeld = null;
+/** The most the speech worker waits for the governor's answer before it loads as before (ms). */
+const SPEECH_LEASE_BOUND_MS = 400;
+function setLoadLeases(api) {
+  loadLeases = api && typeof api.acquire === "function" ? api : null;
+}
+
+/** Speech sizes the PC could load for `wanted`: itself first, then smaller installed ones, each with its weight memory. */
+function speechLoadOptions(wanted) {
+  const weights = require("./voice-weights.cjs");
+  const have = new Set(weights.installedSizes(paths.root() || "", (file) => fs.existsSync(file)));
+  const at = weights.SIZE_ORDER.indexOf(wanted);
+  const sizes = [wanted, ...weights.SIZE_ORDER.slice(0, Math.max(0, at)).reverse()].filter(
+    (size, index) => index === 0 || have.has(size),
+  );
+  const onGpu = process.env.FRIDAY_STT_CUDA === "1";
+  return sizes
+    .map((size) => ({
+      size,
+      need: Number(weights.manifestOf(weights.STT_CATALOG[size])?.minRamGb) || 0,
+    }))
+    .filter((row) => row.need > 0)
+    .map((row) => ({
+      size: row.size,
+      option: { [onGpu ? "vramGb" : "ramGb"]: row.need, hint: row.size },
+    }));
+}
+
+/**
+ * Ask the governor for the speech worker's memory before it loads, as the voice priority. Resolves the size to load
+ * (a smaller installed one when `wanted` does not fit) and `done` / `fail` for the caller to settle the lease. The
+ * lease stays held while the worker lives (its `alive` check lets the governor drop it when the worker is gone).
+ * Voice is never blocked: a refusal loads the smallest installed size anyway, and the owner already has the reason.
+ */
+async function leaseSpeechLoad(wanted) {
+  const plain = { size: wanted, done() {}, fail() {}, release() {} };
+  try {
+    const rows = speechLoadOptions(wanted);
+    if (!rows.length) return plain;
+    const holder = { loading: true };
+    const asked = loadLeases.acquire({
+      owner: "speech-worker",
+      kind: "speech",
+      priority: "voice",
+      label: "The speech model",
+      options: rows.map((row) => row.option),
+      alive: () => holder.loading || Boolean(worker?.alive),
+    });
+    // Voice never waits long for the governor: past the bound the worker loads as before, and a lease that lands
+    // afterwards is handed back, since no worker holds it.
+    let timer = null;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), SPEECH_LEASE_BOUND_MS);
+      timer.unref?.();
+    });
+    const taken = await Promise.race([Promise.resolve(asked), late]);
+    clearTimeout(timer);
+    if (!taken) {
+      Promise.resolve(asked).then(
+        (after) => {
+          try {
+            after?.lease?.release?.();
+          } catch {
+            /* already gone */
+          }
+        },
+        () => {},
+      );
+      return plain;
+    }
+    if (taken.state === "refused") return { ...plain, size: rows[rows.length - 1].size };
+    if (taken.state !== "granted") return plain;
+    const size = rows.find((row) => row.size === taken.hint)?.size ?? wanted;
+    const giveBack = () => {
+      holder.loading = false;
+      taken.lease.release();
+    };
+    return {
+      size,
+      done() {
+        holder.loading = false;
+        taken.lease.loaded?.();
+      },
+      fail: giveBack,
+      // The worker is gone (closed for memory, muted, shut down): its lease goes back with it.
+      release: giveBack,
+    };
+  } catch {
+    return plain;
+  }
+}
+
+/** The load itself runs in the governor's one-at-a-time model-load slot; voice never gives up waiting for it. */
+async function guardedLoad(run) {
+  if (!loadLeases) return run();
+  const slot = await loadLeases.runLoad("voice", run);
+  return slot.ran ? slot.value : run();
+}
+
 async function ensureWorker(model, onEvent, options = {}) {
+  const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
+  const resident =
+    worker?.alive && worker.loaded && (worker.modelName === wanted || worker.leasedFor === wanted);
+  if (!loadLeases || options.load === false || resident) return loadWorker(model, onEvent, options);
+  // One lease per resident worker: the one it holds is replaced, never stacked.
+  speechHeld?.fail();
+  const held = await leaseSpeechLoad(wanted);
+  speechHeld = held;
+  try {
+    const session = await loadWorker(held.size, onEvent, options);
+    // Only a worker that got the size it asked for counts as already leased for it; a smaller one asks again later.
+    if (session && held.size === wanted) session.leasedFor = wanted;
+    return session;
+  } catch (error) {
+    held.fail();
+    throw error;
+  } finally {
+    held.done();
+  }
+}
+
+async function loadWorker(model, onEvent, options = {}) {
   let wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
   const loadModel = options.load !== false;
   let modelPath = "";
@@ -594,10 +724,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   if (worker?.alive) {
     if (!loadModel) return worker;
     if (worker.modelName && worker.modelName !== wanted) {
-      const loaded = await workerRequest(
-        worker,
-        { op: "load", model: wanted, model_path: modelPath },
-        180000,
+      const loaded = await guardedLoad(() =>
+        workerRequest(worker, { op: "load", model: wanted, model_path: modelPath }, 180000),
       );
       if (!loaded?.ok) throw new Error(loaded?.error || "STT model reload failed");
       worker.loaded = true;
@@ -613,6 +741,7 @@ async function ensureWorker(model, onEvent, options = {}) {
         reason: null,
         moonshineReady: Boolean(lastLocalLayers.moonshineReady),
         windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+        cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
       };
     }
     return worker;
@@ -652,10 +781,8 @@ async function ensureWorker(model, onEvent, options = {}) {
   }
   if (!loadModel) return session;
   lastLocalLayers.dependency = "ready";
-  const loaded = await workerRequest(
-    session,
-    { op: "load", model: wanted, model_path: modelPath },
-    180000,
+  const loaded = await guardedLoad(() =>
+    workerRequest(session, { op: "load", model: wanted, model_path: modelPath }, 180000),
   );
   if (!loaded?.ok) {
     lastLocalLayers.inference = "failed";
@@ -675,6 +802,7 @@ async function ensureWorker(model, onEvent, options = {}) {
     reason: null,
     moonshineReady: Boolean(lastLocalLayers.moonshineReady),
     windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+    cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
   };
   return session;
 }
@@ -724,6 +852,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   }
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
+  value.cudaRuntimeReady = Boolean(layers.cudaRuntimeReady);
   value.cache = worker?.alive ? lastWorkerCache : null;
   if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
     value.available = true;
@@ -814,6 +943,7 @@ async function status(force = false, options = {}) {
       reason: require("./voice-install.cjs").explain("no-python"),
       moonshineReady: false,
       windowsSpeech: false,
+      cudaRuntimeReady: false,
     };
     const value = snapshotStatus({ localOnly, py: null, pythonPath: null });
     if (!localOnly) cachedStatus = { at: Date.now(), value };
@@ -869,6 +999,28 @@ async function status(force = false, options = {}) {
   const value = snapshotStatus({ localOnly, py, pythonPath: py[0] });
   if (!localOnly) cachedStatus = { at: Date.now(), value };
   return value;
+}
+
+/**
+ * The kernel's own CUDA verdict for the voice budget: true only when the speech kernel found cuBLAS 12 and cuDNN 9 (and
+ * the card was asked for). Read from the cached status, or from the one-shot probe that status already runs when nothing
+ * is cached; it never starts a worker. Anything slow, failed or unknown is false: the budget then stays on the CPU.
+ */
+async function cudaRuntimeVerdict({ statusFn = status, timeoutMs = 8000 } = {}) {
+  let timer = null;
+  try {
+    const value = await Promise.race([
+      Promise.resolve().then(() => statusFn(false)),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    return value?.cudaRuntimeReady === true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 const PACKAGE_FLOOR = { "faster-whisper": "1.2.1", av: "17.0.0" };
@@ -1036,7 +1188,44 @@ function decodeExtras(req) {
     ...(req.provisional === true && cleanUtteranceId(req.utteranceId)
       ? { utteranceId: cleanUtteranceId(req.utteranceId) }
       : {}),
+    // A live pass (live words) is a provisional read that wants timed words from the lean path of the worker.
+    ...(req.provisional === true && req.livePass === true ? { live: true } : {}),
   };
+}
+
+/** What an early read answers on an engine that is not the local speech worker; live words then read the plain way. */
+const EARLY_READ_UNSUPPORTED = {
+  error: "Early reads need the local speech worker.",
+  unsupportedEngine: true,
+};
+
+const LIVE_MAX_WORDS = 400;
+const LIVE_MAX_SEGMENTS = 64;
+const finite = (n) => typeof n === "number" && Number.isFinite(n);
+
+/** The timed words and segments of a live pass, kept only when well formed and bounded; nothing for any other reply. */
+function liveReplyFields(parsed) {
+  if (!parsed || !Array.isArray(parsed.words)) return {};
+  const words = [];
+  for (const w of parsed.words) {
+    if (words.length >= LIVE_MAX_WORDS) break;
+    const text = typeof w?.text === "string" ? w.text.trim().slice(0, 64) : "";
+    if (text && finite(w.start) && finite(w.end)) words.push({ text, start: w.start, end: w.end });
+  }
+  const segments = (Array.isArray(parsed.segments) ? parsed.segments : [])
+    .filter((g) => finite(g?.start) && finite(g?.end))
+    .slice(0, LIVE_MAX_SEGMENTS)
+    .map((g) => ({ start: g.start, end: g.end }));
+  return { words, segments };
+}
+
+/**
+ * The model name a live pass reads with: the one the worker already holds (a guess never loads or switches a model),
+ * or "" when this is not a live pass or no worker is loaded.
+ */
+function liveModel(req, session) {
+  if (req?.provisional !== true || req.livePass !== true) return "";
+  return session?.alive && session.loaded && session.modelName ? String(session.modelName) : "";
 }
 
 /** A plain token (letters, digits, dot, dash, underscore, colon; 64 at most) or empty: it is written to the worker. */
@@ -1153,7 +1342,7 @@ async function transcribeNow(req = {}, onPartial) {
   // A speculative read is only ever made by the local speech worker that already holds the model. A cloud engine
   // (a paid, remote call for every guess, and not cancellable) or a one-shot process never reads early.
   if (req.provisional === true && state.engine !== "faster-whisper") {
-    return { ok: false, reason: "not-ready", error: "Early reads need the local speech worker." };
+    return { ok: false, reason: "not-ready", ...EARLY_READ_UNSUPPORTED };
   }
 
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
@@ -1245,16 +1434,17 @@ async function transcribeNow(req = {}, onPartial) {
       };
     }
     const voiceInstall = require("./voice-install.cjs");
+    const liveWith = liveModel(req, worker);
     const explicit = MODELS.includes(req.model) ? req.model : "";
     const boot = voiceInstall.bootModel({ requested: explicit || "auto", ...cachedSizes() });
-    const model = explicit || boot.model;
+    const model = liveWith || explicit || boot.model;
     const loadBudget = voiceInstall.loadBudgetMs(model);
     const locked = whisperLanguage(req.language);
     const prompt = String(req.initialPrompt || req.initial_prompt || "").trim();
     let parsed;
     const ladderEngine = state.engine === "moonshine" || state.engine === "windows-speech";
     try {
-      const session = await ensureWorker(model, undefined, { load: !ladderEngine });
+      const session = await ensureWorker(model, undefined, { load: !ladderEngine && !liveWith });
       parsed = await workerRequest(
         session,
         {
@@ -1372,6 +1562,7 @@ async function transcribeNow(req = {}, onPartial) {
       loadCount: parsed.loadCount,
       emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),
       audio: parsed.audio || null,
+      ...liveReplyFields(parsed),
     };
   } finally {
     if (temporary) {
@@ -1500,10 +1691,13 @@ async function openWhisperServer(found) {
   return session;
 }
 
-function shutdown() {
+function shutdown(session = worker) {
   onMute(true);
-  const session = worker;
-  worker = null;
+  if (worker === session) {
+    worker = null;
+    speechHeld?.release();
+    speechHeld = null;
+  }
   lastLocalLayers.worker = "stopped";
   lastLocalLayers.inference = "unverified";
   cachedStatus = null;
@@ -1519,6 +1713,17 @@ function shutdown() {
   rejectPending(session, new Error("STT worker shutting down"));
   const child = session.child;
   setTimeout(() => killTree(child), 400);
+}
+
+/**
+ * Memory pressure (electron/resource-governor.cjs): close the speech worker when it has nothing in flight and has
+ * not been asked anything for `minIdleMs`. It starts again on the next turn. Returns whether it was closed.
+ */
+function releaseIdle(minIdleMs = 60_000, session = worker) {
+  if (!session?.alive || session.pending.size > 0) return false;
+  if (Date.now() - (session.lastUsedAt || 0) < minIdleMs) return false;
+  shutdown(session);
+  return true;
 }
 
 /** Drop stale capture files left behind by a crash. Called at startup. */
@@ -1545,13 +1750,19 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 
 module.exports = {
   status,
+  cudaRuntimeVerdict,
   install,
   setProgressSink,
+  setLoadLeases,
+  speechLoadOptions,
+  leaseSpeechLoad,
   transcribe,
   runProvisional,
   cancelTranscribe,
   provisionalReply,
   decodeExtras,
+  liveReplyFields,
+  liveModel,
   createTurnGate,
   workerRequest,
   scoreInWorker,
@@ -1560,6 +1771,7 @@ module.exports = {
   turnAudioBuffer,
   sweep,
   shutdown,
+  releaseIdle,
   onMute,
   MODELS,
   DEFAULT_MODEL,

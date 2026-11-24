@@ -12,6 +12,7 @@ function createLoopLag({
   perfHooks = require("node:perf_hooks"),
   log = () => {},
   warnAtMs = 250,
+  onWindow = null,
 } = {}) {
   let histogram = null;
   let timer = null;
@@ -30,6 +31,15 @@ function createLoopLag({
       histogram.enable();
       timer = setInterval(() => {
         const { p99Ms, maxMs } = read();
+        // The resource governor rides this window instead of owning a timer (electron/resource-governor.cjs).
+        if (typeof onWindow === "function") {
+          try {
+            const pending = onWindow({ p99Ms, maxMs });
+            if (pending && typeof pending.catch === "function") pending.catch(() => undefined);
+          } catch {
+            /* a listener never stops the measurement */
+          }
+        }
         // Three blocked windows in a row, not one blip, are worth a line.
         strikes = p99Ms >= warnAtMs ? strikes + 1 : 0;
         if (strikes === 3) {

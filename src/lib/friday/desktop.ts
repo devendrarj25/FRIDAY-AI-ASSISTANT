@@ -123,6 +123,243 @@ export type VoiceMatchResult = {
   } | null;
 };
 
+/**
+ * The measured facts about this PC (electron/hardware.cjs `hardwareFacts`): one object for the speech budget, the model
+ * router and the "This PC" rows. A number is null when no probe measured it; nothing is guessed.
+ */
+export type HardwareFacts = {
+  vramGb: number | null;
+  vramFreeGb: number | null;
+  ramGb: number | null;
+  ramFreeGb: number | null;
+  diskFreeGb: number | null;
+  gpuVendor: string | null;
+  gpuName: string | null;
+  gpus: Array<{
+    vendor: string;
+    name: string | null;
+    vramGb: number | null;
+    /** True when vramGb is null only because the sole figure was the clipped 32-bit one (a card of at least that size). */
+    vramCapped: boolean;
+    driver: string | null;
+    driverDate?: string | null;
+    integrated?: boolean | null;
+    computeCap?: string | null;
+  }>;
+  cudaReady: boolean;
+  driverVersion: string | null;
+  npu: boolean;
+  /** Null when no processor reading was available. */
+  cpuClass: "low" | "mid" | "high" | null;
+  sources: string[];
+  // The wider capability probes. Absent or null while they are still measuring; a field is null when no probe read it.
+  os?: {
+    platform: string | null;
+    build: number | null;
+    buildFull: string | null;
+    name: string | null;
+    displayVersion: string | null;
+    edition: string | null;
+    windows11: boolean | null;
+    is64Bit: boolean | null;
+    arch: string | null;
+    webview2: boolean | null;
+    vcRuntimeX64: boolean | null;
+  };
+  cpu?: {
+    model: string | null;
+    physicalCores: number | null;
+    logicalCores: number | null;
+    baseClockMhz: number | null;
+    avx: boolean | null;
+    avx2: boolean | null;
+    avx512: boolean | null;
+    fma: boolean | null;
+  };
+  memory?: {
+    pressure: "ok" | "high" | "critical" | null;
+    commitPressure: "ok" | "high" | "critical" | null;
+    commitLimitGb: number | null;
+    commitFreeGb: number | null;
+    pagefileGb: number | null;
+  };
+  drives?: Array<{
+    letter: string | null;
+    totalGb: number | null;
+    freeGb: number | null;
+    media: "ssd" | "hdd" | "scm" | null;
+    bus: string | null;
+    holdsDataRoot: boolean;
+    holdsModelCache: boolean;
+  }>;
+  dataRootDrive?: string | null;
+  modelCacheDrive?: string | null;
+  vulkan?: boolean | null;
+  cuda?: {
+    driverCuda: string | null;
+    cublas12: boolean | null;
+    cudnn9: boolean | null;
+    runtimeFilesFound: boolean | null;
+  };
+  network?: {
+    online: boolean | null;
+    type: "wifi" | "ethernet" | "cellular" | "unknown" | null;
+    metered: boolean | null;
+    roaming: boolean | null;
+    latencyMs: number | null;
+  };
+  power?: {
+    batteryPresent: boolean | null;
+    batteryPercent: number | null;
+    onAc: boolean | null;
+    planName: string | null;
+    batterySaver: boolean | null;
+    thermal: "nominal" | "fair" | "serious" | "critical" | null;
+  };
+  /** Stable reason codes; the page words them. */
+  health?: { level: "ok" | "tight" | "critical"; reasons: string[] };
+};
+
+/** Can this PC run a catalogue row (electron/engine-fit.cjs `classify`). */
+export type EngineFit = {
+  state: "supported" | "limited" | "unsupported";
+  /** Stable codes (the UI words them) with a short human text; `level` says whether it blocks, limits or informs. */
+  reasons: { code: string; text: string; level: "block" | "limit" | "info" }[];
+  needs: {
+    ramGb: number | null;
+    vramGb: number | null;
+    diskGb: number | null;
+    cuda: boolean;
+    driverMin: string | null;
+    vulkan: boolean;
+    avx2: boolean;
+    network: boolean;
+    downloadGb: number | null;
+  };
+  recommended: boolean;
+  /** The row to use instead when this one is limited or unsupported. */
+  alternative?: string;
+};
+
+export type InstallerUpdateStatus = "current" | "update" | "unknown" | "error";
+
+/** One Install Manager row in the catalogue (electron/installer-catalog.cjs `snapshot`). */
+export type InstallerCatalogRow = {
+  id: string;
+  kind: "tool" | "engine" | "runtime-pack" | "voice-model" | "model";
+  name: string;
+  category: string;
+  optional: boolean;
+  /** Null while the scan has not looked yet. */
+  installed: boolean | null;
+  installedVersion: string | null;
+  latestVersion: string | null;
+  updateStatus: InstallerUpdateStatus;
+  /** The official source that answered (github-api, github-atom, pypi-json, pypi-simple, hf-api, npm, feed, pinned). */
+  source: string | null;
+  checkedAt: number | null;
+  /** True when the version is the last cached answer and the sources could not be reached. */
+  stale: boolean;
+  /** The version is the catalogue's own pin, not a fresh answer. */
+  pinnedAnswer: boolean;
+  error?: string;
+  /** The model host's newest revision when it differs from the pinned one FRIDAY installs. */
+  upstreamVersion?: string;
+  fit: EngineFit;
+  /** llama.cpp and stable-diffusion.cpp: the builds this PC would use, best first, and the installed one. */
+  engine?: {
+    chain: ("cuda" | "vulkan" | "cpu")[];
+    skipped: { backend: string; reason: string }[];
+    active: {
+      installed: boolean;
+      version?: string;
+      backend?: string | null;
+      fellBack?: { backend: string; stage: string; reason: string }[];
+    } | null;
+  };
+};
+
+export type InstallerDoctorRow = {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "fail" | "skip";
+  detail: string;
+  repair: { id: string; action: "install" | "repair" } | null;
+};
+
+export type InstallerCatalog = {
+  ok: boolean;
+  generatedAt: number;
+  refreshing: boolean;
+  lastRefreshAt: number | null;
+  /** Milliseconds until a manual refresh is allowed again (0 now). */
+  nextManualRefreshInMs: number;
+  online: boolean | null;
+  privacy: boolean;
+  /** False until a hardware probe answered; every fit reads "limited (unknown)" until then. */
+  hardwareKnown: boolean;
+  oldestCheckedAt: number | null;
+  lastError: string | null;
+  rows: InstallerCatalogRow[];
+  /** Row ids by fit state, for the three lists the page shows. */
+  split: { supported: string[]; limited: string[]; unsupported: string[] };
+  counts: { rows: number; updates: number; errors: number; stale: number };
+  doctor: InstallerDoctorRow[];
+};
+
+export type InstallerRefreshResult = {
+  started: boolean;
+  running?: boolean;
+  reason?: string;
+  retryInMs?: number;
+};
+
+export type InstallerUpdateRequest = {
+  id: string;
+  /** The autonomy dial: Ask every time, Balanced or Full. Anything else reads as Ask. */
+  autonomy: "ask" | "balanced" | "full";
+  /** The owner's yes for this one update. */
+  consent?: { granted: boolean };
+};
+
+export type InstallerUpdateResult = {
+  ok: boolean;
+  allowed?: boolean;
+  needsConsent?: boolean;
+  reason?: string;
+  via?: "consent" | "full-autonomy";
+  error?: string;
+};
+
+/** The resource governor's read-only status (electron/resource-governor.cjs `status`). */
+export type GovernorStatus = {
+  ok: boolean;
+  error?: string;
+  level: "ok" | "high" | "critical";
+  notice: string | null;
+  memory: { freeMb: number; totalMb: number; level: string } | null;
+  vram: { freeMb: number; totalMb: number; level: string } | null;
+  lag: { p99Ms: number; maxMs: number; paused: boolean };
+  power: { stress: "none" | "battery" | "saver" | "thermal"; preferSmall: boolean };
+  holds: string[];
+  leases: Array<{
+    id: string;
+    owner: string;
+    kind: string;
+    priority: "voice" | "chat" | "background" | "prefetch";
+    state: string;
+    vramMb: number;
+    ramMb: number;
+    ageMs: number;
+  }>;
+  queued: Array<{ owner: string; priority: string; reason?: string; resume?: boolean }>;
+  jobs: Record<
+    string,
+    { running: number; queued: number; cap: number; maxQueue: number; saturated: boolean }
+  >;
+  actions: Array<{ at: number; kind: string; detail: string }>;
+};
+
 /** What this PC can carry for speech (electron/voice-weights.cjs `budgetForProbe`). */
 export type VoiceBudget = {
   ok: boolean;
@@ -133,6 +370,8 @@ export type VoiceBudget = {
   speechBudgetGb: number;
   idleUnloadMs: number;
   notes: string[];
+  /** Present when an NVIDIA driver was found but the speech kernel did not confirm cuBLAS 12 and cuDNN 9. */
+  gpuUpgrade?: { needs: "cuda-runtime"; vramGb: number; detail: string };
 };
 
 /** The speech worker's own account of what it holds (electron/stt.cjs `workerCacheOf`). */
@@ -448,6 +687,14 @@ type DesktopApi = {
   listOllamaModels?: () => Promise<{ running: boolean; models: unknown[] }>;
   detectComponents?: () => Promise<{ detectedAt: number; components: DetectedComponent[] }>;
   detectHardware?: () => Promise<DetectedHardware>;
+  hardwareFacts?: (
+    force?: boolean,
+  ) => Promise<{ ok: boolean; facts?: HardwareFacts; error?: string }>;
+  installerCatalog?: () => Promise<InstallerCatalog>;
+  refreshInstallerCatalog?: () => Promise<InstallerRefreshResult>;
+  updateInstallerRow?: (request: InstallerUpdateRequest) => Promise<InstallerUpdateResult>;
+  governorStatus?: () => Promise<GovernorStatus>;
+  onGovernorNotice?: (cb: (notice: { line: string }) => void) => () => void;
   checkUpdates?: () => Promise<{ checkedAt: number; updates: UpdateInfo[] }>;
   applyUpdate?: (update: UpdateInfo) => Promise<UpdateApplyResult>;
   rollbackUpdate?: (entry: {

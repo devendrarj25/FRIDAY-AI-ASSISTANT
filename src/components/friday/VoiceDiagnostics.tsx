@@ -24,7 +24,12 @@ import { echoDiagnostics } from "@/lib/friday/voice-engine/echo-live";
 import {
   earlyStartRows,
   echoReferenceRows,
+  resourceRows,
   speechWorkerRows,
+  thisPcRows,
+  wakeGuardRows,
+  type PcFactsView,
+  type ResourceView,
   type SpeechWorkerView,
 } from "@/lib/friday/voice-diagnostics-rows";
 import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
@@ -67,6 +72,8 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     }>
   >([]);
   const [worker, setWorker] = useState<SpeechWorkerView>({ phase: "loading" });
+  const [pc, setPc] = useState<PcFactsView>({ phase: "loading" });
+  const [resources, setResources] = useState<ResourceView>({ phase: "loading" });
   const [restoreAsk, setRestoreAsk] = useState("");
   const [restoreLine, setRestoreLine] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -112,10 +119,42 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       return { phase: "error", message: String((error as Error)?.message || error).slice(0, 120) };
     }
   };
+  const readPc = async (force = false): Promise<PcFactsView> => {
+    const api = desktopApi();
+    if (!api?.hardwareFacts) return { phase: "offline" };
+    try {
+      const answer = await api.hardwareFacts(force);
+      if (!answer?.ok || !answer.facts) {
+        return { phase: "error", message: String(answer?.error || "no answer").slice(0, 120) };
+      }
+      return { phase: "ready", facts: answer.facts };
+    } catch (error) {
+      return { phase: "error", message: String((error as Error)?.message || error).slice(0, 120) };
+    }
+  };
+  const readResources = async (): Promise<ResourceView> => {
+    const api = desktopApi();
+    if (!api?.governorStatus) return { phase: "offline" };
+    try {
+      const answer = await api.governorStatus();
+      if (!answer?.ok) {
+        return { phase: "error", message: String(answer?.error || "no answer").slice(0, 120) };
+      }
+      return { phase: "ready", status: answer };
+    } catch (error) {
+      return { phase: "error", message: String((error as Error)?.message || error).slice(0, 120) };
+    }
+  };
   useEffect(() => {
     let live = true;
+    void readResources().then((view) => {
+      if (live) setResources(view);
+    });
     void readWorker().then((view) => {
       if (live) setWorker(view);
+    });
+    void readPc().then((view) => {
+      if (live) setPc(view);
     });
     return () => {
       live = false;
@@ -211,6 +250,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
     ...earlyStartRows(preferences.getSnapshot().voice),
     ...echoReferenceRows(echoDiagnostics()),
+    ...wakeGuardRows(voiceGate.wake.snapshot()),
     { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
     {
@@ -273,6 +313,8 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       }`,
     },
     ...speechWorkerRows(worker),
+    ...thisPcRows(pc),
+    ...resourceRows(resources),
     ...(voice.error ? [{ label: "error", value: voice.error, bad: true }] : []),
   ];
 
@@ -390,6 +432,30 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         >
           <RefreshCw className="size-3" aria-hidden="true" />
           {worker.phase === "loading" ? "reading…" : "refresh speech worker"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPc({ phase: "loading" });
+            void readPc(true).then(setPc);
+          }}
+          disabled={pc.phase === "loading"}
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+        >
+          <RefreshCw className="size-3" aria-hidden="true" />
+          {pc.phase === "loading" ? "reading…" : "refresh this PC"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setResources({ phase: "loading" });
+            void readResources().then(setResources);
+          }}
+          disabled={resources.phase === "loading"}
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+        >
+          <RefreshCw className="size-3" aria-hidden="true" />
+          {resources.phase === "loading" ? "reading…" : "refresh resources"}
         </button>
         <button
           type="button"

@@ -18,6 +18,8 @@ const fs = require("fs");
 const voiceInstall = require("./voice-install.cjs");
 const vendorSources = require("./vendor-sources.cjs");
 const hfRunner = require("./hf-runner.cjs");
+const llamaRuntime = require("./llama-runtime.cjs");
+const engineInstall = require("./engine-install.cjs");
 const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
@@ -470,17 +472,52 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
   return { exe, prefix: [] };
 }
 
+/** What the app measured about this PC (main.cjs hands over `routingHardwareFacts`); null before the first probe. */
+let factsProvider = null;
+const setFactsProvider = (fn) => {
+  factsProvider = typeof fn === "function" ? fn : null;
+};
+const readFacts = () => {
+  try {
+    return factsProvider ? factsProvider() : null;
+  } catch {
+    return null;
+  }
+};
+
+/** CUDA compute capability from nvidia-smi (`compute_cap`, driver 510 and newer); null when it cannot say. */
+async function readComputeCap(runCmd = run) {
+  const text = await runCmd(
+    "nvidia-smi",
+    ["--query-gpu=compute_cap", "--format=csv,noheader"],
+    8000,
+  );
+  const first =
+    String(text || "")
+      .split(/\r?\n/)[0]
+      ?.trim() || "";
+  const cap = /^\d+(?:\.\d+)?$/.test(first) ? Number(first) : null;
+  return cap;
+}
+
 /**
  * llama-cpp-python compatibility. A blind `pip install` fails on a Python
  * version with no published wheel and, worse, a CPU wheel silently pretends to
- * be CUDA support. Decide the strategy from the real machine first.
+ * be CUDA support. Decide the strategy from the real machine first: the same
+ * facts the llama.cpp zip uses (`llama-runtime.cjs backendChain`: an NVIDIA card
+ * with a CUDA 12 driver, compute capability 7.5 or newer and 4 GB free), and the
+ * CPU wheel otherwise, with the reason said. The wheel index has CUDA and CPU
+ * builds only, so a Vulkan step reads as CPU here. `deps` is injected by tests.
  */
-async function llamaCppStrategy() {
-  const python = await resolvePython(path.join(__dirname, ".."));
+async function llamaCppStrategy(deps = {}) {
+  const runCmd = deps.run || run;
+  const findPython = deps.resolvePython || resolvePython;
+  const ensureManaged = deps.ensureManagedPython || ensureManagedPython;
+  const python = await findPython(path.join(__dirname, ".."));
   if (!python) {
     return { ok: false, reason: "FRIDAY's managed Python runtime was not found — run Setup first" };
   }
-  const raw = await run(
+  const raw = await runCmd(
     python.exe,
     [...python.prefix, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
     8000,
@@ -497,7 +534,7 @@ async function llamaCppStrategy() {
   if (minor > 13) {
     // No wheel for this Python yet: build/reuse FRIDAY's own 3.12 runtime and
     // install into that, instead of stopping at a manual instruction.
-    managed = await ensureManagedPython("3.12");
+    managed = await ensureManaged("3.12");
     if (!managed) {
       return {
         ok: false,
@@ -507,30 +544,46 @@ async function llamaCppStrategy() {
       };
     }
   }
-  const smi = await run(
+  const inManaged = managed ? ` in FRIDAY's managed Python 3.12 runtime (${managed.exe})` : "";
+  const smi = await runCmd(
     "nvidia-smi",
     ["--query-gpu=name,driver_version", "--format=csv,noheader"],
     8000,
   );
-  if (smi && smi.trim()) {
+  const gpuName = smi && smi.trim() ? smi.split(/\r?\n/)[0].trim() : "";
+  const computeCap = gpuName ? await readComputeCap(runCmd) : null;
+  const facts = deps.facts !== undefined ? deps.facts : readFacts();
+  const { chain, skipped } = llamaRuntime.backendChain(facts, { computeCap });
+  // Without facts (a script, a first run before the probe) the old rule holds, with the compute-capability guard:
+  // any NVIDIA card nvidia-smi can read gets the CUDA 12 wheel unless it is known to be too old.
+  const wantsCuda = facts
+    ? chain.some((entry) => entry.backend === "cuda")
+    : Boolean(gpuName) && (computeCap === null || computeCap >= llamaRuntime.MIN_COMPUTE_CAP);
+  if (wantsCuda) {
+    const level = Number(chain.find((entry) => entry.backend === "cuda")?.driverCuda) || 12.4;
+    const wheel = level >= 12.4 ? "cu124" : "cu121";
     return {
       ok: true,
       ...(managed ? { python: managed } : {}),
       backend: "cuda",
-      extraIndex: "https://abetlen.github.io/llama-cpp-python/whl/cu124",
+      fallback: "cpu",
+      extraIndex: `https://abetlen.github.io/llama-cpp-python/whl/${wheel}`,
       note:
-        `NVIDIA GPU detected (${smi.split(/\r?\n/)[0].trim()}) — using the CUDA wheel index` +
-        (managed ? ` in FRIDAY's managed Python 3.12 runtime (${managed.exe})` : ""),
+        `NVIDIA GPU detected (${gpuName || "from the hardware facts"}) — using the CUDA wheel index (${wheel})` +
+        inManaged,
       verify: "import llama_cpp;print(llama_cpp.__version__)",
     };
   }
+  const why = skipped.find((s) => s.backend === "cuda")?.reason;
   return {
     ok: true,
     ...(managed ? { python: managed } : {}),
     backend: "cpu",
     note:
-      "no NVIDIA GPU detected — installing the CPU build (CUDA will NOT be available)" +
-      (managed ? ` in FRIDAY's managed Python 3.12 runtime (${managed.exe})` : ""),
+      (gpuName && why
+        ? `NVIDIA GPU found, but ${why} — installing the CPU build (CUDA will NOT be available)`
+        : "no NVIDIA GPU detected — installing the CPU build (CUDA will NOT be available)") +
+      inManaged,
     verify: "import llama_cpp;print(llama_cpp.__version__)",
   };
 }
@@ -574,6 +627,55 @@ async function wingetHealth() {
     };
   }
   return { available: true, version: semver(version) };
+}
+
+/* --------------------------------------------------------- engine rows */
+/**
+ * Detection for the rows that install through electron/engine-install.cjs. A zip engine is found in
+ * `<root>/runtime/engines/<name>/<tag>-<variant>` (its marker says which build), llama.cpp also in the
+ * older places (`runtime/llama.cpp`, PATH); a wheel bundle is found in the Python environment.
+ */
+function engineDetector(id, { pathFallback = false } = {}) {
+  return async ({ root } = {}) => {
+    const spec = engineInstall.ENGINES[id];
+    const found = engineInstall.detectEngine(root, spec);
+    if (found.installed) {
+      return {
+        installed: true,
+        version: found.version,
+        path: found.path,
+        status: "Ready",
+        ...(found.backend ? { note: `${found.backend} build` } : {}),
+      };
+    }
+    if (!pathFallback) return { installed: false, status: "Missing" };
+    const tool = TOOL_BY_ID.get(id);
+    const legacy =
+      tool?.archiveBin && root ? require("./managed-install.cjs").installedBin(root, tool) : null;
+    if (legacy)
+      return { installed: true, version: legacy.version, path: legacy.bin, status: "Ready" };
+    const bin = await which(spec.binNames[0].replace(/\.exe$/i, ""));
+    if (!bin) return { installed: false, status: "Missing" };
+    const out = await run(bin, spec.healthArgs, 8000);
+    return { installed: true, version: semver(out), path: bin, status: out ? "Ready" : "Error" };
+  };
+}
+
+/** The CUDA runtime pair counts as installed only when both wheels are in the environment. */
+async function detectCudaLibs() {
+  const freeze = await loadPipFreeze(false);
+  const cublas = freeze.get("nvidia-cublas-cu12") || null;
+  const cudnn = freeze.get("nvidia-cudnn-cu12") || null;
+  const both = Boolean(cublas && cudnn);
+  return {
+    installed: both,
+    version: cudnn || cublas || null,
+    path: both ? "site-packages" : null,
+    status: both ? "Ready" : "Missing",
+    ...(!both && (cublas || cudnn)
+      ? { note: `only ${cublas ? "cuBLAS 12" : "cuDNN 9"} is installed; install the pair` }
+      : {}),
+  };
 }
 
 /* ------------------------------------------------------------------ catalog */
@@ -644,6 +746,10 @@ function detectPlaywrightBrowsers() {
   return { installed: false, status: "Missing" };
 }
 
+const LLAMA_CPU_PIN = (() => {
+  const asset = engineInstall.llamaPin()?.assets?.[0];
+  return { url: asset?.url, sha256: asset?.sha256, bytes: asset?.bytes || undefined };
+})();
 const TOOLS = [
   // --- languages & runtimes -------------------------------------------------
   T("Node.js LTS", "Languages & Runtimes", {
@@ -1023,12 +1129,18 @@ const TOOLS = [
     url: "https://github.com/ggml-org/llama.cpp",
     source: "github.com/ggml-org",
     latest: { kind: "github", ref: "ggml-org/llama.cpp" },
-    installerUrl:
-      "https://github.com/ggml-org/llama.cpp/releases/download/b11243/llama-b11243-bin-win-cpu-x64.zip",
-    sha256: "29f91327f4e98fcac93e3b44e6cc54beda26468eb9ffeb804a08cfa67bda8c5b",
-    needBytes: 19161151,
+    // The pinned CPU zip is read from config/local-runners.json (one source of truth with setup), never retyped here.
+    installerUrl: LLAMA_CPU_PIN.url,
+    sha256: LLAMA_CPU_PIN.sha256,
+    needBytes: LLAMA_CPU_PIN.bytes,
     archiveBin: "llama-server.exe",
-    manual: "Windows CPU zip, hashed 2026-10-07. CUDA and DirectML builds are not this pin. MIT.",
+    manual:
+      "Windows build chosen by this PC (CUDA 12, Vulkan or CPU) from the newest official release, SHA-256 from the release; the pinned CPU zip is the last source. MIT.",
+    // Installs through electron/engine-install.cjs: the build follows the measured facts and falls back one step
+    // (CUDA, Vulkan, CPU) when it does not start.
+    engine: "llama.cpp",
+    detect: engineDetector("llama.cpp", { pathFallback: true }),
+    requirements: { diskBytes: 25_000_000 },
   }),
 
   T("LM Studio", "AI Runtimes", {
@@ -1175,6 +1287,26 @@ const TOOLS = [
     winget: "Gyan.FFmpeg",
     url: "https://ffmpeg.org/download.html",
     source: "ffmpeg.org",
+  }),
+  T("FFmpeg (LGPL, portable)", "Media Tools", {
+    url: "https://github.com/BtbN/FFmpeg-Builds",
+    source: "github.com/BtbN",
+    latest: { kind: "github", ref: "BtbN/FFmpeg-Builds" },
+    engine: "FFmpeg (LGPL, portable)",
+    detect: engineDetector("FFmpeg (LGPL, portable)"),
+    manual:
+      "The LGPL shared build runs as a separate process; FRIDAY downloads it on demand, checks the SHA-256 and never bundles or links it.",
+    requirements: { diskBytes: 150_000_000, recommended: false },
+  }),
+  T("stable-diffusion.cpp", "AI Runtimes", {
+    url: "https://github.com/leejet/stable-diffusion.cpp",
+    source: "github.com/leejet",
+    latest: { kind: "github", ref: "leejet/stable-diffusion.cpp", strip: "^master-" },
+    engine: "stable-diffusion.cpp",
+    detect: engineDetector("stable-diffusion.cpp"),
+    manual:
+      "Optional image engine (MIT); the CUDA 12, Vulkan or AVX build follows this PC's facts.",
+    requirements: { diskBytes: 600_000_000, recommended: false },
   }),
   T("7-Zip", "Media Tools", {
     cmd: "7z",
@@ -1534,19 +1666,60 @@ const TOOLS = [
     latest: { kind: "pypi", ref: "huggingface-hub" },
   }),
 
+  T("CUDA runtime libraries", "GPU Support", {
+    pipDist: "nvidia-cudnn-cu12",
+    pip: "nvidia-cudnn-cu12",
+    pipBundle: "cuda-libs",
+    detect: detectCudaLibs,
+    url: "https://pypi.org/project/nvidia-cudnn-cu12/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "nvidia-cudnn-cu12" },
+    manual:
+      "cuBLAS 12 and cuDNN 9 (about 1.2 GB, NVIDIA proprietary licence) are fetched from PyPI on NVIDIA PCs only, checked against their SHA-256 and installed into the FRIDAY Python environment; never bundled.",
+    requirements: {
+      gpu: "nvidia",
+      cudaMin: "12",
+      computeCapMin: 7.5,
+      diskBytes: 553162896 + 696300805,
+    },
+  }),
   T("cuDNN", "GPU Support", {
     pipDist: "nvidia-cudnn-cu12",
     pip: "nvidia-cudnn-cu12",
+    pipBundle: "cuda-libs",
     url: "https://developer.nvidia.com/cudnn",
     source: "developer.nvidia.com",
     latest: { kind: "pypi", ref: "nvidia-cudnn-cu12" },
+    requirements: { gpu: "nvidia", cudaMin: "12", computeCapMin: 7.5, diskBytes: 696300805 },
   }),
   T("ONNX Runtime (GPU)", "GPU Support", {
     pipDist: "onnxruntime-gpu",
     pip: "onnxruntime-gpu",
+    pipBundle: "ort-gpu",
     url: "https://onnxruntime.ai/",
     source: "pypi.org",
     latest: { kind: "pypi", ref: "onnxruntime-gpu" },
+    manual:
+      "Only with the CUDA runtime libraries; never installed together with another ONNX Runtime.",
+    requirements: {
+      gpu: "nvidia",
+      cudaMin: "12",
+      cudaLibs: true,
+      computeCapMin: 7.5,
+      diskBytes: 157765830,
+      alternative: "ONNX Runtime (DirectML)",
+    },
+  }),
+  T("ONNX Runtime (DirectML)", "GPU Support", {
+    pipDist: "onnxruntime-directml",
+    pip: "onnxruntime-directml",
+    pipBundle: "ort-directml",
+    url: "https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "onnxruntime-directml" },
+    manual:
+      "Runs ONNX voice models on any DirectX 12 GPU; never installed together with another ONNX Runtime.",
+    requirements: { gpu: "any", diskBytes: 25111930 },
   }),
   // n8n is defined once, above, in the Automation group.
 
@@ -2052,9 +2225,11 @@ const TOOLS = [
   T("ONNX Runtime", "AI Runtimes", {
     pipDist: "onnxruntime",
     pip: "onnxruntime",
+    pipBundle: "ort-cpu",
     url: "https://onnxruntime.ai/",
     source: "pypi.org",
     latest: { kind: "pypi", ref: "onnxruntime" },
+    requirements: { diskBytes: 16698767 },
   }),
   T("Intel OpenVINO", "GPU Support", {
     pipDist: "openvino",
@@ -3321,6 +3496,210 @@ function installerCommand(file, tool, root) {
   return [file, args];
 }
 
+/**
+ * The resource governor's lanes for the heavy steps of an engine install (set by main.cjs; without it they just run).
+ * `run(kind, fn, signal)` is the governor's `run` with the install or download cap.
+ */
+let jobRunner = null;
+const setJobRunner = (fn) => {
+  jobRunner = typeof fn === "function" ? fn : null;
+};
+const inLane = (kind, fn, signal) => (jobRunner ? jobRunner(kind, fn, signal) : fn());
+
+/** `execFile` as `{ code, output }` for pip and the Python probes of an engine install. */
+function execCapture(exe, args, { timeoutMs = 60_000 } = {}) {
+  return new Promise((resolve) => {
+    execFile(
+      exe,
+      args,
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) =>
+        resolve({
+          code: err ? (typeof err.code === "number" ? err.code : 1) : 0,
+          output: `${stdout || ""}${stderr || ""}`,
+        }),
+    );
+  });
+}
+
+/**
+ * Install, update, repair or remove a row that installs through electron/engine-install.cjs: a zip engine
+ * (`tool.engine`: llama.cpp, FFmpeg LGPL build, stable-diffusion.cpp) or a bundle of pinned wheels
+ * (`tool.pipBundle`: the CUDA runtime pair, the ONNX Runtime variants). The new copy is built next to the old one
+ * and swapped in only after it was checked; any failure leaves the old install as it was.
+ */
+async function runEngineJob({ tool, action, root }, emit) {
+  const id = tool.id;
+  const key = `${id}:${action}`;
+  const say = (line, extra = {}) => emit({ id, action, phase: "Running", line, ...extra });
+  const fail = (error, extra = {}) => {
+    emit({ id, action, ok: false, phase: "Failed", error });
+    return { ok: false, error, ...extra };
+  };
+  if (!root) return fail("no FRIDAY folder is selected; choose one first");
+  const abort = new AbortController();
+  downloadAborts.set(key, abort);
+  const feeds = vendorSources.storeFor(root);
+  const progress = (name) => (event) =>
+    emit({
+      id,
+      action,
+      phase: "Downloading",
+      line: `${event.status || "downloading"}${event.percent != null ? ` ${event.percent}%` : ""}`,
+      percent: event.percent,
+      bytesDone: event.bytesDone,
+      bytesTotal: event.bytesTotal,
+      speedMbps: event.speedMbps,
+      etaSeconds: event.etaSeconds,
+      source: name,
+    });
+  try {
+    if (tool.engine) {
+      const spec = engineInstall.ENGINES[tool.engine];
+      if (!spec) return fail(`${id} has no engine definition`);
+      if (action === "uninstall") {
+        const gone = engineInstall.uninstallEngine(root, spec);
+        emit({ id, action, ok: true, phase: "Done", line: gone ? "removed" : "nothing to remove" });
+        return { ok: true };
+      }
+      const answer = await vendorSources.resolveLatest(spec.id, engineInstall.engineSources(spec), {
+        store: feeds,
+        force: true,
+      });
+      const release = engineInstall.releaseForInstall(spec, answer);
+      if (!release.ok) return fail(release.error);
+      say(
+        release.usedPin
+          ? `the release list could not be read; using the pinned release ${release.tag}`
+          : `newest official release is ${release.tag} (${release.source})`,
+      );
+      const python = await resolvePython(path.join(__dirname, ".."));
+      const pyRun = python
+        ? (cmd, args) =>
+            execCapture(cmd, [...(python.prefix || []), ...args], { timeoutMs: 10 * 60_000 }).then(
+              (r) => ({
+                ok: r.code === 0,
+                output: r.output.trim(),
+                error: r.code === 0 ? null : r.output.trim().slice(-300),
+              }),
+            )
+        : null;
+      const out = await engineInstall.installEngine(
+        root,
+        spec,
+        { release, facts: readFacts(), computeCap: await readComputeCap() },
+        {
+          download: (url, dest, o) =>
+            require("./model-download.cjs").downloadUrl(url, dest, {
+              onEvent: progress(new URL(url).hostname),
+              signal: abort.signal,
+              sha256: o.sha256,
+              label: `Downloading ${path.basename(dest)}`,
+              extraHosts: [url],
+            }),
+          extract: (zip, dest) =>
+            pyRun
+              ? llamaRuntime.extractZip(zip, dest, { python: python.exe, run: pyRun })
+              : Promise.resolve({
+                  ok: false,
+                  error: "a Python runtime is needed to unpack the zip safely",
+                }),
+          health: (bin, args) => llamaRuntime.healthCheck(bin, args),
+          fetchText: async (url) => {
+            const { fetchCompat } = require("./net-fetch.cjs");
+            return (await fetchCompat(url, { signal: AbortSignal.timeout(8000) })).text();
+          },
+          diskFree: (dir) => diskRoom(dir),
+          run: (kind, fn) => inLane(kind, fn, abort.signal),
+          emit: (line) => say(line),
+        },
+      );
+      if (!out.ok) {
+        for (const a of out.attempts.filter((x) => !x.ok)) say(`${a.backend}: ${a.reason}`);
+        return fail(out.error);
+      }
+      for (const f of out.fellBack) say(`${f.backend} was not used: ${f.reason}`);
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: out.version,
+        line: `installed ${spec.label} ${out.version} (${out.backend} build) at ${out.bin || root}`,
+      });
+      return { ok: true, version: out.version, backend: out.backend, fellBack: out.fellBack };
+    }
+
+    // A bundle of pinned wheels.
+    const bundle = engineInstall.PIP_BUNDLES[tool.pipBundle];
+    if (!bundle) return fail(`${id} has no wheel bundle`);
+    let python = await resolvePython(path.join(__dirname, ".."));
+    if (!python && action !== "uninstall") python = await ensureManagedPython("3.12");
+    if (!python) return fail("no Python runtime is available; run Setup first");
+    const exec = (exe, args, o) => execCapture(exe, args, o);
+    if (action === "uninstall") {
+      const gone = await exec(python.exe, [
+        ...(python.prefix || []),
+        "-m",
+        "pip",
+        "uninstall",
+        "-y",
+        ...bundle.parts.map((p) => p.dist),
+      ]);
+      loadPipFreeze(true).catch(() => {});
+      if (gone.code !== 0)
+        return fail(`pip could not remove it: ${gone.output.trim().slice(-200)}`);
+      emit({ id, action, ok: true, phase: "Done", line: "removed" });
+      return { ok: true };
+    }
+    const tag = (
+      await exec(python.exe, [
+        ...(python.prefix || []),
+        "-c",
+        "import sys;print('cp%d%d' % sys.version_info[:2])",
+      ])
+    ).output.trim();
+    const resolved = {};
+    for (const part of bundle.parts) {
+      resolved[part.dist] = await vendorSources.resolveLatest(
+        part.dist,
+        engineInstall.wheelSources(part.dist),
+        { store: feeds, force: true },
+      );
+    }
+    const plan = engineInstall.planWheels(bundle, resolved, {
+      pyTag: /^cp\d+$/.test(tag) ? tag : null,
+    });
+    if (!plan.ok) return fail(plan.error);
+    say(`installing ${plan.wheels.map((w) => `${w.dist} ${w.version}`).join(" and ")}`);
+    const out = await engineInstall.installPinnedWheels(root, bundle, plan, python, {
+      exec,
+      freeze: () => loadPipFreeze(true),
+      run: (kind, fn) => inLane(kind, fn, abort.signal),
+      emit: (line) => say(line),
+      force: action === "repair",
+    });
+    loadPipFreeze(true).catch(() => {});
+    if (!out.ok) return fail(out.error, { rolledBack: Boolean(out.rolledBack) });
+    const versions = Object.values(out.versions);
+    emit({
+      id,
+      action,
+      ok: true,
+      phase: "Done",
+      version: versions.at(-1),
+      line: `installed ${Object.entries(out.versions)
+        .map(([d, v]) => `${d} ${v}`)
+        .join(", ")}${out.removed.length ? `; removed ${out.removed.join(", ")}` : ""}`,
+    });
+    return { ok: true, versions: out.versions };
+  } catch (error) {
+    return fail(String(error?.message || error).slice(0, 240));
+  } finally {
+    downloadAborts.delete(key);
+  }
+}
+
 function runJob({ id, action, root }, emit) {
   let tool = toolById(id);
   const key = `${id}:${action}`;
@@ -3384,6 +3763,10 @@ function runJob({ id, action, root }, emit) {
       return { ok: probe.installed, version: probe.version };
     })();
   }
+
+  // Engines and wheel bundles install through electron/engine-install.cjs: chosen by the measured facts, checked
+  // against the official digest, built next to the old copy and swapped in only when it works.
+  if (tool.engine || tool.pipBundle) return runEngineJob({ tool, action, root }, emit);
 
   return (async () => {
     // Optional Windows features have no unattended installer: state the real
@@ -4304,6 +4687,10 @@ module.exports = {
   detectResedit,
   detectHuggingFace,
   llamaCppStrategy,
+  setFactsProvider,
+  setJobRunner,
+  readComputeCap,
+  runEngineJob,
   repairedWingetSource,
   ensureManagedPython,
   useBundledEmbedDirect,

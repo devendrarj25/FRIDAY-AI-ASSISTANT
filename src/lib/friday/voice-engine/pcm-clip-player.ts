@@ -52,8 +52,10 @@ export type PcmClip = {
   durationMs: number;
   /** Stop everything this player is playing now. Returns the milliseconds that were really played. */
   stop: () => number;
-  /** Milliseconds of this clip that the audio clock has played so far (0 before it starts, its length at the end). */
+  /** Milliseconds of this clip that the speaker has played so far (0 before it starts, its length at the end). */
   playedMs: () => number;
+  /** Where the clip sits on the answer clock (`PcmClipPlayer.playedMs()` reads the same clock), or null when unknown. */
+  span: { startMs: number; endMs: number } | null;
 };
 
 export class PcmClipPlayer {
@@ -84,6 +86,16 @@ export class PcmClipPlayer {
 
   stats(): PlaybackStats {
     return this.playback.stats();
+  }
+
+  /** Milliseconds of the current answer the speaker has really played (output latency taken off). */
+  playedMs(): number {
+    return this.playback.playedMs();
+  }
+
+  /** Lower (level < 1) or restore (1) the voice without stopping it. False when the context has no gain stage. */
+  setDuck(level: number): boolean {
+    return this.playback.setDuck(level);
   }
 
   /** The audio context the clauses are played on (its clock and latency), for the echo reference. */
@@ -189,9 +201,22 @@ export class PcmClipPlayer {
         if (level !== undefined) this.options.onLevel?.(level);
       }, PCM_LEVEL_EVERY_MS);
     }
+    const latencyMs = (): number => {
+      const out = Number(this.context.outputLatency);
+      if (Number.isFinite(out) && out > 0) return out * 1000;
+      const base = Number(this.context.baseLatency);
+      return Number.isFinite(base) && base > 0 ? base * 1000 : 0;
+    };
     const playedMs = () =>
-      Math.min(durationMs, Math.max(0, (this.context.currentTime - startsAt) * 1000));
-    return { ended, durationMs, stop: () => this.stop(), playedMs };
+      Math.min(durationMs, Math.max(0, (this.context.currentTime - startsAt) * 1000 - latencyMs()));
+    const span = this.playback.lastSpan();
+    return {
+      ended,
+      durationMs,
+      stop: () => this.stop(),
+      playedMs,
+      span: span ? { startMs: span.startMs, endMs: span.endMs } : null,
+    };
   }
 
   /** Stop at once: flush the scheduler and end every clip that was waiting for its audio to finish. */

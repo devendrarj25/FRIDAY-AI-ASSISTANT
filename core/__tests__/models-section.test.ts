@@ -113,7 +113,10 @@ describe("what runs on this PC", () => {
     expect(engine).toContain("this.probeSystem();");
     expect(engine).toContain("hw.disk?.freeGb");
     expect(engine).not.toContain("this.probeSystemBrowser())");
-    expect(read("electron/main.cjs")).toContain("detectHardware({ root: getWorkspaceRoot() })");
+    const main = read("electron/main.cjs");
+    // the boot probe and the on-demand probe both read the same options (data root, model cache, network switch)
+    expect(main.match(/detectHardware\(hardwareProbeOptions\(\)\)/g)?.length).toBe(2);
+    expect(main).toContain("root: getWorkspaceRoot()");
   });
 });
 

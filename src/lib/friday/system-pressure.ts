@@ -5,6 +5,7 @@
  * FRIDAY is doing gets the machine. Nothing here changes what a click does. The "Lighten effects" setting turns the
  * whole thing off.
  */
+import { toast } from "sonner";
 import { flushPendingState } from "./persist";
 import { desktopApi } from "./desktop";
 import { preferences } from "./preferences";
@@ -59,6 +60,10 @@ export function startSystemPressure(): () => void {
       .catch(() => undefined);
   }
   if (desktop?.onSystemPressure) stops.push(desktop.onSystemPressure((snapshot) => set(snapshot)));
+  // The resource governor's one-line notices (for example "Memory is very low ..."), shown as a toast.
+  if (desktop?.onGovernorNotice) {
+    stops.push(desktop.onGovernorNotice((notice) => notice?.line && toast.warning(notice.line)));
+  }
   // The PC is going to sleep: nothing tells the page it is hiding, so what still waits on a save delay goes now.
   if (desktop?.onSystemSuspend) stops.push(desktop.onSystemSuspend(() => flushPendingState()));
   return () => {

@@ -13,6 +13,13 @@ import {
   DEFAULT_VOICE_CLOUD_PREFS,
   type VoiceCloudPrefs,
 } from "./voice-engine/voice-cloud-settings";
+import {
+  DEFAULT_INTERRUPT_GATE,
+  sanitizeInterruptGate,
+  type InterruptGatePrefs,
+} from "./voice-engine/interruption-controller";
+import { normalizePttTailMs, PTT_TAIL_DEFAULT_MS } from "./push-to-talk";
+import { normalizeWakeGuardConfig, WAKE_GUARD_DEFAULTS, type WakeGuardConfig } from "./wake-guard";
 import { registerFlush } from "./persist";
 
 /** How the voice task desk behaves while the owner keeps talking. Read by the voice conductor; stored in `voice.tasks`. */
@@ -176,6 +183,15 @@ export type VoicePreferences = {
   trimHistoryToPlayed: boolean;
   /** Tasks that run while the owner keeps talking: narration, progress lines, restart, side questions. */
   tasks: VoiceTaskPrefs;
+  /**
+   * While she speaks, a nod ("hmm", "haan") or a cough only lowers her volume; she stops for real words, a stop word
+   * or an answer to her question. On by default; the three numbers are the thresholds.
+   */
+  interruptGate: InterruptGatePrefs;
+  /** Push-to-talk: how long the segment stays open after the key is released (100 to 800 ms). */
+  pttTailMs: number;
+  /** Hands-free wake gates: cooldown, speech before a wake, follow-up window, room-noise raise. Each value is bounded. */
+  wake: WakeGuardConfig;
   /** Opt-in: a short acknowledgement is said while a task works. Off until tried on this PC. */
   instantAck: boolean;
   /** Opt-in, experimental: start thinking before the owner finishes speaking. Off until tried on this PC. */
@@ -396,6 +412,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     prewarm: true,
     trimHistoryToPlayed: true,
     tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+    interruptGate: { ...DEFAULT_INTERRUPT_GATE },
+    pttTailMs: PTT_TAIL_DEFAULT_MS,
+    wake: { ...WAKE_GUARD_DEFAULTS },
     instantAck: false,
     eagerTurn: false,
     echoReference: false,
@@ -462,6 +481,12 @@ function merge(
       models: Array.isArray(patch.voice?.models) ? patch.voice.models : base.voice.models,
       // Task settings merge key by key and are made safe; an old shape without them keeps the defaults.
       tasks: sanitizeVoiceTaskPrefs({ ...base.voice.tasks, ...(patch.voice?.tasks ?? {}) }),
+      interruptGate: sanitizeInterruptGate({
+        ...base.voice.interruptGate,
+        ...(patch.voice?.interruptGate ?? {}),
+      }),
+      pttTailMs: normalizePttTailMs(patch.voice?.pttTailMs ?? base.voice.pttTailMs),
+      wake: normalizeWakeGuardConfig({ ...base.voice.wake, ...(patch.voice?.wake ?? {}) }),
       instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
       eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,

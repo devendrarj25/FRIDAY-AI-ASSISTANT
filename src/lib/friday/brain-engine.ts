@@ -55,8 +55,11 @@ import {
   createRoutingContract,
   hedgeAllowed,
   normaliseCostPolicy,
+  NO_LIVE_MODEL,
+  noLiveModelLine,
   normaliseRouteMode,
-  rankForSurface,
+  resolveLiveRoute,
+  type LiveRoute,
   type ModelRoutingContract,
 } from "./model-routing-contract";
 import { models } from "./models-engine";
@@ -460,6 +463,10 @@ export type Message = {
    * reply for the transcript on this PC; the next turn is shown only the heard part and a note that it was cut.
    */
   playedText?: string;
+  /** The owner cut this spoken reply off (set with `playedText`). */
+  interrupted?: boolean;
+  /** Milliseconds of the reply the speaker had played at the cut, when the sample player's clock said. */
+  playedMs?: number;
 };
 
 export type MemoryHit = {
@@ -1426,7 +1433,7 @@ class BrainStore {
     return true;
   }
 
-  private failDesktopRun(run: Run, error: string) {
+  private failDesktopRun(run: Run, error: string, shown?: string) {
     noteObserve({
       error: brainError({
         component: "brain-engine",
@@ -1455,7 +1462,9 @@ class BrainStore {
     const settled = settleInterrupted(run.answer, error);
     if (!(settled.keep && settled.text == null)) {
       const text =
-        settled.text ?? failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 });
+        shown ??
+        settled.text ??
+        failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 });
       if (settled.keep) {
         this.replaceAnswer(run, text);
         const shown = this.state.messages.some(
@@ -1506,53 +1515,35 @@ class BrainStore {
 
   /* --------------------------------------------------------------- models */
 
+  /**
+   * A turn's model, resolved only against live registry rows (see `resolveLiveRoute`). When no live
+   * row confirms any model the outcome is `no-live-model` with a null id: a static catalogue id is
+   * never invented. Chat and voice share this path; they differ only in the order of the pool.
+   */
   private routeModel(
     task: RoutingTask,
     surface: "voice" | "chat" = "chat",
-  ): { id: string | null; label: string } {
-    // Brain resolves candidate recommendations against the canonical live registry.
-    // Brain must NEVER invent or force an unlisted model ID.
+    privacy: "private" | "standard" = "standard",
+  ): LiveRoute {
     try {
-      const live = usageRegistry.getSnapshot();
-      if (live.models.length > 0) {
-        if (live.routeMode === "auto" && live.selected.length === 0) {
-          return { id: null, label: "Auto" };
-        }
-        if (live.selected.length > 0) {
-          const picked = live.models.find(
-            (m) => live.selected.includes(m.id) || live.selected.includes(m.modelName),
-          );
-          if (picked && picked.available && picked.eligible) {
-            return { id: picked.id, label: picked.label };
-          }
-        }
-        const routing = models.getSnapshot().routing;
-        const candidateId = routing[task] ?? routing.brain ?? null;
-        if (candidateId) {
-          const match = live.models.find(
-            (m) => m.id === candidateId || m.modelName === candidateId,
-          );
-          if (match && match.available && match.eligible) {
-            return { id: match.id, label: match.label };
-          }
-        }
-        const eligible = rankForSurface(
-          live.models.filter((m) => m.available && m.eligible),
-          surface,
-        );
-        const first = eligible[0];
-        if (first) {
-          return { id: first.id ?? null, label: first.label };
-        }
-      }
+      return resolveLiveRoute({
+        live: usageRegistry.getSnapshot(),
+        routing: models.getSnapshot().routing,
+        task,
+        surface,
+        privacy,
+        offline: typeof navigator !== "undefined" && navigator.onLine === false,
+      });
     } catch {
-      /* fallback to static catalog in tests or standalone preview */
+      return { outcome: NO_LIVE_MODEL, id: null, label: "no live model", reason: "no-rows" };
     }
+  }
 
-    const routing = models.getSnapshot().routing;
-    const id = routing[task] ?? routing.brain ?? null;
-    if (!id) return { id: null, label: "unrouted" };
-    return { id, label: modelById.get(id)?.name ?? id };
+  /** The turn takes the private path: privacy mode is on or the line looks sensitive. */
+  private privateTurn(text: string): "private" | "standard" {
+    return preferences.getSnapshot().voice.privacyMode === true || looksSensitive(text)
+      ? "private"
+      : "standard";
   }
 
   /* --------------------------------------------------------------- memory */
@@ -1856,7 +1847,7 @@ class BrainStore {
       })),
       agents: agentIds.map((id) => {
         const spec = agentById.get(id)!;
-        const model = this.routeModel(spec.task, surface);
+        const model = this.routeModel(spec.task, surface, this.privateTurn(text));
         return {
           id,
           name: spec.name,
@@ -2283,6 +2274,30 @@ class BrainStore {
     // generic "chat": model eligibility, capability filtering and cost policy
     // all key off it.
     const task = resolveRoutingTask(run, options.extra);
+
+    // No live registry row can answer, and the owner pinned nothing: say so in one line in the owner's
+    // language instead of sending a model id nothing confirms. The same check serves chat and voice. While
+    // the registry is still loading, the main router (the authority) decides.
+    const registryNow = usageRegistry.getSnapshot();
+    if (
+      !modelIds.length &&
+      !options.modelIds?.length &&
+      !(registryNow.loading && registryNow.models.length === 0)
+    ) {
+      const route = this.routeModel(
+        task,
+        options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        this.privateTurn(text),
+      );
+      if (route.outcome === NO_LIVE_MODEL) {
+        this.failDesktopRun(
+          run,
+          `no live model is reachable (${route.reason})`,
+          noLiveModelLine(text, route.reason),
+        );
+        return;
+      }
+    }
     this.streamBuffers = new Map();
     this.lastDispatch = { runId: run.id, modelIds };
     this.lastCognition = { runId: run.id, cognition };
@@ -2439,7 +2454,11 @@ class BrainStore {
     const failed = new Set(this.state.runs.filter((r) => r.state === "failed").map((r) => r.id));
     return compactHistory(
       this.state.messages
-        .filter((m) => !(m.role === "friday" && m.runId && failed.has(m.runId)))
+        // A run stopped by the owner's interruption keeps the part that was heard (the model sees it cut, marked).
+        .filter(
+          (m) =>
+            !(m.role === "friday" && m.runId && failed.has(m.runId) && m.playedText === undefined),
+        )
         .filter((m) => !(m.role === "user" && m.runId === runId))
         .slice(-30)
         .map((m) => {
@@ -2830,13 +2849,18 @@ class BrainStore {
    * transcript on this PC is complete); the model is shown `playedText` and a marker that the reply was cut, so the
    * next turn does not assume the owner heard the rest. Returns false when the run has no reply of FRIDAY's.
    */
-  truncateAssistantReply(runId: string, playedText: string): boolean {
+  truncateAssistantReply(runId: string, playedText: string, playedMs?: number): boolean {
     const heard = String(playedText ?? "").trim();
     let found = false;
     this.state.messages = this.state.messages.map((message) => {
       if (message.runId !== runId || message.role !== "friday") return message;
       found = true;
-      return { ...message, playedText: heard };
+      return {
+        ...message,
+        playedText: heard,
+        interrupted: true,
+        ...(Number.isFinite(playedMs) ? { playedMs: Math.round(Number(playedMs)) } : {}),
+      };
     });
     if (found) this.emit();
     return found;

@@ -23,35 +23,16 @@ const modelRouter = require("./model-router.cjs");
 const modelCapabilities = require("./model-capabilities.cjs");
 const hfRunner = require("./hf-runner.cjs");
 const paths = require("./friday-paths.cjs");
+const localEngines = require("./local-engines.cjs");
 
-const OLLAMA = process.env.OLLAMA_HOST?.replace(/\/+$/, "") || "http://127.0.0.1:11434";
+const OLLAMA =
+  process.env.OLLAMA_HOST?.replace(/\/+$/, "") || localEngines.defaultEndpoint("ollama");
 
-/** Local OpenAI-compatible engines, by their documented default port. */
-const LOCAL_ENGINES = {
-  lmstudio: { name: "LM Studio", endpoint: "http://127.0.0.1:1234" },
-  llamacpp: { name: "llama.cpp", endpoint: "http://127.0.0.1:8080" },
-  vllm: { name: "vLLM", endpoint: "http://127.0.0.1:8000" },
-  // Vendor default is :8080, which is already llama.cpp. Bind LocalAI to 8081.
-  localai: { name: "LocalAI", endpoint: "http://127.0.0.1:8081" },
-  // Desktop Local API Server default (Settings → Start Server). CLI `jan serve` is 6767.
-  jan: {
-    name: "Jan",
-    endpoint: "http://127.0.0.1:1337",
-    alternates: ["http://127.0.0.1:6767"],
-    env: "FRIDAY_JAN_ENDPOINT",
-  },
-  // KoboldCpp serves its OpenAI-compatible API on its documented default port.
-  koboldcpp: { name: "KoboldCpp", endpoint: "http://127.0.0.1:5001" },
-  // `transformers serve` from the Hugging Face runner (Safetensors / PyTorch). 8000 is
-  // vLLM's, so FRIDAY starts it on 8083. See electron/hf-runner.cjs.
-  transformers: { name: "Hugging Face runner", endpoint: "http://127.0.0.1:8083" },
-  // GPT4All desktop: Settings -> Application -> Enable Local API Server.
-  gpt4all: { name: "GPT4All", endpoint: "http://127.0.0.1:4891" },
-};
-if (process.platform === "darwin") {
-  // mlx_lm.server is Apple silicon only. Never listed as a live engine on Windows.
-  LOCAL_ENGINES.mlx = { name: "MLX-LM", endpoint: "http://127.0.0.1:8082" };
-}
+/**
+ * Local OpenAI-compatible engines, by their documented default port. The rows live in
+ * kernel/local_engines.json (electron/local-engines.cjs); MLX-LM is listed on macOS only.
+ */
+const LOCAL_ENGINES = localEngines.listedEngines();
 
 /**
  * Cloud providers and the real endpoint used to validate a key.
@@ -1141,7 +1122,9 @@ async function lmStudioEngine(endpoints) {
     if (legacy.ok) {
       return lmStudioResult(candidate, lmStudioCatalog(legacy.body, "v0"), legacy.latencyMs);
     }
-    const compat = await request(`${candidate}/v1/models`, { timeout: 2500 });
+    const compat = await request(`${candidate}${localEngines.modelsPath("lmstudio")}`, {
+      timeout: 2500,
+    });
     if (compat.ok) {
       return lmStudioResult(candidate, lmStudioCatalog(compat.body, "openai"), compat.latencyMs);
     }
@@ -1166,7 +1149,7 @@ async function localEngine(id, userData = null) {
   let endpoint = endpoints[0] || spec.endpoint;
   let res = null;
   for (const candidate of endpoints) {
-    const attempt = await request(`${candidate}/v1/models`, { timeout: 2500 });
+    const attempt = await request(`${candidate}${localEngines.modelsPath(id)}`, { timeout: 2500 });
     if (!res) res = attempt;
     if (!attempt.ok) continue;
     endpoint = candidate;

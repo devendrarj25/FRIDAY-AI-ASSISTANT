@@ -364,6 +364,26 @@ async function sample() {
   };
 }
 
+/**
+ * The last video memory reading in megabytes, for the resource governor: it never starts a probe of its own.
+ * Null until the first reading or when there is no NVIDIA card with nvidia-smi.
+ */
+function cachedVram() {
+  const gpu = gpuCache.value;
+  if (!gpu || !Number.isFinite(gpu.vramTotalMb) || !Number.isFinite(gpu.vramUsedMb)) return null;
+  return {
+    freeMb: Math.max(0, gpu.vramTotalMb - gpu.vramUsedMb),
+    totalMb: gpu.vramTotalMb,
+    at: gpuCache.at,
+  };
+}
+
+/** Refresh the video memory reading (shared cache, one probe in flight, at most one per GPU_MS). */
+async function refreshVram() {
+  await gpuSample();
+  return cachedVram();
+}
+
 let loopLagReader = null;
 /** main.cjs hands over the event-loop lag reader (electron/loop-lag.cjs). */
 function setLoopLagReader(fn) {
@@ -440,6 +460,8 @@ async function snapshot() {
 }
 
 module.exports = {
+  cachedVram,
+  refreshVram,
   setLoopLagReader,
   sample,
   snapshot,

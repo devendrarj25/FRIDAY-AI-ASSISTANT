@@ -807,6 +807,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
                 if params.get("reasoningEffort") in ("low", "medium", "high")
                 else None,
                 history=history,
+                hardware_hints=params.get("hardwareHints"),
             ):
                 if delta.get("delta"):
                     replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])

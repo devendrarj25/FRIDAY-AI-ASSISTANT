@@ -253,6 +253,9 @@ export const VOICE_MODEL_IDS = [
   "hindi-fallback-ear",
   "hindi-punct",
   "hindi-light-tts",
+  "denoise-dpdfnet",
+  "speaker-wespeaker",
+  "hindi-vaani-ear",
 ] as const;
 
 /* ------------------------------------------------------------ voice language packs */

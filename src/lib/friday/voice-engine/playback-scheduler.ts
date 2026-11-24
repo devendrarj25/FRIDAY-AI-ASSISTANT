@@ -17,9 +17,19 @@ export type SourceLike = {
   onended: (() => void) | null;
 };
 
+/** A gain stage in front of the speaker: how the playing voice is ducked and restored without a stop. */
+export type GainLike = {
+  gain: { value: number; setTargetAtTime?: (target: number, at: number, constant: number) => void };
+  connect: (node: unknown) => void;
+};
+
 export type ContextLike = {
   currentTime: number;
   destination: unknown;
+  /** Seconds between a sample leaving the audio clock and the speaker making it audible (browser report; 0 or absent when unknown). */
+  outputLatency?: number;
+  baseLatency?: number;
+  createGain?: () => GainLike;
   createBuffer: (
     channels: number,
     length: number,
@@ -35,6 +45,9 @@ export type PlaybackStats = {
   underruns: number;
 };
 
+/** Where one chunk sits on the answer's own clock, the same clock `playedMs()` reads. */
+export type ChunkSpan = { startMs: number; endMs: number };
+
 /** Hears one scheduled chunk: the audio-clock time it starts, and its samples at the playback rate. */
 export type ScheduledListener = (whenSeconds: number, pcm: Int16Array) => void;
 
@@ -44,11 +57,13 @@ export class PcmPlayback {
   private sources = new Set<SourceLike>();
   private dropped = 0;
   private underruns = 0;
-  private scheduledMs = 0;
   private listener: ScheduledListener | null = null;
   private readonly extraListeners = new Set<ScheduledListener>();
   private generation = 0;
   private disposed = false;
+  private gain: GainLike | null = null;
+  private duckLevel = 1;
+  private span: ChunkSpan | null = null;
 
   constructor(
     private readonly context: ContextLike,
@@ -120,26 +135,76 @@ export class PcmPlayback {
     buffer.copyToChannel(pcm16ToFloat(pcm), 0);
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.context.destination);
+    source.connect(this.output());
     const when = Math.max(this.nextTime, now);
     source.onended = () => this.sources.delete(source);
     this.sources.add(source);
     source.start(when);
     this.notifyScheduled(when, pcm);
     this.nextTime = when + ms / 1000;
-    this.scheduledMs += ms;
+    const base = this.startedAt ?? when;
+    this.span = { startMs: (when - base) * 1000, endMs: (this.nextTime - base) * 1000 };
     return true;
+  }
+
+  /** Where the chunk that `enqueue` just scheduled sits on the answer clock; null before any. */
+  lastSpan(): ChunkSpan | null {
+    return this.span;
+  }
+
+  /** The node every source plays into: a gain stage when the context has one, else the speaker directly. */
+  private output(): unknown {
+    if (this.gain) return this.gain;
+    const make = this.context.createGain;
+    if (!make) return this.context.destination;
+    try {
+      const node = make.call(this.context);
+      node.gain.value = this.duckLevel;
+      node.connect(this.context.destination);
+      this.gain = node;
+      return node;
+    } catch {
+      return this.context.destination;
+    }
+  }
+
+  /**
+   * Lower (or restore) the voice without stopping it: `level` is 0..1 of its own loudness. A short ramp keeps it
+   * click-free. Returns false when the context has no gain stage (the caller then ducks another way or not at all).
+   */
+  setDuck(level: number): boolean {
+    this.duckLevel = Math.min(1, Math.max(0, Number.isFinite(level) ? level : 1));
+    if (!this.gain) return typeof this.context.createGain === "function";
+    const ramp = this.gain.gain.setTargetAtTime;
+    if (ramp) ramp.call(this.gain.gain, this.duckLevel, this.context.currentTime, 0.015);
+    else this.gain.gain.value = this.duckLevel;
+    return true;
+  }
+
+  /** Seconds the speaker is behind the audio clock (0 when the browser does not say). */
+  private latencySeconds(): number {
+    const out = Number(this.context.outputLatency);
+    if (Number.isFinite(out) && out > 0) return out;
+    const base = Number(this.context.baseLatency);
+    return Number.isFinite(base) && base > 0 ? base : 0;
   }
 
   queuedMs(): number {
     return Math.max(0, (this.nextTime - this.context.currentTime) * 1000);
   }
 
-  /** Milliseconds of this answer that were really played so far. */
+  /**
+   * Milliseconds of this answer that the speaker has really played: the audio clock minus the output buffer still
+   * between the clock and the speaker, never more than the end of the last scheduled chunk (a gap between two
+   * clauses counts as time that passed, not as speech).
+   */
   playedMs(): number {
     if (this.startedAt === null) return 0;
-    const heard = Math.max(0, (this.context.currentTime - this.startedAt) * 1000);
-    return Math.min(heard, this.scheduledMs);
+    const heard = Math.max(
+      0,
+      (this.context.currentTime - this.startedAt - this.latencySeconds()) * 1000,
+    );
+    return Math.min(heard, Math.max(0, (this.nextTime - this.startedAt) * 1000));
   }
 
   /** Stop at once. Returns the milliseconds that were played, then starts a fresh answer. */
@@ -156,7 +221,7 @@ export class PcmPlayback {
     this.sources.clear();
     this.nextTime = 0;
     this.startedAt = null;
-    this.scheduledMs = 0;
+    this.span = null;
     this.generation += 1; // what was cut off cannot continue, and the next answer starts clean at once
     return Math.round(played);
   }

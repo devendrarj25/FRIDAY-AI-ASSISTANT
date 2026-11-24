@@ -97,7 +97,7 @@ describe("a hung main window is not left silent", () => {
   it("is wired into the main window and skipped in the boot self-test", () => {
     const main = require_("node:fs").readFileSync("electron/main.cjs", "utf8") as string;
     expect(main).toMatch(
-      /if \(!process\.env\.FRIDAY_BOOT_SELFTEST\) \{\s*require\("\.\/window-hang\.cjs"\)\.watchWindowHang\(win, \{ dialog, log \}\);/,
+      /if \(!process\.env\.FRIDAY_BOOT_SELFTEST\) \{\s*require\("\.\/window-hang\.cjs"\)\.watchWindowHang\(win, \{\s*dialog,\s*log: \(message\) => \{\s*log\(message\);/,
     );
   });
 });

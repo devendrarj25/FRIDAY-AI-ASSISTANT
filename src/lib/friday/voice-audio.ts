@@ -23,6 +23,7 @@ import {
 } from "./pcm-capture";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
+import { WakeGuard } from "./wake-guard";
 
 /** Process names from the existing meeting watch. Empty off Windows. */
 let namedHolders: string[] = [];
@@ -471,6 +472,12 @@ export class VoiceGate {
    * barge-in; an unguarded live VAD treats speaker echo as the owner talking.
    */
   private speakingGuard = false;
+  /**
+   * The hands-free gates (cooldown, speech-before-wake, her own voice, TV and room noise). It reads every VAD frame
+   * from this one loop; the conductor asks it before accepting a wake and calls `forceAsleep` on Mute, pause and
+   * Stop everything. It never opens or closes the microphone.
+   */
+  readonly wake = new WakeGuard();
   /** Everyone currently relying on this one microphone stream. */
   private holders = new Set<string>();
   /** The device the live stream was opened with, so it can be reopened. */
@@ -722,6 +729,7 @@ export class VoiceGate {
     this.voiceFrames = 0;
     this.speakingGuard = false;
     this.ducked = false;
+    this.wake.resetAudio();
     this.snapshot = SILENT;
     this.emit();
   }
@@ -857,6 +865,12 @@ export class VoiceGate {
     });
     this.voiceFrames = step.voiceFrames;
     const speech = step.speech;
+    this.wake.observe({
+      nowMs: performance.now(),
+      level,
+      speech,
+      speaking: this.speakingGuard,
+    });
     if (speech) {
       this.lastSpeechAt = Date.now();
       this.quietSince = 0;

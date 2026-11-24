@@ -6,6 +6,9 @@ import { HudPanel, MetricBar, Ring, Sparkline, StatusPill } from "@/components/f
 import { useHardware, useSystemSensors, useWindowsSecurity } from "@/lib/friday/desktop";
 import { useLiveMetrics, useSystemSample } from "@/lib/friday/use-live-metrics";
 import { useNetwork } from "@/lib/friday/use-network";
+import { PcStatusPanel } from "@/components/friday/PcStatusPanel";
+import { usePcStatus } from "@/lib/friday/use-pc-status";
+import { vramHeadline } from "@/lib/friday/pc-status";
 
 const UNKNOWN_MACHINE = [
   { label: "Motherboard", value: null, reason: "unknown" },
@@ -53,6 +56,8 @@ function SystemPage() {
   const sample = useSystemSample();
   const net = useNetwork();
   const { security, open: openSecurity } = useWindowsSecurity();
+  const pc = usePcStatus();
+  const facts = pc.view.phase === "ready" ? pc.view.facts : null;
 
   const memTotalGb = sample?.ram.totalGb ?? detected?.memory.totalGb ?? null;
   const memFreeGb = sample?.ram.freeGb ?? detected?.memory.freeGb ?? null;
@@ -102,11 +107,7 @@ function SystemPage() {
             <Ring
               value={vramPercent}
               label="VRAM"
-              sub={
-                gpu?.vramTotalMb
-                  ? `${Math.round(gpu.vramTotalMb / 1024)} GB total`
-                  : live.vram.detail
-              }
+              sub={vramHeadline(facts, gpu?.vramTotalMb ?? null) ?? live.vram.detail}
               tone="warning"
             />
             <Ring
@@ -135,6 +136,8 @@ function SystemPage() {
           </div>
         </HudPanel>
 
+        <PcStatusPanel state={pc} />
+
         {detected && (
           <HudPanel
             title="Acceleration"
@@ -148,8 +151,8 @@ function SystemPage() {
                     "GPU",
                     detected.gpus[0]
                       ? `${detected.gpus[0].name}${
-                          detected.gpus[0].vramTotalMb
-                            ? ` · ${Math.round(detected.gpus[0].vramTotalMb / 1024)} GB VRAM`
+                          vramHeadline(facts, detected.gpus[0].vramTotalMb ?? null)
+                            ? ` · ${vramHeadline(facts, detected.gpus[0].vramTotalMb ?? null)?.replace(" total", " VRAM")}`
                             : ""
                         }`
                       : "none detected",
@@ -197,9 +200,10 @@ function SystemPage() {
                   {
                     label: "VRAM",
                     value: vramPercent,
-                    detail: gpu?.vramTotalMb
-                      ? `${Math.round((gpu.vramUsedMb ?? 0) / 1024)} / ${Math.round(gpu.vramTotalMb / 1024)} GB`
-                      : live.vram.detail,
+                    detail:
+                      gpu?.vramTotalMb && facts?.gpus[0]?.vramCapped !== true
+                        ? `${Math.round((gpu.vramUsedMb ?? 0) / 1024)} / ${Math.round(gpu.vramTotalMb / 1024)} GB`
+                        : (vramHeadline(facts, null) ?? live.vram.detail),
                     tone: "warning",
                   },
                 ] as const

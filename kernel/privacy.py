@@ -22,6 +22,8 @@ import json
 import re
 from typing import Any
 
+import local_engines
+
 LEVELS = ("sensitive", "private", "internal", "public")
 SENSITIVE = "sensitive"
 WAY_FORWARD = "Remove it from the message, or run this turn on a local model."
@@ -182,21 +184,8 @@ SIGNALS: tuple[dict[str, Any], ...] = (
     },
 )
 
-# Mirrors electron/billing-firewall.cjs LOCAL_KINDS used by the JS firewall.
-LOCAL_KINDS = {
-    "local",
-    "ollama",
-    "llama.cpp",
-    "llamacpp",
-    "lmstudio",
-    "vllm",
-    "localai",
-    "jan",
-    "koboldcpp",
-    "transformers",
-    "gpt4all",
-    "mlx",
-}
+# The same local kinds the JS firewalls use: both read kernel/local_engines.json.
+LOCAL_KINDS = set(local_engines.LOCAL_KINDS)
 
 
 class PrivacyBlocked(RuntimeError):

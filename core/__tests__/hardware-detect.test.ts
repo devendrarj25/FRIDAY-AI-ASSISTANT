@@ -218,7 +218,10 @@ describe("the main process uses what it detects", () => {
     expect(main).toMatch(
       /if \(!lastHardware && hardwareBoot\) \{\s*await Promise\.race\(\[hardwareBoot,/,
     );
-    expect(main).toContain("hardwareBoot = detectHardware({ root: getWorkspaceRoot() })");
+    expect(main).toContain("hardwareBoot = detectHardware(hardwareProbeOptions())");
+    // The same options (data folder, model cache folder, network only when the owner allows it) feed both probes.
+    expect(main.match(/detectHardware\(hardwareProbeOptions\(\)\)/g)?.length).toBe(2);
+    expect(main).toContain("allowNetwork = !egressLocalOnly() && !netStatus.isOffline();");
   });
 
   it("shows every card, its memory and load, and every drive, in Setup & Doctor", () => {

@@ -123,11 +123,18 @@ describe("provider dispatch contract", () => {
   });
 
   it("registers every live local engine on the kernel surface table", () => {
+    // The kernel's local rows now come from the one table (kernel/local_engines.json), not router.py literals.
+    const table = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "kernel", "local_engines.json"), "utf8"),
+    ) as { engines: { id: string; wire: string; endpoint: string }[] };
+    expect(routerSource).toContain("**local_engines.surfaces()");
     const locals = models.LOCAL_ENGINES as Record<string, { endpoint?: string }>;
     for (const [id, spec] of Object.entries(locals)) {
       const endpoint = String(spec.endpoint || "").replace(/\/+$/, "");
-      expect(routerSource, id).toContain(`"${id}":`);
-      expect(routerSource, `${id} base`).toContain(endpoint);
+      const row = table.engines.find((r) => r.id === id);
+      expect(row, id).toBeTruthy();
+      expect(row?.wire, `${id} wire`).toBe("openai");
+      expect(row?.endpoint, `${id} base`).toBe(endpoint);
     }
   });
 });

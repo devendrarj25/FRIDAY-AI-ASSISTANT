@@ -43,6 +43,121 @@ function commonPrefix(left: string[], right: string[]): string[] {
   return out;
 }
 
+/** One recognised word with its time in seconds (absolute on the utterance clock once a pass is pushed). */
+export type TimedWord = { text: string; start: number; end: number };
+
+export type AgreementOptions = {
+  /** The longest repeat of the committed tail that a new pass may start with and still be stripped. */
+  maxOverlapWords?: number;
+  /** A word starting at or before the last committed time minus this is already settled (s). */
+  dropMarginS?: number;
+  /** The overlap strip only applies when the first new word starts this close to the committed end (s). */
+  overlapWindowS?: number;
+  /** The most words one pass may carry; a runaway pass is cut here. */
+  maxPassWords?: number;
+};
+
+export type AgreementResult = {
+  /** Every word two passes agreed on, in order, for the whole utterance. */
+  committed: TimedWord[];
+  /** The words this pass newly settled. */
+  newlyCommitted: TimedWord[];
+  /** What the latest pass heard after the settled words: shown dim, never settled until a pass agrees. */
+  unstable: TimedWord[];
+  /** End time (s) of the last committed word; 0 before the first commit. */
+  lastCommittedTime: number;
+};
+
+const wordKey = (text: string): string => clean(text) || text.normalize("NFC").toLowerCase();
+
+/**
+ * LocalAgreement-2 over timed words, adapted from the Whisper streaming work (ufal/whisper_streaming) and the
+ * coalescing in WhisperLiveKit. Each pass reads the rolling audio buffer and yields words timed inside that buffer;
+ * `push` shifts them by the buffer's offset into one absolute clock, then:
+ *   · drops words that start at or before the last committed time minus 0.1 s (already settled);
+ *   · strips a repeat of the committed tail (up to five words) when the first new word starts within 1 s of it;
+ *   · commits the longest common word prefix of this pass and the previous pass (the first pass commits nothing);
+ *   · keeps the rest as unstable.
+ * A committed word is never changed afterwards. Pure: no clock, no audio, no model.
+ */
+export class LocalAgreementStabilizer {
+  private committed: TimedWord[] = [];
+  private pending: TimedWord[] = [];
+  private lastCommitted = 0;
+  private readonly maxOverlap: number;
+  private readonly dropMargin: number;
+  private readonly overlapWindow: number;
+  private readonly maxPassWords: number;
+
+  constructor(options: AgreementOptions = {}) {
+    this.maxOverlap = options.maxOverlapWords ?? 5;
+    this.dropMargin = options.dropMarginS ?? 0.1;
+    this.overlapWindow = options.overlapWindowS ?? 1;
+    this.maxPassWords = options.maxPassWords ?? 400;
+  }
+
+  get lastCommittedTime(): number {
+    return this.lastCommitted;
+  }
+
+  push(pass: TimedWord[], bufferOffsetS = 0): AgreementResult {
+    const shifted: TimedWord[] = [];
+    for (const word of pass) {
+      const text = (word.text ?? "").trim();
+      if (!text || shifted.length >= this.maxPassWords) continue;
+      shifted.push({ text, start: word.start + bufferOffsetS, end: word.end + bufferOffsetS });
+    }
+    if (!shifted.length) return this.result([]); // a pass that heard nothing says nothing: the state stands
+    let fresh = shifted.filter((w) => w.start > this.lastCommitted - this.dropMargin);
+    const first = fresh[0];
+    if (
+      first &&
+      this.committed.length &&
+      Math.abs(first.start - this.lastCommitted) < this.overlapWindow
+    ) {
+      const limit = Math.min(this.maxOverlap, this.committed.length, fresh.length);
+      for (let n = limit; n >= 1; n -= 1) {
+        const tail = this.committed.slice(this.committed.length - n).map((w) => wordKey(w.text));
+        const head = fresh.slice(0, n).map((w) => wordKey(w.text));
+        if (tail.every((key, i) => key === head[i])) {
+          fresh = fresh.slice(n);
+          break;
+        }
+      }
+    }
+    const newly: TimedWord[] = [];
+    let at = 0;
+    while (at < fresh.length && at < this.pending.length) {
+      const now = fresh[at];
+      const before = this.pending[at];
+      if (!now || !before || wordKey(now.text) !== wordKey(before.text)) break;
+      newly.push(now);
+      at += 1;
+    }
+    if (newly.length) {
+      this.committed.push(...newly);
+      this.lastCommitted = newly[newly.length - 1]?.end ?? this.lastCommitted;
+    }
+    this.pending = fresh.slice(newly.length);
+    return this.result(newly);
+  }
+
+  private result(newly: TimedWord[]): AgreementResult {
+    return {
+      committed: [...this.committed],
+      newlyCommitted: newly,
+      unstable: [...this.pending],
+      lastCommittedTime: this.lastCommitted,
+    };
+  }
+
+  reset(): void {
+    this.committed = [];
+    this.pending = [];
+    this.lastCommitted = 0;
+  }
+}
+
 export type StabilizerOptions = {
   /** Words a stable run needs before it may act. */
   minActionWords?: number;

@@ -16,7 +16,10 @@ engine that works today.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+import language_segmenter
 
 HINGLISH_ID = "hinglish-ear"
 HINDI_FALLBACK_ID = "hindi-fallback-ear"
@@ -94,3 +97,21 @@ def choose(language: str, speech_pref: str, hindi_ear_ready: bool, hindi_chosen:
                 "engine": "hindi-fallback-ear",
             }
     return None
+
+
+def roman_hindi_segment(text: str) -> bool:
+    """True when one phrase is Hindi written in Roman letters: no Devanagari, at least two Latin words, at least two of
+    them common Hindi (the lexicon of ``language_segmenter``) and those are half or more of the Latin words.
+
+    A live pass uses this to send only such a phrase to the Hindi ear (Devanagari for Hindi words, Latin for English
+    words). Hindi and English mixed inside one phrase ("mujhe ek meeting schedule karni hai") is not split: the ear
+    would need a word boundary that the audio does not give cleanly (see FRIDAY_VOICE_ENGINE.md).
+    """
+    body = text or ""
+    if re.search("[\u0900-\u097f]", body):
+        return False
+    latin = re.findall("[A-Za-z]+", body)
+    if len(latin) < 2:
+        return False
+    hits = round(language_segmenter.roman_hindi_ratio(body) * len(latin))
+    return hits >= 2 and hits * 2 >= len(latin)

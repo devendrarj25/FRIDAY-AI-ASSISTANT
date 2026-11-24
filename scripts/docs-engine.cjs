@@ -228,6 +228,16 @@ const DOCUMENTS = [
     topic: "Voice engine modules, mixed Hindi and English speech, provider routing, cloud realtime",
   },
   {
+    file: "docs/FRIDAY_MASTER_ROADMAP.md",
+    title: "FRIDAY — Master Architecture, Capability Map and Roadmap",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "The target architecture for one Brain with replaceable capability engines, the hardware-detected model ladder, the capability-by-capability model map with licences, the cloud lane facts, the self-growth loop and the phased roadmap",
+    topic:
+      "Master roadmap, capability registry, hardware detection ladder, model catalogue, cloud lane, self-growth loop",
+  },
+  {
     file: "docs/FRIDAY_MCP.md",
     title: "FRIDAY — Model Context Protocol",
     section: "architecture",

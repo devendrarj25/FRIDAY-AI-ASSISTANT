@@ -51,7 +51,7 @@ win.friday = {
 const { assistantMode } = await import("../../src/lib/friday/assistant-mode");
 const { autonomy } = await import("../../src/lib/friday/self/autonomy");
 const { brain } = await import("../../src/lib/friday/brain-engine");
-const { preferences } = await import("../../src/lib/friday/preferences");
+const { preferences, DEFAULT_PREFERENCES } = await import("../../src/lib/friday/preferences");
 // The handlers are registered on the first subscription (hydrate), with the faked desktop bridge in place.
 assistantMode.subscribe(() => undefined);
 
@@ -167,6 +167,8 @@ function settle(text: string) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // The owner's switch: a draft is made only with "Start thinking before I finish speaking" on.
+  preferences.setVoice({ eagerTurn: true });
   clock.now = 1_700_000_000_000;
   vi.setSystemTime(clock.now);
   autonomy.reset();
@@ -245,6 +247,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  preferences.setVoice({ eagerTurn: false });
   vi.restoreAllMocks();
   vi.useRealTimers();
   autonomy.reset();
@@ -261,6 +264,24 @@ describe("eager guards, live: the speculative start that ships", () => {
     expect(d.speculative).toBe("what is the weather in Jaipur today.");
     expect(d.speculativeKind).toBe("brain");
     expect(d.draftId).toBe("draft-1");
+  });
+
+  it("with the switch off (the shipped default) no draft is ever made, however stable the partial", () => {
+    preferences.setVoice({ eagerTurn: false });
+    expect(DEFAULT_PREFERENCES.voice.eagerTurn).toBe(false);
+    settle("what is the weather in Jaipur today.");
+    expect(sent).toEqual([]);
+    expect(d.speculative).toBe("");
+    expect(d.draftId).toBe("");
+    expect(method(modeSource, /\n {2}private startDraftRun\([^{]*\{/)).toMatch(
+      /voice\.eagerTurn !== true\) return;/,
+    );
+  });
+
+  it("speech that resumes after a pause throws the live draft away (onSpeechStart discards it)", () => {
+    expect(modeSource).toMatch(
+      /if \(this\.speculativeKind === "brain"\) this\.discardEager\(\);\s*if \(this\.state\.speaking\)/,
+    );
   });
 
   it("startDraftRun (the one call site) uses brain.startDraft: never dispatch(), never a run, never an echo", () => {

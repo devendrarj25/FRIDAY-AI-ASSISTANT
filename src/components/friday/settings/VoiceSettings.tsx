@@ -346,6 +346,19 @@ export function VoiceSettings() {
             onToggle={() => preferences.setVoice({ instantAck: prefs.voice.instantAck !== true })}
           />
           <ToggleRow
+            label="Ignore nods while she talks"
+            hint="Auto mode. While she speaks, a short sound like 'hmm', 'haan' or 'theek hai' only lowers her volume for a moment; she stops for real words, 'wait', 'ruko', or your answer to her question. Off means any voice stops her at once. Unverified on your PC until you try it."
+            on={prefs.voice.interruptGate.enabled !== false}
+            onToggle={() =>
+              preferences.setVoice({
+                interruptGate: {
+                  ...prefs.voice.interruptGate,
+                  enabled: prefs.voice.interruptGate.enabled === false,
+                },
+              })
+            }
+          />
+          <ToggleRow
             label="Start thinking before I finish speaking (experimental)"
             hint="Auto mode. She begins a draft answer while you are still finishing the sentence, and throws it away if you say more. It never acts on a draft and uses more CPU. Off by default and unverified on your PC until you try it."
             on={prefs.voice.eagerTurn === true}
