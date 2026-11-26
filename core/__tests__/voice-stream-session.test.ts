@@ -323,6 +323,22 @@ describe("stream-session: wiring in the dictation and the conductor", () => {
     );
   });
 
+  it("the conductor listens to the turn protocol once, and an eager endpoint has its own switch (off by default)", () => {
+    expect(modeSource).toMatch(
+      /this\.turnStreamOff \?\?= subscribeStreamTurns\(\(turn\) => this\.noteStreamTurn\(turn\)\);/,
+    );
+    expect(modeSource).toMatch(
+      /const earsEager = viaTurn && preferences\.getSnapshot\(\)\.voice\.ears\.eagerTurn === true;\s*if \(!earsEager && preferences\.getSnapshot\(\)\.voice\.eagerTurn !== true\) return;/,
+    );
+    const eager = modeSource.slice(
+      modeSource.indexOf("private planTurnDraft("),
+      modeSource.indexOf("private noteStreamTurn("),
+    );
+    // An eager endpoint only ever starts the Brain's text-only draft: never the conduct preview, never a tool.
+    expect(eager).toMatch(/preview\.handled/);
+    expect(eager).not.toMatch(/brain\.send|startVoiceTask|runTool/);
+  });
+
   it("LiveWords.show hands a stream partial to the same update path as a pass", async () => {
     const { LiveWords } = await import("../../src/lib/friday/voice-engine/live-words");
     const seen: LiveWordsUpdate[] = [];

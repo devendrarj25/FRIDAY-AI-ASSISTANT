@@ -384,6 +384,11 @@ export type InterruptGatePrefs = {
   finalWaitMs: number;
   /** How loud her voice is while the owner may be talking over her (0.05 to 0.8 of its own level). */
   duckLevel: number;
+  /**
+   * Opt-in (`BargeLadder`): duck at 150 ms of echo-cleaned speech, stop at 500 ms or one real word, resume with no
+   * words by 2 s. Absent (the shipped default) the gate above rules exactly as before.
+   */
+  ladder?: boolean;
 };
 
 export const DEFAULT_INTERRUPT_GATE: InterruptGatePrefs = {
@@ -423,7 +428,162 @@ export function sanitizeInterruptGate(raw: unknown): InterruptGatePrefs {
     noWordsEscalateMs: clampInt(row.noWordsEscalateMs, 1000, 10_000, d.noWordsEscalateMs),
     finalWaitMs: clampInt(row.finalWaitMs, 1000, 15_000, d.finalWaitMs),
     duckLevel: clampNum(row.duckLevel, 0.05, 0.8, d.duckLevel),
+    ...(row.ladder === true ? { ladder: true } : {}),
   };
+}
+
+/** The numbers of the barge-in ladder (LiveKit and Unmute practice, starting values to be tuned on the owner's PC). */
+export const BARGE_LADDER = {
+  /** Echo-cleaned speech this long ducks her. */
+  duckAtMs: 150,
+  duckDb: -12,
+  /** Echo-cleaned speech this long stops her (resumable), words or not. */
+  stopAtMs: 500,
+  /** No real word by now since the voice began: she carries on. */
+  resumeAtMs: 2000,
+  /** Around the start and the end of her turn a short overlap is a nod or a turn-taking blip, not a barge-in. */
+  backchannelWindowMs: 1000,
+} as const;
+
+/** A level in dB as the gain the player applies (-12 dB is about 0.25). */
+export const dbToGain = (db: number): number => Math.round(10 ** (db / 20) * 1000) / 1000;
+
+/**
+ * True when `t` is inside a window around her turn start or end, where duration alone never stops her. The end is
+ * `null` while the reply is still being written (its length is not known yet), so only the start window applies.
+ */
+export function inBackchannelWindow(
+  t: number,
+  turn: { startedAt: number | null; endsAt: number | null },
+  windowMs: number = BARGE_LADDER.backchannelWindowMs,
+): boolean {
+  if (turn.startedAt !== null && t >= turn.startedAt && t - turn.startedAt < windowMs) return true;
+  return turn.endsAt !== null && Math.abs(t - turn.endsAt) < windowMs;
+}
+
+/** The milliseconds of her reply that were audible when the owner cut in, for the turn record. Null when unknown. */
+export function interruptedPlayedMs(
+  heard: { playedMs?: unknown } | null | undefined,
+): number | null {
+  const ms = heard?.playedMs;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null;
+}
+
+export type LadderInput = {
+  /** Milliseconds from any monotonic clock. */
+  t: number;
+  /**
+   * The owner's voice is heard on the echo-cleaned signal (the kernel's turn events, or the echo canceller running
+   * with its reference). The reference-gated level test alone (mic louder than the speaker) is NOT this: pass false.
+   */
+  echoCleanedSpeech: boolean;
+  /** The recogniser's words so far, or the final; null when none. */
+  text: string | null;
+  final?: boolean;
+  waitingForAnswer?: boolean;
+  /** `text` is her own voice coming back. */
+  selfEcho?: boolean;
+  /** When her reply began to sound, and when it is expected to end (null while unknown). */
+  replyStartedAt: number | null;
+  replyEndsAt: number | null;
+};
+
+export type LadderVerdict =
+  | { kind: "wait" }
+  | { kind: "duck"; gain: number }
+  | { kind: "stop"; why: "duration" | "word" | "stop-word" | "approval-answer" }
+  | { kind: "resume"; why: "no-words" | "backchannel" | "echo" };
+
+/**
+ * The barge-in ladder for one candidate (the owner's voice while she speaks): wait, duck, stop, or resume. It acts
+ * only on echo-cleaned speech, so her own voice in the microphone, which the reference-gated level test cannot tell
+ * from the owner, never ducks or stops her; words from the recogniser are the other way in. A nod ("haan", "hmm",
+ * "ok", "acha") never stops her, and neither does duration alone inside the backchannel windows. It hears nothing
+ * about who is speaking: a speaker match cannot duck, stop, resume or approve here.
+ */
+export class BargeLadder {
+  private startedAt: number | null = null;
+  private lastTick = 0;
+  private speechMs = 0;
+  private ducked = false;
+  private stopped = false;
+  private echoSeen = false;
+  private nodSeen = false;
+
+  constructor(private readonly config: typeof BARGE_LADDER = BARGE_LADDER) {}
+
+  get active(): boolean {
+    return this.startedAt !== null;
+  }
+
+  get duckedNow(): boolean {
+    return this.ducked;
+  }
+
+  begin(t: number): void {
+    if (this.startedAt !== null) return;
+    this.startedAt = t;
+    this.lastTick = t;
+    this.speechMs = 0;
+    this.ducked = false;
+    this.stopped = false;
+    this.echoSeen = false;
+    this.nodSeen = false;
+  }
+
+  end(): void {
+    this.startedAt = null;
+    this.ducked = false;
+    this.stopped = false;
+  }
+
+  /** Echo-cleaned speech heard so far in this candidate (ms). */
+  heardMs(): number {
+    return this.speechMs;
+  }
+
+  evaluate(input: LadderInput): LadderVerdict {
+    if (this.startedAt === null) return { kind: "wait" };
+    const cfg = this.config;
+    if (input.echoCleanedSpeech) {
+      // Never more than one poll's worth per look, so a stalled page cannot fake a long voice.
+      this.speechMs += Math.min(250, Math.max(0, input.t - this.lastTick));
+    }
+    this.lastTick = Math.max(this.lastTick, input.t);
+    const heard = input.text?.trim() ? input.text : null;
+    if (heard && input.selfEcho) {
+      this.echoSeen = true;
+      if (input.final) return { kind: "resume", why: "echo" };
+    } else if (heard) {
+      if (isImmediateStop(heard)) return { kind: "stop", why: "stop-word" };
+      if (input.waitingForAnswer) return { kind: "stop", why: "approval-answer" };
+      if (isBackchannel(heard)) {
+        this.nodSeen = true;
+        if (input.final) return { kind: "resume", why: "backchannel" };
+      } else if (this.speechMs > 0 || input.final) {
+        // One real word is enough, but only from a voice the cleaned signal confirmed (or a final transcript).
+        return { kind: "stop", why: "word" };
+      }
+    }
+    const waited = input.t - this.startedAt;
+    const speaking = input.echoCleanedSpeech;
+    if (waited >= cfg.resumeAtMs && !speaking) return { kind: "resume", why: "no-words" };
+    if (this.echoSeen || this.nodSeen) return { kind: "wait" };
+    const windowed = inBackchannelWindow(input.t, {
+      startedAt: input.replyStartedAt,
+      endsAt: input.replyEndsAt,
+    });
+    if (windowed) return { kind: "wait" };
+    if (!this.stopped && this.speechMs >= cfg.stopAtMs) {
+      this.stopped = true;
+      return { kind: "stop", why: "duration" };
+    }
+    if (!this.stopped && !this.ducked && this.speechMs >= cfg.duckAtMs) {
+      this.ducked = true;
+      return { kind: "duck", gain: dbToGain(cfg.duckDb) };
+    }
+    return { kind: "wait" };
+  }
 }
 
 export type GateWhy =

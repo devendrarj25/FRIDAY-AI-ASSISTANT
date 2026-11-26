@@ -9,6 +9,9 @@
  *   · an `EndOfTurn` endpoint ends the utterance early (the dictation closes the segment on its next tick);
  *   · the final text from `closeSttStream` stands in for the ordinary decode, through the same early-read slot the
  *     provisional decoder uses, so wake, voice match and every gate after it run unchanged.
+ *   · a `turn` object on the reply (start, partial, eager, resumed, end, revised) is the turn protocol: it is parsed
+ *     strictly into a `StreamTurn` and handed to `onTurn` and to the global `subscribeStreamTurns` listeners. A ear
+ *     that sends no `turn` still gets one: the endpoint and partial events are turned into the same events.
  * Every refusal or throw (`{ ok: false, fallback: true }`, a missing bridge, a stalled worker, an empty final) ends the
  * stream and answers null, and the caller transcribes the same audio the ordinary way. Nothing here opens a
  * microphone; Auto mode's dictation is the only caller.
@@ -50,6 +53,8 @@ export type StreamBridge = {
     committed?: string;
     audioMs?: number;
     endpoint?: { event?: string | null; [key: string]: unknown };
+    /** The turn protocol (see `parseStreamTurn`); absent from an ear that does not send it. */
+    turn?: unknown;
     fallback?: boolean;
     reason?: string;
   }>;
@@ -168,10 +173,92 @@ export function streamPartialUpdate(
   };
 }
 
+/** The turn protocol: what the ear says about the owner's turn as it goes (see the kernel stream feed reply). */
+export const TURN_EVENTS = ["start", "partial", "eager", "resumed", "end", "revised"] as const;
+export type TurnEventName = (typeof TURN_EVENTS)[number];
+export type TurnEnv = { kind: "speech" | "music" | "tv" | "noise"; score: number };
+export type TurnSpeaker = { tag: "owner" | "other" | "unknown"; score: number };
+
+/**
+ * One turn event. `env` and `speaker` are tags about the room and the voice: they may raise a threshold or colour a
+ * log line, and they are never read by any code that approves, confirms or authorises an action.
+ */
+export type StreamTurn = {
+  turnId: string;
+  event: TurnEventName;
+  text: string;
+  vadP: number | null;
+  speechMs: number | null;
+  env?: TurnEnv;
+  speaker?: TurnSpeaker;
+  clipped?: boolean;
+};
+
+const ENV_KINDS: readonly TurnEnv["kind"][] = ["speech", "music", "tv", "noise"];
+const SPEAKER_TAGS: readonly TurnSpeaker["tag"][] = ["owner", "other", "unknown"];
+
+/** A `turn` object from the ear, strictly: an unknown event, a missing id or a wrong shape is no turn at all. */
+export function parseStreamTurn(raw: unknown): StreamTurn | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as { [key: string]: unknown };
+  const event = text(row["event"]);
+  const turnId = text(row["turnId"]).slice(0, ID_CHARS);
+  if (!turnId || !(TURN_EVENTS as readonly string[]).includes(event)) return null;
+  const turn: StreamTurn = {
+    turnId,
+    event: event as TurnEventName,
+    text: text(row["text"]),
+    vadP: num(row["vadP"]),
+    speechMs: num(row["speechMs"]),
+  };
+  const env = row["env"] as { [key: string]: unknown } | undefined;
+  if (env && typeof env === "object") {
+    const kind = text(env["kind"]) as TurnEnv["kind"];
+    const score = num(env["score"]);
+    if (ENV_KINDS.includes(kind) && score !== null) turn.env = { kind, score };
+  }
+  const speaker = row["speaker"] as { [key: string]: unknown } | undefined;
+  if (speaker && typeof speaker === "object") {
+    const tag = text(speaker["tag"]) as TurnSpeaker["tag"];
+    const score = num(speaker["score"]);
+    if (SPEAKER_TAGS.includes(tag) && score !== null) turn.speaker = { tag, score };
+  }
+  if (row["clipped"] === true) turn.clipped = true;
+  return turn;
+}
+
+type TurnListener = (turn: StreamTurn) => void;
+const turnListeners = new Set<TurnListener>();
+
+/** Hear every turn event of every stream session (one Auto session at a time). Returns the way to stop. */
+export function subscribeStreamTurns(listener: TurnListener): () => void {
+  turnListeners.add(listener);
+  return () => {
+    turnListeners.delete(listener);
+  };
+}
+
+function emitTurn(deps: StreamSessionDeps, turn: StreamTurn): void {
+  try {
+    deps.onTurn?.(turn);
+  } catch {
+    /* a listener never breaks the stream */
+  }
+  for (const listener of [...turnListeners]) {
+    try {
+      listener(turn);
+    } catch {
+      /* a listener never breaks the stream */
+    }
+  }
+}
+
 export type StreamSessionDeps = {
   bridge: StreamBridge | null | undefined;
   onPartial?: (update: LiveWordsUpdate) => void;
   onEndpoint?: (endpoint: StreamEndpoint) => void;
+  /** One turn event of the turn protocol (native from the ear, or built from its endpoint and partial events). */
+  onTurn?: (turn: StreamTurn) => void;
   /** Called once when the stream gives up (refusal, throw, stall); the caller transcribes the ordinary way. */
   onFallback?: (reason: string) => void;
   /** A unique id for this utterance's stream. */
@@ -195,6 +282,10 @@ export class SttStreamSession {
   private partials = 0;
   private ended = false;
   private reason = "";
+  /** The ear sent a real `turn` at least once: the endpoint and partial events are no longer turned into turns. */
+  private nativeTurns = false;
+  private legacyTurn = { id: "", active: false, text: "" };
+  private legacySeq = 0;
 
   constructor(private readonly deps: StreamSessionDeps) {}
 
@@ -390,16 +481,72 @@ export class SttStreamSession {
     reply: NonNullable<Awaited<ReturnType<NonNullable<StreamBridge["feedSttStream"]>>>>,
   ): void {
     const events = Array.isArray(reply.events) ? reply.events : [];
+    const native = parseStreamTurn(reply.turn);
+    if (native) this.nativeTurns = true;
     let latest: { [key: string]: unknown } | null = null;
     for (const event of events) {
-      if (event?.type === "partial") latest = event;
-      else if (event?.type === "endpoint") this.endpoint(event);
+      if (event?.type === "partial") {
+        latest = event;
+        this.legacyPartial(event);
+      } else if (event?.type === "endpoint") {
+        this.endpoint(event);
+        this.legacyEndpoint(event);
+      }
     }
-    if (!this.ended && reply.endpoint?.event === "EndOfTurn") this.endpoint(reply.endpoint);
+    if (!this.ended && reply.endpoint?.event === "EndOfTurn") {
+      this.endpoint(reply.endpoint);
+      this.legacyEndpoint(reply.endpoint);
+    }
+    if (native) emitTurn(this.deps, native);
     if (latest) {
       this.partials += 1;
       this.deps.onPartial?.(streamPartialUpdate(latest, this.partials, this.locale));
     }
+  }
+
+  /** An ear with no `turn` still speaks the protocol: a partial opens the turn and carries its words. */
+  private legacyPartial(event: { [key: string]: unknown }): void {
+    if (this.nativeTurns) return;
+    const words = text(event["text"]).trim() || text(event["committed"]).trim();
+    this.legacyOpen(words);
+    this.legacyEmit("partial", words);
+  }
+
+  private legacyEndpoint(event: { [key: string]: unknown }): void {
+    if (this.nativeTurns) return;
+    const name = text(event["event"]);
+    if (name === "StartOfTurn") {
+      this.legacyOpen("");
+    } else if (name === "EndOfTurn") {
+      this.legacyEmit("end", this.legacyTurn.text);
+      this.legacyTurn.active = false;
+    } else if (name === "TurnResumed") {
+      this.legacyTurn.active = true;
+      this.legacyEmit("resumed", this.legacyTurn.text);
+    }
+  }
+
+  private legacyOpen(words: string): void {
+    if (this.legacyTurn.active) return;
+    this.legacySeq += 1;
+    this.legacyTurn = {
+      id: `${this.id || "stream"}-t${this.legacySeq}`,
+      active: true,
+      text: words,
+    };
+    this.legacyEmit("start", words);
+  }
+
+  private legacyEmit(event: TurnEventName, words: string): void {
+    if (!this.legacyTurn.id) return;
+    if (words) this.legacyTurn.text = words;
+    emitTurn(this.deps, {
+      turnId: this.legacyTurn.id,
+      event,
+      text: this.legacyTurn.text,
+      vadP: null,
+      speechMs: null,
+    });
   }
 
   private endpoint(event: { [key: string]: unknown }): void {
@@ -414,6 +561,210 @@ export class SttStreamSession {
       audioMs: num(event["audioMs"]),
     });
   }
+}
+
+/** What the conductor should do with a turn event. */
+export type TurnAction =
+  | { kind: "draft"; turnId: string; text: string }
+  | { kind: "cancel-draft"; turnId: string; why: "resumed" | "new-turn" | "revised" };
+
+/** What the tracker knows of the turn that ended last, for the record that goes with its final text. */
+export type TurnFacts = {
+  turnId: string;
+  eagerText: string;
+  speaker: TurnSpeaker | null;
+  env: TurnEnv | null;
+  clipped: boolean;
+};
+
+/** The turn facts older than this are another turn's: a record is never built from them. */
+export const TURN_FACTS_TTL_MS = 20_000;
+
+/** Words compared the way a person reads them: case, punctuation and spacing do not count. */
+export function sameWords(a: string, b: string): boolean {
+  const key = (v: string) =>
+    v
+      .normalize("NFC")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+      .trim();
+  const left = key(a);
+  return left !== "" && left === key(b);
+}
+
+/**
+ * Follows the turn protocol of the ear and says what the speculative draft should do. An `eager` event (the ear
+ * thinks the owner is done) starts one draft, only when `eager()` says the owner switched it on; `resumed`, a new
+ * turn id or a revised text that differs throws it away; the final text adopts it only when the words are equal
+ * (the Brain decides that with `adoptDraft`). It reads text and ids only: it starts nothing itself, runs no tool,
+ * and never lets `speaker` or `env` leave the record.
+ */
+export class TurnTracker {
+  private turnId = "";
+  private eagerText = "";
+  private draftLive = false;
+  private speaker: TurnSpeaker | null = null;
+  private env: TurnEnv | null = null;
+  private clipped = false;
+  private lastAt = 0;
+  private lastSpeechAt = Number.NEGATIVE_INFINITY;
+  /** Eager endpoints seen, and how many of them the owner then continued past (the log of a wrong guess). */
+  eagers = 0;
+  resumes = 0;
+
+  constructor(private readonly eager: () => boolean = () => false) {}
+
+  /** Share of eager endpoints the owner spoke past, 0 when none was seen. Under 0.3 is the aim. */
+  get resumeRatio(): number {
+    return this.eagers === 0 ? 0 : Math.min(1, this.resumes / this.eagers);
+  }
+
+  get draftActive(): boolean {
+    return this.draftLive;
+  }
+
+  /** The ear is hearing the owner (a turn event within `withinMs`): the voice is confirmed on the cleaned signal. */
+  recentSpeech(now: number, withinMs: number): boolean {
+    return now - this.lastSpeechAt <= withinMs;
+  }
+
+  ingest(turn: StreamTurn, now: number): TurnAction[] {
+    const actions: TurnAction[] = [];
+    if (this.turnId && turn.turnId !== this.turnId) {
+      if (this.draftLive)
+        actions.push({ kind: "cancel-draft", turnId: this.turnId, why: "new-turn" });
+      this.reset();
+    }
+    if (!this.turnId) this.turnId = turn.turnId;
+    this.lastAt = now;
+    if (turn.event !== "end" && turn.event !== "revised") this.lastSpeechAt = now;
+    else if ((turn.speechMs ?? 0) > 0) this.lastSpeechAt = now;
+    if (turn.env) this.env = turn.env;
+    if (turn.speaker) this.speaker = turn.speaker;
+    if (turn.clipped) this.clipped = true;
+    if (turn.event === "eager") {
+      this.eagers += 1;
+      this.eagerText = turn.text.trim();
+      if (this.eagerText && this.eager() && !this.draftLive) {
+        this.draftLive = true;
+        actions.push({ kind: "draft", turnId: turn.turnId, text: this.eagerText });
+      }
+    } else if (turn.event === "resumed") {
+      if (this.eagerText) this.resumes += 1;
+      this.eagerText = "";
+      if (this.draftLive) {
+        this.draftLive = false;
+        actions.push({ kind: "cancel-draft", turnId: turn.turnId, why: "resumed" });
+      }
+    } else if (
+      turn.event === "revised" &&
+      this.draftLive &&
+      !sameWords(turn.text, this.eagerText)
+    ) {
+      this.draftLive = false;
+      this.eagerText = "";
+      actions.push({ kind: "cancel-draft", turnId: turn.turnId, why: "revised" });
+    }
+    return actions;
+  }
+
+  /** The facts of the turn that just ended, once; null when none is fresh (the final came from the ordinary path). */
+  take(now: number): TurnFacts | null {
+    if (!this.turnId || now - this.lastAt > TURN_FACTS_TTL_MS) {
+      this.reset();
+      return null;
+    }
+    const facts: TurnFacts = {
+      turnId: this.turnId,
+      eagerText: this.eagerText,
+      speaker: this.speaker,
+      env: this.env,
+      clipped: this.clipped,
+    };
+    this.reset();
+    return facts;
+  }
+
+  /** Forget the current turn (the draft is the caller's to discard). */
+  reset(): void {
+    this.turnId = "";
+    this.eagerText = "";
+    this.draftLive = false;
+    this.speaker = null;
+    this.env = null;
+    this.clipped = false;
+  }
+}
+
+export type TurnLang = "hi" | "en" | "hi-en" | "";
+
+/** The language of a line and how mixed it is: the minority script's share of the letters, 0 for one script. */
+export function languageMix(line: string, declared: string = ""): { lang: TurnLang; mix: number } {
+  let deva = 0;
+  let latin = 0;
+  for (const ch of line) {
+    if (/[\u0900-\u097F]/u.test(ch)) deva += 1;
+    else if (/[A-Za-z]/.test(ch)) latin += 1;
+  }
+  const total = deva + latin;
+  const mix = total === 0 ? 0 : Math.round((Math.min(deva, latin) / total) * 100) / 100;
+  if (deva > 0 && latin > 0) return { lang: "hi-en", mix };
+  const asked = streamLocale(declared);
+  if (deva > 0) return { lang: "hi", mix };
+  if (latin > 0) return { lang: asked === "hi" || asked === "hi-en" ? asked : "en", mix };
+  return { lang: asked, mix };
+}
+
+/**
+ * What goes to the Brain with a heard turn. `text` is what is shown and acted on, `textRaw` the ear's own words.
+ * `speaker` and `env` are tags for logs and thresholds: no approval, confirmation or authority check reads them (a
+ * test pins that), and the text is data, never an instruction.
+ */
+export type TurnRecord = {
+  text: string;
+  textRaw: string;
+  lang: TurnLang;
+  mix: number;
+  confidence: number | null;
+  turnId: string;
+  eager: boolean;
+  speaker: TurnSpeaker | null;
+  env: TurnEnv | null;
+  clipped: boolean;
+  interruptedPlayedMs: number | null;
+};
+
+export function buildTurnRecord(input: {
+  text: string;
+  textRaw?: string;
+  declaredLanguage?: string;
+  confidence?: number | null;
+  facts: TurnFacts | null;
+  interruptedPlayedMs?: number | null;
+}): TurnRecord {
+  const { lang, mix } = languageMix(input.text, input.declaredLanguage ?? "");
+  const facts = input.facts;
+  const confidence =
+    typeof input.confidence === "number" && Number.isFinite(input.confidence)
+      ? Math.max(0, Math.min(1, input.confidence))
+      : null;
+  const played = input.interruptedPlayedMs;
+  return {
+    text: input.text,
+    textRaw: input.textRaw ?? input.text,
+    lang,
+    mix,
+    confidence,
+    turnId: facts?.turnId ?? "",
+    eager: Boolean(facts?.eagerText) && sameWords(facts?.eagerText ?? "", input.text),
+    speaker: facts?.speaker ?? null,
+    env: facts?.env ?? null,
+    clipped: facts?.clipped ?? false,
+    interruptedPlayedMs:
+      typeof played === "number" && Number.isFinite(played) && played >= 0
+        ? Math.round(played)
+        : null,
+  };
 }
 
 /**

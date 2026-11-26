@@ -80,6 +80,23 @@ type Driver = {
   interruptHold: unknown;
   interruptGate: { active: boolean };
   gateEnabled: () => boolean;
+  ladderOn: () => boolean;
+  noteStreamTurn: (turn: {
+    turnId: string;
+    event: string;
+    text: string;
+    vadP: number | null;
+    speechMs: number | null;
+  }) => void;
+  acceptFinalUtterance: (utterance: { text: string; source: "local" }) => void;
+  lastTurn: () => {
+    interruptedPlayedMs: number | null;
+    eager: boolean;
+    lang: string;
+    turnId: string;
+  } | null;
+  eagerAdoptable: (command: string) => boolean;
+  speculative: string;
   beginInterruptCandidate: () => void;
   holdForInterruption: () => void;
   settleInterruption: (text: string) => boolean;
@@ -525,5 +542,169 @@ describe("review fixes: one-word interruptions and the approval answer", () => {
     d.beginInterruptCandidate();
     expect(library.levels.at(-1)).toBe(0.5);
     preferences.setVoice({ interruptGate: { duckLevel: 0.3 } as never });
+  });
+});
+
+/** One ear turn event, as the stream session would hand it to the conductor. */
+function earTurn(event: string, text = "", turnId = "t1") {
+  d.noteStreamTurn({ turnId, event, text, vadP: 0.9, speechMs: 300 });
+}
+
+describe("the barge-in ladder on the live conductor (opt-in)", () => {
+  beforeEach(() => {
+    preferences.setVoice({ interruptGate: { enabled: true, ladder: true } as never });
+  });
+  afterEach(() => {
+    preferences.setVoice({ interruptGate: { enabled: true, ladder: false } as never });
+  });
+
+  it("is off unless the owner chose it", () => {
+    preferences.setVoice({ interruptGate: { ladder: false } as never });
+    expect(d.ladderOn()).toBe(false);
+    preferences.setVoice({ interruptGate: { ladder: true } as never });
+    expect(d.ladderOn()).toBe(true);
+  });
+
+  it("voice the echo canceller cannot vouch for never ducks or stops her; with no words she carries on at 2 s", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    run(1900);
+    expect(library.duck).toEqual([]);
+    expect(library.stops).toBe(0);
+    run(200);
+    expect(library.duck).toEqual([false]);
+    expect(library.stops).toBe(0);
+    expect(d.interruptGate.active).toBe(false);
+  });
+
+  it("echo-cleaned speech ducks her by 12 dB at 150 ms and pauses her at 500 ms; a nod at the end resumes her", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 600; spent += 50) {
+      earTurn("partial", "", "t1");
+      vi.advanceTimersByTime(50);
+    }
+    expect(library.duck[0]).toBe(true);
+    expect(library.levels[0]).toBeCloseTo(0.251, 3);
+    expect(library.stops).toBe(1);
+    expect(d.interruptHold).toBeTruthy();
+    expect(stopCalls).toEqual([]);
+    speech = false;
+    run(1600);
+    expect(d.interruptHold).toBeNull();
+    expect(stopCalls).toEqual([]);
+    expect(library.stops).toBe(1);
+  });
+
+  it("one real word stops her, cuts the stored reply at the played milliseconds, and the next record reports them", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 200; spent += 50) {
+      earTurn("partial", "", "t1");
+      vi.advanceTimersByTime(50);
+    }
+    partial("kya");
+    expect(library.stops).toBe(1);
+    d.settleInterruption("kya");
+    expect(truncated).toEqual([["run-1", "First open the report.", 1100]]);
+    vi.spyOn(
+      assistantMode as unknown as { handleHeard: () => void },
+      "handleHeard",
+    ).mockImplementation(() => undefined);
+    d.acceptFinalUtterance({ text: "kya hua", source: "local" });
+    expect(d.lastTurn()?.interruptedPlayedMs).toBe(1100);
+  });
+
+  it("a nod while echo-cleaned speech goes on stops nothing", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 1000; spent += 50) {
+      earTurn("partial", "", "t1");
+      if (spent === 100) partial("haan");
+      vi.advanceTimersByTime(50);
+    }
+    expect(library.stops).toBe(0);
+    expect(stopCalls).toEqual([]);
+  });
+});
+
+describe("the turn protocol on the live conductor", () => {
+  const ask = "Friday, what is the capital of France";
+  let started: string[] = [];
+  let discarded: string[] = [];
+
+  beforeEach(() => {
+    started = [];
+    discarded = [];
+    Object.assign(d.state, { speaking: false });
+    Object.assign(d, { echoUntil: 0 });
+    const snapshot = vi.mocked(brain.getSnapshot);
+    const base = snapshot.getMockImplementation() as () => object;
+    snapshot.mockImplementation((() => ({
+      ...base.call(brain),
+      activeRunId: null,
+      approval: null,
+    })) as never);
+    vi.spyOn(brain, "startDraft").mockImplementation(((prompt: string) => {
+      started.push(prompt);
+      return { started: true, draft: { draftId: `d${started.length}`, prompt, text: "" } };
+    }) as never);
+    vi.spyOn(brain, "discardDraft").mockImplementation(((id: string) => {
+      discarded.push(id);
+      return true;
+    }) as never);
+    d.speculative = "";
+    preferences.setVoice({ ears: { eagerTurn: true } as never });
+  });
+  afterEach(() => {
+    preferences.setVoice({ ears: { eagerTurn: false } as never });
+    (assistantMode as unknown as { discardEager: () => void }).discardEager();
+  });
+
+  it("an eager endpoint starts one text-only draft, and a resume throws it away", () => {
+    earTurn("eager", ask);
+    expect(started).toEqual(["what is the capital of france"]);
+    earTurn("resumed", `${ask} and of Spain`);
+    expect(discarded).toEqual(["d1"]);
+    expect(d.speculative).toBe("");
+  });
+
+  it("the final line adopts the draft only when the words are equal", () => {
+    earTurn("eager", ask);
+    expect(d.eagerAdoptable("what is the capital of France?")).toBe(true);
+    expect(d.eagerAdoptable("what is the capital of Spain")).toBe(false);
+  });
+
+  it("with ears.eagerTurn off (the default) an eager endpoint starts nothing", () => {
+    preferences.setVoice({ ears: { eagerTurn: false } as never });
+    earTurn("eager", ask);
+    expect(started).toEqual([]);
+  });
+
+  it("an eager endpoint heard while muted or paused starts nothing", () => {
+    d.state.muted = true;
+    earTurn("eager", ask);
+    d.state.muted = false;
+    d.state.paused = true;
+    earTurn("eager", ask, "t2");
+    expect(started).toEqual([]);
+  });
+
+  it("a line that is not for her never starts a draft", () => {
+    earTurn("eager", "what is the capital of France");
+    expect(started).toEqual([]);
+  });
+
+  it("the record of the final turn carries the ear's tags and the eager flag, and the line still goes through the gates", () => {
+    d.noteStreamTurn({ turnId: "t5", event: "end", text: ask, vadP: 0.8, speechMs: 900 });
+    vi.spyOn(
+      assistantMode as unknown as { handleHeard: () => void },
+      "handleHeard",
+    ).mockImplementation(() => undefined);
+    d.acceptFinalUtterance({ text: ask, source: "local" });
+    const record = d.lastTurn();
+    expect(record?.turnId).toBe("t5");
+    expect(record?.lang).toBe("en");
+    expect(record?.eager).toBe(false);
   });
 });

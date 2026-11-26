@@ -46,11 +46,16 @@ import {
 import { LiveWords, livePassDeps } from "./voice-engine/live-words";
 import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
 import {
+  buildTurnRecord,
   ScriptPolicyTally,
   shapeHeardText,
   streamLocale,
   streamWanted,
+  subscribeStreamTurns,
+  TurnTracker,
   type StreamPlan,
+  type StreamTurn,
+  type TurnRecord,
 } from "./voice-engine/stream-session";
 import { streamHotwords } from "./voice-engine/hotwords";
 import { whisperLanguageArg } from "./voice-stt";
@@ -175,12 +180,16 @@ import {
 } from "./voice-session";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
 import {
+  BARGE_LADDER,
   BargeInDetector,
+  BargeLadder,
   BargeShadow,
   InterruptGate,
+  interruptedPlayedMs,
   sanitizeInterruptGate,
   type GateInput,
   type GateVerdict,
+  type LadderVerdict,
 } from "./voice-engine/interruption-controller";
 import { speechRms } from "./character/speech-audio";
 import { firstClauseCut } from "./voice-engine/clause-chunker";
@@ -675,6 +684,26 @@ class AssistantModeStore {
     sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate),
   );
   private gateTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * The barge-in ladder (opt-in, `voice.interruptGate.ladder`): duck at 150 ms of echo-cleaned speech, stop at 500 ms
+   * or one real word, resume when no words come by 2 s. It runs beside `interruptGate` (which keeps the candidate
+   * open) and only replaces who rules on it.
+   */
+  private bargeLadder = new BargeLadder();
+  /**
+   * The turn protocol of the streaming ear: eager endpoints start (and resumes cancel) the Brain's text-only draft,
+   * and the facts of the ended turn travel with its final text as a `TurnRecord`. Nothing here approves anything.
+   */
+  private turnTracker = new TurnTracker(
+    () => preferences.getSnapshot().voice.ears.eagerTurn === true,
+  );
+  private turnRecord: TurnRecord | null = null;
+  /** `turnRecord` belongs to the turn being routed now (cleared when the next voice begins). */
+  private turnRecordLive = false;
+  private streamTurnId = "";
+  private turnStreamOff: (() => void) | null = null;
+  /** The milliseconds of her last reply that were audible when the owner cut in, for the next turn record. */
+  private lastInterruptedPlayedMs: number | null = null;
   private gateText = "";
   private gatePlayed: PlayedReply | null = null;
   /** The live-words follower was started for the candidate (and is stopped with it). */
@@ -1084,6 +1113,7 @@ class AssistantModeStore {
       this.quietHealSent = true;
       this.applyVoiceHeal("vad-too-quiet", false);
     });
+    this.turnStreamOff ??= subscribeStreamTurns((turn) => this.noteStreamTurn(turn));
     desktop()?.onVoicePartial?.((payload) => {
       const text = String(payload?.text || "").trim();
       if (!text || this.state.mode !== "auto") return;
@@ -1139,24 +1169,7 @@ class AssistantModeStore {
       if (plan === "cancel" && this.speculative) {
         this.discardEager();
       } else if (plan === "start" && !this.speculative) {
-        const wake = matchWakeWord(text, wakeWord());
-        const words = text.split(/\s+/).filter(Boolean).length;
-        const accepted = acceptsVoiceTurn({
-          mode: this.state.mode,
-          paused: this.state.paused,
-          wakeMatched: wake.matched,
-          awake: Date.now() < this.awakeUntil,
-          handsFree: this.state.handsFree,
-          wakeWordRequired: this.wakeWordRequired,
-          words,
-          stop: false,
-        });
-        const command = (wake.matched ? wake.command : text).trim();
-        const preview = reduceVoice(this.conduct, command, now, {
-          quiet: !alertsAudible(),
-          meeting: this.callHold,
-          address: preferences.getSnapshot().voice.addressName,
-        });
+        const { wake, accepted, command, preview } = this.eagerCandidate(text, now);
         if (!command || !this.eagerAllowed(command)) {
           // The same gates as the final transcript: nothing starts, nothing is cut.
         } else if (preview.handled) {
@@ -1295,6 +1308,62 @@ class AssistantModeStore {
     });
   }
 
+  /** What a provisional line would be as a turn: the wake match, whether she takes it, the command and its conduct preview. */
+  private eagerCandidate(text: string, now: number) {
+    const wake = matchWakeWord(text, wakeWord());
+    const words = text.split(/\s+/).filter(Boolean).length;
+    const accepted = acceptsVoiceTurn({
+      mode: this.state.mode,
+      paused: this.state.paused,
+      wakeMatched: wake.matched,
+      awake: Date.now() < this.awakeUntil,
+      handsFree: this.state.handsFree,
+      wakeWordRequired: this.wakeWordRequired,
+      words,
+      stop: false,
+    });
+    const command = (wake.matched ? wake.command : text).trim();
+    const preview = reduceVoice(this.conduct, command, now, {
+      quiet: !alertsAudible(),
+      meeting: this.callHold,
+      address: preferences.getSnapshot().voice.addressName,
+    });
+    return { wake, accepted, command, preview };
+  }
+
+  /**
+   * The ear's eager endpoint may start the Brain's text-only draft, through the same gates as a stable partial. It
+   * never starts the conduct preview, a tool or a run.
+   */
+  private planTurnDraft(text: string, now: number) {
+    const { wake, accepted, command, preview } = this.eagerCandidate(text, now);
+    if (!command || preview.handled || !this.eagerAllowed(command)) return;
+    if (accepted && this.eagerAddressed(text, wake.matched)) this.startDraftRun(command, true);
+  }
+
+  /**
+   * One event of the ear's turn protocol. An eager endpoint may start the draft (only with `voice.ears.eagerTurn`),
+   * a resume or a changed text throws it away. Nothing else changes: the turn itself still ends through the final
+   * transcript and every gate after it.
+   */
+  private noteStreamTurn(turn: StreamTurn) {
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted || this.callHold)
+      return;
+    const now = Date.now();
+    // A new turn id is a new turn: its first draft is allowed again.
+    if (turn.turnId !== this.streamTurnId || now - this.partialSeenAt > DRAFT_TURN_GAP_MS)
+      this.draftsThisTurn = 0;
+    this.streamTurnId = turn.turnId;
+    for (const action of this.turnTracker.ingest(turn, now)) {
+      if (action.kind === "cancel-draft") {
+        if (this.speculativeKind === "brain") this.discardEager();
+        this.draftsThisTurn = 0;
+      } else if (!this.speculative) {
+        this.planTurnDraft(action.text, now);
+      }
+    }
+  }
+
   /**
    * A provisional line may start a draft only when it is for her: her name was said, or it is a follow-up inside the
    * open conversation (the same addressing rule the final transcript uses). Speech from a TV, a call or a bystander
@@ -1365,9 +1434,11 @@ class AssistantModeStore {
    * never shown or spoken). One draft per turn, and none while a turn runs. A refusal means nothing starts, and
    * the final transcript runs as an ordinary turn. A draft never counts as a spoken user line (no pendingUserEcho).
    */
-  private startDraftRun(command: string) {
-    // The owner's switch (Settings > Voice, off by default): without it no guess is ever made.
-    if (preferences.getSnapshot().voice.eagerTurn !== true) return;
+  private startDraftRun(command: string, viaTurn = false) {
+    // The owner's switch (Settings > Voice, off by default): without it no guess is ever made. An eager endpoint of
+    // the streaming ear has its own, `voice.ears.eagerTurn`, also off by default.
+    const earsEager = viaTurn && preferences.getSnapshot().voice.ears.eagerTurn === true;
+    if (!earsEager && preferences.getSnapshot().voice.eagerTurn !== true) return;
     if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
     const started = brain.startDraft(command);
     if (!started.started) return;
@@ -2883,6 +2954,7 @@ class AssistantModeStore {
         // Barge-in: FRIDAY stops talking the moment the owner starts.
         // Speech from the owner while she speaks: with the gate on it only lowers her volume until words decide
         // (`beginInterruptCandidate`); with it off, voice activity pauses her at once as before.
+        this.turnRecordLive = false;
         // A draft started in a pause of this sentence is stale the moment the voice resumes.
         if (this.speculativeKind === "brain") this.discardEager();
         if (this.state.speaking) {
@@ -4622,15 +4694,25 @@ class AssistantModeStore {
     if (!fresh) return;
     this.gateText = "";
     this.gatePlayed = this.heardOfReply();
-    duckSpeech(
-      true,
-      sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).duckLevel,
-    );
-    this.trace(
-      "speech",
-      "voice while she talks — her volume is down, waiting for words before stopping",
-    );
-    this.gateTimer = setInterval(() => this.stepInterruptGate(false), 100);
+    const ladder = this.ladderOn();
+    if (ladder) {
+      // The ladder ducks at 150 ms of echo-cleaned speech, not at the first sound of any voice.
+      this.bargeLadder.begin(Date.now());
+      this.trace(
+        "speech",
+        "voice while she talks — the ladder waits for echo-cleaned speech or words",
+      );
+    } else {
+      duckSpeech(
+        true,
+        sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).duckLevel,
+      );
+      this.trace(
+        "speech",
+        "voice while she talks — her volume is down, waiting for words before stopping",
+      );
+    }
+    this.gateTimer = setInterval(() => this.stepInterruptGate(false), ladder ? 50 : 100);
     // With live words on, the words so far reach the gate while the voice goes on, so a stop word is known early.
     if (preferences.getSnapshot().voice.liveWords === true && !this.liveWords?.isActive()) {
       this.gateLiveWords = true;
@@ -4643,6 +4725,7 @@ class AssistantModeStore {
     if (this.gateTimer) clearInterval(this.gateTimer);
     this.gateTimer = null;
     this.interruptGate.end();
+    this.bargeLadder.end();
     this.gateText = "";
     this.gatePlayed = null;
     if (this.gateLiveWords) {
@@ -4669,7 +4752,62 @@ class AssistantModeStore {
       waitingForAnswer: this.waitingForOwner(),
       selfEcho: heard ? this.isSelfEcho(heard) : false,
     };
-    this.applyGateVerdict(this.interruptGate.evaluate(input));
+    this.applyGateVerdict(this.judgeCandidate(input));
+  }
+
+  /** The barge-in ladder is on (`voice.interruptGate.ladder`, off unless the owner chose it). */
+  private ladderOn(): boolean {
+    return sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).ladder === true;
+  }
+
+  /**
+   * The owner's voice is on the echo-cleaned signal: the ear's turn events say so, or the echo canceller is running
+   * with its reference. The level test against the speaker (`BargeInDetector`) never counts as this.
+   */
+  private echoCleanedSpeech(): boolean {
+    if (!voiceGate.heardSpeechWithin(250)) return false;
+    return this.turnTracker.recentSpeech(Date.now(), 600) || this.echoReferenceLive();
+  }
+
+  /** Who rules on the candidate: the ladder when it is on, the backchannel gate otherwise. */
+  private judgeCandidate(input: GateInput): GateVerdict {
+    if (!this.ladderOn()) return this.interruptGate.evaluate(input);
+    const verdict = this.bargeLadder.evaluate({
+      t: input.t,
+      echoCleanedSpeech: input.final === true ? false : this.echoCleanedSpeech(),
+      text: input.text,
+      ...(input.final === true ? { final: true } : {}),
+      ...(input.waitingForAnswer ? { waitingForAnswer: true } : {}),
+      ...(input.selfEcho ? { selfEcho: true } : {}),
+      replyStartedAt: this.replyStartedAt,
+      replyEndsAt: null,
+    });
+    return this.gateVerdictOf(verdict);
+  }
+
+  private gateVerdictOf(verdict: LadderVerdict): GateVerdict {
+    switch (verdict.kind) {
+      case "duck":
+        duckSpeech(true, verdict.gain);
+        this.trace(
+          "speech",
+          `echo-cleaned speech for ${BARGE_LADDER.duckAtMs} ms — her volume is down`,
+        );
+        return { kind: "wait" };
+      case "stop":
+        if (verdict.why === "duration") return { kind: "pause" };
+        return {
+          kind: "interrupt",
+          why: verdict.why === "word" ? "words" : verdict.why,
+        };
+      case "resume":
+        return {
+          kind: "restore",
+          why: verdict.why === "no-words" ? "silence" : verdict.why,
+        };
+      default:
+        return { kind: "wait" };
+    }
   }
 
   private applyGateVerdict(verdict: GateVerdict) {
@@ -4801,6 +4939,11 @@ class AssistantModeStore {
     if (!heard) return;
     const playedMs =
       "playedMs" in heard && typeof heard.playedMs === "number" ? heard.playedMs : undefined;
+    // The turn that cut her in carries how much of her reply was audible when it did.
+    const audible = interruptedPlayedMs(heard as { playedMs?: unknown });
+    if (this.turnRecordLive && this.turnRecord)
+      this.turnRecord = { ...this.turnRecord, interruptedPlayedMs: audible };
+    else this.lastInterruptedPlayedMs = audible;
     if (brain.truncateAssistantReply(heard.runId, heard.text, playedMs)) {
       this.trace(
         "speech",
@@ -4816,7 +4959,7 @@ class AssistantModeStore {
     if (this.interruptGate.active) {
       // The final words arrived while she was only ducked: the gate rules on them before anything is stopped.
       const heard = text.trim() ? text : null;
-      const verdict = this.interruptGate.evaluate({
+      const verdict = this.judgeCandidate({
         t: Date.now(),
         speechActive: false,
         text: heard,
@@ -5591,7 +5734,25 @@ class AssistantModeStore {
       lastError: null,
       lastLatencyMs: meta?.ms ?? null,
     };
+    this.turnRecord = buildTurnRecord({
+      text: trimmed,
+      textRaw: text,
+      declaredLanguage: meta?.quality?.language || preferences.getSnapshot().voice.recognitionLang,
+      confidence: heardConfidence(trimmed, meta?.quality),
+      facts: this.turnTracker.take(Date.now()),
+      interruptedPlayedMs: this.lastInterruptedPlayedMs,
+    });
+    this.lastInterruptedPlayedMs = null;
+    this.turnRecordLive = true;
     this.handleHeard(text, meta?.wake ?? null);
+  }
+
+  /**
+   * The record of the turn being handled: its words, language mix, confidence and the ear's facts about it. Tags
+   * only; the speaker and the room never feed an approval, a confirmation or an authority check.
+   */
+  lastTurn(): TurnRecord | null {
+    return this.turnRecord;
   }
 
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
