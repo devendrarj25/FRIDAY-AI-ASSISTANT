@@ -5473,7 +5473,7 @@ ipcMain.handle("voice:stt-status", (_e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
   if (options.warm) warmFastChatModel();
   return stt.status(Boolean(options.force), {
-    localOnly: Boolean(options.localOnly),
+    localOnly: options.localOnly,
     warm: Boolean(options.warm),
   });
 });
@@ -10173,6 +10173,7 @@ const voiceCloudApi = voiceCloud.createVoiceCloud({
     }
   },
 });
+stt.setCloudGate((provider) => ({ ok: voiceCloudApi.gate(String(provider || "")).ok === true }));
 ipcMain.handle("voice-cloud:speak", (_e, provider, request) =>
   voiceCloudApi.speak(String(provider || ""), request),
 );

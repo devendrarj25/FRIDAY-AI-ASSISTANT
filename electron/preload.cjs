@@ -207,7 +207,7 @@ contextBridge.exposeInMainWorld("friday", {
   sttStatus: (force, localOnly, warm) =>
     ipcRenderer.invoke("voice:stt-status", {
       force: Boolean(force),
-      localOnly: Boolean(localOnly),
+      localOnly: typeof localOnly === "boolean" ? localOnly : undefined,
       warm: Boolean(warm),
     }),
   onSttProgress: on("voice:stt-progress"),
