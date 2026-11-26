@@ -129,7 +129,12 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
   });
 
   it("the new optional pins are pinned and self-tested but not usable, and say why", () => {
-    for (const id of ["denoise-dpdfnet", "speaker-wespeaker", "hindi-vaani-ear"]) {
+    for (const id of [
+      "denoise-dpdfnet",
+      "speaker-wespeaker",
+      "hindi-vaani-ear",
+      "stream-ear-nemotron",
+    ]) {
       const engine = voiceEngineById.get(id)!;
       expect(engine.status, id).toBe("optional-pinned");
       expect(engine.selfTest, id).toBe(true);
@@ -142,10 +147,16 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
         "Ceva-IP/DPDFNet",
         "bjollans/whisper-large-v3-vaani-hindi-ct2",
         "onnx-community/wespeaker-voxceleb-resnet34-LM",
+        "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
       ].sort(),
     );
     expect(weights.EXTRA_MODELS.map((row) => row.catalogId)).toEqual(
-      expect.arrayContaining(["denoise-dpdfnet", "speaker-wespeaker", "hindi-vaani-ear"]),
+      expect.arrayContaining([
+        "denoise-dpdfnet",
+        "speaker-wespeaker",
+        "hindi-vaani-ear",
+        "stream-ear-nemotron",
+      ]),
     );
   });
 

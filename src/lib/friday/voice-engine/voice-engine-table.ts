@@ -378,6 +378,37 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     ],
   }),
   row({
+    id: "stream-ear-nemotron",
+    label: "Streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8 by soniqo)",
+    role: "stt",
+    repo: "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+    pinRepo: "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+    languages: L("yes", "yes", "unverified"),
+    code: "NVIDIA-Open-Model-License (upstream now OpenMDW-1.1: conflict recorded in docs/FRIDAY_VOICE_ENGINE.md)",
+    weights: "NVIDIA-Open-Model-License (the repository tag; upstream now OpenMDW-1.1)",
+    runtime: "onnxruntime",
+    torchFree: true,
+    status: "optional-pinned",
+    streaming: true,
+    flags: ["community-conversion"],
+    wrapper: null,
+    selfTest: true,
+    lat: "fast",
+    blockedBy:
+      "a CANDIDATE, not a default: FRIDAY's own onnxruntime transducer loop (kernel/transducer_loop.py) must run it and FRIDAY must measure it (npm run voice:bench) against the current ears first",
+    publishedWer: [
+      { dataset: "FLEURS hi-IN, 320 ms, int8 CPU (soniqo, n=30)", wer: 0.0737 },
+      { dataset: "FLEURS en-US, 320 ms, int8 CPU (soniqo, n=30)", wer: 0.1549 },
+    ],
+    evidence: [
+      HF(
+        "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "pinned revision in electron/voice-pins.cjs",
+      ),
+      HF("nvidia/nemotron-3.5-asr-streaming-0.6b", "upstream model card"),
+    ],
+  }),
+  row({
     id: "voxtral-mini-4b-realtime-gguf",
     label: "Voxtral Mini 4B Realtime (GGUF, the only streaming Hindi speech recogniser found)",
     role: "stt",

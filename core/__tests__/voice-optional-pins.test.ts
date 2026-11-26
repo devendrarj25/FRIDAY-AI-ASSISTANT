@@ -45,6 +45,7 @@ const weights = req("../../electron/voice-weights.cjs") as {
   DENOISE_REPO: string;
   SPEAKER_REPO: string;
   HINDI_VAANI_REPO: string;
+  STREAM_EAR_REPO: string;
   pinSelfTests: (
     root: string,
     deps: {
@@ -78,6 +79,7 @@ const PINNED = [
   { id: "denoise-dpdfnet", repo: weights.DENOISE_REPO },
   { id: "speaker-wespeaker", repo: weights.SPEAKER_REPO },
   { id: "hindi-vaani-ear", repo: weights.HINDI_VAANI_REPO },
+  { id: "stream-ear-nemotron", repo: weights.STREAM_EAR_REPO },
 ];
 
 describe("the pins read from the Hugging Face API on 2026-11-23", () => {
@@ -223,6 +225,7 @@ describe("the Doctor self-test rows", () => {
       "optional-denoise-dpdfnet",
       "optional-speaker-wespeaker",
       "optional-hindi-vaani-ear",
+      "optional-stream-ear-nemotron",
     ]);
     for (const row of rows) {
       expect(row).toMatchObject({ ok: true, optional: true, required: false });
@@ -255,6 +258,7 @@ describe("the Doctor self-test rows", () => {
       "selftest-denoise-dpdfnet",
       "selftest-speaker-wespeaker",
       "selftest-hindi-vaani-ear",
+      "selftest-stream-ear-nemotron",
     ]);
     for (const row of rows) {
       expect(row).toMatchObject({ ok: true, required: false, installId: "" });

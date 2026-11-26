@@ -134,7 +134,7 @@ describe("the light Hindi voice is pinned and credited", () => {
 });
 
 describe("both have a Models row, a disk check, a Doctor pin row and a repair", () => {
-  it("keeps the three ears as they were and adds these five beside them (two Hindi extras, three optional pins)", () => {
+  it("keeps the three ears as they were and adds these six beside them (two Hindi extras, four optional pins)", () => {
     expect(weights.EAR_MODELS.map((ear) => ear.catalogId)).toEqual([
       "hindi-ear",
       "hinglish-ear",
@@ -146,6 +146,7 @@ describe("both have a Models row, a disk check, a Doctor pin row and a repair", 
       ["denoise-dpdfnet", "denoise-dpdfnet-pin"],
       ["speaker-wespeaker", "speaker-wespeaker-pin"],
       ["hindi-vaani-ear", "hindi-vaani-ear-pin"],
+      ["stream-ear-nemotron", "stream-ear-nemotron-pin"],
     ]);
   });
 

@@ -7563,6 +7563,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "stream-ear-nemotron",
+      kind: "model",
+      name: "Streaming ear (candidate, NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8 by soniqo, NVIDIA Open Model License)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "supertonic-3",
       kind: "model",
       name: "Supertonic 3",
@@ -9555,8 +9561,8 @@ export const FLOW_REGISTRY = {
       total: 162,
     },
     capabilities: {
-      mapped: 1111,
-      total: 1111,
+      mapped: 1112,
+      total: 1112,
     },
     ipc: {
       mapped: 513,

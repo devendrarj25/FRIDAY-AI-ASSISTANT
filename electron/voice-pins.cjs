@@ -413,6 +413,54 @@ const PINS = {
       },
     },
   },
+  // Optional streaming ear candidate, never a default and never fetched by setup or prefetch. NVIDIA Nemotron 3.5 ASR
+  // Streaming 0.6B (cache-aware FastConformer RNN-T, 128 language prompt slots incl. hi-IN and en-US), exported to ONNX
+  // by soniqo with an INT8 encoder and FP32 decoder and joint: a fixed 320 ms chunk, 32 mel frames per pass. Read from the
+  // Hugging Face tree API on 2026-11-26: each large file carries its LFS SHA-256, the three small files were fetched at the
+  // pinned revision and hashed here, and every digest and size was re-checked against the downloaded bytes. The card names
+  // an `encoder.onnx.data` that this revision does not hold: the 657,558,932-byte encoder.onnx carries its weights inline.
+  // The weights are the NVIDIA Open Model License (the repository's own tag); the upstream model has since moved to
+  // OpenMDW-1.1 and the int4 repository of another publisher is tagged MIT: that conflict is recorded in
+  // docs/FRIDAY_VOICE_ENGINE.md. FRIDAY never bundles or redistributes the files: the owner's PC fetches them from the
+  // official repository. Run by FRIDAY's own onnxruntime loop (kernel/transducer_loop.py), no torch.
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    revision: "1ce4daedd303e01d4e603634a72c28562f1a6855",
+    license: "NVIDIA-Open-Model-License",
+    files: {
+      "config.json": {
+        sha256: "0592a224f30670e00f5e0f1f106f0171428b0abde0fd4cbc64237b02c2241502",
+        bytes: 602,
+      },
+      "decoder.onnx": {
+        sha256: "68e7c40e673e94b364476303d687478ed7726bfb984e3496d0234d8e368b0894",
+        bytes: 4345,
+      },
+      "decoder.onnx.data": {
+        sha256: "4f2ced2289e1a62f7576ae9b42a97b972bdbc001eca8b41c4cc4c2421c0982eb",
+        bytes: 59760640,
+      },
+      "encoder.onnx": {
+        sha256: "faba6d952270255f1f9c4c22a44fbc60439638d808cb9feee51bba6a8daf0f87",
+        bytes: 657558932,
+      },
+      "joint.onnx": {
+        sha256: "c2839f49ac23e353c60b82ad325afcabee38e5ee6f8238fe575799908f877fc4",
+        bytes: 2023,
+      },
+      "joint.onnx.data": {
+        sha256: "5e96c9d54ee68a924f58fd734cd64ddf6fa0dd0f81c981ceb1a5bac5e860d74c",
+        bytes: 37822592,
+      },
+      "languages.json": {
+        sha256: "a1efe863e1057d4658bce8175c978020ac35a63a3c9a65ae899f324a32c8e4f6",
+        bytes: 2020,
+      },
+      "vocab.json": {
+        sha256: "fd726dc25cc0c0b46403675127e831bab56ca56b8c7ae3ee7781f5c6d7692f4f",
+        bytes: 236127,
+      },
+    },
+  },
 };
 
 /** The turbo repository was renamed; the old name redirects to the same revision and files. */
@@ -619,6 +667,17 @@ const FACTS = {
     fallbackPriority: "experimental",
     basis: "estimated",
   },
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 encoder, fp32 decoder and joint (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 1161,
+  },
 };
 
 /** The two helpers that are single files, not repositories (see `voice-weights.cjs` PINNED); they carry facts too. */
@@ -691,6 +750,28 @@ const SELF_TESTS = {
       reason:
         "needs the large-v3 tokenizer.json (pinned under Systran/faster-whisper-large-v3) beside the model; without it faster-whisper would fetch one from the network",
     },
+  },
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "encoder.onnx",
+    inputs: [
+      { name: "audio_signal", shape: [1, 128, 32], type: "float32" },
+      { name: "audio_length", shape: [1], type: "int32" },
+      { name: "language_mask", shape: [1, 128], type: "float32" },
+      { name: "pre_cache", shape: [1, 128, 9], type: "float32" },
+      { name: "cache_last_channel", shape: [24, 1, 56, 1024], type: "float32" },
+      { name: "cache_last_time", shape: [24, 1, 1024, 8], type: "float32" },
+      { name: "cache_last_channel_len", shape: [1], type: "int32" },
+    ],
+    outputs: [
+      { name: "encoded_output", shape: [1, 4, 1024] },
+      { name: "encoded_length", shape: [1] },
+      { name: "new_pre_cache", shape: [1, 128, 9] },
+      { name: "new_cache_last_channel", shape: [24, 1, 56, 1024] },
+      { name: "new_cache_last_time", shape: [24, 1, 1024, 8] },
+      { name: "new_cache_last_channel_len", shape: [1] },
+    ],
   },
 };
 

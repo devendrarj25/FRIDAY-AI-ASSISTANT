@@ -60,6 +60,13 @@ const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
 const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
 
 /**
+ * The optional streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8, a candidate, never a default) in
+ * `<root>/models/stream-ear-nemotron`. It is fetched only from the Models page or the Install Manager, never by setup or
+ * prefetch, and FRIDAY's own onnxruntime loop (kernel/transducer_loop.py) is its wrapper once that lands.
+ */
+const STREAM_EAR_REPO = "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8";
+
+/**
  * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
  * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
  */
@@ -99,7 +106,7 @@ const EXTRA_MODELS = [
     label: "Light Hindi voice",
     kind: "tts",
   },
-  // The three below are optional pins with no live wrapper yet: they download and verify, and each has a self-test
+  // The four below are optional pins with no live wrapper yet: they download and verify, and each has a self-test
   // (`voice-pins.cjs` SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
   {
     catalogId: "denoise-dpdfnet",
@@ -120,6 +127,13 @@ const EXTRA_MODELS = [
     repo: HINDI_VAANI_REPO,
     rowId: "hindi-vaani-ear-pin",
     label: "Hindi Vaani ear (candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "stream-ear-nemotron",
+    repo: STREAM_EAR_REPO,
+    rowId: "stream-ear-nemotron-pin",
+    label: "Streaming ear (Nemotron, candidate)",
     kind: "stt",
   },
 ];
@@ -1332,6 +1346,7 @@ module.exports = {
   DENOISE_REPO,
   SPEAKER_REPO,
   HINDI_VAANI_REPO,
+  STREAM_EAR_REPO,
   EAR_MODELS,
   EXTRA_MODELS,
 };

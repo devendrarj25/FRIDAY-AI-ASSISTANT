@@ -256,6 +256,7 @@ export const VOICE_MODEL_IDS = [
   "denoise-dpdfnet",
   "speaker-wespeaker",
   "hindi-vaani-ear",
+  "stream-ear-nemotron",
 ] as const;
 
 /* ------------------------------------------------------------ voice language packs */
