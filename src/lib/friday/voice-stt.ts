@@ -124,6 +124,43 @@ export function whisperLanguageArg(pref?: string | null): string {
 export const PTT_LEAD_MAX_MS = 3000;
 
 /**
+ * The longest one utterance may stay open. It is a safety net: the end of the turn (a pause the turn model confirms, the
+ * talk key, the streaming ear) closes a segment long before it. A long monologue is read by the kernel in pieces cut at
+ * its silences (`kernel/stt.py` long form), so it is never cut mid-sentence here.
+ */
+export const LONGFORM_MAX_UTTERANCE_MS = 300_000;
+/** Audio held by the shared capture ring, in ms, from which a segment is moved to its own store at the next pause. */
+export const LONGFORM_SPILL_AT_MS = 15_000;
+/** The same move with no pause at all, before the ring (30 s) would drop the start of the segment. */
+export const LONGFORM_SPILL_FORCE_MS = 24_000;
+/** A pause this long is a quiet place to move the segment's audio out of the ring. */
+export const LONGFORM_SPILL_QUIET_MS = 250;
+/** A segment longer than this is not read early at a pause (the early read would decode a long clip again and again). */
+export const LONGFORM_EARLY_READ_MAX_MS = 30_000;
+
+/** Whether the ring's part of an open segment should now move to the segment's own store. */
+export function spillDue(input: {
+  heldMs: number;
+  quietMs: number | null;
+  speech: boolean;
+}): boolean {
+  if (input.heldMs >= LONGFORM_SPILL_FORCE_MS) return true;
+  if (input.heldMs < LONGFORM_SPILL_AT_MS || input.speech) return false;
+  return (input.quietMs ?? 0) >= LONGFORM_SPILL_QUIET_MS;
+}
+
+/** The parts of one segment, in order, as one clip. */
+export function joinSamples(parts: readonly Float32Array[]): Float32Array {
+  const out = new Float32Array(parts.reduce((total, part) => total + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
+/**
  * Where a segment starts. Speech heard while the talk key is down began at or after the key-down, so the segment
  * starts there (the owner's first syllable as the finger lands is kept), with the one pre-roll before it.
  */
@@ -337,7 +374,7 @@ export interface DictationOptions {
   initialPrompt?: string | (() => string);
   /** The owner's dictionary as faster-whisper `hotwords` (see `sttHotwords`); nothing is sent when empty. */
   hotwords?: string | (() => string);
-  /** Hard cap so one long monologue still gets transcribed. */
+  /** Safety cap on one utterance (default `LONGFORM_MAX_UTTERANCE_MS`); the end of the turn closes it first. */
   maxUtteranceMs?: number;
   /**
    * A finished transcript. `meta.wake` carries the openWakeWord verdict when
@@ -673,6 +710,9 @@ export class DesktopDictation {
   /** True while the open segment was started by a push-to-talk hold: the key, not the pause, ends it. */
   private pttSegment = false;
   private segmentSamples = 0;
+  /** Audio of this segment already moved out of the shared ring (a long utterance), oldest first. */
+  private spill: Float32Array[] = [];
+  private spillSamples = 0;
   private delivered = false;
   private watchTimer: number | null = null;
   private droppedCount = 0;
@@ -872,7 +912,8 @@ export class DesktopDictation {
       if (voiceGate.getSnapshot().speech) {
         if (!this.speechSince) this.speechSince = performance.now();
       } else this.speechSince = 0;
-      if (this.pcmFrom) this.segmentSamples = capturedSince(this.pcmFrom + PRE_ROLL_MS);
+      if (this.pcmFrom)
+        this.segmentSamples = this.spillSamples + capturedSince(this.pcmFrom + PRE_ROLL_MS);
       const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
       const decision = micWatch({
         live: true,
@@ -883,7 +924,7 @@ export class DesktopDictation {
         speechForMs: speechFor,
         capturedSamples: this.segmentSamples,
         segmentWallMs: this.startedAt && this.speaking ? Date.now() - this.startedAt : 0,
-        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+        maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
         trackState: track?.readyState ?? "live",
         muted: Boolean(track?.muted),
       });
@@ -936,7 +977,7 @@ export class DesktopDictation {
       speechForMs: 0,
       capturedSamples: 0,
       segmentWallMs: 0,
-      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
       trackState: kind === "track-ended" ? "ended" : "live",
       muted: kind === "track-muted",
     });
@@ -1003,7 +1044,7 @@ export class DesktopDictation {
         nowMono: performance.now(),
         startedWall: this.startedAt,
         nowWall: Date.now(),
-        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+        maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
       });
       if (clock.bug && !this.bugLogged) {
         this.bugLogged = true;
@@ -1054,6 +1095,8 @@ export class DesktopDictation {
     this.startedAt = Date.now() - (performance.now() - start.startedMono);
     this.pcmFrom = start.pcmFrom;
     this.segmentSamples = 0;
+    this.spill = [];
+    this.spillSamples = 0;
     this.delivered = false;
     this.bugLogged = false;
     this.earlyWake = null;
@@ -1127,6 +1170,24 @@ export class DesktopDictation {
     this.streamFed = all.length;
   }
 
+  /**
+   * A long utterance outgrows the shared ring (it keeps about 30 s). Its audio moves to the segment's own store at the
+   * next pause (or before the ring would drop its start), so the whole turn reaches the decoder. The stream is handed
+   * what it has not had yet first, and counts from the new start afterwards.
+   */
+  private spillRing(speech: boolean, quietMs: number | null): void {
+    if (!this.pcmSegment || !this.pcmFrom) return;
+    const heldMs = (capturedSince(this.pcmFrom + PRE_ROLL_MS) / STREAM_RATE) * 1000;
+    if (!spillDue({ heldMs, quietMs, speech })) return;
+    const held = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    this.spill.push(held);
+    this.spillSamples += held.length;
+    const session = this.streamSession;
+    if (session?.live && held.length > this.streamFed) session.push(held.subarray(this.streamFed));
+    this.streamFed = 0;
+    this.pcmFrom = performance.now();
+  }
+
   /** The stream's final as this utterance's early read, or null (no stream, refused): the ordinary decode runs. */
   private takeStreamRead(): EarlyRead {
     const session = this.streamSession;
@@ -1149,6 +1210,8 @@ export class DesktopDictation {
 
   private finishSegment(reason: string) {
     const wav = this.pcmFrom ? this.takePcm() : null;
+    this.spill = [];
+    this.spillSamples = 0;
     if (!wav) {
       this.provisional.cancel();
       this.dropStream("dropped");
@@ -1158,7 +1221,7 @@ export class DesktopDictation {
       nowMono: performance.now(),
       startedWall: this.startedAt || Date.now(),
       nowWall: Date.now(),
-      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
     });
     if (wav) {
       this.delivered = true;
@@ -1200,7 +1263,7 @@ export class DesktopDictation {
 
   /** End the utterance after enough trailing silence, or at the hard cap. */
   private evaluateSegment(speech: boolean) {
-    const maxMs = this.options.maxUtteranceMs ?? 20_000;
+    const maxMs = this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS;
     const clock = segmentClock({
       startedMono: this.startedMono || performance.now(),
       nowMono: performance.now(),
@@ -1237,6 +1300,7 @@ export class DesktopDictation {
         return;
       }
       const snapshot = voiceGate.getSnapshot();
+      this.spillRing(snapshot.speech, snapshot.sinceSpeech);
       const quietFor = snapshot.sinceSpeech ?? 0;
       const tooLong = performance.now() - this.startedMono > maxMs;
       const silenceMs = this.silenceBudget();
@@ -1352,7 +1416,8 @@ export class DesktopDictation {
 
   /** The audio of this segment so far from the shared ring, or null when there is too little to read. */
   private takeSamples(): Float32Array | null {
-    const samples = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    const held = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    const samples = this.spill.length ? joinSamples([...this.spill, held]) : held;
     this.segmentSamples = samples.length;
     this.lastSamples = samples;
     return samples.length < 1600 ? null : samples;
@@ -1362,6 +1427,7 @@ export class DesktopDictation {
   private maybeReadEarly(input: { speech: boolean; tooLong: boolean; quietMs: number }) {
     // The streaming ear already reads this utterance; a second decode would only wait for its turn gate.
     if (this.streamSession?.live) return;
+    if (this.segmentSamples > (LONGFORM_EARLY_READ_MAX_MS / 1000) * STREAM_RATE) return;
     if (
       !provisionalWanted({
         score: this.turnScore,

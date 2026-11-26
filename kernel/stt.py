@@ -59,7 +59,7 @@ from la2_partials import (  # noqa: E402
     turn_mode,
     with_ctc_bias,
 )
-from stream_commit import Word, words_from_text  # noqa: E402
+from stream_commit import LocalAgreementCommitter, Word, join_words, words_from_text  # noqa: E402
 from transcript_gate import (  # noqa: E402,F401 — the text gates live there; every name stays importable from here
     _FOREIGN_SCRIPT_NAMES,
     _NOISE_PHRASES,
@@ -1527,6 +1527,177 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     }
 
 
+# ---- Long form: a long utterance is cut at its silences, read in pieces and joined again --------------------------
+
+LONGFORM_TRIGGER_S = 30.0  # Whisper reads up to 30 s in one window; a longer clip is chunked
+LONGFORM_CHUNK_S = 25.0  # the longest piece
+LONGFORM_OVERLAP_S = 1.0  # each piece starts this far before the previous one ended
+LONGFORM_MIN_CHUNK_S = 4.0  # a silence closer than this to the piece's start is not a cut point
+LONGFORM_MIN_SILENCE_S = 0.3
+LONGFORM_FRAME_S = 0.02
+LONGFORM_HOLD_S = 0.15  # after a cut with no silence, words ending this close to it are heard again in the next piece
+LONGFORM_KEPT_WORDS = 50_000
+
+
+def is_longform(seconds: float) -> bool:
+    return seconds > LONGFORM_TRIGGER_S
+
+
+def silence_runs(samples, rate: int = RATE, min_silence_s: float = LONGFORM_MIN_SILENCE_S) -> list[tuple[float, float]]:
+    """(start, end) seconds of every pause of at least ``min_silence_s``, judged by frame energy against the clip's
+    own loud level (a tenth of it, never under 0.003)."""
+    import numpy as np  # type: ignore
+
+    clip = np.asarray(samples, dtype=np.float32).reshape(-1)
+    frame = max(1, int(rate * LONGFORM_FRAME_S))
+    count = len(clip) // frame
+    if count == 0:
+        return []
+    rms = np.sqrt(np.mean(np.square(clip[: count * frame].reshape(count, frame)), axis=1))
+    quiet = rms < max(0.003, 0.1 * float(np.percentile(rms, 90)))
+    runs: list[tuple[float, float]] = []
+    begin: int | None = None
+    for index, is_quiet in enumerate([*quiet.tolist(), False]):
+        if is_quiet and begin is None:
+            begin = index
+        elif not is_quiet and begin is not None:
+            if (index - begin) * LONGFORM_FRAME_S >= min_silence_s:
+                runs.append((begin * LONGFORM_FRAME_S, index * LONGFORM_FRAME_S))
+            begin = None
+    return runs
+
+
+def plan_chunks(
+    samples,
+    rate: int = RATE,
+    *,
+    max_s: float = LONGFORM_CHUNK_S,
+    overlap_s: float = LONGFORM_OVERLAP_S,
+    min_chunk_s: float = LONGFORM_MIN_CHUNK_S,
+) -> list[dict]:
+    """Pieces of at most ``max_s`` seconds, each cut in the middle of the latest pause that fits, else hard at
+    ``max_s``. A piece starts ``overlap_s`` before the previous one ended. ``cut`` says how a piece ends:
+    "silence", "hard" or "end"."""
+    total = len(samples) / rate
+    if total <= 0:
+        return []
+    if not (max_s > overlap_s + min_chunk_s > 0):
+        raise ValueError("max_s must exceed overlap_s plus min_chunk_s")
+    pauses = [(a + b) / 2 for a, b in silence_runs(samples, rate)]
+    pieces: list[dict] = []
+    start = 0.0
+    while True:
+        if total - start <= max_s:
+            pieces.append({"start": round(start, 3), "end": round(total, 3), "cut": "end"})
+            return pieces
+        limit = start + max_s
+        fits = [p for p in pauses if start + min_chunk_s <= p <= limit]
+        cut, kind = (max(fits), "silence") if fits else (limit, "hard")
+        pieces.append({"start": round(start, 3), "end": round(cut, 3), "cut": kind})
+        start = cut - overlap_s
+
+
+def _spread_words(text: str, begin: float, end: float) -> list[Word]:
+    words = text.split()
+    if not words:
+        return []
+    step = max(0.0, end - begin) / len(words)
+    return [Word(w, begin + i * step, begin + (i + 1) * step) for i, w in enumerate(words)]
+
+
+def _segment_words(seg, shift: float) -> list[Word]:
+    """The segment's words on the whole clip's clock; spread over the segment when the model gave no word times."""
+    begin = float(getattr(seg, "start", 0.0) or 0.0) + shift
+    end = float(getattr(seg, "end", 0.0) or 0.0) + shift
+    timed = [
+        Word(str(getattr(w, "word", "") or "").strip(), float(w.start) + shift, float(w.end) + shift)
+        for w in (getattr(seg, "words", None) or [])
+    ]
+    timed = [w for w in timed if w.text]
+    return timed or _spread_words((getattr(seg, "text", "") or "").strip(), begin, end)
+
+
+def _seam_filter(words: list[Word], last_end: float | None) -> list[Word]:
+    """Drop what the previous piece already said: a word whose middle falls inside the committed time."""
+    if last_end is None:
+        return words
+    return [w for w in words if w.start is None or w.end is None or (w.start + w.end) / 2 > last_end]
+
+
+def _consume_longform(model, samples, kwargs: dict, hint: str, on_partial) -> dict:
+    """One utterance of any length, read piece by piece. Every piece is decoded with word times and the last 200
+    characters already said as its prompt; the pieces are joined by the same seam logic the streaming ear commits
+    with (a word is kept once, a repeat of the last words at the seam is dropped). Same result shape as
+    ``_consume_whisper``."""
+    total = len(samples) / RATE
+    pieces = plan_chunks(samples)
+    committer = LocalAgreementCommitter(max_kept_words=LONGFORM_KEPT_WORDS)
+    rows: list[dict] = []
+    no_speech: list[float] = []
+    logprobs: list[float] = []
+    voiced = 0.0
+    language, probability = "", None
+    for index, piece in enumerate(pieces):
+        check_cancel()
+        carry = committer.prompt()
+        options = {**kwargs, "word_timestamps": True, "hallucination_silence_threshold": HALLUCINATION_SILENCE_S}
+        prompt = carry or hint
+        if prompt:
+            options["initial_prompt"] = prompt[:800]
+        else:
+            options.pop("initial_prompt", None)
+        begin = piece["start"]
+        segments, info = model.transcribe(samples[int(begin * RATE) : int(piece["end"] * RATE)], **options)
+        heard: list[Word] = []
+        for seg in segments:
+            check_cancel()
+            text = (getattr(seg, "text", "") or "").strip()
+            ns = getattr(seg, "no_speech_prob", None)
+            lp = getattr(seg, "avg_logprob", None)
+            if isinstance(ns, (int, float)):
+                no_speech.append(float(ns))
+            if isinstance(lp, (int, float)):
+                logprobs.append(float(lp))
+            if text and not live_segment_is_noise(text, ns, lp):
+                heard.extend(_segment_words(seg, begin))
+        after_vad = getattr(info, "duration_after_vad", None)
+        voiced += float(after_vad) if isinstance(after_vad, (int, float)) else 0.0
+        if not language:
+            language = getattr(info, "language", "") or ""
+            probability = _language_probability(info)
+        if piece["cut"] == "hard":
+            heard = [w for w in heard if w.end is None or w.end <= piece["end"] - LONGFORM_HOLD_S]
+        last = committer.all_committed[-1].stamp if committer.all_committed else None
+        committer.insert(_seam_filter(heard, last))
+        said = committer.finalize()
+        if said:
+            rows.append({"text": join_words(said), "start": said[0].start, "end": said[-1].end})
+        if index + 1 < len(pieces):
+            committer.trim_at(pieces[index + 1]["start"])
+        if on_partial and rows:
+            on_partial(" ".join(r["text"] for r in rows))
+    text = " ".join(r["text"] for r in rows)
+    avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
+    avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
+    fraction, voiced_ms = vad_evidence(min(voiced, total), total)
+    kept, note, policy_code = apply_no_speech_policy(
+        text, avg, avg_lp, total, speech_fraction=fraction, voiced_ms=voiced_ms
+    )
+    return {
+        "text": kept,
+        "noSpeechProb": round(avg, 4),
+        "noSpeechNote": note,
+        "avgLogprob": round(avg_lp, 4) if avg_lp is not None else None,
+        "policyCode": policy_code,
+        "vadMs": int(min(voiced, total) * 1000),
+        "language": language,
+        "languageProbability": probability,
+        "durationMs": int(total * 1000),
+        "segments": rows if kept == text else [],
+        "chunks": len(pieces),
+    }
+
+
 def _language_probability(info) -> float | None:
     value = getattr(info, "language_probability", None)
     return round(float(value), 3) if isinstance(value, (int, float)) else None
@@ -1599,7 +1770,13 @@ def rescore_segments(first: dict, samples, language: str, speech_pref: str, deco
 
 
 TOO_SHORT_MS = 300
-VAD_PARAMETERS = {"threshold": 0.35, "min_silence_duration_ms": 700, "speech_pad_ms": 400}
+# A word as short as "haan" or "ruko" (120 ms of voice up) reaches the decode; the short-clip rule judges it after.
+VAD_PARAMETERS = {
+    "threshold": 0.35,
+    "min_silence_duration_ms": 700,
+    "speech_pad_ms": 400,
+    "min_speech_duration_ms": 120,
+}
 
 _counters: dict = {"heard": 0, "dropped": {}}
 
@@ -1888,7 +2065,10 @@ def _transcribe_prepared(
         kwargs["initial_prompt"] = hint[:800]
     payload = samples if samples is not None else audio
     try:
-        first = _consume_whisper(model, payload, kwargs, on_partial)
+        if samples is not None and is_longform(len(samples) / RATE):
+            first = _consume_longform(model, samples, kwargs, hint, on_partial)
+        else:
+            first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
         if alt is not None:
             # The optional ear could not decode: remember it and let the engine of today hear this utterance.
