@@ -32,7 +32,7 @@ def _fake_runtime(monkeypatch, probability: float = 0.9):
     opened = {"sessions": 0, "extractors": 0, "runs": 0}
 
     class Session:
-        def __init__(self, path, providers=None):
+        def __init__(self, path, sess_options=None, providers=None):
             opened["sessions"] += 1
 
         def run(self, _names, feeds):
