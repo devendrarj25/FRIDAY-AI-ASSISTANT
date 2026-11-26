@@ -17,7 +17,7 @@ import {
   type VoiceEarsPrefs,
 } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
-import { earsRows, type EarsStats } from "@/lib/friday/voice-diagnostics-rows";
+import { bargeInRow, earsRows, type EarsStats } from "@/lib/friday/voice-diagnostics-rows";
 
 type StatsState =
   | { phase: "loading" }
@@ -97,10 +97,12 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
     setAttempt((n) => n + 1);
   };
 
-  const rows = useMemo(
-    () => earsRows(ears, state.phase === "ready" ? state.stats : null),
-    [ears, state],
-  );
+  const gate = prefs.voice.interruptGate;
+  const ladderOn = gate.ladder === true;
+  const rows = useMemo(() => {
+    const stats = state.phase === "ready" ? state.stats : null;
+    return [...earsRows(ears, stats), bargeInRow(gate, stats)];
+  }, [ears, gate, state]);
 
   const set = (patch: Partial<VoiceEarsPrefs>) =>
     preferences.setVoice({ ears: sanitizeVoiceEars({ ...ears, ...patch }) });
@@ -157,6 +159,12 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
           hint="Streaming ear only. Drafts early, dropped if you keep talking."
           on={ears.eagerTurn}
           onToggle={() => set({ eagerTurn: !ears.eagerTurn })}
+        />
+        <ToggleRow
+          label="Duck, then stop, when you talk over FRIDAY"
+          hint="Experimental: duck then stop. Not tried on a real mic."
+          on={ladderOn}
+          onToggle={() => preferences.setVoice({ interruptGate: { ...gate, ladder: !ladderOn } })}
         />
       </div>
 

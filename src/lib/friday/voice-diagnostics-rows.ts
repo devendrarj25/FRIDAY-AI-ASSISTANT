@@ -552,3 +552,35 @@ export function earsRows(prefs: VoiceEarsPrefs, stats: EarsStats | null | undefi
 
   return [vadRow, turnRow, clipRow, agcRow, denoiseRow, sceneRow];
 }
+
+/**
+ * The `ears-bargein` row: whether the barge-in ladder (duck, then stop) is on, and the early-to-resumed ratio when
+ * the turn tracker has counted turns. Off is fine; on with no count says "absent" and why. A count is a count of what
+ * the ear did, never a claim that interruptions work better.
+ */
+export function bargeInRow(
+  gate: { ladder?: boolean } | null | undefined,
+  stats: EarsStats | null | undefined,
+): EarsRow {
+  const id = "ears-bargein";
+  const label = "ears: barge-in ladder";
+  if (gate?.ladder !== true) {
+    return { id, label, state: "off", value: "off · plain interrupt gate (the default)" };
+  }
+  const turn = stats?.turn;
+  if (!turn || !finite(turn.eager) || turn.eager <= 0) {
+    return {
+      id,
+      label,
+      state: "absent",
+      value: `on · duck, then stop · ${absent("no early turn has been counted yet")}`,
+    };
+  }
+  const ratio = Math.round((Math.max(0, turn.resumed) / turn.eager) * 100);
+  return {
+    id,
+    label,
+    state: "ok",
+    value: `on · duck, then stop · ${turn.eager} early, ${turn.resumed} resumed (${ratio}% resumed)`,
+  };
+}

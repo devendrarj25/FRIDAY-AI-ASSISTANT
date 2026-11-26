@@ -14,7 +14,7 @@ import { lastSpeechRoute } from "./voice-library";
 import { currentVoiceHealth } from "./voice-health";
 import { prewarmDoctorRows } from "./voice-engine/prewarm";
 import type { VoiceEarsPrefs } from "./preferences";
-import { earsRows, type EarsStats } from "./voice-diagnostics-rows";
+import { bargeInRow, earsRows, type EarsStats } from "./voice-diagnostics-rows";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -121,7 +121,7 @@ export function voiceDoctorMarks(): Partial<Record<VoiceLayer, LayerMark>> {
  */
 export function voiceLayerChecks(
   marks?: Partial<Record<VoiceLayer, LayerMark>>,
-  ears?: { prefs: VoiceEarsPrefs; stats: EarsStats | null },
+  ears?: { prefs: VoiceEarsPrefs; stats: EarsStats | null; gate?: { ladder?: boolean } },
 ): VoiceLayerRow[] {
   const rows: VoiceLayerRow[] = [];
   const unchecked: VoiceLayer[] = [];
@@ -160,17 +160,23 @@ export function voiceLayerChecks(
   }
   // A warm-up step that failed is a Warning of its own; a pass that went well adds nothing here.
   rows.push(...prewarmDoctorRows());
-  if (ears) rows.push(...earsDoctorRows(ears.prefs, ears.stats));
+  if (ears) rows.push(...earsDoctorRows(ears.prefs, ears.stats, ears.gate));
   return rows;
 }
 
 /**
- * The six listening-front-end rows (ears-vad, ears-turn, ears-clip, ears-agc, ears-denoise, ears-scene), fed by
+ * The listening-front-end rows (ears-vad, ears-turn, ears-clip, ears-agc, ears-denoise, ears-scene, and ears-bargein when the gate is given), fed by
  * injected stats. A measured, healthy or switched-off row is Ready; a measured problem or a missing measurement is a
  * Warning that says which, so "absent" is never shown as a pass.
  */
-export function earsDoctorRows(prefs: VoiceEarsPrefs, stats: EarsStats | null): VoiceLayerRow[] {
-  return earsRows(prefs, stats).map((row) => ({
+export function earsDoctorRows(
+  prefs: VoiceEarsPrefs,
+  stats: EarsStats | null,
+  gate?: { ladder?: boolean } | null,
+): VoiceLayerRow[] {
+  const rows = earsRows(prefs, stats);
+  if (gate !== undefined) rows.push(bargeInRow(gate, stats));
+  return rows.map((row) => ({
     id: `voice:${row.id}`,
     label: row.label,
     group: "Voice",

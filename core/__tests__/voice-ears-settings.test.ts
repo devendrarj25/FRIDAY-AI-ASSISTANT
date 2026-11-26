@@ -12,7 +12,7 @@ import {
   sanitizeVoiceEars,
   type VoiceEarsPrefs,
 } from "../../src/lib/friday/preferences";
-import { earsRows, type EarsStats } from "../../src/lib/friday/voice-diagnostics-rows";
+import { bargeInRow, earsRows, type EarsStats } from "../../src/lib/friday/voice-diagnostics-rows";
 import { earsDoctorRows, voiceLayerChecks } from "../../src/lib/friday/voice-doctor";
 
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -330,5 +330,57 @@ describe("the page is wired", () => {
     expect(page).toContain("Reset listening settings");
     expect(page).toContain("disabled={isDefault}");
     expect(page).toContain("earsRows(");
+  });
+});
+
+describe("barge-in ladder toggle and the ears-bargein row", () => {
+  it("is off by default, turns on and off through voice.interruptGate, and keeps the other gate fields", async () => {
+    const { preferences } = await import("../../src/lib/friday/preferences");
+    const before = preferences.getSnapshot().voice.interruptGate;
+    expect(before.ladder).toBeUndefined();
+    preferences.setVoice({ interruptGate: { ...before, ladder: true } });
+    const on = preferences.getSnapshot().voice.interruptGate;
+    expect(on.ladder).toBe(true);
+    expect(on.minWords).toBe(before.minWords);
+    preferences.setVoice({ interruptGate: { ...on, ladder: false } });
+    expect(preferences.getSnapshot().voice.interruptGate.ladder).toBeUndefined();
+  });
+
+  it("says off, absent without a count, and the resumed share with one", () => {
+    expect(bargeInRow({}, null).state).toBe("off");
+    const none = bargeInRow({ ladder: true }, null);
+    expect(none.state).toBe("absent");
+    expect(none.value).toContain("absent:");
+    expect(none.value).not.toMatch(/\d+%/);
+    const turn = { lastEndMs: 300, eager: 4, resumed: 1 };
+    const row = bargeInRow({ ladder: true }, { turn });
+    expect(row.id).toBe("ears-bargein");
+    expect(row.value).toContain("4 early, 1 resumed (25% resumed)");
+  });
+
+  it("reaches the Doctor only when a gate is given, as a Warning while absent", () => {
+    expect(earsDoctorRows(DEFAULT_VOICE_EARS, null).map((r) => r.id)).not.toContain(
+      "voice:ears-bargein",
+    );
+    const rows = earsDoctorRows(DEFAULT_VOICE_EARS, null, { ladder: true });
+    expect(rows.find((r) => r.id === "voice:ears-bargein")?.status).toBe("Warning");
+    expect(earsDoctorRows(DEFAULT_VOICE_EARS, null, {}).at(-1)?.status).toBe("Ready");
+  });
+
+  it("voiceLayerChecks adds the row only when the caller passes the gate", () => {
+    const ears = DEFAULT_VOICE_EARS;
+    const base = voiceLayerChecks({ wake: "pass" }, { prefs: ears, stats: null });
+    const gated = voiceLayerChecks({ wake: "pass" }, { prefs: ears, stats: null, gate: {} });
+    expect(gated.length).toBe(base.length + 1);
+    expect(gated.at(-1)?.id).toBe("voice:ears-bargein");
+  });
+
+  it("is wired in the page with a short caveat-first hint", () => {
+    const page = read("src/components/friday/settings/VoiceEarsSettings.tsx");
+    expect(page).toContain("interruptGate: { ...gate, ladder: !ladderOn }");
+    expect(page).toContain("bargeInRow(gate, stats)");
+    const hint = "Experimental: duck then stop. Not tried on a real mic.";
+    expect(page).toContain(hint);
+    expect(hint.length).toBeLessThanOrEqual(70);
   });
 });
