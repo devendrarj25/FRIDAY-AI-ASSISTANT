@@ -27,7 +27,6 @@ and has no side effects; numpy and onnxruntime are imported by the code that nee
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -36,6 +35,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import voice_budget
 from hotword_trie import HotwordTrie
 from mel_frontend import StreamingMel, nemo_config
 from rnnt_decode import RnntBeamDecoder, RnntGreedyDecoder
@@ -173,9 +173,8 @@ def default_session_factory(path: str, providers: list[str], threads: int) -> An
     """Open one onnxruntime session. Imported here so a missing runtime only fails the feature that needs it."""
     import onnxruntime as ort  # type: ignore
 
-    options = ort.SessionOptions()
+    options = voice_budget.ort_session_options("asr_stream", intra=threads) or ort.SessionOptions()
     options.log_severity_level = 3
-    options.intra_op_num_threads = max(1, threads)
     if DML in providers:  # DirectML needs a sequential plan and no memory pattern
         options.enable_mem_pattern = False
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
@@ -411,7 +410,7 @@ class NemotronStream:
             raise ValueError("flush_chunks must be >= 0 and beam_width >= 1")
         self._factory = session_factory or default_session_factory
         self._available = available or available_providers
-        self.threads = threads or max(1, min(4, os.cpu_count() or 1))
+        self.threads = threads or voice_budget.steady("asr_stream")
         self.flush_chunks = flush_chunks
         self.beam_width = beam_width
         self._sessions: dict[str, Any] = {}

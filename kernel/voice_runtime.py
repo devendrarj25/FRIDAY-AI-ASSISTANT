@@ -572,8 +572,8 @@ def reset_speech_state() -> None:
 
 
 def _voice_threads() -> int:
-    """Intra-op threads of the engine: half the cores, at most three (all cores but one was the slowest under load)."""
-    return max(1, min(3, (os.cpu_count() or 2) // 2))
+    """Intra-op threads of the engine: the speaker's share of the one voice thread budget (`voice_budget`)."""
+    return voice_budget.steady("tts")
 
 
 def _friday_engine() -> Any:

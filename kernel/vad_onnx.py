@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+import voice_budget
+
 RATE = 16000
 FRAME = 512  # samples the model scores at a time (32 ms at 16 kHz)
 CONTEXT = 64  # samples of the previous frame the model expects in front of each frame
@@ -132,9 +134,7 @@ def _session(path: Path) -> Any:
         try:
             import onnxruntime as ort  # type: ignore
 
-            options = ort.SessionOptions()
-            options.intra_op_num_threads = 1
-            options.inter_op_num_threads = 1
+            options = voice_budget.ort_session_options("vad") or ort.SessionOptions()
             made = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
         except Exception as exc:  # noqa: BLE001
             raise VadUnavailable(f"the silero model did not open: {type(exc).__name__}: {exc}"[:300]) from exc

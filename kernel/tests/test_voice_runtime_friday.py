@@ -185,8 +185,9 @@ def test_no_model_folder_is_a_refusal(engine, monkeypatch):
 
 
 def test_the_engine_gets_a_bounded_thread_count(monkeypatch):
-    for cores, expected in ((None, 1), (1, 1), (2, 1), (4, 2), (6, 3), (8, 3), (64, 3)):
-        monkeypatch.setattr(voice_runtime.os, "cpu_count", lambda c=cores: c)
+    monkeypatch.delenv("FRIDAY_VOICE_THREADS", raising=False)
+    for cores, expected in ((None, 1), (1, 1), (2, 1), (3, 1), (4, 2), (6, 3), (8, 4), (64, 4)):
+        monkeypatch.setattr(voice_runtime.voice_budget, "cpu_count", lambda c=cores: c)
         assert voice_runtime._voice_threads() == expected
 
 

@@ -48,6 +48,7 @@ if _KERNEL_DIR not in sys.path:
 import hindi_ear  # noqa: E402
 import speech_segments  # noqa: E402
 import stream_ear  # noqa: E402
+import voice_budget  # noqa: E402
 import voice_runtime  # noqa: E402
 import whisper_ears  # noqa: E402
 from la2_partials import (  # noqa: E402
@@ -415,13 +416,13 @@ def choose_stt_device(cuda_ready: bool) -> dict:
 def cpu_threads() -> int:
     """Threads for the CPU engine. CTranslate2 uses 4 unless told otherwise, which leaves most of a modern PC idle.
 
-    `FRIDAY_STT_THREADS` sets it; otherwise about half the logical processors (the physical cores on most PCs),
-    never fewer than 4 or more than 8, since a larger count stops helping one short utterance.
+    `FRIDAY_STT_THREADS` sets it; otherwise the final reader's share of the one voice thread budget
+    (`voice_budget`), so the reader, the speaker and the audio models never ask for more threads than the PC has.
     """
     raw = os.environ.get("FRIDAY_STT_THREADS", "").strip()
     if raw.isdigit() and 1 <= int(raw) <= 64:
         return int(raw)
-    return max(4, min(8, (os.cpu_count() or 4) // 2))
+    return voice_budget.steady("asr_final")
 
 
 def model_load_kwargs(name: str, model_path: str | None = None) -> dict:

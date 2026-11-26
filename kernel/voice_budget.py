@@ -4,7 +4,9 @@ Each model used to pick its own thread count (about fifteen threads on four core
 times slower and the Hindi reader four times. Here every role asks one pure function.
 
 Roles: ``asr_final`` (the final reader of a turn), ``asr_stream`` (the live reader), ``tts`` (FRIDAY Voice) and the
-light roles ``turn`` (Smart Turn), ``vad``, ``wake`` and ``denoise``. The light roles run one after another on the audio
+light roles ``turn`` (Smart Turn), ``vad``, ``wake`` and ``denoise``. ``punct`` (the Hindi punctuation model) runs
+right after the final reader and ``tts_light`` (the light Hindi voice) instead of the speaker, so each takes the
+budget of that role. The light roles run one after another on the audio
 frame loop, so they are one group that holds one thread. Phases: ``idle``, ``listening``, ``speaking``, ``thinking``.
 
 * ``listening``: the live reader and the audio group. ``thinking``: the final reader and the audio group.
@@ -22,7 +24,8 @@ from __future__ import annotations
 import os
 from typing import Any, NamedTuple
 
-ROLES = ("asr_final", "asr_stream", "tts", "turn", "vad", "wake", "denoise")
+ROLES = ("asr_final", "asr_stream", "tts", "turn", "vad", "wake", "denoise", "punct", "tts_light")
+SHARES = {"punct": "asr_final", "tts_light": "tts"}  # runs in the place of that role, one after it, on its threads
 PHASES = ("idle", "listening", "speaking", "thinking")
 AUDIO = ("wake", "denoise", "vad", "turn")  # one group: the frame loop calls them one after the other
 CAPS = {"tts": 4, "asr_stream": 4, "asr_final": 6}
@@ -109,8 +112,11 @@ def threads(role: str, phase: str, cores: int | None = None) -> int:
     """Threads ``role`` may use in ``phase``. A role that does not run in that phase gets one."""
     _check(role, phase)
     forced = _override(role)
+    if forced is None and role in SHARES:
+        forced = _override(SHARES[role])
     if forced is not None:
         return forced
+    role = SHARES.get(role, role)
     for group in plan(phase, cores):
         if role in group.roles:
             return group.threads
@@ -120,7 +126,7 @@ def threads(role: str, phase: str, cores: int | None = None) -> int:
 def steady(role: str, cores: int | None = None) -> int:
     """The count to build a session with (it keeps that count): the role's budget in the phase it works in."""
     _check(role, None)
-    return threads(role, HOME.get(role, "idle"), cores)
+    return threads(role, HOME.get(SHARES.get(role, role), "idle"), cores)
 
 
 def session_settings(
@@ -133,7 +139,7 @@ def session_settings(
     if intra is None:
         intra = threads(role, phase, cores) if phase else steady(role, cores)
     intra = max(1, intra)
-    spin = 0 if role in BACKGROUND or _cores(cores) < SPIN_FROM_CORES else 1
+    spin = 0 if SHARES.get(role, role) in BACKGROUND or _cores(cores) < SPIN_FROM_CORES else 1
     return {"intra_op": intra, "inter_op": 1, "allow_spinning": spin}
 
 

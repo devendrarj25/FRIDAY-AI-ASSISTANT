@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+import voice_budget
 
 RATE = 16000
 DENOISE_ENGINES = ("dpdfnet2", "gtcrn")
@@ -112,9 +113,7 @@ def _session(path: Path) -> Any:
         except ImportError as exc:
             raise DenoiseUnavailable("onnxruntime is not installed") from exc
         try:
-            options = ort.SessionOptions()
-            options.intra_op_num_threads = 1
-            options.inter_op_num_threads = 1
+            options = voice_budget.ort_session_options("denoise") or ort.SessionOptions()
             made = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
         except Exception as exc:  # noqa: BLE001
             raise DenoiseUnavailable(f"the model did not open: {type(exc).__name__}: {exc}"[:300]) from exc

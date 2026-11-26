@@ -19,6 +19,8 @@ import os
 import re
 from pathlib import Path
 
+import voice_budget
+
 MODEL_DIR = "hindi-punct"
 MODEL_FILE = "punct_cap_seg_47lang.onnx"
 SPM_FILE = "spe_unigram_64k_lowercase_47lang.model"
@@ -113,8 +115,7 @@ def _load_runtime(folder: Path) -> _Runtime:
     sp = sentencepiece.SentencePieceProcessor()
     # Loaded from bytes so a folder name with non-ASCII letters opens on Windows too.
     sp.LoadFromSerializedProto((folder / SPM_FILE).read_bytes())
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
+    options = voice_budget.ort_session_options("punct") or ort.SessionOptions()
     session = ort.InferenceSession(str(folder / MODEL_FILE), options, providers=["CPUExecutionProvider"])
     labels, max_length = read_config(folder)
     return _Runtime(sp, session, labels, max_length)

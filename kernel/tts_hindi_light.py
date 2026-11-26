@@ -21,6 +21,8 @@ import re
 import unicodedata
 from pathlib import Path
 
+import voice_budget
+
 MODEL_DIR = "hindi-light-tts"
 GRAPHS = ("text_encoder", "flow_decoder", "vocoder")
 REQUIRED = (
@@ -201,10 +203,8 @@ class _OnnxEngine:
         self.n_fft, self.hop, self.padding = int(head["n_fft"]), int(head["hop_length"]), head.get("padding", "center")
         self.frame_multiple = int(manifest["frame_multiple"])
         self.max_tokens = int(manifest["max_tokens"])
-        options = ort.SessionOptions()
+        options = voice_budget.ort_session_options("tts_light") or ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        options.inter_op_num_threads = 1
-        options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
         self.sessions = {
             name: ort.InferenceSession(
                 str(folder / "onnx" / f"{name}.onnx"), options, providers=["CPUExecutionProvider"]

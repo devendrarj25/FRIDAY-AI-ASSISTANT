@@ -22,6 +22,7 @@ from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import numpy as np
+import voice_budget
 
 RATE = 16000
 WINDOW = RATE  # one second
@@ -478,9 +479,7 @@ def load_embedder(path: str) -> Embedder:
     """The embedding model through onnxruntime on one CPU thread: (n, 76, 32) mel windows in, (n, 96) out."""
     import onnxruntime as ort  # type: ignore
 
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.inter_op_num_threads = 1
+    options = voice_budget.ort_session_options("wake") or ort.SessionOptions()
     session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
     name = session.get_inputs()[0].name
 
