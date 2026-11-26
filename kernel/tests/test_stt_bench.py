@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import hinglish_lexicon  # noqa: E402
 import stt_bench  # noqa: E402
 
 
@@ -600,6 +601,14 @@ def test_the_two_lexicon_copies_are_one_table():
     assert stt_bench.LEXICON_VERSION == TWER["lexiconVersion"]
     assert len(lines) == TWER["lexiconDigest"]["entries"]
     assert hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest() == TWER["lexiconDigest"]["sha256"]
+
+
+def test_the_scorer_reads_the_shared_word_table_added_words_included():
+    shared = [line for line in hinglish_lexicon.table_lines() if line.split("|")[0] in {"sure", "ambiguous", "loan"}]
+    assert stt_bench.lexicon_lines() == sorted(shared)
+    assert stt_bench.LEXICON_VERSION == hinglish_lexicon.LEXICON_VERSION == "hinglish-lex-2"
+    for word in ("ruko", "rukiye", "dekh", "ji"):
+        assert stt_bench.label_languages([word]) == ["hi"], word
 
 
 @pytest.mark.parametrize("case", TWER["fix"], ids=lambda c: c["id"])

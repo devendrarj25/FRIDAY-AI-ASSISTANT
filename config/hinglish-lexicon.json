@@ -1,6 +1,6 @@
 {
   "note": "Hinglish word tables shared by src/lib/friday/voice-engine/hinglish-lexicon.ts and kernel/hinglish_lexicon.py. sureHindi plus sureHindiAdded are Roman Hindi spellings (variants joined by |) with their Devanagari; ambiguous words turn Devanagari only beside a sure Hindi word; loanwords are the Latin English word with the Devanagari spellings an engine writes for it.",
-  "version": "hinglish-lex-1",
+  "version": "hinglish-lex-2",
   "thresholds": {
     "romanHinglishShare": 0.3,
     "shortTurnWords": 3

@@ -1,9 +1,9 @@
 {
   "note": "Synthetic vectors for T-WER, the switch-point error rate, the script policy and the Wilson ranges, shared by kernel/stt_bench.py and src/lib/friday/voice-engine/transcript-scorer.ts (and hinglish-lexicon.ts). Text is invented, no audio exists. The fixScript, label, fold and count expectations were worked out by hand; the Wilson ranges were checked against the textbook values (0 of 10 is 0 to 0.2775, 5 of 10 is 0.2366 to 0.7634). The lexicon digest pins the two copies of the word tables together: when you change a table in one language, change the other and the digest. They test the scorer, not any model.",
-  "lexiconVersion": "hinglish-lex-1",
+  "lexiconVersion": "hinglish-lex-2",
   "lexiconDigest": {
-    "entries": 251,
-    "sha256": "6a10f4db43cca4665a40c4fcd33d1bfb478dc68288ed19910dac2a38d2f47a4e",
+    "entries": 258,
+    "sha256": "42244b624bad4023a308a7c6649cca4e84270316e2ae2da1aad9700a7451484d",
     "how": "sha256 of the lexicon lines joined with a newline, UTF-8"
   },
   "fix": [
@@ -102,6 +102,18 @@
       "text": "",
       "policy": "codemix",
       "expected": ""
+    },
+    {
+      "id": "added-sure-words-roman-to-devanagari",
+      "text": "ruko meeting dekh ji",
+      "policy": "codemix",
+      "expected": "रुको meeting देख जी"
+    },
+    {
+      "id": "added-sure-word-variants",
+      "text": "rukiye dekhne",
+      "policy": "codemix",
+      "expected": "रुकिए देखने"
     }
   ],
   "label": [
@@ -162,6 +174,20 @@
     {
       "cores": [],
       "langs": []
+    },
+    {
+      "cores": [
+        "ruko",
+        "meeting",
+        "dekh",
+        "ji"
+      ],
+      "langs": [
+        "hi",
+        "en",
+        "hi",
+        "hi"
+      ]
     }
   ],
   "twerFold": [
@@ -297,6 +323,26 @@
       "switchErrors": 0,
       "policyFixes": 0,
       "hypWords": 1
+    },
+    {
+      "id": "added-sure-words-devanagari-hypothesis",
+      "reference": "rukiye meeting dekh ji",
+      "hypothesis": "रुकिए मीटिंग देख जी",
+      "twerEdits": 0,
+      "switchPoints": 2,
+      "switchErrors": 0,
+      "policyFixes": 1,
+      "hypWords": 4
+    },
+    {
+      "id": "added-sure-words-roman-hypothesis",
+      "reference": "ruko meeting dekh ji",
+      "hypothesis": "ruko meeting dekh ji",
+      "twerEdits": 0,
+      "switchPoints": 2,
+      "switchErrors": 0,
+      "policyFixes": 3,
+      "hypWords": 4
     }
   ],
   "aggregate": {

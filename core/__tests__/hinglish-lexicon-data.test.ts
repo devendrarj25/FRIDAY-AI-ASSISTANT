@@ -114,16 +114,17 @@ describe("the Hinglish lexicon data", () => {
     const json = JSON.parse(
       readFileSync(resolve(__dirname, "../../config/hinglish-lexicon.json"), "utf8"),
     ) as { version: string; sureHindiAdded: Array<[string, string]> };
-    expect(json.version).toBe("hinglish-lex-1");
+    expect(json.version).toBe("hinglish-lex-2");
     const lines = lexiconDataLines();
     expect(lines).toEqual([...lines].sort());
     const hash = createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
     expect(lines.length).toBe(PINNED_LINES);
     expect(hash).toBe(PINNED_HASH);
-    // The scorer's pinned digest (twer-vectors.json) still describes the older tables only.
+    // The scorer's pinned view (lexiconLines, twer-vectors.json) reads the same sure-Hindi data, added words included.
     const added = json.sureHindiAdded.flatMap(([v]) => v.split("|"));
     const scored = new Set(lexiconLines().map((l) => l.split("|")[1]));
-    for (const w of added) expect(scored.has(w), w).toBe(false);
+    for (const w of added) expect(scored.has(w), w).toBe(true);
+    for (const w of ["ruko", "rukiye", "dekh", "ji"]) expect(scored.has(w), w).toBe(true);
   });
 });
 

@@ -67,15 +67,11 @@ export function lexiconKey(word: string): string {
 const sureHindi = new Map<string, string>();
 const ambiguous = new Map<string, string>();
 const loanwords = new Map<string, string>();
-const addedKeys = new Set<string>();
 for (const [variants, devanagari] of SURE_HINDI) {
   for (const v of variants.split("|")) sureHindi.set(v, devanagari);
 }
 for (const [variants, devanagari] of SURE_HINDI_ADDED) {
-  for (const v of variants.split("|")) {
-    sureHindi.set(v, devanagari);
-    addedKeys.add(v);
-  }
+  for (const v of variants.split("|")) sureHindi.set(v, devanagari);
 }
 for (const [roman, devanagari] of AMBIGUOUS) ambiguous.set(roman, devanagari);
 for (const [latin, spellings] of LOANWORDS) {
@@ -83,12 +79,13 @@ for (const [latin, spellings] of LOANWORDS) {
 }
 
 /**
- * One line per table entry of the scored tables, in a fixed order, so two implementations can compare a hash of
- * their tables. It leaves out `sureHindiAdded`, which `kernel/stt_bench.py` and its pinned digest do not have yet.
+ * One line per table entry of the scored tables (sure Hindi with the added words, ambiguous, loanwords), in a fixed
+ * order, so two implementations can compare a hash of their tables. `kernel/stt_bench.py` builds the same lines
+ * from `kernel/hinglish_lexicon.py`.
  */
 export function lexiconLines(): string[] {
   const lines: string[] = [];
-  for (const [k, v] of sureHindi) if (!addedKeys.has(k)) lines.push(`sure|${k}|${v}`);
+  for (const [k, v] of sureHindi) lines.push(`sure|${k}|${v}`);
   for (const [k, v] of ambiguous) lines.push(`ambiguous|${k}|${v}`);
   for (const [k, v] of loanwords) lines.push(`loan|${k}|${v}`);
   return lines.sort();
@@ -97,7 +94,6 @@ export function lexiconLines(): string[] {
 /** Every table of config/hinglish-lexicon.json as sorted lines; `kernel/hinglish_lexicon.py` builds the same lines. */
 export function lexiconDataLines(): string[] {
   const lines = lexiconLines();
-  for (const k of addedKeys) lines.push(`sure|${k}|${sureHindi.get(k)}`);
   for (const [group, table] of [
     ["tail", DATA.tailWords],
     ["backchannel", DATA.backchannel],

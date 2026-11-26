@@ -89,7 +89,7 @@ def test_tail_and_backchannel_tables_are_shared_data():
 def test_table_hash_is_pinned_and_matches_the_renderer():
     root = Path(__file__).resolve().parents[2]
     data = json.loads((root / "config" / "hinglish-lexicon.json").read_text(encoding="utf-8"))
-    assert data["version"] == lex.LEXICON_VERSION == "hinglish-lex-1"
+    assert data["version"] == lex.LEXICON_VERSION == "hinglish-lex-2"
     lines = lex.table_lines()
     assert lines == sorted(lines)
     assert len(lines) == PINNED_LINES

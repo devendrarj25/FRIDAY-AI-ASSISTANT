@@ -33,6 +33,7 @@ import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
+import hinglish_lexicon
 import text_norm
 
 AUDIO = (".wav", ".mp3", ".m4a", ".ogg", ".flac")
@@ -340,69 +341,19 @@ def mer(reference: str, hypothesis: str) -> float:
 # together (a hash of the tables and hand-set vectors). Only words in the tables change; a word that is both Hindi and
 # English (do, main, to, me, hai ...) stays as written unless a word next to it is surely Hindi.
 
-LEXICON_VERSION = "hinglish-lex-1"
-_SURE_HINDI = (
-    ("kal", "कल"), ("aaj|aj", "आज"), ("subah|subha|subeh", "सुबह"), ("shaam|sham", "शाम"), ("raat", "रात"),
-    ("abhi", "अभी"), ("ab", "अब"), ("phir|fir", "फिर"), ("kya", "क्या"), ("kyun|kyu", "क्यों"),
-    ("kyunki", "क्योंकि"), ("kaise", "कैसे"), ("kahan|kaha", "कहाँ"), ("kab", "कब"), ("kaun", "कौन"),
-    ("kitna", "कितना"), ("kitne", "कितने"), ("mujhe", "मुझे"), ("mera", "मेरा"), ("meri", "मेरी"),
-    ("mere", "मेरे"), ("tum", "तुम"), ("tumhe", "तुम्हें"), ("aap", "आप"), ("humein|hame", "हमें"),
-    ("yeh", "यह"), ("ye", "ये"), ("woh|wo|vo", "वो"), ("nahi|nahin|nhi", "नहीं"), ("haan|han", "हाँ"),
-    ("theek|thik", "ठीक"), ("achha|accha|acha", "अच्छा"), ("bahut|bohot", "बहुत"), ("thoda", "थोड़ा"),
-    ("zyada|jyada|jyaada", "ज़्यादा"), ("kaam", "काम"), ("ghar", "घर"), ("paani|pani", "पानी"),
-    ("khana", "खाना"), ("laga", "लगा"), ("lagao", "लगाओ"), ("lagana", "लगाना"), ("karo", "करो"),
-    ("karna", "करना"), ("dijiye", "दीजिए"), ("bhejo", "भेजो"), ("bata", "बता"), ("batao", "बताओ"),
-    ("dikhao", "दिखाओ"), ("kholo", "खोलो"), ("chalu", "चालू"), ("shuru", "शुरू"), ("rukho", "रुको"),
-    ("suno", "सुनो"), ("dekho", "देखो"), ("chalo", "चलो"), ("bolo", "बोलो"), ("chahiye", "चाहिए"),
-    ("hoon|hun", "हूँ"), ("hain", "हैं"), ("tha", "था"), ("thi", "थी"), ("raha", "रहा"), ("rahi", "रही"),
-    ("rahe", "रहे"), ("jao", "जाओ"), ("aao", "आओ"), ("se", "से"), ("ko", "को"), ("ka", "का"), ("ki", "की"),
-    ("ke", "के"), ("bhi", "भी"), ("aur", "और"), ("lekin", "लेकिन"), ("agar", "अगर"), ("toh", "तो"),
-    ("sab", "सब"), ("kuch", "कुछ"), ("koi", "कोई"), ("bhai", "भाई"), ("dost", "दोस्त"), ("paise", "पैसे"),
-    ("baje", "बजे"), ("samajh", "समझ"), ("pata", "पता"), ("zaroor|jaroor", "ज़रूर"), ("bilkul", "बिल्कुल"),
-    ("dhanyavaad|dhanyavad", "धन्यवाद"), ("namaste", "नमस्ते"), ("shukriya", "शुक्रिया"), ("kripya", "कृपया"),
-    ("jaldi", "जल्दी"), ("baad", "बाद"), ("pehle|pahle", "पहले"),
-)  # fmt: skip
-_AMBIGUOUS = (
-    ("do", "दो"), ("main", "मैं"), ("to", "तो"), ("me", "में"), ("mein", "में"), ("hai", "है"), ("hum", "हम"),
-    ("par", "पर"), ("band", "बंद"), ("hi", "ही"), ("sun", "सुन"), ("chal", "चल"),
-)  # fmt: skip
-_LOANWORDS = (
-    ("description", "डिस्क्रिप्शन|डिस्क्रिपशन"), ("meeting", "मीटिंग"), ("alarm", "अलार्म|अलारम"),
-    ("phone", "फोन"), ("mobile", "मोबाइल"), ("computer", "कंप्यूटर|कम्प्यूटर"), ("laptop", "लैपटॉप"),
-    ("email", "ईमेल"), ("message", "मैसेज|मेसेज"), ("reminder", "रिमाइंडर"), ("calendar", "कैलेंडर|कैलेण्डर"),
-    ("battery", "बैटरी"), ("internet", "इंटरनेट"), ("wifi", "वाईफाई|वायफाय"), ("bluetooth", "ब्लूटूथ"),
-    ("volume", "वॉल्यूम|वॉल्युम"), ("screen", "स्क्रीन"), ("screenshot", "स्क्रीनशॉट"), ("file", "फाइल"),
-    ("folder", "फोल्डर"), ("download", "डाउनलोड"), ("upload", "अपलोड"), ("app", "ऐप|एप"),
-    ("application", "एप्लीकेशन|एप्लिकेशन"), ("update", "अपडेट"), ("settings", "सेटिंग्स|सेटिंग"),
-    ("password", "पासवर्ड"), ("camera", "कैमरा"), ("photo", "फोटो"), ("video", "वीडियो"), ("music", "म्यूजिक"),
-    ("song", "सॉन्ग|सांग"), ("play", "प्ले"), ("pause", "पॉज"), ("stop", "स्टॉप"), ("next", "नेक्स्ट"),
-    ("call", "कॉल"), ("number", "नंबर"), ("time", "टाइम"), ("ok", "ओके"), ("sorry", "सॉरी"),
-    ("thanks", "थैंक्स"), ("please", "प्लीज"), ("report", "रिपोर्ट"), ("document", "डॉक्यूमेंट|डाक्यूमेंट"),
-    ("schedule", "शेड्यूल"), ("notification", "नोटिफिकेशन"), ("search", "सर्च"), ("google", "गूगल"),
-    ("youtube", "यूट्यूब"), ("whatsapp", "व्हाट्सएप|व्हाट्सऐप"), ("chrome", "क्रोम"), ("desktop", "डेस्कटॉप"),
-    ("window", "विंडो"), ("mute", "म्यूट"), ("brightness", "ब्राइटनेस"), ("timer", "टाइमर"), ("note", "नोट"),
-    ("task", "टास्क"), ("list", "लिस्ट"), ("mail", "मेल"), ("madam", "मैडम"), ("office", "ऑफिस"),
-    ("bank", "बैंक"), ("doctor", "डॉक्टर"), ("hospital", "हॉस्पिटल"), ("train", "ट्रेन"), ("taxi", "टैक्सी"),
-    ("ticket", "टिकट"), ("online", "ऑनलाइन"), ("offline", "ऑफलाइन"), ("mode", "मोड"), ("voice", "वॉइस|वॉयस"),
-    ("friday", "फ्राइडे"), ("button", "बटन"), ("click", "क्लिक"), ("open", "ओपन"), ("close", "क्लोज"),
-    ("send", "सेंड"), ("save", "सेव"), ("delete", "डिलीट"), ("project", "प्रोजेक्ट"),
-    ("presentation", "प्रेजेंटेशन"), ("cancel", "कैंसल"), ("reply", "रिप्लाई"), ("problem", "प्रॉब्लम"),
-    ("plan", "प्लान"), ("data", "डेटा"), ("traffic", "ट्रैफिक"), ("weather", "वेदर"), ("news", "न्यूज"),
-    ("lunch", "लंच"), ("dinner", "डिनर"), ("movie", "मूवी"), ("bill", "बिल"), ("card", "कार्ड"),
-    ("link", "लिंक"), ("share", "शेयर"), ("chat", "चैट"), ("team", "टीम"), ("client", "क्लाइंट"),
-    ("budget", "बजट"), ("final", "फाइनल"), ("flight", "फ्लाइट"), ("hotel", "होटल"),
-    ("restaurant", "रेस्टोरेंट"),
-)  # fmt: skip
+LEXICON_VERSION = hinglish_lexicon.LEXICON_VERSION
+lexicon_key = hinglish_lexicon.lexicon_key
 
 
-def lexicon_key(word: str) -> str:
-    """A word on its lexicon key: NFC, lower case, the nukta dropped and the chandrabindu written as the anusvara."""
-    return unicodedata.normalize("NFC", word).lower().replace("\u093c", "").replace("\u0901", "\u0902")
+def _scored_table(group: str) -> dict[str, str]:
+    """One scored table (sure, ambiguous or loan) read back from the shared word table's lines."""
+    prefix = group + "|"
+    return dict(line[len(prefix) :].split("|", 1) for line in hinglish_lexicon.table_lines() if line.startswith(prefix))
 
 
-_SURE_MAP = {v: deva for variants, deva in _SURE_HINDI for v in variants.split("|")}
-_AMBIGUOUS_MAP = dict(_AMBIGUOUS)
-_LOAN_MAP = {lexicon_key(s): latin for latin, spellings in _LOANWORDS for s in spellings.split("|")}
+_SURE_MAP = _scored_table("sure")
+_AMBIGUOUS_MAP = _scored_table("ambiguous")
+_LOAN_MAP = _scored_table("loan")
 
 
 def lexicon_lines() -> list[str]:
