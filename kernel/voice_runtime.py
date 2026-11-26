@@ -12,10 +12,13 @@ suppression is pyrnnoise on PCM when that wheel imports. FRIDAY Echo
 (echo_canceller.py, pyaec) is optional: the live microphone path cleans with the renderer's own canceller
 (`audio-aec.ts`, setting `voice.echoReference`); this module only measures it (`echo-shadow`, levels, never a gate).
 
-Speaking: Supertonic 3 (code MIT, weights OpenRAIL-M), voice F2, when
-``models/supertonic-3`` is on disk. No automatic download on a speak call.
-System voices remain the offline speaker until then. Cloud speech is decided
-by the desktop, not here.
+Speaking: FRIDAY Voice (``friday_voice``, own runner of the Supertonic 3 graphs; code MIT, weights OpenRAIL-M) with
+the FRIDAY persona (``voice_persona``: a blend of the open voice presets plus the finishing chain of ``voice_fx``),
+when ``models/supertonic-3`` is on disk. A request is cut into clauses (``tts_frontend``), its delivery tags are read
+by ``tts_delivery`` (only for text the caller marks ``trusted``), and each clause is made, trimmed and finished in
+turn so the first one can play at once. When the own engine is absent or fails, the ``supertonic`` package speaks
+exactly as before. No automatic download on a speak call. System voices remain the offline speaker until then.
+Cloud speech is decided by the desktop, not here.
 
 Speaker verification stays not-ready. A missing verifier is not a match and
 never approves an action.
@@ -32,7 +35,9 @@ import re
 import shutil
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import echo_canceller
 import language_segmenter
@@ -139,6 +144,12 @@ LOCAL_TTS_REASON = (
 )
 _tts = None
 _tts_dir = ""
+# The own engine (one per model folder, shared by every request), how often it failed in a row, and the last error.
+_engine: Any = None
+_engine_dir = ""
+_engine_failures = 0
+_engine_error = ""
+ENGINE_MAX_FAILURES = 3
 # Quiet between two language spans of one reply, in seconds.
 SPAN_GAP_SECONDS = 0.08
 
@@ -161,13 +172,52 @@ def smart_turn_path() -> Path | None:
     return found
 
 
+def _tts_facts(directory: Path | None) -> tuple[bool, int, str, int]:
+    """(own engine can run, its sample rate, default voice id, recipe version). Opens no model and never raises."""
+    if directory is None or _engine_failures >= ENGINE_MAX_FAILURES:
+        return False, 0, SUPERTONIC_VOICE, 0
+    try:
+        import importlib.util
+
+        import friday_voice
+        import voice_persona
+
+        if not friday_voice.complete(directory) or importlib.util.find_spec("onnxruntime") is None:
+            return False, 0, SUPERTONIC_VOICE, 0
+        rate = 0
+        if _engine is not None and _engine_dir == str(directory):
+            rate = int(_engine.sample_rate)
+        else:
+            try:
+                rate = int(
+                    json.loads((directory / "onnx" / "tts.json").read_text(encoding="utf-8"))["ae"]["sample_rate"]
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                rate = 0
+        return True, rate, voice_persona.DEFAULT_ID, int(voice_persona.RECIPE_VERSION)
+    except Exception:  # noqa: BLE001 - a status call reports what it can, it never fails
+        return False, 0, SUPERTONIC_VOICE, 0
+
+
 def tts_status() -> dict:
-    ready = supertonic_dir() is not None
+    directory = supertonic_dir()
+    ready = directory is not None
+    own, rate, voice_id, recipe = _tts_facts(directory)
+    if not ready:
+        reason = LOCAL_TTS_REASON
+    elif not own and _engine_failures >= ENGINE_MAX_FAILURES:
+        reason = f"The FRIDAY voice engine stopped after {ENGINE_MAX_FAILURES} failures; the Supertonic package speaks."
+    else:
+        reason = ""
     return {
         "ready": ready,
-        "engine": "supertonic-3" if ready else "none",
-        "voice": SUPERTONIC_VOICE,
-        "reason": "" if ready else LOCAL_TTS_REASON,
+        "engine": "friday-voice" if own else ("supertonic-3" if ready else "none"),
+        "own": own,
+        "voice": voice_id,
+        "voiceId": voice_id,
+        "sampleRate": rate,
+        "recipeVersion": recipe,
+        "reason": reason,
         "offlineFallback": "sapi",
         "cloud": "opt-in",
         "license": "MIT code, OpenRAIL-M weights",
@@ -316,6 +366,21 @@ def voice_style_name(requested: str = "") -> str:
     return name if _STYLE.match(name) else SUPERTONIC_VOICE
 
 
+def persona_name(requested: object = "") -> str:
+    """The FRIDAY voice asked for as a known id: a recipe id (``friday``, ``friday-bright``...) or a preset (``F1``..).
+
+    Case does not matter. Only the whitelist of ``voice_persona`` passes: an empty, unknown, path-like or
+    over-long id is the default ``friday``. ``voice_style_name`` stays the preset-only rule of the ``supertonic``
+    package path, which cannot read a recipe.
+    """
+    try:
+        import voice_persona
+
+        return voice_persona.resolve_id(requested)
+    except Exception:  # noqa: BLE001 - without the engine modules the default id is still the answer
+        return "friday"
+
+
 # ---- per-utterance cancel -------------------------------------------------------------------------------------
 # The renderer tags every ``speak-pcm`` clause with an utterance id (``utt``, 1 to 64 characters of A-Z a-z 0-9 _ -).
 # A ``cancel`` line for that id marks it dead. The worker is never killed: the line is read by a reader thread while a
@@ -388,19 +453,229 @@ def _synth_array(spoken: str, rate: float, lang: str, style: str = ""):
     return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
-def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None):
-    """The one synthesis path. (float32 mono array, sample rate), or None when the model or package is absent.
+@dataclass(frozen=True)
+class SpeakOptions:
+    """What a ``speak-pcm`` request adds to plain text: its utterance, whether its tags are trusted, whether it opens
+    the reply (fewer steps, first clause short) and the silence to leave after it. All default to "not asked"."""
 
-    ``stop`` is an optional callable checked before every span and once more before the pieces are joined; when it
-    answers true the call raises ``SpeechCancelled`` (the only exception that leaves this function).
+    utt: str = ""
+    trusted: bool = False
+    first: bool = False
+    pause_ms: int = 0
 
-    Text in one script is one call. Mixed Hindi and English is cut into a few
-    phrase-sized spans (never one call per word); each is read in its own
-    language with the same voice and the pieces join in written order.
-    """
-    spoken = (text or "").strip()
-    if not spoken:
+
+FIRST_CLAUSE_STEPS = 4  # measured: 4, 5 and 8 steps are equally intelligible; 2 is not, 3 is hissier
+MAX_SPEAK_CHARS = 500  # the cap of every speak call
+PARSE_INPUT_CHARS = 2000  # what the tag reader looks at, before the cap on spoken characters
+MAX_PAUSE_MS = 1200
+UTTERANCE_KEEP = 64
+EDGE_FADE_MS = 4.0
+_personas: dict[str, tuple[Any, Any]] = {}
+
+
+class _Utterance:
+    """The finishing chains of one utterance: filter state carries over from one clause to the next."""
+
+    def __init__(self) -> None:
+        self.chains: dict[tuple[str, tuple[tuple[str, float], ...]], Any] = {}
+
+
+_utterances: OrderedDict[str, _Utterance] = OrderedDict()
+
+
+def reset_speech_state() -> None:
+    """Forget the engine, the personas and every utterance (tests, and a model swap)."""
+    global _engine, _engine_dir, _engine_failures, _engine_error
+    _engine, _engine_dir, _engine_failures, _engine_error = None, "", 0, ""
+    _personas.clear()
+    _utterances.clear()
+
+
+def _voice_threads() -> int:
+    """Intra-op threads of the engine: half the cores, at most three (all cores but one was the slowest under load)."""
+    return max(1, min(3, (os.cpu_count() or 2) // 2))
+
+
+def _friday_engine() -> Any:
+    """The one FRIDAY Voice engine for the model folder, or None when it cannot run here (or failed too often)."""
+    global _engine, _engine_dir
+    if _engine_failures >= ENGINE_MAX_FAILURES:
         return None
+    directory = supertonic_dir()
+    if directory is None:
+        return None
+    if _engine is not None and _engine_dir == str(directory):
+        return _engine
+    try:
+        import friday_voice
+
+        found = friday_voice.open_voice(directory, threads=_voice_threads())
+    except Exception:  # noqa: BLE001 - the engine not opening is the fallback, not a failure
+        return None
+    if found is None:
+        return None
+    _engine, _engine_dir = found, str(directory)
+    return found
+
+
+def _persona(engine: Any, requested: object) -> Any:
+    """The resolved persona for a request, made once per recipe (its cache key) and engine."""
+    import voice_persona
+
+    pid = voice_persona.resolve_id(requested)
+    key = voice_persona.cache_key(pid)
+    hit = _personas.get(key)
+    if hit is not None and hit[0] is engine:
+        return hit[1]
+    resolved = voice_persona.resolve(pid, engine)
+    _personas[key] = (engine, resolved)
+    return resolved
+
+
+def _utterance_state(utt: str) -> _Utterance:
+    """The chain state of an utterance id; a new id starts fresh, no id is a fresh state for this request only."""
+    if not utt:
+        return _Utterance()
+    state = _utterances.get(utt)
+    if state is None:
+        state = _utterances[utt] = _Utterance()
+        while len(_utterances) > UTTERANCE_KEEP:
+            _utterances.popitem(last=False)
+    else:
+        _utterances.move_to_end(utt)
+    return state
+
+
+def _chain_for(state: _Utterance, persona: Any, fx_delta: dict[str, float], rate: int) -> Any:
+    import copy
+
+    import voice_fx
+
+    key = (str(persona.cache_key), tuple(sorted(fx_delta.items())))
+    chain = state.chains.get(key)
+    if chain is None:
+        spec = copy.deepcopy(persona.fx_spec)
+        if fx_delta:
+            bands = list(spec.get("eq") or [])
+            for name, gain in sorted(fx_delta.items()):
+                kind, _, hz = name.partition(":")
+                bands.append({"type": kind, "hz": float(hz), "gain_db": float(gain), "q": 0.7})
+            spec["eq"] = bands
+        chain = state.chains[key] = voice_fx.FxChain(rate, spec)
+    return chain
+
+
+def _clauses_for(text: str, lang: str, indexer: Any, keep_split: bool) -> list:
+    """One piece of text as clauses. A long first sentence is cut short only for the opening piece of a reply; for
+    any other the cut is joined back, so a clause of a longer reply is not split twice."""
+    import dataclasses
+
+    import tts_frontend
+
+    made = tts_frontend.prepare(text, lang, 5, indexer=indexer)
+    if (
+        keep_split
+        or len(made) < 2
+        or not (made[0].first and made[0].text.endswith(",") and made[0].lang == made[1].lang)
+    ):
+        return made
+    joined = f"{made[0].text} {made[1].text}"
+    if len(joined) > tts_frontend.CLAUSE_SOFT_CHARS:
+        return made
+    return [dataclasses.replace(made[1], text=joined, first=True, spans=()), *made[2:]]
+
+
+def _render_friday(engine: Any, spoken: str, speed: float, lang: str, style: str, stop: Any, opts: SpeakOptions):
+    """The whole request as (float32 mono array, rate): delivery tags, clauses, one synthesis per clause with its
+    silence trimmed, the utterance's finishing chain, soft edges and the pauses between them."""
+    import numpy as np
+    import tts_delivery
+    import voice_fx
+
+    persona = _persona(engine, style)
+    rate = int(engine.sample_rate)
+    asked = min(2.0, max(0.7, float(speed or 1.0)))
+    base = min(2.0, max(0.7, asked * float(persona.speed_scale)))
+    indexer = getattr(engine, "_indexer", None)
+    state = _utterance_state(opts.utt)
+    parts: list = []
+    pending_ms = 0.0
+    clause_count = 0
+    budget = MAX_SPEAK_CHARS
+
+    def add(audio: Any) -> None:
+        nonlocal pending_ms
+        if parts and pending_ms >= 1.0:
+            parts.append(np.zeros(int(rate * pending_ms / 1000.0), dtype=np.float32))
+        pending_ms = 0.0
+        parts.append(audio)
+
+    for piece in tts_delivery.parse(spoken[:PARSE_INPUT_CHARS], trusted=opts.trusted):
+        _check(stop)
+        if budget <= 0:
+            break
+        ctl = tts_delivery.controls_for(piece, base)
+        pending_ms = max(pending_ms, float(ctl.pause_before_ms))
+        if ctl.noise_ms > 0:
+            add(tts_delivery.fallback_noise(rate, ctl.noise_ms, ctl.noise_db))
+        text = ctl.text[:budget]
+        if not text.strip():
+            pending_ms = max(pending_ms, float(ctl.pause_after_ms))
+            continue
+        budget -= len(text)
+        if ctl.engine_tag:  # an enabled expression tag is sent alone, never inside a sentence
+            import tts_frontend
+
+            planned = [tts_frontend.Clause(text, "na", 0)]
+        else:
+            planned = _clauses_for(text, lang, indexer, opts.first and clause_count == 0)
+        for index, clause in enumerate(planned):
+            opening = opts.first and clause_count == 0
+            steps = min(FIRST_CLAUSE_STEPS, int(persona.steps)) if opening else int(persona.steps)
+            if ctl.steps is not None:
+                steps = max(steps, int(ctl.steps))
+            _check(stop)
+            wav = engine.synth(clause.text, clause.lang, persona.style, steps=steps, speed=ctl.speed)
+            _check(stop)
+            clause_count += 1
+            wav = voice_fx.trim_silence(wav, rate)
+            if wav.size == 0:
+                continue
+            if ctl.gain_db:
+                wav = wav * np.float32(10.0 ** (ctl.gain_db / 20.0))
+            wav = _chain_for(state, persona, ctl.fx_delta, rate).process(wav)
+            add(voice_fx.fade_edges(wav, rate, EDGE_FADE_MS))
+            last = index == len(planned) - 1
+            pending_ms = (
+                float(ctl.pause_after_ms) if last and ctl.pause_after_ms > 0 else clause.pause_ms * ctl.pause_mul
+            )
+    if parts and opts.pause_ms > 0:
+        parts.append(np.zeros(int(rate * min(MAX_PAUSE_MS, opts.pause_ms) / 1000.0), dtype=np.float32))
+    if not parts:
+        return np.zeros(0, dtype=np.float32), rate
+    return np.concatenate(parts).astype(np.float32), rate
+
+
+def _speak_friday(spoken: str, speed: float, lang: str, style: str, stop: Any, opts: SpeakOptions):
+    """FRIDAY Voice's answer: (array, rate), or None when the engine is absent or raised (the caller falls back)."""
+    global _engine_failures, _engine_error
+    engine = _friday_engine()
+    if engine is None:
+        return None
+    try:
+        made = _render_friday(engine, spoken, speed, lang, style, stop, opts)
+    except SpeechCancelled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - any engine error is the old path's turn
+        _engine_failures += 1
+        _engine_error = f"{type(exc).__name__}: {str(exc)[:120]}"
+        return None
+    _engine_failures = 0
+    return made
+
+
+def _speak_supertonic(spoken: str, speed: float, lang: str, style: str, stop: Any):
+    """The ``supertonic`` package path, as it always was: the fallback when FRIDAY Voice cannot speak."""
     directory = supertonic_dir()
     if directory is None:
         return None
@@ -436,6 +711,27 @@ def _speak_array(text: str, speed: float = 1.0, lang: str = "", style: str = "",
         return None
 
 
+def _speak_array(
+    text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None, opts: SpeakOptions | None = None
+):
+    """The one synthesis path. (float32 mono array, sample rate), or None when no engine can speak.
+
+    FRIDAY Voice speaks when the model folder is complete and onnxruntime is there; otherwise, or when it raises,
+    the ``supertonic`` package speaks the same text as it always did. ``stop`` is an optional callable checked
+    before and after every clause; when it answers true the call raises ``SpeechCancelled`` (the only exception
+    that leaves this function).
+    """
+    spoken = (text or "").strip()
+    if not spoken:
+        return None
+    if supertonic_dir() is None:
+        return None
+    made = _speak_friday(spoken, speed, lang, style, stop, opts or SpeakOptions())
+    if made is not None:
+        return made if made[0].size else None
+    return _speak_supertonic(spoken, speed, lang, style, stop)
+
+
 def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> bytes | None:
     """Local Supertonic speech as WAV bytes. None when the model or package is absent."""
     made = _speak_array(text, speed, lang, style)
@@ -462,7 +758,9 @@ def _int16_pcm(audio) -> bytes:
     return np.clip(np.floor(audio * np.float32(32768.0)), -32768, 32767).astype("<i2").tobytes()
 
 
-def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None) -> tuple[bytes, int] | None:
+def speak_pcm16(
+    text: str, speed: float = 1.0, lang: str = "", style: str = "", stop=None, opts: SpeakOptions | None = None
+) -> tuple[bytes, int] | None:
     """The same samples as ``speak_wav_bytes`` as raw little-endian int16 mono, plus the sample rate.
 
     Nothing is written to disk. The float to int16 step matches what libsndfile
@@ -470,7 +768,12 @@ def speak_pcm16(text: str, speed: float = 1.0, lang: str = "", style: str = "", 
     with the WAV path to within one sample on any libsndfile. ``stop`` is the cooperative cancel check of
     ``_speak_array``.
     """
-    made = _speak_array(text, speed, lang, style) if stop is None else _speak_array(text, speed, lang, style, stop)
+    extra: dict = {}
+    if stop is not None:
+        extra["stop"] = stop
+    if opts is not None:
+        extra["opts"] = opts
+    made = _speak_array(text, speed, lang, style, **extra)
     if made is None:
         return None
     try:
@@ -1040,6 +1343,24 @@ def _hindi_light_pcm16(text: str, speed: float, lang: str, style: str) -> tuple[
     return ((data, rate), "") if data else (None, "hindi-light-failed")
 
 
+def _speak_options(req: dict, utt: str) -> SpeakOptions | None:
+    """The optional fields of a ``speak-pcm`` request, or None when it carries none (the plain, older request).
+
+    ``trusted: true`` lets the model's delivery tags act (the renderer sets it only for FRIDAY's own words; text from a
+    tool, page or person stays untrusted and its tags are removed). ``first: true`` marks the opening clause of a
+    reply (fewer steps, a long first sentence cut short). ``pauseMs`` is silence left after this request, 0 to 1200.
+    """
+    trusted = req.get("trusted") is True
+    first = req.get("first") is True
+    raw = req.get("pauseMs")
+    pause = 0
+    if isinstance(raw, int | float) and not isinstance(raw, bool) and math.isfinite(raw):
+        pause = int(min(MAX_PAUSE_MS, max(0, raw)))
+    if not (utt or trusted or first or pause):
+        return None
+    return SpeakOptions(utt=utt, trusted=trusted, first=first, pause_ms=pause)
+
+
 def speak_pcm_payload(req: dict) -> dict:
     """Reply body of the ``speak-pcm`` worker op: base64 int16 PCM, nothing on disk, no cache.
 
@@ -1083,8 +1404,12 @@ def speak_pcm_payload(req: dict) -> dict:
         elif asked and asked not in ("supertonic", DEFAULT_ENGINE):
             extra = {"engine": DEFAULT_ENGINE, "fallback": "unknown-engine"}
         if made is None:
-            # A request with no utterance id is made exactly as it always was (no check to pass).
-            made = speak_pcm16(text, speed, lang, style, stop=stop) if utt else speak_pcm16(text, speed, lang, style)
+            # A request with no utterance id and no new field is made exactly as it always was (no check to pass).
+            kwargs: dict = {"stop": stop} if utt else {}
+            options = _speak_options(req, utt)
+            if options is not None:
+                kwargs["opts"] = options
+            made = speak_pcm16(text, speed, lang, style, **kwargs)
         if stop():
             return {"ok": False, "reason": "cancelled", **tag}
     except SpeechCancelled:
@@ -1100,6 +1425,33 @@ def speak_pcm_payload(req: dict) -> dict:
         **extra,
         **tag,
     }
+
+
+def warm_up_payload(req: dict) -> dict:
+    """Reply body of the ``warm-up`` op: open the engine, run one tiny synthesis, then one short clause through the
+    whole path (persona, trim, chain), so the first spoken reply does not pay for the graphs, the voice blend or the
+    filters. Without the own engine the ``supertonic`` package is loaded the same way. Nothing is stored."""
+    import time
+
+    started = time.perf_counter()
+    style = str(req.get("style") or "")
+    engine = _friday_engine()
+    if engine is not None:
+        try:
+            engine.warm_up()
+            made = _render_friday(engine, "Ready.", 1.0, "en", style, None, SpeakOptions(first=True))
+        except Exception as exc:  # noqa: BLE001 - a failed warm-up is a report, never a crash
+            return {"ok": False, "reason": f"warm-up-failed: {type(exc).__name__}"}
+        return {
+            "ok": True,
+            "engine": "friday-voice",
+            "voiceId": persona_name(style),
+            "sampleRate": int(made[1]),
+            "ms": round((time.perf_counter() - started) * 1000),
+        }
+    if _speak_supertonic("Ready.", 1.0, "en", style, None) is None:
+        return {"ok": False, "reason": LOCAL_TTS_REASON}
+    return {"ok": True, "engine": "supertonic-3", "ms": round((time.perf_counter() - started) * 1000)}
 
 
 # One 160 ms microphone chunk at 16 kHz is 2560 samples; a caller may send up to one second.
@@ -1213,6 +1565,8 @@ def _handle(req: dict) -> tuple[dict, bool]:
         return {"ok": False, "reason": LOCAL_TTS_REASON if not audio else "no output path"}, False
     if op == "speak-pcm":
         return speak_pcm_payload(req), False
+    if op == "warm-up":
+        return warm_up_payload(req), False
     if op == "echo-shadow":
         return echo_shadow_payload(req), False
     return {"ok": False, "reason": "unknown-op"}, False
