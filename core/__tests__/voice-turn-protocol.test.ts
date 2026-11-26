@@ -382,8 +382,30 @@ describe("the speaker and the room never reach approval code", () => {
       if (/\bturnRecord\b|\blastTurn\(|\blastInterruptedPlayedMs\b/.test(line)) owners.add(current);
     }
     expect([...owners].sort()).toEqual(
-      ["acceptFinalUtterance", "lastTurn", "trimReplyToHeard"].sort(),
+      ["acceptFinalUtterance", "lastTurn", "trimReplyToHeard", "turnHints"].sort(),
     );
+  });
+
+  it("hands the brain only the five language hints, never the speaker or the room", () => {
+    const body = method("turnHints");
+    expect(body).toMatch(/lang: t\.lang[\s\S]*mix: t\.mix[\s\S]*confidence: t\.confidence/);
+    expect(body).toMatch(/eager: t\.eager[\s\S]*clipped: t\.clipped/);
+    expect(body).not.toMatch(/speaker|\benv\b/);
+    expect(modeSource).toContain(
+      "brain.adoptDraft(this.draftId, this.speculative, this.turnHints())",
+    );
+    expect(modeSource).toContain("...this.turnHintsOption(),");
+    expect(modeSource).toContain("viaTurn ? { onlyLocal: true } : {}");
+  });
+
+  it("a room tag only reaches the wake guard's observeScene, and a clarify is a question, not a failure", () => {
+    const note = method("noteStreamTurn");
+    expect(note).toContain("voiceGate.wake.observeScene(turn.env, performance.now())");
+    expect(note).not.toMatch(/speaker|needsWake/);
+    expect(modeSource.match(/observeScene\(/g)?.length).toBe(1);
+    const clarify = modeSource.slice(modeSource.indexOf('result.reason === "clarify"'));
+    expect(clarify.slice(0, 600)).toMatch(/this\.speak\(result\.message\)[\s\S]*return true/);
+    expect(clarify.slice(0, 600)).not.toContain("reportFailure");
   });
 
   it("no approval, autonomy, confirmation or authority file imports the stream session", () => {

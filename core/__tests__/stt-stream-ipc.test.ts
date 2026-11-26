@@ -503,6 +503,18 @@ describe("stream-open ears", () => {
     expect(r.calls.at(-1)?.payload).not.toHaveProperty("ears");
   });
 
+  it("passes ownerEmbedding as 64..1024 finite numbers clamped to +-100, and drops anything else", () => {
+    const vec = (n: number, v = 0.5) => Array.from({ length: n }, () => v);
+    const clamped = stt.cleanStreamEars({ ownerEmbedding: [...vec(63), 500, -500] }).ownerEmbedding;
+    expect(clamped).toHaveLength(65);
+    expect(clamped?.slice(-2)).toEqual([100, -100]);
+    expect(stt.cleanStreamEars({ ownerEmbedding: vec(1025) })).toEqual({});
+    expect(stt.cleanStreamEars({ ownerEmbedding: [...vec(64), Number.NaN] })).toEqual({});
+    expect(stt.cleanStreamEars({ ownerEmbedding: [...vec(64), "1"] })).toEqual({});
+    expect(stt.cleanStreamEars({ ownerEmbedding: "abc" })).toEqual({});
+    expect(stt.cleanStreamEars({ ownerEmbedding: vec(64) }).ownerEmbedding).toHaveLength(64);
+  });
+
   it("clamps the low edge and keeps vadEnd under vadStart", () => {
     expect(
       stt.cleanStreamEars({ vadStart: 0.01, vadEnd: 0.01, minSpeechMs: 900, preRollMs: 1 }),

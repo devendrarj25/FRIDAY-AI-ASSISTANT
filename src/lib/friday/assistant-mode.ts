@@ -1351,6 +1351,8 @@ class AssistantModeStore {
     if (this.state.mode !== "auto" || this.state.paused || this.state.muted || this.callHold)
       return;
     const now = Date.now();
+    // The room tag can only RAISE the wake threshold (wake-guard.ts); it never lowers a gate or approves anything.
+    if (turn.env) voiceGate.wake.observeScene(turn.env, performance.now());
     // A new turn id is a new turn: its first draft is allowed again.
     if (turn.turnId !== this.streamTurnId || now - this.partialSeenAt > DRAFT_TURN_GAP_MS)
       this.draftsThisTurn = 0;
@@ -1441,7 +1443,7 @@ class AssistantModeStore {
     const earsEager = viaTurn && preferences.getSnapshot().voice.ears.eagerTurn === true;
     if (!earsEager && preferences.getSnapshot().voice.eagerTurn !== true) return;
     if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
-    const started = brain.startDraft(command);
+    const started = brain.startDraft(command, viaTurn ? { onlyLocal: true } : {});
     if (!started.started) return;
     this.draftsThisTurn += 1;
     this.speculative = command;
@@ -4143,7 +4145,7 @@ class AssistantModeStore {
       this.clearHoldLines();
       this.pendingUserEcho += 1;
       this.markTurnAccepted();
-      if (brain.adoptDraft(this.draftId, this.speculative)) {
+      if (brain.adoptDraft(this.draftId, this.speculative, this.turnHints())) {
         this.discardEager(true);
         this.remember("speculative", command, "already-started");
         this.openFollowUp();
@@ -4327,6 +4329,7 @@ class AssistantModeStore {
       ...(merged ? { extra: merged } : {}),
       ...(modelIds.length ? { modelIds } : {}),
       routingSurface: "voice" as const,
+      ...this.turnHintsOption(),
     };
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
@@ -4348,6 +4351,17 @@ class AssistantModeStore {
         this.speak(line);
         return true;
       }
+    }
+    if (!result.accepted && result.reason === "clarify" && result.message) {
+      // The ear was not sure what it heard: one short question, not a failure and not an error state. The brain
+      // already keeps it to one ask inside 30 s.
+      this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+      this.remember("clarify", command, "asked: low confidence");
+      markTurnStage("routed", true, "", "clarifying question");
+      this.caption("friday", result.message);
+      this.speak(result.message);
+      this.emit();
+      return true;
     }
     markTurnStage(
       "routed",
@@ -5754,6 +5768,24 @@ class AssistantModeStore {
    */
   lastTurn(): TurnRecord | null {
     return this.turnRecord;
+  }
+
+  /** The five language and confidence hints of the heard turn for the Brain. Never the speaker or the room. */
+  private turnHints() {
+    const t = this.turnRecord;
+    if (!t) return undefined;
+    return {
+      lang: t.lang,
+      mix: t.mix,
+      confidence: t.confidence,
+      eager: t.eager,
+      clipped: t.clipped,
+    };
+  }
+
+  private turnHintsOption() {
+    const turn = this.turnHints();
+    return turn ? { turn } : {};
   }
 
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;

@@ -877,6 +877,15 @@ function cleanStreamEars(value) {
   if (minSpeech !== null) out.minSpeechMs = minSpeech;
   const preRoll = earsNumber(value.preRollMs, 200, 1000, true);
   if (preRoll !== null) out.preRollMs = preRoll;
+  const owner = value.ownerEmbedding;
+  if (
+    Array.isArray(owner) &&
+    owner.length >= 64 &&
+    owner.length <= 1024 &&
+    owner.every((n) => typeof n === "number" && Number.isFinite(n))
+  ) {
+    out.ownerEmbedding = owner.map((n) => Math.min(100, Math.max(-100, n)));
+  }
   return out;
 }
 
