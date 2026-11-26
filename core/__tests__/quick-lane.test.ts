@@ -193,10 +193,11 @@ describe("one classifier for sensitive lines: the quick lane keeps no list of it
     "क्या मेरा पासवर्ड abc123 सुरक्षित है",
     "मेरा पिन 4821 सही है क्या?",
     "क्या ओटीपी 553920 सही है",
-    "क्रेडिट कार्ड कैसे काम करता है?",
-    "बैंक खाता संख्या क्या होती है?",
-    "mera otp kya hai?",
-    "kya mera pin number safe hai?",
+    "क्रेडिट कार्ड 4111 1111 1111 1111 कैसे काम करता है?",
+    "बैंक खाता संख्या 123456789012 क्या होती है?",
+    "mera otp 482913 hai kya?",
+    "kya mera pin number 4821 safe hai?",
+    "mera O T P 482913 hai kya?",
   ])("%s waits for the full turn", (line) => {
     expect(ok(line)).toEqual({ ok: false, reason: "needs the full turn" });
   });
@@ -204,6 +205,18 @@ describe("one classifier for sensitive lines: the quick lane keeps no list of it
   it("an ordinary Hindi question and a postal-code question are still allowed", () => {
     expect(ok("इसका आधार क्या है?").ok).toBe(true);
     expect(ok("पिन कोड 110001 कहाँ का है?").ok).toBe(true);
+  });
+
+  it("a Hindi or Hinglish secret word with no value is an ordinary question (value-required rule)", () => {
+    for (const line of [
+      "क्रेडिट कार्ड कैसे काम करता है?",
+      "बैंक खाता संख्या क्या होती है?",
+      "mera otp kya hai?",
+      "kya mera pin number safe hai?",
+      "पासवर्ड बदलने का तरीका क्या है?",
+      "टोकन नंबर 45 कब आएगा?",
+    ])
+      expect(ok(line).ok, line).toBe(true);
   });
 
   it("the file has no Devanagari veto of its own", () => {

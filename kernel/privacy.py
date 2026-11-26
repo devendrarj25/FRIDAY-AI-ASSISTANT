@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import local_engines
 
@@ -127,6 +129,65 @@ _MARKERS_PATH = Path(__file__).resolve().parents[1] / "config" / "sensitive-mark
 MARKERS_MISSING_LABEL = "the sensitive-marker table could not be loaded"
 
 
+_FAIL_CLOSED: tuple[dict[str, Any], ...] = (
+    {
+        "level": "sensitive",
+        "label": MARKERS_MISSING_LABEL,
+        "test": lambda text: bool(str(text).strip()),
+    },
+)
+
+
+def _build_normaliser(spec: dict[str, Any]) -> Callable[[Any], str]:
+    """The ``normalise`` section of the table: speech-to-text spellings ("O T P", a Devanagari
+    digit, "pass word") fold into plain text. The renderer and the desktop firewall run the same
+    steps in the same order; the character classes live in the table only."""
+    dropped = {int(code, 16) for code in spec["dropChars"]}
+    digits = [(int(lo, 16), int(hi, 16)) for lo, hi in spec["digitRanges"]]
+    form = cast("Literal['NFC', 'NFD', 'NFKC', 'NFKD']", spec["form"])
+    sep = str(spec["separators"])
+    separators = re.compile(f"[{sep}]+")
+    runs = []
+    for unit in spec["units"]:
+        one = f"[{unit['letter']}]" + (f"[{unit['marks']}]*" if unit["marks"] else "")
+        guard = unit["guard"]
+        runs.append(re.compile(f"(?<![{guard}]){one}(?:[{sep}]+{one}(?![{guard}])){{{int(spec['minRun']) - 1},}}"))
+    pairs = [
+        (re.compile(f"(?<![{p['guard']}])" + f"[{sep}]+".join(p["parts"]) + f"(?![{p['guard']}])"), "".join(p["parts"]))
+        for p in spec["joinPairs"]
+    ]
+    lower = bool(spec["lowercase"])
+
+    def fold_char(ch: str) -> str:
+        code = ord(ch)
+        if code in dropped:
+            return ""
+        for lo, hi in digits:
+            if lo <= code <= hi:
+                return str(code - lo)
+        return ch
+
+    def normalise(text: Any) -> str:
+        out = unicodedata.normalize(form, text if isinstance(text, str) else "")
+        out = "".join(fold_char(ch) for ch in out)
+        if lower:
+            out = out.lower()
+        for run in runs:
+            out = run.sub(lambda m: separators.sub("", m.group(0)), out)
+        for pair, joined in pairs:
+            out = pair.sub(joined, out)
+        return out
+
+    return normalise
+
+
+def _load_normaliser(path: Path) -> Callable[[Any], str] | None:
+    try:
+        return _build_normaliser(json.loads(path.read_text(encoding="utf-8"))["normalise"])
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        return None
+
+
 def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
     try:
         rows = json.loads(path.read_text(encoding="utf-8"))["markers"]
@@ -135,6 +196,7 @@ def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
                 "level": "sensitive",
                 "label": str(row["label"]),
                 "re": re.compile(str(row["pattern"]), re.I if "i" in str(row.get("flags", "")) else 0),
+                "folded": True,
             }
             for row in rows
         )
@@ -142,17 +204,19 @@ def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
             return signals
     except (OSError, ValueError, KeyError, TypeError, re.error):
         pass
-    return (
-        {
-            "level": "sensitive",
-            "label": MARKERS_MISSING_LABEL,
-            "test": lambda text: bool(str(text).strip()),
-        },
-    )
+    return _FAIL_CLOSED
 
 
-_MARKER_SIGNALS = _load_markers(_MARKERS_PATH)
+_NORMALISER = _load_normaliser(_MARKERS_PATH)
+# A table without a usable normalise section stops everything, like a table that cannot be read.
+_MARKER_SIGNALS = _load_markers(_MARKERS_PATH) if _NORMALISER else _FAIL_CLOSED
 MARKERS_LOADED = _MARKER_SIGNALS[0]["label"] != MARKERS_MISSING_LABEL
+
+
+def normalise_text(text: Any) -> str:
+    """The text the markers are matched against, besides the raw text."""
+    return _NORMALISER(text) if _NORMALISER else (text if isinstance(text, str) else "")
+
 
 # Same signals, same order, as electron/privacy-firewall.cjs.
 SIGNALS: tuple[dict[str, Any], ...] = (
@@ -161,6 +225,7 @@ SIGNALS: tuple[dict[str, Any], ...] = (
         "level": "sensitive",
         "label": "financial or identity number",
         "test": financial_identity_hit,
+        "folded": True,
     },
     {
         "level": "private",
@@ -212,9 +277,11 @@ def classify(content: Any) -> dict[str, Any]:
         return {"level": "public", "reasons": [], "sample": 0}
     reasons: list[str] = []
     rank = LEVELS.index("public")
+    folded = normalise_text(text)
     for signal in SIGNALS:
         tester = signal.get("test")
-        hit = tester(text) if callable(tester) else bool(signal["re"].search(text))
+        forms = (text, folded) if signal.get("folded") and folded != text else (text,)
+        hit = any(tester(form) if callable(tester) else bool(signal["re"].search(form)) for form in forms)
         if not hit:
             continue
         reasons.append(signal["label"])

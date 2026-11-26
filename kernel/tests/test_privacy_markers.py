@@ -19,8 +19,8 @@ TABLE = json.loads((ROOT / "config" / "sensitive-markers.json").read_text("utf-8
 
 class SharedLinesTests(unittest.TestCase):
     def test_fixture_is_big_enough(self):
-        self.assertGreaterEqual(len(FIXTURE["sensitive"]), 29)
-        self.assertGreaterEqual(len(FIXTURE["ordinary"]), 12)
+        self.assertGreaterEqual(len(FIXTURE["sensitive"]), 50)
+        self.assertGreaterEqual(len(FIXTURE["ordinary"]), 40)
 
     def test_every_sensitive_line_is_a_hard_stop(self):
         for line in FIXTURE["sensitive"]:
@@ -34,6 +34,35 @@ class SharedLinesTests(unittest.TestCase):
     def test_a_secret_inside_a_longer_message_is_found(self):
         text = "Please summarise this note for me.\nमेरा ओटीपी 553920 है\nThanks."
         self.assertEqual(privacy.classify(text)["level"], "sensitive")
+
+
+class NormaliseTests(unittest.TestCase):
+    def test_every_shared_normalise_case(self):
+        for text, expected in FIXTURE["normalise"]:
+            self.assertEqual(privacy.normalise_text(text), expected, text)
+
+    def test_safe_on_empty_and_non_text(self):
+        self.assertEqual(privacy.normalise_text(""), "")
+        self.assertEqual(privacy.normalise_text(None), "")
+
+    def test_what_speech_to_text_writes_for_a_secret_is_sensitive(self):
+        for line in (
+            "OTP है 482913",
+            "mera O T P 482913",
+            "मेरा ओ.टी.पी. 482913",
+            "Password hai mera 4821",
+            "pass word hai 4821",
+        ):
+            self.assertEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_a_bare_hindi_word_with_no_value_stays_ordinary(self):
+        for line in ("पासवर्ड बदलने का तरीका क्या है?", "कल की बैठक गुप्त रखना", "टोकन नंबर 45 कब आएगा?", "मेरा आधार कब बना?"):
+            self.assertNotEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_the_character_classes_live_in_the_table_only(self):
+        source = (KERNEL / "privacy.py").read_text("utf-8")
+        for needle in ("0966", "200d"):
+            self.assertNotIn(needle, source)
 
 
 class OneTableTests(unittest.TestCase):

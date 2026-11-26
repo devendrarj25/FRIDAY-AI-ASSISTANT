@@ -130,6 +130,7 @@ function loadMarkerSignals(table) {
       level: "sensitive",
       label: String(row.label),
       re: new RegExp(String(row.pattern), String(row.flags || "")),
+      folded: true,
     }));
     return signals.length ? signals : FAIL_CLOSED;
   } catch {
@@ -137,8 +138,50 @@ function loadMarkerSignals(table) {
   }
 }
 
-/** The text markers from the shared table, read once. */
+/**
+ * The `normalise` section of the same table says how speech-to-text spellings ("O T P", a Devanagari
+ * digit, "pass word") fold into plain text; kernel/privacy.py and the renderer run the same steps.
+ * The character classes live in the table only.
+ */
+function buildNormaliser(spec) {
+  const dropped = new Set(spec.dropChars.map((hex) => Number.parseInt(hex, 16)));
+  const digits = spec.digitRanges.map(([lo, hi]) => [
+    Number.parseInt(lo, 16),
+    Number.parseInt(hi, 16),
+  ]);
+  const separators = new RegExp(`[${spec.separators}]+`, "g");
+  const runs = spec.units.map((unit) => {
+    const one = `[${unit.letter}]${unit.marks ? `[${unit.marks}]*` : ""}`;
+    return new RegExp(
+      `(?<![${unit.guard}])${one}(?:[${spec.separators}]+${one}(?![${unit.guard}])){${spec.minRun - 1},}`,
+      "g",
+    );
+  });
+  const pairs = spec.joinPairs.map((pair) => ({
+    re: new RegExp(
+      `(?<![${pair.guard}])${pair.parts.join(`[${spec.separators}]+`)}(?![${pair.guard}])`,
+      "g",
+    ),
+    joined: pair.parts.join(""),
+  }));
+  return (text) => {
+    let out = String(text ?? "").normalize(spec.form);
+    out = Array.from(out, (ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      if (dropped.has(code)) return "";
+      const range = digits.find(([lo, hi]) => code >= lo && code <= hi);
+      return range ? String(code - range[0]) : ch;
+    }).join("");
+    if (spec.lowercase) out = out.toLowerCase();
+    for (const run of runs) out = out.replace(run, (match) => match.replace(separators, ""));
+    for (const pair of pairs) out = out.replace(pair.re, pair.joined);
+    return out;
+  };
+}
+
+/** The text markers from the shared table, read once. A table without a usable normalise stops everything. */
 let markerSignals = null;
+let normaliser = (text) => String(text ?? "");
 function textMarkers() {
   if (!markerSignals) {
     let table = null;
@@ -148,8 +191,19 @@ function textMarkers() {
       table = null;
     }
     markerSignals = loadMarkerSignals(table);
+    try {
+      normaliser = buildNormaliser(table.normalise);
+    } catch {
+      markerSignals = FAIL_CLOSED;
+    }
   }
   return markerSignals;
+}
+
+/** The text the markers are matched against, besides the raw text. */
+function normaliseText(text) {
+  textMarkers();
+  return normaliser(text);
 }
 
 /** Signals, checked in order: the shared markers, then the financial rule, then the lower tiers. */
@@ -158,6 +212,7 @@ const OTHER_SIGNALS = [
     level: "sensitive",
     label: "financial or identity number",
     test: financialIdentityHit,
+    folded: true,
   },
   {
     level: "private",
@@ -195,8 +250,13 @@ function classify(content) {
   const reasons = [];
   // The most sensitive signal that matched wins — never the average.
   let rank = LEVELS.indexOf("public");
-  for (const signal of signals()) {
-    const hit = typeof signal.test === "function" ? signal.test(text) : signal.re.test(text);
+  const all = signals();
+  const folded = normaliseText(text);
+  for (const signal of all) {
+    const forms = signal.folded && folded !== text ? [text, folded] : [text];
+    const hit = forms.some((form) =>
+      typeof signal.test === "function" ? signal.test(form) : signal.re.test(form),
+    );
     if (!hit) continue;
     reasons.push(signal.label);
     rank = Math.min(rank, LEVELS.indexOf(signal.level));
@@ -296,6 +356,7 @@ module.exports = {
     return signals();
   },
   MARKERS_FILE,
+  normaliseText,
   MARKERS_MISSING_LABEL,
   loadMarkerSignals,
   WAY_FORWARD,

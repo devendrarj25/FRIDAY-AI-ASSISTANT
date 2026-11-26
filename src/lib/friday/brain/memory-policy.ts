@@ -22,6 +22,50 @@ const CHATTER = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|hmm+|lol)\b/i;
  */
 const SENSITIVE_MARKERS = markerTable.markers.map((row) => new RegExp(row.pattern, row.flags));
 
+/**
+ * Speech-to-text writes a secret as people say it ("O T P", a Devanagari digit, "pass word").
+ * The `normalise` section of the same table says how to fold that; the three readers run the
+ * same steps in the same order (electron/privacy-firewall.cjs, kernel/privacy.py). The character
+ * classes live in the table only.
+ */
+function buildNormaliser(spec: typeof markerTable.normalise): (text: string) => string {
+  const dropped = new Set(spec.dropChars.map((hex) => Number.parseInt(hex, 16)));
+  const digits = spec.digitRanges.map(
+    ([lo, hi]) => [Number.parseInt(lo ?? "0", 16), Number.parseInt(hi ?? "0", 16)] as const,
+  );
+  const separators = new RegExp(`[${spec.separators}]+`, "g");
+  const runs = spec.units.map((unit) => {
+    const one = `[${unit.letter}]${unit.marks ? `[${unit.marks}]*` : ""}`;
+    return new RegExp(
+      `(?<![${unit.guard}])${one}(?:[${spec.separators}]+${one}(?![${unit.guard}])){${spec.minRun - 1},}`,
+      "g",
+    );
+  });
+  const pairs = spec.joinPairs.map((pair) => ({
+    re: new RegExp(
+      `(?<![${pair.guard}])${pair.parts.join(`[${spec.separators}]+`)}(?![${pair.guard}])`,
+      "g",
+    ),
+    joined: pair.parts.join(""),
+  }));
+  return (text) => {
+    let out = String(text ?? "").normalize(spec.form as "NFKC");
+    out = Array.from(out, (ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      if (dropped.has(code)) return "";
+      const range = digits.find(([lo, hi]) => code >= lo && code <= hi);
+      return range ? String(code - range[0]) : ch;
+    }).join("");
+    if (spec.lowercase) out = out.toLowerCase();
+    for (const run of runs) out = out.replace(run, (match) => match.replace(separators, ""));
+    for (const pair of pairs) out = out.replace(pair.re, pair.joined);
+    return out;
+  };
+}
+
+/** The text the markers are matched against, besides the raw text. */
+export const normaliseSensitiveText = buildNormaliser(markerTable.normalise);
+
 /** Same financial rule as electron/privacy-firewall.cjs. Bare words do not match. */
 export function financialIdentityHit(text: string): boolean {
   const value = String(text || "");
@@ -81,7 +125,11 @@ function luhnOk(digits: string): boolean {
 /** True when the text would be classified SENSITIVE by the privacy firewall. */
 export function looksSensitive(text: string): boolean {
   const value = String(text || "");
-  return financialIdentityHit(value) || SENSITIVE_MARKERS.some((re) => re.test(value));
+  const folded = normaliseSensitiveText(value);
+  const seen = [value, ...(folded === value ? [] : [folded])];
+  return seen.some(
+    (form) => financialIdentityHit(form) || SENSITIVE_MARKERS.some((re) => re.test(form)),
+  );
 }
 
 export type MemoryVerdict = {

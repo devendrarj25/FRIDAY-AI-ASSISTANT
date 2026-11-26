@@ -14,6 +14,7 @@ const firewall = require("../../electron/privacy-firewall.cjs") as {
   classify: (content: unknown) => { level: string; reasons: string[] };
   guardEgress: (input: Record<string, unknown>) => { hardStop?: boolean; autoAllowed: boolean };
   loadMarkerSignals: (table: unknown) => { label: string; test?: (t: string) => boolean }[];
+  normaliseText: (text: unknown) => string;
   MARKERS_MISSING_LABEL: string;
   SIGNALS: { label: string; level: string }[];
 };
@@ -23,8 +24,14 @@ const read = (relative: string) => readFileSync(resolve(root, relative), "utf8")
 const lines = JSON.parse(read("core/__tests__/fixtures/sensitive-lines.json")) as {
   sensitive: string[];
   ordinary: string[];
+  normalise: [string, string][];
 };
 const table = JSON.parse(read("config/sensitive-markers.json")) as {
+  normalise: {
+    form: string;
+    units: unknown[];
+    digitRanges: unknown[];
+  };
   markers: {
     id: string;
     kind: string;
@@ -37,8 +44,8 @@ const table = JSON.parse(read("config/sensitive-markers.json")) as {
 
 describe("the shared lines", () => {
   it("is large enough to mean something", () => {
-    expect(lines.sensitive.length).toBeGreaterThanOrEqual(29);
-    expect(lines.ordinary.length).toBeGreaterThanOrEqual(12);
+    expect(lines.sensitive.length).toBeGreaterThanOrEqual(50);
+    expect(lines.ordinary.length).toBeGreaterThanOrEqual(40);
   });
 
   it.each(lines.sensitive)("sensitive everywhere: %s", (line) => {
@@ -53,6 +60,23 @@ describe("the shared lines", () => {
   it.each(lines.ordinary)("ordinary everywhere: %s", (line) => {
     expect(looksSensitive(line)).toBe(false);
     expect(firewall.classify(line).level).not.toBe("sensitive");
+  });
+});
+
+describe("the shared normalise step", () => {
+  it.each(lines.normalise)("%s -> %s (desktop firewall)", (input, expected) => {
+    expect(firewall.normaliseText(input)).toBe(expected);
+  });
+
+  it("is data in the table, with no copy of its character classes in the code", () => {
+    expect(table.normalise.form).toBe("NFKC");
+    expect(table.normalise.units.length).toBeGreaterThanOrEqual(2);
+    expect(table.normalise.digitRanges.length).toBeGreaterThanOrEqual(1);
+    for (const file of ["src/lib/friday/brain/memory-policy.ts", "electron/privacy-firewall.cjs"]) {
+      const text = read(file);
+      expect(text, file).not.toContain("0966");
+      expect(text, file).not.toContain("200d");
+    }
   });
 });
 

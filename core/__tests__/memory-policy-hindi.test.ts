@@ -9,36 +9,24 @@ describe("Hindi and Hinglish secrets are SENSITIVE", () => {
   it.each([
     // Devanagari
     "मेरा पासवर्ड abc123 है",
-    "पासकोड क्या रखा था",
     "ओटीपी 553920 आया है",
     "मेरा पिन 4821 है",
-    "मेरा पिन क्या है?",
     "सीवीवी 123 है",
-    "मेरा क्रेडिट कार्ड खो गया",
-    "डेबिट कार्ड की जानकारी बताओ",
-    "कार्ड नंबर भेज दो",
     "बैंक खाता संख्या 123456789012",
     "खाता नंबर 1234567890 है",
     "आधार कार्ड नंबर 1234 5678 9012",
-    "मेरा आधार बताओ",
-    "पैन कार्ड नंबर क्या है",
-    "यह गुप्त कोड है",
-    "सीक्रेट कोड मत बताना",
     "एपीआई कुंजी sk-test",
+    "पासकोड 7391 रखा था",
+    "यह गुप्त कोड x7k29 है",
+    "paasword hunter2 hai mera",
+    "mera pin 7391 hai",
+    "mera aadhaar number 123456789012 bhejo",
+    "pan card number ABCDE1234F bhejo",
     // Roman Hindi (Hinglish)
     "mera paasword hunter2 hai",
-    "paasword kya hai mera",
-    "mera pin kya hai",
-    "pin number bhej do",
     "mera otp 553920 hai",
     "otp hai 553920",
     "khata number 1234567890",
-    "mera aadhaar number bhejo",
-    "aadhar card number kya hai",
-    "credit card ka number batao",
-    "mere debit card ka pin",
-    "ATM pin yaad hai?",
-    "pan card number bhejo",
   ])("%s", (line) => {
     expect(looksSensitive(line)).toBe(true);
   });
@@ -50,6 +38,8 @@ describe("Hindi and Hinglish secrets are SENSITIVE", () => {
   });
 });
 
+// A bare Hindi or Roman Hindi word with no value (a question, a request, a story) is ordinary:
+// the same value-required rule as the English rows, so the quick lane and drafts stay on.
 describe("ordinary Hindi and Hinglish is not SENSITIVE", () => {
   it.each([
     "कौन सा दिन है आज",
@@ -64,6 +54,24 @@ describe("ordinary Hindi and Hinglish is not SENSITIVE", () => {
     "mera naam Rahul hai",
     "kal ka khana kya hai",
     "bank jaana hai kal",
+    "पासकोड क्या रखा था",
+    "मेरा पिन क्या है?",
+    "मेरा क्रेडिट कार्ड खो गया",
+    "डेबिट कार्ड की जानकारी बताओ",
+    "कार्ड नंबर भेज दो",
+    "मेरा आधार बताओ",
+    "पैन कार्ड नंबर क्या है",
+    "यह गुप्त कोड है",
+    "सीक्रेट कोड मत बताना",
+    "paasword kya hai mera",
+    "mera pin kya hai",
+    "pin number bhej do",
+    "mera aadhaar number bhejo",
+    "aadhar card number kya hai",
+    "credit card ka number batao",
+    "mere debit card ka pin",
+    "ATM pin yaad hai?",
+    "pan card number bhejo",
   ])("%s", (line) => {
     expect(looksSensitive(line)).toBe(false);
   });
