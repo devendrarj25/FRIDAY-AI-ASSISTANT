@@ -1045,6 +1045,61 @@ type DesktopApi = {
     audioBase64?: string;
     mime?: string;
   }) => Promise<{ ok: boolean; ready?: boolean; probability?: number | null; reason?: string }>;
+  /**
+   * FRIDAY's own streaming ear (voice.streamEngine). Local only, one stream at a time, three quick calls, no push
+   * channel. Every refusal is `{ ok: false, fallback: true, reason }` and never a throw; a reply with `fallback`
+   * means the stream is over, so use `transcribe`. Reasons: off, bad-engine, busy, worker, no-stream, bad-audio,
+   * too-large, aborted, plus the worker's own (weights-missing, locale-unsupported, open-failed, ...).
+   */
+  openSttStream?: (payload: {
+    streamId?: string;
+    streamEngine: "off" | "auto" | "nemotron" | "stream-ear-nemotron";
+    locale: "hi" | "en" | "hi-en" | "";
+    hotwords?: string[];
+    endpoint?: boolean;
+    localOnly?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    engine?: string;
+    locale?: string;
+    chunkMs?: number;
+    loadMs?: number;
+    fallback?: boolean;
+    reason?: string;
+  }>;
+  /** `pcm` is base64 of int16 little-endian 16 kHz mono, one chunk of 80 to 320 ms. */
+  feedSttStream?: (payload: { streamId: string; pcm: string }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    /** partial: text, committed, stable, volatile, newlyCommitted, revision, audioMs; endpoint: event, reason, silenceMs. */
+    events?: { type: "partial" | "endpoint"; [key: string]: unknown }[];
+    text?: string;
+    committed?: string;
+    audioMs?: number;
+    /** The endpointer's current verdict: `event` is null until the turn is judged over. */
+    endpoint?: {
+      event?: string | null;
+      requiredWaitMs?: number;
+      reason?: string;
+      inTurn?: boolean;
+      audioMs?: number;
+    };
+    fallback?: boolean;
+    reason?: string;
+  }>;
+  closeSttStream?: (payload: { streamId: string; finalize?: boolean }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    final?: boolean;
+    text?: string;
+    committed?: string;
+    words?: { text: string; startMs?: number; endMs?: number }[];
+    audioMs?: number;
+    rtf?: number;
+    fallback?: boolean;
+    reason?: string;
+  }>;
   duckAudio?: (payload: {
     on: boolean;
   }) => Promise<{ ok: boolean; ducked?: boolean; reason?: string }>;

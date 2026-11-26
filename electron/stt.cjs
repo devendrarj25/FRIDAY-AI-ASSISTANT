@@ -386,6 +386,7 @@ function attachWorker(child, generation) {
   const fail = (why) => {
     if (!session.alive) return;
     session.alive = false;
+    streamEar.drop(session);
     if (session.intentional) {
       lastLocalLayers.worker = "stopped";
       lastLocalLayers.inference = "unverified";
@@ -806,6 +807,268 @@ async function loadWorker(model, onEvent, options = {}) {
   };
   return session;
 }
+
+/** The streaming ear (voice.streamEngine). The same words kernel/stream_ear.py accepts; "off" is the shipped default. */
+const STREAM_ENGINES = ["off", "auto", "nemotron", "stream-ear-nemotron"];
+/** kernel/stream_ear.py MAX_FEED_BYTES: the largest chunk of audio one feed may carry. */
+const MAX_FEED_BYTES = 1_048_576;
+const STREAM_HOTWORDS_MAX = 64;
+const STREAM_HOTWORD_CHARS = 40;
+const STREAM_ID_CHARS = 64;
+/** A stream nobody feeds is closed (audio dropped) after this long, so the turn gate is never held for good. */
+const STREAM_IDLE_MS = 15_000;
+/** Per-call worker deadlines (ms). A deadline kills the worker (workerRequest), so they are generous. */
+const STREAM_OPEN_MS = 25_000;
+const STREAM_FEED_MS = 8_000;
+const STREAM_CLOSE_MS = 20_000;
+
+/** "hi", "en", "hi-en" or "": a short lowercase language tag; anything else reads as no preference. */
+function cleanStreamLocale(value) {
+  const text = typeof value === "string" ? value.trim().toLowerCase().replace(/_/g, "-") : "";
+  return /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(text) ? text : "";
+}
+
+/** At most 64 trimmed, deduplicated words of at most 40 characters; a non-string or longer entry is dropped. */
+function cleanStreamHotwords(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const word = item.trim();
+    if (word && word.length <= STREAM_HOTWORD_CHARS) seen.add(word);
+    if (seen.size >= STREAM_HOTWORDS_MAX) break;
+  }
+  return [...seen];
+}
+
+const refused = (reason) => ({ ok: false, fallback: true, reason });
+
+/**
+ * FRIDAY's own streaming ear, the Electron side: stream-open, stream-feed and stream-close ride the one speech worker
+ * (kernel/stream_ear.py StreamHost). One stream at a time. It holds the one turn gate from open to close, so a final
+ * decode never runs beside it and a second stream is refused "busy". It is local only (no cloud call exists on this
+ * path, so privacy mode holds by construction) and it never opens the microphone: the renderer owns capture.
+ *
+ * Every refusal is `{ ok: false, fallback: true, reason }` and never a throw, and a reply that carries `fallback`
+ * means the stream is over (the gate is already free): the renderer then uses the ordinary transcribe call.
+ * `getWorker` may return nothing: a worker that is not up is a "worker" fallback, never a cold start paid for a guess.
+ * `guard` wraps the model load (the governor's one-at-a-time load slot, as loadWorker does).
+ */
+function createStreamEar({
+  gate,
+  getWorker,
+  request,
+  guard = (run) => run(),
+  idleMs = STREAM_IDLE_MS,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+}) {
+  let current = null; // { id, session, release, timer }
+  let seq = 0;
+
+  function end(stream) {
+    if (!stream || current !== stream) return false;
+    current = null;
+    clearTimer(stream.timer);
+    stream.timer = null;
+    stream.release();
+    return true;
+  }
+
+  function arm(stream) {
+    clearTimer(stream.timer);
+    stream.timer = setTimer(() => {
+      if (current === stream) abort();
+    }, idleMs);
+    if (stream.timer && typeof stream.timer.unref === "function") stream.timer.unref();
+  }
+
+  /** Tells the worker to drop the audio, best effort: the stream is over for the renderer either way. */
+  function discard(stream) {
+    if (!stream.session?.alive) return;
+    Promise.resolve()
+      .then(() =>
+        request(
+          stream.session,
+          { op: "stream-close", streamId: stream.id, finalize: false },
+          STREAM_CLOSE_MS,
+        ),
+      )
+      .catch(() => {});
+  }
+
+  /** Mute, idle, shutdown: finishes the stream without finalizing and frees the gate at once. */
+  function abort() {
+    const stream = current;
+    if (!end(stream)) return false;
+    discard(stream);
+    return true;
+  }
+
+  /** The worker is gone: nothing to tell it. Only that session's stream is dropped when one is named. */
+  function drop(session) {
+    const stream = current;
+    if (!stream || (session && stream.session !== session)) return false;
+    return end(stream);
+  }
+
+  function match(payload) {
+    const stream = current;
+    if (!stream) return null;
+    const asked = typeof payload.streamId === "string" ? payload.streamId : stream.id;
+    return asked === stream.id ? stream : null;
+  }
+
+  async function open(payload = {}) {
+    const engine =
+      typeof payload.streamEngine === "string" ? payload.streamEngine.trim().toLowerCase() : "";
+    if (!engine || engine === "off") return refused("off");
+    if (!STREAM_ENGINES.includes(engine)) return refused("bad-engine");
+    const rawId =
+      typeof payload.streamId === "string" ? payload.streamId.replace(/[^\w.:-]/g, "") : "";
+    const id = rawId.slice(0, STREAM_ID_CHARS) || `stream-${++seq}`;
+    // The same stream asking again (a renderer that lost its reply) starts over; a different one waits for the gate.
+    if (current?.id === id) abort();
+    const release = gate.tryEnter();
+    if (!release) return refused("busy");
+    const stream = { id, session: null, release, timer: null };
+    let session = null;
+    try {
+      session = await getWorker();
+    } catch {
+      session = null;
+    }
+    if (!session?.alive) {
+      release();
+      return refused("worker");
+    }
+    stream.session = session;
+    current = stream;
+    const hotwords = cleanStreamHotwords(payload.hotwords);
+    let reply;
+    try {
+      reply = await guard(() =>
+        request(
+          session,
+          {
+            op: "stream-open",
+            streamId: id,
+            streamEngine: engine,
+            locale: cleanStreamLocale(payload.locale),
+            ...(hotwords.length ? { hotwords } : {}),
+            ...(typeof payload.endpoint === "boolean" ? { endpoint: payload.endpoint } : {}),
+          },
+          STREAM_OPEN_MS,
+        ),
+      );
+    } catch {
+      end(stream);
+      return refused("worker");
+    }
+    if (current !== stream) {
+      // Muted or shut down while the model was loading: the worker may hold a stream nobody wants.
+      discard(stream);
+      return refused("aborted");
+    }
+    if (!reply?.ok) {
+      end(stream);
+      return refused(String(reply?.reason || "engine-failed").slice(0, 64));
+    }
+    arm(stream);
+    const { op: _op, ...rest } = reply;
+    return { ...rest, ok: true, streamId: id };
+  }
+
+  async function feed(payload = {}) {
+    const stream = match(payload);
+    if (!stream) return refused("no-stream");
+    const pcm = payload.pcm;
+    if (typeof pcm !== "string" || !pcm) {
+      end(stream);
+      discard(stream);
+      return refused("bad-audio");
+    }
+    if (pcm.length > Math.ceil((MAX_FEED_BYTES * 4) / 3) + 8) {
+      end(stream);
+      discard(stream);
+      return refused("too-large");
+    }
+    let reply;
+    try {
+      reply = await request(
+        stream.session,
+        { op: "stream-feed", streamId: stream.id, pcm },
+        STREAM_FEED_MS,
+      );
+    } catch {
+      end(stream);
+      return refused("worker");
+    }
+    if (current !== stream) return refused("no-stream");
+    if (!reply?.ok) {
+      end(stream);
+      discard(stream);
+      return refused(String(reply?.reason || "engine-failed").slice(0, 64));
+    }
+    arm(stream);
+    const { op: _op, ...rest } = reply;
+    return {
+      ...rest,
+      ok: true,
+      streamId: stream.id,
+      events: Array.isArray(reply.events) ? reply.events : [],
+      text: typeof reply.text === "string" ? reply.text : "",
+      committed: typeof reply.committed === "string" ? reply.committed : "",
+      audioMs: Number(reply.audioMs) || 0,
+      endpoint: reply.endpoint && typeof reply.endpoint === "object" ? reply.endpoint : {},
+    };
+  }
+
+  async function close(payload = {}) {
+    const stream = match(payload);
+    if (!stream) return refused("no-stream");
+    const finalize = payload.finalize !== false;
+    clearTimer(stream.timer);
+    stream.timer = null;
+    let reply;
+    try {
+      reply = await request(
+        stream.session,
+        { op: "stream-close", streamId: stream.id, finalize },
+        STREAM_CLOSE_MS,
+      );
+    } catch {
+      end(stream);
+      return refused("worker");
+    }
+    end(stream);
+    if (!reply?.ok) return refused(String(reply?.reason || "engine-failed").slice(0, 64));
+    const { op: _op, ...rest } = reply;
+    return {
+      ...rest,
+      ok: true,
+      streamId: stream.id,
+      final: reply.final === true,
+      text: typeof reply.text === "string" ? reply.text : "",
+      words: Array.isArray(reply.words) ? reply.words : [],
+      audioMs: Number(reply.audioMs) || 0,
+      rtf: Number(reply.rtf) || 0,
+    };
+  }
+
+  return { open, feed, close, abort, drop, active: () => current?.id ?? "" };
+}
+
+/** The live worker, or nothing: the stream ear never starts one (the ordinary transcribe path does that). */
+const streamEar = createStreamEar({
+  gate: turnGate,
+  getWorker: () => (worker?.alive ? worker : null),
+  request: (session, payload, timeoutMs) => workerRequest(session, payload, timeoutMs),
+  guard: guardedLoad,
+});
+const streamOpen = (payload) => streamEar.open(payload || {});
+const streamFeed = (payload) => streamEar.feed(payload || {});
+const streamClose = (payload) => streamEar.close(payload || {});
 
 function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   const layers = { ...lastLocalLayers };
@@ -1652,6 +1915,7 @@ let whisperServerTried = false;
 
 function onMute(muted) {
   if (!muted) return { stopped: false };
+  streamEar.abort();
   if (whisperSession && typeof whisperSession.stop === "function") whisperSession.stop();
   whisperSession = null;
   whisperServerTried = false;
@@ -1692,6 +1956,7 @@ async function openWhisperServer(found) {
 }
 
 function shutdown(session = worker) {
+  if (worker === session) streamEar.drop(session);
   onMute(true);
   if (worker === session) {
     worker = null;
@@ -1720,7 +1985,7 @@ function shutdown(session = worker) {
  * not been asked anything for `minIdleMs`. It starts again on the next turn. Returns whether it was closed.
  */
 function releaseIdle(minIdleMs = 60_000, session = worker) {
-  if (!session?.alive || session.pending.size > 0) return false;
+  if (!session?.alive || session.pending.size > 0 || streamEar.active()) return false;
   if (Date.now() - (session.lastUsedAt || 0) < minIdleMs) return false;
   shutdown(session);
   return true;
@@ -1764,6 +2029,11 @@ module.exports = {
   liveReplyFields,
   liveModel,
   createTurnGate,
+  createStreamEar,
+  streamOpen,
+  streamFeed,
+  streamClose,
+  STREAM_ENGINES,
   workerRequest,
   scoreInWorker,
   workerCacheOf,

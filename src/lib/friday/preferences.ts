@@ -90,6 +90,17 @@ export function sanitizeSttSize(value: unknown): SttSizePick {
   return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
 }
 
+/** FRIDAY's own streaming ear: `off` (the shipped default) keeps the ordinary listening path. */
+export const STREAM_ENGINE_PICKS = ["off", "auto", "nemotron", "stream-ear-nemotron"] as const;
+export type StreamEnginePick = (typeof STREAM_ENGINE_PICKS)[number];
+
+/** An unknown or missing word (an old stored shape) reads `off`. */
+export function sanitizeStreamEngine(value: unknown): StreamEnginePick {
+  return (STREAM_ENGINE_PICKS as readonly unknown[]).includes(value)
+    ? (value as StreamEnginePick)
+    : "off";
+}
+
 /** A device id is a short string; anything else (an old or hand-edited shape) reads the system default. */
 export function sanitizeDeviceId(value: unknown): string {
   return typeof value === "string" ? value.trim().slice(0, 400) : "";
@@ -221,6 +232,10 @@ export type VoicePreferences = {
   tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
+  /** The streaming ear (partial words while she listens): off, auto, or a named engine. Local only; off by default. */
+  streamEngine: StreamEnginePick;
+  /** Read spoken numbers, times and money in Hinglish as digits in the words shown (runs after the tidy step). */
+  itn: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
   liveWake: boolean;
   /** A saved voice may block a sensitive command from a voice that does not match it. It never approves anything. */
@@ -422,6 +437,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     tidyDictation: true,
     liveWords: false,
+    streamEngine: "off",
+    itn: true,
     liveWake: false,
     recogniseMyVoice: true,
     ownerVoiceOnly: false,
@@ -498,6 +515,8 @@ function merge(
       noiseSuppression: (patch.voice?.noiseSuppression ?? base.voice.noiseSuppression) !== false,
       ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
       sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
+      streamEngine: sanitizeStreamEngine(patch.voice?.streamEngine ?? base.voice.streamEngine),
+      itn: (patch.voice?.itn ?? base.voice.itn) !== false,
       keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
       utteranceWavDays: sanitizeWavDays(
         patch.voice?.utteranceWavDays ?? base.voice.utteranceWavDays,

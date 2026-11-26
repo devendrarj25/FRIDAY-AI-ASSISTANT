@@ -5484,6 +5484,10 @@ ipcMain.handle("voice:transcribe", (e, payload) =>
 );
 ipcMain.handle("voice:score-turn", (_e, payload) => stt.scoreTurn(payload || {}));
 ipcMain.handle("voice:cancel-transcribe", (_e, payload) => stt.cancelTranscribe(payload || {}));
+// FRIDAY's own streaming ear (voice.streamEngine, off by default): local only, one stream, holds the turn gate.
+ipcMain.handle("voice:stt-stream-open", (_e, payload) => stt.streamOpen(payload || {}));
+ipcMain.handle("voice:stt-stream-feed", (_e, payload) => stt.streamFeed(payload || {}));
+ipcMain.handle("voice:stt-stream-close", (_e, payload) => stt.streamClose(payload || {}));
 
 // ------------------------------------------ low-latency wake word (openWW) --
 // The REAL detector when openWakeWord is installed with a model for the

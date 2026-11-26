@@ -18,6 +18,7 @@ import {
 import {
   preferences,
   sanitizeConfirmLevel,
+  sanitizeStreamEngine,
   sanitizeVoiceTaskPrefs,
 } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -319,6 +320,43 @@ export function VoiceSettings() {
             hint="Auto mode only. Reads what you have said so far about once a second and shows the words two readings agree on. Uses more CPU while you talk; the answer still waits for the normal final reading. Off by default."
             on={prefs.voice.liveWords === true}
             onToggle={() => preferences.setVoice({ liveWords: prefs.voice.liveWords !== true })}
+          />
+          <label className="block">
+            <span className="label-xs text-muted-foreground">
+              FRIDAY's own streaming ear (experimental)
+            </span>
+            <select
+              value={sanitizeStreamEngine(prefs.voice.streamEngine)}
+              onChange={(e) =>
+                preferences.setVoice({ streamEngine: sanitizeStreamEngine(e.target.value) })
+              }
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="off" className="bg-background">
+                Off: the normal listening path
+              </option>
+              <option value="auto" className="bg-background">
+                Auto: use it when its model is installed
+              </option>
+              <option value="nemotron" className="bg-background">
+                Nemotron streaming
+              </option>
+              <option value="stream-ear-nemotron" className="bg-background">
+                Nemotron streaming, int8 (the pinned download)
+              </option>
+            </select>
+            <span className="mt-1 block text-meta-sm text-muted-foreground">
+              Auto mode only. Words appear while you speak, in Hindi, English and Hinglish, on this
+              PC only; nothing is sent anywhere. It needs the streaming model (Models page); without
+              it, or when anything fails, the normal listening path carries on. Off by default and
+              not yet tried on a real microphone.
+            </span>
+          </label>
+          <ToggleRow
+            label="Write spoken numbers, times and money as digits"
+            hint="Hindi, English and Hinglish: spoken numbers, times, money and web addresses are written as digits in the words shown, only where the reading is sure. It runs on this PC after the tidy step and never changes the script you spoke. On by default."
+            on={prefs.voice.itn !== false}
+            onToggle={() => preferences.setVoice({ itn: prefs.voice.itn === false })}
           />
           <ToggleRow
             label="Listen for the wake word live (needs a wake model)"

@@ -28,6 +28,16 @@ describe("a text or font change is saved when the window closes", () => {
     expect(saved.fields.bodyFont).toBe("Lexend");
   });
 
+  it("writes the streaming ear and spoken-number settings when the window closes", async () => {
+    const { preferences } = await import("../../src/lib/friday/preferences");
+    preferences.setVoice({ streamEngine: "auto", itn: false });
+    flushPendingState();
+    await Promise.resolve();
+    const saved = JSON.parse(store.get("friday.preferences") ?? "{}");
+    expect(saved.voice.streamEngine).toBe("auto");
+    expect(saved.voice.itn).toBe(false);
+  });
+
   it("does nothing when no change is waiting", async () => {
     const { preferences } = await import("../../src/lib/friday/preferences");
     preferences.flushPending();

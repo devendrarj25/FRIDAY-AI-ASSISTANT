@@ -9,6 +9,31 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const stt = require("../../electron/stt.cjs");
 
+describe("the streaming ear and the turn gate", () => {
+  it("a stream holds the gate from open to close, so a final decode waits and a probe is refused", async () => {
+    const gate = stt.createTurnGate();
+    const session = { alive: true };
+    const ear = stt.createStreamEar({
+      gate,
+      getWorker: () => session,
+      request: async (_s: unknown, payload: { op: string; streamId: string }) => ({
+        ok: true,
+        op: payload.op,
+        streamId: payload.streamId,
+        final: true,
+      }),
+      setTimer: () => ({}),
+      clearTimer: () => {},
+    });
+    expect((await ear.open({ streamEngine: "auto", locale: "en", streamId: "t" })).ok).toBe(true);
+    expect(gate.tryEnter()).toBeNull();
+    const finalDecode = gate.enter();
+    expect(gate.waiting()).toBe(1);
+    await ear.close({ streamId: "t" });
+    expect(typeof (await finalDecode)).toBe("function");
+  });
+});
+
 describe("speech transcription turn gate", () => {
   it("lets one run, queues the next in order and starts it when the first leaves", async () => {
     const gate = stt.createTurnGate();
