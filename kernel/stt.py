@@ -174,6 +174,43 @@ def lock_after_ear(route: Route, prior: str, mode: str) -> Route:
     return route
 
 
+def route_after_english_gate(route: Route) -> Route:
+    """The route of a turn whose ear line the English gate refused (``hindi_ear.english_gate``): English, locked,
+    behind the same floor as a prior lock. On the open route (a locked read already scored poorly) whisper guesses."""
+    if route.why == "open":
+        return Route(False, route.lock, "open", None, "")
+    return Route(False, "en", "ear-gate-en", LOCK_MIN_LOGPROB, "en")
+
+
+def ear_language_cue(samples) -> dict | None:
+    """``{"en": p, "hi": p}`` from whisper's language guess on the clip's first ``cueSeconds``, read by a model that
+    is already resident (the base model of the short-final lane, then the owner's), or None. Never opens a model."""
+    model = _fast["model"] if _fast["model"] is not None else _model
+    guess = getattr(model, "detect_language", None)
+    if model is None or guess is None or (model is _model and is_heavy_model(_model_name) and _device_name == "cpu"):
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        head = np.asarray(samples, dtype=np.float32).reshape(-1)[: int(16000 * hindi_ear.ENGLISH_GATE["cueSeconds"])]
+        _language, _probability, ranked = guess(audio=head)
+        probs = {str(code): float(p) for code, p in ranked}
+    except Exception:  # noqa: BLE001 — no cue: the prior, then the ear's line, decide
+        return None
+    touch()
+    return {"en": probs.get("en", 0.0), "hi": probs.get("hi", 0.0)}
+
+
+def ear_keeps_live(mode: str, heard: dict | None, hotwords: list[str]) -> bool:
+    """Whether a live ear reading stands: the ear's own score, and in auto the English gate on its words alone (a
+    partial never pays for a language guess; an unclear line stays the ear's, as before the gate)."""
+    if not heard or not hindi_ear.confident(mode, heard.get("confidence")):
+        return False
+    if mode != "auto":
+        return True
+    return hindi_ear.english_gate(heard.get("text"), heard.get("confidence"), hotwords)["verdict"] != "english"
+
+
 def turn_prior() -> str:
     """``en`` or ``hi`` while the last strong reading is fresh, else an empty string."""
     at = _prior.get("at")
@@ -1559,7 +1596,7 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
         if _ear_loaded():
             touch()
         check_cancel()
-        if heard and hindi_ear.confident(mode, heard.get("confidence")):
+        if heard is not None and ear_keeps_live(mode, heard, hotword_list((extras or {}).get("hotwords"))):
             words = _shifted(_snap_rows(heard["words"], hotword_list((extras or {}).get("hotwords"))), shift)
             return {
                 "ok": True,
@@ -2179,9 +2216,25 @@ def _transcribe_prepared(
             hindi_text = None
             note_fallback("hindi-ear-to-whisper")
             ear_note = "the Hindi ear was unsure (English or mixed speech): faster-whisper heard it"
+        gate_english = False
+        if hindi_text and mode == "auto":
+            # A sure-sounding line can still be English spelled in Devanagari: its own words judge it, and only a
+            # line they cannot tell costs a language guess on its first seconds (from a model already resident).
+            gate = hindi_ear.english_gate(
+                hindi_text, hindi_ear.last_confidence(), hotword_list((extras or {}).get("hotwords"))
+            )
+            if gate["verdict"] == "listen":
+                gate = hindi_ear.settle_gate(gate, ear_language_cue(samples), prior)
+                check_cancel()
+            if gate["verdict"] == "english":
+                hindi_text, gate_english = None, True
+                note_fallback("hindi-ear-english-gate")
+                ear_note = f"the Hindi ear wrote English in Devanagari ({gate['why']}): faster-whisper heard English"
         if hindi_text:
             engine = "hindi-ear"
             hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
+        elif gate_english:
+            route = route_after_english_gate(route)
         else:
             # The ear listened and kept nothing: after an English turn that is English, not Hindi.
             route = lock_after_ear(route, prior, mode)

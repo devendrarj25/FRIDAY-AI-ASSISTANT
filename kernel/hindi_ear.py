@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import hindi_punct
+import hinglish_lexicon
 
 MODEL_DIR = "hindi-ear"
 MODEL_FILE = "model.int8.onnx"
@@ -117,6 +118,135 @@ _last_confidence: float | None = None
 def last_confidence() -> float | None:
     """The mean token log-probability of the most recent reading, or None when it was not measured."""
     return _last_confidence
+
+
+# ---- The English gate (auto only) ---------------------------------------------------------------------------------
+# The ear writes English speech as Devanagari spellings ("व्हाट टाइम इज द"), often with a score inside its own floor:
+# on 8 synthetic English clips it kept 4 such lines in auto. Before a line is kept, its own words are read: Hindi
+# grammar words keep it, English function words spelled in Devanagari send it to the English lane, and only a line
+# the words cannot tell asks the clip itself (whisper's language guess on the first seconds, from a model already
+# resident) and then the turn before it. No threshold of the ear is lowered; the gate only refuses more.
+ENGLISH_GATE = {
+    "sureLogprob": -0.15,  # an ear this sure, with no English function word, keeps its line with no model run
+    "strongMin": 2,  # this many English function words and no Hindi word: English
+    "shareMin": 0.6,  # or one function word and this share of English words (function, loan, folded): English
+    "foldMinConsonants": 3,  # a consonant fold shorter than this is never evidence (कल folds like "call")
+    "cueSeconds": 2.0,  # the clip's opening the language guess hears
+    "cueMin": 0.5,  # the guess must give a language at least this
+    "cueRatio": 3.0,  # and this many times the other language
+}
+# English words that are not Hindi words, as the ear spells them (gate keys: nukta dropped, ॉ read as ो).
+ENGLISH_FUNCTION_WORDS = (
+    "द दि इज व्हाट वाट व्हॉट हाउ आर यू योर युअर माय माइ मी टू टु फॉर ऑफ ऑन एट एन एंड ऐंड प्लीज विद विथ दिस दैट देट "
+    "इट कैन विल डू डज फ्रॉम अप वी देयर व्हेयर व्हेन व्हाई हू"
+).split()
+# English words the owner may say inside Hindi too: evidence only beside a function word.
+ENGLISH_WEAK_WORDS = "सेवन थर्टी ट्वेंटी फाइव सिक्स नाइन टेन टुमारो टुडे डाउन सेट टर्न रीड कॉल सेंड मॉम लास्ट".split()
+ENGLISH_FOLD_WORDS = (
+    "seven thirty twenty forty fifty tomorrow morning evening little last weather volume minute second number "
+    "message chrome music remind reminder alarm calendar timer battery"
+).split()
+# Common Hindi words the shared lexicon does not list in Devanagari.
+HINDI_GRAMMAR_WORDS = "है में ने पर हो कर दो लो ना एक हम वह उस उन थोड़ी".split()
+
+_DEVA_FOLD = dict.fromkeys("कख", "k") | dict.fromkeys("गघ", "g") | dict.fromkeys("चछ", "c") | dict.fromkeys("जझ", "j")
+_DEVA_FOLD |= dict.fromkeys("टठतथ", "t") | dict.fromkeys("डढदध", "d") | dict.fromkeys("णनं", "n")
+_DEVA_FOLD |= {"प": "p", "फ": "f", "ब": "b", "भ": "b", "म": "m", "र": "r", "ल": "l", "व": "v"}
+_DEVA_FOLD |= dict.fromkeys("शषस", "s")
+_ROMAN_PAIRS = (("ph", "f"), ("th", "t"), ("ck", "k"), ("chr", "kr"), ("ch", "c"), ("sh", "s"), ("qu", "kv"))
+
+
+def _gate_key(word: str) -> str:
+    return hinglish_lexicon.lexicon_key(word).replace("ॉ", "ो").replace("ॅ", "े")
+
+
+def _collapse(letters: str) -> str:
+    return "".join(ch for i, ch in enumerate(letters) if i == 0 or letters[i - 1] != ch)
+
+
+def deva_fold(word: str) -> str:
+    """The consonant outline of a Devanagari word in Roman letters (वॉल्यम -> vlm); vowels, य and ह say nothing."""
+    return _collapse("".join(_DEVA_FOLD.get(ch, "") for ch in _gate_key(word)))
+
+
+def roman_fold(word: str) -> str:
+    """The same outline of an English spelling (volume -> vlm, Jarvis -> jrvs, cancel -> knsl)."""
+    text = word.lower()
+    for pair, sound in _ROMAN_PAIRS:
+        text = text.replace(pair, sound)
+    text = re.sub(r"c(?=[eiy])", "s", text).replace("c", "k").replace("q", "k").replace("x", "ks")
+    text = text.replace("w", "v").replace("z", "j")
+    return _collapse(re.sub(r"[^bcdfgjklmnprstv]", "", text))
+
+
+def _keys(words) -> frozenset[str]:
+    return frozenset(_gate_key(s) for w in words for s in str(w).split("|") if s)
+
+
+_HINDI_KEYS = _keys(hinglish_lexicon._SURE.values()) | _keys(HINDI_GRAMMAR_WORDS)
+_STRONG_KEYS = _keys(ENGLISH_FUNCTION_WORDS) - _HINDI_KEYS
+_WEAK_KEYS = (_keys(hinglish_lexicon._LOAN) | _keys(ENGLISH_WEAK_WORDS)) - _HINDI_KEYS - _STRONG_KEYS
+_LOAN_LATIN = sorted(set(hinglish_lexicon._LOAN.values()) | set(ENGLISH_FOLD_WORDS))
+
+
+def _folds(words) -> frozenset[str]:
+    floor = int(ENGLISH_GATE["foldMinConsonants"])
+    return frozenset(f for f in (roman_fold(w) for w in words) if len(f) >= floor)
+
+
+_FOLD_KEYS = _folds(_LOAN_LATIN)
+
+
+def english_gate(text: str | None, confidence: float | None, hotwords: Sequence[str] = ()) -> dict:
+    """Whether the ear's line is Hindi to keep, English spelled in Devanagari, or a line its words cannot tell.
+
+    ``{"verdict": "keep" | "english" | "listen", "why", "hindi", "strong", "weak", "words"}``; only ``listen`` asks
+    for the clip's own cue (``settle_gate``). The owner's English hotwords count as English words by their fold."""
+    cores = [c for c in (hinglish_lexicon._core(p) for p in str(text or "").split()) if c]
+    counts = {"hindi": 0, "strong": 0, "weak": 0, "words": len(cores)}
+
+    def verdict(kind: str, why: str) -> dict:
+        return {"verdict": kind, "why": why, **counts}
+
+    if not cores:
+        return verdict("keep", "no-words")
+    if any("a" <= ch.lower() <= "z" for c in cores for ch in c):
+        return verdict("keep", "mixed-script")  # the ear wrote Latin letters itself: Hinglish, kept as written
+    sure_hindi = set(hinglish_lexicon._SURE)
+    folds = _FOLD_KEYS | _folds(w for w in hotwords if w.isascii() and w.lower() not in sure_hindi)
+    for core in cores:
+        key = _gate_key(core)
+        if key in _HINDI_KEYS:
+            counts["hindi"] += 1
+        elif key in _STRONG_KEYS:
+            counts["strong"] += 1
+        elif key in _WEAK_KEYS or deva_fold(core) in folds:
+            counts["weak"] += 1
+    hindi, strong, words = counts["hindi"], counts["strong"], counts["words"]
+    if hindi and hindi >= strong:
+        return verdict("keep", "hindi-words")
+    share = (strong + counts["weak"]) / words
+    if not hindi and (strong >= ENGLISH_GATE["strongMin"] or (strong and share >= ENGLISH_GATE["shareMin"])):
+        return verdict("english", "english-words")
+    if not strong and confidence is not None and confidence >= ENGLISH_GATE["sureLogprob"]:
+        return verdict("keep", "sure-ear")
+    return verdict("listen", "unclear")
+
+
+def settle_gate(gate: Mapping[str, Any], cue: Mapping[str, float] | None, prior: str) -> dict:
+    """The final verdict of a ``listen`` line: the clip's own language guess (``{"en": p, "hi": p}``) when it is
+    clear, then the turn before it (English after English), else the ear's line stands as before this gate."""
+    if gate.get("verdict") != "listen":
+        return dict(gate)
+    en, hi = float((cue or {}).get("en") or 0.0), float((cue or {}).get("hi") or 0.0)
+    least, ratio = ENGLISH_GATE["cueMin"], ENGLISH_GATE["cueRatio"]
+    if en >= least and en >= ratio * hi:
+        return {**gate, "verdict": "english", "why": "cue-en"}
+    if hi >= least and hi >= ratio * en:
+        return {**gate, "verdict": "keep", "why": "cue-hi"}
+    if prior == "en":
+        return {**gate, "verdict": "english", "why": "prior-en"}
+    return {**gate, "verdict": "keep", "why": "ear-kept"}
 
 
 def _load(folder: Path):

@@ -669,3 +669,97 @@ def test_the_hindi_stream_reader_reads_inside_the_words_and_keeps_its_gates(monk
     heard["confidence"] = -2.0  # the unsure gate drops it, with or without words
     assert reader([0.0] * 16000, "") == []
     assert seen == [("Devendra",), ("Devendra",)] and hindi_ear._owner_words == ()
+
+
+# ---- the English gate: English spelled in Devanagari is not kept as Hindi in auto ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "confidence", "verdict", "why"),
+    [
+        # clear Hindi is kept from the text alone (no model run)
+        ("कल मीटिंग कितने बजे है", -0.06, "keep", "hindi-words"),
+        ("राहुल को रिपोर्ट भेजो", -0.01, "keep", "hindi-words"),
+        ("आवाज़ थोड़ी कम करो", -0.12, "keep", "hindi-words"),
+        ("माँ को फ़ोन करो", -0.16, "keep", "hindi-words"),
+        ("सात बजकर तीस मिनट का अलार्म लगाओ", -0.10, "keep", "hindi-words"),
+        ("आज मौसम कैसा है", -0.05, "keep", "hindi-words"),
+        ("मेरा आखिरी ईमेल पढ़ो", -0.12, "keep", "hindi-words"),
+        ("र्रोम खॉलो", -0.25, "keep", "hindi-words"),  # the ear's own spelling of a Hindi verb (ॉ for ो)
+        ("मौसम कैसा है", -0.30, "keep", "hindi-words"),  # Hindi words hold even when the score is middling
+        # Hinglish (Hindi grammar around English words) stays the ear's line
+        ("प्लीज मेरा ईमेल ओपन करो", -0.20, "keep", "hindi-words"),
+        ("सेवन थर्टी का अलार्म लगाओ", -0.22, "keep", "hindi-words"),
+        ("मुझे द रिपोर्ट भेजो", -0.25, "keep", "hindi-words"),
+        ("मीटिंग कल है", -0.18, "keep", "hindi-words"),
+        # English spelled in Devanagari is sent to the English lane (no model run)
+        ("व्हाट टाइम इज द मीरिंग ट मारो", -0.30, "english", "english-words"),
+        ("व्हाट टाइम इसज द मीरिंग ट मरोो", -0.30, "english", "english-words"),
+        ("ओप एन क्राउम प्लीज", -0.23, "english", "english-words"),
+        ("सेरेनो व्म फॉर सेवन थर्टी", -0.30, "english", "english-words"),
+        ("हाउ आर यू", -0.10, "english", "english-words"),  # even a sure-sounding score: these are English words
+        ("टर्न द वॉल्यूम डाउन", -0.31, "english", "english-words"),
+        # a line the text cannot tell: the clip's own cue is asked for
+        ("खाओ माम", -0.23, "listen", "unclear"),
+        ("ओपन क्रोम", -0.25, "listen", "unclear"),
+        ("फोन वॉल्यूम म्यूट", -0.28, "listen", "unclear"),
+        # a sure ear with no English function words keeps its line without a model run
+        ("ओपन क्रोम", -0.10, "keep", "sure-ear"),
+        ("खाओ माम", -0.05, "keep", "sure-ear"),
+        # nothing to judge, or the ear itself wrote Latin letters: kept as written
+        ("", -0.10, "keep", "no-words"),
+        ("मेरा email खोलो", -0.20, "keep", "mixed-script"),
+    ],
+)
+def test_the_english_gate_reads_the_ears_own_words(text, confidence, verdict, why):
+    gate = hindi_ear.english_gate(text, confidence)
+    assert (gate["verdict"], gate["why"]) == (verdict, why)
+
+
+def test_the_english_gate_counts_a_devanagari_rendering_of_an_owner_english_word():
+    plain = hindi_ear.english_gate("ओप वॉल्यम", -0.25)
+    assert plain["verdict"] == "listen"
+    assert plain["weak"] == 1  # volume, by its consonants (v-l-m), with no table spelling of this form
+    hot = hindi_ear.english_gate("प्लीज जार्विस", -0.25, ["Jarvis"])
+    assert hot["strong"] == 1 and hot["weak"] == 1 and hot["verdict"] == "english"
+    assert hindi_ear.english_gate("प्लीज जार्विस", -0.25)["verdict"] == "listen"
+
+
+def test_a_short_hindi_word_never_reads_as_english_by_its_consonants():
+    # कल (k-l) folds like "call"; a two-consonant fold is never evidence, and a Hindi word is Hindi first
+    assert hindi_ear.english_gate("कल", -0.25)["verdict"] == "keep"
+
+
+@pytest.mark.parametrize(
+    ("cue", "prior", "verdict", "why"),
+    [
+        ({"en": 0.64, "hi": 0.01}, "", "english", "cue-en"),
+        ({"en": 0.95, "hi": 0.02}, "hi", "english", "cue-en"),  # the clip outweighs the turn before it
+        ({"en": 0.02, "hi": 0.95}, "en", "keep", "cue-hi"),
+        ({"en": 0.39, "hi": 0.26}, "", "keep", "ear-kept"),  # an unclear cue with no prior: today's behaviour
+        ({"en": 0.39, "hi": 0.26}, "en", "english", "prior-en"),  # an unclear cue: the turn before decides
+        (None, "en", "english", "prior-en"),  # no resident whisper: the prior decides
+        (None, "hi", "keep", "ear-kept"),
+        (None, "", "keep", "ear-kept"),
+        ({"en": 0.55, "hi": 0.30}, "", "keep", "ear-kept"),  # not three times as likely: not enough
+    ],
+)
+def test_an_unclear_line_is_settled_by_the_clips_cue_then_the_prior(cue, prior, verdict, why):
+    gate = hindi_ear.english_gate("खाओ माम", -0.23)
+    settled = hindi_ear.settle_gate(gate, cue, prior)
+    assert (settled["verdict"], settled["why"]) == (verdict, why)
+
+
+def test_a_clear_verdict_is_never_changed_by_a_cue_or_a_prior():
+    for text, verdict in (("आज मौसम कैसा है", "keep"), ("हाउ आर यू", "english")):
+        gate = hindi_ear.english_gate(text, -0.2)
+        for cue in (None, {"en": 0.99, "hi": 0.0}, {"en": 0.0, "hi": 0.99}):
+            for prior in ("", "en", "hi"):
+                assert hindi_ear.settle_gate(gate, cue, prior)["verdict"] == verdict
+
+
+def test_the_gate_thresholds_are_one_named_table():
+    table = hindi_ear.ENGLISH_GATE
+    names = {"sureLogprob", "strongMin", "shareMin", "foldMinConsonants", "cueSeconds", "cueMin", "cueRatio"}
+    assert set(table) >= names
+    assert table["sureLogprob"] > hindi_ear.EAR_MIN_LOGPROB["auto"]  # the gate never lowers the ear's own floor

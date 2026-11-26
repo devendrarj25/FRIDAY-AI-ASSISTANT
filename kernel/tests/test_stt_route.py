@@ -480,3 +480,117 @@ def test_a_fast_model_that_will_not_open_is_never_tried_again_in_this_worker(mon
     monkeypatch.setattr(stt, "memory_pressure", lambda: {"level": "ok", "totalMb": 16000})
     assert stt.fast_english_model() is None and stt.fast_english_model() is None
     assert len(tries) == 1
+
+
+# ---- the English gate in auto: the ear's Devanagari spelling of English goes to the English lane --------------------
+
+
+def _resident(monkeypatch, model):
+    _wire(monkeypatch, model)
+    monkeypatch.setattr(stt, "_model", model)  # the owner's model is already open in this worker
+    monkeypatch.setattr(stt, "_model_name", "small")
+
+
+class _Cue(_Whisper):
+    """A resident model that also gives a language guess for the first seconds of a clip."""
+
+    def __init__(self, probs, **kwargs):
+        super().__init__(**kwargs)
+        self.probs = probs
+        self.cues: list[int] = []
+
+    def detect_language(self, audio, **kwargs):
+        self.cues.append(len(audio))
+        best = max(self.probs, key=self.probs.get)
+        return best, self.probs[best], list(self.probs.items())
+
+
+def test_english_spelled_in_devanagari_is_heard_by_whisper_locked_to_english(monkeypatch):
+    model = _Cue({"en": 0.99, "hi": 0.0})
+    _resident(monkeypatch, model)
+    heard = _ear(monkeypatch, "व्हाट टाइम इज द मीटिंग टुमारो", -0.30)  # sure enough for the ear's own floor
+    result = _final(pref="auto")
+    assert heard == ["ear"] and result["engine"] == "faster-whisper" and result["text"] == "open the calendar"
+    assert [call["language"] for call in model.calls] == ["en"] and model.cues == []  # the text alone decided
+    assert "English" in result["languageNote"]
+
+
+def test_clear_hindi_is_kept_with_no_language_guess(monkeypatch):
+    model = _Cue({"en": 0.99, "hi": 0.0})
+    _resident(monkeypatch, model)
+    stt.note_turn_language("what time is it", "en", 0.97)
+    _ear(monkeypatch, "आज मौसम कैसा है", -0.05)
+    result = _final(pref="auto")
+    assert result["engine"] == "hindi-ear" and model.calls == [] and model.cues == []
+
+
+def test_an_unclear_line_asks_the_resident_model_about_the_first_two_seconds_only(monkeypatch):
+    model = _Cue({"en": 0.64, "hi": 0.01})
+    _resident(monkeypatch, model)
+    _ear(monkeypatch, "खाओ माम", -0.23)
+    result = _final(pref="auto", seconds=3.0)
+    assert model.cues == [int(16000 * stt.hindi_ear.ENGLISH_GATE["cueSeconds"])]
+    assert result["engine"] == "faster-whisper" and [call["language"] for call in model.calls] == ["en"]
+
+
+def test_an_unclear_line_the_cue_calls_hindi_stays_the_ears(monkeypatch):
+    model = _Cue({"en": 0.02, "hi": 0.9})
+    _resident(monkeypatch, model)
+    stt.note_turn_language("what time is it", "en", 0.97)
+    _ear(monkeypatch, "खाओ माम", -0.23)
+    result = _final(pref="auto")
+    assert result["engine"] == "hindi-ear" and model.calls == [] and len(model.cues) == 1
+
+
+def test_no_model_is_opened_for_the_cue(monkeypatch):
+    model = _Whisper()  # no language guess on this one, and nothing resident
+    _wire(monkeypatch, model)
+    monkeypatch.setattr(stt, "_model", None)
+    monkeypatch.setattr(stt, "get_model", lambda *a, **k: pytest.fail("the cue must not open a model"))
+    assert stt.ear_language_cue([0.01] * 32000) is None
+    monkeypatch.setattr(stt, "_model", model)  # resident but without a language guess: no cue, no error
+    assert stt.ear_language_cue([0.01] * 32000) is None
+
+
+def test_an_unclear_line_with_no_cue_after_english_goes_to_the_english_lane(monkeypatch):
+    model = _Whisper()
+    _wire(monkeypatch, model)
+    monkeypatch.setattr(stt, "ear_language_cue", lambda samples: None)
+    stt.note_turn_language("what time is it", "en", 0.97)
+    _ear(monkeypatch, "खाओ माम", -0.23)
+    result = _final(pref="auto")
+    assert result["engine"] == "faster-whisper" and [call["language"] for call in model.calls] == ["en"]
+
+
+def test_an_unclear_line_with_no_cue_and_no_prior_is_kept_as_today(monkeypatch):
+    model = _Whisper()
+    _wire(monkeypatch, model)
+    monkeypatch.setattr(stt, "ear_language_cue", lambda samples: None)
+    _ear(monkeypatch, "खाओ माम", -0.23)
+    assert _final(pref="auto")["engine"] == "hindi-ear" and model.calls == []
+
+
+def test_hindi_chosen_is_never_judged_by_the_english_gate(monkeypatch):
+    model = _Cue({"en": 0.99, "hi": 0.0})
+    _resident(monkeypatch, model)
+    _ear(monkeypatch, "व्हाट टाइम इज द मीटिंग", -0.30)
+    result = _final(language="hi", pref="hi-IN")
+    assert result["engine"] == "hindi-ear" and model.cues == []
+
+
+def test_an_english_gate_on_the_open_route_leaves_whisper_to_guess(monkeypatch):
+    route = stt.route_turn("", "auto", "", open_route=True)
+    assert stt.route_after_english_gate(route) == stt.Route(False, None, "open", None, "")
+    ear_first = stt.route_turn("", "auto", "")
+    assert stt.route_after_english_gate(ear_first) == stt.Route(False, "en", "ear-gate-en", stt.LOCK_MIN_LOGPROB, "en")
+
+
+def test_a_live_reading_in_auto_drops_english_spelled_in_devanagari_by_its_words_alone():
+    english = {"text": "हाउ आर यू", "confidence": -0.10}
+    unclear = {"text": "खाओ माम", "confidence": -0.23}
+    hindi = {"text": "आज मौसम कैसा है", "confidence": -0.05}
+    assert not stt.ear_keeps_live("auto", english, [])
+    assert stt.ear_keeps_live("auto", unclear, []) and stt.ear_keeps_live("auto", hindi, [])
+    assert stt.ear_keeps_live("hi", english, [])  # Hindi chosen: the owner asked for the ear
+    assert not stt.ear_keeps_live("auto", {"text": "आज", "confidence": -2.0}, [])
+    assert not stt.ear_keeps_live("auto", None, [])
