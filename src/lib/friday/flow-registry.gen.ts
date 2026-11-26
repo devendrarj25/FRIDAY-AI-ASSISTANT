@@ -2524,6 +2524,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "C",
+      file: "kernel/text_norm.py",
+    },
+    {
       kind: "camera",
       file: "kernel/companion.py",
     },
@@ -2562,6 +2566,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "ct2-folder",
       file: "kernel/voice_pin_selftest.py",
+    },
+    {
+      kind: "ctc",
+      file: "kernel/nemo_ear.py",
     },
     {
       kind: "docx",
@@ -2620,6 +2628,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/stream_ear.py",
     },
     {
+      kind: "M",
+      file: "kernel/text_norm.py",
+    },
+    {
       kind: "md",
       file: "kernel/doc_writer.py",
     },
@@ -2650,6 +2662,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "numbered",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "O",
+      file: "kernel/text_norm.py",
     },
     {
       kind: "object",
@@ -2700,6 +2716,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "rnnt",
+      file: "kernel/nemo_ear.py",
+    },
+    {
       kind: "rtf",
       file: "kernel/doc_writer.py",
     },
@@ -2710,6 +2730,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "s",
       file: "kernel/office_tools.py",
+    },
+    {
+      kind: "S",
+      file: "kernel/text_norm.py",
     },
     {
       kind: "silero",
@@ -2744,8 +2768,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/companion.py",
     },
     {
+      kind: "tdt",
+      file: "kernel/nemo_ear.py",
+    },
+    {
       kind: "thinking",
       file: "kernel/reasoning_control.py",
+    },
+    {
+      kind: "V",
+      file: "kernel/text_norm.py",
     },
     {
       kind: "wake",
