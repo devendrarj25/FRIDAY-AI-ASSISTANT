@@ -63,13 +63,14 @@ function hearSpeech(ms = 360) {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await preferences.hydrate();
   Object.assign(d.state, { mode: "auto", paused: false, muted: false, micReady: true });
   d.pausedByStop = false;
   d.stopRecognition = () => undefined;
   d.startRecognition = () => undefined;
   d.emit = () => undefined;
-  preferences.setVoice({ listenStyle: "always" });
+  preferences.setVoice({ listenStyle: "always", hinglish: false, speechLang: "en-US" });
   ptt.resetPtt();
   voiceGate.wake.release(performance.now());
 });

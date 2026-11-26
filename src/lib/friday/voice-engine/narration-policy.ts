@@ -585,3 +585,138 @@ export function digestLine(
   if (lang === "hi") return `Aapke busy hone par ${n} kaam khatam hue. ${FIXED.hi.detailsOnScreen}`;
   return `While you were busy, ${n === 1 ? "one task" : `${n} tasks`} finished. ${FIXED.en.detailsOnScreen.replace("The details are", "Details are")}`;
 }
+
+export type StatusLang = "en" | "hi" | "hinglish";
+
+type StatusRow = Record<StatusLang, string>;
+
+/**
+ * The short status line the Auto Mode screen shows, one row per situation, in the owner's reply language (the
+ * pools `faultLanguage` names: English, Hindi in Devanagari, Hinglish in Latin). `{wake}` is the wake word the
+ * owner chose. A line for a closed microphone or a failed voice path never contains the wake word or an
+ * instruction to speak: nobody is listening then.
+ */
+export const STATUS_LINES = {
+  "wake-needed": {
+    en: "Say “{wake} …” to start",
+    hi: "शुरू करने के लिए “{wake} …” कहिए",
+    hinglish: "Shuru karne ke liye “{wake} …” bolo",
+  },
+  awake: {
+    en: "Awake — go ahead",
+    hi: "मैं सुन रही हूँ — बोलिए",
+    hinglish: "Main sun rahi hoon — bolo",
+  },
+  listening: { en: "Listening", hi: "सुन रही हूँ", hinglish: "Sun rahi hoon" },
+  finishing: { en: "Finishing", hi: "पूरा कर रही हूँ", hinglish: "Poora kar rahi hoon" },
+  thinking: { en: "Thinking…", hi: "सोच रही हूँ…", hinglish: "Soch rahi hoon…" },
+  booting: {
+    en: "Waiting for {wake} to finish starting",
+    hi: "{wake} के शुरू होने का इंतज़ार है",
+    hinglish: "{wake} start hone ka intezaar hai",
+  },
+  "starting-mic": {
+    en: "Starting microphone…",
+    hi: "माइक्रोफ़ोन शुरू हो रहा है…",
+    hinglish: "Microphone shuru ho raha hai…",
+  },
+  "preparing-model": {
+    en: "Preparing speech model…",
+    hi: "बोली का मॉडल तैयार हो रहा है…",
+    hinglish: "Speech model taiyaar ho raha hai…",
+  },
+  manual: { en: "Manual mode", hi: "मैनुअल मोड", hinglish: "Manual mode" },
+  muted: {
+    en: "Muted. Microphone is off",
+    hi: "म्यूट है। माइक्रोफ़ोन बंद है",
+    hinglish: "Mute hai. Microphone band hai",
+  },
+  paused: {
+    en: "Microphone paused",
+    hi: "माइक्रोफ़ोन रुका हुआ है",
+    hinglish: "Microphone ruka hua hai",
+  },
+  stopped: {
+    en: "Stopped. Stop everything is on",
+    hi: "रुक गई। सब कुछ रोकें चालू है",
+    hinglish: "Ruk gayi. Sab kuch roko chalu hai",
+  },
+  "stop-on": {
+    en: "Stop everything is on",
+    hi: "सब कुछ रोकें चालू है",
+    hinglish: "Sab kuch roko chalu hai",
+  },
+  "stopped-listening": {
+    en: "Stopped — listening",
+    hi: "रुक गई — सुन रही हूँ",
+    hinglish: "Ruk gayi — sun rahi hoon",
+  },
+  "call-open": {
+    en: "Paused — a call is open",
+    hi: "रुकी हूँ — कॉल चल रही है",
+    hinglish: "Ruki hoon — call chal rahi hai",
+  },
+  "waiting-yesno": {
+    en: "Waiting for yes or no",
+    hi: "हाँ या ना का इंतज़ार है",
+    hinglish: "Haan ya na ka intezaar hai",
+  },
+  "waiting-confirm": {
+    en: "Waiting for confirmation",
+    hi: "पुष्टि का इंतज़ार है",
+    hinglish: "Confirmation ka intezaar hai",
+  },
+  "confirm-expired": {
+    en: "Confirmation expired",
+    hi: "पुष्टि का समय निकल गया",
+    hinglish: "Confirmation ka time nikal gaya",
+  },
+  "approval-expired": {
+    en: "Approval expired",
+    hi: "मंज़ूरी का समय निकल गया",
+    hinglish: "Approval ka time nikal gaya",
+  },
+  confirmed: {
+    en: "Confirmed — running",
+    hi: "पक्का — चल रहा है",
+    hinglish: "Pakka — chal raha hai",
+  },
+  cancelled: { en: "Cancelled", hi: "रद्द किया", hinglish: "Cancel kar diya" },
+  "voice-error": {
+    en: "Voice error",
+    hi: "आवाज़ में गड़बड़ी",
+    hinglish: "Voice mein gadbad",
+  },
+  "reset-mic": {
+    en: "Press Reset microphone",
+    hi: "“माइक्रोफ़ोन रीसेट” दबाइए",
+    hinglish: "“Reset microphone” dabao",
+  },
+  "mic-privacy": {
+    en: "Settings > Privacy > Microphone, allow desktop apps.",
+    hi: "सेटिंग्स > गोपनीयता > माइक्रोफ़ोन में डेस्कटॉप ऐप्स को अनुमति दीजिए।",
+    hinglish: "Settings > Privacy > Microphone mein desktop apps ko allow karo.",
+  },
+  "mic-privacy-opened": {
+    en: "Opened the Windows microphone settings. Allow desktop apps, then press Retry.",
+    hi: "विंडोज़ की माइक्रोफ़ोन सेटिंग्स खुल गई हैं। डेस्कटॉप ऐप्स को अनुमति दीजिए, फिर Retry दबाइए।",
+    hinglish:
+      "Windows ki microphone settings khul gayi hain. Desktop apps ko allow karo, phir Retry dabao.",
+  },
+} as const satisfies Record<string, StatusRow>;
+
+export type StatusKey = keyof typeof STATUS_LINES;
+
+/** The wake word as the screen shows it: the default in capitals, a chosen name with its first letter up. */
+function wakeLabel(wake: string): string {
+  const text = String(wake ?? "").trim();
+  if (!text || text.toLowerCase() === "friday") return "FRIDAY";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** One status line in the owner's language (English for anything unknown), with the wake word filled in. */
+export function statusLine(key: StatusKey, lang: StatusLang = "en", wake = ""): string {
+  const row: StatusRow = STATUS_LINES[key];
+  const pool: StatusLang = lang === "hi" || lang === "hinglish" ? lang : "en";
+  return row[pool].replaceAll("{wake}", wakeLabel(wake));
+}

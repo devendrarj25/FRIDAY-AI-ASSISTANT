@@ -254,8 +254,11 @@ import {
   holdDigest,
   narrate,
   sanitizeForSpeech,
+  STATUS_LINES,
+  statusLine,
   type NarrateEvent,
   type NarrationLang,
+  type StatusKey,
 } from "./voice-engine/narration-policy";
 import { createFinalDeduper } from "./voice-engine/final-dedupe";
 import { routeUtterance, type Route } from "./voice-engine/utterance-router";
@@ -283,7 +286,8 @@ import {
 } from "./asr-bias";
 import { noteArc } from "./conversation-arc";
 import { voiceBudgets } from "./failure-guard";
-import { applySession, savedInputPlan } from "./mic-session";
+import { applySession, faultLanguage, plainFaultLine, savedInputPlan } from "./mic-session";
+import { MIC_PRIVACY_LINK } from "./mic-faults";
 import { noteStyleCorrection } from "./response-policy";
 import {
   outputReachable,
@@ -373,7 +377,9 @@ import {
   stateIsListening,
   stateIsSpeaking,
   stateLabel,
+  voicePhaseFromState,
   type VoiceEvent,
+  type VoicePhase,
   type VoiceState,
 } from "./voice-state";
 
@@ -475,6 +481,10 @@ export type AssistantModeState = {
    * doing — every transition comes from a real pipeline event.
    */
   voiceState: VoiceState;
+  /** The one phase chip, derived from `voiceState` on every emit (never set by hand). */
+  phase: VoicePhase;
+  /** A spoken note or meeting note is being written down right now (the Dictating chip). */
+  dictating: boolean;
   /** Which wake detector is really active right now (and why). */
   wakeEngine: WakeEngineStatus;
   /** The last wake verdict, whichever engine produced it. */
@@ -576,6 +586,7 @@ type VoiceDesktop = {
   }>;
   installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
   restartKernel?: () => Promise<{ ok: boolean }>;
+  openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   restartTts?: () => Promise<{ ok: boolean; state: string; error?: string }>;
 };
 const desktop = (): VoiceDesktop | null =>
@@ -984,6 +995,7 @@ class AssistantModeStore {
   private awakeUntil = 0;
   private followUpUntil = 0;
   private readonly micRestarts: number[] = [];
+  private micErrorLine = "";
   private shownMicFault = "";
   private shownMicFaultAt = 0;
   private awakeTimer: number | null = null;
@@ -1082,6 +1094,8 @@ class AssistantModeStore {
 
     voiceLog: [],
     voiceState: "OFF",
+    phase: "off",
+    dictating: false,
     wakeEngine: TRANSCRIPT_ONLY,
     lastWake: null,
     stt: {
@@ -1107,9 +1121,42 @@ class AssistantModeStore {
   getSnapshot = () => this.snapshot;
 
   private emit() {
+    this.state.phase = voicePhaseFromState(this.state.mode, this.state.voiceState);
+    this.state.dictating = Boolean(voiceNotes.active());
     this.snapshot = { ...this.state };
     this.listeners.forEach((l) => l());
     this.reportToTray();
+  }
+
+  /** The language pool for status and fault lines: the owner's reply language. */
+  private lineLang(): "en" | "hi" | "hinglish" {
+    return faultLanguage(preferences.getSnapshot().voice) as "en" | "hi" | "hinglish";
+  }
+
+  /** One status line in the owner's language, with the wake word they chose. */
+  private line(key: StatusKey): string {
+    return statusLine(key, this.lineLang(), wakeWord());
+  }
+
+  /**
+   * The status while nothing is happening: it asks for the wake word only when the microphone really listens.
+   * A muted, paused, stopped or failed state shows that state instead, never "Say FRIDAY".
+   */
+  private idleLine(): string {
+    if (this.state.muted) return this.line("muted");
+    if (this.stopped()) return this.line("stopped");
+    if (this.state.paused) return this.line("paused");
+    if (this.state.voiceState === "ERROR") return this.line("voice-error");
+    return this.line("wake-needed");
+  }
+
+  /** A fault as one plain sentence in the owner's language (the raw text stays in the trace and the Doctor). */
+  private plainFault(raw: string, micClass = false, healing = false): string {
+    const state = this.state.mic.state;
+    return plainFaultLine(raw, this.lineLang(), {
+      ...(micClass && state !== "available" ? { micState: state } : {}),
+      healing,
+    });
   }
 
   /** The tray tooltip must always show the REAL microphone state. */
@@ -1167,7 +1214,7 @@ class AssistantModeStore {
       if (this.state.mode === "auto" && !this.state.paused) {
         this.pausedByStop = true;
         this.setPaused(true);
-        this.state.status = "Stopped. Stop everything is on";
+        this.state.status = this.line("stopped");
       } else if (this.state.speaking || this.arbiter.size()) {
         this.cancelSpeech();
       }
@@ -1184,7 +1231,7 @@ class AssistantModeStore {
   setPaused(paused: boolean) {
     if (!paused && this.stopped()) {
       // The microphone does not reopen under the kill switch, whoever asks.
-      this.state.status = "Stop everything is on";
+      this.state.status = this.line("stop-on");
       this.emit();
       return;
     }
@@ -1204,7 +1251,7 @@ class AssistantModeStore {
       cancelAllVoiceTasks();
       brain.stop();
       this.to("pause");
-      this.state.status = "Microphone paused";
+      this.state.status = this.line("paused");
     } else if (this.state.mode === "auto") {
       // An explicit resume is the owner asking again: retry immediately.
       this.gateRelease();
@@ -1334,16 +1381,14 @@ class AssistantModeStore {
       if (this.state.mode === "auto") {
         this.state.status = next.percent == null ? next.label : `${next.label} ${next.percent}%`;
       }
-      // A finished or failed row stays long enough to be read, then goes.
-      if (next.stage === "ready" || next.stage === "failed" || next.stage === "check") {
-        this.downloadTimer = setTimeout(
-          () => {
-            this.state.download = null;
-            this.downloadTimer = null;
-            this.emit();
-          },
-          next.stage === "failed" ? 20000 : 4000,
-        );
+      // A finished row stays long enough to be read, then goes. A failed row stays until the owner acts or a new
+      // progress event replaces it: a failure is never cleared by a timer.
+      if (next.stage === "ready" || next.stage === "check") {
+        this.downloadTimer = setTimeout(() => {
+          this.state.download = null;
+          this.downloadTimer = null;
+          this.emit();
+        }, 4000);
       }
       this.emit();
     });
@@ -1443,7 +1488,7 @@ class AssistantModeStore {
       this.enterAuto();
       return;
     }
-    this.state.status = "Waiting for FRIDAY to finish starting";
+    this.state.status = this.line("booting");
     this.bootWait = whenBootDone(() => {
       this.bootWait = null;
       if (this.state.mode !== "auto") return;
@@ -1972,7 +2017,7 @@ class AssistantModeStore {
       voiceGate.release("auto-mode");
       this.autoMicDeferred = true;
       this.state.micReady = false;
-      this.state.status = "Muted. Microphone is off";
+      this.state.status = this.line("muted");
     } else if (!muted && this.state.mode === "auto" && !this.state.paused && !this.stopped()) {
       this.gateRelease();
       this.resetVoiceRecovery();
@@ -2010,14 +2055,28 @@ class AssistantModeStore {
     this.state.mic = status;
     this.state.micReady = status.available;
     if (status.available) {
-      if (this.state.error?.startsWith("microphone")) this.state.error = null;
+      this.clearMicError();
     } else if (status.state === "permission-required") {
-      this.state.error = "microphone: permission required";
+      this.setMicError("microphone: permission required", status.state);
     } else if (status.reason) {
-      this.state.error = `microphone: ${status.reason}`;
+      this.setMicError(`microphone: ${status.reason}`, status.state);
     }
     this.emit();
     return status;
+  }
+
+  /** The microphone fault on screen is one plain sentence; the raw reason stays in the trace. */
+  private setMicError(raw: string, state: MicStatus["state"]) {
+    this.trace("error", raw);
+    this.micErrorLine = plainFaultLine(raw, this.lineLang(), {
+      ...(state !== "available" ? { micState: state } : {}),
+    });
+    this.state.error = this.micErrorLine;
+  }
+
+  private clearMicError() {
+    if (this.micErrorLine && this.state.error === this.micErrorLine) this.state.error = null;
+    this.micErrorLine = "";
   }
 
   /**
@@ -2128,9 +2187,13 @@ class AssistantModeStore {
     }
     if (phase === this.pttShown) return;
     this.pttShown = phase;
-    if (phase === "listening") this.state.status = "Listening";
-    else if (phase === "finishing") this.state.status = "Finishing";
-    else if (this.state.status === "Listening" || this.state.status === "Finishing")
+    if (phase === "listening") this.state.status = this.line("listening");
+    else if (phase === "finishing") this.state.status = this.line("finishing");
+    else if (
+      [STATUS_LINES.listening, STATUS_LINES.finishing].some((row) =>
+        (Object.values(row) as string[]).includes(this.state.status),
+      )
+    )
       this.state.status = stateLabel(this.state.voiceState);
     this.emit();
   }
@@ -2314,6 +2377,7 @@ class AssistantModeStore {
               ? `I can't hear you — ${failed.reason}.`
               : "I can't hear you — no working microphone was found.",
             "Microphone unavailable",
+            true,
           );
           this.scheduleSttRecovery(failed.reason || "microphone did not open");
           this.emit();
@@ -2338,6 +2402,7 @@ class AssistantModeStore {
               ? `I can't hear you — ${status.reason}.`
               : "I can't hear you — no working microphone was found.",
             "Microphone unavailable",
+            true,
           );
           this.scheduleSttRecovery(
             status.reason
@@ -2366,7 +2431,7 @@ class AssistantModeStore {
       const previous = preferences.getSnapshot().voice.inputDeviceId || null;
       const next = rememberDevice(worked, previous);
       if (next && next !== previous) preferences.setVoice({ inputDeviceId: next });
-      if (this.state.error?.startsWith("microphone")) this.state.error = null;
+      this.clearMicError();
       this.emit();
     });
   }
@@ -2390,7 +2455,7 @@ class AssistantModeStore {
     // Turning Auto Mode on is an explicit request — retry the engine now.
     this.resetVoiceRecovery();
     this.to("session-start");
-    this.state.status = "Starting microphone…";
+    this.state.status = this.line("starting-mic");
     void this.refreshWakeEngine(true);
     this.spokenUpTo = brain.getSnapshot().messages.length;
     this.unBrain = brain.subscribe(() => this.speakNewReplies());
@@ -2401,7 +2466,7 @@ class AssistantModeStore {
       this.autoMicDeferred = true;
       if (this.stopped()) this.followKillSwitch();
       this.to("pause");
-      this.state.status = this.stopped() ? "Stopped. Stop everything is on" : "Microphone paused";
+      this.state.status = this.line(this.stopped() ? "stopped" : "paused");
     } else {
       this.openAutoMic();
     }
@@ -2463,7 +2528,7 @@ class AssistantModeStore {
     this.callHold = meeting;
     if (meeting) {
       this.stopRecognition();
-      this.state.status = "Paused — a call is open";
+      this.state.status = this.line("call-open");
     } else if (this.state.mode === "auto" && !this.state.paused) {
       this.startRecognition();
       this.afterQuiet(); // what the call held back, as text
@@ -2543,7 +2608,7 @@ class AssistantModeStore {
     this.state.pending = null;
     this.to("stopped");
     this.state.speaking = false;
-    this.state.status = "Manual mode";
+    this.state.status = this.line("manual");
     try {
       window.speechSynthesis?.cancel();
     } catch {
@@ -2576,7 +2641,7 @@ class AssistantModeStore {
       this.recognitionPending = false;
       return;
     }
-    this.state.status = "Preparing speech model…";
+    this.state.status = this.line("preparing-model");
     this.emit();
     const ladder = chooseStt({
       whisperCpp: false,
@@ -2777,7 +2842,7 @@ class AssistantModeStore {
         { priority: "direct" },
       );
     }
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
     return true;
   }
@@ -3075,7 +3140,16 @@ class AssistantModeStore {
       return;
     }
     if (action === "show-mic-privacy") {
-      this.state.status = "Settings > Privacy > Microphone, allow desktop apps.";
+      // Windows owns the privacy switch: open its page, and say where it is when the page cannot open.
+      this.state.status = this.line("mic-privacy");
+      void desktop()
+        ?.openExternalUrl?.(MIC_PRIVACY_LINK)
+        .then((result) => {
+          if (!result?.ok) return;
+          this.state.status = this.line("mic-privacy-opened");
+          this.emit();
+        })
+        .catch(() => undefined);
       return;
     }
     if (action === "resume-audio-context") {
@@ -3364,10 +3438,10 @@ class AssistantModeStore {
       },
       onError: (message) => {
         const current = this.dictation;
-        this.state.error = `voice: ${message}`;
+        this.state.error = this.plainFault(`voice: ${message}`);
         this.state.stt = { ...this.state.stt, lastError: message };
         this.to("error");
-        this.state.status = "Voice error";
+        this.state.status = this.line("voice-error");
         this.trace("error", message);
         this.emit();
         if (current?.active) return;
@@ -3730,7 +3804,7 @@ class AssistantModeStore {
       if (Date.now() >= this.awakeUntil) {
         this.state.awake = false;
         this.state.status = this.state.pending
-          ? "Waiting for confirmation"
+          ? this.line("waiting-confirm")
           : stateLabel(this.state.voiceState);
         this.emit();
       }
@@ -3841,7 +3915,7 @@ class AssistantModeStore {
           languageId(readBack.command) === "en" ? "Okay, say it again." : "Theek hai, dobara bolo.";
         this.caption("user", text);
         this.caption("friday", again);
-        this.state.status = "Listening";
+        this.state.status = this.line("listening");
         this.emit();
         this.speak(again);
         return;
@@ -3909,7 +3983,7 @@ class AssistantModeStore {
         this.remember("approval-expired", text, "dropped");
         const expired = this.variedLine("expired", text);
         this.caption("friday", expired);
-        this.state.status = "Confirmation expired";
+        this.state.status = this.line("confirm-expired");
         this.emit();
         this.speak(expired);
         return;
@@ -3922,7 +3996,7 @@ class AssistantModeStore {
         this.to("confirm-resolved");
         this.remember("confirmed", text, cmd);
         this.caption("user", text);
-        this.state.status = "Confirmed — running";
+        this.state.status = this.line("confirmed");
         this.emit();
         this.runApproved(cmd, cmdHints);
         return;
@@ -3933,7 +4007,7 @@ class AssistantModeStore {
         this.caption("user", text);
         const dropped = this.variedLine("cancelled", text);
         this.caption("friday", dropped);
-        this.state.status = "Cancelled";
+        this.state.status = this.line("cancelled");
         this.emit();
         this.speak(dropped);
         return;
@@ -4042,7 +4116,7 @@ class AssistantModeStore {
           : "listening is paused or not in Auto mode",
       );
       this.to("wake-missed");
-      this.state.status = "Say “FRIDAY …” to start";
+      this.state.status = this.idleLine();
       this.emit();
       return;
     }
@@ -4066,7 +4140,7 @@ class AssistantModeStore {
       this.approvalAsked = null;
       const line = "That approval timed out. Ask me again if you still want it.";
       this.caption("friday", line);
-      this.state.status = "Approval expired";
+      this.state.status = this.line("approval-expired");
       this.emit();
       this.speak(line);
       return;
@@ -4079,7 +4153,7 @@ class AssistantModeStore {
       this.approvalAsked = null;
       const said = this.runTaskRoute(route);
       if (said) this.speak(said);
-      this.state.status = "Listening";
+      this.state.status = this.line("listening");
       this.emit();
       return;
     }
@@ -4125,7 +4199,7 @@ class AssistantModeStore {
         this.followUpUntil = 0;
         this.state.awake = false;
       }
-      this.state.status = "Stopped — listening";
+      this.state.status = this.line("stopped-listening");
       this.emit();
       return;
     }
@@ -4145,7 +4219,7 @@ class AssistantModeStore {
       this.expectCommandAfterWake();
       const ready = this.variedLine("wake", text);
       this.caption("friday", ready);
-      this.state.status = "Awake — go ahead";
+      this.state.status = this.line("awake");
       this.emit();
       this.speak(ready);
       return;
@@ -4208,7 +4282,7 @@ class AssistantModeStore {
       markTurnStage("routed", false, "read back — waiting for a yes");
       this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
       this.caption("friday", ask);
-      this.state.status = "Waiting for yes or no";
+      this.state.status = this.line("waiting-yesno");
       this.emit();
       this.speak(ask);
       return;
@@ -4284,7 +4358,7 @@ class AssistantModeStore {
     this.approvalAsked = null;
     voiceTaskActions.approve(waiting.id, route.verdict === "yes");
     this.caption("user", text);
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
     return true;
   }
@@ -4304,7 +4378,7 @@ class AssistantModeStore {
     const ask = confirmQuestion(command);
     this.caption("friday", ask);
     this.to("confirm-required");
-    this.state.status = "Waiting for confirmation";
+    this.state.status = this.line("waiting-confirm");
     this.emit();
     this.speak(ask, { priority: "approval" });
     this.remember("needs-approval", command, "paused");
@@ -4353,7 +4427,7 @@ class AssistantModeStore {
       request: background.request,
     });
     if (!made.ok) this.speak(made.error);
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
   }
 
@@ -4483,10 +4557,11 @@ class AssistantModeStore {
    * bug in Auto Mode: the owner is not looking at the screen, so every failed
    * stage has to be audible as well as visible.
    */
-  private reportFailure(message: string, status = "Voice error") {
+  private reportFailure(message: string, status = "", micClass = false) {
     this.to("error");
-    this.state.error = `${message}\nFix voice`;
-    this.state.status = status;
+    this.trace("error", message);
+    this.state.error = `${this.plainFault(message, micClass)}\nFix voice`;
+    this.state.status = status || this.line("voice-error");
     const cause = failureCause(message);
     this.lastFailure = cause;
     const spoken = voiceFailureLine(
@@ -4554,10 +4629,11 @@ class AssistantModeStore {
     this.soak.fault();
     this.shownMicFault = message;
     this.shownMicFaultAt = now;
-    this.state.error = message;
+    const healing = allowRestart(this.micRestarts, now);
+    this.state.error = this.plainFault(message, true, healing);
     this.trace("error", message);
-    if (!allowRestart(this.micRestarts, now)) {
-      this.state.status = "Press Reset microphone";
+    if (!healing) {
+      this.state.status = this.line("reset-mic");
       this.emit();
       return;
     }
@@ -4579,7 +4655,7 @@ class AssistantModeStore {
     this.voicedPrefix = "";
     this.firstClauseDue = false;
     this.to("command-accepted");
-    this.state.status = "Thinking…";
+    this.state.status = this.line("thinking");
     this.emit();
   }
 
@@ -4613,7 +4689,7 @@ class AssistantModeStore {
   private dispatch(command: string): boolean {
     if (this.stopped()) {
       this.remember("stopped", command, "not sent: Stop everything is on");
-      this.state.status = "Stopped. Stop everything is on";
+      this.state.status = this.line("stopped");
       this.emit();
       return false;
     }
@@ -5051,21 +5127,21 @@ class AssistantModeStore {
       this.supersedeOnConfirm = null;
       this.remember("approval-expired", pending.command, "dropped");
       this.caption("friday", "That confirmation expired. Ask again if you still want it.");
-      this.state.status = "Confirmation expired";
+      this.state.status = this.line("confirm-expired");
       this.emit();
       return;
     }
     this.state.pending = null;
     this.to("confirm-resolved");
     if (ok) {
-      this.state.status = "Confirmed — running";
+      this.state.status = this.line("confirmed");
       this.emit();
       this.runApproved(pending.command, pending.hints);
     } else {
       this.supersedeOnConfirm = null;
       const dropped = this.variedLine("cancelled", this.lastOwnerLine);
       this.caption("friday", dropped);
-      this.state.status = "Cancelled";
+      this.state.status = this.line("cancelled");
       this.emit();
       this.speak(dropped);
     }
