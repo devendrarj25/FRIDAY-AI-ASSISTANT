@@ -340,3 +340,45 @@ export function fixScript(text: string, expectedPolicy: ScriptPolicy = "codemix"
   });
   return pieces.join("");
 }
+
+/** Share of a Latin line's words that must be Hindi in the lexicon for the line to count as romanised Hinglish. */
+export const ROMAN_HINGLISH_SHARE = 0.3;
+/** A line with fewer words than this is too short to judge: the speech engine's declared language is kept. */
+export const SHORT_TURN_WORDS = 3;
+
+export type TurnLanguageRead = { lang: "hi" | "en" | "hi-en" | ""; romanised: boolean };
+
+/**
+ * The language of one turn, shared by the Brain's reply-language hint and her own short lines. Devanagari is Hindi,
+ * both scripts are Hinglish, and Latin text whose words are at least `ROMAN_HINGLISH_SHARE` sure Roman Hindi is
+ * romanised Hinglish (`romanised: true`); a declared Hindi or Hinglish ear is kept as it was said. Lines under
+ * `SHORT_TURN_WORDS` words and lines without letters keep the declared language.
+ */
+export function detectTurnLanguage(
+  text: string,
+  declared: "hi" | "en" | "hi-en" | "" = "",
+): TurnLanguageRead {
+  let deva = 0;
+  let latin = 0;
+  for (const ch of String(text)) {
+    if (DEVANAGARI.test(ch)) deva += 1;
+    else if (/[A-Za-z]/.test(ch)) latin += 1;
+  }
+  if (deva > 0 && latin > 0) return { lang: "hi-en", romanised: false };
+  if (deva > 0) return { lang: "hi", romanised: false };
+  if (latin === 0) return { lang: declared, romanised: false };
+  const cores: string[] = [];
+  for (const piece of String(text).split(/\s+/)) {
+    const core = EDGE.exec(piece)?.[2] ?? "";
+    if (LETTER.test(core)) cores.push(core);
+  }
+  if (cores.length < SHORT_TURN_WORDS) return { lang: declared || "en", romanised: false };
+  const hindi = labelLanguages(cores).filter((l) => l === "hi").length;
+  if (hindi / cores.length >= ROMAN_HINGLISH_SHARE) {
+    return {
+      lang: declared === "hi" || declared === "hi-en" ? declared : "hi-en",
+      romanised: true,
+    };
+  }
+  return { lang: declared === "hi" || declared === "hi-en" ? declared : "en", romanised: false };
+}

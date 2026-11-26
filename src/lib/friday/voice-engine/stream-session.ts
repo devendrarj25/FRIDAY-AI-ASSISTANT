@@ -24,6 +24,7 @@ import {
   type ScriptSummary,
 } from "./script-policy";
 import { applyHinglishItn } from "./hinglish-itn";
+import { detectTurnLanguage } from "./hinglish-lexicon";
 import { tidyTranscript, type TidyChange } from "./transcript-tidy";
 
 export type StreamEngineChoice = "off" | "auto" | "nemotron" | "stream-ear-nemotron";
@@ -720,11 +721,7 @@ export function languageMix(line: string, declared: string = ""): { lang: TurnLa
   }
   const total = deva + latin;
   const mix = total === 0 ? 0 : Math.round((Math.min(deva, latin) / total) * 100) / 100;
-  if (deva > 0 && latin > 0) return { lang: "hi-en", mix };
-  const asked = streamLocale(declared);
-  if (deva > 0) return { lang: "hi", mix };
-  if (latin > 0) return { lang: asked === "hi" || asked === "hi-en" ? asked : "en", mix };
-  return { lang: asked, mix };
+  return { lang: detectTurnLanguage(line, streamLocale(declared)).lang, mix };
 }
 
 /**
