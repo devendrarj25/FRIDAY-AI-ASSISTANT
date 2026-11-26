@@ -756,3 +756,159 @@ def load_eval_set(
     if problems:
         raise EvalSetError(problems)
     return items
+
+
+# ---- the run entry: score a set with one streaming engine, write the baseline on the owner's PC -------------------
+
+EXIT_OK, EXIT_USAGE, EXIT_REFUSED, EXIT_NO_DATA = 0, 1, 2, 3
+CHUNK_MS = 160
+_ENGINE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def baseline_path(root: Path, engine: str) -> Path:
+    """``<root>/reports/stt-baseline-<engine>.json``; a root inside the repository or an unsafe engine name is refused,
+    so a baseline (which holds the owner's phrases) can never land in the tree."""
+    if not _ENGINE_NAME.fullmatch(engine):
+        raise ValueError(f"{engine!r} is not a safe engine name")
+    if is_inside_repo(Path(root)):
+        raise ValueError("a baseline is written on the owner's PC, never inside the repository")
+    return Path(root) / "reports" / f"stt-baseline-{engine}.json"
+
+
+def run_baseline(
+    items: list[dict], sampler: Callable[[dict], dict], engine: str, root: Path, created: str,
+    set_info: dict | None = None,
+) -> tuple[Path, dict]:  # fmt: skip
+    """Score every item (``sampler`` returns ``{hypothesis, partials?, timeline?}`` for one) and write the baseline."""
+    dest = baseline_path(root, engine)
+    samples = []
+    for item in items:
+        got = sampler(item)
+        samples.append({"id": item["id"], "lang": item["lang"], "reference": item["reference"], **got})
+    report = build_report(samples, engine, created, set_info)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    write_baseline(dest, report)
+    return dest, report
+
+
+def _read_pcm16(path: Path) -> bytes:
+    import wave
+
+    with wave.open(str(path), "rb") as handle:
+        if (handle.getframerate(), handle.getnchannels(), handle.getsampwidth()) != (16000, 1, 2):
+            raise ValueError("the stream bench reads 16 kHz mono 16-bit wav only")
+        return handle.readframes(handle.getnframes())
+
+
+def stream_sampler(host, engine: str, clock: Callable[[], float] = time.perf_counter) -> Callable[[dict], dict]:
+    """A sampler that feeds one recording through a ``StreamHost`` in 160 ms chunks and keeps the shown partials and
+    a timeline on the audio clock (the engine is fed faster than real time; compute time is the real cost)."""
+    import base64
+
+    def sample(item: dict) -> dict:
+        pcm = _read_pcm16(Path(item["path"]))
+        locale = {"hi": "hi", "en": "en", "hinglish": "hi-en"}.get(str(item["lang"]), "")
+        opened = host.handle({"op": "stream-open", "streamEngine": engine, "locale": locale, "streamId": "bench"})
+        if not opened.get("ok"):
+            raise RuntimeError(str(opened.get("reason") or "open-failed"))
+        step = CHUNK_MS * 32  # 16 kHz, 2 bytes
+        events: list[dict] = [{"t": 0, "kind": "speech_start"}]
+        partials: list[str] = []
+        audio_ms = len(pcm) // 32
+        started = clock()
+        for at in range(0, len(pcm), step):
+            fed = host.handle(
+                {"op": "stream-feed", "streamId": "bench", "pcm": base64.b64encode(pcm[at : at + step]).decode()}
+            )
+            if not fed.get("ok"):
+                raise RuntimeError(str(fed.get("reason") or "feed-failed"))
+            t = min(audio_ms, (at + step) // 32)
+            for ev in fed.get("events", []):
+                text = str(ev.get("text", fed.get("text", "")))
+                if ev.get("type") == "partial" and text and (not partials or partials[-1] != text):
+                    partials.append(text)
+                    events.append({"t": t, "kind": "partial", "text": text})
+                elif ev.get("type") == "endpoint":
+                    events.append({"t": t, "kind": "endpoint"})
+        closing = clock()
+        done = host.handle({"op": "stream-close", "streamId": "bench", "finalize": True})
+        if not done.get("ok"):
+            raise RuntimeError(str(done.get("reason") or "close-failed"))
+        end = clock()
+        text = str(done.get("text", ""))
+        events.append({"t": audio_ms, "kind": "speech_end"})
+        events.append({"t": audio_ms + int((end - closing) * 1000), "kind": "final", "text": text})
+        events.sort(key=lambda e: (e["t"], e["kind"] == "final"))
+        timeline = {"audioMs": audio_ms, "computeMs": int((end - started) * 1000), "events": events}
+        return {"hypothesis": text, "partials": partials, "timeline": timeline}
+
+    return sample
+
+
+def main(argv: list[str] | None = None, *, host=None, out: Callable[[str], None] = print) -> int:
+    """``run --engine NAME --manifest F --references F --audio DIR --pin SHA256 [--split test] [--root DIR]
+    [--fake SCRIPT.json]``. Exit 0 done, 1 usage, 2 refused (no weights, a hash differs), 3 no data."""
+    import argparse
+    from datetime import UTC, datetime
+
+    ap = argparse.ArgumentParser(prog="stt_bench.py")
+    ap.add_argument("command", choices=["run"])
+    ap.add_argument("--engine", default="stream-ear-nemotron")
+    ap.add_argument("--manifest")
+    ap.add_argument("--references")
+    ap.add_argument("--audio")
+    ap.add_argument("--pin")
+    ap.add_argument("--split", default="test")
+    ap.add_argument("--root", default=os.environ.get("FRIDAY_ROOT", ""))
+    ap.add_argument("--fake", help="a JSON script for the offline fake transcriber (tests)")
+    ap.add_argument("--allow-in-repo", action="store_true", help="only for the synthetic fixture")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit:
+        return EXIT_USAGE
+    missing = [n for n in ("manifest", "references", "audio", "pin") if not getattr(args, n)]
+    if missing or not args.root:
+        need = [f"--{n}" for n in missing] + ([] if args.root else ["--root"])
+        out("NO DATA: nothing was measured. Missing: " + ", ".join(need))
+        return EXIT_NO_DATA
+    try:
+        items = load_eval_set(
+            Path(args.manifest), Path(args.references), Path(args.audio), pin=args.pin, split=args.split,
+            allow_in_repo=args.allow_in_repo,
+        )  # fmt: skip
+    except EvalSetError as exc:
+        out("REFUSED: " + "; ".join(exc.problems))
+        return EXIT_REFUSED
+    if not items:
+        out(f"NO DATA: no items in split {args.split!r}")
+        return EXIT_NO_DATA
+    if args.fake:
+        fake = FakeTranscriber(json.loads(Path(args.fake).read_text(encoding="utf-8")))
+
+        def sampler(item: dict) -> dict:
+            made = fake.sample(item["id"], item["lang"], item["reference"])
+            return {k: made[k] for k in ("hypothesis", "partials", "timeline") if k in made}
+
+    else:
+        if host is None:
+            import stream_ear
+
+            host = stream_ear.HOST
+        sampler = stream_sampler(host, args.engine)
+    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        dest, report = run_baseline(items, sampler, args.engine, Path(args.root), created, {"split": args.split})
+    except ValueError as exc:
+        out(f"REFUSED: {exc}")
+        return EXIT_REFUSED
+    except RuntimeError as exc:
+        out(f"REFUSED: the stream ear could not run ({exc}); no weights or runtime, nothing was measured")
+        return EXIT_REFUSED
+    for lang, part in report["languages"].items():
+        out(f"{lang}: folded WER {part['foldedWer']:.4f} over {part['utterances']} utterances")
+    out(f"baseline written: {dest}")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

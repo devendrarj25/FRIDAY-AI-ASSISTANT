@@ -11,6 +11,9 @@
  *        [--adapters FILE.cjs] [--out REPORT.json]
  *   node scripts/voice-bench.cjs run --engines supertonic-3 --tts-texts TEXTS.json
  *        [--audio-out DIR] [--listener-form FORM.json]                      (text to speech)
+ *   node scripts/voice-bench.cjs stt-stream --manifest MANIFEST.json --references REFS.json --audio DIR
+ *        [--engine stream-ear-nemotron] [--split test|dev] [--root FRIDAY_ROOT] [--python PYTHON]
+ *        [--baseline FILE.json] [--out FILE.json]                           (the streaming ear)
  *
  * Speech to text: for each engine and each item of the split (audio `<DIR>/<id>.wav`, whose SHA-256 must equal the
  * manifest's), the word and character error with a matra-safe normaliser (voice-engine/transcript-scorer.ts, the one the
@@ -20,6 +23,11 @@
  * voice-eval-set.ts, so an unfrozen test split, a reference that does not match its hash or an empty split is refused
  * with no number. Text to speech: first-audio time, real-time factor and peak memory per text, and an optional
  * listener form for blind MOS-style rating by a person. There is no automatic MOS score and none is claimed.
+ *
+ * stt-stream feeds each recording to the streaming ear in 160 ms chunks, folds the answers with the one scorer the
+ * tests pin (transcript-scorer.ts: folded WER, latency, flicker, script policy) and writes a baseline with one block per
+ * language to <root>/reports/stt-baseline-<engine>.json, only on the owner's PC (a root inside the repository is
+ * refused). With --baseline FILE it also gives the gate verdict against that earlier run. No weights: refused, exit 2.
  *
  * Exit: 0 done, 1 bad usage or invalid files, 2 refused (a runtime is missing, a hash differs, the scorer refused: no
  * number is printed), 3 no data (no manifest items, references, audio or texts: nothing was measured).
@@ -288,8 +296,12 @@ function pythonOf(flags) {
 }
 
 /** A line-based child process: one request in, one JSON answer out. */
-function lineProcess(command, args) {
-  const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+function lineProcess(command, args, env) {
+  const child = spawn(command, args, {
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+    ...(env ? { env } : {}),
+  });
   let buffer = "";
   const waiting = [];
   child.stdout.on("data", (chunk) => {
@@ -506,6 +518,270 @@ function findAudio(dir, id) {
 
 const fileSha = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
+/* ------------------------------------------------------------------ the streaming ear (stt-stream) */
+
+const STREAM_CHUNK_MS = 160;
+const LOCALE_OF = { hi: "hi", en: "en", hinglish: "hi-en" };
+
+/** 16 kHz mono 16-bit PCM of a wav file, or throws. Only the data chunk is read; nothing is kept. */
+function readPcm16(file) {
+  const buf = fs.readFileSync(file);
+  if (
+    buf.length < 44 ||
+    buf.toString("latin1", 0, 4) !== "RIFF" ||
+    buf.toString("latin1", 8, 12) !== "WAVE"
+  )
+    throw new Error("not a wav file");
+  let at = 12;
+  let fmt = null;
+  while (at + 8 <= buf.length) {
+    const id = buf.toString("latin1", at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    if (id === "fmt ")
+      fmt = {
+        channels: buf.readUInt16LE(at + 10),
+        rate: buf.readUInt32LE(at + 12),
+        bits: buf.readUInt16LE(at + 22),
+      };
+    if (id === "data") {
+      if (!fmt || fmt.channels !== 1 || fmt.rate !== 16000 || fmt.bits !== 16)
+        throw new Error("the stream bench reads 16 kHz mono 16-bit wav only");
+      return buf.subarray(at + 8, Math.min(buf.length, at + 8 + size));
+    }
+    at += 8 + size + (size % 2);
+  }
+  throw new Error("no audio data in the wav file");
+}
+
+/** The default streaming-ear wrapper: kernel/stt.py --serve, ops stream-open, stream-feed, stream-close. */
+function sttStreamAdapter(engineId, flags) {
+  const script = path.join(ROOT, "kernel", "stt.py");
+  const env = { ...process.env, FRIDAY_ROOT: fridayRoot(flags) };
+  let proc = null;
+  return {
+    async available() {
+      return fs.existsSync(script) ? { ok: true } : { ok: false, reason: `${script} is missing` };
+    },
+    async open() {
+      proc = lineProcess(pythonOf(flags), [script, "--serve"], env);
+    },
+    async sample(item, audioPath, clock) {
+      const pcm = readPcm16(audioPath);
+      const opened = await proc.ask({
+        op: "stream-open",
+        streamId: "bench",
+        streamEngine: engineId,
+        locale: LOCALE_OF[item.language] ?? "",
+      });
+      if (!opened.ok)
+        throw new Error(
+          `${opened.reason || "stream-open failed"}${opened.error ? ` (${opened.error})` : ""}`,
+        );
+      const step = STREAM_CHUNK_MS * 32;
+      const audioMs = Math.floor(pcm.length / 32);
+      const events = [{ t: 0, kind: "speech_start" }];
+      const partials = [];
+      const started = clock();
+      for (let at = 0; at < pcm.length; at += step) {
+        const fed = await proc.ask({
+          op: "stream-feed",
+          streamId: "bench",
+          pcm: pcm.subarray(at, at + step).toString("base64"),
+        });
+        if (!fed.ok) throw new Error(fed.reason || "stream-feed failed");
+        const t = Math.min(audioMs, Math.floor((at + step) / 32));
+        for (const ev of fed.events || []) {
+          const text = String(ev.text ?? fed.text ?? "");
+          if (ev.type === "partial" && text && partials[partials.length - 1] !== text) {
+            partials.push(text);
+            events.push({ t, kind: "partial", text });
+          } else if (ev.type === "endpoint") events.push({ t, kind: "endpoint" });
+        }
+      }
+      const closing = clock();
+      const done = await proc.ask({ op: "stream-close", streamId: "bench", finalize: true });
+      if (!done.ok) throw new Error(done.reason || "stream-close failed");
+      const end = clock();
+      const text = String(done.text ?? "");
+      events.push({ t: audioMs, kind: "speech_end" });
+      events.push({ t: audioMs + Math.round(end - closing), kind: "final", text });
+      events.sort((a, b) => a.t - b.t || (a.kind === "final") - (b.kind === "final"));
+      return {
+        hypothesis: text,
+        partials,
+        timeline: { audioMs, computeMs: Math.round(end - started), events },
+      };
+    },
+    close() {
+      proc?.close();
+    },
+  };
+}
+
+const insideRepo = (dir) => {
+  const rel = path.relative(ROOT, path.resolve(dir));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
+
+/**
+ * The streaming-ear baseline: per-language folded WER with its range, latency and flicker, then the gate verdict
+ * against an earlier baseline when one is named. Everything is folded by the TS scorer; no audio or transcript is kept
+ * anywhere but the owner's reports folder.
+ */
+async function sttStream(flags, deps, out, clock) {
+  const engineId = String(flags.engine || "stream-ear-nemotron");
+  if (!/^[\w.-]{1,64}$/.test(engineId))
+    return fail(`"${engineId}" is not a safe engine name`, EXIT.USAGE, out);
+  const split = flags.split || "test";
+  const missing = [];
+  if (!flags.manifest || !fs.existsSync(flags.manifest)) missing.push("--manifest FILE");
+  if (!flags.references || !fs.existsSync(flags.references)) missing.push("--references FILE");
+  if (!flags.audio || !fs.existsSync(flags.audio))
+    missing.push("--audio DIR (recordings named <id>.wav)");
+  if (missing.length) {
+    out("NO DATA: nothing was measured. Missing:");
+    for (const line of missing) out(`  - ${line}`);
+    return EXIT.NO_DATA;
+  }
+  const root = fridayRoot(flags);
+  if (insideRepo(root))
+    return fail(
+      "REFUSED: a baseline is written on the owner's PC, never inside the repository",
+      EXIT.REFUSED,
+      out,
+    );
+  const lib = await loadTs("src/lib/friday/voice-engine/voice-eval-set.ts");
+  const scorer = await loadTs("src/lib/friday/voice-engine/transcript-scorer.ts");
+  let raw;
+  let references;
+  try {
+    raw = readJson(flags.manifest);
+    references = readJson(flags.references);
+  } catch (error) {
+    return fail(`cannot read the manifest or references: ${error.message}`, EXIT.USAGE, out);
+  }
+  const checked = lib.validateManifest(raw, sha256);
+  if (!checked.manifest) {
+    out(`INVALID manifest: ${checked.problems.length} problem(s)`);
+    for (const problem of checked.problems) out(`  - ${problem}`);
+    return EXIT.USAGE;
+  }
+  const scope = checked.manifest.items.filter((item) => item.split === split);
+  if (!scope.length) {
+    out(`NO DATA: nothing was measured. Missing:\n  - items in split "${split}" of the manifest`);
+    return EXIT.NO_DATA;
+  }
+  const problems = [];
+  const audioOf = new Map();
+  for (const item of scope) {
+    const file = findAudio(flags.audio, item.id);
+    if (!file) problems.push(`no audio file for ${item.id}`);
+    else if (fileSha(file) !== item.sha256)
+      problems.push(`audio of ${item.id} does not match the manifest SHA-256`);
+    else audioOf.set(item.id, file);
+    if (typeof references[item.id] !== "string") problems.push(`no reference for ${item.id}`);
+  }
+  if (problems.length) {
+    out("REFUSED: the recordings are not the manifest's; no number is reported");
+    for (const line of problems.slice(0, 20)) out(`  - ${line}`);
+    return EXIT.REFUSED;
+  }
+  const adapter = (deps.streamAdapter || sttStreamAdapter)(engineId, flags);
+  const state = await adapter.available();
+  if (!state?.ok) {
+    out(
+      `REFUSED: ${engineId}: runtime missing (${state?.reason || "unavailable"}); no number is reported`,
+    );
+    return EXIT.REFUSED;
+  }
+  const clockMs = deps.now || (() => Number(process.hrtime.bigint() / 1000n) / 1000);
+  const samples = [];
+  try {
+    await adapter.open();
+    for (const item of scope) {
+      const got = await adapter.sample(item, audioOf.get(item.id), clockMs);
+      samples.push({ id: item.id, lang: item.language, reference: references[item.id], ...got });
+    }
+  } catch (error) {
+    out(
+      `REFUSED: the streaming ear could not run (${error.message}); no weights or runtime, nothing was measured`,
+    );
+    return EXIT.REFUSED;
+  } finally {
+    adapter.close?.();
+  }
+
+  const rows = samples.map((s) => ({
+    id: s.id,
+    lang: s.lang,
+    ...scorer.foldedCounts(s.reference, s.hypothesis),
+  }));
+  const part = (ids) => {
+    const chosen = samples.filter((s) => ids.has(s.id));
+    return {
+      ...scorer.aggregateCounts(rows.filter((r) => ids.has(r.id))),
+      latency: scorer.aggregateLatency(chosen.filter((s) => s.timeline).map((s) => s.timeline)),
+      flicker: scorer.aggregateFlicker(
+        chosen
+          .filter((s) => s.partials?.length)
+          .map((s) => scorer.flickerMetrics(s.partials, s.hypothesis)),
+      ),
+    };
+  };
+  const languages = {};
+  for (const lang of [...new Set(rows.map((r) => r.lang))].sort())
+    languages[lang] = part(new Set(rows.filter((r) => r.lang === lang).map((r) => r.id)));
+  const report = {
+    schema: 1,
+    kind: "stt-baseline",
+    normaliser: scorer.FOLD_VERSION,
+    engine: engineId,
+    created: clock().toISOString(),
+    set: { id: checked.manifest.id, split },
+    overall: part(new Set(rows.map((r) => r.id))),
+    languages,
+    rows,
+  };
+
+  let verdict = "no earlier baseline named (--baseline): this run is the baseline";
+  if (flags.baseline) {
+    let earlier;
+    try {
+      earlier = readJson(flags.baseline);
+    } catch (error) {
+      return fail(`cannot read the baseline ${flags.baseline}: ${error.message}`, EXIT.USAGE, out);
+    }
+    if (
+      earlier?.kind !== "stt-baseline" ||
+      earlier.normaliser !== scorer.FOLD_VERSION ||
+      !Array.isArray(earlier.rows)
+    )
+      return fail(
+        `${flags.baseline} is not an stt-baseline written with ${scorer.FOLD_VERSION}`,
+        EXIT.REFUSED,
+        out,
+      );
+    const gate = scorer.regressionGate(earlier.rows, rows);
+    report.gate = gate;
+    verdict = gate.pass ? "GATE PASS" : `GATE FAIL: ${gate.reasons.join("; ")}`;
+  }
+  const dest = flags.out
+    ? path.resolve(flags.out)
+    : path.join(root, "reports", `stt-baseline-${engineId}.json`);
+  if (insideRepo(dest))
+    return fail("REFUSED: the baseline would land inside the repository", EXIT.REFUSED, out);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, `${JSON.stringify(report, null, 2)}\n`);
+  for (const [lang, g] of Object.entries(languages)) {
+    out(
+      `${lang}: folded WER ${round(g.foldedWer)} (${round(g.foldedWerLow)} to ${round(g.foldedWerHigh)}) over ${g.utterances} utterances, first partial p50 ${g.latency?.timeToFirstPartialMs?.p50 ?? "n/a"} ms`,
+    );
+  }
+  out(verdict);
+  out(`baseline written: ${dest}`);
+  return report.gate && !report.gate.pass ? EXIT.REFUSED : EXIT.OK;
+}
+
 async function main(argv, deps = {}) {
   const out = deps.out || console.log;
   const clock = deps.clock || (() => new Date());
@@ -524,7 +800,9 @@ async function main(argv, deps = {}) {
     }
     return EXIT.OK;
   }
-  if (command !== "run") return fail(`unknown command "${command}" (list, run)`, EXIT.USAGE, out);
+  if (command === "stt-stream") return sttStream(flags, deps, out, clock);
+  if (command !== "run")
+    return fail(`unknown command "${command}" (list, run, stt-stream)`, EXIT.USAGE, out);
   if (!flags.engines) return fail("--engines a,b is required (see: list)", EXIT.USAGE, out);
 
   const engines = [];
@@ -928,6 +1206,7 @@ module.exports = {
   buildListenerForm,
   ct2Folder,
   findAudio,
+  readPcm16,
 };
 
 if (require.main === module) {

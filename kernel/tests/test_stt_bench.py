@@ -407,3 +407,105 @@ def test_only_the_asked_split_is_loaded(tmp_path):
     pin = _sha(manifest.read_bytes())
     assert stt_bench.load_eval_set(manifest, refs, audio, pin=pin) == []
     assert len(stt_bench.load_eval_set(manifest, refs, audio, pin=pin, split="dev")) == 2
+
+
+def _fake_script(tmp_path):
+    script = {
+        "t1": {"text": "turn on the light", "partials": ["turn", "turn on"], "audioMs": 1000, "computeMs": 200},
+        "t2": {"text": "आज मौसम कैसा रहेगा", "partials": ["आज"], "audioMs": 1000, "computeMs": 250},
+    }
+    path = tmp_path / "fake.json"
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_the_run_entry_scores_a_synthetic_set_and_writes_the_baseline_under_root_reports(tmp_path):
+    manifest, references, audio_dir = _eval_set(tmp_path)
+    root = tmp_path / "friday"
+    lines: list[str] = []
+    code = stt_bench.main(
+        ["run", "--engine", "fake-ear", "--manifest", str(manifest), "--references", str(references),
+         "--audio", str(audio_dir), "--pin", _sha(manifest.read_bytes()), "--root", str(root),
+         "--fake", str(_fake_script(tmp_path))],
+        out=lines.append,
+    )  # fmt: skip
+    assert code == stt_bench.EXIT_OK
+    written = root / "reports" / "stt-baseline-fake-ear.json"
+    data = stt_bench.read_baseline(written)
+    assert sorted(data["languages"]) == ["en", "hi"]
+    assert data["overall"]["foldedWer"] == 0 and data["overall"]["utterances"] == 2
+    assert data["languages"]["en"]["latency"] and data["languages"]["en"]["flicker"]
+    assert any("baseline written" in line for line in lines)
+
+
+def test_the_run_entry_says_no_data_and_refuses_a_bad_pin_or_a_root_inside_the_repo(tmp_path):
+    lines: list[str] = []
+    assert stt_bench.main(["run"], out=lines.append) == stt_bench.EXIT_NO_DATA
+    manifest, references, audio_dir = _eval_set(tmp_path)
+    base = ["run", "--manifest", str(manifest), "--references", str(references), "--audio", str(audio_dir),
+            "--fake", str(_fake_script(tmp_path))]  # fmt: skip
+    pin = _sha(manifest.read_bytes())
+    assert stt_bench.main([*base, "--pin", "0" * 64, "--root", str(tmp_path / "r")], out=lines.append) == (
+        stt_bench.EXIT_REFUSED
+    )
+    inside = stt_bench.REPO_ROOT / "nope-never-written"
+    assert stt_bench.main([*base, "--pin", pin, "--root", str(inside)], out=lines.append) == stt_bench.EXIT_REFUSED
+    assert not inside.exists()
+    with pytest.raises(ValueError):
+        stt_bench.baseline_path(tmp_path, "../evil")
+
+
+class _NoWeightsHost:
+    def handle(self, req):
+        return {"ok": False, "op": req["op"], "reason": "no-weights", "fallback": True}
+
+
+def test_the_stream_run_refuses_clearly_when_the_engine_has_no_weights(tmp_path):
+    import struct
+    import wave
+
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    with wave.open(str(audio_dir / "t1.wav"), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(struct.pack("<320h", *([0] * 320)))
+    item = {"id": "t1", "lang": "en", "reference": "x", "path": audio_dir / "t1.wav"}
+    sampler = stt_bench.stream_sampler(_NoWeightsHost(), "stream-ear-nemotron")
+    with pytest.raises(RuntimeError, match="no-weights"):
+        sampler(item)
+
+
+class _EchoHost:
+    """Answers like StreamHost: one partial per feed, the final text on close."""
+
+    def __init__(self):
+        self.n = 0
+
+    def handle(self, req):
+        if req["op"] == "stream-feed":
+            self.n += 1
+            return {"ok": True, "events": [{"type": "partial", "text": "turn" if self.n < 2 else "turn on"}],
+                    "text": "turn on"}  # fmt: skip
+        if req["op"] == "stream-close":
+            return {"ok": True, "final": True, "text": "turn on"}
+        return {"ok": True}
+
+
+def test_the_stream_sampler_builds_partials_and_a_timeline_from_a_host(tmp_path):
+    import struct
+    import wave
+
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(struct.pack("<8000h", *([0] * 8000)))  # 500 ms
+    got = stt_bench.stream_sampler(_EchoHost(), "x", clock=stt_bench.FakeClock())(
+        {"id": "a", "lang": "hinglish", "reference": "turn on", "path": path}
+    )
+    assert got["hypothesis"] == "turn on" and got["partials"] == ["turn", "turn on"]
+    assert got["timeline"]["audioMs"] == 500
+    assert stt_bench.latency_metrics(got["timeline"])["timeToFirstPartialMs"] == 160

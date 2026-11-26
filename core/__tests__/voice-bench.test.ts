@@ -454,6 +454,13 @@ describe("as a command", () => {
     );
     expect(none.status).toBe(3);
     expect(none.stdout).toMatch(/NO DATA/);
+    const stream = spawnSync(
+      process.execPath,
+      [join(root, "scripts", "voice-bench.cjs"), "stt-stream"],
+      { encoding: "utf8" },
+    );
+    expect(stream.status).toBe(3);
+    expect(stream.stdout).toMatch(/NO DATA/);
   });
 
   it("is an npm script", () => {
