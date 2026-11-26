@@ -1,7 +1,10 @@
 """FRIDAY · wake-word detection.
 
-Two real engines share this script:
+Three real engines share this script:
 
+  0. FRIDAY embedding engine (`friday-wake.json` kind friday-embed-v1): FRIDAY's own streaming pipeline in
+     kernel/wake_features.py (numpy mel stream, an embedding model run by onnxruntime, a small trained head). It is
+     preferred whenever its embedding model is installed; without it the engine says so and is not ready.
   1. FRIDAY linear scorer (`friday-wake.json` kind friday-linear-v2, optional `friday.onnx`) trained by
      scripts/train-friday-wake.py on REAL recordings and evaluated on held-out speakers. It is used only when its
      manifest says `production: true` with `provenance: real-speech`; a synthetic or unevaluated model (the old
@@ -27,10 +30,12 @@ reported as not-ready. friday.onnx is used only when the configured word is
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 N_BANDS = 32
@@ -42,6 +47,12 @@ _linear_path: str | None = None
 _oww_model = None
 _oww_path: str | None = None
 _load_count = 0
+_embed_fns: dict[str, Callable] = {}
+_embed_hashes: dict[tuple, str] = {}
+
+EMBED_KIND = "friday-embed-v1"
+EMBED_ENGINE = "friday-embed"
+EMBED_MODEL_NAME = "wake-embed.onnx"
 
 
 def emit(payload: dict) -> None:
@@ -87,6 +98,10 @@ def pick_model(wake_word: str, explicit: str | None) -> str | None:
     if not wanted:
         wanted = "friday"
     directory = wake_model_dir()
+    embed_manifest = directory / f"{wanted}-wake.json"
+    candidate_manifest = read_manifest(embed_manifest)
+    if is_embed_manifest(candidate_manifest) and embed_model_problem(candidate_manifest) is None:
+        return str(embed_manifest)  # FRIDAY's own engine first; the openWakeWord model below stays the fallback
     for name in (f"{wanted}.onnx", f"{wanted}-wake.json"):
         candidate = directory / name
         if candidate.is_file():
@@ -290,7 +305,7 @@ def manifest_for(model_path: str | None) -> dict | None:
     candidates = [path] if path.suffix.lower() == ".json" else [path.with_name("friday-wake.json")]
     for candidate in candidates:
         manifest = read_manifest(candidate)
-        if manifest and str(manifest.get("kind", "")).startswith("friday-linear"):
+        if manifest and str(manifest.get("kind", "")).startswith(("friday-linear", "friday-embed")):
             return manifest
     return None
 
@@ -304,11 +319,15 @@ def production_status(model_path: str | None) -> tuple[bool, str]:
     """
     manifest = manifest_for(model_path)
     if manifest is None:
-        return True, ""  # not a FRIDAY linear model (an openWakeWord one): judged by its own engine
+        return True, ""  # not a FRIDAY model (an openWakeWord one): judged by its own engine
+    if is_embed_manifest(manifest):
+        problem = embed_model_problem(manifest)
+        if problem:
+            return False, problem  # never waived: without the embedding model there is nothing to score with
     if fixtures_allowed():
         return True, ""
     kind = manifest.get("kind")
-    if kind != "friday-linear-v2":
+    if kind not in {"friday-linear-v2", EMBED_KIND}:
         return False, "this FRIDAY scorer was fitted to synthetic tones, not speech; train one on real recordings"
     if manifest.get("provenance") == "synthetic-fixture":
         return False, "this FRIDAY model is a synthetic test fixture, not speech; train one on real recordings"
@@ -349,10 +368,12 @@ def engine_for_path(model_path: str | None) -> str | None:
         return None
     path = Path(model_path)
     sidecar = read_manifest(path.with_name(f"{path.stem}.wake.json"))
-    if sidecar and sidecar.get("engine") in {"openwakeword", "friday-linear"}:
+    if sidecar and sidecar.get("engine") in {"openwakeword", "friday-linear", EMBED_ENGINE}:
         return str(sidecar["engine"])
     if path.suffix.lower() == ".json":
         manifest = read_manifest(path)
+        if is_embed_manifest(manifest):
+            return EMBED_ENGINE
         return "friday-linear" if manifest and manifest.get("kind") in LINEAR_KINDS else None
     manifest = read_manifest(path.with_name("friday-wake.json"))
     if manifest and manifest.get("kind") == "friday-linear-v2":
@@ -366,6 +387,88 @@ def engine_for_path(model_path: str | None) -> str | None:
             return "friday-linear" if digest == recorded else "openwakeword"
         return "friday-linear" if path.stat().st_size <= LEGACY_LINEAR_MAX_BYTES else "openwakeword"
     return "openwakeword"
+
+
+def is_embed_manifest(manifest: dict | None) -> bool:
+    return bool(manifest) and manifest is not None and manifest.get("kind") == EMBED_KIND
+
+
+def embed_model_path(manifest: dict | None = None) -> Path:
+    """Where the embedding model of a friday-embed head lives: FRIDAY_WAKE_EMBED_MODEL, else the wake model folder."""
+    override = os.environ.get("FRIDAY_WAKE_EMBED_MODEL")
+    if override:
+        return Path(override)
+    recorded = ((manifest or {}).get("embedding") or {}).get("file")
+    return wake_model_dir() / (Path(str(recorded)).name if recorded else EMBED_MODEL_NAME)
+
+
+def _file_sha256(path: Path) -> str:
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _embed_hashes.get(key)
+    if cached is None:
+        cached = _embed_hashes[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return cached
+
+
+def embed_model_problem(manifest: dict | None) -> str | None:
+    """Why a friday-embed head cannot score right now, or None. The embedding model is installed on demand."""
+    path = embed_model_path(manifest)
+    if not path.is_file():
+        return f"the wake embedding model {path.name} is not installed in {path.parent}; install it, then try again"
+    recorded = ((manifest or {}).get("embedding") or {}).get("sha256")
+    if recorded and _file_sha256(path) != recorded:
+        return f"the wake embedding model {path.name} is not the one this wake head was trained with"
+    return None
+
+
+def embed_model_name(model_path: str | None) -> str | None:
+    manifest = manifest_for(model_path)
+    return str(embed_model_path(manifest)) if is_embed_manifest(manifest) else None
+
+
+def embed_fn(manifest: dict) -> Callable:
+    """The embedding model as a function, loaded once per file (counts as a load)."""
+    global _load_count
+    import wake_features  # type: ignore
+
+    path = str(embed_model_path(manifest))
+    fn = _embed_fns.get(path)
+    if fn is None:
+        fn = _embed_fns[path] = wake_features.load_embedder(path)
+        _load_count += 1
+    return fn
+
+
+def score_embed(pcm, model_path: str, threshold: float) -> dict:
+    """Score a whole clip with the friday-embed engine. Never raises: a missing model is a visible not-ready."""
+    import wake_features  # type: ignore
+
+    manifest = manifest_for(model_path)
+    if not is_embed_manifest(manifest) or manifest is None:
+        return {"ok": False, "reason": "detect-failed", "error": "this is not a friday-embed wake model"}
+    problem = embed_model_problem(manifest)
+    if problem:
+        return {
+            "ok": False,
+            "reason": "missing-embedding-model",
+            "error": problem,
+            "ready": False,
+            "engine": "transcript",
+        }
+    try:
+        score = wake_features.score_embed_clip(pcm, embed_fn(manifest), wake_features.load_head(manifest))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": "detect-failed", "error": str(exc)[-400:]}
+    return {
+        "ok": True,
+        "detected": score >= threshold,
+        "score": round(score, 4),
+        "threshold": threshold,
+        "model": Path(model_path).stem,
+        "engine": EMBED_ENGINE,
+        "loadCount": _load_count,
+    }
 
 
 FRAME_SAMPLES = 1280  # 80 ms at 16 kHz, the frame openWakeWord scores
@@ -390,8 +493,10 @@ class WakeFrameScorer:
         release_ratio: float = 0.6,
         release_frames: int = 2,
         cooldown_ms: int = 1500,
+        engine: str = "openwakeword",
     ) -> None:
         self.predict = predict
+        self.engine = engine
         self.threshold = threshold
         self.min_frames = max(1, min_frames)
         self.release_level = threshold * release_ratio
@@ -458,6 +563,30 @@ def _oww_predictor(model_path: str):
     return predict
 
 
+def _embed_predictor(model_path: str):
+    """Frame predictor of the friday-embed engine: one 80 ms frame in, the head score of the last 16 embeddings out."""
+    import wake_features  # type: ignore
+
+    manifest = manifest_for(model_path) or {}
+    head = wake_features.load_head(manifest)
+    stream = wake_features.EmbeddingStream(embed_fn(manifest))
+
+    def predict(frame: list[int]) -> float:
+        stream.feed(frame)
+        window = stream.window(head["window"])
+        if window is None:
+            return 0.0
+        return float(wake_features.head_scores(window[None, :, :], head)[0])
+
+    return predict
+
+
+def _predictor_for(model_path: str):
+    if engine_for_path(model_path) == EMBED_ENGINE:
+        return _embed_predictor(model_path)
+    return _oww_predictor(model_path)
+
+
 def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, make_predictor=None) -> dict:
     """Score a chunk of live PCM16 (little endian, base64) for the session `session`. Resets with `reset: true`."""
     import array
@@ -473,16 +602,24 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, 
         model_path = pick_model(wake_word, explicit)
         if not model_path:
             return {"ok": False, "reason": "no-model", "error": missing_model_error(wake_word)}
-        if engine_for_path(model_path) != "openwakeword":
+        engine = engine_for_path(model_path)
+        if engine not in {"openwakeword", EMBED_ENGINE}:
             return {
                 "ok": False,
                 "reason": "frame-unsupported",
-                "error": "the bundled linear scorer scores whole clips; live frames need an openWakeWord model",
+                "error": "the bundled linear scorer scores whole clips; live frames need a friday-embed model "
+                "or an openWakeWord one",
             }
+        if engine == EMBED_ENGINE:
+            allowed, why_not = production_status(model_path)
+            if not allowed:
+                missing = embed_model_problem(manifest_for(model_path)) is not None
+                reason = "missing-embedding-model" if missing else "not-production"
+                return {"ok": False, "reason": reason, "error": why_not, "engine": "transcript"}
         if len(_frame_scorers) >= MAX_FRAME_SESSIONS:
             return {"ok": False, "reason": "too-many-sessions", "error": "too many live wake sessions"}
         try:
-            predict = (make_predictor or _oww_predictor)(model_path)
+            predict = (make_predictor or _predictor_for)(model_path)
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "reason": "missing-dependency", "error": str(exc)[-300:]}
         scorer = _frame_scorers[session] = WakeFrameScorer(
@@ -490,6 +627,7 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, 
             threshold=threshold,
             min_frames=int(req.get("minFrames") or 2),
             cooldown_ms=int(req.get("cooldownMs") or 1500),
+            engine=engine or "openwakeword",
         )
     try:
         raw = base64.b64decode(str(req.get("pcm") or ""), validate=True)
@@ -502,7 +640,7 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, 
     if sys.byteorder == "big":
         samples.byteswap()
     out = scorer.feed(samples)
-    return {"ok": True, **out, "threshold": scorer.threshold, "engine": "openwakeword"}
+    return {"ok": True, **out, "threshold": scorer.threshold, "engine": scorer.engine}
 
 
 def evaluate_wake(
@@ -568,8 +706,17 @@ def evaluate_directories(pos_dir: str, neg_dir: str, wake_word: str, explicit: s
     model_path = pick_model(wake_word, explicit)
     if not model_path:
         return {"ok": False, "reason": "no-model", "error": missing_model_error(wake_word)}
-    if engine_for_path(model_path) != "openwakeword":
-        return {"ok": False, "reason": "frame-unsupported", "error": "evaluation needs an openWakeWord model"}
+    engine = engine_for_path(model_path)
+    if engine not in {"openwakeword", EMBED_ENGINE}:
+        return {
+            "ok": False,
+            "reason": "frame-unsupported",
+            "error": "evaluation needs a friday-embed or openWakeWord model",
+        }
+    if engine == EMBED_ENGINE:
+        allowed, why_not = production_status(model_path)
+        if not allowed:
+            return {"ok": False, "reason": "not-production", "error": why_not, "engine": "transcript"}
     exts = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".webm"}
 
     def load(folder: str) -> list:
@@ -584,7 +731,13 @@ def evaluate_directories(pos_dir: str, neg_dir: str, wake_word: str, explicit: s
     try:
         positives = load(pos_dir)
         negatives = load(neg_dir)
-        report = evaluate_wake(positives, negatives, lambda: _oww_predictor(model_path), threshold)
+        if engine == EMBED_ENGINE:
+            import wake_features  # type: ignore
+
+            # the stream needs about two seconds before its first score: pad every clip the way the trainer does
+            positives = [[int(v) for v in wake_features.pad_clip(clip)] for clip in positives]
+            negatives = [[int(v) for v in wake_features.pad_clip(clip, tail_chunks=0)] for clip in negatives]
+        report = evaluate_wake(positives, negatives, lambda: _predictor_for(model_path), threshold)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": "eval-failed", "error": str(exc)[-400:]}
     return {"ok": True, "model": Path(model_path).name, "threshold": threshold, **report}
@@ -616,6 +769,7 @@ def probe_payload(wake_word: str, explicit: str | None = None) -> dict:
         "ready": ready,
         "engine": engine_for_path(model_path) if ready else "transcript",
         "wakeWord": normalise(wake_word or "friday"),
+        "embedModel": embed_model_name(model_path),
         "loadCount": _load_count,
         "error": None if ready else (why_not if model_path else missing_model_error(wake_word)),
     }
@@ -639,6 +793,8 @@ def detect_audio(audio: str, wake_word: str, explicit: str | None, threshold: fl
     pcm = decode_pcm16(audio)
     if pcm is None or len(pcm) == 0:
         return {"ok": False, "reason": "decode-failed", "error": "the clip could not be decoded"}
+    if engine_for_path(model_path) == EMBED_ENGINE:
+        return score_embed(pcm, model_path, threshold)
     if engine_for_path(model_path) == "friday-linear":
         linear = score_linear(pcm, model_path, threshold)
         if linear is not None:
