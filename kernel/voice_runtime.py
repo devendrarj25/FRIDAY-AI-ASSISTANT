@@ -34,6 +34,7 @@ import queue
 import re
 import shutil
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,6 +151,29 @@ _engine_dir = ""
 _engine_failures = 0
 _engine_error = ""
 ENGINE_MAX_FAILURES = 3
+# Half-open breaker: after ENGINE_MAX_FAILURES in a row the own engine is off for ENGINE_COOL_SECONDS, then one clause
+# is tried (the probe). A good probe closes the breaker; a failed one opens it again for ENGINE_RECOOL_SECONDS.
+ENGINE_COOL_SECONDS = 60.0
+ENGINE_RECOOL_SECONDS = 300.0
+_engine_off_until = 0.0
+
+
+def _clock() -> float:
+    return time.monotonic()
+
+
+def _breaker_open() -> bool:
+    """True while the own engine is switched off (three failures, cool-down not over). Half-open is not open."""
+    return _engine_failures >= ENGINE_MAX_FAILURES and _clock() < _engine_off_until
+
+
+def _retry_in_seconds() -> int:
+    """Whole seconds until the next probe while the breaker is open, else 0."""
+    if not _breaker_open():
+        return 0
+    return max(1, math.ceil(_engine_off_until - _clock()))
+
+
 # Quiet between two language spans of one reply, in seconds.
 SPAN_GAP_SECONDS = 0.08
 
@@ -174,7 +198,7 @@ def smart_turn_path() -> Path | None:
 
 def _tts_facts(directory: Path | None) -> tuple[bool, int, str, int]:
     """(own engine can run, its sample rate, default voice id, recipe version). Opens no model and never raises."""
-    if directory is None or _engine_failures >= ENGINE_MAX_FAILURES:
+    if directory is None or _breaker_open():
         return False, 0, SUPERTONIC_VOICE, 0
     try:
         import importlib.util
@@ -213,9 +237,9 @@ def _safe_error(exc: BaseException) -> str:
 
 
 def _engine_state(directory: Path | None) -> str:
-    """``stopped`` after too many failures, ``ready`` while the own engine is open here, ``failing`` between, else
-    ``idle`` (not opened yet). A cold process only ever knows ``idle``; the running worker knows the rest."""
-    if _engine_failures >= ENGINE_MAX_FAILURES:
+    """``stopped`` while the breaker is open, ``ready`` while the own engine is open here, ``failing`` between (a
+    waiting probe too), else ``idle`` (not opened yet). A cold process only ever knows ``idle``."""
+    if _breaker_open():
         return "stopped"
     if _engine is not None and directory is not None and _engine_dir == str(directory):
         return "failing" if _engine_failures else "ready"
@@ -231,10 +255,10 @@ def tts_status(live: bool = False) -> dict:
     last = f" Last error: {_engine_error}" if _engine_error else ""
     if not ready:
         reason = LOCAL_TTS_REASON
-    elif not own and _engine_failures >= ENGINE_MAX_FAILURES:
+    elif not own and _breaker_open():
         reason = (
             f"The FRIDAY voice engine stopped after {ENGINE_MAX_FAILURES} failures; "
-            f"the Supertonic package speaks.{last}"
+            f"the Supertonic package speaks, next try in {_retry_in_seconds()} s.{last}"
         )
     elif _engine_failures and _engine_error:
         reason = f"The FRIDAY voice engine failed ({_engine_failures} in a row). {_engine_error}"
@@ -244,6 +268,7 @@ def tts_status(live: bool = False) -> dict:
         "live": live,
         "failures": _engine_failures,
         "engineState": _engine_state(directory),
+        "retryInS": _retry_in_seconds(),
         "ready": ready,
         "engine": "friday-voice" if own else ("supertonic-3" if ready else "none"),
         "own": own,
@@ -539,8 +564,8 @@ _utterances: OrderedDict[str, _Utterance] = OrderedDict()
 
 def reset_speech_state() -> None:
     """Forget the engine, the personas and every utterance (tests, and a model swap)."""
-    global _engine, _engine_dir, _engine_failures, _engine_error
-    _engine, _engine_dir, _engine_failures, _engine_error = None, "", 0, ""
+    global _engine, _engine_dir, _engine_failures, _engine_error, _engine_off_until
+    _engine, _engine_dir, _engine_failures, _engine_error, _engine_off_until = None, "", 0, "", 0.0
     _personas.clear()
     _utterances.clear()
 
@@ -551,9 +576,9 @@ def _voice_threads() -> int:
 
 
 def _friday_engine() -> Any:
-    """The one FRIDAY Voice engine for the model folder, or None when it cannot run here (or failed too often)."""
+    """The one FRIDAY Voice engine for the model folder, or None when it cannot run here (or is cooling down)."""
     global _engine, _engine_dir
-    if _engine_failures >= ENGINE_MAX_FAILURES:
+    if _breaker_open():
         return None
     directory = supertonic_dir()
     if directory is None:
@@ -778,7 +803,7 @@ def _speak_friday(spoken: str, speed: float, lang: str, style: str, stop: Any, o
 
     A request of an utterance gets one more try on the engine before it counts as failed: a hiccup of one clause
     must not change the voice of the reply. The reason it gave up is left in ``_render_note.fallback``."""
-    global _engine_failures, _engine_error
+    global _engine_failures, _engine_error, _engine_off_until
     engine = _friday_engine()
     if engine is None:
         _render_note.fallback = "friday-voice-unavailable"
@@ -789,14 +814,20 @@ def _speak_friday(spoken: str, speed: float, lang: str, style: str, stop: Any, o
         except SpeechCancelled:
             raise
         except Exception as exc:  # noqa: BLE001 - any engine error is the caller's decision
+            probe = _engine_failures >= ENGINE_MAX_FAILURES  # half-open: this clause was the one probe
             _engine_failures += 1
             _engine_error = _safe_error(exc)
             _render_note.fallback = "engine-failed"
+            if probe:
+                _engine_off_until = _clock() + ENGINE_RECOOL_SECONDS
+                break
             if _engine_failures >= ENGINE_MAX_FAILURES:
+                _engine_off_until = _clock() + ENGINE_COOL_SECONDS
                 break
             continue
         _engine_failures = 0
         _engine_error = ""
+        _engine_off_until = 0.0
         _render_note.engine, _render_note.fallback = "friday-voice", ""
         if opts.utt:
             _utterance_state(opts.utt).voice = "friday"
@@ -1766,6 +1797,31 @@ def _handle(req: dict) -> tuple[dict, bool]:
     return {"ok": False, "reason": "unknown-op"}, False
 
 
+def _utf8_streams() -> None:
+    """stdout and stderr as UTF-8 that never raises (a Windows code page cannot hold a Devanagari path)."""
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: S110 - a stream that cannot be reconfigured is still written to
+            pass
+
+
+def _dispatch(req: dict) -> tuple[dict, bool]:
+    """``_handle`` with a net under it: one request that raises is answered with an error envelope and the loop goes
+    on. The old fields stay (``ok``, ``reason``); ``error`` carries a short code and message, no paths or secrets."""
+    try:
+        return _handle(req)
+    except Exception as exc:  # noqa: BLE001 - a bad request must never end the speak worker
+        message = _safe_error(exc)
+        return {
+            "ok": False,
+            "reason": "internal-error",
+            "error": {"code": "internal-error", "message": message},
+        }, False
+
+
 def serve() -> int:
     """Keep Supertonic loaded across speak calls. One JSON object per line.
 
@@ -1776,9 +1832,10 @@ def serve() -> int:
 
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)  # type: ignore[attr-defined]
     except Exception:  # noqa: S110 — a console that cannot be reconfigured still reads lines
         pass
+    _utf8_streams()
     stdin = sys.stdin
     out_lock = threading.Lock()
 
@@ -1820,7 +1877,7 @@ def serve() -> int:
             emit(req["_bad"])
             continue
         rid = req.get("id")
-        payload, stop = _handle(req)
+        payload, stop = _dispatch(req)
         if rid is not None:
             payload = {"id": rid, **payload}
         emit(payload)
@@ -1829,6 +1886,7 @@ def serve() -> int:
 
 
 def main() -> int:
+    _utf8_streams()
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--status", action="store_true")

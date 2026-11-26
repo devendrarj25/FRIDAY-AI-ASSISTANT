@@ -772,3 +772,99 @@ def test_a_new_fx_section_starts_clean_while_the_old_ones_carry_over(engine):
     assert sorted(row for row in new if row != zero) == sorted(row for row in old if row != zero)
     assert new.count(zero) == old.count(zero) + 1
     assert (widened._comp.smooth, widened._comp.gain_after) == (plain._comp.smooth, plain._comp.gain_after)  # noqa: SLF001
+
+
+# ---------------------------------------------------------------- the half-open breaker of the own engine
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(voice_runtime, "_clock", lambda: now[0])
+    return now
+
+
+def _trip(engine) -> None:
+    engine.fail = True
+    for _ in range(voice_runtime.ENGINE_MAX_FAILURES):
+        _speak(text="Good morning.")
+
+
+def test_three_failures_switch_the_engine_off_for_sixty_seconds_then_one_probe_closes_it(engine, clock):
+    _trip(engine)
+    tripped = voice_runtime.tts_status()
+    assert tripped["engineState"] == "stopped" and tripped["own"] is False and tripped["retryInS"] == 60
+    seen = len(engine.calls)
+    clock[0] += 59
+    body = _speak(text="Still off.")
+    assert body["sampleRate"] == 22050 and len(engine.calls) == seen
+    assert voice_runtime.tts_status()["retryInS"] == 1
+    clock[0] += 2
+    engine.fail = False
+    probe = _speak(text="Back again.")
+    assert probe["engine"] == "friday-voice" and probe["sampleRate"] == RATE
+    healed = voice_runtime.tts_status()
+    assert healed["engineState"] == "ready" and healed["failures"] == 0 and healed["retryInS"] == 0
+
+
+def test_a_failed_probe_reopens_the_breaker_for_five_minutes_and_tries_one_clause_only(engine, clock):
+    _trip(engine)
+    clock[0] += 61
+    again = _speak(text="Probe clause.")
+    assert again["ok"] is True and again["sampleRate"] == 22050  # the package answered the failed probe
+    state = voice_runtime.tts_status()
+    assert state["failures"] == voice_runtime.ENGINE_MAX_FAILURES + 1  # exactly one probe clause was tried
+    assert state["engineState"] == "stopped" and state["retryInS"] == 300
+    clock[0] += 299
+    _speak(text="Cooling.")
+    assert voice_runtime.tts_status()["failures"] == voice_runtime.ENGINE_MAX_FAILURES + 1
+    clock[0] += 2
+    engine.fail = False
+    assert _speak(text="Second probe.")["engine"] == "friday-voice"
+    assert voice_runtime.tts_status()["engineState"] == "ready"
+
+
+def test_a_started_utterance_still_fails_instead_of_switching_voice_during_the_cool_down(engine, clock):
+    assert _speak(utt="one-voice")["ok"] is True
+    _trip(engine)
+    body = _speak(text="Next clause.", utt="one-voice", seq=2)
+    assert body["ok"] is False and body["reason"] == "engine-failed" and PipTTS.seen == ["Good morning."] * 3
+    clock[0] += 61
+    engine.fail = False
+    probe = _speak(text="After the wait.", utt="one-voice", seq=3)
+    assert probe["ok"] is True and probe["engine"] == "friday-voice"
+
+
+# ---------------------------------------------------------------- the serve loop keeps answering
+
+
+def test_one_speak_request_that_raises_never_ends_the_worker(engine, monkeypatch):
+    import io
+
+    real = voice_runtime.speak_wav_bytes
+    calls = {"n": 0}
+
+    def flaky(text, speed, lang, style):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom at /home/owner/models/vocoder.onnx sk-" + "a" * 40)
+        return real(text, speed, lang, style)
+
+    monkeypatch.setattr(voice_runtime, "speak_wav_bytes", flaky)
+    lines = [
+        {"id": 1, "op": "speak", "text": "First."},
+        {"id": 2, "op": "status"},
+        {"id": 3, "op": "shutdown"},
+    ]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(item) + "\n" for item in lines)))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    assert voice_runtime.serve() == 0
+    replies = [json.loads(line) for line in out.getvalue().splitlines() if line.strip()]
+    assert [r["id"] for r in replies] == [1, 2, 3]
+    first = replies[0]
+    assert first["ok"] is False and first["reason"] == "internal-error"
+    assert first["error"]["code"] == "internal-error" and first["error"]["message"].startswith("RuntimeError")
+    for leak in ("/home/", "vocoder", "sk-aaaa"):
+        assert leak not in json.dumps(first)
+    assert replies[1]["ok"] is True and replies[2]["ok"] is True

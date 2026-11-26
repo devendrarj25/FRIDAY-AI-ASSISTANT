@@ -395,8 +395,20 @@ def cache_dir() -> str:
 _emit_lock = threading.Lock()  # the reader thread answers a cancel while the main thread streams a decode
 
 
+def _utf8_streams() -> None:
+    """Make stdout and stderr UTF-8 with a non-throwing error handler: on Windows a console code page such as
+    cp1252 would otherwise raise on a Devanagari profile or data-root path and the probe would look like a missing
+    package. Streams that cannot be reconfigured (a test buffer) are left as they are."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001,S110 - a stream that cannot be reconfigured is still written to
+            pass
+
+
 def emit(payload: dict) -> None:
-    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    # ASCII-escaped JSON is valid on any code page and parses to the same text (the kernel worker does the same)
+    line = json.dumps(payload, ensure_ascii=True) + "\n"
     with _emit_lock:
         sys.stdout.write(line)
         sys.stdout.flush()
@@ -2958,9 +2970,10 @@ def serve() -> int:
     """Persistent worker: one process, one WhisperModel, many utterances."""
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
+    _utf8_streams()
     start_idle_watch()
     # Input is read on its own thread, so a cancel is answered while a decode holds this one. Every other request
     # waits in order; only "cancel" jumps the line, and it only sets a flag.
@@ -3007,6 +3020,7 @@ def _read_requests(inbox: queue.Queue) -> None:
 
 
 def main() -> int:
+    _utf8_streams()
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio")
     ap.add_argument("--language", default="")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -198,3 +199,55 @@ def test_self_test_runs_under_the_embeddable_python_rules(tmp_path):
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert "voice_runtime" not in json.dumps(payload), payload
     assert payload.get("ok") is True or payload.get("sttClass"), payload
+
+
+class SttUtf8OutputTests(unittest.TestCase):
+    def test_probe_prints_valid_json_with_a_devanagari_data_root_on_a_cp1252_console(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "\u092b\u094d\u0930\u093e\u0907\u0921\u0947"
+            root.mkdir()
+            env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+            env.update({"FRIDAY_ROOT": str(root), "PYTHONIOENCODING": "cp1252"})
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--probe"],
+                cwd=str(KERNEL),
+                capture_output=True,
+                timeout=30,
+                check=False,
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace")[-400:])
+        payload = json.loads(proc.stdout.decode("ascii"))
+        self.assertIn("moonshineReady", payload)
+
+    def test_a_non_ascii_path_in_a_probe_result_survives_a_cp1252_console(self):
+        code = (
+            "import sys; sys.path.insert(0, sys.argv[1]); import stt; "
+            "stt._utf8_streams(); "
+            "stt.emit({'path': '/\u092b\u094d\u0930/x', 'text': '\u0928\u092e\u0938\u094d\u0924\u0947'})"
+        )
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONUTF8"}
+        env["PYTHONIOENCODING"] = "cp1252"
+        proc = subprocess.run(
+            [sys.executable, "-c", code, str(KERNEL)], capture_output=True, timeout=30, check=False, env=env
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace")[-400:])
+        got = json.loads(proc.stdout.decode("ascii"))
+        self.assertEqual(got["text"], "\u0928\u092e\u0938\u094d\u0924\u0947")
+
+    def test_a_350_kb_devanagari_result_round_trips_through_emit(self):
+        import io
+
+        import stt
+
+        text = "\u0928\u092e\u0938\u094d\u0924\u0947 \u0926\u0941\u0928\u093f\u092f\u093e " * 10000
+        self.assertGreater(len(text.encode("utf-8")), 350_000)
+        raw = io.BytesIO()
+        wrapper = io.TextIOWrapper(raw, encoding="cp1252", errors="strict", write_through=True)
+        real = sys.stdout
+        sys.stdout = wrapper
+        try:
+            stt.emit({"ok": True, "text": text})
+        finally:
+            sys.stdout = real
+        self.assertEqual(json.loads(raw.getvalue().decode("ascii"))["text"], text)
