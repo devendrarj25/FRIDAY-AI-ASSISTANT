@@ -26,6 +26,7 @@ import {
 } from "./pcm-capture";
 import { CAPTURE_BATCH_MS, configureFrontEnd, frontEndStats } from "./voice-engine/front-end-dsp";
 import type { EarsStats } from "./voice-diagnostics-rows";
+import { bluetoothNotice, reacquireDelay } from "./audio-devices";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 import { WakeGuard } from "./wake-guard";
@@ -627,8 +628,11 @@ export class VoiceGate {
   private deviceId: string | null = null;
   private lastFailure: { state: MicState; reason: string } | null = null;
   private reopening = false;
-  /** The one open in flight. A second start joins it, so two getUserMedia calls never race for the device. */
-  private opening: Promise<boolean> | null = null;
+  /**
+   * The one open in flight, with the generation it started under. A second start joins it while it is current, so
+   * two getUserMedia calls never race for the device; one that a stop or teardown made stale is waited for, never joined.
+   */
+  private opening: { run: Promise<boolean>; generation: number } | null = null;
   /** Raised by every teardown: an open that finishes after one is stale and lets its stream go. */
   private generation = 0;
   private openedRates: CaptureRates = { ctx: null, track: null };
@@ -644,6 +648,9 @@ export class VoiceGate {
   private quietSince = 0;
   private quietTold = false;
   private quietLine = "";
+  /** The Bluetooth call-profile warning for the open microphone, and the label it was already told for. */
+  private btLine = "";
+  private btTold = "";
 
   /**
    * The single live microphone stream. Dictation and any other consumer share
@@ -656,6 +663,11 @@ export class VoiceGate {
 
   quietNotice(): string {
     return this.quietLine;
+  }
+
+  /** Non-empty while the open microphone is a Bluetooth headset in its call profile. */
+  bluetoothNotice(): string {
+    return this.btLine;
   }
 
   setSoftwareGain(value: number): void {
@@ -693,8 +705,9 @@ export class VoiceGate {
   async restart(deviceId?: string | null): Promise<boolean> {
     const same = (deviceId ?? null) === this.deviceId;
     // The same open already in flight is joined; a different one waits for it, then replaces it.
-    if (this.opening && same) return this.opening;
-    if (this.opening) await this.opening.catch(() => false);
+    if (this.opening && same && this.opening.generation === this.generation)
+      return this.opening.run;
+    if (this.opening) await this.opening.run.catch(() => false);
     const holders = new Set(this.holders);
     this.teardown();
     this.holders = holders;
@@ -777,16 +790,24 @@ export class VoiceGate {
     return this.speakingGuard;
   }
 
-  start(deviceId?: string | null): Promise<boolean> {
-    if (this.opening) return this.opening;
+  async start(deviceId?: string | null): Promise<boolean> {
+    // An open that a stop or teardown made stale releases its own stream and answers false; it is waited for, then
+    // this call opens fresh, so a quick mute and unmute (or Auto, Chat, Auto) never reports a fault that did not happen.
+    while (this.opening && this.opening.generation !== this.generation) {
+      await this.opening.run.catch(() => false);
+    }
+    if (this.opening) return this.opening.run;
     if (this.ctx) {
       return this.ensureRunning().then(() => this.ctx?.state !== "closed" && Boolean(this.ctx));
     }
-    const run = this.open(deviceId).finally(() => {
-      if (this.opening === run) this.opening = null;
-    });
-    this.opening = run;
-    return run;
+    const slot: { run: Promise<boolean>; generation: number } = {
+      generation: this.generation,
+      run: this.open(deviceId).finally(() => {
+        if (this.opening === slot) this.opening = null;
+      }),
+    };
+    this.opening = slot;
+    return slot.run;
   }
 
   private async open(deviceId?: string | null): Promise<boolean> {
@@ -834,6 +855,7 @@ export class VoiceGate {
       const track = stream.getAudioTracks()[0];
       if (track) track.addEventListener("ended", this.onTrackEnded);
       this.openedRates = this.readRates();
+      this.noteBluetooth(track?.label ?? "");
       this.watchDevices();
       this.loop();
       this.lastFailure = null;
@@ -841,6 +863,11 @@ export class VoiceGate {
     } catch (err) {
       const own =
         this.stream?.getAudioTracks().filter((track) => track.readyState === "live").length ?? 0;
+      if (generation !== this.generation) {
+        // A stale open that fails must not tear down, or clear the holders of, the open that replaced it.
+        if (!this.ctx) void ctx?.close().catch(() => undefined);
+        return false;
+      }
       this.lastFailure = classify(err, own, namedHolders);
       this.rememberError(this.lastFailure.reason);
       if (!this.ctx) void ctx?.close().catch(() => undefined);
@@ -906,6 +933,7 @@ export class VoiceGate {
     this.source = null;
     this.analyser = null;
     this.stream = null;
+    this.btLine = "";
     this.voiceFrames = 0;
     this.speakingGuard = false;
     this.ducked = false;
@@ -931,12 +959,21 @@ export class VoiceGate {
     try {
       const ok = await this.start(this.deviceId);
       if (!ok && captureMayRetry(attempt) && this.holders.size) {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** attempt, 8000)));
+        await new Promise((resolve) => setTimeout(resolve, reacquireDelay(attempt)));
         this.reopening = false;
         return this.reopen(attempt + 1);
       }
     } finally {
       this.reopening = false;
+    }
+  }
+
+  /** One warning per headset: a Bluetooth microphone in call mode thins every sound that plays through it. */
+  private noteBluetooth(label: string) {
+    this.btLine = bluetoothNotice(label, this.readRates().track ?? this.readRates().ctx);
+    if (this.btLine && this.btTold !== label) {
+      this.btTold = label;
+      this.rememberError(this.btLine);
     }
   }
 

@@ -44,11 +44,19 @@ const mkTrack = (): Tr => {
 };
 let resolvers: Array<() => void> = [];
 let manual = true;
+/** Calls made while this is set fail when they settle (a device that errors late). */
+let failNext = false;
 const gum = vi.fn(
   () =>
-    new Promise((res) => {
-      const t = mkTrack();
-      const done = () => res({ getAudioTracks: () => [t], getTracks: () => [t] });
+    new Promise((res, rej) => {
+      const fail = failNext;
+      failNext = false;
+      // A failed open hands out no stream, so it owns no track.
+      const t = fail ? null : mkTrack();
+      const done = () =>
+        t
+          ? res({ getAudioTracks: () => [t], getTracks: () => [t] })
+          : rej(Object.assign(new Error("late"), { name: "AbortError" }));
       if (manual) resolvers.push(done);
       else done();
     }),
@@ -105,6 +113,7 @@ const reset = () => {
   mediaListeners.length = 0;
   resolvers = [];
   manual = true;
+  failNext = false;
   nextRate = 48000;
   gum.mockClear();
 };
@@ -164,6 +173,88 @@ describe("VoiceGate single flight", () => {
     gate.stop(true);
     await settle();
     expect(await a).toBe(false);
+    expect(live()).toBe(0);
+  });
+
+  it("stop then start while the first open is slow: the reopen is true and exactly one stream is live", async () => {
+    reset();
+    const gate = new VoiceGate();
+    const first = gate.start(null);
+    await flush();
+    gate.stop(true);
+    const second = gate.start(null);
+    await settle();
+    await flush();
+    await settle();
+    expect(await first).toBe(false);
+    expect(await second).toBe(true);
+    expect(live()).toBe(1);
+    expect(gate.liveTracks()).toBe(1);
+    expect(gate.lastCaptureFailure()).toBeNull();
+    gate.stop(true);
+    expect(live()).toBe(0);
+  });
+
+  it("mute then unmute through acquire and release keeps the reopen true with one live stream", async () => {
+    reset();
+    const gate = new VoiceGate();
+    const first = gate.acquire("auto", null);
+    await flush();
+    gate.release("auto");
+    const second = gate.acquire("auto", null);
+    await settle();
+    await flush();
+    await settle();
+    await first;
+    expect(await second).toBe(true);
+    expect(live()).toBe(1);
+    expect(gate.lastCaptureFailure()).toBeNull();
+    gate.release("auto");
+    expect(live()).toBe(0);
+  });
+
+  it("two starts in a row share one open", async () => {
+    reset();
+    const gate = new VoiceGate();
+    const a = gate.start(null);
+    const b = gate.start(null);
+    await settle();
+    expect(await a).toBe(true);
+    expect(await b).toBe(true);
+    expect(gum).toHaveBeenCalledTimes(1);
+    expect(live()).toBe(1);
+    gate.stop(true);
+  });
+
+  it("teardown during an open leaves zero live tracks and no later reopen", async () => {
+    reset();
+    const gate = new VoiceGate();
+    const a = gate.start(null);
+    await flush();
+    gate.stop(true);
+    await settle();
+    expect(await a).toBe(false);
+    await flush();
+    expect(live()).toBe(0);
+    expect(gate.liveTracks()).toBe(0);
+  });
+
+  it("a stale open that fails late does not wipe the holders of the reopen", async () => {
+    reset();
+    const gate = new VoiceGate();
+    failNext = true;
+    const first = gate.acquire("auto", null);
+    await flush();
+    gate.release("auto");
+    const second = gate.acquire("auto", null);
+    await settle();
+    await flush();
+    await settle();
+    await first;
+    expect(await second).toBe(true);
+    expect(gate.liveTracks()).toBe(1);
+    expect(live()).toBe(1);
+    gate.release("auto");
     expect(live()).toBe(0);
   });
 
