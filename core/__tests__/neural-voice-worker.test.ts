@@ -23,15 +23,15 @@ const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 
 const SCRIPT = `
 const fs = require("fs");
-const log = process.env.FT_LOG;
+const log = process.env.FRIDAY_FT_LOG;
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
-if (process.env.FT_NOISE) process.stderr.write("x".repeat(Number(process.env.FT_NOISE)));
+if (process.env.FRIDAY_FT_NOISE) process.stderr.write("x".repeat(Number(process.env.FRIDAY_FT_NOISE)));
 const rl = require("readline").createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const r = JSON.parse(line);
   if (log) fs.appendFileSync(log, r.op + "\\n");
   const reply = (extra) => out({ id: r.id, ...extra });
-  const later = (extra) => setTimeout(() => reply(extra), Number(process.env.FT_DELAY || 0));
+  const later = (extra) => setTimeout(() => reply(extra), Number(process.env.FRIDAY_FT_DELAY || 0));
   if (r.op === "speak-pcm" || r.op === "speak") return later({ ok: true, pcm16: "AAAA", pid: process.pid });
   if (r.op === "echo-shadow") return later({ ok: true, ready: true });
   if (r.op === "warm-up") return reply({ ok: true });
@@ -71,14 +71,14 @@ beforeEach(() => {
   const script = path.join(dir, "speaker.cjs");
   writeFileSync(script, SCRIPT);
   py = [process.execPath, [script]];
-  process.env["FT_LOG"] = logFile();
+  process.env["FRIDAY_FT_LOG"] = logFile();
 });
 
 afterEach(() => {
   neural.shutdown();
-  delete process.env["FT_LOG"];
-  delete process.env["FT_NOISE"];
-  delete process.env["FT_DELAY"];
+  delete process.env["FRIDAY_FT_LOG"];
+  delete process.env["FRIDAY_FT_NOISE"];
+  delete process.env["FRIDAY_FT_DELAY"];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -103,7 +103,7 @@ describe("the speaker is started by the shared lifecycle module", () => {
   });
 
   it("drains a chatty stderr, so speech is never held by a full pipe (H4)", async () => {
-    process.env["FT_NOISE"] = String(6_000_000);
+    process.env["FRIDAY_FT_NOISE"] = String(6_000_000);
     const started = Date.now();
     const reply = await neural.speakerRequest(py, { op: "speak-pcm", text: "hello" }, 20000);
     expect(reply?.ok).toBe(true);
@@ -133,7 +133,7 @@ describe("the speaker is started by the shared lifecycle module", () => {
   });
 
   it("caps a speak's deadline at the caller's timeout", async () => {
-    process.env["FT_DELAY"] = "3000";
+    process.env["FRIDAY_FT_DELAY"] = "3000";
     const started = Date.now();
     const reply = await neural.speakerRequest(py, { op: "speak-pcm", text: "slow" }, 500);
     expect(reply).toBeNull();
@@ -175,7 +175,7 @@ describe("the deadline follows the text", () => {
 
 describe("a status or an echo check never queues behind a speak", () => {
   it("does not ask a busy speaker for its status, and the speak still finishes", async () => {
-    process.env["FT_DELAY"] = "700";
+    process.env["FRIDAY_FT_DELAY"] = "700";
     const speak = neural.speakerRequest(py, { op: "speak-pcm", text: "one long line" }, 20000);
     expect(await until(() => neural.speakerHealth().state === "busy")).toBe(true);
     const started = Date.now();

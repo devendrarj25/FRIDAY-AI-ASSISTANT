@@ -162,8 +162,8 @@ describe("voice worker: start", () => {
     expect(opts.cwd).toBe(tmpdir());
     const env = opts.env;
     expect(env.PYTHONIOENCODING).toBe("utf-8");
-    expect(env.PYTHONUTF8).toBe("1");
-    expect(env.FRIDAY_ROOT).toBe("C:\\friday");
+    expect(env["PYTHONUTF8"]).toBe("1");
+    expect(env["FRIDAY_ROOT"]).toBe("C:\\friday");
     expect(opts.windowsHide).toBe(true);
   });
 
@@ -578,5 +578,140 @@ describe("voice worker: errors are typed", () => {
     const error = new mod.VoiceWorkerError("deadline", "late");
     expect(error).toBeInstanceOf(Error);
     expect(error.code).toBe("deadline");
+  });
+});
+
+const liveChildren = (children: FakeChild[], killTree: { mock: { calls: unknown[][] } }) =>
+  children.length - killTree.mock.calls.length;
+
+describe("voice worker: a stop wins over a start", () => {
+  it("stop while the script is still resolving leaves no child and no breaker count", async () => {
+    let release: (value: string) => void = () => {};
+    const script = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    const harness = setup({ script: () => script, init: loadInit });
+    const started = harness.worker.ensure();
+    const check = expect(started).rejects.toMatchObject({ code: "stopped" });
+    await settle();
+    await harness.worker.stop();
+    release("py.exe");
+    await check;
+    await settle();
+    expect(harness.spawn).not.toHaveBeenCalled();
+    expect(liveChildren(harness.children, harness.killTree)).toBe(0);
+    expect(harness.worker.status()).toMatchObject({ state: "stopped", restarts60s: 0 });
+  });
+
+  it("stop while the args are still resolving never spawns", async () => {
+    let release: (value: string[]) => void = () => {};
+    const args = new Promise<string[]>((resolve) => {
+      release = resolve;
+    });
+    const harness = setup({ args: () => args });
+    const started = harness.worker.ensure();
+    const check = expect(started).rejects.toMatchObject({ code: "stopped" });
+    await settle();
+    await harness.worker.stop();
+    release(["stt.py", "--serve"]);
+    await check;
+    expect(harness.spawn).not.toHaveBeenCalled();
+    expect(harness.worker.status().restarts60s).toBe(0);
+  });
+
+  it("stop after the spawn, before the model answers, ends the child and does not count a crash", async () => {
+    const harness = setup({ init: loadInit });
+    harness.control.respond = () => undefined;
+    const started = harness.worker.ensure();
+    const check = expect(started).rejects.toMatchObject({ code: "stopped" });
+    await settle();
+    expect(harness.children).toHaveLength(1);
+    await harness.worker.stop();
+    await check;
+    await settle();
+    expect(liveChildren(harness.children, harness.killTree)).toBe(0);
+    expect(harness.worker.status()).toMatchObject({ state: "stopped", restarts60s: 0 });
+    harness.control.respond = (msg) => ({ id: msg.id, ok: true });
+    await harness.worker.request({ op: "status" });
+    expect(harness.worker.status().state).toBe("ready");
+  });
+
+  it("stop during init when the kill's exit has not arrived yet is not a crash", async () => {
+    const harness = setup({ init: loadInit, killTree: vi.fn() });
+    harness.control.respond = () => undefined;
+    const started = harness.worker.ensure();
+    const check = expect(started).rejects.toMatchObject({ code: "stopped" });
+    await settle();
+    void harness.worker.stop();
+    await check;
+    expect(harness.worker.status().restarts60s).toBe(0);
+  });
+
+  it("three stops during a model load do not open the breaker", async () => {
+    const harness = setup({ init: loadInit, killTree: vi.fn() });
+    harness.control.respond = () => undefined;
+    for (let i = 0; i < 3; i += 1) {
+      const started = harness.worker.ensure();
+      const check = expect(started).rejects.toMatchObject({ code: "stopped" });
+      await settle();
+      void harness.worker.stop();
+      await check;
+      await settle();
+    }
+    expect(harness.worker.status()).toMatchObject({ state: "stopped", restarts60s: 0 });
+    harness.control.respond = (msg) => ({ id: msg.id, ok: true });
+    const view = await harness.worker.ensure();
+    expect(view.state).toBe("ready");
+  });
+});
+
+describe("voice worker: the child does not inherit secrets", () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const name of Object.keys(process.env)) delete process.env[name];
+    Object.assign(process.env, saved);
+  });
+
+  it("keeps PATH and FRIDAY_* but drops every key, token, secret and password", async () => {
+    process.env["PATH"] = "C:\\bin";
+    process.env["OPENAI_API_KEY"] = "sk-open";
+    process.env["GROQ_API_KEY"] = "gsk-groq";
+    process.env["HF_TOKEN"] = "hf-token";
+    process.env["FRIDAY_PROVIDER_SECRET"] = "s";
+    process.env["FRIDAY_ROOT"] = "C:\\from-parent";
+    process.env["SOME_PASSWORD"] = "p";
+    process.env["UNLISTED_NAME"] = "x";
+    const harness = setup({ env: { FRIDAY_ROOT: "C:\\friday", FRIDAY_STT_TIER: "auto" } });
+    await harness.worker.ensure();
+    const env = (harness.spawn.mock.calls[0] as [string, string[], SpawnOpts])[2].env as Record<
+      string,
+      string
+    >;
+    expect(env["PATH"]).toBe("C:\\bin");
+    expect(env["FRIDAY_ROOT"]).toBe("C:\\friday");
+    expect(env["FRIDAY_STT_TIER"]).toBe("auto");
+    expect(env["PYTHONUTF8"]).toBe("1");
+    for (const name of [
+      "OPENAI_API_KEY",
+      "GROQ_API_KEY",
+      "HF_TOKEN",
+      "FRIDAY_PROVIDER_SECRET",
+      "SOME_PASSWORD",
+      "UNLISTED_NAME",
+    ]) {
+      expect(env[name]).toBeUndefined();
+    }
+  });
+
+  it("passes a secret-looking name only when the caller lists it by name", async () => {
+    process.env["OPENAI_API_KEY"] = "sk-open";
+    const harness = setup({ env: { FRIDAY_MODEL_TOKEN: "listed" } });
+    await harness.worker.ensure();
+    const env = (harness.spawn.mock.calls[0] as [string, string[], SpawnOpts])[2].env as Record<
+      string,
+      string
+    >;
+    expect(env["FRIDAY_MODEL_TOKEN"]).toBe("listed");
+    expect(env["OPENAI_API_KEY"]).toBeUndefined();
   });
 });

@@ -57,6 +57,31 @@ function defaultKillTree(child) {
   }
 }
 
+/** Names the Python workers may inherit. Everything else in the parent environment stays behind. */
+const ENV_ALLOW =
+  /^(PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|USERPROFILE|LOCALAPPDATA|APPDATA|PROGRAMDATA|PROGRAMFILES(\(X86\))?|PROGRAMW6432|COMMONPROGRAMFILES(\(X86\))?|HOME|HOMEDRIVE|HOMEPATH|USERNAME|USER|LOGNAME|LANG|LANGUAGE|LC_.*|TZ|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|OS|PYTHON.*|FRIDAY_.*|HF_HOME|HF_HUB_.*|XDG_.*|ORT_.*|OMP_.*|MKL_.*|NUMBA_.*|OPENBLAS_NUM_THREADS|VECLIB_MAXIMUM_THREADS|NUMEXPR_NUM_THREADS|CUDA_.*|LD_LIBRARY_PATH)$/i;
+/** A name that smells like a secret never rides along from the parent, whatever else matches. */
+const ENV_DENY = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+
+/**
+ * The child's environment: an allowlist of the parent's, then what the caller adds by name (the caller listed those
+ * on purpose, so they pass), then UTF-8 forced.
+ */
+function childEnv(parent, extra) {
+  const env = {};
+  for (const [name, value] of Object.entries(parent || {})) {
+    if (value === undefined || !ENV_ALLOW.test(name) || ENV_DENY.test(name)) continue;
+    env[name] = value;
+  }
+  return {
+    ...env,
+    ...extra,
+    PYTHONIOENCODING: "utf-8",
+    PYTHONUTF8: "1",
+    PYTHONUNBUFFERED: "1",
+  };
+}
+
 async function unwrap(value) {
   return typeof value === "function" ? await value() : value;
 }
@@ -112,6 +137,8 @@ function createVoiceWorker(options) {
   let breakerUntil = 0;
   let halfOpen = false;
   let lastExit = null;
+  /** Bumped by every stop(). A start that sees it change while it awaits ends its own child: a stop wins. */
+  let stopSeq = 0;
 
   function pruneCrashes() {
     const cutoff = now() - breaker.windowMs;
@@ -322,11 +349,17 @@ function createVoiceWorker(options) {
     state = "starting";
     clearIdle();
     if (breakerUntil > 0 && breakerUntil <= now()) halfOpen = true;
+    const startedAtStop = stopSeq;
+    const stoppedError = () =>
+      new VoiceWorkerError("stopped", "Voice worker stopped while it was starting.");
     let target;
     try {
       const program = await unwrap(opts.script);
+      if (stopSeq !== startedAtStop) throw stoppedError();
       const argv = (await unwrap(opts.args)) || [];
+      if (stopSeq !== startedAtStop) throw stoppedError();
       const extraEnv = (await unwrap(opts.env)) || {};
+      if (stopSeq !== startedAtStop) throw stoppedError();
       if (!program)
         throw new VoiceWorkerError("start-failed", "No program to start the voice worker.");
       const child = spawnImpl(program, Array.from(argv), {
@@ -334,13 +367,7 @@ function createVoiceWorker(options) {
         windowsHide: true,
         // The child and everything it starts must not stand in the program folder (update and uninstall).
         cwd: opts.cwd || os.tmpdir(),
-        env: {
-          ...process.env,
-          ...extraEnv,
-          PYTHONIOENCODING: "utf-8",
-          PYTHONUTF8: "1",
-          PYTHONUNBUFFERED: "1",
-        },
+        env: childEnv(process.env, extraEnv),
       });
       if (!child) throw new VoiceWorkerError("start-failed", "The voice worker did not start.");
       generation += 1;
@@ -374,7 +401,7 @@ function createVoiceWorker(options) {
       child.on("exit", (code, signal) => handleExit(target, code, signal));
       child.on("close", (code, signal) => handleExit(target, code, signal));
     } catch (error) {
-      if (!target) {
+      if (!target && stopSeq === startedAtStop) {
         noteCrash();
         state = "cold";
       }
@@ -386,18 +413,21 @@ function createVoiceWorker(options) {
           );
     }
     try {
+      if (stopSeq !== startedAtStop) throw stoppedError();
       if (typeof opts.init === "function") {
         await opts.init((payload, requestOptions) => send(target, payload, requestOptions || {}), {
           generation: target.generation,
           pid: target.child.pid ?? null,
         });
       }
-      if (target.exited || session !== target || target.intentional) {
-        throw new VoiceWorkerError("stopped", "Voice worker stopped while it was starting.");
+      if (target.exited || session !== target || target.intentional || stopSeq !== startedAtStop) {
+        throw stoppedError();
       }
     } catch (error) {
       // A failed start or load stops the child. It is never left alive and unreferenced (H2).
-      terminate(target, "start-failed", !target.exited);
+      // A stop during init already ended the child on purpose: that is not a crash.
+      const wasIntentional = target.intentional || stopSeq !== startedAtStop;
+      terminate(target, "start-failed", !target.exited && !wasIntentional);
       if (session === target) session = null;
       if (state !== "stopped") state = "cold";
       throw error instanceof VoiceWorkerError
@@ -554,6 +584,7 @@ function createVoiceWorker(options) {
 
   /** Stops the child on purpose (not a crash, no breaker count). The next request starts a new one. */
   function stop() {
+    stopSeq += 1;
     clearIdle();
     const target = session;
     state = "stopped";
