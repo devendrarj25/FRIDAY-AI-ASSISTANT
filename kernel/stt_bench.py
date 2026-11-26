@@ -13,6 +13,10 @@ Roman Hinglish (the optional Hinglish ear writes it) has no standard spelling: "
 one word. ``roman=True`` scores with ``normalise_roman``, which also strips accents and folds repeated letters, so
 the number measures hearing and not spelling. It never transliterates: a Devanagari answer to a Roman reference is
 still wrong, and it is counted as wrong.
+
+The Devanagari fold (nukta, anusvara and chandrabindu, a nasal plus virama, chandra vowels, zero-width marks, danda)
+lives in ``text_norm``. ``english=True`` scores English with ``text_norm.normalise_english`` (contractions, number
+words, spelling variants and fillers), the published-style form, so an English number is comparable to others.
 """
 
 from __future__ import annotations
@@ -29,16 +33,17 @@ import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
+import text_norm
+
 AUDIO = (".wav", ".mp3", ".m4a", ".ogg", ".flac")
 MAX_PAIRS = 60
-_DEVANAGARI_DIGITS = {ord("०") + i: str(i) for i in range(10)}
 
 
 def normalise(text: str) -> str:
-    """NFC, lower case, Devanagari digits to ASCII, nukta dropped (फ़ and फ are one spelling), punctuation (including
-    the danda) removed, spaces collapsed."""
-    t = unicodedata.normalize("NFC", str(text)).lower().translate(_DEVANAGARI_DIGITS).replace("\u093c", "")
-    t = re.sub(r"[।॥]", " ", t)
+    """``text_norm.fold_devanagari`` (NFC, Devanagari digits to ASCII, nukta dropped so फ़ and फ are one spelling,
+    chandrabindu and nasal plus virama as the anusvara, chandra vowels plain, zero-width marks out, danda to a space),
+    lower case, punctuation removed, spaces collapsed."""
+    t = text_norm.fold_devanagari(str(text)).lower()
     t = "".join(
         " " if unicodedata.category(c).startswith("P") or unicodedata.category(c).startswith("S") else c for c in t
     )
@@ -63,8 +68,12 @@ def _edits(a: list[str], b: list[str]) -> int:
     return prev[-1]
 
 
-def wer(reference: str, hypothesis: str, roman: bool = False) -> float:
-    norm = normalise_roman if roman else normalise
+def _normaliser(roman: bool, english: bool) -> Callable[[str], str]:
+    return text_norm.normalise_english if english else normalise_roman if roman else normalise
+
+
+def wer(reference: str, hypothesis: str, roman: bool = False, english: bool = False) -> float:
+    norm = _normaliser(roman, english)
     ref = norm(reference).split()
     hyp = norm(hypothesis).split()
     if not ref:
@@ -72,8 +81,8 @@ def wer(reference: str, hypothesis: str, roman: bool = False) -> float:
     return _edits(ref, hyp) / len(ref)
 
 
-def cer(reference: str, hypothesis: str, roman: bool = False) -> float:
-    norm = normalise_roman if roman else normalise
+def cer(reference: str, hypothesis: str, roman: bool = False, english: bool = False) -> float:
+    norm = _normaliser(roman, english)
     ref = list(norm(reference).replace(" ", ""))
     hyp = list(norm(hypothesis).replace(" ", ""))
     if not ref:
@@ -98,10 +107,12 @@ def score(
     transcribe: Callable[[Path, str], str],
     clock: Callable[[], float] = time.perf_counter,
     roman: bool = False,
+    english: bool = False,
 ) -> list[dict]:
     """One result per model: mean word and character error, how many files, how many failed, seconds per file.
 
-    ``roman=True`` scores Roman Hinglish with ``normalise_roman`` (see the module note); the default is unchanged.
+    ``roman=True`` scores Roman Hinglish with ``normalise_roman`` (see the module note);
+    ``english=True`` scores with ``text_norm.normalise_english``. The default is unchanged.
     """
     results: list[dict] = []
     for model in models:
@@ -115,8 +126,8 @@ def score(
             except Exception:  # noqa: BLE001 — a model that cannot run on a file counts as a failure of that file
                 failed += 1
                 continue
-            w.append(wer(reference, heard, roman))
-            c.append(cer(reference, heard, roman))
+            w.append(wer(reference, heard, roman, english))
+            c.append(cer(reference, heard, roman, english))
         elapsed = clock() - started
         done = len(w)
         results.append(

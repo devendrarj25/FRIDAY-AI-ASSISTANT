@@ -44,6 +44,7 @@ from typing import Any, Protocol
 
 import numpy as np
 import stt_bench
+import text_norm
 from denoise_onnx import DENOISE_ENGINES
 
 RATE = 16_000
@@ -580,18 +581,20 @@ def apply_denoiser(scenes: list[Scene], denoiser: Any) -> list[Scene]:
     return cleaned
 
 
-def word_error_rate(scenes: list[Scene], transcribe: Callable[[np.ndarray], str] | None) -> dict:
+def word_error_rate(scenes: list[Scene], transcribe: Callable[[np.ndarray], str] | None, english: bool = False) -> dict:
     """Corpus word error rate over the speech clips that have reference text: edits over reference words (not a mean of
-    per-clip rates). ``wer`` is None when no recogniser is plugged in or no clip has text."""
+    per-clip rates). ``wer`` is None when no recogniser is plugged in or no clip has text. The text is normalised with
+    ``stt_bench.normalise`` (the Devanagari fold included) or, with ``english=True``, the published-style English
+    form."""
     if transcribe is None:
         return {"wer": None, "words": 0, "clips": 0}
     edits = words = clips = 0
     for scene in scenes:
-        reference = stt_bench.normalise(scene.text)
+        reference = text_norm.normalise_english(scene.text) if english else stt_bench.normalise(scene.text)
         if scene.kind != "speech" or not reference:
             continue
         count = len(reference.split())
-        edits += round(stt_bench.wer(scene.text, transcribe(scene.samples)) * count)
+        edits += round(stt_bench.wer(scene.text, transcribe(scene.samples), english=english) * count)
         words += count
         clips += 1
     return {"wer": edits / words if words else None, "words": words, "clips": clips}
