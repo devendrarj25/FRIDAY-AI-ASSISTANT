@@ -413,7 +413,8 @@ const PINS = {
       },
     },
   },
-  // Optional streaming ear candidate, never a default and never fetched by setup or prefetch. NVIDIA Nemotron 3.5 ASR
+  // Optional streaming ear candidate, never a default; setup fetches it only when the voice plan says this PC can carry
+  // it (electron/voice-weights.cjs streamEarDecision), each file checked against the digest below. NVIDIA Nemotron 3.5 ASR
   // Streaming 0.6B (cache-aware FastConformer RNN-T, 128 language prompt slots incl. hi-IN and en-US), exported to ONNX
   // by soniqo with an INT8 encoder and FP32 decoder and joint: a fixed 320 ms chunk, 32 mel frames per pass. Read from the
   // Hugging Face tree API on 2026-11-26: each large file carries its LFS SHA-256, the three small files were fetched at the

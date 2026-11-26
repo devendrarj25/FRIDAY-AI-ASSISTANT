@@ -1,7 +1,8 @@
 /**
  * The optional streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8 by soniqo): the exact pin read from the
  * Hugging Face tree API on 2026-11-26, the encoder's declared tensor contract that FRIDAY's own onnxruntime loop codes
- * against, and the guarantee that no setup path fetches it. Offline: no weights are read, a fake runner stands in for the
+ * against, and the guarantee that setup fetches it only through this PC's voice plan (never by a hard-coded job or
+ * source; the plan gate itself is core/__tests__/stream-ear-setup.test.ts). Offline: no weights are read, a fake runner stands in for the
  * kernel self-test, the disk is a temp folder.
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -40,7 +41,11 @@ const weights = req("../../electron/voice-weights.cjs") as {
     root: string,
     probe: Record<string, unknown>,
     deps?: Record<string, unknown>,
-  ) => { items: { id: string }[]; optional: string[] };
+  ) => {
+    items: { id: string }[];
+    optional: string[];
+    streamEar: { id: string; state: string } | null;
+  };
   pinSelfTests: (
     root: string,
     deps: {
@@ -180,15 +185,23 @@ describe("the encoder contract the transducer loop codes against", () => {
   });
 });
 
-describe("it is opt-in: no setup, prefetch or default plan fetches it", () => {
-  it("is not a pinned job, not in the install plan and not in the setup and prefetch sources", () => {
+describe("setup fetches it only through this PC's voice plan", () => {
+  it("is not a pinned job, not a base plan item, not in a plan-less prefetch, and named in no setup source", () => {
     expect(weights.pinnedJobs().map((row) => row.id)).not.toContain(ID);
     const plan = weights.voiceInstallPlan(temp(), STRONG_PC, { exists: () => false });
     expect(plan.items.map((item) => item.id)).not.toContain(ID);
     expect(plan.optional).not.toContain(ID);
+    // The plan decides it apart, and only the pinned repository is ever its source.
+    expect(plan.streamEar?.id).toBe(ID);
     const fetched = prefetch.prefetchPlan(temp(), {}, "win32").map((row) => row.id);
     expect(fetched.length).toBeGreaterThan(0);
     expect(fetched).not.toContain(ID);
+    const planned = prefetch
+      .prefetchPlan(temp(), {}, "win32", { plan })
+      .filter((row) => row.id === ID) as unknown as { job: { sources: unknown[] } }[];
+    expect(planned).toHaveLength(plan.streamEar?.state === "download" ? 1 : 0);
+    for (const row of planned)
+      expect(row.job.sources).toEqual([expect.objectContaining({ kind: "hf-repo", repo: REPO })]);
     for (const file of [
       "scripts/prefetch-models.cjs",
       "scripts/setup-windows.ps1",

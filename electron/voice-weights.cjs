@@ -61,10 +61,31 @@ const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
 
 /**
  * The optional streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8, a candidate, never a default) in
- * `<root>/models/stream-ear-nemotron`. It is fetched only from the Models page or the Install Manager, never by setup or
- * prefetch, and FRIDAY's own onnxruntime loop (kernel/transducer_loop.py) is its wrapper once that lands.
+ * `<root>/models/stream-ear-nemotron`. Setup and prefetch fetch it only when this PC's voice plan says so
+ * (`streamEarDecision`: not the lite profile, not a low-end processor, its RAM inside the speech budget, the disk with
+ * headroom, and never on a metered line, on battery or under heavy load); an installed verified copy is reused. The
+ * Models page and the Install Manager fetch it on demand on any PC. FRIDAY's own onnxruntime loop
+ * (kernel/transducer_loop.py) runs it.
  */
 const STREAM_EAR_REPO = "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8";
+/** The catalog id of the streaming ear (FRIDAY Ears' own streaming recogniser). */
+const STREAM_EAR_ID = "stream-ear-nemotron";
+
+/** What FRIDAY listens with while the streaming ear is absent: the ears it already has, turn by turn. */
+const STREAM_EAR_FALLBACK = "the turn-by-turn ears (the speech model and the Hindi ear)";
+
+/**
+ * Catalog ids a setup plan carries that stay optional: a failed fetch is a NOTE that names the fallback, never a FAIL,
+ * and the Doctor shows the absent model as missing but not required. Today only the streaming ear (off by default).
+ */
+function isPlanOptional(catalogId) {
+  return catalogId === STREAM_EAR_ID;
+}
+
+/** The fallback named for an optional plan model, or "". */
+function planFallback(catalogId) {
+  return isPlanOptional(catalogId) ? STREAM_EAR_FALLBACK : "";
+}
 
 /**
  * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
@@ -256,7 +277,9 @@ function pinnedFailureLine(id, result = {}) {
   const why = tried || String(result?.error || "no source answered");
   const tail = isOptionalHelper(id)
     ? `; optional, ${helperFallback(id) || "a built-in engine"} stays in use`
-    : "";
+    : isPlanOptional(id)
+      ? `; optional, setup goes on and ${planFallback(id)} stay in use`
+      : "";
   return `${id} did not download (${why})${tail}`;
 }
 
@@ -1101,11 +1124,43 @@ function extraSizesFor(primary) {
 }
 
 /**
+ * Whether a setup on this PC fetches the streaming ear, from the same budget: `{ state, reason }` with state `on-disk`
+ * (a verified copy is reused, never fetched again), `download`, or `skipped` with the reason. Never on the lite profile,
+ * a low-end processor or a speech budget (which already counts free RAM) below the ear's recommended RAM, and never while the line
+ * waits (`waitReason`: metered, on battery, heavy load, from electron/setup-plan.cjs). The disk is checked by the caller.
+ */
+function streamEarDecision(budget, probe, options = {}) {
+  const facts = manifestOf(STREAM_EAR_ID);
+  if (!facts) return null;
+  if (options.onDisk === true) return { state: "on-disk", reason: "" };
+  const skip = (reason) => ({ state: "skipped", reason });
+  if (budget.profile === "lite")
+    return skip(
+      "the lite voice profile keeps the streaming ear off; install it from the Models page if you want it",
+    );
+  if (probe?.cpuClass === "low")
+    return skip(
+      "a low-end processor keeps the streaming ear off; install it from the Models page if you want it",
+    );
+  if (facts.recommendedRamGb > budget.speechBudgetGb)
+    return skip(
+      `not enough RAM: the streaming ear wants ${facts.recommendedRamGb} GB, the speech budget here is ${budget.speechBudgetGb} GB`,
+    );
+  const wait = typeof options.waitReason === "string" ? options.waitReason.trim() : "";
+  if (wait)
+    return skip(
+      `a ${mb(facts.diskBytes)} download waits: ${wait}; install it from the Models page later`,
+    );
+  return { state: "download", reason: "" };
+}
+
+/**
  * What a fresh setup does about the voice on THIS PC, from the probe: which pinned models are fetched, which are already
  * on disk, which are skipped and why, and what stays optional on demand. Pure: `deps.exists` and `deps.statfs` stand in
  * for the disk, so a test needs no hardware. The essentials (the two helpers, the primary ear, the voice) are always
  * planned; the optional ones (the Hindi ear and punctuation) are skipped, with the reason, when the RAM budget or the
- * disk (1.3 times the bytes) cannot carry them. `lines` is the text setup and `--dry-run` print.
+ * disk (1.3 times the bytes) cannot carry them. The streaming ear is decided apart (`streamEarDecision`, `streamEar`);
+ * `deps.waitReason` says why a big download must wait here. `lines` is the text setup and `--dry-run` print.
  */
 function voiceInstallPlan(root, probe, deps = {}) {
   const exists = deps.exists || (() => false);
@@ -1181,6 +1236,40 @@ function voiceInstallPlan(root, probe, deps = {}) {
     );
   }
   extras.push(extraItem("moonshine-en", "engine", MOONSHINE_DISK_BYTES, false));
+  // The streaming ear: planned only on a PC that can carry it (see streamEarDecision), reused when already verified on
+  // disk. Planned, it stays optional: a failed fetch is a note naming the fallback, and the Doctor shows it missing but
+  // not required; a plan that skips it says why, and the Doctor shows that as skipped, never missing.
+  const stream = streamEarDecision(budget, probe, {
+    onDisk: onDisk.has(STREAM_EAR_ID),
+    waitReason: deps.waitReason,
+  });
+  // It is kept apart from `items` (the models every voice plan lists) as `streamEar`, and its bytes stay out of
+  // `downloadBytes` (`streamEarBytes`): prefetch and setup-plan read both. It goes last, after the extras, on the disk.
+  let streamEar = null;
+  if (stream) {
+    const facts = manifestOf(STREAM_EAR_ID);
+    const item = {
+      id: STREAM_EAR_ID,
+      kind: facts.kind,
+      bytes: facts.diskBytes,
+      state: stream.state,
+      reason: stream.reason,
+      optional: true,
+      fallback: STREAM_EAR_FALLBACK,
+    };
+    if (item.state === "download") {
+      const room = pins.diskPreflight(
+        root,
+        planned + extraBytes + facts.diskBytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (!room.ok) {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    streamEar = item;
+  }
   const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
     id: size,
     size,
@@ -1208,6 +1297,13 @@ function voiceInstallPlan(root, probe, deps = {}) {
       lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
     else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
   }
+  for (const item of streamEar ? [streamEar] : []) {
+    if (item.state === "on-disk")
+      lines.push(`[friday] ok       ${item.id} already on disk (${mb(item.bytes)}), reused`);
+    else if (item.state === "download")
+      lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
+    else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
+  }
   for (const row of blocked) {
     row.line = `[friday] INFO     ${row.id} skipped: ${row.reason}`;
     lines.push(row.line);
@@ -1224,6 +1320,8 @@ function voiceInstallPlan(root, probe, deps = {}) {
     extras,
     blocked,
     optional,
+    streamEar,
+    streamEarBytes: streamEar?.state === "download" ? streamEar.bytes : 0,
     downloadBytes: planned,
     lines,
   };
@@ -1347,6 +1445,12 @@ module.exports = {
   SPEAKER_REPO,
   HINDI_VAANI_REPO,
   STREAM_EAR_REPO,
+  STREAM_EAR_ID,
+  STREAM_EAR_FALLBACK,
+  isPlanOptional,
+  planFallback,
+  pinnedFailureLine,
+  streamEarDecision,
   EAR_MODELS,
   EXTRA_MODELS,
 };

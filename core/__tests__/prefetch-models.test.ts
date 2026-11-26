@@ -900,6 +900,19 @@ describe("the offline voice", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("a planned pinned voice model (the streaming ear) is one hf-repo job sized by its pin for the board", () => {
+    const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+    const job = prefetch.voiceModelJob("/friday", weights.STREAM_EAR_ID);
+    expect(job).toMatchObject({ id: weights.STREAM_EAR_ID, kind: "voice-model" });
+    expect(job.approxBytes).toBe(weights.manifestOf(weights.STREAM_EAR_ID).diskBytes);
+    expect(job.job.sources).toEqual([
+      expect.objectContaining({ kind: "hf-repo", repo: weights.STREAM_EAR_REPO }),
+    ]);
+    const src = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    expect(src).toMatch(/approxBytes: APPROX_BYTES\[row\.id\] \|\| row\.approxBytes \|\| 0/);
+    expect(src).toMatch(/for \(const item of planRows\(have\.plan\)\)/);
+  });
 });
 
 describe("speech sizes", () => {

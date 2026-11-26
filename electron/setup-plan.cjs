@@ -702,12 +702,18 @@ function planVoice(f, deps, chat) {
   try {
     const voice = deps.voiceWeights || require("./voice-weights.cjs");
     const llmGb = chat.device === "gpu" && chat.tag ? chat.needs.memoryGb : 0;
+    // A big optional speech download (the streaming ear) waits on a metered line, on battery or under heavy load.
+    // Offline is not a reason here: the whole voice plan already waits for the network.
+    const wait = networkOf(f).online === false ? "" : waitReason(f, BIG_DOWNLOAD_BYTES);
     const plan = voice.voiceInstallPlan(deps.root, voiceProbe(f, deps), {
       exists: deps.exists || (() => false),
+      ...(wait ? { waitReason: wait } : {}),
       ...(deps.statfs ? { statfs: deps.statfs } : {}),
       ...(llmGb > 0 ? { llmResidentVramGb: llmGb } : {}),
     });
     const b = plan.budget;
+    // The streaming ear is one more row of the same plan when this PC carries it (voice-weights.cjs streamEarDecision).
+    const rows = [...plan.items, ...(plan.streamEar ? [plan.streamEar] : [])];
     return {
       planned: true,
       profile: b.profile,
@@ -715,16 +721,14 @@ function planVoice(f, deps, chat) {
       sttCompute: b.sttCompute,
       sttDevice: b.sttDevice,
       speechBudgetGb: b.speechBudgetGb,
-      install: plan.items.filter((i) => i.state === "download").map((i) => i.id),
-      onDisk: plan.items.filter((i) => i.state === "on-disk").map((i) => i.id),
+      install: rows.filter((i) => i.state === "download").map((i) => i.id),
+      onDisk: rows.filter((i) => i.state === "on-disk").map((i) => i.id),
       skipped: [
-        ...plan.items
-          .filter((i) => i.state === "skipped")
-          .map((i) => ({ id: i.id, reason: i.reason })),
+        ...rows.filter((i) => i.state === "skipped").map((i) => ({ id: i.id, reason: i.reason })),
         ...plan.blocked.map((r) => ({ id: r.id, reason: r.reason })),
       ],
       optional: [...plan.optional],
-      downloadBytes: plan.downloadBytes,
+      downloadBytes: plan.downloadBytes + (plan.streamEarBytes || 0),
       notes: [...b.notes],
       lines: [...plan.lines],
     };
