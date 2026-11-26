@@ -18,6 +18,7 @@
  * `core/fixtures/voice-eval/fold-vectors.json` pin the two together, key for key.
  */
 import { wilson } from "../self/eval-stats";
+import { fixCores, labelLanguages, lexiconKey, LEXICON_VERSION } from "./hinglish-lexicon";
 import { LATENCY_BUDGET_MS } from "./latency-monitor";
 
 export type SpeechLang = "hi" | "en" | "hinglish";
@@ -571,6 +572,124 @@ export function matchErrorRate(reference: string, hypothesis: string): number {
   return span ? c.edits / span : 0;
 }
 
+/* ---- T-WER, the switch-point error rate and Wilson ranges ------------------------------------- */
+
+/** Names the word lexicon behind T-WER: a T-WER made under another lexicon is not comparable. */
+export const TWER_LEXICON = LEXICON_VERSION;
+
+/** One word on the T-WER fold: the script policy is applied first (see `hinglish-lexicon.ts`), then the Roman skeleton. */
+function twerFoldWords(words: readonly string[]): string[] {
+  return fixCores(words).map((w) => foldToken(lexiconKey(w)));
+}
+
+/** The words of a text on the T-WER fold: डिस्क्रिप्शन and description, कल and kal are one word. */
+export function twerTokens(text: string): string[] {
+  return twerFoldWords(foldWords(text));
+}
+
+export type TwerCounts = {
+  /** Word edits after the T-WER fold (the same words count as the folded rate). */
+  twerEdits: number;
+  /** Places in the reference where the language changes from one word to the next (digits are skipped). */
+  switchPoints: number;
+  /** Switch points where a word on either side was substituted or deleted. */
+  switchErrors: number;
+  /** Words of the hypothesis the script policy would rewrite (Roman Hindi, or an English loanword in Devanagari). */
+  policyFixes: number;
+  hypWords: number;
+};
+
+/** The counts behind T-WER and the switch-point error rate for one utterance; they add up across a corpus. */
+export function twerCounts(reference: string, hypothesis: string): TwerCounts {
+  const rawRef = foldWords(reference);
+  const rawHyp = foldWords(hypothesis);
+  const ops = align(twerFoldWords(rawRef), twerFoldWords(rawHyp));
+  const wrong = new Set(
+    ops.filter((op) => op.kind === "sub" || op.kind === "del").map((op) => op.ref),
+  );
+  const langs = labelLanguages(rawRef);
+  let switchPoints = 0;
+  let switchErrors = 0;
+  let previous = -1;
+  langs.forEach((lang, i) => {
+    if (lang === "none") return;
+    if (previous >= 0 && langs[previous] !== lang) {
+      switchPoints += 1;
+      if (wrong.has(previous) || wrong.has(i)) switchErrors += 1;
+    }
+    previous = i;
+  });
+  const fixedHyp = fixCores(rawHyp);
+  return {
+    twerEdits: ops.filter((op) => op.kind !== "hit").length,
+    switchPoints,
+    switchErrors,
+    policyFixes: rawHyp.filter((w, i) => fixedHyp[i] !== w).length,
+    hypWords: rawHyp.length,
+  };
+}
+
+export function twerWordErrorRate(reference: string, hypothesis: string): number {
+  return ratio(twerCounts(reference, hypothesis).twerEdits, foldWords(reference).length);
+}
+
+export type WilsonRate = { estimate: number; low: number | null; high: number | null; n: number };
+
+/** A rate with its 95% Wilson interval; no interval (null) over zero trials. */
+export function wilsonRate(hits: number, total: number): WilsonRate {
+  if (total <= 0) return { estimate: 0, low: null, high: null, n: 0 };
+  const range = wilson(hits, total);
+  return { estimate: hits / total, low: range.low, high: range.high, n: total };
+}
+
+/**
+ * The T-WER, switch-point, script-mismatch and policy numbers of a corpus, from rows that carry both the folded and
+ * the T-WER counts. Totals first, then the rates. The script mismatch is the share of correctly heard words (hits)
+ * that sit in the other script than the reference; it is reported on its own and is never part of a word error rate.
+ */
+export function aggregateTwer(
+  rows: ReadonlyArray<FoldedCounts & TwerCounts>,
+  options: BootstrapOptions = {},
+) {
+  const sum = (pick: (r: FoldedCounts & TwerCounts) => number) =>
+    rows.reduce((total, r) => total + pick(r), 0);
+  const words = sum((r) => r.words);
+  const twerEdits = sum((r) => r.twerEdits);
+  const ci = bootstrapWer(
+    rows.map((r) => ({ edits: r.twerEdits, words: r.words })),
+    options,
+  );
+  const switchPoints = sum((r) => r.switchPoints);
+  const switchErrors = sum((r) => r.switchErrors);
+  const hypWords = sum((r) => r.hypWords);
+  const policyFixes = sum((r) => r.policyFixes);
+  const violations = sum((r) => r.violations);
+  const hits = sum((r) => r.hits);
+  const sp = wilsonRate(switchErrors, switchPoints);
+  const sm = wilsonRate(violations, hits);
+  const pf = wilsonRate(policyFixes, hypWords);
+  return {
+    lexicon: TWER_LEXICON,
+    twerEdits,
+    twer: ratio(twerEdits, words),
+    twerLow: ci.low,
+    twerHigh: ci.high,
+    switchPoints,
+    switchErrors,
+    switchPointErrorRate: sp.estimate,
+    switchPointErrorLow: sp.low,
+    switchPointErrorHigh: sp.high,
+    scriptMismatchRate: sm.estimate,
+    scriptMismatchLow: sm.low,
+    scriptMismatchHigh: sm.high,
+    hypWords,
+    policyFixes,
+    policyFixRate: pf.estimate,
+    policyFixLow: pf.low,
+    policyFixHigh: pf.high,
+  };
+}
+
 /* ---- latency from a timeline of events ------------------------------------------------------- */
 
 export const EVENT_KINDS = ["speech_start", "partial", "speech_end", "endpoint", "final"] as const;
@@ -768,7 +887,7 @@ export function pairedBootstrap(
   };
 }
 
-export type GateRow = PairedRow & { lang: string; violations?: number };
+export type GateRow = PairedRow & { lang: string; violations?: number; twerEdits?: number };
 export type GateGroup = {
   baselineWer: number;
   candidateWer: number;
@@ -778,12 +897,23 @@ export type GateGroup = {
   excludesZero: boolean;
   baselineViolations: number;
   candidateViolations: number;
+  /** The T-WER leg of the gate; null when either run has no T-WER counts (a baseline made before T-WER). */
+  twer: {
+    baselineTwer: number;
+    candidateTwer: number;
+    delta: number;
+    low: number | null;
+    high: number | null;
+    excludesZero: boolean;
+    failed: boolean;
+  } | null;
   failed: boolean;
 };
 
 /**
  * Fail a candidate run against a baseline run over the same utterances. It fails when the folded WER is up by
- * more than `maxWerRise` AND the paired range excludes zero (a rise noise could explain does not fail), or when
+ * more than `maxWerRise` AND the paired range excludes zero (a rise noise could explain does not fail), when the
+ * T-WER is up by more than `maxWerRise` under the same proof (when both runs carry `twerEdits`), or when
  * the script-policy violations rose. The whole corpus and each language are judged, so one language cannot hide
  * in the total.
  */
@@ -810,10 +940,25 @@ export function regressionGate(
     const bv = base.reduce((sum, r) => sum + (r.violations ?? 0), 0);
     const cv = cand.reduce((sum, r) => sum + (r.violations ?? 0), 0);
     const werFailed = paired.delta > maxRise + EPS && paired.excludesZero;
+    const hasTwer =
+      [...base, ...cand].every((r) => typeof r.twerEdits === "number") && base.length > 0;
+    const tw = hasTwer
+      ? pairedBootstrap(
+          base.map((r) => ({ id: r.id, words: r.words, edits: r.twerEdits! })),
+          cand.map((r) => ({ id: r.id, words: r.words, edits: r.twerEdits! })),
+          options,
+        )
+      : null;
+    const twerFailed = tw !== null && tw.delta > maxRise + EPS && tw.excludesZero;
     const violFailed = (candWords ? cv / candWords : 0) > (baseWords ? bv / baseWords : 0) + 1e-12;
     if (werFailed) {
       reasons.push(
         `${name}: folded WER up ${(paired.delta * 100).toFixed(1)} points (range ${((paired.low ?? 0) * 100).toFixed(1)} to ${((paired.high ?? 0) * 100).toFixed(1)}), limit ${(maxRise * 100).toFixed(1)}`,
+      );
+    }
+    if (tw !== null && twerFailed) {
+      reasons.push(
+        `${name}: T-WER up ${(tw.delta * 100).toFixed(1)} points (range ${((tw.low ?? 0) * 100).toFixed(1)} to ${((tw.high ?? 0) * 100).toFixed(1)}), limit ${(maxRise * 100).toFixed(1)}`,
       );
     }
     if (violFailed) reasons.push(`${name}: script-policy violations rose from ${bv} to ${cv}`);
@@ -826,7 +971,25 @@ export function regressionGate(
       excludesZero: paired.excludesZero,
       baselineViolations: bv,
       candidateViolations: cv,
-      failed: werFailed || violFailed,
+      twer:
+        tw === null
+          ? null
+          : {
+              baselineTwer: ratio(
+                base.reduce((sum, r) => sum + r.twerEdits!, 0),
+                baseWords,
+              ),
+              candidateTwer: ratio(
+                cand.reduce((sum, r) => sum + r.twerEdits!, 0),
+                candWords,
+              ),
+              delta: tw.delta,
+              low: tw.low,
+              high: tw.high,
+              excludesZero: tw.excludesZero,
+              failed: twerFailed,
+            },
+      failed: werFailed || twerFailed || violFailed,
     };
   }
   return { pass: !reasons.length, reasons, groups };

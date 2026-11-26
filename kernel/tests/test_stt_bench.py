@@ -509,3 +509,175 @@ def test_the_stream_sampler_builds_partials_and_a_timeline_from_a_host(tmp_path)
     assert got["hypothesis"] == "turn on" and got["partials"] == ["turn", "turn on"]
     assert got["timeline"]["audioMs"] == 500
     assert stt_bench.latency_metrics(got["timeline"])["timeToFirstPartialMs"] == 160
+
+
+# --------------------------------------------------------------------------------------------------------------
+# H2: T-WER, the switch-point error rate, the script policy and the Wilson ranges. The vectors are shared with
+# core/__tests__/voice-eval-twer.test.ts and core/__tests__/hinglish-lexicon.test.ts (twer-vectors.json).
+# --------------------------------------------------------------------------------------------------------------
+TWER = json.loads(
+    (Path(__file__).resolve().parents[2] / "core" / "fixtures" / "voice-eval" / "twer-vectors.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+def _twer_gate_rows(spec: dict) -> list[dict]:
+    rows = _rows(spec)
+    if "twerEdits" in spec:
+        for row, edits in zip(rows, spec["twerEdits"], strict=True):
+            row["twerEdits"] = edits
+    return rows
+
+
+def test_the_two_lexicon_copies_are_one_table():
+    lines = stt_bench.lexicon_lines()
+    assert stt_bench.LEXICON_VERSION == TWER["lexiconVersion"]
+    assert len(lines) == TWER["lexiconDigest"]["entries"]
+    assert hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest() == TWER["lexiconDigest"]["sha256"]
+
+
+@pytest.mark.parametrize("case", TWER["fix"], ids=lambda c: c["id"])
+def test_fix_script_puts_a_transcript_on_the_script_policy(case):
+    assert stt_bench.fix_script(case["text"], case["policy"]) == case["expected"]
+
+
+def test_fix_script_is_idempotent_except_where_one_ambiguous_word_leans_on_another_and_refuses_a_bad_policy():
+    for case in TWER["fix"]:
+        once = stt_bench.fix_script(case["text"], case["policy"])
+        if case["id"] == "two-ambiguous-words-do-not-prove-each-other":
+            assert stt_bench.fix_script(once, case["policy"]) == "में तो ठीक"  # the second pass sees the turned word
+        else:
+            assert stt_bench.fix_script(once, case["policy"]) == once, case["id"]
+    with pytest.raises(ValueError, match="policy"):
+        stt_bench.fix_script("kal", "bogus")
+
+
+@pytest.mark.parametrize("case", TWER["label"], ids=lambda c: " ".join(c["cores"]) or "empty")
+def test_words_are_labelled_hindi_english_or_neither(case):
+    assert stt_bench.label_languages(case["cores"]) == case["langs"]
+
+
+@pytest.mark.parametrize("case", TWER["twerFold"], ids=lambda c: c["text"] or "empty")
+def test_the_twer_fold_makes_loanwords_and_roman_hindi_one_spelling(case):
+    assert stt_bench.twer_tokens(case["text"]) == case["tokens"]
+
+
+@pytest.mark.parametrize("case", TWER["counts"], ids=lambda c: c["id"])
+def test_twer_counts_match_the_hand_set_vectors(case):
+    got = stt_bench.twer_counts(case["reference"], case["hypothesis"])
+    assert got == {k: case[k] for k in got}
+    if "foldedEditsAtLeast" in case:  # the plain fold cannot see a loanword spelled in Devanagari
+        assert stt_bench.folded_counts(case["reference"], case["hypothesis"])["edits"] >= case["foldedEditsAtLeast"]
+        assert got["twerEdits"] < stt_bench.folded_counts(case["reference"], case["hypothesis"])["edits"]
+
+
+def test_twer_is_a_rate_over_the_reference_words():
+    assert stt_bench.twer("mujhe meeting ki description chahiye", "मुझे मीटिंग की डिस्क्रिप्शन चाहिए") == 0
+    assert stt_bench.twer("kal meeting hai", "कल hai") == pytest.approx(1 / 3)
+    assert stt_bench.twer("", "") == 0 and stt_bench.twer("", "x") == 1
+
+
+@pytest.mark.parametrize("case", TWER["wilson"], ids=lambda c: f"{c['hits']}-of-{c['total']}")
+def test_the_wilson_range_matches_the_shared_vectors(case):
+    got = stt_bench.wilson_rate(case["hits"], case["total"])
+    assert got["estimate"] == pytest.approx(case["estimate"], abs=1e-12)
+    for key in ("low", "high"):
+        if case[key] is None:
+            assert got[key] is None
+        else:
+            assert got[key] == pytest.approx(case[key], abs=1e-12)
+
+
+def test_the_aggregate_adds_counts_first_and_reports_every_range():
+    spec = TWER["aggregate"]
+    by_id = {c["id"]: c for c in TWER["counts"]}
+    rows = [
+        {**stt_bench.folded_counts(by_id[i]["reference"], by_id[i]["hypothesis"]),
+         **stt_bench.twer_counts(by_id[i]["reference"], by_id[i]["hypothesis"])}
+        for i in spec["ids"]
+    ]  # fmt: skip
+    out = stt_bench.aggregate_twer(rows)
+    for key in ("twerEdits", "switchPoints", "switchErrors", "policyFixes", "hypWords"):
+        assert out[key] == spec[key], key
+    assert out["twer"] == pytest.approx(spec["twer"]) and out["switchPointErrorRate"] == spec["switchPointErrorRate"]
+    assert out["lexicon"] == stt_bench.LEXICON_VERSION
+    assert 0 <= out["switchPointErrorLow"] <= out["switchPointErrorRate"] <= out["switchPointErrorHigh"] <= 1
+    assert 0 <= out["scriptMismatchLow"] <= out["scriptMismatchRate"] <= out["scriptMismatchHigh"] <= 1
+    assert 0 <= out["policyFixLow"] <= out["policyFixRate"] <= out["policyFixHigh"] <= 1
+    assert out["twerLow"] <= out["twer"] <= out["twerHigh"]
+    empty = stt_bench.aggregate_twer([])
+    assert empty["twer"] == 0 and empty["switchPointErrorLow"] is None and empty["twerLow"] is None
+
+
+def test_script_mismatch_is_counted_among_the_words_heard_right_and_not_inside_the_twer():
+    row = {
+        **stt_bench.folded_counts("kal subah alarm laga do", "कल सुबह अलार्म लगा दो"),
+        **stt_bench.twer_counts("kal subah alarm laga do", "कल सुबह अलार्म लगा दो"),
+    }
+    out = stt_bench.aggregate_twer([row])
+    assert out["twer"] == 0  # the words were heard
+    assert out["scriptMismatchRate"] == 1  # but every one is in the other script than the reference
+    assert out["policyFixes"] == 1  # the hypothesis itself breaks the policy once: alarm should be Latin
+
+
+@pytest.mark.parametrize("case", TWER["gate"], ids=lambda c: c["id"])
+def test_the_gate_also_fails_when_twer_rises_with_proof(case):
+    out = stt_bench.regression_gate(_twer_gate_rows(case["baseline"]), _twer_gate_rows(case["candidate"]))
+    assert out["pass"] is case["pass"]
+    for needle in case["reasonIncludes"]:
+        assert any(needle in r for r in out["reasons"]), (needle, out["reasons"])
+    for needle in case["reasonExcludes"]:
+        assert not any(needle in r for r in out["reasons"]), (needle, out["reasons"])
+    if case["pass"]:
+        assert out["reasons"] == []
+
+
+def test_the_twer_leg_of_the_gate_reports_its_numbers_or_none_for_an_older_baseline():
+    case = {c["id"]: c for c in TWER["gate"]}["twer-regression-alone-fails"]
+    group = stt_bench.regression_gate(_twer_gate_rows(case["baseline"]), _twer_gate_rows(case["candidate"]))["groups"]
+    leg = group["all"]["twer"]
+    assert leg["failed"] is True and leg["excludesZero"] is True
+    assert leg["baselineTwer"] == pytest.approx(0.1) and leg["candidateTwer"] == pytest.approx(0.2)
+    assert leg["delta"] == pytest.approx(0.1)
+    assert group["all"]["failed"] is True
+    old = {c["id"]: c for c in TWER["gate"]}["older-baseline-without-twer-still-gates-on-folded-wer"]
+    older = stt_bench.regression_gate(_twer_gate_rows(old["baseline"]), _twer_gate_rows(old["candidate"]))
+    assert older["groups"]["all"]["twer"] is None
+
+
+def test_the_twer_limit_moves_with_the_same_setting_as_the_folded_limit():
+    base = _twer_gate_rows({"lang": "hinglish", "words": [100] * 8, "edits": [10] * 8, "twerEdits": [10] * 8})
+    cand = _twer_gate_rows({"lang": "hinglish", "words": [100] * 8, "edits": [10] * 8, "twerEdits": [11] * 8})
+    assert stt_bench.regression_gate(base, cand)["pass"] is True
+    assert stt_bench.regression_gate(base, cand, max_wer_rise=0.005)["pass"] is False
+
+
+def test_a_run_report_carries_twer_rows_and_numbers_and_the_gate_reads_them(tmp_path):
+    samples = [
+        {"id": "a", "lang": "hinglish", "reference": "mujhe meeting ki description chahiye",
+         "hypothesis": "मुझे मीटिंग की डिस्क्रिप्शन चाहिए"},
+        {"id": "b", "lang": "hinglish", "reference": "kal meeting hai", "hypothesis": "कल hai"},
+    ]  # fmt: skip
+    report = stt_bench.build_report(samples, engine="fake", created="2026-01-01T00:00:00Z")
+    assert report["lexicon"] == stt_bench.LEXICON_VERSION and report["normaliser"] == stt_bench.FOLD_VERSION
+    assert [r["twerEdits"] for r in report["rows"]] == [0, 1]
+    part = report["languages"]["hinglish"]
+    assert part["twer"] == pytest.approx(1 / 8) and part["foldedWer"] > part["twer"]
+    assert part["switchPoints"] == 5 and part["switchErrors"] == 1
+    target = tmp_path / "baseline.json"
+    stt_bench.write_baseline(target, report)
+    assert stt_bench.read_baseline(target) == report
+
+
+def test_the_run_entry_prints_twer_and_the_switch_point_error(tmp_path):
+    manifest, references, audio_dir = _eval_set(tmp_path)
+    lines: list[str] = []
+    code = stt_bench.main(
+        ["run", "--engine", "fake-ear", "--manifest", str(manifest), "--references", str(references),
+         "--audio", str(audio_dir), "--pin", _sha(manifest.read_bytes()), "--root", str(tmp_path / "friday"),
+         "--fake", str(_fake_script(tmp_path))],
+        out=lines.append,
+    )  # fmt: skip
+    assert code == stt_bench.EXIT_OK
+    assert any("T-WER" in line and "switch-point error" in line and "script mismatch" in line for line in lines)

@@ -322,6 +322,247 @@ def mer(reference: str, hypothesis: str) -> float:
     return c["edits"] / span if span else 0.0
 
 
+# ---- T-WER, the switch-point error rate and Wilson ranges -----------------------------------------------------------
+# A small closed lexicon of Hindi and English mixed in one sentence. The same tables and rules live in
+# ``src/lib/friday/voice-engine/hinglish-lexicon.ts``; ``core/fixtures/voice-eval/twer-vectors.json`` pins the two
+# together (a hash of the tables and hand-set vectors). Only words in the tables change; a word that is both Hindi and
+# English (do, main, to, me, hai ...) stays as written unless a word next to it is surely Hindi.
+
+LEXICON_VERSION = "hinglish-lex-1"
+_SURE_HINDI = (
+    ("kal", "कल"), ("aaj|aj", "आज"), ("subah|subha|subeh", "सुबह"), ("shaam|sham", "शाम"), ("raat", "रात"),
+    ("abhi", "अभी"), ("ab", "अब"), ("phir|fir", "फिर"), ("kya", "क्या"), ("kyun|kyu", "क्यों"),
+    ("kyunki", "क्योंकि"), ("kaise", "कैसे"), ("kahan|kaha", "कहाँ"), ("kab", "कब"), ("kaun", "कौन"),
+    ("kitna", "कितना"), ("kitne", "कितने"), ("mujhe", "मुझे"), ("mera", "मेरा"), ("meri", "मेरी"),
+    ("mere", "मेरे"), ("tum", "तुम"), ("tumhe", "तुम्हें"), ("aap", "आप"), ("humein|hame", "हमें"),
+    ("yeh", "यह"), ("ye", "ये"), ("woh|wo|vo", "वो"), ("nahi|nahin|nhi", "नहीं"), ("haan|han", "हाँ"),
+    ("theek|thik", "ठीक"), ("achha|accha|acha", "अच्छा"), ("bahut|bohot", "बहुत"), ("thoda", "थोड़ा"),
+    ("zyada|jyada|jyaada", "ज़्यादा"), ("kaam", "काम"), ("ghar", "घर"), ("paani|pani", "पानी"),
+    ("khana", "खाना"), ("laga", "लगा"), ("lagao", "लगाओ"), ("lagana", "लगाना"), ("karo", "करो"),
+    ("karna", "करना"), ("dijiye", "दीजिए"), ("bhejo", "भेजो"), ("bata", "बता"), ("batao", "बताओ"),
+    ("dikhao", "दिखाओ"), ("kholo", "खोलो"), ("chalu", "चालू"), ("shuru", "शुरू"), ("rukho", "रुको"),
+    ("suno", "सुनो"), ("dekho", "देखो"), ("chalo", "चलो"), ("bolo", "बोलो"), ("chahiye", "चाहिए"),
+    ("hoon|hun", "हूँ"), ("hain", "हैं"), ("tha", "था"), ("thi", "थी"), ("raha", "रहा"), ("rahi", "रही"),
+    ("rahe", "रहे"), ("jao", "जाओ"), ("aao", "आओ"), ("se", "से"), ("ko", "को"), ("ka", "का"), ("ki", "की"),
+    ("ke", "के"), ("bhi", "भी"), ("aur", "और"), ("lekin", "लेकिन"), ("agar", "अगर"), ("toh", "तो"),
+    ("sab", "सब"), ("kuch", "कुछ"), ("koi", "कोई"), ("bhai", "भाई"), ("dost", "दोस्त"), ("paise", "पैसे"),
+    ("baje", "बजे"), ("samajh", "समझ"), ("pata", "पता"), ("zaroor|jaroor", "ज़रूर"), ("bilkul", "बिल्कुल"),
+    ("dhanyavaad|dhanyavad", "धन्यवाद"), ("namaste", "नमस्ते"), ("shukriya", "शुक्रिया"), ("kripya", "कृपया"),
+    ("jaldi", "जल्दी"), ("baad", "बाद"), ("pehle|pahle", "पहले"),
+)  # fmt: skip
+_AMBIGUOUS = (
+    ("do", "दो"), ("main", "मैं"), ("to", "तो"), ("me", "में"), ("mein", "में"), ("hai", "है"), ("hum", "हम"),
+    ("par", "पर"), ("band", "बंद"), ("hi", "ही"), ("sun", "सुन"), ("chal", "चल"),
+)  # fmt: skip
+_LOANWORDS = (
+    ("description", "डिस्क्रिप्शन|डिस्क्रिपशन"), ("meeting", "मीटिंग"), ("alarm", "अलार्म|अलारम"),
+    ("phone", "फोन"), ("mobile", "मोबाइल"), ("computer", "कंप्यूटर|कम्प्यूटर"), ("laptop", "लैपटॉप"),
+    ("email", "ईमेल"), ("message", "मैसेज|मेसेज"), ("reminder", "रिमाइंडर"), ("calendar", "कैलेंडर|कैलेण्डर"),
+    ("battery", "बैटरी"), ("internet", "इंटरनेट"), ("wifi", "वाईफाई|वायफाय"), ("bluetooth", "ब्लूटूथ"),
+    ("volume", "वॉल्यूम|वॉल्युम"), ("screen", "स्क्रीन"), ("screenshot", "स्क्रीनशॉट"), ("file", "फाइल"),
+    ("folder", "फोल्डर"), ("download", "डाउनलोड"), ("upload", "अपलोड"), ("app", "ऐप|एप"),
+    ("application", "एप्लीकेशन|एप्लिकेशन"), ("update", "अपडेट"), ("settings", "सेटिंग्स|सेटिंग"),
+    ("password", "पासवर्ड"), ("camera", "कैमरा"), ("photo", "फोटो"), ("video", "वीडियो"), ("music", "म्यूजिक"),
+    ("song", "सॉन्ग|सांग"), ("play", "प्ले"), ("pause", "पॉज"), ("stop", "स्टॉप"), ("next", "नेक्स्ट"),
+    ("call", "कॉल"), ("number", "नंबर"), ("time", "टाइम"), ("ok", "ओके"), ("sorry", "सॉरी"),
+    ("thanks", "थैंक्स"), ("please", "प्लीज"), ("report", "रिपोर्ट"), ("document", "डॉक्यूमेंट|डाक्यूमेंट"),
+    ("schedule", "शेड्यूल"), ("notification", "नोटिफिकेशन"), ("search", "सर्च"), ("google", "गूगल"),
+    ("youtube", "यूट्यूब"), ("whatsapp", "व्हाट्सएप|व्हाट्सऐप"), ("chrome", "क्रोम"), ("desktop", "डेस्कटॉप"),
+    ("window", "विंडो"), ("mute", "म्यूट"), ("brightness", "ब्राइटनेस"), ("timer", "टाइमर"), ("note", "नोट"),
+    ("task", "टास्क"), ("list", "लिस्ट"), ("mail", "मेल"), ("madam", "मैडम"), ("office", "ऑफिस"),
+    ("bank", "बैंक"), ("doctor", "डॉक्टर"), ("hospital", "हॉस्पिटल"), ("train", "ट्रेन"), ("taxi", "टैक्सी"),
+    ("ticket", "टिकट"), ("online", "ऑनलाइन"), ("offline", "ऑफलाइन"), ("mode", "मोड"), ("voice", "वॉइस|वॉयस"),
+    ("friday", "फ्राइडे"), ("button", "बटन"), ("click", "क्लिक"), ("open", "ओपन"), ("close", "क्लोज"),
+    ("send", "सेंड"), ("save", "सेव"), ("delete", "डिलीट"), ("project", "प्रोजेक्ट"),
+    ("presentation", "प्रेजेंटेशन"), ("cancel", "कैंसल"), ("reply", "रिप्लाई"), ("problem", "प्रॉब्लम"),
+    ("plan", "प्लान"), ("data", "डेटा"), ("traffic", "ट्रैफिक"), ("weather", "वेदर"), ("news", "न्यूज"),
+    ("lunch", "लंच"), ("dinner", "डिनर"), ("movie", "मूवी"), ("bill", "बिल"), ("card", "कार्ड"),
+    ("link", "लिंक"), ("share", "शेयर"), ("chat", "चैट"), ("team", "टीम"), ("client", "क्लाइंट"),
+    ("budget", "बजट"), ("final", "फाइनल"), ("flight", "फ्लाइट"), ("hotel", "होटल"),
+    ("restaurant", "रेस्टोरेंट"),
+)  # fmt: skip
+
+
+def lexicon_key(word: str) -> str:
+    """A word on its lexicon key: NFC, lower case, the nukta dropped and the chandrabindu written as the anusvara."""
+    return unicodedata.normalize("NFC", word).lower().replace("\u093c", "").replace("\u0901", "\u0902")
+
+
+_SURE_MAP = {v: deva for variants, deva in _SURE_HINDI for v in variants.split("|")}
+_AMBIGUOUS_MAP = dict(_AMBIGUOUS)
+_LOAN_MAP = {lexicon_key(s): latin for latin, spellings in _LOANWORDS for s in spellings.split("|")}
+
+
+def lexicon_lines() -> list[str]:
+    """One line per table entry, sorted, so two implementations can compare a hash of their tables."""
+    lines = [f"sure|{k}|{v}" for k, v in _SURE_MAP.items()]
+    lines += [f"ambiguous|{k}|{v}" for k, v in _AMBIGUOUS_MAP.items()]
+    lines += [f"loan|{k}|{v}" for k, v in _LOAN_MAP.items()]
+    return sorted(lines)
+
+
+def _first_pass(core: str) -> dict:
+    if not any(unicodedata.category(c).startswith("L") for c in core):
+        return {"lang": "none"}
+    key = lexicon_key(core)
+    if _DEVANAGARI.search(key):
+        latin = _LOAN_MAP.get(key)
+        return {"lang": "en", "latin": latin} if latin is not None else {"lang": "hi"}
+    if key in _SURE_MAP:
+        return {"lang": "hi", "deva": _SURE_MAP[key]}
+    if key in _AMBIGUOUS_MAP:
+        return {"lang": "en", "deva": _AMBIGUOUS_MAP[key], "maybe": True}
+    return {"lang": "en"}
+
+
+def _classify(cores: list[str]) -> list[dict]:
+    first = [_first_pass(c) for c in cores]
+    out = []
+    for i, kind in enumerate(first):
+        if not kind.get("maybe"):
+            out.append(kind)
+            continue
+        beside = (i > 0 and first[i - 1]["lang"] == "hi") or (i + 1 < len(first) and first[i + 1]["lang"] == "hi")
+        out.append({"lang": "hi", "deva": kind["deva"]} if beside else {"lang": "en"})
+    return out
+
+
+def label_languages(cores: list[str]) -> list[str]:
+    """Hindi, English or none for each word. A Devanagari loanword is English, a sure Roman Hindi word is Hindi."""
+    return [k["lang"] for k in _classify(cores)]
+
+
+def fix_cores(cores: list[str], policy: str = "codemix") -> list[str]:
+    """The words of ``cores`` rewritten to the policy; every other word is returned as it came."""
+    if policy not in ("codemix", "hindi", "english"):
+        raise ValueError(f"unknown script policy {policy!r}")
+    to_deva, to_latin = policy != "english", policy != "hindi"
+    out = []
+    for kind, core in zip(_classify(cores), cores, strict=True):
+        if to_deva and kind["lang"] == "hi" and kind.get("deva") is not None:
+            out.append(kind["deva"])
+        elif to_latin and kind["lang"] == "en" and kind.get("latin") is not None:
+            out.append(kind["latin"])
+        else:
+            out.append(core)
+    return out
+
+
+def _is_word_char(c: str) -> bool:
+    return unicodedata.category(c)[0] in "LMN"
+
+
+def fix_script(text: str, expected_policy: str = "codemix") -> str:
+    """Put a transcript on the script policy: ``codemix`` writes Hindi words in Devanagari and English words in Latin;
+    ``hindi`` only turns Roman Hindi into Devanagari; ``english`` only turns Devanagari loanwords back into Latin.
+    Spacing and the punctuation around a word are kept; a word that is not in the tables is left exactly as it was."""
+    pieces = re.split(r"(\s+)", str(text))
+    slots: list[tuple[int, str, str, str]] = []
+    for at, piece in enumerate(pieces):
+        if not piece or piece.isspace():
+            continue
+        start, end = 0, len(piece)
+        while start < end and not _is_word_char(piece[start]):
+            start += 1
+        while end > start and not _is_word_char(piece[end - 1]):
+            end -= 1
+        slots.append((at, piece[:start], piece[start:end], piece[end:]))
+    fixed = fix_cores([s[2] for s in slots], expected_policy)
+    for (at, lead, _core, tail), word in zip(slots, fixed, strict=True):
+        pieces[at] = lead + word + tail
+    return "".join(pieces)
+
+
+def _twer_fold(words: list[str]) -> list[str]:
+    return [fold_token(lexicon_key(w)) for w in fix_cores(words)]
+
+
+def twer_tokens(text: str) -> list[str]:
+    """The words of a text on the T-WER fold: डिस्क्रिप्शन and description, कल and kal are one word."""
+    return _twer_fold(_fold_text(text))
+
+
+def twer_counts(reference: str, hypothesis: str) -> dict:
+    """The counts behind T-WER and the switch-point error rate for one utterance; they add up across a corpus.
+    ``twerEdits``: word edits after the T-WER fold. ``switchPoints``: places in the reference where the language changes
+    from one word to the next (digits are skipped). ``switchErrors``: switch points where a word on either side was
+    substituted or deleted. ``policyFixes``: words of the hypothesis the script policy would rewrite."""
+    rraw, hraw = _fold_text(reference), _fold_text(hypothesis)
+    ops = _align(_twer_fold(rraw), _twer_fold(hraw))
+    wrong = {a for kind, a, _b in ops if kind in ("sub", "del")}
+    langs = label_languages(rraw)
+    points = errors = 0
+    previous = -1
+    for i, lang in enumerate(langs):
+        if lang == "none":
+            continue
+        if previous >= 0 and langs[previous] != lang:
+            points += 1
+            if previous in wrong or i in wrong:
+                errors += 1
+        previous = i
+    fixed = fix_cores(hraw)
+    return {
+        "twerEdits": sum(1 for kind, _a, _b in ops if kind != "hit"),
+        "switchPoints": points,
+        "switchErrors": errors,
+        "policyFixes": sum(1 for w, f in zip(hraw, fixed, strict=True) if w != f),
+        "hypWords": len(hraw),
+    }
+
+
+def twer(reference: str, hypothesis: str) -> float:
+    return _rate(twer_counts(reference, hypothesis)["twerEdits"], len(_fold_text(reference)))
+
+
+def wilson_rate(hits: int, total: int, z: float = 1.96) -> dict:
+    """A rate with its 95% Wilson interval; no interval (None) over zero trials."""
+    if total <= 0:
+        return {"estimate": 0.0, "low": None, "high": None, "n": 0}
+    p = hits / total
+    z2 = z * z
+    denom = 1 + z2 / total
+    centre = (p + z2 / (2 * total)) / denom
+    margin = (z * math.sqrt((p * (1 - p)) / total + z2 / (4 * total * total))) / denom
+    return {"estimate": p, "low": max(0.0, centre - margin), "high": min(1.0, centre + margin), "n": total}
+
+
+def aggregate_twer(rows: list[dict], seed: int = BOOTSTRAP_SEED, draws: int = BOOTSTRAP_DRAWS) -> dict:
+    """The T-WER, switch-point, script-mismatch and policy numbers of a corpus, from rows that carry both the folded
+    and the T-WER counts. Totals first, then the rates. The script mismatch is the share of correctly heard words
+    (hits) that sit in the other script than the reference; it is reported on its own, never inside a word error
+    rate."""
+
+    def total(key: str) -> int:
+        return sum(r[key] for r in rows)
+
+    words, edits = total("words"), total("twerEdits")
+    ci = bootstrap_wer([{"edits": r["twerEdits"], "words": r["words"]} for r in rows], seed=seed, draws=draws)
+    sp = wilson_rate(total("switchErrors"), total("switchPoints"))
+    sm = wilson_rate(total("violations"), total("hits"))
+    pf = wilson_rate(total("policyFixes"), total("hypWords"))
+    return {
+        "lexicon": LEXICON_VERSION,
+        "twerEdits": edits,
+        "twer": _rate(edits, words),
+        "twerLow": ci["low"],
+        "twerHigh": ci["high"],
+        "switchPoints": total("switchPoints"),
+        "switchErrors": total("switchErrors"),
+        "switchPointErrorRate": sp["estimate"],
+        "switchPointErrorLow": sp["low"],
+        "switchPointErrorHigh": sp["high"],
+        "scriptMismatchRate": sm["estimate"],
+        "scriptMismatchLow": sm["low"],
+        "scriptMismatchHigh": sm["high"],
+        "hypWords": total("hypWords"),
+        "policyFixes": total("policyFixes"),
+        "policyFixRate": pf["estimate"],
+        "policyFixLow": pf["low"],
+        "policyFixHigh": pf["high"],
+    }
+
+
 # ---- latency from a timeline of events --------------------------------------------------------------------------
 
 EVENT_KINDS = ("speech_start", "partial", "speech_end", "endpoint", "final")
@@ -499,8 +740,10 @@ def regression_gate(
     """Fail a candidate run against a baseline run over the same utterances (rows: id, lang, words, edits, violations).
 
     It fails when the folded WER is up by more than ``max_wer_rise`` AND the paired range excludes zero (a rise that
-    noise could explain does not fail), or when the script-policy violations rose. The whole corpus and each language
-    are judged, so one language cannot hide in the total."""
+    noise could explain does not fail), when the T-WER is up by more than ``max_wer_rise`` under the same proof (when
+    both runs carry ``twerEdits``; a baseline made before T-WER has none, and that leg is then ``None``), or when the
+    script-policy violations rose. The whole corpus and each language are judged, so one language cannot hide in the
+    total."""
     if sorted(r["id"] for r in baseline) != sorted(r["id"] for r in candidate):
         return {"pass": False, "reasons": ["the two runs must cover the same utterances"], "groups": {}}
     cand_by_id = {r["id"]: r for r in candidate}
@@ -514,11 +757,24 @@ def regression_gate(
         bw, cw = sum(r["words"] for r in base), sum(r["words"] for r in cand)
         bv, cv = sum(r.get("violations", 0) for r in base), sum(r.get("violations", 0) for r in cand)
         wer_failed = paired["delta"] > max_wer_rise + _EPS and paired["excludesZero"]
+        tw = None
+        if base and all(isinstance(r.get("twerEdits"), int) for r in [*base, *cand]):
+            tw = paired_bootstrap(
+                [{"id": r["id"], "words": r["words"], "edits": r["twerEdits"]} for r in base],
+                [{"id": r["id"], "words": r["words"], "edits": r["twerEdits"]} for r in cand],
+                seed=seed, draws=draws,
+            )  # fmt: skip
+        twer_failed = tw is not None and tw["delta"] > max_wer_rise + _EPS and tw["excludesZero"]
         viol_failed = _rate_or_zero(cv, cw) > _rate_or_zero(bv, bw) + 1e-12
         if wer_failed:
             reasons.append(
                 f"{name}: folded WER up {paired['delta'] * 100:.1f} points (range {paired['low'] * 100:.1f} to "
                 f"{paired['high'] * 100:.1f}), limit {max_wer_rise * 100:.1f}"
+            )
+        if tw is not None and twer_failed:
+            reasons.append(
+                f"{name}: T-WER up {tw['delta'] * 100:.1f} points (range {tw['low'] * 100:.1f} to "
+                f"{tw['high'] * 100:.1f}), limit {max_wer_rise * 100:.1f}"
             )
         if viol_failed:
             reasons.append(f"{name}: script-policy violations rose from {bv} to {cv}")
@@ -531,7 +787,18 @@ def regression_gate(
             "excludesZero": paired["excludesZero"],
             "baselineViolations": bv,
             "candidateViolations": cv,
-            "failed": wer_failed or viol_failed,
+            "twer": None
+            if tw is None
+            else {
+                "baselineTwer": _rate(sum(r["twerEdits"] for r in base), bw),
+                "candidateTwer": _rate(sum(r["twerEdits"] for r in cand), cw),
+                "delta": tw["delta"],
+                "low": tw["low"],
+                "high": tw["high"],
+                "excludesZero": tw["excludesZero"],
+                "failed": twer_failed,
+            },
+            "failed": wer_failed or twer_failed or viol_failed,
         }
     return {"pass": not reasons, "reasons": reasons, "groups": groups}
 
@@ -565,13 +832,21 @@ def build_report(samples: list[dict], engine: str, created: str, set_info: dict 
     texts) and ``timeline`` (see ``latency_metrics``). ``created`` is given by the caller, never read from a clock."""
     rows = []
     for s in samples:
-        rows.append({"id": s["id"], "lang": s["lang"], **folded_counts(s["reference"], s["hypothesis"])})
+        rows.append(
+            {
+                "id": s["id"],
+                "lang": s["lang"],
+                **folded_counts(s["reference"], s["hypothesis"]),
+                **twer_counts(s["reference"], s["hypothesis"]),
+            }
+        )
 
     def part(group: list[dict]) -> dict:
         ids = {r["id"] for r in group}
         chosen = [s for s in samples if s["id"] in ids]
         return {
             **aggregate_counts(group),
+            **aggregate_twer(group),
             "latency": aggregate_latency([s["timeline"] for s in chosen if s.get("timeline")]),
             "flicker": aggregate_flicker(
                 [flicker(s["partials"], s["hypothesis"]) for s in chosen if s.get("partials")]
@@ -583,6 +858,7 @@ def build_report(samples: list[dict], engine: str, created: str, set_info: dict 
         "schema": BASELINE_SCHEMA,
         "kind": "stt-baseline",
         "normaliser": FOLD_VERSION,
+        "lexicon": LEXICON_VERSION,
         "engine": engine,
         "created": created,
         "set": set_info,
@@ -908,6 +1184,10 @@ def main(argv: list[str] | None = None, *, host=None, out: Callable[[str], None]
         return EXIT_REFUSED
     for lang, part in report["languages"].items():
         out(f"{lang}: folded WER {part['foldedWer']:.4f} over {part['utterances']} utterances")
+        out(
+            f"{lang}: T-WER {part['twer']:.4f}, switch-point error {part['switchPointErrorRate']:.4f} over "
+            f"{part['switchPoints']} switch points, script mismatch {part['scriptMismatchRate']:.4f}"
+        )
     out(f"baseline written: {dest}")
     return EXIT_OK
 
