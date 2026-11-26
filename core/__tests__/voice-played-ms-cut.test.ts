@@ -337,6 +337,34 @@ describe("the Brain keeps only what was heard of a reply the owner cut off", () 
   });
 });
 
+describe("the cut with joined clauses", () => {
+  it("a clause that overlaps the one before it is whole only at its own end, on the same clock", () => {
+    const tracker = new PlayedTextTracker(() => 0);
+    tracker.begin("r");
+    tracker.startClip("First one.", 100, undefined, 0, { startMs: 0, endMs: 100 });
+    tracker.startClip("Second one.", 100, undefined, 0, { startMs: 92, endMs: 192 });
+    tracker.startClip("Third one.", 100, undefined, 0, { startMs: 184, endMs: 284 });
+    expect(tracker.heardAtMs(99).text).toBe("");
+    expect(tracker.heardAtMs(100).text).toBe("First one.");
+    expect(tracker.heardAtMs(191.4).text).toBe("First one.");
+    expect(tracker.heardAtMs(192).text).toBe("First one. Second one.");
+    expect(tracker.heardAtMs(284)).toMatchObject({ wholeClips: 3, cutMs: 284, interrupted: false });
+  });
+
+  it("the sample player counts the overlapped time once", () => {
+    const ctx = new FakeContext();
+    const playback = new PcmPlayback(ctx as unknown as PcmContext, {
+      rate: RATE,
+      joinMs: 8,
+      edgeFadeMs: 4,
+    });
+    playback.enqueue(pcm(1000));
+    playback.enqueue(pcm(1000));
+    ctx.currentTime = 5;
+    expect(playback.playedMs()).toBeCloseTo(1992, 6);
+  });
+});
+
 describe("wiring (source-pinned; the speaker cannot run here)", () => {
   const voiceLibrary = source("src/lib/friday/voice-library.ts");
   it("every raw-sample clause registers its span, and the cut reads the player's clock", () => {

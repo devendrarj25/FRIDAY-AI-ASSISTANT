@@ -573,3 +573,44 @@ describe("wiring of the two opt-in settings (source-pinned; the live path cannot
     expect(lib).not.toMatch(/getUserMedia/);
   });
 });
+
+describe("PcmClipPlayer seams and rate (fake context, fake clock)", () => {
+  it("with the join on, the next clause overlaps the first by the join and ends the answer shorter by it", () => {
+    const ctx = new FakeContext();
+    const player = new PcmClipPlayer(ctx as unknown as PcmContext, {
+      join: true,
+      timers: fakeTimers().timers,
+    });
+    const one = player.start(tone(48_000), 48_000);
+    const two = player.start(tone(24_000), 48_000);
+    expect(one.overlapMs).toBe(0);
+    expect(two.overlapMs).toBe(8);
+    expect(player.stats().queuedMs).toBe(1492);
+    expect(player.backlogMs()).toBeCloseTo(1492, 6);
+  });
+
+  it("a pause between clauses is kept as silence even with the join on", () => {
+    const ctx = new FakeContext();
+    const player = new PcmClipPlayer(ctx as unknown as PcmContext, {
+      join: true,
+      timers: fakeTimers().timers,
+    });
+    player.start(tone(48_000), 48_000);
+    const two = player.start(tone(24_000), 48_000, 1, { gapMs: 200 });
+    expect(two.overlapMs).toBe(0);
+    expect(player.stats().queuedMs).toBe(1700);
+  });
+
+  it("plays at the context's own rate, whatever rate the clip was made at", () => {
+    for (const source of [22_050, 24_000, 44_100, 48_000]) {
+      const ctx = new FakeContext();
+      ctx.sampleRate = 44_100;
+      const player = new PcmClipPlayer(ctx as unknown as PcmContext, {
+        timers: fakeTimers().timers,
+      });
+      const clip = player.start(tone(source), source);
+      expect(player.rate).toBe(44_100);
+      expect(Math.round(clip.durationMs)).toBe(1000);
+    }
+  });
+});

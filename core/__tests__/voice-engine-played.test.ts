@@ -4,9 +4,14 @@ import { resolve } from "node:path";
 
 import {
   countWords,
+  estimateClipMs,
+  estimateWordTimes,
   firstWords,
+  heardWordCount,
   MAX_PLAYED_CLIPS,
+  pauseUnits,
   PlayedTextTracker,
+  wordUnits,
 } from "../../src/lib/friday/voice-engine/played-text";
 import { DEFAULT_PREFERENCES, preferences } from "../../src/lib/friday/preferences";
 
@@ -441,5 +446,144 @@ describe("wiring of the played text (source-pinned; the live path cannot run her
     expect(brainSrc).toMatch(
       /m\.playedText === undefined \? m\.text : cutReplyForModel\(m\.playedText\)/,
     );
+  });
+});
+
+describe("word timing by weight", () => {
+  const onset = wordUnits("a") - 1; // the fixed cost of starting a word
+  const syl = (token: string) => Math.round((wordUnits(token) - onset) * 1000) / 1000;
+
+  it("counts syllable-like units: Devanagari matras and conjuncts, Latin vowel groups, digits, letter names", () => {
+    expect(syl("कमल")).toBe(2); // ka-mal, the final inherent vowel is not said
+    expect(syl("कमला")).toBe(3);
+    expect(syl("प्रदर्शन")).toBe(3); // pra-dar-shan: a virama joins, it adds no syllable
+    expect(syl("हूँ।")).toBe(1);
+    expect(syl("five")).toBe(1); // silent final e
+    expect(syl("banana")).toBe(3);
+    expect(syl("table")).toBe(2); // -le keeps its syllable
+    expect(syl("HDMI")).toBe(4); // read letter by letter
+    expect(syl("2026")).toBe(5);
+    expect(syl("tv")).toBe(1);
+    expect(wordUnits("--")).toBe(0);
+  });
+
+  it("a mixed Hindi and English token adds both scripts", () => {
+    expect(syl("meeting-रद्द")).toBe(syl("meeting") + 1);
+  });
+
+  it("punctuation asks for a pause, capped, and a bare word for none", () => {
+    expect(pauseUnits("word")).toBe(0);
+    expect(pauseUnits("word,")).toBeLessThan(pauseUnits("word."));
+    expect(pauseUnits("बोलो।")).toBe(pauseUnits("word."));
+    expect(pauseUnits("what?!?!?!")).toBeLessThanOrEqual(1.4);
+  });
+
+  it("the estimate sums to the clip length, in order, ending exactly at it", () => {
+    const text = "Phir totals check karo, Rahul ko bhejo.";
+    const times = estimateWordTimes(text, 2400);
+    expect(times.map((t) => t.word).join(" ")).toBe(text);
+    expect(times.at(-1)?.endMs).toBe(2400);
+    expect(times[0]?.startMs).toBe(0);
+    for (let i = 0; i < times.length; i += 1) {
+      const t = times[i];
+      expect(t && t.endMs > t.startMs).toBe(true);
+      if (i > 0) expect(t && t.startMs >= (times[i - 1]?.endMs ?? 0)).toBe(true);
+    }
+  });
+
+  it("a long word takes longer than a short one, and a comma leaves a gap before the next word", () => {
+    const [short, long] = estimateWordTimes("I extraordinarily", 1000);
+    expect((long?.endMs ?? 0) - (long?.startMs ?? 0)).toBeGreaterThan(
+      3 * ((short?.endMs ?? 0) - (short?.startMs ?? 0)),
+    );
+    const plain = estimateWordTimes("one two three", 900);
+    const commas = estimateWordTimes("one, two three", 900);
+    const gap = (times: ReturnType<typeof estimateWordTimes>) =>
+      (times[1]?.startMs ?? 0) - (times[0]?.endMs ?? 0);
+    expect(gap(plain)).toBe(0);
+    expect(gap(commas)).toBeGreaterThan(0);
+  });
+
+  it("gives nothing for an empty clause or no length, and spreads a clause of only marks evenly", () => {
+    expect(estimateWordTimes("", 1000)).toEqual([]);
+    expect(estimateWordTimes("one two", 0)).toEqual([]);
+    expect(estimateWordTimes("one two", Number.NaN)).toEqual([]);
+    const marks = estimateWordTimes("-- --", 1000);
+    expect(marks.map((t) => t.endMs)).toEqual([500, 1000]);
+  });
+
+  it("estimates a clip that reports no length from its weights, longer for longer words", () => {
+    expect(estimateClipMs("")).toBe(0);
+    expect(estimateClipMs("a")).toBeGreaterThan(0);
+    expect(estimateClipMs("extraordinarily")).toBeGreaterThan(estimateClipMs("go"));
+    expect(estimateClipMs("one two three four five")).toBeGreaterThan(1000);
+  });
+
+  it("the heard part follows the weights, not an equal share per word", () => {
+    const time = clock();
+    const tracker = new PlayedTextTracker(time.now);
+    tracker.begin("r");
+    tracker.startClip("I extraordinarily", 1000);
+    time.advance(200); // the short word is over at about 175 ms, the long one is far from over
+    expect(tracker.snapshot().text).toBe("I");
+    time.advance(700);
+    expect(tracker.snapshot().text).toBe("I");
+    time.advance(100);
+    expect(tracker.snapshot()).toMatchObject({ text: "I extraordinarily", interrupted: false });
+  });
+
+  it("uses the engine's real word times when a clip carries them", () => {
+    const time = clock();
+    const tracker = new PlayedTextTracker(time.now);
+    tracker.begin("r");
+    const real = [
+      { word: "one", startMs: 0, endMs: 700 },
+      { word: "two", startMs: 700, endMs: 800 },
+      { word: "three", startMs: 800, endMs: 1000 },
+    ];
+    tracker.startClip("one two three", 1000, undefined, undefined, null, real);
+    time.advance(750);
+    expect(tracker.snapshot().text).toBe("one");
+    time.advance(60);
+    expect(tracker.snapshot().text).toBe("one two");
+  });
+
+  it("real word times with another count of words scale to the words of the text", () => {
+    expect(heardWordCount([{ word: "x", startMs: 0, endMs: 10 }], 20, 3)).toBe(3);
+    const split = ["do", "n't", "go", "now"].map((word, i) => ({
+      word,
+      startMs: i * 100,
+      endMs: i * 100 + 100,
+    }));
+    // 2 of 4 timed pieces said: 1 of the 2 words of "don't go" ... counted by proportion, never past the count.
+    expect(heardWordCount(split, 200, 2)).toBe(1);
+    expect(heardWordCount(split, 400, 2)).toBe(2);
+    expect(heardWordCount(split, 0, 2)).toBe(0);
+    expect(heardWordCount([], 500, 2)).toBe(0);
+  });
+
+  it("word times that are not numbers are ignored and the weighted estimate is used", () => {
+    const time = clock();
+    const tracker = new PlayedTextTracker(time.now);
+    tracker.begin("r");
+    const bad = [{ word: "alpha", startMs: Number.NaN, endMs: 10 }];
+    tracker.startClip("alpha beta gamma delta", 4000, undefined, undefined, null, bad);
+    time.advance(2999);
+    expect(tracker.snapshot().text).toBe("alpha beta");
+  });
+
+  it("the cut at a barge-in still keeps only the words said to their end", () => {
+    const time = clock();
+    const tracker = new PlayedTextTracker(time.now);
+    tracker.begin("r");
+    tracker.openGroup();
+    tracker.startClip("Open the report, then send it.", 3000);
+    time.advance(1000);
+    const heard = tracker.stop();
+    expect(heard.interrupted).toBe(true);
+    expect(heard.text.split(" ").length).toBe(heard.words);
+    expect(heard.text).toBe(firstWords("Open the report, then send it.", heard.words));
+    expect(heard.words).toBeGreaterThan(0);
+    expect(heard.words).toBeLessThan(6);
   });
 });
