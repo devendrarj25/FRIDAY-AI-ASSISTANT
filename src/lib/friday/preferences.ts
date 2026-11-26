@@ -112,6 +112,105 @@ export function sanitizeWavDays(value: unknown): number {
   return Number.isFinite(n) ? Math.min(90, Math.max(1, n)) : 7;
 }
 
+export const EARS_AGC_PICKS = ["browser", "own", "off"] as const;
+export const EARS_VAD_PICKS = ["auto", "silero", "energy"] as const;
+export const EARS_EAGERNESS_PICKS = ["eager", "normal", "patient"] as const;
+export const EARS_DENOISE_PICKS = ["off", "rnnoise", "gtcrn", "dpdfnet2"] as const;
+export const EARS_SCENE_PICKS = ["off", "score"] as const;
+export const EARS_OTHER_VOICE_PICKS = ["off", "score", "hold"] as const;
+
+/**
+ * How FRIDAY's own listening front end behaves, stored as `voice.ears` (shape version 1). The ordinary browser
+ * microphone filter stays `voice.noiseSuppression`; nothing here replaces it.
+ */
+export type VoiceEarsPrefs = {
+  v: 1;
+  /** Cut rumble, hum and handling thumps below 80 Hz before the sound is used. */
+  hpf: boolean;
+  /** Who levels the volume: the browser (today), FRIDAY's own slow leveller, or nobody. */
+  agc: (typeof EARS_AGC_PICKS)[number];
+  /** Warn in the diagnostics when the microphone is clipping. A meter only. */
+  clipWarn: boolean;
+  /** The speech detector: automatic, the small model, or the loudness-only one. */
+  vad: (typeof EARS_VAD_PICKS)[number];
+  /** Speech probability that starts a phrase (0.2 to 0.9). */
+  vadStart: number;
+  /** Probability below which the phrase is over (0.05 up to vadStart minus 0.05). */
+  vadEnd: number;
+  /** Shortest sound that counts as speech, in milliseconds (60 to 400). */
+  minSpeechMs: number;
+  /** Sound kept from just before speech starts, in milliseconds (200 to 1000). */
+  preRollMs: number;
+  /** How long she waits after a pause before taking the turn. */
+  eagerness: (typeof EARS_EAGERNESS_PICKS)[number];
+  /** Start preparing an answer at a likely end of turn; dropped if you keep talking. */
+  eagerTurn: boolean;
+  /** An optional clean-up copy for the speech model only. */
+  denoise: (typeof EARS_DENOISE_PICKS)[number];
+  /** Score what the room sounds like (speech, music, TV, noise). A score only. */
+  scene: (typeof EARS_SCENE_PICKS)[number];
+  /** Score whether a voice is the owner's. It never approves anything. */
+  otherVoice: (typeof EARS_OTHER_VOICE_PICKS)[number];
+  /** Use the PC's own playback as the echo reference. Off until tried on this PC. */
+  pcAudioRef: boolean;
+};
+
+export const DEFAULT_VOICE_EARS: VoiceEarsPrefs = {
+  v: 1,
+  hpf: true,
+  agc: "browser",
+  clipWarn: true,
+  vad: "auto",
+  vadStart: 0.5,
+  vadEnd: 0.35,
+  minSpeechMs: 120,
+  preRollMs: 500,
+  eagerness: "normal",
+  eagerTurn: false,
+  denoise: "off",
+  scene: "score",
+  otherVoice: "score",
+  pcAudioRef: false,
+};
+
+const pick = <T extends string>(list: readonly T[], value: unknown, fallback: T): T =>
+  (list as readonly unknown[]).includes(value) ? (value as T) : fallback;
+
+const rounded = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(max, Math.max(min, value)) * 100) / 100
+    : fallback;
+
+/**
+ * A missing, partial or hand-edited `voice.ears` (an install from before it existed has none) reads the defaults
+ * key by key; unknown words fall back and numbers clamp. The end threshold always sits at least 0.05 below the start.
+ */
+export function sanitizeVoiceEars(input: unknown): VoiceEarsPrefs {
+  const src = (input && typeof input === "object" ? input : {}) as {
+    [K in keyof VoiceEarsPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_EARS;
+  const vadStart = rounded(src.vadStart, 0.2, 0.9, d.vadStart);
+  const endCeiling = Math.round((vadStart - 0.05) * 100) / 100;
+  return {
+    v: 1,
+    hpf: src.hpf === undefined ? d.hpf : src.hpf !== false,
+    agc: pick(EARS_AGC_PICKS, src.agc, d.agc),
+    clipWarn: src.clipWarn === undefined ? d.clipWarn : src.clipWarn !== false,
+    vad: pick(EARS_VAD_PICKS, src.vad, d.vad),
+    vadStart,
+    vadEnd: rounded(src.vadEnd, 0.05, endCeiling, Math.min(d.vadEnd, endCeiling)),
+    minSpeechMs: wholeIn(src.minSpeechMs, 60, 400, d.minSpeechMs),
+    preRollMs: wholeIn(src.preRollMs, 200, 1000, d.preRollMs),
+    eagerness: pick(EARS_EAGERNESS_PICKS, src.eagerness, d.eagerness),
+    eagerTurn: src.eagerTurn === true,
+    denoise: pick(EARS_DENOISE_PICKS, src.denoise, d.denoise),
+    scene: pick(EARS_SCENE_PICKS, src.scene, d.scene),
+    otherVoice: pick(EARS_OTHER_VOICE_PICKS, src.otherVoice, d.otherVoice),
+    pcAudioRef: src.pcAudioRef === true,
+  };
+}
+
 /** A stored or edited value is always made safe: unknown words fall back, numbers clamp, an old shape reads the defaults. */
 export function sanitizeVoiceTaskPrefs(
   input: Partial<VoiceTaskPrefs> | null | undefined,
@@ -234,6 +333,8 @@ export type VoicePreferences = {
   liveWords: boolean;
   /** The streaming ear (partial words while she listens): off, auto, or a named engine. Local only; off by default. */
   streamEngine: StreamEnginePick;
+  /** FRIDAY's own listening front end: filters, speech detector, turn timing, optional clean-up and scoring. */
+  ears: VoiceEarsPrefs;
   /** Read spoken numbers, times and money in Hinglish as digits in the words shown (runs after the tidy step). */
   itn: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
@@ -438,6 +539,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     tidyDictation: true,
     liveWords: false,
     streamEngine: "off",
+    ears: { ...DEFAULT_VOICE_EARS },
     itn: true,
     liveWake: false,
     recogniseMyVoice: true,
@@ -482,6 +584,12 @@ const bridge = (): Bridge | null =>
     ? null
     : ((window as unknown as { friday?: Bridge }).friday ?? null);
 
+/** Only a plain object can patch `ears`; anything else (null, a string, an array) patches nothing. */
+const earsPatch = (value: unknown): Partial<VoiceEarsPrefs> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Partial<VoiceEarsPrefs>)
+    : {};
+
 function merge(
   base: FridayPreferences,
   patch: Partial<FridayPreferences> | null,
@@ -516,6 +624,8 @@ function merge(
       ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
       sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
       streamEngine: sanitizeStreamEngine(patch.voice?.streamEngine ?? base.voice.streamEngine),
+      // A missing or partial `ears` object (an older install) fills from the defaults and clamps.
+      ears: sanitizeVoiceEars({ ...base.voice.ears, ...earsPatch(patch.voice?.ears) }),
       itn: (patch.voice?.itn ?? base.voice.itn) !== false,
       keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
       utteranceWavDays: sanitizeWavDays(
@@ -614,6 +724,7 @@ class PreferencesStore {
       voice: {
         ...DEFAULT_PREFERENCES.voice,
         tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+        ears: { ...DEFAULT_VOICE_EARS },
         models: [],
         activeId: "",
       },

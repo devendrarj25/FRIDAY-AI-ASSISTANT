@@ -38,6 +38,21 @@ describe("a text or font change is saved when the window closes", () => {
     expect(saved.voice.itn).toBe(false);
   });
 
+  it("writes the listening front end settings, clamped, when the window closes", async () => {
+    const { preferences } = await import("../../src/lib/friday/preferences");
+    const now = preferences.getSnapshot().voice.ears;
+    preferences.setVoice({ ears: { ...now, denoise: "gtcrn", vadStart: 0.95, preRollMs: 50 } });
+    flushPendingState();
+    await Promise.resolve();
+    const saved = JSON.parse(store.get("friday.preferences") ?? "{}");
+    expect(saved.voice.ears.v).toBe(1);
+    expect(saved.voice.ears.denoise).toBe("gtcrn");
+    expect(saved.voice.ears.vadStart).toBe(0.9);
+    expect(saved.voice.ears.vadEnd).toBe(0.35);
+    expect(saved.voice.ears.preRollMs).toBe(200);
+    expect(saved.voice.noiseSuppression).toBe(true);
+  });
+
   it("does nothing when no change is waiting", async () => {
     const { preferences } = await import("../../src/lib/friday/preferences");
     preferences.flushPending();

@@ -1,5 +1,6 @@
 import type { GovernorStatus, HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
+import type { VoiceEarsPrefs } from "./preferences";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
 import type { WakeGuardSnapshot } from "./wake-guard";
 
@@ -370,4 +371,184 @@ export function resourceRows(view: ResourceView): DiagnosticsRow[] {
       ...(s.notice ? { bad: true } : {}),
     },
   ];
+}
+
+/**
+ * What the listening front end measured, injected by whatever runs it (the capture path and the streaming ear).
+ * Every part may be missing: a part that is `null` or absent was not measured, and its row says so.
+ */
+export type EarsStats = {
+  vad?: { engine: "silero" | "energy"; p: number | null; speechMs: number | null } | null;
+  turn?: { lastEndMs: number | null; eager: number; resumed: number } | null;
+  frontEnd?: {
+    clipRate: number;
+    peakDbfs: number;
+    rmsDbfs: number;
+    agcGainDb: number;
+    hpf: boolean;
+    decimator: "fir" | "boxcar";
+  } | null;
+  denoise?: { engine: string; keepRatio: number | null } | null;
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
+};
+
+/** `ok` and `off` are fine, `absent` was not measured, `bad` is a measured problem. */
+export type EarsRowState = "ok" | "off" | "absent" | "bad";
+export type EarsRow = DiagnosticsRow & { id: string; state: EarsRowState };
+
+const finite = (value: number | null | undefined): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const absent = (why: string): string => `absent: ${why}`;
+
+/** A clip rate at or above this share of samples in a second counts as clipping (a lead value, not measured on this PC). */
+export const CLIP_WARN_RATE = 0.001;
+
+/**
+ * The six "ears" Doctor rows: the stored setting, then what was really measured. A setting that is on but has no
+ * measurement says "absent" and why; nothing is made up. A row never claims the sound was improved.
+ */
+export function earsRows(prefs: VoiceEarsPrefs, stats: EarsStats | null | undefined): EarsRow[] {
+  const s = stats ?? {};
+  const row = (id: string, label: string, state: EarsRowState, value: string): EarsRow => ({
+    id,
+    label,
+    value,
+    state,
+    ...(state === "bad" ? { bad: true } : {}),
+  });
+
+  const vad = s.vad;
+  const vadSetting = `${prefs.vad} · start ${prefs.vadStart} · end ${prefs.vadEnd} · min ${prefs.minSpeechMs} ms`;
+  const vadRow = vad
+    ? row(
+        "ears-vad",
+        "ears: speech detector",
+        "ok",
+        `${vadSetting} · running ${vad.engine}${finite(vad.p) ? ` · speech chance ${vad.p.toFixed(2)}` : ""}`,
+      )
+    : row(
+        "ears-vad",
+        "ears: speech detector",
+        "absent",
+        `${vadSetting} · ${absent("no detector has reported yet (it runs while the streaming ear listens)")}`,
+      );
+
+  const turn = s.turn;
+  const turnSetting = `${prefs.eagerness} patience · early start ${onOff(prefs.eagerTurn)}`;
+  const turnRow = turn
+    ? row(
+        "ears-turn",
+        "ears: turn taking",
+        "ok",
+        `${turnSetting} · last end after ${finite(turn.lastEndMs) ? `${Math.round(turn.lastEndMs)} ms` : "not timed"} · ${turn.eager} early, ${turn.resumed} resumed`,
+      )
+    : row(
+        "ears-turn",
+        "ears: turn taking",
+        "absent",
+        `${turnSetting} · ${absent("no turn has been timed yet")}`,
+      );
+
+  const fe = s.frontEnd;
+  const clipSetting = `warning ${onOff(prefs.clipWarn)}`;
+  let clipRow: EarsRow;
+  if (!fe) {
+    clipRow = row(
+      "ears-clip",
+      "ears: clipping",
+      prefs.clipWarn ? "absent" : "off",
+      prefs.clipWarn
+        ? `${clipSetting} · ${absent("the microphone level has not been measured yet")}`
+        : `${clipSetting} · not measured`,
+    );
+  } else {
+    const clipping = prefs.clipWarn && fe.clipRate >= CLIP_WARN_RATE;
+    clipRow = row(
+      "ears-clip",
+      "ears: clipping",
+      clipping ? "bad" : "ok",
+      `${clipSetting} · ${(fe.clipRate * 100).toFixed(2)}% of samples at the top · peak ${fe.peakDbfs.toFixed(1)} dBFS${clipping ? " · too loud: lower the microphone volume in Windows" : ""}`,
+    );
+  }
+
+  const agcSetting = `${prefs.agc === "browser" ? "browser leveller" : prefs.agc === "own" ? "FRIDAY leveller" : "no leveller"} · high-pass ${onOff(prefs.hpf)}`;
+  let agcRow: EarsRow;
+  if (prefs.agc === "off") {
+    agcRow = row("ears-agc", "ears: volume leveller", "off", `${agcSetting} · nothing to measure`);
+  } else if (prefs.agc === "browser") {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "ok",
+      `${agcSetting} · done by the browser; its gain is not measured by FRIDAY`,
+    );
+  } else if (fe) {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "ok",
+      `${agcSetting} · gain ${fe.agcGainDb.toFixed(1)} dB · level ${fe.rmsDbfs.toFixed(1)} dBFS · resampler ${fe.decimator}`,
+    );
+  } else {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "absent",
+      `${agcSetting} · ${absent("the leveller has not reported a gain yet")}`,
+    );
+  }
+
+  const dn = s.denoise;
+  let denoiseRow: EarsRow;
+  if (prefs.denoise === "off") {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "off",
+      "off · speech is heard from the plain sound",
+    );
+  } else if (dn) {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "ok",
+      `${prefs.denoise} · running ${dn.engine}${finite(dn.keepRatio) ? ` · kept ${(dn.keepRatio * 100).toFixed(0)}% of the sound` : ""} · whether it helps on your voice is not measured`,
+    );
+  } else {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "absent",
+      `${prefs.denoise} · ${absent("the clean-up model has not reported (it may not be downloaded)")}`,
+    );
+  }
+
+  const sc = s.scene;
+  const sceneSetting = `room ${prefs.scene} · other voices ${prefs.otherVoice}`;
+  let sceneRow: EarsRow;
+  if (prefs.scene === "off") {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "off",
+      `${sceneSetting} · not scored`,
+    );
+  } else if (sc) {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "ok",
+      `${sceneSetting} · sounds like ${sc.kind} (score ${sc.score.toFixed(2)}); a score only, it never approves anything`,
+    );
+  } else {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "absent",
+      `${sceneSetting} · ${absent("no room score has been made yet")}`,
+    );
+  }
+
+  return [vadRow, turnRow, clipRow, agcRow, denoiseRow, sceneRow];
 }
