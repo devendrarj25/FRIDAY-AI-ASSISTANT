@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 import types
 from pathlib import Path
@@ -12,7 +13,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
 
 import hindi_ear  # noqa: E402
+import nemo_ear  # noqa: E402
 import stt  # noqa: E402
+from test_nemo_ear import CtcSession  # noqa: E402
 
 
 def _stage(root: Path, big: bool = True) -> Path:
@@ -411,3 +414,91 @@ def test_the_names_it_reads_exist_in_the_installed_runtime(tmp_path):
     assert found is not None and found[1] == ["<blk>", "▁a"] and found[2] == pytest.approx(0.08)
     head, lens = asr._encode(np.zeros((1, 80, 40), dtype=np.float32), np.asarray([40], dtype=np.int64))
     assert head.shape == (1, 5, 2) and lens.tolist() == [5]
+
+
+# ---- FRIDAY's own NeMo runner is first choice; the package answers only when it cannot open the folder ----------
+
+
+def _stage_own(root: Path):
+    """A folder the own runner can open (real vocab and config, a big sparse graph), with the session faked."""
+    folder = _stage(root)
+    pieces = ["<blk>", "▁आज", "मौ", "सम", "▁है"]
+    (folder / "vocab.txt").write_text("\n".join(f"{p} {i}" for i, p in enumerate(pieces)), encoding="utf-8")
+    (folder / "config.json").write_text('{"model_type": "nemo-conformer-ctc"}', encoding="utf-8")
+    sessions: list = []
+
+    def make(path):
+        sessions.append(path.name)
+        return CtcSession([0, 1, 1, 0, 2, 0, 2, 2, 3, 0, 0, 4, 0])
+
+    return folder, sessions, make
+
+
+def test_the_own_runner_hears_hindi_without_the_package(monkeypatch, tmp_path):
+    _, opened, make = _stage_own(tmp_path)
+    monkeypatch.setattr(nemo_ear, "_default_session", lambda path, threads: make(path))
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)  # an import of the package would fail the reading
+    assert hindi_ear.transcribe(_clip()) == "आजमौमौसम है"
+    assert opened == [hindi_ear.MODEL_FILE]  # the int8 graph, once
+    assert hindi_ear.last_confidence() == pytest.approx(math.log(0.9) * 7 / 5, abs=1e-4)
+    assert hindi_ear.transcribe(_clip()) == "आजमौमौसम है" and opened == [hindi_ear.MODEL_FILE]
+    assert isinstance(hindi_ear._model, nemo_ear.NemoEar)
+
+
+def test_the_own_runner_gives_timed_words_for_the_live_reading(monkeypatch, tmp_path):
+    _, _, make = _stage_own(tmp_path)
+    monkeypatch.setattr(nemo_ear, "_default_session", lambda path, threads: make(path))
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    heard = hindi_ear.transcribe_words(_clip())
+    assert heard is not None and [w["text"] for w in heard["words"]] == ["आजमौमौसम", "है"]
+    assert heard["words"][0]["start"] == pytest.approx(0.08) and heard["words"][1]["start"] == pytest.approx(0.88)
+    assert heard["confidence"] == pytest.approx(math.log(0.9) * 7 / 5, abs=1e-4)
+
+
+def test_the_own_runner_serves_the_ctc_head_for_the_chunked_reader(monkeypatch, tmp_path):
+    _, _, make = _stage_own(tmp_path)
+    monkeypatch.setattr(nemo_ear, "_default_session", lambda path, threads: make(path))
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    assert hindi_ear.ctc_head() == (["<blk>", "▁आज", "मौ", "सम", "▁है"], pytest.approx(0.08))
+    heard = hindi_ear.log_probs(_clip())
+    assert heard is not None and heard[0].shape == (13, 5) and heard[1][-1] == "▁है"
+    assert heard[2] == pytest.approx(0.08)
+    assert hindi_ear.log_probs(_clip(0.05)) is None  # too short to read
+
+
+def test_the_package_answers_when_the_own_runner_cannot_open_the_folder(monkeypatch, tmp_path):
+    _stage(tmp_path)  # a vocabulary of "x": the own runner refuses it
+    loads = _fake_onnx_asr(monkeypatch)
+    assert hindi_ear.transcribe(_clip()) == "आज मौसम अच्छा है"
+    assert [load["quantization"] for load in loads] == ["int8"] and not isinstance(hindi_ear._model, nemo_ear.NemoEar)
+
+
+def test_a_graph_the_runtime_refuses_falls_back_to_the_package_too(monkeypatch, tmp_path):
+    _stage_own(tmp_path)
+
+    def broken(path, threads):
+        raise RuntimeError("onnxruntime cannot open it")
+
+    monkeypatch.setattr(nemo_ear, "_default_session", broken)
+    _fake_onnx_asr(monkeypatch)
+    assert hindi_ear.transcribe(_clip()) == "आज मौसम अच्छा है"
+
+
+def test_with_neither_runner_the_ear_gives_way_to_faster_whisper(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    assert hindi_ear.transcribe(_clip()) is None and hindi_ear.last_confidence() is None
+    assert hindi_ear.transcribe_words(_clip()) is None and hindi_ear.log_probs(_clip()) is None
+
+
+def test_the_own_runner_is_not_asked_for_a_head_the_package_has_to_give(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_ctc_model(monkeypatch)  # the package path: no ctc_head on the object, the private names are read
+    assert hindi_ear.ctc_head() == (["<blk>", " आज".replace(" ", "▁"), "मौसम", "▁अच्छा", "▁है"], pytest.approx(0.08))
+
+
+def test_the_package_import_is_the_only_one_left_in_the_kernel():
+    source = Path(hindi_ear.__file__).read_text(encoding="utf-8")
+    assert source.count("import onnx_asr") == 1
+    others = [p for p in Path(hindi_ear.__file__).parent.glob("*.py") if p.name != "hindi_ear.py"]
+    assert not [p.name for p in others if "import onnx_asr" in p.read_text(encoding="utf-8")]

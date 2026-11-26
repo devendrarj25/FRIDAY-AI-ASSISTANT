@@ -1,8 +1,9 @@
 """FRIDAY's Hindi ear: a Hindi speech recogniser that runs on this PC with no torch.
 
-The weights are the Hindi IndicConformer model exported to ONNX (MIT), the int8 file only, run by the
-``onnx-asr`` package (MIT; it needs numpy and onnxruntime, nothing else). They are downloaded on demand by
-the Install Manager into ``<FRIDAY root>/models/hindi-ear`` at a pinned revision and SHA-256
+The weights are the Hindi IndicConformer model exported to ONNX (MIT), the int8 file only, run by FRIDAY's own NeMo
+runner (``nemo_ear.py``: numpy and onnxruntime, nothing else). If that runner cannot open the folder, the
+``onnx-asr`` package, when it is installed, still can; both read the same files and give the same line. They are
+downloaded on demand by the Install Manager into ``<FRIDAY root>/models/hindi-ear`` at a pinned revision and SHA-256
 (``electron/voice-pins.cjs``); this module never downloads.
 
 It is used only when the owner picks Hindi. English stays on Moonshine or faster-whisper, and Hinglish and
@@ -113,10 +114,15 @@ def _load(folder: Path):
     global _model, _model_dir
     if _model is not None and _model_dir == str(folder):
         return _model
-    import onnx_asr  # type: ignore
+    try:
+        import nemo_ear
 
-    _model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8")
-    _model_dir = str(folder)
+        model = nemo_ear.NemoEar.load(folder, kind=nemo_ear.kind_of(MODEL_TYPE), quantization="int8")
+    except Exception:  # noqa: BLE001 — the own runner could not open the folder: the pip package may still
+        import onnx_asr  # type: ignore
+
+        model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8")
+    _model, _model_dir = model, str(folder)
     return _model
 
 
@@ -227,6 +233,7 @@ WORD_MARK = "\u2581"  # the SentencePiece word-start mark; onnx-asr swaps it for
 
 def _ctc_engine(model):
     """``(asr, pieces, frame_s)`` of the CTC head behind an onnx-asr model, or None when it does not expose one.
+    (FRIDAY's own runner answers ``ctc_head`` and ``log_probs`` itself and never comes through here.)
 
     onnx-asr keeps the engine at ``adapter.asr``. A CTC model runs ``preprocessor -> _encode`` and ``_encode`` returns
     the per-frame log probabilities (the ``logprobs`` output of the exported graph). These are private names of the
@@ -256,7 +263,10 @@ def ctc_head() -> tuple[list[str], float] | None:
     if folder is None:
         return None
     try:
-        found = _ctc_engine(_load(folder))
+        model = _load(folder)
+        if hasattr(model, "ctc_head"):
+            return model.ctc_head()
+        found = _ctc_engine(model)
     except Exception:  # noqa: BLE001 — a model that will not load has no head to read
         return None
     return None if found is None else (found[1], found[2])
@@ -280,7 +290,10 @@ def log_probs(samples):
         if audio.size < int(SAMPLE_RATE * MIN_SECONDS):
             return None
         audio = audio[: SAMPLE_RATE * MAX_SECONDS]
-        found = _ctc_engine(_load(folder))
+        model = _load(folder)
+        if hasattr(model, "log_probs"):
+            return model.log_probs(audio)
+        found = _ctc_engine(model)
         if found is None:
             return None
         asr, pieces, frame_s = found
