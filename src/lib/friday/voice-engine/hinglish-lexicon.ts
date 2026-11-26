@@ -16,235 +16,44 @@
  * The text layer may call `fixScript` too; it is not wired into the renderer here.
  */
 
-export const LEXICON_VERSION = "hinglish-lex-1";
+export const LEXICON_VERSION: string = lexiconJson.version;
+
+import lexiconJson from "../../../../config/hinglish-lexicon.json" with { type: "json" };
 
 export type ScriptPolicy = "codemix" | "hindi" | "english";
 export type WordLanguage = "hi" | "en" | "none";
 
+type Pair = readonly [string, string];
+type WordTable = { hindi: string[]; devanagari: string[]; english: string[] };
+
+/** The word tables live in config/hinglish-lexicon.json; the kernel reads the same file (kernel/hinglish_lexicon.py). */
+const DATA = lexiconJson as unknown as {
+  version: string;
+  thresholds: { romanHinglishShare: number; shortTurnWords: number };
+  sureHindi: Pair[];
+  sureHindiAdded: Pair[];
+  ambiguous: Pair[];
+  loanwords: Pair[];
+  tailWords: WordTable;
+  backchannel: WordTable;
+};
+
 /** Roman Hindi spellings (separated by "|") that mean one Hindi word and nothing in English, then its Devanagari. */
-const SURE_HINDI: ReadonlyArray<readonly [string, string]> = [
-  ["kal", "कल"],
-  ["aaj|aj", "आज"],
-  ["subah|subha|subeh", "सुबह"],
-  ["shaam|sham", "शाम"],
-  ["raat", "रात"],
-  ["abhi", "अभी"],
-  ["ab", "अब"],
-  ["phir|fir", "फिर"],
-  ["kya", "क्या"],
-  ["kyun|kyu", "क्यों"],
-  ["kyunki", "क्योंकि"],
-  ["kaise", "कैसे"],
-  ["kahan|kaha", "कहाँ"],
-  ["kab", "कब"],
-  ["kaun", "कौन"],
-  ["kitna", "कितना"],
-  ["kitne", "कितने"],
-  ["mujhe", "मुझे"],
-  ["mera", "मेरा"],
-  ["meri", "मेरी"],
-  ["mere", "मेरे"],
-  ["tum", "तुम"],
-  ["tumhe", "तुम्हें"],
-  ["aap", "आप"],
-  ["humein|hame", "हमें"],
-  ["yeh", "यह"],
-  ["ye", "ये"],
-  ["woh|wo|vo", "वो"],
-  ["nahi|nahin|nhi", "नहीं"],
-  ["haan|han", "हाँ"],
-  ["theek|thik", "ठीक"],
-  ["achha|accha|acha", "अच्छा"],
-  ["bahut|bohot", "बहुत"],
-  ["thoda", "थोड़ा"],
-  ["zyada|jyada|jyaada", "ज़्यादा"],
-  ["kaam", "काम"],
-  ["ghar", "घर"],
-  ["paani|pani", "पानी"],
-  ["khana", "खाना"],
-  ["laga", "लगा"],
-  ["lagao", "लगाओ"],
-  ["lagana", "लगाना"],
-  ["karo", "करो"],
-  ["karna", "करना"],
-  ["dijiye", "दीजिए"],
-  ["bhejo", "भेजो"],
-  ["bata", "बता"],
-  ["batao", "बताओ"],
-  ["dikhao", "दिखाओ"],
-  ["kholo", "खोलो"],
-  ["chalu", "चालू"],
-  ["shuru", "शुरू"],
-  ["rukho", "रुको"],
-  ["suno", "सुनो"],
-  ["dekho", "देखो"],
-  ["chalo", "चलो"],
-  ["bolo", "बोलो"],
-  ["chahiye", "चाहिए"],
-  ["hoon|hun", "हूँ"],
-  ["hain", "हैं"],
-  ["tha", "था"],
-  ["thi", "थी"],
-  ["raha", "रहा"],
-  ["rahi", "रही"],
-  ["rahe", "रहे"],
-  ["jao", "जाओ"],
-  ["aao", "आओ"],
-  ["se", "से"],
-  ["ko", "को"],
-  ["ka", "का"],
-  ["ki", "की"],
-  ["ke", "के"],
-  ["bhi", "भी"],
-  ["aur", "और"],
-  ["lekin", "लेकिन"],
-  ["agar", "अगर"],
-  ["toh", "तो"],
-  ["sab", "सब"],
-  ["kuch", "कुछ"],
-  ["koi", "कोई"],
-  ["bhai", "भाई"],
-  ["dost", "दोस्त"],
-  ["paise", "पैसे"],
-  ["baje", "बजे"],
-  ["samajh", "समझ"],
-  ["pata", "पता"],
-  ["zaroor|jaroor", "ज़रूर"],
-  ["bilkul", "बिल्कुल"],
-  ["dhanyavaad|dhanyavad", "धन्यवाद"],
-  ["namaste", "नमस्ते"],
-  ["shukriya", "शुक्रिया"],
-  ["kripya", "कृपया"],
-  ["jaldi", "जल्दी"],
-  ["baad", "बाद"],
-  ["pehle|pahle", "पहले"],
-];
-
+const SURE_HINDI: ReadonlyArray<Pair> = DATA.sureHindi;
+/** Sure Hindi words added after the scorer's digest was pinned: they label and fix like the rest. */
+const SURE_HINDI_ADDED: ReadonlyArray<Pair> = DATA.sureHindiAdded;
 /** Words that are Hindi and English at once: they turn Devanagari only when a word beside them is surely Hindi. */
-const AMBIGUOUS: ReadonlyArray<readonly [string, string]> = [
-  ["do", "दो"],
-  ["main", "मैं"],
-  ["to", "तो"],
-  ["me", "में"],
-  ["mein", "में"],
-  ["hai", "है"],
-  ["hum", "हम"],
-  ["par", "पर"],
-  ["band", "बंद"],
-  ["hi", "ही"],
-  ["sun", "सुन"],
-  ["chal", "चल"],
-];
-
+const AMBIGUOUS: ReadonlyArray<Pair> = DATA.ambiguous;
 /** English loanwords: the Latin word, then the Devanagari spellings an engine writes for it (separated by "|"). */
-const LOANWORDS: ReadonlyArray<readonly [string, string]> = [
-  ["description", "डिस्क्रिप्शन|डिस्क्रिपशन"],
-  ["meeting", "मीटिंग"],
-  ["alarm", "अलार्म|अलारम"],
-  ["phone", "फोन"],
-  ["mobile", "मोबाइल"],
-  ["computer", "कंप्यूटर|कम्प्यूटर"],
-  ["laptop", "लैपटॉप"],
-  ["email", "ईमेल"],
-  ["message", "मैसेज|मेसेज"],
-  ["reminder", "रिमाइंडर"],
-  ["calendar", "कैलेंडर|कैलेण्डर"],
-  ["battery", "बैटरी"],
-  ["internet", "इंटरनेट"],
-  ["wifi", "वाईफाई|वायफाय"],
-  ["bluetooth", "ब्लूटूथ"],
-  ["volume", "वॉल्यूम|वॉल्युम"],
-  ["screen", "स्क्रीन"],
-  ["screenshot", "स्क्रीनशॉट"],
-  ["file", "फाइल"],
-  ["folder", "फोल्डर"],
-  ["download", "डाउनलोड"],
-  ["upload", "अपलोड"],
-  ["app", "ऐप|एप"],
-  ["application", "एप्लीकेशन|एप्लिकेशन"],
-  ["update", "अपडेट"],
-  ["settings", "सेटिंग्स|सेटिंग"],
-  ["password", "पासवर्ड"],
-  ["camera", "कैमरा"],
-  ["photo", "फोटो"],
-  ["video", "वीडियो"],
-  ["music", "म्यूजिक"],
-  ["song", "सॉन्ग|सांग"],
-  ["play", "प्ले"],
-  ["pause", "पॉज"],
-  ["stop", "स्टॉप"],
-  ["next", "नेक्स्ट"],
-  ["call", "कॉल"],
-  ["number", "नंबर"],
-  ["time", "टाइम"],
-  ["ok", "ओके"],
-  ["sorry", "सॉरी"],
-  ["thanks", "थैंक्स"],
-  ["please", "प्लीज"],
-  ["report", "रिपोर्ट"],
-  ["document", "डॉक्यूमेंट|डाक्यूमेंट"],
-  ["schedule", "शेड्यूल"],
-  ["notification", "नोटिफिकेशन"],
-  ["search", "सर्च"],
-  ["google", "गूगल"],
-  ["youtube", "यूट्यूब"],
-  ["whatsapp", "व्हाट्सएप|व्हाट्सऐप"],
-  ["chrome", "क्रोम"],
-  ["desktop", "डेस्कटॉप"],
-  ["window", "विंडो"],
-  ["mute", "म्यूट"],
-  ["brightness", "ब्राइटनेस"],
-  ["timer", "टाइमर"],
-  ["note", "नोट"],
-  ["task", "टास्क"],
-  ["list", "लिस्ट"],
-  ["mail", "मेल"],
-  ["madam", "मैडम"],
-  ["office", "ऑफिस"],
-  ["bank", "बैंक"],
-  ["doctor", "डॉक्टर"],
-  ["hospital", "हॉस्पिटल"],
-  ["train", "ट्रेन"],
-  ["taxi", "टैक्सी"],
-  ["ticket", "टिकट"],
-  ["online", "ऑनलाइन"],
-  ["offline", "ऑफलाइन"],
-  ["mode", "मोड"],
-  ["voice", "वॉइस|वॉयस"],
-  ["friday", "फ्राइडे"],
-  ["button", "बटन"],
-  ["click", "क्लिक"],
-  ["open", "ओपन"],
-  ["close", "क्लोज"],
-  ["send", "सेंड"],
-  ["save", "सेव"],
-  ["delete", "डिलीट"],
-  ["project", "प्रोजेक्ट"],
-  ["presentation", "प्रेजेंटेशन"],
-  ["cancel", "कैंसल"],
-  ["reply", "रिप्लाई"],
-  ["problem", "प्रॉब्लम"],
-  ["plan", "प्लान"],
-  ["data", "डेटा"],
-  ["traffic", "ट्रैफिक"],
-  ["weather", "वेदर"],
-  ["news", "न्यूज"],
-  ["lunch", "लंच"],
-  ["dinner", "डिनर"],
-  ["movie", "मूवी"],
-  ["bill", "बिल"],
-  ["card", "कार्ड"],
-  ["link", "लिंक"],
-  ["share", "शेयर"],
-  ["chat", "चैट"],
-  ["team", "टीम"],
-  ["client", "क्लाइंट"],
-  ["budget", "बजट"],
-  ["final", "फाइनल"],
-  ["flight", "फ्लाइट"],
-  ["hotel", "होटल"],
-  ["restaurant", "रेस्टोरेंट"],
-];
+const LOANWORDS: ReadonlyArray<Pair> = DATA.loanwords;
+
+const wordSet = (t: WordTable): ReadonlySet<string> =>
+  new Set([...t.hindi, ...t.devanagari, ...t.english].map((w) => w.normalize("NFC").toLowerCase()));
+
+/** A word after which a speaker nearly always goes on (Roman Hindi, Devanagari, English). Lower case, NFC. */
+export const DANGLING_TAIL_WORDS: ReadonlySet<string> = wordSet(DATA.tailWords);
+/** A short answer or acknowledgement (haan, nahi, ji, theek, achha, hmm). Lower case, NFC. */
+export const BACKCHANNEL_WORDS: ReadonlySet<string> = wordSet(DATA.backchannel);
 
 const DEVANAGARI = /[ऀ-ॿ]/;
 const LETTER = /\p{L}/u;
@@ -258,21 +67,46 @@ export function lexiconKey(word: string): string {
 const sureHindi = new Map<string, string>();
 const ambiguous = new Map<string, string>();
 const loanwords = new Map<string, string>();
+const addedKeys = new Set<string>();
 for (const [variants, devanagari] of SURE_HINDI) {
   for (const v of variants.split("|")) sureHindi.set(v, devanagari);
+}
+for (const [variants, devanagari] of SURE_HINDI_ADDED) {
+  for (const v of variants.split("|")) {
+    sureHindi.set(v, devanagari);
+    addedKeys.add(v);
+  }
 }
 for (const [roman, devanagari] of AMBIGUOUS) ambiguous.set(roman, devanagari);
 for (const [latin, spellings] of LOANWORDS) {
   for (const s of spellings.split("|")) loanwords.set(lexiconKey(s), latin);
 }
 
-/** One line per table entry, in a fixed order, so two implementations can compare a hash of their tables. */
+/**
+ * One line per table entry of the scored tables, in a fixed order, so two implementations can compare a hash of
+ * their tables. It leaves out `sureHindiAdded`, which `kernel/stt_bench.py` and its pinned digest do not have yet.
+ */
 export function lexiconLines(): string[] {
   const lines: string[] = [];
-  for (const [k, v] of sureHindi) lines.push(`sure|${k}|${v}`);
+  for (const [k, v] of sureHindi) if (!addedKeys.has(k)) lines.push(`sure|${k}|${v}`);
   for (const [k, v] of ambiguous) lines.push(`ambiguous|${k}|${v}`);
   for (const [k, v] of loanwords) lines.push(`loan|${k}|${v}`);
   return lines.sort();
+}
+
+/** Every table of config/hinglish-lexicon.json as sorted lines; `kernel/hinglish_lexicon.py` builds the same lines. */
+export function lexiconDataLines(): string[] {
+  const lines = lexiconLines();
+  for (const k of addedKeys) lines.push(`sure|${k}|${sureHindi.get(k)}`);
+  for (const [group, table] of [
+    ["tail", DATA.tailWords],
+    ["backchannel", DATA.backchannel],
+  ] as const) {
+    for (const w of [...table.hindi, ...table.devanagari, ...table.english]) {
+      lines.push(`${group}|${w.normalize("NFC").toLowerCase()}`);
+    }
+  }
+  return [...new Set(lines)].sort();
 }
 
 type Kind = { lang: WordLanguage; deva?: string; latin?: string; maybe?: boolean };
@@ -342,9 +176,9 @@ export function fixScript(text: string, expectedPolicy: ScriptPolicy = "codemix"
 }
 
 /** Share of a Latin line's words that must be Hindi in the lexicon for the line to count as romanised Hinglish. */
-export const ROMAN_HINGLISH_SHARE = 0.3;
+export const ROMAN_HINGLISH_SHARE: number = DATA.thresholds.romanHinglishShare;
 /** A line with fewer words than this is too short to judge: the speech engine's declared language is kept. */
-export const SHORT_TURN_WORDS = 3;
+export const SHORT_TURN_WORDS: number = DATA.thresholds.shortTurnWords;
 
 export type TurnLanguageRead = { lang: "hi" | "en" | "hi-en" | ""; romanised: boolean };
 
