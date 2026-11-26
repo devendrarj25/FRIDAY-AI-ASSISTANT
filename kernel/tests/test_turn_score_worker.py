@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stt
+import turn_features
 import voice_runtime
 
 
@@ -54,6 +55,7 @@ def _fake_runtime(monkeypatch, probability: float = 0.9):
     fe.FeatureExtractor = Extractor  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "onnxruntime", ort)
     monkeypatch.setitem(sys.modules, "faster_whisper.feature_extractor", fe)
+    monkeypatch.setattr(turn_features, "TurnFeatures", Extractor)
     return opened
 
 

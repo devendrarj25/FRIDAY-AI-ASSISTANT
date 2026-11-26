@@ -660,13 +660,25 @@ def _turn_session(path: Path):
     if held is not None:
         return held
     import onnxruntime as ort  # type: ignore
-    from faster_whisper.feature_extractor import FeatureExtractor  # type: ignore
+    from turn_features import TurnFeatures
 
     session = ort.InferenceSession(key, providers=session_providers(False))
-    extractor = FeatureExtractor(feature_size=80, chunk_length=8)
+    extractor = TurnFeatures(feature_size=80, chunk_length=8)
     _turn_model.clear()
     _turn_model[key] = (session, extractor)
     return session, extractor
+
+
+def _turn_features_with_fallback(audio, extractor):
+    """The model input from FRIDAY's own extractor; the older package extractor only if that one fails."""
+    from turn_features import turn_input
+
+    try:
+        return turn_input(audio, extractor)
+    except Exception:  # noqa: BLE001
+        from faster_whisper.feature_extractor import FeatureExtractor  # type: ignore
+
+        return turn_input(audio, FeatureExtractor(feature_size=80, chunk_length=8))
 
 
 def score_turn(samples, sample_rate: int = 16000) -> dict:
@@ -683,18 +695,8 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
         if audio.size < 1600:
             return {"ok": True, "ready": False, "probability": None, "reason": "audio too short"}
         session, extractor = _turn_session(path)
-        if audio.size < extractor.n_samples:
-            real = (audio - audio.mean()) / np.sqrt(float(audio.var()) + 1e-7)
-            audio = np.pad(real, (extractor.n_samples - real.size, 0))
-        else:
-            audio = audio[-extractor.n_samples :]
-            audio = (audio - audio.mean()) / np.sqrt(float(audio.var()) + 1e-7)
-        feat = extractor(audio, padding=0)
-        if feat.shape[1] > 800:
-            feat = feat[:, :800]
-        elif feat.shape[1] < 800:
-            feat = np.pad(feat, ((0, 0), (0, 800 - feat.shape[1])), constant_values=-1.5)
-        out = session.run(None, {"input_features": feat[None].astype(np.float32)})[0]
+        feat = _turn_features_with_fallback(audio, extractor)
+        out = session.run(None, {"input_features": feat})[0]
         probability = float(np.asarray(out).reshape(-1)[0])
     except Exception as exc:  # noqa: BLE001
         return {"ok": True, "ready": False, "probability": None, "reason": str(exc)[:200]}
