@@ -2058,9 +2058,9 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 }
 
 module.exports = {
-  cleanStreamEars,
   status,
   cudaRuntimeVerdict,
+  cleanStreamEars,
   install,
   setProgressSink,
   setLoadLeases,
