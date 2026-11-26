@@ -22,8 +22,7 @@
  */
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
-import { brain, type QuickAnswer } from "./brain-engine";
-import type { TurnHints } from "./brain/turn-hints";
+import { brain, type QuickAnswer, type TurnHints } from "./brain-engine";
 import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";

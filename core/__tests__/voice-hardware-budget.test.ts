@@ -269,7 +269,7 @@ describe("the catalog's manifest fields are the pinned ones", () => {
 
   it("every pinned voice model has the same fields and numbers on both sides, and the disk bytes are the pins' sum", () => {
     const ids = registry.modelRegistry().map((row) => row.catalogId);
-    expect(ids.length).toBe(20); // 14 before the two denoisers, the speaker model, the Vaani ear, the streaming ear and the Trelis Hinglish ear
+    expect(ids.length).toBe(21); // 14 before the two denoisers, the speaker model, the Vaani ear, the streaming ear, the Trelis Hinglish ear and the wake embedding
     expect(ids).toEqual(
       expect.arrayContaining([
         "denoise-dpdfnet",
@@ -278,6 +278,7 @@ describe("the catalog's manifest fields are the pinned ones", () => {
         "hindi-vaani-ear",
         "stream-ear-nemotron",
         "hinglish-ear-trelis",
+        "wake-embed",
       ]),
     );
     expect(Object.keys(voiceModelFacts).sort()).toEqual([...ids].sort());

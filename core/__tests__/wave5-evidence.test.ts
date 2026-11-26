@@ -114,6 +114,6 @@ describe("speech weights are local before the worker", () => {
         .pinnedJobs()
         .map((row) => row.id)
         .sort(),
-    ).toEqual(["silero-vad", "smart-turn"]);
+    ).toEqual(["silero-vad", "smart-turn", "wake-embed"]);
   });
 });

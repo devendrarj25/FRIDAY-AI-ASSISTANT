@@ -3216,6 +3216,17 @@ export const voiceModelFacts: Record<string, VoiceModelFacts> = {
     fallbackPriority: "primary",
     basis: "estimated",
   },
+  "wake-embed": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    diskBytes: 1326578,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
 };
 
 /** The members with the English ear resolved to the size the owner uses. */

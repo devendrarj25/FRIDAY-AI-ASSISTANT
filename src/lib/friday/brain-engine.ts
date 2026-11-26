@@ -277,6 +277,7 @@ import {
   replyLanguageLine,
   type TurnHints,
 } from "./brain/turn-hints";
+export type { TurnHints };
 import { showRealChart, showRealImage } from "./stage";
 import { connectorTools, invokeApprovedConnectorAction } from "./connectors";
 import { isWorkspaceShellTool, runWorkspaceShell } from "./terminal-awareness";

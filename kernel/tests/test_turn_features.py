@@ -96,8 +96,8 @@ def test_another_extractor_with_the_same_call_can_be_passed_in():
     class Other:
         n_samples = 64000
 
-        def __call__(self, audio, padding=0):
-            seen["size"] = audio.size
+        def __call__(self, waveform, padding=0):
+            seen["size"] = waveform.size
             return np.ones((80, 400), dtype=np.float32)
 
     out = tf.turn_input(_speechlike(2.0), Other())

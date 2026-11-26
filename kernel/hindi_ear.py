@@ -304,7 +304,7 @@ def ctc_head() -> tuple[list[str], float] | None:
     if folder is None:
         return None
     try:
-        model = _load(folder)
+        model: Any = _load(folder)
         if hasattr(model, "ctc_head"):
             return model.ctc_head()
         found = _ctc_engine(model)
@@ -331,7 +331,7 @@ def log_probs(samples):
         if audio.size < int(SAMPLE_RATE * MIN_SECONDS):
             return None
         audio = audio[: SAMPLE_RATE * MAX_SECONDS]
-        model = _load(folder)
+        model: Any = _load(folder)
         if hasattr(model, "log_probs"):
             return model.log_probs(audio)
         found = _ctc_engine(model)
