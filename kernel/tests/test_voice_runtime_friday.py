@@ -554,3 +554,70 @@ def test_a_text_with_nothing_to_say_is_no_audio_and_no_package_call(engine):
     assert voice_runtime._speak_array("   ") is None
     assert voice_runtime._speak_array("***") is None
     assert PipTTS.seen == []
+
+
+# ---------------------------------------------------------------- pausedMs and wordTimes in the reply
+
+
+def _clip_ms(body: dict) -> float:
+    return _pcm(body).size * 1000.0 / RATE
+
+
+def test_pausedms_counts_the_silence_the_kernel_put_in_and_clamps_the_trailing_pause(engine):
+    base = _speak(text="Hello.")
+    assert base["pausedMs"] == 0
+    for asked, expected in ((0, 0), (300, 300), (5000, voice_runtime.MAX_PAUSE_MS)):
+        body = _speak(text="Hello.", pauseMs=asked)
+        assert body["pausedMs"] == expected
+        assert _clip_ms(body) - _clip_ms(base) == pytest.approx(expected, abs=1.0)
+
+
+def test_pausedms_includes_the_gap_between_clauses_and_a_pause_tag(engine):
+    two = _speak(text=TWO)
+    assert two["pausedMs"] > 0
+    plain = _speak(text="One thing. Another thing.", trusted=True)
+    tagged = _speak(text="One thing. [pause:400] Another thing.", trusted=True)
+    assert tagged["pausedMs"] == 400 > plain["pausedMs"]
+    assert tagged["pausedMs"] <= _clip_ms(tagged)
+
+
+def test_wordtimes_are_monotone_inside_the_clip_and_end_before_the_trailing_pause(engine):
+    for text in ("Open the calendar for tomorrow.", "मैं ठीक हूँ, आप कैसे हैं।", "Kal ka meeting रद्द कर दो, please."):
+        body = _speak(text=text, pauseMs=250)
+        times = body["wordTimes"]
+        assert times, text
+        assert len(times) == len(text.split())  # the front end may tidy a mark, never a word
+        previous = 0.0
+        for item in times:
+            assert item["startMs"] >= previous - 1e-6 and item["endMs"] >= item["startMs"]
+            previous = item["endMs"]
+        assert previous <= _clip_ms(body) - 250 + 1.0
+        assert previous >= _clip_ms(body) - 250 - 2.0 * 1000.0 * PAD / RATE
+
+
+def test_wordtimes_skip_the_pauses_between_clauses_and_cover_only_spoken_words(engine):
+    body = _speak(text="One thing. [pause:700] Another thing.", trusted=True)
+    words = [t["word"] for t in body["wordTimes"]]
+    assert words == ["One", "thing.", "Another", "thing."]
+    gap = body["wordTimes"][2]["startMs"] - body["wordTimes"][1]["endMs"]
+    assert gap >= 700 - 1.0
+
+
+def test_wordtimes_are_capped_at_400_words(engine):
+    body = _speak(text=("word " * 100 + ". ") * 4)
+    assert 0 < len(body["wordTimes"]) <= 400
+
+
+def test_a_package_fallback_reply_has_no_pause_or_word_data_even_after_an_engine_reply(engine, monkeypatch):
+    assert _speak(text="Hello there.", pauseMs=300)["wordTimes"]
+    monkeypatch.setattr(friday_voice, "open_voice", lambda *a, **k: None)
+    voice_runtime.reset_speech_state()
+    body = _speak(text="Hello there.", pauseMs=300)
+    assert body["ok"] is True and body["pausedMs"] == 0 and "wordTimes" not in body
+
+
+def test_an_engine_that_fails_midway_falls_back_with_no_stale_word_data(engine):
+    _speak(text="Hello there.", pauseMs=300)
+    engine.fail = True
+    body = _speak(text="Hello there.", pauseMs=300)
+    assert body["pausedMs"] == 0 and "wordTimes" not in body

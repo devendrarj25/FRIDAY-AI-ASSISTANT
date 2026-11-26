@@ -323,7 +323,8 @@ def _fake_supertonic(monkeypatch):
 def test_speak_pcm_keeps_its_old_reply_when_no_engine_is_asked_for(monkeypatch, tmp_path):
     seen = _fake_supertonic(monkeypatch)
     body = voice_runtime.speak_pcm_payload({"text": "नमस्ते दुनिया", "lang": "hi-IN", "seq": 4})
-    assert set(body) == {"ok", "sampleRate", "pcm16", "ms", "seq"}
+    assert set(body) == {"ok", "sampleRate", "pcm16", "ms", "seq", "pausedMs"}
+    assert body["pausedMs"] == 0
     assert seen == ["नमस्ते दुनिया"] and body["sampleRate"] == 22050
 
 

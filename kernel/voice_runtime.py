@@ -470,6 +470,16 @@ PARSE_INPUT_CHARS = 2000  # what the tag reader looks at, before the cap on spok
 MAX_PAUSE_MS = 1200
 UTTERANCE_KEEP = 64
 EDGE_FADE_MS = 4.0
+
+
+class _RenderNote(threading.local):
+    """What the last FRIDAY Voice render of this thread put in its clip: (silence in ms, estimated word times).
+    None when it made none (another engine spoke, or nothing yet), so a reply never carries the wrong clip's data."""
+
+    info: tuple[int, list[dict]] | None = None
+
+
+_render_note = _RenderNote()
 _personas: dict[str, tuple[Any, Any]] = {}
 
 
@@ -602,13 +612,23 @@ def _render_friday(engine: Any, spoken: str, speed: float, lang: str, style: str
     pending_ms = 0.0
     clause_count = 0
     budget = MAX_SPEAK_CHARS
+    _render_note.info = None
+    position = 0  # samples laid down so far
+    paused = 0  # of those, the samples of silence put in on purpose
+    spoken_spans: list[tuple[str, int, int]] = []
 
-    def add(audio: Any) -> None:
-        nonlocal pending_ms
+    def add(audio: Any, words: str = "") -> None:
+        nonlocal pending_ms, position, paused
         if parts and pending_ms >= 1.0:
-            parts.append(np.zeros(int(rate * pending_ms / 1000.0), dtype=np.float32))
+            gap = np.zeros(int(rate * pending_ms / 1000.0), dtype=np.float32)
+            parts.append(gap)
+            position += gap.size
+            paused += gap.size
         pending_ms = 0.0
         parts.append(audio)
+        if words:
+            spoken_spans.append((words, position, position + int(audio.size)))
+        position += int(audio.size)
 
     for piece in tts_delivery.parse(spoken[:PARSE_INPUT_CHARS], trusted=opts.trusted):
         _check(stop)
@@ -644,15 +664,24 @@ def _render_friday(engine: Any, spoken: str, speed: float, lang: str, style: str
             if ctl.gain_db:
                 wav = wav * np.float32(10.0 ** (ctl.gain_db / 20.0))
             wav = _chain_for(state, persona, ctl.fx_delta, rate).process(wav)
-            add(voice_fx.fade_edges(wav, rate, EDGE_FADE_MS))
+            add(voice_fx.fade_edges(wav, rate, EDGE_FADE_MS), clause.text)
             last = index == len(planned) - 1
             pending_ms = (
                 float(ctl.pause_after_ms) if last and ctl.pause_after_ms > 0 else clause.pause_ms * ctl.pause_mul
             )
     if parts and opts.pause_ms > 0:
-        parts.append(np.zeros(int(rate * min(MAX_PAUSE_MS, opts.pause_ms) / 1000.0), dtype=np.float32))
+        tail = np.zeros(int(rate * min(MAX_PAUSE_MS, opts.pause_ms) / 1000.0), dtype=np.float32)
+        parts.append(tail)
+        paused += tail.size
     if not parts:
         return np.zeros(0, dtype=np.float32), rate
+    import tts_timing
+
+    ms = 1000.0 / rate
+    _render_note.info = (
+        round(paused * ms),
+        tts_timing.clip_word_times([(words, a * ms, b * ms) for words, a, b in spoken_spans]),
+    )
     return np.concatenate(parts).astype(np.float32), rate
 
 
@@ -676,6 +705,7 @@ def _speak_friday(spoken: str, speed: float, lang: str, style: str, stop: Any, o
 
 def _speak_supertonic(spoken: str, speed: float, lang: str, style: str, stop: Any):
     """The ``supertonic`` package path, as it always was: the fallback when FRIDAY Voice cannot speak."""
+    _render_note.info = None
     directory = supertonic_dir()
     if directory is None:
         return None
@@ -1389,6 +1419,7 @@ def speak_pcm_payload(req: dict) -> dict:
     except (TypeError, ValueError):
         speed = 1.0
     started = time.perf_counter()
+    _render_note.info = None
     lang = str(req.get("lang") or "")
     style = str(req.get("style") or "")
     asked = str(req.get("engine") or "").strip().lower()
@@ -1417,11 +1448,18 @@ def speak_pcm_payload(req: dict) -> dict:
     if made is None:
         return {"ok": False, "reason": LOCAL_TTS_REASON}
     data, rate = made
+    # Only FRIDAY Voice knows what silence it put in and where its words are; any other engine reports none.
+    note = None if extra.get("engine") == HINDI_LIGHT_ENGINE else _render_note.info
+    _render_note.info = None
+    timing: dict = {"pausedMs": note[0] if note else 0}
+    if note and note[1]:
+        timing["wordTimes"] = note[1]
     return {
         "ok": True,
         "sampleRate": rate,
         "pcm16": base64.b64encode(data).decode("ascii"),
         "ms": round((time.perf_counter() - started) * 1000),
+        **timing,
         **extra,
         **tag,
     }
