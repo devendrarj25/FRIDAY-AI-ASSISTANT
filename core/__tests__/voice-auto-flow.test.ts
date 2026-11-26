@@ -4,6 +4,7 @@
  * line, which is where a wake word, a note, a translation or a stop word can be dropped or misread.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { preferences } from "../../src/lib/friday/preferences";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
 import { voiceGate } from "../../src/lib/friday/voice-audio";
 import { voiceNotes } from "../../src/lib/friday/voice-notes";
@@ -485,17 +486,34 @@ describe("speaking an answer while it is still being written", () => {
     expect(spoken).toEqual(["Hello there.", "How are you?", "I am fine, thanks"]);
   });
 
+  const PIECES = [
+    "Please ask Dr.",
+    "Please ask Dr. Singh about the total of 3.",
+    "Please ask Dr. Singh about the total of 3.5 million. Then call me",
+    "Please ask Dr. Singh about the total of 3.5 million. Then call me back",
+  ];
+
   it("does not cut inside a name or a number that arrives in pieces", () => {
-    feed("r2", [
-      "Please ask Dr.",
-      "Please ask Dr. Singh about the total of 3.",
-      "Please ask Dr. Singh about the total of 3.5 million. Then call me",
-      "Please ask Dr. Singh about the total of 3.5 million. Then call me back",
-    ]);
+    // Whole sentences: the short first clause is switched off for this case.
+    preferences.setVoice({ fastFirstClause: false });
+    try {
+      feed("r2", PIECES);
+    } finally {
+      preferences.setVoice({ fastFirstClause: true });
+    }
     expect(spoken).toEqual([
       "Please ask Dr. Singh about the total of 3.5 million.",
       "Then call me back",
     ]);
+  });
+
+  it("with the short first clause on, the cut never lands inside a name or a number either", () => {
+    feed("r2b", PIECES);
+    expect(spoken.join(" ")).toBe(
+      "Please ask Dr. Singh about the total of 3.5 million. Then call me back",
+    );
+    expect(spoken.every((piece) => !/(^|\s)3\.?$/.test(piece) && !/^5\b/.test(piece))).toBe(true);
+    expect(spoken.some((piece) => piece.startsWith("Please ask Dr. Singh"))).toBe(true);
   });
 
   it("starts over cleanly when the answer is rewritten from the start", () => {
