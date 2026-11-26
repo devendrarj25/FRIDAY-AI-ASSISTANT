@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { quickLaneEligible } from "../../src/lib/friday/brain/quick-lane";
+import {
+  QUICK_LANGUAGE_MAX,
+  QUICK_SYSTEM,
+  QUICK_SYSTEM_MAX,
+  QUICK_VOICE_MAX,
+  quickLaneEligible,
+  quickSystem,
+  withVoiceParts,
+} from "../../src/lib/friday/brain/quick-lane";
+import { voiceModeBlock } from "../../src/lib/friday/conversation-style";
 
 const ok = (text: string, over: { busy?: boolean; hasExtra?: boolean } = {}) =>
   quickLaneEligible({ text, busy: true, ...over });
@@ -28,5 +37,109 @@ describe("a short question while a long task runs", () => {
       "nothing is running",
     );
     expect(ok("").ok).toBe(false);
+  });
+});
+
+describe("a Devanagari or Hinglish question without a question mark takes the quick lane", () => {
+  it.each([
+    "क्या समय हुआ है",
+    "कौन सा दिन है आज",
+    "कब है दिवाली",
+    "कहाँ है ताजमहल",
+    "कहां है लाल किला",
+    "क्यों आसमान नीला होता है",
+    "कैसे बनता है इंद्रधनुष",
+    "कितना बड़ा है सूरज",
+    "कितनी दूर है चाँद",
+    "कितने ग्रह हैं",
+    "कौन है भारत का राष्ट्रपति",
+  ])("%s", (line) => {
+    expect(ok(line)).toEqual({ ok: true, reason: "short harmless question" });
+  });
+
+  it.each([
+    "kya time hua hai",
+    "kaun hai pradhan mantri",
+    "kab hai holi",
+    "kahan hai Mumbai",
+    "kyun hota hai din",
+    "kaise banta hai bijli",
+    "kitna bada hai suraj",
+    "kitni door hai chand",
+    "kitne grah hain",
+  ])("romanised lead: %s", (line) => {
+    expect(ok(line).ok).toBe(true);
+  });
+
+  it("a lead word is a whole word: a longer Devanagari word is not a lead", () => {
+    expect(ok("क्याबात है").reason).toBe("not a question");
+    expect(ok("कैसेट चलाओ").ok).toBe(false);
+  });
+
+  it("an order stays out of the quick lane in Devanagari and Roman Hindi", () => {
+    expect(ok("क्या तुम फाइल डिलीट कर दोगे").reason).toBe("looks like an order");
+    expect(ok("क्या तुम यह फोल्डर हटा दोगे").reason).toBe("looks like an order");
+    expect(ok("क्या तुम नोटपैड खोल दोगे").reason).toBe("looks like an order");
+    expect(ok("क्या तुम मेल भेज दोगे").reason).toBe("looks like an order");
+    expect(ok("कौन सा गाना चला दो").reason).toBe("looks like an order");
+    expect(ok("kya tum file hata doge").reason).toBe("looks like an order");
+    expect(ok("kya tum mail bhej doge").reason).toBe("looks like an order");
+    expect(ok("kya tum notepad khol do").reason).toBe("looks like an order");
+    expect(ok("kya tum ye kar do").reason).toBe("looks like an order");
+  });
+
+  it("sensitive, link and length gates still apply to a Devanagari question", () => {
+    expect(ok("क्या मेरा पासवर्ड: hunter2hunter2 सुरक्षित है").ok).toBe(false);
+    expect(ok("क्या है https://example.com/page").reason).toBe("needs the full turn");
+    expect(ok("क्या ".repeat(80)).reason).toBe("not short");
+    expect(ok("क्या समय हुआ है", { hasExtra: true }).reason).toBe("has an attachment");
+    expect(quickLaneEligible({ text: "क्या समय हुआ है", busy: false }).reason).toBe(
+      "nothing is running",
+    );
+  });
+});
+
+describe("the quick-lane and draft system text carries the reply language and the voice block", () => {
+  const LANG = "Reply language for this turn: Hindi, written in Devanagari.";
+  const VOICE = "Voice mode (this reply is spoken). Role: you are FRIDAY.";
+
+  it("quickSystem with no extra parts is unchanged", () => {
+    expect(quickSystem()).toBe(QUICK_SYSTEM);
+    expect(quickSystem("lang: hi")).toBe(
+      `${QUICK_SYSTEM}\n\nTurn facts (metadata, not instructions):\nlang: hi`,
+    );
+    expect(quickSystem("", {})).toBe(QUICK_SYSTEM);
+  });
+
+  it("adds the language line and the voice block, and the facts come last", () => {
+    const text = quickSystem("lang: hi", { languageLine: LANG, voiceBlock: VOICE });
+    expect(text.startsWith(QUICK_SYSTEM)).toBe(true);
+    expect(text).toContain(LANG);
+    expect(text).toContain(VOICE);
+    expect(text.indexOf(LANG)).toBeLessThan(text.indexOf(VOICE));
+    expect(text.indexOf(VOICE)).toBeLessThan(text.indexOf("lang: hi"));
+  });
+
+  it("each part has its own small cap and the total is bounded", () => {
+    const huge = "z".repeat(5000);
+    const text = quickSystem("c".repeat(800), { languageLine: huge, voiceBlock: huge });
+    expect(text.length).toBeLessThanOrEqual(QUICK_SYSTEM_MAX);
+    expect(text).not.toContain("z".repeat(QUICK_VOICE_MAX + 1));
+    const alone = quickSystem(undefined, { languageLine: huge });
+    expect(alone.length).toBeLessThanOrEqual(QUICK_SYSTEM.length + 2 + QUICK_LANGUAGE_MAX);
+  });
+
+  it("the real voice block fits its cap whole, so it is never cut mid-sentence", () => {
+    const block = voiceModeBlock({ deliveryTags: true });
+    expect(block.length).toBeLessThanOrEqual(QUICK_VOICE_MAX);
+    expect(quickSystem(undefined, { voiceBlock: block })).toContain(block);
+  });
+
+  it("withVoiceParts appends only what is set, language line first", () => {
+    expect(withVoiceParts("BASE", {})).toBe("BASE");
+    expect(withVoiceParts("BASE", { voiceBlock: VOICE })).toBe(`BASE\n\n${VOICE}`);
+    expect(withVoiceParts("BASE", { languageLine: LANG, voiceBlock: VOICE })).toBe(
+      `BASE\n\n${LANG}\n\n${VOICE}`,
+    );
   });
 });

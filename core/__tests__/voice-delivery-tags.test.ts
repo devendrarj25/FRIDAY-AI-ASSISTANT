@@ -284,7 +284,15 @@ describe("voice-mode prompt block", () => {
 describe("voice-mode block wiring", () => {
   const brain = readFileSync(resolve(__dirname, "../../src/lib/friday/brain-engine.ts"), "utf8");
   it("is added to a spoken turn only, and describes the tags", () => {
-    expect(brain).toMatch(/surface === "voice" \? voiceModeBlock\(\{ deliveryTags: true \}\) : ""/);
+    // one helper builds the block, and only for a spoken surface
+    expect(brain).toMatch(
+      /options\.voice \? voiceModeBlock\(\{ deliveryTags: options\.deliveryTags \}\) : ""/,
+    );
+    // the full turn asks for the tags only on the voice surface; the quick lane never (its reply is stripped)
+    expect(brain).toMatch(
+      /turnVoiceParts\(hints, \{\s*voice: surface === "voice",\s*deliveryTags: true,?\s*\}\)/,
+    );
+    expect(brain).toMatch(/voice: surface === "voice",\s*deliveryTags: false,?\s*\}\)/);
     expect(brain.match(/voiceModeBlock\(/g)?.length).toBe(1);
   });
   it("describes the tags only because the screen strips them", () => {

@@ -877,3 +877,40 @@ describe("EAGER guards, the Brain draft mode", () => {
     });
   });
 });
+
+describe("EAGER guards, the draft keeps the final turn's reply language and voice block (F3)", () => {
+  it("startDraft takes the heard turn as an option and hands it to the same draft path", () => {
+    const start = method(brainSource, /\n {2}startDraft\([\s\S]*?\): DraftStart \{/);
+    expect(brainSource).toMatch(
+      /startDraft\(\s*prompt: string,\s*options: \{ onlyLocal\?: boolean; turn\?: Partial<TurnHints> \}/,
+    );
+    expect(start).toMatch(/draft: true/);
+    expect(start).toMatch(/turn: options\.turn/);
+    expect(start).not.toMatch(/startRun\(|dispatch\(/);
+  });
+
+  it("the draft request is built from DRAFT_SYSTEM plus the voice parts, and stays a tool-less, session-less guess", () => {
+    const begin = method(brainSource, /\n {2}private beginDraft\([\s\S]*?\): DraftStart \{/);
+    expect(begin).toMatch(/system: withVoiceParts\(DRAFT_SYSTEM, voice\)/);
+    expect(begin).toMatch(/tools: false/);
+    expect(begin).toMatch(/draft: true/);
+    expect(begin).not.toMatch(/cleanTurnHints|\.turn\b|startRun\(/);
+  });
+
+  it("adoptDraft still compares the words and now also the reply-language line, before it makes a run", () => {
+    const adopt = method(brainSource, /\n {2}adoptDraft\([\s\S]*?\): boolean \{/);
+    const guardAt = adopt.indexOf("sameTranscript(");
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(adopt).toMatch(/draft\.languageLine !==/);
+    expect(adopt.indexOf("draft.languageLine")).toBeLessThan(adopt.indexOf("this.newRun("));
+    expect(adopt.indexOf("needsClarification(finalHints)")).toBeLessThan(
+      adopt.indexOf("this.newRun("),
+    );
+  });
+
+  it("the voice parts of every plain call come from the one turnVoiceParts helper (one replyLanguageLine call)", () => {
+    expect(brainSource.match(/replyLanguageLine\(/g)).toHaveLength(1);
+    expect(brainSource.match(/voiceModeBlock\(/g)).toHaveLength(1);
+    expect(brainSource.match(/turnVoiceParts\(/g)!.length).toBeGreaterThanOrEqual(4);
+  });
+});

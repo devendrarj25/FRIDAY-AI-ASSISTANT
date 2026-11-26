@@ -34,7 +34,12 @@ import { checkAnswer, feedbackFor, type CheckFailure } from "./brain/answer-chec
 import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks";
 import { sandboxToolPort } from "./sandbox-agent";
 import { compactHistory } from "./brain/history-compact";
-import { quickLaneEligible, quickSystem } from "./brain/quick-lane";
+import {
+  quickLaneEligible,
+  quickSystem,
+  withVoiceParts,
+  type QuickVoiceParts,
+} from "./brain/quick-lane";
 import { looksLikeLiveFact } from "./brain/research";
 import {
   DRAFT_SYSTEM,
@@ -224,6 +229,22 @@ export function scrubSendContext(raw: unknown): string {
     clean += char;
   }
   return clean.trim().slice(0, SEND_CONTEXT_MAX);
+}
+
+/**
+ * The two spoken-turn lines every plain model call and every full turn shares: the reply language the ear heard
+ * (empty when Settings pins one) and the voice-mode block. One place, so a draft, a quick-lane answer and the
+ * final turn can never describe the same line differently. Text only: it carries no authority.
+ */
+function turnVoiceParts(
+  hints: TurnHints | null,
+  options: { voice: boolean; deliveryTags: boolean },
+): { languageLine: string; voiceBlock: string } {
+  const pinned = replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user";
+  return {
+    languageLine: replyLanguageLine(hints, pinned),
+    voiceBlock: options.voice ? voiceModeBlock({ deliveryTags: options.deliveryTags }) : "",
+  };
 }
 
 export function withRoutingDefaults(options: {
@@ -941,6 +962,9 @@ class BrainStore {
     startedAt: number;
     /** Kept on this PC: privacy mode was on, or the caller asked for a local-only draft. */
     onlyLocal: boolean;
+    /** The reply-language line this draft was written under; "hinted" is false when the caller passed no turn. */
+    languageLine: string;
+    hinted: boolean;
     timer: ReturnType<typeof setTimeout>;
     /** Stream events seen before adoption, replayed into the real run in order. */
     events: DraftEvent[];
@@ -1867,6 +1891,9 @@ class BrainStore {
       turnId?: string;
     } = {},
   ): SendResult {
+    // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
+    // never read by an approval, authority or permission check.
+    const hints = cleanTurnHints(rawOptions.turn);
     if (rawOptions.draft) {
       // A guess, not a turn: no tools, no approval, no memory, no history. Only a local or proven-free
       // model, and never a cloud model when privacy mode is on, the caller asked for local only, or the line
@@ -1875,7 +1902,12 @@ class BrainStore {
         rawOptions.onlyLocal === true || preferences.getSnapshot().voice.privacyMode === true;
       const started: DraftStart = looksSensitive(prompt)
         ? { started: false, reason: "sensitive" }
-        : this.beginDraft(prompt, onlyLocal);
+        : this.beginDraft(
+            prompt,
+            onlyLocal,
+            turnVoiceParts(hints, { voice: true, deliveryTags: true }),
+            hints !== null,
+          );
       return {
         accepted: started.started,
         reason: started.started ? "draft" : "draft-refused",
@@ -1905,9 +1937,6 @@ class BrainStore {
     };
     if (!text)
       return { accepted: false, reason: "empty", message: "I didn't catch anything.", ...refusal };
-    // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
-    // never read by an approval, authority or permission check.
-    const hints = cleanTurnHints(rawOptions.turn);
     if (needsClarification(hints)) {
       const now = Date.now();
       if (this.clarifiedAt === null || now - this.clarifiedAt >= CLARIFY_WINDOW_MS) {
@@ -1929,8 +1958,7 @@ class BrainStore {
         quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra?.trim()) }).ok &&
         canAsk();
       if (laneOk) {
-        const meta = context || carry.turnId ? { context, ...carry } : undefined;
-        void (meta ? this.answerQuick(text, surface, meta) : this.answerQuick(text, surface));
+        void this.answerQuick(text, surface, { context, turn: hints, ...carry });
         return { accepted: true, reason: "quick-lane", message: null, lane: "quick", ...carry };
       }
       if (rawOptions.lane === "quick") {
@@ -1943,12 +1971,11 @@ class BrainStore {
         ...refusal,
       };
     }
-    const languageLine = replyLanguageLine(
-      hints,
-      replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user",
-    );
     // A spoken turn also gets the voice-mode block (tone, pacing, pronunciation, variety).
-    const voiceBlock = surface === "voice" ? voiceModeBlock({ deliveryTags: true }) : "";
+    const { languageLine, voiceBlock } = turnVoiceParts(hints, {
+      voice: surface === "voice",
+      deliveryTags: true,
+    });
     const startOptions = {
       ...options,
       routingSurface: surface,
@@ -2626,7 +2653,7 @@ class BrainStore {
   private async answerQuick(
     text: string,
     surface: "voice" | "chat",
-    meta: { context?: string; turnId?: string } = {},
+    meta: { context?: string; turnId?: string; turn?: TurnHints | null } = {},
   ): Promise<void> {
     this.state.messages = [
       ...this.state.messages,
@@ -2638,7 +2665,7 @@ class BrainStore {
     try {
       reply = (
         await askFriday(text, {
-          system: quickSystem(meta.context),
+          system: quickSystem(meta.context, this.quickVoiceParts(meta, surface)),
           timeoutMs: 45_000,
           ephemeral: true,
         })
@@ -2668,6 +2695,26 @@ class BrainStore {
         /* a listener that throws must not break the thread */
       }
     }
+  }
+
+  /**
+   * The language line and the voice block of a quick-lane answer, outside the turn-facts cap. The reply is spoken
+   * as plain text, so no delivery tag is asked for; the line is left out when the caller's facts already hold it.
+   */
+  private quickVoiceParts(
+    meta: { context?: string; turn?: TurnHints | null },
+    surface: "voice" | "chat",
+  ): QuickVoiceParts {
+    const parts = turnVoiceParts(meta.turn ?? null, {
+      voice: surface === "voice",
+      deliveryTags: false,
+    });
+    return {
+      ...(parts.languageLine && !String(meta.context || "").includes(parts.languageLine)
+        ? { languageLine: parts.languageLine }
+        : {}),
+      ...(parts.voiceBlock ? { voiceBlock: parts.voiceBlock } : {}),
+    };
   }
 
   private historyForModel(runId: string): {
@@ -3124,12 +3171,19 @@ class BrainStore {
   /**
    * Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not.
    * `onlyLocal` is what a turn draft (the guess made on an eager end of turn) passes: the draft then reaches a
-   * local model alone, never a cloud one, whatever the registry holds; privacy mode forces the same.
+   * local model alone, never a cloud one, whatever the registry holds; privacy mode forces the same. `turn` is what
+   * the ear knew so far: the draft is written under the same reply-language line and voice block as the final turn.
    */
-  startDraft(prompt: string, options: { onlyLocal?: boolean } = {}): DraftStart {
+  startDraft(
+    prompt: string,
+    options: { onlyLocal?: boolean; turn?: Partial<TurnHints> } = {},
+  ): DraftStart {
     return (
-      this.send(prompt, { draft: true, ...(options.onlyLocal ? { onlyLocal: true } : {}) })
-        .draft ?? { started: false, reason: "empty" }
+      this.send(prompt, {
+        draft: true,
+        ...(options.onlyLocal ? { onlyLocal: true } : {}),
+        ...(options.turn ? { turn: options.turn } : {}),
+      }).draft ?? { started: false, reason: "empty" }
     );
   }
 
@@ -3142,13 +3196,19 @@ class BrainStore {
   adoptDraft(draftId: string, finalText: string, turn?: Partial<TurnHints>): boolean {
     const draft = this.draft;
     if (!draft || draft.id !== draftId) return false;
+    const finalHints = cleanTurnHints(turn);
     const expired = Date.now() - draft.startedAt >= DRAFT_TTL_MS;
     const privacyNow = preferences.getSnapshot().voice.privacyMode === true;
     if (
       expired ||
       // A line the ear was unsure of is asked about, not answered from a guess: the real turn decides.
-      needsClarification(cleanTurnHints(turn)) ||
+      needsClarification(finalHints) ||
       !sameTranscript(finalText, draft.handle.prompt) ||
+      // The draft was written for one reply language; a final turn that would answer in another throws it away.
+      (draft.hinted &&
+        turn !== undefined &&
+        draft.languageLine !==
+          turnVoiceParts(finalHints, { voice: true, deliveryTags: true }).languageLine) ||
       autonomy.getSnapshot().halted ||
       this.state.activeRunId ||
       this.state.approval ||
@@ -3221,7 +3281,12 @@ class BrainStore {
     }
   }
 
-  private beginDraft(prompt: string, onlyLocal: boolean): DraftStart {
+  private beginDraft(
+    prompt: string,
+    onlyLocal: boolean,
+    voice: QuickVoiceParts,
+    hinted: boolean,
+  ): DraftStart {
     const text = prompt.trim();
     const no = (reason: Extract<DraftStart, { started: false }>["reason"]): DraftStart => ({
       started: false,
@@ -3266,6 +3331,8 @@ class BrainStore {
       handle,
       startedAt: Date.now(),
       onlyLocal,
+      languageLine: voice.languageLine ?? "",
+      hinted,
       timer: setTimeout(() => this.discardDraft(id), DRAFT_TTL_MS),
       events: [],
       done: false,
@@ -3276,7 +3343,7 @@ class BrainStore {
         requestId: id,
         sessionId: id,
         prompt: text,
-        system: DRAFT_SYSTEM,
+        system: withVoiceParts(DRAFT_SYSTEM, voice),
         task: "chat",
         routeMode: contract.routeMode,
         routingContract: contract,

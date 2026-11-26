@@ -436,11 +436,16 @@ describe("source pins: the tags hold no authority", () => {
     return "";
   };
 
-  it("no source file except the Brain engine imports the hint rules", () => {
+  it("only the Brain engine imports the hint rules (the conductor reads only the language-line helper)", () => {
     const importers = walk(root)
       .filter((file) => /from\s+["'][^"']*brain\/turn-hints["']/.test(readFileSync(file, "utf8")))
       .map((file) => file.slice(root.length + 1).replaceAll("\\", "/"));
-    expect(importers).toEqual(["lib/friday/brain-engine.ts"]);
+    // The conductor reads one pure helper (the reply-language line it puts in a side question's facts); the
+    // hint rules themselves, the cleaning and the clarification, stay in the Brain engine alone.
+    expect(importers).toEqual(["lib/friday/assistant-mode.ts", "lib/friday/brain-engine.ts"]);
+    const conductor = readFileSync(join(root, "lib/friday/assistant-mode.ts"), "utf8");
+    expect(conductor.match(/from\s+["'][^"']*brain\/turn-hints["']/g)).toHaveLength(1);
+    expect(conductor).toMatch(/import \{ replyLanguageLine \} from "\.\/brain\/turn-hints";/);
   });
 
   it("no approval, authority, permission, consent or autonomy file mentions the hints", () => {
@@ -663,5 +668,143 @@ describe("lane and turnId are accepted and carried; a refusal is typed (L11)", (
   it("a quick lane asked while nothing runs is just a full turn", () => {
     const result = brain.send(QUESTION, { lane: "quick" });
     expect(result).toMatchObject({ accepted: true, reason: "accepted", lane: "full" });
+  });
+});
+
+describe("a draft and a quick-lane answer keep the reply language and the voice block (F3)", () => {
+  const HI_TURN = { lang: "hi" as const, mix: 0, confidence: 0.9 };
+  const HI_LINE = "Reply language for this turn: Hindi, written in Devanagari.";
+  const EN_TURN = { lang: "en" as const, mix: 0, confidence: 0.9 };
+  const systemOf = (index = sentChats.length - 1) => String(sentChats[index]?.["system"] ?? "");
+  afterEach(() => brain.setAutoMode(false));
+
+  it("a draft with the heard turn gets the language line and the voice block after DRAFT_SYSTEM", async () => {
+    const { DRAFT_SYSTEM } = await import("../../src/lib/friday/self/brain-draft");
+    const { voiceModeBlock } = await import("../../src/lib/friday/conversation-style");
+    expect(brain.startDraft(QUESTION, { turn: HI_TURN }).started).toBe(true);
+    const system = systemOf();
+    expect(system.startsWith(DRAFT_SYSTEM)).toBe(true);
+    expect(system).toContain(HI_LINE);
+    expect(system).toContain(voiceModeBlock({ deliveryTags: true }));
+    expect(system.indexOf(HI_LINE)).toBeLessThan(
+      system.indexOf("Voice mode (this reply is spoken)"),
+    );
+    expect(system.length).toBeLessThan(2000);
+  });
+
+  it("the turn option works through onlyLocal and through send(draft: true) alike", () => {
+    expect(brain.startDraft(QUESTION, { onlyLocal: true, turn: EN_TURN }).started).toBe(true);
+    expect(systemOf()).toContain("English, written in Latin script");
+    brain.discardDraft(String(sentChats[0]?.["requestId"]));
+    expect(brain.send(QUESTION, { draft: true, turn: HI_TURN }).accepted).toBe(true);
+    expect(systemOf()).toContain(HI_LINE);
+  });
+
+  it("a draft without a turn still gets the voice block and no language line", () => {
+    expect(brain.startDraft(QUESTION).started).toBe(true);
+    const system = systemOf();
+    expect(system).toContain("Voice mode (this reply is spoken)");
+    expect(system).not.toContain("Reply language for this turn");
+  });
+
+  it("a reply language pinned in Settings removes the language line from the draft", () => {
+    pinnedLanguage = "english";
+    expect(brain.startDraft(QUESTION, { turn: HI_TURN }).started).toBe(true);
+    expect(systemOf()).not.toContain("Reply language for this turn");
+  });
+
+  it("a draft turn carries no authority: it does not change the routing contract", () => {
+    brain.startDraft(QUESTION, { onlyLocal: true });
+    const plain = sentChats[0]!["routingContract"];
+    brain.discardDraft(String(sentChats[0]?.["requestId"]));
+    brain.startDraft(QUESTION, { onlyLocal: true, turn: HI_TURN });
+    expect(sentChats[1]!["routingContract"]).toEqual(plain);
+    expect(sentChats[1]!["routeMode"]).toBe("local-only");
+  });
+
+  it("adoption keeps the draft only when the final turn would have given the same language line", () => {
+    const draft = brain.startDraft(QUESTION, { turn: HI_TURN });
+    expect(draft.started).toBe(true);
+    const id = (draft as { draft: { draftId: string } }).draft.draftId;
+    // the final turn heard it as English: the draft was written for Hindi, so it is thrown away
+    expect(brain.adoptDraft(id, QUESTION, EN_TURN)).toBe(false);
+    expect(inner.draft).toBeNull();
+  });
+
+  it("adoption succeeds when the final turn carries the same hints, or none are given", () => {
+    const first = brain.startDraft(QUESTION, { turn: HI_TURN });
+    const firstId = (first as { draft: { draftId: string } }).draft.draftId;
+    expect(brain.adoptDraft(firstId, QUESTION, { ...HI_TURN, confidence: 0.8 })).toBe(true);
+    brain.stop("all");
+    inner.state.activeRunId = null;
+    const second = brain.startDraft(QUESTION, { turn: HI_TURN });
+    const secondId = (second as { draft: { draftId: string } }).draft.draftId;
+    expect(brain.adoptDraft(secondId, QUESTION)).toBe(true);
+  });
+
+  it("a draft made without a turn is adopted as before (the caller has not passed one yet)", () => {
+    const draft = brain.startDraft(QUESTION);
+    const id = (draft as { draft: { draftId: string } }).draft.draftId;
+    expect(brain.adoptDraft(id, QUESTION, HI_TURN)).toBe(true);
+  });
+
+  it("a draft that carried a language line is dropped when the final turn lost its language", () => {
+    const draft = brain.startDraft(QUESTION, { turn: HI_TURN });
+    const id = (draft as { draft: { draftId: string } }).draft.draftId;
+    expect(brain.adoptDraft(id, QUESTION, { confidence: 0.9 })).toBe(false);
+  });
+
+  it("the quick-lane model call on the voice surface carries the voice block and the language line", () => {
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, { routingSurface: "voice", turn: HI_TURN, context: "lang: hi" });
+    const system = systemOf();
+    expect(system).toContain("A longer task is running");
+    expect(system).toContain(HI_LINE);
+    expect(system).toContain("Voice mode (this reply is spoken)");
+    expect(system).toContain("lang: hi");
+  });
+
+  it("the quick-lane call on the chat surface gets no voice block", () => {
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, { routingSurface: "chat", turn: HI_TURN });
+    const system = systemOf();
+    expect(system).toContain(HI_LINE);
+    expect(system).not.toContain("Voice mode (this reply is spoken)");
+  });
+
+  it("the language line is not doubled when the caller's context already holds it", () => {
+    inner.state.activeRunId = "run-busy";
+    const full = replyLanguageLine(cleanTurnHints(HI_TURN), false);
+    brain.send(QUESTION, { routingSurface: "voice", turn: HI_TURN, context: full });
+    expect(systemOf().split(full)).toHaveLength(2);
+  });
+
+  it("a pinned language removes the line from the quick-lane call too", () => {
+    pinnedLanguage = "english";
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, { routingSurface: "voice", turn: HI_TURN });
+    expect(systemOf()).not.toContain("Reply language for this turn");
+  });
+
+  it("the whole quick-lane system text stays bounded even with a full 800 character context", () => {
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, {
+      routingSurface: "voice",
+      turn: { lang: "hi-en", mix: 0.5, confidence: 0.9 },
+      context: `facts\n${"x".repeat(2000)}`,
+    });
+    expect(systemOf().length).toBeLessThanOrEqual(2600);
+  });
+
+  it("a Devanagari question without a question mark takes the quick lane through send", () => {
+    inner.state.activeRunId = "run-busy";
+    expect(brain.send("क्या समय हुआ है", { routingSurface: "voice" })).toMatchObject({
+      accepted: true,
+      reason: "quick-lane",
+    });
+    // an order phrased as a question never does
+    expect(brain.send("क्या तुम फाइल डिलीट कर दोगे", { routingSurface: "voice" }).reason).not.toBe(
+      "quick-lane",
+    );
   });
 });

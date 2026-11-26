@@ -406,7 +406,15 @@ describe("wiring (source-pinned; the speaker cannot run here)", () => {
   });
 
   it("the voice-mode block describes the tags for a spoken turn only", () => {
-    expect(brain).toMatch(/surface === "voice" \? voiceModeBlock\(\{ deliveryTags: true \}\) : ""/);
+    // one helper builds the block, and only for a spoken surface
+    expect(brain).toMatch(
+      /options\.voice \? voiceModeBlock\(\{ deliveryTags: options\.deliveryTags \}\) : ""/,
+    );
+    // the full turn asks for the tags only on the voice surface; the quick lane never (its reply is stripped)
+    expect(brain).toMatch(
+      /turnVoiceParts\(hints, \{\s*voice: surface === "voice",\s*deliveryTags: true,?\s*\}\)/,
+    );
+    expect(brain).toMatch(/voice: surface === "voice",\s*deliveryTags: false,?\s*\}\)/);
     expect(brain).toMatch(/if \(surface === "voice"\) this\.voiceRuns\.add\(runId\)/);
     expect(brain).toMatch(/return this\.voiceRuns\.has\(runId\)/);
     expect(brain).toMatch(/stripDeliveryTags\(sight\.text\)/);
