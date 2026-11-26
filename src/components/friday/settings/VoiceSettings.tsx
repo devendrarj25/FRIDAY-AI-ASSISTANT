@@ -15,6 +15,12 @@ import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
 import { readEarsStats } from "@/lib/friday/voice-audio";
+import {
+  deleteVoiceDataFailure,
+  deleteVoiceDataOutcome,
+  ON_BY_DEFAULT_HINT,
+  type DeleteVoiceDataOutcome,
+} from "@/components/friday/settings/voice-settings-model";
 import { VoiceEarsSettings } from "@/components/friday/settings/VoiceEarsSettings";
 import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPickers";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
@@ -86,9 +92,36 @@ export function VoiceSettings() {
   const router = useRouter({ warn: false });
   const [busy, setBusy] = useState(false);
 
+  /** Asks, deletes the voiceprint and the audio caches, and tells the truth; a failure offers Retry. */
+  const deleteVoiceData = async (confirmed = false): Promise<void> => {
+    if (
+      !confirmed &&
+      !window.confirm("Delete your voiceprint and every saved voice sample on this PC?")
+    ) {
+      return;
+    }
+    const api = desktopApi();
+    let outcome: DeleteVoiceDataOutcome;
+    try {
+      outcome = deleteVoiceDataOutcome(api?.clearVoiceprint ? await api.clearVoiceprint() : null);
+    } catch (error) {
+      outcome = deleteVoiceDataFailure(error);
+    }
+    if (outcome.kind === "failed") {
+      toast.error(outcome.message, {
+        action: { label: "Retry", onClick: () => void deleteVoiceData(true) },
+      });
+      return;
+    }
+    toast.success(outcome.message);
+  };
+
   return (
     <div className="space-y-4">
       <FridayVoice />
+      <HudPanel title="FRIDAY voice (default)" hint="which local voice speaks">
+        <LocalVoicePicker />
+      </HudPanel>
       <HudPanel title="Voice & Wake Word" hint="used by auto mode in the title bar">
         <div className="grid gap-3 sm:grid-cols-2">
           <EditField
@@ -254,7 +287,14 @@ export function VoiceSettings() {
             onToggle={() => assistantMode.setHandsFree(!voice.handsFree)}
           />
           <ToggleRow
-            label="Mute microphone"
+            label="Mute voice and microphone"
+            hint="Stops her voice and closes the microphone until you unmute."
+            on={voice.muted}
+            onToggle={() => assistantMode.toggleMuted()}
+          />
+          <ToggleRow
+            label="Pause listening"
+            hint="The same pause as the tray: she stops listening until you resume."
             on={voice.paused}
             onToggle={() => assistantMode.setPaused(!voice.paused)}
           />
@@ -290,7 +330,6 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
-          <LocalVoicePicker />
           <ToggleRow
             label="Expressive speech"
             hint="A question rises, an apology softens, good news brightens, with short natural pauses between clauses. Small changes on top of your own voice settings. Off keeps the pace and pitch exactly as set."
@@ -427,7 +466,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Fast first clause (experimental)"
-            hint="Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. Off by default and not yet measured on a real speaker."
+            hint={`Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. ${ON_BY_DEFAULT_HINT}`}
             on={prefs.voice.fastFirstClause === true}
             onToggle={() =>
               preferences.setVoice({ fastFirstClause: prefs.voice.fastFirstClause !== true })
@@ -435,7 +474,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Play the local voice as raw samples (experimental)"
-            hint="Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. Off by default and not yet measured on a real speaker."
+            hint={`Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. ${ON_BY_DEFAULT_HINT}`}
             on={prefs.voice.pcmPlayback === true}
             onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
           />
@@ -536,11 +575,7 @@ export function VoiceSettings() {
           <button
             type="button"
             className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 text-left font-mono text-xs text-foreground"
-            onClick={() => {
-              const api = (window as unknown as { friday?: { clearVoiceprint?: () => void } })
-                .friday;
-              void api?.clearVoiceprint?.();
-            }}
+            onClick={() => void deleteVoiceData()}
           >
             <Trash2 className="size-3" aria-hidden="true" />
             Delete voice data

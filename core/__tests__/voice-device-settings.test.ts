@@ -443,7 +443,7 @@ describe("the screen: every row is wired to a real handler and a real state", ()
     expect(pickers).toContain("Noise suppression on the microphone");
     expect(pickers).toContain("Refresh devices");
     // The row the owner already had is still on the tray-pause path.
-    expect(settings).toContain('label="Mute microphone"');
+    expect(settings).toContain('label="Pause listening"');
     expect(settings).toContain("assistantMode.setPaused(!voice.paused)");
   });
 

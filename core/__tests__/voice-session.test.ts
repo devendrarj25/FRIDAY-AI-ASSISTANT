@@ -193,7 +193,7 @@ describe("the existing voice owners enforce that policy", () => {
 
   it("keeps the settings microphone control on the real pause path", () => {
     const settings = source("src/components/friday/settings/VoiceSettings.tsx");
-    expect(settings).toContain('label="Mute microphone"');
+    expect(settings).toContain('label="Pause listening"');
     expect(settings).toContain("assistantMode.setPaused(!voice.paused)");
     expect(settings).toContain("FRIDAY speaks only in Auto mode");
   });

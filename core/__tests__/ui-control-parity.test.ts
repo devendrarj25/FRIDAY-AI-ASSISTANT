@@ -43,6 +43,8 @@ export const RENAMES: Record<string, string> = {
   "Mute FRIDAY": "Mute: stops her voice and the microphone",
   "Unmute FRIDAY": "Unmute: brings her voice and the microphone back",
   "say “FRIDAY …”": "say your wake word …",
+  // Settings → Voice: the row on the tray pause is "Pause listening"; "Mute voice and microphone" is its own row on the mute store.
+  "Mute microphone": "Pause listening",
   "Speaker match threshold":
     "Speaker match bar (0.30 to 0.99; 0.75 is what your saved voice was measured at)",
 };

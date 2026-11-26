@@ -1149,7 +1149,13 @@ type DesktopApi = {
   }>;
   openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   voiceprintStatus?: () => Promise<{ ok?: boolean; enrolled?: boolean; reason?: string }>;
-  clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
+  clearVoiceprint?: () => Promise<{
+    ok?: boolean;
+    enrolled?: boolean;
+    removed?: number;
+    bytes?: number;
+    failed?: number;
+  }>;
   voiceEnrollStatus?: () => Promise<VoiceEnrollStatus>;
   voiceEnrollSaveSample?: (payload: {
     id: string;

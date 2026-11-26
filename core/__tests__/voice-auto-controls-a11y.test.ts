@@ -69,8 +69,8 @@ describe("Auto Mode controls (S8, S9, S10)", () => {
   });
 
   it("fault and status lines go through the plain-words map", () => {
-    expect(ui).toContain("plainFaultLine(voice.error, faultLang)");
-    expect(ui).toContain("plainFaultLine(voice.status, faultLang)");
+    expect(ui).toContain("plainFaultLine(voice.error, faultLang, faultContext(voice))");
+    expect(ui).toContain("plainFaultLine(voice.status, faultLang, faultContext(voice))");
   });
 });
 

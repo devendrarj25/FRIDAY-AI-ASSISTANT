@@ -33,6 +33,7 @@ import { useFridayLive } from "@/lib/friday/use-friday-live";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { cn } from "@/lib/utils";
 import { faultLanguage, plainFaultLine } from "@/lib/friday/mic-session";
+import type { MicState } from "@/lib/friday/voice-audio";
 import { pttActive, subscribePtt } from "@/lib/friday/push-to-talk";
 import { AutonomyDial } from "@/components/friday/AutonomyDial";
 import { rememberRun, voiceAutoGraph } from "@/lib/friday/flow-modes";
@@ -172,6 +173,18 @@ function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
 }
 
 type CaptionPanel = "diagnostics" | "pipeline" | null;
+
+/**
+ * The microphone class and whether FRIDAY is already retrying by herself, so a fault line names the real cause
+ * (the same retry rule as the mic fault panel in VoiceControlBar).
+ */
+function faultContext(voice: AssistantModeState): { micState?: MicState; healing: boolean } {
+  const state = voice.mic.state;
+  return {
+    ...(state !== "available" ? { micState: state } : {}),
+    healing: state === "device-offline" || state === "no-microphone",
+  };
+}
 
 /** Words for the mic chip's accessible name: what the microphone is doing. */
 function micState(voice: AssistantModeState): string {
@@ -387,7 +400,7 @@ export function AutoMode() {
         <span
           role="status"
           aria-live="polite"
-          aria-label={`Microphone ${micState(voice)}: ${plainFaultLine(voice.status, faultLang)}`}
+          aria-label={`Microphone ${micState(voice)}: ${plainFaultLine(voice.status, faultLang, faultContext(voice))}`}
           data-mic={micState(voice)}
           className={cn(
             "voice-mic-chip inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",
@@ -400,7 +413,7 @@ export function AutoMode() {
         >
           {voice.listening ? <Mic className="size-3 pulse-dot" /> : <MicOff className="size-3" />}
           {voice.muted ? "muted · " : ""}
-          {plainFaultLine(voice.status, faultLang)}
+          {plainFaultLine(voice.status, faultLang, faultContext(voice))}
         </span>
         <HudButton
           icon={Ear}
@@ -496,7 +509,9 @@ export function AutoMode() {
       <VoiceDownloadBar download={voice.download} />
       {voice.error ? (
         <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-ctl border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
-          <span className="min-w-0 break-words">{plainFaultLine(voice.error, faultLang)}</span>
+          <span className="min-w-0 break-words">
+            {plainFaultLine(voice.error, faultLang, faultContext(voice))}
+          </span>
           <button
             type="button"
             title="Fix voice"
@@ -627,7 +642,7 @@ export function AutoMode() {
               <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
                 {sessionNumbers}
                 <p className="shrink-0 text-right font-display text-xs font-bold uppercase tracking-[0.22em] text-primary glow-text">
-                  {plainFaultLine(voice.status, faultLang)}
+                  {plainFaultLine(voice.status, faultLang, faultContext(voice))}
                 </p>
               </div>
             </div>
