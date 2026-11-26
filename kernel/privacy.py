@@ -188,14 +188,37 @@ def _load_normaliser(path: Path) -> Callable[[Any], str] | None:
         return None
 
 
+_PLACEHOLDER = re.compile(r"\{\{([\w.]+)\}\}")
+_PLAIN_WORD = re.compile(r"[\w\u0900-\u097f]+")
+
+
+def _expand_pattern(pattern: str, table: dict[str, Any]) -> str:
+    """Fill each {{name}} of a row pattern: {{words.list}} is a word list joined with |, any other name a
+    piece from ``fragments``. An unknown name or a word that is not a plain word raises, so the loader fails closed."""
+    parts: dict[str, str] = dict(table.get("fragments", {}))
+    for name, words in table.get("words", {}).items():
+        if not all(_PLAIN_WORD.fullmatch(word) for word in words):
+            raise ValueError(f"not a plain word in {name}")
+        parts[f"words.{name}"] = "|".join(words)
+    text = pattern
+    for _ in range(8):
+        if "{{" not in text:
+            return text
+        text = _PLACEHOLDER.sub(lambda match: parts[match.group(1)], text)
+    raise ValueError("fragments nest too deep")
+
+
 def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
     try:
-        rows = json.loads(path.read_text(encoding="utf-8"))["markers"]
+        table = json.loads(path.read_text(encoding="utf-8"))
+        rows = table["markers"]
         signals = tuple(
             {
                 "level": "sensitive",
                 "label": str(row["label"]),
-                "re": re.compile(str(row["pattern"]), re.I if "i" in str(row.get("flags", "")) else 0),
+                "re": re.compile(
+                    _expand_pattern(str(row["pattern"]), table), re.I if "i" in str(row.get("flags", "")) else 0
+                ),
                 "folded": True,
             }
             for row in rows

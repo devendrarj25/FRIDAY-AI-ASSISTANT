@@ -36,6 +36,67 @@ class SharedLinesTests(unittest.TestCase):
         self.assertEqual(privacy.classify(text)["level"], "sensitive")
 
 
+SECRETS = ("password", "pin", "otp", "cvv", "passcode", "paasword", "पासवर्ड", "पासकोड", "ओटीपी", "सीवीवी", "पिन")
+VALUES = ("hunter", "हंटर", "sunshine", "सनशाइन", "nine one two", "ek do teen", "12", "abcd1234")
+ORDERS = (
+    lambda s, v: f"{s} hai {v}",
+    lambda s, v: f"{s} है {v}",
+    lambda s, v: f"mera {s} {v} hai",
+    lambda s, v: f"{s} {v} है",
+)
+CLOSED_ORDERS = (
+    lambda s, w: f"{s} hai {w}",
+    lambda s, w: f"{s} {w} hai",
+    lambda s, w: f"mera {s} {w} है",
+)
+
+
+class ValueRuleTests(unittest.TestCase):
+    """Any value after or before है / hai is a secret; a question, filler or stop word is not."""
+
+    def test_generated_lines_agree_with_the_desktop_firewall_and_renderer(self):
+        wrong = []
+        for secret in SECRETS:
+            for value in VALUES:
+                for order in ORDERS:
+                    line = order(secret, value)
+                    if privacy.classify(line)["level"] != "sensitive":
+                        wrong.append(f"sensitive: {line}")
+            for word in TABLE["words"]["closed"]:
+                for order in CLOSED_ORDERS:
+                    line = order(secret, word)
+                    if privacy.classify(line)["level"] == "sensitive":
+                        wrong.append(f"ordinary: {line}")
+        self.assertEqual(wrong, [])
+
+    def test_the_closed_lists_are_data_in_the_table(self):
+        for word in ("kya", "kab", "kaise", "manager", "reset", "bhool", "क्या", "कैसे", "रीसेट", "भूल", "याद"):
+            self.assertIn(word, TABLE["words"]["closed"])
+        for word in ("mera", "hai", "aur", "है", "में", "वह"):
+            self.assertIn(word, TABLE["words"]["stop"])
+        source = (KERNEL / "privacy.py").read_text("utf-8")
+        for needle in ("kaise", "manager", "tareeka", "chhah"):
+            self.assertNotIn(needle, source)
+
+    def test_an_unknown_placeholder_or_a_non_word_list_fails_closed(self):
+        import tempfile
+
+        row = {"label": "x", "pattern": "\\b(?:{{words.a}})\\b", "flags": "i"}
+        bad_tables = (
+            {"markers": [row], "words": {"a": ["ok|.*"]}},
+            {"markers": [row], "words": {}},
+            {"markers": [{**row, "pattern": "{{nope}}"}]},
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            for body in bad_tables:
+                table = Path(folder) / "table.json"
+                table.write_text(json.dumps(body), encoding="utf-8")
+                self.assertEqual(privacy._load_markers(table)[0]["label"], privacy.MARKERS_MISSING_LABEL, body)
+            table = Path(folder) / "good.json"
+            table.write_text(json.dumps({"markers": [row], "words": {"a": ["ok", "kya"]}}), encoding="utf-8")
+            self.assertEqual(privacy._load_markers(table)[0]["label"], "x")
+
+
 class NormaliseTests(unittest.TestCase):
     def test_every_shared_normalise_case(self):
         for text, expected in FIXTURE["normalise"]:

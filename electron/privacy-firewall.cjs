@@ -123,13 +123,37 @@ const FAIL_CLOSED = [
   { level: "sensitive", label: MARKERS_MISSING_LABEL, test: (text) => String(text).trim() !== "" },
 ];
 
+/**
+ * A row pattern may hold {{name}} placeholders: {{words.list}} is a word list of the table joined
+ * with |, any other name a piece from its `fragments`. An unknown name or a word that is not a
+ * plain word throws, so the loader fails closed.
+ */
+function expandPattern(pattern, table) {
+  const parts = { ...(table.fragments || {}) };
+  for (const [name, list] of Object.entries(table.words || {})) {
+    for (const word of list) {
+      if (!/^[\w\u0900-\u097f]+$/.test(word)) throw new Error(`not a plain word: ${word}`);
+    }
+    parts[`words.${name}`] = list.join("|");
+  }
+  let text = String(pattern);
+  for (let depth = 0; depth < 8 && text.includes("{{"); depth += 1) {
+    text = text.replace(/\{\{([\w.]+)\}\}/g, (_match, name) => {
+      if (typeof parts[name] !== "string") throw new Error(`unknown fragment: ${name}`);
+      return parts[name];
+    });
+  }
+  if (text.includes("{{")) throw new Error("fragments nest too deep");
+  return text;
+}
+
 function loadMarkerSignals(table) {
   try {
     const rows = table && Array.isArray(table.markers) ? table.markers : [];
     const signals = rows.map((row) => ({
       level: "sensitive",
       label: String(row.label),
-      re: new RegExp(String(row.pattern), String(row.flags || "")),
+      re: new RegExp(expandPattern(row.pattern, table), String(row.flags || "")),
       folded: true,
     }));
     return signals.length ? signals : FAIL_CLOSED;

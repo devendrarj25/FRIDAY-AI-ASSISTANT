@@ -15,12 +15,34 @@ export { meaningsDisagree };
 const CHATTER = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|hmm+|lol)\b/i;
 
 /**
+ * A row pattern may hold {{name}} placeholders: {{words.list}} is a word list of the table joined
+ * with |, any other name a piece from its `fragments`; the other readers expand them the same way.
+ */
+function expandPattern(pattern: string): string {
+  const parts: Record<string, string> = { ...markerTable.fragments };
+  for (const [name, list] of Object.entries(markerTable.words)) {
+    parts[`words.${name}`] = list.join("|");
+  }
+  let text = pattern;
+  for (let depth = 0; depth < 8 && text.includes("{{"); depth += 1) {
+    text = text.replace(/\{\{([\w.]+)\}\}/g, (_match, name: string) => {
+      const part = parts[name];
+      if (part === undefined) throw new Error(`unknown sensitive-marker fragment: ${name}`);
+      return part;
+    });
+  }
+  return text;
+}
+
+/**
  * The SENSITIVE text markers (English, Hindi, Hinglish) are ONE table,
  * `config/sensitive-markers.json`, read here, by `electron/privacy-firewall.cjs` and by
  * `kernel/privacy.py`. The renderer keeps no copy, so it never stores credential-like
  * text as memory even when it cannot load the main-process module.
  */
-const SENSITIVE_MARKERS = markerTable.markers.map((row) => new RegExp(row.pattern, row.flags));
+const SENSITIVE_MARKERS = markerTable.markers.map(
+  (row) => new RegExp(expandPattern(row.pattern), row.flags),
+);
 
 /**
  * Speech-to-text writes a secret as people say it ("O T P", a Devanagari digit, "pass word").
