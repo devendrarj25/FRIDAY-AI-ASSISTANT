@@ -2689,7 +2689,13 @@ def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]
 
     # With the owner's words in play, the ear's own CTC head is biased toward them while decoding; with none, or when
     # the head is not exposed, today's reader answers unchanged (``with_ctc_bias`` falls back by itself).
-    return with_ctc_bias(read, hotwords) if hotwords else read
+    def gate(text: str, confidence: float | None) -> bool:
+        """The plain reader's own checks (the ear's confidence floor, then the noise gate) on a CTC reading."""
+        return not hindi_ear.confident("hi", confidence) or bool(
+            stream_text_dropped(text, confidence=confidence, language="hi")
+        )
+
+    return with_ctc_bias(read, hotwords, gate=gate) if hotwords else read
 
 
 class WhisperStreamReader:
@@ -2758,6 +2764,8 @@ def _whisper_stream_dir() -> Path | None:
     """The resident model, when there is one fast enough for live words (the same rule as ``transcribe_live``)."""
     if _model is None or (is_heavy_model(_model_name) and _device_name == "cpu"):
         return None
+    if whisper_ears.is_trelis_path(_model_name):
+        return None  # the bare Trelis model has no marker prompt: ``transcribe_live`` refuses it for the same reason
     return Path(cache_dir()) / (_model_name or "whisper")
 
 

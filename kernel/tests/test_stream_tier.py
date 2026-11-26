@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
@@ -185,6 +186,15 @@ def test_the_whisper_ear_needs_a_resident_fast_model(monkeypatch):
     assert stt._whisper_stream_dir() is not None
 
 
+def test_the_whisper_ear_never_streams_the_bare_trelis_model(monkeypatch):
+    trelis = stt.whisper_ears.TRELIS_ID + "/" + stt.whisper_ears.TRELIS_SUBDIR
+    monkeypatch.setattr(stt, "_model", object())
+    monkeypatch.setattr(stt, "_device_name", "cuda")
+    monkeypatch.setattr(stt, "_model_name", str(Path("models") / trelis))
+    assert stt.whisper_ears.is_trelis_path(stt._model_name)
+    assert stt._whisper_stream_dir() is None  # no marker prompt: the live ear must not decode with it
+
+
 def test_the_hindi_stream_reader_snaps_the_owners_words(monkeypatch):
     heard = {"words": [{"text": "देवेंदर", "start": 0.0, "end": 0.5}], "confidence": None}
     monkeypatch.setattr(stt.hindi_ear, "transcribe_words", lambda window: heard)
@@ -192,6 +202,46 @@ def test_the_hindi_stream_reader_snaps_the_owners_words(monkeypatch):
     assert [w.text for w in read([0.0] * 16000, "")] == ["देवेंद्र"]
     monkeypatch.setattr(stt.hindi_ear, "transcribe_words", lambda window: None)
     assert read([0.0] * 16000, "") == []
+
+
+_EAR_PIECES = ["<blk>", "\u2581de", "\u2581di", "vendra", "dra", "\u2581call"]
+
+
+def _ctc_ear(monkeypatch, rows):
+    """The Hindi ear exposes its CTC head and these frames: rows of {piece id: probability}."""
+    probs = np.full((len(rows), len(_EAR_PIECES)), 1e-4)
+    for t, row in enumerate(rows):
+        for token, p in row.items():
+            probs[t, token] = p
+    probs /= probs.sum(axis=1, keepdims=True)
+    monkeypatch.setattr(stt.hindi_ear, "ctc_head", lambda: (_EAR_PIECES, 0.08))
+    monkeypatch.setattr(stt.hindi_ear, "log_probs", lambda window: (np.log(probs), _EAR_PIECES, 0.08))
+    monkeypatch.setattr(stt.hindi_ear, "transcribe_words", lambda window: None)
+
+
+_SURE = [{5: 0.95}, {0: 0.95}, {1: 0.95}, {3: 0.95}, {0: 0.95}]
+_UNSURE = [{5: 0.3, 1: 0.25, 2: 0.25}, {0: 0.9}, {1: 0.3, 2: 0.3, 3: 0.2}, {0: 0.9}]
+
+
+def test_the_ctc_path_keeps_the_noise_and_unsure_gate_when_hotwords_are_set(monkeypatch):
+    _ctc_ear(monkeypatch, _UNSURE)
+    read = stt._hindi_stream_reader(Path(), TurnLanguage("hi"), ["devendra"])
+    assert read([0.0] * 16000, "") == []  # the same floor as the plain reader: the bias only helps recall
+    _ctc_ear(monkeypatch, _SURE)
+    monkeypatch.setattr(stt, "stream_text_dropped", lambda text, **kw: "no-speech")
+    assert read([0.0] * 16000, "") == []  # the same text gate as the plain reader
+
+
+def test_the_ctc_path_still_answers_a_sure_window_and_no_hotwords_is_unchanged(monkeypatch):
+    _ctc_ear(monkeypatch, _SURE)
+    read = stt._hindi_stream_reader(Path(), TurnLanguage("hi"), ["devendra"])
+    assert [w.text for w in read([0.0] * 16000, "")] == ["call", "devendra"]
+    heard = {"text": "नमस्ते", "words": [{"text": "नमस्ते", "start": 0.0, "end": 0.5}], "confidence": -0.9}
+    monkeypatch.setattr(stt.hindi_ear, "transcribe_words", lambda window: heard)
+    plain = stt._hindi_stream_reader(Path(), TurnLanguage("hi"), [])
+    assert plain([0.0] * 16000, "") == []  # unsure: the plain reader's own gate, unchanged
+    heard["confidence"] = -0.1
+    assert [w.text for w in plain([0.0] * 16000, "")] == ["नमस्ते"]
 
 
 def test_the_hardware_probe_reads_memory_and_device(monkeypatch):

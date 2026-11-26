@@ -251,3 +251,31 @@ def test_the_seam_reader_drives_the_partials_like_any_other_reader():
         la2.push(np.zeros(int(0.25 * RATE), dtype=np.float32))
     assert la2.readings >= 2
     assert la2.finalize().text.split()[:2] == ["call", "devendra"]
+
+
+def test_the_ctc_reader_reports_the_mean_log_probability_of_the_tokens_it_emitted():
+    lp = _frames([{5: 0.9}, {0: 0.9}])
+    reader = CtcChunkReader(lambda audio: lp, PIECES, frame_s=0.08)
+    assert reader.last_confidence is None
+    reader(None)
+    assert reader.last_confidence == pytest.approx(float(lp[0, 5]))
+    reader.log_probs = lambda audio: np.zeros((0, len(PIECES)))
+    reader(None)
+    assert reader.last_confidence is None
+
+
+def test_the_seam_gate_can_drop_a_ctc_window_and_an_open_gate_changes_nothing():
+    from la2_partials import with_ctc_bias
+
+    lp = _ear_frames([{5: 0.9}, {0: 0.9}, {1: 0.45, 2: 0.5}, {3: 0.45, 4: 0.5}, {0: 0.9}])
+    seen: list[tuple[str, float | None]] = []
+
+    def gate(text, confidence):
+        seen.append((text, confidence))
+        return True
+
+    gated = with_ctc_bias(_fallback, ["devendra"], FakeEar(lp), gate=gate)
+    assert gated(None, "") == []
+    assert seen and seen[0][0] == "call devendra" and seen[0][1] is not None
+    open_gate = with_ctc_bias(_fallback, ["devendra"], FakeEar(lp), gate=lambda text, confidence: False)
+    assert [w.text for w in open_gate(None, "")] == ["call", "devendra"]

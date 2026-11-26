@@ -401,12 +401,14 @@ class CtcChunkReader:
             raise ValueError("frame_s must be positive")
         self.log_probs, self.pieces, self.frame_s = log_probs, list(pieces), frame_s
         self.blank_id, self.beam_width, self.word_mark = blank_id, beam_width, word_mark
+        self.last_confidence: float | None = None  # mean log probability of the tokens the last window emitted
         vocab = {piece: i for i, piece in enumerate(self.pieces) if i != blank_id}
         self.trie = trie_for_words(list(hotwords), vocab, word_mark=word_mark) if hotwords else None
 
     def __call__(self, audio: Any, prompt: str = "") -> list[Word]:
         from ctc_decode import ctc_greedy, ctc_prefix_beam
 
+        self.last_confidence = None
         lp = self.log_probs(audio)
         frames = int(getattr(lp, "shape", (0,))[0])
         if frames == 0:
@@ -416,6 +418,9 @@ class CtcChunkReader:
         if not tokens:
             return []
         greedy = ctc_greedy(lp, self.blank_id)
+        if greedy.tokens:
+            scores = [float(lp[frame][token]) for token, frame in zip(greedy.tokens, greedy.frames, strict=True)]
+            self.last_confidence = sum(scores) / len(scores)
         if len(greedy.tokens) == len(tokens):
             at = list(greedy.frames)  # the same number of tokens: the greedy path times the beam's choice
         else:
@@ -437,11 +442,20 @@ class CtcChunkReader:
         return out
 
 
-def with_ctc_bias(fallback: Reader, hotwords: Sequence[str] = (), ear: Any = None, *, beam_width: int = 8) -> Reader:
+def with_ctc_bias(
+    fallback: Reader,
+    hotwords: Sequence[str] = (),
+    ear: Any = None,
+    *,
+    beam_width: int = 8,
+    gate: Callable[[str, float | None], bool] | None = None,
+) -> Reader:
     """The one seam from the Hindi ear to the chunked CTC reader: a reader that decodes the ear's own log probabilities
     with the owner's hotwords as a trie bias, and reads with ``fallback`` (today's reader) whenever the ear does not
     expose its CTC head, cannot be run, or hears no log probabilities for a window. ``ear`` is a module with
-    ``ctc_head()`` and ``log_probs(audio)`` (``hindi_ear`` by default)."""
+    ``ctc_head()`` and ``log_probs(audio)`` (``hindi_ear`` by default). ``gate(text, confidence)`` is the caller's
+    noise and unsure check on a CTC reading (``confidence`` is the mean log probability of its tokens): True drops the
+    window, so the bias can only help recall and never skips a gate the plain reader has."""
     if ear is None:
         import hindi_ear
 
@@ -467,8 +481,11 @@ def with_ctc_bias(fallback: Reader, hotwords: Sequence[str] = (), ear: Any = Non
 
     def read(window: Any, prompt: str) -> Sequence[Any]:
         try:
-            return ctc(window, prompt)
+            words = ctc(window, prompt)
         except Exception:  # noqa: BLE001 — a window the CTC path cannot read is read the way it was before
             return fallback(window, prompt)
+        if gate is not None and words and gate(" ".join(w.text for w in words), ctc.last_confidence):
+            return []
+        return words
 
     return read
