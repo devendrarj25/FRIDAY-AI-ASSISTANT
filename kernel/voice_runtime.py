@@ -182,11 +182,13 @@ def _tts_facts(directory: Path | None) -> tuple[bool, int, str, int]:
         import friday_voice
         import voice_persona
 
-        if not friday_voice.complete(directory) or importlib.util.find_spec("onnxruntime") is None:
+        held = _engine if _engine_dir == str(directory) else None
+        opened = held is not None  # an open engine needs no file check
+        if not opened and (not friday_voice.complete(directory) or importlib.util.find_spec("onnxruntime") is None):
             return False, 0, SUPERTONIC_VOICE, 0
         rate = 0
-        if _engine is not None and _engine_dir == str(directory):
-            rate = int(_engine.sample_rate)
+        if opened:
+            rate = int(held.sample_rate)
         else:
             try:
                 rate = int(
@@ -199,17 +201,49 @@ def _tts_facts(directory: Path | None) -> tuple[bool, int, str, int]:
         return False, 0, SUPERTONIC_VOICE, 0
 
 
-def tts_status() -> dict:
+_PATH_LIKE = re.compile(r"(?:[A-Za-z]:)?[\\/][^\s'\"),;]*")
+_SECRET_LIKE = re.compile(r"\b[A-Za-z0-9_-]{24,}\b")
+ERROR_CHARS = 120
+
+
+def _safe_error(exc: BaseException) -> str:
+    """A short, shareable line for an engine error: the class and a message with paths and long tokens blanked."""
+    message = _SECRET_LIKE.sub("<redacted>", _PATH_LIKE.sub("<path>", str(exc)))
+    return f"{type(exc).__name__}: {message[:ERROR_CHARS]}".strip()
+
+
+def _engine_state(directory: Path | None) -> str:
+    """``stopped`` after too many failures, ``ready`` while the own engine is open here, ``failing`` between, else
+    ``idle`` (not opened yet). A cold process only ever knows ``idle``; the running worker knows the rest."""
+    if _engine_failures >= ENGINE_MAX_FAILURES:
+        return "stopped"
+    if _engine is not None and directory is not None and _engine_dir == str(directory):
+        return "failing" if _engine_failures else "ready"
+    return "failing" if _engine_failures else "idle"
+
+
+def tts_status(live: bool = False) -> dict:
+    """The voice section of the status. ``live`` is true only when the running worker answers: its failure count,
+    engine state and last error are then the real ones; a fresh ``--status`` process says ``live: false``."""
     directory = supertonic_dir()
     ready = directory is not None
     own, rate, voice_id, recipe = _tts_facts(directory)
+    last = f" Last error: {_engine_error}" if _engine_error else ""
     if not ready:
         reason = LOCAL_TTS_REASON
     elif not own and _engine_failures >= ENGINE_MAX_FAILURES:
-        reason = f"The FRIDAY voice engine stopped after {ENGINE_MAX_FAILURES} failures; the Supertonic package speaks."
+        reason = (
+            f"The FRIDAY voice engine stopped after {ENGINE_MAX_FAILURES} failures; "
+            f"the Supertonic package speaks.{last}"
+        )
+    elif _engine_failures and _engine_error:
+        reason = f"The FRIDAY voice engine failed ({_engine_failures} in a row). {_engine_error}"
     else:
         reason = ""
     return {
+        "live": live,
+        "failures": _engine_failures,
+        "engineState": _engine_state(directory),
         "ready": ready,
         "engine": "friday-voice" if own else ("supertonic-3" if ready else "none"),
         "own": own,
@@ -317,7 +351,7 @@ def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> d
     }
 
 
-def status() -> dict:
+def status(live: bool = False) -> dict:
     silero = find_named(SILERO_NAME)
     vad = {
         "engine": "silero-onnx" if silero else "energy",
@@ -330,7 +364,7 @@ def status() -> dict:
     return {
         "ok": True,
         "boot": "ready",
-        "tts": tts_status(),
+        "tts": tts_status(live),
         "vad": vad,
         "turn": {
             "ready": turn is not None,
@@ -477,6 +511,13 @@ class _RenderNote(threading.local):
     None when it made none (another engine spoke, or nothing yet), so a reply never carries the wrong clip's data."""
 
     info: tuple[int, list[dict]] | None = None
+    engine = ""  # which engine made the last clip: friday-voice or supertonic-3
+    fallback = ""  # why it was the fallback (a short token), or ""
+
+
+class VoiceEngineFailed(Exception):
+    """FRIDAY Voice could not make a clause of an utterance it already speaks in. The voice must not change in the
+    middle of a reply, so the clause fails and the renderer's own fallback speaks the rest. ``str`` is the error."""
 
 
 _render_note = _RenderNote()
@@ -488,6 +529,9 @@ class _Utterance:
 
     def __init__(self) -> None:
         self.chains: dict[tuple[str, tuple[tuple[str, float], ...]], Any] = {}
+        self.active: Any = None  # the chain that made the last clause: its state moves to the next one
+        self.fallback = ""  # why the package speaks it, when it does
+        self.voice = ""  # "friday" once FRIDAY Voice spoke a clause of it, "package" once the package had to
 
 
 _utterances: OrderedDict[str, _Utterance] = OrderedDict()
@@ -556,7 +600,51 @@ def _utterance_state(utt: str) -> _Utterance:
     return state
 
 
+_BIQUAD_STATE = ("x1", "x2", "y1", "y2")
+_GAIN_STATE = ("pos", "energy", "smooth", "gain_before", "gain_after")
+
+
+def _sections(chain: Any) -> list[tuple[tuple, Any, tuple[str, ...]]]:
+    """The stateful sections of a finishing chain as (what they are, the section, its state names). Two sections
+    with the same signature are the same filter or gain, wherever they sit in the chain."""
+    found: list[tuple[tuple, Any, tuple[str, ...]]] = []
+    biquads = list(chain._filters)  # noqa: SLF001 - the chain has no public view of its sections
+    if chain._ess_band is not None:  # noqa: SLF001
+        biquads.append(chain._ess_band)  # noqa: SLF001
+    for stage in biquads:
+        found.append((("biquad", stage.b.tobytes(), stage.a.tobytes()), stage, _BIQUAD_STATE))
+    for name, gain in (("comp", chain._comp), ("ess", chain._ess)):  # noqa: SLF001
+        if gain is not None:
+            sig = (name, gain.hop, gain.attack, gain.release, gain.threshold_db, gain.ratio, gain.knee_db)
+            found.append(((*sig, gain.max_reduction_db), gain, _GAIN_STATE))
+    return found
+
+
+def _carry_state(source: Any, target: Any) -> None:
+    """Hand the state of every section of ``source`` that ``target`` also has to ``target``; a section only the target
+    has (a new tone band) starts clean. This is what keeps a clause that adds or drops a mood band seamless."""
+    pool = _sections(source)
+    for sig, stage, names in _sections(target):
+        for index, (old_sig, old, _names) in enumerate(pool):
+            if old_sig == sig:
+                for name in names:
+                    setattr(stage, name, getattr(old, name))
+                del pool[index]
+                break
+
+
 def _chain_for(state: _Utterance, persona: Any, fx_delta: dict[str, float], rate: int) -> Any:
+    """The chain for this clause's tone bands. A change of bands is a different chain, and it takes over the state of
+    the sections it shares with the chain that spoke last, so nothing restarts at the seam."""
+    chain = _chain_made(state, persona, fx_delta, rate)
+    previous = state.active
+    if previous is not None and previous is not chain and previous.sample_rate == chain.sample_rate:
+        _carry_state(previous, chain)
+    state.active = chain
+    return chain
+
+
+def _chain_made(state: _Utterance, persona: Any, fx_delta: dict[str, float], rate: int) -> Any:
     import copy
 
     import voice_fx
@@ -686,21 +774,34 @@ def _render_friday(engine: Any, spoken: str, speed: float, lang: str, style: str
 
 
 def _speak_friday(spoken: str, speed: float, lang: str, style: str, stop: Any, opts: SpeakOptions):
-    """FRIDAY Voice's answer: (array, rate), or None when the engine is absent or raised (the caller falls back)."""
+    """FRIDAY Voice's answer: (array, rate), or None when the engine is absent or raised (the caller decides).
+
+    A request of an utterance gets one more try on the engine before it counts as failed: a hiccup of one clause
+    must not change the voice of the reply. The reason it gave up is left in ``_render_note.fallback``."""
     global _engine_failures, _engine_error
     engine = _friday_engine()
     if engine is None:
+        _render_note.fallback = "friday-voice-unavailable"
         return None
-    try:
-        made = _render_friday(engine, spoken, speed, lang, style, stop, opts)
-    except SpeechCancelled:
-        raise
-    except Exception as exc:  # noqa: BLE001 - any engine error is the old path's turn
-        _engine_failures += 1
-        _engine_error = f"{type(exc).__name__}: {str(exc)[:120]}"
-        return None
-    _engine_failures = 0
-    return made
+    for _attempt in range(2 if opts.utt else 1):
+        try:
+            made = _render_friday(engine, spoken, speed, lang, style, stop, opts)
+        except SpeechCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - any engine error is the caller's decision
+            _engine_failures += 1
+            _engine_error = _safe_error(exc)
+            _render_note.fallback = "engine-failed"
+            if _engine_failures >= ENGINE_MAX_FAILURES:
+                break
+            continue
+        _engine_failures = 0
+        _engine_error = ""
+        _render_note.engine, _render_note.fallback = "friday-voice", ""
+        if opts.utt:
+            _utterance_state(opts.utt).voice = "friday"
+        return made
+    return None
 
 
 def _speak_supertonic(spoken: str, speed: float, lang: str, style: str, stop: Any):
@@ -752,14 +853,32 @@ def _speak_array(
     that leaves this function).
     """
     spoken = (text or "").strip()
+    _render_note.engine, _render_note.fallback = "", ""
     if not spoken:
         return None
     if supertonic_dir() is None:
         return None
-    made = _speak_friday(spoken, speed, lang, style, stop, opts or SpeakOptions())
+    options = opts or SpeakOptions()
+    held = _utterances.get(options.utt) if options.utt else None
+    voice = held.voice if held is not None else ""
+    if voice != "package":
+        made = _speak_friday(spoken, speed, lang, style, stop, options)
+        if made is not None:
+            return made if made[0].size else None
+        if voice == "friday":  # this reply already speaks in FRIDAY Voice: the voice never changes inside it
+            raise VoiceEngineFailed(_engine_error or "engine unavailable")
+    elif held is not None:
+        _render_note.fallback = held.fallback
+    if options.utt:  # one voice for the whole utterance: every later clause of it uses the package too
+        chosen = _utterance_state(options.utt)
+        chosen.voice, chosen.fallback = "package", _render_note.fallback
+    # The package reads the words only: it would speak the tag names of a tagged text.
+    import tts_delivery
+
+    made = _speak_supertonic(tts_delivery.strip(spoken), speed, lang, style, stop)
     if made is not None:
-        return made if made[0].size else None
-    return _speak_supertonic(spoken, speed, lang, style, stop)
+        _render_note.engine = "supertonic-3"
+    return made
 
 
 def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> bytes | None:
@@ -1391,12 +1510,36 @@ def _speak_options(req: dict, utt: str) -> SpeakOptions | None:
     return SpeakOptions(utt=utt, trusted=trusted, first=first, pause_ms=pause)
 
 
+def _voice_facts(engine: str, style: str) -> dict:
+    """The stable identity fields of a ``speak-pcm`` reply: which engine spoke, whether it is FRIDAY's own, the voice
+    id and the recipe version (0 for an engine without a recipe). The Electron side reads these names."""
+    own = engine == "friday-voice"
+    recipe = 0
+    if own:
+        try:
+            import voice_persona
+
+            recipe = int(voice_persona.RECIPE_VERSION)
+        except Exception:  # noqa: BLE001 - an identity field never fails a reply
+            recipe = 0
+    return {
+        "engine": engine,
+        "own": own,
+        "voiceId": persona_name(style) if own else voice_style_name(style),
+        "recipeVersion": recipe,
+    }
+
+
 def speak_pcm_payload(req: dict) -> dict:
     """Reply body of the ``speak-pcm`` worker op: base64 int16 PCM, nothing on disk, no cache.
 
-    ``engine`` is optional. Without it, or with ``supertonic``, the reply is exactly what it always was.
-    ``hindi-light`` asks for the light Hindi voice; it speaks only when installed, for Devanagari-only Hindi, and
-    otherwise (or when it fails) Supertonic speaks the same text and the reply says which engine did and why.
+    Every reply says which ``engine`` spoke (``friday-voice``, ``supertonic-3`` or ``hindi-light``), whether it is
+    FRIDAY's ``own`` voice, its ``voiceId`` and ``recipeVersion``, and carries ``fallback`` (a short reason token)
+    only when it came from a fallback path. A request with an utterance id never changes voice in the middle of a
+    reply: a clause FRIDAY Voice cannot make fails with ``engine-failed`` (and ``detail``), and the renderer's own
+    fallback speaks the rest. A request without an id falls back whole to the package and the reply says so.
+    ``engine`` in the request is optional: ``hindi-light`` asks for the light Hindi voice; it speaks only when
+    installed, for Devanagari-only Hindi, and otherwise Supertonic or FRIDAY Voice speaks the same text.
     """
     import base64
     import time
@@ -1420,6 +1563,7 @@ def speak_pcm_payload(req: dict) -> dict:
         speed = 1.0
     started = time.perf_counter()
     _render_note.info = None
+    _render_note.engine, _render_note.fallback = "", ""
     lang = str(req.get("lang") or "")
     style = str(req.get("style") or "")
     asked = str(req.get("engine") or "").strip().lower()
@@ -1445,11 +1589,22 @@ def speak_pcm_payload(req: dict) -> dict:
             return {"ok": False, "reason": "cancelled", **tag}
     except SpeechCancelled:
         return {"ok": False, "reason": "cancelled", **tag}
+    except VoiceEngineFailed as exc:
+        return {
+            "ok": False,
+            "reason": "engine-failed",
+            "detail": str(exc),
+            **_voice_facts("friday-voice", style),
+            **tag,
+        }
     if made is None:
         return {"ok": False, "reason": LOCAL_TTS_REASON}
     data, rate = made
+    light = extra.get("engine") == HINDI_LIGHT_ENGINE
     # Only FRIDAY Voice knows what silence it put in and where its words are; any other engine reports none.
-    note = None if extra.get("engine") == HINDI_LIGHT_ENGINE else _render_note.info
+    note = None if light else _render_note.info
+    spoke = HINDI_LIGHT_ENGINE if light else (_render_note.engine or DEFAULT_ENGINE)
+    fallback = "" if light else str(extra.get("fallback") or _render_note.fallback)
     _render_note.info = None
     timing: dict = {"pausedMs": note[0] if note else 0}
     if note and note[1]:
@@ -1460,7 +1615,8 @@ def speak_pcm_payload(req: dict) -> dict:
         "pcm16": base64.b64encode(data).decode("ascii"),
         "ms": round((time.perf_counter() - started) * 1000),
         **timing,
-        **extra,
+        **_voice_facts(spoke, style),
+        **({"fallback": fallback} if fallback else {}),
         **tag,
     }
 
@@ -1579,7 +1735,7 @@ def _handle(req: dict) -> tuple[dict, bool]:
     if op == "shutdown":
         return {"ok": True}, True
     if op == "status":
-        return status(), False
+        return status(live=True), False
     if op == "speak":
         out = str(req.get("out") or "")
         try:

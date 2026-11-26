@@ -42,6 +42,8 @@ class StandInEngine:
         self.warm = 0
         self.on_synth = None
         self.fail = False
+        self.fail_next = 0
+        self.fail_message = "graph failed"
 
     def style(self, name):
         key = str(name).upper()
@@ -52,8 +54,9 @@ class StandInEngine:
         return friday_voice.Style(np.full((1, 2, 3), k, dtype=np.float32), np.full((1, 2, 3), 10 * k, dtype=np.float32))
 
     def synth(self, text, lang, style, *, steps=5, speed=1.0, seed=None):
-        if self.fail:
-            raise RuntimeError("graph failed")
+        if self.fail or self.fail_next:
+            self.fail_next = max(0, self.fail_next - 1)
+            raise RuntimeError(self.fail_message)
         self.calls.append({"text": text, "lang": lang, "steps": steps, "speed": speed, "style": style})
         if self.on_synth is not None:
             self.on_synth(len(self.calls))
@@ -621,3 +624,151 @@ def test_an_engine_that_fails_midway_falls_back_with_no_stale_word_data(engine):
     engine.fail = True
     body = _speak(text="Hello there.", pauseMs=300)
     assert body["pausedMs"] == 0 and "wordTimes" not in body
+
+
+# ---------------------------------------------------------------- one voice per utterance, honest replies, live state
+
+
+def test_the_package_fallback_is_given_the_text_without_its_delivery_tags(engine):
+    engine.fail = True
+    body = _speak(text="[pause:300] Good morning [warm] sir.", trusted=True)
+    assert body["ok"] is True and body["sampleRate"] == 22050
+    assert PipTTS.seen and all("[" not in seen and "pause" not in seen for seen in PipTTS.seen)
+    assert "Good morning" in PipTTS.seen[0] and "sir" in PipTTS.seen[0]
+
+
+def test_a_failing_clause_of_a_started_utterance_is_retried_once_on_the_engine(engine):
+    assert _speak(utt="one-voice")["ok"] is True
+    engine.fail_next = 1
+    body = _speak(text="Second clause here.", utt="one-voice")
+    assert body["ok"] is True and body["engine"] == "friday-voice" and body["sampleRate"] == RATE
+    assert PipTTS.seen == []  # the package never spoke inside this utterance
+
+
+def test_a_clause_that_still_fails_inside_a_started_utterance_fails_instead_of_changing_voice(engine):
+    assert _speak(utt="one-voice")["ok"] is True
+    engine.fail = True
+    for _ in range(voice_runtime.ENGINE_MAX_FAILURES):  # even past the three-failure stop: still no package
+        body = _speak(text="Next clause here.", utt="one-voice", seq=2)
+        assert body["ok"] is False and body["reason"] == "engine-failed" and body["utt"] == "one-voice"
+        assert body["engine"] == "friday-voice" and body["own"] is True and body["seq"] == 2
+        assert body["detail"].startswith("RuntimeError")
+    engine.fail = False
+    again = _speak(text="After the stop.", utt="one-voice")
+    assert again["ok"] is False and again["reason"] == "engine-failed"
+    assert PipTTS.seen == []
+
+
+def test_an_utterance_whose_first_clause_fails_stays_on_the_package_for_every_clause(engine):
+    engine.fail = True
+    first = _speak(text="First clause.", utt="pkg-voice")
+    assert first["ok"] is True and first["engine"] == "supertonic-3" and first["own"] is False
+    assert first["fallback"] == "engine-failed"
+    engine.fail = False
+    second = _speak(text="Second clause.", utt="pkg-voice")
+    assert second["ok"] is True and second["engine"] == "supertonic-3" and second["sampleRate"] == 22050
+    assert second["fallback"] == "engine-failed" and len(PipTTS.seen) == 2
+    other = _speak(text="Another reply.", utt="fresh-voice")
+    assert other["engine"] == "friday-voice" and "fallback" not in other
+
+
+def test_a_request_without_an_id_falls_back_whole_and_the_reply_says_so(engine):
+    engine.fail = True
+    body = _speak(text="Good morning.")
+    assert body["ok"] is True and body["engine"] == "supertonic-3" and body["own"] is False
+    assert body["fallback"] == "engine-failed"
+
+
+def test_every_speak_reply_names_its_engine_voice_and_recipe(engine):
+    body = _speak(text="Open the calendar.")
+    assert body["engine"] == "friday-voice" and body["own"] is True and "fallback" not in body
+    assert body["voiceId"] == "friday" and body["recipeVersion"] == voice_persona.RECIPE_VERSION
+    named = _speak(style="F3")
+    assert named["voiceId"] == "F3" and named["own"] is True
+
+
+def test_a_package_reply_without_the_own_engine_says_it_is_a_fallback(engine, monkeypatch):
+    monkeypatch.setattr(voice_runtime, "_friday_engine", lambda: None)
+    body = _speak(text="Open the calendar.", style="f4")
+    assert body["engine"] == "supertonic-3" and body["own"] is False
+    assert body["fallback"] == "friday-voice-unavailable" and body["voiceId"] == "F4"
+    assert body["recipeVersion"] == 0
+
+
+def test_the_status_carries_the_last_engine_error_without_a_path_or_a_secret(engine):
+    engine.fail = True
+    engine.fail_message = "cannot open /home/owner/models/vocoder.onnx or C:\\Users\\owner\\x.onnx sk-" + "a" * 40
+    _speak(text="Good morning.")
+    tts = voice_runtime.tts_status()
+    assert tts["failures"] == 1 and "RuntimeError" in tts["reason"] and "cannot open" in tts["reason"]
+    for leak in ("/home/", "owner", "vocoder", "C:", "sk-aaaa"):
+        assert leak not in tts["reason"]
+    assert len(tts["reason"]) < 220
+    for _ in range(voice_runtime.ENGINE_MAX_FAILURES):
+        _speak(text="Good morning.")
+    stopped = voice_runtime.tts_status()
+    assert "stopped" in stopped["reason"] and "RuntimeError" in stopped["reason"] and stopped["own"] is False
+
+
+def test_a_success_clears_the_failure_and_its_error(engine):
+    engine.fail_next = 1
+    _speak()
+    assert voice_runtime.tts_status()["reason"] != ""
+    assert _speak()["engine"] == "friday-voice"
+    tts = voice_runtime.tts_status()
+    assert tts["reason"] == "" and tts["failures"] == 0
+
+
+def test_the_running_worker_reports_its_live_tts_state_and_a_cold_status_says_it_is_not_live(engine):
+    engine.fail = True
+    for _ in range(voice_runtime.ENGINE_MAX_FAILURES):
+        _speak(text="Good morning.")
+    reply, stop = voice_runtime._handle({"op": "status"})
+    tts = reply["tts"]
+    assert stop is False and tts["live"] is True
+    assert tts["failures"] == voice_runtime.ENGINE_MAX_FAILURES and tts["engineState"] == "stopped"
+    assert "stopped" in tts["reason"] and "RuntimeError" in tts["reason"]
+    for field in ("engine", "own", "voiceId", "sampleRate", "recipeVersion"):
+        assert field in tts
+    assert voice_runtime.status()["tts"]["live"] is False
+    voice_runtime.reset_speech_state()
+    engine.fail = False
+    _speak()
+    open_now = voice_runtime._handle({"op": "status"})[0]["tts"]
+    assert open_now["live"] is True and open_now["engineState"] == "ready" and open_now["sampleRate"] == RATE
+    assert open_now["failures"] == 0 and open_now["reason"] == ""
+
+
+def test_a_new_fx_key_midway_keeps_the_state_of_the_unchanged_sections(engine):
+    voice_runtime.reset_speech_state()
+    persona = voice_persona.resolve("friday", engine)
+    tone = (0.3 * np.sin(np.linspace(0, 330 * np.pi, 6000))).astype(np.float32)
+    clauses = [tone[:2000], tone[2000:4100], tone[4100:]]
+    whole = voice_fx.FxChain(RATE, persona.fx_spec)
+    expected = np.concatenate([whole.process(part) for part in clauses])
+    state = voice_runtime._utterance_state("fx-carry")
+    plain = voice_runtime._chain_for(state, persona, {}, RATE)
+    first = plain.process(clauses[0])
+    delta = {"peak:3000": 0.0}  # a band that changes nothing, so any seam is a lost state
+    second = voice_runtime._chain_for(state, persona, delta, RATE)
+    assert second is not plain
+    middle = second.process(clauses[1])
+    back = voice_runtime._chain_for(state, persona, {}, RATE)
+    last = back.process(clauses[2])
+    assert float(np.max(np.abs(np.concatenate([first, middle, last]) - expected))) < 1e-6
+
+
+def test_a_new_fx_section_starts_clean_while_the_old_ones_carry_over(engine):
+    voice_runtime.reset_speech_state()
+    persona = voice_persona.resolve("friday", engine)
+    state = voice_runtime._utterance_state("fx-new")
+    plain = voice_runtime._chain_for(state, persona, {}, RATE)
+    plain.process((0.3 * np.sin(np.linspace(0, 330 * np.pi, 3000))).astype(np.float32))
+    widened = voice_runtime._chain_for(state, persona, {"peak:3000": 3.0}, RATE)
+    old = [(f.x1, f.x2, f.y1, f.y2) for f in plain._filters]  # noqa: SLF001
+    new = [(f.x1, f.x2, f.y1, f.y2) for f in widened._filters]  # noqa: SLF001
+    assert len(new) == len(old) + 1 and any(any(v != 0.0 for v in row) for row in old)
+    zero = (0.0, 0.0, 0.0, 0.0)
+    assert sorted(row for row in new if row != zero) == sorted(row for row in old if row != zero)
+    assert new.count(zero) == old.count(zero) + 1
+    assert (widened._comp.smooth, widened._comp.gain_after) == (plain._comp.smooth, plain._comp.gain_after)  # noqa: SLF001

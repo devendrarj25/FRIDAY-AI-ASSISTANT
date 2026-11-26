@@ -323,7 +323,9 @@ def _fake_supertonic(monkeypatch):
 def test_speak_pcm_keeps_its_old_reply_when_no_engine_is_asked_for(monkeypatch, tmp_path):
     seen = _fake_supertonic(monkeypatch)
     body = voice_runtime.speak_pcm_payload({"text": "नमस्ते दुनिया", "lang": "hi-IN", "seq": 4})
-    assert set(body) == {"ok", "sampleRate", "pcm16", "ms", "seq", "pausedMs"}
+    old_fields = {"ok", "sampleRate", "pcm16", "ms", "seq", "pausedMs"}
+    assert set(body) == old_fields | {"engine", "own", "voiceId", "recipeVersion"}  # no fallback: nothing said so
+    assert body["engine"] == "supertonic-3" and body["own"] is False and body["recipeVersion"] == 0
     assert body["pausedMs"] == 0
     assert seen == ["नमस्ते दुनिया"] and body["sampleRate"] == 22050
 

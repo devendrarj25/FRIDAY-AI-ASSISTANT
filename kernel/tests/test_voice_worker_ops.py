@@ -482,7 +482,9 @@ def test_the_new_speak_fields_never_break_the_package_path(fake_engine, monkeypa
     )
     assert replies[1]["ok"] is True
     assert replies[2]["ok"] is True and replies[2]["engine"] == "supertonic-3"
-    assert FakeTTS.seen[0] == "[warm] Good morning sir"  # the package path reads the text as it always did
+    assert FakeTTS.seen[0] == "Good morning sir"  # the package reads the words only, never a tag name
+    assert replies[0]["engine"] == "supertonic-3" and replies[0]["own"] is False
+    assert replies[0]["fallback"] == "friday-voice-unavailable"
 
 
 def test_the_status_op_carries_the_own_engine_fields(fake_engine, monkeypatch):
