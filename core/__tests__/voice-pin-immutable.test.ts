@@ -33,6 +33,12 @@ const weights = req("../../electron/voice-weights.cjs") as {
   pinnedJobs: () => Job[];
   isOptionalHelper: (id: string) => boolean;
   modelRegistry: () => Array<{ catalogId: string; optional?: boolean }>;
+  manifestOf: (catalogId: string) => Record<string, unknown> | null;
+  modelPath: (root: string, catalogId: string) => string;
+  voiceModelsOnDisk: (
+    root: string,
+    present: (file: string) => boolean,
+  ) => Array<Record<string, unknown>>;
   voiceInstallPlan: (
     root: string,
     probe: Record<string, unknown>,
@@ -149,7 +155,7 @@ describe("the wake embedding model pin", () => {
     });
     expect(row.fallback).toBeTruthy();
     expect(row.sources).toHaveLength(1);
-    expect(row.sources[0]).toMatchObject({
+    expect(row.sources?.[0]).toMatchObject({
       fileName: "wake-embed.onnx",
       sha256: row.sha256,
       bytes: 1326578,

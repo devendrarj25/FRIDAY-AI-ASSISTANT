@@ -983,7 +983,12 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
       if (source.kind === "github" || source.kind === "url") {
         const fileUrl = source.url;
         if (!fileUrl) throw new Error("source has no url");
-        const name = path.basename(new URL(fileUrl).pathname) || `${modelId}.bin`;
+        // A pin may name the file it must land as (the kernel looks it up by that name); a bare file name only.
+        const pinned = typeof source.fileName === "string" ? source.fileName : "";
+        const name =
+          pinned && pinned === path.basename(pinned) && /^[\w.-]+\.onnx$/.test(pinned)
+            ? pinned
+            : path.basename(new URL(fileUrl).pathname) || `${modelId}.bin`;
         const dest = path.join(root, modelId, name);
         if (
           fs.existsSync(dest) &&
