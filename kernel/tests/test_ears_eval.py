@@ -392,6 +392,34 @@ def test_the_ab_scores_raw_and_each_denoiser_and_says_keep_or_drop_by_the_rule()
     assert [r.split(":")[0] for r in rows if r.split(":")[0] in ee.METRIC_NAMES] == list(ee.METRIC_NAMES)
 
 
+class FailsPartWay(FakeDenoiser):
+    """Cleans the first clip, then drops to passthrough the way ``StreamDenoiser._fail`` does."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self.clips = 0
+
+    def run_clip(self, samples):
+        self.clips += 1
+        if self.clips > 1:
+            self.active, self.reason = False, "runtime error: RuntimeError: boom"
+        return super().run_clip(samples)
+
+
+def test_a_denoiser_that_fails_part_way_is_skipped_and_never_gets_a_keep_verdict():
+    ab = ee.denoise_ab(
+        _ab_scenes(),
+        Scripted([_TURN]),
+        ["flaky"],
+        transcribe=_says_hello_when_it_hears_something,
+        denoiser_factory=FailsPartWay,
+    )
+    assert [r["engine"] for r in ab["runs"]] == ["raw"] and ab["verdicts"] == {}
+    assert len(ab["skipped"]) == 1 and ab["skipped"][0]["engine"] == "flaky"
+    assert "boom" in ab["skipped"][0]["reason"] and "mid-run" in ab["skipped"][0]["reason"]
+    assert any(r.startswith("SKIP flaky:") for r in ee.ab_rows(ab))
+
+
 def test_without_a_recogniser_the_wer_is_unverified_and_the_verdict_undecided():
     ab = ee.denoise_ab(_ab_scenes(), Scripted([_TURN]), ["same"], denoiser_factory=lambda n: FakeDenoiser(n))
     rows = ee.ab_rows(ab)

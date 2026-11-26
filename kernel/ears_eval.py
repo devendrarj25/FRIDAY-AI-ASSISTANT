@@ -654,7 +654,11 @@ def denoise_ab(
             skipped.append({"engine": name, "reason": denoiser.status()["reason"]})
             continue
         material = apply_denoiser(scenes, denoiser)
-        runs.append(one(name, material, denoiser.status()))
+        status = denoiser.status()
+        if not status.get("active", True):  # it fell to passthrough part-way: later clips are raw, so no verdict
+            skipped.append({"engine": name, "reason": f"stopped mid-run: {status.get('reason') or 'unknown'}"})
+            continue
+        runs.append(one(name, material, status))
     verdicts = {r["engine"]: adopt_verdict(runs[0], r) for r in runs[1:]}
     return {"rule": DENOISE_RULE, "runs": runs, "skipped": skipped, "verdicts": verdicts}
 

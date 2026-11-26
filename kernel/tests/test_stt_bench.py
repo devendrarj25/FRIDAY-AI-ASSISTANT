@@ -509,6 +509,71 @@ def test_the_stream_sampler_builds_partials_and_a_timeline_from_a_host(tmp_path)
     assert got["hypothesis"] == "turn on" and got["partials"] == ["turn", "turn on"]
     assert got["timeline"]["audioMs"] == 500
     assert stt_bench.latency_metrics(got["timeline"])["timeToFirstPartialMs"] == 160
+    assert all(e["kind"] != "speech_end" for e in got["timeline"]["events"])  # silence only: no speech end claimed
+
+
+class _TurnHost:
+    """Emits the endpointer decisions the way StreamEar does: all under type ``endpoint`` with an ``event`` key."""
+
+    def __init__(self, script):
+        self.script = script
+        self.n = 0
+
+    def handle(self, req):
+        if req["op"] == "stream-feed":
+            self.n += 1
+            names = self.script.get(self.n, [])
+            return {"ok": True, "events": [{"type": "endpoint", "event": n} for n in names], "text": "ok"}
+        if req["op"] == "stream-close":
+            return {"ok": True, "final": True, "text": "ok"}
+        return {"ok": True}
+
+
+def _speech_then_silence_wav(path, voiced_ms, total_ms):
+    import struct
+    import wave
+
+    loud = struct.pack("<h", 8000) * (voiced_ms * 16)
+    quiet = struct.pack("<h", 0) * ((total_ms - voiced_ms) * 16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(loud + quiet)
+
+
+def test_only_end_of_turn_is_the_endpoint_and_trailing_silence_is_not_premature(tmp_path):
+    path = tmp_path / "t.wav"
+    _speech_then_silence_wav(path, voiced_ms=800, total_ms=2000)
+    host = _TurnHost({1: ["StartOfTurn"], 3: ["EagerEndOfTurn"], 4: ["TurnResumed"], 9: ["EndOfTurn"]})
+    got = stt_bench.stream_sampler(host, "x", clock=stt_bench.FakeClock())(
+        {"id": "t", "lang": "en", "reference": "ok", "path": path}
+    )
+    events = got["timeline"]["events"]
+    assert [e["t"] for e in events if e["kind"] == "endpoint"] == [1440]
+    end = next(e["t"] for e in events if e["kind"] == "speech_end")
+    assert 780 <= end <= 820  # the last voiced sample, not the file length
+    m = stt_bench.latency_metrics(got["timeline"])
+    assert m["prematureEndpoint"] is False and m["endpointLatencyMs"] == 1440 - end
+
+
+def test_an_end_of_turn_before_the_speech_really_ends_is_still_premature(tmp_path):
+    path = tmp_path / "t.wav"
+    _speech_then_silence_wav(path, voiced_ms=1600, total_ms=2000)
+    host = _TurnHost({4: ["EndOfTurn"]})
+    got = stt_bench.stream_sampler(host, "x", clock=stt_bench.FakeClock())(
+        {"id": "t", "lang": "en", "reference": "ok", "path": path}
+    )
+    assert stt_bench.latency_metrics(got["timeline"])["prematureEndpoint"] is True
+
+
+def test_a_fixture_speech_end_wins_over_the_energy_guess(tmp_path):
+    path = tmp_path / "t.wav"
+    _speech_then_silence_wav(path, voiced_ms=800, total_ms=2000)
+    got = stt_bench.stream_sampler(_TurnHost({}), "x", clock=stt_bench.FakeClock())(
+        {"id": "t", "lang": "en", "reference": "ok", "path": path, "speechEndMs": 700}
+    )
+    assert next(e["t"] for e in got["timeline"]["events"] if e["kind"] == "speech_end") == 700
 
 
 # --------------------------------------------------------------------------------------------------------------

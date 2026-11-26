@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import sys
 import tempfile
 import time
 import unicodedata
@@ -1076,6 +1077,31 @@ def _read_pcm16(path: Path) -> bytes:
         return handle.readframes(handle.getnframes())
 
 
+def _speech_end_ms(pcm: bytes, item: dict) -> int | None:
+    """The true end of the speech: the fixture's ``speechEndMs`` when it knows it, else the end of the last voiced 20 ms
+    frame. Silence only gives ``None`` (no speech end is claimed, so no endpoint can be called premature)."""
+    known = item.get("speechEndMs")
+    if isinstance(known, (int, float)) and not isinstance(known, bool):
+        return int(known)
+    import array
+
+    samples = array.array("h")
+    samples.frombytes(pcm[: len(pcm) // 2 * 2])
+    if sys.byteorder == "big":
+        samples.byteswap()
+    frame = 320  # 20 ms at 16 kHz
+    levels = [
+        (sum(abs(v) for v in samples[i : i + frame]) / max(1, len(samples[i : i + frame])))
+        for i in range(0, len(samples), frame)
+    ]
+    peak = max(levels, default=0.0)
+    if peak < 50:
+        return None
+    gate = max(50.0, peak * 0.1)
+    last = max((i for i, level in enumerate(levels) if level >= gate), default=None)
+    return None if last is None else (last + 1) * 20
+
+
 def stream_sampler(host, engine: str, clock: Callable[[], float] = time.perf_counter) -> Callable[[dict], dict]:
     """A sampler that feeds one recording through a ``StreamHost`` in 160 ms chunks and keeps the shown partials and
     a timeline on the audio clock (the engine is fed faster than real time; compute time is the real cost)."""
@@ -1104,7 +1130,7 @@ def stream_sampler(host, engine: str, clock: Callable[[], float] = time.perf_cou
                 if ev.get("type") == "partial" and text and (not partials or partials[-1] != text):
                     partials.append(text)
                     events.append({"t": t, "kind": "partial", "text": text})
-                elif ev.get("type") == "endpoint":
+                elif ev.get("type") == "endpoint" and ev.get("event") == "EndOfTurn":
                     events.append({"t": t, "kind": "endpoint"})
         closing = clock()
         done = host.handle({"op": "stream-close", "streamId": "bench", "finalize": True})
@@ -1112,7 +1138,9 @@ def stream_sampler(host, engine: str, clock: Callable[[], float] = time.perf_cou
             raise RuntimeError(str(done.get("reason") or "close-failed"))
         end = clock()
         text = str(done.get("text", ""))
-        events.append({"t": audio_ms, "kind": "speech_end"})
+        speech_end = _speech_end_ms(pcm, item)
+        if speech_end is not None:
+            events.append({"t": speech_end, "kind": "speech_end"})
         events.append({"t": audio_ms + int((end - closing) * 1000), "kind": "final", "text": text})
         events.sort(key=lambda e: (e["t"], e["kind"] == "final"))
         timeline = {"audioMs": audio_ms, "computeMs": int((end - started) * 1000), "events": events}
