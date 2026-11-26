@@ -370,7 +370,7 @@ describe("TtsFallbackManager: the fallback matrix", () => {
     ]);
     expect(out.fallbackReason).toBe("worker is not running");
     expect(out.note).toBe(
-      "The standard local voice did not speak this clause (worker is not running); the system voice did.",
+      "FRIDAY's own voice did not speak this clause (worker is not running); the system voice did.",
     );
   });
 
@@ -484,7 +484,7 @@ describe("TtsFallbackManager: the fallback matrix", () => {
     expect(out.engine).toBe("supertonic");
     expect(out.fallbackReason).toBe("no key saved");
     expect(out.note).toBe(
-      "The online voice did not speak this clause (no key saved); the standard local voice did.",
+      "The online voice did not speak this clause (no key saved); FRIDAY's own voice did.",
     );
   });
 

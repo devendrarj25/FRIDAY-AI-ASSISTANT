@@ -619,3 +619,98 @@ export function bargeInRow(
     value: `on · duck, then stop · ${counts}`,
   };
 }
+
+/** What the speech worker says about the own voice engine ("FRIDAY Voice"); every field is checked when it is read. */
+export type FridayVoiceStatus = {
+  /** The own runner, the old package it falls back to, or none installed. */
+  engine: "friday-voice" | "supertonic-3" | "none";
+  /** True only when the own runner (not the package) is the one speaking. */
+  own: boolean;
+  ready: boolean;
+  voiceId: string;
+  sampleRate: number;
+  recipeVersion: number;
+  reason: string;
+};
+
+/** A worker status of any shape as a safe `FridayVoiceStatus`, or null when nothing was reported at all. */
+export function readFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const engine =
+    row["engine"] === "friday-voice" || row["engine"] === "supertonic-3" ? row["engine"] : "none";
+  const rate = Number(row["sampleRate"]);
+  const recipe = Number(row["recipeVersion"]);
+  const text = (value: unknown, max: number): string =>
+    typeof value === "string"
+      ? value
+          .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+          .trim()
+          .slice(0, max)
+      : "";
+  return {
+    engine,
+    own: engine === "friday-voice" && row["own"] === true,
+    ready: engine !== "none" && row["ready"] !== false,
+    voiceId: text(row["voiceId"], 32),
+    sampleRate: Number.isFinite(rate) && rate > 0 ? Math.round(rate) : 0,
+    recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
+    reason: text(row["reason"], 200),
+  };
+}
+
+/**
+ * The two "FRIDAY Voice" Doctor rows: which engine speaks (own runner ready, the package fallback, or not installed,
+ * with the reason), then the active voice id, sample rate and recipe version. No status yet is a Warning that says
+ * so; a number or a name is never invented.
+ */
+export function fridayVoiceRows(status: FridayVoiceStatus | null): EarsRow[] {
+  const engineId = "friday-voice-engine";
+  const activeId = "friday-voice-active";
+  const engineLabel = "FRIDAY Voice engine";
+  const activeLabel = "FRIDAY Voice active voice";
+  if (!status) {
+    const value = absent("the speech worker has not reported yet (needs the desktop app)");
+    return [
+      { id: engineId, label: engineLabel, state: "absent", value },
+      { id: activeId, label: activeLabel, state: "absent", value },
+    ];
+  }
+  const why = status.reason ? ` (${status.reason})` : "";
+  const engine: EarsRow =
+    status.engine === "friday-voice" && status.own && status.ready
+      ? {
+          id: engineId,
+          label: engineLabel,
+          state: "ok",
+          value: "own runner ready · on this PC · not heard on a real speaker yet",
+        }
+      : status.engine === "none" || !status.ready
+        ? {
+            id: engineId,
+            label: engineLabel,
+            state: "absent",
+            value: `not installed${why || ": the local voice model is not on this PC"}. The system voice speaks until it is.`,
+          }
+        : {
+            id: engineId,
+            label: engineLabel,
+            state: "absent",
+            value: `package fallback: the older package speaks, not the own runner${why}`,
+          };
+  const active: EarsRow =
+    status.engine === "none" || !status.ready
+      ? {
+          id: activeId,
+          label: activeLabel,
+          state: "absent",
+          value: absent("no local voice is installed, so no voice is active"),
+        }
+      : {
+          id: activeId,
+          label: activeLabel,
+          state: "ok",
+          value: `${status.voiceId || "friday"} · ${status.sampleRate ? `${Number((status.sampleRate / 1000).toFixed(2))} kHz` : "sample rate not reported"} · recipe ${status.recipeVersion ? `v${status.recipeVersion}` : "not reported"}`,
+        };
+  return [engine, active];
+}

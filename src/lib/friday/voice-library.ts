@@ -23,13 +23,17 @@ import {
   type PcmContext,
 } from "./voice-engine/pcm-clip-player";
 import { echoLive } from "./voice-engine/echo-live";
-import { preferences, type VoiceModel } from "./preferences";
+import { LOCAL_VOICE_STYLES, preferences, type VoiceModel } from "./preferences";
 import { listAudioDevices } from "./voice-audio";
 import { routeToSpeaker, type SinkTarget } from "./voice-engine/audio-devices";
 import { ttsEnginePlan } from "./voice-engine/voice-choices";
 import { models } from "./models-engine";
 import { looksSensitive } from "./brain/memory-policy";
-import { profileVoiceStyle } from "./voice-engine/friday-voice-profile";
+import {
+  DEFAULT_LOCAL_STYLE,
+  ownerPresetStyle,
+  profileVoiceStyle,
+} from "./voice-engine/friday-voice-profile";
 import {
   TTS_INFO,
   TtsFallbackManager,
@@ -51,7 +55,12 @@ export type { VoiceModel };
 export type NeuralVoice = { id: string; label: string; lang: string };
 
 type VoiceBridge = {
-  neuralVoiceStatus?: () => Promise<{ available: boolean; reason?: string; version?: string }>;
+  neuralVoiceStatus?: () => Promise<{
+    available: boolean;
+    reason?: string;
+    version?: string;
+    fridayVoice?: unknown;
+  }>;
   installNeuralVoice?: () => Promise<{ ok: boolean; error?: string; version?: string }>;
   listNeuralVoices?: () => Promise<{ available: boolean; reason?: string; voices: NeuralVoice[] }>;
   speakNeural?: (payload: {
@@ -61,7 +70,7 @@ type VoiceBridge = {
     volume: number;
     pitch: number;
     lang?: string;
-    /** The local voice style (F1 to F5). Ignored by cloud voices. */
+    /** The local voice style id (friday, friday-bright, friday-calm, F1 to F5, M1, M2). Ignored by cloud voices. */
     style?: string;
   }) => Promise<{
     ok: boolean;
@@ -279,6 +288,8 @@ export async function neuralVoiceStatus(): Promise<{
   available: boolean;
   reason?: string;
   version?: string;
+  /** The own speech engine, as the worker reports it (read it with `readFridayVoiceStatus`). */
+  fridayVoice?: unknown;
 }> {
   const api = bridge();
   if (!api?.neuralVoiceStatus)
@@ -1211,9 +1222,29 @@ function planSegments(
   });
 }
 
-/** The female style of the standard local voice that FRIDAY's voice profile asks for ("" keeps the default). */
+/**
+ * The style the local voice is asked for: an explicit preset the owner picked, else the profile's own style, else
+ * FRIDAY's own voice ("friday"). A preview (`speakSample` with a style) overrides it for that one sample only.
+ */
 function localStyle(): string {
-  return profileVoiceStyle(preferences.getSnapshot().voice, "supertonic");
+  if (previewStyle) return previewStyle;
+  const voice = preferences.getSnapshot().voice;
+  return ownerPresetStyle(voice) || profileVoiceStyle(voice, "supertonic") || DEFAULT_LOCAL_STYLE;
+}
+
+/** The local voice style a clause would be spoken with right now (the warm-up uses the same one). */
+export function activeLocalStyle(): string {
+  return localStyle();
+}
+
+/** The style a Settings preview asks for, set only while that one sample is made. */
+let previewStyle = "";
+
+/** A previewed style id as the engine gets it: a listed id ("" is the FRIDAY voice), or "" for no override. */
+export function previewStyleToken(asked: unknown): string {
+  if (typeof asked !== "string") return "";
+  const known = (LOCAL_VOICE_STYLES as readonly string[]).includes(asked);
+  return known ? asked || DEFAULT_LOCAL_STYLE : "";
 }
 
 /** The cloud voice the owner picked, for one clause; null when it gave nothing. */
@@ -1640,6 +1671,8 @@ export function speakSample(
     pitch: number;
     volume: number;
     kind?: VoiceModel["kind"] | undefined;
+    /** Hear one local voice style without saving it (a Settings preview). Only a listed style id is used. */
+    previewStyle?: string;
   },
 ): boolean {
   if (typeof window === "undefined") return false;
@@ -1647,6 +1680,12 @@ export function speakSample(
   if (!spokenReplyAllowed(surface.mode, surface.muted)) return false;
   stopSpeaking();
   const privacy = preferences.getSnapshot().voice.privacyMode === true;
-  void speakText(text, { ...tuning, allowCloud: !privacy });
+  const { previewStyle: asked, ...rest } = tuning;
+  const token = previewStyleToken(asked);
+  previewStyle = token;
+  const done = speakText(text, { ...rest, allowCloud: !privacy });
+  void Promise.resolve(done).finally(() => {
+    if (previewStyle === token) previewStyle = "";
+  });
   return true;
 }

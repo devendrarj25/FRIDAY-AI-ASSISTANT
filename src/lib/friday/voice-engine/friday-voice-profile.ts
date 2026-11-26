@@ -21,7 +21,8 @@
 import { applyPronunciations } from "./text-normalizer";
 import { HINDI_LIGHT_ENGINE, HINDI_LIGHT_MODEL_ID } from "./tts-provider";
 import { modelById, NEURAL_VOICE_MODEL } from "../model-catalog";
-import type { VoicePreferences } from "../preferences";
+import type { LocalVoiceStyle, VoicePreferences } from "../preferences";
+import type { FridayVoiceStatus } from "../voice-diagnostics-rows";
 
 export const FRIDAY_PROFILE_ID = "friday-default";
 export const PROFILE_VERSION = 1;
@@ -48,7 +49,7 @@ export const PROFILE_ENGINES: Record<
   supertonic: {
     languages: ["hi", "en"],
     pitch: false,
-    styles: ["", "F1", "F2", "F3", "F4", "F5"],
+    styles: ["", "friday", "friday-bright", "friday-calm", "F1", "F2", "F3", "F4", "F5"],
     modelId: NEURAL_VOICE_MODEL,
   },
   "hindi-light": {
@@ -65,7 +66,7 @@ export type ProfileModelRef = {
   engine: ProfileEngine;
   /** The catalog id of the model, empty for the system voice. */
   modelId: string;
-  /** The female style of the engine ("F1".."F5" for Supertonic), empty for its default. */
+  /** The female style of the engine ("friday", "friday-bright", "friday-calm", "F1".."F5"), empty for FRIDAY's own default. */
   voiceStyle: string;
 };
 
@@ -281,6 +282,93 @@ export function profileToVoicePatch(
     pronunciations: { ...clean.pronunciations },
   };
 }
+
+/** The style id sent to the engine when nothing else is chosen: FRIDAY's own voice. */
+export const DEFAULT_LOCAL_STYLE = "friday";
+
+/** A male preset the owner picked on purpose; the profile itself stays a female voice, so only this explicit choice reaches the engine. */
+export function ownerPresetStyle(voice: Partial<ProfileSource>): "M1" | "M2" | "" {
+  return voice.localVoiceStyle === "M1" || voice.localVoiceStyle === "M2"
+    ? voice.localVoiceStyle
+    : "";
+}
+
+/** One row of the voice picker: the stored value, the words shown, and what it is. */
+export type LocalVoiceChoice = { id: LocalVoiceStyle; label: string; hint: string };
+
+/**
+ * What the Settings voice picker offers, in order. The default is stored as "" (an empty value and "friday" both
+ * mean her own voice). The presets are the bundled voice styles of the engine, kept as the owner's explicit choice.
+ */
+export const LOCAL_VOICE_CHOICES: readonly LocalVoiceChoice[] = [
+  { id: "", label: "FRIDAY (default, sweet and warm)", hint: "her own voice, used by default" },
+  {
+    id: "friday-bright",
+    label: "FRIDAY bright",
+    hint: "the same voice, a little lighter and livelier",
+  },
+  { id: "friday-calm", label: "FRIDAY calm", hint: "the same voice, a little slower and softer" },
+  { id: "F1", label: "Preset F1 (female)", hint: "a bundled female preset" },
+  { id: "F2", label: "Preset F2 (female)", hint: "a bundled female preset" },
+  { id: "F3", label: "Preset F3 (female)", hint: "a bundled female preset" },
+  { id: "F4", label: "Preset F4 (female)", hint: "a bundled female preset" },
+  { id: "F5", label: "Preset F5 (female)", hint: "a bundled female preset" },
+  { id: "M1", label: "Preset M1 (male)", hint: "a bundled male preset, only when you pick it" },
+  { id: "M2", label: "Preset M2 (male)", hint: "a bundled male preset, only when you pick it" },
+];
+
+/** The picker value for a stored style: "friday" and an unknown value read as the default (""). */
+export function pickerValueFor(style: unknown): LocalVoiceStyle {
+  return LOCAL_VOICE_CHOICES.some((choice) => choice.id === style)
+    ? (style as LocalVoiceStyle)
+    : "";
+}
+
+/** What the voice picker shows: it is loading, has no desktop to ask, failed (with Retry), has no voice installed, or is ready. */
+export type LocalVoicePickerState =
+  | { kind: "loading"; note: string }
+  | { kind: "offline"; note: string }
+  | { kind: "error"; note: string }
+  | { kind: "empty"; note: string }
+  | { kind: "ready"; note: string; own: boolean };
+
+/** The picker's state from what the settings page knows. Pure; the page only draws it. */
+export function localVoicePickerState(input: {
+  loading: boolean;
+  desktop: boolean;
+  error?: string;
+  status: FridayVoiceStatus | null;
+}): LocalVoicePickerState {
+  if (!input.desktop) {
+    return {
+      kind: "offline",
+      note: "The voices are made on this PC by the FRIDAY desktop app, so there is nothing to preview in a browser. They work without internet.",
+    };
+  }
+  if (input.loading) return { kind: "loading", note: "Checking the local voice on this PC." };
+  if (input.error) return { kind: "error", note: input.error };
+  const status = input.status;
+  if (!status || status.engine === "none" || !status.ready) {
+    return {
+      kind: "empty",
+      note: status?.reason
+        ? `No local voice is installed yet (${status.reason}). The system voice speaks until it is.`
+        : "No local voice is installed yet. The system voice speaks until it is.",
+    };
+  }
+  return {
+    kind: "ready",
+    own: status.engine === "friday-voice" && status.own,
+    note:
+      status.engine === "friday-voice" && status.own
+        ? "FRIDAY's own engine is speaking on this PC."
+        : "The older voice package is speaking; FRIDAY's own engine is not active, so the FRIDAY voices may sound like a preset.",
+  };
+}
+
+/** One honest line shown under the picker. FRIDAY is an assistant, not a person, and no voice is a copy of anyone. */
+export const SYNTHETIC_VOICE_NOTE =
+  "Every voice here is synthetic. FRIDAY is an assistant, not a person, and none of these voices copies a real person.";
 
 /** The local voice style the profile asks of the standard voice ("" keeps the engine's default). */
 export function profileVoiceStyle(

@@ -9,8 +9,9 @@ import { desktopApi } from "./desktop";
 import { kernelApi } from "./kernel-api";
 import { encodeWav } from "./pcm-capture";
 import { preferences } from "./preferences";
+import { readFridayVoiceStatus } from "./voice-diagnostics-rows";
 import { getSystemPressureSnapshot } from "./system-pressure";
-import { activeVoiceSettings } from "./voice-library";
+import { activeLocalStyle, activeVoiceSettings } from "./voice-library";
 import { sttStatus, whisperLanguageArg } from "./voice-stt";
 import {
   AckMemory,
@@ -34,7 +35,11 @@ export type AckClip = { text: string; lang: "en" | "hi"; pcm: Int16Array; rate: 
 export const ackMemory = new AckMemory<AckClip>();
 
 type WarmBridge = {
-  neuralVoiceStatus?: () => Promise<{ available: boolean; reason?: string }>;
+  neuralVoiceStatus?: () => Promise<{
+    available: boolean;
+    reason?: string;
+    fridayVoice?: unknown;
+  }>;
   speakNeuralPcm?: (payload: {
     text: string;
     rate: number;
@@ -77,14 +82,17 @@ async function speak(
   const api = bridge();
   if (!api?.speakNeuralPcm) return { ok: false, reason: "no local voice bridge" };
   const status = await api.neuralVoiceStatus?.().catch(() => null);
-  if (status && !status.available) {
+  // The own voice engine being ready is enough; only when it does not report ready does the older flag decide.
+  const own = readFridayVoiceStatus(status?.fridayVoice);
+  if (status && !status.available && !(own && own.ready)) {
     return { ok: false, reason: status.reason || "the local voice is not installed" };
   }
   const result = await api.speakNeuralPcm({
     text,
     rate: activeVoiceSettings().rate,
     lang,
-    style: preferences.getSnapshot().voice.localVoiceStyle || "",
+    // The voice the owner's replies use ("friday" unless another style was chosen), so the warm-up loads that one.
+    style: activeLocalStyle(),
     seq: 0,
   });
   const rate = Number(result?.sampleRate) || 0;

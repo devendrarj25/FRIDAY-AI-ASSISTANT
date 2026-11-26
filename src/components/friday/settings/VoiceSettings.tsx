@@ -12,6 +12,14 @@ import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPicker
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
 import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
+import { ErrorState } from "@/components/friday/PageStates";
+import {
+  LOCAL_VOICE_CHOICES,
+  SYNTHETIC_VOICE_NOTE,
+  localVoicePickerState,
+  pickerValueFor,
+} from "@/lib/friday/voice-engine/friday-voice-profile";
+import { readFridayVoiceStatus, type FridayVoiceStatus } from "@/lib/friday/voice-diagnostics-rows";
 import {
   ownerAcceptanceSteps,
   voiceReadinessNote,
@@ -19,7 +27,9 @@ import {
 } from "@/lib/friday/voice-doctor";
 import {
   preferences,
+  sanitizeLocalVoiceStyle,
   sanitizeConfirmLevel,
+  type LocalVoiceStyle,
   sanitizeStreamEngine,
   sanitizeVoiceTaskPrefs,
 } from "@/lib/friday/preferences";
@@ -272,29 +282,7 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
-          <label className="block">
-            <span className="label-xs text-muted-foreground">Local voice style</span>
-            <select
-              value={prefs.voice.localVoiceStyle || ""}
-              onChange={(e) =>
-                preferences.setVoice({
-                  localVoiceStyle: e.target.value as typeof prefs.voice.localVoiceStyle,
-                })
-              }
-              className="mt-1 h-8 w-full rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground"
-            >
-              <option value="">Default (F2)</option>
-              <option value="F1">F1</option>
-              <option value="F2">F2</option>
-              <option value="F3">F3</option>
-              <option value="F4">F4</option>
-              <option value="F5">F5</option>
-            </select>
-            <span className="mt-1 block text-meta-sm text-muted-foreground">
-              Female styles of the local voice. Press Test voice to hear one. A style the installed
-              model does not have falls back to the default.
-            </span>
-          </label>
+          <LocalVoicePicker />
           <ToggleRow
             label="Expressive speech"
             hint="A question rises, an apology softens, good news brightens, with short natural pauses between clauses. Small changes on top of your own voice settings. Off keeps the pace and pitch exactly as set."
@@ -632,6 +620,132 @@ export function VoiceSettings() {
         </div>
       </HudPanel>
       <VoiceLibraryPanel />
+    </div>
+  );
+}
+
+/**
+ * Settings, Voice: which local voice speaks. FRIDAY (sweet and warm) is the default and needs nothing chosen; the
+ * variants and the presets are the owner's explicit pick. Preview plays one without saving it, through the same
+ * sample path as Test voice, so it needs Auto mode like every spoken line.
+ */
+function LocalVoicePicker() {
+  const prefs = usePreferences();
+  const desktop = Boolean(desktopApi());
+  const [loading, setLoading] = useState(desktop);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState<FridayVoiceStatus | null>(null);
+  const ask = () =>
+    neuralVoiceStatus()
+      .then((answer) => setStatus(readFridayVoiceStatus(answer.fridayVoice)))
+      .catch((failure: unknown) =>
+        setError(
+          String((failure as Error)?.message ?? failure) || "the local voice did not answer",
+        ),
+      )
+      .finally(() => setLoading(false));
+  const retry = () => {
+    setError("");
+    setLoading(true);
+    void ask();
+  };
+  useEffect(() => {
+    if (desktop) void ask();
+    // The status is read once when the page opens; Retry asks again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const state = localVoicePickerState({ loading, desktop, error, status });
+  const chosen = pickerValueFor(prefs.voice.localVoiceStyle);
+  const preview = (style: LocalVoiceStyle) => {
+    if (assistantMode.getSnapshot().mode !== "auto") {
+      toast.error("FRIDAY speaks only in Auto mode");
+      return;
+    }
+    const tuning = activeVoiceSettings();
+    if (!speakSample("Namaste, main FRIDAY hoon.", { ...tuning, previewStyle: style })) {
+      toast.error("Speech synthesis is unavailable on this machine");
+    }
+  };
+
+  return (
+    <div className="sm:col-span-2" data-testid="local-voice-picker">
+      <span className="label-xs text-muted-foreground" id="local-voice-label">
+        Local voice
+      </span>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <select
+          aria-labelledby="local-voice-label"
+          value={chosen}
+          onChange={(e) =>
+            preferences.setVoice({ localVoiceStyle: sanitizeLocalVoiceStyle(e.target.value) })
+          }
+          className="h-8 min-w-[220px] flex-1 rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground"
+        >
+          {LOCAL_VOICE_CHOICES.map((choice) => (
+            <option key={choice.id || "default"} value={choice.id} className="bg-background">
+              {choice.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={state.kind !== "ready"}
+          onClick={() => preview(chosen)}
+        >
+          <Mic className="size-4" /> Preview
+        </Button>
+      </div>
+      <ul className="mt-2 space-y-1">
+        {LOCAL_VOICE_CHOICES.map((choice) => (
+          <li key={choice.id || "default"} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 text-meta-sm text-muted-foreground">
+              {choice.label}: {choice.hint}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={state.kind !== "ready"}
+              aria-label={`Preview ${choice.label}`}
+              onClick={() => preview(choice.id)}
+            >
+              Preview
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {state.kind === "error" ? (
+        <ErrorState title="The local voice did not answer" error={state.note} onRetry={retry} />
+      ) : (
+        <p
+          className="mt-2 flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground"
+          role="status"
+        >
+          <StatusPill
+            label={
+              state.kind === "ready"
+                ? state.own
+                  ? "own engine"
+                  : "package voice"
+                : state.kind === "loading"
+                  ? "checking"
+                  : state.kind === "empty"
+                    ? "not installed"
+                    : "desktop only"
+            }
+            tone={
+              state.kind === "ready" && state.own
+                ? "accent"
+                : state.kind === "loading" || state.kind === "offline"
+                  ? "muted"
+                  : "warning"
+            }
+          />
+          {state.note}
+        </p>
+      )}
+      <p className="mt-1 text-meta-sm text-muted-foreground">{SYNTHETIC_VOICE_NOTE}</p>
     </div>
   );
 }

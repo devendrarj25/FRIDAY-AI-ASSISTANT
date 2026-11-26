@@ -42,7 +42,7 @@ describe("speak-pcm wiring", () => {
     const samples = Buffer.from(Int16Array.from([0, 1200, -1200, 32767]).buffer);
     const sent: Array<Record<string, unknown>> = [];
     const result = await neuralVoice.speakPcm(
-      { text: "  Good morning sir  ", rate: 1.2, lang: "en-IN", style: "m3", seq: 4 },
+      { text: "  Good morning sir  ", rate: 1.2, lang: "en-IN", style: "m2", seq: 4 },
       {
         resolvePy: async () => ["python", []],
         request: async (_py: unknown, payload: Record<string, unknown>) => {
@@ -52,7 +52,7 @@ describe("speak-pcm wiring", () => {
       },
     );
     expect(sent).toEqual([
-      { op: "speak-pcm", text: "Good morning sir", speed: 1.2, lang: "en-IN", style: "M3", seq: 4 },
+      { op: "speak-pcm", text: "Good morning sir", speed: 1.2, lang: "en-IN", style: "M2", seq: 4 },
     ]);
     expect(result.ok).toBe(true);
     expect(result.cloud).toBe(false);

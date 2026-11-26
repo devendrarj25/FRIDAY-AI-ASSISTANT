@@ -15,7 +15,13 @@ import { liveSttFromStatus, rememberedLiveStt, sttLadderDoctor } from "./speech-
 import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
 import { earsStatsNow } from "./voice-audio";
-import { voiceDoctorMarks, voiceLayerChecks } from "./voice-doctor";
+import {
+  fridayVoiceDoctorRows,
+  noteFridayVoiceStatus,
+  voiceDoctorMarks,
+  voiceLayerChecks,
+} from "./voice-doctor";
+import { neuralVoiceStatus } from "./voice-library";
 import { preferences } from "./preferences";
 import { installer } from "./installer-engine";
 
@@ -369,6 +375,14 @@ class DoctorStore {
           this.push("error", `diagnostic failed: ${(err as Error).message}`);
         }
       }
+      // What the speech worker says about FRIDAY Voice, so the two voice rows below are real, not guessed.
+      if (desktop) {
+        try {
+          noteFridayVoiceStatus((await neuralVoiceStatus()).fridayVoice);
+        } catch {
+          noteFridayVoiceStatus(null);
+        }
+      }
       // Cross-mode routing sync is a renderer-side truth: it compares what a
       // typed chat turn and an Auto Mode voice turn would really route to,
       // right now, from the same shared stores.
@@ -377,6 +391,7 @@ class DoctorStore {
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
         ...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()),
+        ...fridayVoiceDoctorRows(),
         ...sttLadderChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
@@ -746,6 +761,7 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
   checks.push(...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()));
+  checks.push(...fridayVoiceDoctorRows());
   checks.push(...speechDoctorRows());
   checks.push(...sttLadderChecks());
   checks.push(...toolchainDoctorRows());

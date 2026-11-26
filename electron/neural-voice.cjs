@@ -1,8 +1,8 @@
 /**
  * FRIDAY · neural voice
  *
- * Offline speech is Supertonic 3 (voice F2) when that model is on disk,
- * through kernel/voice_runtime.py. Until then the Windows SAPI voice speaks.
+ * Offline speech is FRIDAY Voice (the own engine over the Supertonic 3 graphs, her default voice) when that
+ * model is on disk, through kernel/voice_runtime.py. Until then the Windows SAPI voice speaks.
  * The speaker process stays up so the model is not loaded again for every line.
  *
  * edge-tts is the cloud path: Microsoft neural voices, including
@@ -77,11 +77,83 @@ async function python() {
   return found ? [found.exe, found.prefix || []] : null;
 }
 
+/**
+ * The local voice styles the speech worker understands. An id is only ever one of these exact words (matched
+ * ignoring case, then sent in its canonical spelling), never a path, a flag or free text. An empty style means
+ * FRIDAY's own default voice.
+ */
+const LOCAL_STYLES = [
+  "friday",
+  "friday-bright",
+  "friday-calm",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "M1",
+  "M2",
+];
+const LOCAL_STYLE_DEFAULT = "friday";
+/** The engines the worker may name in its status: FRIDAY's own runner, the old package, or none. */
+const FRIDAY_VOICE_ENGINES = new Set(["friday-voice", "supertonic-3", "none"]);
+
+/** The canonical style id for a value, or "" (the default voice) when it is not on the list. */
+function normaliseLocalStyle(style) {
+  if (typeof style !== "string") return "";
+  const wanted = style.trim().toLowerCase();
+  if (!wanted || wanted.length > 16) return "";
+  return LOCAL_STYLES.find((id) => id.toLowerCase() === wanted) || "";
+}
+
+/**
+ * The own speech engine as the worker reports it, made safe to hand to the renderer: a known engine name, flags,
+ * a style id from the allowed list, numbers, and a short reason. Anything else reads as "not reported".
+ */
+function normaliseFridayVoiceStatus(raw) {
+  const tts =
+    raw && typeof raw === "object" ? (raw.tts && typeof raw.tts === "object" ? raw.tts : raw) : {};
+  const engine = FRIDAY_VOICE_ENGINES.has(tts.engine) ? tts.engine : "none";
+  const voiceId = normaliseLocalStyle(tts.voiceId) || normaliseLocalStyle(tts.voice);
+  const rate = Number(tts.sampleRate);
+  const recipe = Number(tts.recipeVersion);
+  const reason =
+    typeof tts.reason === "string"
+      ? tts.reason
+          .replace(/[\u0000-\u001f\u007f]/g, " ")
+          .trim()
+          .slice(0, 200)
+      : "";
+  return {
+    engine,
+    own: engine === "friday-voice" && tts.own === true,
+    ready: engine !== "none" && tts.ready !== false,
+    voiceId,
+    sampleRate: Number.isFinite(rate) && rate > 0 && rate <= 192000 ? Math.round(rate) : 0,
+    recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
+    reason,
+  };
+}
+
+/** What the speech worker says about the own voice engine; never throws, and says why when it cannot tell. */
+async function fridayVoiceStatus(py) {
+  if (!py) {
+    return normaliseFridayVoiceStatus({ reason: "Python 3.12+ was not found." });
+  }
+  const probe = await run(py[0], [...py[1], runtimeScript(), "--status"], 20000);
+  const parsed = probe.ok ? parseJsonLine(probe.stdout) : null;
+  if (!parsed) {
+    return normaliseFridayVoiceStatus({ reason: "the speech runtime did not answer" });
+  }
+  return normaliseFridayVoiceStatus(parsed);
+}
+
 /** Is edge-tts importable right now? Cached briefly — this spawns a process. */
 async function status(force = false) {
   if (cachedStatus && !force && Date.now() - cachedStatus.at < 60000) return cachedStatus.value;
   const py = await python();
   let value;
+  const fridayVoice = await fridayVoiceStatus(py);
   if (!py) {
     value = {
       available: false,
@@ -89,6 +161,7 @@ async function status(force = false) {
       engine: "edge-tts",
       networkRequired: true,
       offline: false,
+      fridayVoice,
     };
   } else {
     const probe = await run(
@@ -104,6 +177,7 @@ async function status(force = false) {
           engine: "edge-tts",
           networkRequired: true,
           offline: false,
+          fridayVoice,
         }
       : {
           available: false,
@@ -112,6 +186,7 @@ async function status(force = false) {
           engine: "edge-tts",
           networkRequired: true,
           offline: false,
+          fridayVoice,
         };
   }
   cachedStatus = { at: Date.now(), value };
@@ -324,15 +399,13 @@ function speakerNotify(payload) {
   }
 }
 
-const LOCAL_STYLE = /^[FM][1-5]$/i;
-
 async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
   const spoken = String(text || "").trim();
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
-  const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const voiceStyle = normaliseLocalStyle(style);
   const key = crypto
     .createHash("sha1")
-    .update(`local|${rate}|${lang}|${voiceStyle}|${spoken}`)
+    .update(`local2|${rate}|${lang}|${voiceStyle || LOCAL_STYLE_DEFAULT}|${spoken}`)
     .digest("hex");
   const file = path.join(cacheDir(), `${key}.wav`);
   if (fs.existsSync(file) && fs.statSync(file).size > 44) {
@@ -340,7 +413,7 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
       ok: true,
       engine: "supertonic-3",
       cloud: false,
-      voice: voiceStyle || "F2",
+      voice: voiceStyle || LOCAL_STYLE_DEFAULT,
       mime: "audio/wav",
       audioBase64: fs.readFileSync(file).toString("base64"),
       path: file,
@@ -374,7 +447,7 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
     ok: true,
     engine: "supertonic-3",
     cloud: false,
-    voice: voiceStyle || "F2",
+    voice: voiceStyle || LOCAL_STYLE_DEFAULT,
     mime: "audio/wav",
     audioBase64: fs.readFileSync(file).toString("base64"),
     path: file,
@@ -439,7 +512,7 @@ async function speakPcm(
     .trim()
     .slice(0, PCM_TEXT_CAP);
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
-  const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const voiceStyle = normaliseLocalStyle(style);
   const askedEngine = typeof engine === "string" && PCM_ENGINES.has(engine) ? engine : "";
   const utterance = cleanUtterance(utt);
   if (utterance && pcmCancelled.has(utterance)) return pcmCancelledAnswer(utterance, seq);
@@ -487,9 +560,15 @@ async function speakPcm(
       : "";
   return {
     ok: true,
-    engine: answered.engine === "hindi-light" ? "hindi-light" : "supertonic-3",
+    engine:
+      answered.engine === "hindi-light"
+        ? "hindi-light"
+        : answered.engine === "friday-voice"
+          ? "friday-voice"
+          : "supertonic-3",
+    own: answered.engine === "friday-voice" && answered.own === true,
     cloud: false,
-    voice: voiceStyle || "F2",
+    voice: voiceStyle || LOCAL_STYLE_DEFAULT,
     sampleRate: Number(answered.sampleRate) || 0,
     pcm,
     ms: Number(answered.ms) || 0,
@@ -762,6 +841,9 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "", 
 
 module.exports = {
   status,
+  normaliseFridayVoiceStatus,
+  normaliseLocalStyle,
+  LOCAL_STYLES,
   install,
   voices,
   speak,

@@ -14,7 +14,14 @@ import { lastSpeechRoute } from "./voice-library";
 import { currentVoiceHealth } from "./voice-health";
 import { prewarmDoctorRows } from "./voice-engine/prewarm";
 import type { VoiceEarsPrefs } from "./preferences";
-import { bargeInRow, earsRows, type EarsStats } from "./voice-diagnostics-rows";
+import {
+  bargeInRow,
+  earsRows,
+  fridayVoiceRows,
+  readFridayVoiceStatus,
+  type EarsStats,
+  type FridayVoiceStatus,
+} from "./voice-diagnostics-rows";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -92,6 +99,36 @@ export function hinglishEarRow(input: {
     fixable: false,
     ...(on ? { steps: pin } : {}),
   };
+}
+
+let lastFridayVoice: FridayVoiceStatus | null = null;
+
+/** Remember what the speech worker last said about FRIDAY Voice (`undefined` or odd shapes clear it). */
+export function noteFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
+  lastFridayVoice = readFridayVoiceStatus(raw);
+  return lastFridayVoice;
+}
+
+/** The "FRIDAY Voice engine" and active-voice rows from the last worker status; Warning rows say when none came. */
+export function fridayVoiceDoctorRows(
+  status: FridayVoiceStatus | null = lastFridayVoice,
+): VoiceLayerRow[] {
+  return fridayVoiceRows(status).map((row) => ({
+    id: `voice:${row.id}`,
+    label: row.label,
+    group: "Voice",
+    status: row.state === "ok" ? "Ready" : "Warning",
+    detail: row.value,
+    fixable: false,
+    ...(row.state !== "ok"
+      ? {
+          steps: [
+            "Open Install Manager and install the local voice model (FRIDAY Voice).",
+            "Switch to Auto mode, press Test voice in Settings, Voice, then run Setup & Doctor again.",
+          ],
+        }
+      : {}),
+  }));
 }
 
 /** Which voice-check row proves which layer. */

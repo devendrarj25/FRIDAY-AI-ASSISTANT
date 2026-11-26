@@ -63,6 +63,33 @@ export function sanitizeConfirmLevel(value: unknown): VoiceConfirmLevel {
     : "rare";
 }
 
+/**
+ * The local voice styles the speech worker understands: "" and "friday" are FRIDAY's own default voice (sweet and
+ * warm), "friday-bright" and "friday-calm" are its two variants, F1 to F5 and M1, M2 are the bundled presets.
+ * An id outside this list (an old, odd or hand-edited stored value) is never sent to the engine.
+ */
+export const LOCAL_VOICE_STYLES = [
+  "",
+  "friday",
+  "friday-bright",
+  "friday-calm",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "M1",
+  "M2",
+] as const;
+export type LocalVoiceStyle = (typeof LOCAL_VOICE_STYLES)[number];
+
+/** A stored value that is not on the list reads "" (the FRIDAY voice); an explicit old F1 to F5 stays as chosen. */
+export function sanitizeLocalVoiceStyle(value: unknown): LocalVoiceStyle {
+  return (LOCAL_VOICE_STYLES as readonly unknown[]).includes(value)
+    ? (value as LocalVoiceStyle)
+    : "";
+}
+
 /** The engines the owner may pin; the names are the ones `rankTtsProviders` takes as `prefer`. */
 export const TTS_ENGINE_PICKS = ["auto", "supertonic", "sapi"] as const;
 export type TtsEnginePick = (typeof TTS_ENGINE_PICKS)[number];
@@ -323,8 +350,8 @@ export type VoicePreferences = {
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
    */
   cloudVoice: VoiceCloudPrefs;
-  /** The local voice style (F1 to F5, female styles of the local voice). Empty keeps the default, F2. */
-  localVoiceStyle: "" | "F1" | "F2" | "F3" | "F4" | "F5";
+  /** The local voice style (see `LOCAL_VOICE_STYLES`). Empty means the FRIDAY voice, her own default. */
+  localVoiceStyle: LocalVoiceStyle;
   /** Small changes of pace, pitch and volume per clause (a question rises, an apology softens). */
   expressiveSpeech: boolean;
   /** Speech Prep: English words and Roman Hindi in Hindi replies are written in Devanagari before the voice reads them. */
@@ -629,6 +656,9 @@ function merge(
       eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
       hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
+      localVoiceStyle: sanitizeLocalVoiceStyle(
+        patch.voice?.localVoiceStyle ?? base.voice.localVoiceStyle,
+      ),
       confirmLevel: sanitizeConfirmLevel(patch.voice?.confirmLevel ?? base.voice.confirmLevel),
       // Device, engine and size choices: an old or odd stored shape reads the shipped default.
       inputDeviceId: sanitizeDeviceId(patch.voice?.inputDeviceId ?? base.voice.inputDeviceId),
