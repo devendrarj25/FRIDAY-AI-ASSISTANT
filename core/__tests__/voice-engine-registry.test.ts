@@ -134,6 +134,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
       "speaker-wespeaker",
       "hindi-vaani-ear",
       "stream-ear-nemotron",
+      "hinglish-ear-trelis",
     ]) {
       const engine = voiceEngineById.get(id)!;
       expect(engine.status, id).toBe("optional-pinned");
@@ -146,6 +147,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
       [
         "Ceva-IP/DPDFNet",
         "bjollans/whisper-large-v3-vaani-hindi-ct2",
+        "nikh360pro/capsbro-hinglish-ct2",
         "onnx-community/wespeaker-voxceleb-resnet34-LM",
         "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
       ].sort(),
@@ -156,6 +158,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
         "speaker-wespeaker",
         "hindi-vaani-ear",
         "stream-ear-nemotron",
+        "hinglish-ear-trelis",
       ]),
     );
   });

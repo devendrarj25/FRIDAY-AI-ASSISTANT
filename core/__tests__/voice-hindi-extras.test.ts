@@ -147,6 +147,7 @@ describe("both have a Models row, a disk check, a Doctor pin row and a repair", 
       ["speaker-wespeaker", "speaker-wespeaker-pin"],
       ["hindi-vaani-ear", "hindi-vaani-ear-pin"],
       ["stream-ear-nemotron", "stream-ear-nemotron-pin"],
+      ["hinglish-ear-trelis", "hinglish-ear-trelis-pin"],
     ]);
   });
 

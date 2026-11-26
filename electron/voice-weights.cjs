@@ -60,6 +60,14 @@ const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
 const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
 
 /**
+ * The optional Hinglish mixed-script ear (Apache-2.0, Trelis Research's Whisper large-v3 fine-tune, int8 CTranslate2 by a
+ * community account; a candidate, never a default, on demand only) in `<root>/models/hinglish-ear-trelis`. The model folder
+ * is its `int8/` subfolder; it writes Hindi in Devanagari and English words in Latin letters, unlike `hinglish-ear`
+ * (Roman letters only), which stays as it is.
+ */
+const HINGLISH_TRELIS_REPO = "nikh360pro/capsbro-hinglish-ct2";
+
+/**
  * The optional streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8, a candidate, never a default) in
  * `<root>/models/stream-ear-nemotron`. Setup and prefetch fetch it only when this PC's voice plan says so
  * (`streamEarDecision`: not the lite profile, not a low-end processor, its RAM inside the speech budget, the disk with
@@ -155,6 +163,13 @@ const EXTRA_MODELS = [
     repo: STREAM_EAR_REPO,
     rowId: "stream-ear-nemotron-pin",
     label: "Streaming ear (Nemotron, candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "hinglish-ear-trelis",
+    repo: HINGLISH_TRELIS_REPO,
+    rowId: "hinglish-ear-trelis-pin",
+    label: "Hinglish mixed-script ear (candidate)",
     kind: "stt",
   },
 ];
@@ -1444,6 +1459,7 @@ module.exports = {
   DENOISE_REPO,
   SPEAKER_REPO,
   HINDI_VAANI_REPO,
+  HINGLISH_TRELIS_REPO,
   STREAM_EAR_REPO,
   STREAM_EAR_ID,
   STREAM_EAR_FALLBACK,

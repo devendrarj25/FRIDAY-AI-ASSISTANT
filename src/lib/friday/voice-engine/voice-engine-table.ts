@@ -409,6 +409,47 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     ],
   }),
   row({
+    id: "hinglish-ear-trelis",
+    label:
+      "Hinglish mixed-script ear (Whisper large-v3 fine-tune by Trelis Research; CTranslate2 int8 by a community account)",
+    role: "stt",
+    repo: "nikh360pro/capsbro-hinglish-ct2",
+    pinRepo: "nikh360pro/capsbro-hinglish-ct2",
+    languages: L("yes", "yes", "unverified"),
+    code: "MIT",
+    weights: "Apache-2.0",
+    runtime: "ctranslate2",
+    torchFree: true,
+    status: "optional-pinned",
+    flags: ["community-conversion"],
+    wrapper: null,
+    selfTest: true,
+    lat: "heavy",
+    blockedBy:
+      "a CANDIDATE, not a default, on demand only: the ear loader (kernel/whisper_ears.py) must open the int8 subfolder and write the decoder prompt [start, language, 51866, transcribe, no-timestamps] (the marker is token 51866, which the tokenizer.json does not hold), the ear is slower than speech on a CPU and needs a GPU, and FRIDAY must measure it on the owner's own recordings (npm run voice:bench) before it joins any chain",
+    publishedWer: [
+      { dataset: "CoSHE-500 (Trelis, vendor-reported, mixed script)", wer: 0.1367 },
+      { dataset: "cs-fleurs (code-switched read speech, Trelis)", wer: 0.1019 },
+      { dataset: "hiacc-adult (accented code-switch, Trelis)", wer: 0.1273 },
+      { dataset: "hiacc-child (accented code-switch, Trelis)", wer: 0.1069 },
+      { dataset: "Common Voice Hindi (Trelis)", wer: 0.1286 },
+      { dataset: "FLEURS Hindi (Trelis)", wer: 0.1257 },
+      { dataset: "FLEURS English (Trelis)", wer: 0.0693 },
+    ],
+    credit:
+      "Trelis Research (Whisper Hinglish preview), trained from ARTPARK-IISc Vaani and OpenAI Whisper large-v3, Apache-2.0; CTranslate2 int8 conversion by nikh360pro (weights unchanged, checked 2026-11-26).",
+    evidence: [
+      HF(
+        "Trelis/whisper-hinglish-preview",
+        "the publisher's WER table and the <|mixedcode|> usage; parent revision eab1188fd2d0e91f2584229b32b3bfe1901c896c, FRIDAY has not measured it on the owner's voice",
+      ),
+      HF(
+        "nikh360pro/capsbro-hinglish-ct2",
+        "pinned revision in electron/voice-pins.cjs; all 353 int8 weight tensors were requantised from the parent's safetensors with the stored row scales and 99.59% of the 1.53 billion values are identical (the rest differ by one step), 2026-11-26",
+      ),
+    ],
+  }),
+  row({
     id: "voxtral-mini-4b-realtime-gguf",
     label: "Voxtral Mini 4B Realtime (GGUF, the only streaming Hindi speech recogniser found)",
     role: "stt",

@@ -413,6 +413,46 @@ const PINS = {
       },
     },
   },
+  // The Hinglish mixed-script ear: Trelis Research's Whisper large-v3 fine-tune (Apache-2.0, trained from ARTPARK-IISc
+  // Vaani) converted to CTranslate2 int8 by a community account (`int8/` folder, weights unchanged). It answers Hindi in
+  // Devanagari and English words in Latin letters in one line (the card's `<|mixedcode|>` marker, token 51866, put after
+  // the language token). A CANDIDATE, never a default, on demand only: the publisher's WER table is a lead, FRIDAY's own
+  // measurement is in the registry (voice-engine-table.ts). The parent is Trelis/whisper-hinglish-preview at
+  // eab1188fd2d0e91f2584229b32b3bfe1901c896c; every file below was fetched at the pinned revision and hashed here, and
+  // the 1,556,723,863-byte model.bin matches the SHA-256 Hugging Face lists. The repository's own LICENSE (Apache-2.0
+  // text) is pinned beside the weights so the licence travels with them; credit: Trelis Research, ARTPARK-IISc Vaani,
+  // OpenAI Whisper, conversion by nikh360pro. Its `tokenizer.json` stops at id 51865 (it does not hold the marker),
+  // while `vocabulary.json` and the model hold id 51866: the marker is written as that id, never encoded from text.
+  "nikh360pro/capsbro-hinglish-ct2": {
+    revision: "87a1f963adb6e7902a766a3d20217fa63d7f018b",
+    license: "Apache-2.0",
+    files: {
+      LICENSE: {
+        sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        bytes: 11358,
+      },
+      "int8/config.json": {
+        sha256: "f277d9390e65adc1630b349151eca38aaf7420c41c814271928854edcfd6ffbe",
+        bytes: 2634,
+      },
+      "int8/model.bin": {
+        sha256: "624bae081b85f4ac433edb73bf64bd5277bb7a4c03fe305d572fe2fd1a89a7d3",
+        bytes: 1556723863,
+      },
+      "int8/preprocessor_config.json": {
+        sha256: "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+        bytes: 357,
+      },
+      "int8/tokenizer.json": {
+        sha256: "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
+        bytes: 2480617,
+      },
+      "int8/vocabulary.json": {
+        sha256: "e2125783966ea6f3aad20a065a9b2ae5c9c8532438aa80e62e84f7e635adbbda",
+        bytes: 1120001,
+      },
+    },
+  },
   // Optional streaming ear candidate, never a default; setup fetches it only when the voice plan says this PC can carry
   // it (electron/voice-weights.cjs streamEarDecision), each file checked against the digest below. NVIDIA Nemotron 3.5 ASR
   // Streaming 0.6B (cache-aware FastConformer RNN-T, 128 language prompt slots incl. hi-IN and en-US), exported to ONNX
@@ -668,6 +708,20 @@ const FACTS = {
     fallbackPriority: "experimental",
     basis: "estimated",
   },
+  // Peak resident memory 3,042 MB after loading the int8 folder with faster-whisper 1.2.1 and decoding one 15 s clip, on a
+  // Linux x86-64 CPU (2026-11-26); a clip decodes in about 5 to 10 s on 4 threads, slower than speech, so `cpuOk` is false.
+  "nikh360pro/capsbro-hinglish-ct2": {
+    minRamGb: 3.2,
+    recommendedRamGb: 4.5,
+    minVramGb: 4,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, community conversion of the parent)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 3042,
+  },
   "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
     minRamGb: 1.2,
     recommendedRamGb: 1.8,
@@ -751,6 +805,19 @@ const SELF_TESTS = {
       reason:
         "needs the large-v3 tokenizer.json (pinned under Systran/faster-whisper-large-v3) beside the model; without it faster-whisper would fetch one from the network",
     },
+  },
+  "nikh360pro/capsbro-hinglish-ct2": {
+    kind: "ct2-folder",
+    wrapper: null,
+    // The model folder is the pinned `int8/` subfolder. The repository's tokenizer.json is whole (no companion needed);
+    // it lacks the `<|mixedcode|>` marker, which the decoder prompt writes as the id 51866 held by vocabulary.json.
+    needs: [
+      "int8/config.json",
+      "int8/model.bin",
+      "int8/tokenizer.json",
+      "int8/vocabulary.json",
+      "LICENSE",
+    ],
   },
   "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
     kind: "onnx-signature",

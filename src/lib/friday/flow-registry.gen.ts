@@ -2571,6 +2571,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "energy",
+      file: "kernel/stream_ear.py",
+    },
+    {
       kind: "epub",
       file: "kernel/doc_writer.py",
     },
@@ -2705,6 +2709,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "s",
       file: "kernel/office_tools.py",
+    },
+    {
+      kind: "silero",
+      file: "kernel/stream_ear.py",
     },
     {
       kind: "single",

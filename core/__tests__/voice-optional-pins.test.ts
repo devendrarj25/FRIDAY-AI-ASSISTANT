@@ -45,7 +45,10 @@ const weights = req("../../electron/voice-weights.cjs") as {
   DENOISE_REPO: string;
   SPEAKER_REPO: string;
   HINDI_VAANI_REPO: string;
+  HINGLISH_TRELIS_REPO: string;
   STREAM_EAR_REPO: string;
+  EAR_MODELS: { catalogId: string; repo: string }[];
+  EXTRA_MODELS: { catalogId: string; repo: string; rowId: string }[];
   pinSelfTests: (
     root: string,
     deps: {
@@ -80,6 +83,7 @@ const PINNED = [
   { id: "speaker-wespeaker", repo: weights.SPEAKER_REPO },
   { id: "hindi-vaani-ear", repo: weights.HINDI_VAANI_REPO },
   { id: "stream-ear-nemotron", repo: weights.STREAM_EAR_REPO },
+  { id: "hinglish-ear-trelis", repo: weights.HINGLISH_TRELIS_REPO },
 ];
 
 describe("the pins read from the Hugging Face API on 2026-11-23", () => {
@@ -134,6 +138,7 @@ describe("the Models rows and the Install Manager rows", () => {
     }
     expect(modelById.get("speaker-wespeaker")!.name).toMatch(/credit: WeSpeaker.*CC-BY-4\.0/);
     expect(modelById.get("hindi-vaani-ear")!.name).toMatch(/candidate/);
+    expect(modelById.get("hinglish-ear-trelis")!.name).toMatch(/candidate.*Apache-2\.0/);
   });
 
   it("show in the Install Manager as optional voice models, with the fit read from facts", () => {
@@ -165,6 +170,7 @@ describe("the Models rows and the Install Manager rows", () => {
     expect(of("denoise-dpdfnet").state).toBe("supported");
     expect(of("speaker-wespeaker").state).toBe("supported");
     expect(of("hindi-vaani-ear").state).not.toBe("supported"); // 3 GB of weights, a GPU model, no GPU here
+    expect(of("hinglish-ear-trelis").state).not.toBe("supported"); // large-v3 on a CPU: slower than speech, no GPU here
   });
 });
 
@@ -218,6 +224,91 @@ describe("the Vaani ear and its missing tokenizer", () => {
   });
 });
 
+describe("the Hinglish mixed-script ear (Trelis, int8 CTranslate2), read from the Hugging Face API on 2026-11-26", () => {
+  const REPO = "nikh360pro/capsbro-hinglish-ct2";
+  const pin = () => pins.pinForRepo(REPO)!;
+  const spec = () => pins.SELF_TESTS[REPO]!;
+
+  it("pins the int8 folder and the licence text by revision, SHA-256 and bytes, and never the float16 copy", () => {
+    expect(weights.HINGLISH_TRELIS_REPO).toBe(REPO);
+    expect(pin().license).toBe("Apache-2.0");
+    expect(pin().revision).toBe("87a1f963adb6e7902a766a3d20217fa63d7f018b");
+    expect(Object.keys(pin().files).sort()).toEqual([
+      "LICENSE",
+      "int8/config.json",
+      "int8/model.bin",
+      "int8/preprocessor_config.json",
+      "int8/tokenizer.json",
+      "int8/vocabulary.json",
+    ]);
+    expect(pin().files["int8/model.bin"]).toEqual({
+      sha256: "624bae081b85f4ac433edb73bf64bd5277bb7a4c03fe305d572fe2fd1a89a7d3",
+      bytes: 1556723863,
+    });
+    expect(pin().files["int8/vocabulary.json"]).toEqual({
+      sha256: "e2125783966ea6f3aad20a065a9b2ae5c9c8532438aa80e62e84f7e635adbbda",
+      bytes: 1120001,
+    });
+    expect(pin().files["LICENSE"]!.bytes).toBe(11358);
+    expect(Object.keys(pin().files)).not.toContain("model.bin"); // the 3 GB float16 copy
+    for (const name of Object.keys(pin().files)) {
+      expect(name).not.toMatch(/\.\.|^\/|\\/); // no traversal out of the model folder
+      expect(pin().files[name]!.sha256, name).toMatch(HEX64);
+    }
+    expect(pins.pinnedBytes(pin())).toBe(1560338830);
+  });
+
+  it("is a candidate on demand: a self-test over the int8 folder, no wrapper, no default, not in the setup plan", () => {
+    expect(spec().kind).toBe("ct2-folder");
+    expect(spec().wrapper).toBeNull();
+    expect(spec().companion).toBeUndefined(); // its own tokenizer.json is whole
+    for (const name of spec().needs!) expect(Object.keys(pin().files), name).toContain(name);
+    expect(spec().needs).toEqual(
+      expect.arrayContaining(["int8/model.bin", "int8/tokenizer.json", "int8/vocabulary.json"]),
+    );
+    const plan = fs.readFileSync(path.join(__dirname, "../../electron/setup-plan.cjs"), "utf8");
+    expect(plan).not.toMatch(/hinglish-ear-trelis/);
+    const prefetch = fs.readFileSync(
+      path.join(__dirname, "../../scripts/prefetch-models.cjs"),
+      "utf8",
+    );
+    expect(prefetch).not.toMatch(/hinglish-ear-trelis|capsbro/);
+  });
+
+  it("is an extra model row of its own and leaves the Roman-letter Hinglish ear as it was", () => {
+    const row = weights.EXTRA_MODELS.find((entry) => entry.catalogId === "hinglish-ear-trelis")!;
+    expect(row.repo).toBe(REPO);
+    expect(row.rowId).toBe("hinglish-ear-trelis-pin");
+    expect(weights.EAR_MODELS.map((ear) => ear.catalogId)).toContain("hinglish-ear");
+    expect(pins.pinForRepo("MSpider3/whisper-hindi2hinglish-swift-ct2")!.revision).toBe(
+      "484362f23d657c07c2762ce1c52d7b4a7ab49d25",
+    );
+  });
+
+  it("needs every pinned file, nested ones included, before the folder counts as installed", async () => {
+    const root = temp();
+    const rows = await weights.pinSelfTests(root, {
+      exists: (file) => fs.existsSync(file),
+    });
+    expect(rows.find((entry) => entry.id === "optional-hinglish-ear-trelis")).toMatchObject({
+      ok: true,
+      optional: true,
+      installId: "hinglish-ear-trelis",
+    });
+    const dir = path.join(root, "models", "hinglish-ear-trelis");
+    for (const name of Object.keys(pin().files).filter((file) => file !== "int8/model.bin")) {
+      fs.mkdirSync(path.dirname(path.join(dir, ...name.split("/"))), { recursive: true });
+      fs.writeFileSync(path.join(dir, ...name.split("/")), "x");
+    }
+    const partial = await weights.pinSelfTests(root, { exists: (file) => fs.existsSync(file) });
+    expect(partial.map((entry) => entry.id)).toContain("optional-hinglish-ear-trelis");
+    fs.writeFileSync(path.join(dir, "int8", "model.bin"), "x");
+    const whole = await weights.pinSelfTests(root, { exists: (file) => fs.existsSync(file) });
+    expect(whole.map((entry) => entry.id)).toContain("selftest-hinglish-ear-trelis");
+    expect(whole.map((entry) => entry.id)).not.toContain("optional-hinglish-ear-trelis");
+  });
+});
+
 describe("the Doctor self-test rows", () => {
   it("offer the install button for an engine that is not installed, and never require it", async () => {
     const rows = await weights.pinSelfTests(temp(), { exists: () => false });
@@ -226,6 +317,7 @@ describe("the Doctor self-test rows", () => {
       "optional-speaker-wespeaker",
       "optional-hindi-vaani-ear",
       "optional-stream-ear-nemotron",
+      "optional-hinglish-ear-trelis",
     ]);
     for (const row of rows) {
       expect(row).toMatchObject({ ok: true, optional: true, required: false });
@@ -259,6 +351,7 @@ describe("the Doctor self-test rows", () => {
       "selftest-speaker-wespeaker",
       "selftest-hindi-vaani-ear",
       "selftest-stream-ear-nemotron",
+      "selftest-hinglish-ear-trelis",
     ]);
     for (const row of rows) {
       expect(row).toMatchObject({ ok: true, required: false, installId: "" });
