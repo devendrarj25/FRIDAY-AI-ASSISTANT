@@ -64,8 +64,8 @@ const jobs = weights.pinnedJobs();
 const job = (id: string) => jobs.find((row) => row.id === id) as Job;
 
 describe("no pinned helper URL points at a moving branch", () => {
-  it("lists both helpers and every url and source of them is revision-pinned", () => {
-    expect(jobs.map((row) => row.id).sort()).toEqual(["silero-vad", "smart-turn"]);
+  it("lists every helper and every url and source of them is revision-pinned", () => {
+    expect(jobs.map((row) => row.id).sort()).toEqual(["silero-vad", "smart-turn", "wake-embed"]);
     for (const row of jobs) {
       const urls = [row.url, ...(row.sources || []).map((source) => source.url)];
       expect(urls.length).toBeGreaterThanOrEqual(2);
@@ -134,6 +134,49 @@ describe("Smart Turn is pinned to its Hugging Face commit", () => {
     expect(row.sha256).toBe(TURN_SHA);
     expect(row.bytes).toBe(TURN_BYTES);
     expect(row.sources?.[0]?.url).toBe(row.url);
+  });
+});
+
+describe("the wake embedding model pin", () => {
+  it("is one optional, size and SHA-256 pinned file from a fixed release tag, installed under FRIDAY's own name", () => {
+    const row = job("wake-embed");
+    expect(row).toMatchObject({
+      file: "wake-embed.onnx",
+      sha256: "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+      bytes: 1326578,
+      dir: ["models", "wake"],
+      optional: true,
+    });
+    expect(row.fallback).toBeTruthy();
+    expect(row.sources).toHaveLength(1);
+    expect(row.sources[0]).toMatchObject({
+      fileName: "wake-embed.onnx",
+      sha256: row.sha256,
+      bytes: 1326578,
+    });
+    expect(row.url).toMatch(
+      /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+\/embedding_model\.onnx$/,
+    );
+    expect(weights.isOptionalHelper("wake-embed")).toBe(true);
+    expect(weights.modelRegistry().find((r) => r.catalogId === "wake-embed")).toMatchObject({
+      file: "wake-embed.onnx",
+      dir: ["models", "wake"],
+      optional: true,
+      label: "Wake word embedding",
+    });
+    expect(weights.manifestOf("wake-embed")).toMatchObject({ kind: "voice", diskBytes: 1326578 });
+  });
+
+  it("a failed fetch names the pin and is a note, and the file is found where the wake engine opens it", () => {
+    expect(job("wake-embed").failureLine({ attempts: [] })).toContain("wake-embed");
+    const root = path.join(os.tmpdir(), "friday-wake-embed-root");
+    expect(weights.modelPath(root, "wake-embed")).toBe(
+      path.join(root, "models", "wake", "wake-embed.onnx"),
+    );
+    const present = (file: string) => file === path.join(root, "models", "wake", "wake-embed.onnx");
+    expect(weights.voiceModelsOnDisk(root, present)).toContainEqual(
+      expect.objectContaining({ catalogId: "wake-embed", kind: "voice" }),
+    );
   });
 });
 

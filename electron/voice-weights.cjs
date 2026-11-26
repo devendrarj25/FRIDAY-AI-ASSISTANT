@@ -206,6 +206,10 @@ const SILERO_BYTES = 2327524;
 const SMART_TURN_SHA256 = "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f";
 const SMART_TURN_BYTES = 8679182;
 
+const WAKE_EMBED_FILE = "wake-embed.onnx";
+const WAKE_EMBED_SHA256 = "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f";
+const WAKE_EMBED_BYTES = 1326578;
+
 const PINNED = [
   {
     id: "smart-turn",
@@ -253,7 +257,35 @@ const PINNED = [
       },
     ],
   },
+  {
+    id: "wake-embed",
+    file: WAKE_EMBED_FILE,
+    sha256: WAKE_EMBED_SHA256,
+    bytes: WAKE_EMBED_BYTES,
+    dir: ["models", "wake"],
+    optional: true,
+    fallback: "the bundled wake scorer",
+    sources: [
+      {
+        kind: "url",
+        // The speech embedding model of the wake head, from the v0.5.1 release assets (Apache-2.0); `fileName` is the
+        // name FRIDAY's wake engine opens it by (`kernel/wake_word.py` EMBED_MODEL_NAME), not the release's own.
+        url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
+        fileName: WAKE_EMBED_FILE,
+        sha256: WAKE_EMBED_SHA256,
+        bytes: WAKE_EMBED_BYTES,
+        label: "GitHub release v0.5.1 (fixed tag)",
+      },
+    ],
+  },
 ].map((row) => ({ ...row, url: row.sources[0].url }));
+
+/** Models-page label of each single-file helper. */
+const HELPER_LABELS = {
+  "silero-vad": "Silero VAD",
+  "smart-turn": "Smart Turn",
+  "wake-embed": "Wake word embedding",
+};
 
 /** True for a helper FRIDAY can run without (its `fallback` engine takes over); a failed fetch is then a note, not a failure. */
 function isOptionalHelper(id) {
@@ -745,7 +777,7 @@ function modelRegistry() {
       file: row.file,
       bytes: row.bytes,
       dir: [...row.dir],
-      label: row.id === "silero-vad" ? "Silero VAD" : "Smart Turn",
+      label: HELPER_LABELS[row.id] || row.id,
       optional: row.optional === true,
     });
   }
