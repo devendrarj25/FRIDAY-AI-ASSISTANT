@@ -9,6 +9,11 @@ import {
 import { copyText } from "@/lib/friday/clipboard";
 import { formatOwnerDate } from "@/lib/friday/settings-runtime";
 import { cn } from "@/lib/utils";
+import {
+  CONFIRM_TTL_MS,
+  confirmCountdown,
+  emptyTranscriptLine,
+} from "@/components/friday/voice-transcript-model";
 
 /**
  * What the Auto (voice) window shows of the conversation: one caption row
@@ -71,12 +76,38 @@ export function DisplayPanel({ display }: { display: PanelDisplay }) {
 export function ConfirmationCard({
   pending,
   className,
+  ttlMs = CONFIRM_TTL_MS,
 }: {
   pending: PendingConfirm;
   className?: string;
+  /** How long the approval stays open, from when it was asked. */
+  ttlMs?: number;
 }) {
+  const card = useRef<HTMLDivElement | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  // The card owns its tick (one timeout re-armed each second) and drops it on unmount; nothing runs while no
+  // command waits, and it stops once the approval has expired.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const step = () => {
+      const at = Date.now();
+      setNow(at);
+      if (!confirmCountdown(pending.at, at, ttlMs).expired) timer = setTimeout(step, 1000);
+    };
+    timer = setTimeout(step, 1000);
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [pending.at, ttlMs]);
+  // A command waiting for yes or no takes keyboard focus so Escape (NO) and Tab reach the buttons at once.
+  useEffect(() => {
+    card.current?.focus();
+  }, [pending.at]);
+  const countdown = confirmCountdown(pending.at, now, ttlMs);
   return (
     <div
+      ref={card}
+      tabIndex={-1}
       role="alertdialog"
       aria-label="Confirmation required"
       // Escape inside the card is NO. Only the cancelling answer has a shortcut; running the command always takes
@@ -88,13 +119,19 @@ export function ConfirmationCard({
         }
       }}
       className={cn(
-        "mx-auto w-[min(560px,96%)] rounded-surface border border-warning/50 bg-warning/10 p-3 backdrop-blur-sm",
+        "mx-auto w-[min(560px,96%)] rounded-surface border border-warning/50 bg-warning/10 p-3 backdrop-blur-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         className,
       )}
     >
       <p className="label-xs text-warning">Confirmation required</p>
       <p className="mt-1 text-sm text-foreground">{pending.command}</p>
       <p className="mt-1 text-xs text-muted-foreground">{pending.reason}</p>
+      <p
+        role="status"
+        className={cn("mt-1 text-meta", countdown.expired ? "text-destructive" : "text-warning")}
+      >
+        {countdown.label}
+      </p>
       <div className="mt-2.5 flex gap-2">
         <button
           type="button"
@@ -255,6 +292,12 @@ export function VoiceTranscript({
   pending,
   layout,
   showTime,
+  wakeWord,
+  handsFree,
+  muted,
+  paused,
+  error,
+  confirmTtlMs,
 }: {
   captions: Caption[];
   interim: string;
@@ -262,12 +305,26 @@ export function VoiceTranscript({
   pending: PendingConfirm | null;
   layout: CaptionLayout;
   showTime: boolean;
+  /** Empty-state inputs; with none given the text is "Say “FRIDAY” followed by what you need". */
+  wakeWord?: string;
+  handsFree?: boolean;
+  muted?: boolean;
+  paused?: boolean;
+  error?: string | null;
+  /** How long a waiting command stays open, in milliseconds. */
+  confirmTtlMs?: number;
 }) {
   const body = (
     <>
       {captions.length === 0 && !interim && !display ? (
         <p className="text-xs text-muted-foreground">
-          Nothing heard yet. Say “FRIDAY” followed by what you need.
+          {emptyTranscriptLine({
+            ...(wakeWord !== undefined ? { wakeWord } : {}),
+            ...(handsFree !== undefined ? { handsFree } : {}),
+            ...(muted !== undefined ? { muted } : {}),
+            ...(paused !== undefined ? { paused } : {}),
+            ...(error !== undefined ? { error } : {}),
+          })}
         </p>
       ) : null}
       {captions.map((c) => (
@@ -276,7 +333,9 @@ export function VoiceTranscript({
       {/* Live speech streams inside this same box */}
       {interim ? <InterimLine text={interim} layout={layout} /> : null}
       {display ? <DisplayPanel display={display} /> : null}
-      {layout === "bubble" && pending ? <ConfirmationCard pending={pending} /> : null}
+      {layout === "bubble" && pending ? (
+        <ConfirmationCard pending={pending} {...(confirmTtlMs ? { ttlMs: confirmTtlMs } : {})} />
+      ) : null}
     </>
   );
   if (layout === "line") return body;
