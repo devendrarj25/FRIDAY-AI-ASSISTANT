@@ -149,6 +149,83 @@ export function sanitizeWavDays(value: unknown): number {
   return Number.isFinite(n) ? Math.min(90, Math.max(1, n)) : 7;
 }
 
+export const VOICE_TURN_CLASSIFIER_PICKS = ["off", "shadow", "live"] as const;
+
+/** Turn-taking tuning (version 1). The end-of-turn classifier starts in shadow: it scores, it never acts. */
+export type VoiceTurnPrefs = {
+  v: 1;
+  /** Learn the owner's own pause length from past turns. Off until tried on this PC. */
+  calibrate: boolean;
+  /** Use the sentence-final prior when deciding a turn has ended. */
+  eotPrior: boolean;
+  /** off: not run; shadow: scored and logged only; live: allowed to end a turn. */
+  classifier: (typeof VOICE_TURN_CLASSIFIER_PICKS)[number];
+  /** The longest wait for more speech before a turn is closed (1200 to 4000 ms). */
+  maxWaitMs: number;
+};
+
+export const DEFAULT_VOICE_TURN: VoiceTurnPrefs = {
+  v: 1,
+  calibrate: false,
+  eotPrior: true,
+  classifier: "shadow",
+  maxWaitMs: 2400,
+};
+
+/** A missing, partial or hand-edited `voice.turn` reads the defaults key by key; unknown words fall back, numbers clamp. */
+export function sanitizeVoiceTurn(input: unknown): VoiceTurnPrefs {
+  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as {
+    [K in keyof VoiceTurnPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_TURN;
+  return {
+    v: 1,
+    calibrate: src.calibrate === true,
+    eotPrior: typeof src.eotPrior === "boolean" ? src.eotPrior : d.eotPrior,
+    classifier: pick(VOICE_TURN_CLASSIFIER_PICKS, src.classifier, d.classifier),
+    maxWaitMs: wholeIn(src.maxWaitMs, 1200, 4000, d.maxWaitMs),
+  };
+}
+
+export const VOICE_LEXICON_FIX_PICKS = ["off", "hints", "apply"] as const;
+
+/** How well she understands (version 1): self-repair of a restarted phrase, the short command lane, the lexicon fix. */
+export type VoiceUnderstandingPrefs = {
+  v: 1;
+  /** "no, I mean ..." and a restarted phrase keep only the last version. */
+  selfRepair: boolean;
+  /** A short known command skips the full brain turn. */
+  commandLane: boolean;
+  /** Lexicon corrections of heard words: off, hints (a hint to the brain) or apply (the words are rewritten). */
+  lexiconFix: (typeof VOICE_LEXICON_FIX_PICKS)[number];
+};
+
+export const DEFAULT_VOICE_UNDERSTANDING: VoiceUnderstandingPrefs = {
+  v: 1,
+  selfRepair: true,
+  commandLane: true,
+  lexiconFix: "hints",
+};
+
+/** A missing, partial or hand-edited `voice.understanding` reads the defaults key by key. */
+export function sanitizeVoiceUnderstanding(input: unknown): VoiceUnderstandingPrefs {
+  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as {
+    [K in keyof VoiceUnderstandingPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_UNDERSTANDING;
+  return {
+    v: 1,
+    selfRepair: typeof src.selfRepair === "boolean" ? src.selfRepair : d.selfRepair,
+    commandLane: typeof src.commandLane === "boolean" ? src.commandLane : d.commandLane,
+    lexiconFix: pick(VOICE_LEXICON_FIX_PICKS, src.lexiconFix, d.lexiconFix),
+  };
+}
+
+/** Seconds a spoken yes stays valid: a whole number from 10 to 60; anything else reads 30. */
+export function sanitizeApprovalTtlSec(value: unknown): number {
+  return wholeIn(value, 10, 60, 30);
+}
+
 export const EARS_AGC_PICKS = ["browser", "own", "off"] as const;
 export const EARS_VAD_PICKS = ["auto", "silero", "energy"] as const;
 export const EARS_EAGERNESS_PICKS = ["eager", "normal", "patient"] as const;
@@ -320,6 +397,12 @@ export type VoicePreferences = {
   pauseDuringCalls: boolean;
   /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
   realtimeExperiment: boolean;
+  /** Turn-taking tuning: calibration, end-of-turn prior, classifier mode, longest wait. */
+  turn: VoiceTurnPrefs;
+  /** Self-repair, the command lane and the lexicon fix. */
+  understanding: VoiceUnderstandingPrefs;
+  /** Seconds a spoken yes stays valid (10 to 60). */
+  approvalTtlSec: number;
   /** On by default: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
   fastFirstClause: boolean;
   /** On by default: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file; the first failure turns it off for the session and speech goes on through the file path. */
@@ -562,6 +645,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     privacyMode: false,
     pauseDuringCalls: true,
     realtimeExperiment: false,
+    turn: { ...DEFAULT_VOICE_TURN },
+    understanding: { ...DEFAULT_VOICE_UNDERSTANDING },
+    approvalTtlSec: 30,
     fastFirstClause: true,
     pcmPlayback: true,
     prewarm: true,
@@ -630,6 +716,16 @@ const earsPatch = (value: unknown): Partial<VoiceEarsPrefs> =>
     ? (value as Partial<VoiceEarsPrefs>)
     : {};
 
+/** A text setting must be a string; a stored null or a number reads the value already held. */
+const textOr = (value: unknown, fallback: string): string =>
+  typeof value === "string" ? value : fallback;
+
+/** Only a plain object can patch a nested setting. */
+const objectPatch = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
 function merge(
   base: FridayPreferences,
   patch: Partial<FridayPreferences> | null,
@@ -650,6 +746,19 @@ function merge(
         ...base.voice.interruptGate,
         ...(patch.voice?.interruptGate ?? {}),
       }),
+      wakeWord: textOr(patch.voice?.wakeWord, base.voice.wakeWord),
+      recognitionLang: textOr(patch.voice?.recognitionLang, base.voice.recognitionLang),
+      speechLang: textOr(patch.voice?.speechLang, base.voice.speechLang),
+      voiceName: textOr(patch.voice?.voiceName, base.voice.voiceName),
+      addressName: textOr(patch.voice?.addressName, base.voice.addressName),
+      turn: sanitizeVoiceTurn({ ...base.voice.turn, ...objectPatch(patch.voice?.turn) }),
+      understanding: sanitizeVoiceUnderstanding({
+        ...base.voice.understanding,
+        ...objectPatch(patch.voice?.understanding),
+      }),
+      approvalTtlSec: sanitizeApprovalTtlSec(
+        patch.voice?.approvalTtlSec ?? base.voice.approvalTtlSec,
+      ),
       pttTailMs: normalizePttTailMs(patch.voice?.pttTailMs ?? base.voice.pttTailMs),
       wake: normalizeWakeGuardConfig({ ...base.voice.wake, ...(patch.voice?.wake ?? {}) }),
       instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
