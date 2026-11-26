@@ -46,6 +46,8 @@ type WarmBridge = {
     lang?: string;
     style?: string;
     seq?: number;
+    /** True asks only for the voice engine's one warm-up pass (no text is spoken). */
+    warm?: boolean;
   }) => Promise<{
     ok: boolean;
     reason?: string;
@@ -70,6 +72,22 @@ const NO_BRIDGE: PrewarmResult = {
 /** One second of silence at 16 kHz, as a WAV file. */
 const silence = (): Uint8Array => encodeWav(new Float32Array(16_000));
 
+let engineWarmed = false;
+
+/** The voice engine's own warm-up op, once per app run. A failure is ignored: the clip below still warms it. */
+async function warmVoiceEngineOnce(api: WarmBridge): Promise<void> {
+  if (engineWarmed || !api.speakNeuralPcm) return;
+  engineWarmed = true;
+  await api
+    .speakNeuralPcm({ text: "", rate: 1, style: activeLocalStyle(), warm: true })
+    .catch(() => null);
+}
+
+/** Test hook: lets a test see the once-per-run warm-up again. */
+export function resetVoiceEngineWarm(): void {
+  engineWarmed = false;
+}
+
 async function speak(
   text: string,
   lang: string,
@@ -87,6 +105,7 @@ async function speak(
   if (status && !status.available && !(own && own.ready)) {
     return { ok: false, reason: status.reason || "the local voice is not installed" };
   }
+  await warmVoiceEngineOnce(api);
   const result = await api.speakNeuralPcm({
     text,
     rate: activeVoiceSettings().rate,

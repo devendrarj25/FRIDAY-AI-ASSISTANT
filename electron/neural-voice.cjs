@@ -498,6 +498,66 @@ async function cancelPcm(payload, { notify = speakerNotify } = {}) {
   return { ok: true, utt, sent: notify({ op: "cancel", utt }) === true };
 }
 
+const PCM_PAUSE_MAX_MS = 1200;
+const PCM_PAUSED_REPLY_MAX_MS = 5000;
+const WORD_TIMES_MAX = 400;
+const WORD_MAX_CHARS = 64;
+
+/** Silence the worker says it added: a finite whole number of milliseconds, 0 to 5000, else 0. */
+function cleanPausedMs(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(PCM_PAUSED_REPLY_MAX_MS, Math.round(value));
+}
+
+/** Word timings from the worker: at most 400 items, each a short string with finite, forward-moving times. */
+function cleanWordTimes(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  let last = 0;
+  for (let i = 0; i < value.length && i < WORD_TIMES_MAX * 2 && out.length < WORD_TIMES_MAX; i++) {
+    const item = value[i];
+    if (!item || typeof item !== "object") continue;
+    const { word, startMs, endMs } = item;
+    if (typeof word !== "string" || !word || word.length > WORD_MAX_CHARS) continue;
+    if (typeof startMs !== "number" || typeof endMs !== "number") continue;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    if (startMs < last || endMs < startMs || endMs > 3_600_000) continue;
+    out.push({ word, startMs: Math.round(startMs), endMs: Math.round(endMs) });
+    last = endMs;
+  }
+  return out;
+}
+
+let warmedOnce = false;
+
+/** The worker's `warm-up` op, once per app run, so the first reply is not slow. A failure is only a reason string. */
+async function warmUp(style, { request = speakerRequest, resolvePy = python } = {}) {
+  if (warmedOnce) return { ok: true, warmed: false, engine: "local", cloud: false };
+  warmedOnce = true;
+  try {
+    const py = await resolvePy();
+    if (!py)
+      return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
+    const answered = await request(py, { op: "warm-up", style }, 60000);
+    return answered?.ok === true
+      ? { ok: true, warmed: true, engine: "local", cloud: false }
+      : {
+          ok: false,
+          engine: "local",
+          cloud: false,
+          reason:
+            typeof answered?.reason === "string" ? answered.reason.slice(0, 120) : "warm-up failed",
+        };
+  } catch {
+    return { ok: false, engine: "local", cloud: false, reason: "warm-up failed" };
+  }
+}
+
+/** Test hook: lets a test run the once-per-run warm-up again. */
+function resetWarmUp() {
+  warmedOnce = false;
+}
+
 /**
  * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
  * fallback, no disk write and no cache, so sensitive text never leaves this PC. The samples are returned as a
@@ -505,9 +565,10 @@ async function cancelPcm(payload, { notify = speakerNotify } = {}) {
  * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.
  */
 async function speakPcm(
-  { text, rate = 1, lang = "", style = "", seq, engine, utt } = {},
+  { text, rate = 1, lang = "", style = "", seq, engine, utt, trusted, first, pauseMs, warm } = {},
   { request = speakerRequest, resolvePy = python } = {},
 ) {
+  if (warm === true) return warmUp(normaliseLocalStyle(style), { request, resolvePy });
   const spoken = String(text || "")
     .trim()
     .slice(0, PCM_TEXT_CAP);
@@ -527,6 +588,11 @@ async function speakPcm(
       speed: Number(rate) || 1,
       lang: String(lang || ""),
       style: voiceStyle,
+      ...(trusted === true ? { trusted: true } : {}),
+      ...(first === true ? { first: true } : {}),
+      ...(Number.isFinite(pauseMs) && pauseMs > 0
+        ? { pauseMs: Math.min(PCM_PAUSE_MAX_MS, Math.round(pauseMs)) }
+        : {}),
       ...(askedEngine ? { engine: askedEngine } : {}),
       ...(Number.isInteger(seq) ? { seq } : {}),
       ...(utterance ? { utt: utterance } : {}),
@@ -558,6 +624,7 @@ async function speakPcm(
     typeof answered.fallback === "string" && PCM_FALLBACK.test(answered.fallback)
       ? answered.fallback
       : "";
+  const wordTimes = cleanWordTimes(answered.wordTimes);
   return {
     ok: true,
     engine:
@@ -572,6 +639,8 @@ async function speakPcm(
     sampleRate: Number(answered.sampleRate) || 0,
     pcm,
     ms: Number(answered.ms) || 0,
+    pausedMs: cleanPausedMs(answered.pausedMs),
+    ...(wordTimes.length ? { wordTimes } : {}),
     ...(fallback ? { fallback } : {}),
     ...(Number.isInteger(seq) ? { seq } : {}),
     ...(utterance ? { utt: utterance } : {}),
@@ -849,6 +918,7 @@ module.exports = {
   speak,
   speakLocal,
   speakPcm,
+  resetWarmUp,
   cancelPcm,
   PCM_CANCELLED_KEEP,
   echoShadow,

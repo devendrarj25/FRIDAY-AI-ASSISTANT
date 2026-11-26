@@ -371,3 +371,93 @@ describe("provisional speech-to-text", () => {
     expect(result.final).toBeUndefined();
   }, 60_000);
 });
+
+describe("speak-pcm delivery fields and the warm-up op", () => {
+  const pcm = Buffer.from([1, 0, 2, 0]).toString("base64");
+  const run = async (input: Record<string, unknown>, reply: Record<string, unknown>) => {
+    const sent: Array<Record<string, unknown>> = [];
+    const result = await neuralVoice.speakPcm(
+      { text: "hello", ...input },
+      {
+        resolvePy: async () => ["python", []],
+        request: async (_py: unknown, payload: Record<string, unknown>) => {
+          sent.push(payload);
+          return { ok: true, sampleRate: 44100, pcm16: pcm, ...reply };
+        },
+      },
+    );
+    return { sent, result };
+  };
+
+  it("forwards trusted, first and a clamped pauseMs, and only strict values", async () => {
+    const a = await run({ trusted: true, first: true, pauseMs: 99999 }, {});
+    expect(a.sent[0]).toMatchObject({ trusted: true, first: true, pauseMs: 1200 });
+    const b = await run({ trusted: "true", first: 1, pauseMs: Number.NaN }, {});
+    expect(b.sent[0]).not.toHaveProperty("trusted");
+    expect(b.sent[0]).not.toHaveProperty("first");
+    expect(b.sent[0]).not.toHaveProperty("pauseMs");
+    const c = await run({ pauseMs: -5 }, {});
+    expect(c.sent[0]).not.toHaveProperty("pauseMs");
+  });
+
+  it("returns a clean pausedMs and wordTimes and nothing else from the worker", async () => {
+    const { result } = await run(
+      {},
+      {
+        pausedMs: 220.6,
+        secret: "x",
+        wordTimes: [
+          { word: "hello", startMs: 0, endMs: 300, extra: 1 },
+          { word: "bad", startMs: Number.NaN, endMs: 5 },
+          { word: 7, startMs: 400, endMs: 500 },
+          { word: "back", startMs: 100, endMs: 200 },
+          { word: "x".repeat(65), startMs: 400, endMs: 500 },
+          { word: "world", startMs: 300, endMs: 600 },
+        ],
+      },
+    );
+    expect(result.pausedMs).toBe(221);
+    expect(result.wordTimes).toEqual([
+      { word: "hello", startMs: 0, endMs: 300 },
+      { word: "world", startMs: 300, endMs: 600 },
+    ]);
+    expect(result).not.toHaveProperty("secret");
+  });
+
+  it("survives hostile replies: huge arrays, NaN and non-strings", async () => {
+    const huge = Array.from({ length: 5000 }, (_, i) => ({ word: "w", startMs: i, endMs: i + 1 }));
+    const a = await run({}, { wordTimes: huge, pausedMs: 1e9 });
+    expect(a.result.wordTimes).toHaveLength(400);
+    expect(a.result.pausedMs).toBe(5000);
+    const b = await run({}, { wordTimes: "nope", pausedMs: "50" });
+    expect(b.result).not.toHaveProperty("wordTimes");
+    expect(b.result.pausedMs).toBe(0);
+    const c = await run({}, { wordTimes: [null, 3, [], { word: "a" }], pausedMs: Number.NaN });
+    expect(c.result).not.toHaveProperty("wordTimes");
+    expect(c.result.pausedMs).toBe(0);
+  });
+
+  it("sends the warm-up op once per run and ignores a failure", async () => {
+    neuralVoice.resetWarmUp();
+    const sent: Array<Record<string, unknown>> = [];
+    const deps = {
+      resolvePy: async () => ["python", []],
+      request: async (_py: unknown, payload: Record<string, unknown>) => {
+        sent.push(payload);
+        throw new Error("boom");
+      },
+    };
+    const first = await neuralVoice.speakPcm({ warm: true, style: "f2" }, deps);
+    const second = await neuralVoice.speakPcm({ warm: true }, deps);
+    expect(sent).toEqual([{ op: "warm-up", style: expect.any(String) }]);
+    expect(first.ok).toBe(false);
+    expect(second.ok).toBe(true);
+    neuralVoice.resetWarmUp();
+  });
+
+  it("voice-prewarm asks for the warm-up once before the first clip", () => {
+    const src = read("src/lib/friday/voice-prewarm.ts");
+    expect(src).toMatch(/warm: true/);
+    expect(src).toMatch(/engineWarmed/);
+  });
+});
