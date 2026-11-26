@@ -11,6 +11,11 @@
 
 import { endsInOpenDot } from "./voice-engine/language-segmenter";
 import { isBackchannel } from "./voice-engine/interruption-controller";
+import {
+  SHORT_TURN_WORDS,
+  detectTurnLanguage,
+  labelLanguages,
+} from "./voice-engine/hinglish-lexicon";
 import { socialLine } from "./conversation-style";
 import { transcriptDoubtful, type HeardQuality } from "./asr-bias";
 import { isConsequential } from "./brain/action-risk";
@@ -1047,14 +1052,43 @@ export function backchannel(input: {
   return "Mm-hmm.";
 }
 
-/** Latin-script Hindi (Hinglish) markers; a Devanagari line is Hindi on its own. */
-const HINGLISH_WORDS =
-  /\b(kya|kar(?:o|na|ti|ta|ke)?|rahi|raha|rahe|hai|hain|abhi|ruko|batao|bata|dekh|mujhe|mera|meri|tum|aap|nahi|haan|achha|accha|theek|thik|kaise|kitna|kab|gaya|hua|chalo|bolo|suno|sun|bhai|yaar)\b/i;
+/** The three ways she can say a fixed line: English, Hindi in Devanagari, Hinglish in Latin letters. */
+export type ReplyForm = "en" | "hi" | "hinglish";
 
-/** The language a short spoken line should answer in: Hindi or Hinglish gets Hinglish, the rest English. */
-export function replyLanguage(text: string): "hi" | "en" {
-  if (/\p{Script=Devanagari}/u.test(text)) return "hi";
-  return HINGLISH_WORDS.test(text) ? "hi" : "en";
+const WORD_EDGE = /^[^\p{L}\p{M}]+|[^\p{L}\p{M}]+$/gu;
+
+/** A line too short to share-judge ("theek hai", "ruko"): one sure Roman Hindi word is enough for her own reply. */
+function shortSureHindi(text: string): boolean {
+  const cores = text
+    .split(/\s+/)
+    .map((piece) => piece.replace(WORD_EDGE, ""))
+    .filter((core) => /\p{L}/u.test(core));
+  return (
+    cores.length > 0 && cores.length < SHORT_TURN_WORDS && labelLanguages(cores).includes("hi")
+  );
+}
+
+/**
+ * The form a short spoken line should take: the owner's own words decide it, through the one detector the Brain's
+ * reply-language hint also uses (`detectTurnLanguage`). A line in Devanagari alone gets Devanagari Hindi; Hindi
+ * mixed with English, Roman Hindi, and a Hindi or Hinglish ear's declared language get Hinglish; the rest English.
+ */
+export function replyForm(text: string, declared: "hi" | "en" | "hi-en" | "" = ""): ReplyForm {
+  const heard = String(text || "");
+  const deva = /\p{Script=Devanagari}/u.test(heard);
+  const latin = /[A-Za-z]/.test(heard);
+  if (deva && !latin) return "hi";
+  const read = detectTurnLanguage(heard, declared);
+  if (deva || read.romanised || read.lang === "hi" || read.lang === "hi-en") return "hinglish";
+  return shortSureHindi(heard) ? "hinglish" : "en";
+}
+
+/** The two-way view for callers that pick a pool: "hi" is Hindi or Hinglish, "en" is English. */
+export function replyLanguage(
+  text: string,
+  declared: "hi" | "en" | "hi-en" | "" = "",
+): "hi" | "en" {
+  return replyForm(text, declared) === "en" ? "en" : "hi";
 }
 
 /**
@@ -1063,9 +1097,8 @@ export function replyLanguage(text: string): "hi" | "en" {
  * the real answer is already being spoken.
  */
 export function holdLines(text: string): { first: string; later: string } {
-  return replyLanguage(text) === "hi"
-    ? { first: "Ek second, dekh rahi hu.", later: "Abhi bhi kaam kar rahi hu, bas thoda aur." }
-    : { first: "One moment, I'm on it.", later: "Still working on it, almost there." };
+  const pool = NARRATION_POOLS[replyForm(text)];
+  return { first: pool.first[0] as string, later: pool.later[0] as string };
 }
 
 /**
@@ -1085,7 +1118,7 @@ export type NarrationContext = {
   elapsedMs: number;
 };
 
-const NARRATION_POOLS: Record<"en" | "hi", Record<NarrationKind, string[]>> = {
+export const NARRATION_POOLS: Record<ReplyForm, Record<NarrationKind, string[]>> = {
   en: {
     first: [
       "One moment, I'm on it.",
@@ -1110,6 +1143,24 @@ const NARRATION_POOLS: Record<"en" | "hi", Record<NarrationKind, string[]>> = {
     ],
   },
   hi: {
+    first: [
+      "एक सेकंड, देख रही हूँ।",
+      "हाँ, अभी करती हूँ।",
+      "रुकिए, देखती हूँ।",
+      "ठीक है, लग गई हूँ।",
+      "एक मिनट, अभी सँभालती हूँ।",
+    ],
+    later: [
+      "अभी भी काम कर रही हूँ, बस थोड़ा और।",
+      "थोड़ा समय लग रहा है, पर हो रहा है।",
+      "भूली नहीं हूँ, लगी हुई हूँ। बस हो ही गया समझिए।",
+      "लगभग हो गया, होते ही बताती हूँ।",
+      "अभी चल रहा है। आप बात करते रहिए, मैं सुन रही हूँ।",
+      "थोड़ा बड़ा काम है, पर आगे बढ़ रहा है।",
+    ],
+    tool: ["ये अभी कर रही हूँ।", "हाँ, ये हो रहा है।", "इसे सँभाल रही हूँ।", "इस कदम पर लगी हूँ।"],
+  },
+  hinglish: {
     first: [
       "Ek second, dekh rahi hu.",
       "Haan, abhi karti hu.",
@@ -1185,7 +1236,7 @@ export function createNarrator(now: () => number = Date.now) {
       if (kind === "tool" && ctx.elapsedMs < NARRATION_TOOL_AFTER_MS) return "";
       const at = now();
       if (lastAt && at - lastAt < NARRATION_MIN_GAP_MS) return "";
-      const lang = replyLanguage(ctx.text);
+      const lang = replyForm(ctx.text);
       const subject = kind === "tool" && lang === "en" ? stepSubject(ctx.detail || "") : "";
       const line = subject
         ? fresh([`${subject}.`, `${subject} — one moment.`, `${subject}, almost there.`])
@@ -1202,6 +1253,10 @@ const STATUS_ASK =
   /\b(kya kar (?:rahi|raha|rahe)|kya ho raha|ho gaya|hua kya|kitna (?:time|der|samay)|kab tak|abhi tak|progress|status|what are you (?:doing|working)|are you (?:still )?(?:working|there|listening)|still working|how long|done yet|is it done|sun rahi|sunn? rahi ho)\b|^(?:hello|hi|hey)(?: friday)?[.!?]*$/i;
 const SMALL_ACK =
   /^(?:ok(?:ay)?|theek hai|thik hai|achha|accha|haan|han|cool|thanks|thank you|shukriya|dhanyavad|great|nice|badhiya|sahi hai)[.!?]*$/i;
+/** The same asks in Devanagari (a word boundary does not exist there, so these are plain phrases). */
+const STATUS_ASK_DEVA =
+  /क्या कर (?:रही|रहा|रहे)|क्या हो रहा|हो गया|हुआ क्या|कितना (?:समय|देर|टाइम)|कब तक|अभी तक|सुन रही/;
+const SMALL_ACK_DEVA = /^(?:ठीक है|अच्छा|हाँ|हां|शुक्रिया|धन्यवाद|बढ़िया|सही है)[\s.!।]*$/;
 
 /**
  * A light remark made while a turn is still running (how is it going, are you
@@ -1212,15 +1267,22 @@ const SMALL_ACK =
 export function busyReply(text: string, work: { task: string; elapsedMs: number }): string {
   const heard = text.trim();
   if (!heard) return "";
-  const hindi = replyLanguage(heard) === "hi";
-  if (STATUS_ASK.test(heard)) {
+  const form = replyForm(heard);
+  if (STATUS_ASK.test(heard) || STATUS_ASK_DEVA.test(heard)) {
     const task = work.task.replace(/\s+/g, " ").trim().slice(0, 60);
     const seconds = Math.max(1, Math.round(work.elapsedMs / 1000));
-    return hindi
+    if (form === "hi") {
+      return `हाँ, मैं ${task ? `"${task}" पर` : "काम पर"} लगी हूँ, ${seconds} सेकंड से। हो जाए तो तुरंत बताती हूँ।`;
+    }
+    return form === "hinglish"
       ? `Haan, main ${task ? `"${task}" par` : "kaam"} lagi hu, ${seconds} second se. Ho jaye to turant batati hu.`
       : `I'm on it${task ? `: "${task}"` : ""}, ${seconds} seconds in. I'll tell you the moment it's done.`;
   }
-  if (SMALL_ACK.test(heard)) return hindi ? "Haan, kaam chal raha hai." : "Still on it.";
+  if (SMALL_ACK.test(heard) || SMALL_ACK_DEVA.test(heard)) {
+    return { en: "Still on it.", hi: "हाँ, काम चल रहा है।", hinglish: "Haan, kaam chal raha hai." }[
+      form
+    ];
+  }
   return "";
 }
 
@@ -1235,6 +1297,9 @@ export type BusyDecision =
 
 const CHANGE_OF_MIND =
   /\b(stop|cancel|abort|wait|hold on|never ?mind|forget (?:it|that)|scratch that|actually|instead|ruko|rukiye|ruk jao|rehne do|chhodo|chodo|band karo|nahi nahi|nahin|nahi|galat|wrong|no no)\b/i;
+const CHANGE_OF_MIND_DEVA = /रुको|रुकिए|रुक जाओ|रहने दो|छोड़ो|छोड़ दो|बंद करो|नहीं|गलत|स्टॉप|कैंसल/;
+const SOCIAL_WHILE_BUSY_DEVA =
+  /^(?:नमस्ते|धन्यवाद|शुक्रिया|कैसे हो|कैसी हो|क्या हाल(?: है)?|अलविदा|बाय)[\s!.,।]*$/;
 const SOCIAL_WHILE_BUSY =
   /^(?:hi|hello|hey|namaste|good (?:morning|afternoon|evening|night)|how are you|how'?s it going|kaise ho|kaisi ho|kya haal(?: hai)?|thanks?(?: you)?|shukriya|dhanyavaad|bye|alvida)[\s!.,।]*$/i;
 /** A new request must come this long after the work began to be queued rather than replace it. */
@@ -1249,43 +1314,53 @@ export function whileBusy(
   if (!heard) return { kind: "interrupt" };
   const quick = busyReply(heard, work);
   if (quick) return { kind: "reply", line: quick };
-  const hindi = replyLanguage(heard) === "hi";
-  if (SOCIAL_WHILE_BUSY.test(heard)) {
-    const kind = /thank|shukriya|dhanyavaad/i.test(heard)
+  const form = replyForm(heard);
+  if (SOCIAL_WHILE_BUSY.test(heard) || SOCIAL_WHILE_BUSY_DEVA.test(heard)) {
+    const kind = /thank|shukriya|dhanyavaad|धन्यवाद|शुक्रिया/i.test(heard)
       ? "thanks"
-      : /bye|alvida|night/i.test(heard)
+      : /bye|alvida|night|अलविदा|बाय/i.test(heard)
         ? "goodbye"
-        : /how are you|how'?s it going|kaise|kaisi|haal/i.test(heard)
+        : /how are you|how'?s it going|kaise|kaisi|haal|कैसे|कैसी|हाल/i.test(heard)
           ? "howareyou"
           : "greeting";
     const line = socialLine({ kind, prompt: heard }).text;
-    return {
-      kind: "reply",
-      line: `${line} ${hindi ? "Kaam bhi chal raha hai." : "The work is still running."}`,
-    };
+    const tail = {
+      en: "The work is still running.",
+      hi: "काम भी चल रहा है।",
+      hinglish: "Kaam bhi chal raha hai.",
+    }[form];
+    return { kind: "reply", line: `${line} ${tail}` };
   }
-  if (CHANGE_OF_MIND.test(heard) || work.elapsedMs < BUSY_QUEUE_AFTER_MS) {
+  if (
+    CHANGE_OF_MIND.test(heard) ||
+    CHANGE_OF_MIND_DEVA.test(heard) ||
+    work.elapsedMs < BUSY_QUEUE_AFTER_MS
+  ) {
     return { kind: "interrupt" };
   }
   if (limits.queued >= (limits.maxQueued ?? 3)) {
     return {
       kind: "reply",
-      line: hindi
-        ? "Abhi kaafi kuch line mein hai. Pehle isko khatam kar leti hu."
-        : "I have a few things lined up already. Let me finish this one first.",
+      line: {
+        en: "I have a few things lined up already. Let me finish this one first.",
+        hi: "अभी काफ़ी कुछ कतार में है। पहले इसे ख़त्म कर लेती हूँ।",
+        hinglish: "Abhi kaafi kuch line mein hai. Pehle isko khatam kar leti hu.",
+      }[form],
     };
   }
-  const ack = hindi
-    ? [
-        "Theek hai, isko ke baad kar leti hu.",
-        "Note kar liya, pehle ye khatam karti hu.",
-        "Haan, uske baad ye bhi.",
-      ]
-    : [
-        "Got it — I'll do that right after this.",
-        "Noted, that's next.",
-        "Okay, that goes after this one.",
-      ];
+  const ack = {
+    en: [
+      "Got it — I'll do that right after this.",
+      "Noted, that's next.",
+      "Okay, that goes after this one.",
+    ],
+    hi: ["ठीक है, इसके बाद कर लेती हूँ।", "नोट कर लिया, पहले ये ख़त्म करती हूँ।", "हाँ, उसके बाद ये भी।"],
+    hinglish: [
+      "Theek hai, iske baad kar leti hu.",
+      "Note kar liya, pehle ye khatam karti hu.",
+      "Haan, uske baad ye bhi.",
+    ],
+  }[form];
   return { kind: "queue", line: ack[limits.queued % ack.length] as string };
 }
 
@@ -1342,8 +1417,15 @@ export function clarifyPrompt(text: string, hasContext = false): string {
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (!words.length || words.length > 3) return "";
   if (/^(what|who|when|where|why|how|kya|kaun|kab)\b/i.test(trimmed)) return "";
-  if (/\b(it|that|this|them|woh|wo|वो|ये)\b/i.test(trimmed)) return "Which one do you mean?";
-  return "";
+  if (/^(क्या|कौन|कब|कहाँ|कहां|क्यों|कैसे)(?![\p{L}\p{M}])/u.test(trimmed)) return "";
+  const pronoun =
+    /(?<![\p{L}\p{M}])(it|that|this|them|woh|wo|yeh|ye|isko|usko|वो|वह|ये|यह|इसे|उसे|इसको|उसको)(?![\p{L}\p{M}])/iu;
+  if (!pronoun.test(trimmed)) return "";
+  return {
+    en: "Which one do you mean?",
+    hi: "आप किसकी बात कर रहे हैं?",
+    hinglish: "Kaunsa wala? Zara bataiye.",
+  }[replyForm(trimmed)];
 }
 
 export function wantsContinue(text: string): boolean {
@@ -1359,37 +1441,71 @@ export function holdInterrupted(parts: string[]): string {
     .slice(0, 500);
 }
 
-/** Short line FRIDAY can say when a stage fails. It does not run an action. */
-export function spokenFailure(fault: VoiceFault): string {
-  switch (fault) {
-    case "asr-timeout":
-      return "I didn't catch that. Say it once more.";
-    case "tts-crash":
-    case "model-missing":
-      return "I can't speak that voice right now. The answer is on screen.";
-    case "permission-denied":
-      return "The microphone is blocked. Allow it in Windows, then try again.";
-    case "device-ended":
-    case "bluetooth-switch":
-      return "The microphone dropped. I am still here in text.";
-    case "sleep-resume":
-      return "I am listening again.";
-    case "disk-full":
-      return "The disk is too full for a voice model. I will stay in text.";
-    case "engine-down":
-      return "Voice is not ready yet. I can still read what you type.";
-    case "approval-expired":
-      return "That yes expired. Ask again if you still want it.";
-    case "injection":
-      return "I ignored that. It does not change what I am allowed to do.";
-    case "echo-loop":
-    case "barge-in":
-      return "";
-    default: {
-      const _never: never = fault;
-      return _never;
-    }
-  }
+/** Faults that are handled without a word: she does not announce her own echo or an interruption. */
+type SilentFault = "echo-loop" | "barge-in";
+
+const FAILURE_LINES: Record<Exclude<VoiceFault, SilentFault>, Record<ReplyForm, string>> = {
+  "asr-timeout": {
+    en: "I didn't catch that. Say it once more.",
+    hi: "मैं सुन नहीं पाई। एक बार फिर बोलिए।",
+    hinglish: "Main sun nahi payi. Ek baar phir boliye.",
+  },
+  "tts-crash": {
+    en: "I can't speak that voice right now. The answer is on screen.",
+    hi: "अभी मैं आवाज़ में नहीं बोल सकती। जवाब स्क्रीन पर है।",
+    hinglish: "Abhi main awaaz mein nahi bol sakti. Jawab screen par hai.",
+  },
+  "model-missing": {
+    en: "I can't speak that voice right now. The answer is on screen.",
+    hi: "अभी मैं आवाज़ में नहीं बोल सकती। जवाब स्क्रीन पर है।",
+    hinglish: "Abhi main awaaz mein nahi bol sakti. Jawab screen par hai.",
+  },
+  "permission-denied": {
+    en: "The microphone is blocked. Allow it in Windows, then try again.",
+    hi: "माइक्रोफ़ोन बंद है। Windows में उसे अनुमति दीजिए, फिर कोशिश कीजिए।",
+    hinglish: "Microphone blocked hai. Windows mein allow kijiye, phir try kijiye.",
+  },
+  "device-ended": {
+    en: "The microphone dropped. I am still here in text.",
+    hi: "माइक्रोफ़ोन कट गया। मैं टेक्स्ट में यहीं हूँ।",
+    hinglish: "Microphone kat gaya. Main text mein yahin hu.",
+  },
+  "bluetooth-switch": {
+    en: "The microphone dropped. I am still here in text.",
+    hi: "माइक्रोफ़ोन कट गया। मैं टेक्स्ट में यहीं हूँ।",
+    hinglish: "Microphone kat gaya. Main text mein yahin hu.",
+  },
+  "sleep-resume": {
+    en: "I am listening again.",
+    hi: "मैं फिर से सुन रही हूँ।",
+    hinglish: "Main phir se sun rahi hu.",
+  },
+  "disk-full": {
+    en: "The disk is too full for a voice model. I will stay in text.",
+    hi: "वॉइस मॉडल के लिए डिस्क बहुत भरी है। मैं टेक्स्ट में रहूँगी।",
+    hinglish: "Voice model ke liye disk bahut bhari hai. Main text mein rahungi.",
+  },
+  "engine-down": {
+    en: "Voice is not ready yet. I can still read what you type.",
+    hi: "आवाज़ अभी तैयार नहीं है। जो आप टाइप करें, वो मैं पढ़ सकती हूँ।",
+    hinglish: "Voice abhi ready nahi hai. Jo aap type karenge, wo main padh sakti hu.",
+  },
+  "approval-expired": {
+    en: "That yes expired. Ask again if you still want it.",
+    hi: "वो हाँ अब पुरानी हो गई। अब भी चाहिए तो फिर से कहिए।",
+    hinglish: "Wo haan purana ho gaya. Ab bhi chahiye to phir se kahiye.",
+  },
+  injection: {
+    en: "I ignored that. It does not change what I am allowed to do.",
+    hi: "मैंने उसे अनदेखा किया। उससे मेरी अनुमतियाँ नहीं बदलतीं।",
+    hinglish: "Maine use anadekha kiya. Isse meri permissions nahi badalti.",
+  },
+};
+
+/** Short line FRIDAY can say when a stage fails, in the form of the owner's last line. It does not run an action. */
+export function spokenFailure(fault: VoiceFault, form: ReplyForm = "en"): string {
+  if (fault === "echo-loop" || fault === "barge-in") return "";
+  return FAILURE_LINES[fault][form];
 }
 
 export function wordErrorRate(reference: string, hypothesis: string): number {
