@@ -14,6 +14,7 @@
  */
 
 import { BACKCHANNEL_WORDS as LEXICON_BACKCHANNEL } from "./hinglish-lexicon";
+import type { AcousticFeatures } from "./interrupt-acoustic";
 import type { BargeVerdict } from "./turn-engine";
 
 export type Frame = {
@@ -796,11 +797,15 @@ export type InterruptionInput = {
   scene: InterruptionScene;
   speaker: InterruptionSpeaker;
   sinceTtsStartMs: number;
+  /** Shadow only: acoustic features of the candidate. Copied into the trace, never used by the decision. */
+  acoustic?: AcousticFeatures;
 };
 export type InterruptionDecision = {
   decision: BargeVerdict;
   reason: string;
   confidence: number;
+  /** Present only when the input carried `acoustic`. */
+  trace?: { acoustic: AcousticFeatures };
 };
 
 const SCENES: ReadonlySet<string> = new Set(["quiet", "tv", "music", "noise", "speech"]);
@@ -837,8 +842,7 @@ function hasStop(ws: readonly string[]): boolean {
   return STOP_PAIRS.some((p) => line.includes(` ${p} `));
 }
 
-/** Judges one moment of the owner's voice over FRIDAY's speech. Pure: no clock, no timer, no side effect. */
-export function classifyInterruption(input: InterruptionInput): InterruptionDecision {
+function judgeMoment(input: InterruptionInput): InterruptionDecision {
   const ws = tokens(input.words);
   const voiceMs = finite(input.voiceMs);
   const scene = SCENES.has(input.scene) ? input.scene : "quiet";
@@ -871,6 +875,16 @@ export function classifyInterruption(input: InterruptionInput): InterruptionDeci
   if (ws.length >= TAKEOVER_WORDS) return verdict("takeover", "enough-words", 0.85);
   if (voiceMs >= TAKEOVER_VOICE_MS) return verdict("takeover", "long-words", 0.75);
   return verdict("keep", "few-words", 0.55);
+}
+
+/**
+ * Judges one moment of the owner's voice over FRIDAY's speech. Pure: no clock, no timer, no side effect. Optional
+ * `acoustic` features are copied into `trace` for later study; they never change the decision.
+ */
+export function classifyInterruption(input: InterruptionInput): InterruptionDecision {
+  const out = judgeMoment(input);
+  const a = input.acoustic;
+  return a && typeof a === "object" ? { ...out, trace: { acoustic: { ...a } } } : out;
 }
 
 /**
