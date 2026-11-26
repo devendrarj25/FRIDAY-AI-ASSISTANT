@@ -147,6 +147,26 @@ class Route(NamedTuple):
 # to English -0.53 to -1.03. The floor catches a Hindi turn that the Hindi ear was unsure of and the lock then misread.
 LOCK_MIN_LOGPROB = -0.60
 
+# A short English turn is read by the base model first; the owner's own model decodes again when that read is not
+# sure. One named table; the measured times and scores are in test_stt_route.py.
+SHORT_FINAL_POLICY: dict[str, dict] = {
+    "en": {"size": "base", "max_clip_s": 4.0, "min_logprob": -0.70, "max_no_speech": 0.5},
+}
+
+# The decision table of an English-locked turn (data, one place). A locked read scoring below its floor is heard again
+# open. The floor follows what told us the turn is English: a guess from the turn before it (``prior-en``) keeps the
+# strict floor; the ear's own English words or the clip's own language guess are evidence about this clip, so the base
+# model's own gate is proof enough and a read that passes it is never heard a second time.
+LOCK_FLOORS: dict[str, float] = {
+    "prior-en": LOCK_MIN_LOGPROB,
+    "english-words": SHORT_FINAL_POLICY["en"]["min_logprob"],
+    "cue-en": SHORT_FINAL_POLICY["en"]["min_logprob"],
+}
+# The lane of an auto turn the Hindi ear listened to and could not read (English or mixed speech as Devanagari
+# garbage): the base model reads it first with the language open, the owner's model only when that read is not sure
+# English. None sends it straight to the owner's model, as before.
+EAR_UNSURE_LANE: str | None = "en"
+
 
 def route_turn(language: str, speech_pref: str, prior: str = "", open_route: bool = False) -> Route:
     """The route of one final reading. A language is locked only when the turn before it was heard as English (the
@@ -174,12 +194,22 @@ def lock_after_ear(route: Route, prior: str, mode: str) -> Route:
     return route
 
 
-def route_after_english_gate(route: Route) -> Route:
+def lane_after_ear(route: Route, mode: str, unsure: bool) -> Route:
+    """The route of an auto turn the Hindi ear read but was not sure of, with no language to lock: the language stays
+    open and the short English lane (the base model) reads it first (``EAR_UNSURE_LANE``). A turn the ear gave no line
+    for at all keeps the owner's model."""
+    if unsure and EAR_UNSURE_LANE and mode == "auto" and route.why == "ear-first" and route.lock is None:
+        return Route(False, None, "ear-unsure", None, EAR_UNSURE_LANE)
+    return route
+
+
+def route_after_english_gate(route: Route, why: str = "") -> Route:
     """The route of a turn whose ear line the English gate refused (``hindi_ear.english_gate``): English, locked,
-    behind the same floor as a prior lock. On the open route (a locked read already scored poorly) whisper guesses."""
+    behind the floor of what said so (``LOCK_FLOORS``; the strict one when unknown). On the open route (a locked read
+    already scored poorly) whisper guesses."""
     if route.why == "open":
         return Route(False, route.lock, "open", None, "")
-    return Route(False, "en", "ear-gate-en", LOCK_MIN_LOGPROB, "en")
+    return Route(False, "en", "ear-gate-en", LOCK_FLOORS.get(why, LOCK_MIN_LOGPROB), "en")
 
 
 def ear_language_cue(samples) -> dict | None:
@@ -242,11 +272,6 @@ def guard_hotwords(kwargs: dict) -> dict:
     return kwargs
 
 
-# A short English turn is read by the base model first; the owner's own model decodes again when that read is not
-# sure. One named table; the measured times and scores are in test_stt_route.py.
-SHORT_FINAL_POLICY: dict[str, dict] = {
-    "en": {"size": "base", "max_clip_s": 4.0, "min_logprob": -0.70, "max_no_speech": 0.5},
-}
 _fast: dict[str, Any] = {"model": None, "name": "", "failed": False}
 
 
@@ -2205,46 +2230,60 @@ def _transcribe_prepared(
                 engine = "moonshine-en"
     hindi_text = None
     ear_note = ""
+    ear_heard: dict | None = None  # the ear's line and cue behind an English gate, handed to the open re-read
+    gate_why, ear_unsure = "", False
     if trelis is None and not moon_text and samples is not None and route.ear:
         # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
         # words that mean nothing, and its own token scores say so).
-        ear_was_open, ear_started = _ear_loaded(), _now()
-        with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
-            hindi_text = hindi_ear.transcribe(samples)
-        if _ear_loaded():
-            if not ear_was_open:
-                # The first reading opens the ear, so this time includes that one decode.
-                _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
-            touch()
-        check_cancel()
+        # A re-read of the same clip: the ear's line and cue are not decoded again.
+        held = (extras or {}).get("ear_heard")
+        if held:
+            hindi_text, ear_conf = held["text"], held["confidence"]
+        else:
+            ear_was_open, ear_started = _ear_loaded(), _now()
+            with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+                hindi_text = hindi_ear.transcribe(samples)
+            ear_conf = hindi_ear.last_confidence()
+            if _ear_loaded():
+                if not ear_was_open:
+                    # The first reading opens the ear, so this time includes that one decode.
+                    _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
+                touch()
+            check_cancel()
         mode = hindi_ear.listen_mode(language, speech_pref)
-        if hindi_text and not hindi_ear.confident(mode, hindi_ear.last_confidence()):
-            hindi_text = None
+        if hindi_text and not hindi_ear.confident(mode, ear_conf):
+            hindi_text, ear_unsure = None, True
             note_fallback("hindi-ear-to-whisper")
             ear_note = "the Hindi ear was unsure (English or mixed speech): faster-whisper heard it"
         gate_english = False
         if hindi_text and mode == "auto":
             # A sure-sounding line can still be English spelled in Devanagari: its own words judge it, and only a
             # line they cannot tell costs a language guess on its first seconds (from a model already resident).
-            gate = hindi_ear.english_gate(
-                hindi_text, hindi_ear.last_confidence(), hotword_list((extras or {}).get("hotwords"))
-            )
+            ear_line = hindi_text
+            gate = hindi_ear.english_gate(hindi_text, ear_conf, hotword_list((extras or {}).get("hotwords")))
+            cue_known = bool(held) and "cue" in held
+            cue = held["cue"] if held and cue_known else None
             if gate["verdict"] == "listen":
-                gate = hindi_ear.settle_gate(gate, ear_language_cue(samples), prior)
+                if not cue_known:
+                    cue, cue_known = ear_language_cue(samples), True
+                gate = hindi_ear.settle_gate(gate, cue, prior)
                 check_cancel()
             if gate["verdict"] == "english":
-                hindi_text, gate_english = None, True
-                note_fallback("hindi-ear-english-gate")
+                hindi_text, gate_english, gate_why = None, True, str(gate["why"])
+                if not held:
+                    note_fallback("hindi-ear-english-gate")
                 ear_note = f"the Hindi ear wrote English in Devanagari ({gate['why']}): faster-whisper heard English"
+                ear_heard = {"text": ear_line, "confidence": ear_conf, **({"cue": cue} if cue_known else {})}
         if hindi_text:
             engine = "hindi-ear"
             hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
         elif gate_english:
-            route = route_after_english_gate(route)
+            route = route_after_english_gate(route, gate_why)
         else:
-            # The ear listened and kept nothing: after an English turn that is English, not Hindi.
-            route = lock_after_ear(route, prior, mode)
+            # The ear listened and kept nothing: after an English turn that is English, not Hindi; a line it was unsure
+            # of, with no English before it, is read by the base model first with the language open.
+            route = lane_after_ear(lock_after_ear(route, prior, mode), mode, ear_unsure)
     turn_probability = None
     # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
     # for: it used to run before every decode and add its own model run to the wait for the words.
@@ -2429,7 +2468,9 @@ def _transcribe_prepared(
         # again on the open route (the ear first, the language guess on), and the prior that misled is dropped.
         reset_turn_prior()
         note_fallback("language-lock-to-open")
-        return retry({**(extras or {}), "route_open": True, "turn_prior": ""})
+        return retry(
+            {**(extras or {}), "route_open": True, "turn_prior": "", **({"ear_heard": ear_heard} if ear_heard else {})}
+        )
     if not ear_note and should_recheck_language(first, lang is not None):
         # (Not after the Hindi ear judged this audio: a second Hindi-locked decode would repeat that look at full cost.)
         try:

@@ -594,3 +594,139 @@ def test_a_live_reading_in_auto_drops_english_spelled_in_devanagari_by_its_words
     assert stt.ear_keeps_live("hi", english, [])  # Hindi chosen: the owner asked for the ear
     assert not stt.ear_keeps_live("auto", {"text": "आज", "confidence": -2.0}, [])
     assert not stt.ear_keeps_live("auto", None, [])
+
+
+# ---- decodes per English turn (the number that does not depend on how busy the box is) ----------------------------
+# Measured on the 4-core Linux box, 8 synthetic English clips, load 4 to 8 (so every time is inflated): the median
+# English final went 4795 -> 1485 ms and the decodes per clip 2.62 -> 2.25 (7 clips: ear + one base read; "Call mom"
+# seven decodes, 10.8 s, -> four, 4.5 s), word error rate 0.042 unchanged, the 8 Hindi clips untouched (one ear
+# decode, 0.062). Clips the ear called unsure used to go to the owner's model (3 to 7 s). The tests below pin the
+# decodes each path may spend, which does not depend on how busy the box is.
+
+
+class _Counted(_Cue):
+    """A resident model that also writes every decode and every language guess into one shared list."""
+
+    def __init__(self, tape, name, probs=None, **kwargs):
+        super().__init__(probs or {"en": 0.99, "hi": 0.0}, **kwargs)
+        self.tape, self.name = tape, name
+
+    def transcribe(self, payload, **kwargs):
+        self.tape.append(self.name)
+        return super().transcribe(payload, **kwargs)
+
+    def detect_language(self, audio, **kwargs):
+        self.tape.append("cue")
+        return super().detect_language(audio, **kwargs)
+
+
+def _turn(monkeypatch, *, ear, fast_read=None, own_by=None, probs=None, prior="", language="", pref="auto"):
+    """One auto turn with fake models; returns (decode tape, result, own model, fast model)."""
+    tape: list[str] = []
+    own = _Counted(tape, "own", probs, by_language=own_by or {})
+    fast = _Counted(tape, "fast", probs, default=fast_read if fast_read is not None else [_seg("call mom", lp=-0.2)])
+    _wire(monkeypatch, own, fast=fast)
+    monkeypatch.setattr(stt, "_model", own)
+    monkeypatch.setattr(stt, "_model_name", "small")
+    if prior:
+        stt.note_turn_language("what time is it", prior, 0.97)
+    if ear is None:
+        monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: None)
+        monkeypatch.setattr(stt.hindi_ear, "ready", lambda: True)
+    else:
+
+        def listen(samples):
+            tape.append("ear")
+            return ear[0]
+
+        monkeypatch.setattr(stt.hindi_ear, "transcribe", listen)
+        monkeypatch.setattr(stt.hindi_ear, "last_confidence", lambda: ear[1])
+        monkeypatch.setattr(stt.hindi_ear, "ready", lambda: True)
+    result = _final(language=language, pref=pref, seconds=2.5)
+    return tape, result, own, fast
+
+
+def test_an_unsure_ear_in_auto_sends_a_short_clip_to_the_base_model_not_the_owners(monkeypatch):
+    tape, result, own, fast = _turn(monkeypatch, ear=("सेंदर रपोर्ट रााहो", -0.45))
+    assert tape == ["ear", "fast"]  # was ["ear", "own"]: the owner's model decoded every such clip
+    assert result["model"] == "base" and result["text"] == "call mom" and own.calls == []
+
+
+def test_an_unsure_ear_whose_base_read_is_not_sure_english_falls_to_the_owners_open_read(monkeypatch):
+    tape, result, own, _ = _turn(monkeypatch, ear=("सेंदर रपोर्ट", -0.45), fast_read=[_seg("sendar", lp=-1.4)])
+    assert tape == ["ear", "fast", "own"] and [c["language"] for c in own.calls] == [None]
+    assert result["model"] != "base"
+
+
+def test_an_unsure_ear_on_a_hindi_chosen_turn_never_goes_through_the_english_lane(monkeypatch):
+    tape, _, _, _ = _turn(monkeypatch, ear=("कल का मौसम", -3.0), language="hi", pref="hi-IN")
+    assert tape == ["ear", "own"]
+
+
+def test_an_unsure_ear_with_no_ear_installed_keeps_the_owners_model_alone(monkeypatch):
+    tape, _, _, _ = _turn(monkeypatch, ear=None)
+    monkeypatch.setattr(stt.hindi_ear, "ready", lambda: False)
+    tape.clear()
+    _final(pref="auto")
+    assert tape == ["own"]
+
+
+def test_an_english_gate_by_words_is_ear_then_one_locked_base_read(monkeypatch):
+    tape, result, _, fast = _turn(monkeypatch, ear=("व्हाट टाइम इज द मीटिंग", -0.20))
+    assert tape == ["ear", "fast"] and [c["language"] for c in fast.calls] == ["en"] and result["model"] == "base"
+
+
+def test_an_unclear_line_with_nothing_before_it_still_asks_the_clip_once(monkeypatch):
+    tape, _, _, _ = _turn(monkeypatch, ear=("खाओ माम", -0.23))
+    assert tape == ["ear", "cue", "fast"]
+
+
+def test_a_gate_english_locked_read_that_passes_the_base_gate_is_not_heard_again(monkeypatch):
+    # "Call mom": the base read (-0.95) is unsure, the owner's locked read scores -0.62: poor against the old -0.60
+    # floor but inside the base model's own gate, and the clip's own cue said English: it stands, no open read.
+    tape, result, own, _ = _turn(
+        monkeypatch,
+        ear=("खाओ माम", -0.23),
+        fast_read=[_seg("call mom", lp=-0.95)],
+        own_by={"en": [_seg("Call mom.", lp=-0.62)]},
+    )
+    assert tape == ["ear", "cue", "fast", "own"]  # was ["ear", "cue", "fast", "own", "ear", "cue", "own"]
+    assert [c["language"] for c in own.calls] == ["en"] and result["text"] == "Call mom."
+
+
+def test_a_prior_only_english_lock_keeps_the_stricter_floor(monkeypatch):
+    # An unclear cue leaves only the turn before it: the floor of today (-0.60) still sends a poor read to the open
+    # route, which judges the same ear line and cue again with no second decode of either.
+    tape, result, own, _ = _turn(
+        monkeypatch,
+        ear=("खाओ माम", -0.23),
+        prior="en",
+        probs={"en": 0.39, "hi": 0.26},
+        fast_read=[_seg("call mom", lp=-0.95)],
+        own_by={"en": [_seg("Call mom.", lp=-0.65)]},
+    )
+    assert tape == ["ear", "cue", "fast", "own"]  # was ["ear", "cue", "fast", "own", "ear", "cue"]
+    assert [c["language"] for c in own.calls] == ["en"]
+    # (no prior left and no cue on the re-read: the ear's line stands, as before this change)
+    assert result["engine"] == "hindi-ear" and result["text"] == "खाओ माम"
+
+
+def test_the_open_reread_after_a_poor_gate_english_read_reuses_the_ears_line_and_the_cue(monkeypatch):
+    tape, result, own, _ = _turn(
+        monkeypatch,
+        ear=("खाओ माम", -0.23),
+        fast_read=[_seg("call mom", lp=-1.2)],
+        own_by={"en": [_seg("goal mom", lp=-1.1)], None: [_seg("Call mom.", lp=-0.5)]},
+    )
+    assert tape == ["ear", "cue", "fast", "own", "own"]  # was ["ear", "cue", "fast", "own", "ear", "cue", "own"]
+    assert [c["language"] for c in own.calls] == ["en", None] and result["text"] == "Call mom."
+
+
+def test_the_lock_floors_are_one_named_table():
+    floors = stt.LOCK_FLOORS
+    assert floors["prior-en"] == stt.LOCK_MIN_LOGPROB
+    assert floors["english-words"] == floors["cue-en"] == stt.SHORT_FINAL_POLICY["en"]["min_logprob"]
+    assert floors["prior-en"] > floors["cue-en"]  # a clip's own evidence needs less proof than a guess
+    assert stt.route_after_english_gate(stt.route_turn("", "auto", ""), "cue-en").min_logprob == floors["cue-en"]
+    assert stt.route_after_english_gate(stt.route_turn("", "auto", ""), "prior-en").min_logprob == floors["prior-en"]
+    assert stt.route_after_english_gate(stt.route_turn("", "auto", "")).min_logprob == stt.LOCK_MIN_LOGPROB
