@@ -13,6 +13,9 @@
  *      that name it (`classifyVoiceControl`).
  */
 
+import { BACKCHANNEL_WORDS as LEXICON_BACKCHANNEL } from "./hinglish-lexicon";
+import type { BargeVerdict } from "./turn-engine";
+
 export type Frame = {
   /** Milliseconds, from any monotonic clock. */
   t: number;
@@ -737,4 +740,158 @@ export class InterruptGate {
       ? { kind: "restore", why: "silence" }
       : { kind: "wait" };
   }
+}
+
+/**
+ * The interruption classifier (the false-interruption ladder of the turn engine). While FRIDAY speaks, each
+ * echo-clean voice frame gets one of three answers: `keep` talks on, ducked; `takeover` gives the owner the
+ * floor; `ignore` does nothing. A stop word wins at once; a short nod keeps her talking and never stops her;
+ * three words or a second of speech take over; a TV, music or another voice never takes over without a stop
+ * word. FRIDAY never makes a backchannel of her own: this module only listens. A speaker verdict can only
+ * block a takeover; nothing here approves, confirms or allows an action.
+ */
+export const INTERRUPT_STOP_PHRASES: readonly string[] = Object.freeze([
+  "ruko",
+  "rukiye",
+  "stop",
+  "nahi nahi",
+  "wait",
+  "ek minute",
+  "ek second",
+  "sunna",
+  "suno",
+  "bas",
+  "chup",
+  "hold on",
+  "रुको",
+  "बस",
+  "चुप",
+  "सुनो",
+]);
+/** Voice shorter than this with no words is a click, a cough or a breath. */
+export const MIN_INTERRUPT_VOICE_MS = 500;
+/** Echo-clean voice this long with no words yet is a real start whose words are still pending. */
+export const NO_WORDS_TAKEOVER_MS = 2000;
+/** This many words that are not only nods take over. */
+export const TAKEOVER_WORDS = 3;
+/** This much voice with words takes over. */
+export const TAKEOVER_VOICE_MS = 1000;
+/** A run of nods ("haan haan theek hai") stays a nod up to this many words and below this length. */
+export const BACKCHANNEL_RUN_MAX_WORDS = 4;
+export const BACKCHANNEL_RUN_MAX_MS = 1500;
+/** The first part of a reply in which a voice that is not echo-clean is her own voice coming back. */
+export const OWN_ECHO_GUARD_MS = 300;
+/** Below this voice probability nothing is judged. */
+const MIN_VOICE_P = 0.5;
+
+export type InterruptionScene = "quiet" | "tv" | "music" | "noise" | "speech";
+export type InterruptionSpeaker = "owner" | "other" | "unknown" | "none";
+export type InterruptionInput = {
+  words: string[];
+  voiceMs: number;
+  vadP: number;
+  ttsPlaying: boolean;
+  playedMs: number;
+  echoClean: boolean;
+  scene: InterruptionScene;
+  speaker: InterruptionSpeaker;
+  sinceTtsStartMs: number;
+};
+export type InterruptionDecision = {
+  decision: BargeVerdict;
+  reason: string;
+  confidence: number;
+};
+
+const SCENES: ReadonlySet<string> = new Set(["quiet", "tv", "music", "noise", "speech"]);
+const STOP_WORDS: ReadonlySet<string> = new Set(
+  INTERRUPT_STOP_PHRASES.filter((p) => !p.includes(" ")),
+);
+const STOP_PAIRS: readonly string[] = INTERRUPT_STOP_PHRASES.filter((p) => p.includes(" "));
+/** "hai" joins nods ("theek hai") but is not a nod alone. */
+const NOD_JOINERS: ReadonlySet<string> = new Set(["hai", "है"]);
+
+const finite = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+const isNod = (w: string): boolean =>
+  LEXICON_BACKCHANNEL.has(w) || BACKCHANNEL.has(w) || FILLED_SOUND.test(w);
+const verdict = (
+  decision: BargeVerdict,
+  reason: string,
+  confidence: number,
+): InterruptionDecision => ({
+  decision,
+  reason,
+  confidence,
+});
+
+function tokens(words: unknown): string[] {
+  if (!Array.isArray(words)) return [];
+  const out: string[] = [];
+  for (const w of words) if (typeof w === "string") out.push(...norm(w).split(" ").filter(Boolean));
+  return out;
+}
+
+function hasStop(ws: readonly string[]): boolean {
+  if (ws.some((w) => STOP_WORDS.has(w))) return true;
+  const line = ` ${ws.join(" ")} `;
+  return STOP_PAIRS.some((p) => line.includes(` ${p} `));
+}
+
+/** Judges one moment of the owner's voice over FRIDAY's speech. Pure: no clock, no timer, no side effect. */
+export function classifyInterruption(input: InterruptionInput): InterruptionDecision {
+  const ws = tokens(input.words);
+  const voiceMs = finite(input.voiceMs);
+  const scene = SCENES.has(input.scene) ? input.scene : "quiet";
+  const speaker: InterruptionSpeaker =
+    input.speaker === "owner" || input.speaker === "other" || input.speaker === "none"
+      ? input.speaker
+      : "unknown";
+  const echoClean = input.echoClean === true;
+  if (input.ttsPlaying !== true) return verdict("ignore", "not-speaking", 1);
+  if (!(finite(input.vadP) >= MIN_VOICE_P)) return verdict("ignore", "weak-voice", 0.9);
+  const sinceStart = Math.min(finite(input.playedMs), finite(input.sinceTtsStartMs));
+  if (!echoClean && sinceStart < OWN_ECHO_GUARD_MS) return verdict("ignore", "own-echo", 0.8);
+  if (hasStop(ws)) return verdict("takeover", "stop-word", 0.95);
+  if ((scene === "tv" || scene === "music") && speaker !== "owner")
+    return verdict("ignore", "background-media", 0.8);
+  if (ws.length === 0) {
+    if (voiceMs < MIN_INTERRUPT_VOICE_MS) return verdict("ignore", "too-short", 0.85);
+    if (speaker === "other") return verdict("keep", "other-voice", 0.6);
+    if (voiceMs >= NO_WORDS_TAKEOVER_MS && echoClean) return verdict("takeover", "long-voice", 0.6);
+    return verdict("keep", "words-pending", 0.5);
+  }
+  // A speaker verdict only blocks: another voice is ducked under, never handed the floor.
+  if (speaker === "other") return verdict("keep", "other-voice", 0.7);
+  const nods =
+    ws.length <= BACKCHANNEL_RUN_MAX_WORDS &&
+    voiceMs < BACKCHANNEL_RUN_MAX_MS &&
+    ws.every((w) => isNod(w) || NOD_JOINERS.has(w)) &&
+    ws.some(isNod);
+  if (nods) return verdict("keep", "backchannel", 0.85);
+  if (ws.length >= TAKEOVER_WORDS) return verdict("takeover", "enough-words", 0.85);
+  if (voiceMs >= TAKEOVER_VOICE_MS) return verdict("takeover", "long-words", 0.75);
+  return verdict("keep", "few-words", 0.55);
+}
+
+/**
+ * The classifier as the turn engine's `barge` hook. The engine's voice probability and played milliseconds win
+ * over the context; the rest comes from `getCtx` (the words heard so far, voice length, scene, speaker).
+ */
+export function bargeFromController(
+  getCtx: () => Partial<InterruptionInput>,
+): (p: number, playedMs: number) => BargeVerdict {
+  return (p, playedMs) => {
+    const ctx = getCtx();
+    return classifyInterruption({
+      words: ctx.words ?? [],
+      voiceMs: ctx.voiceMs ?? 0,
+      ttsPlaying: ctx.ttsPlaying ?? true,
+      echoClean: ctx.echoClean ?? true,
+      scene: ctx.scene ?? "quiet",
+      speaker: ctx.speaker ?? "unknown",
+      sinceTtsStartMs: ctx.sinceTtsStartMs ?? playedMs,
+      vadP: p,
+      playedMs,
+    }).decision;
+  };
 }
