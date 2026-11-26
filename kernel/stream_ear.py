@@ -929,12 +929,21 @@ class TransducerEngine:
                         "text": note.text,
                         "vadP": round(float(self._vad.probability), 3),
                         "speechMs": self._turn_voiced_ms,
+                        **self._lang_notes(),
                         **self._scene_notes(),
                     }
                 )
         if decision.event is None:
             return []
         return [{"type": "endpoint", **t.decision, "audioMs": t.audio_ms, "silenceMs": self._vad.silence_ms}]
+
+    def _lang_notes(self) -> dict[str, Any]:
+        """``lang``, ``langConf`` and ``langLocked`` for a turn note, only when the locale is ``auto`` (a declared
+        language adds nothing to the note): ``auto`` until the first 15 frames and 3 words lock the language."""
+        stream = self._stream
+        if stream is None or not getattr(stream, "lang_auto", False):
+            return {}
+        return {"lang": stream.lang, "langConf": round(float(stream.lang_conf), 3), "langLocked": stream.lang_locked}
 
     def _scene_notes(self) -> dict[str, Any]:
         """``env``, ``speaker`` and ``needsWake`` for a turn note: tags only, and only the ones switched on. Nothing an

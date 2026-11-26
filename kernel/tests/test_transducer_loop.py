@@ -502,3 +502,14 @@ def test_the_real_model_loads_streams_and_reads_its_own_shapes():
     assert np.mean(errors["en"]) <= 0.2 and np.mean(errors["hi"]) <= 0.3
     assert rtf < 2.0  # a loaded 4-core sandbox measured 0.85 with the three-chunk flush counted
     assert first_ms and max(first_ms) <= 1600  # first words show within 1.6 s of audio (lead silence included)
+
+
+def test_a_fixed_locale_reports_its_language_and_never_detects(tmp_path):
+    stream = opened(tmp_path, FakeModel(script=OPEN_CHROME))
+    assert (stream.lang, stream.lang_conf, stream.lang_locked, stream.lang_auto) == ("en", 1.0, True, False)
+    stream.configure("hi_IN")
+    assert (stream.lang, stream.lang_locked, stream.lang_auto) == ("hi", True, False)
+    stream.configure("auto")
+    assert (stream.lang, stream.lang_conf, stream.lang_locked, stream.lang_auto) == ("auto", 0.0, False, True)
+    stream.close()
+    assert (stream.lang, stream.lang_locked, stream.lang_auto) == ("auto", False, False)

@@ -17,6 +17,10 @@ in one folder, plus ``vocab.json``, ``languages.json`` and ``config.json``) one 
 * ``finalize()`` pushes ``flush_chunks`` chunks of silence (default 3: the encoder looks ahead) and returns the
   ``StreamResult``. ``reset()`` starts a new utterance and keeps the loaded sessions; ``close()`` drops them.
 * The language is a one-hot ``language_mask`` over the prompt slots of ``languages.json`` (en-US 0, hi-IN 6, ...).
+  For locale ``auto`` the first ``LANG_ID_FRAMES`` (15) encoder frames, 1.2 s, run in the auto slot; at the first chunk
+  boundary at or after that, with at least ``LANG_ID_MIN_WORDS`` words heard, ``identify_language`` reads the partial
+  (Devanagari, or a Hindi share of 0.3 in the lexicon, is ``hi``, else ``en``) and the slot is locked for the rest of
+  the turn: ``lang``, ``lang_conf`` and ``lang_locked`` report it, and only ``reset()`` or ``configure()`` clear it.
 * The decoder state moves only on a non-blank token; at most 10 symbols per frame (3 with hotwords, beam search).
   ``hotwords`` are tokenised with the vocabulary pieces and boosted with ``hotword_trie`` inside the beam.
 
@@ -53,6 +57,9 @@ DEFAULT_BEAM = 2
 GREEDY_SYMBOLS = 10
 BEAM_SYMBOLS = 3
 MAX_PHRASE_PIECES = 24
+LANG_ID_FRAMES = 15  # encoder frames (80 ms each) decoded in the auto slot before the language is locked
+LANG_ID_MIN_WORDS = 3  # a turn with fewer words stays in the auto slot
+_EDGE_MARKS = ".,;:!?\"'()[]{}-\u0964\u0965"  # punctuation and the Devanagari danda around a word
 
 ENCODER_INPUTS = (
     "audio_signal",
@@ -222,6 +229,23 @@ def language_slot(locale: str, table: dict[str, int], auto_slot: int | None = No
     if base in folded:
         return folded[base]
     raise TransducerError("locale", f"locale {locale!r} is not one of this model's prompt slots")
+
+
+def identify_language(text: str) -> tuple[str, float]:
+    """``("hi" | "en", confidence 0-1)`` for the partial of one turn, or ``("auto", 0.0)`` under ``LANG_ID_MIN_WORDS``
+    words. Devanagari, or at least ``ROMAN_HINGLISH_SHARE`` sure Roman Hindi words (``hinglish_lexicon``), is Hindi."""
+    words = [w for w in (p.strip(_EDGE_MARKS) for p in str(text).split()) if any(ch.isalpha() for ch in w)]
+    if len(words) < LANG_ID_MIN_WORDS:
+        return "auto", 0.0
+    try:
+        import hinglish_lexicon as lex
+    except (ImportError, OSError, KeyError, ValueError):  # the table is missing: the script alone decides
+        hindi = any("\u0900" <= ch <= "\u097f" for ch in text)
+        return ("hi", 1.0) if hindi else ("en", 1.0)
+    share = lex.label_languages(words).count("hi") / len(words)
+    if lex.detect_turn_language(" ".join(words))["lang"] in ("hi", "hi-en"):
+        return "hi", min(1.0, max(share, lex.ROMAN_HINGLISH_SHARE))
+    return "en", min(1.0, max(0.0, 1.0 - share))
 
 
 def piece_text(piece: str) -> str | None:
@@ -427,7 +451,9 @@ class NemotronStream:
         self._trie: HotwordTrie | None = None
         self._decoder: RnntGreedyDecoder | RnntBeamDecoder | None = None
         self._mel: StreamingMel | None = None
-        self._mask: npt.NDArray[Any] | None = None
+        self._mask: npt.NDArray[Any] | None = None  # the slot the encoder runs with now (a lock replaces it)
+        self._base_mask: npt.NDArray[Any] | None = None  # the slot configure() chose; every new turn starts here
+        self._auto = False  # the configured locale is "auto": the language is read from the first frames
         self._config: dict[str, Any] = {}
         self._joint_output = "logits"
         self._reset_state()
@@ -511,12 +537,9 @@ class NemotronStream:
     def configure(self, locale: str, hotwords: Iterable[str] = ()) -> None:
         """Set the language and the hotwords for the next utterance, then reset the stream."""
         c = self._need_open()
-        slot = language_slot(locale, self._slots, self._auto_slot)
-        mask = np.zeros((1, c.prompts), dtype=c.mask_dtype)
-        if not 0 <= slot < c.prompts:
-            raise TransducerError("locale", f"prompt slot {slot} is outside the model's {c.prompts} slots")
-        mask[0, slot] = 1.0
-        self._mask = mask
+        mask = self._slot_mask(c, language_slot(locale, self._slots, self._auto_slot))
+        self._mask = self._base_mask = mask
+        self._auto = locale.strip().lower() in ("", "auto")
         self.locale = locale
         trie = HotwordTrie()
         tokenizer = self._tokenizer
@@ -539,6 +562,52 @@ class NemotronStream:
         )
         self._decoder = self._build_decoder(c)
         self._reset_state()
+
+    @staticmethod
+    def _slot_mask(c: _Contract, slot: int) -> npt.NDArray[Any]:
+        if not 0 <= slot < c.prompts:
+            raise TransducerError("locale", f"prompt slot {slot} is outside the model's {c.prompts} slots")
+        mask = np.zeros((1, c.prompts), dtype=c.mask_dtype)
+        mask[0, slot] = 1.0
+        return mask
+
+    @property
+    def lang_auto(self) -> bool:
+        """True when the locale is ``auto`` and this turn's language is read from its first frames."""
+        return self._auto and self.is_open
+
+    @property
+    def lang(self) -> str:
+        """``auto`` until the slot is locked, then ``hi`` or ``en``; a fixed locale reports its own base language."""
+        if self._auto or not self.is_open:
+            return self._lang
+        return self.locale.strip().replace("_", "-").split("-")[0].lower()
+
+    @property
+    def lang_conf(self) -> float:
+        """0 to 1: how sure the lock is (0 before it); 1 for a language the owner declared."""
+        return self._lang_conf if self._auto or not self.is_open else 1.0
+
+    @property
+    def lang_locked(self) -> bool:
+        """True once the slot is fixed for this turn (always true for a fixed locale)."""
+        return self._lang_locked if self._auto or not self.is_open else True
+
+    def _maybe_lock(self, text: str) -> None:
+        """Lock the language slot once, at the first chunk boundary after ``LANG_ID_FRAMES`` frames with enough words.
+        No lock is ever undone inside a turn; a model without the ``hi`` or ``en`` slot stays on auto."""
+        c = self.contract
+        if not self._auto or self._lang_locked or c is None or self._frames < LANG_ID_FRAMES:
+            return
+        lang, conf = identify_language(text)
+        if lang == "auto":
+            return
+        try:
+            mask = self._slot_mask(c, language_slot(lang, self._slots, self._auto_slot))
+        except TransducerError:
+            return
+        self._mask = mask
+        self._lang, self._lang_conf, self._lang_locked = lang, conf, True
 
     def _build_decoder(self, c: _Contract) -> RnntGreedyDecoder | RnntBeamDecoder:
         initial = (
@@ -571,6 +640,8 @@ class NemotronStream:
         self._mel = None
         self._mask = None
         self._trie = None
+        self._base_mask = None
+        self._auto = False
         self._tokenizer = None
         self.vocab = {}
         self.active_providers = []
@@ -595,6 +666,9 @@ class NemotronStream:
         self._compute_ms = 0.0
         self._last_text = ""
         self._emissions: list[tuple[int, int]] = []
+        self._frames = 0  # encoder frames decoded this turn
+        self._lang, self._lang_conf, self._lang_locked = "auto", 0.0, False
+        self._mask = self._base_mask  # a lock from the last turn is dropped: every turn starts in the auto slot
         if c is not None:
             f = c.float_dtype
             self._pre = np.zeros((1, c.n_mels, c.pre_frames), dtype=f)
@@ -701,6 +775,7 @@ class NemotronStream:
             raise TransducerError("closed", "the stream is not open")
         started = time.perf_counter()
         enc = self._encode(chunk)
+        self._frames += int(enc.shape[0])
         if isinstance(decoder, RnntGreedyDecoder):
             self._emissions += [(e.token, e.frame) for e in decoder.decode_chunk(enc)]
             tokens: Sequence[int] = decoder.tokens
@@ -711,6 +786,7 @@ class NemotronStream:
         spent = (time.perf_counter() - started) * 1000
         self._compute_ms += spent
         text = ids_to_text(tokens, self.vocab)
+        self._maybe_lock(text)
         if text == self._last_text:
             return None
         self._last_text = text
