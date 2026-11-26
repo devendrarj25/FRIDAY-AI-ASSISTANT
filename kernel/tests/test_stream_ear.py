@@ -233,6 +233,17 @@ def test_speech_then_quiet_makes_partials_then_one_end_of_turn(tmp_path):
     assert end["silenceMs"] >= 420 and end["audioMs"] > 900  # the wait the endpointer asks for after a finished phrase
 
 
+def test_without_the_silero_file_a_silero_request_keeps_the_energy_gate_and_the_same_turn(tmp_path, monkeypatch):
+    import vad_onnx
+
+    monkeypatch.setattr(vad_onnx, "find_model", lambda: None)
+    engine, _, folder = make_engine(tmp_path)
+    info = engine.open(folder, locale="en-US", ears={"vad": "silero", "vadStart": 0.6})
+    assert info["vad"] == "energy" and isinstance(engine._vad, EnergyVad)
+    kinds = [e["event"] for e in drive(engine, SPEECH + QUIET) if e["type"] == "endpoint"]
+    assert kinds[0] == "StartOfTurn" and kinds[-1] == "EndOfTurn"
+
+
 def test_the_end_of_turn_waits_longer_after_a_mid_thought_word(tmp_path):
     """ "Open Chrome," ends with a comma, so the wait is the long one (1200 ms) and the turn is still open at 800."""
     engine, _, folder = make_engine(tmp_path, FakeModel(script=OPEN_CHROME[:4]))

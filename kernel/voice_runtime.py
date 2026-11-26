@@ -246,18 +246,9 @@ def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> d
             "reason": "silero scorer expects 512 samples",
         }
     try:
-        import numpy as np  # type: ignore
-        import onnxruntime as ort  # type: ignore
+        import vad_onnx
 
-        session = ort.InferenceSession(str(path), providers=session_providers(False))
-        state = np.zeros((2, 1, 128), dtype=np.float32)
-        audio = np.asarray(window, dtype=np.float32).reshape(1, 512)
-        sr = np.array(16000, dtype=np.int64)
-        outputs = session.run(None, {"input": audio, "state": state, "sr": sr})
-        first = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-        if not isinstance(first, np.ndarray):
-            raise TypeError("silero output was not an array")
-        probability = float(first.reshape(-1)[0])
+        probability = vad_onnx.score_window(path, window)
     except Exception as exc:  # noqa: BLE001 — missing runtime falls back to energy VAD
         return {
             "ok": True,

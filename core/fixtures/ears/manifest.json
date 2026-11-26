@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "rate": 16000,
+  "sliceMs": 20,
+  "note": "Specs only. ears_eval.py renders every scene from its seed with numpy; no audio and no recording is stored here. Owner recordings are read from <FRIDAY_ROOT>/voice-eval/ears, outside the repository.",
+  "scenes": [
+    {"id": "speech-normal-1", "kind": "speech", "durationMs": 6000, "seed": 11, "level": "normal", "utterances": [[[800, 2600]], [[3600, 5200]]]},
+    {"id": "speech-quiet", "kind": "speech", "durationMs": 4000, "seed": 12, "level": "quiet", "utterances": [[[800, 2600]]]},
+    {"id": "speech-loud", "kind": "speech", "durationMs": 4000, "seed": 13, "level": "loud", "utterances": [[[800, 2600]]]},
+    {"id": "speech-clipped", "kind": "speech", "durationMs": 4000, "seed": 14, "level": "clipped", "utterances": [[[800, 2600]]]},
+    {"id": "speech-pause", "kind": "speech", "durationMs": 5200, "seed": 15, "level": "normal", "utterances": [[[800, 1800], [2800, 3800]]]},
+    {"id": "speech-oneword", "kind": "speech", "durationMs": 3000, "seed": 16, "level": "normal", "utterances": [[[900, 1250]]]},
+    {"id": "speech-over-tv", "kind": "speech", "durationMs": 5000, "seed": 17, "level": "normal", "background": {"kind": "tv", "dbfs": -38}, "utterances": [[[1200, 3200]]]},
+    {"id": "music", "kind": "music", "durationMs": 8000, "seed": 21, "level": "normal", "utterances": []},
+    {"id": "tv", "kind": "tv", "durationMs": 8000, "seed": 22, "level": "normal", "utterances": []},
+    {"id": "noise", "kind": "noise", "durationMs": 6000, "seed": 23, "level": "quiet", "dbfs": -38, "utterances": []},
+    {"id": "silence", "kind": "silence", "durationMs": 5000, "seed": 24, "level": "normal", "utterances": []}
+  ]
+}

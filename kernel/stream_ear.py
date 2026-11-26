@@ -12,10 +12,12 @@ Interface contract
   no) AND every pinned file is on disk with its exact size under ``<FRIDAY_ROOT>/models/<folder>``. It also checks
   that numpy and onnxruntime import and that the locale is one of the model's languages. It returns a
   ``TierChoice`` with the engine name (or None) and a short ``reason`` so the caller can show why the old path runs.
-* ``TransducerEngine`` wires ``transducer_loop.NemotronStream`` to ``EnergyVad``, ``endpointer.Endpointer`` and
-  ``stream_commit.PartialStabiliser``. Audio is processed in 20 ms slices on the audio clock (no wall clock), so a
-  run repeats exactly. ``endpoint`` events follow ``endpointer`` (StartOfTurn, EagerEndOfTurn, TurnResumed,
-  EndOfTurn); the engine never ends a turn by itself: the caller calls ``finalize``.
+* ``TransducerEngine`` wires ``transducer_loop.NemotronStream`` to a voice gate (``vad_onnx.SileroGate`` when the
+  pinned Silero file is on disk and ``ears.vad`` is ``auto`` or ``silero``, else ``EnergyVad``),
+  ``endpointer.Endpointer`` and ``stream_commit.PartialStabiliser``. Audio is processed in 20 ms slices on the
+  audio clock (no wall clock), so a run repeats exactly. ``endpoint`` events follow ``endpointer``
+  (StartOfTurn, EagerEndOfTurn, TurnResumed, EndOfTurn); the engine never ends a turn by itself: the
+  caller calls ``finalize``.
 * Under ``auto`` the chooser also gates on speed: ``hardware_tier`` names the PC (``small-cpu``, ``mid``, ``gpu``),
   ``RtfLedger`` keeps the real-time factor each engine measured on this PC per tier (``<models>/stream-ear-rtf.json``,
   written after every stream of a second or more), and an engine measured slower than ``RTF_LIMIT`` is skipped for
@@ -48,6 +50,7 @@ from typing import Any, Protocol, runtime_checkable
 from endpointer import EndpointConfig, Endpointer, Observation
 from la2_partials import RATE, La2Partials, TurnLanguage
 from stream_commit import LocalAgreementCommitter, PartialStabiliser, Word, join_words
+from vad_onnx import build_gate, clamp_config
 
 ENGINE_NAME = "stream-ear-nemotron"
 SETTING_KEY = "voice.streamEngine"
@@ -328,7 +331,8 @@ class TransducerEngine:
     def __init__(self, stream: Any = None, *, endpoint_config: EndpointConfig | None = None) -> None:
         self._stream = stream
         self._endpoint_config = endpoint_config or EndpointConfig()
-        self._vad = EnergyVad()
+        self._vad: Any = EnergyVad()
+        self.vad_engine = "energy"
         self._endpointer = Endpointer(self._endpoint_config)
         self._stabiliser = PartialStabiliser(LocalAgreementCommitter())
         self._turn = _Turn()
@@ -353,6 +357,7 @@ class TransducerEngine:
             allowed = EndpointConfig.__dataclass_fields__
             self._endpoint_config = EndpointConfig(**{k: v for k, v in overrides.items() if k in allowed})
         self._endpointer = Endpointer(self._endpoint_config)
+        self._open_vad(options.get("ears"))
         key = tuple(providers) if isinstance(providers, (list, tuple)) else ()
         if self._stream is None:
             from transducer_loop import NemotronStream
@@ -366,7 +371,22 @@ class TransducerEngine:
             info = self._stream.open(model_dir, providers, locale, hotwords)
             self._model_dir, self._providers_key = str(model_dir), key
         self._clear()
-        return {**info, "engine": self.name, "locale": locale, "hotwords": self._stream.hotword_count}
+        return {
+            **info,
+            "engine": self.name,
+            "locale": locale,
+            "hotwords": self._stream.hotword_count,
+            "vad": self.vad_engine,
+        }
+
+    def _open_vad(self, ears: Any) -> None:
+        """The voice gate of this stream: Silero when the pinned file is on disk and ``ears.vad`` allows it
+        (``auto`` or ``silero``), otherwise the energy gate. ``ears`` is the clamped stream-open object."""
+        self._vad, self.vad_engine = build_gate(
+            clamp_config(ears if isinstance(ears, Mapping) else None),
+            EnergyVad,
+            threshold=self._endpoint_config.start_probability,
+        )
 
     def _clear(self) -> None:
         self._vad.reset()
@@ -517,6 +537,7 @@ class La2Engine(TransducerEngine):
             allowed = EndpointConfig.__dataclass_fields__
             self._endpoint_config = EndpointConfig(**{k: v for k, v in overrides.items() if k in allowed})
         self._endpointer = Endpointer(self._endpoint_config)
+        self._open_vad(options.get("ears"))
         started = time.perf_counter()
         self._model_dir = str(model_dir)
         self._lang = TurnLanguage(self._locale)
@@ -531,6 +552,7 @@ class La2Engine(TransducerEngine):
             "chunkMs": int(self._hop_s * 1000),
             "loadMs": int((time.perf_counter() - started) * 1000),
             "hotwords": len(self._hotwords),
+            "vad": self.vad_engine,
         }
 
     def _clear(self) -> None:
@@ -702,8 +724,10 @@ class StreamHost:
     def handle(self, req: dict[str, Any]) -> dict[str, Any]:
         """Ops. Every reply is ``{"ok": bool, "op": ..., "streamId": ...}``; a refusal is ``ok: false`` with a reason.
 
-        ``stream-open``  {streamEngine|engine, locale, hotwords?, providers?, endpoint?, streamId?}
-                         -> {engine, locale, providers, chunkMs, loadMs, hotwords, replaced?}
+        ``stream-open``  {streamEngine|engine, locale, hotwords?, providers?, endpoint?, ears?, streamId?}
+                         -> {engine, locale, providers, chunkMs, loadMs, hotwords, vad, replaced?}
+                         (``ears`` holds ``vad`` auto|silero|energy, ``vadStart``, ``vadEnd``, ``minSpeechMs``,
+                         ``preRollMs``; clamped in ``vad_onnx.clamp_config``)
         ``stream-feed``  {streamId?, pcm: base64 of int16 little-endian 16 kHz mono}
                          -> {events: [partial | endpoint], text, committed, audioMs, endpoint}
         ``stream-close`` {streamId?, finalize?: true} -> {final: true, text, words, audioMs, rtf, ...}
@@ -743,6 +767,7 @@ class StreamHost:
             "providers": req.get("providers"),
             "hotwords": req.get("hotwords"),
             "endpoint": req.get("endpoint"),
+            "ears": req.get("ears"),
         }
         self.active = None
         started = self._clock()
