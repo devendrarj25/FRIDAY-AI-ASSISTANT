@@ -268,6 +268,15 @@ import { appControlNeedsApproval, APP_RESTART_TOOL, APP_SHUTDOWN_TOOL } from "./
 import { kernelApi } from "./kernel-api";
 import { composer } from "./composer";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
+import { identity as replyIdentity } from "./brain/identity";
+import {
+  CLARIFY_WINDOW_MS,
+  cleanTurnHints,
+  clarificationLine,
+  needsClarification,
+  replyLanguageLine,
+  type TurnHints,
+} from "./brain/turn-hints";
 import { showRealChart, showRealImage } from "./stage";
 import { connectorTools, invokeApprovedConnectorAction } from "./connectors";
 import { isWorkspaceShellTool, runWorkspaceShell } from "./terminal-awareness";
@@ -516,7 +525,7 @@ export type ScheduledJob = {
  */
 export type SendResult = {
   accepted: boolean;
-  reason: "accepted" | "empty" | "busy" | "quick-lane" | "draft" | "draft-refused";
+  reason: "accepted" | "empty" | "busy" | "quick-lane" | "draft" | "draft-refused" | "clarify";
   message: string | null;
   /** The run this send started. Absent for a quick-lane answer, a draft and a refused turn. */
   runId?: string;
@@ -876,13 +885,15 @@ class BrainStore {
     requestId: string;
     handle: DraftHandle;
     startedAt: number;
-    /** Kept on this PC: privacy mode was on when it started. */
+    /** Kept on this PC: privacy mode was on, or the caller asked for a local-only draft. */
     onlyLocal: boolean;
     timer: ReturnType<typeof setTimeout>;
     /** Stream events seen before adoption, replayed into the real run in order. */
     events: DraftEvent[];
     done: boolean;
   } | null = null;
+  /** When the owner was last asked to repeat a low-confidence line; the next turn within the window is taken as heard. */
+  private clarifiedAt: number | null = null;
   private quickListeners = new Set<(answer: QuickAnswer) => void>();
   /** The four chat stream handlers, so a draft that is adopted can replay what it already heard. */
   private chatHandlers: Partial<{
@@ -1717,14 +1728,23 @@ class BrainStore {
       routingSurface?: "voice" | "chat";
       /** A text-only guess made before the owner finished (see `adoptDraft`). Never a run. */
       draft?: boolean;
+      /** A draft only: reach a local model alone, never a cloud one (a turn draft asks for this). */
+      onlyLocal?: boolean;
       /** The task this run belongs to: a foreground stop leaves it running. */
       owner?: RunOwner;
+      /**
+       * What the ear knew about the heard line (language, mix, confidence, eager, clipped). Optional metadata:
+       * it picks the reply language and can turn a low-confidence line into a question. It carries no authority.
+       */
+      turn?: Partial<TurnHints>;
     } = {},
   ): SendResult {
     if (rawOptions.draft) {
       // A guess, not a turn: no tools, no approval, no memory, no history. Only a local or proven-free
-      // model, and never a cloud model when privacy mode is on or the line looks sensitive.
-      const onlyLocal = preferences.getSnapshot().voice.privacyMode === true;
+      // model, and never a cloud model when privacy mode is on, the caller asked for local only, or the line
+      // looks sensitive.
+      const onlyLocal =
+        rawOptions.onlyLocal === true || preferences.getSnapshot().voice.privacyMode === true;
       const started: DraftStart = looksSensitive(prompt)
         ? { started: false, reason: "sensitive" }
         : this.beginDraft(prompt, onlyLocal);
@@ -1746,6 +1766,17 @@ class BrainStore {
     const options = withRoutingDefaults(withTask ? { ...rawOptions, ...withTask } : rawOptions);
     const text = prompt.trim();
     if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
+    // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
+    // never read by an approval, authority or permission check.
+    const hints = cleanTurnHints(rawOptions.turn);
+    if (needsClarification(hints)) {
+      const now = Date.now();
+      if (this.clarifiedAt === null || now - this.clarifiedAt >= CLARIFY_WINDOW_MS) {
+        this.clarifiedAt = now;
+        return { accepted: false, reason: "clarify", message: clarificationLine(hints, text) };
+      }
+    }
+    this.clarifiedAt = null;
     if (this.state.activeRunId) {
       if (
         quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra) }).ok &&
@@ -1760,7 +1791,15 @@ class BrainStore {
         message: "I'm still working on the last request — one moment.",
       };
     }
-    this.startRun(text, options, rawOptions.owner);
+    const languageLine = replyLanguageLine(
+      hints,
+      replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user",
+    );
+    this.startRun(
+      text,
+      languageLine ? { ...options, extra: mergeTurnExtra(options.extra, languageLine) } : options,
+      rawOptions.owner,
+    );
     return {
       accepted: true,
       reason: "accepted",
@@ -2896,9 +2935,16 @@ class BrainStore {
     };
   }
 
-  /** Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not. */
-  startDraft(prompt: string): DraftStart {
-    return this.send(prompt, { draft: true }).draft ?? { started: false, reason: "empty" };
+  /**
+   * Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not.
+   * `onlyLocal` is what a turn draft (the guess made on an eager end of turn) passes: the draft then reaches a
+   * local model alone, never a cloud one, whatever the registry holds; privacy mode forces the same.
+   */
+  startDraft(prompt: string, options: { onlyLocal?: boolean } = {}): DraftStart {
+    return (
+      this.send(prompt, { draft: true, ...(options.onlyLocal ? { onlyLocal: true } : {}) })
+        .draft ?? { started: false, reason: "empty" }
+    );
   }
 
   /**
@@ -2907,13 +2953,15 @@ class BrainStore {
    * away without a trace and returns false. What the draft already streamed is replayed into the new run, and
    * the rest of the stream reaches it through the ordinary handlers: one model call, no second one.
    */
-  adoptDraft(draftId: string, finalText: string): boolean {
+  adoptDraft(draftId: string, finalText: string, turn?: Partial<TurnHints>): boolean {
     const draft = this.draft;
     if (!draft || draft.id !== draftId) return false;
     const expired = Date.now() - draft.startedAt >= DRAFT_TTL_MS;
     const privacyNow = preferences.getSnapshot().voice.privacyMode === true;
     if (
       expired ||
+      // A line the ear was unsure of is asked about, not answered from a guess: the real turn decides.
+      needsClarification(cleanTurnHints(turn)) ||
       !sameTranscript(finalText, draft.handle.prompt) ||
       autonomy.getSnapshot().halted ||
       this.state.activeRunId ||
