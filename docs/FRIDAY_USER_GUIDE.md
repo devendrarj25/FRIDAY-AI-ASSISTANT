@@ -39,6 +39,10 @@ An error shows Fix voice, followed by the running task and WORKING or IDLE. Ever
 
 The shipped voice is a female Indian voice for both languages: **Swara** for Hindi and **Neerja** for English, with the **Natural** delivery. She picks the voice sentence by sentence, so a Hinglish reply sounds right. Change the Hindi or English voice, pick a delivery (Natural, Warm and soft, Bright and quick, Calm and low), move Speaking rate, Pitch (shown with the Hz it sends) and Volume, and press **Hear Hindi**, **Hear English** or **Hear Hinglish** to listen (she speaks only in Auto mode). **Reset to the best voice** brings Swara, Neerja and Natural back and keeps your voice library. The online voices need the network and Privacy mode off; offline she uses the on-device voice.
 
+### The FRIDAY voice (Settings → Voice)
+
+When the local voice model is installed, FRIDAY speaks with her own voice: a synthetic, warm young woman's tone that reads Hindi, English and Hinglish and needs no setting. In Settings → Voice pick **FRIDAY** (the default), **FRIDAY Bright** or **FRIDAY Calm**, or one of the plain voices F1 to F5, M1 and M2; an unknown saved value falls back to FRIDAY. She may add small cues such as a pause or a soft tone while she speaks; these delivery tags are invisible, never shown on screen and never read aloud. This voice has not been listened to by the builders: tell her if the tone is off. She speaks only in Auto mode.
+
 ### Teach FRIDAY your voice (Settings → Voice → My voice)
 
 Press **Record** next to each line, say it, then **Stop** (a recording also stops by itself after 12 seconds). Record the wake word eight times in different manners (normal, softer, louder, farther away, quick, slow, from across the room) and six or more sentences in English, Hindi and Hinglish, in a quiet room close to the microphone. Then **Build my voice profile**.

@@ -192,3 +192,28 @@ def test_real_model_makes_speech_when_the_folder_is_given():
     assert engine is not None
     audio = engine.synth("Hello, I am Friday.", "en", engine.style("F2"), steps=5, seed=7)
     assert audio.size > engine.sample_rate and float(np.max(np.abs(audio))) > 0.01
+
+
+def test_real_model_matches_the_old_package_sample_for_sample_when_both_are_present():
+    if not REAL or not fv.complete(REAL):
+        print("parity check not run: set FRIDAY_TTS_MODEL_DIR to a complete voice folder")
+        return
+    try:
+        from supertonic import TTS  # type: ignore
+    except Exception:  # noqa: BLE001 - the old package is optional
+        print("parity check not run: the old package is not installed")
+        return
+    old = TTS(model="supertonic-3", model_dir=str(REAL), auto_download=False)
+    engine = fv.open_voice(REAL)
+    assert engine is not None
+    for text, lang in (
+        ("Hello, I am Friday.", "en"),
+        ("नमस्ते, मैं फ्राइडे हूँ।", "hi"),
+        ("Haan boss, meeting kal hai.", "na"),
+    ):
+        np.random.seed(7)
+        wav, _ = old.model([text], old.get_voice_style("F2"), 5, 1.0, lang)
+        theirs = np.asarray(wav, dtype=np.float32).reshape(-1)
+        mine = engine.synth(text, lang, engine.style("F2"), steps=5, speed=1.0, seed=7)
+        n = min(len(theirs), len(mine))
+        assert n > 0 and float(np.max(np.abs(theirs[:n] - mine[:n]))) < 1e-6
