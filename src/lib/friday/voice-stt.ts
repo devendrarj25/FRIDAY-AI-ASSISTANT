@@ -54,6 +54,8 @@ import {
 } from "./voice-hearing";
 import type { HeardQuality } from "./asr-bias";
 import type { LiveWordsUpdate } from "./voice-engine/live-words";
+import { eotHoldFrames, maxWaitFramesFor, type EotLang } from "./voice-engine/endpoint-calibration";
+import type { TurnExpect } from "./voice-engine/turn-engine";
 import {
   STREAM_MIN_CHUNK_MS,
   STREAM_RATE,
@@ -448,7 +450,21 @@ export interface DictationOptions {
   onStreamPartial?: (update: LiveWordsUpdate) => void;
   /** A turn event of the streaming ear (also reaches every `subscribeStreamTurns` listener). */
   onStreamTurn?: (turn: StreamTurn) => void;
+  /** What kind of answer is expected now: dictation and open turns may wait longer for a verdict. */
+  turnExpect?: () => TurnExpect | undefined;
+  /** The language of the turn, for the unfinished-sentence wait. */
+  turnLang?: () => EotLang | undefined;
+  /** The words heard so far, when the caller has them (the stream's own partials are used first). */
+  turnTail?: () => string;
+  /** The speech worker is in a crash loop: say so in the voice status, with its retry time. */
+  onListeningPaused?: (pause: ListeningPause) => void;
 }
+
+/** The worker's crash-loop answer, in the three languages, and when listening may be retried. */
+export type ListeningPause = {
+  lines: { en: string; hi: string; hinglish: string };
+  retryAfterMs: number;
+};
 
 /**
  * Continuous on-device dictation. One microphone stream. The PCM ring records
@@ -581,9 +597,22 @@ let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 
 export type TurnHold = "idle" | "scoring" | "extend" | "confirmed" | "done";
 
-/** What the end-of-turn model's answer means for the closing pause. A missing or middling score changes nothing. */
-export function turnHoldAfterScore(probability: unknown): TurnHold {
-  if (typeof probability !== "number" || !Number.isFinite(probability)) return "done";
+/** One quiet frame of the end-of-turn rules (the calibration module counts waits in these). */
+const EOT_FRAME_MS = 80;
+/** The longest quiet wait when none is given (the default `voice.turn.maxWaitMs`). */
+const MAX_WAIT_FRAMES_MS = 2400;
+
+/** What the owner has said so far, for judging a turn the model could not score. */
+export type TurnTail = { text: string; expect?: TurnExpect; lang?: EotLang };
+
+/**
+ * What the end-of-turn model's answer means for the closing pause. A middling score changes nothing. A missing or busy
+ * score changes nothing either, unless the transcript tail is unfinished ("... aur"): then the pause is held.
+ */
+export function turnHoldAfterScore(probability: unknown, tail?: TurnTail): TurnHold {
+  if (typeof probability !== "number" || !Number.isFinite(probability)) {
+    return tail && eotHoldFrames(tail.text, tail.expect, tail.lang) > 0 ? "extend" : "done";
+  }
   if (probability < 0.5) return "extend";
   return probability >= TURN_CONFIRM_PROBABILITY ? "confirmed" : "done";
 }
@@ -605,8 +634,15 @@ export function turnHoldPlan(input: {
   capMs: number;
   canScore: boolean;
   tooLong?: boolean;
+  /** A live streaming ear owns the end of the turn: no score is asked, only its verdict or `maxWaitMs` closes. */
+  streamOwns?: boolean;
+  maxWaitMs?: number;
 }): { ask: boolean; close: boolean } {
   if (input.speech) return { ask: false, close: Boolean(input.tooLong) };
+  if (input.streamOwns) {
+    const longest = input.maxWaitMs ?? MAX_WAIT_FRAMES_MS;
+    return { ask: false, close: Boolean(input.tooLong) || input.quietMs >= longest };
+  }
   const askAt = Math.min(TURN_SCORE_ASK_MS, input.silenceMs);
   const ask =
     input.hold === "idle" &&
@@ -640,6 +676,9 @@ type TranscribeReply = {
   notice?: string;
   emptyReason?: string;
   audio?: HearingAudio | null;
+  lines?: { en?: string; hi?: string; hinglish?: string };
+  retry?: boolean;
+  retryAfterMs?: number;
 };
 type ProvisionalReply = TranscribeReply;
 /**
@@ -716,6 +755,9 @@ export class DesktopDictation {
   private turnHold: TurnHold = "idle";
   /** Bumps whenever a segment opens or speech resumes, so a late score for an older pause is ignored. */
   private turnGen = 0;
+  /** The words the streaming ear has shown for the open segment (the tail the unfinished-sentence rule reads). */
+  private streamTail = "";
+  private pause: ListeningPause | null = null;
   private captureHealthy = true;
   private startedMono = 0;
   private pcmFrom = 0;
@@ -1100,6 +1142,7 @@ export class DesktopDictation {
     this.turnHold = "idle";
     this.turnGen += 1;
     this.turnScore = null;
+    this.streamTail = "";
     this.provisional.openSegment();
     const start = pttSegmentStart(performance.now(), this.pttLeadMs());
     this.pttSegment = this.pttFollows() && pttCapturing(Date.now(), this.options.language ?? "en");
@@ -1146,7 +1189,9 @@ export class DesktopDictation {
       },
       streamId: `dictation-${Date.now().toString(36)}-${this.streamSeq}`,
       onPartial: (update) => {
-        if (this.streamSession === session) this.options.onStreamPartial?.(update);
+        if (this.streamSession !== session) return;
+        this.streamTail = update.shown || update.settled || this.streamTail;
+        this.options.onStreamPartial?.(update);
       },
       onEndpoint: (endpoint) => {
         if (this.streamSession !== session || endpoint.event !== "EndOfTurn") return;
@@ -1319,7 +1364,8 @@ export class DesktopDictation {
       const quietFor = snapshot.sinceSpeech ?? 0;
       const tooLong = performance.now() - this.startedMono > maxMs;
       const silenceMs = this.silenceBudget();
-      const cap = Math.min(1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
+      const maxWaitMs = this.maxWaitMs();
+      const cap = Math.min(maxWaitMs, 1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
       if (snapshot.speech && this.turnHold !== "idle") {
         // Speech resumed: whatever the model said about the earlier pause no longer applies.
         this.turnHold = "idle";
@@ -1336,6 +1382,9 @@ export class DesktopDictation {
         capMs: cap,
         canScore: turnScoreReady !== "absent" && Boolean(desktop()?.scoreTurn),
         tooLong,
+        // One owner: a live streaming ear's verdict ends the turn (above); the renderer never scores beside it.
+        streamOwns: Boolean(this.streamSession?.live),
+        maxWaitMs,
       });
       if (plan.ask) {
         this.turnHold = "scoring";
@@ -1380,16 +1429,38 @@ export class DesktopDictation {
       const scored = await api.scoreTurn({ audioBytes, mime: "audio/wav" });
       if (scored?.ready) turnScoreReady = "ready";
       else if (/absent/.test(scored?.reason || "")) turnScoreReady = "absent";
-      next = turnHoldAfterScore(scored?.probability);
+      next = turnHoldAfterScore(scored?.probability, this.turnTail());
       score = typeof scored?.probability === "number" ? scored.probability : null;
     } catch {
-      next = "done";
+      next = turnHoldAfterScore(null, this.turnTail());
     }
     // A score for an older pause (speech resumed, or a new segment opened) is dropped.
     if (gen === this.turnGen) {
       this.turnHold = next;
       this.turnScore = score;
     }
+  }
+
+  /** The words so far, with the expected answer and language, for the unfinished-sentence wait. */
+  private turnTail(): TurnTail {
+    const text = (this.streamTail || this.options.turnTail?.() || "").trim();
+    const expect = this.options.turnExpect?.();
+    const lang = this.options.turnLang?.();
+    return { text, ...(expect ? { expect } : {}), ...(lang ? { lang } : {}) };
+  }
+
+  /** The longest quiet wait of this turn: `voice.turn.maxWaitMs`, longer for dictation and open answers. */
+  private maxWaitMs(): number {
+    const configured = preferences.getSnapshot().voice.turn.maxWaitMs;
+    return (
+      maxWaitFramesFor(this.options.turnExpect?.(), Math.round(configured / EOT_FRAME_MS)) *
+      EOT_FRAME_MS
+    );
+  }
+
+  /** The worker's last crash-loop answer, or null once a decode went through. */
+  get listeningPause(): ListeningPause | null {
+    return this.pause;
   }
 
   /** Everything about a decode except the audio, read once per request so an early read and the final one agree. */
@@ -1558,6 +1629,18 @@ export class DesktopDictation {
     }
   }
 
+  /** A crash-loop answer carries the line in three languages and when to retry: keep both for the voice status. */
+  private noteCrashLoop(result: TranscribeReply): void {
+    if (result.reason !== "crash-loop") return;
+    const en = result.lines?.en || result.error || "";
+    const pause: ListeningPause = {
+      lines: { en, hi: result.lines?.hi || en, hinglish: result.lines?.hinglish || en },
+      retryAfterMs: Math.max(1, Math.round(Number(result.retryAfterMs) || 0)),
+    };
+    this.pause = pause;
+    this.options.onListeningPaused?.(pause);
+  }
+
   private async send(blob: Blob, early: WakeProbe | null = null, provisional: EarlyRead = null) {
     const api = desktop();
     if (!api?.transcribe) {
@@ -1638,6 +1721,7 @@ export class DesktopDictation {
           ...(keepUtteranceWavs() ? { keepWav: true } : {}),
         }))) as TranscribeReply;
       if (result?.ok) {
+        this.pause = null;
         this.lastErrorDetail = "";
         if (typeof result.elapsedMs === "number" && result.elapsedMs > 0) {
           this.decodeMs =
@@ -1706,6 +1790,7 @@ export class DesktopDictation {
           });
         }
       } else if (result?.error) {
+        this.noteCrashLoop(result);
         const detail = transcriptionFaultLine(result);
         this.options.onDiagnostic?.({
           stage: "dropped",
