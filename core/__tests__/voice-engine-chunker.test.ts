@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { takeSpeakable } from "../../src/lib/friday/voice-session";
 import {
   CLAUSE_MAX_CHARS,
+  FIRST_CLAUSE_MAX_WORDS,
   chunkClauses,
   firstClauseCut,
   type ClauseOptions,
@@ -34,20 +35,20 @@ const whole = (text: string, options: ClauseOptions = {}) =>
   chunkClauses(text, { ...options, first: true, final: true }).clauses;
 
 describe("first clause rule", () => {
-  it("cuts English at the first break that fits, or at eight words", () => {
+  it("cuts English at the first break that fits, or within six words", () => {
     expect(firstClauseCut("Sure thing, here is what I found, and more")?.spoken).toBe(
       "Sure thing, here is what I found,",
     );
-    // the first comma is after nine words: the cut falls back to the eighth word
+    // the first comma is after nine words: the cut falls back to the sixth word
     expect(
       firstClauseCut("Sure, here is what I found about your request, and then more")?.spoken,
-    ).toBe("Sure, here is what I found about your");
+    ).toBe("Sure, here is what I found");
   });
 
   it("waits while the text is shorter than the minimum, and cuts at the next break that fits", () => {
     expect(firstClauseCut("Sure, ok, ")).toBeNull();
     expect(firstClauseCut("Okay, got it, I will check the calendar now, then")?.spoken).toBe(
-      "Okay, got it, I will check the calendar",
+      "Okay, got it, I will check",
     );
   });
 
@@ -69,18 +70,22 @@ describe("first clause rule", () => {
     );
   });
 
-  it("falls back to eight words when the text has no break", () => {
+  it("falls back to six words when the text has no break", () => {
     const cut = firstClauseCut(
       "The weather in Mumbai today is quite warm and humid with rain later ",
     );
-    expect(cut?.spoken).toBe("The weather in Mumbai today is quite warm");
-    // the ninth word is still arriving: no cut yet at the eighth because it is not followed by a space
-    expect(firstClauseCut("The weather in Mumbai today is quite warm")).toBeNull();
+    // the sixth word, "is", would lead into the next one: the cut steps back to the fifth
+    expect(cut?.spoken).toBe("The weather in Mumbai today");
+    // the word after the sixth is still arriving: no cut yet
+    expect(firstClauseCut("The weather in Mumbai today is quite")).toBeNull();
+    expect(firstClauseCut("The weather in Mumbai today is quite ")?.spoken).toBe(
+      "The weather in Mumbai today",
+    );
   });
 
   it("does not take a break that is too early or leaves the clause under eighteen characters", () => {
     expect(firstClauseCut("Yes, I did. Then I went home and slept well ")?.spoken).toBe(
-      "Yes, I did. Then I went home and",
+      "Yes, I did. Then I went",
     );
     expect(firstClauseCut("I did it, ok so ")).toBeNull();
   });
@@ -109,7 +114,8 @@ describe("Hindi, Devanagari and Hinglish", () => {
   it("cuts a Hindi clause at a comma and never inside a Devanagari word", () => {
     const text = "ठीक है, मैं आपके कैलेंडर में अभी देखता हूँ, फिर बताऊँगा";
     const cut = firstClauseCut(text);
-    expect(cut?.spoken).toBe("ठीक है, मैं आपके कैलेंडर में अभी देखता हूँ,".split(" ").slice(0, 8).join(" "));
+    // "में" belongs to the word before it and cannot end a clause: the cut goes on to "अभी"
+    expect(cut?.spoken).toBe("ठीक है, मैं आपके कैलेंडर में अभी");
     for (const clause of whole(text)) {
       for (const word of clause.split(" ")) expect(text.split(/\s+/)).toContain(word);
     }
@@ -119,8 +125,8 @@ describe("Hindi, Devanagari and Hinglish", () => {
     expect(firstClauseCut("राम का नाम लेकर चलो आगे ॥ फिर")?.spoken).toBe("राम का नाम लेकर चलो आगे ॥");
     const hinglish = "Theek hai, main aapka meeting ready kar deta hoon, thoda wait karo";
     expect(whole(hinglish)).toEqual([
-      "Theek hai, main aapka meeting ready kar deta",
-      "hoon, thoda wait karo",
+      "Theek hai, main aapka meeting ready",
+      "kar deta hoon, thoda wait karo",
     ]);
   });
 });
@@ -129,23 +135,26 @@ describe("never cuts inside what must stay whole", () => {
   it("numbers: 3.5 and 1,000 stay whole and a number list is not a break", () => {
     expect(
       firstClauseCut("The price rose by 3.5 percent to 1,000 rupees today, said")?.spoken,
-    ).toBe("The price rose by 3.5 percent to 1,000");
+    ).toBe("The price rose by 3.5 percent");
     expect(firstClauseCut("It is 3.5 now ")).toBeNull();
-    // no comma after a number is a break: the cut waits for the eighth word
+    // no comma after a number is a break: the cut waits for the sixth word
     expect(firstClauseCut("The numbers are 1, 2, 3, 4, 5, 6, 7 and so on ")?.spoken).toBe(
-      "The numbers are 1, 2, 3, 4, 5,",
+      "The numbers are 1, 2, 3,",
     );
   });
 
   it("abbreviations and initials: Dr., Mr., e.g., i.e., vs. and J. K.", () => {
     expect(firstClauseCut("Please ask Dr. Sharma about it today. Then")?.spoken).toBe(
-      "Please ask Dr. Sharma about it today.",
+      "Please ask Dr. Sharma about it",
+    );
+    expect(firstClauseCut("Please ask Dr. Sharma now. Then")?.spoken).toBe(
+      "Please ask Dr. Sharma now.",
     );
     expect(firstClauseCut("Mr. Rao and Dr. Sharma met today, and")?.spoken).toBe(
-      "Mr. Rao and Dr. Sharma met today,",
+      "Mr. Rao and Dr. Sharma met",
     );
     expect(firstClauseCut("Pick a tool, e.g., a hammer or a nail gun today, ok ")?.spoken).toBe(
-      "Pick a tool, e.g., a hammer or a",
+      "Pick a tool, e.g., a hammer",
     );
     expect(firstClauseCut("It is cheaper, i.e. free versus paid, in general ")?.spoken).not.toMatch(
       /i\.e\.$/,
@@ -153,9 +162,9 @@ describe("never cuts inside what must stay whole", () => {
     expect(firstClauseCut("J. K. Rowling wrote it well. More")?.spoken).toBe(
       "J. K. Rowling wrote it well.",
     );
-    // the eighth word is an abbreviation: the cut moves on past the name
-    expect(firstClauseCut("The tests passed and I told Dr. Sharma about it ")?.spoken).toBe(
-      "The tests passed and I told Dr. Sharma",
+    // the sixth word is an abbreviation: the cut steps back, never ending on "Dr."
+    expect(firstClauseCut("The tests passed and then Dr. Sharma told us ")?.spoken).toBe(
+      "The tests passed and then",
     );
   });
 
@@ -171,7 +180,7 @@ describe("never cuts inside what must stay whole", () => {
 
   it("code spans and fences are not cut", () => {
     expect(firstClauseCut("Run `npm test, then npm run lint` now, please ")?.spoken).toBe(
-      "Run `npm test, then npm run lint` now,",
+      "Run `npm test, then npm run lint`",
     );
     expect(firstClauseCut("Run `npm test, then npm run lint and the rest of it ")).toBeNull();
     expect(
@@ -185,10 +194,10 @@ describe("never cuts inside what must stay whole", () => {
 
   it("quotations are not cut, and a cut resumes after the closing quote", () => {
     expect(firstClauseCut('He said "stop, wait. Now" and then left, quickly ')?.spoken).toBe(
-      'He said "stop, wait. Now" and then left,',
+      'He said "stop, wait. Now"',
     );
     expect(firstClauseCut("She said “no, never, not now” to me, twice ")?.spoken).toBe(
-      "She said “no, never, not now” to me,",
+      "She said “no, never, not now”",
     );
     // an open quotation holds the cut, and nothing is cut inside it
     expect(firstClauseCut('He said "stop, wait for the rest of it, and then ')).toBeNull();
@@ -273,7 +282,9 @@ describe("later clauses and the stream", () => {
     const big = `${"This is a fairly ordinary sentence of words. ".repeat(2000)}`;
     const started = performance.now();
     const out = whole(big);
-    expect(out.length).toBe(2000);
+    // the first sentence is cut small (six words), every later sentence is whole
+    expect(out.length).toBe(2001);
+    expect(out[0]).toBe("This is a fairly ordinary sentence");
     expect(performance.now() - started).toBeLessThan(3000);
   });
 });
@@ -323,9 +334,176 @@ describe("the live path: the small first clause, then takeSpeakable as before", 
   it("the first clause is spoken before the first sentence ends, the rest as whole sentences", () => {
     const answer = answers[0] ?? "";
     const parts = live(answer, 1);
-    expect(parts[0]).toBe("Sure, I checked your calendar for tomorrow,");
-    expect(parts[1]).toBe("and you are free after lunch.");
+    expect(parts[0]).toBe("Sure, I checked your calendar");
+    expect(parts[1]).toBe("for tomorrow, and you are free after lunch.");
     expect(parts.length).toBeGreaterThanOrEqual(3);
     expect(parts[0]?.length).toBeLessThan(answer.indexOf(".") + 1);
+  });
+});
+
+describe("the first clause is at most six words and breaks where speech breaks", () => {
+  /** The first clause of a growing answer, the way the live path asks for it. */
+  const first = (text: string) => firstClauseCut(`${text} `)?.spoken ?? null;
+  const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+  it("holds the budget at six words", () => {
+    expect(FIRST_CLAUSE_MAX_WORDS).toBe(6);
+  });
+
+  it("English: a comma or a stop inside six words ends the clause there", () => {
+    expect(first("Good morning to you all, and welcome back to the show")).toBe(
+      "Good morning to you all,",
+    );
+    expect(first("The report is ready now. Next we look at the plan")).toBe(
+      "The report is ready now.",
+    );
+  });
+
+  it("English: a conjunction inside six words is a break, and the cut comes before it", () => {
+    expect(first("We could go outside but it is raining hard today")).toBe("We could go outside");
+    expect(first("Sure, that sounds good to me and then some more")).toBe(
+      "Sure, that sounds good to me",
+    );
+  });
+
+  it("English: without a break the cut falls on the sixth word, never after a dangling word", () => {
+    expect(first("Please summarize every unread email yesterday morning before lunch")).toBe(
+      "Please summarize every unread email yesterday",
+    );
+    // the sixth word is "for": the cut steps back to the last word that can end a clause
+    expect(first("I will check your calendar for tomorrow and then reply")).toBe(
+      "I will check your calendar",
+    );
+  });
+
+  it("Hinglish: aur and toh are breaks (aur starts the next clause, toh ends the first)", () => {
+    expect(first("Main meeting ready karta hoon aur tab bataunga sab kuch")).toBe(
+      "Main meeting ready karta hoon",
+    );
+    expect(first("Agar kal baarish hui toh main nahi aaunga yaar")).toBe(
+      "Agar kal baarish hui toh",
+    );
+  });
+
+  it("Devanagari: toh and danda are breaks and the words count like English", () => {
+    expect(first("अगर कल बारिश हुई तो मैं नहीं आऊँगा यार")).toBe("अगर कल बारिश हुई तो");
+    expect(first("आज मौसम बहुत अच्छा है। कल बारिश होगी")).toBe("आज मौसम बहुत अच्छा है।");
+    expect(first("मैं आपके meeting को ready कर देता हूँ अभी")).toBe("मैं आपके meeting को ready कर");
+  });
+
+  it("a Hindi word keeps its postposition, in Roman and in Devanagari", () => {
+    const roman = first("Main kal subah Rahul ke ghar ka rasta dhoondh raha hoon");
+    expect(roman).toBe("Main kal subah Rahul ke ghar ka rasta");
+    expect(first("मैं कल सुबह राहुल के घर का रास्ता ढूंढ रहा हूँ")).toBe("मैं कल सुबह राहुल के घर का रास्ता");
+    for (const post of ["ka", "ki", "ke", "ko", "se", "me", "par"]) {
+      const cut = first(`Aaj subah hum sab log ghar ${post} bahar khade the`);
+      expect(cut, post).not.toMatch(/ghar$/);
+    }
+  });
+
+  it("a time and a number stay with their unit", () => {
+    expect(first("Call me at about 2:30 PM tomorrow please")).toBe("Call me at about 2:30 PM");
+    const pct = first("The price went up by 3.5 percent today again");
+    expect(pct === null || !/3\.5$/.test(pct)).toBe(true);
+    expect(first("The total bill came to Rs 1500 only today")).not.toMatch(/\bRs$/);
+    expect(first("He said it starts at 2:30 PM sharp so be ready")).toBe("He said it starts");
+  });
+
+  it("a link is never cut, and a name keeps its title in front and behind", () => {
+    expect(first("Please open https://example.com/page now and read it carefully")).toBe(
+      "Please open https://example.com/page now",
+    );
+    expect(first("Visit the site https://example.com/a?b=1 for details today")).toBe(
+      "Visit the site https://example.com/a?b=1 for details",
+    );
+    expect(first("Please tell Dr. Sharma about the results today")).toBe("Please tell Dr. Sharma");
+    expect(first("We should call my friend Rahul ji tomorrow morning")).toBe(
+      "We should call my friend",
+    );
+  });
+
+  it("waits for the word after the sixth before it cuts, and never cuts a short final answer", () => {
+    expect(firstClauseCut("Please summarize every unread email yesterday ")).toBeNull();
+    expect(whole("I like salt and pepper")).toEqual(["I like salt and pepper"]);
+    expect(whole("Okay then")).toEqual(["Okay then"]);
+  });
+
+  const mixed = [
+    "Sure, that sounds good to me and then some more detail follows. Next one is short.",
+    "I will check your calendar for tomorrow and then reply with the free slots today.",
+    "Main kal subah Rahul ke ghar ka rasta dhoondh raha hoon, phir aapko bataunga. Theek hai?",
+    "मैं कल सुबह राहुल के घर का रास्ता ढूंढ रहा हूँ। अगर कल बारिश हुई तो मैं नहीं आऊँगा।",
+    "Call me at about 2:30 PM tomorrow please, and open https://example.com/a?b=1,2 for the details.",
+    "Please tell Dr. Sharma and Rahul ji about the 3.5 percent rise in Rs 1,000 today. Thanks",
+    "मैं आपके meeting को ready कर देता हूँ aur phir bataunga. Okay done now.",
+    "one two three four five six seven eight nine ten eleven twelve",
+  ];
+
+  it("no clause is empty, every clause is at most six words when a small one exists, nothing is lost", () => {
+    for (const text of mixed) {
+      const parts = whole(text);
+      for (const part of parts) expect(part.trim().length, text).toBeGreaterThan(0);
+      expect(parts.join(" ").replace(/\s+/g, ""), text).toBe(text.replace(/\s+/g, ""));
+    }
+    expect(words(whole(mixed[7] ?? "")[0] ?? "")).toBeLessThanOrEqual(FIRST_CLAUSE_MAX_WORDS);
+    expect(words(whole(mixed[0] ?? "")[0] ?? "")).toBeLessThanOrEqual(FIRST_CLAUSE_MAX_WORDS);
+  });
+
+  it("feeding one character at a time gives the same clauses as all at once", () => {
+    for (const text of mixed) expect(streamed(text), text).toEqual(whole(text));
+  });
+
+  it("the clauses after the first are sentences as before", () => {
+    expect(whole(mixed[2] ?? "")).toEqual([
+      "Main kal subah Rahul ke ghar ka rasta",
+      "dhoondh raha hoon, phir aapko bataunga.",
+      "Theek hai?",
+    ]);
+  });
+});
+
+describe("the first clause table: English, Devanagari and Hinglish", () => {
+  const table: Array<[string, string]> = [
+    ["Open the settings page and change the voice there", "Open the settings page"],
+    ["Tomorrow at 9:15 AM you have a call with the design team", "Tomorrow at 9:15 AM you have"],
+    ["The flight lands at 18:45 and the cab will wait outside", "The flight lands at 18:45"],
+    [
+      "Transfer ₹ 2500 to Rahul tomorrow morning before ten",
+      "Transfer ₹ 2500 to Rahul tomorrow morning",
+    ],
+    [
+      "Check www.example.org/docs for the full guide today",
+      "Check www.example.org/docs for the full guide",
+    ],
+    ["Dr Mehta ji ne kal sham ko call kiya tha", "Dr Mehta ji ne kal"],
+    ["मेरे दोस्त का घर बहुत दूर है इसलिए मैं नहीं जा सका", "मेरे दोस्त का घर बहुत दूर"],
+    ["कल शाम को पाँच बजे मीटिंग है और उसके बाद डिनर", "कल शाम को पाँच बजे मीटिंग"],
+    ["आपका कैलेंडर आज बिल्कुल खाली है, आराम से काम करिए", "आपका कैलेंडर आज बिल्कुल खाली है,"],
+    ["Aaj ka mausam bahut accha hai lekin shaam ko baarish hogi", "Aaj ka mausam bahut accha hai"],
+    ["Kal ki meeting ke baad hum dinner par chalenge sab log", "Kal ki meeting ke baad hum"],
+    ["Haan bilkul, main yeh kaam abhi kar deta hoon", "Haan bilkul, main yeh kaam abhi"],
+    ["Wait, let me look that up for you right now", "Wait, let me look that up"],
+    ["Reminder set for 2:30 PM today, anything else?", "Reminder set for 2:30 PM today,"],
+    ["Your battery is at 15 percent so plug in soon please", "Your battery is at 15 percent"],
+    ["The meeting moved to 4 PM on Friday afternoon sorry", "The meeting moved to 4 PM"],
+    ["Price is 1,299 rupees only for the first month of use", "Price is 1,299 rupees only"],
+    ["Rahul bhai ne kaha ki wo kal subah aayenge ghar par", "Rahul bhai ne kaha ki wo"],
+    ["मैं ठीक हूँ, आप कैसे हैं आज सुबह से", "मैं ठीक हूँ, आप कैसे हैं"],
+  ];
+
+  it.each(table)("%s", (text, expected) => {
+    const cut = firstClauseCut(`${text} `);
+    expect(cut?.spoken).toBe(expected);
+    // never longer than six words unless a number, a unit, a name or a postposition had to stay whole
+    expect(whole(text)[0]).toBe(expected);
+    // a short answer is spoken whole, never cut in two
+    expect(text.startsWith(expected)).toBe(true);
+  });
+
+  it("a one-clause answer is one clause", () => {
+    for (const text of ["Sure.", "Okay, done.", "ठीक है।", "Haan, ho gaya."]) {
+      expect(whole(text)).toEqual([text]);
+      expect(firstClauseCut(`${text} `)).toBeNull();
+    }
   });
 });

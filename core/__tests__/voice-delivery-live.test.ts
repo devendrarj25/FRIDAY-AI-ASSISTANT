@@ -183,11 +183,15 @@ describe("which rule cuts the next clause", () => {
     expect(pickClauseRule({ ...later, underrunRisk: false, queued: 0 })).toBe("sentence");
   });
 
-  it("the short cut closes a clause of four to eight words before the sentence is over", () => {
-    const pending = "Let me check the calendar for that, and then I will tell you more";
+  it("the short cut closes a clause of four to six words before the sentence is over", () => {
+    const pending = "Let me check the calendar now, and then I will tell you more";
     const cut = firstClauseCut(pending, { final: false });
-    expect(cut?.spoken).toBe("Let me check the calendar for that,");
+    expect(cut?.spoken).toBe("Let me check the calendar now,");
     expect(takeSpeakable(pending, false).spoken).toBe("");
+    // a comma past the sixth word is not taken: the cut steps back from "for" to the last word that can end a clause
+    const late = "Let me check the calendar for that, and then I will tell you more";
+    expect(firstClauseCut(late, { final: false })?.spoken).toBe("Let me check the calendar");
+    expect(takeSpeakable(late, false).spoken).toBe("");
   });
 });
 

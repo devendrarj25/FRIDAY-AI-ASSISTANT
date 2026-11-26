@@ -103,6 +103,9 @@ type Driver = {
   ackSaid: number;
   ackGen: number;
   ackTurnKind: string;
+  ackHistory: Record<string, number[]>;
+  ackLane: string;
+  stampFirstClause: () => void;
   ackLastLineId: string;
   lastFinalText: string;
   callHold: boolean;
@@ -165,6 +168,7 @@ beforeEach(() => {
   d.ackSaid = 0;
   d.ackLastLineId = "";
   d.ackTurnKind = "control";
+  d.ackHistory = {};
   vi.spyOn(d, "playSpoken").mockImplementation(async (text: string) => void spoken.push(text));
   vi.spyOn(brain, "send").mockImplementation((() => ({
     accepted: true,
@@ -498,5 +502,59 @@ describe("E: pause, mute and Stop everything forget the echo reference", () => {
     );
     for (const reason of ["muted", "paused", "stop"])
       expect(mode).toContain(`clearEchoReference("${reason}")`);
+  });
+});
+
+describe("the expected answer time decides: one test per lane", () => {
+  it("full lane: with no measurements the prior (2500 ms) arms it; a fast measured median keeps it silent; a slow one arms it", async () => {
+    turn();
+    expect(d.ackLane).toBe("full");
+    expect(armed()).toBe(true);
+    d.clearHoldLines();
+    d.ackHistory = { full: [900, 1000, 1100] };
+    turn();
+    expect(armed()).toBe(false);
+    d.ackHistory = { full: [2600, 2800, 3000] };
+    turn();
+    expect(armed()).toBe(true);
+  });
+
+  it("command lane: an obvious control verb is never acknowledged, whatever the history says", async () => {
+    d.ackHistory = { full: [4000, 4000, 4000] };
+    turn("volume up", "new-task");
+    expect(d.ackLane).toBe("command");
+    expect(armed()).toBe(false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(played).toEqual([]);
+  });
+
+  it("quick lane: a side question is on the quick lane, and its measured first clause is learned there", () => {
+    turn("what time is it", "side-question");
+    expect(d.ackLane).toBe("quick");
+    expect(armed()).toBe(false);
+    d.turnStages.mark("endpointConfirmed", 1000);
+    d.turnStages.mark("firstClauseReady", 1450);
+    d.stampFirstClause();
+    expect(d.ackHistory).toEqual({ quick: [450] });
+  });
+
+  it("the measured endpoint-to-first-clause time of a full turn is recorded once, on its own lane", () => {
+    turn();
+    d.turnStages.mark("endpointConfirmed", 2000);
+    d.turnStages.mark("firstClauseReady", 3200);
+    d.stampFirstClause();
+    d.stampFirstClause();
+    expect(d.ackHistory).toEqual({ full: [1200] });
+  });
+
+  it("a turn with no confirmed endpoint, or on the command lane, records nothing", () => {
+    turn();
+    d.turnStages.mark("firstClauseReady", 3200);
+    d.stampFirstClause();
+    expect(d.ackHistory).toEqual({});
+    turn("mute", "new-task");
+    d.turnStages.mark("endpointConfirmed", 10);
+    d.stampFirstClause();
+    expect(d.ackHistory).toEqual({});
   });
 });

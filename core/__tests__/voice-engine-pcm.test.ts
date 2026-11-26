@@ -735,7 +735,7 @@ describe("wiring of the two opt-in settings (source-pinned; the live path cannot
     );
     // the stamp, the cursor and the speaking happen in this order at the first cut
     expect(mode).toMatch(
-      /if \(cut\) \{\s*this\.turnStages\.mark\("firstClauseReady"\);\s*const before = text\.slice\(0, this\.voicedChars\);\s*this\.voicedChars \+= cut\.consumed;\s*this\.voicedPrefix = text\.slice\(0, this\.voicedChars\);\s*voiceReply\(splitLongSpeech\(cut\.spoken\), before\);/,
+      /if \(cut\) \{\s*this\.stampFirstClause\(\);\s*const before = text\.slice\(0, this\.voicedChars\);\s*this\.voicedChars \+= cut\.consumed;\s*this\.voicedPrefix = text\.slice\(0, this\.voicedChars\);\s*voiceReply\(splitLongSpeech\(cut\.spoken\), before\);/,
     );
     // everything after the first clause is still takeSpeakable, and the old early clause is the fallback only
     expect(mode).toMatch(/let chunk = takeSpeakable\(pending, final\);/);

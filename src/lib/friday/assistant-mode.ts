@@ -265,6 +265,13 @@ import {
   type AckDecision,
   type AckTurnKind,
 } from "./voice-engine/instant-ack";
+import {
+  ackLane,
+  expectedAnswerMs,
+  recordFirstClause,
+  type FirstClauseHistory,
+} from "./voice-engine/expected-answer";
+import type { LadderLane } from "./voice-engine/brain-bridge";
 import { notifications } from "./notifications";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
@@ -565,6 +572,7 @@ type VoiceDesktop = {
   }>;
   installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
   restartKernel?: () => Promise<{ ok: boolean }>;
+  restartTts?: () => Promise<{ ok: boolean; state: string; error?: string }>;
 };
 const desktop = (): VoiceDesktop | null =>
   typeof window === "undefined"
@@ -865,6 +873,11 @@ class AssistantModeStore {
   private ackSeed = Date.now() % 2_147_483_647;
   /** What the router called the line that is going to the Brain; read once by the acknowledgement. */
   private ackTurnKind: AckTurnKind = "control";
+  /** The lane the turn on its way to the Brain is on, and whether its first-clause time was already learned. */
+  private ackLane: LadderLane = "full";
+  private ackLearned = false;
+  /** This session's measured endpoint-to-first-clause times per lane: what the acknowledgement expects next. */
+  private ackHistory: FirstClauseHistory = {};
   /** The line just sounded, for the echo filter only (it is never `spokenText`, so "continue" never repeats it). */
   private ackEcho = { text: "", until: 0 };
   /** Requests heard while a turn ran; each runs once the one before has finished and been spoken. */
@@ -2682,6 +2695,7 @@ class AssistantModeStore {
     if (verdict.remedy === "reopen-mic" || verdict.remedy === "restart-speech") {
       this.applyVoiceHeal(verdict.fault, false);
     }
+    if (verdict.remedy === "restart-tts") this.requestTtsRestart();
     this.forceListening(verdict.reason);
     // Never fail silently: the first few are mended quietly, a run of them is said once.
     if (this.interventions >= 3 && !this.reportedStuck) {
@@ -2700,6 +2714,41 @@ class AssistantModeStore {
       );
       this.caption("friday", line);
       this.emit();
+    }
+  }
+
+  private ttsFailStreak = 0;
+  private ttsRestartAsked = false;
+
+  /**
+   * Speech output succeeded or failed. The second failure in a row asks the main process to drop the local speaker
+   * (a hung one holds every later clause), once per failure streak: a success starts a new streak, and the restart
+   * says nothing itself, because a still-failing voice already shows "voice output failed".
+   */
+  private noteTtsOutcome(ok: boolean) {
+    if (ok) {
+      this.ttsFailStreak = 0;
+      this.ttsRestartAsked = false;
+      return;
+    }
+    this.ttsFailStreak += 1;
+    if (this.ttsFailStreak >= 2 && !this.ttsRestartAsked) {
+      this.ttsRestartAsked = true;
+      this.requestTtsRestart();
+    }
+  }
+
+  /** Ask for the speaker restart. A bridge without it, a refusal and a throw are all quiet. */
+  private requestTtsRestart() {
+    const ask = desktop()?.restartTts;
+    if (typeof ask !== "function") return;
+    this.trace("heal", "speaker restart requested");
+    try {
+      void ask()
+        .then((answer) => this.trace("heal", `speaker restart: ${answer?.state ?? "no answer"}`))
+        .catch(() => this.trace("heal", "speaker restart: failed"));
+    } catch {
+      this.trace("heal", "speaker restart: failed");
     }
   }
 
@@ -4721,8 +4770,12 @@ class AssistantModeStore {
     const kind = this.ackTurnKind;
     this.ackTurnKind = "control";
     this.ackSaid = 0;
+    const { lane, toolsLikely } = ackLane({ kind, text: command });
+    this.ackLane = lane;
+    this.ackLearned = false;
     const voice = preferences.getSnapshot().voice;
     if (voice.instantAck !== true) return;
+    const expected = expectedAnswerMs({ kind, lane, toolsLikely, history: this.ackHistory });
     const decision = shouldAck({
       mode: this.state.mode,
       speakReplies: voice.speakReplies !== false,
@@ -4739,6 +4792,8 @@ class AssistantModeStore {
       whisperMode: voice.whisperMode === true,
       narratorLinesLeft: this.narrator.remaining(),
       ackedThisTurn: this.ackSaid,
+      lane,
+      ...(expected === null ? {} : { expectedAnswerMs: expected }),
       endpointAtMs: this.turnStages.at("endpointConfirmed") ?? performance.now(),
       generation: this.ackGen,
       liveGeneration: this.ackGen,
@@ -4756,6 +4811,20 @@ class AssistantModeStore {
       () => void this.fireAck(decision, gen),
       Math.max(0, decision.atMs - performance.now()),
     );
+  }
+
+  /**
+   * The first spoken clause of the reply is ready: stamp it, and learn how long it took from the confirmed end of the
+   * sentence, once per turn and on the turn's own lane (a command is never measured). Nothing is stored on disk.
+   */
+  private stampFirstClause() {
+    this.turnStages.mark("firstClauseReady");
+    if (this.ackLearned || this.ackLane === "command") return;
+    const from = this.turnStages.at("endpointConfirmed");
+    const to = this.turnStages.at("firstClauseReady");
+    if (from === null || to === null) return;
+    this.ackLearned = true;
+    this.ackHistory = recordFirstClause(this.ackHistory, this.ackLane, to - from);
   }
 
   /** The timer fired: put the line in the speech queue as a direct line, unless the moment has passed. */
@@ -6407,7 +6476,11 @@ class AssistantModeStore {
           `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}${lastClipUsedPcm() ? " · pcm" : ""}${pcmNote ? ` · ${pcmNote}` : ""}`,
         );
         this.trace("segment", `turn: ${turnTraceLine(voiceTurn())}`);
-        if (how !== "none") return;
+        if (how !== "none") {
+          this.noteTtsOutcome(true);
+          return;
+        }
+        this.noteTtsOutcome(false);
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
@@ -6422,6 +6495,7 @@ class AssistantModeStore {
         const detail = String((error as Error)?.message || error);
         this.state.tts = { ...this.state.tts, engine: "none", lastError: detail };
         markTurnStage("spoken", false, detail);
+        this.noteTtsOutcome(false);
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
@@ -6509,7 +6583,7 @@ class AssistantModeStore {
     const cut =
       rule === "sentence" ? null : firstClauseCut(text.slice(this.voicedChars), { final });
     if (cut) {
-      this.turnStages.mark("firstClauseReady");
+      this.stampFirstClause();
       const before = text.slice(0, this.voicedChars);
       this.voicedChars += cut.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);
@@ -6521,7 +6595,7 @@ class AssistantModeStore {
       chunk = earlyClause(pending);
     if (!chunk.spoken && !cut) return;
     if (chunk.spoken) {
-      this.turnStages.mark("firstClauseReady");
+      this.stampFirstClause();
       const before = text.slice(0, this.voicedChars);
       this.voicedChars += chunk.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);

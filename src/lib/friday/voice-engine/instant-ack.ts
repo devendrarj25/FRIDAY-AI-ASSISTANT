@@ -15,6 +15,7 @@
  *  - Local pre-rendered clips only: a line with no clip ready is not said, and nothing here calls a cloud voice.
  */
 import { confirmationVerdict } from "../voice-session";
+import { ackWanted, type LadderLane } from "./brain-bridge";
 import type { RouteKind } from "./utterance-router";
 import type { VoiceStage } from "./latency-monitor";
 
@@ -32,8 +33,6 @@ export type AckLineEntry = {
 
 /** Wait this long after the end of the sentence is confirmed before the acknowledgement may start. */
 export const ACK_DELAY_MS = 600;
-/** An answer expected sooner than this needs no acknowledgement. */
-export const ACK_MIN_WAIT_MS = 600;
 /** At most this many acknowledgements in one turn. */
 export const ACK_PER_TURN = 1;
 /** Longest owner name appended to a line (the same cap the narrator's address name has). */
@@ -250,7 +249,12 @@ export type AckContext = {
   narratorLinesLeft: number;
   /** Acknowledgements already said in this turn. */
   ackedThisTurn: number;
-  /** The expected time to the first spoken clause, when known (for example a cached or local answer). */
+  /** The brain-bridge lane of the turn; a command never gets an acknowledgement. Missing means the full lane. */
+  lane?: LadderLane | undefined;
+  /**
+   * The expected time to the first spoken clause. An acknowledgement is opt-in by this value: the brain bridge's
+   * `ackWanted` rule says yes only above its threshold (1500 ms), and a missing or odd value says no.
+   */
   expectedAnswerMs?: number | undefined;
   /** When the end of the owner's sentence was confirmed. */
   endpointAtMs: number;
@@ -285,6 +289,8 @@ export type AckSkip =
   | "narrator-budget"
   | "already-acked"
   | "quick-answer"
+  | "command-lane"
+  | "expected-unknown"
   | "no-clip-ready";
 
 export type AckDecision =
@@ -321,9 +327,11 @@ export function shouldAck(ctx: AckContext): AckDecision {
   if (ctx.whisperMode) return no("whisper-mode");
   if (ctx.narratorLinesLeft <= 0) return no("narrator-budget");
   if (ctx.ackedThisTurn >= ACK_PER_TURN) return no("already-acked");
-  if (typeof ctx.expectedAnswerMs === "number" && ctx.expectedAnswerMs < ACK_MIN_WAIT_MS) {
-    return no("quick-answer");
-  }
+  const lane = ctx.lane ?? "full";
+  if (lane === "command") return no("command-lane");
+  const expectedMs = ctx.expectedAnswerMs;
+  if (typeof expectedMs !== "number" || !Number.isFinite(expectedMs)) return no("expected-unknown");
+  if (!ackWanted({ lane, expectedMs })) return no("quick-answer");
   const lang = ackLanguage(ctx.heard, ctx.fallbackLang ?? "en");
   const ready = new Set(ctx.readyClipIds);
   const pool = ackPool(lang).filter((entry) => ready.has(entry.id));
