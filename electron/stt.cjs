@@ -907,6 +907,7 @@ function createStreamEar({
   getWorker,
   request,
   guard = (run) => run(),
+  ownerEmbedding = async () => null,
   idleMs = STREAM_IDLE_MS,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
@@ -997,6 +998,15 @@ function createStreamEar({
     current = stream;
     const hotwords = cleanStreamHotwords(payload.hotwords);
     const ears = cleanStreamEars(payload.ears);
+    // The voiceprint never rides the renderer payload: a renderer-sent one is dropped, and main adds its own stored
+    // centroid (safeStorage) to the worker request only. A missing or wrong-size one leaves the speaker unknown.
+    delete ears.ownerEmbedding;
+    try {
+      const owner = cleanStreamEars({ ownerEmbedding: await ownerEmbedding() }).ownerEmbedding;
+      if (owner) ears.ownerEmbedding = owner;
+    } catch {
+      /* no voiceprint: the speaker stays unknown */
+    }
     let reply;
     try {
       reply = await guard(() =>
@@ -1118,6 +1128,7 @@ const streamEar = createStreamEar({
   getWorker: () => (worker?.alive ? worker : null),
   request: (session, payload, timeoutMs) => workerRequest(session, payload, timeoutMs),
   guard: guardedLoad,
+  ownerEmbedding: () => require("./voiceprint.cjs").loadOwnerEmbedding(),
 });
 const streamOpen = (payload) => streamEar.open(payload || {});
 const streamFeed = (payload) => streamEar.feed(payload || {});

@@ -696,7 +696,15 @@ def enroll_op(req: dict) -> dict:
             clips.append({"id": item.get("id"), "kind": item.get("kind"), "pcm": np.asarray(pcm)})
         profile = ve.build_profile(clips)
         _owner_profile = profile
-        return {"ok": True, "op": op, "profile": profile, "summary": ve.public_summary(profile), "skipped": skipped}
+        # The speaker-model centroid goes back to the desktop only (stored in the safe store); never in the summary.
+        return {
+            "ok": True,
+            "op": op,
+            "profile": profile,
+            "summary": ve.public_summary(profile),
+            "skipped": skipped,
+            "ownerEmbedding": ve.owner_embedding(clips),
+        }
     if op == "enroll_score":
         pcm = decode_pcm16(str(req.get("audio") or ""))
         if pcm is None or len(pcm) < 1600:
