@@ -87,8 +87,9 @@ function captureCommand(names, args, extraDirs = []) {
 /** The download hosts of a setup job by id (the Ollama installer, for one), from the real plan with every switch on. */
 function jobHostsOf(id) {
   try {
+    // A read-only look: it must never record the checkout as the FRIDAY home in the registry.
     const jobs = require("./prefetch-models.cjs").prefetchPlan(
-      require("./friday-root.cjs").workspaceRootOrDev().root,
+      require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root,
       {
         ...process.env,
         CI: "",

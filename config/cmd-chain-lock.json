@@ -3,7 +3,7 @@
   "files": {
     "scripts/build-pipeline.cjs": "1b12b6ceeb8a97ec2d3a37bf2d08432f514ad8978e201e3fb99eac575a5b164a",
     "scripts/build-windows.cmd": "d7aae9b5382d9fd42fae98185f5ecdd35cfbd0948774fa2bf6e7bd9abe60e558",
-    "scripts/check-environment.cjs": "d134506e6cc48f4cc47f5d47acdba29fcbe4ef0cef945c2e0f214480c35cb85e",
+    "scripts/check-environment.cjs": "f546567546464c491529f49a8ded209280bc9d342e86f1b26a300e1180b3bd26",
     "scripts/console-bar.cjs": "d152fe9f73f13e9170430b00d944cc58347eb962490725175f06ce5d8e9cf041",
     "scripts/doctor.cjs": "d19529a3f754e5d3795111226a4fc122b8e886cfedb257c36c91bf1d25c1eb2d",
     "scripts/download-board.cjs": "177807ce384933186b1a2203cb9845c5b30dd0358cd098fef485e63f05b92610",
