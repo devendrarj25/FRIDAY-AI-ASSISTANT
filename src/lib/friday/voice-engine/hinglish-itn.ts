@@ -2,8 +2,8 @@
  * FRIDAY · Hindi / English inverse text normalisation for a finished transcript.
  *
  * Speech recognisers write what was said ("paanch sau rupaye", "two thousand twenty six", "saade teen baje",
- * "john at the rate gmail dot com"). This turns the spoken forms that are sure into the written ones (₹500,
- * 2026, 3:30 baje, john@gmail.com). Rule-based, pure, no model, no network, no clock.
+ * "john at the rate example dot com"). This turns the spoken forms that are sure into the written ones (₹500,
+ * 2026, 3:30 baje, john@example.com). Rule-based, pure, no model, no network, no clock.
  *
  * Script policy (language-segmenter.ts `scriptPolicy`): nothing is transliterated across scripts and nothing is
  * translated. "baje" stays "baje" and "बजे" stays "बजे"; a Devanagari number word becomes digits, which belong to

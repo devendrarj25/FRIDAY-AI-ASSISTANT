@@ -234,14 +234,14 @@ const ROMAN_HINDI: Row[] = [
 ];
 
 const ADDRESSES: Row[] = [
-  ["john at the rate gmail dot com", "john@gmail.com"],
-  ["John at the rate Gmail dot com", "john@gmail.com"],
+  ["john at the rate example dot com", "john@example.com"],
+  ["John at the rate Example dot com", "john@example.com"],
   ["john dot smith at the rate example dot co dot in", "john.smith@example.co.in"],
-  ["contact support at the rate gmail dot com please", "contact support@gmail.com please"],
+  ["contact support at the rate example dot com please", "contact support@example.com please"],
   ["visit example dot com", "visit example.com"],
   ["www dot example dot com", "www.example.com"],
-  ["john एट द रेट gmail डॉट com", "john@gmail.com"],
-  ["mail ravi at the rate outlook dot com", "mail ravi@outlook.com"],
+  ["john एट द रेट example डॉट com", "john@example.com"],
+  ["mail ravi at the rate example dot in", "mail ravi@example.in"],
 ];
 
 const UNCHANGED: string[] = [
@@ -292,7 +292,7 @@ const UNCHANGED: string[] = [
   "3:30 baje",
   "₹500",
   "50%",
-  "john@gmail.com",
+  "john@example.com",
   "21st of January",
   "9876543210",
   "2026",
@@ -413,12 +413,12 @@ describe("hinglish ITN: idempotent", () => {
 
   it("is idempotent on a long mixed paragraph", () => {
     const text =
-      "kal saade teen baje meeting hai, paanch sau rupaye lagenge. John at the rate gmail dot com ko bhejo, " +
+      "kal saade teen baje meeting hai, paanch sau rupaye lagenge. John at the rate example dot com ko bhejo, " +
       "twenty five percent off, दो हज़ार बीस में पंद्रह अगस्त को डेढ़ बजे, nine eight seven six five four three two one zero.";
     const once = itn(text);
     expect(once).toContain("3:30 baje");
     expect(once).toContain("₹500");
-    expect(once).toContain("john@gmail.com");
+    expect(once).toContain("john@example.com");
     expect(once).toContain("25% off");
     expect(once).toContain("2020 में 15 अगस्त को 1:30 बजे");
     expect(once).toContain("9876543210");
