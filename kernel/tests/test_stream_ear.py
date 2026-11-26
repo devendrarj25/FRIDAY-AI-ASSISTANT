@@ -932,3 +932,161 @@ def test_the_whisper_style_ear_hears_the_copy_and_its_gate_the_raw_audio(tmp_pat
     assert np.array_equal(joined(vad_pushes), raw)
     assert joined(pushes).size == raw.size and not np.array_equal(joined(pushes), raw)
     assert final["denoise"]["active"] is True
+
+
+# ---- Smart Turn scores on a background worker: the feed call never waits for it -------------------------------------
+
+
+class ManualExecutor:
+    """Holds each submitted job until the test runs it, so the order of events is exact and no clock is used."""
+
+    def __init__(self):
+        self.jobs = []
+        self.closed = False
+
+    def submit(self, fn, *args):
+        from concurrent.futures import Future
+
+        future: Future = Future()
+        self.jobs.append((future, fn, args))
+        return future
+
+    def run_next(self):
+        future, fn, args = self.jobs.pop(0)
+        try:
+            future.set_result(fn(*args))
+        except BaseException as err:  # noqa: BLE001
+            future.set_exception(err)
+
+    def shutdown(self, wait=True):
+        self.closed = True
+
+
+def background_engine(tmp_path, scorer, executor=None, **ears):
+    executor = executor if executor is not None else ManualExecutor()
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer, turn_executor=executor)
+    engine.open(folder, locale="en-US", ears={**EARS, "eagerTurn": False, **ears})
+    return engine, executor
+
+
+def test_a_slow_scorer_never_stalls_the_feed_call_and_the_verdict_is_applied_once(tmp_path):
+    import threading
+    import time
+
+    gate, started, done = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def slow(samples, rate):
+        calls.append(len(samples))
+        started.set()
+        gate.wait(5)  # stands in for a 150 ms model call
+        done.set()
+        return {"ok": True, "ready": True, "probability": 0.95, "complete": True, "reason": ""}
+
+    engine, _, folder = make_engine(tmp_path, turn_scorer=slow, turn_executor="thread")
+    engine.open(folder, locale="en-US", ears={**EARS, "eagerTurn": False})
+    try:
+        drive(engine, SPEECH, step=640)
+        times = []
+        for _ in range(20):  # 400 ms of quiet: the score is asked for at 200 ms and runs while these go on
+            began = time.perf_counter()
+            engine.feed(pcm_bytes(0.02))
+            times.append(time.perf_counter() - began)
+            if len(times) == 12:
+                assert started.wait(2)  # the score has begun and is still running
+        assert len(times) == 20 and max(times) < 0.005, times
+        assert engine._turn_p is None and not done.is_set()
+        gate.set()
+        assert done.wait(2)
+        for _ in range(200):
+            engine.feed(pcm_bytes(0.02))
+            if engine._turn_p is not None:
+                break
+            time.sleep(0.005)
+        assert engine._turn_p == 0.95 and len(calls) == 1
+        drive(engine, pcm_bytes(0.1), step=640)
+        assert len(calls) == 1 and engine.turn_state == "scored"  # one pause, one score, applied once
+    finally:
+        gate.set()
+        engine.close()
+
+
+def test_the_verdict_is_applied_on_the_next_feed_not_the_one_that_asked(tmp_path):
+    scorer = Scorer(0.9)
+    engine, executor = background_engine(tmp_path, scorer)
+    drive(engine, SPEECH + pcm_bytes(0.3), step=640)
+    assert len(executor.jobs) == 1 and scorer.calls == [] and engine._turn_p is None
+    assert engine.turn_state == "pending"
+    executor.run_next()
+    assert engine._turn_p is None  # computed, not yet read: nothing is applied behind the feed call
+    engine.feed(pcm_bytes(0.02))
+    assert engine._turn_p == 0.9 and engine.turn_state == "scored" and len(scorer.calls) == 1
+
+
+def test_a_verdict_for_a_pause_that_speech_has_ended_is_dropped(tmp_path):
+    scorer = Scorer(0.9)
+    engine, executor = background_engine(tmp_path, scorer)
+    drive(engine, SPEECH + pcm_bytes(0.3), step=640)
+    drive(engine, SPEECH, step=640)  # the speaker went on: that pause is over
+    executor.run_next()
+    engine.feed(pcm_bytes(0.02))
+    assert engine._turn_p is None  # the old pause's score must not close the new sentence
+
+
+def test_a_failing_background_scorer_becomes_turn_score_failed_and_the_silence_rule_ends_the_turn(tmp_path):
+    def broken(samples, rate):
+        raise RuntimeError("onnx exploded")
+
+    engine, executor = background_engine(tmp_path, broken)
+    seen = turn_events(engine, SPEECH + pcm_bytes(0.3))
+    executor.run_next()
+    seen += turn_events(engine, pcm_bytes(2.0))
+    assert engine.turn_state == "turn-score-failed" and engine._turn_p is None
+    assert [e for _, e, _ in seen][-1] == "end"
+    assert len(executor.jobs) == 0  # and it does not ask again for the rest of the stream
+
+
+def test_at_most_one_window_waits_and_the_newest_one_wins(tmp_path):
+    from stream_ear import TurnScoreWorker
+
+    seen = []
+
+    def scorer(samples, rate):
+        seen.append(int(samples[0]))
+        return {"ready": True, "probability": 0.5}
+
+    executor = ManualExecutor()
+    worker = TurnScoreWorker(scorer, executor)
+    for token, first in enumerate((1, 2, 3, 4), start=1):
+        worker.submit(np.full(4, first, dtype=np.float32), 16000, token)
+    assert len(executor.jobs) == 1 and worker.dropped == 2  # 2 and 3 were stale before they ran
+    executor.run_next()
+    first = worker.poll()
+    assert first is not None and first.token == 1 and len(executor.jobs) == 1  # the newest window starts now
+    executor.run_next()
+    verdict = worker.poll()
+    assert verdict is not None and verdict.token == 4 and seen == [1, 4] and worker.poll() is None
+
+
+def test_close_joins_the_worker_thread_and_a_reopened_engine_scores_again(tmp_path):
+    import threading
+
+    before = set(threading.enumerate())
+    scorer = Scorer(0.9)
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer, turn_executor="thread")
+    engine.open(folder, locale="en-US", ears={**EARS, "eagerTurn": False})
+    drive(engine, SPEECH + pcm_bytes(0.4), step=640)
+    assert [t for t in threading.enumerate() if t.name.startswith("friday-turn") and t not in before]
+    engine.close()
+    assert not [t for t in threading.enumerate() if t.name.startswith("friday-turn") and t not in before]
+    engine.open(folder, locale="en-US", ears={**EARS, "eagerTurn": False})
+    drive(engine, SPEECH + pcm_bytes(0.4), step=640)
+    engine.close()
+    assert not [t for t in threading.enumerate() if t.name.startswith("friday-turn") and t not in before]
+
+
+def test_a_stand_in_scorer_runs_inline_and_the_production_scorer_runs_on_a_thread(tmp_path):
+    inline, _, _ = make_engine(tmp_path / "a", turn_scorer=Scorer(0.9))
+    assert inline._turn_worker.threaded is False
+    production, _, _ = make_engine(tmp_path / "b")
+    assert production._turn_worker.threaded is True

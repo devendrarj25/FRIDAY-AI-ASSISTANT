@@ -66,6 +66,7 @@ import os
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -345,6 +346,104 @@ def _smart_turn_scorer(samples: Any, rate: int) -> dict[str, Any]:
     return voice_runtime.score_turn(samples, rate)
 
 
+_PRODUCTION_SCORER = _smart_turn_scorer
+
+
+class _InlineExecutor:
+    """Runs a job at once on the calling thread. Used for a stand-in scorer, so a test sees the verdict in the same
+    feed call that asked for it."""
+
+    def submit(self, fn: Callable[..., Any], *args: Any) -> Future[Any]:
+        future: Future[Any] = Future()
+        try:
+            future.set_result(fn(*args))
+        except BaseException as err:  # noqa: BLE001 — the job wrapper never raises; this is only a last net
+            future.set_exception(err)
+        return future
+
+    def shutdown(self, wait: bool = True) -> None:
+        return None
+
+
+@dataclass(frozen=True)
+class TurnVerdict:
+    """One finished Smart Turn read. ``token`` names the pause it was asked for; ``answer`` is the scorer's reply or
+    ``None`` when the scorer raised."""
+
+    token: int
+    answer: dict[str, Any] | None
+
+
+class TurnScoreWorker:
+    """Smart Turn on one background thread, so the audio feed loop never waits for the model (77 to 123 ms a call on
+    four cores used to stall the voice gate and the stream every time the endpointer asked).
+
+    ``submit`` never blocks: with a read running it keeps only the newest window (an older waiting one is dropped and
+    counted in ``dropped``), so at most one read runs and one waits. ``poll`` hands back a finished verdict once and
+    starts the waiting window. The thread is created on the first read and joined by ``close``; a later ``submit``
+    makes a new one. This is the one thread of the audio slot of ``voice_budget`` (role ``turn``, one thread): it
+    overlaps the voice gate for the length of one read per pause, which is the accepted cost of not stalling the feed.
+    """
+
+    def __init__(self, scorer: Callable[[Any, int], dict[str, Any]], executor: Any = None) -> None:
+        self._scorer = scorer
+        self._given = executor
+        self._executor: Any = executor
+        self._running: Future[TurnVerdict] | None = None
+        self._pending: tuple[Any, int, int] | None = None
+        self.dropped = 0
+
+    @property
+    def threaded(self) -> bool:
+        return not isinstance(self._given, _InlineExecutor)
+
+    def _job(self, samples: Any, rate: int, token: int) -> TurnVerdict:
+        try:
+            return TurnVerdict(token, self._scorer(samples, rate))
+        except Exception:  # noqa: BLE001 — a failing model must not kill the worker
+            return TurnVerdict(token, None)
+
+    def _start(self, samples: Any, rate: int, token: int) -> None:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="friday-turn")
+        try:
+            self._running = self._executor.submit(self._job, samples, rate, token)
+        except RuntimeError:  # the pool was shut down under us: report it as a failed read
+            self._running = Future()
+            self._running.set_result(TurnVerdict(token, None))
+
+    def submit(self, samples: Any, rate: int, token: int) -> None:
+        if self._running is None:
+            self._start(samples, rate, token)
+            return
+        if self._pending is not None:
+            self.dropped += 1
+        self._pending = (samples, rate, token)
+
+    def poll(self) -> TurnVerdict | None:
+        running = self._running
+        if running is None or not running.done():
+            return None
+        self._running = None
+        verdict = running.result()
+        if self._pending is not None:
+            samples, rate, token = self._pending
+            self._pending = None
+            self._start(samples, rate, token)
+        return verdict
+
+    def cancel(self) -> None:
+        """Forget the waiting window. A read already running finishes and its verdict is judged by its token."""
+        self._pending = None
+
+    def close(self) -> None:
+        self._pending = None
+        self._running = None
+        executor, self._executor = self._executor, self._given
+        if self._given is None and executor is not None:
+            executor.shutdown(wait=True)
+
+
 def _language_of(locale: str) -> str | None:
     return (locale or "").split("-")[0].split("_")[0].lower() or None
 
@@ -495,11 +594,21 @@ class TransducerEngine:
         *,
         endpoint_config: EndpointConfig | None = None,
         turn_scorer: Callable[[Any, int], dict[str, Any]] | None = None,
+        turn_executor: Any = None,
     ) -> None:
         self._stream = stream
         self._endpoint_config = endpoint_config or EndpointConfig()
         self._ctor_config = self._endpoint_config
         self._turn_scorer = turn_scorer or _smart_turn_scorer
+        # The pinned Smart Turn model reads on a background thread. A stand-in scorer runs inline (a test sees its
+        # verdict in the same feed call); ``turn_executor`` is ``"thread"`` or an executor to test the background path.
+        if turn_executor == "thread":
+            turn_executor = None
+        elif turn_executor is None and self._turn_scorer is not _PRODUCTION_SCORER:
+            turn_executor = _InlineExecutor()
+        self._turn_worker = TurnScoreWorker(lambda samples, rate: self._turn_scorer(samples, rate), turn_executor)
+        self._turn_gen = 0
+        self.turn_state = "idle"  # idle | pending | scored | absent | turn-score-failed
         self._ears_on = False
         self._smart_turn = False
         self._scene: Any = None
@@ -573,6 +682,10 @@ class TransducerEngine:
         self._tail_samples = 0
         self._turn_p: float | None = None
         self._scored = False
+        self._turn_gen += 1  # a verdict still on its way belongs to the old turn
+        self._turn_worker.cancel()
+        if self.turn_state != "absent":
+            self.turn_state = "idle"
         self._voiced_ms = 0
         self._turn_voiced_ms = 0
         self._pending_turns: list[dict[str, Any]] = []
@@ -660,6 +773,7 @@ class TransducerEngine:
         self._clear()
 
     def close(self) -> None:
+        self._turn_worker.close()
         if self._stream is not None:
             self._stream.close()
         self._model_dir, self._providers_key = "", ()
@@ -723,10 +837,15 @@ class TransducerEngine:
 
     def _score_turn(self) -> None:
         """Ask Smart Turn once per pause, about ``vad_stop_ms`` after the voice gate stopped; speech clears it so
-        the next pause is scored on the whole turn again. No answer is never waited for."""
+        the next pause is scored on the whole turn again. The read runs on the worker thread: this call returns at once
+        and a verdict is applied on a later call. No answer is never waited for."""
+        self._collect_verdict()
         if not self._smart_turn or not self._endpointer.in_turn:
             return
         if self._vad.probability >= self._endpoint_config.start_probability:
+            if self._scored or self._turn_p is not None:
+                self._turn_gen += 1  # the pause that was asked about is over
+                self._turn_worker.cancel()
             self._turn_p, self._scored = None, False
             return
         if self._scored or self._vad.silence_ms < self._endpoint_config.vad_stop_ms or not self._tail:
@@ -734,16 +853,29 @@ class TransducerEngine:
         self._scored = True
         import numpy as np
 
-        try:
-            answer = self._turn_scorer(np.concatenate(list(self._tail)), RATE)
-        except Exception:  # noqa: BLE001 — a failing model leaves the silence rules alone
+        self.turn_state = "pending"
+        self._turn_worker.submit(np.concatenate(list(self._tail)), RATE, self._turn_gen)
+        self._collect_verdict()  # an inline worker has already finished: the verdict counts in this very call
+
+    def _collect_verdict(self) -> None:
+        """Apply a finished Smart Turn read, once, when it still belongs to the pause being heard."""
+        verdict = self._turn_worker.poll()
+        if verdict is None or verdict.token != self._turn_gen or not self._endpointer.in_turn:
+            return
+        answer = verdict.answer
+        if answer is None:  # a failing model leaves the silence rules alone for the rest of the stream
             self._smart_turn = False
+            self.turn_state = "turn-score-failed"
             return
         probability = answer.get("probability") if answer.get("ready") else None
         if isinstance(probability, (int, float)) and 0.0 <= float(probability) <= 1.0:
             self._turn_p = float(probability)
+            self.turn_state = "scored"
         elif "absent" in str(answer.get("reason") or ""):
             self._smart_turn = False  # no file on this PC: stop asking for the rest of the stream
+            self.turn_state = "absent"
+        else:
+            self.turn_state = "idle"
 
     def _step_endpoint(self) -> list[dict[str, Any]]:
         t = self._turn
