@@ -137,7 +137,7 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
       <p className="label-xs text-muted-foreground">Clean-up</p>
       <div>
         <ToggleRow
-          label="Cut rumble and hum below 80 Hz"
+          label="Cut rumble and hum below 85 Hz"
           hint="Fan hum and desk thumps; meant to leave speech alone."
           on={ears.hpf}
           onToggle={() => set({ hpf: !ears.hpf })}
@@ -165,6 +165,20 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
           hint="Experimental: duck then stop. Not tried on a real mic."
           on={ladderOn}
           onToggle={() => preferences.setVoice({ interruptGate: { ...gate, ladder: !ladderOn } })}
+        />
+      </div>
+
+      <p className="label-xs text-muted-foreground">Mixed Hindi-English</p>
+      <div>
+        <ToggleRow
+          label="Use the large Hinglish ear"
+          hint="Large model for mixed Hindi-English. GPU only, not tried yet."
+          on={prefs.voice.hinglishEar === "trelis"}
+          onToggle={() =>
+            preferences.setVoice({
+              hinglishEar: prefs.voice.hinglishEar === "trelis" ? "off" : "trelis",
+            })
+          }
         />
       </div>
 

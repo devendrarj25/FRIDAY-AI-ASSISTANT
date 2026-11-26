@@ -429,6 +429,68 @@ describe("the speaker and the room never reach approval code", () => {
   });
 });
 
+describe("needsWake only ADDS a requirement", () => {
+  const src = readFileSync(resolve(root, "src/lib/friday/assistant-mode.ts"), "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
+  const body = (name: string) => {
+    const start = src.search(new RegExp(`\\n {2}(?:private )?${name}\\(`));
+    expect(start, name).toBeGreaterThan(-1);
+    const rest = src.slice(start + 1);
+    const next = rest.slice(1).search(/\n {2}(?:private |public |async |\/\*\*)/);
+    return next < 0 ? rest : rest.slice(0, next + 1);
+  };
+
+  it("parses needsWake only when it is exactly true", () => {
+    const base = { turnId: "w1", event: "end", text: "x", vadP: null, speechMs: null };
+    expect(parseStreamTurn({ ...base, needsWake: true })?.needsWake).toBe(true);
+    for (const junk of [false, "true", 1, null])
+      expect(parseStreamTurn({ ...base, needsWake: junk })).not.toHaveProperty("needsWake");
+  });
+
+  it("is read in one method and only to remember a hold for the turn, and only with otherVoice hold", () => {
+    expect(src.match(/needsWake/g)?.length).toBe(1);
+    const note = body("noteHold");
+    expect(note).toContain("turn.needsWake === true");
+    expect(note).toContain('voice.ears.otherVoice === "hold"');
+  });
+
+  it("the accept gate only refuses: no wake word, closed conversation, not push-to-talk", () => {
+    const held = body("holdPending");
+    expect(held).toMatch(
+      /wakeMatched \|\| this\.listenStyle\(\) === "push-to-talk"\) return false/,
+    );
+    for (const open of ["this.followUpUntil", "this.awakeUntil", "this.liveWakeAt"])
+      expect(held).toContain(open);
+    expect(held).not.toMatch(/return true/);
+    const gate = src.slice(
+      src.indexOf("const held = !stop"),
+      src.indexOf("if (accepted) this.liveWakeAt"),
+    );
+    expect(gate).toContain(
+      "const held = !stop && decision.answer && this.heldForWake(wake.matched);",
+    );
+    expect(gate).toContain("(stop || (decision.answer && decision.tools && !held))");
+  });
+
+  it("no approval, confirm, speaker or autonomy code reads the hold", () => {
+    for (const name of [
+      "needsConfirm",
+      "askToConfirm",
+      "waitingForOwner",
+      "speakerVerdict",
+      "speakerRefusal",
+      "routeCommand",
+      "applyGateVerdict",
+      "judgeCandidate",
+    ])
+      expect(body(name)).not.toMatch(/needsWake|holdTurnId|heldForWake|holdPending|noteHeldTurn/);
+    const users = src.match(/heldForWake\(|holdPending\(/g) ?? [];
+    expect(users.length).toBe(5); // two definitions, one inner call, the gate, the eager draft
+  });
+});
+
 describe("barge-in ladder", () => {
   const input = (t: number, extra: Partial<LadderInput> = {}): LadderInput => ({
     t,

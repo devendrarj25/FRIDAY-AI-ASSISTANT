@@ -44,6 +44,56 @@ type VoiceLayerRow = {
   steps?: string[];
 };
 
+/**
+ * The optional large Hinglish ear: installed, not installed, or why the last request for it fell back. `ready` is the
+ * stt status key `hinglishEarTrelisReady` (null: not reported yet) and `skipped` the `hinglishEarSkipped` result fact.
+ * It stays a Ready row while the choice is off, because nothing is expected of it.
+ */
+export function hinglishEarRow(input: {
+  pref: string;
+  ready: boolean | null;
+  skipped?: string;
+}): VoiceLayerRow {
+  const base = {
+    id: "voice:hinglish-ear-trelis",
+    label: "Voice: large Hinglish ear",
+    group: "Voice",
+  };
+  const pin = [
+    "Open the Models page and pin the Hinglish mixed-script ear (hinglish-ear-trelis), then let it download.",
+  ];
+  const on = input.pref === "trelis";
+  if (on && input.skipped) {
+    return {
+      ...base,
+      status: "Warning",
+      detail: `skipped: ${input.skipped}. The usual ear heard the phrase.`,
+      fixable: false,
+      steps: pin,
+    };
+  }
+  if (input.ready === true) {
+    return {
+      ...base,
+      status: "Ready",
+      detail: on
+        ? "installed and chosen. Not tried on a real microphone yet."
+        : "installed; off in Settings, Voice listening.",
+      fixable: false,
+    };
+  }
+  return {
+    ...base,
+    status: on ? "Warning" : "Ready",
+    detail:
+      input.ready === false
+        ? `not installed${on ? "; the usual ear is used" : " (off, so nothing is needed)"}.`
+        : `not reported yet${on ? "; the usual ear is used" : " (off)"}.`,
+    fixable: false,
+    ...(on ? { steps: pin } : {}),
+  };
+}
+
 /** Which voice-check row proves which layer. */
 const CHECK_LAYER: Array<[RegExp, VoiceLayer]> = [
   [/^python$/, "interpreter"],
@@ -121,7 +171,12 @@ export function voiceDoctorMarks(): Partial<Record<VoiceLayer, LayerMark>> {
  */
 export function voiceLayerChecks(
   marks?: Partial<Record<VoiceLayer, LayerMark>>,
-  ears?: { prefs: VoiceEarsPrefs; stats: EarsStats | null; gate?: { ladder?: boolean } },
+  ears?: {
+    prefs: VoiceEarsPrefs;
+    stats: EarsStats | null;
+    gate?: { ladder?: boolean };
+    hinglish?: { pref: string; ready: boolean | null; skipped?: string };
+  },
 ): VoiceLayerRow[] {
   const rows: VoiceLayerRow[] = [];
   const unchecked: VoiceLayer[] = [];
@@ -161,6 +216,7 @@ export function voiceLayerChecks(
   // A warm-up step that failed is a Warning of its own; a pass that went well adds nothing here.
   rows.push(...prewarmDoctorRows());
   if (ears) rows.push(...earsDoctorRows(ears.prefs, ears.stats, ears.gate));
+  if (ears?.hinglish) rows.push(hinglishEarRow(ears.hinglish));
   return rows;
 }
 

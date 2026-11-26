@@ -326,13 +326,46 @@ export function noteStreamVad(engine: unknown): void {
   streamVad = engine === "silero" || engine === "energy" ? engine : null;
 }
 
+let streamDenoise: NonNullable<EarsStats["denoise"]> | null = null;
+
+/** The clean-up copy the stream ear reported on its last open; anything that is not a named engine reads as not measured. */
+export function noteStreamDenoise(report: unknown): void {
+  const r =
+    report && typeof report === "object"
+      ? (report as {
+          engine?: unknown;
+          active?: unknown;
+          rtf?: unknown;
+          latencyMs?: unknown;
+          reason?: unknown;
+        })
+      : null;
+  const engine = typeof r?.engine === "string" ? r.engine.slice(0, 32) : "";
+  if (!r || !engine) {
+    streamDenoise = null;
+    return;
+  }
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const reason = typeof r.reason === "string" ? r.reason.slice(0, 120) : "";
+  streamDenoise = {
+    engine,
+    keepRatio: null,
+    active: r.active === true,
+    rtf: num(r.rtf),
+    latencyMs: num(r.latencyMs),
+    ...(reason ? { reason } : {}),
+  };
+}
+
 /** What the Doctor and Settings can show as measured: the live front end while the microphone runs, the last stream gate. */
 export function earsStatsNow(): EarsStats | null {
   const live = workletCapturing();
-  if (!live && !streamVad) return null;
+  if (!live && !streamVad && !streamDenoise) return null;
   const fe = frontEndStats();
   return {
     ...(streamVad ? { vad: { engine: streamVad, p: null, speechMs: null } } : {}),
+    ...(streamDenoise ? { denoise: streamDenoise } : {}),
     ...(live
       ? {
           frontEnd: {

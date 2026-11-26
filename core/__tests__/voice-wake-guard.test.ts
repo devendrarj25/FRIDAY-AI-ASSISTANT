@@ -597,6 +597,19 @@ describe("wake guard: config, bounds and diagnostics", () => {
     expect(wakeAt(room).accept).toBe(true);
   });
 
+  it("counts held turns for the Doctor without touching any gate", () => {
+    const guard = new WakeGuard();
+    const before = guard.snapshot(1000);
+    guard.noteHeldTurn(1000);
+    guard.noteHeldTurn(1001);
+    const snap = guard.snapshot(1002);
+    expect(snap.counters.heldTurns).toBe(2);
+    expect({ ...snap.counters, heldTurns: 0 }).toEqual(before.counters);
+    expect(snap.thresholdBoost).toBe(before.thresholdBoost);
+    expect(snap.state).toBe(before.state);
+    expect(wakeGuardRows(snap).find((row) => row.label.startsWith("turns held"))?.value).toBe("2");
+  });
+
   it("keeps the trace bounded and shows counters as diagnostics rows", () => {
     const guard = new WakeGuard();
     for (let n = 0; n < 200; n += 1) guard.reportFalseWake(1000 + n);

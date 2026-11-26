@@ -36,7 +36,7 @@ import {
 import { preferences } from "./preferences";
 import { normalizeListenStyle, pttCapturing, pttHeldForMs } from "./push-to-talk";
 import { biasPrompt } from "./speech-parse";
-import { noteStreamVad, voiceGate } from "./voice-audio";
+import { noteStreamDenoise, noteStreamVad, voiceGate } from "./voice-audio";
 import {
   ProvisionalDecoder,
   provisionalWanted,
@@ -97,6 +97,10 @@ export interface SttStatus {
   loadCount?: number;
   moonshineReady?: boolean;
   windowsSpeech?: boolean;
+  /** The optional Trelis Hinglish ear: its pinned files are on disk and the PC can run it (unset = not reported). */
+  hinglishEarTrelisReady?: boolean;
+  /** Why the last request for the Trelis ear fell back to the usual one. */
+  hinglishEarSkipped?: string;
 }
 
 const OFFLINE: SttStatus = {
@@ -282,6 +286,10 @@ export async function sttStatus(
     if (typeof raw?.loadCount === "number") value.loadCount = raw.loadCount;
     if (typeof raw?.moonshineReady === "boolean") value.moonshineReady = raw.moonshineReady;
     if (typeof raw?.windowsSpeech === "boolean") value.windowsSpeech = raw.windowsSpeech;
+    if (typeof raw?.hinglishEarTrelisReady === "boolean")
+      value.hinglishEarTrelisReady = raw.hinglishEarTrelisReady;
+    if (typeof raw?.hinglishEarSkipped === "string" && raw.hinglishEarSkipped)
+      value.hinglishEarSkipped = raw.hinglishEarSkipped;
     if (localOnly) cachedLocal = { at: Date.now(), value };
     else cached = { at: Date.now(), value };
     return value;
@@ -326,6 +334,7 @@ function earsBridge<T extends StreamBridge | null | undefined>(bridge: T): T {
       const withEars = { ...payload, ears: preferences.getSnapshot().voice.ears };
       const reply = await open.call(bridge, withEars);
       noteStreamVad((reply as { vad?: unknown } | null | undefined)?.vad);
+      noteStreamDenoise((reply as { denoise?: unknown } | null | undefined)?.denoise);
       return reply;
     },
   };
@@ -1395,6 +1404,7 @@ export class DesktopDictation {
     const hotOpt = this.options.hotwords;
     const hotwords = (typeof hotOpt === "function" ? hotOpt() : (hotOpt ?? "")).trim();
     const multilingual = preferences.getSnapshot().voice.sttMultilingual === true;
+    const hinglishEar = preferences.getSnapshot().voice.hinglishEar;
     return {
       language,
       ...(this.options.language ? { speechPref: this.options.language } : {}),
@@ -1403,6 +1413,7 @@ export class DesktopDictation {
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(hotwords ? { hotwords } : {}),
       ...(multilingual ? { multilingual: true } : {}),
+      ...(hinglishEar === "trelis" ? { hinglishEar } : {}),
     };
   }
 

@@ -976,6 +976,8 @@ type DesktopApi = {
     reason?: string | null;
     moonshineReady?: boolean;
     windowsSpeech?: boolean;
+    hinglishEarTrelisReady?: boolean;
+    hinglishEarSkipped?: string;
     dependency?: string;
     worker?: string;
     inference?: string;
@@ -1001,6 +1003,8 @@ type DesktopApi = {
     initialPrompt?: string;
     hotwords?: string;
     multilingual?: boolean;
+    /** The opt-in large Hinglish ear; nothing is sent when it is off. */
+    hinglishEar?: "trelis";
     speechPref?: string;
     sttSize?: string;
     keepWav?: boolean;

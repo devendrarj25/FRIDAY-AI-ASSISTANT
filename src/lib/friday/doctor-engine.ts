@@ -28,7 +28,13 @@ function earsDoctorInput() {
     /* an unreadable front end is simply not measured */
   }
   const voice = preferences.getSnapshot().voice;
-  return { prefs: voice.ears, stats, gate: voice.interruptGate };
+  const status = cachedSttStatus();
+  const hinglish = {
+    pref: voice.hinglishEar,
+    ready: status?.hinglishEarTrelisReady ?? null,
+    ...(status?.hinglishEarSkipped ? { skipped: status.hinglishEarSkipped } : {}),
+  };
+  return { prefs: voice.ears, stats, gate: voice.interruptGate, hinglish };
 }
 
 export type DoctorStatus =

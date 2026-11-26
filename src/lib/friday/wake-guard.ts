@@ -153,6 +153,8 @@ export type WakeCounters = {
   falseWakes: number;
   forcedAsleep: number;
   noiseRaises: number;
+  /** Turns the ears marked `needsWake` and that had no wake word while the conversation was closed. */
+  heldTurns: number;
   blocked: Record<WakeBlock, number>;
 };
 
@@ -235,6 +237,7 @@ export class WakeGuard {
     falseWakes: 0,
     forcedAsleep: 0,
     noiseRaises: 0,
+    heldTurns: 0,
     blocked: emptyBlocked(),
   };
   private trace: WakeTraceRow[] = [];
@@ -340,6 +343,15 @@ export class WakeGuard {
     this.sceneUntil = raise > 0 ? nowMs + SCENE_HOLD_MS : -Infinity;
     if (raise > 0 && was === 0)
       this.note(nowMs, "scene", `${(tag as SceneTag).kind} +${raise.toFixed(2)}`);
+  }
+
+  /**
+   * A turn the ears marked `needsWake` was held to ambient (no wake word, conversation closed). A count for the
+   * Doctor only: it asks for MORE proof and has no way to lower a gate or approve anything.
+   */
+  noteHeldTurn(nowMs: number): void {
+    this.counters.heldTurns += 1;
+    this.note(nowMs, "held", "other voice or TV, no wake word");
   }
 
   /** The scene raise in force at `nowMs` (0 once its hold ran out). */

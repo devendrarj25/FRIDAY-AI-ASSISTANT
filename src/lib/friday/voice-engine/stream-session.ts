@@ -192,6 +192,8 @@ export type StreamTurn = {
   env?: TurnEnv;
   speaker?: TurnSpeaker;
   clipped?: boolean;
+  /** The ear asks for MORE proof (a wake word); it can never mean less. */
+  needsWake?: boolean;
 };
 
 const ENV_KINDS: readonly TurnEnv["kind"][] = ["speech", "music", "tv", "noise"];
@@ -224,6 +226,7 @@ export function parseStreamTurn(raw: unknown): StreamTurn | null {
     if (SPEAKER_TAGS.includes(tag) && score !== null) turn.speaker = { tag, score };
   }
   if (row["clipped"] === true) turn.clipped = true;
+  if (row["needsWake"] === true) turn.needsWake = true;
   return turn;
 }
 

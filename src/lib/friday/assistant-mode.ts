@@ -472,6 +472,9 @@ export type AssistantModeState = {
 
 /** How many pipeline steps the Auto Mode screen keeps. */
 const MAX_VOICE_LOG = 30;
+/** How long the ear's needs-a-wake-word tag stays valid for its turn (ms). */
+const HOLD_TURN_MS = 15_000;
+
 /** After the live wake scorer hears the name, the next line is addressed to her for this long (ms). */
 const LIVE_WAKE_MS = 8_000;
 /** Live captions send audio only while speech was heard this recently (ms). */
@@ -702,6 +705,8 @@ class AssistantModeStore {
   /** `turnRecord` belongs to the turn being routed now (cleared when the next voice begins). */
   private turnRecordLive = false;
   private streamTurnId = "";
+  private holdTurnId = "";
+  private holdSeenAt = 0;
   private turnStreamOff: (() => void) | null = null;
   /** The milliseconds of her last reply that were audible when the owner cut in, for the next turn record. */
   private lastInterruptedPlayedMs: number | null = null;
@@ -1339,7 +1344,44 @@ class AssistantModeStore {
   private planTurnDraft(text: string, now: number) {
     const { wake, accepted, command, preview } = this.eagerCandidate(text, now);
     if (!command || preview.handled || !this.eagerAllowed(command)) return;
+    if (this.holdPending(wake.matched)) return;
     if (accepted && this.eagerAddressed(text, wake.matched)) this.startDraftRun(command, true);
+  }
+
+  /**
+   * The ear's "needs a wake word" tag (an other voice or a TV, only with `voice.ears.otherVoice` = hold). It is
+   * remembered for that turn id and read by `heldForWake` alone, which can only REFUSE a no-wake-word line.
+   */
+  private noteHold(turn: StreamTurn, now: number) {
+    const hold = preferences.getSnapshot().voice.ears.otherVoice === "hold";
+    if (hold && turn.needsWake === true) {
+      this.holdTurnId = turn.turnId;
+      this.holdSeenAt = now;
+    } else if (this.holdTurnId === turn.turnId) this.holdTurnId = "";
+  }
+
+  /**
+   * True when this final line is held to ambient: the ear tagged the turn, no wake word was heard, the conversation
+   * is closed and the owner did not push to talk. It only ADDS a requirement; it never accepts, confirms or approves.
+   */
+  private heldForWake(wakeMatched: boolean): boolean {
+    const held = this.holdPending(wakeMatched);
+    this.holdTurnId = "";
+    return held;
+  }
+
+  /** The same verdict without spending the tag, so an eager draft is not started for a turn that will be held. */
+  private holdPending(wakeMatched: boolean): boolean {
+    const tagged =
+      this.holdTurnId !== "" &&
+      this.holdTurnId === this.streamTurnId &&
+      Date.now() - this.holdSeenAt < HOLD_TURN_MS;
+    if (!tagged || wakeMatched || this.listenStyle() === "push-to-talk") return false;
+    const open =
+      Date.now() < this.followUpUntil ||
+      Date.now() < this.awakeUntil ||
+      Date.now() - this.liveWakeAt < LIVE_WAKE_MS;
+    return !open;
   }
 
   /**
@@ -1353,6 +1395,7 @@ class AssistantModeStore {
     const now = Date.now();
     // The room tag can only RAISE the wake threshold (wake-guard.ts); it never lowers a gate or approves anything.
     if (turn.env) voiceGate.wake.observeScene(turn.env, performance.now());
+    this.noteHold(turn, now);
     // A new turn id is a new turn: its first draft is allowed again.
     if (turn.turnId !== this.streamTurnId || now - this.partialSeenAt > DRAFT_TURN_GAP_MS)
       this.draftsThisTurn = 0;
@@ -3717,7 +3760,9 @@ class AssistantModeStore {
     }
     const awake = Date.now() < this.awakeUntil;
     const stop = this.isStopHeard(text, wake.matched);
-    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools));
+    const held = !stop && decision.answer && this.heldForWake(wake.matched);
+    if (held) voiceGate.wake.noteHeldTurn(performance.now());
+    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools && !held));
     this.trace(
       "wake",
       wake.matched
@@ -3726,7 +3771,9 @@ class AssistantModeStore {
           ? awake
             ? "already awake — no wake word needed"
             : "hands-free — treated as a request"
-          : "no wake word, not awake, not a hands-free turn",
+          : held
+            ? "other voice or TV tagged, no wake word: held as ambient"
+            : "no wake word, not awake, not a hands-free turn",
     );
     if (accepted) this.liveWakeAt = 0; // a live wake covers one line, then it is spent
     if (!accepted) {

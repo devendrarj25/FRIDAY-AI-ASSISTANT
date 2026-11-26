@@ -86,6 +86,16 @@ export const STT_SIZE_PICKS = [
 export type SttSizePick = (typeof STT_SIZE_PICKS)[number];
 
 /** An unknown or missing size reads `auto`, the size measured for this PC. */
+export const HINGLISH_EAR_PICKS = ["off", "trelis"] as const;
+export type HinglishEarPick = (typeof HINGLISH_EAR_PICKS)[number];
+
+/** An unknown or missing word reads "off": the large Hinglish ear never runs unless the owner chose it. */
+export function sanitizeHinglishEar(value: unknown): HinglishEarPick {
+  return (HINGLISH_EAR_PICKS as readonly unknown[]).includes(value)
+    ? (value as HinglishEarPick)
+    : "off";
+}
+
 export function sanitizeSttSize(value: unknown): SttSizePick {
   return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
 }
@@ -125,7 +135,7 @@ export const EARS_OTHER_VOICE_PICKS = ["off", "score", "hold"] as const;
  */
 export type VoiceEarsPrefs = {
   v: 1;
-  /** Cut rumble, hum and handling thumps below 80 Hz before the sound is used. */
+  /** Cut rumble, hum and handling thumps below 85 Hz before the sound is used. */
   hpf: boolean;
   /** Who levels the volume: the browser (today), FRIDAY's own slow leveller, or nobody. */
   agc: (typeof EARS_AGC_PICKS)[number];
@@ -363,6 +373,8 @@ export type VoicePreferences = {
   sttSize: SttSizePick;
   /** Listen for the language again on every phrase (faster-whisper multilingual). Off by default; auto language only. */
   sttMultilingual: boolean;
+  /** The optional large Hinglish ear for mixed Hindi-English phrases: off (default) or the Trelis one. GPU only, opt-in. */
+  hinglishEar: HinglishEarPick;
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */
@@ -560,6 +572,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     localVoiceStyle: "",
     sttSize: "auto",
     sttMultilingual: false,
+    hinglishEar: "off",
     addressName: "",
     addressMode: "conversation",
     listenStyle: "always",
@@ -623,6 +636,7 @@ function merge(
       noiseSuppression: (patch.voice?.noiseSuppression ?? base.voice.noiseSuppression) !== false,
       ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
       sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
+      hinglishEar: sanitizeHinglishEar(patch.voice?.hinglishEar ?? base.voice.hinglishEar),
       streamEngine: sanitizeStreamEngine(patch.voice?.streamEngine ?? base.voice.streamEngine),
       // A missing or partial `ears` object (an older install) fills from the defaults and clamps.
       ears: sanitizeVoiceEars({ ...base.voice.ears, ...earsPatch(patch.voice?.ears) }),

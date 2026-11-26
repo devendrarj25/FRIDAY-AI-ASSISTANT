@@ -39,6 +39,7 @@ export function wakeGuardRows(snapshot: WakeGuardSnapshot): DiagnosticsRow[] {
       bad: counters.falseWakes > 0,
     },
     { label: "wakes blocked", value: blocked || "none" },
+    { label: "turns held (other voice or TV, no wake word)", value: String(counters.heldTurns) },
     {
       label: "wake threshold raise (room noise) · cooldown",
       value: `+${snapshot.thresholdBoost.toFixed(2)} · ${Math.round(snapshot.cooldownLeftMs / 1000)} s`,
@@ -388,7 +389,15 @@ export type EarsStats = {
     hpf: boolean;
     decimator: "fir" | "boxcar";
   } | null;
-  denoise?: { engine: string; keepRatio: number | null } | null;
+  denoise?: {
+    engine: string;
+    keepRatio: number | null;
+    /** The stream ear's own report: is the copy really in use, its real-time factor and added delay, and why not. */
+    active?: boolean;
+    rtf?: number | null;
+    latencyMs?: number | null;
+    reason?: string;
+  } | null;
   scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
 };
 
@@ -508,12 +517,23 @@ export function earsRows(prefs: VoiceEarsPrefs, stats: EarsStats | null | undefi
       "off",
       "off · speech is heard from the plain sound",
     );
+  } else if (dn && dn.active === false) {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "absent",
+      `${prefs.denoise} · ${absent(`${dn.engine} is not running${dn.reason ? ` (${dn.reason})` : ""}`)}`,
+    );
   } else if (dn) {
+    const cost = [
+      finite(dn.rtf) ? `real-time factor ${dn.rtf.toFixed(2)}` : "",
+      finite(dn.latencyMs) ? `${dn.latencyMs.toFixed(0)} ms delay` : "",
+    ].filter(Boolean);
     denoiseRow = row(
       "ears-denoise",
       "ears: noise clean-up copy",
       "ok",
-      `${prefs.denoise} · running ${dn.engine}${finite(dn.keepRatio) ? ` · kept ${(dn.keepRatio * 100).toFixed(0)}% of the sound` : ""} · whether it helps on your voice is not measured`,
+      `${prefs.denoise} · running ${dn.engine}${cost.length ? ` · ${cost.join(" · ")}` : ""}${finite(dn.keepRatio) ? ` · kept ${(dn.keepRatio * 100).toFixed(0)}% of the sound` : ""} · whether it helps on your voice is not measured`,
     );
   } else {
     denoiseRow = row(

@@ -257,8 +257,13 @@ function noteWorkerCache(ping) {
   if (cache) lastWorkerCache = cache;
 }
 
+/** What the worker last said about the optional Trelis Hinglish ear: its files are ready, and why a request for it was skipped. */
+let lastHinglishEar = { ready: null, skipped: "" };
+
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
+  if (typeof parsed.hinglishEarTrelisReady === "boolean")
+    lastHinglishEar.ready = parsed.hinglishEarTrelisReady;
   // The kernel's own verdict (kernel/stt.py cuda_runtime_ready: cuBLAS 12 and cuDNN 9 found), never a driver reading.
   if (typeof parsed.cudaRuntimeReady === "boolean")
     lastLocalLayers.cudaRuntimeReady = parsed.cudaRuntimeReady;
@@ -1180,6 +1185,9 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
   value.cudaRuntimeReady = Boolean(layers.cudaRuntimeReady);
+  if (typeof lastHinglishEar.ready === "boolean")
+    value.hinglishEarTrelisReady = lastHinglishEar.ready;
+  if (lastHinglishEar.skipped) value.hinglishEarSkipped = lastHinglishEar.skipped;
   value.cache = worker?.alive ? lastWorkerCache : null;
   if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
     value.available = true;
@@ -1509,6 +1517,8 @@ function decodeExtras(req) {
   return {
     ...(hotwords ? { hotwords } : {}),
     ...(req.multilingual === true ? { multilingual: true } : {}),
+    // The opt-in Hinglish ear: only the one named engine is passed on; anything else sends nothing.
+    ...(req.hinglishEar === "trelis" ? { hinglishEar: "trelis" } : {}),
     // A provisional pass is a not-final read of the audio so far: the worker never counts or records it, and it
     // alone can be cancelled by the utterance id it carries.
     ...(req.provisional === true ? { provisional: true } : {}),
@@ -1872,6 +1882,9 @@ async function transcribeNow(req = {}, onPartial) {
     lastLocalLayers.loadCount = parsed.loadCount || lastLocalLayers.loadCount;
     lastLocalLayers.model = model;
     cachedStatus = null;
+    if (req.hinglishEar === "trelis") {
+      lastHinglishEar.skipped = String(parsed.hinglishEarSkipped || "").slice(0, 160);
+    }
     return {
       ok: true,
       text: String(parsed.text || ""),
@@ -1885,6 +1898,9 @@ async function transcribeNow(req = {}, onPartial) {
         typeof parsed.languageProbability === "number" ? parsed.languageProbability : null,
       avgLogprob: typeof parsed.avgLogprob === "number" ? parsed.avgLogprob : null,
       languageNote: String(parsed.languageNote || ""),
+      ...(parsed.hinglishEarSkipped
+        ? { hinglishEarSkipped: String(parsed.hinglishEarSkipped).slice(0, 160) }
+        : {}),
       turnProbability: typeof parsed.turnProbability === "number" ? parsed.turnProbability : null,
       loadCount: parsed.loadCount,
       emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),
