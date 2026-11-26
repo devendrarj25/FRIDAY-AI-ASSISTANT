@@ -36,7 +36,7 @@ import {
 import { preferences } from "./preferences";
 import { normalizeListenStyle, pttCapturing, pttHeldForMs } from "./push-to-talk";
 import { biasPrompt } from "./speech-parse";
-import { voiceGate } from "./voice-audio";
+import { noteStreamVad, voiceGate } from "./voice-audio";
 import {
   ProvisionalDecoder,
   provisionalWanted,
@@ -60,6 +60,7 @@ import {
   SttStreamSession,
   streamEarlyRead,
   streamWanted,
+  type StreamBridge,
   type StreamPlan,
 } from "./voice-engine/stream-session";
 import type { VoiceMatchResult } from "./desktop";
@@ -273,6 +274,24 @@ export async function installStt(): Promise<{ ok: boolean; error?: string }> {
 
 /** The owner's voice score is scored beside the transcription; it never holds a turn longer than this. */
 const VOICE_PROBE_MS = 4000;
+
+/**
+ * The stream bridge with the owner's `voice.ears` added to stream-open (main clamps it again) and the gate engine of
+ * the reply kept for the Doctor. Every other call passes through untouched.
+ */
+function earsBridge<T extends StreamBridge | null | undefined>(bridge: T): T {
+  const open = bridge?.openSttStream;
+  if (!bridge || !open) return bridge;
+  return {
+    ...bridge,
+    openSttStream: async (payload: Parameters<typeof open>[0]) => {
+      const withEars = { ...payload, ears: preferences.getSnapshot().voice.ears };
+      const reply = await open.call(bridge, withEars);
+      noteStreamVad((reply as { vad?: unknown } | null | undefined)?.vad);
+      return reply;
+    },
+  };
+}
 
 function withTimeout<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
   return new Promise((resolve) => {
@@ -1066,7 +1085,7 @@ export class DesktopDictation {
     if (!plan || !streamWanted(plan.streamEngine)) return;
     this.streamSeq += 1;
     const session: SttStreamSession = new SttStreamSession({
-      bridge: desktop(),
+      bridge: earsBridge(desktop()),
       streamId: `dictation-${Date.now().toString(36)}-${this.streamSeq}`,
       onPartial: (update) => {
         if (this.streamSession === session) this.options.onStreamPartial?.(update);

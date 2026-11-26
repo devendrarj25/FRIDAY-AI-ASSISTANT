@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
+import { readEarsStats } from "@/lib/friday/voice-audio";
 import { VoiceEarsSettings } from "@/components/friday/settings/VoiceEarsSettings";
 import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPickers";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
@@ -368,7 +369,7 @@ export function VoiceSettings() {
           <VoiceNotesList />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
-          <VoiceEarsSettings />
+          <VoiceEarsSettings readStats={readEarsStats} />
           <SpeechModelCheck />
           <ToggleRow
             label="Realtime voice (experimental)"

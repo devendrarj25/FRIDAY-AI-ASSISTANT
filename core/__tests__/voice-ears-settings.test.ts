@@ -298,7 +298,7 @@ describe("the page is wired", () => {
   it("is mounted in Settings > Voice", () => {
     const voice = read("src/components/friday/settings/VoiceSettings.tsx");
     expect(voice).toContain("import { VoiceEarsSettings }");
-    expect(voice).toContain("<VoiceEarsSettings />");
+    expect(voice).toContain("<VoiceEarsSettings readStats={readEarsStats} />");
   });
 
   it("gives every stored key a control that writes it", () => {

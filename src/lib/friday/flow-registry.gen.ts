@@ -303,6 +303,7 @@ export const FLOW_REGISTRY = {
     "voice.confirmLevel",
     "voice.duckOthers",
     "voice.eagerTurn",
+    "voice.ears",
     "voice.echoReference",
     "voice.englishVoice",
     "voice.expressiveSpeech",
@@ -2710,6 +2711,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "speech",
+      file: "kernel/ears_eval.py",
+    },
+    {
       kind: "sqlite",
       file: "kernel/file_tools.py",
     },
@@ -4536,6 +4541,12 @@ export const FLOW_REGISTRY = {
       id: "hinglish-ear",
       kind: "model",
       name: "Hinglish ear (Roman letters, Whisper base fine-tune by Oriserve, int8)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hinglish-ear-trelis",
+      kind: "model",
+      name: "Hinglish mixed-script ear (candidate, Whisper large-v3 fine-tune by Trelis Research, int8, Apache-2.0)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9575,12 +9586,12 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 164,
-      total: 164,
+      mapped: 165,
+      total: 165,
     },
     capabilities: {
-      mapped: 1112,
-      total: 1112,
+      mapped: 1113,
+      total: 1113,
     },
     ipc: {
       mapped: 516,

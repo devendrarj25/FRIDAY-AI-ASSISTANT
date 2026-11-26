@@ -21,7 +21,8 @@ import {
   setCaptureLatency,
   workletCapturing,
 } from "./pcm-capture";
-import { CAPTURE_BATCH_MS } from "./voice-engine/front-end-dsp";
+import { CAPTURE_BATCH_MS, configureFrontEnd, frontEndStats } from "./voice-engine/front-end-dsp";
+import type { EarsStats } from "./voice-diagnostics-rows";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 import { WakeGuard } from "./wake-guard";
@@ -293,6 +294,62 @@ export function noiseSuppressionWanted(): boolean {
   }
 }
 
+/** The owner's listening front-end choices (Settings > Voice), always the sanitized stored shape. */
+function earsPrefs() {
+  return preferences.getSnapshot().voice.ears;
+}
+
+let appliedEars = "";
+let earsWatching = false;
+
+/** Hand the stored hpf, agc and clipWarn to the front end. A no-op when nothing changed since the last call. */
+export function applyEarsToFrontEnd(): void {
+  const { hpf, agc, clipWarn } = earsPrefs();
+  const key = `${hpf}|${agc}|${clipWarn}`;
+  if (key === appliedEars) return;
+  appliedEars = key;
+  configureFrontEnd({ hpf, agc, clipWarn });
+}
+
+/** Apply at capture start and again on every later change of the stored setting. */
+function watchEars(): void {
+  applyEarsToFrontEnd();
+  if (earsWatching) return;
+  earsWatching = true;
+  preferences.subscribe(applyEarsToFrontEnd);
+}
+
+let streamVad: "silero" | "energy" | null = null;
+
+/** The voice gate engine the stream ear reported on its last open; anything else reads as not measured. */
+export function noteStreamVad(engine: unknown): void {
+  streamVad = engine === "silero" || engine === "energy" ? engine : null;
+}
+
+/** What the Doctor and Settings can show as measured: the live front end while the microphone runs, the last stream gate. */
+export function earsStatsNow(): EarsStats | null {
+  const live = workletCapturing();
+  if (!live && !streamVad) return null;
+  const fe = frontEndStats();
+  return {
+    ...(streamVad ? { vad: { engine: streamVad, p: null, speechMs: null } } : {}),
+    ...(live
+      ? {
+          frontEnd: {
+            clipRate: fe.clipRate,
+            peakDbfs: fe.peakDbfs,
+            rmsDbfs: fe.rmsDbfs,
+            agcGainDb: fe.agcGainDb,
+            hpf: fe.hpf,
+            decimator: fe.decimator,
+          },
+        }
+      : {}),
+  };
+}
+
+export const readEarsStats = async (): Promise<EarsStats | null> => earsStatsNow();
+
 /**
  * One step of opening the microphone: strict constraints first, then the relaxed ones. The owner's noise-suppression
  * choice applies to every step that names processing; the bare last step asks the browser for nothing.
@@ -304,6 +361,7 @@ export function capturePlan(
 ): { deviceId?: string; audio: true | MediaTrackConstraints } | null {
   const id = deviceId ?? undefined;
   if (step === 0) {
+    watchEars();
     return {
       ...(id && id !== "default" ? { deviceId: id } : {}),
       audio: audioConstraints(id, noiseSuppression),
@@ -324,7 +382,8 @@ export function audioConstraints(
     ...(deviceId && deviceId !== "default" ? { deviceId: { exact: deviceId } } : {}),
     echoCancellation: true,
     noiseSuppression,
-    autoGainControl: true,
+    // "browser" keeps the browser's own gain control; "own" and "off" leave the level to FRIDAY's front end.
+    autoGainControl: earsPrefs().agc === "browser",
     channelCount: 1,
     sampleRate: captureRate(),
   };

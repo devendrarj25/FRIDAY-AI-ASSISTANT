@@ -14,9 +14,21 @@ import { speechDoctorRows } from "./speech-core";
 import { liveSttFromStatus, rememberedLiveStt, sttLadderDoctor } from "./speech-stt";
 import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
+import { earsStatsNow } from "./voice-audio";
 import { voiceDoctorMarks, voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
 import { installer } from "./installer-engine";
+
+/** The stored listening choices with what was really measured (null when nothing ran); never throws. */
+function earsDoctorInput() {
+  let stats = null;
+  try {
+    stats = earsStatsNow();
+  } catch {
+    /* an unreadable front end is simply not measured */
+  }
+  return { prefs: preferences.getSnapshot().voice.ears, stats };
+}
 
 export type DoctorStatus =
   "Ready" | "Running" | "Missing" | "Outdated" | "Error" | "Warning" | "Repairing";
@@ -357,7 +369,7 @@ class DoctorStore {
         ...this.state.checks,
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
-        ...voiceLayerChecks(voiceDoctorMarks()),
+        ...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()),
         ...sttLadderChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
@@ -726,7 +738,7 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...desktopUiaChecks());
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
-  checks.push(...voiceLayerChecks(voiceDoctorMarks()));
+  checks.push(...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()));
   checks.push(...speechDoctorRows());
   checks.push(...sttLadderChecks());
   checks.push(...toolchainDoctorRows());

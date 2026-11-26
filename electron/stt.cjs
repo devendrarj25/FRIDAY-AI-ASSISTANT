@@ -841,6 +841,45 @@ function cleanStreamHotwords(value) {
   return [...seen];
 }
 
+const EARS_ENUMS = {
+  vad: ["auto", "silero", "energy"],
+  eagerness: ["eager", "normal", "patient"],
+  denoise: ["off", "rnnoise", "gtcrn", "dpdfnet2"],
+  scene: ["score", "off"],
+  otherVoice: ["off", "score", "hold"],
+};
+const EARS_BOOLS = ["eagerTurn", "pcAudioRef"];
+
+const earsNumber = (value, lo, hi, whole) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const n = Math.min(hi, Math.max(lo, value));
+  return whole ? Math.round(n) : Math.round(n * 100) / 100;
+};
+
+/**
+ * The listening settings the renderer sends with stream-open, clamped here again (main never trusts the renderer):
+ * vadStart 0.2-0.9, vadEnd 0.05 up to vadStart - 0.05, minSpeechMs 60-400, preRollMs 200-1000, enum words from their
+ * lists, booleans only as booleans. Anything else is dropped, so the worker falls back to its own defaults.
+ */
+function cleanStreamEars(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, list] of Object.entries(EARS_ENUMS)) {
+    if (typeof value[key] === "string" && list.includes(value[key])) out[key] = value[key];
+  }
+  for (const key of EARS_BOOLS) if (typeof value[key] === "boolean") out[key] = value[key];
+  const start = earsNumber(value.vadStart, 0.2, 0.9, false);
+  if (start !== null) out.vadStart = start;
+  const ceiling = Math.round(((start ?? 0.5) - 0.05) * 100) / 100;
+  const end = earsNumber(value.vadEnd, 0.05, ceiling, false);
+  if (end !== null) out.vadEnd = end;
+  const minSpeech = earsNumber(value.minSpeechMs, 60, 400, true);
+  if (minSpeech !== null) out.minSpeechMs = minSpeech;
+  const preRoll = earsNumber(value.preRollMs, 200, 1000, true);
+  if (preRoll !== null) out.preRollMs = preRoll;
+  return out;
+}
+
 const refused = (reason) => ({ ok: false, fallback: true, reason });
 
 /**
@@ -948,6 +987,7 @@ function createStreamEar({
     stream.session = session;
     current = stream;
     const hotwords = cleanStreamHotwords(payload.hotwords);
+    const ears = cleanStreamEars(payload.ears);
     let reply;
     try {
       reply = await guard(() =>
@@ -959,6 +999,7 @@ function createStreamEar({
             streamEngine: engine,
             locale: cleanStreamLocale(payload.locale),
             ...(hotwords.length ? { hotwords } : {}),
+            ...(Object.keys(ears).length ? { ears } : {}),
             ...(typeof payload.endpoint === "boolean" ? { endpoint: payload.endpoint } : {}),
           },
           STREAM_OPEN_MS,
@@ -2017,6 +2058,7 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 }
 
 module.exports = {
+  cleanStreamEars,
   status,
   cudaRuntimeVerdict,
   install,

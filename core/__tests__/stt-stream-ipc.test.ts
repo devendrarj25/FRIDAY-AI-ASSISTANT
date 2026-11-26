@@ -449,6 +449,76 @@ describe("idle, mute and worker loss", () => {
   });
 });
 
+describe("stream-open ears", () => {
+  it("clamps out-of-range listening settings in main before the worker sees them", async () => {
+    const r = rig({ "stream-open": openOk });
+    await r.ear.open({
+      ...OPEN,
+      ears: {
+        vadStart: 5,
+        vadEnd: 0.9,
+        minSpeechMs: 10,
+        preRollMs: 99999,
+        vad: "silero",
+        eagerness: "patient",
+        denoise: "gtcrn",
+        scene: "off",
+        otherVoice: "hold",
+        eagerTurn: true,
+        pcAudioRef: false,
+      },
+    });
+    const sent = r.calls[0]?.payload as { ears: Record<string, unknown> };
+    expect(sent.ears).toEqual({
+      vad: "silero",
+      eagerness: "patient",
+      denoise: "gtcrn",
+      scene: "off",
+      otherVoice: "hold",
+      eagerTurn: true,
+      pcAudioRef: false,
+      vadStart: 0.9,
+      vadEnd: 0.85,
+      minSpeechMs: 60,
+      preRollMs: 1000,
+    });
+  });
+
+  it("drops junk keys, wrong types and unknown words; sends nothing when nothing is valid", async () => {
+    const r = rig({ "stream-open": openOk });
+    await r.ear.open({
+      ...OPEN,
+      ears: {
+        vad: "magic",
+        denoise: 3,
+        vadStart: "high",
+        eagerTurn: "yes",
+        extra: 1,
+        __proto__: { x: 1 },
+      },
+    });
+    expect(r.calls[0]?.payload).not.toHaveProperty("ears");
+    await r.ear.close({});
+    await r.ear.open({ ...OPEN, ears: [1, 2] });
+    expect(r.calls.at(-1)?.payload).not.toHaveProperty("ears");
+  });
+
+  it("clamps the low edge and keeps vadEnd under vadStart", () => {
+    expect(
+      stt.cleanStreamEars({ vadStart: 0.01, vadEnd: 0.01, minSpeechMs: 900, preRollMs: 1 }),
+    ).toEqual({
+      vadStart: 0.2,
+      vadEnd: 0.05,
+      minSpeechMs: 400,
+      preRollMs: 200,
+    });
+    expect(stt.cleanStreamEars({ vadStart: 0.4, vadEnd: 0.4 })).toEqual({
+      vadStart: 0.4,
+      vadEnd: 0.35,
+    });
+  });
+});
+
 describe("wiring", () => {
   it("the module exports the calls and the engine list", () => {
     for (const name of ["streamOpen", "streamFeed", "streamClose", "createStreamEar"]) {
