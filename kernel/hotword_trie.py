@@ -16,12 +16,15 @@ Interface contract
 * At the end of an utterance call ``pending_bonus(state)`` and subtract it: a phrase left half-matched earns nothing.
 
 The automaton is built lazily on the first ``step`` and rebuilt after ``add_phrase``.
+
+``tokenize_phrase`` turns an owner's word into token ids by longest match over a SentencePiece-style vocabulary (a
+word the vocabulary cannot spell gives ``[]``); ``trie_for_words`` builds the trie from such words, or None.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 DEFAULT_BONUS = 1.5
@@ -141,3 +144,39 @@ class HotwordTrie:
             state, delta = self.step(state, int(token))
             total += delta
         return total
+
+
+# ---- from the owner's words to token ids --------------------------------------------------------------------------
+
+WORD_MARK = "▁"  # the SentencePiece word-start mark
+
+
+def tokenize_phrase(text: str, vocab: Mapping[str, int], word_mark: str = WORD_MARK) -> list[int]:
+    """Token ids for ``text`` by greedy longest match over a SentencePiece-style vocabulary, or [] when a piece of a
+    word has no token (a phrase the model cannot spell is skipped, never half-boosted)."""
+    ids: list[int] = []
+    for word in text.split():
+        rest, first = word, True
+        while rest:
+            for size in range(len(rest), 0, -1):
+                piece = (word_mark if first else "") + rest[:size]
+                token = vocab.get(piece)
+                if token is None and first and size == len(rest):
+                    token = vocab.get(rest)  # a vocabulary without word marks
+                if token is not None:
+                    ids.append(int(token))
+                    rest, first = rest[size:], False
+                    break
+            else:
+                return []
+    return ids
+
+
+def trie_for_words(
+    words: Sequence[str], vocab: Mapping[str, int], *, bonus: float | None = None, word_mark: str = WORD_MARK
+) -> HotwordTrie | None:
+    """A trie of every phrase the vocabulary can spell, or None when none can be (so a decoder skips biasing)."""
+    trie = HotwordTrie() if bonus is None else HotwordTrie(bonus=bonus)
+    for phrase in words:
+        trie.add_phrase(tokenize_phrase(str(phrase).strip(), vocab, word_mark))
+    return trie if trie else None

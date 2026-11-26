@@ -50,6 +50,16 @@ import hindi_ear  # noqa: E402
 import stream_ear  # noqa: E402
 import voice_runtime  # noqa: E402
 import whisper_ears  # noqa: E402
+from la2_partials import (  # noqa: E402
+    RATE,
+    TurnLanguage,
+    apply_rescore,
+    plan_rescore,
+    segments_from_words,
+    snap_hotwords,
+    turn_mode,
+)
+from stream_commit import Word, words_from_text  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -299,6 +309,18 @@ def clean_hotwords(raw) -> str:
             seen.add(word.lower())
             words.append(word)
     return ", ".join(words)[:MAX_HOTWORDS_CHARS].strip(" ,")
+
+
+def hotword_list(raw) -> list[str]:
+    """The owner's words as a list (the same cleaning and cap as ``clean_hotwords``)."""
+    return [word for word in clean_hotwords(raw).split(", ") if word]
+
+
+def snap_text(text: str, hotwords: list[str]) -> str:
+    """A transcript with words close to the owner's words in their spelling (the ear that gives only text)."""
+    if not hotwords or not text:
+        return text
+    return " ".join(w.text for w in snap_hotwords(words_from_text(text), hotwords))
 
 
 def decode_options(extras: dict | None, language_locked: bool) -> dict:
@@ -1415,6 +1437,13 @@ def _shifted(words: list[dict], by: float) -> list[dict]:
     return [{"text": w["text"], "start": round(w["start"] + by, 3), "end": round(w["end"] + by, 3)} for w in words]
 
 
+def _snap_rows(rows: list[dict], hotwords: list[str]) -> list[dict]:
+    if not hotwords:
+        return rows
+    words = [Word(r["text"], float(r["start"]), float(r["end"])) for r in rows]
+    return [{"text": w.text, "start": w.start, "end": w.end} for w in snap_hotwords(words, hotwords)]
+
+
 def _live_script(words: list[dict]) -> str:
     """``hi`` (all Devanagari), ``latin`` (all Latin), ``mixed`` or "" (no letters)."""
     text = " ".join(w["text"] for w in words)
@@ -1455,7 +1484,7 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
             touch()
         check_cancel()
         if heard and hindi_ear.confident(mode, heard.get("confidence")):
-            words = _shifted(heard["words"], shift)
+            words = _shifted(_snap_rows(heard["words"], hotword_list((extras or {}).get("hotwords"))), shift)
             return {
                 "ok": True,
                 "text": " ".join(w["text"] for w in words),
@@ -1558,6 +1587,7 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     check_cancel()
     segments, info = model.transcribe(payload, **kwargs)
     parts: list[str] = []
+    rows: list[dict] = []
     no_speech: list[float] = []
     logprobs: list[float] = []
     partials = 0
@@ -1566,6 +1596,9 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         text = (getattr(seg, "text", "") or "").strip()
         if text:
             parts.append(text)
+            begin, end = getattr(seg, "start", None), getattr(seg, "end", None)
+            if isinstance(begin, (int, float)) and isinstance(end, (int, float)):
+                rows.append({"text": text, "start": float(begin), "end": float(end)})
             partials += 1
             if on_partial and partials <= 12:
                 on_partial(" ".join(parts))
@@ -1594,6 +1627,7 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         "language": getattr(info, "language", "") or "",
         "languageProbability": _language_probability(info),
         "durationMs": int(float(getattr(info, "duration", 0.0) or 0.0) * 1000),
+        "segments": rows if len(rows) == partials else [],
     }
 
 
@@ -1642,6 +1676,30 @@ def choose_language_pass(first: dict, second: dict) -> tuple[dict, str]:
         return first, f"kept the first reading ({was}): not clearly worse than Hindi"
     note = f"switched from {was} to {now}: the second reading was more certain"
     return {**second, "languageNote": note}, note
+
+
+def rescore_segments(first: dict, samples, language: str, speech_pref: str, decode) -> tuple[dict, str]:
+    """One forced-language look per segment whose language differs from the reading's (Hindi in Devanagari, English
+    in Latin, Roman Hindi read as Hindi), so a Hinglish utterance is not written in one script. ``decode(clip, lang)``
+    is one Whisper pass; a segment keeps its first text unless the new one is in the right script and length."""
+    rows = first.get("segments") or []
+    text = (first.get("text") or "").strip()
+    if samples is None or not rows or not text or " ".join(r["text"] for r in rows).strip() != text:
+        return first, ""
+    mode = turn_mode(speech_pref or language)
+    plans = plan_rescore(rows, first.get("language") or None, mode)
+    if not plans:
+        return first, ""
+
+    def one(plan) -> dict:
+        check_cancel()
+        return decode(samples[int(plan.start * RATE) : int(plan.end * RATE)], plan.language)
+
+    rows, changed = apply_rescore(rows, plans, one)
+    if not changed:
+        return first, ""
+    note = f"read {changed} segment(s) again in their own language"
+    return {**first, "text": " ".join(r["text"] for r in rows), "segments": rows, "rescored": changed}, note
 
 
 TOO_SHORT_MS = 300
@@ -1828,6 +1886,7 @@ def _transcribe_prepared(
             ear_note = "the Hindi ear was unsure (English or mixed speech): faster-whisper heard it"
         if hindi_text:
             engine = "hindi-ear"
+            hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
     turn_probability = None
     # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
     # for: it used to run before every decode and add its own model run to the wait for the words.
@@ -1977,6 +2036,16 @@ def _transcribe_prepared(
             language_note = "kept the first reading: the second look failed"
     bare = {key: value for key, value in kwargs.items() if key not in {"initial_prompt", "vad_parameters"}}
     bare["vad_filter"] = False
+    if alt is None:
+        plain = {k: v for k, v in bare.items() if k not in {"word_timestamps", "hallucination_silence_threshold"}}
+        first, rescore_note = rescore_segments(
+            first,
+            samples,
+            language,
+            speech_pref,
+            lambda clip, forced: _consume_whisper(model, clip, {**plain, "language": forced}, None),
+        )
+        language_note = "; ".join(n for n in (language_note, rescore_note) if n)
 
     def again(kind: str) -> dict:
         check_cancel()
@@ -2492,6 +2561,134 @@ def provisional_reply(result: dict, req: dict) -> dict:
     if isinstance(uid, str) and uid.strip():
         reply["utteranceId"] = uid.strip()[:64]
     return reply
+
+
+# ---- FRIDAY Ears: the re-decoding ears behind the stream ops (LocalAgreement-2 partials) -------------------------
+
+STREAM_HINDI = "stream-ear-hindi"
+STREAM_WHISPER = "stream-ear-whisper"
+
+
+def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]):
+    """The Hindi ear over the window (always Hindi, Devanagari), with the owner's words snapped in."""
+
+    def read(window, _prompt: str) -> list[Word]:
+        heard = hindi_ear.transcribe_words(window)
+        if not heard or not hindi_ear.confident("hi", heard.get("confidence")):
+            return []
+        touch()
+        words = [Word(str(w["text"]), float(w["start"]), float(w["end"])) for w in heard["words"]]
+        return snap_hotwords(words, hotwords)
+
+    return read
+
+
+class WhisperStreamReader:
+    """The resident faster-whisper model over the window: the turn's one language (never detected again mid-turn),
+    the owner's words as ``hotwords``, the text that left the window as the prompt, word times on."""
+
+    def __init__(self, turn: TurnLanguage, hotwords: list[str], model_ref=lambda: _model) -> None:
+        self.turn, self.hotwords, self._model_ref = turn, hotwords, model_ref
+
+    def _kwargs(self, language: str | None, words: bool) -> dict:
+        extras = {"hotwords": self.hotwords, "word_timestamps": words}
+        return {
+            "language": language,
+            "vad_filter": False,
+            "beam_size": 1,
+            "condition_on_previous_text": False,
+            "temperature": 0.0,
+            **decode_options(extras, language is not None),
+        }
+
+    def __call__(self, window, prompt: str) -> list[Word]:
+        model = self._model_ref()
+        if model is None:
+            return []
+        language = self.turn.decode_language()
+        kwargs = self._kwargs(language, True)
+        hint = prompt or (DEFAULT_HINT if language is None else "")
+        if hint:
+            kwargs["initial_prompt"] = hint[:800]
+        segments, info = model.transcribe(window, **kwargs)
+        words: list[Word] = []
+        for seg in segments:
+            text = (getattr(seg, "text", "") or "").strip()
+            if not text or live_segment_is_noise(
+                text, getattr(seg, "no_speech_prob", None), getattr(seg, "avg_logprob", None)
+            ):
+                continue
+            if hint and prompt_echo(text, hint):
+                continue
+            for w in getattr(seg, "words", None) or []:
+                said = str(getattr(w, "word", "") or "").strip()
+                if said:
+                    words.append(Word(said, float(w.start), float(w.end)))
+        if language is None:
+            self.turn.observe(getattr(info, "language", "") or "")
+        return words
+
+    def rescore(self, audio, words: list[Word], turn: TurnLanguage) -> tuple[str, int]:
+        """The finished turn, one forced-language look per segment whose language differs from the turn's."""
+        model = self._model_ref()
+        rows = segments_from_words(words, turn.mode)
+        plans = plan_rescore(rows, turn.decode_language(), turn.mode)
+        if model is None or not plans:
+            return "", 0
+
+        def one(plan) -> dict:
+            clip = audio[int(plan.start * RATE) : int(plan.end * RATE)]
+            segments, _info = model.transcribe(clip, **self._kwargs(plan.language, False))
+            return {"text": " ".join((getattr(seg, "text", "") or "").strip() for seg in segments).strip()}
+
+        rows, changed = apply_rescore(rows, plans, one)
+        return (" ".join(r["text"] for r in rows), changed) if changed else ("", 0)
+
+
+def _whisper_stream_dir() -> Path | None:
+    """The resident model, when there is one fast enough for live words (the same rule as ``transcribe_live``)."""
+    if _model is None or (is_heavy_model(_model_name) and _device_name == "cpu"):
+        return None
+    return Path(cache_dir()) / (_model_name or "whisper")
+
+
+def stream_hardware_tier() -> str | None:
+    """small-cpu, mid or gpu for the stream speed gate; None (no gate) when the memory cannot be read."""
+    memory = read_memory_mb()
+    if memory is None:
+        return None
+    return stream_ear.hardware_tier(memory[1] / 1024, os.cpu_count() or 1, _device_name == "cuda")
+
+
+stream_ear.register_engine(
+    stream_ear.EngineSpec(
+        name=STREAM_HINDI,
+        folder=hindi_ear.MODEL_DIR,
+        files={},
+        factory=lambda: stream_ear.La2Engine(STREAM_HINDI, _hindi_stream_reader),
+        aliases=("hindi-ear",),
+        modules=("numpy", "onnx_asr"),
+        languages=lambda _folder: {"hi"},
+        priority=20,
+        locate=hindi_ear.model_dir,
+    )
+)
+stream_ear.register_engine(
+    stream_ear.EngineSpec(
+        name=STREAM_WHISPER,
+        folder="whisper",
+        files={},
+        factory=lambda: stream_ear.La2Engine(
+            STREAM_WHISPER, lambda _folder, turn, hotwords: WhisperStreamReader(turn, hotwords)
+        ),
+        aliases=("whisper",),
+        modules=("numpy", "faster_whisper"),
+        languages=lambda _folder: {"auto", "en", "hi", "hi-en", "en-hi", "hinglish", "mixed"},
+        priority=30,
+        locate=_whisper_stream_dir,
+    )
+)
+stream_ear.HOST.hardware = stream_hardware_tier
 
 
 def handle_request(req: dict) -> dict:

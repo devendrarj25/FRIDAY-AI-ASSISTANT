@@ -16,6 +16,14 @@ Interface contract
   ``stream_commit.PartialStabiliser``. Audio is processed in 20 ms slices on the audio clock (no wall clock), so a
   run repeats exactly. ``endpoint`` events follow ``endpointer`` (StartOfTurn, EagerEndOfTurn, TurnResumed,
   EndOfTurn); the engine never ends a turn by itself: the caller calls ``finalize``.
+* Under ``auto`` the chooser also gates on speed: ``hardware_tier`` names the PC (``small-cpu``, ``mid``, ``gpu``),
+  ``RtfLedger`` keeps the real-time factor each engine measured on this PC per tier (``<models>/stream-ear-rtf.json``,
+  written after every stream of a second or more), and an engine measured slower than ``RTF_LIMIT`` is skipped for
+  the next one. An engine not measured yet is tried; an engine asked for by name is not gated.
+* ``La2Engine`` is the same protocol over ``la2_partials.La2Partials`` for ears that re-decode a rolling window
+  (LocalAgreement-2): the worker (``stt.py``) registers the Hindi ear (``stream-ear-hindi``, Hindi only) and the
+  resident faster-whisper model (``stream-ear-whisper``, English, Hindi and Hinglish) behind ``locate`` pin checks.
+  A Hinglish locale is never given to an ear that does not list it.
 * ``HOST`` is the worker's single slot: one loaded engine (kept between utterances, dropped by ``unload``) and one
   active stream. ``HOST.handle(req)`` answers the ``stream-open``, ``stream-feed`` and ``stream-close`` ops of
   ``stt.py`` (shapes in ``handle``). Nothing here starts on its own: with the setting off the module costs nothing.
@@ -38,7 +46,8 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from endpointer import EndpointConfig, Endpointer, Observation
-from stream_commit import LocalAgreementCommitter, PartialStabiliser, join_words
+from la2_partials import RATE, La2Partials, TurnLanguage
+from stream_commit import LocalAgreementCommitter, PartialStabiliser, Word, join_words
 
 ENGINE_NAME = "stream-ear-nemotron"
 SETTING_KEY = "voice.streamEngine"
@@ -48,6 +57,7 @@ MAX_FEED_BYTES = 1_048_576
 MAX_ID_CHARS = 64
 MAX_HOTWORDS = 200
 MAX_HOTWORD_CHARS = 80
+HINGLISH_LOCALES = frozenset({"hi-en", "en-hi", "hinglish", "mixed"})
 OFF_VALUES = frozenset({"", "off", "false", "no", "0", "none", "disabled", "default"})
 
 # Exact sizes of the pinned files (electron/voice-pins.cjs, soniqo/Nemotron-3.5-ASR-Streaming-...-ONNX-INT8).
@@ -88,6 +98,7 @@ class EngineSpec:
     modules: tuple[str, ...] = ("numpy", "onnxruntime")
     languages: Callable[[Path], set[str]] | None = None  # the locales the files on disk can hear
     priority: int = 100  # lower runs first under "auto"
+    locate: Callable[[], Path | None] | None = None  # an ear with its own pin check (its folder, or None)
 
 
 # ---- registry and tier choice -------------------------------------------------------------------------------------
@@ -114,6 +125,11 @@ def model_root() -> Path:
 
 def pin_dir(spec: EngineSpec, root: Path | None = None) -> Path | None:
     """The folder when every pinned file is there with its exact size, else None. Opens nothing, downloads nothing."""
+    if spec.locate is not None:
+        try:
+            return spec.locate()
+        except OSError:
+            return None
     folder = (root or model_root()) / spec.folder
     try:
         for name, size in spec.files.items():
@@ -134,8 +150,70 @@ def runtime_ready(spec: EngineSpec, find_spec: Callable[[str], Any] = importlib.
 @dataclass(frozen=True)
 class TierChoice:
     engine: str | None
-    reason: str  # ok, off, unknown-engine, runtime-missing, pin-missing, locale-unsupported
+    reason: str  # ok, off, unknown-engine, runtime-missing, pin-missing, locale-unsupported, too-slow
     model_dir: Path | None = None
+    tier: str | None = None  # small-cpu, mid or gpu when the speed gate ran
+    rtf: float | None = None  # the measured real-time factor the gate used (None: not measured yet)
+
+
+# ---- measured speed per hardware tier -----------------------------------------------------------------------------
+
+TIERS = ("small-cpu", "mid", "gpu")
+RTF_LIMIT = 0.6  # an engine measured slower than this on this tier is skipped under "auto" (it could not keep up)
+RTF_MIN_AUDIO_MS = 1000  # a shorter stream says little about speed and is not recorded
+RTF_FILE = "stream-ear-rtf.json"
+
+
+def hardware_tier(ram_gb: float, cores: int, gpu: bool) -> str:
+    """``gpu`` with a usable card, ``small-cpu`` under 12 GB or four cores, else ``mid``."""
+    if gpu:
+        return "gpu"
+    return "small-cpu" if ram_gb < 12 or cores <= 4 else "mid"
+
+
+class RtfLedger:
+    """Real-time factor per engine and tier, measured on this PC (moving average), kept in ``<models>/{RTF_FILE}``."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+        self._rows: dict[str, dict[str, float]] = {}
+        self._loaded = False
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        if self.path is None:
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(data, dict):
+            for key, row in data.items():
+                if isinstance(row, dict) and all(isinstance(v, (int, float)) for v in row.values()):
+                    self._rows[str(key)[:120]] = {str(t)[:16]: float(v) for t, v in row.items() if t in TIERS}
+
+    def get(self, engine: str, tier: str) -> float | None:
+        self._load()
+        return self._rows.get(engine, {}).get(tier)
+
+    def record(self, engine: str, tier: str, rtf: float, *, weight: float = 0.3) -> float | None:
+        if tier not in TIERS or not math.isfinite(rtf) or rtf < 0:
+            return None
+        self._load()
+        row = self._rows.setdefault(engine, {})
+        old = row.get(tier)
+        row[tier] = round(rtf if old is None else old + (rtf - old) * weight, 4)
+        if self.path is not None:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                temp = self.path.with_suffix(".tmp")
+                temp.write_text(json.dumps(self._rows, sort_keys=True), encoding="utf-8")
+                os.replace(temp, self.path)
+            except OSError:
+                pass  # a read-only folder costs the memory of the speed, never the stream
+        return row[tier]
 
 
 def _wants(setting: Any, spec: EngineSpec) -> bool:
@@ -149,34 +227,47 @@ def choose_tier(
     *,
     root: Path | None = None,
     find_spec: Callable[[str], Any] = importlib.util.find_spec,
+    tier: str | None = None,
+    ledger: RtfLedger | None = None,
 ) -> TierChoice:
-    """The engine to use, or None with the reason. Never an engine whose pin is missing or whose setting is not on."""
+    """The engine to use, or None with the reason. Never an engine whose pin is missing or whose setting is not on.
+
+    Under ``auto`` with a hardware ``tier`` and a ``ledger``, an engine MEASURED slower than ``RTF_LIMIT`` on this
+    tier is skipped for the next one (an engine not measured yet is tried, and measured on that use). An engine asked
+    for by name is the owner's choice and is not speed-gated. The reason is the one of the first candidate."""
     key = "" if setting is None or setting is False else str(setting).strip().lower()
     if key in OFF_VALUES:
         return TierChoice(None, "off")
     candidates = [s for s in map(_REGISTRY.get, engine_names()) if s is not None and _wants(key, s)]
     if not candidates:
         return TierChoice(None, "unknown-engine")
-    reason = "pin-missing"
+    gated = key == "auto" and tier in TIERS and ledger is not None
+    reasons: list[str] = []
     for spec in candidates:
         if not runtime_ready(spec, find_spec):
-            reason = "runtime-missing"
+            reasons.append("runtime-missing")
             continue
         folder = pin_dir(spec, root)
         if folder is None:
-            reason = "pin-missing"
+            reasons.append("pin-missing")
             continue
         if locale and spec.languages is not None and not _locale_ok(spec.languages(folder), locale):
-            reason = "locale-unsupported"
+            reasons.append("locale-unsupported")
             continue
-        return TierChoice(spec.name, "ok", folder)
-    return TierChoice(None, reason)
+        rtf = ledger.get(spec.name, tier) if gated and ledger is not None and tier is not None else None
+        if rtf is not None and rtf > RTF_LIMIT:
+            reasons.append("too-slow")
+            continue
+        return TierChoice(spec.name, "ok", folder, tier if gated else None, rtf)
+    return TierChoice(None, reasons[0] if reasons else "pin-missing", None, tier if gated else None)
 
 
 def _locale_ok(known: set[str], locale: str) -> bool:
     raw = locale.strip().replace("_", "-").lower()
     if not raw or raw == "auto":
         return "auto" in known
+    if raw in HINGLISH_LOCALES:
+        return bool(known & HINGLISH_LOCALES)  # Hinglish needs an ear that hears both, not a Hindi-only one
     return raw in known or raw.split("-")[0] in known
 
 
@@ -385,6 +476,151 @@ class TransducerEngine:
         }
 
 
+def _clean_hotwords(raw: Any) -> list[str]:
+    items = raw if isinstance(raw, (list, tuple)) else []
+    return [str(w).strip()[:MAX_HOTWORD_CHARS] for w in items if str(w).strip()][:MAX_HOTWORDS]
+
+
+class La2Engine(TransducerEngine):
+    """``SttEngine`` over ``la2_partials.La2Partials``, for an ear that re-decodes a rolling window (the Hindi ear, a
+    resident Whisper). ``make_reader(model_dir, turn, hotwords)`` builds the reader of one stream (``turn`` is its
+    ``TurnLanguage``); a reader with ``rescore(turn_audio, words, turn) -> (text, changed)`` reads the finished turn
+    once more, one forced language per segment. The voice gate, endpointer and stabiliser are the transducer's."""
+
+    def __init__(
+        self,
+        name: str,
+        make_reader: Callable[[Path, TurnLanguage, list[str]], Any],
+        *,
+        hop_s: float = 0.5,
+        endpoint_config: EndpointConfig | None = None,
+    ) -> None:
+        super().__init__(None, endpoint_config=endpoint_config)
+        self.name = name
+        self._make_reader = make_reader
+        self._hop_s = hop_s
+        self._reader: Any = None
+        self._la2: La2Partials | None = None
+        self._lang = TurnLanguage("")
+        self._locale = ""
+        self._hotwords: list[str] = []
+
+    @property
+    def loaded(self) -> bool:
+        return self._la2 is not None
+
+    def open(self, model_dir: str | Path, **options: Any) -> dict[str, Any]:
+        self._locale = str(options.get("locale") or "")
+        self._hotwords = _clean_hotwords(options.get("hotwords"))
+        overrides = options.get("endpoint")
+        if isinstance(overrides, Mapping):
+            allowed = EndpointConfig.__dataclass_fields__
+            self._endpoint_config = EndpointConfig(**{k: v for k, v in overrides.items() if k in allowed})
+        self._endpointer = Endpointer(self._endpoint_config)
+        started = time.perf_counter()
+        self._model_dir = str(model_dir)
+        self._lang = TurnLanguage(self._locale)
+        self._reader = self._make_reader(Path(model_dir), self._lang, self._hotwords)
+        self._la2 = La2Partials(self._reader, hop_s=self._hop_s, stabiliser=self._stabiliser)
+        self._clear()
+        return {
+            "engine": self.name,
+            "locale": self._locale,
+            "language": self._lang.decode_language(),
+            "providers": [],
+            "chunkMs": int(self._hop_s * 1000),
+            "loadMs": int((time.perf_counter() - started) * 1000),
+            "hotwords": len(self._hotwords),
+        }
+
+    def _clear(self) -> None:
+        super()._clear()
+        la2 = getattr(self, "_la2", None)
+        if la2 is not None:
+            la2.reset()
+
+    def reset(self) -> None:
+        """A new turn: a fresh language decision and a fresh reader, same model and hotwords."""
+        if self._la2 is not None:
+            self._lang = TurnLanguage(self._locale)
+            self._reader = self._make_reader(Path(self._model_dir), self._lang, self._hotwords)
+            self._la2.reader = self._reader
+        self._clear()
+
+    def close(self) -> None:
+        self._reader, self._la2, self._model_dir = None, None, ""
+        self._clear()
+
+    def _need_la2(self) -> La2Partials:
+        if self._la2 is None:
+            raise RuntimeError("the engine is not open")
+        return self._la2
+
+    def feed(self, pcm: Any) -> list[dict[str, Any]]:
+        from transducer_loop import to_float_pcm
+
+        la2 = self._need_la2()
+        samples = to_float_pcm(pcm, self._carry)
+        per_slice = RATE * SLICE_MS // 1000
+        for start in range(0, int(samples.size), per_slice):
+            piece = samples[start : start + per_slice]
+            ms = int(piece.size * 1000 // RATE)
+            self._vad.push(piece, ms or SLICE_MS)
+            self._turn.audio_ms += ms
+        events: list[dict[str, Any]] = []
+        partial = la2.push(samples)
+        if partial is not None and partial.revision != self._partial.get("revision"):
+            if partial.text != self._turn.last_text:
+                self._turn.last_text = partial.text
+                self._turn.last_token_ms = self._turn.audio_ms
+            self._partial = self._partial_dict(partial, self._turn.audio_ms)
+            events.append({"type": "partial", **self._partial, "language": self._lang.decode_language()})
+        return events + self._step_endpoint()
+
+    def finalize(self) -> dict[str, Any]:
+        la2 = self._need_la2()
+        final = la2.finalize()
+        words = list(final.committed)
+        text = join_words(words)
+        changed = 0
+        compute_s = la2.compute_s
+        rescore: Callable[..., tuple[str, int]] | None = getattr(self._reader, "rescore", None)
+        if rescore is not None and words:
+            started = time.perf_counter()
+            try:
+                base = la2.turn_start_s
+                local = [
+                    Word(w.text, None if w.start is None else w.start - base, None if w.end is None else w.end - base)
+                    for w in words
+                ]
+                better, changed = rescore(la2.turn_audio(), local, self._lang)
+                text = better or text
+            except Exception:  # noqa: BLE001 — the agreed words stand when the second look fails
+                changed = 0
+            compute_s += time.perf_counter() - started
+        audio_ms = int(la2.audio_s * 1000)
+        return {
+            "text": text,
+            "committed": join_words(final.committed),
+            "words": [_word_row(w) for w in words],
+            "audioMs": audio_ms,
+            "chunks": la2.readings,
+            "computeMs": round(compute_s * 1000, 1),
+            "rtf": round(compute_s * 1000 / max(1, audio_ms), 3),
+            "engine": self.name,
+            "locale": self._locale,
+            "language": self._lang.decode_language(),
+            "rescored": changed,
+            "providers": [],
+        }
+
+
+def _word_row(w: Any) -> dict[str, Any]:
+    if w.start is None:
+        return {"text": w.text}
+    return {"text": w.text, "startMs": int(w.start * 1000), "endMs": int((w.end or w.start) * 1000)}
+
+
 def _nemotron_languages(folder: Path) -> set[str]:
     try:
         table = json.loads((folder / "languages.json").read_text(encoding="utf-8")).get("promptDictionary") or {}
@@ -422,6 +658,27 @@ class StreamHost:
         self._engine: SttEngine | None = None
         self._spec: EngineSpec | None = None
         self.active: str | None = None
+        self.hardware: Callable[[], str | None] = lambda: None  # the worker sets its probe (small-cpu, mid, gpu)
+        self._tier: str | None = None
+        self._tier_read = False
+        self._ledger: RtfLedger | None = None
+
+    def tier(self) -> str | None:
+        """The hardware tier, read once per worker. None means no speed gate (never a refused stream)."""
+        if not self._tier_read:
+            self._tier_read = True
+            try:
+                found = self.hardware()
+            except Exception:  # noqa: BLE001
+                found = None
+            self._tier = found if found in TIERS else None
+        return self._tier
+
+    def ledger(self) -> RtfLedger:
+        path = model_root() / RTF_FILE
+        if self._ledger is None or self._ledger.path != path:
+            self._ledger = RtfLedger(path)
+        return self._ledger
 
     def loaded_name(self) -> list[str]:
         engine = self._engine
@@ -469,7 +726,7 @@ class StreamHost:
     def _open(self, req: dict[str, Any]) -> dict[str, Any]:
         sid = _clean_id(req.get("streamId"))
         locale = str(req.get("locale") or req.get("language") or "")
-        choice = choose_tier(req.get("streamEngine", req.get("engine")), locale)
+        choice = choose_tier(req.get("streamEngine", req.get("engine")), locale, tier=self.tier(), ledger=self.ledger())
         if choice.engine is None or choice.model_dir is None:
             reason = "stream-engine-off" if choice.reason == "off" else choice.reason
             return {"ok": False, "op": "stream-open", "streamId": sid, "reason": reason, "fallback": True}
@@ -504,6 +761,10 @@ class StreamHost:
             }
         self.active = sid
         reply: dict[str, Any] = {"ok": True, "op": "stream-open", "streamId": sid, **info}
+        if choice.tier is not None:
+            reply["tier"] = choice.tier
+            if choice.rtf is not None:
+                reply["measuredRtf"] = choice.rtf
         reply["elapsedMs"] = int((self._clock() - started) * 1000)
         if replaced is not None and replaced != sid:
             reply["replaced"] = replaced
@@ -551,6 +812,9 @@ class StreamHost:
             return {"ok": True, "op": "stream-close", "streamId": sid, "final": False}
         result = engine.finalize()
         engine.reset()
+        tier, rtf = self.tier(), result.get("rtf")
+        if tier is not None and isinstance(rtf, (int, float)) and int(result.get("audioMs") or 0) >= RTF_MIN_AUDIO_MS:
+            self.ledger().record(engine.name, tier, float(rtf))
         return {"ok": True, "op": "stream-close", "streamId": sid, "final": True, **result}
 
 

@@ -281,3 +281,27 @@ def test_the_status_and_the_voice_check_report_the_ears(monkeypatch, tmp_path):
     ]
     monkeypatch.setattr("importlib.util.find_spec", lambda name: None)
     assert all(line.startswith("FAIL") for line in voice_runtime._whisper_ear_lines())
+
+
+def test_the_owners_words_reach_the_whisper_stream_ear_and_the_turn_language_is_decided_once():
+    from types import SimpleNamespace
+
+    from la2_partials import TurnLanguage
+
+    calls: list[dict] = []
+
+    class Model:
+        def transcribe(self, window, **kwargs):
+            calls.append(kwargs)
+            word = SimpleNamespace(word=" Devendra", start=0.0, end=0.4)
+            seg = SimpleNamespace(text="Devendra", no_speech_prob=0.01, avg_logprob=-0.2, words=[word])
+            return iter([seg]), SimpleNamespace(language="hi")
+
+    turn = TurnLanguage("hi-en")
+    reader = stt.WhisperStreamReader(turn, ["Devendra", "FRIDAY"], model_ref=Model)
+    assert [w.text for w in reader([0.0] * 16000, "")] == ["Devendra"]
+    assert [w.text for w in reader([0.0] * 16000, "aaj ka plan")] == ["Devendra"]
+    assert calls[0]["language"] is None and calls[1]["language"] == "hi"  # detected once, then locked
+    assert all(c["hotwords"] == "Devendra, FRIDAY" and c["word_timestamps"] is True for c in calls)
+    assert calls[1]["initial_prompt"] == "aaj ka plan"  # the text that left the window
+    assert stt.WhisperStreamReader(turn, [], model_ref=lambda: None)([0.0] * 16000, "") == []

@@ -882,13 +882,15 @@ def main(argv: list[str] | None = None, *, host=None, out: Callable[[str], None]
     if not items:
         out(f"NO DATA: no items in split {args.split!r}")
         return EXIT_NO_DATA
+    sampler: Callable[[dict], dict]
     if args.fake:
         fake = FakeTranscriber(json.loads(Path(args.fake).read_text(encoding="utf-8")))
 
-        def sampler(item: dict) -> dict:
+        def fake_sampler(item: dict) -> dict:
             made = fake.sample(item["id"], item["lang"], item["reference"])
             return {k: made[k] for k in ("hypothesis", "partials", "timeline") if k in made}
 
+        sampler = fake_sampler
     else:
         if host is None:
             import stream_ear

@@ -290,3 +290,14 @@ def test_unload_drops_the_model_the_reader_and_the_folder_and_reports_it(monkeyp
     assert (hindi_ear._model, hindi_ear._timed, hindi_ear._model_dir) == (None, None, "")
     assert hindi_ear.loaded() is False
     assert hindi_ear.unload() is False  # nothing open: a second call is a quiet no-op
+
+
+def test_the_owners_words_reach_the_hindi_ear_reading(monkeypatch):
+    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda samples: "देवेंदर को कॉल करो।")
+    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
+    monkeypatch.setattr(stt, "get_model", lambda *a, **k: pytest.fail("faster-whisper must not run"))
+    hot = {"hotwords": ["देवेंद्र", "Jarvis"]}
+    result = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi", extras=hot)
+    assert result["text"] == "देवेंद्र को कॉल करो।"
+    plain = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi")
+    assert plain["text"] == "देवेंदर को कॉल करो।"  # no words asked for: the ear's line as heard
