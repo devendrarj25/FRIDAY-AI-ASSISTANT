@@ -36,7 +36,7 @@ import time
 import wave
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # The packaged self-check and the speech worker run this file with the bundled
 # embeddable Python. Its ._pth file means the script folder is not on sys.path,
@@ -55,6 +55,7 @@ from la2_partials import (  # noqa: E402
     TurnLanguage,
     apply_rescore,
     plan_rescore,
+    script_of,
     segments_from_words,
     snap_hotwords,
     turn_mode,
@@ -120,6 +121,169 @@ def resolve_language(raw: str) -> str | None:
         return None
     iso = value[:2]
     return iso if len(iso) == 2 and iso.isalpha() else None
+
+
+# ---- One route per final reading ----------------------------------------------------------------------------------
+# The language of a turn is decided once, from the cheapest first signal: what the owner declared, then what the
+# last turn was. Whisper's own language guess is a decode of its own (about a second on the small model), so a turn
+# whose language is known skips it; the Hindi ear and faster-whisper do not both decode one turn unless the ear
+# itself is unsure.
+
+PRIOR_TTL_S = 90.0  # a turn this old says nothing about the next one
+PRIOR_MIN_PROBABILITY = 0.80  # whisper's own certainty needed before an English reading becomes a prior
+_prior: dict[str, Any] = {"language": "", "at": None}
+
+
+class Route(NamedTuple):
+    ear: bool  # the Hindi ear listens first
+    lock: str | None  # faster-whisper's decode language; None leaves it to detect
+    why: str
+    min_logprob: float | None  # a locked reading scoring below this is heard again open (None: never)
+    lane: str  # the short-final policy that may read it first ("en"), or ""
+
+
+# Locked-English reads scored on synthetic speech (test_stt_route.py): English clips -0.13 to -0.57, Hindi clips forced
+# to English -0.53 to -1.03. The floor catches a Hindi turn that the Hindi ear was unsure of and the lock then misread.
+LOCK_MIN_LOGPROB = -0.60
+
+
+def route_turn(language: str, speech_pref: str, prior: str = "", open_route: bool = False) -> Route:
+    """The route of one final reading. A language is locked only when the turn before it was heard as English (the
+    owner's declared Hindi or English is not enough: Indian English and Hinglish share a chosen language and are told
+    apart by listening). An open turn keeps the Hindi ear in front of the lock (``lock_after_ear``), so a Hindi turn
+    that follows an English one is read by the ear and never mistaken for English. ``open_route`` is the route of
+    before: the ear for Hindi or open turns, no lock."""
+    mode = hindi_ear.listen_mode(language, speech_pref)
+    lock = resolve_language(language)
+    if open_route:
+        return Route(hindi_ear.tries_ear(language, speech_pref), lock, "open", None, "")
+    if mode == "en" and prior == "en":
+        return Route(False, "en", "prior-en", LOCK_MIN_LOGPROB, "en")
+    if mode in {"hi", "auto"}:
+        return Route(True, lock, "ear-first", None, "")
+    return Route(False, lock, "roman" if mode == "roman" else "declared", None, "en" if mode == "en" else "")
+
+
+def lock_after_ear(route: Route, prior: str, mode: str) -> Route:
+    """The route of an open turn the Hindi ear listened to and kept nothing of: English after an English turn is
+    locked, anything else keeps the guess. Without the ear installed nothing stands between a Hindi turn and the lock,
+    so none is made."""
+    if mode == "auto" and route.why == "ear-first" and prior == "en" and route.lock is None and hindi_ear.ready():
+        return Route(False, "en", "prior-en", LOCK_MIN_LOGPROB, "en")
+    return route
+
+
+def turn_prior() -> str:
+    """``en`` or ``hi`` while the last strong reading is fresh, else an empty string."""
+    at = _prior.get("at")
+    if at is None or _now() - at > PRIOR_TTL_S:
+        return ""
+    return str(_prior.get("language") or "")
+
+
+def reset_turn_prior() -> None:
+    _prior["language"], _prior["at"] = "", None
+
+
+def note_turn_language(text: str, language: str, probability: float | None) -> None:
+    """Keep the language of a finished turn: Devanagari text is Hindi; Latin text is English only when whisper was
+    sure. Mixed script, a weak guess or no words clear the prior, so a doubtful turn never decides the next."""
+    script = script_of(text or "")
+    keep = ""
+    if script == "deva":
+        keep = "hi"
+    elif script == "latin" and (language or "").lower().startswith("en") and probability is not None:
+        keep = "en" if probability >= PRIOR_MIN_PROBABILITY else ""
+    _prior["language"], _prior["at"] = keep, (_now() if keep else None)
+
+
+def guard_hotwords(kwargs: dict) -> dict:
+    """faster-whisper ignores ``hotwords`` when a ``prefix`` is set: send neither half of a no-op."""
+    if kwargs.get("prefix"):
+        kwargs.pop("hotwords", None)
+    return kwargs
+
+
+# A short English turn is read by the base model first; the owner's own model decodes again when that read is not
+# sure. One named table; the measured times and scores are in test_stt_route.py.
+SHORT_FINAL_POLICY: dict[str, dict] = {
+    "en": {"size": "base", "max_clip_s": 4.0, "min_logprob": -0.70, "max_no_speech": 0.5},
+}
+_fast: dict[str, Any] = {"model": None, "name": "", "failed": False}
+
+
+def fast_size_dir(size: str) -> Path | None:
+    """The folder of a speech size whose weights are on disk (no folder is made), or None."""
+    root = os.environ.get("FRIDAY_ROOT")
+    base = Path(root) / "cache" / "stt" if root else Path.home() / ".friday" / "cache" / "stt"
+    folder = base / size
+    try:
+        if (folder / "config.json").is_file() and (folder / "model.bin").is_file():
+            return folder
+    except OSError:
+        return None
+    return None
+
+
+def fast_english_model():
+    """The resident base model of the short-final policy, opened once; None when it is not installed, the memory is
+    tight, or it once failed to open (a broken file is never tried again in this worker)."""
+    policy = SHORT_FINAL_POLICY["en"]
+    if _fast["model"] is not None:
+        touch()
+        return _fast["model"]
+    if _fast["failed"]:
+        return None
+    folder = fast_size_dir(policy["size"])
+    cls = _import_whisper() if folder is not None else None
+    if folder is None or cls is None or memory_pressure()["level"] != "ok":
+        return None
+    started = _now()
+    try:
+        spec = model_load_kwargs(policy["size"], str(folder))
+        if spec["device"] != "cpu":
+            return None  # a graphics card reads the owner's own model fast enough
+        _fast["model"], _ = open_whisper(cls, spec["target"], spec)
+    except Exception:  # noqa: BLE001 — the owner's model answers instead
+        _fast["failed"] = True
+        note_fallback("fast-model-to-owner-model")
+        return None
+    _fast["name"] = policy["size"]
+    _load_ms[policy["size"]] = int((_now() - started) * 1000)
+    touch()
+    return _fast["model"]
+
+
+def short_final_lane(route: Route, samples, owner_size: str, requested: str) -> bool:
+    """True when this final is a short English-lane clip read on a processor, the owner did not pick a size, and the
+    owner's model is bigger than the policy's."""
+    policy = SHORT_FINAL_POLICY.get(route.lane)
+    if policy is None or samples is None:
+        return False
+    if (owner_size or "").strip().lower() in OWNER_SIZES or len(samples) / RATE > policy["max_clip_s"]:
+        return False
+    wanted, fast = model_rank(requested), model_rank(policy["size"])
+    return wanted is not None and fast is not None and wanted > fast
+
+
+def fast_read_sure(read: dict, locked: bool) -> bool:
+    """True when the base model's reading stands: words, a good token score, clear speech, and (when the language was
+    not locked) a confident English guess."""
+    policy = SHORT_FINAL_POLICY["en"]
+    logprob = read.get("avgLogprob")
+    probability = read.get("languageProbability")
+    spoken_english = locked or (
+        str(read.get("language") or "").startswith("en")
+        and isinstance(probability, (int, float))
+        and probability >= PRIOR_MIN_PROBABILITY
+    )
+    return (
+        spoken_english
+        and bool((read.get("text") or "").strip())
+        and isinstance(logprob, (int, float))
+        and logprob >= policy["min_logprob"]
+        and (read.get("noSpeechProb") or 0.0) <= policy["max_no_speech"]
+    )
 
 
 def select_model(ram_gb: float, gpu: bool, battery: bool, auto: bool, requested: str = "small") -> str:
@@ -581,6 +745,7 @@ def _ear_loaded() -> bool:
 
 def loaded_names() -> list[str]:
     names = [_model_name] if _model is not None and _model_name else []
+    names += [str(_fast["name"])] if _fast["model"] is not None and _fast["name"] else []
     return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + stream_ear.HOST.loaded_name()
 
 
@@ -589,6 +754,7 @@ def unload_models() -> list[str]:
     global _model, _model_name, _unloads
     names = loaded_names()
     _model, _model_name = None, None
+    _fast["model"], _fast["name"] = None, ""
     hindi_ear.unload()
     stream_ear.HOST.unload()
     if names:
@@ -1313,10 +1479,13 @@ def _transcribe_file(
             model_path,
             hearing,
             original,
-            extras,
+            {**(extras or {}), "turn_prior": "" if provisional else turn_prior()},
         )
         if not provisional:
             _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
+            note_turn_language(
+                result.get("text") or "", result.get("language") or "", result.get("languageProbability")
+            )
         return result
     finally:
         if cleanup and os.path.exists(cleanup):
@@ -1973,6 +2142,9 @@ def _transcribe_prepared(
     moon_text = None
     # The Trelis mixed-script ear is asked for by name and checked for files and hardware; None is the engine of today.
     trelis, trelis_skipped = whisper_ears.trelis_verdict(extras, cuda_runtime_ready)
+    # One route per turn: the Hindi ear, or whisper with the turn's language already known (no language guess).
+    prior = str((extras or {}).get("turn_prior") or "")  # (the worker puts it there: see ``_transcribe_file``)
+    route = route_turn(language, speech_pref, prior, bool((extras or {}).get("route_open")))
 
     def retry(options: dict | None = None) -> dict:
         return _transcribe_prepared(
@@ -1988,7 +2160,7 @@ def _transcribe_prepared(
                 engine = "moonshine-en"
     hindi_text = None
     ear_note = ""
-    if trelis is None and not moon_text and samples is not None and hindi_ear.tries_ear(language, speech_pref):
+    if trelis is None and not moon_text and samples is not None and route.ear:
         # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
         # words that mean nothing, and its own token scores say so).
@@ -2009,6 +2181,9 @@ def _transcribe_prepared(
         if hindi_text:
             engine = "hindi-ear"
             hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
+        else:
+            # The ear listened and kept nothing: after an English turn that is English, not Hindi.
+            route = lock_after_ear(route, prior, mode)
     turn_probability = None
     # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
     # for: it used to run before every decode and add its own model run to the wait for the words.
@@ -2071,9 +2246,18 @@ def _transcribe_prepared(
             if trelis:
                 return retry()  # the Hinglish and Hindi ears and the generic model answer, as without the option
             alt = None
+    requested_model = owner_model(owner_size, model_name)
+
+    def open_owner_model():
+        return get_model(requested_model, model_path or None, **auto_flag(owner_size))
+
+    fast = None  # the base model of a short English final: the owner's model is opened only if it is not sure
+    if model is None and alt is None and short_final_lane(route, samples, owner_size, requested_model):
+        fast = fast_english_model()
+        model = fast
     try:
         if model is None:
-            model = get_model(owner_model(owner_size, model_name), model_path or None, **auto_flag(owner_size))
+            model = open_owner_model()
     except Exception:
         windows_text = transcribe_windows(audio)
         if not windows_text:
@@ -2096,7 +2280,7 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    lang = alt["decode"] if alt is not None else resolve_language(language)
+    lang = alt["decode"] if alt is not None else route.lock
     if alt is not None:
         engine = alt["engine"]
     if trelis:
@@ -2123,12 +2307,22 @@ def _transcribe_prepared(
     }
     if hint:
         kwargs["initial_prompt"] = hint[:800]
+    guard_hotwords(kwargs)
     payload = samples if samples is not None else audio
     try:
         if samples is not None and is_longform(len(samples) / RATE):
             first = _consume_longform(model, samples, kwargs, hint, on_partial)
         else:
-            first = _consume_whisper(model, payload, kwargs, on_partial)
+            first = None
+            if fast is not None:
+                try:
+                    first = _consume_whisper(fast, payload, kwargs, on_partial)
+                except Exception:  # noqa: BLE001 — the owner's model answers instead, and the base one rests
+                    _fast["failed"] = True
+                if first is None or not fast_read_sure(first, lang is not None):
+                    model, fast, first = open_owner_model(), None, None
+            if first is None:
+                first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
         if alt is not None:
             # The optional ear could not decode: remember it and let the engine of today hear this utterance.
@@ -2162,6 +2356,19 @@ def _transcribe_prepared(
         )
     language_note = ear_note
     check_cancel()
+    floor = route.min_logprob if lang == route.lock and alt is None else None
+    logprob = first.get("avgLogprob")
+    if (
+        floor is not None
+        and (first.get("text") or "").strip()
+        and isinstance(logprob, (int, float))
+        and logprob < floor
+    ):
+        # The turn's language was taken from a signal, not heard: the locked reading is poor, so the turn is read
+        # again on the open route (the ear first, the language guess on), and the prior that misled is dropped.
+        reset_turn_prior()
+        note_fallback("language-lock-to-open")
+        return retry({**(extras or {}), "route_open": True, "turn_prior": ""})
     if not ear_note and should_recheck_language(first, lang is not None):
         # (Not after the Hindi ear judged this audio: a second Hindi-locked decode would repeat that look at full cost.)
         try:
@@ -2203,7 +2410,7 @@ def _transcribe_prepared(
             or ("Hinglish ear: Roman letters" if alt is not None and alt["id"] == whisper_ears.HINGLISH_ID else ""),
             "avgLogprob": chosen.get("avgLogprob"),
             "durationMs": chosen.get("durationMs") or 0,
-            "model": _model_name or model_name,
+            "model": str(_fast["name"]) if fast is not None else _model_name or model_name,
             "noSpeechProb": chosen.get("noSpeechProb") or 0.0,
             "loadCount": _load_count,
             "engine": engine,
