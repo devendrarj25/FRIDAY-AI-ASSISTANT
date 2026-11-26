@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
-import { MoreHorizontal, type LucideIcon } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  Bluetooth,
+  MicOff,
+  MoreHorizontal,
+  RotateCcw,
+  Settings2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,6 +16,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CHAT_LEVELS, VOICE_LEVEL_LABELS, type ChatLevel } from "@/lib/friday/chat-level";
 import { useSlidingThumb } from "@/components/friday/ui";
+import {
+  micFaultPanelModel,
+  micLiveText,
+  micPanelState,
+  OPEN_PRIVACY_LABEL,
+  showBluetoothNotice,
+} from "@/components/friday/mic-fault-panel-model";
+import { desktopApi } from "@/lib/friday/desktop";
+import { faultView, type MicAccess } from "@/lib/friday/mic-faults";
+import { useNetwork } from "@/lib/friday/use-network";
+import { voiceGate, type MicState } from "@/lib/friday/voice-audio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -170,5 +189,151 @@ export function VoiceTools({ tools, shown }: { tools: VoiceTool[]; shown: number
         </DropdownMenu>
       ) : null}
     </>
+  );
+}
+
+const PANEL_BUTTON =
+  "friday-btn relative inline-flex h-6 min-w-6 items-center gap-1.5 rounded-ctl border border-primary/25 px-2 text-meta-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']";
+
+/** The gate's fault and Bluetooth notice as one string, so the store read stays stable between renders. */
+function gateKey(): string {
+  const failure = voiceGate.lastCaptureFailure();
+  return `${failure ? `${failure.state}\u0001${failure.reason}` : ""}\u0002${voiceGate.bluetoothNotice()}`;
+}
+
+/**
+ * Plain-words microphone fault panel for Auto mode. A denied or restricted Windows switch gets the privacy
+ * button and Retry, a busy or ended device gets Retry and the wait, a Bluetooth headset gets a one-time
+ * dismissible note. The words are announced politely through one live region. It draws `micFaultPanelModel`.
+ */
+export function MicFaultPanel({ onRetry }: { onRetry: () => void }) {
+  const key = useSyncExternalStore(
+    (fn) => voiceGate.subscribe(() => fn()),
+    gateKey,
+    () => "\u0002",
+  );
+  const net = useNetwork();
+  const [failureText = "", btLine = ""] = key.split("\u0002");
+  const [state = "", ...reason] = failureText.split("\u0001");
+  const fault = state
+    ? faultView({ state: state as MicState, reason: reason.join("\u0001") })
+    : null;
+  const [answer, setAnswer] = useState<{ for: string; status: MicAccess } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const [tries, setTries] = useState({ for: "", n: 0 });
+  const attempt = tries.for === state ? tries.n : 0;
+  const [dismissed, setDismissed] = useState("");
+
+  /** Ask Windows why the microphone did not open, so the message names the real cause. */
+  const checkAccess = async () => {
+    const ask = desktopApi()?.micAccessStatus;
+    if (!ask) return;
+    setChecking(true);
+    setCheckError("");
+    try {
+      const reply = await ask();
+      setAnswer(reply.ok ? { for: state, status: reply.status } : null);
+    } catch {
+      setCheckError("Windows did not answer the microphone check.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // A new fault kind is the trigger; its text alone does not re-ask Windows.
+  useEffect(() => {
+    if (state) queueMicrotask(() => void checkAccess());
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Windows' answer belongs to the fault it was asked for; a different or cleared fault drops it.
+  const access = state && answer?.for === state ? answer.status : null;
+
+  const model = micFaultPanelModel(fault, access, {
+    attempt,
+    autoRetry: fault?.state === "device-offline" || fault?.state === "no-microphone",
+  });
+  const page = micPanelState({ model, checking, online: net.online, checkError });
+  const retry = () => {
+    setTries({ for: state, n: attempt + 1 });
+    onRetry();
+    void checkAccess();
+  };
+  const openPrivacy = () => {
+    const open = desktopApi()?.openMicPrivacySettings;
+    if (!open) return Promise.resolve();
+    return open().then((result) => {
+      if (!result.ok)
+        setCheckError("Windows Settings did not open. Open Privacy, then Microphone.");
+    });
+  };
+  const bluetooth = showBluetoothNotice(btLine, dismissed) ? btLine : "";
+  if (page.page === "none" && !bluetooth) return null;
+
+  return (
+    <div className="flex max-w-full flex-col gap-1.5 px-3 pt-2 text-meta-sm" data-mic-fault-panel>
+      <p role="status" aria-live="polite" className="sr-only">
+        {micLiveText(model)}
+      </p>
+      {page.page === "loading" ? (
+        <p className="text-muted-foreground">Checking the microphone…</p>
+      ) : null}
+      {page.page === "offline" ? (
+        <p className="text-muted-foreground">
+          Offline. The microphone and local voice keep working.
+        </p>
+      ) : null}
+      {page.page === "error" ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-destructive" role="alert">
+          <span className="min-w-0 break-words">{page.detail}</span>
+          <button type="button" onClick={retry} className={PANEL_BUTTON}>
+            <RotateCcw className="size-3" aria-hidden="true" />
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {page.page === "fault" ? (
+        <div
+          data-mic-fault={page.model.kind}
+          className="flex flex-wrap items-center gap-1.5 rounded-ctl border border-warning/40 bg-warning/10 px-2 py-1 text-warning"
+        >
+          <MicOff className="size-3 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">{page.model.message}</span>
+          {page.model.backoff ? (
+            <span className="text-muted-foreground">{page.model.backoff}</span>
+          ) : null}
+          {page.model.showSettings ? (
+            <button type="button" onClick={openPrivacy} className={PANEL_BUTTON}>
+              <Settings2 className="size-3" aria-hidden="true" />
+              {OPEN_PRIVACY_LABEL}
+            </button>
+          ) : null}
+          {page.model.retry ? (
+            <button type="button" onClick={retry} className={PANEL_BUTTON}>
+              <RotateCcw className="size-3" aria-hidden="true" />
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {bluetooth ? (
+        <div
+          data-mic-bluetooth
+          className="flex flex-wrap items-center gap-1.5 rounded-ctl border border-primary/25 bg-primary/5 px-2 py-1 text-muted-foreground"
+        >
+          <Bluetooth className="size-3 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">{bluetooth}</span>
+          <button
+            type="button"
+            aria-label="Dismiss Bluetooth notice"
+            onClick={() => setDismissed(bluetooth)}
+            className={PANEL_BUTTON}
+          >
+            <X className="size-3" aria-hidden="true" />
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }

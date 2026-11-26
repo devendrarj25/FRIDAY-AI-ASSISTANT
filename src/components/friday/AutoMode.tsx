@@ -60,6 +60,7 @@ import {
   VoiceLevelSwitch,
   VoiceTools,
   type VoiceTool,
+  MicFaultPanel,
 } from "@/components/friday/VoiceControlBar";
 import { ConfirmationCard, VoiceTranscript } from "@/components/friday/VoiceTranscript";
 
@@ -369,6 +370,8 @@ export function AutoMode() {
   ];
   const shownTools = voiceBarFit(barWidth, tools.length);
 
+  const micPanel = <MicFaultPanel onRetry={() => assistantMode.fixVoice()} />;
+
   // The microphone state and Stop everything are on this bar at every level.
   const bar = (
     <div
@@ -605,12 +608,14 @@ export function AutoMode() {
           // Transcript: the control bar alone, no graphic and no circuit.
           <div className="hud-panel voice-glass relative flex shrink-0 flex-col rounded-lg">
             {bar}
+            {micPanel}
           </div>
         ) : (
           /* Stage: the real live graphic, bigger. HUD and stats are flex rows
              (same tokens as the old overlays) so they never sit on the boxes. */
           <div className="hud-panel relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
             {bar}
+            {micPanel}
 
             <div className="relative min-h-0 flex-1 overflow-hidden">
               <NeuralCircuit large onSelectNode={selectCircuitNode} />
