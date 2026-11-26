@@ -332,6 +332,33 @@ describe("low confidence asks one short question instead of acting", () => {
     expect(brain.send("   ", { turn: { confidence: 0.1 } }).reason).toBe("empty");
   });
 
+  it("never speaks a heard secret back: sensitive or digit-run lines get the question without the echo", () => {
+    const secret = brain.send("my password is hunter2", { turn: { lang: "en", confidence: 0.2 } });
+    expect(secret.reason).toBe("clarify");
+    expect(secret.message).toContain("I didn't catch that clearly");
+    expect(secret.message).not.toContain("hunter2");
+    vi.advanceTimersByTime(CLARIFY_WINDOW_MS + 1);
+    const pin = brain.send("my pin is 4821", { turn: { lang: "en", confidence: 0.2 } });
+    expect(pin.reason).toBe("clarify");
+    expect(pin.message).not.toContain("4821");
+    vi.advanceTimersByTime(CLARIFY_WINDOW_MS + 1);
+    const hindi = brain.send("मेरा पासवर्ड hunter2 है secret is hunter2", {
+      turn: { lang: "hi-en", confidence: 0.2 },
+    });
+    expect(hindi.reason).toBe("clarify");
+    expect(hindi.message).toContain("मुझे ठीक से सुनाई नहीं दिया");
+    expect(hindi.message).not.toContain("hunter2");
+    const digits = clarificationLine(cleanTurnHints({ lang: "hi" }), "मेरा नंबर 9 8 7 6 5 है");
+    expect(digits).not.toMatch(/\d/);
+    expect(digits).toContain("मुझे ठीक से सुनाई नहीं दिया");
+    expect(clarificationLine(cleanTurnHints({ lang: "en" }), "call 12 now")).toContain(
+      "call 12 now",
+    );
+    expect(
+      clarificationLine(cleanTurnHints({ lang: "en" }), "hello", { echo: false }),
+    ).not.toContain("hello");
+  });
+
   it("the question echoes a long line only in part", () => {
     const long = "word ".repeat(60).trim();
     const message = clarificationLine(cleanTurnHints({ lang: "en" }), long);

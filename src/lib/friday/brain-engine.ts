@@ -1773,7 +1773,11 @@ class BrainStore {
       const now = Date.now();
       if (this.clarifiedAt === null || now - this.clarifiedAt >= CLARIFY_WINDOW_MS) {
         this.clarifiedAt = now;
-        return { accepted: false, reason: "clarify", message: clarificationLine(hints, text) };
+        return {
+          accepted: false,
+          reason: "clarify",
+          message: clarificationLine(hints, text, { echo: !looksSensitive(text) }),
+        };
       }
     }
     this.clarifiedAt = null;

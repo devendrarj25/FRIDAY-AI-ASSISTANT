@@ -94,13 +94,25 @@ export function needsClarification(
   return hints.confidence < bar;
 }
 
-/** One short question in the owner's language: what was heard, and a request to say it again. */
-export function clarificationLine(hints: TurnHints | null, heard: string): string {
+/** A run of four or more digits (spaces or dashes between them allowed): a PIN, code or number, never echoed. */
+const DIGIT_RUN = /\d(?:[\s-]?\d){3,}/;
+
+/**
+ * One short question in the owner's language: what was heard, and a request to say it again. The line is
+ * spoken aloud, so `echo: false` (the caller found it sensitive) or a digit run leaves the quote out.
+ */
+export function clarificationLine(
+  hints: TurnHints | null,
+  heard: string,
+  options: { echo?: boolean } = {},
+): string {
   const trimmed = String(heard ?? "")
     .replace(/\s+/g, " ")
     .trim();
-  const echo =
-    trimmed.length > HEARD_ECHO_CHARS
+  const quote = options.echo !== false && !DIGIT_RUN.test(trimmed);
+  const echo = !quote
+    ? ""
+    : trimmed.length > HEARD_ECHO_CHARS
       ? `${trimmed.slice(0, HEARD_ECHO_CHARS).trimEnd()}…`
       : trimmed;
   const hindi = hints?.lang === "hi" || hints?.lang === "hi-en";
