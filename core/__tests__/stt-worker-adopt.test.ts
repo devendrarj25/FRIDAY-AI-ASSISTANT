@@ -340,7 +340,7 @@ describe("cancel, score, idle release and shutdown ride the same module", () => 
     const turn = stt.transcribe({ audioBytes: WAV, localOnly: true });
     turn.catch(() => {});
     await settle();
-    const out = await stt.scoreInWorker("clip.wav");
+    const out = await stt.scoreInWorker(WAV);
     expect(out).toEqual({ ok: true, ready: false, probability: null, reason: "busy" });
     expect(r.sent("score-turn")).toHaveLength(0);
   });
@@ -351,7 +351,7 @@ describe("cancel, score, idle release and shutdown ride the same module", () => 
       msg.op === "score-turn"
         ? { id: msg.id, ok: true, ready: true, probability: 0.8, reason: "eot" }
         : undefined;
-    const out = await stt.scoreInWorker("clip.wav");
+    const out = await stt.scoreInWorker(WAV);
     expect(out).toEqual({ ok: true, ready: true, probability: 0.8, reason: "eot" });
   });
 

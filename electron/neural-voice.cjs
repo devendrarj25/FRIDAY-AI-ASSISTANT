@@ -28,7 +28,7 @@ const { resolvePython } = require("./python.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { classify } = require("./privacy-firewall.cjs");
 const { trackOwned } = require("./app-lifecycle.cjs");
-const { createVoiceWorker } = require("./voice-worker.cjs");
+const { createVoiceWorker, childEnv } = require("./voice-worker.cjs");
 
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
 
@@ -63,7 +63,14 @@ function run(exe, args, timeout = 60000) {
     execFile(
       exe,
       args,
-      { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      {
+        timeout,
+        windowsHide: true,
+        maxBuffer: 8 * 1024 * 1024,
+        env: childEnv(process.env, {
+          FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
+        }),
+      },
       (error, stdout, stderr) =>
         resolve({
           ok: !error,
@@ -1126,6 +1133,7 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "", 
 }
 
 module.exports = {
+  run,
   status,
   normaliseFridayVoiceStatus,
   fridayVoiceStatus,

@@ -24,7 +24,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { trackOwned } = require("./app-lifecycle.cjs");
-const { createVoiceWorker } = require("./voice-worker.cjs");
+const { createVoiceWorker, childEnv } = require("./voice-worker.cjs");
 const paths = require("./friday-paths.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { resolvePython } = require("./python.cjs");
@@ -439,7 +439,9 @@ function run(exe, args, timeout = 120000) {
         maxBuffer: 8 * 1024 * 1024,
         // Never the program folder: a child that stands in it keeps it alive after an uninstall.
         cwd: os.tmpdir(),
-        env: { ...process.env, FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" },
+        env: childEnv(process.env, {
+          FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
+        }),
       },
       (error, stdout, stderr) =>
         resolve({
@@ -2238,7 +2240,7 @@ function turnAudioBuffer(req = {}) {
  * the plain pause than held for a score). Null means no worker is up, and the one-shot process answers as before.
  * The module's own busy view counts as well as this file's requests: a score never sits in a queue.
  */
-async function scoreInWorker(file, session = worker) {
+async function scoreInWorker(clip, session = worker) {
   // A worker that is still loading is not "no worker": the plain pause closes the turn, no one-shot process starts.
   if (session === worker && getVoiceWorker().status().state === "starting") {
     return { ok: true, ready: false, probability: null, reason: "busy" };
@@ -2256,13 +2258,14 @@ async function scoreInWorker(file, session = worker) {
     return { ok: true, ready: false, probability: null, reason: "busy" };
   }
   try {
-    const parsed = await workerRequest(session, { op: "score-turn", audio: file }, 20000);
+    const audioB64 = Buffer.from(clip).toString("base64");
+    const parsed = await workerRequest(session, { op: "score-turn", audioB64 }, 20000);
     if (!parsed || typeof parsed !== "object" || parsed.reason === "unknown-op") return null;
     return {
       ok: true,
       ready: Boolean(parsed.ready),
       probability: typeof parsed.probability === "number" ? parsed.probability : null,
-      reason: String(parsed.reason || ""),
+      reason: scrubPaths(String(parsed.reason || "")),
     };
   } catch {
     return null;
@@ -2291,37 +2294,11 @@ async function scoreTurn(req = {}) {
   }
   const bytes = turnAudioBuffer(req);
   if (!bytes.length) return { ok: true, ready: false, probability: null, reason: "no-audio" };
-  const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
-  const file = path.join(audioDir(), `${crypto.randomBytes(8).toString("hex")}.${ext}`);
-  try {
-    fs.writeFileSync(file, bytes);
-  } catch (error) {
-    return { ok: true, ready: false, probability: null, reason: String(error?.message || error) };
-  }
-  try {
-    const warm = await scoreInWorker(file);
-    if (warm) return warm;
-    const py = await python();
-    if (!py) return { ok: true, ready: false, probability: null, reason: "no-python" };
-    const runtime =
-      require("./resource-paths.cjs").resolveResourceFile("kernel/voice_runtime.py") ||
-      path.join(__dirname, "..", "kernel", "voice_runtime.py");
-    const probe = await run(py[0], [...py[1], runtime, "--score", "--audio", file], 12000);
-    const parsed = parse(probe.stdout);
-    if (!parsed) return { ok: true, ready: false, probability: null, reason: "no score" };
-    return {
-      ok: true,
-      ready: Boolean(parsed.ready),
-      probability: typeof parsed.probability === "number" ? parsed.probability : null,
-      reason: parsed.reason || "",
-    };
-  } finally {
-    try {
-      fs.rmSync(file, { force: true });
-    } catch {
-      /* cache sweep removes it */
-    }
-  }
+  // The clip rides to the warm worker as bytes (no file). A cold worker is skipped: a fresh interpreter with its
+  // imports costs one to three seconds, longer than the plain pause it would improve on.
+  const warm = await scoreInWorker(bytes);
+  if (warm) return warm;
+  return { ok: true, ready: false, probability: null, skipped: "cold", reason: "cold" };
 }
 
 let whisperSession = null;
@@ -2478,6 +2455,7 @@ module.exports = {
   scoreInWorker,
   workerCacheOf,
   scoreTurn,
+  run,
   turnAudioBuffer,
   sweep,
   shutdown,

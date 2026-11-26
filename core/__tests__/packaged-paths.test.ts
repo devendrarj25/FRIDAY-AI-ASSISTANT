@@ -153,7 +153,8 @@ describe("the modules that used to miss the packaged kernel now find it", () => 
       'resolveResourceFile("kernel/document_ocr.py")',
     );
     expect(read("electron/kernel-tool-run.cjs")).toContain('resolveResourceDir("kernel")');
-    expect(read("electron/stt.cjs")).toContain('resolveResourceFile("kernel/voice_runtime.py")');
+    // The end-of-turn score runs in the warm worker; the bridge no longer starts voice_runtime.py itself.
+    expect(read("electron/stt.cjs")).not.toMatch(/__dirname[^\n]*voice_runtime/);
     expect(read("electron/mcp-catalog.cjs")).toContain('resolveResourceFile("kernel/tools.py")');
     expect(read("electron/mcp-server.cjs")).toContain('resolveResourceFile("docs/FRIDAY_MCP.md")');
   });

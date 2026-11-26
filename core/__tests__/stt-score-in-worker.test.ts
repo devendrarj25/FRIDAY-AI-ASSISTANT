@@ -30,7 +30,7 @@ describe("a score never kills a worker that is still loading", () => {
     turn.catch(() => {});
     await settle();
     expect(r.sent("load")).toHaveLength(1);
-    const out = await stt.scoreInWorker("clip.wav");
+    const out = await stt.scoreInWorker(WAV);
     expect(out).toEqual({ ok: true, ready: false, probability: null, reason: "busy" });
     expect(r.sent("score-turn")).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(30000);
@@ -45,7 +45,7 @@ describe("a score never kills a worker that is still loading", () => {
     reload.catch(() => {});
     await settle();
     expect(r.sent("load")).toHaveLength(2);
-    const out = await stt.scoreInWorker("clip.wav");
+    const out = await stt.scoreInWorker(WAV);
     expect(out?.reason).toBe("busy");
     expect(r.sent("score-turn")).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(25000);
@@ -59,9 +59,12 @@ describe("a score never kills a worker that is still loading", () => {
       msg.op === "score-turn"
         ? { id: msg.id, ready: true, probability: 0.9, reason: "ok" }
         : undefined;
-    const out = await stt.scoreInWorker("clip.wav");
+    const out = await stt.scoreInWorker(WAV);
     expect(out).toEqual({ ok: true, ready: true, probability: 0.9, reason: "ok" });
-    expect(r.sent("score-turn")[0]).toMatchObject({ op: "score-turn", audio: "clip.wav" });
+    expect(r.sent("score-turn")[0]).toMatchObject({
+      op: "score-turn",
+      audioB64: Buffer.from(WAV).toString("base64"),
+    });
   });
 
   it("a status check during the first load starts no probe process and no ping", async () => {
@@ -95,7 +98,7 @@ describe("a score never kills a worker that is still loading", () => {
 describe("scoring a turn in the running worker", () => {
   const stt = read("electron/stt.cjs");
   const fn =
-    /async function scoreInWorker\(file, session = worker\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
+    /async function scoreInWorker\(clip, session = worker\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
 
   it("asks the worker for the score-turn op and never starts a worker just to score", () => {
     expect(fn).toContain('op: "score-turn"');
@@ -114,16 +117,18 @@ describe("scoring a turn in the running worker", () => {
     expect(fn).toMatch(/state === "starting"[\s\S]*?reason: "busy"/);
   });
 
-  it("falls back to the one-shot process when the worker is down, does not know the op, or fails", () => {
+  it("skips a cold worker or an old one that does not know the op: no one-shot process is started", () => {
     expect(fn).toContain('parsed.reason === "unknown-op"');
     expect(fn).toMatch(/catch \{\s*return null;/);
     const score = /async function scoreTurn\(req = \{\}\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
-    expect(score.indexOf("scoreInWorker(file)")).toBeGreaterThan(0);
-    expect(score.indexOf("scoreInWorker(file)")).toBeLessThan(score.indexOf('"--score"'));
+    expect(score).toContain("scoreInWorker(bytes)");
+    expect(score).toContain('skipped: "cold"');
+    expect(score).not.toContain('"--score"');
+    expect(score).not.toContain("writeFileSync");
   });
 
   it("is a request with its own long deadline, so a slow answer is not a hung worker", () => {
-    expect(fn).toMatch(/workerRequest\(session, \{ op: "score-turn", audio: file \}, 20000\)/);
+    expect(fn).toMatch(/workerRequest\(session, \{ op: "score-turn", audioB64 \}, 20000\)/);
   });
 });
 

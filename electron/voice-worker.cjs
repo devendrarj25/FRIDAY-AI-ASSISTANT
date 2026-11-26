@@ -612,4 +612,4 @@ function createVoiceWorker(options) {
   return { ensure, request, status, stop, onExit };
 }
 
-module.exports = { createVoiceWorker, VoiceWorkerError, STDERR_RING_BYTES };
+module.exports = { createVoiceWorker, VoiceWorkerError, STDERR_RING_BYTES, childEnv };

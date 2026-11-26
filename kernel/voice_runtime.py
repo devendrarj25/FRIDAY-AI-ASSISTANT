@@ -1229,12 +1229,38 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
 MAX_SCORE_BYTES = 8 * 1024 * 1024
 
 
+def _inline_pcm(encoded: str):
+    """Float samples from a base64 16 kHz mono 16-bit clip (a RIFF header is skipped), or None. Never raises."""
+    try:
+        import base64
+
+        import numpy as np
+
+        raw = base64.b64decode(encoded, validate=True)
+        if len(raw) > MAX_SCORE_BYTES:
+            return None
+        if raw[:4] == b"RIFF":
+            raw = raw[44:]
+        raw = raw[: len(raw) // 2 * 2]
+        if not raw:
+            return None
+        return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    except Exception:
+        return None
+
+
 def score_turn_payload(req: dict) -> dict:
     """Worker op ``score-turn``: the end-of-turn probability of the clip at ``audio``. Never raises, whatever arrives.
 
     The same answer as ``--score``, from a process that already holds the model, so a turn is scored in about
     a tenth of a second instead of a fresh interpreter start.
     """
+    inline = req.get("audioB64") if isinstance(req, dict) else None
+    if isinstance(inline, str) and inline:
+        samples = _inline_pcm(inline)
+        if samples is None:
+            return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
+        return score_turn(samples, 16000)
     audio = req.get("audio") if isinstance(req, dict) else None
     if not isinstance(audio, str) or not audio or len(audio) > 1024 or "\x00" in audio:
         return {"ok": True, "ready": False, "probability": None, "reason": "no audio"}
