@@ -358,11 +358,11 @@ describe("speakText through the raw sample path (real module, fake devices)", ()
     },
   });
 
-  it("is off by default: nothing asks the raw sample op and the file path plays", async () => {
+  it("is on by default, and turned off nothing asks the raw sample op and the file path plays", async () => {
     g.window = bridge();
-    preferences.update({ voice: { ...DEFAULT_PREFERENCES.voice } });
-    expect(DEFAULT_PREFERENCES.voice.pcmPlayback).toBe(false);
-    expect(DEFAULT_PREFERENCES.voice.fastFirstClause).toBe(false);
+    expect(DEFAULT_PREFERENCES.voice.pcmPlayback).toBe(true);
+    expect(DEFAULT_PREFERENCES.voice.fastFirstClause).toBe(true);
+    preferences.update({ voice: { ...DEFAULT_PREFERENCES.voice, pcmPlayback: false } });
     await lib.speakText("Hello there my friend.", tuning);
     expect(asked).toEqual([]);
     expect(wavAsked).toHaveLength(1);
@@ -711,8 +711,8 @@ describe("wiring of the two opt-in settings (source-pinned; the live path cannot
     const prefs = source("src/lib/friday/preferences.ts");
     expect(prefs).toMatch(/fastFirstClause: boolean;/);
     expect(prefs).toMatch(/pcmPlayback: boolean;/);
-    expect(prefs).toMatch(/fastFirstClause: false,/);
-    expect(prefs).toMatch(/pcmPlayback: false,/);
+    expect(prefs).toMatch(/fastFirstClause: true,/);
+    expect(prefs).toMatch(/pcmPlayback: true,/);
     const registry = source("src/lib/friday/flow-registry.gen.ts");
     expect(registry).toContain('"voice.fastFirstClause"');
     expect(registry).toContain('"voice.pcmPlayback"');

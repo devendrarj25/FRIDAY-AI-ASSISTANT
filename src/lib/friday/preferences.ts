@@ -320,9 +320,9 @@ export type VoicePreferences = {
   pauseDuringCalls: boolean;
   /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
   realtimeExperiment: boolean;
-  /** Opt-in: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
+  /** On by default: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
   fastFirstClause: boolean;
-  /** Opt-in: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file. */
+  /** On by default: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file; the first failure turns it off for the session and speech goes on through the file path. */
   pcmPlayback: boolean;
   /** Warm the speech, voice, turn and brain engines once when Auto mode opens the microphone. Changes no audio. */
   prewarm: boolean;
@@ -562,8 +562,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     privacyMode: false,
     pauseDuringCalls: true,
     realtimeExperiment: false,
-    fastFirstClause: false,
-    pcmPlayback: false,
+    fastFirstClause: true,
+    pcmPlayback: true,
     prewarm: true,
     trimHistoryToPlayed: true,
     tasks: { ...DEFAULT_VOICE_TASK_PREFS },
