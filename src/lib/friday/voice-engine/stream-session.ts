@@ -614,6 +614,10 @@ export class TurnTracker {
   /** Eager endpoints seen, and how many of them the owner then continued past (the log of a wrong guess). */
   eagers = 0;
   resumes = 0;
+  /** Voiced milliseconds the ear had counted when it last ended a turn; null until one ended. Kept across turns. */
+  lastEndMs: number | null = null;
+  /** The newest room tag the ear sent, kept across turns for the Doctor row. A tag only, never an authority. */
+  lastEnv: TurnEnv | null = null;
 
   constructor(private readonly eager: () => boolean = () => false) {}
 
@@ -642,7 +646,12 @@ export class TurnTracker {
     this.lastAt = now;
     if (turn.event !== "end" && turn.event !== "revised") this.lastSpeechAt = now;
     else if ((turn.speechMs ?? 0) > 0) this.lastSpeechAt = now;
-    if (turn.env) this.env = turn.env;
+    if (turn.env) {
+      this.env = turn.env;
+      this.lastEnv = turn.env;
+    }
+    if (turn.event === "end" && typeof turn.speechMs === "number" && turn.speechMs >= 0)
+      this.lastEndMs = turn.speechMs;
     if (turn.speaker) this.speaker = turn.speaker;
     if (turn.clipped) this.clipped = true;
     if (turn.event === "eager") {

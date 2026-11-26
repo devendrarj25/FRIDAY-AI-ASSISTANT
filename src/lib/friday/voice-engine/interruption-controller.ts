@@ -469,6 +469,21 @@ export function interruptedPlayedMs(
   return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null;
 }
 
+/**
+ * Where an echo-clean voice signal can come from: the streaming ear (its turn events are on the cleaned signal) or
+ * the echo canceller running with its reference. With neither, the ladder has nothing to listen to.
+ */
+export type EchoCleanSource = { streaming: boolean; echoReference: boolean };
+
+/** The ladder is effective only when an echo-clean source exists; otherwise the plain interrupt gate rules. */
+export const echoCleanSourceLive = (source: EchoCleanSource | null | undefined): boolean =>
+  source ? source.streaming || source.echoReference : false;
+
+/** The reference canceller counts only while it is on, attached to the player and has really cancelled frames. */
+export const echoReferenceRunning = (
+  echo: { enabled: boolean; attached: boolean; cancelledFrames: number } | null | undefined,
+): boolean => Boolean(echo && echo.enabled && echo.attached && echo.cancelledFrames > 0);
+
 export type LadderInput = {
   /** Milliseconds from any monotonic clock. */
   t: number;

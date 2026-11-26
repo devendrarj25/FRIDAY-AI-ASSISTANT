@@ -14,6 +14,9 @@
 
 import { captureRate } from "./mic-session";
 import { preferences } from "./preferences";
+import { echoDiagnostics } from "./voice-engine/echo-live";
+import { echoReferenceRunning } from "./voice-engine/interruption-controller";
+import { streamWanted } from "./voice-engine/stream-session";
 import {
   cleanedLevel,
   markWorklet,
@@ -358,12 +361,52 @@ export function noteStreamDenoise(report: unknown): void {
   };
 }
 
+let earsTurn: NonNullable<EarsStats["turn"]> | null = null;
+let earsScene: NonNullable<EarsStats["scene"]> | null = null;
+
+/**
+ * What the stream turn path has counted so far, from the conductor's turn tracker: the early endpoints and how many
+ * the owner spoke past, the speech length at the last end, and the newest room tag. Counts and a tag only.
+ */
+export function noteEarsTurn(report: {
+  lastEndMs: number | null;
+  eager: number;
+  resumed: number;
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
+}): void {
+  const count = (v: number): number => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  earsTurn = {
+    lastEndMs:
+      typeof report.lastEndMs === "number" && Number.isFinite(report.lastEndMs)
+        ? report.lastEndMs
+        : null,
+    eager: count(report.eager),
+    resumed: count(report.resumed),
+  };
+  earsScene =
+    report.scene && Number.isFinite(report.scene.score)
+      ? { kind: report.scene.kind, score: report.scene.score }
+      : earsScene;
+}
+
 /** What the Doctor and Settings can show as measured: the live front end while the microphone runs, the last stream gate. */
 export function earsStatsNow(): EarsStats | null {
   const live = workletCapturing();
-  if (!live && !streamVad && !streamDenoise) return null;
+  // Only while the barge-in ladder is on: whether it has an echo-clean voice signal to act on (see BargeLadder).
+  const bargeSource = preferences.getSnapshot().voice.interruptGate.ladder === true;
+  if (!live && !streamVad && !streamDenoise && !earsTurn && !earsScene && !bargeSource) return null;
   const fe = frontEndStats();
   return {
+    ...(bargeSource
+      ? {
+          bargeSource: {
+            streaming: streamWanted(preferences.getSnapshot().voice.streamEngine),
+            echoReference: echoReferenceRunning(echoDiagnostics()),
+          },
+        }
+      : {}),
+    ...(earsTurn ? { turn: earsTurn } : {}),
+    ...(earsScene ? { scene: earsScene } : {}),
     ...(streamVad ? { vad: { engine: streamVad, p: null, speechMs: null } } : {}),
     ...(streamDenoise ? { denoise: streamDenoise } : {}),
     ...(live

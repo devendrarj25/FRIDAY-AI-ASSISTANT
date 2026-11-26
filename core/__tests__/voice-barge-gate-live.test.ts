@@ -554,11 +554,18 @@ function earTurn(event: string, text = "", turnId = "t1") {
 }
 
 describe("the barge-in ladder on the live conductor (opt-in)", () => {
+  // The ladder rules only with an echo-clean source: here the streaming ear is the source.
   beforeEach(() => {
-    preferences.setVoice({ interruptGate: { enabled: true, ladder: true } as never });
+    preferences.setVoice({
+      interruptGate: { enabled: true, ladder: true } as never,
+      streamEngine: "auto",
+    });
   });
   afterEach(() => {
-    preferences.setVoice({ interruptGate: { enabled: true, ladder: false } as never });
+    preferences.setVoice({
+      interruptGate: { enabled: true, ladder: false } as never,
+      streamEngine: "off",
+    });
   });
 
   it("is off unless the owner chose it", () => {
@@ -658,6 +665,61 @@ describe("the barge-in ladder on the live conductor (opt-in)", () => {
     }
     expect(library.stops).toBe(0);
     expect(stopCalls).toEqual([]);
+  });
+});
+
+describe("the barge-in ladder without an echo-clean source falls back to the plain gate", () => {
+  beforeEach(() => {
+    // The shipped defaults: streaming ear off, no echo reference.
+    preferences.setVoice({
+      interruptGate: { enabled: true, ladder: true } as never,
+      streamEngine: "off",
+    });
+    // Ear events of an earlier case must not read as echo-clean speech in this one (the fake clock repeats).
+    (d as unknown as { turnTracker: { lastSpeechAt: number } }).turnTracker.lastSpeechAt =
+      Number.NEGATIVE_INFINITY;
+  });
+  afterEach(() => {
+    preferences.setVoice({ interruptGate: { enabled: true, ladder: false } as never });
+  });
+
+  it("the old gate decides: her volume goes down at once and talking over her still works", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    expect(library.duck).toEqual([true]);
+    run(1000);
+    partial("ruko ek minute");
+    run(200);
+    expect(library.stops).toBeGreaterThanOrEqual(1);
+  });
+
+  it("never resumes her while the owner's voice is still on the line, past the ladder's 2 s", () => {
+    speech = true;
+    d.beginInterruptCandidate();
+    run(2600);
+    // Her volume is never put back while the voice goes on: the plain gate escalates (pauses or stops her).
+    expect(library.duck).toEqual([true]);
+    expect(library.stops + stopCalls.length).toBeGreaterThan(0);
+  });
+
+  it("with a source live the ladder rules again: no duck at the first sound", () => {
+    preferences.setVoice({ streamEngine: "auto" });
+    speech = true;
+    d.beginInterruptCandidate();
+    run(300);
+    expect(library.duck).toEqual([]);
+  });
+
+  it("echo-cleaned speech that goes on is never resumed at 2 s", () => {
+    preferences.setVoice({ streamEngine: "auto" });
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 2600; spent += 50) {
+      earTurn("partial", "", "t1");
+      vi.advanceTimersByTime(50);
+    }
+    expect(library.duck).not.toContain(false);
+    expect(d.interruptGate.active).toBe(true);
   });
 });
 

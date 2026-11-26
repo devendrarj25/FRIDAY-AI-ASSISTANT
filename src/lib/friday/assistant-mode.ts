@@ -23,6 +23,7 @@
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
 import { brain, type QuickAnswer } from "./brain-engine";
+import type { TurnHints } from "./brain/turn-hints";
 import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
@@ -185,6 +186,8 @@ import {
   BargeInDetector,
   BargeLadder,
   BargeShadow,
+  echoCleanSourceLive,
+  echoReferenceRunning,
   InterruptGate,
   interruptedPlayedMs,
   sanitizeInterruptGate,
@@ -271,6 +274,7 @@ import {
 import {
   EMPTY_MIC_STATUS,
   listAudioDevices,
+  noteEarsTurn,
   noteMicHolders,
   probeMicrophone,
   voiceGate,
@@ -694,6 +698,8 @@ class AssistantModeStore {
    * open) and only replaces who rules on it.
    */
   private bargeLadder = new BargeLadder();
+  /** The current interrupt candidate is ruled by the ladder (it is on and an echo-clean source exists). */
+  private gateLadder = false;
   /**
    * The turn protocol of the streaming ear: eager endpoints start (and resumes cancel) the Brain's text-only draft,
    * and the facts of the ended turn travel with its final text as a `TurnRecord`. Nothing here approves anything.
@@ -835,6 +841,10 @@ class AssistantModeStore {
   private ackEcho = { text: "", until: 0 };
   /** Requests heard while a turn ran; each runs once the one before has finished and been spoken. */
   private queuedCommands: string[] = [];
+  /** The language hints captured with a queued request, so it replays with its own and not the latest turn's. */
+  private readonly queuedHints = new Map<string, TurnHints>();
+  /** While a stored command is replayed, the hints captured WITH it; the replaying utterance's own never apply. */
+  private replayTurn: { hints: TurnHints | undefined } | null = null;
   private queueTimer: ReturnType<typeof setInterval> | null = null;
   private partialText = "";
   private partialAt = 0;
@@ -958,6 +968,7 @@ class AssistantModeStore {
       brain.stop();
       this.gateSleep("stopped");
       this.queuedCommands = [];
+      this.queuedHints.clear();
       this.stopQueueTimer();
       this.state.pending = null;
       this.pendingHeard = null;
@@ -1408,6 +1419,13 @@ class AssistantModeStore {
         this.planTurnDraft(action.text, now);
       }
     }
+    // The Doctor's turn-taking and room rows read these counts; they are tags and numbers, never a gate.
+    noteEarsTurn({
+      lastEndMs: this.turnTracker.lastEndMs,
+      eager: this.turnTracker.eagers,
+      resumed: this.turnTracker.resumes,
+      scene: this.turnTracker.lastEnv,
+    });
   }
 
   /**
@@ -1863,7 +1881,7 @@ class AssistantModeStore {
   /** What the speech model said about the last utterance: how sure it was of the words and the language. */
   private lastHeardQuality: HeardQuality | null = null;
   /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
-  private pendingHeard: { command: string; at: number } | null = null;
+  private pendingHeard: { command: string; at: number; turn?: TurnHints | undefined } | null = null;
   /** When she last read words back: she does not do it twice in a row. */
   private lastReadBackAt = 0;
 
@@ -1954,8 +1972,7 @@ class AssistantModeStore {
 
   /** The echo reference is cleaning the microphone frames right now (it is on, attached and has cleaned some). */
   private echoReferenceLive(): boolean {
-    const echo = echoDiagnostics();
-    return echo.enabled && echo.attached && echo.cancelledFrames > 0;
+    return echoReferenceRunning(echoDiagnostics());
   }
 
   /** The wake turned out wrong (her own voice, or nothing followed): she sleeps and stays quiet for a while. */
@@ -2303,6 +2320,7 @@ class AssistantModeStore {
     this.soak.stop(Date.now());
     // Nothing from this Auto session may survive into the next one: queued requests, a paused reply, a spent wake.
     this.queuedCommands = [];
+    this.queuedHints.clear();
     this.stopQueueTimer();
     this.liveWakeAt = 0;
     this.translateTo = null;
@@ -3576,8 +3594,19 @@ class AssistantModeStore {
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
-        // A yes confirms what was HEARD. A consequential command still has to be approved as an action.
-        this.routeCommand(readBack.command);
+        // A yes confirms what was HEARD. A consequential command still has to be approved as an action. The command
+        // replays with the hints it was heard with, minus the doubt the read-back already settled; the yes's own
+        // language and score never speak for it.
+        const heardWith = readBack.turn
+          ? { ...readBack.turn, confidence: null, clipped: false }
+          : undefined;
+        const priorReplay = this.replayTurn;
+        this.replayTurn = { hints: heardWith };
+        try {
+          this.routeCommand(readBack.command);
+        } finally {
+          this.replayTurn = priorReplay;
+        }
         return;
       }
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "no")) {
@@ -3858,6 +3887,7 @@ class AssistantModeStore {
     if (this.isStopHeard(text, wake.matched)) {
       this.trace("wake", "stop word — cancelling speech and the in-flight turn");
       this.queuedCommands = [];
+      this.queuedHints.clear();
       this.stopQueueTimer();
       markTurnStage("routed", true, "", "stop word");
       this.cancelSpeech();
@@ -3943,6 +3973,9 @@ class AssistantModeStore {
     if (doubtful && !sensitive && !askedLately) {
       const ask = heardQuestion(command);
       this.pendingHeard = { command, at: Date.now() };
+      // The hints this command was heard with go with it, so a later yes cannot speak for it (see replayWith).
+      const heardTurn = this.turnHints();
+      if (heardTurn) this.pendingHeard.turn = heardTurn;
       this.lastReadBackAt = Date.now();
       markTurnStage("routed", false, "read back — waiting for a yes");
       this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
@@ -4338,7 +4371,7 @@ class AssistantModeStore {
         if (decision.kind === "queue") {
           // She keeps working and keeps talking: the new request is heard, answered with a
           // short acknowledgement, and done right after this one.
-          this.queuedCommands.push(command);
+          this.queueCommand(command);
           this.remember("busy-queue", command, "queued behind the running turn");
           this.drainQueuedCommands();
         } else {
@@ -4388,7 +4421,7 @@ class AssistantModeStore {
       result = brain.send(command, payload);
       if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
         this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
-        this.queuedCommands.push(command);
+        this.queueCommand(command);
         this.remember("busy-queue", command, "queued behind the background task");
         this.drainQueuedCommands();
         const line = "Noted. That is next, once the background task is done.";
@@ -4484,10 +4517,30 @@ class AssistantModeStore {
       const next = this.queuedCommands.shift();
       if (!this.queuedCommands.length) this.stopQueueTimer();
       if (next) {
+        const queuedWith = this.queuedHints.get(next);
+        this.queuedHints.delete(next);
         this.ackTurnKind = "control"; // a request that waited is not followed by an instant acknowledgement
-        this.dispatch(next);
+        this.replayWith(queuedWith, () => this.dispatch(next));
       }
     }, 700);
+  }
+
+  /** Queue a request together with the hints it was heard with (see replayWith). */
+  private queueCommand(command: string) {
+    this.queuedCommands.push(command);
+    const hints = this.turnHints();
+    if (hints) this.queuedHints.set(command, hints);
+  }
+
+  /** Run a replay of a stored command with the hints captured with it, or none: never the current utterance's. */
+  private replayWith(hints: TurnHints | undefined, run: () => void) {
+    const before = this.replayTurn;
+    this.replayTurn = { hints };
+    try {
+      run();
+    } finally {
+      this.replayTurn = before;
+    }
   }
 
   private stopQueueTimer() {
@@ -4756,7 +4809,10 @@ class AssistantModeStore {
     if (!fresh) return;
     this.gateText = "";
     this.gatePlayed = this.heardOfReply();
-    const ladder = this.ladderOn();
+    // The ladder rules only with an echo-clean source; with none (the shipped defaults) the plain gate decides,
+    // so talking over her still works. Fixed for this candidate: a source that appears later waits for the next.
+    const ladder = this.ladderOn() && this.echoCleanSourceNow();
+    this.gateLadder = ladder;
     if (ladder) {
       // The ladder ducks at 150 ms of echo-cleaned speech, not at the first sound of any voice.
       this.bargeLadder.begin(Date.now());
@@ -4788,6 +4844,7 @@ class AssistantModeStore {
     this.gateTimer = null;
     this.interruptGate.end();
     this.bargeLadder.end();
+    this.gateLadder = false;
     this.gateText = "";
     this.gatePlayed = null;
     if (this.gateLiveWords) {
@@ -4823,6 +4880,17 @@ class AssistantModeStore {
   }
 
   /**
+   * An echo-clean voice signal exists: the streaming ear is on (its turn events are on the cleaned signal) or the echo
+   * canceller runs with its reference. Without one the ladder could never hear the owner, so it must not rule.
+   */
+  private echoCleanSourceNow(): boolean {
+    return echoCleanSourceLive({
+      streaming: streamWanted(preferences.getSnapshot().voice.streamEngine),
+      echoReference: this.echoReferenceLive(),
+    });
+  }
+
+  /**
    * The owner's voice is on the echo-cleaned signal: the ear's turn events say so, or the echo canceller is running
    * with its reference. The level test against the speaker (`BargeInDetector`) never counts as this.
    */
@@ -4833,7 +4901,7 @@ class AssistantModeStore {
 
   /** Who rules on the candidate: the ladder when it is on, the backchannel gate otherwise. */
   private judgeCandidate(input: GateInput): GateVerdict {
-    if (!this.ladderOn()) return this.interruptGate.evaluate(input);
+    if (!this.gateLadder) return this.interruptGate.evaluate(input);
     const verdict = this.bargeLadder.evaluate({
       t: input.t,
       echoCleanedSpeech: input.final === true ? false : this.echoCleanedSpeech(),
@@ -5818,7 +5886,8 @@ class AssistantModeStore {
   }
 
   /** The five language and confidence hints of the heard turn for the Brain. Never the speaker or the room. */
-  private turnHints() {
+  private turnHints(): TurnHints | undefined {
+    if (this.replayTurn) return this.replayTurn.hints;
     const t = this.turnRecord;
     if (!t) return undefined;
     return {

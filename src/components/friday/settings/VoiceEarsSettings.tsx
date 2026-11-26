@@ -18,6 +18,7 @@ import {
 } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { bargeInRow, earsRows, type EarsStats } from "@/lib/friday/voice-diagnostics-rows";
+import { echoCleanSourceLive } from "@/lib/friday/voice-engine/interruption-controller";
 
 type StatsState =
   | { phase: "loading" }
@@ -99,6 +100,7 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
 
   const gate = prefs.voice.interruptGate;
   const ladderOn = gate.ladder === true;
+  const barge = state.phase === "ready" ? (state.stats?.bargeSource ?? null) : null;
   const rows = useMemo(() => {
     const stats = state.phase === "ready" ? state.stats : null;
     return [...earsRows(ears, stats), bargeInRow(gate, stats)];
@@ -166,6 +168,13 @@ export function VoiceEarsSettings({ readStats }: { readStats?: () => Promise<Ear
           on={ladderOn}
           onToggle={() => preferences.setVoice({ interruptGate: { ...gate, ladder: !ladderOn } })}
         />
+        <p className="pb-2 text-meta-sm text-muted-foreground">
+          Needs the streaming ear or the echo reference to hear you over her own voice. Without one,
+          the plain interrupt gate decides.
+          {ladderOn && barge && !echoCleanSourceLive(barge)
+            ? " Right now neither is running, so the plain gate is deciding."
+            : ""}
+        </p>
       </div>
 
       <p className="label-xs text-muted-foreground">Mixed Hindi-English</p>

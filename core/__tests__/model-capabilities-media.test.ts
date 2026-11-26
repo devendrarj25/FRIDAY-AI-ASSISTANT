@@ -108,9 +108,9 @@ describe("Nemotron: chat models stay chat, the streaming ear stays audio", () =>
     "%s is a chat model",
     (id) => {
       const c = of(id);
-      expect(c.registryId).not.toBe("audio");
-      expect(c.chat).not.toBe(false);
-      expect(c.tools).not.toBe(false);
+      expect(c["registryId"]).not.toBe("audio");
+      expect(c["chat"]).not.toBe(false);
+      expect(c["tools"]).not.toBe(false);
       expect(cloudKindOf(c)).not.toBe("Audio");
     },
   );
@@ -118,8 +118,8 @@ describe("Nemotron: chat models stay chat, the streaming ear stays audio", () =>
     "%s is audio",
     (id) => {
       const c = of(id);
-      expect(c.chat).toBe(false);
-      expect(["audio", "speech-to-text"]).toContain(c.registryId);
+      expect(c["chat"]).toBe(false);
+      expect(["audio", "speech-to-text"]).toContain(c["registryId"]);
     },
   );
 });

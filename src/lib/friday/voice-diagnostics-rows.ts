@@ -2,6 +2,7 @@ import type { GovernorStatus, HardwareFacts, SttWorkerCache, VoiceBudget } from 
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
 import type { VoiceEarsPrefs } from "./preferences";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
+import { echoCleanSourceLive, type EchoCleanSource } from "./voice-engine/interruption-controller";
 import type { WakeGuardSnapshot } from "./wake-guard";
 
 /** One read-only diagnostics row in the shape the Voice diagnostics list already uses. */
@@ -399,6 +400,8 @@ export type EarsStats = {
     reason?: string;
   } | null;
   scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
+  /** Whether an echo-clean voice signal exists for the barge-in ladder; filled only while the ladder is on. */
+  bargeSource?: EchoCleanSource | null;
 };
 
 /** `ok` and `off` are fine, `absent` was not measured, `bad` is a measured problem. */
@@ -588,7 +591,20 @@ export function bargeInRow(
     return { id, label, state: "off", value: "off · plain interrupt gate (the default)" };
   }
   const turn = stats?.turn;
-  if (!turn || !finite(turn.eager) || turn.eager <= 0) {
+  const counted = turn && finite(turn.eager) && turn.eager > 0 ? turn : null;
+  const counts = counted
+    ? `${counted.eager} early, ${counted.resumed} resumed (${Math.round((Math.max(0, counted.resumed) / counted.eager) * 100)}% resumed)`
+    : "";
+  if (stats?.bargeSource && !echoCleanSourceLive(stats.bargeSource)) {
+    // The ladder needs a voice signal with FRIDAY's own sound taken out; without one the plain gate decides.
+    return {
+      id,
+      label,
+      state: "absent",
+      value: `on, but not active · ${absent("it needs the streaming ear or the echo reference, and neither is running")} · for now the plain interrupt gate decides when you talk over her${counts ? ` · ${counts}` : ""}`,
+    };
+  }
+  if (!counted) {
     return {
       id,
       label,
@@ -596,11 +612,10 @@ export function bargeInRow(
       value: `on · duck, then stop · ${absent("no early turn has been counted yet")}`,
     };
   }
-  const ratio = Math.round((Math.max(0, turn.resumed) / turn.eager) * 100);
   return {
     id,
     label,
     state: "ok",
-    value: `on · duck, then stop · ${turn.eager} early, ${turn.resumed} resumed (${ratio}% resumed)`,
+    value: `on · duck, then stop · ${counts}`,
   };
 }
