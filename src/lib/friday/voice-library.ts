@@ -976,6 +976,19 @@ function getPcmPlayer(): PcmClipPlayer {
 }
 
 /**
+ * The one sample player of the page, for a short line made in advance (the instant acknowledgement). It sounds through
+ * the same context and the same echo reference tap as the reply, so the microphone is cleaned against it too. Null
+ * when this window has no audio context.
+ */
+export function sharedPcmPlayer(): PcmClipPlayer | null {
+  try {
+    return getPcmPlayer();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The light Hindi voice (setting `voice.hindiLightVoice`). The Models page is the source of what is installed; the
  * probe is replaceable so a test can answer without a models store. One line says when a clause asked for it and
  * another voice spoke (or it is switched on but not downloaded): `hindiLightNote`, never silent.
