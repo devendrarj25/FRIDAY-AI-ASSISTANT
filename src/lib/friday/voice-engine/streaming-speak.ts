@@ -16,6 +16,7 @@ import type { desktopApi } from "../desktop";
 import { StageClock } from "./latency-monitor";
 import { ProgressiveAudio, progressiveSupported, type MediaImpl } from "./progressive-audio";
 import { createStreamingTts, type StreamingTtsOptions } from "./sarvam-streaming-tts";
+import { stripDeliveryTags } from "./delivery-tags";
 import type { VoiceTtsEvent } from "./voice-contracts";
 
 type Api = NonNullable<ReturnType<typeof desktopApi>>;
@@ -33,6 +34,30 @@ export type SpeakResult = {
    */
   release?: () => void;
 };
+
+/** Which rule cuts the next clause of a reply that is being spoken as it is written. */
+export type ClauseRule = "first" | "underrun" | "sentence";
+
+/**
+ * The first clause of a reply is cut short (the first-clause rule, 4 to 8 words) when the owner asked for the fast
+ * start. A later clause is cut short the same way when the speaker is close to running dry (`underrunRisk`) and
+ * nothing else is waiting to be said: a short clause now is better than a pause, and the audio is never stretched.
+ * Otherwise a clause is a whole sentence.
+ */
+export function pickClauseRule(input: {
+  /** Nothing of this reply has been handed to the voice yet. */
+  firstOfReply: boolean;
+  /** The owner's fast-first-clause setting. */
+  fastFirst: boolean;
+  /** `playbackPressure().underrunRisk`. */
+  underrunRisk: boolean;
+  /** Lines already waiting in the speech queue. */
+  queued: number;
+}): ClauseRule {
+  if (input.firstOfReply) return input.fastFirst ? "first" : "sentence";
+  return input.underrunRisk && input.queued === 0 ? "underrun" : "sentence";
+}
+
 type RestSpeak = (provider: string, request: SpeakRequest) => Promise<SpeakResult>;
 
 /** A bulbul:v4-flash persona id looks like name_lang_style (aparna_hi_customer); older short names do not. */
@@ -166,7 +191,9 @@ export function createStreamingSpeak(deps: {
   }
 
   return {
-    async speak(provider: string, request: SpeakRequest): Promise<SpeakResult> {
+    async speak(provider: string, asked: SpeakRequest): Promise<SpeakResult> {
+      // A cloud voice would read a delivery tag aloud: the words only, whatever the text says.
+      const request = { ...asked, text: stripDeliveryTags(asked.text) };
       const speaker = request.speaker ?? "";
       if (provider !== "sarvam" || !isV4Persona(speaker) || !deps.api?.voiceStreamOpen)
         return deps.rest(provider, request);

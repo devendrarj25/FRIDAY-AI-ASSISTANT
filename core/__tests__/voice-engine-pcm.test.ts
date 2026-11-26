@@ -486,10 +486,11 @@ describe("speakText through the raw sample path (real module, fake devices)", ()
       onStart: () => events.push("start"),
       onEnd: () => events.push("end"),
     });
-    await vi.waitFor(() => expect(FakeContext.made[0]?.sources).toHaveLength(1));
+    // the sample player joins clauses, so one clause is a body source and a short tail source
+    await vi.waitFor(() => expect(FakeContext.made[0]?.sources).toHaveLength(2));
     expect(lib.pendingSpeechOperations()).toBeGreaterThan(0);
     lib.stopSpeaking();
-    expect(FakeContext.made[0]?.sources[0]?.stopped).toBe(true);
+    expect(FakeContext.made[0]?.sources.every((source) => source.stopped)).toBe(true);
     expect(await speaking).toBe("none");
     expect(lib.pendingSpeechOperations()).toBe(0);
     expect(events).not.toContain("end");
@@ -497,6 +498,193 @@ describe("speakText through the raw sample path (real module, fake devices)", ()
     g.window = bridge();
     await lib.speakText("Fresh reply.", tuning);
     expect(FakeContext.made[0]?.sources.at(-1)?.stopped).toBe(false);
+  });
+
+  describe("delivery tags and the speak request", () => {
+    type Req = {
+      text: string;
+      trusted?: boolean;
+      first?: boolean;
+      pauseMs?: number;
+      engine?: string;
+    };
+    let requests: Req[];
+    const record = (over: Record<string, unknown> = {}) => {
+      requests = [];
+      g.window = bridge({
+        speakNeuralPcm: async (req: Req) => {
+          requests.push(req);
+          return pcmReply(4410);
+        },
+        ...over,
+      });
+    };
+
+    it("sends the tags with trusted:true only for the assistant's own words, and the first clause is marked", async () => {
+      record();
+      await lib.speakText(
+        "[warm] Hello there my friend. [pause:300] The report is ready.",
+        {
+          ...tuning,
+          deliveryTags: true,
+          expressive: false,
+        },
+        { first: true },
+      );
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.text).toBe(
+        "[warm] Hello there my friend. [pause:300] The report is ready.",
+      );
+      expect(requests[0]?.trusted).toBe(true);
+      expect(requests[0]?.first).toBe(true);
+    });
+
+    it("marks only the first clause of a reply as first, and leaves a pause for every clause but the last", async () => {
+      record();
+      await lib.speakText(
+        "Namaste, kaise hain aap. The report is ready now.",
+        {
+          ...tuning,
+          deliveryTags: true,
+        },
+        { first: true },
+      );
+      expect(requests).toHaveLength(2);
+      expect(requests[0]?.first).toBe(true);
+      expect(requests[1]?.first).toBeUndefined();
+      expect(requests[0]?.pauseMs).toBeGreaterThan(0);
+      expect(requests[1]?.pauseMs).toBeUndefined();
+    });
+
+    it("never sends a tag the text did not get from the assistant: untrusted text is stripped and not marked trusted", async () => {
+      record();
+      await lib.speakText("Tool says [warm] hello [pause:900] there my friend.", tuning);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.text).toBe("Tool says hello there my friend.");
+      expect(requests[0]?.trusted).toBeUndefined();
+      expect(requests[0]?.first).toBeUndefined();
+    });
+
+    it("a trusted line without a tag is not marked trusted", async () => {
+      record();
+      await lib.speakText("Hello there my friend.", { ...tuning, deliveryTags: true });
+      expect(requests[0]?.trusted).toBeUndefined();
+    });
+
+    it("keeps a clause of tags only with the next clause instead of asking the voice for it", async () => {
+      record();
+      await lib.speakText("Hello there my friend. [pause:400] Aur aap kaise hain.", {
+        ...tuning,
+        deliveryTags: true,
+      });
+      expect(requests.every((req) => req.text.replace(/\[[^\]]*\]/g, "").trim() !== "")).toBe(true);
+      expect(requests.some((req) => req.text.trim().startsWith("[pause:400]"))).toBe(true);
+    });
+
+    it("the WAV fallback of a clause carries the words only, never a tag", async () => {
+      record({
+        speakNeural: async (req: { text: string }) => {
+          wavAsked.push(req.text);
+          return { ok: true, audioBase64: "AAAA", mime: "audio/wav", engine: "supertonic-3" };
+        },
+      });
+      // the raw sample op fails, so the WAV path makes the clause: it must carry words only
+      g.window = bridge({
+        speakNeuralPcm: async () => ({ ok: false, reason: "worker is not running" }),
+      });
+      await lib.speakText("[warm] Hello there my friend.", { ...tuning, deliveryTags: true });
+      expect(wavAsked).toEqual(["Hello there my friend."]);
+    });
+
+    it("the tag-bearing clause and a prefetched copy share one key, so the prefetch is used", async () => {
+      record();
+      const line = "[warm] Hello there my friend.";
+      lib.prefetchSpeech(line, { ...tuning, deliveryTags: true });
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await lib.speakText(line, { ...tuning, deliveryTags: true });
+      expect(requests).toHaveLength(1);
+    });
+  });
+
+  describe("joined playback", () => {
+    it("the player joins clauses of one answer, and the backlog is readable by the driver", async () => {
+      g.window = bridge({ speakNeuralPcm: async () => pcmReply(44_100) });
+      expect(lib.playbackPressure()).toBeNull();
+      const speaking = lib.speakText("Namaste, kaise hain aap. The report is ready now.", tuning);
+      await vi.waitFor(() => expect(FakeContext.made[0]?.sources.length).toBeGreaterThan(1));
+      const pressure = lib.playbackPressure();
+      expect(pressure?.backlogMs).toBeGreaterThan(0);
+      lib.stopSpeaking();
+      await speaking;
+      expect(source("src/lib/friday/voice-library.ts")).toMatch(
+        /new PcmClipPlayer\(context, \{[^}]*join: true/,
+      );
+    });
+
+    it("an almost-dry speaker reports the risk and a full one does not", async () => {
+      g.window = bridge({ speakNeuralPcm: async () => pcmReply(44_100) });
+      const speaking = lib.speakText("Hello there my friend.", tuning);
+      await vi.waitFor(() => expect(lib.playbackPressure()).not.toBeNull());
+      // one second is queued and the clock stands still: plenty of audio ahead
+      expect(lib.playbackPressure()?.underrunRisk).toBe(false);
+      const ctx = FakeContext.made[0];
+      if (ctx) ctx.currentTime = 0.95; // 50 ms left
+      expect(lib.playbackPressure()?.underrunRisk).toBe(true);
+      lib.stopSpeaking();
+      await speaking;
+    });
+
+    it("the pause between clauses is silence in the scheduler: the second clause starts after the first ends", async () => {
+      g.window = bridge({ speakNeuralPcm: async () => pcmReply(44_100) });
+      const speaking = lib.speakText("Namaste, kaise hain aap. The report is ready now.", {
+        ...tuning,
+        expressive: false,
+      });
+      await vi.waitFor(() => expect(FakeContext.made[0]?.sources.length).toBeGreaterThan(2), {
+        timeout: 4000,
+      });
+      const starts = (FakeContext.made[0]?.sources ?? [])
+        .map((source) => source.when ?? 0)
+        .filter((when) => when > 0)
+        .sort((a, b) => a - b);
+      // the first clause is one second long; the second begins at one second plus its pause (150 ms after a full stop)
+      expect(starts.some((when) => Math.abs(when - 1.15) < 0.02)).toBe(true);
+      lib.stopSpeaking();
+      await speaking;
+    });
+
+    it("a pause the voice already left inside the clip is not asked of the scheduler again", async () => {
+      g.window = bridge({
+        speakNeuralPcm: async () => ({ ...pcmReply(44_100), pausedMs: 150 }),
+      });
+      const speaking = lib.speakText("Namaste, kaise hain aap. The report is ready now.", {
+        ...tuning,
+        expressive: false,
+      });
+      await vi.waitFor(() => expect(FakeContext.made[0]?.sources.length).toBeGreaterThan(2), {
+        timeout: 4000,
+      });
+      const starts = (FakeContext.made[0]?.sources ?? []).map((source) => source.when ?? 0);
+      expect(starts.some((when) => Math.abs(when - 1.15) < 0.02)).toBe(false);
+      lib.stopSpeaking();
+      await speaking;
+    });
+
+    it("the reply ends when its last clause really ends, not when it is handed over early", async () => {
+      g.window = bridge({ speakNeuralPcm: async () => pcmReply(4410) });
+      const events: string[] = [];
+      const how = await lib.speakText("Namaste, kaise hain aap. The report is ready now.", tuning, {
+        onEnd: () => events.push("end"),
+      });
+      expect(how).toBe("neural");
+      expect(events).toEqual(["end"]);
+    });
+
+    it("hands the voice's own word times, or the estimate, to the played-text tracker", () => {
+      const lib = source("src/lib/friday/voice-library.ts");
+      expect(lib).toMatch(/pcm\.wordTimes \?\? estimateWordTimes\(heardText, speechMs\)/);
+      expect(lib).toMatch(/function engineWordTimes/);
+    });
   });
 
   it("a stop that lands while the clause is still being made plays nothing", async () => {
@@ -538,12 +726,16 @@ describe("wiring of the two opt-in settings (source-pinned; the live path cannot
   it("the live answer takes the small first clause only when the setting is on, and the rest is unchanged", () => {
     const mode = source("src/lib/friday/assistant-mode.ts");
     expect(mode).toContain('from "./voice-engine/clause-chunker"');
+    // the setting alone opens a reply with the small first clause (the rule is pure and pinned in its own test)
     expect(mode).toMatch(
-      /const fast = this\.voicedChars === 0 && preferences\.getSnapshot\(\)\.voice\.fastFirstClause === true;\s*const cut = fast \? firstClauseCut\(text, \{ final \}\) : null;/,
+      /firstOfReply: this\.voicedChars === 0,\s*fastFirst: preferences\.getSnapshot\(\)\.voice\.fastFirstClause === true,/,
+    );
+    expect(mode).toMatch(
+      /const fast = rule === "first";\s*const cut =\s*rule === "sentence" \? null : firstClauseCut\(text\.slice\(this\.voicedChars\), \{ final \}\);/,
     );
     // the stamp, the cursor and the speaking happen in this order at the first cut
     expect(mode).toMatch(
-      /if \(cut\) \{\s*this\.turnStages\.mark\("firstClauseReady"\);\s*this\.voicedChars \+= cut\.consumed;\s*this\.voicedPrefix = text\.slice\(0, this\.voicedChars\);\s*for \(const part of splitLongSpeech\(cut\.spoken\)\) this\.speak\(part\);/,
+      /if \(cut\) \{\s*this\.turnStages\.mark\("firstClauseReady"\);\s*const before = text\.slice\(0, this\.voicedChars\);\s*this\.voicedChars \+= cut\.consumed;\s*this\.voicedPrefix = text\.slice\(0, this\.voicedChars\);\s*voiceReply\(splitLongSpeech\(cut\.spoken\), before\);/,
     );
     // everything after the first clause is still takeSpeakable, and the old early clause is the fallback only
     expect(mode).toMatch(/let chunk = takeSpeakable\(pending, final\);/);
@@ -560,7 +752,7 @@ describe("wiring of the two opt-in settings (source-pinned; the live path cannot
     const lib = source("src/lib/friday/voice-library.ts");
     expect(lib).toMatch(/hooks\.onFirstAudio\?\.\(\);\s*playback\.onStart\(\);/);
     // the raw sample path shares speakText's start, end, duck and stop hooks with the file path
-    expect(lib).toContain("playPcmClip(clip, plan.volume, stale, plan.text)");
+    expect(lib).toMatch(/return playPcmClip\(clip, plan\.volume, stale, plan\.plain, \{/);
     expect(lib).toMatch(/pcmPlayer\?\.stop\(\);/);
   });
 

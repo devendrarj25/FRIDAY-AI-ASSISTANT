@@ -158,6 +158,130 @@ export function keepForSpeech(text: string): string {
   });
 }
 
+/** A `[` with no `]` yet is held back from the screen while it is shorter than this (it may be a tag still arriving). */
+export const OPEN_TAG_HOLD_CHARS = 40;
+
+/**
+ * `stripDeliveryTags` for a reply that is still arriving. The text is the whole reply so far, so a tag split across
+ * two chunks is whole by the time it is read. An unfinished `[...` at the end (no `]`, under `OPEN_TAG_HOLD_CHARS`)
+ * is held back until it closes or grows past the limit; once the reply is over, call `stripDeliveryTags`.
+ */
+export function stripDeliveryTagsLive(raw: string): string {
+  if (!raw || !raw.includes("[")) return raw;
+  const at = raw.lastIndexOf("[");
+  const tail = raw.slice(at);
+  const held = !tail.includes("]") && tail.length <= OPEN_TAG_HOLD_CHARS;
+  return stripDeliveryTags(held ? raw.slice(0, at) : raw);
+}
+
+/** A kept tag and where it sat: the number of non-space characters of the stripped text before it. */
+export type TagAnchor = { at: number; tag: string };
+
+const squash = (text: string): string => text.replace(/\s+/g, "");
+
+/**
+ * The canonical tags of a tagged reply, each anchored to the stripped text by the count of non-space characters
+ * before it. Stripping only moves white space, so the anchors still fit the text that was shown (and cut into
+ * sentences) on screen.
+ */
+export function tagAnchors(raw: string): TagAnchor[] {
+  if (!raw || !raw.includes("[")) return [];
+  const out: TagAnchor[] = [];
+  let cursor = 0;
+  let count = 0;
+  for (const found of findTags(raw).filter(isDeliveryShaped)) {
+    count += squash(raw.slice(cursor, found.start)).length;
+    cursor = found.end;
+    const tag = canonicalTag(found.word, found.arg);
+    if (tag) out.push({ at: count, tag });
+  }
+  return out;
+}
+
+/**
+ * The anchors of `script` when its stripped words are the words of `shown` (or start with them, while the reply is
+ * still arriving); none when the shown text was rewritten after the model wrote it, so no tag lands in a wrong place.
+ */
+export function alignedAnchors(script: string, shown: string): TagAnchor[] {
+  if (!script || !script.includes("[")) return [];
+  const words = squash(stripDeliveryTags(script));
+  const have = squash(shown);
+  return have && words.startsWith(have) ? tagAnchors(script) : [];
+}
+
+/**
+ * Put the tags back into one piece of the shown text. `base` is the count of non-space characters before the piece
+ * in the whole shown reply; a tag at the very start belongs to the piece, a tag at its end to the next piece (to
+ * this one when `last`).
+ */
+export function reinsertTags(
+  piece: string,
+  base: number,
+  anchors: readonly TagAnchor[],
+  last = false,
+): string {
+  const size = squash(piece).length;
+  const mine = anchors.filter(
+    (a) => a.at >= base && (a.at < base + size || (last && a.at <= base + size)),
+  );
+  if (!mine.length) return piece;
+  let out = "";
+  let from = 0;
+  let seen = 0;
+  const cut = (until: number): number => {
+    // The index in `piece` after `until` non-space characters.
+    let i = from;
+    while (i < piece.length && seen < until) {
+      if (!/\s/.test(piece[i] ?? "")) seen += 1;
+      i += 1;
+    }
+    return i;
+  };
+  let group: string[] = [];
+  let groupAt = -1;
+  const flush = (end: number) => {
+    if (!group.length) return;
+    const before = piece.slice(from, end).replace(/\s+$/, "");
+    const rest = piece.slice(end).replace(/^\s+/, "");
+    out += `${before}${before ? " " : ""}${group.join(" ")}${rest ? " " : ""}`;
+    from = piece.length - rest.length;
+    group = [];
+  };
+  for (const anchor of mine) {
+    if (anchor.at !== groupAt) {
+      if (group.length) flush(cut(groupAt - base));
+      groupAt = anchor.at;
+    }
+    group.push(anchor.tag);
+  }
+  if (group.length) flush(cut(groupAt - base));
+  return out + piece.slice(from);
+}
+
+/** The number of non-space characters of a text: the unit the anchors count in. */
+export function wordChars(text: string): number {
+  return squash(text).length;
+}
+
+/**
+ * `reinsertTags` for the pieces one cut of the shown reply was split into (`before` is the shown text before the
+ * cut). The pieces keep their order, so each one starts where the one before it ended.
+ */
+export function reinsertParts(
+  parts: readonly string[],
+  before: string,
+  anchors: readonly TagAnchor[],
+  last = false,
+): string[] {
+  if (!anchors.length) return [...parts];
+  let base = wordChars(before);
+  return parts.map((part, index) => {
+    const out = reinsertTags(part, base, anchors, last && index === parts.length - 1);
+    base += wordChars(part);
+    return out;
+  });
+}
+
 /** Where a line of text came from. Only the assistant's own voice-mode text may carry delivery tags. */
 export type DeliveryOrigin = {
   author: "assistant" | "user" | "tool" | "web" | "file" | "other";

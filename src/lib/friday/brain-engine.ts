@@ -96,6 +96,7 @@ import { appendTraceStep, completeRunningStep, type TurnTraceStep } from "./brai
 import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
 import { openingLine, type SocialContext, voiceModeBlock } from "./conversation-style";
+import { stripDeliveryTags, stripDeliveryTagsLive } from "./voice-engine/delivery-tags";
 import { recallArc } from "./conversation-arc";
 import { userProfileDigest, vocative } from "./brain/user-profile";
 import { conversationSight } from "./conversation-sight";
@@ -596,6 +597,8 @@ const UPDATE_POLL_MS = 30 * 60_000;
 const UPDATE_STALE_MS = 120_000;
 const MAX_LOG = 160;
 const MAX_RUNS = 12;
+/** How many runs keep the text the model wrote with its delivery tags (the speech path reads it after the run ends). */
+const RAW_ANSWERS_KEPT = 16;
 
 let seq = 0;
 const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
@@ -896,6 +899,10 @@ class BrainStore {
   /** When the owner was last asked to repeat a low-confidence line; the next turn within the window is taken as heard. */
   private clarifiedAt: number | null = null;
   private quickListeners = new Set<(answer: QuickAnswer) => void>();
+  /** Runs of a spoken turn: only their text may carry delivery tags, and only for the speech path. */
+  private voiceRuns = new Set<string>();
+  /** What the model wrote for the latest runs, tags and all. The screen, memory and history only ever get the stripped text. */
+  private rawAnswers = new Map<string, string>();
   /** The four chat stream handlers, so a draft that is adopted can replay what it already heard. */
   private chatHandlers: Partial<{
     [K in DraftEvent["kind"]]: (event: Extract<DraftEvent, { kind: K }>["event"]) => void;
@@ -1095,14 +1102,15 @@ class BrainStore {
     window.friday.onSessionMessage?.((event) => {
       if (!event?.text?.trim() || event.origin !== "phone") return;
       const from: Message["role"] = event.role === "user" ? "user" : "friday";
+      const line = from === "friday" ? stripDeliveryTags(event.text) : event.text;
       const last = this.state.messages[this.state.messages.length - 1];
-      if (last && last.role === from && last.text === event.text) return; // already shown
+      if (last && last.role === from && last.text === line) return; // already shown
       this.state.messages = [
         ...this.state.messages,
         {
           id: nextId("msg"),
           role: from,
-          text: event.text,
+          text: line,
           at: Date.now(),
           ...(event.role === "user" ? { via: "phone" as const } : {}),
         },
@@ -1119,21 +1127,27 @@ class BrainStore {
       this.armWatchdog();
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (!run) return;
+      // The whole reply so far, tags and all: a tag split across two chunks is whole once it is read, and an
+      // unfinished `[...` waits off screen until it closes. What is shown, kept and remembered has no tags.
+      const raw = this.noteRaw(
+        run,
+        event.replace ? String(event.text || "") : (this.rawAnswers.get(run.id) ?? "") + event.text,
+      );
+      const shown = stripDeliveryTagsLive(raw);
       const current = this.state.messages.find(
         (message) => message.runId === run.id && message.role === "friday",
       );
       if (current) {
-        const nextText = event.replace ? String(event.text || "") : current.text + event.text;
         this.state.messages = this.state.messages.map((message) =>
-          message.id === current.id ? { ...message, text: nextText } : message,
+          message.id === current.id ? { ...message, text: shown } : message,
         );
       } else {
         this.state.messages = [
           ...this.state.messages,
-          { id: nextId("msg"), role: "friday", text: event.text, at: Date.now(), runId: run.id },
+          { id: nextId("msg"), role: "friday", text: shown, at: Date.now(), runId: run.id },
         ];
       }
-      run.answer = event.replace ? String(event.text || "") : run.answer + event.text;
+      run.answer = shown;
       if (event.modelId) {
         const buffer = this.streamBuffers.get(event.modelId) ?? { text: "", at: Date.now() };
         buffer.text += event.text;
@@ -1190,6 +1204,7 @@ class BrainStore {
         return;
       }
       applyDesktopPhase(run, "finish", "conversation saved");
+      this.flushAnswer(run);
       run.stages.forEach((stage) => {
         if (stage.state !== "skipped") stage.state = "done";
       });
@@ -1306,7 +1321,8 @@ class BrainStore {
   }
 
   /** Rewrites the reply already shown for this run, in place. */
-  private replaceAnswer(run: Run, text: string) {
+  private replaceAnswer(run: Run, written: string) {
+    const text = stripDeliveryTags(written);
     run.answer = text;
     const index = [...this.state.messages]
       .reverse()
@@ -1316,6 +1332,36 @@ class BrainStore {
     this.state.messages = this.state.messages.map((message, i) =>
       i === target ? { ...message, text } : message,
     );
+  }
+
+  /**
+   * Keep what the model wrote for this run, tags and all (latest runs only), and say which runs are spoken ones.
+   * Returns the text unchanged.
+   */
+  private noteRaw(run: Run, raw: string): string {
+    this.rawAnswers.delete(run.id);
+    this.rawAnswers.set(run.id, raw);
+    for (const id of [...this.rawAnswers.keys()].slice(0, -RAW_ANSWERS_KEPT)) {
+      this.rawAnswers.delete(id);
+      this.voiceRuns.delete(id);
+    }
+    return raw;
+  }
+
+  /** The reply has ended: show the whole of it (an unfinished `[...` that never closed is text, not a tag). */
+  private flushAnswer(run: Run) {
+    const raw = this.rawAnswers.get(run.id);
+    if (raw === undefined) return;
+    const text = stripDeliveryTags(raw);
+    if (text !== run.answer) this.replaceAnswer(run, text);
+  }
+
+  /**
+   * What the model wrote for a spoken run, tags included, for the speech path only (the screen never gets it).
+   * Empty for a typed run, and for a run whose shown text was rewritten after the model wrote it.
+   */
+  deliveryScript(runId: string): string {
+    return this.voiceRuns.has(runId) ? (this.rawAnswers.get(runId) ?? "") : "";
   }
 
   /**
@@ -1471,12 +1517,14 @@ class BrainStore {
     run.agents.forEach((agent) => {
       if (agent.state === "queued" || agent.state === "running") agent.state = "failed";
     });
+    this.flushAnswer(run);
     const settled = settleInterrupted(run.answer, error);
     if (!(settled.keep && settled.text == null)) {
-      const text =
+      const text = stripDeliveryTags(
         shown ??
-        settled.text ??
-        failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 });
+          settled.text ??
+          failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 }),
+      );
       if (settled.keep) {
         this.replaceAnswer(run, text);
         const shown = this.state.messages.some(
@@ -1801,7 +1849,7 @@ class BrainStore {
       replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user",
     );
     // A spoken turn also gets the voice-mode block (tone, pacing, pronunciation, variety).
-    const voiceBlock = surface === "voice" ? voiceModeBlock() : "";
+    const voiceBlock = surface === "voice" ? voiceModeBlock({ deliveryTags: true }) : "";
     this.startRun(
       text,
       languageLine || voiceBlock
@@ -1879,8 +1927,10 @@ class BrainStore {
     agentIds: AgentId[],
     owner?: RunOwner,
   ): Run {
+    const runId = nextId("run");
+    if (surface === "voice") this.voiceRuns.add(runId);
     return {
-      id: nextId("run"),
+      id: runId,
       prompt: text,
       intent: found.rule.id,
       intentLabel: found.rule.label,
@@ -2473,7 +2523,7 @@ class BrainStore {
       reply = "I couldn't answer that right now; I'm still on the last task.";
     }
     const messageId = nextId("msg");
-    const spoken = reply || "I don't know that one.";
+    const spoken = stripDeliveryTags(reply) || "I don't know that one.";
     this.state.messages = [
       ...this.state.messages,
       { id: messageId, role: "friday", text: spoken, at: Date.now(), source: surface },
@@ -2580,7 +2630,7 @@ class BrainStore {
       dispatch.cognition,
       usable.map((entry) => ({ modelId: entry.modelId, text: entry.text, ok: true, ms: entry.ms })),
     );
-    const answer = result.answer || usable[0]!.text;
+    const answer = stripDeliveryTags(result.answer || usable[0]!.text);
 
     try {
       recordCollaboration({
@@ -2782,6 +2832,7 @@ class BrainStore {
       }
     }
 
+    text = stripDeliveryTags(text);
     this.state.messages = [
       ...this.state.messages,
       { id: nextId("msg"), role: "friday", text, at: Date.now(), runId: run.id },

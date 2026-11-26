@@ -88,7 +88,9 @@ describe("voice latency budget wiring", () => {
     expect(speak).toContain("tokenAt");
     expect(speak).not.toContain('mark("brainFirstToken")');
     expect(mode).toMatch(/if \(live\?\.answer\) \{\s*this\.turnStages\.mark\("brainFirstToken"\);/);
-    expect(mode).toMatch(/mark\("firstClauseReady"\);\s*this\.voicedChars \+= chunk\.consumed/);
+    expect(mode).toMatch(
+      /mark\("firstClauseReady"\);\s*const before = text\.slice\(0, this\.voicedChars\);\s*this\.voicedChars \+= chunk\.consumed/,
+    );
     expect(mode).toMatch(/this\.narrator\.begin\(\);\s*this\.turnStages\.mark\("ackArmed"\)/);
     // The acknowledgement's own first sample is stamped as ackAudible, spends a narrator line, and is never the
     // answer's first sound (playbackFirstSample stays in playSpoken's onStart only).

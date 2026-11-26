@@ -2504,6 +2504,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "angle",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "approval-required",
       file: "kernel/main.py",
     },
@@ -2514,6 +2518,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "audio",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "bandpass",
+      file: "kernel/voice_fx.py",
     },
     {
       kind: "boolean",
@@ -2580,8 +2588,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "en",
+      file: "kernel/tts_eval.py",
+    },
+    {
       kind: "energy",
       file: "kernel/stream_ear.py",
+    },
+    {
+      kind: "engine",
+      file: "kernel/tts_delivery.py",
     },
     {
       kind: "epub",
@@ -2598,6 +2614,18 @@ export const FLOW_REGISTRY = {
     {
       kind: "heading",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "hi",
+      file: "kernel/tts_eval.py",
+    },
+    {
+      kind: "highpass",
+      file: "kernel/voice_fx.py",
+    },
+    {
+      kind: "highshelf",
+      file: "kernel/voice_fx.py",
     },
     {
       kind: "html",
@@ -2628,6 +2656,14 @@ export const FLOW_REGISTRY = {
       file: "kernel/stream_ear.py",
     },
     {
+      kind: "lowpass",
+      file: "kernel/voice_fx.py",
+    },
+    {
+      kind: "lowshelf",
+      file: "kernel/voice_fx.py",
+    },
+    {
       kind: "M",
       file: "kernel/text_norm.py",
     },
@@ -2646,6 +2682,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "model-missing",
       file: "kernel/stt.py",
+    },
+    {
+      kind: "mood",
+      file: "kernel/tts_delivery.py",
     },
     {
       kind: "mp3",
@@ -2680,6 +2720,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/voice_pin_selftest.py",
     },
     {
+      kind: "pace",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "paid",
       file: "kernel/billing.py",
     },
@@ -2688,8 +2732,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "pause",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "pdf",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "peak",
+      file: "kernel/voice_fx.py",
     },
     {
       kind: "planned",
@@ -2760,6 +2812,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "tag",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "tar",
       file: "kernel/file_tools.py",
     },
@@ -2770,6 +2826,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "tdt",
       file: "kernel/nemo_ear.py",
+    },
+    {
+      kind: "text",
+      file: "kernel/tts_delivery.py",
     },
     {
       kind: "thinking",

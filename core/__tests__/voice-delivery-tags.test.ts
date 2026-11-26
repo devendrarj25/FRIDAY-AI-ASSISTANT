@@ -283,10 +283,12 @@ describe("voice-mode prompt block", () => {
 
 describe("voice-mode block wiring", () => {
   const brain = readFileSync(resolve(__dirname, "../../src/lib/friday/brain-engine.ts"), "utf8");
-  it("is added to a spoken turn only", () => {
-    expect(brain).toMatch(/surface === "voice" \? voiceModeBlock\(\) : ""/);
+  it("is added to a spoken turn only, and describes the tags", () => {
+    expect(brain).toMatch(/surface === "voice" \? voiceModeBlock\(\{ deliveryTags: true \}\) : ""/);
+    expect(brain.match(/voiceModeBlock\(/g)?.length).toBe(1);
   });
-  it("is not described with tags until the screen strips them", () => {
-    expect(brain).not.toMatch(/voiceModeBlock\(\{/);
+  it("describes the tags only because the screen strips them", () => {
+    expect(brain).toContain("stripDeliveryTagsLive(raw)");
+    expect(brain).not.toMatch(/\btext: (event|raw)\.text/);
   });
 });

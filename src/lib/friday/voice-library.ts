@@ -13,7 +13,14 @@
  */
 import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expression";
 import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
-import { PlayedTextTracker, type PlayedCut, type PlayedReply } from "./voice-engine/played-text";
+import {
+  estimateWordTimes,
+  PlayedTextTracker,
+  type PlayedCut,
+  type PlayedReply,
+  type WordTime,
+} from "./voice-engine/played-text";
+import { DELIVERY_TAG_WORDS, stripDeliveryTags } from "./voice-engine/delivery-tags";
 import { attachSpeechAudio, pulseSpeechAudio, stopSpeechAudio } from "./character/speech-audio";
 import {
   bytesToPcm16,
@@ -93,6 +100,12 @@ type VoiceBridge = {
     engine?: string;
     /** The utterance this clause belongs to; `cancelNeuralPcm` for the same id drops it (running, queued or late). */
     utt?: string;
+    /** True only for FRIDAY's own words in a spoken reply: the voice may act on the delivery tags in `text`. */
+    trusted?: boolean;
+    /** True for the first clause of a reply: the voice takes the quickest route to its first sound. */
+    first?: boolean;
+    /** Silence the voice leaves after this clause (milliseconds), so the pause lives in the clip. */
+    pauseMs?: number;
   }) => Promise<{
     ok: boolean;
     reason?: string;
@@ -104,6 +117,10 @@ type VoiceBridge = {
     voice?: string;
     sampleRate?: number;
     pcm?: ArrayLike<number> & { length: number };
+    /** The voice's own word timings for this clause, when it has them. */
+    wordTimes?: ReadonlyArray<{ word?: unknown; startMs?: unknown; endMs?: unknown }>;
+    /** The silence the voice really left after the clause (milliseconds); absent when it left none. */
+    pausedMs?: number;
   }>;
   /** Drop one utterance in the local voice (barge-in or stop). The worker keeps running. */
   cancelNeuralPcm?: (payload: { utt: string }) => Promise<{ ok: boolean; reason?: string }>;
@@ -468,14 +485,20 @@ const HINGLISH_STRONG = new Set(
 const SPOKEN_PROTECT =
   /(`[^`]*`|https?:\/\/\S+|\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b|[A-Za-z]:\\[^\s]+)/g;
 
+/** A delivery tag the assistant wrote (`[warm]`, `[pause:300]`): kept whole through the word steps below. */
+const SPOKEN_TAG = new RegExp(
+  `\\[(?:${DELIVERY_TAG_WORDS.filter((word) => word !== "pause").join("|")}|pause(?::\\d{1,4})?)\\]`,
+  "g",
+);
+
 function maskSpoken(text: string): { text: string; holes: string[] } {
   const holes: string[] = [];
-  const masked = text.replace(SPOKEN_PROTECT, (span) => {
+  const hide = (span: string) => {
     const token = `\uE000${holes.length}\uE000`;
     holes.push(span);
     return token;
-  });
-  return { text: masked, holes };
+  };
+  return { text: text.replace(SPOKEN_PROTECT, hide).replace(SPOKEN_TAG, hide), holes };
 }
 
 function unmaskSpoken(text: string, holes: string[]): string {
@@ -501,16 +524,26 @@ export function spokenClauses(text: string): Array<{ text: string; lang: string 
   const masked = maskSpoken(text);
   const clauses = masked.text.split(/(?<=[।.!?,;])\s+/).filter((part) => part.trim());
   const out: Array<{ text: string; lang: string }> = [];
+  // A clause of delivery tags only (`[pause:300]`) has no words to say: it leads the next clause instead.
+  let lead = "";
   for (const clause of clauses.length ? clauses : [masked.text]) {
     const hindi = clauseIsHinglish(clause);
     const spoken = hindi ? applyHinglishWords(clause) : clause;
     const lang = hindi ? "hi-IN" : "en-IN";
-    const restored = unmaskSpoken(spoken, masked.holes).trim();
-    if (!restored) continue;
+    const found = unmaskSpoken(spoken, masked.holes).trim();
+    if (!found) continue;
+    if (!stripDeliveryTags(found).trim()) {
+      lead = lead ? `${lead} ${found}` : found;
+      continue;
+    }
+    const restored = lead ? `${lead} ${found}` : found;
+    lead = "";
     const last = out[out.length - 1];
     if (last && last.lang === lang) last.text = `${last.text} ${restored}`;
     else out.push({ text: restored, lang });
   }
+  const tail = out[out.length - 1];
+  if (lead && tail) tail.text = `${tail.text} ${lead}`;
   return out.length ? out : [{ text: text.trim(), lang: "en-IN" }];
 }
 
@@ -904,6 +937,16 @@ export function resetPcmPlayback(): void {
   pcmPlayedLast = false;
 }
 
+/**
+ * How much scheduled speech the speaker still has, and whether it is close to running dry (an answer is open and the
+ * backlog is below the floor). Null while nothing was played through the sample player. The driver of a streamed reply
+ * hands over a shorter next clause when `underrunRisk` is true; the audio is never stretched to fill the gap.
+ */
+export function playbackPressure(): { backlogMs: number; underrunRisk: boolean } | null {
+  if (!pcmPlayer) return null;
+  return { backlogMs: pcmPlayer.backlogMs(), underrunRisk: pcmPlayer.underrunRisk };
+}
+
 function getPcmPlayer(): PcmClipPlayer {
   if (pcmPlayer) return pcmPlayer;
   const Ctor = audioContextCtor();
@@ -912,6 +955,8 @@ function getPcmPlayer(): PcmClipPlayer {
   pcmContext = context;
   if (savedSpeaker()) void routeSpeaker(context as unknown as SinkTarget);
   const created = new PcmClipPlayer(context, {
+    // Clauses of one answer join with a short equal-power overlap and the answer fades in and out: no clicks.
+    join: true,
     onLevel: (rms) => {
       // The measured loudness of the samples that are playing drives the companion's mouth.
       try {
@@ -970,6 +1015,20 @@ function pcmWanted(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | n
   );
 }
 
+/** The voice's own word timings, or null when it gave none or they are not usable (the words are then timed by weight). */
+function engineWordTimes(raw: unknown): WordTime[] | null {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const out: WordTime[] = [];
+  for (const item of raw as Array<{ word?: unknown; startMs?: unknown; endMs?: unknown }>) {
+    const startMs = Number(item?.startMs);
+    const endMs = Number(item?.endMs);
+    if (typeof item?.word !== "string" || !item.word) return null;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+    out.push({ word: item.word, startMs, endMs });
+  }
+  return out;
+}
+
 /** One clause as raw samples from the local voice; null (and a recorded reason) when it could not be made. */
 async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechClip | null> {
   pcmSeq += 1;
@@ -984,6 +1043,10 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
       seq: pcmSeq,
       utt,
       ...(plan.engine ? { engine: plan.engine } : {}),
+      // The tags travel only with FRIDAY's own words, and never to the light Hindi voice (it has no use for them).
+      ...(plan.trusted && !plan.engine ? { trusted: true } : {}),
+      ...(plan.first ? { first: true } : {}),
+      ...(plan.pauseMs > 0 ? { pauseMs: plan.pauseMs } : {}),
     }),
   ).catch((error: unknown) => ({
     ok: false,
@@ -1010,11 +1073,21 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
     return null;
   }
   const info = result as { engine?: string; voice?: string; fallback?: string };
+  const engineTimes = engineWordTimes((result as { wordTimes?: unknown }).wordTimes);
+  const paddedMs = Math.max(
+    0,
+    Math.min(plan.pauseMs, Number((result as { pausedMs?: unknown }).pausedMs) || 0),
+  );
   if (plan.engine) hindiLightSaid = hindiLightFallbackNote(info);
   return {
     audioBase64: "",
     mime: "audio/wav",
-    pcm: { samples, rate },
+    pcm: {
+      samples,
+      rate,
+      ...(engineTimes ? { wordTimes: engineTimes } : {}),
+      ...(paddedMs > 0 ? { paddedMs } : {}),
+    },
     route: {
       engine: String(info.engine || "supertonic-3"),
       voiceId: String(info.voice || ""),
@@ -1034,15 +1107,20 @@ async function playPcmClip(
   volume: number,
   stale: () => boolean,
   heardText = "",
+  options: { gapMs?: number; early?: boolean } = {},
 ): Promise<void> {
   const pcm = clip.pcm;
   if (!pcm) return;
   let playing: PcmClip;
+  let endsInMs = 0;
   try {
     const player = getPcmPlayer();
     await player.ready();
     if (stale()) return;
-    playing = player.start(pcm.samples, pcm.rate, volume);
+    // The pause before this clause is silence in the scheduler: it is never crossfaded into the clause before.
+    const gapMs = Math.max(0, Math.round(options.gapMs ?? 0));
+    playing = player.start(pcm.samples, pcm.rate, volume, gapMs > 0 ? { gapMs } : {});
+    endsInMs = player.backlogMs();
   } catch (error) {
     pcmFailed(`playback: ${String((error as Error)?.message || error)}`);
     pcmPlayedLast = false;
@@ -1058,6 +1136,9 @@ async function playPcmClip(
   }
   pcmPlayedLast = true;
   // The audio clock of the sample player says how much of the clause has been played.
+  // The voice's own word times when it gave them; otherwise the words are timed by weight over the speech itself
+  // (the pause the voice left after the clause is not speech).
+  const speechMs = Math.max(0, playing.durationMs - (pcm.paddedMs ?? 0));
   const heard = heardText
     ? playedTracker.startClip(
         heardText,
@@ -1065,21 +1146,40 @@ async function playPcmClip(
         () => ({ elapsedMs: playing.playedMs(), durMs: playing.durationMs }),
         undefined,
         playing.span,
+        pcm.wordTimes ?? estimateWordTimes(heardText, speechMs),
       )
     : null;
   return cancellable<void>((finish) => {
     let natural = false;
+    let handedOver = false;
+    let lead: ReturnType<typeof setTimeout> | null = null;
     void playing.ended.then(() => {
       natural = true;
       if (!stale()) heard?.end();
       finish();
     });
+    // With another clause waiting, hand over just before this one ends so the next is scheduled while this tail is
+    // still queued: the two join with an overlap, not a gap. The last clause is awaited to its real end.
+    if (options.early) {
+      lead = setTimeout(
+        () => {
+          handedOver = true;
+          finish();
+        },
+        Math.max(0, endsInMs - PCM_HANDOVER_LEAD_MS),
+      );
+    }
     return () => {
-      // A stop or a newer reply: cut the queue and every audible source. A clip that ended by itself is left alone.
-      if (!natural) playing.stop();
+      if (lead !== null) clearTimeout(lead);
+      // A stop or a newer reply: cut the queue and every audible source. A clip that ended by itself, or was handed
+      // over to the next one, is left alone (a stop flushes the queue anyway).
+      if (!natural && !handedOver) playing.stop();
     };
   }, undefined);
 }
+
+/** How long before the end of a clause the next one is handed to the scheduler (longer than the join overlap). */
+const PCM_HANDOVER_LEAD_MS = 160;
 
 function playWavClip(clip: SpeechClip, volume: number, heardText = ""): Promise<void> {
   pcmPlayedLast = false;
@@ -1127,6 +1227,11 @@ type SpeechTuning = {
   /** Per-clause expression. Off keeps the owner's settings exactly (the pauses stay). */
   expressive?: boolean;
   /**
+   * The text is FRIDAY's own words in a spoken reply, so its delivery tags (`[warm]`, `[pause:300]`) may shape the
+   * voice. Absent or false: every tag is removed before anything is made, whatever the text says.
+   */
+  deliveryTags?: boolean;
+  /**
    * An owner-chosen cloud speech provider (a Sarvam or Azure female Indian voice). Asked first for each clause;
    * null means "not this time" and the normal ladder takes over.
    */
@@ -1153,11 +1258,27 @@ type SpeechClip = {
   audio?: unknown;
   release?: () => void;
   /** Raw samples from the local voice (setting `voice.pcmPlayback`); played by the scheduler, not the audio element. */
-  pcm?: { samples: Int16Array; rate: number };
+  pcm?: {
+    samples: Int16Array;
+    rate: number;
+    /** The voice's own word timings, when it has them. */
+    wordTimes?: readonly WordTime[];
+    /** Milliseconds of silence the voice left at the end of the clip. */
+    paddedMs?: number;
+  };
 };
 
 type SegmentPlan = {
+  /** What the voice is asked to say. Holds delivery tags only for FRIDAY's own words (`trusted`). */
   text: string;
+  /** The same words with every delivery tag removed: what is heard, shown, sent to a cloud voice or checked. */
+  plain: string;
+  /** `text` carries delivery tags the voice may act on. */
+  trusted: boolean;
+  /** The first clause of a reply: the voice takes the quickest route to its first sound. */
+  first: boolean;
+  /** Silence left after this clause inside the clip (0 for the last clause). */
+  pauseMs: number;
   lang: string;
   cloudVoice: string;
   rate: number;
@@ -1176,8 +1297,13 @@ function planSegments(
   segments: Array<{ text: string; lang: string }>,
   tuning: SpeechTuning,
   allowCloud: boolean,
+  firstClause = false,
 ): SegmentPlan[] {
-  return segments.map((segment) => {
+  return segments.map((clause, index) => {
+    // Only FRIDAY's own words keep their tags; a tag in anything else is text to remove, never a cue.
+    const plain = stripDeliveryTags(clause.text);
+    const trusted = tuning.deliveryTags === true && plain !== clause.text;
+    const segment = { text: plain, lang: clause.lang };
     const expression =
       tuning.expressive === false
         ? {
@@ -1199,7 +1325,11 @@ function planSegments(
     });
     if (light.note) hindiLightSaid = light.note;
     return {
-      text: segment.text,
+      text: trusted ? clause.text : plain,
+      plain,
+      trusted,
+      first: firstClause && index === 0,
+      pauseMs: index < segments.length - 1 ? expression.pauseAfterMs : 0,
       lang: segment.lang,
       cloudVoice,
       rate: tone.rate,
@@ -1208,7 +1338,7 @@ function planSegments(
       pauseAfterMs: expression.pauseAfterMs,
       engine: light.use ? HINDI_LIGHT_ENGINE : "",
       key: JSON.stringify([
-        segment.text,
+        trusted ? clause.text : plain,
         segment.lang,
         cloudVoice,
         round2(tone.rate),
@@ -1251,7 +1381,7 @@ export function previewStyleToken(asked: unknown): string {
 async function cloudClipOf(plan: SegmentPlan, tuning: SpeechTuning): Promise<SpeechClip | null> {
   if (!tuning.cloudClip) return null;
   const cloud = await tuning
-    .cloudClip(plan.text, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
+    .cloudClip(plan.plain, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
     .catch(() => null);
   if (!cloud?.audioBase64 && !cloud?.audio) return null;
   return {
@@ -1286,7 +1416,7 @@ async function localClipOf(
   if (!api?.speakNeural) return null;
   const result = await api
     .speakNeural({
-      text: plan.text,
+      text: plan.plain,
       voice: plan.cloudVoice,
       rate: plan.rate,
       volume: plan.volume,
@@ -1358,12 +1488,12 @@ async function makeClip(
   order.push(localId);
   voices.push(clipVoice(TTS_INFO[localId], () => localClipOf(plan, tuning, api)));
   const out = await new TtsFallbackManager(voices, { maxAttempts: 2 }).speakOrdered(
-    { text: plan.text, lang: plan.lang },
+    { text: plan.plain, lang: plan.lang },
     {
       online: true,
       allowCloud: true,
       privacyMode: preferences.getSnapshot().voice.privacyMode === true,
-      sensitive: looksSensitive(plan.text),
+      sensitive: looksSensitive(plan.plain),
       billingAllowsPaid: false,
     },
     order,
@@ -1452,7 +1582,13 @@ export function resetPrefetchedSpeech(): void {
 export async function speakText(
   text: string,
   tuning: SpeechTuning,
-  hooks: { onStart?: () => void; onEnd?: () => void; onFirstAudio?: () => void } = {},
+  hooks: {
+    onStart?: () => void;
+    onEnd?: () => void;
+    onFirstAudio?: () => void;
+    /** This is the first clause of a reply: its voice takes the quickest route to the first sound. */
+    first?: boolean;
+  } = {},
 ): Promise<"neural" | "system" | "none"> {
   const spoken = text.trim();
   if (!spoken) return "none";
@@ -1477,8 +1613,12 @@ export async function speakText(
   const segments = spokenClauses(spoken);
   try {
     if ((api?.speakNeural || tuning.cloudClip) && neuralAllowed) {
-      const plans = planSegments(segments, tuning, allowCloud);
+      const plans = planSegments(segments, tuning, allowCloud, hooks.first === true);
       const routes: SpeechRoute[] = [];
+      // A clause played from raw samples leaves its pause to the scheduler (silence before the next clause, never
+      // crossfaded); the clause after a sample clip that was not is held back by `pauseSpeech` below.
+      const gapOwed = new Map<number, number>();
+      const viaPcm = new Set<number>();
       const outcome = await runSpeechPipeline<SegmentPlan, SpeechClip>({
         items: plans,
         synthesize: async (plan) => {
@@ -1486,12 +1626,24 @@ export async function speakText(
           if (clip) routes.push(clip.route);
           return clip;
         },
-        play: (clip, plan) =>
-          stale()
-            ? Promise.resolve()
-            : clip.pcm
-              ? playPcmClip(clip, plan.volume, stale, plan.text)
-              : playWavClip(clip, plan.volume, plan.text),
+        play: async (clip, plan, index) => {
+          if (stale()) return;
+          const owed = gapOwed.get(index) ?? 0;
+          if (clip.pcm) {
+            viaPcm.add(index);
+            const more = index < plans.length - 1;
+            // What the voice already left in the clip is not asked of the scheduler a second time.
+            if (more)
+              gapOwed.set(index + 1, Math.max(0, plan.pauseAfterMs - (clip.pcm.paddedMs ?? 0)));
+            return playPcmClip(clip, plan.volume, stale, plan.plain, {
+              gapMs: owed,
+              early: more,
+            });
+          }
+          if (owed > 0) await pauseSpeech(owed);
+          if (stale()) return;
+          return playWavClip(clip, plan.volume, plan.plain);
+        },
         stale,
         ahead: 2,
         onFirstClip: (clip) => {
@@ -1500,7 +1652,7 @@ export async function speakText(
           hooks.onFirstAudio?.();
           playback.onStart();
         },
-        gapAfter: (plan) => plan.pauseAfterMs,
+        gapAfter: (plan, index) => (viaPcm.has(index) ? 0 : plan.pauseAfterMs),
         sleep: pauseSpeech,
         // A clause made for a reply that was interrupted is never played: give its stream back.
         dispose: (clip) => clip.release?.(),
@@ -1518,7 +1670,7 @@ export async function speakText(
         // Part of the reply was already spoken: finish the rest with the system voice, once, without a second start.
         const rest = plans
           .slice(outcome.failedAt)
-          .map((plan) => plan.text)
+          .map((plan) => plan.plain)
           .join(" ");
         const finished = await speakWithSystemVoice(rest, tuning, { onEnd: playback.onEnd }, stale);
         if (!finished && !stale()) playback.onEnd();

@@ -369,7 +369,7 @@ describe("wiring (source-pinned; the speaker cannot run here)", () => {
   const voiceLibrary = source("src/lib/friday/voice-library.ts");
   it("every raw-sample clause registers its span, and the cut reads the player's clock", () => {
     expect(voiceLibrary).toMatch(
-      /startClip\(\s*heardText,\s*playing\.durationMs,[\s\S]{0,160}playing\.span,\s*\)/,
+      /startClip\(\s*heardText,\s*playing\.durationMs,[\s\S]{0,160}playing\.span,\s*pcm\.wordTimes \?\? estimateWordTimes\(heardText, speechMs\),\s*\)/,
     );
     expect(voiceLibrary).toMatch(/playedTracker\.heardAtMs\(pcmPlayer\.playedMs\(\)\)/);
     expect(voiceLibrary).toContain("export function playedReplyCut()");

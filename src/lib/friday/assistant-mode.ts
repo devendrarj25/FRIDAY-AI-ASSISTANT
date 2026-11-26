@@ -99,7 +99,13 @@ import {
 import { registerVoiceHealth, registerVoiceRepair } from "./voice-health";
 import { preferences } from "./preferences";
 import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
-import { createStreamingSpeak } from "./voice-engine/streaming-speak";
+import { createStreamingSpeak, pickClauseRule } from "./voice-engine/streaming-speak";
+import {
+  alignedAnchors,
+  reinsertParts,
+  stripDeliveryTags,
+  type TagAnchor,
+} from "./voice-engine/delivery-tags";
 import { StageClock, voiceLatency } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
@@ -134,6 +140,7 @@ import {
   pcmPlaybackNote,
   playbackEndsAt,
   playedReplyCut,
+  playbackPressure,
   playedReplySnapshot,
   prefetchSpeech,
   speakText,
@@ -639,6 +646,10 @@ type SpeakMeta = {
   sensitive?: boolean;
   done?: boolean;
   whisper?: boolean;
+  /** A reply the model wrote for this spoken turn: the only line whose delivery tags may reach the voice. */
+  reply?: boolean;
+  /** The first clause of that reply. */
+  first?: boolean;
 };
 
 type EagerSnapshot = {
@@ -775,6 +786,12 @@ class AssistantModeStore {
   private voicedChars = 0;
   /** The start of the answer that has been spoken, to tell a rewrite from more text. */
   private voicedPrefix = "";
+  /** The first clause of the reply being voiced has not been handed to the voice yet. */
+  private firstClauseDue = false;
+  /** The spoken line that is the first clause of its reply (for the voice's quickest route), until it plays. */
+  private firstLine = "";
+  /** Spoken lines that still carry delivery tags: FRIDAY's own words in a spoken reply, until each is played. */
+  private taggedLines = new Set<string>();
   /** A failed turn speaks its short line once. The partial answer is not restarted. */
   private voicedFaultFor = "";
   /** User lines already shown before the brain echoes them into captions. */
@@ -4332,6 +4349,7 @@ class AssistantModeStore {
     this.voicedRunId = "";
     this.voicedChars = 0;
     this.voicedPrefix = "";
+    this.firstClauseDue = false;
     this.to("command-accepted");
     this.state.status = "Thinking…";
     this.emit();
@@ -5137,7 +5155,7 @@ class AssistantModeStore {
       const waiting = this.arbiter
         .peek()
         .filter((row) => row.priority === "direct")
-        .map((row) => row.text);
+        .map((row) => stripDeliveryTags(row.text));
       const held = holdInterrupted([this.spokenText, ...waiting]);
       if (held) this.unfinished = held;
     }
@@ -5146,6 +5164,8 @@ class AssistantModeStore {
     // A real interruption drops what was queued to say, but an approval prompt still has to be asked.
     this.arbiter.bargeIn();
     this.arbiter.flush(["direct"]);
+    this.taggedLines.clear();
+    this.firstLine = "";
     this.bargeDetector.playbackEnded();
     this.streamSpeaker?.cancel();
     stopSpeaking();
@@ -5245,14 +5265,19 @@ class AssistantModeStore {
     // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
     // pronunciation entries win. The echo filter then compares against what is really spoken.
     const voice = preferences.getSnapshot().voice;
+    // Delivery tags survive only in the reply the model wrote for a spoken turn; every other line loses them here.
+    const tagged = meta.reply === true && this.state.mode === "auto";
     const prepared = prepareForSpeech(spoken, voice.pronunciations, {
       enabled: voice.speechPrep !== false,
       hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang),
+      ...(tagged ? { deliveryTags: true } : {}),
     });
-    if (!prepared) {
+    if (!stripDeliveryTags(prepared).trim()) {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
+    if (tagged && prepared !== stripDeliveryTags(prepared)) this.taggedLines.add(prepared);
+    if (meta.first) this.firstLine = prepared;
     // An old caller says a plain line: it is a direct answer. Task lines name their own priority. A direct line
     // is the last thing she said, so an earlier approval prompt is no longer the open question.
     if ((meta.priority ?? "direct") === "direct") this.approvalAsked = null;
@@ -5412,8 +5437,11 @@ class AssistantModeStore {
     const next = this.arbiter.peek()[0]?.text;
     if (!next || gen !== this.speechGen) return;
     try {
-      const plan = this.speakPlan(next);
-      if (plan.argTuning.kind !== "system") prefetchSpeech(next, plan.argTuning);
+      const plan = this.speakPlan(stripDeliveryTags(next));
+      const argTuning = this.taggedLines.has(next)
+        ? { ...plan.argTuning, deliveryTags: true }
+        : plan.argTuning;
+      if (plan.argTuning.kind !== "system") prefetchSpeech(next, argTuning);
     } catch {
       /* the sentence is simply made when its turn comes */
     }
@@ -6163,16 +6191,22 @@ class AssistantModeStore {
         voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
       }
     }
-    const plan = this.speakPlan(spoken);
+    const plan = this.speakPlan(stripDeliveryTags(spoken));
     const { fallen, tuning, privacy, tone } = plan;
     this.state.tts = { ...this.state.tts, engine: fallen };
     const out = outputReachable({ deviceId: "default", volume: tone.volume });
     if (!out.ok) this.state.status = out.reason;
-    this.spokenText = spoken;
+    // What she says aloud and what the echo filter compares against has no delivery tags; the voice gets them.
+    this.spokenText = stripDeliveryTags(spoken);
+    const tagged = this.taggedLines.delete(spoken);
+    const first = this.firstLine !== "" && this.firstLine === spoken;
+    if (first) this.firstLine = "";
+    const argTuning = tagged ? { ...plan.argTuning, deliveryTags: true } : plan.argTuning;
     this.openFollowUp();
     // The next sentence, if it is already waiting, is made while this one plays.
     this.prefetchNext(gen);
-    return speakText(spoken, plan.argTuning, {
+    return speakText(spoken, argTuning, {
+      ...(first ? { first: true } : {}),
       onFirstAudio: () => {
         if (gen === this.speechGen) this.turnStages.mark("ttsFirstAudioReceived");
       },
@@ -6302,6 +6336,7 @@ class AssistantModeStore {
       this.voicedRunId = runId;
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      this.firstClauseDue = true;
       // The clauses heard of an earlier reply are not part of this one.
       beginPlayedReply(runId);
     }
@@ -6316,16 +6351,37 @@ class AssistantModeStore {
       beginPlayedReply(runId, true);
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      this.firstClauseDue = true;
     }
     if (text.length < this.voicedChars) return;
-    // Fast first clause (opt-in): the first words go to the voice at once; everything after it is spoken as before.
-    const fast = this.voicedChars === 0 && preferences.getSnapshot().voice.fastFirstClause === true;
-    const cut = fast ? firstClauseCut(text, { final }) : null;
+    // The tags the model wrote for this spoken reply, put back where they stood in the words being handed to the voice
+    // (the screen text has none). Only a spoken turn in Auto mode has a script, and it must match the shown words.
+    const anchors: TagAnchor[] =
+      this.state.mode === "auto" ? alignedAnchors(brain.deliveryScript(runId), text) : [];
+    const voiceReply = (parts: string[], before: string) => {
+      for (const piece of reinsertParts(parts, before, anchors)) {
+        const first = this.firstClauseDue;
+        this.firstClauseDue = false;
+        this.speak(piece, { reply: true, ...(first ? { first: true } : {}) });
+      }
+    };
+    // Which rule cuts the next clause: the first-clause rule opens a reply fast (opt-in) and, whenever the speaker is
+    // close to running dry with nothing queued, shortens the next clause; otherwise a clause is a whole sentence.
+    const rule = pickClauseRule({
+      firstOfReply: this.voicedChars === 0,
+      fastFirst: preferences.getSnapshot().voice.fastFirstClause === true,
+      underrunRisk: playbackPressure()?.underrunRisk === true,
+      queued: this.arbiter.size(),
+    });
+    const fast = rule === "first";
+    const cut =
+      rule === "sentence" ? null : firstClauseCut(text.slice(this.voicedChars), { final });
     if (cut) {
       this.turnStages.mark("firstClauseReady");
+      const before = text.slice(0, this.voicedChars);
       this.voicedChars += cut.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);
-      for (const part of splitLongSpeech(cut.spoken)) this.speak(part);
+      voiceReply(splitLongSpeech(cut.spoken), before);
     }
     const pending = text.slice(this.voicedChars);
     let chunk = takeSpeakable(pending, final);
@@ -6334,9 +6390,10 @@ class AssistantModeStore {
     if (!chunk.spoken && !cut) return;
     if (chunk.spoken) {
       this.turnStages.mark("firstClauseReady");
+      const before = text.slice(0, this.voicedChars);
       this.voicedChars += chunk.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);
-      for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+      voiceReply(splitLongSpeech(chunk.spoken), before);
     }
     if (
       final &&
