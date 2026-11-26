@@ -102,10 +102,28 @@ export function hinglishEarRow(input: {
 }
 
 let lastFridayVoice: FridayVoiceStatus | null = null;
+let lastFridayVoiceFailure = "";
 
-/** Remember what the speech worker last said about FRIDAY Voice (`undefined` or odd shapes clear it). */
-export function noteFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
+/** A failure as one short plain line: control characters removed, no more than 80 characters. */
+function shortFailure(reason: unknown): string {
+  return String((reason as Error)?.message ?? reason ?? "")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+/**
+ * Remember what the speech worker last said about FRIDAY Voice (`undefined` or odd shapes clear it). A failed
+ * status call passes its reason, so the rows say the call failed instead of blaming a missing desktop app.
+ */
+export function noteFridayVoiceStatus(raw: unknown, failure?: unknown): FridayVoiceStatus | null {
   lastFridayVoice = readFridayVoiceStatus(raw);
+  lastFridayVoiceFailure = lastFridayVoice
+    ? ""
+    : failure === undefined
+      ? ""
+      : shortFailure(failure) || "no reason given";
   return lastFridayVoice;
 }
 
@@ -113,22 +131,24 @@ export function noteFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
 export function fridayVoiceDoctorRows(
   status: FridayVoiceStatus | null = lastFridayVoice,
 ): VoiceLayerRow[] {
-  return fridayVoiceRows(status).map((row) => ({
-    id: `voice:${row.id}`,
-    label: row.label,
-    group: "Voice",
-    status: row.state === "ok" ? "Ready" : "Warning",
-    detail: row.value,
-    fixable: false,
-    ...(row.state !== "ok"
-      ? {
-          steps: [
-            "Open Install Manager and install the local voice model (FRIDAY Voice).",
-            "Switch to Auto mode, press Test voice in Settings, Voice, then run Setup & Doctor again.",
-          ],
-        }
-      : {}),
-  }));
+  return fridayVoiceRows(status, status === lastFridayVoice ? lastFridayVoiceFailure : "").map(
+    (row) => ({
+      id: `voice:${row.id}`,
+      label: row.label,
+      group: "Voice",
+      status: row.state === "ok" ? "Ready" : "Warning",
+      detail: row.value,
+      fixable: false,
+      ...(row.state !== "ok"
+        ? {
+            steps: [
+              "Open Install Manager and install the local voice model (FRIDAY Voice).",
+              "Switch to Auto mode, press Test voice in Settings, Voice, then run Setup & Doctor again.",
+            ],
+          }
+        : {}),
+    }),
+  );
 }
 
 /** Which voice-check row proves which layer. */

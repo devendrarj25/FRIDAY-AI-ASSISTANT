@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lucide-react";
+import {
+  HardDriveDownload,
+  Mic,
+  Save,
+  ShieldCheck,
+  Settings2,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
@@ -657,6 +665,11 @@ function LocalVoicePicker() {
 
   const state = localVoicePickerState({ loading, desktop, error, status });
   const chosen = pickerValueFor(prefs.voice.localVoiceStyle);
+  const chosenLabel = LOCAL_VOICE_CHOICES.find((choice) => choice.id === chosen)?.label ?? "";
+  // Speech plays only in Auto mode, so the previews say so up front instead of failing after the click.
+  const autoMode = useAssistantMode().mode === "auto";
+  const canPreview = state.kind === "ready" && autoMode;
+  const hintId = "local-voice-preview-hint";
   const preview = (style: LocalVoiceStyle) => {
     if (assistantMode.getSnapshot().mode !== "auto") {
       toast.error("FRIDAY speaks only in Auto mode");
@@ -691,12 +704,19 @@ function LocalVoicePicker() {
         <Button
           size="sm"
           variant="outline"
-          disabled={state.kind !== "ready"}
+          disabled={!canPreview}
+          aria-label={`Preview ${chosenLabel}`}
+          aria-describedby={state.kind === "ready" && !autoMode ? hintId : undefined}
           onClick={() => preview(chosen)}
         >
-          <Mic className="size-4" /> Preview
+          <Volume2 className="size-4" /> Preview
         </Button>
       </div>
+      {state.kind === "ready" && !autoMode ? (
+        <p id={hintId} className="mt-1 text-meta-sm text-muted-foreground">
+          Previews play in Auto mode only. Switch to Auto mode to hear a voice.
+        </p>
+      ) : null}
       <ul className="mt-2 space-y-1">
         {LOCAL_VOICE_CHOICES.map((choice) => (
           <li key={choice.id || "default"} className="flex items-center gap-2">
@@ -706,11 +726,13 @@ function LocalVoicePicker() {
             <Button
               size="sm"
               variant="ghost"
-              disabled={state.kind !== "ready"}
+              disabled={!canPreview}
               aria-label={`Preview ${choice.label}`}
+              title={`Preview ${choice.label}`}
+              aria-describedby={state.kind === "ready" && !autoMode ? hintId : undefined}
               onClick={() => preview(choice.id)}
             >
-              Preview
+              <Volume2 className="size-4" />
             </Button>
           </li>
         ))}

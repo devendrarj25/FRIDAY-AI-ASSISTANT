@@ -631,6 +631,12 @@ export type FridayVoiceStatus = {
   sampleRate: number;
   recipeVersion: number;
   reason: string;
+  /** True when the running speech worker answered; false when only a cold read of the files did; null when unknown. */
+  live: boolean | null;
+  /** The worker's own short state word ("ready", "failed", ...), or "" when it gave none. */
+  state: string;
+  /** How many syntheses failed in the running worker (0 when unknown). */
+  failures: number;
 };
 
 /** A worker status of any shape as a safe `FridayVoiceStatus`, or null when nothing was reported at all. */
@@ -656,6 +662,12 @@ export function readFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
     sampleRate: Number.isFinite(rate) && rate > 0 ? Math.round(rate) : 0,
     recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
     reason: text(row["reason"], 200),
+    live: typeof row["live"] === "boolean" ? row["live"] : null,
+    state: /^[a-z0-9-]{1,32}$/.test(text(row["state"], 32)) ? text(row["state"], 32) : "",
+    failures:
+      Number.isFinite(Number(row["failures"])) && Number(row["failures"]) > 0
+        ? Math.floor(Number(row["failures"]))
+        : 0,
   };
 }
 
@@ -664,47 +676,62 @@ export function readFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
  * with the reason), then the active voice id, sample rate and recipe version. No status yet is a Warning that says
  * so; a number or a name is never invented.
  */
-export function fridayVoiceRows(status: FridayVoiceStatus | null): EarsRow[] {
+export function fridayVoiceRows(status: FridayVoiceStatus | null, failure = ""): EarsRow[] {
   const engineId = "friday-voice-engine";
   const activeId = "friday-voice-active";
   const engineLabel = "FRIDAY Voice engine";
   const activeLabel = "FRIDAY Voice active voice";
   if (!status) {
-    const value = absent("the speech worker has not reported yet (needs the desktop app)");
+    const value = failure
+      ? absent(`status call failed: ${failure}`)
+      : absent("the speech worker has not reported yet (needs the desktop app)");
     return [
       { id: engineId, label: engineLabel, state: "absent", value },
       { id: activeId, label: activeLabel, state: "absent", value },
     ];
   }
   const why = status.reason ? ` (${status.reason})` : "";
+  // A cold read only knows what is installed; it cannot say what the running worker is doing.
+  const cold = status.live === false ? " · cold view: the speech worker is not running yet" : "";
   const engine: EarsRow =
     status.engine === "friday-voice" && status.own && status.ready
       ? {
           id: engineId,
           label: engineLabel,
           state: "ok",
-          value: "own runner ready · on this PC · not heard on a real speaker yet",
+          value: `own runner ready · on this PC · not heard on a real speaker yet${status.failures > 0 ? ` · ${status.failures} failed this run` : ""}${cold}`,
         }
-      : status.engine === "none" || !status.ready
+      : status.engine === "none"
         ? {
             id: engineId,
             label: engineLabel,
             state: "absent",
-            value: `not installed${why || ": the local voice model is not on this PC"}. The system voice speaks until it is.`,
+            value: `not installed${why || ": the local voice model is not on this PC"}. The system voice speaks until it is.${cold}`,
           }
-        : {
-            id: engineId,
-            label: engineLabel,
-            state: "absent",
-            value: `package fallback: the older package speaks, not the own runner${why}`,
-          };
+        : !status.ready
+          ? {
+              id: engineId,
+              label: engineLabel,
+              state: "absent",
+              value: `installed but not ready${why || ": the engine did not report why"}. The system voice speaks until it is.${cold}`,
+            }
+          : {
+              id: engineId,
+              label: engineLabel,
+              state: "absent",
+              value: `package fallback: the older package speaks, not the own runner${why}${cold}`,
+            };
   const active: EarsRow =
     status.engine === "none" || !status.ready
       ? {
           id: activeId,
           label: activeLabel,
           state: "absent",
-          value: absent("no local voice is installed, so no voice is active"),
+          value: absent(
+            status.engine === "none"
+              ? "no local voice is installed, so no voice is active"
+              : "the local voice is installed but not ready, so no voice is active",
+          ),
         }
       : {
           id: activeId,

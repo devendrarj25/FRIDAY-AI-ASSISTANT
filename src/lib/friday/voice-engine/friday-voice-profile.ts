@@ -324,12 +324,13 @@ export function pickerValueFor(style: unknown): LocalVoiceStyle {
     : "";
 }
 
-/** What the voice picker shows: it is loading, has no desktop to ask, failed (with Retry), has no voice installed, or is ready. */
+/** What the voice picker shows: it is loading, has no desktop to ask, failed (with Retry), has no voice installed, has one installed that is not ready, or is ready. */
 export type LocalVoicePickerState =
   | { kind: "loading"; note: string }
   | { kind: "offline"; note: string }
   | { kind: "error"; note: string }
   | { kind: "empty"; note: string }
+  | { kind: "unready"; note: string }
   | { kind: "ready"; note: string; own: boolean };
 
 /** The picker's state from what the settings page knows. Pure; the page only draws it. */
@@ -348,6 +349,14 @@ export function localVoicePickerState(input: {
   if (input.loading) return { kind: "loading", note: "Checking the local voice on this PC." };
   if (input.error) return { kind: "error", note: input.error };
   const status = input.status;
+  if (status && status.engine !== "none" && !status.ready) {
+    return {
+      kind: "unready",
+      note: status.reason
+        ? `The local voice is installed but not ready (${status.reason}). The system voice speaks until it is.`
+        : "The local voice is installed but not ready. The system voice speaks until it is.",
+    };
+  }
   if (!status || status.engine === "none" || !status.ready) {
     return {
       kind: "empty",

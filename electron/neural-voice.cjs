@@ -124,28 +124,71 @@ function normaliseFridayVoiceStatus(raw) {
           .trim()
           .slice(0, 200)
       : "";
+  const failures = Number(tts.failures);
+  const stateRaw = typeof tts.engineState === "string" ? tts.engineState : tts.state;
+  const state = typeof stateRaw === "string" ? stateRaw.toLowerCase().slice(0, 32) : "";
   return {
     engine,
     own: engine === "friday-voice" && tts.own === true,
     ready: engine !== "none" && tts.ready !== false,
     voiceId,
-    sampleRate: Number.isFinite(rate) && rate > 0 && rate <= 192000 ? Math.round(rate) : 0,
+    sampleRate: cleanSampleRate(rate),
     recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
     reason,
+    ...(typeof tts.live === "boolean" ? { live: tts.live } : {}),
+    ...(/^[a-z0-9-]+$/.test(state) ? { state } : {}),
+    ...(Number.isFinite(failures) ? { failures: Math.max(0, Math.floor(failures)) } : {}),
   };
 }
 
-/** What the speech worker says about the own voice engine; never throws, and says why when it cannot tell. */
-async function fridayVoiceStatus(py) {
-  if (!py) {
-    return normaliseFridayVoiceStatus({ reason: "Python 3.12+ was not found." });
-  }
+/** A worker's sample rate, or 0 when it is not a number from 8000 to 192000. */
+function cleanSampleRate(value) {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 8000 && rate <= 192000 ? Math.round(rate) : 0;
+}
+
+/** The running speech worker's own status line, or null when no worker is up (it is never started for this). */
+async function askRunningWorker(py) {
+  if (!speaker?.alive) return null;
+  const answered = await speakerRequest(py, { op: "status" }, 15000);
+  return answered && typeof answered === "object" ? answered : null;
+}
+
+/** A fresh process's status read: it knows what is installed, not what the running worker is doing. */
+async function askColdProcess(py) {
   const probe = await run(py[0], [...py[1], runtimeScript(), "--status"], 20000);
-  const parsed = probe.ok ? parseJsonLine(probe.stdout) : null;
-  if (!parsed) {
-    return normaliseFridayVoiceStatus({ reason: "the speech runtime did not answer" });
+  return probe.ok ? parseJsonLine(probe.stdout) : null;
+}
+
+/**
+ * What the speech worker says about the own voice engine; never throws, and says why when it cannot tell. The
+ * running worker is asked first (live:true); a cold read of the files is the fallback and says live:false.
+ */
+async function fridayVoiceStatus(py, { ask = askRunningWorker, cold = askColdProcess } = {}) {
+  if (!py) {
+    return {
+      ...normaliseFridayVoiceStatus({ reason: "Python 3.12+ was not found." }),
+      live: false,
+    };
   }
-  return normaliseFridayVoiceStatus(parsed);
+  try {
+    const answered = await ask(py);
+    if (answered?.tts && typeof answered.tts === "object" && answered.tts.live === true) {
+      return { ...normaliseFridayVoiceStatus(answered), live: true };
+    }
+  } catch {
+    /* the running worker could not be asked: the cold read below is the honest fallback */
+  }
+  let parsed = null;
+  try {
+    parsed = await cold(py);
+  } catch {
+    parsed = null;
+  }
+  const status = normaliseFridayVoiceStatus(
+    parsed || { reason: "the speech runtime did not answer" },
+  );
+  return { ...status, live: false };
 }
 
 /** Is edge-tts importable right now? Cached briefly — this spawns a process. */
@@ -399,40 +442,70 @@ function speakerNotify(payload) {
   }
 }
 
-async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
+/** The reason a reply says a fallback engine spoke, or "" when it is absent or not a clean token. */
+const fallbackToken = (value) =>
+  typeof value === "string" && PCM_FALLBACK.test(value) ? value : "";
+
+/** The recipe version of the voice recipe that last answered; the WAV cache key carries it. */
+let knownRecipe = 0;
+/** The engines whose files the WAV cache may hold; a line made by a fallback is never kept. */
+const CACHEABLE_ENGINES = ["friday-voice", "supertonic-3"];
+
+function wavCacheFile(dir, { rate, lang, style, spoken, recipe, engine }) {
+  const key = crypto
+    .createHash("sha1")
+    .update(`local3|${recipe}|${engine}|${rate}|${lang}|${style || LOCAL_STYLE_DEFAULT}|${spoken}`)
+    .digest("hex");
+  return path.join(dir, `${key}.wav`);
+}
+
+const cleanRecipe = (value) => {
+  const recipe = Number(value);
+  return Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0;
+};
+
+async function speakLocal(
+  { text, rate = 1, lang = "", style = "" } = {},
+  { request = speakerRequest, resolvePy = python, cacheDir: dirOf = cacheDir } = {},
+) {
   const spoken = String(text || "").trim();
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
   const voiceStyle = normaliseLocalStyle(style);
-  const key = crypto
-    .createHash("sha1")
-    .update(`local2|${rate}|${lang}|${voiceStyle || LOCAL_STYLE_DEFAULT}|${spoken}`)
-    .digest("hex");
-  const file = path.join(cacheDir(), `${key}.wav`);
-  if (fs.existsSync(file) && fs.statSync(file).size > 44) {
-    return {
-      ok: true,
-      engine: "supertonic-3",
-      cloud: false,
-      voice: voiceStyle || LOCAL_STYLE_DEFAULT,
-      mime: "audio/wav",
-      audioBase64: fs.readFileSync(file).toString("base64"),
-      path: file,
-    };
+  const dir = dirOf();
+  const parts = { rate, lang, style: voiceStyle, spoken };
+  const reply = (engine, file, extra = {}) => ({
+    ok: true,
+    engine,
+    own: engine === "friday-voice" && extra.own === true,
+    cloud: false,
+    voice: voiceStyle || LOCAL_STYLE_DEFAULT,
+    mime: "audio/wav",
+    audioBase64: fs.readFileSync(file).toString("base64"),
+    path: file,
+    ...(extra.fallback ? { fallback: extra.fallback } : {}),
+  });
+  for (const engine of CACHEABLE_ENGINES) {
+    const hit = wavCacheFile(dir, { ...parts, recipe: knownRecipe, engine });
+    if (fs.existsSync(hit) && fs.statSync(hit).size > 44) {
+      return reply(engine, hit, { own: engine === "friday-voice" });
+    }
   }
-  const py = await python();
+  const py = await resolvePy();
   if (!py)
     return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
-  const answered = await speakerRequest(py, {
+  const scratch = wavCacheFile(dir, { ...parts, recipe: knownRecipe, engine: "pending" });
+  const answered = await request(py, {
     op: "speak",
     text: spoken,
     speed: Number(rate) || 1,
     lang: String(lang || ""),
     style: voiceStyle,
-    out: file,
+    out: scratch,
   });
-  if (!answered?.ok || !fs.existsSync(file) || fs.statSync(file).size === 0) {
+  const written = !answered?.ok || !fs.existsSync(scratch) ? 0 : fs.statSync(scratch).size;
+  if (!written) {
     try {
-      fs.rmSync(file, { force: true });
+      fs.rmSync(scratch, { force: true });
     } catch {
       /* nothing written */
     }
@@ -443,15 +516,27 @@ async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
       reason: answered?.reason || "local neural voice is not installed",
     };
   }
-  return {
-    ok: true,
-    engine: "supertonic-3",
-    cloud: false,
-    voice: voiceStyle || LOCAL_STYLE_DEFAULT,
-    mime: "audio/wav",
-    audioBase64: fs.readFileSync(file).toString("base64"),
-    path: file,
-  };
+  const engine = CACHEABLE_ENGINES.includes(answered.engine) ? answered.engine : "supertonic-3";
+  const fallback = fallbackToken(answered.fallback);
+  if (answered.recipeVersion !== undefined) knownRecipe = cleanRecipe(answered.recipeVersion);
+  const own = engine === "friday-voice" && answered.own === true && !fallback;
+  if (fallback) {
+    // A line a fallback made is played but never kept: the next ask must try the FRIDAY engine again.
+    const played = reply(engine, scratch, { fallback });
+    try {
+      fs.rmSync(scratch, { force: true });
+    } catch {
+      /* a leftover scratch file is overwritten by the next call */
+    }
+    return { ...played, path: "" };
+  }
+  const kept = wavCacheFile(dir, { ...parts, recipe: knownRecipe, engine });
+  try {
+    fs.renameSync(scratch, kept);
+  } catch {
+    return reply(engine, scratch, { own });
+  }
+  return reply(engine, kept, { own });
 }
 
 /** The most text one local clause may carry (the kernel cuts at the same length). */
@@ -529,25 +614,36 @@ function cleanWordTimes(value) {
 }
 
 let warmedOnce = false;
+let warmTries = 0;
+/** A warm-up that failed is asked again on the next call, this many times in all per app run. */
+const WARM_TRIES_MAX = 3;
 
-/** The worker's `warm-up` op, once per app run, so the first reply is not slow. A failure is only a reason string. */
+/**
+ * The worker's `warm-up` op: once it worked it is not asked again this run; a failure is retried on the next call,
+ * at most three tries. A failure is only a reason string.
+ */
 async function warmUp(style, { request = speakerRequest, resolvePy = python } = {}) {
   if (warmedOnce) return { ok: true, warmed: false, engine: "local", cloud: false };
-  warmedOnce = true;
+  if (warmTries >= WARM_TRIES_MAX) {
+    return { ok: false, engine: "local", cloud: false, reason: "warm-up gave up for this run" };
+  }
   try {
     const py = await resolvePy();
     if (!py)
       return { ok: false, engine: "local", cloud: false, reason: "Python 3.12+ was not found." };
+    warmTries += 1;
     const answered = await request(py, { op: "warm-up", style }, 60000);
-    return answered?.ok === true
-      ? { ok: true, warmed: true, engine: "local", cloud: false }
-      : {
-          ok: false,
-          engine: "local",
-          cloud: false,
-          reason:
-            typeof answered?.reason === "string" ? answered.reason.slice(0, 120) : "warm-up failed",
-        };
+    if (answered?.ok === true) {
+      warmedOnce = true;
+      return { ok: true, warmed: true, engine: "local", cloud: false };
+    }
+    return {
+      ok: false,
+      engine: "local",
+      cloud: false,
+      reason:
+        typeof answered?.reason === "string" ? answered.reason.slice(0, 120) : "warm-up failed",
+    };
   } catch {
     return { ok: false, engine: "local", cloud: false, reason: "warm-up failed" };
   }
@@ -556,6 +652,7 @@ async function warmUp(style, { request = speakerRequest, resolvePy = python } = 
 /** Test hook: lets a test run the once-per-run warm-up again. */
 function resetWarmUp() {
   warmedOnce = false;
+  warmTries = 0;
 }
 
 /**
@@ -625,18 +722,24 @@ async function speakPcm(
       ? answered.fallback
       : "";
   const wordTimes = cleanWordTimes(answered.wordTimes);
+  const engineName =
+    answered.engine === "hindi-light"
+      ? "hindi-light"
+      : answered.engine === "friday-voice"
+        ? "friday-voice"
+        : "supertonic-3";
+  const answeredVoice = normaliseLocalStyle(answered.voiceId);
+  const recipe = Number(answered.recipeVersion);
+  if (Number.isFinite(recipe) && recipe >= 0) knownRecipe = Math.floor(recipe);
   return {
     ok: true,
-    engine:
-      answered.engine === "hindi-light"
-        ? "hindi-light"
-        : answered.engine === "friday-voice"
-          ? "friday-voice"
-          : "supertonic-3",
-    own: answered.engine === "friday-voice" && answered.own === true,
+    engine: engineName,
+    own: engineName === "friday-voice" && answered.own === true && !fallback,
     cloud: false,
     voice: voiceStyle || LOCAL_STYLE_DEFAULT,
-    sampleRate: Number(answered.sampleRate) || 0,
+    ...(answeredVoice ? { voiceId: answeredVoice } : {}),
+    ...(Number.isFinite(recipe) && recipe >= 0 ? { recipeVersion: Math.floor(recipe) } : {}),
+    sampleRate: cleanSampleRate(answered.sampleRate),
     pcm,
     ms: Number(answered.ms) || 0,
     pausedMs: cleanPausedMs(answered.pausedMs),
@@ -911,6 +1014,7 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "", 
 module.exports = {
   status,
   normaliseFridayVoiceStatus,
+  fridayVoiceStatus,
   normaliseLocalStyle,
   LOCAL_STYLES,
   install,

@@ -1036,7 +1036,8 @@ async function makePcmClip(plan: SegmentPlan, api: VoiceBridge): Promise<SpeechC
   pcmUttAsked = utt;
   const result = await Promise.resolve(
     api.speakNeuralPcm?.({
-      text: plan.text,
+      // The light Hindi voice never gets a tag: it would reject the clause as not speakable.
+      text: plan.engine ? plan.plain : plan.text,
       rate: plan.rate,
       lang: plan.lang,
       style: localStyle(),
@@ -1678,7 +1679,7 @@ export async function speakText(
       }
     }
     if (stale()) return "none";
-    const heard = segments.map((segment) => segment.text).join(" ");
+    const heard = segments.map((segment) => stripDeliveryTags(segment.text)).join(" ");
     const system = await speakWithSystemVoice(heard || spoken, tuning, playback, stale);
     return system ? "system" : "none";
   } finally {

@@ -378,9 +378,11 @@ class DoctorStore {
       // What the speech worker says about FRIDAY Voice, so the two voice rows below are real, not guessed.
       if (desktop) {
         try {
-          noteFridayVoiceStatus((await neuralVoiceStatus()).fridayVoice);
-        } catch {
-          noteFridayVoiceStatus(null);
+          const answer = await neuralVoiceStatus();
+          if (answer?.fridayVoice) noteFridayVoiceStatus(answer.fridayVoice);
+          else noteFridayVoiceStatus(null, "the speech worker sent no voice status");
+        } catch (failure) {
+          noteFridayVoiceStatus(null, failure ?? "no answer");
         }
       }
       // Cross-mode routing sync is a renderer-side truth: it compares what a

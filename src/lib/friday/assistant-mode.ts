@@ -5276,7 +5276,9 @@ class AssistantModeStore {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
-    if (tagged && prepared !== stripDeliveryTags(prepared)) this.taggedLines.add(prepared);
+    const addedTag =
+      tagged && prepared !== stripDeliveryTags(prepared) && !this.taggedLines.has(prepared);
+    if (addedTag) this.taggedLines.add(prepared);
     if (meta.first) this.firstLine = prepared;
     // An old caller says a plain line: it is a direct answer. Task lines name their own priority. A direct line
     // is the last thing she said, so an earlier approval prompt is no longer the open question.
@@ -5291,6 +5293,8 @@ class AssistantModeStore {
       ...(meta.whisper ? { whisper: true } : {}),
     });
     if (!queued.accepted) {
+      // A refused line is never played, so its tag mark must not wait for a later line with the same words.
+      if (addedTag) this.taggedLines.delete(prepared);
       markTurnStage("spoken", false, "the line was dropped by the speech queue");
       return;
     }
@@ -5306,6 +5310,7 @@ class AssistantModeStore {
       for (;;) {
         if (!spokenReplyAllowed(this.state.mode, this.state.muted) || this.stopped()) {
           this.arbiter.clear();
+          this.taggedLines.clear();
           break;
         }
         const item = this.arbiter.next();

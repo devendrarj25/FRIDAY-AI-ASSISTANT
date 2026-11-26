@@ -73,19 +73,27 @@ const NO_BRIDGE: PrewarmResult = {
 const silence = (): Uint8Array => encodeWav(new Float32Array(16_000));
 
 let engineWarmed = false;
+let engineWarmTries = 0;
+/** A warm-up that failed is asked again by the next prewarm, this many times in all per app run. */
+const ENGINE_WARM_TRIES_MAX = 3;
 
-/** The voice engine's own warm-up op, once per app run. A failure is ignored: the clip below still warms it. */
+/**
+ * The voice engine's own warm-up op: once per app run when it worked; a failure is asked again on the next prewarm,
+ * at most three tries. A failure never stops the clip below, which warms the engine as well.
+ */
 async function warmVoiceEngineOnce(api: WarmBridge): Promise<void> {
-  if (engineWarmed || !api.speakNeuralPcm) return;
-  engineWarmed = true;
-  await api
+  if (engineWarmed || engineWarmTries >= ENGINE_WARM_TRIES_MAX || !api.speakNeuralPcm) return;
+  engineWarmTries += 1;
+  const answered = await api
     .speakNeuralPcm({ text: "", rate: 1, style: activeLocalStyle(), warm: true })
     .catch(() => null);
+  if (answered?.ok === true) engineWarmed = true;
 }
 
 /** Test hook: lets a test see the once-per-run warm-up again. */
 export function resetVoiceEngineWarm(): void {
   engineWarmed = false;
+  engineWarmTries = 0;
 }
 
 async function speak(

@@ -437,21 +437,29 @@ describe("speak-pcm delivery fields and the warm-up op", () => {
     expect(c.result.pausedMs).toBe(0);
   });
 
-  it("sends the warm-up op once per run and ignores a failure", async () => {
+  it("sends the warm-up op until it worked, never fails the caller, and then stays quiet", async () => {
     neuralVoice.resetWarmUp();
     const sent: Array<Record<string, unknown>> = [];
+    let broken = true;
     const deps = {
       resolvePy: async () => ["python", []],
       request: async (_py: unknown, payload: Record<string, unknown>) => {
         sent.push(payload);
-        throw new Error("boom");
+        if (broken) throw new Error("boom");
+        return { ok: true };
       },
     };
     const first = await neuralVoice.speakPcm({ warm: true, style: "f2" }, deps);
-    const second = await neuralVoice.speakPcm({ warm: true }, deps);
-    expect(sent).toEqual([{ op: "warm-up", style: expect.any(String) }]);
     expect(first.ok).toBe(false);
-    expect(second.ok).toBe(true);
+    broken = false;
+    const second = await neuralVoice.speakPcm({ warm: true }, deps);
+    const third = await neuralVoice.speakPcm({ warm: true }, deps);
+    expect(sent).toEqual([
+      { op: "warm-up", style: expect.any(String) },
+      { op: "warm-up", style: expect.any(String) },
+    ]);
+    expect(second).toMatchObject({ ok: true, warmed: true });
+    expect(third).toMatchObject({ ok: true, warmed: false });
     neuralVoice.resetWarmUp();
   });
 
