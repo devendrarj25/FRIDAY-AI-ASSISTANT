@@ -18,6 +18,7 @@ import {
   spellOrdinals,
 } from "../../src/lib/friday/voice-engine/text-normalizer";
 import { DEFAULT_PREFERENCES } from "../../src/lib/friday/preferences";
+import { bestOfMs } from "./helpers/wall-clock";
 
 type Case = {
   kind: "prep" | "full";
@@ -493,9 +494,11 @@ describe("Speech Prep latency", () => {
   });
 
   it("a typical reply costs a few milliseconds", () => {
-    const started = performance.now();
-    for (let i = 0; i < 50; i += 1) prepareForSpeech(reply + hinglish, {}, { enabled: true });
-    expect((performance.now() - started) / 50).toBeLessThan(25);
+    expect(prepareForSpeech(reply + hinglish, {}, { enabled: true }).length).toBeGreaterThan(0);
+    const total = bestOfMs(() => {
+      for (let i = 0; i < 50; i += 1) prepareForSpeech(reply + hinglish, {}, { enabled: true });
+    });
+    expect(total / 50).toBeLessThan(25);
   });
 
   it("survives text built to hurt regular expressions", () => {

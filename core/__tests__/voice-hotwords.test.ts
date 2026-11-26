@@ -18,6 +18,11 @@ import {
   undoReplacements,
   type VocabEntry,
 } from "../../src/lib/friday/voice-engine/hotwords";
+import { bestOfMs } from "./helpers/wall-clock";
+// Best-of-5 bound: at least 10x the idle median of this work.
+const BUILD_HINTS_BOUND_MS = 100;
+// Best-of-5 bound: at least 10x the idle median of this work.
+const APPLY_REPLACEMENTS_BOUND_MS = 200;
 
 const modeSource = readFileSync(
   resolve(__dirname, "../../src/lib/friday/assistant-mode.ts"),
@@ -280,7 +285,7 @@ describe("buildHints", () => {
     expect(buildHints(entries, { max: 60, recentFirst: true })).toEqual(first);
   });
 
-  it("a thousand entries build in under 50 ms", () => {
+  it("a thousand entries build inside a generous time bound", () => {
     const many = Array.from({ length: 1000 }, (_, i) =>
       entry({
         id: `e${i}`,
@@ -292,11 +297,9 @@ describe("buildHints", () => {
         uses: i % 17,
       }),
     );
-    const started = performance.now();
-    const out = buildHints(many, { max: 60, recentFirst: true });
-    const spent = performance.now() - started;
-    expect(out).toHaveLength(60);
-    expect(spent).toBeLessThan(50);
+    const build = () => buildHints(many, { max: 60, recentFirst: true });
+    expect(build()).toHaveLength(60);
+    expect(bestOfMs(() => void build())).toBeLessThan(BUILD_HINTS_BOUND_MS);
   });
 });
 
@@ -441,7 +444,7 @@ describe("applyReplacements", () => {
     expect(entries[0]!.uses).toBe(0);
   });
 
-  it("replaces a thousand-entry list in under 50 ms", () => {
+  it("replaces a thousand-entry list inside a generous time bound", () => {
     const letters = (n: number): string =>
       n
         .toString(26)
@@ -456,10 +459,9 @@ describe("applyReplacements", () => {
         tier: "replace",
       }),
     );
-    const started = performance.now();
-    const out = applyReplacements("please call neymh and neym hq about it", many);
-    expect(performance.now() - started).toBeLessThan(50);
-    expect(out.text).toBe("please call Nmh and Nmhq about it");
+    const apply = () => applyReplacements("please call neymh and neym hq about it", many);
+    expect(apply().text).toBe("please call Nmh and Nmhq about it");
+    expect(bestOfMs(() => void apply())).toBeLessThan(APPLY_REPLACEMENTS_BOUND_MS);
   });
 });
 

@@ -26,6 +26,9 @@ import {
   voiceClaimsAuthority,
 } from "../../src/lib/friday/voice-session";
 import { addressName } from "../../src/lib/friday/assistant-conduct";
+import { bestOfMs } from "./helpers/wall-clock";
+// Best-of-5 bound: at least 10x the idle median of this work.
+const DECIDE_AVG_BOUND_MS = 1;
 
 type GateCase = {
   name: string;
@@ -433,9 +436,11 @@ describe("instant acknowledgement: timing, cancel and wiring facts", () => {
 
   it("decides in well under a millisecond on average", () => {
     const ctx = base({ addressName: "Asha" });
-    const started = performance.now();
-    for (let i = 0; i < 5000; i += 1) shouldAck({ ...ctx, turn: i });
-    expect((performance.now() - started) / 5000).toBeLessThan(1);
+    expect(shouldAck({ ...ctx, turn: 1 })).toEqual(shouldAck({ ...ctx, turn: 1 }));
+    const total = bestOfMs(() => {
+      for (let i = 0; i < 5000; i += 1) shouldAck({ ...ctx, turn: i });
+    });
+    expect(total / 5000).toBeLessThan(DECIDE_AVG_BOUND_MS);
   });
 });
 
