@@ -12,11 +12,13 @@ import re
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import stream_ear  # noqa: E402
+from denoise_onnx import ENGINES, StreamDenoiser  # noqa: E402
 from endpointer import EndpointConfig  # noqa: E402
 from fake_transducer import FakeModel, install_fake_engine, pcm_bytes, write_model_dir  # noqa: E402
 from stream_ear import (  # noqa: E402
@@ -24,6 +26,7 @@ from stream_ear import (  # noqa: E402
     NEMOTRON_FILES,
     EnergyVad,
     EngineSpec,
+    La2Engine,
     StreamHost,
     SttEngine,
     TierChoice,
@@ -685,3 +688,225 @@ def test_status_and_an_unknown_op(host):
     assert status["engines"] == [ENGINE_NAME] and status["loaded"] is False and status["active"] is None
     assert status["pinReady"] is True
     assert host.handle({"op": "stream-bogus"})["reason"] == "unknown-op"
+
+
+# ---- the clean-up copy: only the speech engine hears it ----------------------------------------------------------
+
+DPDF = ENGINES["dpdfnet2"]
+RAW_AUDIO = SPEECH + QUIET
+
+
+class Spectrum:
+    """A denoiser graph that scales the spectrum and answers ``frames`` frames late (4 hops = DPDFNet's 640 samples)."""
+
+    def __init__(self, gain=1.0, frames=DPDF.delay // DPDF.hop, fail_at=None):
+        self.gain, self.frames, self.fail_at, self.queue, self.calls = gain, frames, fail_at, [], 0
+
+    def __call__(self, ri):
+        self.calls += 1
+        if self.fail_at is not None and self.calls >= self.fail_at:
+            raise RuntimeError("the graph broke")
+        self.queue.append(ri * self.gain)
+        return self.queue.pop(0) if len(self.queue) > self.frames else np.zeros_like(ri)
+
+    def reset(self):
+        self.queue = []
+
+
+def use_denoiser(monkeypatch, **graph):
+    made = []
+
+    def make(name):
+        d = StreamDenoiser(name, graph=Spectrum(**graph))
+        made.append(d)
+        return d
+
+    monkeypatch.setattr(stream_ear, "_make_denoiser", make)
+    return made
+
+
+def tap(engine):
+    """Record the samples the voice gate and the speech engine each receive."""
+    seen = {"vad": [], "asr": [], "order": []}
+    push, feed, finalize = engine._vad.push, engine._stream.feed, engine._stream.finalize
+
+    def vad_push(samples, *a, **k):
+        seen["vad"].append(np.array(samples, dtype=np.float32))
+        return push(samples, *a, **k)
+
+    def stream_feed(samples):
+        seen["asr"].append(np.array(samples, dtype=np.float32))
+        seen["order"].append("feed")
+        return feed(samples)
+
+    def stream_finalize():
+        seen["order"].append("finalize")
+        return finalize()
+
+    engine._vad.push, engine._stream.feed, engine._stream.finalize = vad_push, stream_feed, stream_finalize
+    return seen
+
+
+def joined(chunks):
+    return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+
+
+def raw_reference():
+    return np.frombuffer(RAW_AUDIO, dtype="<i2").astype(np.float32) / 32768.0
+
+
+def run_turn(tmp_path, ears):
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="en-US", ears=ears)
+    seen = tap(engine)
+    drive(engine, RAW_AUDIO, 640)
+    return engine, seen, engine.finalize()
+
+
+@pytest.mark.parametrize("ears", [None, {"vad": "energy"}, {"vad": "energy", "denoise": "off"}, {"denoise": "bogus"}])
+def test_with_the_clean_up_off_the_engine_hears_exactly_today_s_audio(tmp_path, monkeypatch, ears):
+    monkeypatch.setattr(stream_ear, "_make_denoiser", lambda name: pytest.fail("no denoiser is built when off"))
+    engine, seen, final = run_turn(tmp_path, ears)
+    assert np.array_equal(joined(seen["asr"]), raw_reference())
+    assert np.array_equal(joined(seen["vad"]), raw_reference())
+    assert final["denoise"] == {"engine": "off", "active": False, "rtf": None, "latencyMs": 0.0, "reason": "off"}
+
+
+def test_the_voice_gate_reads_the_raw_audio_while_the_engine_reads_the_clean_copy(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch, gain=0.5)
+    _, seen, _ = run_turn(tmp_path, {**EARS, "denoise": "dpdfnet2"})
+    raw = raw_reference()
+    assert np.array_equal(joined(seen["vad"]), raw)  # the gate and the scorers never see the copy
+    heard = joined(seen["asr"])
+    assert not np.array_equal(heard, raw) and heard.size == raw.size
+    middle = slice(2000, raw.size - 2000)  # away from the edges where the first and last frames are partial
+    assert np.max(np.abs(heard[middle] - 0.5 * raw[middle])) < 0.02
+
+
+def test_the_models_own_delay_is_taken_out_so_the_copy_lines_up_with_the_raw_audio(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch)  # the graph answers 640 samples late, as the pinned model does
+    _, seen, _ = run_turn(tmp_path, {**EARS, "denoise": "dpdfnet2"})
+    raw, heard = raw_reference(), joined(seen["asr"])
+    assert heard.size == raw.size
+    middle = slice(2000, raw.size - 2000)
+    # not shifted by 640 samples (a tone shifted that far would be off by far more)
+    assert np.max(np.abs(heard[middle] - raw[middle])) < 0.02
+    lagged = np.roll(raw, DPDF.delay)
+    assert np.max(np.abs(heard[middle] - lagged[middle])) > 0.2
+
+
+def test_the_end_of_turn_still_comes_once_with_the_copy_in_the_line(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch)
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="en-US", ears={**EARS, "denoise": "dpdfnet2"})
+    events = drive(engine, RAW_AUDIO, 640)
+    kinds = [e["event"] for e in events if e["type"] == "endpoint"]
+    assert kinds[0] == "StartOfTurn" and kinds[-1] == "EndOfTurn" and kinds.count("EndOfTurn") == 1
+    assert engine.finalize()["text"] == "Open Chrome, please"
+
+
+def test_a_denoiser_that_fails_midway_hands_the_engine_the_raw_audio_with_no_gap_and_no_repeat(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch, gain=0.5, fail_at=40)
+    _, seen, final = run_turn(tmp_path, {**EARS, "denoise": "dpdfnet2"})
+    raw, heard = raw_reference(), joined(seen["asr"])
+    assert heard.size == raw.size
+    assert np.array_equal(heard[-4000:], raw[-4000:])  # after the failure the engine hears the raw audio itself
+    assert np.max(np.abs(heard[2000:4000] - 0.5 * raw[2000:4000])) < 0.02  # before it, the copy
+    assert final["denoise"]["active"] is False and final["denoise"]["reason"].startswith("runtime error")
+    assert final["text"] == "Open Chrome, please"
+
+
+def test_a_denoiser_that_cannot_be_built_is_a_passthrough_with_the_reason(tmp_path, monkeypatch):
+    def boom(name):
+        raise ImportError("numpy is not installed")
+
+    monkeypatch.setattr(stream_ear, "_make_denoiser", boom)
+    _, seen, final = run_turn(tmp_path, {**EARS, "denoise": "gtcrn"})
+    assert np.array_equal(joined(seen["asr"]), raw_reference())
+    assert final["denoise"]["engine"] == "gtcrn" and final["denoise"]["active"] is False
+    assert "numpy is not installed" in final["denoise"]["reason"]
+
+
+@pytest.mark.parametrize("name", ["dpdfnet2", "gtcrn", "rnnoise"])
+def test_a_missing_model_file_is_a_passthrough_that_says_so(tmp_path, monkeypatch, name):
+    monkeypatch.setenv("FRIDAY_ROOT", str(tmp_path / "empty"))
+    _, seen, final = run_turn(tmp_path, {**EARS, "denoise": name})
+    assert np.array_equal(joined(seen["asr"]), raw_reference())
+    assert final["denoise"]["active"] is False and final["denoise"]["engine"] == name and final["denoise"]["reason"]
+
+
+def test_the_open_reply_and_the_final_reading_carry_the_denoise_fields(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch)
+    engine, _, folder = make_engine(tmp_path)
+    opened = engine.open(folder, locale="en-US", ears={**EARS, "denoise": "dpdfnet2"})
+    assert set(opened["denoise"]) == {"engine", "active", "rtf", "latencyMs", "reason"}
+    assert opened["denoise"]["engine"] == "dpdfnet2" and opened["denoise"]["active"] is True
+    assert opened["denoise"]["rtf"] is None and opened["denoise"]["latencyMs"] == DPDF.latency_ms == 50.0
+    drive(engine, RAW_AUDIO, 640)
+    done = engine.finalize()["denoise"]
+    assert done["active"] is True and isinstance(done["rtf"], float) and done["rtf"] >= 0.0 and done["reason"] == ""
+
+
+def test_the_final_reading_gets_the_tail_of_the_copy_before_the_engine_finalizes(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch)
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="en-US", ears={**EARS, "denoise": "dpdfnet2"})
+    seen = tap(engine)
+    drive(engine, RAW_AUDIO, 640)
+    owed = raw_reference().size - joined(seen["asr"]).size
+    assert owed > 0  # the copy runs behind the raw audio until the turn is closed
+    engine.finalize()
+    assert seen["order"][-2:] == ["feed", "finalize"]
+    assert joined(seen["asr"]).size == raw_reference().size
+
+
+def test_a_second_turn_starts_the_delay_again(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch)
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="en-US", ears={**EARS, "denoise": "dpdfnet2"})
+    seen = tap(engine)
+    for _ in range(2):
+        seen["asr"].clear()
+        drive(engine, RAW_AUDIO, 640)
+        engine.finalize()
+        engine.reset()
+        heard, raw = joined(seen["asr"]), raw_reference()
+        assert heard.size == raw.size
+        assert np.max(np.abs(heard[2000:-2000] - raw[2000:-2000])) < 0.02
+
+
+def test_the_host_reply_and_the_worker_status_show_the_denoise_row(host, monkeypatch):
+    assert "denoise" not in host.status()  # nothing loaded: the status keeps its old shape
+    use_denoiser(monkeypatch)
+    opened = host.handle({"op": "stream-open", "streamEngine": "auto", "ears": {"denoise": "gtcrn"}})
+    assert opened["ok"] and opened["denoise"]["engine"] == "gtcrn" and opened["denoise"]["active"] is True
+    assert host.status()["denoise"]["engine"] == "gtcrn"
+    closed = host.handle({"op": "stream-close"})
+    assert closed["final"] is True and closed["denoise"]["engine"] == "gtcrn"
+
+
+def test_the_whisper_style_ear_hears_the_copy_and_its_gate_the_raw_audio(tmp_path, monkeypatch):
+    use_denoiser(monkeypatch, gain=0.5)
+    heard_by_reader = []
+
+    def make(folder, turn, hotwords):
+        def read(window, prompt):
+            heard_by_reader.append(np.array(window, dtype=np.float32))
+            return []
+
+        return read
+
+    engine = La2Engine("fake-la2", make, hop_s=0.4)
+    engine.open(tmp_path, locale="en-US", ears={**EARS, "denoise": "dpdfnet2"})
+    pushes, vad_pushes = [], []
+    la2 = engine._la2
+    assert la2 is not None
+    push, vad_push = la2.push, engine._vad.push
+    monkeypatch.setattr(la2, "push", lambda x: (pushes.append(np.array(x, dtype=np.float32)), push(x))[1])
+    engine._vad.push = lambda x, *a, **k: (vad_pushes.append(np.array(x, dtype=np.float32)), vad_push(x, *a, **k))[1]
+    drive(engine, RAW_AUDIO, 640)
+    final = engine.finalize()
+    raw = raw_reference()
+    assert np.array_equal(joined(vad_pushes), raw)
+    assert joined(pushes).size == raw.size and not np.array_equal(joined(pushes), raw)
+    assert final["denoise"]["active"] is True

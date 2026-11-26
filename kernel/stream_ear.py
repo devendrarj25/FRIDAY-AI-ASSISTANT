@@ -41,6 +41,13 @@ Interface contract
   (LocalAgreement-2): the worker (``stt.py``) registers the Hindi ear (``stream-ear-hindi``, Hindi only) and the
   resident faster-whisper model (``stream-ear-whisper``, English, Hindi and Hinglish) behind ``locate`` pin checks.
   A Hinglish locale is never given to an ear that does not list it.
+* The clean-up copy (``kernel/denoise_onnx.py``): only the copy handed to the speech engine can be denoised, and only
+  when ``ears.denoise`` names ``dpdfnet2`` or ``gtcrn`` and its model file is on disk (the default is ``off``). The
+  voice gate, the Smart Turn read, the room and speaker scorers and the transcript gate always read the raw audio. The
+  denoiser's own delay is taken out (the copy has the raw audio's length and timing; it reaches the engine about
+  ``latencyMs`` later), the tail is flushed before the final reading, and any failure turns the copy back into the raw
+  audio with no gap and no repeat. ``denoise {engine, active, rtf, latencyMs, reason}`` is in the stream-open reply,
+  the final reading and (while an engine is loaded) the worker status. ``off`` hands the engine the very same samples.
 * ``HOST`` is the worker's single slot: one loaded engine (kept between utterances, dropped by ``unload``) and one
   active stream. ``HOST.handle(req)`` answers the ``stream-open``, ``stream-feed`` and ``stream-close`` ops of
   ``stt.py`` (shapes in ``handle``). Nothing here starts on its own: with the setting off the module costs nothing.
@@ -345,6 +352,129 @@ def _words(text: str) -> list[str]:
     return text.split()
 
 
+def _make_denoiser(name: str) -> Any:
+    """The streaming denoiser of ``denoise_onnx`` (numpy and onnxruntime are imported only here, on demand)."""
+    from denoise_onnx import build_denoiser
+
+    return build_denoiser(name)
+
+
+class AsrLane:
+    """The audio on its way to the speech engine. ``feed`` returns what the engine should hear for the raw samples just
+    given; with the clean-up off, missing or failed that is the same array, untouched. With a denoiser running it is
+    the denoised copy with the model delay taken out, so sample ``i`` of the copy is sample ``i`` of the raw audio (it
+    arrives ``latencyMs`` later, never earlier). It never raises."""
+
+    def __init__(self, wanted: Any = "off") -> None:
+        name = str(wanted or "off").strip().lower()
+        self.wanted = name if name in ("rnnoise", "gtcrn", "dpdfnet2") else "off"
+        self.reason = "off" if self.wanted == "off" else ""
+        self._d: Any = None
+        self._skip = 0
+        self._raw: Any = None  # the raw samples the copy has not yet given back
+        if self.wanted == "off":
+            return
+        try:
+            made = _make_denoiser(self.wanted)
+            if made.active:
+                self._d = made
+                self._skip = int(made.spec.delay)
+            else:
+                self.reason = str(made.reason or "the denoiser is not active")
+        except Exception as exc:  # noqa: BLE001 - no numpy, no runtime, a bad file: the raw audio goes on
+            self.reason = f"{type(exc).__name__}: {exc}"[:300]
+
+    @property
+    def active(self) -> bool:
+        return self._d is not None and bool(self._d.active)
+
+    def reset(self) -> None:
+        """A new turn: the denoiser's state and the delay start again. A denoiser that failed stays out."""
+        d = self._d
+        if d is None:
+            return
+        try:
+            d.reset()
+            self._skip = int(d.spec.delay)
+            self._raw = None
+        except Exception as exc:  # noqa: BLE001
+            self.reason = f"{type(exc).__name__}: {exc}"[:300]
+            self._d = None
+
+    def _owed(self) -> Any:
+        import numpy as np
+
+        return self._raw if self._raw is not None else np.zeros(0, dtype=np.float32)
+
+    def _give_up(self) -> Any:
+        """The denoiser failed: every raw sample the copy still owes goes out as it is, and the lane stays raw."""
+        owed = self._owed()
+        self.reason = str(self._d.reason or "the denoiser failed") if self._d is not None else self.reason
+        self._raw = None
+        return owed
+
+    def feed(self, x: Any) -> Any:
+        d = self._d
+        if d is None or not d.active:
+            return x
+        try:
+            import numpy as np
+
+            self._raw = np.concatenate([self._owed(), x])
+            out = d.process(x)
+            if not d.active:
+                return self._give_up()
+            if self._skip:
+                cut = min(self._skip, int(out.size))
+                out, self._skip = out[cut:], self._skip - cut
+            n = min(int(out.size), int(self._raw.size))
+            self._raw = self._raw[n:]
+            return out[:n]
+        except Exception as exc:  # noqa: BLE001
+            owed = self._owed()
+            self.reason, self._d, self._raw = f"{type(exc).__name__}: {exc}"[:300], None, None
+            return owed
+
+    def flush(self) -> Any:
+        """The samples the copy still owes at the end of the turn (None when it owes nothing)."""
+        d = self._d
+        if d is None or not d.active:
+            return None
+        try:
+            import numpy as np
+
+            owed = self._owed()
+            want = int(owed.size)
+            if want == 0:
+                return None
+            head = d.process(np.zeros(int(d.spec.delay), dtype=np.float32))
+            tail = d.flush()
+            if not d.active:
+                return self._give_up()
+            out = np.concatenate([head, tail])[self._skip :][:want]
+            if out.size < want:
+                out = np.concatenate([out, owed[out.size :]])
+            self._skip, self._raw = 0, None
+            return out
+        except Exception as exc:  # noqa: BLE001
+            owed = self._owed()
+            self.reason, self._d, self._raw = f"{type(exc).__name__}: {exc}"[:300], None, None
+            return owed
+
+    def status(self) -> dict[str, Any]:
+        d = self._d
+        if d is None:
+            return {"engine": self.wanted, "active": False, "rtf": None, "latencyMs": 0.0, "reason": self.reason}
+        st = d.status()
+        return {
+            "engine": self.wanted,
+            "active": bool(st["active"]),
+            "rtf": st["rtf"],
+            "latencyMs": float(st["latencyMs"]),
+            "reason": str(st["reason"]),
+        }
+
+
 @dataclass
 class _Turn:
     audio_ms: int = 0
@@ -374,6 +504,7 @@ class TransducerEngine:
         self._scene: Any = None
         self._hold_other = False
         self._gate_base: tuple[Any, ...] | None = None
+        self._lane = AsrLane()
         self._tracker = TurnTracker(self._endpoint_config)
         self._vad: Any = EnergyVad()
         self.vad_engine = "energy"
@@ -418,6 +549,7 @@ class TransducerEngine:
             "locale": locale,
             "hotwords": self._stream.hotword_count,
             "vad": self.vad_engine,
+            "denoise": self._lane.status(),
         }
 
     def _open_endpoint(self, overrides: Any, ears: Any) -> None:
@@ -454,6 +586,7 @@ class TransducerEngine:
             threshold=self._endpoint_config.start_probability,
         )
         self._open_scene(ears)
+        self._lane = AsrLane(ears.get("denoise") if isinstance(ears, Mapping) else None)
 
     def _open_scene(self, ears: Any) -> None:
         """The room reading of this stream (``ear_scene``): on only when ``ears.scene`` is ``score`` or
@@ -511,6 +644,7 @@ class TransducerEngine:
         self._restore_gate()
         if self._scene is not None:
             self._scene.reset()
+        self._lane.reset()
         self._vad.reset()
         self._endpointer.reset()
         self._stabiliser.reset()
@@ -559,7 +693,8 @@ class TransducerEngine:
             self._vad.push(piece, int(piece.size * 1000 // stream.contract.sample_rate) or SLICE_MS)
             self._turn.audio_ms += int(piece.size * 1000 // stream.contract.sample_rate)
             self._hear(piece, int(piece.size * 1000 // stream.contract.sample_rate))
-            for event in stream.feed(piece):
+            heard = self._lane.feed(piece)  # the gate and the scorers read the raw piece; the engine gets this copy
+            for event in stream.feed(heard) if heard.size else []:
                 if event.text != self._turn.last_text:
                     self._turn.last_text = event.text
                     self._turn.last_token_ms = self._turn.audio_ms
@@ -699,6 +834,9 @@ class TransducerEngine:
 
     def finalize(self) -> dict[str, Any]:
         stream = self._need()
+        tail = self._lane.flush()  # the samples the clean-up copy still owes reach the engine before the final reading
+        if tail is not None and tail.size:
+            stream.feed(tail)
         result = stream.finalize()
         self._stabiliser.update(_words(result.text))
         final = self._stabiliser.finalize()
@@ -721,6 +859,7 @@ class TransducerEngine:
             "engine": self.name,
             "locale": stream.locale,
             "providers": list(stream.active_providers),
+            "denoise": self._lane.status(),
         }
 
 
@@ -777,6 +916,7 @@ class La2Engine(TransducerEngine):
             "loadMs": int((time.perf_counter() - started) * 1000),
             "hotwords": len(self._hotwords),
             "vad": self.vad_engine,
+            "denoise": self._lane.status(),
         }
 
     def _clear(self) -> None:
@@ -815,7 +955,7 @@ class La2Engine(TransducerEngine):
             self._turn.audio_ms += ms
             self._hear(piece, ms)
         events: list[dict[str, Any]] = []
-        partial = la2.push(samples)
+        partial = la2.push(self._lane.feed(samples))  # the gate above read the raw samples; the ear gets the copy
         if partial is not None and partial.revision != self._partial.get("revision"):
             if partial.text != self._turn.last_text:
                 self._turn.last_text = partial.text
@@ -826,6 +966,9 @@ class La2Engine(TransducerEngine):
 
     def finalize(self) -> dict[str, Any]:
         la2 = self._need_la2()
+        tail = self._lane.flush()
+        if tail is not None and tail.size:
+            la2.push(tail)
         final = la2.finalize()
         words = list(final.committed)
         text = join_words(words)
@@ -861,6 +1004,7 @@ class La2Engine(TransducerEngine):
             "language": self._lang.decode_language(),
             "rescored": changed,
             "providers": [],
+            "denoise": self._lane.status(),
         }
 
 
@@ -941,12 +1085,16 @@ class StreamHost:
         return names
 
     def status(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "engines": engine_names(),
             "pinReady": any(pin_dir(spec) is not None for spec in map(_REGISTRY.get, engine_names()) if spec),
             "loaded": bool(self.loaded_name()),
             "active": self.active,
         }
+        lane = getattr(self._engine, "_lane", None)
+        if out["loaded"] and isinstance(lane, AsrLane):
+            out["denoise"] = lane.status()  # the Doctor row: the engine, whether it runs, its speed and why not
+        return out
 
     def handle(self, req: dict[str, Any]) -> dict[str, Any]:
         """Ops. Every reply is ``{"ok": bool, "op": ..., "streamId": ...}``; a refusal is ``ok: false`` with a reason.
