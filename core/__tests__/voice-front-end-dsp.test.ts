@@ -492,7 +492,9 @@ describe("pcm-capture hook", () => {
     expect(out.length).toBeGreaterThan(300);
     expect(CAPTURE_BATCH_MS).toBe(20);
     const audio = source("src/lib/friday/voice-audio.ts");
-    expect(audio).toMatch(/import \{ CAPTURE_BATCH_MS \} from "\.\/voice-engine\/front-end-dsp"/);
+    expect(audio).toMatch(
+      /import \{[^}]*\bCAPTURE_BATCH_MS\b[^}]*\} from "\.\/voice-engine\/front-end-dsp"/,
+    );
     expect(audio).toMatch(/sampleRate\*\$\{CAPTURE_BATCH_MS\}\/1000/);
     expect(audio).not.toMatch(/this\.port\.postMessage\(ch\)/);
     const capture = source("src/lib/friday/pcm-capture.ts");
