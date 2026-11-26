@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { segmentCodemix } from "../../src/lib/friday/voice-engine/language-segmenter";
 import {
   buildTurnRecord,
   languageMix,
@@ -299,6 +300,12 @@ describe("turn protocol: the record that goes with a heard turn", () => {
       interruptedPlayedMs: 1100.4,
     });
     expect(record).toEqual({
+      v: 2,
+      canonical: "kal meeting hai at 5 pm",
+      romanised: true,
+      spans: segmentCodemix("kal meeting hai at 5 pm"),
+      asrBand: "high",
+      eotWaitMs: null,
       text: "kal meeting hai at 5 pm",
       textRaw: " kal meeting hai at 5 pm ",
       lang: "hi",

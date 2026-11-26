@@ -25,6 +25,8 @@ import {
 } from "./script-policy";
 import { applyHinglishItn } from "./hinglish-itn";
 import { detectTurnLanguage } from "./hinglish-lexicon";
+import type { CodemixSpan } from "./language-segmenter";
+import { canonicalise } from "./script-policy";
 import { tidyTranscript, type TidyChange } from "./transcript-tidy";
 
 export type StreamEngineChoice = "off" | "auto" | "nemotron" | "stream-ear-nemotron";
@@ -729,7 +731,29 @@ export function languageMix(line: string, declared: string = ""): { lang: TurnLa
  * `speaker` and `env` are tags for logs and thresholds: no approval, confirmation or authority check reads them (a
  * test pins that), and the text is data, never an instruction.
  */
+export type AsrBand = "high" | "mid" | "low";
+/** The recogniser's own confidence at or above this is a high band, at or above `ASR_BAND_MID` a mid band. */
+export const ASR_BAND_HIGH = 0.85;
+export const ASR_BAND_MID = 0.6;
+
+/** The band of a recogniser confidence; an ear that gave none is low (nothing to trust). */
+export function asrBandOf(confidence: number | null): AsrBand {
+  if (confidence === null) return "low";
+  return confidence >= ASR_BAND_HIGH ? "high" : confidence >= ASR_BAND_MID ? "mid" : "low";
+}
+
 export type TurnRecord = {
+  /** Record version: v1 fields are unchanged, v2 adds `canonical`, `romanised`, `spans`, `asrBand`, `eotWaitMs`. */
+  v: 2;
+  /** The tidied code-mixed transcript (script policy): Hindi in Devanagari, English in Roman, digits as digits. */
+  canonical: string;
+  /** The turn holds Hindi written in Latin letters (flagged, never transliterated). */
+  romanised: boolean;
+  /** Language spans of `canonical`. */
+  spans: CodemixSpan[];
+  asrBand: AsrBand;
+  /** Quiet milliseconds the turn engine waited before closing the turn, or null when not measured. */
+  eotWaitMs: number | null;
   text: string;
   textRaw: string;
   lang: TurnLang;
@@ -750,6 +774,7 @@ export function buildTurnRecord(input: {
   confidence?: number | null;
   facts: TurnFacts | null;
   interruptedPlayedMs?: number | null;
+  eotWaitMs?: number | null;
 }): TurnRecord {
   const { lang, mix } = languageMix(input.text, input.declaredLanguage ?? "");
   const facts = input.facts;
@@ -758,7 +783,16 @@ export function buildTurnRecord(input: {
       ? Math.max(0, Math.min(1, input.confidence))
       : null;
   const played = input.interruptedPlayedMs;
+  const wait = input.eotWaitMs;
+  const canon = canonicalise(input.text);
   return {
+    v: 2,
+    canonical: canon.text,
+    romanised: canon.romanised,
+    spans: canon.spans,
+    asrBand: asrBandOf(confidence),
+    eotWaitMs:
+      typeof wait === "number" && Number.isFinite(wait) && wait >= 0 ? Math.round(wait) : null,
     text: input.text,
     textRaw: input.textRaw ?? input.text,
     lang,
