@@ -68,6 +68,18 @@ def _usable(text: str) -> bool:
     return letters >= MIN_CHARS
 
 
+def _ocr_language(binary: str | None) -> str:
+    """The screen reader's language (`hin+eng` when the Hindi data is installed), never worse than English."""
+    if not binary:
+        return "eng"
+    try:
+        from control import ocr_language
+
+        return ocr_language(binary) or "eng"
+    except Exception:
+        return "eng"
+
+
 def _ocr_page(page) -> tuple[str, str | None]:
     """Render the page and OCR it. Returns (text, error)."""
     try:
@@ -80,16 +92,18 @@ def _ocr_page(page) -> tuple[str, str | None]:
         from PIL import Image
     except Exception as exc:
         try:
-            tp = page.get_textpage_ocr(language="eng", dpi=200, full=True)
+            tp = page.get_textpage_ocr(language=_ocr_language(shutil.which("tesseract")), dpi=200, full=True)
             text = page.get_text("text", textpage=tp) or ""
             return text, None if text.strip() else "OCR textpage was empty"
         except Exception as exc2:
             return "", f"pytesseract/Pillow missing ({exc}); textpage OCR failed ({exc2})"
-    if not shutil.which("tesseract") and not getattr(getattr(pytesseract, "pytesseract", None), "tesseract_cmd", None):
+    binary = shutil.which("tesseract")
+    configured = getattr(getattr(pytesseract, "pytesseract", None), "tesseract_cmd", None)
+    if not binary and not configured:
         return "", "the Tesseract OCR engine was not found on PATH"
     try:
         image = Image.open(BytesIO(png))
-        return pytesseract.image_to_string(image, lang="eng") or "", None
+        return pytesseract.image_to_string(image, lang=_ocr_language(binary or str(configured))) or "", None
     except Exception as exc:
         return "", str(exc)
 

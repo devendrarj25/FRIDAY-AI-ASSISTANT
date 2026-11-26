@@ -253,6 +253,19 @@ class VoiceRuntimeDegradeTests(unittest.TestCase):
         self.assertIn("OPTIONAL echo-canceller optional - pyaec is not installed", lines)
         self.assertFalse(any(line.startswith("FAIL echo") for line in lines))
 
+    def test_check_line_tells_the_true_state_when_the_library_is_present(self):
+        import voice_runtime
+
+        with mock.patch.object(echo_canceller, "_load", return_value=(object(), object(), "")):
+            lines = voice_runtime.check_lines()
+        wanted = (
+            "PASS echo-canceller pyaec available (measure-only in the kernel; "
+            "live reference behind voice.echoReference)"
+        )
+        self.assertIn(wanted, lines)
+        self.assertFalse(any("not wired into live capture" in line for line in lines))
+        self.assertFalse(any(line.startswith("FAIL echo") for line in lines))
+
 
 if __name__ == "__main__":
     unittest.main()

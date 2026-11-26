@@ -17,7 +17,14 @@ const toolchain = require_(path.join(root, "electron/toolchain.cjs"));
 const vendor = require_(path.join(root, "electron/vendor-sources.cjs"));
 const pipeline = require_(path.join(root, "scripts/build-pipeline.cjs"));
 
-type Row = { id: string; action: string; from?: string; to?: string; version?: string };
+type Row = {
+  id: string;
+  action: string;
+  from?: string;
+  to?: string;
+  version?: string;
+  note?: string;
+};
 
 describe("agent toolkit manifest", () => {
   it("names only tools the Install Manager can install, and has no size cap", () => {
@@ -67,6 +74,18 @@ describe("agent toolkit manifest", () => {
       expect(by[id].elevated, id).toBe(true);
     }
     expect(by["CUDA Toolkit"].requires).toBe("nvidia-gpu");
+  });
+
+  it("keeps the CUDA Toolkit optional: nothing runs nvcc, speech uses pip's CUDA 12 libraries", () => {
+    const row = manifest.prefetch.find((r: { id: string }) => r.id === "CUDA Toolkit");
+    expect(row.optional).toBe(true);
+    expect(row.optionalReason).toContain("nvcc");
+    expect(row.optionalReason).toContain("Install Manager");
+    // No other tool is optional by accident.
+    const others = manifest.prefetch.filter(
+      (r: { id: string; optional?: boolean }) => r.optional && r.id !== "CUDA Toolkit",
+    );
+    expect(others).toEqual([]);
   });
 
   it("leaves only models and the runners a model needs for later, by kind", () => {
@@ -120,7 +139,27 @@ describe("toolkit plan", () => {
     const gpu = toolkit.toolkitPlan({
       detected: { "NVIDIA Driver": { installed: true, version: "560.1" } },
     }) as Row[];
-    expect(get(gpu, "CUDA Toolkit")?.action).toBe("install");
+    // The driver alone no longer installs a 3.5 GB toolkit: the row stays, skipped, with the reason.
+    expect(get(gpu, "CUDA Toolkit")).toMatchObject({ action: "skip" });
+    expect(get(gpu, "CUDA Toolkit")?.note).toContain("optional, not installed by default");
+    expect(get(gpu, "CUDA Toolkit")?.note).toContain("nvcc");
+    // Opted in on purpose (FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1) it installs, and still only with the driver.
+    const driver = { "NVIDIA Driver": { installed: true, version: "560.1" } };
+    expect(
+      get(toolkit.toolkitPlan({ detected: driver, optional: true }) as Row[], "CUDA Toolkit")
+        ?.action,
+    ).toBe("install");
+    expect(
+      get(toolkit.toolkitPlan({ detected: {}, optional: true }) as Row[], "CUDA Toolkit")?.action,
+    ).toBe("skip");
+  });
+
+  it("keeps and updates an optional tool that is already installed", () => {
+    const rows = toolkit.toolkitPlan({
+      detected: { "CUDA Toolkit": { installed: true, version: "12.6" } },
+      latest: { "CUDA Toolkit": "13.0" },
+    }) as Row[];
+    expect(get(rows, "CUDA Toolkit")).toMatchObject({ action: "update", from: "12.6", to: "13.0" });
   });
 
   it("skips only the administrator tools for a quick build, and keeps ones already installed", () => {
@@ -230,6 +269,38 @@ describe("toolkit run", () => {
     expect(text).toContain("no size limit");
     expect(text).toContain("Models section");
     expect(text).toContain("Hugging Face runner");
+  });
+
+  it("does not install the optional CUDA Toolkit on a PC with an NVIDIA driver, and shows the row as skipped with the reason", async () => {
+    const stub = fakeToolchain({ "NVIDIA Driver": "560.1" });
+    const lines: string[] = [];
+    const rows = await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      toolchain: stub,
+      progressLine,
+      log: (l: string) => lines.push(l),
+    });
+    expect(stub.jobs.map((job) => job.id)).not.toContain("CUDA Toolkit");
+    expect(rows.find((row: { id: string }) => row.id === "CUDA Toolkit")).toMatchObject({
+      ok: true,
+      skipped: true,
+      downloaded: false,
+    });
+    const text = lines.join("\n");
+    expect(text).toContain("CUDA Toolkit skipped: optional, not installed by default");
+    expect(text).toContain("Install Manager");
+  });
+
+  it("installs the CUDA Toolkit when the owner opts in with FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1", async () => {
+    const stub = fakeToolchain({ "NVIDIA Driver": "560.1" });
+    await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      env: { ...win.env, FRIDAY_PREFETCH_TOOLKIT_OPTIONAL: "1" },
+      toolchain: stub,
+      progressLine,
+      log: () => {},
+    });
+    expect(stub.jobs.map((job) => job.id)).toContain("CUDA Toolkit");
   });
 
   it("reports a pending restart without stopping the build", async () => {

@@ -211,32 +211,61 @@ function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
   throw "official download failed for $Url - $joined"
 }
 
-# A directly downloaded installer runs with the owner's rights, so its Authenticode signature is checked first:
-# a corrupt or tampered file (HashMismatch) is deleted and refused. A machine that cannot judge the chain
-# (an old root store, no cmdlet) says so and goes on, because the download came over TLS from the official host.
-function Assert-InstallerSignature([string]$File) {
+# A directly downloaded installer runs with the owner's rights, so it must prove itself first, and the check fails
+# closed (winget verifies its own manifests and never comes here). The file runs only when one of these holds: its
+# SHA-256 is the pinned value in config\toolchain-versions.json (installerPins), or it carries a Valid Authenticode
+# signature whose signer is the expected publisher, or its SHA-256 was just matched to the list or sidecar the
+# vendor published beside it ($ChecksumVerified). A corrupt or altered file (HashMismatch, a pin that does not
+# match) is deleted; anything else is deleted and refused, so the next method runs.
+function Get-InstallerPin([string]$FileName) {
+  $pins = $Versions.installerPins
+  if (-not $pins) { return '' }
+  $entry = $pins.PSObject.Properties | Where-Object { $_.Name -eq $FileName } | Select-Object -First 1
+  if (-not $entry) { return '' }
+  return "$($entry.Value)".Trim().ToLowerInvariant()
+}
+
+function Assert-InstallerSignature([string]$File, [string[]]$Publishers = @(), [bool]$ChecksumVerified = $false) {
+  $name = Split-Path -Leaf $File
   $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
   if ($extension -ne '.exe' -and $extension -ne '.msi') { return }
-  if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) {
-    Write-Step "signature check not available on this PowerShell - $(Split-Path -Leaf $File) kept"
-    return
+  $pin = Get-InstallerPin $name
+  if ($pin) {
+    $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $pin) {
+      Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+      throw "SHA-256 mismatch for $name against the pinned value in config\toolchain-versions.json: expected $pin, got $actual (file deleted)"
+    }
+    Write-Step "SHA-256 matches the pinned value for $name"
+    $ChecksumVerified = $true
   }
-  try { $signature = Get-AuthenticodeSignature -LiteralPath $File } catch {
-    Write-Step "signature check could not run ($($_.Exception.Message)) - $(Split-Path -Leaf $File) kept"
-    return
-  }
-  $status = "$($signature.Status)"
-  if ($status -eq 'Valid') {
-    $subject = ''
-    if ($signature.SignerCertificate) { $subject = $signature.SignerCertificate.GetNameInfo('SimpleName', $false) }
-    Write-Step "publisher signature verified for $(Split-Path -Leaf $File): $subject"
-    return
+  $status = 'Unknown'
+  $subject = ''
+  if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
+    try {
+      $signature = Get-AuthenticodeSignature -LiteralPath $File
+      $status = "$($signature.Status)"
+      if ($signature.SignerCertificate) { $subject = $signature.SignerCertificate.GetNameInfo('SimpleName', $false) }
+    } catch { $status = 'Unknown' }
   }
   if ($status -eq 'HashMismatch') {
     Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
-    throw "the downloaded file failed its signature check (HashMismatch: corrupt or altered) and was deleted: $(Split-Path -Leaf $File)"
+    throw "the downloaded file failed its signature check (HashMismatch: corrupt or altered) and was deleted: $name"
   }
-  Write-Step "signature status for $(Split-Path -Leaf $File): $status - not blocking, the download came over TLS from the official host"
+  if ($status -eq 'Valid') {
+    foreach ($publisher in $Publishers) {
+      if ($publisher -and $subject -like "*$publisher*") {
+        Write-Step "publisher signature verified for ${name}: $subject"
+        return
+      }
+    }
+  }
+  if ($ChecksumVerified) {
+    Write-Step "SHA-256 verified for $name (signature status $status, signer '$subject') - accepted"
+    return
+  }
+  Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+  throw "$name has no pinned or published SHA-256 and no valid signature from the expected publisher ($($Publishers -join ', ')); signature status $status, signer '$subject'. It was deleted and not run"
 }
 
 # An installer run silently prints nothing for a minute or two. On a console a moving line (a spinner, the name and
@@ -259,9 +288,9 @@ function Wait-InstallerProcess($Process, [string]$Label) {
   Write-Host ("`r" + (' ' * 78) + "`r") -NoNewline
 }
 
-function Install-Package([string]$File, [string[]]$SilentArgs) {
+function Install-Package([string]$File, [string[]]$SilentArgs, [string[]]$Publishers = @(), [bool]$ChecksumVerified = $false) {
   $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
-  Assert-InstallerSignature $File
+  Assert-InstallerSignature $File $Publishers $ChecksumVerified
   Write-Step "installing $(Split-Path -Leaf $File) silently - this can take a minute or two, a Windows prompt may appear"
   $installStarted = Get-Date
   if ($extension -eq '.msi') {
@@ -332,25 +361,27 @@ function Install-WingetPackage([string]$PackageId) {
 
 # ---------------------------------------------------------------- direct downloads
 # nodejs.org publishes SHASUMS256.txt beside every release. The MSI is checked against it; a file that does not
-# match is deleted and the method fails (the next method runs). If the list itself cannot be read, the signature
-# check in Install-Package still applies.
+# match is deleted and the method fails (the next method runs). It returns $true when the file matched the list; when
+# the list cannot be read or has no line for the file it returns $false, and Install-Package then needs a Valid
+# signature from the OpenJS Foundation (fail closed).
 function Assert-NodeChecksum([string]$Version, [string]$File) {
   $name = Split-Path -Leaf $File
   try {
     $text = (Invoke-WebRequest -Uri "https://nodejs.org/dist/$Version/SHASUMS256.txt" -UseBasicParsing).Content
     if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
   } catch {
-    Write-Step "Node.js checksum list could not be read ($($_.Exception.Message)) - signature check only"
-    return
+    Write-Step "Node.js checksum list could not be read ($($_.Exception.Message)) - the publisher signature must then be valid"
+    return $false
   }
   $match = [regex]::Match("$text", "(?im)^([0-9a-f]{64})\s+\*?$([regex]::Escape($name))\s*$")
-  if (-not $match.Success) { return }
+  if (-not $match.Success) { return $false }
   $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $match.Groups[1].Value.ToLowerInvariant()) {
     Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
     throw "SHA-256 mismatch for $name (file deleted)"
   }
   Write-Step "SHA-256 verified for $name"
+  return $true
 }
 
 function Install-NodeDirect {
@@ -366,16 +397,16 @@ function Install-NodeDirect {
   $version = $release.version
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/$version/node-$version-$arch.msi" "node-$version-$arch.msi"
-  Assert-NodeChecksum $version $file
-  Install-Package $file @('/qn', '/norestart')
+  $verified = Assert-NodeChecksum $version $file
+  Install-Package $file @('/qn', '/norestart') @('OpenJS Foundation') $verified
 }
 
 function Install-NodeFloor {
   $version = $Versions.nodeMinimum
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
   $file = Invoke-OfficialDownload "https://nodejs.org/dist/v$version/node-v$version-$arch.msi" "node-v$version-$arch.msi"
-  Assert-NodeChecksum "v$version" $file
-  Install-Package $file @('/qn', '/norestart')
+  $verified = Assert-NodeChecksum "v$version" $file
+  Install-Package $file @('/qn', '/norestart') @('OpenJS Foundation') $verified
 }
 
 function Install-PythonDirect {
@@ -395,13 +426,13 @@ function Install-PythonDirect {
     try {
       $file = Invoke-OfficialDownload $url "python-$candidate-amd64.exe"
     } catch { continue }
-    Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0')
+    Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0') @('Python Software Foundation')
     return
   }
   $floor = $Versions.pythonMinimum
   $url = "https://www.python.org/ftp/python/$floor/python-$floor-amd64.exe"
   $file = Invoke-OfficialDownload $url "python-$floor-amd64.exe"
-  Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0')
+  Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0') @('Python Software Foundation')
 }
 
 # The unauthenticated GitHub API allows 60 requests an hour per address, which a shared office network can
@@ -421,34 +452,41 @@ function Get-GitHubLatestRelease([string]$Repository) {
   throw "GitHub release lookup for $Repository failed: $($last.Exception.Message)"
 }
 
-# A release that publishes '<asset>.sha256' next to an asset is checked against it; one that does not is kept.
-function Assert-AssetChecksum($Release, $Asset, [string]$File) {
-  $sidecar = $Release.assets | Where-Object { $_.name -eq "$($Asset.name).sha256" } | Select-Object -First 1
-  if (-not $sidecar) { return }
+# A checksum a vendor publishes at a URL (a '.sha256' sidecar or a checksum page) is read over TLS and compared with
+# the file. $true = the file matched; a mismatch deletes the file and throws; $false = nothing usable was published
+# (not found, unreadable, no 64-digit value), which Install-Package and the archive paths treat as unverified.
+function Assert-PublishedChecksum([string]$File, [string]$Url, [string]$Label) {
   try {
-    $text = (Invoke-WebRequest -Uri $sidecar.browser_download_url -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }).Content
+    $text = (Invoke-WebRequest -Uri $Url -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }).Content
     if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
     $expected = ([regex]::Match("$text", '(?i)\b[0-9a-f]{64}\b')).Value.ToLowerInvariant()
   } catch {
-    Write-Step "checksum file for $($Asset.name) could not be read ($($_.Exception.Message)) - download kept"
-    return
+    Write-Step "checksum file for $Label could not be read ($($_.Exception.Message))"
+    return $false
   }
-  if (-not $expected) { return }
+  if (-not $expected) { return $false }
   $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $expected) {
     Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
-    throw "SHA-256 mismatch for $($Asset.name): expected $expected, got $actual (file deleted)"
+    throw "SHA-256 mismatch for ${Label}: expected $expected, got $actual (file deleted)"
   }
-  Write-Step "SHA-256 verified for $($Asset.name)"
+  Write-Step "SHA-256 verified for $Label"
+  return $true
 }
 
-function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [string[]]$SilentArgs) {
+function Assert-AssetChecksum($Release, $Asset, [string]$File) {
+  $sidecar = $Release.assets | Where-Object { $_.name -eq "$($Asset.name).sha256" } | Select-Object -First 1
+  if (-not $sidecar) { return $false }
+  return (Assert-PublishedChecksum $File $sidecar.browser_download_url $Asset.name)
+}
+
+function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [string[]]$SilentArgs, [string[]]$Publishers = @()) {
   $release = Get-GitHubLatestRelease $Repository
   $asset = $release.assets | Where-Object { $_.name -like $AssetPattern } | Select-Object -First 1
   if (-not $asset) { throw "no official asset matching $AssetPattern in $Repository" }
   $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
-  Assert-AssetChecksum $release $asset $file
-  Install-Package $file $SilentArgs
+  $verified = Assert-AssetChecksum $release $asset $file
+  Install-Package $file $SilentArgs $Publishers $verified
 }
 
 # FFmpeg ships as a ZIP, not an installer: it is unpacked into a per-user folder (no administrator rights,
@@ -458,7 +496,16 @@ function Install-FfmpegArchive {
   $asset = $release.assets | Where-Object { $_.name -like 'ffmpeg-*-essentials_build.zip' } | Select-Object -First 1
   if (-not $asset) { throw 'no official FFmpeg essentials archive in GyanD/codexffmpeg' }
   $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
-  Assert-AssetChecksum $release $asset $file
+  # A ZIP carries no Authenticode signature: it is unpacked only when a published SHA-256 matched it, the release's
+  # own sidecar first, then gyan.dev's checksum for its current essentials build (a second host).
+  $verified = Assert-AssetChecksum $release $asset $file
+  if (-not $verified) {
+    $verified = Assert-PublishedChecksum $file 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256' $asset.name
+  }
+  if (-not $verified) {
+    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    throw "no published SHA-256 was found for $($asset.name), so the archive was deleted and not unpacked"
+  }
   $base = $env:LOCALAPPDATA
   if (-not $base) { $base = Join-Path $env:USERPROFILE 'AppData\Local' }
   $destination = Join-Path $base 'FRIDAY\tools\ffmpeg'
@@ -473,6 +520,104 @@ function Install-FfmpegArchive {
     [Environment]::SetEnvironmentVariable('Path', (($userPath, $bin | Where-Object { $_ }) -join ';'), 'User')
   }
   Write-Step "FFmpeg unpacked to $bin and added to your user PATH"
+}
+
+# ---------------------------------------------------------------- Tesseract Hindi data
+# The Tesseract installer carries English and OSD only, and FRIDAY reads Hindi, English and Hinglish screens, so
+# hin.traineddata (tessdata_fast at the pinned commit and SHA-256 in config\toolchain-versions.json, tessdataHin)
+# is added when `tesseract --list-langs` does not list it. Detect first; skipped offline; never fails the setup.
+function Get-TesseractExe {
+  $command = Get-Command 'tesseract.exe' -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+  foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if (-not $base) { continue }
+    $exe = Join-Path $base 'Tesseract-OCR\tesseract.exe'
+    if (Test-Path -LiteralPath $exe) { return $exe }
+  }
+  return $null
+}
+
+function Test-TesseractHindi([string]$Exe) {
+  try {
+    $before = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $text = (& $Exe --list-langs 2>&1 | Out-String) } finally { $ErrorActionPreference = $before }
+    return [bool]($text -match '(?m)^\s*hin\s*$')
+  } catch { return $false }
+}
+
+function Test-FolderWritable([string]$Folder) {
+  try {
+    $probe = Join-Path $Folder ('.friday-write-test-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType File -Path $probe -ErrorAction Stop | Out-Null
+    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    return $true
+  } catch { return $false }
+}
+
+function Install-TesseractHindi {
+  $exe = Get-TesseractExe
+  if (-not $exe) { return }
+  if (Test-TesseractHindi $exe) {
+    Write-Step 'Tesseract Hindi data (hin) present - detected, kept'
+    return
+  }
+  if ("$env:FRIDAY_OFFLINE".Trim() -eq '1') {
+    Write-Step 'Tesseract Hindi data (hin) is missing - skipped offline; screens are read in English until it is added'
+    return
+  }
+  $pin = $Versions.tessdataHin
+  if (-not $pin -or -not $pin.url -or -not $pin.sha256) {
+    Write-Step 'Tesseract Hindi data (hin) is missing and no pinned source is configured - skipped'
+    return
+  }
+  try {
+    $file = Invoke-OfficialDownload $pin.url 'hin.traineddata'
+    $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne "$($pin.sha256)".ToLowerInvariant()) {
+      Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+      throw "SHA-256 mismatch for hin.traineddata: expected $($pin.sha256), got $actual (file deleted)"
+    }
+    Write-Step 'SHA-256 verified for hin.traineddata'
+    $shipped = Join-Path (Split-Path -Parent $exe) 'tessdata'
+    if ($env:TESSDATA_PREFIX -and (Test-Path -LiteralPath $env:TESSDATA_PREFIX)) { $shipped = $env:TESSDATA_PREFIX }
+    if ((Test-Path -LiteralPath $shipped) -and (Test-FolderWritable $shipped)) {
+      Copy-Item -LiteralPath $file -Destination (Join-Path $shipped 'hin.traineddata') -Force
+      Write-Step "Tesseract Hindi data added to $shipped"
+    } else {
+      # Program Files is not writable without administrator rights: a per-user copy of the data folder is used and
+      # TESSDATA_PREFIX points the engine at it (eng, osd and the configs folders are copied along, because the variable replaces the folder).
+      $base = $env:LOCALAPPDATA
+      if (-not $base) { $base = Join-Path $env:USERPROFILE 'AppData\Local' }
+      $folder = Join-Path $base 'FRIDAY\tools\tessdata'
+      New-Item -ItemType Directory -Force -Path $folder | Out-Null
+      foreach ($keep in @('eng.traineddata', 'osd.traineddata')) {
+        $source = Join-Path (Join-Path (Split-Path -Parent $exe) 'tessdata') $keep
+        if ((Test-Path -LiteralPath $source) -and -not (Test-Path -LiteralPath (Join-Path $folder $keep))) {
+          Copy-Item -LiteralPath $source -Destination (Join-Path $folder $keep) -Force
+        }
+      }
+      # The tsv and other output configs live in tessdata\configs: without them `tesseract ... tsv` fails.
+      foreach ($sub in @('configs', 'tessconfigs')) {
+        $source = Join-Path (Join-Path (Split-Path -Parent $exe) 'tessdata') $sub
+        if ((Test-Path -LiteralPath $source) -and -not (Test-Path -LiteralPath (Join-Path $folder $sub))) {
+          Copy-Item -LiteralPath $source -Destination (Join-Path $folder $sub) -Recurse -Force
+        }
+      }
+      Copy-Item -LiteralPath $file -Destination (Join-Path $folder 'hin.traineddata') -Force
+      [Environment]::SetEnvironmentVariable('TESSDATA_PREFIX', $folder, 'User')
+      $env:TESSDATA_PREFIX = $folder
+      Write-Step "Tesseract Hindi data added to $folder (TESSDATA_PREFIX set for your user)"
+    }
+    if (Test-TesseractHindi $exe) {
+      Write-Step 'Tesseract reads Hindi and English now (hin and eng listed)'
+    } else {
+      Add-FollowUp 'Tesseract still does not list the Hindi data (hin): open a new terminal and run npm run setup again'
+    }
+  } catch {
+    Write-MethodFailure 'Tesseract Hindi data' $_.Exception.Message
+    Add-FollowUp 'Tesseract Hindi data (hin.traineddata) could not be added: screens are read in English until setup is run again online'
+  }
 }
 
 # ---------------------------------------------------------------- newest official release
@@ -807,12 +952,12 @@ try {
 
   Ensure-Tool 'Git' 'git.exe' @('--version') $Versions.gitMinimum @(
     @{ Label = 'official winget package (Git.Git)'; Action = { Install-WingetPackage 'Git.Git' } },
-    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') } }
+    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') @('Johannes Schindelin') } }
   ) @('Git.Git')
 
   Ensure-Tool 'PowerShell' 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') $Versions.powershellMinimum @(
     @{ Label = 'official winget package (Microsoft.PowerShell)'; Action = { Install-WingetPackage 'Microsoft.PowerShell' } },
-    @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') } }
+    @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') @('Microsoft Corporation') } }
   ) @('Microsoft.PowerShell')
 
   Ensure-Tool 'npm' 'npm.cmd' @('--version') $Versions.npmMinimum @(
@@ -869,8 +1014,9 @@ try {
 
   Ensure-RequiredCommand 'Tesseract OCR' 'tesseract.exe' @(
     @{ Label = 'official winget package (UB-Mannheim.TesseractOCR)'; Action = { Install-WingetPackage 'UB-Mannheim.TesseractOCR' } },
-    @{ Label = 'official UB-Mannheim GitHub installer'; Action = { Install-FromGitHubRelease 'UB-Mannheim/tesseract' '*w64-setup*.exe' @('/S') } }
+    @{ Label = 'official UB-Mannheim GitHub installer'; Action = { Install-FromGitHubRelease 'UB-Mannheim/tesseract' '*w64-setup*.exe' @('/S') @('Mannheim') } }
   ) @('UB-Mannheim.TesseractOCR')
+  Install-TesseractHindi
 
   $vc = Join-Path $env:SystemRoot 'System32\vcruntime140.dll'
   if (Test-Path -LiteralPath $vc) {
@@ -888,7 +1034,7 @@ try {
     if (-not $vcInstalled) {
       try {
         $vcFile = Invoke-OfficialDownload 'https://aka.ms/vs/17/release/vc_redist.x64.exe' 'vc_redist.x64.exe'
-        Install-Package $vcFile @('/install', '/quiet', '/norestart')
+        Install-Package $vcFile @('/install', '/quiet', '/norestart') @('Microsoft Corporation')
         Write-Step 'Visual C++ Redistributable installed from aka.ms/vs/17/release/vc_redist.x64.exe'
         $vcInstalled = $true
       } catch {
@@ -934,8 +1080,14 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Electron binary installation failed after every official method.' }
 
   Write-Stage 4 'Python environment and voice models'
+  # Hardware first: this PC's plan (chat model, speech sizes, llama.cpp, CUDA libraries) is printed before anything
+  # downloads, and the model step reads the same plan. It only measures and prints; a failure here changes nothing.
+  Write-Step 'Measuring this PC: the plan below decides every model and GPU package setup downloads'
+  & node.exe scripts\prefetch-models.cjs --plan
+  if ($LASTEXITCODE -eq 0) { $env:FRIDAY_PLAN_PRINTED = '1' }
   Write-Step 'Creating the isolated Python environment and runtime storage'
   & node.exe scripts\setup-python.cjs
+  Remove-Item Env:FRIDAY_PLAN_PRINTED -ErrorAction SilentlyContinue
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
 
   Write-Stage 5 'Agent tools'

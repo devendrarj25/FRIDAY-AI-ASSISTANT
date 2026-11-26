@@ -14,6 +14,7 @@ const FILE_NAME = /^[A-Za-z0-9._-]+$/;
 const WATCHED = [
   "download-hosts.json",
   "local-runners.json",
+  "chat-tiers.json",
   "toolchain-versions.json",
   "friday-version.json",
   "toolchain-manifest.json",

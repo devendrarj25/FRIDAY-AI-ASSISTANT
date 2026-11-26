@@ -477,6 +477,10 @@ _NETWORK_MARKERS = (
 )
 
 
+# A small local chat model is labelled "fast" (electron/models.cjs inferRole) but can still be the brain.
+_BRAIN_CAPABLE_ROLES = ("brain", "fast")
+
+
 def is_local_model(model: Model) -> bool:
     """True when the model answers from this machine (Ollama, llama.cpp, ...)."""
     endpoint = (model.endpoint or "").lower()
@@ -1009,6 +1013,20 @@ class ModelRouter:
         for m in self._models.values():
             if m.role == role and m.status == "ready" and self.can_chat(m) and self.spendable(m):
                 return m
+        if role == "brain":
+            # Every setup tier is 4B or smaller and is labelled "fast"; a ready local chat model
+            # must still be able to plan. Local only: the fallback never reaches a cloud model.
+            spare = [
+                m
+                for m in self._models.values()
+                if m.role in _BRAIN_CAPABLE_ROLES
+                and m.status == "ready"
+                and self.can_chat(m)
+                and is_local_model(m)
+                and self.spendable(m)
+            ]
+            spare.sort(key=lambda m: self.rank_key(m, "brain"), reverse=True)
+            return spare[0] if spare else None
         return None
 
     @staticmethod
@@ -1066,7 +1084,7 @@ class ModelRouter:
         latency = float(options.get("avg_ms") or options.get("latency_ms") or 0)
         latency_score = (1.0 / latency) if latency > 0 else 0.0
         base = (
-            1 if model.role == role else 0,
+            1 if (model.role == role or (role == "brain" and model.role in _BRAIN_CAPABLE_ROLES)) else 0,
             1 if is_local_model(model) else 0,
             reliability,
             latency_score,

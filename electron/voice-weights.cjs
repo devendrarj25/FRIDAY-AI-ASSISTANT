@@ -29,6 +29,12 @@ const STT_FALLBACK_REPOS = {
 /** The neural voice repository; its folder is `<root>/models/supertonic-3`. */
 const TTS_REPO = "Supertone/supertonic-3";
 
+/**
+ * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the Supertonic
+ * code repository): the second source for the neural voice. Same files, same SHA-256 (`voice-pins.cjs` MIRROR_REPOS).
+ */
+const TTS_ARCHIVE_REPO = "supertone-oss-archive/supertonic-3";
+
 /** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
 const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
@@ -127,24 +133,118 @@ function earOnDisk(root, ear, exists) {
 
 const STT_FILES = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"];
 
+/**
+ * The two single-file helpers. Every URL names an immutable revision (a Hugging Face commit, or a release tag as the
+ * secondary), never a branch: a `master`, `main` or `latest` URL moves, and a moved file fails its SHA-256 (setup
+ * once stopped on `silero-vad source failed (official release): checksum mismatch` for exactly that reason). `sources`
+ * is the ordered list the downloader walks: a source whose bytes differ from `sha256` is refused and the next one is
+ * tried. `url` is the first source. Both helpers are `optional`: FRIDAY listens and ends a turn without them (`fallback`).
+ * Hashes and sizes were read from the Hugging Face API (`?blobs=true`, lfs.sha256) and by hashing the downloaded files, 2026-11-24.
+ */
+const SILERO_SHA256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3";
+const SILERO_BYTES = 2327524;
+const SMART_TURN_SHA256 = "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f";
+const SMART_TURN_BYTES = 8679182;
+
 const PINNED = [
   {
     id: "smart-turn",
     file: "smart-turn-v3.2-cpu.onnx",
-    url: "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx",
-    sha256: "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f",
-    bytes: 8679182,
+    sha256: SMART_TURN_SHA256,
+    bytes: SMART_TURN_BYTES,
     dir: ["models", "smart-turn"],
+    optional: true,
+    fallback: "the pause timer alone (Smart Turn can only lengthen a pause)",
+    sources: [
+      {
+        kind: "url",
+        // pipecat-ai/smart-turn-v3 commit "Smart Turn v3.2" (BSD-2-Clause).
+        url: "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx",
+        sha256: SMART_TURN_SHA256,
+        bytes: SMART_TURN_BYTES,
+        label: "Hugging Face (pipecat-ai, pinned commit)",
+      },
+    ],
   },
   {
     id: "silero-vad",
     file: "silero_vad.onnx",
-    url: "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx",
-    sha256: "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
-    bytes: 2327524,
+    sha256: SILERO_SHA256,
+    bytes: SILERO_BYTES,
     dir: ["models", "silero-vad"],
+    optional: true,
+    fallback: "the energy VAD",
+    sources: [
+      {
+        kind: "url",
+        // istupakov/silero-vad-onnx (MIT) at a fixed commit; the same bytes as snakers4/silero-vad v6.2.1.
+        url: "https://huggingface.co/istupakov/silero-vad-onnx/resolve/b3e3ee3cce4c11ceb63b1a0b229d916069c1ddf6/silero_vad.onnx",
+        sha256: SILERO_SHA256,
+        bytes: SILERO_BYTES,
+        label: "Hugging Face (istupakov, pinned commit)",
+      },
+      {
+        kind: "url",
+        // Secondary only: the upstream release tag. Its file is checked against the same SHA-256, so a moved tag is refused.
+        url: "https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad.onnx",
+        sha256: SILERO_SHA256,
+        bytes: SILERO_BYTES,
+        label: "GitHub snakers4/silero-vad v6.2.1 (secondary)",
+      },
+    ],
   },
-];
+].map((row) => ({ ...row, url: row.sources[0].url }));
+
+/** True for a helper FRIDAY can run without (its `fallback` engine takes over); a failed fetch is then a note, not a failure. */
+function isOptionalHelper(id) {
+  return PINNED.some((row) => row.id === String(id || "") && row.optional === true);
+}
+
+function helperFallback(id) {
+  return PINNED.find((row) => row.id === String(id || ""))?.fallback || "";
+}
+
+/**
+ * The opt-in mirror (`config/download-hosts.json` `optInHosts`). It is only another road to the same bytes: the file
+ * is checked against the same SHA-256 and size, so a wrong mirror is refused and the next source is tried. The
+ * downloader refuses the host unless `FRIDAY_HF_MIRROR=1`, so it is added to a plan only when the owner allows it.
+ */
+const HF_MIRROR_HOST = "hf-mirror.com";
+const HF_RESOLVE = /^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/([0-9a-f]{40})\/(.+)$/;
+
+/**
+ * `sources` plus, last, the mirror copy of every immutable Hugging Face url (a commit in the path, never a branch)
+ * when `env.FRIDAY_HF_MIRROR` is "1". Any other source, and every source without the switch, is returned as it was.
+ */
+function withOptInMirrors(sources, env) {
+  const list = Array.isArray(sources) ? sources : [];
+  if (String(env?.FRIDAY_HF_MIRROR || "") !== "1") return list;
+  const mirrors = [];
+  for (const source of list) {
+    const found = source?.kind === "url" ? HF_RESOLVE.exec(String(source.url || "")) : null;
+    if (!found) continue;
+    mirrors.push({
+      ...source,
+      url: `https://${HF_MIRROR_HOST}/${found[1]}/resolve/${found[2]}/${found[3]}`,
+      label: `${HF_MIRROR_HOST} (opt-in mirror, same SHA-256)`,
+    });
+  }
+  return [...list, ...mirrors];
+}
+
+/**
+ * One line for a failed helper download: every source that was tried and why it failed, so a moved file on the first
+ * source and a second failure are both visible. `result` is what `model-download.cjs` `downloadModel` returned.
+ */
+function pinnedFailureLine(id, result = {}) {
+  const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
+  const tried = attempts.map((a) => `${a.source}: ${a.error}`).join("; ");
+  const why = tried || String(result?.error || "no source answered");
+  const tail = isOptionalHelper(id)
+    ? `; optional, ${helperFallback(id) || "a built-in engine"} stays in use`
+    : "";
+  return `${id} did not download (${why})${tail}`;
+}
 
 function sttSize(model) {
   return STT_REPOS[model] ? model : "base";
@@ -206,7 +306,13 @@ function nearestInstalled(wanted, installed) {
 }
 
 function pinnedJobs() {
-  return PINNED.map((row) => ({ ...row, dir: [...row.dir] }));
+  return PINNED.map((row) => ({
+    ...row,
+    dir: [...row.dir],
+    sources: row.sources.map((source) => ({ ...source })),
+    // What the prefetch or a repair prints when `downloadModel` fails for this helper: every source and why.
+    failureLine: (result) => pinnedFailureLine(row.id, result),
+  }));
 }
 
 /**
@@ -578,6 +684,7 @@ function modelRegistry() {
       bytes: row.bytes,
       dir: [...row.dir],
       label: row.id === "silero-vad" ? "Silero VAD" : "Smart Turn",
+      optional: row.optional === true,
     });
   }
   return rows;
@@ -970,6 +1077,15 @@ function budgetForProbe(probe, options = {}) {
 
 const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
 
+/** An upper bound for the English streaming speech download, used only to check the disk (its real size is the publisher's). */
+const MOONSHINE_DISK_BYTES = 100 * 1024 ** 2;
+
+/** The speech sizes besides the planned ear that a setup keeps: the lite fallback, and small beside a GPU-sized ear. */
+function extraSizesFor(primary) {
+  const above = SIZE_ORDER.indexOf(primary) > SIZE_ORDER.indexOf("small");
+  return [...(primary === "tiny" ? [] : ["tiny"]), ...(above ? ["small"] : [])];
+}
+
 /**
  * What a fresh setup does about the voice on THIS PC, from the probe: which pinned models are fetched, which are already
  * on disk, which are skipped and why, and what stays optional on demand. Pure: `deps.exists` and `deps.statfs` stand in
@@ -995,6 +1111,10 @@ function voiceInstallPlan(root, probe, deps = {}) {
   for (const id of budget.install) {
     const facts = manifestOf(id);
     const item = { id, kind: facts.kind, bytes: facts.diskBytes, state: "download", reason: "" };
+    if (isOptionalHelper(id)) {
+      item.optional = true;
+      item.fallback = helperFallback(id);
+    }
     if (onDisk.has(id)) item.state = "on-disk";
     else if (!essential.has(id) && facts.minRamGb > budget.speechBudgetGb) {
       item.state = "skipped";
@@ -1013,6 +1133,40 @@ function voiceInstallPlan(root, probe, deps = {}) {
     if (item.state === "download") planned += item.bytes;
     items.push(item);
   }
+  // The extras: what a setup fetches besides the planned models, decided here and nowhere else. The lite size is the
+  // fallback for a busy PC; small is the CPU companion of a PC whose ear runs on the GPU; English streaming speech is a
+  // small download of its own. Any other size (base, medium, the big ones) is not fetched here: the Models page has it.
+  const extras = [];
+  let extraBytes = 0;
+  const extraItem = (id, kind, bytes, here) => {
+    const item = { id, kind, bytes, state: "download", reason: "", optional: true };
+    if (here) item.state = "on-disk";
+    else {
+      const room = pins.diskPreflight(
+        root,
+        planned + extraBytes + bytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (room.ok) extraBytes += bytes;
+      else {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    return item;
+  };
+  for (const size of extraSizesFor(budget.sttSize)) {
+    const dir = path.join(root, "cache", "stt", size);
+    extras.push(
+      extraItem(
+        `stt-${size}`,
+        "stt",
+        manifestOf(STT_CATALOG[size]).diskBytes,
+        weightsReady(dir, exists),
+      ),
+    );
+  }
+  extras.push(extraItem("moonshine-en", "engine", MOONSHINE_DISK_BYTES, false));
   const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
     id: size,
     size,
@@ -1053,6 +1207,7 @@ function voiceInstallPlan(root, probe, deps = {}) {
     probe,
     budget,
     items,
+    extras,
     blocked,
     optional,
     downloadBytes: planned,
@@ -1147,6 +1302,7 @@ module.exports = {
   nearestInstalled,
   SIZE_ORDER,
   pinnedJobs,
+  isOptionalHelper,
   otherVoiceJobs,
   ensureSttWeights,
   auditStt,
@@ -1165,6 +1321,9 @@ module.exports = {
   voiceInstallPlan,
   probeHardware,
   TTS_REPO,
+  TTS_ARCHIVE_REPO,
+  HF_MIRROR_HOST,
+  withOptInMirrors,
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,
   HINDI_FALLBACK_REPO,

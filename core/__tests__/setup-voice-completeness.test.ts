@@ -4,6 +4,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const read = (file: string) => readFileSync(file, "utf8");
@@ -84,8 +85,9 @@ describe("setup and Doctor run the voice files for real, not only check that the
     );
   });
 
-  it("counts a failed check and a download that did not land as a gap, but not the disk reading", () => {
-    expect(smoke).toContain("local-tts|vad-silero|smart-turn");
+  it("counts a failed check and a missing offline voice as a gap, not the disk reading or an OPTIONAL row", () => {
+    expect(smoke).toContain("local-tts");
+    expect(smoke).not.toContain("local-tts|vad-silero|smart-turn");
     expect(smoke).toContain("FAIL\\s+disk");
     expect(smoke).toContain('"--check"');
   });
@@ -100,20 +102,75 @@ describe("setup and Doctor run the voice files for real, not only check that the
 describe("the voice smoke test reads what the voice runtime says", () => {
   const smoke = createRequire(import.meta.url)("../../scripts/voice-smoke.cjs");
 
-  it("keeps a real fault and a download that did not land, and ignores a disk reading and the speaker model", () => {
-    expect(
-      smoke.problemsIn([
-        "PASS boot",
-        "FAIL rnnoise pyrnnoise is not installed",
-        "FAIL disk unmeasured",
-        "OPTIONAL local-tts optional - not installed",
-        "OPTIONAL speaker optional - not installed",
-        "PASS smart-turn file present",
-      ]),
-    ).toEqual([
+  it("keeps a real fault and a missing offline voice, and shows every other OPTIONAL row as a note", () => {
+    const lines = [
+      "PASS boot",
+      "FAIL rnnoise pyrnnoise is not installed",
+      "FAIL disk unmeasured",
+      "OPTIONAL local-tts optional - not installed",
+      "OPTIONAL vad-silero optional - not installed",
+      "OPTIONAL smart-turn optional - not installed",
+      "OPTIONAL speaker optional - not installed",
+      "OPTIONAL echo-canceller optional - pyaec is not installed",
+      "PASS vad-energy desktop energy VAD remains the fallback",
+    ];
+    expect(smoke.problemsIn(lines)).toEqual([
       "voice runtime: rnnoise pyrnnoise is not installed",
       "voice runtime: local-tts optional - not installed",
     ]);
+    expect(smoke.notesIn(lines)).toEqual([
+      "vad-silero optional - not installed",
+      "smart-turn optional - not installed",
+      "speaker optional - not installed",
+      "echo-canceller optional - pyaec is not installed",
+    ]);
+  });
+
+  it("never turns an OPTIONAL row into a problem: a clean runtime with optional gaps passes with notes", () => {
+    const check =
+      "PASS boot\nPASS local-tts engine=supertonic-3 voice=F1\nOPTIONAL vad-silero optional - not installed\n" +
+      "OPTIONAL smart-turn optional - not installed\nPASS vad-energy fallback\n";
+    const run = (_exe: string, args: string[]) => {
+      if (args.includes("--check")) return { status: 0, stdout: check };
+      writeFileSync(String(args[args.indexOf("--out") + 1]), Buffer.alloc(5000));
+      return { status: 0, stdout: JSON.stringify({ ok: true, reason: "" }) };
+    };
+    const seen: string[] = [];
+    const result = smoke.voiceSmoke({
+      python: "py",
+      fridayRoot: "/r",
+      run,
+      log: (line: string) => seen.push(line),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.problems).toEqual([]);
+    expect(result.notes).toEqual([
+      "vad-silero optional - not installed",
+      "smart-turn optional - not installed",
+    ]);
+    expect(seen.join("\n")).not.toMatch(/problem|ACTION REQUIRED|FAIL/);
+  });
+
+  it("still fails when the voice runtime does not boot or when it prints no lines", () => {
+    const log = () => {};
+    const dead = smoke.voiceSmoke({
+      python: "py",
+      fridayRoot: "/r",
+      run: () => ({ status: 1, stdout: "" }),
+      log,
+    });
+    expect(dead.ok).toBe(false);
+    expect(dead.problems[0]).toBe("the voice runtime check did not run");
+  });
+
+  it("CLI wording: OPTIONAL rows print as voice notes and never as a voice problem", () => {
+    const source = readFileSync(
+      path.join(import.meta.dirname, "../../scripts/voice-smoke.cjs"),
+      "utf8",
+    );
+    expect(source).toContain("voice note:");
+    expect(source).toContain("voice problem:");
+    expect(source.indexOf("voice note:")).not.toBe(source.indexOf("voice problem:"));
   });
 
   it("passes when the check is clean and Supertonic wrote audio, and fails when either is not", () => {
@@ -130,6 +187,7 @@ describe("the voice smoke test reads what the voice runtime says", () => {
     ).toEqual({
       ok: true,
       problems: [],
+      notes: [],
     });
     const mute = smoke.voiceSmoke({ python: "py", fridayRoot: "/r", run: run(clean, false), log });
     expect(mute.ok).toBe(false);

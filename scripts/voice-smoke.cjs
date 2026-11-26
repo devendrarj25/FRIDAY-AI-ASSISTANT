@@ -27,24 +27,37 @@ function capture(exe, args, opts = {}) {
   return spawnSync(exe, args, { encoding: "utf8", shell: false, timeout: 120000, ...opts });
 }
 
-/** Lines of `voice_runtime.py --check` that mean a real problem right after setup fetched the files. */
+/** The OPTIONAL rows of `voice_runtime.py --check`: parts FRIDAY runs well without (an energy VAD, a timer, no speaker model). */
+const OPTIONAL_ROW = /^OPTIONAL\s+/;
+
+/**
+ * Lines of `voice_runtime.py --check` that mean a real problem right after setup fetched the files.
+ * Every FAIL is one (but a disk reading, which can be unmeasurable on a locked-down PC), and so is the offline voice
+ * (Supertonic) reported as not installed: it was just downloaded and the voice cannot speak offline without it.
+ * Every other OPTIONAL row (silero, Smart Turn, the speaker model, the echo canceller) is only a note: the energy VAD
+ * and the silence timer are the fallbacks.
+ */
 function problemsIn(lines) {
   const problems = [];
   for (const line of lines) {
-    // A disk reading can be unmeasurable on a locked-down PC; every other FAIL is a real voice fault.
-    // The voice, silero and Smart Turn files were just downloaded, so "optional - not installed" for those
-    // three means the download did not land (the speaker model stays optional).
-    const missing = /^OPTIONAL\s+(local-tts|vad-silero|smart-turn)\b/.test(line);
-    if ((/^FAIL\s/.test(line) && !/^FAIL\s+disk/.test(line)) || missing) {
+    const noVoice = /^OPTIONAL\s+local-tts\b/.test(line);
+    if ((/^FAIL\s/.test(line) && !/^FAIL\s+disk/.test(line)) || noVoice) {
       problems.push(`voice runtime: ${line.replace(/^(FAIL|OPTIONAL)\s+/, "")}`);
     }
   }
   return problems;
 }
 
+/** The OPTIONAL rows that are not a problem, as plain text. Never a failure. */
+function notesIn(lines) {
+  return lines
+    .filter((line) => OPTIONAL_ROW.test(line) && !/^OPTIONAL\s+local-tts\b/.test(line))
+    .map((line) => line.replace(OPTIONAL_ROW, ""));
+}
+
 /**
  * @param {{python: string, fridayRoot: string, kernelDir?: string, run?: Function, log?: Function}} options
- * @returns {{ok: boolean, problems: string[]}}
+ * @returns {{ok: boolean, problems: string[], notes: string[]}}
  */
 function voiceSmoke({ python, fridayRoot, kernelDir = KERNEL, run = capture, log = console.log }) {
   const problems = [];
@@ -61,6 +74,7 @@ function voiceSmoke({ python, fridayRoot, kernelDir = KERNEL, run = capture, log
   }
   for (const line of lines) log(`voice runtime: ${line}`);
   problems.push(...problemsIn(lines));
+  const notes = notesIn(lines);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-voice-"));
   try {
     const wav = path.join(dir, "check.wav");
@@ -90,10 +104,10 @@ function voiceSmoke({ python, fridayRoot, kernelDir = KERNEL, run = capture, log
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  return { ok: problems.length === 0, problems };
+  return { ok: problems.length === 0, problems, notes };
 }
 
-module.exports = { voiceSmoke, problemsIn };
+module.exports = { voiceSmoke, problemsIn, notesIn };
 
 if (require.main === module) {
   if (process.platform !== "win32" && process.env.FRIDAY_VOICE_SMOKE !== "1") {
@@ -120,6 +134,7 @@ if (require.main === module) {
         fridayRoot: root,
         log: (line) => console.log(`[friday] ${line}`),
       });
+      for (const note of result.notes) console.log(`[friday] voice note: ${note}`);
       for (const problem of result.problems) console.error(`[friday] voice problem: ${problem}`);
       if (!result.ok) {
         console.error(

@@ -680,9 +680,9 @@ export function VoiceEngineSettings() {
             </p>
             <p>
               Listening: faster-whisper {profile.stt.model} on {profile.stt.device} (
-              {profile.stt.computeType}, {profile.stt.threads} threads). Answers:{" "}
-              {profile.llm.model} on {profile.llm.device}, context {profile.llm.context}. Speech:
-              Supertonic on the CPU. One background worker.
+              {profile.stt.computeType}, {profile.stt.threads} threads). Answers: the chat model
+              Setup chose for this PC on {profile.llm.device}, context {profile.llm.context}.
+              Speech: Supertonic on the CPU. One background worker.
             </p>
             <p>
               A suggestion only; nothing is changed or downloaded. Models it would use that may need

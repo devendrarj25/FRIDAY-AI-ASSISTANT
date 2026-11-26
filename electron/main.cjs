@@ -1651,6 +1651,19 @@ async function preparePortablePython(root, python, resourcePaths) {
   }
 }
 
+// The resolved FRIDAY folder, as stt.cjs and neural-voice.cjs already pass it to their workers: the kernel's own
+// speech calls (stt.transcribe_file, voice_runtime.speak_wav_bytes) look for the weights setup wrote under
+// <FRIDAY_ROOT> and otherwise fell back to ~/.friday/models. Semantic memory reads its embedding model from the
+// folder setup fetched it into (kernel/memory.py applies CHROMA_CACHE_DIR to Chroma).
+function kernelRootEnv() {
+  const root = paths.root();
+  if (!root) return {};
+  return {
+    FRIDAY_ROOT: root,
+    CHROMA_CACHE_DIR: process.env.CHROMA_CACHE_DIR || path.join(root, "cache", "chroma"),
+  };
+}
+
 async function startKernel(root) {
   kernelBootPending = true;
   try {
@@ -1728,6 +1741,12 @@ async function startKernelNow(root) {
   }
 
   kernelInstanceId = crypto.randomUUID();
+  // Program Files tools (Tesseract, FFmpeg, Git) join PATH before the first kernel start, as after an install.
+  try {
+    toolchain.applyManagedPath(root);
+  } catch {
+    /* the kernel then starts with the PATH it already has */
+  }
   try {
     kernel = spawn(python, [...pythonPrefix, entry], {
       env: {
@@ -1746,6 +1765,8 @@ async function startKernelNow(root) {
         PYTHONDONTWRITEBYTECODE: "1",
         // The kernel re-scans this root on every launch and then watches it.
         FRIDAY_WORKSPACE_ROOT: root || "",
+        // The resolved FRIDAY folder and the Chroma model cache setup filled (see kernelRootEnv).
+        ...kernelRootEnv(),
         // Packaged builds never read a source checkout; only a dev run may.
         FRIDAY_PACKAGED: app.isPackaged ? "1" : "",
         // Phone companion: the kernel only listens on the LAN when the user
@@ -5390,13 +5411,36 @@ function warmFastChatModel() {
   // A speed-up, never worth memory: not under pressure, on battery or while the app is lagging.
   if (governor && !governor.allowsPrefetch()) return;
   fastChatWarmedAt = Date.now();
+  // The chat model this PC really holds (setup picks it by memory, not always qwen3:4b), never a single hard-coded tag.
+  void localChatTag()
+    .then((tag) => {
+      // Through the model-load slot at prefetch priority: it never waits behind a real load, it just does not happen.
+      if (tag) return loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag));
+      return undefined;
+    })
+    .catch(() => {
+      /* warming is a speed-up, never a requirement */
+    });
+}
+/** The Ollama chat model to warm: what Ollama holds, ranked by the setup plan for this PC's memory (local-library). */
+async function localChatTag() {
+  const library = require("./local-library.cjs");
+  let held = [];
   try {
-    const tag = require("./local-library.cjs").ollamaModels()[0]?.tag;
-    // Through the model-load slot at prefetch priority: it never waits behind a real load, it just does not happen.
-    if (tag) void loadLeases.runLoad("prefetch", () => modelsApi.ollamaWarm(tag)).catch(() => {});
+    held = ((await modelsApi.ollamaModels()).models || []).map((m) => ({
+      name: m.name,
+      size: m.catalogue?.size,
+    }));
   } catch {
-    /* warming is a speed-up, never a requirement */
+    /* Ollama is not answering: the default row below is tried, as before */
   }
+  let facts = null;
+  try {
+    facts = await currentHardwareFacts();
+  } catch {
+    /* no facts: every installed chat model counts */
+  }
+  return library.installedChatModel(held, { facts })?.tag || null;
 }
 
 // Every speech download (first install, a size fetched while another listens, the engine package) reports

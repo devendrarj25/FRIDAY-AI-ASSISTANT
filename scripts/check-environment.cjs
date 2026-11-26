@@ -25,6 +25,7 @@ if (require.main === module) require("./live-console.cjs").installColorConsole()
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnCaptured, spawnNpm } = require("./win-spawn.cjs");
+const probes = require("./doctor-probes.cjs");
 // Tools that setup or Doctor just installed or upgraded are on the registry PATH, not on
 // the PATH this console started with: read it first so they are not reported missing.
 require("./win-path.cjs").refreshWindowsPath();
@@ -81,6 +82,37 @@ function captureCommand(names, args, extraDirs = []) {
     }
   }
   return null;
+}
+
+/** The download hosts of a setup job by id (the Ollama installer, for one), from the real plan with every switch on. */
+function jobHostsOf(id) {
+  try {
+    // A read-only look: it must never record the checkout as the FRIDAY home in the registry.
+    const jobs = require("./prefetch-models.cjs").prefetchPlan(
+      require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root,
+      {
+        ...process.env,
+        CI: "",
+        GITHUB_ACTIONS: "",
+        FRIDAY_PREFETCH: "1",
+        FRIDAY_PREFETCH_OLLAMA: "1",
+      },
+      "win32",
+      {},
+    );
+    return probes.jobHosts(jobs.find((job) => job.id === id));
+  } catch {
+    return [];
+  }
+}
+
+/** The hosts a tool of electron/toolchain.cjs is fetched from (winget's index, then the vendor installer). */
+function toolHostsOf(id) {
+  try {
+    return probes.toolHosts(require("../electron/toolchain.cjs").toolById(id));
+  } catch {
+    return [];
+  }
 }
 
 const firstVersion = (text) =>
@@ -401,6 +433,7 @@ if (win) {
           : "capability packages are required on a Windows PC build (not on hosted CI, offline or FRIDAY_PREFETCH_STRICT=0); npm run setup:python installs them"
         : "",
       group: "python-packages",
+      hosts: probes.PYPI_HOSTS,
       ok,
       found: !found
         ? "no Python interpreter"
@@ -701,6 +734,8 @@ if (win) {
   }
 }
 
+// This PC's setup plan as plain data (prefetch-models.cjs --plan --json), read once by the model rows below.
+let setupPlanData = null;
 {
   // The installed client, on PATH or in its standard folders: a per-user
   // install is not on the PATH of a shell opened before it was installed.
@@ -710,6 +745,7 @@ if (win) {
     name: "Ollama (local models)",
     required: toolsRequired,
     group: "local-models",
+    hosts: jobHostsOf("ollama-setup"),
     ok: !!ollama,
     found: ollama ? (/^\d/.test(ollama) ? `v${ollama}` : ollama) : "not installed",
     want: toolsRequired
@@ -735,64 +771,237 @@ if (win) {
       "smart-turn": "Voice model: end-of-turn detector",
       "silero-vad": "Voice model: speech detector",
       "supertonic-3": "Voice model: offline voice (Supertonic 3)",
+      "hindi-ear": "Voice model: Hindi ear",
+      "hindi-punct": "Voice model: Hindi punctuation",
+      "hindi-light-tts": "Voice model: light Hindi voice",
+      "hinglish-ear": "Voice model: Hinglish ear",
+      "hindi-fallback-ear": "Voice model: Hindi fallback ear",
       "qwen3-4b": "Chat model file: Qwen3 4B",
       "llamacpp-runtime": "Local engine: llama.cpp (llama-server)",
     };
-    // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
-    const llamaPlanned = require("./prefetch-models.cjs")
-      .prefetchPlan(pickedRoot, process.env, process.platform, { ollama: true })
-      .some((job) => job.id === "llamacpp-runtime");
-    for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
-      ollama: true,
-    })) {
-      if (!labels[job.id]) continue;
-      if (job.minRamGb && ramGb < job.minRamGb) continue;
-      // Ollama provides the small chat model on Windows; its file copy is only a fallback.
-      if (job.id === "qwen3-4b" && win && !llamaPlanned) continue;
-      const here = prefetchModels.alreadyThere(job);
-      add({
-        name: labels[job.id],
-        required: toolsRequired && !job.optional,
-        group: "local-models",
-        ok: here,
-        found: here ? "on disk" : "missing",
-        want:
-          job.id === "llamacpp-runtime"
-            ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
-            : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
-        fix: "npm run doctor",
-        url: "https://huggingface.co",
+    // ONE required set for this PC: the plan setup itself followed (electron/setup-plan.cjs through prefetch-models.cjs
+    // --plan --json), so a model the plan skipped here is shown as skipped, never missing, and a required one that is
+    // absent is a real failure. Without a readable plan the older fixed list below is checked as before.
+    const planData = prefetchModels.readPlanSync(process.env);
+    setupPlanData = planData;
+    if (planData) {
+      const weights = require("../electron/voice-weights.cjs");
+      const needed = new Map(planData.required.map((row) => [row.id, row]));
+      const neededJobs = new Set(
+        planData.required
+          .filter((row) => row.kind === "voice-model")
+          .map((row) => prefetchModels.voiceJobId(row.id)),
+      );
+      const skippedBy = new Map((planData.skipped || []).map((row) => [row.id, row.reason]));
+      const jobIdOfSkipped = (id) => (weights.SIZE_ORDER.includes(id) ? `stt-${id}` : id);
+      const skippedJobs = new Map(
+        [...skippedBy].map(([id, reason]) => [jobIdOfSkipped(id), reason]),
+      );
+      const llamaNeeded =
+        needed.has("llama.cpp") && ["install", "present"].includes(needed.get("llama.cpp").action);
+      const synthetic = {
+        items: planData.required
+          .filter((row) => row.kind === "voice-model")
+          .map((row) => ({
+            id: row.id,
+            state: row.action === "present" ? "on-disk" : "download",
+          })),
+        blocked: weights.SIZE_ORDER.filter((size) => skippedBy.has(size)).map((size) => ({
+          id: size,
+          size,
+          reason: skippedBy.get(size),
+        })),
+      };
+      const jobs = prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
+        ollama: true,
+        plan: synthetic,
+        ...(llamaNeeded ? { llama: { action: "install" } } : {}),
       });
+      const shown = new Set();
+      for (const job of jobs) {
+        if (!labels[job.id]) continue;
+        if (job.id === "qwen3-4b" && win) continue; // Ollama holds the chat model; the file copy is a fallback
+        shown.add(job.id);
+        const planned = neededJobs.has(job.id) || (job.id === "llamacpp-runtime" && llamaNeeded);
+        const reason = skippedJobs.get(job.id) || job.skipReason;
+        const here =
+          job.id === "llamacpp-runtime"
+            ? require("../electron/llama-runtime.cjs").installed(pickedRoot) ||
+              prefetchModels.alreadyThere(job)
+            : prefetchModels.alreadyThere(job);
+        if (!planned && reason) {
+          add({
+            name: labels[job.id],
+            required: false,
+            group: "local-models",
+            hosts: probes.jobHosts(job),
+            ok: true,
+            found: `skipped on this PC: ${reason}`.slice(0, 160),
+            want: "not part of this PC's plan; install it from the Models page if you want it",
+            fix: "npm run doctor",
+            url: "https://huggingface.co",
+          });
+          continue;
+        }
+        add({
+          name: labels[job.id],
+          required: planned && toolsRequired && !job.optional,
+          group: "local-models",
+          hosts: probes.jobHosts(job),
+          // A piece setup fetches that this PC's plan does not need is an extra: never a failure.
+          ok: planned ? here : true,
+          found: here
+            ? "on disk"
+            : planned
+              ? "missing"
+              : "not on disk (extra, not part of this PC's plan)",
+          want:
+            job.id === "llamacpp-runtime"
+              ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
+              : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
+      for (const [id, reason] of skippedJobs) {
+        if (shown.has(id) || !labels[id] || neededJobs.has(id)) continue;
+        add({
+          name: labels[id],
+          required: false,
+          group: "local-models",
+          ok: true,
+          found: `skipped on this PC: ${reason}`.slice(0, 160),
+          want: "not part of this PC's plan; install it from the Models page if you want it",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
+    } else {
+      add({
+        name: "This PC's setup plan",
+        required: false,
+        group: "local-models",
+        ok: false,
+        found: "could not be read; the fixed model list is checked instead",
+        want: "node scripts/prefetch-models.cjs --plan prints it",
+        skip: "the plan needs the hardware probe; the older fixed list below is checked as before",
+        fix: "npm run doctor",
+        url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+      });
+      // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
+      const llamaPlanned = prefetchModels
+        .prefetchPlan(pickedRoot, process.env, process.platform, { ollama: true })
+        .some((job) => job.id === "llamacpp-runtime");
+      for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
+        ollama: true,
+      })) {
+        if (!labels[job.id]) continue;
+        if (job.minRamGb && ramGb < job.minRamGb) continue;
+        // Ollama provides the small chat model on Windows; its file copy is only a fallback.
+        if (job.id === "qwen3-4b" && win && !llamaPlanned) continue;
+        const here = prefetchModels.alreadyThere(job);
+        add({
+          name: labels[job.id],
+          required: toolsRequired && !job.optional,
+          group: "local-models",
+          hosts: probes.jobHosts(job),
+          ok: here,
+          found: here ? "on disk" : "missing",
+          want:
+            job.id === "llamacpp-runtime"
+              ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
+              : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+          fix: "npm run doctor",
+          url: "https://huggingface.co",
+        });
+      }
     }
     const english = prefetchModels.moonshineReady(
       path.join(pickedRoot, ...prefetchModels.MOONSHINE_DIR),
     );
+    // Setup fetches the English streaming speech on every PC unless its own switch (or all of prefetch) is off, so
+    // "skipped on this PC" is said only for that, or while no Python runtime exists to fetch it with.
+    const moonshineOff = ["FRIDAY_PREFETCH_MOONSHINE", "FRIDAY_PREFETCH"].some(
+      (key) => String(process.env[key] ?? "1").trim() === "0",
+    );
+    const moonshineWhy = moonshineOff
+      ? "its prefetch is switched off (FRIDAY_PREFETCH_MOONSHINE=0)"
+      : !pythonExecutable
+        ? "no Python runtime yet; npm run setup:python fetches it"
+        : "";
     add({
       name: "Speech model: English streaming (Moonshine)",
-      required: toolsRequired,
+      required: toolsRequired && !moonshineWhy,
       group: "local-models",
-      ok: english,
-      found: english ? "on disk" : "missing",
+      hosts: ["download.moonshine.ai"],
+      ok: english || !!moonshineWhy,
+      found: english ? "on disk" : moonshineWhy ? `skipped on this PC: ${moonshineWhy}` : "missing",
       want: "the fastest English listening, fetched by npm run setup",
       fix: "npm run doctor",
       url: "https://github.com/moonshine-ai/moonshine",
     });
+    // The installed ONNX Runtime build against the one this PC's plan recommends (information only).
+    const ort = probes.ortRow(
+      probes.probeOrt(pythonExecutable),
+      setupPlanData?.required.find((row) => row.id === "onnxruntime"),
+    );
+    add({
+      name: "ONNX Runtime build (cpu, gpu, directml)",
+      required: false,
+      group: "local-models",
+      hosts: probes.PYPI_HOSTS,
+      ok: true,
+      found: ort.found,
+      want: ort.want,
+      note: [ort.want, ort.note].filter(Boolean).join("; "),
+      fix: "npm run doctor",
+      url: "https://onnxruntime.ai/",
+    });
     if (win && installedOllama) {
-      const listed = capture(installedOllama.exe || "ollama", ["list"]) || "";
-      // The light model is required; the bigger tiers are checked only on a PC with the memory and never block.
-      for (const model of prefetchModels.OLLAMA_MODELS) {
-        if (model.minRamGb && ramGb < model.minRamGb) continue;
-        const has = listed.toLowerCase().includes(model.tag.toLowerCase());
+      const listed = (capture(installedOllama.exe || "ollama", ["list"]) || "").toLowerCase();
+      const holds = (tag) => listed.includes(String(tag).toLowerCase());
+      const chat = planData?.required.find((row) => row.kind === "chat-model");
+      if (planData && chat) {
+        // The tier model for this PC (or the installed model that stays in use). The light Qwen registered from its file
+        // when the registry could not be reached also answers.
+        const light = prefetchModels.OLLAMA_MODELS[0]?.tag;
+        const has = holds(chat.id);
+        const fallback = !has && chat.action === "pull" && light && holds(light);
+        const waiting = !has && !fallback && chat.action === "defer";
         add({
-          name: `Chat model in Ollama: ${model.tag}`,
-          required: toolsRequired && !model.optional,
+          name: `Chat model in Ollama: ${chat.id}`,
+          required: toolsRequired && !waiting,
           group: "local-models",
-          ok: has,
-          found: has ? "pulled" : "not pulled",
-          want: model.role || "a local chat model",
+          ok: has || fallback || waiting,
+          found: has
+            ? chat.action === "keep" || chat.action === "offer-upgrade"
+              ? "installed and in use (kept, never replaced)"
+              : "pulled (this PC's tier)"
+            : fallback
+              ? `${light} is in use; the tier model ${chat.id} was not pulled`
+              : waiting
+                ? "waiting for a better moment (offline, metered line or battery)"
+                : "not pulled",
+          want: `the chat model this PC's memory carries (${planData.pc?.ramGb ?? "unknown"} GB RAM${planData.pc?.gpu ? `, ${planData.pc.gpu.vramGb ?? "unknown"} GB video memory` : ", no GPU"})`,
           fix: "npm run doctor",
           url: "https://ollama.com/library",
         });
+      } else if (!planData) {
+        // The light model is required; the bigger tiers are checked only on a PC with the memory and never block.
+        for (const model of prefetchModels.OLLAMA_MODELS) {
+          if (model.minRamGb && ramGb < model.minRamGb) continue;
+          const has = holds(model.tag);
+          add({
+            name: `Chat model in Ollama: ${model.tag}`,
+            required: toolsRequired && !model.optional,
+            group: "local-models",
+            ok: has,
+            found: has ? "pulled" : "not pulled",
+            want: model.role || "a local chat model",
+            fix: "npm run doctor",
+            url: "https://ollama.com/library",
+          });
+        }
       }
     }
   } catch (error) {
@@ -812,6 +1021,7 @@ if (win) {
     name: "FFmpeg",
     required: toolsRequired,
     group: "toolchain",
+    hosts: toolHostsOf("FFmpeg"),
     ok: !!ffmpeg,
     found: ffmpeg ? firstVersion(ffmpeg) || "present" : "not installed",
     want: toolsRequired
@@ -832,12 +1042,51 @@ if (win) {
     name: "Tesseract OCR",
     required: toolsRequired,
     group: "toolchain",
+    hosts: toolHostsOf("Tesseract OCR"),
     ok: !!tesseract,
     found: tesseract ? firstVersion(tesseract) || "present" : "not installed",
     want: toolsRequired ? "installed by setup — screen and PDF OCR" : "screen and PDF OCR",
     fix: toolsRequired ? "npm run doctor" : "winget install -e --id UB-Mannheim.TesseractOCR",
     url: "https://github.com/UB-Mannheim/tesseract/wiki",
   });
+  if (tesseract) {
+    // `tesseract --list-langs`: English is needed by the OCR tool; Hindi is a language pack that is read when present.
+    const langs = probes.tesseractLanguages(
+      captureCommand(
+        ["tesseract", "tesseract.exe"],
+        ["--list-langs"],
+        [
+          path.join(process.env.ProgramFiles || "C:\\Program Files", "Tesseract-OCR"),
+          path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Tesseract-OCR"),
+        ],
+      ),
+    );
+    add({
+      name: "Tesseract language: English (eng)",
+      required: toolsRequired,
+      group: "toolchain",
+      ok: langs.eng,
+      found: langs.eng
+        ? `eng (${langs.langs.length} language pack(s): ${langs.langs.slice(0, 6).join(", ")}${langs.langs.length > 6 ? ", ..." : ""})`
+        : langs.listed
+          ? `not installed (found: ${langs.langs.join(", ")})`
+          : "tesseract --list-langs gave no list",
+      want: "eng.traineddata, the language every OCR call needs",
+      fix: toolsRequired ? "npm run doctor" : "reinstall Tesseract OCR with its English data",
+      url: "https://github.com/tesseract-ocr/tessdata",
+    });
+    add({
+      name: "Tesseract language pack: Hindi (hin)",
+      required: false,
+      group: "toolchain",
+      ok: langs.hin,
+      found: langs.hin ? "hin" : "not installed",
+      want: "hin.traineddata, so Hindi text on the screen and in PDFs is read",
+      skip: "the Hindi pack is a language pack: npm run setup installs it, and OCR of Devanagari text waits for it",
+      fix: "npm run doctor",
+      url: "https://github.com/tesseract-ocr/tessdata",
+    });
+  }
 }
 if (win) {
   const vc = fs.existsSync(
@@ -856,17 +1105,58 @@ if (win) {
     url: "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
   });
   const cuda = !!capture("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"]);
-  // Hardware, not software: no NVIDIA GPU means the CUDA Toolkit does not apply, so this row
-  // describes the PC and never warns.
+  // Hardware, not software: no NVIDIA GPU means the CUDA libraries do not apply, so this row describes the PC and never
+  // warns. With this PC's plan it names the measured facts (card, video memory, compute capability, driver, CUDA version).
+  const pc = setupPlanData?.pc;
+  const card = pc?.gpu && pc.gpu.vendor === "nvidia" ? pc.gpu : null;
+  const known = (value, unit = "") =>
+    value === null || value === undefined ? "unknown" : `${value}${unit}`;
   add({
     name: "NVIDIA GPU / CUDA",
     required: false,
     ok: true,
-    found: cuda ? "GPU detected" : "not applicable: no NVIDIA GPU (CPU inference is used)",
-    want: cuda ? "CUDA Toolkit is installed by setup" : "nothing to install on this PC",
+    found: card
+      ? `${card.name || "NVIDIA card"}, ${known(card.vramGb, " GB")} video memory, compute ${known(card.computeCap)}, driver ${known(card.driver)}, CUDA ${known(pc.cudaVersion)}`
+      : cuda
+        ? "GPU detected"
+        : "not applicable: no NVIDIA GPU (CPU inference is used)",
+    want: cuda
+      ? "CUDA libraries are installed by setup when the plan says so"
+      : "nothing to install on this PC",
     fix: "Install the NVIDIA driver, then npm run doctor",
     url: "https://developer.nvidia.com/cuda-downloads",
   });
+  // The CUDA 12 libraries (cuBLAS, cuDNN): required only when this PC's plan installs them; the plan never installs them
+  // without an NVIDIA card whose driver reports CUDA 12.
+  const libs = setupPlanData?.required.find((row) => row.id === "cuda-libs");
+  if (libs) {
+    const python = require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON);
+    const probe = [
+      "import importlib.util as u, pathlib",
+      "def ok(m, d):",
+      "    s = u.find_spec(m)",
+      "    return bool(s and s.submodule_search_locations and any((pathlib.Path(p) / 'bin' / d).is_file() for p in s.submodule_search_locations))",
+      "raise SystemExit(0 if ok('nvidia.cublas', 'cublas64_12.dll') and ok('nvidia.cudnn', 'cudnn64_9.dll') else 1)",
+    ].join("\n");
+    const have = python ? capture(python, ["-c", probe]) !== null : false;
+    add({
+      name: "CUDA 12 libraries (cuBLAS, cuDNN)",
+      required: toolsRequired && libs.action !== "defer" && !!python,
+      group: "local-models",
+      hosts: probes.PYPI_HOSTS,
+      ok: have || libs.action === "defer",
+      found: have
+        ? "present"
+        : libs.action === "defer"
+          ? "waiting for a better moment (offline, metered line or battery)"
+          : python
+            ? "not installed"
+            : "cannot be checked (no Python runtime yet)",
+      want: "installed by npm run setup:python on an NVIDIA PC whose driver reports CUDA 12",
+      fix: "npm run doctor",
+      url: "https://developer.nvidia.com/cuda-downloads",
+    });
+  }
 }
 
 // ---------------------------------------------------------------- agent toolkit
@@ -909,8 +1199,9 @@ if (win) {
     add({
       name: entry.id,
       group: "agent-toolkit",
+      hosts: toolHostsOf(entry.id),
       elevated: Boolean(entry.elevated),
-      required: mustHave && !notApplicable,
+      required: mustHave && !notApplicable && !entry.optional,
       ok: !!found || notApplicable,
       found: found
         ? found
@@ -1011,7 +1302,9 @@ if (
       cwd: root,
     },
   );
-  process.exit(again.status ?? 1);
+  // exitCode instead of an exit call: ending the process while the table is still draining to a pipe cuts its tail off.
+  process.exitCode = again.status ?? 1;
+  return;
 }
 
 // ---------------------------------------------------------------- report
@@ -1040,6 +1333,10 @@ const clip = (text, n) => {
 };
 const missing = checks.filter((c) => !c.ok && c.required);
 const warned = checks.filter((c) => !c.ok && !c.required);
+// Every download source of every row, in order, and which host answers now: one parallel probe per distinct host
+// (offline: "not checked"). A row that is fine and shares its package or tool index with its group says it once, below.
+const SHARED_SOURCES = { "python-packages": "package index", "agent-toolkit": "tool index" };
+const reachOf = (list) => probes.reachSync([...new Set(list.flatMap((c) => c.hosts || []))]);
 
 // --summary (the confirming pass inside `npm run setup`): a count, and the full table only when something is wrong.
 const summaryOnly =
@@ -1058,11 +1355,16 @@ if (!summaryOnly) {
   );
   console.log("-".repeat(tableWidth));
 }
+const reach = summaryOnly ? {} : reachOf(checks);
+const sourcesOf = (c) => probes.sourcesLine(c.hosts, reach, { missing: !c.ok && c.required });
 for (const c of summaryOnly ? [] : checks) {
   const state = c.ok ? "PASS" : c.required ? "MISSING" : "SKIPPED";
   console.log(
     `${pad(state, STATUS_W)}${pad(clip(c.name, nameW), nameW)}${pad(clip(c.found, foundW), foundW)}${clip(c.want, wantW)}`,
   );
+  if (c.note) console.log(`          note:   ${c.note}`);
+  if (c.hosts && c.hosts.length && (!c.ok || !SHARED_SOURCES[c.group]))
+    console.log(`          ${sourcesOf(c)}`);
   if (!c.ok) {
     if (shortPath(c.found).length > foundW - 1) console.log(`          found:  ${c.found}`);
     if (!c.required) console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
@@ -1072,6 +1374,13 @@ for (const c of summaryOnly ? [] : checks) {
   }
 }
 if (!summaryOnly) console.log("-".repeat(tableWidth));
+if (!summaryOnly) {
+  for (const [group, label] of Object.entries(SHARED_SOURCES)) {
+    const row = checks.find((c) => c.group === group && c.hosts && c.hosts.length);
+    if (row)
+      console.log(`${label}: ${probes.sourcesLine(row.hosts, reach).replace(/^sources: /, "")}`);
+  }
+}
 
 if (missing.length) {
   // Never a generic failure: name every missing component and its exact fix.
@@ -1084,6 +1393,7 @@ if (missing.length) {
     console.error(`      required:  ${c.want}`);
     console.error(`      install:   ${c.fix}`);
     console.error(`      source:    ${c.url}`);
+    if (c.hosts && c.hosts.length) console.error(`      ${sourcesOf(c)}`);
   }
   const repairablePython = missing.filter(
     (c) => c.group === "python-packages" || c.group === "python-runtime",
@@ -1101,13 +1411,15 @@ if (missing.length) {
     if (repairableElectron.length)
       console.error("Electron binary only:     npm run setup:electron");
   }
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 if (warned.length && strict) {
   console.error(
     `FAILED (strict) — ${warned.length} component(s) not installed on this run: ${warned.map((c) => c.name).join(", ")}`,
   );
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 if (!summaryOnly)
   console.log(

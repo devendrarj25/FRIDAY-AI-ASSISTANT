@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import re
 import time
 import uuid
@@ -27,6 +28,22 @@ TEXT_SUFFIXES = {".md", ".txt", ".py", ".ts", ".tsx", ".js", ".json", ".yaml", "
 
 EMBED_DIM = 384
 _TOKEN = re.compile(r"[a-z0-9_]+")
+
+
+def _point_chroma_model_cache() -> None:
+    """Chroma 1.x keeps its embedding model under ~/.cache/chroma and ignores CHROMA_CACHE_DIR. The desktop app sets
+    that variable to <FRIDAY_ROOT>/cache/chroma (where setup fetched the model); this points Chroma there, so the
+    packaged app uses the files setup downloaded and nothing is fetched into the user profile. A Chroma without the
+    class, or without the variable, changes nothing."""
+    cache = os.environ.get("CHROMA_CACHE_DIR", "").strip()
+    if not cache:
+        return
+    try:
+        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
+
+        ONNXMiniLM_L6_V2.DOWNLOAD_PATH = Path(cache) / "onnx_models" / ONNXMiniLM_L6_V2.MODEL_NAME
+    except Exception:  # an older or newer Chroma: its own location stays
+        return
 
 
 def _tokens(text: str) -> list[str]:
@@ -243,6 +260,7 @@ class VectorMemory:
             print("[memory] chromadb not installed - using local vector index")
             self._open_fallback()
             return
+        _point_chroma_model_cache()
         try:
             client = chromadb.PersistentClient(path=str(self.path))
             self.collection = client.get_or_create_collection("friday")

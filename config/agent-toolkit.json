@@ -333,6 +333,8 @@
       "group": "gpu",
       "elevated": true,
       "requires": "nvidia-gpu",
+      "optional": true,
+      "optionalReason": "nothing in FRIDAY runs nvcc: speech and local models use the CUDA 12 libraries pip installs (cuBLAS, cuDNN); the Install Manager offers the toolkit for building CUDA code",
       "why": "GPU compute for local models, only on a PC with an NVIDIA GPU",
       "approxBytes": 3500000000,
       "probe": {

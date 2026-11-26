@@ -67,6 +67,8 @@ describe("voice and mind wiring", () => {
     walk(path.join(ROOT, "src"), files);
     walk(path.join(ROOT, "electron"), files);
     walk(path.join(ROOT, "kernel"), files);
+    // Setup runs from scripts/: a symbol only the setup chain calls is still wired.
+    walk(path.join(ROOT, "scripts"), files);
     const texts = new Map(
       files.map((file) => [
         path.relative(ROOT, file).replaceAll("\\", "/"),

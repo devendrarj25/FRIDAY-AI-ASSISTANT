@@ -388,15 +388,106 @@ def perceive() -> dict[str, Any]:
 # ------------------------------------------------------------------ screen
 
 
-def read_text(region: list[int] | None = None, lang: str = "eng") -> dict[str, Any]:
-    """OCR the current screen (or a [left, top, width, height] region)."""
+def _tesseract_binary() -> str | None:
+    """The Tesseract engine: PATH (with the folders FRIDAY manages) first, then where its installer puts it.
+
+    The UB-Mannheim installer does not add itself to PATH, so a kernel started before any PATH refresh would
+    otherwise report the engine as missing while it sits in Program Files.
+    """
+    env = child_env()
+    found = shutil.which("tesseract", path=env.get("PATH") or env.get("Path"))
+    if found or not WINDOWS:
+        return found
+    for base in (env.get("ProgramFiles"), env.get("ProgramFiles(x86)")):
+        if base:
+            candidate = os.path.join(base, "Tesseract-OCR", "tesseract.exe")
+            if os.path.isfile(candidate):
+                return candidate
+    local = env.get("LOCALAPPDATA")
+    if local:
+        candidate = os.path.join(local, "Programs", "Tesseract-OCR", "tesseract.exe")
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _user_tessdata() -> str:
+    """The per-user data folder setup falls back to when Program Files is not writable."""
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(os.environ.get("USERPROFILE", ""), "AppData", "Local")
+    return os.path.join(local, "FRIDAY", "tools", "tessdata") if WINDOWS and local else ""
+
+
+def _tesseract_languages(binary: str, env: dict[str, str] | None = None) -> list[str]:
+    """The language codes `tesseract --list-langs` reports (the list is on stdout or stderr by version)."""
+    try:
+        run = subprocess.run(
+            [binary, "--list-langs"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            env=env if env is not None else child_env(),
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    codes: list[str] = []
+    seen_header = False
+    for raw in f"{run.stdout or ''}\n{run.stderr or ''}".splitlines():
+        line = raw.strip()
+        if line.lower().startswith("list of available languages"):
+            seen_header = True
+        elif seen_header and line.replace("_", "").isalnum():
+            codes.append(line)
+    return codes
+
+
+_OCR_LANG_CACHE: dict[str, tuple[float, str]] = {}
+
+
+def ocr_language(binary: str) -> str:
+    """`hin+eng` when the Hindi data is installed (Hindi, English and Hinglish screens), else `eng`.
+
+    Detects with `tesseract --list-langs`; when only the per-user data folder has it, TESSDATA_PREFIX is pointed
+    there for this process (eng and osd are copied beside it by setup). Cached for a minute.
+    """
+    now = time.monotonic()
+    hit = _OCR_LANG_CACHE.get(binary)
+    if hit and now - hit[0] < 60:
+        return hit[1]
+
+    def pick(codes: list[str]) -> str:
+        if "hin" not in codes:
+            return ""
+        return "hin+eng" if "eng" in codes else "hin"
+
+    lang = pick(_tesseract_languages(binary))
+    if not lang:
+        folder = _user_tessdata()
+        if folder and os.path.isfile(os.path.join(folder, "hin.traineddata")):
+            lang = pick(_tesseract_languages(binary, child_env(extra={"TESSDATA_PREFIX": folder})))
+            if lang:
+                os.environ["TESSDATA_PREFIX"] = folder
+    lang = lang or "eng"
+    _OCR_LANG_CACHE[binary] = (now, lang)
+    return lang
+
+
+def read_text(region: list[int] | None = None, lang: str | None = None) -> dict[str, Any]:
+    """OCR the current screen (or a [left, top, width, height] region).
+
+    `lang` None reads with `hin+eng` when the Hindi data is installed and `eng` otherwise.
+    """
     mss_mod = _require("mss", "mss")
     pytesseract = _require("pytesseract", "pytesseract")
-    if not shutil.which("tesseract") and not getattr(pytesseract.pytesseract, "tesseract_cmd", None):
+    binary = _tesseract_binary()
+    if binary:
+        pytesseract.pytesseract.tesseract_cmd = binary
+    elif getattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract") in ("", "tesseract"):
         raise ControlError(
             "the Tesseract OCR engine was not found on PATH. Install “Tesseract OCR” "
             "from the Install Manager, then retry."
         )
+    chosen = lang or ocr_language(binary or str(pytesseract.pytesseract.tesseract_cmd))
     from PIL import Image  # Pillow ships with pytesseract usage
 
     with mss_mod.mss() as sct:
@@ -411,10 +502,11 @@ def read_text(region: list[int] | None = None, lang: str = "eng") -> dict[str, A
             box = sct.monitors[1]
         shot = sct.grab(box)
     image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-    text = pytesseract.image_to_string(image, lang=lang)
+    text = pytesseract.image_to_string(image, lang=chosen)
     return {
         "ok": True,
         "region": [box["left"], box["top"], box["width"], box["height"]],
         "chars": len(text),
+        "lang": chosen,
         "text": text,
     }

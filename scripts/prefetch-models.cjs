@@ -48,6 +48,13 @@
  * that does not fit the RAM or the disk is skipped with its reason, and stays an install from the Models page.
  * FRIDAY_PREFETCH_VOICE_BUDGET=0 returns to the plain list. `node scripts/prefetch-models.cjs --voice` fetches the voice
  * alone, and `--voice --dry-run` prints the plan and downloads nothing.
+ *
+ * Setup is hardware-first: before any download the measured facts of this PC (electron/hardware.cjs) become ONE plan
+ * (electron/setup-plan.cjs) and its "this PC" block is printed. The chat model is the plan's tier for this PC's memory
+ * (an installed model that is at least as good is kept, never deleted or pulled again; a better one is only offered; a
+ * metered line, battery or no network defers the pull with a note), the speech sizes come from the same voice plan the
+ * Doctor reads, and llama.cpp, the CUDA libraries and ONNX Runtime follow the plan: no graphics card means no GPU
+ * download. `--plan` prints the block and `--plan --json` the required set, and downloads nothing.
  */
 const fs = require("node:fs");
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
@@ -56,12 +63,14 @@ const path = require("node:path");
 const os = require("node:os");
 
 const voiceWeights = require("../electron/voice-weights.cjs");
+const voicePins = require("../electron/voice-pins.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const { DownloadBoard } = require("./download-board.cjs");
 const localLibrary = require("../electron/local-library.cjs");
 const updatePolicy = require("./update-policy.cjs");
 const llamaRuntime = require("../electron/llama-runtime.cjs");
+const setupPlan = require("../electron/setup-plan.cjs");
 
 /** About how large each piece is, for the plan and the overall bar before the real sizes are known. */
 const APPROX_BYTES = {
@@ -81,6 +90,9 @@ const APPROX_BYTES = {
   "ollama-setup": 1.6 * 1024 ** 3,
 };
 
+/** The marker line `--plan --json` prints, so a console banner or a warning above it cannot be mistaken for the data. */
+const PLAN_JSON = "FRIDAY_SETUP_PLAN_JSON ";
+
 /** Ollama is the local engine FRIDAY starts and stops; the light chat model is pulled through it. */
 const OLLAMA_API = "http://127.0.0.1:11434";
 const OLLAMA_MODELS = localLibrary.ollamaModels();
@@ -89,24 +101,31 @@ const OLLAMA_MODELS = localLibrary.ollamaModels();
 const STT_SIZES = ["base", "small"];
 
 /**
- * A larger, more accurate size kept on disk for long or hard speech (pick it
- * in Settings, Voice, Speech size). Live talk stays on the two light sizes, so
- * it needs a PC with the RAM to hold it and can be skipped.
+ * A larger, more accurate size kept on disk for long or hard speech (pick it in Settings, Voice, Speech size). Whether
+ * this PC may carry it is the voice plan's word (electron/voice-weights.cjs budgetFor: a verified GPU and the memory),
+ * the same one the Doctor reads, so no memory threshold lives here.
  */
-const STT_LARGE = { size: "medium", minRamGb: 8 };
-/** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. */
-// 15, not 16: Windows reports a 16 GB PC as about 15.8 GB.
-const STT_BIG = { size: "large-v3-turbo", minRamGb: 15 };
+const STT_LARGE = { size: "medium" };
+/** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. Only FRIDAY_PREFETCH_STT_BIG=1 fetches it. */
+const STT_BIG = { size: "large-v3-turbo" };
 
 /** The lite fallback: the smallest size, so a weak or busy PC can still hear. About 75 MB, every PC. */
 const STT_LITE = { size: "tiny" };
-/** The most accurate size, for a PC with the memory and the disk. About 3 GB; optional, so a failed download never fails setup. */
-const STT_MAX = { size: "large-v3", minRamGb: 15 };
+/** The most accurate size. About 3 GB; optional, so a failed download never fails setup, and the voice plan decides whether this PC takes it. */
+const STT_MAX = { size: "large-v3" };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
   id: "supertonic-3",
-  sources: [{ kind: "hf-repo", repo: "Supertone/supertonic-3", label: "Hugging Face (Supertone)" }],
+  sources: [
+    { kind: "hf-repo", repo: voiceWeights.TTS_REPO, label: "Hugging Face (Supertone)" },
+    // The publisher's own archive of the same model: the same files at its own pinned revision (voice-pins.cjs MIRROR_REPOS).
+    {
+      kind: "hf-repo",
+      repo: voiceWeights.TTS_ARCHIVE_REPO,
+      label: "Hugging Face (Supertone archive, same files)",
+    },
+  ],
 };
 
 /** The same Qwen3 4B as the one Ollama pulls, from the publisher's own GGUF repo (Apache-2.0): the file copy used when Ollama's registry cannot be reached. */
@@ -146,16 +165,20 @@ function prefetchParallelism(env = process.env) {
 
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
 
-/** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
-/** llama.cpp is not part of setup: it is added later from Install Manager. FRIDAY_PREFETCH_LLAMACPP=1 opts it in. */
-function llamaCppWanted(env, platform) {
-  return (
-    platform === "win32" &&
-    String(env.FRIDAY_PREFETCH_LLAMACPP ?? "0").trim() === "1" &&
-    enabled(env, "FRIDAY_AUTO_INSTALL")
-  );
+/**
+ * llama.cpp in setup. With this PC's plan (`llama` = plan.llama) the plan's word counts: the pinned CPU zip is
+ * installed when the plan says install, and FRIDAY_PREFETCH_LLAMACPP=0 leaves it out. Without a plan it stays what it was:
+ * not part of setup, added later from the Install Manager, and FRIDAY_PREFETCH_LLAMACPP=1 opts it in.
+ */
+function llamaCppWanted(env, platform, llama) {
+  if (platform !== "win32" || !enabled(env, "FRIDAY_AUTO_INSTALL")) return false;
+  const flag = String(env.FRIDAY_PREFETCH_LLAMACPP ?? "").trim();
+  if (flag === "0") return false;
+  if (flag === "1") return true;
+  return llama?.action === "install";
 }
 
+/** Ollama serves the chat model on Windows (the plan's tier for this PC), so the separate GGUF copy is not fetched there. */
 function ollamaServesChat(env, platform) {
   return (
     platform === "win32" &&
@@ -181,18 +204,19 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       id: pinned.id,
       kind: "pinned",
       ready: path.join(dir, pinned.file),
+      // The two helpers are optional: FRIDAY listens and ends a turn without them, so a failed fetch is a note.
+      ...(pinned.optional === true ? { optional: true } : {}),
+      failureLine: pinned.failureLine,
       job: {
         modelId: path.basename(dir),
         dir: path.dirname(dir),
-        sources: [
-          {
-            kind: "url",
-            url: pinned.url,
-            sha256: pinned.sha256,
-            bytes: pinned.bytes,
-            label: "official release",
-          },
-        ],
+        // Every source the pin lists, tried in order (the immutable revision first, the release second).
+        // The opt-in mirror (FRIDAY_HF_MIRROR=1) comes last, with the same digest, so it is only another road.
+        sources: voiceWeights.withOptInMirrors(pinned.sources, env).map((source) => ({
+          ...source,
+          sha256: source.sha256 || pinned.sha256,
+          bytes: source.bytes || pinned.bytes,
+        })),
       },
     });
   }
@@ -219,15 +243,24 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   // Hindi, English and Hinglish. Without a plan the list is exactly what it was.
   for (const item of have.plan?.items || []) {
     if (item.state === "skipped" || jobs.some((job) => job.id === voiceJobId(item.id))) continue;
+    // FRIDAY_PREFETCH_STT_LARGE=0 keeps the two heavy sizes off this PC even when its plan could carry them.
+    if (
+      ["stt-medium", "stt-large-v3"].includes(voiceJobId(item.id)) &&
+      !enabled(env, "FRIDAY_PREFETCH_STT_LARGE")
+    )
+      continue;
     const added = voiceModelJob(root, item.id);
     if (added) jobs.push(added);
   }
-  // llama.cpp is installed beside Ollama and serves the same small chat model from its GGUF file, so the file is
-  // fetched even when Ollama serves chat too.
-  const llamaWanted = llamaCppWanted(env, platform);
-  if (enabled(env, "FRIDAY_PREFETCH_CHAT") && (!ollamaServesChat(env, platform) || llamaWanted)) {
+  // The chat GGUF file is the copy for a PC where Ollama does not serve chat (not Windows setup), or the one an owner
+  // asks for with FRIDAY_PREFETCH_LLAMACPP=1. On Windows the chat model is the plan's tier, pulled through Ollama.
+  const llamaOptIn = String(env.FRIDAY_PREFETCH_LLAMACPP ?? "").trim() === "1";
+  if (enabled(env, "FRIDAY_PREFETCH_CHAT") && (!ollamaServesChat(env, platform) || llamaOptIn)) {
     jobs.push(chatJob(root));
   }
+  // llama.cpp: the plan's step. Setup installs the pinned CPU zip (SHA-256 pinned) when the plan says install; a GPU
+  // build, if the plan offers one, is installed from the Install Manager after setup, so no GPU download happens here.
+  const llamaWanted = llamaCppWanted(env, platform, have.llama);
   const llamaRelease = (localRunners.runners || []).find((row) => row.id === "llamacpp")?.release;
   if (llamaWanted && llamaRelease?.url) {
     const dir = path.join(root, "runtime", "installers", "llamacpp");
@@ -268,6 +301,8 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
         modelId: "ollama",
         dir,
         sources: [
+          // The pinned release is an immutable file. The site's own url (ollama.com/download) always serves the newest
+          // build, so it is added only by useLatestInstaller, with the digest of that newest release.
           {
             kind: "url",
             url: release.url,
@@ -275,57 +310,63 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
             bytes: release.bytes,
             label: `Ollama ${release.tag} (official release)`,
           },
-          {
-            kind: "url",
-            url: "https://ollama.com/download/OllamaSetup.exe",
-            sha256: release.sha256,
-            bytes: release.bytes,
-            label: "ollama.com (official site)",
-          },
         ],
       },
     });
   }
   // The larger speech sizes (medium, large-v3) go last, so everything needed to listen, speak and chat is in place
   // first. large-v3-turbo is not part of setup: FRIDAY fetches it from inside the app (FRIDAY_PREFETCH_STT_BIG=1 adds it).
+  // The plan alone says whether this PC carries one (a planned size is an item above and is not added twice; a size the
+  // plan blocks or skips keeps its job only to be named with the plan's reason); without a plan the run asks the same
+  // budget (`have.blocked`), so no memory threshold lives in this file.
+  const sttExtra = (size, extra) => {
+    const plan = voiceWeights.sttPlan(size, root);
+    if (jobs.some((job) => job.id === plan.id)) return;
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      ...extra,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  };
   if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
-    const plan = voiceWeights.sttPlan(STT_LARGE.size, root);
-    jobs.push({
-      id: plan.id,
-      kind: "stt",
-      ready: plan.dir,
-      minRamGb: STT_LARGE.minRamGb,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
-    });
+    sttExtra(STT_LARGE.size, {});
+    // The big size comes after everything else, and the owner can leave it out.
+    if (enabled(env, "FRIDAY_PREFETCH_STT_MAX")) sttExtra(STT_MAX.size, { optional: true });
   }
-  // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
-  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE") && enabled(env, "FRIDAY_PREFETCH_STT_MAX")) {
-    const plan = voiceWeights.sttPlan(STT_MAX.size, root);
-    jobs.push({
-      id: plan.id,
-      kind: "stt",
-      ready: plan.dir,
-      minRamGb: STT_MAX.minRamGb,
-      optional: true,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
-    });
-  }
-  if (optedIn(env, "FRIDAY_PREFETCH_STT_BIG")) {
-    const plan = voiceWeights.sttPlan(STT_BIG.size, root);
-    jobs.push({
-      id: plan.id,
-      kind: "stt",
-      ready: plan.dir,
-      minRamGb: STT_BIG.minRamGb,
-      explicit: true,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
-    });
-  }
+  if (optedIn(env, "FRIDAY_PREFETCH_STT_BIG")) sttExtra(STT_BIG.size, { explicit: true });
   // A speech size this PC does not load on its own stays out of setup (the owner can still install it from the Models
-  // page, or ask for it here with FRIDAY_PREFETCH_STT_BIG=1); the run says why, in the same line as a RAM skip.
-  for (const blocked of have.plan?.blocked || []) {
+  // page, or ask for it here with FRIDAY_PREFETCH_STT_BIG=1); the run says why, in the same line as any other skip.
+  // A size the plan itself skipped (its memory or disk does not carry it) is named with the plan's own reason.
+  for (const item of have.plan?.items || []) {
+    const job = item.state === "skipped" && jobs.find((row) => row.id === voiceJobId(item.id));
+    if (job && !job.explicit && !job.skipReason) job.skipReason = item.reason;
+  }
+  for (const blocked of have.plan?.blocked || have.blocked || []) {
     const job = jobs.find((row) => row.id === `stt-${blocked.size}` && !row.explicit);
     if (job) job.skipReason = blocked.reason;
+  }
+  // With a plan, a speech size the plan does not list is an extra, and the plan alone decides which extras this PC
+  // takes (`plan.extras`: the lite fallback, small beside a GPU-sized ear). A kept extra is fetched, its failure is a
+  // note and the Doctor does not require it. Any other size is named with the reason and left to the Models page.
+  if (have.plan) {
+    const listed = new Set(
+      (have.plan.items || []).filter((i) => i.state !== "skipped").map((i) => voiceJobId(i.id)),
+    );
+    const extras = Array.isArray(have.plan.extras)
+      ? new Map(have.plan.extras.map((extra) => [extra.id, extra]))
+      : null;
+    const ear = have.plan.budget?.sttSize;
+    for (const job of jobs) {
+      if (job.kind !== "stt" || listed.has(job.id)) continue;
+      job.optional = true;
+      if (!extras || job.explicit || job.skipReason) continue;
+      const extra = extras.get(job.id);
+      if (!extra)
+        job.skipReason = `not in this PC's voice plan${ear ? ` (the speech size here is ${ear})` : ""}: install ${job.id.slice(4)} from the Models page if you want it`;
+      else if (extra.state === "skipped") job.skipReason = extra.reason;
+    }
   }
   return jobs;
 }
@@ -426,14 +467,25 @@ function alreadyThere(row) {
       return false;
     }
   }
-  if (!fs.existsSync(row.ready)) return false;
-  // A kept file is reused only when it is the exact bytes the publisher signed off.
-  const want = row.job.sources[0]?.sha256;
-  if (!want) return true;
-  try {
+  if (row.kind === "tts" && !fs.existsSync(row.ready)) {
+    // The marker is written by this script; the Install Manager and the repair write the pinned folder without it.
+    // Every pinned file in place is the same proof here (the downloader checks sizes and digests when it runs).
+    const pin = voiceWeights.TTS_REPO ? voicePins.pinForRepo(voiceWeights.TTS_REPO) : null;
+    const dir = path.dirname(row.ready);
     return (
-      require("../electron/model-download.cjs").hashFile(row.ready) === String(want).toLowerCase()
+      Boolean(pin) &&
+      Object.keys(pin.files).every((name) => fs.existsSync(path.join(dir, ...name.split("/"))))
     );
+  }
+  if (!fs.existsSync(row.ready)) return false;
+  // A kept file is reused only when it is the exact bytes a publisher signed off: any digest the job lists counts,
+  // so the pinned installer already on disk is kept even after a newer release changed the first source's digest.
+  if (!row.job.sources[0]?.sha256) return true;
+  const wanted = row.job.sources
+    .map((source) => String(source.sha256 || "").toLowerCase())
+    .filter(Boolean);
+  try {
+    return wanted.includes(require("../electron/model-download.cjs").hashFile(row.ready));
   } catch {
     return false;
   }
@@ -651,6 +703,62 @@ function statusPrinter(log, id) {
   };
 }
 
+/** What Ollama holds: `{ name, size }` rows, or null when it does not answer (the plan then treats it as none installed). */
+async function ollamaInstalled(fetchImpl) {
+  try {
+    const res = await fetchImpl(`${OLLAMA_API}/api/tags`, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return (body.models || [])
+      .map((row) => ({ name: String(row.name || row.model || ""), size: Number(row.size) || 0 }))
+      .filter((row) => row.name);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The chat step of this PC's plan as the models to pull: `pull` is the one tier tag; `keep` and `offer-upgrade` leave the
+ * installed model in use (never deleted, never pulled over; an offer is only said); `defer` and `none` are a note, not a
+ * failure. The recorded Ollama settings are printed as data: FRIDAY applies them when it starts or calls Ollama.
+ */
+function chatTargets(chat, log, rows) {
+  const say = (kind, line) => log(`[friday] ${kind.padEnd(8)} ${line}`);
+  const inUse = chat.use || chat.tag || "";
+  if (chat.settings && (chat.tag || chat.use)) {
+    const o = chat.settings.options || {};
+    say(
+      "INFO",
+      `Ollama settings for ${inUse}: context ${o.num_ctx ?? "default"}, keep loaded ${chat.settings.keep_alive || "default"} (recorded as data; FRIDAY applies them when it starts or calls Ollama, never to your own setup)`,
+    );
+  }
+  if (chat.action === "pull" && chat.tag)
+    return [{ tag: chat.tag, role: "chat model for this PC" }];
+  if (chat.action === "keep" || chat.action === "offer-upgrade") {
+    say(
+      "ok",
+      `${inUse} is already installed and stays the chat model; nothing is pulled or deleted`,
+    );
+    if (chat.action === "offer-upgrade")
+      say(
+        "INFO",
+        `${chat.offer} is a better fit for this PC; pull it from the Models page when you want it`,
+      );
+    rows.push({ id: inUse, ok: true, downloaded: false, kept: true });
+    return [];
+  }
+  if (chat.action === "defer") {
+    say(
+      "INFO",
+      `chat model ${chat.tag || ""} is not pulled now: ${chat.deferReason || chat.reason}; setup goes on and the Doctor pulls it later`,
+    );
+    rows.push({ id: chat.tag || "chat-model", ok: true, downloaded: false, deferred: true });
+    return [];
+  }
+  say("INFO", `no chat model is planned for this PC: ${chat.reason || "nothing fits"}`);
+  return [];
+}
+
 /**
  * Install Ollama from the pinned, already verified installer, start it, and pull
  * the lite models. Every step is injectable and none throws.
@@ -698,7 +806,25 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
   }
   rows.push({ id: "ollama", ok: true });
-  const models = deps.models || OLLAMA_MODELS;
+  // The chat model is this PC's plan (electron/setup-plan.cjs). Ollama is up now, so what it really holds is read and
+  // the plan's chat step is taken again: a model already installed that is at least as good is kept, never pulled over.
+  let chat = deps.chat || null;
+  if (chat && typeof deps.rechat === "function") {
+    const held = await ollamaInstalled(fetchImpl);
+    if (held) {
+      try {
+        const again = deps.rechat(held);
+        if (again && again.action !== chat.action)
+          log(
+            `[friday] INFO     chat model: ${again.action} ${again.use || again.tag || ""} - ${again.reason}`,
+          );
+        if (again) chat = again;
+      } catch {
+        /* the first plan stands */
+      }
+    }
+  }
+  const models = chat ? chatTargets(chat, log, rows) : deps.models || OLLAMA_MODELS;
   const ramGb = deps.ramGb ?? deps.totalGb ?? os.totalmem() / 1024 ** 3;
   const skip = new Set(
     String(deps.skipOptional ?? process.env.FRIDAY_PREFETCH_CHAT_SMART ?? "").trim() === "0"
@@ -765,7 +891,8 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
   }
   // The light model is the voice model: prove it loads and answers, as a note (a slow first load is not a failure).
-  const light = rows.find((row) => row.id === models[0]?.tag && row.ok && !row.skipped);
+  const answerTag = chat ? chat.use || chat.tag : models[0]?.tag;
+  const light = rows.find((row) => row.id === answerTag && row.ok && !row.skipped);
   if (light && !deps.skipAnswerCheck) {
     const answer = await (deps.answers || ollamaAnswers)(light.id, fetchImpl);
     if (answer.ok) log(`[friday] ok       ${light.id} loaded and answered a test prompt`);
@@ -919,19 +1046,38 @@ async function detectOllama({ fetchImpl = fetch, find = findOllama } = {}) {
   };
 }
 
-/** Point the installer job at the newest official release (digest-verified), else keep the pin. */
+/** The moving file the official site always serves: the newest build, so only the newest release's digest vouches for it. */
+const OLLAMA_SITE_URL = "https://ollama.com/download/OllamaSetup.exe";
+
+/**
+ * Point the installer job at the newest official release when its own digest is known: that release first, the site's
+ * newest-build url second (same digest), and the pinned release last, as the fallback that never moves. With no newer
+ * release, no digest, or no answer, the pinned release stays the only source, so a pin that lags never makes the
+ * moving site url download 1.8 GB only to fail its checksum.
+ */
 async function useLatestInstaller(row, latest) {
   const release = await latest("ollama");
-  if (!release?.url || !release.sha256) return release;
-  const sources = row.job.sources;
-  sources[0] = {
-    ...sources[0],
-    url: release.url,
-    sha256: release.sha256,
-    bytes: release.bytes,
-    label: `Ollama ${release.tag} (${release.source === "live" ? "latest official release" : "official release"})`,
-  };
-  if (sources[1]) sources[1] = { ...sources[1], sha256: release.sha256, bytes: release.bytes };
+  const [pin] = row.job.sources;
+  if (!release?.url || !release.sha256 || !pin || release.url === pin.url) return release;
+  row.job.sources.splice(
+    0,
+    row.job.sources.length,
+    {
+      ...pin,
+      url: release.url,
+      sha256: release.sha256,
+      bytes: release.bytes,
+      label: `Ollama ${release.tag} (${release.source === "live" ? "latest official release" : "official release"})`,
+    },
+    {
+      ...pin,
+      url: OLLAMA_SITE_URL,
+      sha256: release.sha256,
+      bytes: release.bytes,
+      label: "ollama.com (official site, newest build)",
+    },
+    { ...pin, label: pin.label.replace("(official release)", "(pinned release, fallback)") },
+  );
   return release;
 }
 
@@ -1056,6 +1202,10 @@ async function prefetch(
     board,
     llama,
     probe,
+    facts,
+    thisPc,
+    installedModels,
+    quietPlan = false,
   } = {},
 ) {
   const rows = [];
@@ -1068,28 +1218,63 @@ async function prefetch(
       existing = { installed: false };
     }
   }
-  // The voice profile of this PC decides which pinned voice models are fetched. A caller that injects its own
-  // downloader (the tests) gets the plain list unless it also hands over a probe; FRIDAY_PREFETCH_VOICE_BUDGET=0 opts out.
+  const ramGb = totalGb ?? os.totalmem() / 1024 ** 3;
+  // THIS PC decides everything that is hardware-bound, in one plan (electron/setup-plan.cjs): the chat model, the
+  // speech sizes (the voice profile), llama.cpp and the packages. A caller that injects its own downloader (the tests)
+  // gets the plain list unless it also hands over a probe, facts or a plan; FRIDAY_PREFETCH_VOICE_BUDGET=0 keeps the
+  // plain speech list.
   let voicePlan = null;
-  if (root && enabled(env, "FRIDAY_PREFETCH_VOICE_BUDGET") && (probe || !download)) {
+  let plan = null;
+  let made = null;
+  const active = Boolean(root) && prefetchPlan(root, env, platform).length > 0;
+  if (active && (probe || facts || thisPc || !download)) {
     try {
-      voicePlan = voiceWeights.voiceInstallPlan(root, probe || setupProbe(env), {
-        exists: fs.existsSync,
-      });
+      made =
+        thisPc ||
+        (await thisPcPlan(root, {
+          env,
+          fetchImpl: ollama?.fetch || fetch,
+          ...(facts ? { facts } : {}),
+          ...(probe ? { probe } : {}),
+          ...(installedModels ? { installedModels } : {}),
+        }));
+      plan = made.plan;
+      voicePlan = enabled(env, "FRIDAY_PREFETCH_VOICE_BUDGET") ? made.voicePlan : null;
     } catch (err) {
       log(
-        `[friday] INFO     the voice profile could not be chosen (${String((err && err.message) || err)}); using the plain list`,
+        `[friday] INFO     this PC's plan could not be made (${String((err && err.message) || err)}); using the plain list`,
       );
     }
   }
-  const jobs = prefetchPlan(root, env, platform, { ollama: existing.installed, plan: voicePlan });
+  const have = {
+    ollama: existing.installed,
+    plan: voicePlan,
+    ...(plan?.llama ? { llama: plan.llama } : {}),
+    ...(active && !voicePlan ? { blocked: plainBlocked(root, ramGb) } : {}),
+  };
+  const jobs = prefetchPlan(root, env, platform, have);
   if (!jobs.length) {
     log("[friday] model prefetch skipped");
     return rows;
   }
-  if (voicePlan) {
-    // The skipped speech sizes are named once, by their own job, when the run reaches them.
-    const sizeLines = new Set(voicePlan.blocked.map((row) => row.line));
+  // Setup prints the block itself, ahead of its Python step (FRIDAY_PLAN_PRINTED=1), and a retry round does not repeat it.
+  if (plan && !quietPlan && String(env.FRIDAY_PLAN_PRINTED ?? "") !== "1")
+    for (const line of setupPlan.describePlan(plan)) log(line);
+  if (
+    plan?.llama?.install &&
+    plan.llama.install.backend !== "cpu" &&
+    plan.llama.action !== "present"
+  )
+    log(
+      `[friday] INFO     llama.cpp: setup installs the pinned CPU build; the ${plan.llama.install.backend} build this PC qualifies for is installed from the Install Manager (Engines), with a hash check and a fallback`,
+    );
+  if (voicePlan && !quietPlan) {
+    // A skipped speech size that has its own job is named once, by that job, when the run reaches it.
+    const sizeLines = new Set(
+      voicePlan.blocked
+        .filter((row) => jobs.some((job) => job.id === `stt-${row.size}`))
+        .map((row) => row.line),
+    );
     for (const line of voicePlan.lines) if (!sizeLines.has(line)) log(line);
   }
   const installer = jobs.find((row) => row.kind === "installer");
@@ -1150,14 +1335,27 @@ async function prefetch(
   const uiRef = { current: null };
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
   // The English streaming speech is small and comes from its own host, so it downloads beside the big files.
-  const moonshineRun = enabled(env, "FRIDAY_PREFETCH_MOONSHINE")
-    ? fetchMoonshine(root, {
-        env,
-        log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
-        ...(moonshine ? { run: moonshine } : {}),
-      })
-    : null;
-  const ramGb = totalGb ?? os.totalmem() / 1024 ** 3;
+  // With a plan, English streaming speech is one of its extras: kept unless the plan leaves it out (a disk too full).
+  const moonshineExtra = Array.isArray(voicePlan?.extras)
+    ? voicePlan.extras.find((extra) => extra.id === "moonshine-en")
+    : undefined;
+  const moonshineSkip = !Array.isArray(voicePlan?.extras)
+    ? ""
+    : !moonshineExtra
+      ? "not in this PC's voice plan"
+      : moonshineExtra.state === "skipped"
+        ? moonshineExtra.reason
+        : "";
+  if (moonshineSkip && enabled(env, "FRIDAY_PREFETCH_MOONSHINE"))
+    log(`[friday] INFO     moonshine-en skipped: ${moonshineSkip}`);
+  const moonshineRun =
+    enabled(env, "FRIDAY_PREFETCH_MOONSHINE") && !moonshineSkip
+      ? fetchMoonshine(root, {
+          env,
+          log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
+          ...(moonshine ? { run: moonshine } : {}),
+        })
+      : null;
   // The speech, voice and chat files are independent, so several download at once: one
   // connection per file rarely fills a fast line. Rows keep their order in the result.
   const parallel = prefetchParallelism(env);
@@ -1184,11 +1382,17 @@ async function prefetch(
     if (alreadyThere(row)) {
       // One listing request per repository says whether a file here has changed upstream. A network that
       // cannot answer keeps the folder as it is.
-      const stale = checkFreshness
-        ? await require("../electron/model-freshness.cjs").staleFor(row, {
-            ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
-          })
-        : [];
+      // A pinned folder is judged against its pin (revision, size, SHA-256) by the downloader, never against a branch
+      // that may have moved: asking the branch only said "changed upstream" about files the pin keeps as they are.
+      const pinned = row.job.sources.some(
+        (source) => source.kind === "hf-repo" && voicePins.pinForRepo(source.repo),
+      );
+      const stale =
+        checkFreshness && !pinned
+          ? await require("../electron/model-freshness.cjs").staleFor(row, {
+              ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
+            })
+          : [];
       if (!stale.length) {
         if (ui)
           ui.finish(row.id, {
@@ -1204,13 +1408,6 @@ async function prefetch(
     if (row.skipReason) {
       if (ui) ui.finish(row.id, { ok: true, note: `skipped: ${row.skipReason}`.slice(0, 80) });
       say(`[friday] INFO     ${row.id} skipped: ${row.skipReason}`);
-      return { id: row.id, ok: true, downloaded: false, skipped: true };
-    }
-    if (row.minRamGb && ramGb < row.minRamGb) {
-      if (ui) ui.finish(row.id, { ok: true, note: `skipped: needs ${row.minRamGb} GB RAM` });
-      say(
-        `[friday] INFO     ${row.id} skipped: needs ${row.minRamGb} GB RAM, this PC has ${Math.floor(ramGb)}`,
-      );
       return { id: row.id, ok: true, downloaded: false, skipped: true };
     }
     if (!ui) log(`[friday] fetching ${row.id}`);
@@ -1264,9 +1461,21 @@ async function prefetch(
       return { id: row.id, ok: true, downloaded: true };
     }
     const why = (result && result.error) || "download failed";
+    if (row.optional) {
+      // An optional piece (a helper with a built-in fallback, a size this PC does not need) is a note: setup goes on.
+      if (ui) ui.finish(row.id, { ok: true, note: `optional, not installed: ${why}`.slice(0, 80) });
+      say(
+        `[friday] NOTE     ${
+          typeof row.failureLine === "function"
+            ? row.failureLine(result)
+            : `${row.id} did not download (${why}); optional, setup goes on`
+        }`,
+      );
+      return { id: row.id, ok: false, error: why, optional: true };
+    }
     if (ui) ui.finish(row.id, { ok: false, note: String(why).slice(0, 80) });
     say(`[friday] FAIL     ${row.id} was not downloaded (${why})`);
-    return { id: row.id, ok: false, error: why, ...(row.optional ? { optional: true } : {}) };
+    return { id: row.id, ok: false, error: why };
   });
   if (ui) ui.stop();
   uiRef.current = null;
@@ -1291,7 +1500,6 @@ async function prefetch(
     }
   }
   let ollamaRows = [];
-  const small = OLLAMA_MODELS[0]?.tag;
   if (wantOllama && enabled(env, "FRIDAY_AUTO_INSTALL")) {
     const fetched = installer ? rows.find((row) => row.id === installer.id) : null;
     if (existing.installed || fetched?.ok || (installer && alreadyThere(installer))) {
@@ -1303,9 +1511,11 @@ async function prefetch(
               require("../electron/download-safety.cjs").authenticodeStatus(file),
             ramGb,
             skipOptional: env.FRIDAY_PREFETCH_CHAT_SMART,
+            // The chat model is the plan's tier for this PC; with no plan the configured light model is pulled as before.
             // The downloaded GGUF is the light model only; a bigger tier must never be registered from it.
             localGguf: (model) =>
               model?.tag === OLLAMA_MODELS[0]?.tag ? firstGguf(chatJob(root).ready) : "",
+            ...(plan ? { chat: plan.chat, ...(made?.rechat ? { rechat: made.rechat } : {}) } : {}),
             ...(existing.exe ? { ollamaExe: existing.exe } : {}),
             ...ollama,
           },
@@ -1317,19 +1527,31 @@ async function prefetch(
       }
     }
   }
-  // The small chat model comes from Ollama's registry when that works. When it cannot (a blocked or
-  // broken route to the registry), the same model is taken as a GGUF through FRIDAY's own multi-
-  // connection downloader, then handed to Ollama under the tag FRIDAY routes to. Only a model that is
-  // in neither place is a failure, so a registry timeout no longer stops the setup.
-  let provided = ollamaRows.some((row) => row.id === small && row.ok);
+  // The chat model comes from Ollama's registry when that works. When it cannot (a blocked or broken route to the
+  // registry) and this PC has the memory for it, the light Qwen is taken as a GGUF through FRIDAY's own multi-connection
+  // downloader, then handed to Ollama under the tag FRIDAY routes to. Only a model that is in neither place is a failure,
+  // so a registry timeout no longer stops the setup. With this PC's plan the fallback is tried only when the plan
+  // wanted a pull, the pull failed, and the plan's usable memory fits that GGUF (never a bigger model than the PC carries).
+  const small = OLLAMA_MODELS[0]?.tag;
+  const ggufNeedGb = (APPROX_BYTES["qwen3-4b"] * 1.2) / 1024 ** 3;
+  const planned = plan?.chat;
+  const failedTag = planned ? (planned.action === "pull" ? planned.tag : "") : small;
+  const fallbackAllowed =
+    !planned || (planned.action === "pull" && Number(planned.memory?.usableGb) >= ggufNeedGb);
+  const provides = (row) =>
+    planned
+      ? row.ok && row.id !== "ollama" && row.id !== "ollama-answers"
+      : row.id === small && row.ok;
+  let provided = failedTag ? ollamaRows.some(provides) : true;
   const extra = [];
-  const chatWanted = ollamaServesChat(env, platform) && enabled(env, "FRIDAY_PREFETCH_CHAT");
+  const chatWanted =
+    ollamaServesChat(env, platform) && enabled(env, "FRIDAY_PREFETCH_CHAT") && fallbackAllowed;
   if (chatWanted && !provided) {
     const gguf = chatJob(root);
     let onDisk = alreadyThere(gguf);
     if (!onDisk) {
       log(
-        `[friday] INFO     ${small || "the small chat model"} is not in Ollama; fetching the GGUF copy`,
+        `[friday] INFO     ${failedTag || "the chat model"} is not in Ollama; fetching the light Qwen GGUF copy (${small})`,
       );
       let result;
       const progress = printer(log, gguf.id);
@@ -1366,8 +1588,13 @@ async function prefetch(
       }
     }
   }
-  rows.push(...ollamaRows.filter((row) => !(row.id === small && !row.ok && provided)), ...extra);
+  rows.push(
+    ...ollamaRows.filter((row) => !(row.id === failedTag && !row.ok && provided)),
+    ...extra,
+  );
   if (moonshineRun) rows.push(await moonshineRun);
+  else if (moonshineSkip && enabled(env, "FRIDAY_PREFETCH_MOONSHINE"))
+    rows.push({ id: "moonshine-en", ok: true, downloaded: false, skipped: true });
   // Last of all: a newer Ollama is a 1.6 GB installer and nothing waits on it, so every speech, voice and
   // chat file is already in place when it starts (it used to download first and hold everything else back).
   await updateOllamaLast();
@@ -1422,6 +1649,13 @@ module.exports = {
   voiceDryRun,
   setupCudaVerdict,
   setupProbe,
+  thisPcPlan,
+  onnxruntimeInstalled,
+  useLatestInstaller,
+  readPlanSync,
+  plainBlocked,
+  voiceJobId,
+  PLAN_JSON,
   MOONSHINE_DIR,
 };
 
@@ -1453,7 +1687,7 @@ async function prefetchWithRetries(root, options = {}, { wait, rounds } = {}) {
       `[friday] INFO     ${failed.length} download(s) stopped on a network problem (${failed.map((row) => row.id).join(", ")}); trying again in ${seconds}s (round ${round + 1} of ${maxExtra + 1})`,
     );
     await sleep(seconds * 1000);
-    rows = await prefetch(root, options);
+    rows = await prefetch(root, { ...options, quietPlan: true });
   }
   return rows;
 }
@@ -1497,11 +1731,139 @@ function setupCudaVerdict(env = process.env, first, deps = {}) {
   }
 }
 
-/** The voice-plan probe of this PC with the speech kernel's CUDA verdict (see setupCudaVerdict). */
+/**
+ * The voice-plan probe of this PC with the speech kernel's CUDA verdict (see setupCudaVerdict). `deps.hardwareFacts`
+ * (a function returning the measured facts of electron/hardware.cjs) lets the probe read the same facts the plan uses.
+ */
 function setupProbe(env = process.env, deps = {}) {
-  const first = voiceWeights.probeHardware();
+  const facts =
+    typeof deps.hardwareFacts === "function" ? { hardwareFacts: deps.hardwareFacts } : {};
+  const first = voiceWeights.probeHardware(facts);
   const verdict = setupCudaVerdict(env, first, deps);
-  return verdict ? voiceWeights.probeHardware({ cudaRuntimeReady: true }) : first;
+  return verdict ? voiceWeights.probeHardware({ ...facts, cudaRuntimeReady: true }) : first;
+}
+
+/**
+ * Is ONNX Runtime in FRIDAY's Python environment? One short isolated call of the venv Python reads the installed
+ * distributions (no import, so no DLL is loaded): the CPU, GPU or DirectML wheel counts, a look-alike package does
+ * not. Any failure, a missing Python or no wheel answers false, and the plan then says "install".
+ */
+function onnxruntimeInstalled(env = process.env, deps = {}) {
+  try {
+    const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
+    if (!python) return false;
+    const run = deps.spawnSync || require("node:child_process").spawnSync;
+    const code = [
+      "import importlib.metadata as m",
+      "names = ('onnxruntime', 'onnxruntime-gpu', 'onnxruntime-directml')",
+      "found = [(n, m.version(n)) for n in names if any(d.metadata['Name'].lower() == n for d in m.distributions())]",
+      "print('%s %s' % found[0] if found else 'none')",
+    ].join("\n");
+    const out = run(python, ["-I", "-c", code], {
+      encoding: "utf8",
+      timeout: 15000,
+      windowsHide: true,
+      shell: false,
+      env: { ...env, PYTHONIOENCODING: "utf-8" },
+    });
+    if (!out || out.error || out.status !== 0) return false;
+    return /^onnxruntime(-gpu|-directml)? \S+/m.test(String(out.stdout || ""));
+  } catch {
+    return false;
+  }
+}
+
+/** The measured facts of this PC (electron/hardware.cjs), or `{}` when they cannot be read: the plan then says "unknown". */
+async function measureThisPc(root) {
+  try {
+    const hardware = require("../electron/hardware.cjs");
+    const detected = await hardware.detectHardware({ root, capabilityGraceMs: 15000 });
+    return hardware.hardwareFacts(detected, { freeRamGb: os.freemem() / 1024 ** 3 });
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The ONE plan of this PC (electron/setup-plan.cjs buildSetupPlan), from its measured facts, the chat models Ollama
+ * already holds and what is already installed. Returns the plan, the voice install plan it was built from (the very
+ * object the speech jobs read, so setup and Doctor cannot disagree), the facts, and `rechat(list)`, which plans the chat
+ * step again once Ollama answers with the models it really holds. Never throws.
+ */
+async function thisPcPlan(root, options = {}) {
+  const env = options.env || process.env;
+  const facts = options.facts || (await measureThisPc(root));
+  const held = options.installedModels ?? (await ollamaInstalled(options.fetchImpl || fetch)) ?? [];
+  let voicePlan = null;
+  const voice = {
+    voiceInstallPlan: (...args) => (voicePlan = voiceWeights.voiceInstallPlan(...args)),
+  };
+  const deps = (installedModels) => ({
+    root,
+    installedModels,
+    installed: {
+      onnxruntime: onnxruntimeInstalled(env, { spawnSync: options.spawnSync }),
+      llama: (() => {
+        try {
+          return llamaRuntime.installed(root) === true;
+        } catch {
+          return false;
+        }
+      })(),
+    },
+    exists: options.exists || fs.existsSync,
+    ...(options.statfs ? { statfs: options.statfs } : {}),
+    voiceProbe: options.probe || setupProbe(env, { hardwareFacts: () => facts }),
+    voiceWeights: voice,
+  });
+  const plan = setupPlan.buildSetupPlan(facts, deps(held));
+  return {
+    plan,
+    voicePlan,
+    facts,
+    rechat: (list) => setupPlan.buildSetupPlan(facts, deps(list)).chat,
+  };
+}
+
+/** Speech sizes this PC does not carry, from the same voice plan, for a run with no plan of its own (the plain list). */
+function plainBlocked(root, ramGb) {
+  try {
+    return voiceWeights.voiceInstallPlan(
+      root,
+      { totalRamGb: ramGb, freeRamGb: 0, cpuThreads: 4, gpu: { name: "", vramGb: 0 } },
+      { exists: () => false },
+    ).blocked;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The same plan, read by another script (the Doctor, the Python step) as plain data: this file runs itself with `--plan
+ * --json`. Returns `toJSON(plan)` or null when it could not be read (the caller then keeps its old behaviour).
+ */
+function readPlanSync(env = process.env, deps = {}) {
+  try {
+    const run = deps.spawnSync || require("node:child_process").spawnSync;
+    const out = run(process.execPath, [__filename, "--plan", "--json"], {
+      encoding: "utf8",
+      timeout: deps.timeoutMs || 120000,
+      windowsHide: true,
+      shell: false,
+      env,
+    });
+    if (!out || out.error || out.status !== 0) return null;
+    for (const line of String(out.stdout || "")
+      .split(/\r?\n/)
+      .reverse()) {
+      if (!line.startsWith(PLAN_JSON)) continue;
+      const parsed = JSON.parse(line.slice(PLAN_JSON.length));
+      return parsed && Array.isArray(parsed.required) ? parsed : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1520,7 +1882,26 @@ function voiceDryRun(root, log = console.log) {
   return plan;
 }
 
-if (
+if (require.main === module && process.argv.includes("--plan")) {
+  // `--plan` prints this PC's block and downloads nothing; `--plan --json` prints the required set the Doctor reads.
+  const picked = require("./friday-root.cjs").workspaceRootOrDev({ record: false });
+  const json = process.argv.includes("--json");
+  thisPcPlan(picked.root, { env: process.env }).then(
+    ({ plan }) => {
+      if (json)
+        process.stdout.write(
+          `${PLAN_JSON}${JSON.stringify({ ...setupPlan.toJSON(plan), pc: plan.pc })}\n`,
+        );
+      else for (const line of setupPlan.describePlan(plan)) console.log(line);
+    },
+    (err) => {
+      console.error(
+        `[friday] INFO     this PC's plan could not be made: ${String((err && err.message) || err)}`,
+      );
+      process.exitCode = json ? 1 : 0;
+    },
+  );
+} else if (
   require.main === module &&
   process.argv.includes("--voice") &&
   process.argv.includes("--dry-run")

@@ -139,7 +139,11 @@ describe("voice:budget and voice:verify forward the kernel verdict", () => {
     const file = read("scripts/prefetch-models.cjs");
     expect(file).toMatch(/function setupCudaVerdict\(/);
     expect(file).toMatch(/cudaRuntimeReady: true/);
-    expect(file).toMatch(/voiceInstallPlan\(root, probe \|\| setupProbe\(env\)/);
+    // The setup plan reads the very probe that carries the kernel verdict, built from the same measured facts.
+    expect(file).toMatch(
+      /voiceProbe: options\.probe \|\| setupProbe\(env, \{ hardwareFacts: \(\) => facts \}\)/,
+    );
+    expect(file).toMatch(/\.\.\.\(probe \? \{ probe \} : \{\}\)/);
     expect(file).toMatch(/voiceInstallPlan\(root, setupProbe\(process\.env\)/);
   });
 

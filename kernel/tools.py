@@ -762,7 +762,7 @@ class ToolRegistry:
         return await asyncio.to_thread(control.perceive)
 
     async def _screen_read_text(self, args: dict) -> dict:
-        return await asyncio.to_thread(control.read_text, args.get("region"), args.get("lang", "eng"))
+        return await asyncio.to_thread(control.read_text, args.get("region"), args.get("lang"))
 
     # ------------------------------------------------- other devices (A1–A3)
     # Cable / Bluetooth / same-WiFi. FRIDAY never stores or replays another

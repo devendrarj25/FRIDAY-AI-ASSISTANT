@@ -240,6 +240,30 @@ if (upgradeDue) {
 // Wheels first so a normal FRIDAY installation never needs Rust/Cargo.
 // Already-installed newer compatible packages are reused, never downgraded.
 log(`installing kernel requirements from ${req}`);
+/**
+ * The ONNX Runtime wheels the venv holds right now (`pip list`). A GPU or DirectML build the Install Manager put there
+ * is kept: the plain `onnxruntime` requirement of the capability list would install the CPU wheel over its files.
+ */
+function installedOnnxRuntimes() {
+  const listed = capture(python, [
+    "-m",
+    "pip",
+    "list",
+    "--format=json",
+    "--disable-pip-version-check",
+  ]);
+  try {
+    return runtime.onnxRuntimesIn(JSON.parse(String(listed.stdout || "[]")));
+  } catch {
+    return runtime.onnxRuntimesIn([]);
+  }
+}
+const onnxBefore = installedOnnxRuntimes();
+if (onnxBefore.gpu.length) {
+  log(
+    `ONNX Runtime ${onnxBefore.gpu.map((row) => `${row.name} ${row.version}`).join(", ")} is installed; the plain CPU wheel is not installed over it`,
+  );
+}
 const base = [
   "-m",
   "pip",
@@ -565,10 +589,26 @@ if (fs.existsSync(capReq)) {
   const capPins = parsePins(capReq).filter(
     (pin) => win || !/sys_platform\s*==\s*"win32"/.test(pin.spec),
   );
-  if (!installWithMethods(["-r", capReq], { preferBinaryFirst: true })) {
+  // With a GPU or DirectML ONNX Runtime in the venv, the plain `onnxruntime` line is left out (a filtered copy of
+  // the list is installed), so every other capability package still installs and the GPU build keeps its files.
+  let capFile = capReq;
+  const keep = runtime.keepGpuOnnxRuntime(
+    fs.readFileSync(capReq, "utf8").split(/\r?\n/),
+    onnxBefore,
+  );
+  if (keep.dropped.length) {
+    capFile = path.join(root, "temporary", "downloads", "kernel-capabilities-requirements.txt");
+    fs.mkdirSync(path.dirname(capFile), { recursive: true });
+    fs.writeFileSync(capFile, `${keep.lines.join("\n")}\n`);
+    log("onnxruntime is left out of the capability install (a GPU build of it is installed)");
+  }
+  const capInstall = keep.dropped.length
+    ? capPins.filter((pin) => runtime.pipName(pin.name) !== "onnxruntime")
+    : capPins;
+  if (!installWithMethods(["-r", capFile], { preferBinaryFirst: true })) {
     // pip -r is all or nothing: one package without a wheel must not leave the other sixteen uninstalled.
     log("the capability list did not install as one set - installing each package on its own");
-    for (const pin of capPins) {
+    for (const pin of capInstall) {
       if (!installWithMethods([pin.spec], { preferBinaryFirst: true, noUpgrade: true })) {
         log(`${pin.name} did not install`);
         incomplete.push(`${pin.name} did not install`);
@@ -600,6 +640,29 @@ if (fs.existsSync(capReq)) {
   }
 }
 
+/**
+ * A package of the lists above can depend on `onnxruntime` (faster-whisper, onnx-asr): pip does not know that the GPU
+ * build already provides it and installs the CPU wheel on top. When that happened to a GPU or DirectML build, the plain
+ * wheel is removed and the GPU build is put back from the same release, so the venv ends as the Install Manager left it.
+ */
+function restoreGpuOnnxRuntime() {
+  if (!onnxBefore.gpu.length) return;
+  const now = installedOnnxRuntimes();
+  if (!now.plain) return;
+  const gpu = onnxBefore.gpu[0];
+  log(
+    `the CPU onnxruntime wheel was installed beside ${gpu.name}; restoring ${gpu.name} ${gpu.version}`,
+  );
+  run(python, ["-m", "pip", "uninstall", "--yes", "--disable-pip-version-check", "onnxruntime"]);
+  const spec = gpu.version ? `${gpu.name}==${gpu.version}` : gpu.name;
+  if (!installWithMethods(["--force-reinstall", "--no-deps", spec], { noUpgrade: true })) {
+    log(
+      `NOTE ${gpu.name} could not be restored; run it again from the Install Manager (ONNX Runtime)`,
+    );
+  }
+}
+restoreGpuOnnxRuntime();
+
 if (upgradeTried && !kernelLoads() && !rollbackUpgrade()) {
   incomplete.push(
     "the newest package releases broke the kernel and the earlier set could not be restored",
@@ -619,12 +682,35 @@ if (capture(python, ["-c", "import chromadb"]).status !== 0) {
  * the readiness restart to time out. It is fetched here once, with a "still working" line, where a failure only
  * costs a note: without it FRIDAY downloads it on first use, off the event loop, or uses the local index.
  */
+/** The FRIDAY folder the app and this setup share: FRIDAY_ROOT, else the folder Windows setup picked; "" elsewhere. */
+function chromaFridayRoot() {
+  if (process.env.FRIDAY_ROOT) return process.env.FRIDAY_ROOT;
+  if (!win) return "";
+  try {
+    return require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root;
+  } catch {
+    return "";
+  }
+}
+
 function fetchChromaEmbeddingModel() {
   if (process.env.FRIDAY_PREFETCH === "0" || process.env.FRIDAY_OFFLINE === "1") return;
+  // The model lives in the FRIDAY folder (<FRIDAY_ROOT>/cache/chroma), the same files the installed app's kernel reads
+  // (electron/main.cjs sets the same CHROMA_CACHE_DIR; kernel/memory.py points Chroma at it). Chroma 1.x ignores the
+  // variable itself and always uses ~/.cache/chroma, so the probe sets the class path the same way. Without a FRIDAY
+  // folder (a hosted run) the home cache stays.
   const home = process.env.USERPROFILE || process.env.HOME || "";
-  const cache = process.env.CHROMA_CACHE_DIR || path.join(home, ".cache", "chroma");
+  const fridayRoot = chromaFridayRoot();
+  const cache =
+    process.env.CHROMA_CACHE_DIR ||
+    (fridayRoot ? path.join(fridayRoot, "cache", "chroma") : path.join(home, ".cache", "chroma"));
   const probe = [
+    "import os, pathlib",
     "from chromadb.utils import embedding_functions as e",
+    "cache = os.environ.get('CHROMA_CACHE_DIR', '')",
+    "if cache and hasattr(e, 'ONNXMiniLM_L6_V2'):",
+    "    m = e.ONNXMiniLM_L6_V2",
+    "    m.DOWNLOAD_PATH = pathlib.Path(cache) / 'onnx_models' / m.MODEL_NAME",
     "f = getattr(e, 'DefaultEmbeddingFunction', None) or getattr(e, 'ONNXMiniLM_L6_V2')",
     "f()(['FRIDAY memory'])",
   ].join("\n");
@@ -643,7 +729,7 @@ function fetchChromaEmbeddingModel() {
     [cache],
     python,
     ["-c", probe],
-    { cwd: root },
+    { cwd: root, env: { ...process.env, CHROMA_CACHE_DIR: cache } },
   );
   log(
     result.status === 0
@@ -658,10 +744,52 @@ function fetchChromaEmbeddingModel() {
  * silently stayed on the CPU. pip ships both as ordinary wheels, so they are installed on an NVIDIA PC.
  * Best effort: without them speech works on the CPU as before.
  */
+function pinnedCudaLibsLines() {
+  if (!win || process.arch !== "x64") return null;
+  try {
+    const { PIP_BUNDLES, PINNED_WHEELS, planWheels } =
+      require("./electron-module.cjs").load("engine-install.cjs");
+    const bundle = PIP_BUNDLES["cuda-libs"];
+    const resolved = Object.fromEntries(
+      bundle.parts.map((part) => {
+        const pin = PINNED_WHEELS[part.dist];
+        return [
+          part.dist,
+          pin ? { ok: true, version: pin.version, assets: pin.assets } : { ok: false },
+        ];
+      }),
+    );
+    const plan = planWheels(bundle, resolved);
+    return plan.ok ? plan.lines : null;
+  } catch {
+    return null;
+  }
+}
+
 function installGpuSpeechLibraries() {
   if (!win || process.env.FRIDAY_GPU_SPEECH_LIBS === "0") return;
   const smi = capture("nvidia-smi", ["-L"]);
   if (smi.status !== 0 || !/GPU/i.test(String(smi.stdout || ""))) return;
+  // This PC's plan decides (electron/setup-plan.cjs): the libraries are installed only when it says install (an NVIDIA
+  // card whose driver reports CUDA 12, a compute capability the libraries support, room on the disk, a line that may
+  // carry about 1.2 GB). Without a readable plan the card alone decides, as before.
+  const plan = require("./prefetch-models.cjs").readPlanSync(process.env);
+  const libs = plan?.required.find((row) => row.id === "cuda-libs");
+  if (plan && libs?.action !== "install" && libs?.action !== "defer") {
+    const why = (plan.skipped || []).find((row) => row.id === "cuda-libs")?.reason;
+    log(
+      libs?.action === "present"
+        ? "GPU speech libraries ok (this PC's plan: already present)"
+        : `GPU speech libraries not installed: ${why || "this PC's plan does not need them"}`,
+    );
+    return;
+  }
+  if (libs?.action === "defer") {
+    log(
+      "GPU speech libraries wait for a better moment (offline, metered line or battery); npm run doctor installs them later",
+    );
+    return;
+  }
   const probe = [
     "-c",
     [
@@ -679,10 +807,32 @@ function installGpuSpeechLibraries() {
   log(
     "NVIDIA GPU found: installing the CUDA 12 libraries speech needs on the card (cuBLAS and cuDNN, about 1 GB, once)",
   );
-  const ok = installWithMethods(["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"], {
-    preferBinaryFirst: true,
-    noUpgrade: true,
-  });
+  // The plan names exact wheels with SHA-256 (electron/engine-install.cjs PINNED_WHEELS, the same pins the Install
+  // Manager installs): pip checks every file against them (--require-hashes, --no-deps because every part is pinned).
+  // A hash that does not match fails the install and is never retried unpinned. Plain pip is used only when no pin
+  // fits this PC (a platform the pins do not cover), and it says so.
+  const pinned = pinnedCudaLibsLines();
+  let ok;
+  if (pinned) {
+    const file = path.join(root, "temporary", "downloads", "cuda-libs-pinned.txt");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${pinned.join("\n")}\n`);
+    log(
+      `installing the pinned CUDA 12 libraries (${pinned.map((l) => l.split(" ")[0]).join(", ")}) with SHA-256 checks`,
+    );
+    ok = installWithMethods(["--require-hashes", "--no-deps", "-r", file], {
+      preferBinaryFirst: true,
+      noUpgrade: true,
+    });
+  } else {
+    log(
+      "NOTE no pinned CUDA 12 wheel fits this PC; the libraries are installed from PyPI without a hash check",
+    );
+    ok = installWithMethods(["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"], {
+      preferBinaryFirst: true,
+      noUpgrade: true,
+    });
+  }
   log(
     ok
       ? "GPU speech libraries installed"

@@ -20,12 +20,17 @@
  *   4. voice files     scripts/voice-smoke.cjs: silero, the noise suppressor and Smart Turn are run, and
  *                      Supertonic speaks a test line (Windows)
  *   5. voice stack     scripts/voice-stack.cjs --root <FRIDAY folder>: every runner, model, package, router,
- *                      gate and connection of the voice mode, and the models on disk
+ *                      gate and connection of the voice mode, the models on disk, and one row per language
+ *                      (Hindi, English, Hinglish: ears, speaking, punctuation, light voice, fallback ear)
  *   6. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
  *   7. main process    scripts/verify-deps.cjs: every module the app requires ships
  *   8. registry        scripts/env-registry.cjs repair: the persistent component list
  *   9. pinned runners  scripts/runners-status.cjs: Ollama and llama.cpp against the newest official
  *                      release (information only: it never fails the run and never changes a pin)
+ *
+ * Every download row (models, runtimes, packages, tools) names all its source hosts in order and which of them answers
+ * now (scripts/doctor-probes.cjs: one HEAD request per distinct host, in parallel, cached for this run in the file
+ * FRIDAY_REACH_CACHE; "not checked" when offline, never a failure).
  *
  * Exit 0 only when every step passed.
  */
@@ -33,6 +38,8 @@
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
 if (require.main === module) require("./live-console.cjs").installColorConsole();
 
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { spawnNpm } = require("./win-spawn.cjs");
@@ -183,5 +190,14 @@ if (require.main === module) {
   // exitCode, not process.exit(): ending the process while child pipes are closing can abort Node on Windows.
   // A Node.js / npm update left by the last `npm run setup` finishes first.
   require("./running-tools-upgrade.cjs").waitForPending();
-  process.exitCode = runDoctor().ok ? 0 : 1;
+  // One reachability cache for the whole run: the steps below are separate processes and probe each host once.
+  const reachCache = process.env.FRIDAY_REACH_CACHE
+    ? ""
+    : path.join(os.tmpdir(), `friday-reach-${process.pid}.json`);
+  if (reachCache) process.env.FRIDAY_REACH_CACHE = reachCache;
+  try {
+    process.exitCode = runDoctor().ok ? 0 : 1;
+  } finally {
+    if (reachCache) fs.rmSync(reachCache, { force: true });
+  }
 }

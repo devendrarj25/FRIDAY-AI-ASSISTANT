@@ -327,15 +327,17 @@ async function status(wakeWord = "friday", force = false) {
   return value;
 }
 
-/** Install openWakeWord through the same pip path as every other dependency. */
+/** Install openWakeWord through the Install Manager row, into the interpreter FRIDAY itself runs. */
 async function install() {
   const py = await python();
   if (!py) return { ok: false, error: "No supported Python interpreter found." };
-  const result = await run(
-    py[0],
-    [...py[1], "-m", "pip", "install", "--upgrade", "openwakeword"],
-    600000,
-  );
+  const toolchain = require("./toolchain.cjs");
+  const tool = toolchain.toolById("openWakeWord");
+  const command = tool
+    ? await toolchain.commandFor(tool, "install", { python: { exe: py[0], prefix: py[1] } })
+    : null;
+  if (!command) return { ok: false, error: "The Install Manager has no wake-word install row." };
+  const result = await run(command[0], command[1], 600000);
   cached = null;
   const now = await status("friday", true);
   return now.installed
