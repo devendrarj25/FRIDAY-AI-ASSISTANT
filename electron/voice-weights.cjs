@@ -50,8 +50,11 @@ const HINDI_PUNCT_REPO = "1-800-BAD-CODE/punct_cap_seg_47_language";
 /** The optional light Hindi voice (CC-BY-4.0, credit in the Models row) in `<root>/models/hindi-light-tts`. */
 const HINDI_LIGHT_REPO = "sulabhkatiyar/indic-tiny-tts-hindi";
 
-/** The optional streaming denoiser (Apache-2.0) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
+/** The optional streaming denoiser (DPDFNet 2, Apache-2.0) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
 const DENOISE_REPO = "Ceva-IP/DPDFNet";
+
+/** The optional tiny streaming denoiser (GTCRN, MIT) in `<root>/models/denoise-gtcrn`; off by default, never fetched on its own. */
+const GTCRN_REPO = "TigreGotico/audiosronnx-gtcrn";
 
 /** The optional speaker-verification candidate (CC-BY-4.0, credit in the Models row) in `<root>/models/speaker-wespeaker`. */
 const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
@@ -135,13 +138,20 @@ const EXTRA_MODELS = [
     label: "Light Hindi voice",
     kind: "tts",
   },
-  // The four below are optional pins with no live wrapper yet: they download and verify, and each has a self-test
-  // (`voice-pins.cjs` SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
+  // The optional pins below with no live wrapper yet download and verify, and each has a self-test (`voice-pins.cjs`
+  // SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
   {
     catalogId: "denoise-dpdfnet",
     repo: DENOISE_REPO,
     rowId: "denoise-dpdfnet-pin",
     label: "DPDFNet denoiser",
+    kind: "voice",
+  },
+  {
+    catalogId: "denoise-gtcrn",
+    repo: GTCRN_REPO,
+    rowId: "denoise-gtcrn-pin",
+    label: "GTCRN denoiser",
     kind: "voice",
   },
   {
@@ -1457,6 +1467,7 @@ module.exports = {
   HINDI_PUNCT_REPO,
   HINDI_LIGHT_REPO,
   DENOISE_REPO,
+  GTCRN_REPO,
   SPEAKER_REPO,
   HINDI_VAANI_REPO,
   HINGLISH_TRELIS_REPO,

@@ -1,6 +1,6 @@
 /**
- * The three optional pins added with the voice engine registry (the DPDFNet denoiser, the WeSpeaker speaker model, the
- * Hindi Vaani ear): exact pins, Models rows with credit, the fit the Install Manager shows from facts, and the Doctor
+ * The optional pins added with the voice engine registry (the DPDFNet and GTCRN denoisers, the WeSpeaker speaker model,
+ * the Hindi Vaani ear): exact pins, Models rows with credit, the fit the Install Manager shows from facts, and the Doctor
  * self-test rows. Offline: a fake runner stands in for the kernel, the disk is a temp folder, nothing is downloaded.
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -43,6 +43,7 @@ const pins = req("../../electron/voice-pins.cjs") as {
 };
 const weights = req("../../electron/voice-weights.cjs") as {
   DENOISE_REPO: string;
+  GTCRN_REPO: string;
   SPEAKER_REPO: string;
   HINDI_VAANI_REPO: string;
   HINGLISH_TRELIS_REPO: string;
@@ -80,6 +81,7 @@ afterEach(() => {
 
 const PINNED = [
   { id: "denoise-dpdfnet", repo: weights.DENOISE_REPO },
+  { id: "denoise-gtcrn", repo: weights.GTCRN_REPO },
   { id: "speaker-wespeaker", repo: weights.SPEAKER_REPO },
   { id: "hindi-vaani-ear", repo: weights.HINDI_VAANI_REPO },
   { id: "stream-ear-nemotron", repo: weights.STREAM_EAR_REPO },
@@ -91,10 +93,18 @@ describe("the pins read from the Hugging Face API on 2026-11-23", () => {
     const dpdf = pins.pinForRepo("Ceva-IP/DPDFNet")!;
     expect(dpdf.license).toBe("Apache-2.0");
     expect(dpdf.revision).toBe("dd6818d00f50c836fed43a6243ebe49116de5964");
-    expect(Object.keys(dpdf.files)).toEqual(["onnx/dpdfnet8.onnx"]);
-    expect(dpdf.files["onnx/dpdfnet8.onnx"]).toEqual({
-      sha256: "899d4f23f3ff86edbffa8c537e4bcbdc49da1b4e84e0ef390611e0604a3b26cb",
-      bytes: 14542517,
+    expect(Object.keys(dpdf.files)).toEqual(["onnx/dpdfnet2.onnx"]);
+    expect(dpdf.files["onnx/dpdfnet2.onnx"]).toEqual({
+      sha256: "4f0ee28935b4a32abecc717d745416976565834d839601acf43031094b4dc94c",
+      bytes: 10178747,
+    });
+    const gtcrn = pins.pinForRepo("TigreGotico/audiosronnx-gtcrn")!;
+    expect(gtcrn.license).toBe("MIT");
+    expect(gtcrn.revision).toBe("eeba5e9636e7e0aad93b25fad17471a9646d2640");
+    expect(Object.keys(gtcrn.files)).toEqual(["gtcrn_simple.onnx"]);
+    expect(gtcrn.files["gtcrn_simple.onnx"]).toEqual({
+      sha256: "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+      bytes: 535638,
     });
     const speaker = pins.pinForRepo("onnx-community/wespeaker-voxceleb-resnet34-LM")!;
     expect(speaker.license).toBe("CC-BY-4.0");
@@ -111,7 +121,7 @@ describe("the pins read from the Hugging Face API on 2026-11-23", () => {
       sha256: "34c0d6c1c80fabd91af9d8c91c5089c2f3f314bda9ee3169b3e844c7ad2d011b",
       bytes: 3087284237,
     });
-    for (const pin of [dpdf, speaker, vaani]) {
+    for (const pin of [dpdf, gtcrn, speaker, vaani]) {
       expect(pin.revision).toMatch(/^[0-9a-f]{40}$/);
       for (const row of Object.values(pin.files)) expect(row.sha256).toMatch(HEX64);
     }
@@ -123,7 +133,8 @@ describe("the pins read from the Hugging Face API on 2026-11-23", () => {
       expect(["onnx-signature", "ct2-folder"]).toContain(spec.kind);
       expect(spec.wrapper).toBeNull();
     }
-    expect(pins.SELF_TESTS["Ceva-IP/DPDFNet"]!.file).toBe("onnx/dpdfnet8.onnx");
+    expect(pins.SELF_TESTS["Ceva-IP/DPDFNet"]!.file).toBe("onnx/dpdfnet2.onnx");
+    expect(pins.SELF_TESTS["TigreGotico/audiosronnx-gtcrn"]!.file).toBe("gtcrn_simple.onnx");
   });
 });
 
@@ -168,6 +179,7 @@ describe("the Models rows and the Install Manager rows", () => {
         cpuOnly,
       );
     expect(of("denoise-dpdfnet").state).toBe("supported");
+    expect(of("denoise-gtcrn").state).toBe("supported");
     expect(of("speaker-wespeaker").state).toBe("supported");
     expect(of("hindi-vaani-ear").state).not.toBe("supported"); // 3 GB of weights, a GPU model, no GPU here
     expect(of("hinglish-ear-trelis").state).not.toBe("supported"); // large-v3 on a CPU: slower than speech, no GPU here
@@ -314,6 +326,7 @@ describe("the Doctor self-test rows", () => {
     const rows = await weights.pinSelfTests(temp(), { exists: () => false });
     expect(rows.map((row) => row.id)).toEqual([
       "optional-denoise-dpdfnet",
+      "optional-denoise-gtcrn",
       "optional-speaker-wespeaker",
       "optional-hindi-vaani-ear",
       "optional-stream-ear-nemotron",
@@ -348,6 +361,7 @@ describe("the Doctor self-test rows", () => {
     });
     expect(rows.map((row) => row.id)).toEqual([
       "selftest-denoise-dpdfnet",
+      "selftest-denoise-gtcrn",
       "selftest-speaker-wespeaker",
       "selftest-hindi-vaani-ear",
       "selftest-stream-ear-nemotron",
@@ -379,7 +393,10 @@ describe("the Doctor self-test rows", () => {
       expect(row.installId, row.id).toBe(row.id.replace("selftest-", ""));
     }
     expect(rows[0]!.detail).toBe("inputs-differ: graph inputs are ['x']");
-    expect(rows[1]!.detail).toMatch(/run-failed: python is gone/);
+    expect(rows[1]!.detail).toBe("inputs-differ: graph inputs are ['x']");
+    expect(rows.find((row) => row.id === "selftest-speaker-wespeaker")!.detail).toMatch(
+      /run-failed: python is gone/,
+    );
     const noRunner = await weights.pinSelfTests(root, { exists: (file) => fs.existsSync(file) });
     expect(noRunner.every((row) => !row.ok && /no-runner/.test(row.detail))).toBe(true);
   });

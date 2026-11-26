@@ -254,6 +254,7 @@ export const VOICE_MODEL_IDS = [
   "hindi-punct",
   "hindi-light-tts",
   "denoise-dpdfnet",
+  "denoise-gtcrn",
   "speaker-wespeaker",
   "hindi-vaani-ear",
   "stream-ear-nemotron",

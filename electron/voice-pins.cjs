@@ -353,17 +353,34 @@ const PINS = {
       },
     },
   },
-  // Optional, off by default, never fetched on its own. Read from the Hugging Face API on 2026-11-23 and the small files
-  // fetched at the pinned revision and hashed here. Only the one 16 kHz ONNX graph is pinned (the repository also holds
-  // 8 kHz, 48 kHz, TFLite and checkpoint files, none of which FRIDAY uses). A streaming speech-enhancement model
-  // (Apache-2.0, Ceva-IP): one 10 ms frame in, one frame out, with a state vector. No wrapper in FRIDAY runs it yet.
+  // Optional, off by default, never fetched on its own. Read from the Hugging Face API (`?blobs=true`, lfs.sha256) on
+  // 2026-11-26 and the pinned file downloaded and hashed here. Only the one 16 kHz ONNX graph, `dpdfnet2` (the smallest
+  // of the 16 kHz family, 10.2 MB), is pinned: the repository also holds dpdfnet4 and dpdfnet8, 8 kHz and 48 kHz graphs,
+  // TFLite and checkpoint files, none of which FRIDAY uses. A streaming speech-enhancement model (Apache-2.0, Ceva-IP):
+  // one 10 ms spectrum frame in, one frame out, with a flat state vector. `kernel/denoise_onnx.py` runs it (A/B tool
+  // only; no live path or setting connects it yet).
   "Ceva-IP/DPDFNet": {
     revision: "dd6818d00f50c836fed43a6243ebe49116de5964",
     license: "Apache-2.0",
     files: {
-      "onnx/dpdfnet8.onnx": {
-        sha256: "899d4f23f3ff86edbffa8c537e4bcbdc49da1b4e84e0ef390611e0604a3b26cb",
-        bytes: 14542517,
+      "onnx/dpdfnet2.onnx": {
+        sha256: "4f0ee28935b4a32abecc717d745416976565834d839601acf43031094b4dc94c",
+        bytes: 10178747,
+      },
+    },
+  },
+  // Optional, off by default, never fetched on its own: GTCRN, an ultra-light 16 kHz streaming denoiser (MIT, upstream
+  // Xiaobin-Rong/gtcrn). This copy (TigreGotico/audiosronnx-gtcrn, MIT) holds the same bytes as bitsydarel/gtcrn-onnx
+  // (the sha256 is identical); the graph carries three cache tensors, so it is the streaming export (read with
+  // onnxruntime 1.32 on 2026-11-26: `mix [1,257,1,2]` plus conv, tra and inter caches). Read from the Hugging Face API
+  // on 2026-11-26 and the file downloaded and hashed here. `kernel/denoise_onnx.py` runs it.
+  "TigreGotico/audiosronnx-gtcrn": {
+    revision: "eeba5e9636e7e0aad93b25fad17471a9646d2640",
+    license: "MIT",
+    files: {
+      "gtcrn_simple.onnx": {
+        sha256: "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+        bytes: 535638,
       },
     },
   },
@@ -676,6 +693,9 @@ const FACTS = {
     basis: "measured",
     peakRssMb: 489,
   },
+  // Peak resident memory 81 MB (dpdfnet2) and 64 MB (gtcrn) over a 15 s Python process that had already loaded numpy and
+  // onnxruntime (45 MB of it), 8 s of speech through `kernel/denoise_onnx.py` on a Linux x86-64 CPU (2026-11-26); real-time
+  // factor 0.16 and 0.06 there (one thread), so both keep up with live speech on that machine; Windows is unmeasured.
   "Ceva-IP/DPDFNet": {
     minRamGb: 0.1,
     recommendedRamGb: 0.2,
@@ -685,7 +705,18 @@ const FACTS = {
     quantization: "fp32 (ONNX)",
     fallbackPriority: "experimental",
     basis: "measured",
-    peakRssMb: 85,
+    peakRssMb: 81,
+  },
+  "TigreGotico/audiosronnx-gtcrn": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 64,
   },
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {
     minRamGb: 0.2,
@@ -774,14 +805,31 @@ const SELF_TESTS = {
   "Ceva-IP/DPDFNet": {
     kind: "onnx-signature",
     wrapper: null,
-    file: "onnx/dpdfnet8.onnx",
+    file: "onnx/dpdfnet2.onnx",
     inputs: [
       { name: "spec", shape: [1, 1, 161, 2], type: "float32" },
-      { name: "state_in", shape: [66928], type: "float32" },
+      { name: "state_in", shape: [45424], type: "float32" },
     ],
     outputs: [
       { name: "spec_e", shape: [1, 1, 161, 2] },
-      { name: "state_out", shape: [66928] },
+      { name: "state_out", shape: [45424] },
+    ],
+  },
+  "TigreGotico/audiosronnx-gtcrn": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "gtcrn_simple.onnx",
+    inputs: [
+      { name: "mix", shape: [1, 257, 1, 2], type: "float32" },
+      { name: "conv_cache", shape: [2, 1, 16, 16, 33], type: "float32" },
+      { name: "tra_cache", shape: [2, 3, 1, 1, 16], type: "float32" },
+      { name: "inter_cache", shape: [2, 1, 33, 16], type: "float32" },
+    ],
+    outputs: [
+      { name: "enh", shape: [1, 257, 1, 2] },
+      { name: "conv_cache_out", shape: [2, 1, 16, 16, 33] },
+      { name: "tra_cache_out", shape: [2, 3, 1, 1, 16] },
+      { name: "inter_cache_out", shape: [2, 1, 33, 16] },
     ],
   },
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {

@@ -292,3 +292,136 @@ def test_wav_reader_rejects_the_wrong_rate_and_stereo(tmp_path):
         w.writeframes(struct.pack("<hh", 1, 2) * 100)
     with pytest.raises(ValueError, match="16 kHz mono"):
         ee.read_wav(path)
+
+
+# ---- the denoise A/B ---------------------------------------------------------------------------------------------
+
+
+class FakeDenoiser:
+    """A denoiser stand-in: ``gain`` scales the clip, ``active=False`` is a model that is not on disk."""
+
+    def __init__(self, name, gain=1.0, active=True, reason=""):
+        self.name, self.gain, self.active, self.reason = name, gain, active, reason
+
+    def run_clip(self, samples):
+        return (np.asarray(samples) * self.gain).astype(np.float32)
+
+    def status(self):
+        return {
+            "engine": self.name,
+            "active": self.active,
+            "reason": self.reason,
+            "rtf": 0.125 if self.active else None,
+        }
+
+
+def _loud(kind, text="", utterances=None, sid="s"):
+    samples = (np.random.default_rng(3).standard_normal(ee.RATE * 2) * 0.1).astype(np.float32)
+    return ee.Scene(id=sid, kind=kind, samples=samples, utterances=utterances or [], text=text)
+
+
+def _says_hello_when_it_hears_something(samples):
+    return "hello world" if float(np.abs(samples).max()) > 0.01 else ""
+
+
+_TURN = ee.Turn(start_ms=0, end_ms=1500, sent_start_ms=0, text="ok")
+
+
+def _ab_scenes():
+    return [_loud("speech", "hello world", [[(200, 1500)]], "say"), _loud("noise", sid="room")]
+
+
+def test_apply_denoiser_keeps_the_labels_the_text_and_the_length_and_leaves_the_original_alone():
+    scenes = _ab_scenes()
+    before = scenes[0].samples.copy()
+    out = ee.apply_denoiser(scenes, FakeDenoiser("half", gain=0.5))
+    assert [(s.id, s.kind, s.utterances, s.text) for s in out] == [(s.id, s.kind, s.utterances, s.text) for s in scenes]
+    assert all(len(a.samples) == len(b.samples) for a, b in zip(out, scenes, strict=True))
+    assert np.allclose(out[0].samples, before * 0.5) and np.array_equal(scenes[0].samples, before)
+
+
+def test_word_error_rate_is_edits_over_all_reference_words_not_a_mean_of_clip_rates():
+    scenes = [_loud("speech", "one two three four", [[(0, 100)]], "a"), _loud("speech", "five", [[(0, 100)]], "b")]
+    said = {id(scenes[0].samples): "one two three", id(scenes[1].samples): "six"}  # 1 edit in 4 words, 1 edit in 1 word
+    got = ee.word_error_rate(scenes, lambda x: said[id(x)])
+    assert got == {"wer": pytest.approx(2 / 5), "words": 5, "clips": 2}  # a mean of 0.25 and 1.0 would be 0.625
+    assert ee.word_error_rate(scenes, None) == {"wer": None, "words": 0, "clips": 0}
+    no_text = [_loud("speech", "", [[(0, 100)]]), _loud("noise")]  # no reference words, or not speech: not counted
+    assert ee.word_error_rate(no_text, lambda x: "anything")["wer"] is None
+
+
+def _run(wer, halluc_hits, n=4):
+    estimate = halluc_hits / n
+    metrics = {"nonSpeechTextPct": {"estimate": estimate, "n": n}}
+    return {"report": {"metrics": metrics}, "wer": {"wer": wer, "words": 100, "clips": 5}}
+
+
+def test_the_adopt_rule_keeps_a_denoiser_only_if_wer_stays_within_half_a_point_and_hallucinations_do_not_rise():
+    raw = _run(0.100, 1)
+    assert ee.adopt_verdict(raw, _run(0.104, 1))["keep"] is True  # +0.4 pt, no rise
+    assert ee.adopt_verdict(raw, _run(0.090, 0))["keep"] is True  # better on both
+    worse = ee.adopt_verdict(raw, _run(0.106, 1))  # +0.6 pt
+    assert worse["keep"] is False and "+0.60 pt" in worse["why"]
+    rose = ee.adopt_verdict(raw, _run(0.100, 2))  # WER the same, one more no-speech clip with words
+    assert rose["keep"] is False and "rose" in rose["why"]
+    assert ee.adopt_verdict(raw, _run(None, 1))["keep"] is None  # no word error rate: undecided, never a guess
+    assert ee.adopt_verdict(_run(None, 1), _run(0.1, 1))["keep"] is None
+    assert ee.WER_TOLERANCE_PT == 0.5 and "0.5 point" in ee.DENOISE_RULE
+
+
+def test_the_ab_scores_raw_and_each_denoiser_and_says_keep_or_drop_by_the_rule():
+    ears = Scripted([_TURN])
+    engines = {
+        "same": FakeDenoiser("same"),
+        "mute": FakeDenoiser("mute", gain=0.0),
+        "gone": FakeDenoiser("gone", active=False, reason="no file"),
+    }
+    ab = ee.denoise_ab(
+        _ab_scenes(), ears, list(engines), transcribe=_says_hello_when_it_hears_something, denoiser_factory=engines.get
+    )
+    assert [r["engine"] for r in ab["runs"]] == ["raw", "same", "mute"]
+    assert ab["skipped"] == [{"engine": "gone", "reason": "no file"}]
+    assert ab["runs"][0]["wer"]["wer"] == 0.0 and ab["runs"][2]["wer"]["wer"] == 1.0  # the muted clip says nothing
+    assert ab["verdicts"]["same"]["keep"] is True
+    assert ab["verdicts"]["mute"]["keep"] is False  # no hallucination, but every word lost
+    rows = ee.ab_rows(ab)
+    assert rows[0].startswith("denoise A/B (raw vs same, mute)") and any(r.startswith("rule: ") for r in rows)
+    assert any(r.startswith("WER: raw 0.00% | same 0.00% | mute 100.00%") for r in rows)
+    assert "SKIP gone: no file" in rows and any(r.startswith("same: KEEP") for r in rows)
+    assert any(r.startswith("mute: DROP") for r in rows) and any("real-time factor" in r for r in rows)
+    assert [r.split(":")[0] for r in rows if r.split(":")[0] in ee.METRIC_NAMES] == list(ee.METRIC_NAMES)
+
+
+def test_without_a_recogniser_the_wer_is_unverified_and_the_verdict_undecided():
+    ab = ee.denoise_ab(_ab_scenes(), Scripted([_TURN]), ["same"], denoiser_factory=lambda n: FakeDenoiser(n))
+    rows = ee.ab_rows(ab)
+    assert any(r.startswith("WER: raw n/a") and "UNVERIFIED" in r for r in rows)
+    assert ab["verdicts"]["same"]["keep"] is None and any("UNDECIDED" in r for r in rows)
+
+
+def test_cli_denoise_ab_prints_the_rows_and_a_missing_model_is_a_visible_skip(tmp_path, monkeypatch):
+    lines: list[str] = []
+    code = ee.main(
+        ["--synthetic", "--denoise-ab", "gtcrn"], out=lines.append, denoiser_factory=lambda n: FakeDenoiser(n)
+    )
+    assert code == ee.EXIT_OK and any(ln.startswith("vadFrameF1: raw ") and "| gtcrn " in ln for ln in lines)
+    monkeypatch.setenv("FRIDAY_ROOT", str(tmp_path))  # nothing on disk: the real denoisers are passthroughs
+    lines = []
+    assert ee.main(["--synthetic", "--denoise-ab"], out=lines.append) == ee.EXIT_NO_DATA
+    assert sum(1 for ln in lines if ln.startswith("SKIP ")) == 2 and any("not on disk" in ln for ln in lines)
+    lines = []
+    assert ee.main(["--synthetic", "--denoise-ab", "magic"], out=lines.append) == ee.EXIT_USAGE
+    assert lines and lines[0].startswith("REFUSED")
+
+
+def test_owner_labels_may_carry_the_spoken_text_and_it_must_be_a_string(tmp_path):
+    folder = tmp_path / "voice-eval" / "ears"
+    folder.mkdir(parents=True)
+    clip = np.concatenate([ee.silence(300, seed=1), ee.speech_like(1200, seed=9), ee.silence(500, seed=2)])
+    _write_wav(folder / "a.wav", clip)
+    label = {"kind": "speech", "utterances": [[[300, 1500]]], "text": "namaste friday"}
+    (folder / "a.json").write_text(json.dumps(label), encoding="utf-8")
+    assert [s.text for s in ee.load_owner_scenes(tmp_path)] == ["namaste friday"]
+    (folder / "a.json").write_text(json.dumps({**label, "text": 5}), encoding="utf-8")
+    with pytest.raises(ValueError, match="text must be a string"):
+        ee.load_owner_scenes(tmp_path)

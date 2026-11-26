@@ -22,6 +22,12 @@ writes "ok" for any audio it is given. So the synthetic numbers measure the harn
 speech model, and not the owner's microphone: that baseline is run by the owner on his PC (unverified here).
 Another ears implementation plugs in by offering ``run(samples) -> EarsRun``.
 
+``--denoise-ab`` runs the same scoring on the raw clips and on each denoiser's output (``denoise_onnx``), prints the
+change per metric and the word error rate, and applies the adopt rule: keep a denoiser only if the word error rate does
+not worsen by more than 0.5 point and the share of no-speech clips that still produced words does not rise. The word
+error rate needs the owner's recordings with a ``"text"`` in the label file and a recogniser, so on the synthetic scenes
+it prints UNVERIFIED and the verdict is undecided. It does not connect a denoiser to the live stream.
+
 Reuses ``stt_bench`` for the timing summaries, the Wilson range and the text normaliser.
 """
 
@@ -38,6 +44,7 @@ from typing import Any, Protocol
 
 import numpy as np
 import stt_bench
+from denoise_onnx import DENOISE_ENGINES
 
 RATE = 16_000
 SLICE_MS = 20
@@ -206,6 +213,7 @@ class Scene:
     kind: str
     samples: np.ndarray
     utterances: list[list[tuple[int, int]]] = field(default_factory=list)
+    text: str = ""  # what was said, when written down (``"text"`` in the label file); the word error rate needs it
 
     @property
     def duration_ms(self) -> int:
@@ -342,7 +350,10 @@ def load_owner_scenes(root: Path) -> list[Scene]:
         utterances = _check_utterances(spec.get("utterances", []), duration, label.name)
         if (kind == "speech") != bool(utterances):
             raise ValueError(f"{label.name}: only a speech clip has utterances, and it needs at least one")
-        scenes.append(Scene(id=wav_path.stem, kind=kind, samples=samples, utterances=utterances))
+        text = spec.get("text", "")
+        if not isinstance(text, str):
+            raise ValueError(f"{label.name}: text must be a string")
+        scenes.append(Scene(id=wav_path.stem, kind=kind, samples=samples, utterances=utterances, text=text))
     return scenes
 
 
@@ -542,6 +553,146 @@ def evaluate(scenes: list[Scene], ears: Ears, transcribe: Callable[[np.ndarray, 
     return {"metrics": metrics, "counts": counts}
 
 
+# ---- denoise A/B ------------------------------------------------------------------------------------------------
+
+DENOISE_RULE = (
+    "keep a denoiser only if the word error rate does not worsen by more than 0.5 point "
+    "and the share of no-speech clips that still produced words does not rise"
+)
+WER_TOLERANCE_PT = 0.5
+AB_METRICS = (
+    ("vadFrameF1", "f1", 3),
+    ("onsetMs", "p50", 0),
+    ("clipStartLossMs", "mean", 1),
+    ("eotMs", "p50", 0),
+    ("prematureCutPct", "pct", 1),
+    ("nonSpeechTextPct", "pct", 1),
+    ("falseTurnsPerHour", "perHour", 1),
+)
+
+
+def apply_denoiser(scenes: list[Scene], denoiser: Any) -> list[Scene]:
+    """The same scenes with every clip run through ``denoiser.run_clip`` (same length, so the labels stay true)."""
+    cleaned = []
+    for s in scenes:
+        samples = np.asarray(denoiser.run_clip(s.samples), dtype=np.float32)
+        cleaned.append(Scene(id=s.id, kind=s.kind, samples=samples, utterances=s.utterances, text=s.text))
+    return cleaned
+
+
+def word_error_rate(scenes: list[Scene], transcribe: Callable[[np.ndarray], str] | None) -> dict:
+    """Corpus word error rate over the speech clips that have reference text: edits over reference words (not a mean of
+    per-clip rates). ``wer`` is None when no recogniser is plugged in or no clip has text."""
+    if transcribe is None:
+        return {"wer": None, "words": 0, "clips": 0}
+    edits = words = clips = 0
+    for scene in scenes:
+        reference = stt_bench.normalise(scene.text)
+        if scene.kind != "speech" or not reference:
+            continue
+        count = len(reference.split())
+        edits += round(stt_bench.wer(scene.text, transcribe(scene.samples)) * count)
+        words += count
+        clips += 1
+    return {"wer": edits / words if words else None, "words": words, "clips": clips}
+
+
+def _scalar(report: dict, name: str, key: str) -> float | None:
+    part = report["metrics"][name]
+    if key == "pct":
+        return part["estimate"] * 100 if part.get("n") else None
+    value = part.get(key)
+    return None if value is None else float(value)
+
+
+def adopt_verdict(raw: dict, den: dict) -> dict:
+    """The adopt rule. ``keep`` is None (undecided) when the word error rate was not measured on both sides."""
+    wer_raw, wer_den = raw["wer"]["wer"], den["wer"]["wer"]
+    if wer_raw is None or wer_den is None:
+        return {
+            "keep": None,
+            "why": "no word error rate (needs the owner's recordings with text and a recogniser)",
+        }
+    worse_pt = (wer_den - wer_raw) * 100
+    halluc_raw = _scalar(raw["report"], "nonSpeechTextPct", "pct")
+    halluc_den = _scalar(den["report"], "nonSpeechTextPct", "pct")
+    rose = halluc_raw is not None and halluc_den is not None and halluc_den > halluc_raw
+    keep = worse_pt <= WER_TOLERANCE_PT and not rose
+    why = f"WER {worse_pt:+.2f} pt (limit +{WER_TOLERANCE_PT}); no-speech text {'rose' if rose else 'did not rise'}"
+    return {"keep": keep, "why": why}
+
+
+def denoise_ab(
+    scenes: list[Scene],
+    ears: Ears,
+    engines: list[str],
+    *,
+    transcribe: Callable[[np.ndarray], str] | None = None,
+    denoiser_factory: Callable[[str], Any] | None = None,
+) -> dict:
+    """Score ``ears`` on the raw scenes, then on the same scenes after each denoiser, and say whether to keep each.
+
+    ``transcribe(samples)`` is the recogniser behind the gate: it gives the word error rate (speech clips with text)
+    and the text of the turns on no-speech clips. A denoiser whose model is not on disk is skipped with its reason."""
+    if denoiser_factory is None:
+        import denoise_onnx
+
+        denoiser_factory = denoise_onnx.StreamDenoiser
+
+    recogniser = transcribe
+    behind_gate = None if recogniser is None else (lambda x, _t: recogniser(x))
+
+    def one(name: str, material: list[Scene], status: dict) -> dict:
+        report = evaluate(material, ears, behind_gate)
+        return {"engine": name, "status": status, "report": report, "wer": word_error_rate(material, transcribe)}
+
+    runs = [one("raw", scenes, {"active": True, "reason": "", "rtf": None})]
+    skipped: list[dict] = []
+    for name in engines:
+        denoiser = denoiser_factory(name)
+        if not denoiser.active:
+            skipped.append({"engine": name, "reason": denoiser.status()["reason"]})
+            continue
+        material = apply_denoiser(scenes, denoiser)
+        runs.append(one(name, material, denoiser.status()))
+    verdicts = {r["engine"]: adopt_verdict(runs[0], r) for r in runs[1:]}
+    return {"rule": DENOISE_RULE, "runs": runs, "skipped": skipped, "verdicts": verdicts}
+
+
+def ab_rows(ab: dict) -> list[str]:
+    """One row per metric (raw, then each denoiser with its change), the WER row, the speed, a verdict per engine."""
+    raw, others = ab["runs"][0], ab["runs"][1:]
+
+    def cell(run: dict, name: str, key: str, digits: int) -> str:
+        value = _scalar(run["report"], name, key)
+        base = _scalar(raw["report"], name, key)
+        if value is None:
+            return f"{run['engine']} n/a"
+        shown = f"{run['engine']} {value:.{digits}f}"
+        if run is not raw and base is not None:
+            shown += f" ({value - base:+.{digits}f})"
+        return shown
+
+    rows = [f"denoise A/B (raw vs {', '.join(r['engine'] for r in others) or 'nothing: no denoiser model on disk'})"]
+    rows.append(f"rule: {ab['rule']}")
+    for name, key, digits in AB_METRICS:
+        rows.append(f"{name}: " + " | ".join(cell(r, name, key, digits) for r in ab["runs"]))
+    wers = []
+    for r in ab["runs"]:
+        value = r["wer"]["wer"]
+        wers.append(f"{r['engine']} n/a" if value is None else f"{r['engine']} {value * 100:.2f}%")
+    rows.append("WER: " + " | ".join(wers) + ("" if raw["wer"]["wer"] is not None else " (not measured: UNVERIFIED)"))
+    speeds = [f"{r['engine']} {r['status']['rtf']:.3f}" for r in others if r["status"].get("rtf") is not None]
+    if speeds:
+        rows.append("denoise real-time factor (this machine, below 1 keeps up): " + ", ".join(speeds))
+    for skip in ab["skipped"]:
+        rows.append(f"SKIP {skip['engine']}: {skip['reason']}")
+    for engine, verdict in ab["verdicts"].items():
+        state = {True: "KEEP", False: "DROP", None: "UNDECIDED"}[verdict["keep"]]
+        rows.append(f"{engine}: {state} ({verdict['why']})")
+    return rows
+
+
 # ---- report and command line ------------------------------------------------------------------------------------
 
 
@@ -575,8 +726,16 @@ def metric_rows(report: dict) -> list[str]:
     ]
 
 
-def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print, ears: Ears | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    out: Callable[[str], None] = print,
+    ears: Ears | None = None,
+    transcribe: Callable[[np.ndarray], str] | None = None,
+    denoiser_factory: Callable[[str], Any] | None = None,
+) -> int:
     """``--synthetic`` scores the fixture scenes; ``--owner [--root DIR]`` scores the owner's recordings.
+    ``--denoise-ab [engines]`` compares raw against each denoiser (``transcribe`` is the recogniser behind the gate).
     Exit 0 done, 1 usage, 2 refused (a bad set, or a root inside the repository), 3 no data (a visible SKIP)."""
     import argparse
 
@@ -587,6 +746,14 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print, e
     ap.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     ap.add_argument("--root", default=os.environ.get("FRIDAY_ROOT", ""))
     ap.add_argument("--json", action="store_true", help="print the whole report as JSON after the rows")
+    ap.add_argument(
+        "--denoise-ab",
+        nargs="?",
+        const=",".join(DENOISE_ENGINES),
+        default=None,
+        metavar="ENGINES",
+        help="compare raw against each denoiser (comma list, default all); a model not on disk is a visible SKIP",
+    )
     try:
         args = ap.parse_args(argv)
     except SystemExit:
@@ -605,6 +772,19 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print, e
                 out(f"SKIP: no owner recordings in {owner_folder(Path(args.root))} (voice-eval/ears); nothing measured")
                 return EXIT_NO_DATA
             source = f"owner recordings ({len(scenes)} clips)"
+        if args.denoise_ab is not None:
+            names = [n.strip() for n in args.denoise_ab.split(",") if n.strip()]
+            unknown = [n for n in names if n not in DENOISE_ENGINES]
+            if not names or unknown:
+                out(f"REFUSED: --denoise-ab engines are {', '.join(DENOISE_ENGINES)} (got {args.denoise_ab!r})")
+                return EXIT_USAGE
+            ab = denoise_ab(scenes, subject, names, transcribe=transcribe, denoiser_factory=denoiser_factory)
+            out(f"ears eval over {source}")
+            for row in ab_rows(ab):
+                out(row)
+            if args.json:
+                out(json.dumps(ab, ensure_ascii=False, sort_keys=True))
+            return EXIT_NO_DATA if not ab["verdicts"] else EXIT_OK
         report = evaluate(scenes, subject)
     except ValueError as exc:
         out(f"REFUSED: {exc}")

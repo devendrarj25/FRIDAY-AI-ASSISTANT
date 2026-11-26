@@ -131,6 +131,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
   it("the new optional pins are pinned and self-tested but not usable, and say why", () => {
     for (const id of [
       "denoise-dpdfnet",
+      "denoise-gtcrn",
       "speaker-wespeaker",
       "hindi-vaani-ear",
       "stream-ear-nemotron",
@@ -146,6 +147,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
     expect(Object.keys(pins.SELF_TESTS).sort()).toEqual(
       [
         "Ceva-IP/DPDFNet",
+        "TigreGotico/audiosronnx-gtcrn",
         "bjollans/whisper-large-v3-vaani-hindi-ct2",
         "nikh360pro/capsbro-hinglish-ct2",
         "onnx-community/wespeaker-voxceleb-resnet34-LM",
@@ -155,6 +157,7 @@ describe("usable means a wrapper and a self-test, never a hope", () => {
     expect(weights.EXTRA_MODELS.map((row) => row.catalogId)).toEqual(
       expect.arrayContaining([
         "denoise-dpdfnet",
+        "denoise-gtcrn",
         "speaker-wespeaker",
         "hindi-vaani-ear",
         "stream-ear-nemotron",

@@ -4302,7 +4302,13 @@ export const FLOW_REGISTRY = {
     {
       id: "denoise-dpdfnet",
       kind: "model",
-      name: "DPDFNet denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+      name: "DPDFNet 2 denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "denoise-gtcrn",
+      kind: "model",
+      name: "GTCRN denoiser (optional, off by default, MIT, tiny streaming model)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9598,8 +9604,8 @@ export const FLOW_REGISTRY = {
       total: 165,
     },
     capabilities: {
-      mapped: 1113,
-      total: 1113,
+      mapped: 1114,
+      total: 1114,
     },
     ipc: {
       mapped: 516,

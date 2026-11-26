@@ -771,7 +771,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "denoise-dpdfnet",
-    label: "DPDFNet 8 (streaming speech enhancement, 16 kHz, optional, off by default)",
+    label: "DPDFNet 2 (streaming speech enhancement, 16 kHz, optional, off by default)",
     role: "denoise",
     repo: "Ceva-IP/DPDFNet",
     pinRepo: "Ceva-IP/DPDFNet",
@@ -786,8 +786,30 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     selfTest: true,
     lat: "streaming",
     blockedBy:
-      "pinned and self-tested (opens, one frame in and out with its state), but no wrapper frames the audio into 161-bin spectra and back yet, and no setting turns it on; it stays off until a measured word error rate on noisy recordings says it helps",
-    evidence: [HF("Ceva-IP/DPDFNet", "revision dd6818d0, onnx/dpdfnet8.onnx 14542517 bytes")],
+      "pinned and self-tested (opens, one frame in and out with its state), and kernel/denoise_onnx.py runs it offline for the word-error A/B (ears_eval --denoise-ab), but no live path connects it and no setting turns it on; it stays off until a measured word error rate on noisy recordings says it helps",
+    evidence: [HF("Ceva-IP/DPDFNet", "revision dd6818d0, onnx/dpdfnet2.onnx 10178747 bytes")],
+  }),
+  row({
+    id: "denoise-gtcrn",
+    label: "GTCRN (tiny streaming speech enhancement, 16 kHz, optional, off by default)",
+    role: "denoise",
+    repo: "TigreGotico/audiosronnx-gtcrn",
+    pinRepo: "TigreGotico/audiosronnx-gtcrn",
+    languages: L("unverified", "yes", "unverified"),
+    code: "MIT (Xiaobin-Rong/gtcrn)",
+    weights: "MIT",
+    runtime: "onnxruntime",
+    torchFree: true,
+    streaming: true,
+    status: "optional-pinned",
+    wrapper: null,
+    selfTest: true,
+    lat: "streaming",
+    blockedBy:
+      "pinned and self-tested (opens, one frame in and out with its three caches), and kernel/denoise_onnx.py runs it offline for the word-error A/B (ears_eval --denoise-ab), but no live path connects it and no setting turns it on; it stays off until a measured word error rate on noisy recordings says it helps",
+    evidence: [
+      HF("TigreGotico/audiosronnx-gtcrn", "revision eeba5e96, gtcrn_simple.onnx 535638 bytes"),
+    ],
   }),
 
   /* ------------------------------------------------------------------ text to speech */
@@ -1029,9 +1051,9 @@ export const VOICE_CHAINS: Partial<Record<VoiceRole, Partial<Record<VoiceLang, s
     hinglish: ["script-ratio"],
   },
   denoise: {
-    hi: ["denoise-dpdfnet", "rnnoise"],
-    en: ["denoise-dpdfnet", "rnnoise"],
-    hinglish: ["denoise-dpdfnet", "rnnoise"],
+    hi: ["denoise-dpdfnet", "denoise-gtcrn", "rnnoise"],
+    en: ["denoise-dpdfnet", "denoise-gtcrn", "rnnoise"],
+    hinglish: ["denoise-dpdfnet", "denoise-gtcrn", "rnnoise"],
   },
   punct: { hi: ["hindi-punct"], en: ["hindi-punct"], hinglish: ["hindi-punct"] },
 };
