@@ -289,7 +289,8 @@ describe("eager guards, live: the speculative start that ships", () => {
     expect(handler).toMatch(/this\.startDraftRun\(command\)/);
     expect(handler).not.toMatch(/this\.dispatch\(/);
     const start = method(modeSource, /\n {2}private startDraftRun\([^{]*\{/);
-    expect(start).toMatch(/brain\.startDraft\(command\)/);
+    // The one call: a plain draft for the transcript path, and a local-only one when the ear's turn started it.
+    expect(start).toMatch(/brain\.startDraft\(command, viaTurn \? \{ onlyLocal: true \} : \{\}\)/);
     expect(start).not.toMatch(/this\.dispatch\(|brain\.send\(|pendingUserEcho/);
     expect(modeSource).not.toMatch(/dispatch\(command, true\)|draftEchoBase|draftRunId/);
     settle("remind me to call the bank.");
