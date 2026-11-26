@@ -408,7 +408,7 @@ Targets are hypotheses to be measured on the owner's PC, not results.
 
 ### Fast first clause and raw-sample playback (2026-11-22)
 
-Two settings, both off by default, Auto mode and the local voice only. Nothing leaves this PC; they move timing only.
+Two settings, both on by default since the speed round (unverified on a real speaker), Auto mode and the local voice only; either can be switched off in Settings. Nothing leaves this PC; they move timing only.
 
 - **`voice.fastFirstClause`** (`voice-engine/clause-chunker.ts`, used in `assistant-mode.ts` while no text has been spoken yet). The first clause is cut at a comma, semicolon, colon, dash or sentence end once it has at least 4 and at most 8 words and at least 18 characters; when no break comes within 8 words it is cut at the word limit. Every later clause is a sentence. A cut never lands inside a number (3.5, 1,000), an abbreviation (Dr., e.g.), a link, code, a quotation or a Devanagari word. Joined, the clauses read the same as the whole text.
 - **`voice.pcmPlayback`** (`voice-library.ts`, `voice-engine/pcm-clip-player.ts`). Each local-voice clause is made by `speak-pcm` and played by `PcmClipPlayer` (the gapless WebAudio scheduler) instead of the audio element. Fallback: a clause that cannot be made as samples plays as a WAV clip; the first failure of any kind turns raw playback off for the rest of the session and `pcmPlaybackNote()` shows the reason in Voice diagnostics. Cloud voices never use it.
@@ -815,6 +815,16 @@ Linux unit tests and synthetic or scratch measurements only. Nothing ran on Wind
 - **Pin landing name.** A url pin may name its landing file (`electron/model-download.cjs`, a safe `.onnx` name only), so `wake-embed.onnx` is found where the Doctor row looks.
 - **Sources.** The models and algorithms are the ones in the research record below (Silero, Smart Turn, the NeMo Hindi and Nemotron ears); only the code around them is FRIDAY's.
 
+### Review fixes, speed and int8 measurements (Linux only)
+
+- **One voice per utterance.** A clause that fails fails with reason `engine-failed`; it never switches to the package voice mid-utterance. A request without an utterance id falls back whole. The package fallback never speaks delivery tags.
+- **Reply identity.** Every `speak-pcm` reply carries `engine`, `own`, `voiceId` and `recipeVersion`, plus a `fallback` kebab token only on fallback paths. `op:'status'` of the running worker returns the live view (`live:true`, failures, `engineState`); otherwise Doctor says "cold view".
+- **Cache and warm-up.** The WAV cache key includes the recipe version and the answering engine; fallback replies are never cached. Warm-up retries up to 3 times. `sampleRate` is clamped to 8000..192000.
+- **Taint.** A spoken run that read tool, web or file output never applies delivery tags; tags are also stripped from untrusted screen text. `kernel/router.py` tool payloads still carry tags to the model; the run is tainted so they never reach the voice.
+- **Picker.** The voice picker is accessible: icon-only row previews are labelled, and previews are disabled outside Auto with a hint.
+- **Time to first sound** (Linux 4-core, box load 1.5 to 4, n=200 per setting, 40 clauses in Hindi, English, Roman Hinglish and Devanagari Hinglish; median ms for 1, 2, 3 threads): steps 3 524 / 350 / 353; steps 4 661 / 403 / 434; steps 5 766 / 470 / 517. Two threads is as fast as or faster than three on a 4-core box; the default (cores divided by 2, capped at 3) gives 2. By clause length at 4 steps and 2 threads: 3 words 289 ms, 6 words 403 ms, 12 words 1017 ms, so a short first clause is the lever.
+- **int8 dynamic quantisation** (measured, not shipped). All-ops QUInt8 loads on this onnxruntime: estimator 256 to 65 MB, step 12 to 15% faster, clause RTF 5% better, round-trip CER 0.069 fp32 against 0.074 int8. MatMul-only gives no speed-up. Verdict: not shipped, below the 25% bar; it would need an owner-hosted converted file.
+
 ### Research record (2026-11-26; pages fetched that day, vendor numbers are leads)
 
 | Source                                                                                                                                                                                                                    | Verdict                | Reason                                                                                                                                                                  |
@@ -879,7 +889,7 @@ Measured proxies of the default recipe (2026-11-26, Linux 4-core CPU only, 40-se
 | Real-time factor (synthesis time / audio) | 0.23 (a clause takes about a quarter of its own length)                    |
 | First clause, warm engine                 | 367 ms mean (the unwarmed first reply pays more; hence the warm-up op)     |
 | Hindi ear read-back CER                   | Hindi 4.9%, English 1.1%, Hinglish 6.9% (recogniser on FRIDAY's own clips) |
-| int8 graph variant                        | pending: being measured; no claim until its numbers are in                 |
+| int8 graph variant                        | Measured, not shipped: below the 25% bar (below)                           |
 
 ### Research record (2026-11-26; pages fetched that day; vendor speeds are leads, not measurements)
 
@@ -900,4 +910,5 @@ Measured proxies of the default recipe (2026-11-26, Linux 4-core CPU only, 40-se
 - Every sound-quality claim: the voice, the blend, the chain, the joins and the tags were never heard. The owner listens with `python kernel/tts_eval.py sweep --model-dir <voice model folder> --out <folder> --save-audio` (it writes each recipe's clips as `.wav` next to the report) and judges whether the default is sweet, warm and natural, and whether F2/F1/F4 weights or the chain need a change.
 - Windows, a real speaker and the packaged app: nothing ran there. RTF and first-clause time are from a Linux 4-core CPU and will differ on his PC.
 - Hindi pronunciation of Roman Hinglish words by ear; the tag effects (`[warm]`, `[sigh]`, `[laugh-soft]`) by ear; the click-free joins on a real audio device.
-- int8 graphs: not measured yet (pending).
+- Raw gapless playback and the short first clause are on by default, chosen for speed; unverified on a real speaker (a first playback failure turns raw playback off for the session and speech goes on through the file path).
+- Steps 3 versus 4 is an ear call for the owner.
