@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { installFakeWorker, settle } from "./helpers/fake-stt-worker";
 
 const require_ = createRequire(import.meta.url);
 const stt = require_("../../electron/stt.cjs") as {
@@ -18,6 +19,7 @@ const stt = require_("../../electron/stt.cjs") as {
   ) => Promise<{ size: string; done: () => void; fail: () => void; release: () => void }>;
   releaseIdle: (minIdleMs?: number, session?: unknown) => boolean;
   shutdown: (session?: unknown) => void;
+  transcribe: (req: Record<string, unknown>) => Promise<Record<string, unknown>>;
 };
 const paths = require_("../../electron/friday-paths.cjs") as {
   setRoot: (dir: string | null) => string | null;
@@ -154,17 +156,32 @@ describe("closing the worker for memory", () => {
     };
   };
 
-  it("an idle worker is closed even though its speech lease is still held, and a busy one is kept", () => {
-    vi.useFakeTimers();
+  it("an idle worker is closed even though its speech lease is still held, and a busy one is kept", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
-      const idle = fakeWorker(Date.now() - 120_000);
-      expect(stt.releaseIdle(60_000, idle.session)).toBe(true);
-      expect(idle.writes.some((line) => line.includes('"shutdown"'))).toBe(true);
-      const used = fakeWorker(Date.now() - 5_000);
-      expect(stt.releaseIdle(60_000, used.session)).toBe(false);
-      const inFlight = fakeWorker(Date.now() - 120_000, 1);
-      expect(stt.releaseIdle(60_000, inFlight.session)).toBe(false);
+      const rig = installFakeWorker(stt as never);
+      await stt.transcribe({ audioBytes: new Uint8Array(64), localOnly: true });
+      // asked a moment ago: kept
+      expect(stt.releaseIdle(60_000)).toBe(false);
+      expect(rig.killTree).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(120_000);
+      // a request in flight: kept, however long it has been quiet before it
+      rig.control.respond = (msg) =>
+        msg.op === "transcribe" ? undefined : { id: msg.id, ok: true };
+      const turn = stt.transcribe({ audioBytes: new Uint8Array(64), localOnly: true });
+      turn.catch(() => {});
+      await settle();
+      expect(stt.releaseIdle(60_000)).toBe(false);
+      expect(rig.killTree).not.toHaveBeenCalled();
+      rig.children[0]!.emitLine({ id: rig.children[0]!.seen.at(-1)!.id, ok: true, text: "x" });
+      await turn;
+      await vi.advanceTimersByTimeAsync(120_000);
+      // idle for two minutes: closed through the module, as an intentional stop
+      expect(stt.releaseIdle(60_000)).toBe(true);
+      await settle();
+      expect(rig.killTree).toHaveBeenCalledTimes(1);
     } finally {
+      (stt as unknown as { useForTests: () => void }).useForTests();
       vi.useRealTimers();
     }
   });
@@ -211,6 +228,6 @@ describe("closing the worker for memory", () => {
     expect(text).toMatch(
       /function shutdown\(session = worker\) \{[\s\S]*?speechHeld\?\.release\(\);/,
     );
-    expect(text).toMatch(/intentional: false,\s*err: "",[\s\S]*?lastUsedAt: Date\.now\(\),/);
+    expect(text).toMatch(/function makeSession\(generation\) \{[\s\S]*?lastUsedAt: Date\.now\(\),/);
   });
 });

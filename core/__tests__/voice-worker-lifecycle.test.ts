@@ -98,8 +98,12 @@ describe("voice worker lifecycle", () => {
   it("the wake worker is stopped on a timeout too", () => {
     const wake = read("electron/wake-engine.cjs");
     expect(wake).toMatch(/wake worker timed out[\s\S]{0,260}killTree\(session\.child\)/);
-    expect(read("electron/stt.cjs")).toMatch(
-      /STT worker timed out[\s\S]{0,400}killTree\(session\.child\)/,
+    // the speech worker is started and stopped by the one lifecycle owner: a missed hard deadline kills the tree
+    const stt = read("electron/stt.cjs");
+    expect(stt).toMatch(/createVoiceWorker\(\{\s*role: "stt"/);
+    expect(stt).toMatch(/hardMs,/);
+    expect(read("electron/voice-worker.cjs")).toMatch(
+      /missed its deadline[\s\S]{0,400}killTree\(target\.child\)|kill\(\s*target,\s*new VoiceWorkerError\("deadline"/,
     );
   });
 });

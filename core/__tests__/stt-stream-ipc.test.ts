@@ -22,8 +22,8 @@ function rig(
   const calls: { payload: Payload; timeoutMs: number }[] = [];
   const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
   const session = { alive: options.alive !== false, loaded: true, pending: new Map() };
-  const request = vi.fn(async (_s: unknown, payload: Payload, timeoutMs: number) => {
-    calls.push({ payload, timeoutMs });
+  const request = vi.fn(async (_s: unknown, payload: Payload, limits: { hardMs: number }) => {
+    calls.push({ payload, timeoutMs: limits.hardMs });
     const make = replies[String(payload.op)];
     if (!make) return { ok: true, op: payload.op, streamId: payload.streamId };
     return make(payload);
@@ -602,7 +602,11 @@ describe("wiring", () => {
     expect(src).toMatch(
       /function shutdown\(session = worker\) \{\s*if \(worker === session\) streamEar\.drop\(session\);\s*onMute\(true\);/,
     );
-    expect(src).toMatch(/session\.alive = false;\s*streamEar\.drop\(session\);/);
+    // a child that exits (crash, stop, deadline) ends its stream through the module's exit listener
+    expect(src).toMatch(
+      /function onWorkerExit\(info\) \{[\s\S]*?streamEar\.drop\(worker\);[\s\S]*?\n\}\n/,
+    );
+    expect(src).toMatch(/onExit: onWorkerExit,/);
     expect(src).toMatch(/session\.pending\.size > 0 \|\| streamEar\.active\(\)\) return false;/);
   });
 

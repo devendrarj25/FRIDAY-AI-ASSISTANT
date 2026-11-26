@@ -22,11 +22,14 @@ describe("Auto Mode local speech recognition contract", () => {
     expect(preload).toMatch(/voice:stt-status[\s\S]*localOnly/);
     expect(main).toMatch(/voice:stt-status[\s\S]*stt\.status[\s\S]*localOnly/);
     expect(main).toMatch(/voice:transcribe[\s\S]*stt\.transcribe/);
-    expect(stt).toContain("status(false, { localOnly: Boolean(req.localOnly) })");
+    expect(stt).toContain("status(false, { localOnly: req.localOnly !== false })");
+    expect(stt).toContain("const localOnly = options?.localOnly !== false;");
     expect(stt).toContain("Boolean(options?.warm)");
     expect(stt).toContain("ensureWorker");
     expect(stt).toContain("function shutdown");
-    expect(stt).toContain('child.stderr?.on("data"');
+    // the child's stderr is drained by the one lifecycle owner the bridge starts it through
+    expect(stt).toContain('require("./voice-worker.cjs")');
+    expect(source("electron/voice-worker.cjs")).toContain('child.stderr?.on("data"');
     expect(source("electron/wake-engine.cjs")).toContain('child.stderr?.on("data"');
     expect(assistant).toContain("sttStatus(false, true, true)");
     expect(stt).toContain("if (!value.available && !localOnly)");

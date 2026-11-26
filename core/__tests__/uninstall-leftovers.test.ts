@@ -74,7 +74,10 @@ describe("what the speech probe starts must not outlive or hold the program fold
 
   it("starts the speech worker and its helpers outside the program folder", () => {
     const stt = read("electron/stt.cjs");
+    // the one-shot runs name the temp folder; the long-lived worker starts through the module, which defaults to it
     expect(stt).toContain("cwd: os.tmpdir(),");
-    expect(stt.match(/cwd: os\.tmpdir\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(stt).toContain('require("./voice-worker.cjs")');
+    expect(stt).not.toMatch(/createVoiceWorker\(\{[\s\S]{0,900}?\bcwd:/);
+    expect(read("electron/voice-worker.cjs")).toContain("cwd: opts.cwd || os.tmpdir(),");
   });
 });

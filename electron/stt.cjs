@@ -22,7 +22,8 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
-const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
+const { trackOwned } = require("./app-lifecycle.cjs");
+const { createVoiceWorker } = require("./voice-worker.cjs");
 const paths = require("./friday-paths.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { resolvePython } = require("./python.cjs");
@@ -44,17 +45,13 @@ function whisperLanguage(raw) {
 const SCRIPT = path.join(__dirname, "..", "kernel", "stt.py");
 const MODELS = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 const DEFAULT_MODEL = "small";
-const crashTimes = [];
-const CRASH_WINDOW_MS = 60000;
-const CRASH_LIMIT = 3;
+/** The most audio one transcribe request may carry: about six minutes of 16 kHz mono 16-bit WAV (11.5 MB). */
+const MAX_TRANSCRIBE_BYTES = 12 * 1024 * 1024;
+/** The most an end-of-turn score may carry: a score reads the last moments of a turn, never a dictation. */
+const MAX_SCORE_BYTES = 4 * 1024 * 1024;
 
-function recordSttCrash(now = Date.now()) {
-  crashTimes.push(now);
-  const recent = crashTimes.filter((at) => now - at < CRASH_WINDOW_MS);
-  crashTimes.length = 0;
-  crashTimes.push(...recent);
-  return recent.length >= CRASH_LIMIT;
-}
+/** What a test replaces: the interpreter, a one-shot run, the weights, the spawn and the cloud calls. Empty in the app. */
+const hooks = {};
 
 /**
  * Cloud transcription fallback.
@@ -70,7 +67,25 @@ const CLOUD_STT = [
   { id: "groq", model: "whisper-large-v3" },
 ];
 
+/**
+ * The cloud-voice gate (consent, allowed provider, privacy mode, billing), wired by main from electron/voice-cloud.cjs.
+ * It is asked at the status check and again right before an upload. Nothing wired, a throw, or anything but
+ * `{ ok: true }` is a refusal: the cloud transcriber stays closed (fail closed).
+ */
+let cloudGate = null;
+function setCloudGate(gate) {
+  cloudGate = typeof gate === "function" ? gate : null;
+}
+function cloudAllowed(engine) {
+  try {
+    return cloudGate?.(engine.id)?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 function cloudEngine() {
+  if (hooks.cloudEngine) return hooks.cloudEngine();
   const root = paths.root();
   if (!root) return null;
   let keys = {};
@@ -91,6 +106,7 @@ function cloudEngine() {
 }
 
 async function cloudTranscribe(engine, file, language) {
+  if (hooks.cloudTranscribe) return hooks.cloudTranscribe(engine, file, language);
   const form = new FormData();
   const bytes = fs.readFileSync(file);
   form.append("file", new Blob([bytes]), path.basename(file));
@@ -202,10 +218,17 @@ function createTurnGate({
   };
 }
 const turnGate = createTurnGate();
+/**
+ * The owner's own view of the resident speech worker: what it holds (model, weights folder, load count, lease) and
+ * when it was last asked. The process itself belongs to electron/voice-worker.cjs; `alive` reads that module's cached
+ * status, so a stale handle is simply not alive and is never set back to null.
+ */
 let worker = null;
 let workerSeq = 0;
-let workerGeneration = 0;
-let lastLocalLayers = {
+/** What the next start loads: written by loadWorker, read once by the module's init. */
+let startPlan = null;
+let voiceWorker = null;
+const initialLayers = () => ({
   dependency: "missing",
   worker: "stopped",
   inference: "unverified",
@@ -215,7 +238,8 @@ let lastLocalLayers = {
   moonshineReady: false,
   windowsSpeech: false,
   cudaRuntimeReady: false,
-};
+});
+let lastLocalLayers = initialLayers();
 
 /** What the speech worker last said it holds (models, load times, idle time, unloads, memory, fallbacks). */
 let lastWorkerCache = null;
@@ -290,6 +314,7 @@ function audioDir() {
 }
 
 function run(exe, args, timeout = 120000) {
+  if (hooks.run) return hooks.run(exe, args, timeout);
   return new Promise((resolve) => {
     execFile(
       exe,
@@ -313,140 +338,162 @@ function run(exe, args, timeout = 120000) {
 }
 
 async function python() {
+  if (hooks.python) return hooks.python();
   const found = await resolvePython();
   return found ? [found.exe, found.prefix || []] : null;
 }
 
 const parse = parseJsonLine;
 
-function killTree(child) {
-  if (!child || !child.pid) return;
-  try {
-    if (process.platform === "win32") {
-      killProcessTree(child.pid);
-    } else {
-      child.kill("SIGTERM");
-    }
-  } catch {
-    /* already gone */
-  }
+/** The one lifecycle owner for the speech child. This file never spawns, buffers or kills a process itself. */
+function getVoiceWorker() {
+  if (voiceWorker) return voiceWorker;
+  voiceWorker = createVoiceWorker({
+    role: "stt",
+    script: async () => (startPlan?.py || (await python()))?.[0],
+    args: async () => {
+      const py = startPlan?.py || (await python());
+      return py ? [...py[1], scriptPath(), "--serve"] : [];
+    },
+    env: () => ({
+      FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
+      FRIDAY_STT_TIER: "auto",
+      FRIDAY_RAM_GB: String(Math.round((os.totalmem() / 1024 ** 3) * 10) / 10),
+    }),
+    idleUnloadMs: 0,
+    breaker: { max: 3, windowMs: 60_000, coolMs: 300_000 },
+    init: initWorker,
+    spawn: (command, args, options) => {
+      const child = (hooks.spawn || spawn)(command, args, options);
+      trackOwned("stt", child, command);
+      return child;
+    },
+    ...(hooks.killTree ? { killTree: hooks.killTree } : {}),
+    onExit: onWorkerExit,
+  });
+  return voiceWorker;
 }
 
-function rejectPending(session, error) {
-  for (const wait of session.pending.values()) {
-    try {
-      wait.reject(error);
-    } catch {
-      /* already settled */
-    }
-  }
-  session.pending.clear();
-}
-
-function attachWorker(child, generation) {
-  const session = {
-    child,
+/** A handle for one generation of the child: it is alive exactly while the module says that generation is up. */
+function makeSession(generation) {
+  return {
     generation,
-    alive: true,
     loaded: false,
     modelName: null,
+    modelPath: "",
     loadCount: 0,
-    buf: "",
-    pending: new Map(),
-    intentional: false,
-    err: "",
+    leasedFor: null,
+    // Set by init when the child started but cannot serve (no speech package, model did not load).
+    failure: "",
     // A worker that has not been asked anything yet is new, not idle (releaseIdle).
     lastUsedAt: Date.now(),
+    // Requests this file has in flight on that child (an idle check and a score never queue behind them).
+    pending: new Map(),
+    get alive() {
+      const view = getVoiceWorker().status();
+      return view.generation === generation && (view.state === "ready" || view.state === "busy");
+    },
   };
-  child.stderr?.on("data", (chunk) => {
-    session.err += String(chunk);
-    if (session.err.length > 4000) session.err = session.err.slice(-2000);
-  });
-  child.stdout?.on("data", (chunk) => {
-    session.buf += String(chunk);
-    const lines = session.buf.split(/\r?\n/);
-    session.buf = lines.pop() || "";
-    for (const line of lines) {
-      const text = line.trim();
-      if (!text) continue;
-      let msg;
-      try {
-        msg = JSON.parse(text);
-      } catch {
-        continue;
-      }
-      const id = msg && msg.id;
-      if (id != null && session.pending.has(id)) {
-        if (msg.stream) {
-          const wait = session.pending.get(id);
-          if (typeof wait.onStream === "function") wait.onStream(msg);
-          continue;
-        }
-        const wait = session.pending.get(id);
-        session.pending.delete(id);
-        wait.resolve(msg);
-      }
-    }
-  });
-  const fail = (why) => {
-    if (!session.alive) return;
-    session.alive = false;
-    streamEar.drop(session);
-    if (session.intentional) {
-      lastLocalLayers.worker = "stopped";
-      lastLocalLayers.inference = "unverified";
-      rejectPending(session, new Error("STT worker shutting down"));
-      if (worker && worker.generation === generation) worker = null;
-      return;
-    }
-    lastLocalLayers.worker = "crashed";
-    lastLocalLayers.inference = "failed";
-    lastLocalLayers.reason = session.err ? `${why} — ${session.err.slice(-400)}` : why;
-    cachedStatus = null;
-    rejectPending(session, new Error(why));
-    if (worker && worker.generation === generation) worker = null;
-  };
-  child.on("error", (error) => fail(String(error?.message || error)));
-  child.on("close", () => fail("STT worker exited"));
-  child.stdin?.on("error", (error) => fail(String(error?.message || error)));
-  return session;
 }
 
-function workerRequest(session, payload, timeoutMs, onStream) {
-  const id = ++workerSeq;
-  if (session) session.lastUsedAt = Date.now();
-  return new Promise((resolve, reject) => {
-    if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) {
-      reject(new Error("STT worker is not running"));
-      return;
+/**
+ * The module's ready gate: the status ping and the model load. A transport failure here (exit, deadline) throws and the
+ * module stops the child; a child that answers "no package" or "model did not load" is flagged on its handle and
+ * stopped by startWorker, so a missing package never counts as a crash.
+ */
+async function initWorker(send, info) {
+  const plan = startPlan || { wanted: DEFAULT_MODEL, modelPath: "", loadModel: false };
+  const session = makeSession(info.generation);
+  worker = session;
+  lastLocalLayers.worker = "ready";
+  const ping = await send({ op: "status" }, { hardMs: 30000 });
+  copyLadder(ping);
+  noteWorkerCache(ping);
+  if (ping?.dependency === "missing" || ping?.available === false) {
+    lastLocalLayers.dependency = "missing";
+    lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
+    if (!(lastLocalLayers.moonshineReady || lastLocalLayers.windowsSpeech) || plan.loadModel) {
+      session.failure = lastLocalLayers.reason;
     }
-    const timer = setTimeout(() => {
-      session.pending.delete(id);
-      reject(new Error("STT worker timed out"));
-      // A worker that missed its deadline is hung. Callers drop their reference and start a fresh worker, so
-      // without this the hung process stayed alive for the whole session with its model in memory, and every
-      // timeout left one more behind. The process exit then clears the rest of its pending requests.
-      killTree(session.child);
-    }, timeoutMs);
-    session.pending.set(id, {
-      onStream: typeof onStream === "function" ? onStream : null,
-      resolve: (msg) => {
-        clearTimeout(timer);
-        resolve(msg);
-      },
-      reject: (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
+    return;
+  }
+  if (!plan.loadModel) return;
+  lastLocalLayers.dependency = "ready";
+  const loaded = await guardedLoad(() =>
+    send({ op: "load", model: plan.wanted, model_path: plan.modelPath }, { hardMs: 180000 }),
+  );
+  if (!loaded?.ok) {
+    lastLocalLayers.inference = "failed";
+    lastLocalLayers.reason = loaded?.error || "STT model failed to load";
+    session.failure = lastLocalLayers.reason;
+    return;
+  }
+  session.loaded = true;
+  session.modelName = plan.wanted;
+  session.modelPath = plan.modelPath;
+  session.loadCount = loaded.loadCount || 1;
+  lastLocalLayers = {
+    dependency: "ready",
+    worker: "ready",
+    inference: "verified",
+    loadCount: session.loadCount,
+    model: plan.wanted,
+    reason: null,
+    moonshineReady: Boolean(lastLocalLayers.moonshineReady),
+    windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+    cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
+  };
+}
+
+/** Every exit of the child, on purpose or not: the stream ends, the layers say what happened. */
+function onWorkerExit(info) {
+  if (worker && worker.generation > info.generation) return; // an older child, already replaced
+  if (worker && worker.generation === info.generation) streamEar.drop(worker);
+  if (info.intentional) {
+    lastLocalLayers.worker = "stopped";
+    if (lastLocalLayers.inference !== "failed") lastLocalLayers.inference = "unverified";
+    return;
+  }
+  lastLocalLayers.worker = "crashed";
+  lastLocalLayers.inference = "failed";
+  const tail = String(info.stderrTail || "").slice(-400);
+  lastLocalLayers.reason = tail ? `STT worker exited — ${tail}` : "STT worker exited";
+  cachedStatus = null;
+}
+
+/**
+ * One request to the resident worker, through the module: `hardMs` is the deadline that kills the child, `limits` may
+ * add a soft miss (slow is not dead) and a stall count for a stream feed. Resolves with the reply envelope, ok:false
+ * included; rejects only when the transport fails (a typed VoiceWorkerError).
+ */
+async function workerRequest(session, payload, hardMs, onStream, limits = {}) {
+  if (!session?.alive) throw new Error("STT worker is not running");
+  const key = ++workerSeq;
+  session.lastUsedAt = Date.now();
+  session.pending.set(key, { op: payload?.op });
+  try {
+    return await getVoiceWorker().request(payload, {
+      hardMs,
+      ...(limits.softMs ? { softMs: limits.softMs } : {}),
+      ...(limits.stallMisses ? { stallMisses: limits.stallMisses } : {}),
+      ...(typeof onStream === "function" ? { onStream } : {}),
+      ...(typeof limits.onSlow === "function" ? { onSlow: limits.onSlow } : {}),
     });
-    try {
-      session.child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
-    } catch (error) {
-      session.pending.delete(id);
-      clearTimeout(timer);
-      reject(error);
-    }
-  });
+  } finally {
+    session.pending.delete(key);
+    session.lastUsedAt = Date.now();
+  }
+}
+
+/** Start the child (single flight in the module). A child that started but cannot serve is stopped, never left alive. */
+async function startWorker() {
+  const voice = getVoiceWorker();
+  await voice.ensure();
+  const session = worker;
+  if (session?.failure && session.generation === voice.status().generation) {
+    await voice.stop();
+    throw new Error(session.failure);
+  }
 }
 
 async function prepareWeights(model, onEvent) {
@@ -569,6 +616,7 @@ function fetchInBackground(size) {
  * size is fetched in the background. Only a PC with no speech model at all waits for a download.
  */
 async function chooseWeights(wanted, onEvent) {
+  if (hooks.weights) return hooks.weights(wanted, onEvent);
   await require("./staged-assets.cjs").whenIdle();
   const weights = require("./voice-weights.cjs");
   const root = paths.root() || "";
@@ -727,89 +775,37 @@ async function loadWorker(model, onEvent, options = {}) {
     modelPath = prepared.dir;
     if (prepared.size) wanted = prepared.size;
   }
-  if (worker?.alive) {
-    if (!loadModel) return worker;
-    if (worker.modelName && worker.modelName !== wanted) {
-      const loaded = await guardedLoad(() =>
-        workerRequest(worker, { op: "load", model: wanted, model_path: modelPath }, 180000),
-      );
-      if (!loaded?.ok) throw new Error(loaded?.error || "STT model reload failed");
-      worker.loaded = true;
-      worker.modelName = wanted;
-      worker.modelPath = modelPath;
-      worker.loadCount = loaded.loadCount || worker.loadCount;
-      lastLocalLayers = {
-        dependency: "ready",
-        worker: "ready",
-        inference: "verified",
-        loadCount: worker.loadCount,
-        model: wanted,
-        reason: null,
-        moonshineReady: Boolean(lastLocalLayers.moonshineReady),
-        windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
-        cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
-      };
-    }
-    return worker;
+  if (!worker?.alive) {
+    const py = await python();
+    if (!py) throw new Error("Python 3.12+ was not found — install it from Install Manager.");
+    startPlan = { py, wanted, modelPath, loadModel };
+    await startWorker();
   }
-  const py = await python();
-  if (!py) throw new Error("Python 3.12+ was not found — install it from Install Manager.");
-  const generation = ++workerGeneration;
-  const child = spawn(py[0], [...py[1], scriptPath(), "--serve"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-    // The worker and everything it starts (the Windows speech probe included) must not stand in the program folder.
-    cwd: os.tmpdir(),
-    env: {
-      ...process.env,
-      PYTHONUNBUFFERED: "1",
-      PYTHONIOENCODING: "utf-8",
-      FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
-      FRIDAY_STT_TIER: "auto",
-      FRIDAY_RAM_GB: String(Math.round((os.totalmem() / 1024 ** 3) * 10) / 10),
-    },
-  });
-  trackOwned("stt", child, py[0]);
-  const session = attachWorker(child, generation);
-  worker = session;
-  lastLocalLayers.worker = "ready";
-  const ping = await workerRequest(session, { op: "status" }, 30000);
-  copyLadder(ping);
-  noteWorkerCache(ping);
-  if (ping?.dependency === "missing" || ping?.available === false) {
-    lastLocalLayers.dependency = "missing";
-    lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
-    if (!(lastLocalLayers.moonshineReady || lastLocalLayers.windowsSpeech) || loadModel) {
-      throw new Error(lastLocalLayers.reason);
-    }
-    session.loaded = false;
-    return session;
-  }
+  const session = worker;
+  if (!session?.alive) throw new Error("STT worker is not running");
   if (!loadModel) return session;
-  lastLocalLayers.dependency = "ready";
-  const loaded = await guardedLoad(() =>
-    workerRequest(session, { op: "load", model: wanted, model_path: modelPath }, 180000),
-  );
-  if (!loaded?.ok) {
-    lastLocalLayers.inference = "failed";
-    lastLocalLayers.reason = loaded?.error || "STT model failed to load";
-    throw new Error(lastLocalLayers.reason);
+  // A start shared with another caller may have loaded a different size: switch it, as an alive worker always did.
+  if (session.modelName && session.modelName !== wanted) {
+    const loaded = await guardedLoad(() =>
+      workerRequest(session, { op: "load", model: wanted, model_path: modelPath }, 180000),
+    );
+    if (!loaded?.ok) throw new Error(loaded?.error || "STT model reload failed");
+    session.loaded = true;
+    session.modelName = wanted;
+    session.modelPath = modelPath;
+    session.loadCount = loaded.loadCount || session.loadCount;
+    lastLocalLayers = {
+      dependency: "ready",
+      worker: "ready",
+      inference: "verified",
+      loadCount: session.loadCount,
+      model: wanted,
+      reason: null,
+      moonshineReady: Boolean(lastLocalLayers.moonshineReady),
+      windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
+      cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
+    };
   }
-  session.loaded = true;
-  session.modelName = wanted;
-  session.modelPath = modelPath;
-  session.loadCount = loaded.loadCount || 1;
-  lastLocalLayers = {
-    dependency: "ready",
-    worker: "ready",
-    inference: "verified",
-    loadCount: session.loadCount,
-    model: wanted,
-    reason: null,
-    moonshineReady: Boolean(lastLocalLayers.moonshineReady),
-    windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
-    cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
-  };
   return session;
 }
 
@@ -822,9 +818,12 @@ const STREAM_HOTWORD_CHARS = 40;
 const STREAM_ID_CHARS = 64;
 /** A stream nobody feeds is closed (audio dropped) after this long, so the turn gate is never held for good. */
 const STREAM_IDLE_MS = 15_000;
-/** Per-call worker deadlines (ms). A deadline kills the worker (workerRequest), so they are generous. */
+/** Per-call worker limits (ms). A hard deadline kills the worker (voice-worker.cjs), so they are generous. */
 const STREAM_OPEN_MS = 25_000;
+/** A feed that has not answered in this long is a soft miss: slow, not dead. Two in a row, with no stream line between, kill it. */
 const STREAM_FEED_MS = 8_000;
+/** The most a feed may take before it is killed whatever its misses (the quick IPC budget is 30 s). */
+const STREAM_FEED_HARD_MS = 30_000;
 const STREAM_CLOSE_MS = 20_000;
 
 /** "hi", "en", "hi-en" or "": a short lowercase language tag; anything else reads as no preference. */
@@ -948,7 +947,7 @@ function createStreamEar({
         return request(
           stream.session,
           { op: "stream-close", streamId: stream.id, finalize: false },
-          STREAM_CLOSE_MS,
+          { hardMs: STREAM_CLOSE_MS },
         );
       })
       .catch(() => {});
@@ -1026,7 +1025,7 @@ function createStreamEar({
             ...(Object.keys(ears).length ? { ears } : {}),
             ...(typeof payload.endpoint === "boolean" ? { endpoint: payload.endpoint } : {}),
           },
-          STREAM_OPEN_MS,
+          { hardMs: STREAM_OPEN_MS },
         ),
       );
     } catch {
@@ -1063,10 +1062,21 @@ function createStreamEar({
     }
     let reply;
     try {
+      // A slow feed is a soft miss: the first one closes the stream politely (finalize:false, the renderer falls back to
+      // the ordinary transcribe call) and keeps the worker; a second miss in a row, with no stream line between, is a
+      // stall and the module stops the child. The no-op onStream is what puts the feed under that stall watch.
       reply = await request(
         stream.session,
         { op: "stream-feed", streamId: stream.id, pcm },
-        STREAM_FEED_MS,
+        {
+          hardMs: STREAM_FEED_HARD_MS,
+          softMs: STREAM_FEED_MS,
+          stallMisses: 2,
+          onStream: () => {},
+          onSlow: ({ misses }) => {
+            if (misses === 1 && end(stream)) discard(stream);
+          },
+        },
       );
     } catch {
       end(stream);
@@ -1103,7 +1113,7 @@ function createStreamEar({
       reply = await request(
         stream.session,
         { op: "stream-close", streamId: stream.id, finalize },
-        STREAM_CLOSE_MS,
+        { hardMs: STREAM_CLOSE_MS },
       );
     } catch {
       end(stream);
@@ -1131,7 +1141,8 @@ function createStreamEar({
 const streamEar = createStreamEar({
   gate: turnGate,
   getWorker: () => (worker?.alive ? worker : null),
-  request: (session, payload, timeoutMs) => workerRequest(session, payload, timeoutMs),
+  request: (session, payload, limits) =>
+    workerRequest(session, payload, limits.hardMs, limits.onStream, limits),
   guard: guardedLoad,
   ownerEmbedding: () => require("./voiceprint.cjs").loadOwnerEmbedding(),
 });
@@ -1196,7 +1207,8 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   }
   if (!value.available && !localOnly) {
     const engine = cloudEngine();
-    if (engine) {
+    // A connected key is not consent: the cloud-voice gate must also say yes (consent, provider, privacy, billing).
+    if (engine && cloudAllowed(engine)) {
       value = {
         ...value,
         available: true,
@@ -1213,9 +1225,37 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   return value;
 }
 
+/**
+ * What a live worker says about itself, read without ever standing in a turn's way. The module's cached status and
+ * lastLocalLayers (the model this file loaded) answer by themselves; the worker is asked for its cache rows only
+ * when it is idle (not busy, no turn at the gate, no stream open). A ping queued behind a decode used to miss its
+ * 15 s deadline and kill the healthy worker; now a missed ping proves nothing and changes nothing.
+ */
+async function refreshFromWorker() {
+  const session = worker;
+  const view = getVoiceWorker().status();
+  lastLocalLayers.worker = "ready";
+  if (view.state !== "ready" || turnGate.busy() || streamEar.active()) return;
+  try {
+    const ping = await workerRequest(session, { op: "status" }, 60000);
+    copyLadder(ping);
+    noteWorkerCache(ping);
+    lastLocalLayers.dependency =
+      ping?.dependency === "ready" || ping?.available ? "ready" : "missing";
+    lastLocalLayers.inference =
+      ping?.inference === "verified" || ping?.modelLoaded ? "verified" : "unverified";
+    lastLocalLayers.loadCount = ping?.loadCount || lastLocalLayers.loadCount;
+    lastLocalLayers.model = ping?.model || lastLocalLayers.model;
+    lastLocalLayers.reason = ping?.error || null;
+  } catch {
+    /* the module's own view above is the health check */
+  }
+}
+
 /** Can FRIDAY transcribe on this machine right now? Cached — this may spawn. */
 async function status(force = false, options = {}) {
-  const localOnly = Boolean(options?.localOnly);
+  // This PC only, unless the caller says otherwise in so many words (fail closed).
+  const localOnly = options?.localOnly !== false;
   const warm = Boolean(options?.warm);
   if (
     cachedStatus &&
@@ -1299,21 +1339,9 @@ async function status(force = false, options = {}) {
       if (lastLocalLayers.inference !== "verified") lastLocalLayers.inference = "failed";
     }
   } else if (worker?.alive) {
-    try {
-      const ping = await workerRequest(worker, { op: "status" }, 15000);
-      copyLadder(ping);
-      noteWorkerCache(ping);
-      lastLocalLayers.dependency =
-        ping?.dependency === "ready" || ping?.available ? "ready" : "missing";
-      lastLocalLayers.worker = "ready";
-      lastLocalLayers.inference =
-        ping?.inference === "verified" || ping?.modelLoaded ? "verified" : "unverified";
-      lastLocalLayers.loadCount = ping?.loadCount || lastLocalLayers.loadCount;
-      lastLocalLayers.model = ping?.model || lastLocalLayers.model;
-      lastLocalLayers.reason = ping?.error || null;
-    } catch {
-      lastLocalLayers.worker = "crashed";
-    }
+    await refreshFromWorker();
+  } else if (getVoiceWorker().status().state === "starting") {
+    // Loading: the layers are what the start leaves behind. No probe process and no ping queued behind the load.
   } else {
     const probe = await run(py[0], [...py[1], scriptPath(), "--probe"], 30000);
     const parsed = parse(probe.stdout);
@@ -1607,8 +1635,8 @@ async function runProvisional(req, run, gate = turnGate) {
 
 /**
  * Cancel a provisional decode (this utterance, or every one when the id is empty). It does not enter the gate and
- * does not wait for the decode: it marks the entry and writes one cancel line to the worker, which reads its input on
- * its own thread. The worker is never killed and the line carries no id, so nothing is left pending.
+ * does not wait for the decode: it marks the entry and sends one cancel op to the worker, which reads its input on its
+ * own thread and answers it at once. The worker is not stopped for a cancel.
  */
 function cancelTranscribe(req = {}, session = worker) {
   const key = cleanUtteranceId(req.utteranceId);
@@ -1619,13 +1647,11 @@ function cancelTranscribe(req = {}, session = worker) {
     flagged += 1;
   }
   let signalled = false;
-  if (flagged > 0 && session?.alive && session.child?.stdin && !session.child.stdin.destroyed) {
-    try {
-      session.child.stdin.write(`${JSON.stringify({ op: "cancel", utteranceId: key })}\n`);
-      signalled = true;
-    } catch {
-      /* the worker went away; the decode is flagged and its answer is dropped anyway */
-    }
+  if (flagged > 0 && session?.alive) {
+    // The kernel reads its input on its own thread and answers a cancel at once, whatever the decode is doing. The
+    // request is written before this call returns; a missing answer is dropped, the decode is flagged anyway.
+    signalled = true;
+    workerRequest(session, { op: "cancel", utteranceId: key }, 30000).catch(() => {});
   }
   return { ok: true, cancelled: flagged > 0, signalled };
 }
@@ -1647,9 +1673,11 @@ function provisionalReply(req, result) {
 
 /**
  * Transcribe one utterance.
- * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean, provisional?: boolean, utteranceId?: string }} req
+ * @param {{ audioBase64?: string, audioBytes?: Uint8Array, mime?: string, language?: string, model?: string, initialPrompt?: string, hotwords?: string, multilingual?: boolean, localOnly?: boolean, provisional?: boolean, utteranceId?: string }} req
  */
 async function transcribe(req = {}, onPartial) {
+  const refusal = refuseUnsafeAudio(req, MAX_TRANSCRIBE_BYTES);
+  if (refusal) return refusal;
   if (req.provisional === true) {
     // Only a worker that is already up and loaded reads speculatively: a cold start is never paid for a guess.
     return runProvisional(req, (r) =>
@@ -1669,9 +1697,37 @@ async function transcribe(req = {}, onPartial) {
   }
 }
 
+/** The size of the audio a request carries, from its length alone: nothing is decoded or written to find it out. */
+function audioSizeOf(req = {}) {
+  const raw = req.audioBytes;
+  if (raw && (raw.length || raw.byteLength)) return raw.byteLength ?? raw.length;
+  const text = String(req.audioBase64 || "");
+  const pad = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((text.length * 3) / 4) - pad);
+}
+
+/** Main never reads a path the renderer names, and never takes more audio than a spoken turn is worth. */
+function refuseUnsafeAudio(req, cap) {
+  if (req.path !== undefined && req.path !== null && req.path !== "") {
+    return {
+      ok: false,
+      reason: "path-not-allowed",
+      error: "Audio is sent as bytes only; a file path is not accepted.",
+    };
+  }
+  if (audioSizeOf(req) > cap) {
+    return {
+      ok: false,
+      reason: "audio-too-large",
+      error: "That audio is too long to transcribe in one piece.",
+    };
+  }
+  return null;
+}
+
 async function transcribeNow(req = {}, onPartial) {
   noteListeningPref(req);
-  const state = await status(false, { localOnly: Boolean(req.localOnly) });
+  const state = await status(false, { localOnly: req.localOnly !== false });
   const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
   if (!state.available && !ladderReady)
     return { ok: false, reason: "unavailable", error: state.reason };
@@ -1682,21 +1738,16 @@ async function transcribeNow(req = {}, onPartial) {
     return { ok: false, reason: "not-ready", ...EARLY_READ_UNSUPPORTED };
   }
 
-  let file = req.path && fs.existsSync(req.path) ? req.path : null;
-  let temporary = false;
-  if (!file) {
-    const bytes = req.audioBytes
-      ? Buffer.from(req.audioBytes)
-      : Buffer.from(String(req.audioBase64 || ""), "base64");
-    if (!bytes.length) return { ok: false, reason: "no-audio", error: "No audio was captured." };
-    const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
-    file = path.join(audioDir(), `${crypto.randomBytes(8).toString("hex")}.${ext}`);
-    try {
-      fs.writeFileSync(file, bytes);
-    } catch (error) {
-      return { ok: false, reason: "write-failed", error: String(error?.message || error) };
-    }
-    temporary = true;
+  const bytes = req.audioBytes
+    ? Buffer.from(req.audioBytes)
+    : Buffer.from(String(req.audioBase64 || ""), "base64");
+  if (!bytes.length) return { ok: false, reason: "no-audio", error: "No audio was captured." };
+  const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
+  const file = path.join(audioDir(), `${crypto.randomBytes(8).toString("hex")}.${ext}`);
+  try {
+    fs.writeFileSync(file, bytes);
+  } catch (error) {
+    return { ok: false, reason: "write-failed", error: String(error?.message || error) };
   }
 
   const started = Date.now();
@@ -1705,6 +1756,15 @@ async function transcribeNow(req = {}, onPartial) {
       const engine = cloudEngine();
       if (!engine)
         return { ok: false, reason: "unavailable", error: "the connected transcriber went away" };
+      // Asked again here: a consent or privacy mode changed since the status check still wins over the upload.
+      if (req.localOnly !== false || !cloudAllowed(engine)) {
+        return {
+          ok: false,
+          reason: "cloud-stt-not-allowed",
+          error:
+            "Cloud transcription is not allowed right now (consent, provider, privacy mode or billing).",
+        };
+      }
       return await cloudTranscribe(engine, file, req.language);
     }
     if (state.engine === "whisper.cpp") {
@@ -1800,15 +1860,17 @@ async function transcribeNow(req = {}, onPartial) {
         onPartial,
       );
     } catch (error) {
-      worker = null;
       lastLocalLayers.worker = "crashed";
       lastLocalLayers.inference = "failed";
-      if (recordSttCrash()) {
+      // A child that took no more requests (write failed) is stopped by the module, never left running unreferenced.
+      if (error?.code === "write-failed") void getVoiceWorker().stop();
+      // The module counts every crash, deadline and failed start: three in a minute open its breaker.
+      if (error?.code === "breaker-open" || getVoiceWorker().status().state === "breaker-open") {
         return {
           ok: false,
           reason: "crash-loop",
           error:
-            "The speech worker stopped after repeated crashes. Listening stays paused until you try again.",
+            "The speech worker stopped after repeated crashes. Listening stays paused for a few minutes, then tries again.",
         };
       }
       try {
@@ -1908,12 +1970,10 @@ async function transcribeNow(req = {}, onPartial) {
       ...liveReplyFields(parsed),
     };
   } finally {
-    if (temporary) {
-      try {
-        fs.rmSync(file, { force: true });
-      } catch {
-        /* the cache folder is cleaned on next boot */
-      }
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      /* the cache folder is cleaned on next boot */
     }
   }
 }
@@ -1931,13 +1991,23 @@ function turnAudioBuffer(req = {}) {
  * where a fresh interpreter with its imports took one to three on Windows and held every turn open until the cap.
  * Not while a transcription runs (the answer would only arrive after it, and a quiet turn is better closed on
  * the plain pause than held for a score). Null means no worker is up, and the one-shot process answers as before.
+ * The module's own busy view counts as well as this file's requests: a score never sits in a queue.
  */
 async function scoreInWorker(file, session = worker) {
+  // A worker that is still loading is not "no worker": the plain pause closes the turn, no one-shot process starts.
+  if (session === worker && getVoiceWorker().status().state === "starting") {
+    return { ok: true, ready: false, probability: null, reason: "busy" };
+  }
   if (!session?.alive) return null;
   // A score is a short request with its own 20 s deadline, and a request that misses its deadline kills the worker.
   // Queued behind a cold load (or a model reload) it would take the half-loaded worker down with it: only a loaded
   // worker with nothing in flight is asked, and anything else closes the turn on the plain pause.
-  if (turnGate.busy() || !session.loaded || session.pending.size > 0) {
+  if (
+    turnGate.busy() ||
+    !session.loaded ||
+    session.pending.size > 0 ||
+    getVoiceWorker().status().state === "busy"
+  ) {
     return { ok: true, ready: false, probability: null, reason: "busy" };
   }
   try {
@@ -1971,6 +2041,9 @@ function transcribeDeadlineMs(loadBudget, file) {
 }
 
 async function scoreTurn(req = {}) {
+  if (audioSizeOf(req) > MAX_SCORE_BYTES) {
+    return { ok: true, ready: false, probability: null, reason: "audio-too-large" };
+  }
   const bytes = turnAudioBuffer(req);
   if (!bytes.length) return { ok: true, ready: false, probability: null, reason: "no-audio" };
   const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
@@ -2055,25 +2128,39 @@ function shutdown(session = worker) {
   if (worker === session) streamEar.drop(session);
   onMute(true);
   if (worker === session) {
-    worker = null;
     speechHeld?.release();
     speechHeld = null;
   }
   lastLocalLayers.worker = "stopped";
   lastLocalLayers.inference = "unverified";
   cachedStatus = null;
-  if (!session?.child) return;
-  session.intentional = true;
-  try {
-    if (session.alive && session.child.stdin && !session.child.stdin.destroyed) {
-      session.child.stdin.write(`${JSON.stringify({ id: ++workerSeq, op: "shutdown" })}\n`);
-    }
-  } catch {
-    /* closing anyway */
+  // The child is stopped on purpose (not a crash): the next turn starts a new one. One that is still starting is
+  // stopped too, so a quit never leaves a half-started child behind.
+  if (session?.alive || (session === worker && getVoiceWorker().status().state === "starting")) {
+    void getVoiceWorker().stop();
   }
-  rejectPending(session, new Error("STT worker shutting down"));
-  const child = session.child;
-  setTimeout(() => killTree(child), 400);
+}
+
+/**
+ * A clean slate with the given replacements (python, run, weights, spawn, killTree, cloudEngine, cloudTranscribe),
+ * for tests only: the app never calls it. Calling it with nothing restores every default.
+ */
+function useForTests(overrides = {}) {
+  streamEar.abort();
+  const previous = voiceWorker;
+  for (const key of Object.keys(hooks)) delete hooks[key];
+  Object.assign(hooks, overrides);
+  voiceWorker = null;
+  worker = null;
+  startPlan = null;
+  cachedStatus = null;
+  cloudGate = null;
+  speechHeld = null;
+  lastLocalLayers = initialLayers();
+  lastWorkerCache = null;
+  lastHinglishEar = { ready: null, skipped: "" };
+  provisionals.clear();
+  if (previous) void previous.stop();
 }
 
 /**
@@ -2082,6 +2169,7 @@ function shutdown(session = worker) {
  */
 function releaseIdle(minIdleMs = 60_000, session = worker) {
   if (!session?.alive || session.pending.size > 0 || streamEar.active()) return false;
+  if (getVoiceWorker().status().state === "busy") return false;
   if (Date.now() - (session.lastUsedAt || 0) < minIdleMs) return false;
   shutdown(session);
   return true;
@@ -2133,6 +2221,8 @@ module.exports = {
   streamClose,
   STREAM_ENGINES,
   workerRequest,
+  setCloudGate,
+  useForTests,
   scoreInWorker,
   workerCacheOf,
   scoreTurn,
