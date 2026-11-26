@@ -214,6 +214,18 @@ describe("the model is warmed again after the speaker left memory (H11)", () => 
     expect(logLines().filter((op) => op === "warm-up")).toHaveLength(2);
   });
 
+  it("treats a speaker started cold after a restart as cold, not warm by a stale generation (G2)", async () => {
+    await neural.speakerRequest(py, { op: "speak-pcm", text: "one" }, 20000);
+    expect(neural.speakerHealth().warm).toBe(true);
+    neural.restartSpeaker();
+    // A status op starts the successor without a warm-up; its generation counts from 1 again, like the old one.
+    await neural.speakerRequest(py, { op: "pid" }, 8000);
+    expect(neural.speakerHealth().warm).toBe(false);
+    expect(read("electron/neural-voice.cjs")).toMatch(/shutdown\(\) \{[^}]*warmGeneration = -1/);
+    await neural.speakerRequest(py, { op: "speak-pcm", text: "two" }, 20000);
+    expect(neural.speakerHealth().warm).toBe(true);
+  });
+
   it("does not warm a speaker that a status or a cancel started", async () => {
     await neural.speakerRequest(py, { op: "pid" }, 8000);
     expect(logLines()).toEqual(["pid"]);

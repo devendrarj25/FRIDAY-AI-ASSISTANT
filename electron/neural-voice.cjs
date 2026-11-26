@@ -378,6 +378,8 @@ function speakerWorker(py) {
   const key = JSON.stringify([py[0], py[1]]);
   if (speaker?.key === key) return speaker.worker;
   if (speaker) speaker.worker.stop().catch(() => {});
+  // A new worker counts its generations from 1 again: the old warm value must not match its first one.
+  warmGeneration = -1;
   const worker = createVoiceWorker({
     role: "tts",
     script: py[0],
@@ -408,6 +410,7 @@ function speakerState() {
 function speakerHealth() {
   return {
     ...(speaker ? speaker.worker.status() : { role: "tts", state: "cold", pid: null }),
+    warm: speaker !== null && speaker.worker.status().generation === warmGeneration,
     ...(lastSlow ? { lastSlow } : {}),
     ...(lastFailure ? { lastFailure } : {}),
   };
@@ -422,6 +425,7 @@ function shutdown() {
   const held = speaker;
   speaker = null;
   warmedOnce = false;
+  warmGeneration = -1;
   lastFailure = null;
   lastSlow = null;
   if (held) held.worker.stop().catch(() => {});

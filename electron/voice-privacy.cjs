@@ -161,6 +161,8 @@ function setRetention({ keep, days } = {}) {
 // ----------------------------------------------------------------------------- audio caches
 /** Files FRIDAY writes into the shared temp folder: a random hex name, an audio extension (wake-engine.cjs). */
 const TEMP_CLIP = /^[0-9a-f]{16}\.(?:webm|ogg|wav)$/;
+/** The same for the bootstrap cache used before a folder is chosen: a raw clip, or a cloud reply named by its sha1. */
+const BOOT_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.mp3)$/;
 
 /** Every audio cache location with the group it is counted under. A `names` filter limits a shared folder. */
 function cacheTargets() {
@@ -171,6 +173,13 @@ function cacheTargets() {
       { group: "replies", dir: path.join(cache, "tts"), own: true },
       { group: "rawClips", dir: path.join(cache, "stt-in"), own: true },
       { group: "wakeClips", dir: path.join(cache, "wake-in"), own: true },
+    );
+  } else {
+    // No folder chosen: the speech paths write into the bootstrap cache, so their clips live there.
+    const cache = paths.dir("cache");
+    targets.push(
+      { group: "replies", dir: path.join(cache, "tts"), own: false, names: BOOT_CLIP },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), own: false, names: BOOT_CLIP },
     );
   }
   const tmp = tmpRoot();
@@ -185,7 +194,9 @@ function cacheFiles(target) {
   try {
     return fs
       .readdirSync(target.dir, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && (target.own || TEMP_CLIP.test(entry.name)))
+      .filter(
+        (entry) => entry.isFile() && (target.own || (target.names || TEMP_CLIP).test(entry.name)),
+      )
       .map((entry) => path.join(target.dir, entry.name));
   } catch {
     return [];
@@ -262,8 +273,16 @@ function leftovers() {
  * and the consent record. The answer says how much went and whether anything is left.
  */
 async function deleteAll() {
-  if (!paths.root())
-    return { ok: false, reason: "no-root", detail: "choose a FRIDAY folder first", left: [] };
+  if (!paths.root()) {
+    // Wake clips and clips of an unchosen folder sit in temp folders: they go even though nothing else can be reached.
+    return {
+      ok: false,
+      reason: "no-root",
+      detail: "choose a FRIDAY folder first",
+      cleared: clearCaches(),
+      left: [],
+    };
+  }
   const before = status();
   try {
     await enroll().forget();

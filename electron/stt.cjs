@@ -411,7 +411,7 @@ async function initWorker(send, info) {
   noteWorkerCache(ping);
   if (ping?.dependency === "missing" || ping?.available === false) {
     lastLocalLayers.dependency = "missing";
-    lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
+    lastLocalLayers.reason = scrubPaths(ping?.error || "faster-whisper is not installed yet.");
     if (!(lastLocalLayers.moonshineReady || lastLocalLayers.windowsSpeech) || plan.loadModel) {
       session.failure = lastLocalLayers.reason;
     }
@@ -424,7 +424,7 @@ async function initWorker(send, info) {
   );
   if (!loaded?.ok) {
     lastLocalLayers.inference = "failed";
-    lastLocalLayers.reason = loaded?.error || "STT model failed to load";
+    lastLocalLayers.reason = scrubPaths(loaded?.error || "STT model failed to load");
     session.failure = lastLocalLayers.reason;
     return;
   }
@@ -445,6 +445,41 @@ async function initWorker(send, info) {
   };
 }
 
+/**
+ * An error text or a status field that goes to the renderer never carries a path of this PC (the user profile name
+ * sits in it): this PC's home folder, a drive path, a Windows profile path (also with a space in the name), a network
+ * share and a POSIX home or system path each become `<path>`. The rest of the line stays, so the cause is still read.
+ */
+function scrubPaths(text) {
+  let out = String(text ?? "");
+  let home = "";
+  try {
+    home = os.homedir();
+  } catch {
+    /* no home folder: the patterns below still cover the shapes */
+  }
+  if (home && home.length > 3) {
+    for (const form of new Set([home, home.replace(/\\/g, "/"), home.replace(/\//g, "\\")])) {
+      out = out.split(form).join("<home>");
+    }
+  }
+  const tail = String.raw`(?:[\\/][^\s'"<>|)\]}]*)?`;
+  return out
+    .replace(
+      new RegExp(String.raw`(?:<home>|[A-Za-z]:[\\/]+Users[\\/]+[^\\/'"\r\n]+)${tail}`, "gi"),
+      "<path>",
+    )
+    .replace(new RegExp(String.raw`\\\\[^\s\\/'"]+${tail}`, "g"), "<path>")
+    .replace(new RegExp(String.raw`[A-Za-z]:[\\/][^\s'"<>|)\]}]*`, "g"), "<path>")
+    .replace(
+      new RegExp(
+        String.raw`(?<![\w.:])/(?:home|Users|root|tmp|var|opt|usr|etc|mnt|private)(?:/[^\s'"<>|)\]}]*)?`,
+        "g",
+      ),
+      "<path>",
+    );
+}
+
 /** Every exit of the child, on purpose or not: the stream ends, the layers say what happened. */
 function onWorkerExit(info) {
   if (worker && worker.generation > info.generation) return; // an older child, already replaced
@@ -457,7 +492,7 @@ function onWorkerExit(info) {
   lastLocalLayers.worker = "crashed";
   lastLocalLayers.inference = "failed";
   const tail = String(info.stderrTail || "").slice(-400);
-  lastLocalLayers.reason = tail ? `STT worker exited — ${tail}` : "STT worker exited";
+  lastLocalLayers.reason = tail ? `STT worker exited — ${scrubPaths(tail)}` : "STT worker exited";
   cachedStatus = null;
 }
 
@@ -596,14 +631,14 @@ function fetchInBackground(size) {
           model: size,
           status: `Speech model ${size} did not download`,
           progress: null,
-          error: String(result?.error || "").slice(0, 200),
+          error: scrubPaths(String(result?.error || "").slice(0, 200)),
         });
       }
       return result;
     })
     .catch((error) => {
       failedFetches.set(size, Date.now());
-      return { ok: false, error: String(error?.message || error) };
+      return { ok: false, error: scrubPaths(error?.message || error) };
     })
     .finally(() => backgroundFetches.delete(size));
   backgroundFetches.set(size, job);
@@ -1222,6 +1257,9 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
     }
   }
   if (py && !pythonPath) value.python = py[0];
+  // Nothing in the status that reaches the renderer names a folder of this PC.
+  if (typeof value.reason === "string") value.reason = scrubPaths(value.reason);
+  if (typeof value.python === "string") value.python = scrubPaths(value.python);
   return value;
 }
 
@@ -1246,7 +1284,7 @@ async function refreshFromWorker() {
       ping?.inference === "verified" || ping?.modelLoaded ? "verified" : "unverified";
     lastLocalLayers.loadCount = ping?.loadCount || lastLocalLayers.loadCount;
     lastLocalLayers.model = ping?.model || lastLocalLayers.model;
-    lastLocalLayers.reason = ping?.error || null;
+    lastLocalLayers.reason = ping?.error ? scrubPaths(ping.error) : null;
   } catch {
     /* the module's own view above is the health check */
   }
@@ -1332,9 +1370,9 @@ async function status(force = false, options = {}) {
       await ensureWorker(boot.model);
     } catch (error) {
       const voiceInstall = require("./voice-install.cjs");
-      lastLocalLayers.reason = voiceInstall.classifyDownloadError(
-        String(error?.message || error),
-      ).line;
+      lastLocalLayers.reason = scrubPaths(
+        voiceInstall.classifyDownloadError(String(error?.message || error)).line,
+      );
       if (lastLocalLayers.dependency !== "ready") lastLocalLayers.dependency = "missing";
       if (lastLocalLayers.inference !== "verified") lastLocalLayers.inference = "failed";
     }
@@ -1352,8 +1390,9 @@ async function status(force = false, options = {}) {
       lastLocalLayers.model = parsed.model || DEFAULT_MODEL;
     } else {
       lastLocalLayers.dependency = "missing";
-      lastLocalLayers.reason =
-        parsed?.error || (probe.stderr || "faster-whisper is not installed yet.").slice(-400);
+      lastLocalLayers.reason = scrubPaths(
+        parsed?.error || (probe.stderr || "faster-whisper is not installed yet.").slice(-400),
+      );
     }
     lastLocalLayers.worker = "stopped";
     lastLocalLayers.inference = "unverified";
@@ -1461,7 +1500,7 @@ async function install(options = {}) {
         voiceInstall.classifyInstallLog(pip.stderr) === "unknown"
           ? "no-pip"
           : voiceInstall.classifyInstallLog(pip.stderr);
-      return { ok: false, cause, error: voiceInstall.explain(cause, pip.stderr) };
+      return { ok: false, cause, error: scrubPaths(voiceInstall.explain(cause, pip.stderr)) };
     }
     // Look first: a package that is already there and in range is not installed again, and a Fix voice
     // press on a working engine no longer runs pip. The newest release is only read, never forced.
@@ -1501,14 +1540,14 @@ async function install(options = {}) {
       : { ok: true, stdout: "", stderr: "" };
     if (!result.ok) {
       const cause = voiceInstall.classifyInstallLog(`${result.stderr} ${result.stdout}`);
-      return { ok: false, cause, error: voiceInstall.explain(cause, result.stderr) };
+      return { ok: false, cause, error: scrubPaths(voiceInstall.explain(cause, result.stderr)) };
     }
     const imported = await run(py[0], [...py[1], "-c", "import faster_whisper"], 60000);
     if (!imported.ok) {
       return {
         ok: false,
         cause: "import-failed",
-        error: voiceInstall.explain("import-failed", imported.stderr),
+        error: scrubPaths(voiceInstall.explain("import-failed", imported.stderr)),
       };
     }
     cachedStatus = null;
@@ -1526,7 +1565,7 @@ async function install(options = {}) {
       : {
           ok: false,
           cause: "import-failed",
-          error: voiceInstall.explain("import-failed", now.reason),
+          error: scrubPaths(voiceInstall.explain("import-failed", now.reason)),
         };
   })().finally(() => {
     installing = null;
@@ -1747,7 +1786,7 @@ async function transcribeNow(req = {}, onPartial) {
   try {
     fs.writeFileSync(file, bytes);
   } catch (error) {
-    return { ok: false, reason: "write-failed", error: String(error?.message || error) };
+    return { ok: false, reason: "write-failed", error: scrubPaths(error?.message || error) };
   }
 
   const started = Date.now();
@@ -1818,7 +1857,7 @@ async function transcribeNow(req = {}, onPartial) {
         return {
           ok: false,
           reason: "engine-failed",
-          error: (result.stderr || "whisper.cpp returned no text").slice(-400),
+          error: scrubPaths((result.stderr || "whisper.cpp returned no text").slice(-400)),
         };
       }
       return {
@@ -1925,7 +1964,9 @@ async function transcribeNow(req = {}, onPartial) {
         return {
           ok: false,
           reason: "engine-failed",
-          error: String(retryError?.message || error?.message || retryError).slice(-500),
+          error: scrubPaths(
+            String(retryError?.message || error?.message || retryError).slice(-500),
+          ),
         };
       }
     }
@@ -1936,7 +1977,7 @@ async function transcribeNow(req = {}, onPartial) {
       return {
         ok: false,
         reason: parsed.reason || "failed",
-        error: parsed.error,
+        error: parsed.error === undefined ? parsed.error : scrubPaths(parsed.error),
         sttClass: parsed.sttClass || parsed.reason || "",
         fix: parsed.fix || "",
       };
@@ -2200,6 +2241,7 @@ function sweep(maxAgeMs = 6 * 60 * 60 * 1000) {
 module.exports = {
   status,
   cudaRuntimeVerdict,
+  scrubPaths,
   cleanStreamEars,
   transcribeDeadlineMs,
   install,
