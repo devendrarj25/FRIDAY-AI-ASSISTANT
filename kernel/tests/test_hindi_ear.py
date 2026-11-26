@@ -6,6 +6,7 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
@@ -301,3 +302,112 @@ def test_the_owners_words_reach_the_hindi_ear_reading(monkeypatch):
     assert result["text"] == "देवेंद्र को कॉल करो।"
     plain = stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi")
     assert plain["text"] == "देवेंदर को कॉल करो।"  # no words asked for: the ear's line as heard
+
+
+# ---- the CTC head: log probabilities for the chunked CTC reader ------------------------------------------------------
+
+VOCAB = {0: "<blk>", 1: " आज", 2: "मौसम", 3: " अच्छा", 4: "▁है"}  # the runtime swaps the word mark for a space
+
+
+def _fake_ctc_model(monkeypatch, frames=6, scale=1.0, preprocessed=None, vocab=None):
+    """An onnx-asr adapter whose engine has the private steps the real CTC model has."""
+    seen: dict = {}
+
+    def preprocessor(waveforms, lens):
+        seen["pre"] = (waveforms.shape, waveforms.dtype, lens.tolist())
+        return waveforms, lens
+
+    def encode(features, lens):
+        raw = np.random.default_rng(1).normal(size=(1, frames + 2, len(VOCAB))).astype(np.float32)
+        shifted = raw - raw.max(axis=-1, keepdims=True)
+        logp = shifted - np.log(np.exp(shifted).sum(axis=-1, keepdims=True))
+        return logp * scale, np.asarray([frames], dtype=np.int64)
+
+    asr = types.SimpleNamespace(
+        _vocab=dict(VOCAB if vocab is None else vocab),
+        _preprocessor=preprocessed or preprocessor,
+        _encode=encode,
+        window_step=0.01,
+        _subsampling_factor=8,
+    )
+    model = types.SimpleNamespace(asr=asr, recognize=lambda audio, sample_rate=16000: "आज")
+    monkeypatch.setitem(sys.modules, "onnx_asr", types.SimpleNamespace(load_model=lambda *a, **k: model))
+    return seen
+
+
+def _clip(seconds=1.0):
+    return np.zeros(int(16000 * seconds), dtype=np.float32)
+
+
+def test_log_probs_gives_frames_pieces_and_frame_seconds(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    seen = _fake_ctc_model(monkeypatch, frames=6)
+    got = hindi_ear.log_probs(_clip())
+    assert got is not None
+    lp, pieces, frame_s = got
+    assert lp.shape == (6, len(VOCAB)) and lp.dtype == np.float32  # cut to the real frames, not the padding
+    assert np.allclose(np.exp(lp).sum(axis=1), 1.0, atol=1e-4)
+    assert pieces == ["<blk>", "▁आज", "मौसम", "▁अच्छा", "▁है"]
+    assert frame_s == pytest.approx(0.08)
+    assert seen["pre"] == ((1, 16000), np.dtype("float32"), [16000])
+    assert hindi_ear.ctc_head() == (pieces, pytest.approx(0.08))
+
+
+@pytest.mark.parametrize("seconds", [0.05, 0.0])
+def test_log_probs_is_none_for_a_clip_too_short_to_read(monkeypatch, tmp_path, seconds):
+    _stage(tmp_path)
+    _fake_ctc_model(monkeypatch)
+    assert hindi_ear.log_probs(_clip(seconds)) is None
+
+
+def test_log_probs_is_none_without_the_files(monkeypatch):
+    _fake_ctc_model(monkeypatch)
+    assert hindi_ear.log_probs(_clip()) is None and hindi_ear.ctc_head() is None
+
+
+def test_log_probs_is_none_when_the_runtime_does_not_expose_the_head(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_onnx_asr(monkeypatch)  # text-only fake: no engine behind it
+    assert hindi_ear.log_probs(_clip()) is None and hindi_ear.ctc_head() is None
+
+
+def test_log_probs_is_none_when_the_vocabulary_has_no_blank(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_ctc_model(monkeypatch, vocab={1: " आज", 2: "मौसम"})
+    assert hindi_ear.ctc_head() is None and hindi_ear.log_probs(_clip()) is None
+
+
+def test_log_probs_refuses_logits_and_survives_a_failing_run(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_ctc_model(monkeypatch, scale=-1.0)  # all positive: these are not log probabilities
+    assert hindi_ear.log_probs(_clip()) is None
+
+    def broken(waveforms, lens):
+        raise RuntimeError("the runtime failed")
+
+    hindi_ear.unload()
+    _fake_ctc_model(monkeypatch, preprocessed=broken)
+    assert hindi_ear.log_probs(_clip()) is None
+
+
+def test_log_probs_does_not_change_the_text_readers(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_ctc_model(monkeypatch)
+    assert hindi_ear.log_probs(_clip()) is not None
+    assert hindi_ear.transcribe(_clip()) == "आज"
+    assert hindi_ear.last_confidence() is None
+
+
+def test_the_names_it_reads_exist_in_the_installed_runtime(tmp_path):
+    """Contract with the real onnx-asr CTC class (skipped where the package is not installed): the private
+    names ``_preprocessor``, ``_encode``, ``_vocab``, ``window_step``, ``_subsampling_factor`` are what this reads."""
+    nemo = pytest.importorskip("onnx_asr.models.nemo")
+    asr = nemo.NemoConformerCtc.__new__(nemo.NemoConformerCtc)
+    asr.config = {}
+    asr._vocab = {0: "<blk>", 1: "▁a".replace("▁", " ")}
+    asr._preprocessor = lambda w, n: (w, n)
+    asr._model = types.SimpleNamespace(run=lambda names, feed: [np.log(np.full((1, 5, 2), 0.5, dtype=np.float32))])
+    found = hindi_ear._ctc_engine(types.SimpleNamespace(asr=asr))
+    assert found is not None and found[1] == ["<blk>", "▁a"] and found[2] == pytest.approx(0.08)
+    head, lens = asr._encode(np.zeros((1, 80, 40), dtype=np.float32), np.asarray([40], dtype=np.int64))
+    assert head.shape == (1, 5, 2) and lens.tolist() == [5]

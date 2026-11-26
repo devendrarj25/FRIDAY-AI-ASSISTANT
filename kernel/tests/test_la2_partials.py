@@ -172,3 +172,82 @@ def test_two_heard_words_can_become_one_phrase_and_keep_the_danda():
     out = snap_hotwords(heard, ["फ्राइडे एआइ"])
     assert [w.text for w in out] == ["मुझे", "फ्राइडे", "एआइ।"]
     assert snap_hotwords(heard, ["friday ai"]) == heard  # another script is never snapped
+
+
+# ---- the seam from the Hindi ear to the chunked CTC reader -----------------------------------------------------------
+
+EAR_PIECES = ["<blk>", f"{WORD_MARK}de", f"{WORD_MARK}di", "vendra", "dra", f"{WORD_MARK}call"]
+
+
+class FakeEar:
+    """A stand-in for the ``hindi_ear`` module: ``ctc_head()`` and ``log_probs(audio)``."""
+
+    def __init__(self, lp, head=True, fail_after=None):
+        self.lp, self.head, self.fail_after, self.calls = lp, head, fail_after, 0
+
+    def ctc_head(self):
+        return (EAR_PIECES, 0.08) if self.head else None
+
+    def log_probs(self, audio):
+        self.calls += 1
+        if self.fail_after is not None and self.calls > self.fail_after:
+            return None
+        return self.lp, EAR_PIECES, 0.08
+
+
+def _ear_frames(rows):
+    probs = np.full((len(rows), len(EAR_PIECES)), 1e-4)
+    for t, row in enumerate(rows):
+        for token, p in row.items():
+            probs[t, token] = p
+    probs /= probs.sum(axis=1, keepdims=True)
+    return np.log(probs)
+
+
+def _fallback(window, prompt):
+    return [Word("fallback", 0.0, 0.1)]
+
+
+def test_the_seam_biases_the_ears_ctc_with_the_owners_words():
+    from la2_partials import with_ctc_bias
+
+    lp = _ear_frames([{5: 0.9}, {0: 0.9}, {1: 0.45, 2: 0.5}, {3: 0.45, 4: 0.5}, {0: 0.9}])
+    plain = with_ctc_bias(_fallback, [], FakeEar(lp))
+    biased = with_ctc_bias(_fallback, ["devendra"], FakeEar(lp))
+    assert [w.text for w in plain(None, "")] == ["call", "didra"]
+    assert [w.text for w in biased(None, "")] == ["call", "devendra"]
+
+
+def test_the_seam_keeps_todays_reader_when_the_ear_exposes_no_head():
+    from la2_partials import with_ctc_bias
+
+    assert with_ctc_bias(_fallback, ["devendra"], FakeEar(None, head=False)) is _fallback
+
+    class Broken:
+        def ctc_head(self):
+            raise RuntimeError("no runtime")
+
+    assert with_ctc_bias(_fallback, ["devendra"], Broken()) is _fallback
+    no_blank = FakeEar(None)
+    no_blank.ctc_head = lambda: (["a", "b"], 0.08)
+    assert with_ctc_bias(_fallback, [], no_blank) is _fallback
+
+
+def test_the_seam_falls_back_for_a_window_it_cannot_read_and_returns_after():
+    from la2_partials import with_ctc_bias
+
+    lp = _ear_frames([{5: 0.9}, {0: 0.9}])
+    read = with_ctc_bias(_fallback, ["devendra"], FakeEar(lp, fail_after=1))
+    assert [w.text for w in read(None, "")] == ["call"]
+    assert [w.text for w in read(None, "")] == ["fallback"]
+
+
+def test_the_seam_reader_drives_the_partials_like_any_other_reader():
+    from la2_partials import with_ctc_bias
+
+    lp = _ear_frames([{5: 0.9}, {0: 0.9}, {1: 0.45, 2: 0.5}, {3: 0.45, 4: 0.5}, {0: 0.9}])
+    la2 = La2Partials(with_ctc_bias(_fallback, ["devendra"], FakeEar(lp)), hop_s=0.5)
+    for _ in range(8):
+        la2.push(np.zeros(int(0.25 * RATE), dtype=np.float32))
+    assert la2.readings >= 2
+    assert la2.finalize().text.split()[:2] == ["call", "devendra"]

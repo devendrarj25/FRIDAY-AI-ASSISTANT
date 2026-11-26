@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import hindi_punct
 
@@ -218,6 +219,83 @@ def _read(model, audio):
         mean = sum(scores) / len(scores) if scores else None
         return str(getattr(heard, "text", "") or "").strip(), mean
     return str(model.recognize(audio, sample_rate=SAMPLE_RATE) or "").strip(), None
+
+
+BLANK_PIECE = "<blk>"
+WORD_MARK = "\u2581"  # the SentencePiece word-start mark; onnx-asr swaps it for a space in its vocabulary
+
+
+def _ctc_engine(model):
+    """``(asr, pieces, frame_s)`` of the CTC head behind an onnx-asr model, or None when it does not expose one.
+
+    onnx-asr keeps the engine at ``adapter.asr``. A CTC model runs ``preprocessor -> _encode`` and ``_encode`` returns
+    the per-frame log probabilities (the ``logprobs`` output of the exported graph). These are private names of the
+    package, so every one is checked; any miss means "not exposed" and the caller keeps today's text-only reading.
+    """
+    asr: Any = getattr(model, "asr", None)
+    vocab = getattr(asr, "_vocab", None)
+    steps = (getattr(asr, "_preprocessor", None), getattr(asr, "_encode", None))
+    if not isinstance(vocab, dict) or not vocab or not all(callable(step) for step in steps):
+        return None
+    try:
+        frame_s = float(asr.window_step) * float(asr._subsampling_factor)
+        pieces = [""] * (max(int(i) for i in vocab) + 1)
+        for index, token in vocab.items():
+            pieces[int(index)] = str(token).replace(" ", WORD_MARK)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if frame_s <= 0 or BLANK_PIECE not in pieces:
+        return None
+    return asr, pieces, frame_s
+
+
+def ctc_head() -> tuple[list[str], float] | None:
+    """``(pieces, frame_s)`` of the loaded ear's CTC head (piece per id, blank is ``<blk>``; seconds per frame), or
+    None: the ear is not on disk, cannot load, or its runtime does not expose the head."""
+    folder = model_dir()
+    if folder is None:
+        return None
+    try:
+        found = _ctc_engine(_load(folder))
+    except Exception:  # noqa: BLE001 — a model that will not load has no head to read
+        return None
+    return None if found is None else (found[1], found[2])
+
+
+def log_probs(samples):
+    """The ear's CTC output for 16 kHz mono float samples: ``(log_probs [T, V], pieces, frame_s)``, or None.
+
+    ``log_probs`` is the per-frame log probability (rows sum to one in probability); ``pieces[i]`` is the piece of id
+    ``i`` (a word start carries the ``\u2581`` mark, the blank is ``<blk>``); ``frame_s`` is the seconds one frame
+    covers. None when the model is not on disk, its runtime does not expose the head, the clip is too short, the
+    run fails, or the output is not log probabilities. It never raises and never changes the transcribe paths.
+    """
+    folder = model_dir()
+    if folder is None:
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if audio.size < int(SAMPLE_RATE * MIN_SECONDS):
+            return None
+        audio = audio[: SAMPLE_RATE * MAX_SECONDS]
+        found = _ctc_engine(_load(folder))
+        if found is None:
+            return None
+        asr, pieces, frame_s = found
+        features, lens = asr._preprocessor(audio[None, :], np.asarray([audio.size], dtype=np.int64))
+        head, head_lens = asr._encode(features, lens)
+        head = np.asarray(head, dtype=np.float32)
+        frames = int(np.asarray(head_lens).reshape(-1)[0])
+        rows = head[0, : max(0, min(frames, head.shape[1]))]
+        if rows.ndim != 2 or rows.shape[0] == 0 or rows.shape[1] > len(pieces) or not np.isfinite(rows).all():
+            return None
+        if float(rows.max()) > 1e-3:  # logits, not log probabilities: biasing them would be wrong
+            return None
+        return rows, pieces, frame_s
+    except Exception:  # noqa: BLE001 — any failure here means the text-only reading answers instead
+        return None
 
 
 def transcribe(samples) -> str | None:

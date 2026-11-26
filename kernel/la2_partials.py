@@ -28,6 +28,8 @@ LocalAgreement-2 partials (``La2Partials``)
 Chunked CTC (``CtcChunkReader``)
 * A reader over a CTC model: ``log_probs(window) -> (frames, vocab)``, decoded by ``ctc_decode.ctc_prefix_beam``
   with the owner's hotwords as a ``hotword_trie`` bias; words are timed from the greedy alignment.
+* ``with_ctc_bias(fallback, hotwords)`` is the one seam from ``hindi_ear.log_probs`` to that reader: the CTC reading
+  when the ear exposes its head, otherwise (or for a window it cannot read) the ``fallback`` reader unchanged.
 
 ``snap_hotwords`` is the word-level bias for an ear whose runtime gives only text: a heard word (or two or three)
 within ``min_ratio`` of an owner's word, in the same script, takes the owner's spelling.
@@ -433,3 +435,40 @@ class CtcChunkReader:
             if text:
                 out.append(Word(text, round(frame * self.frame_s, 3), round(end_frame * self.frame_s, 3)))
         return out
+
+
+def with_ctc_bias(fallback: Reader, hotwords: Sequence[str] = (), ear: Any = None, *, beam_width: int = 8) -> Reader:
+    """The one seam from the Hindi ear to the chunked CTC reader: a reader that decodes the ear's own log probabilities
+    with the owner's hotwords as a trie bias, and reads with ``fallback`` (today's reader) whenever the ear does not
+    expose its CTC head, cannot be run, or hears no log probabilities for a window. ``ear`` is a module with
+    ``ctc_head()`` and ``log_probs(audio)`` (``hindi_ear`` by default)."""
+    if ear is None:
+        import hindi_ear
+
+        ear = hindi_ear
+    try:
+        head = ear.ctc_head()
+    except Exception:  # noqa: BLE001 — no head means the fallback reads
+        head = None
+    if not head:
+        return fallback
+    pieces, frame_s = head
+    blank = pieces.index("<blk>") if "<blk>" in pieces else -1
+    if blank < 0 or frame_s <= 0:
+        return fallback
+
+    def frames(audio: Any) -> Any:
+        got = ear.log_probs(audio)
+        if not got:
+            raise LookupError("no CTC output for this window")
+        return got[0]
+
+    ctc = CtcChunkReader(frames, pieces, frame_s=frame_s, blank_id=blank, hotwords=hotwords, beam_width=beam_width)
+
+    def read(window: Any, prompt: str) -> Sequence[Any]:
+        try:
+            return ctc(window, prompt)
+        except Exception:  # noqa: BLE001 — a window the CTC path cannot read is read the way it was before
+            return fallback(window, prompt)
+
+    return read
