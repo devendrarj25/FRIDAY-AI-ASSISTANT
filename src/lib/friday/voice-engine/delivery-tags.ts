@@ -11,6 +11,7 @@
  * Tags inside code fences, inline code and URLs, or touching a digit (an index, a number), are left alone: they
  * are not delivery cues. Pure text, no regex with nested repetition.
  */
+import type { Feeling, FeelingLabel } from "../brain/affect";
 
 /** The allow-listed words. `pause` also takes `:ms`. Keep in step with the kernel parser. */
 export const DELIVERY_TAG_WORDS = [
@@ -334,4 +335,90 @@ export function maskDeliveryTags(text: string): MaskedTags {
         ? spoken.replace(pattern, (_m, ch: string) => saved[ch.charCodeAt(0) - MASK_BASE] ?? "")
         : spoken,
   };
+}
+
+/** The owner's mood mapped to one delivery tag. Mood changes how FRIDAY sounds (tag and pace), never what she says. */
+const MOOD_TAGS: Readonly<Record<FeelingLabel, DeliveryTagWord | null>> = {
+  neutral: null,
+  sarcasm: null,
+  anger: "calm",
+  anxiety: "calm",
+  overwhelm: "calm",
+  distress: "soft",
+  sadness: "soft",
+  disappointment: "soft",
+  tiredness: "soft",
+  confusion: "slow",
+  hurry: "fast",
+  excitement: "excited",
+  gratitude: "warm",
+  relief: "warm",
+};
+
+/** A reading below these floors is too weak to change the voice. */
+export const MOOD_MIN_CONFIDENCE = 0.6;
+export const MOOD_MIN_INTENSITY = 0.4;
+
+/** The same mood tag is used on at most this many replies in a row. */
+export const MOOD_TAG_MAX_RUN = 2;
+
+/** The tag for a reading of the owner's turn, or null when it is weak or neutral. Reads labels only, never text. */
+export function moodToDeliveryTag(feeling: Feeling): DeliveryTagWord | null {
+  if (!(feeling.confidence >= MOOD_MIN_CONFIDENCE) || !(feeling.intensity >= MOOD_MIN_INTENSITY)) {
+    return null;
+  }
+  return MOOD_TAGS[feeling.label] ?? null;
+}
+
+/** What the last replies carried, newest last; the caller keeps one per conversation. */
+export type MoodTagState = { recent: Array<DeliveryTagWord | null> };
+
+/** Start a fresh run tracker. */
+export function newMoodTagState(): MoodTagState {
+  return { recent: [] };
+}
+
+function firstSentenceHasTag(text: string): boolean {
+  const end = text.search(/[.!?।\n]/);
+  const head = end < 0 ? text : text.slice(0, end + 1);
+  return TAG_SHAPE_ANY.test(head);
+}
+
+const TAG_SHAPE_ANY = /\[\s*[A-Za-z][A-Za-z-]{0,15}\s*(?::\s*[^\]\s]{0,12})?\s*\](?!\()/;
+
+/**
+ * Put the mood tag at the start of the reply's first sentence. Only FRIDAY's own voice-mode text gets one; tool,
+ * web, file, user and other text is stripped of tags and nothing is added. No tag goes into a code fence or URL, a
+ * sentence that already has one, or a third reply in a row with the same tag.
+ */
+export function applyMoodTag(
+  reply: string,
+  tag: DeliveryTagWord | null,
+  origin: DeliveryOrigin,
+  state?: MoodTagState,
+): string {
+  const base = tagsForSpeech(reply, origin);
+  if (origin.author !== "assistant" || !origin.voiceMode) return base;
+  const note = (used: DeliveryTagWord | null) => {
+    if (state) state.recent = [...state.recent, used].slice(-MOOD_TAG_MAX_RUN);
+  };
+  const lead = base.length - base.trimStart().length;
+  const body = base.slice(lead);
+  const blocked =
+    !tag ||
+    !body ||
+    /^(?:```|`|https?:\/\/)/i.test(body) ||
+    firstSentenceHasTag(body) ||
+    (state?.recent.length === MOOD_TAG_MAX_RUN && state.recent.every((t) => t === tag));
+  if (blocked) {
+    note(null);
+    return base;
+  }
+  const tagged = `${base.slice(0, lead)}[${tag}] ${body}`;
+  if (keepForSpeech(tagged) !== tagged) {
+    note(null);
+    return base;
+  }
+  note(tag);
+  return tagged;
 }
