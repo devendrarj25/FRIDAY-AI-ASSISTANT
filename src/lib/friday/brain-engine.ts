@@ -95,7 +95,7 @@ import { brainError } from "./brain/errors";
 import { appendTraceStep, completeRunningStep, type TurnTraceStep } from "./brain/turn-trace";
 import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
-import { openingLine, type SocialContext } from "./conversation-style";
+import { openingLine, type SocialContext, voiceModeBlock } from "./conversation-style";
 import { recallArc } from "./conversation-arc";
 import { userProfileDigest, vocative } from "./brain/user-profile";
 import { conversationSight } from "./conversation-sight";
@@ -1800,9 +1800,13 @@ class BrainStore {
       hints,
       replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user",
     );
+    // A spoken turn also gets the voice-mode block (tone, pacing, pronunciation, variety).
+    const voiceBlock = surface === "voice" ? voiceModeBlock() : "";
     this.startRun(
       text,
-      languageLine ? { ...options, extra: mergeTurnExtra(options.extra, languageLine) } : options,
+      languageLine || voiceBlock
+        ? { ...options, extra: mergeTurnExtra(options.extra, languageLine, voiceBlock) }
+        : options,
       rawOptions.owner,
     );
     return {

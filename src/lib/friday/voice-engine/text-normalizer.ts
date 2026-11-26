@@ -9,6 +9,7 @@
  * knowledge, not heard through a voice here; the owner should listen and correct entries through the dictionary.
  */
 import { dominantLang, segment, type SpeechLang } from "./language-segmenter";
+import { keepForSpeech, maskDeliveryTags, stripDeliveryTags } from "./delivery-tags";
 import { maskInlineCode, prepareSpeechText, type SpeechPrepOptions } from "./speech-prep";
 
 const EN_ONES =
@@ -507,15 +508,20 @@ function ordinalsBySentence(text: string): string {
 /**
  * The whole preparation for one reply: markup out, dictionary words replaced, Speech Prep (English words and Roman
  * Hindi in Devanagari, see `speech-prep.ts`), then numbers spelled span by span in each span's language. Newlines
- * become sentence breaks so a list is read as separate sentences. Speech Prep runs only when asked for.
+ * become sentence breaks so a list is read as separate sentences. Speech Prep runs only when asked for. Delivery tags
+ * survive only with `prep.deliveryTags` (the assistant's own voice-mode reply); otherwise they are removed.
  */
 export function prepareForSpeech(
   text: string,
   overrides: Record<string, string> = {},
   prep?: SpeechPrepOptions,
 ): string {
-  const masked = prep?.enabled === false || !prep ? null : maskInlineCode(text);
-  const cleaned = applyPronunciations(stripMarkup(masked ? masked.text : text), overrides)
+  // Delivery tags: the assistant's own voice-mode reply keeps its allow-listed tags (hidden from every step below
+  // and put back at the end); any other text loses them so they are never read aloud or steer the voice.
+  const tags = prep?.deliveryTags ? maskDeliveryTags(keepForSpeech(text)) : null;
+  const source = tags ? tags.text : stripDeliveryTags(text);
+  const masked = prep?.enabled === false || !prep ? null : maskInlineCode(source);
+  const cleaned = applyPronunciations(stripMarkup(masked ? masked.text : source), overrides)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -528,7 +534,8 @@ export function prepareForSpeech(
     .replace(/\s+([.,!?।])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
-  return masked ? masked.restore(spoken) : spoken;
+  const restored = masked ? masked.restore(spoken) : spoken;
+  return tags ? tags.restore(restored) : restored;
 }
 
 const MAX_PRONUNCIATIONS = 100;

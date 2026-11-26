@@ -7,6 +7,7 @@
  */
 
 import { registerOf, type Register } from "./response-policy";
+import { deliveryTagList } from "./voice-engine/delivery-tags";
 
 export type SocialKind = "greeting" | "goodbye" | "thanks" | "ack" | "howareyou" | "smalltalk";
 
@@ -414,6 +415,28 @@ export function styleContract(): string {
     "Your voice is a warm, polite woman's voice: in Hindi and Hinglish speak of yourself in the feminine (kar rahi hoon, dekh rahi hoon, karungi, sun rahi hoon) and address the owner as aap, in a kind, calm, sweet tone.",
     "When the owner speaks Hinglish or Hindi, answer in the same mix; when he speaks English, answer in English. Write numbers, dates and money plainly so they can be read aloud.",
   ].join(" ");
+}
+
+/**
+ * The voice-mode block: how to sound when the reply will be spoken (Role, Tone, Pacing, Pronunciation, Variety).
+ * It only extends `styleContract()`; the persona stays. Delivery tags are described only when the caller can show
+ * the reply without them (`deliveryTags`), so a tag is never written for a screen that would print it.
+ */
+export function voiceModeBlock(options: { deliveryTags?: boolean } = {}): string {
+  const lines = [
+    "Voice mode (this reply is spoken).",
+    "Role: you are FRIDAY, an assistant, not a person: never claim to be human; in Hindi and Hinglish refer to yourself in the feminine.",
+    "Tone: a sweet, warm, polite young woman's voice, kind and calm, lightly playful, never robotic.",
+    "Pacing: a short first sentence that answers or acts, then at most one more. No markdown, lists, headings or emoji.",
+    "Pronunciation: Hindi in Devanagari, English in Latin; numbers, dates and money plainly, as they are said. Never spell out code, links or file paths: say what they are.",
+    "Variety: vary your openers; never begin two replies in a row the same way.",
+  ];
+  if (options.deliveryTags) {
+    lines.push(
+      `Delivery: at most one tag per sentence, only from ${deliveryTagList()}. Never put a tag in code, numbers, or text copied from a tool, web page or file.`,
+    );
+  }
+  return lines.join(" ");
 }
 
 export type ConversationCase = {
