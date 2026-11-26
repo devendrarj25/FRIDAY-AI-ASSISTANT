@@ -33,7 +33,6 @@ import sys
 import tempfile
 import threading
 import time
-import unicodedata
 import wave
 from collections import deque
 from pathlib import Path
@@ -61,6 +60,24 @@ from la2_partials import (  # noqa: E402
     with_ctc_bias,
 )
 from stream_commit import Word, words_from_text  # noqa: E402
+from transcript_gate import (  # noqa: E402,F401 — the text gates live there; every name stays importable from here
+    _FOREIGN_SCRIPT_NAMES,
+    _NOISE_PHRASES,
+    LIVE_NOISE_LOGPROB,
+    LIVE_NOISE_NO_SPEECH,
+    NOISE_PHRASE_LOGPROB,
+    NOISE_PHRASE_MAX_SECONDS,
+    NOISE_PHRASE_NO_SPEECH,
+    apply_no_speech_policy,
+    is_foreign_script,
+    is_invented_noise,
+    is_noise_hallucination,
+    is_repetition_loop,
+    live_segment_is_noise,
+    short_clip_decode,
+    stream_text_dropped,
+    vad_evidence,
+)
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -946,122 +963,6 @@ def load_audio_array(path: str):
     return decode_foreign(path)
 
 
-# What Whisper "hears" in room noise, a fan, a TV or silence: the sign-offs and credits of the
-# videos it was trained on. Said alone, short, and with weak evidence of speech, they are noise.
-_NOISE_PHRASES = {
-    "thank you",
-    "thanks",
-    "thanks for watching",
-    "thank you for watching",
-    "thank you so much for watching",
-    "please subscribe",
-    "like and subscribe",
-    "bye",
-    "bye bye",
-    "you",
-    "okay",
-    "ok",
-    "subtitles by the amara org community",
-    "धन्यवाद",
-    "शुक्रिया",
-    "नमस्कार दोस्तों",
-    "सब्सक्राइब करें",
-}
-NOISE_PHRASE_MAX_SECONDS = 2.5
-NOISE_PHRASE_NO_SPEECH = 0.25
-NOISE_PHRASE_LOGPROB = -0.7
-
-
-def is_noise_hallucination(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> bool:
-    """True for a stock sign-off that came out of noise rather than out of the owner.
-
-    The same words from a clear, longer recording are kept: someone may really say "thank you".
-    """
-    # Only punctuation and symbols go: a Devanagari vowel sign is not a word character to \w.
-    bare = "".join(" " if unicodedata.category(ch)[0] in "PS" else ch for ch in (text or "").lower())
-    bare = " ".join(bare.split())
-    if bare not in _NOISE_PHRASES:
-        return False
-    weak = (
-        avg_ns >= NOISE_PHRASE_NO_SPEECH
-        or (avg_logprob is not None and avg_logprob <= NOISE_PHRASE_LOGPROB)
-        or (duration_s is not None and duration_s < NOISE_PHRASE_MAX_SECONDS)
-    )
-    return weak
-
-
-# Scripts this owner does not speak. A clip heard in room noise that comes back as Japanese,
-# Korean, Thai, Arabic or Cyrillic with weak evidence is the model inventing text.
-_FOREIGN_SCRIPT_NAMES = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "THAI", "ARABIC", "CYRILLIC", "HEBREW")
-
-
-def is_foreign_script(text: str) -> bool:
-    letters = [ch for ch in (text or "") if unicodedata.category(ch)[0] == "L"]
-    if len(letters) < 3:
-        return False
-    foreign = sum(1 for ch in letters if any(name in unicodedata.name(ch, "") for name in _FOREIGN_SCRIPT_NAMES))
-    return foreign * 2 > len(letters)
-
-
-def is_repetition_loop(text: str) -> bool:
-    """The same word or phrase repeated three or more times in a row ("1.5kg 1.5kg 1.5kg")."""
-    words = (text or "").lower().split()
-    if len(words) < 3:
-        return False
-    for size in (1, 2, 3):
-        if len(words) < size * 3:
-            continue
-        for start in range(0, len(words) - size * 3 + 1):
-            chunk = words[start : start + size]
-            if words[start + size : start + size * 2] == chunk and words[start + size * 2 : start + size * 3] == chunk:
-                return True
-    return False
-
-
-def is_invented_noise(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> bool:
-    """A loop or a script the owner does not speak, said with weak evidence of speech."""
-    if not (is_repetition_loop(text) or is_foreign_script(text)):
-        return False
-    return (
-        avg_ns >= NOISE_PHRASE_NO_SPEECH
-        or (avg_logprob is not None and avg_logprob <= NOISE_PHRASE_LOGPROB)
-        or (duration_s is not None and duration_s < NOISE_PHRASE_MAX_SECONDS + 1.5)
-    )
-
-
-def apply_no_speech_policy(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> tuple[str, str, str]:
-    """Returns (text, note, drop code).
-
-    Text that Whisper produced is kept unless BOTH the average no-speech
-    probability is at the one threshold or above AND the average log-probability
-    is at the low-confidence mark or below. A stock sign-off such as "thank you" that came
-    from a short or doubtful recording is dropped as noise. Empty text is dropped with the
-    code that says why.
-    """
-    body = (text or "").strip()
-    high = avg_ns >= voice_runtime.NO_SPEECH_THRESHOLD
-    unsure = avg_logprob is not None and avg_logprob <= voice_runtime.LOW_CONFIDENCE_LOGPROB
-    if body:
-        if high and unsure:
-            return "", f"no_speech {avg_ns:.2f} and avg_logprob {avg_logprob:.2f}", "low-confidence"
-        if is_noise_hallucination(body, avg_ns, avg_logprob, duration_s):
-            return "", f"noise phrase {body!r}; no_speech {avg_ns:.2f}", "no-speech"
-        if is_invented_noise(body, avg_ns, avg_logprob, duration_s):
-            return "", f"invented text {body[:40]!r}; no_speech {avg_ns:.2f}", "no-speech"
-        if high:
-            return body, f"kept segment text; no_speech {avg_ns:.2f}", ""
-        return body, "", ""
-    if high:
-        return "", f"no_speech {avg_ns:.2f}", "no-speech"
-    return "", "", "empty"
-
-
 def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", (text or "").lower())
 
@@ -1413,25 +1314,12 @@ def _transcribe_file(
 
 LIVE_MAX_S = 30.0  # the renderer keeps its buffer to about this; a longer clip loses its oldest audio
 LIVE_MIN_S = 0.2
-LIVE_NOISE_NO_SPEECH = 0.6
-LIVE_NOISE_LOGPROB = -1.0
 LIVE_PAD_S = 0.1  # a Roman Hindi phrase is cut this much wider before the Hindi ear re-reads it
 
 
 def _live_empty(seconds: float) -> dict:
     return {"ok": True, "text": "", "words": [], "segments": [], "language": "", "languageProbability": None,
             "engine": "faster-whisper", "durationMs": int(seconds * 1000)}  # fmt: skip
-
-
-def live_segment_is_noise(text: str, no_speech, logprob) -> bool:
-    """A segment that is a loop, a stock sign-off from noise, or silence the model made words for."""
-    if is_repetition_loop(text):
-        return True
-    ns = float(no_speech) if isinstance(no_speech, (int, float)) else 0.0
-    lp = float(logprob) if isinstance(logprob, (int, float)) else None
-    if lp is not None and ns >= LIVE_NOISE_NO_SPEECH and lp <= LIVE_NOISE_LOGPROB:
-        return True
-    return is_noise_hallucination(text, ns, lp)
 
 
 def _shifted(words: list[dict], by: float) -> list[dict]:
@@ -1613,11 +1501,18 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
     avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
     duration = getattr(info, "duration", None)
-    kept, note, policy_code = apply_no_speech_policy(
-        joined, avg, avg_lp, float(duration) if isinstance(duration, (int, float)) else None
-    )
     vad = getattr(info, "duration_after_vad", None)
     vad_ms = int(float(vad) * 1000) if isinstance(vad, (int, float)) else 0
+    # The VAD that ran before the decode says how much of the clip was voice; a clip with no such figure is not gated.
+    fraction, voiced = vad_evidence(vad, duration)
+    kept, note, policy_code = apply_no_speech_policy(
+        joined,
+        avg,
+        avg_lp,
+        float(duration) if isinstance(duration, (int, float)) else None,
+        speech_fraction=fraction,
+        voiced_ms=voiced,
+    )
     return {
         "text": kept,
         "noSpeechProb": round(avg, 4),
@@ -1977,6 +1872,8 @@ def _transcribe_prepared(
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
         hint = DEFAULT_HINT
+    if samples is not None:  # a clip under 600 ms is decoded without a prompt (it would be repeated back)
+        lang, hint = short_clip_decode(len(samples) / RATE, lang, hint)
     kwargs: dict = {
         "language": lang,
         "vad_filter": True,
@@ -2576,6 +2473,8 @@ def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]
     def read(window, _prompt: str) -> list[Word]:
         heard = hindi_ear.transcribe_words(window)
         if not heard or not hindi_ear.confident("hi", heard.get("confidence")):
+            return []
+        if stream_text_dropped(heard.get("text") or "", confidence=heard.get("confidence"), language="hi"):
             return []
         touch()
         words = [Word(str(w["text"]), float(w["start"]), float(w["end"])) for w in heard["words"]]
