@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingState, ToggleRow } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
+import { SELECT_CLASS } from "@/components/friday/settings/fields";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { desktopApi } from "@/lib/friday/desktop";
 import { NEURAL_VOICE_MODEL } from "@/lib/friday/model-catalog";
@@ -22,9 +23,6 @@ import {
 } from "@/lib/friday/voice-engine/voice-choices";
 import { useModels } from "@/lib/friday/use-models";
 import { usePreferences } from "@/lib/friday/use-preferences";
-
-const SELECT =
-  "hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground";
 
 type DeviceState =
   | { phase: "loading" }
@@ -183,7 +181,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.inputDeviceId}
             onChange={(e) => pickMic(e.target.value)}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {micRows.map((row) => (
               <option key={row.value || "default"} value={row.value} className="bg-background">
@@ -203,7 +201,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.outputDeviceId}
             onChange={(e) => pickSpeaker(e.target.value)}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {speakerRows.map((row) => (
               <option key={row.value || "default"} value={row.value} className="bg-background">
@@ -234,7 +232,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.sttSize || "auto"}
             onChange={(e) => preferences.setVoice({ sttSize: sanitizeSttSize(e.target.value) })}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {stt.map((row) => (
               <option key={row.value} value={row.value} className="bg-background">
@@ -264,7 +262,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.ttsEngine}
             onChange={(e) => preferences.setVoice({ ttsEngine: sanitizeTtsEngine(e.target.value) })}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {tts.map((row) => (
               <option key={row.value} value={row.value} className="bg-background">

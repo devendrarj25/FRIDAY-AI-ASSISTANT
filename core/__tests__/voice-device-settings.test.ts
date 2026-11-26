@@ -473,7 +473,10 @@ describe("the screen: every row is wired to a real handler and a real state", ()
   });
 
   it("looks the same: only the shared panel and token classes the neighbours use", () => {
-    expect(pickers).toContain("hud-tile");
+    expect(pickers).toContain("SELECT_CLASS");
+    expect(
+      readFileSync(resolve(process.cwd(), "src/components/friday/settings/fields.tsx"), "utf8"),
+    ).toContain("hud-tile");
     expect(pickers).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgb\(|text-\[\d+px\]/);
   });
 });

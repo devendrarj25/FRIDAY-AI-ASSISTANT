@@ -315,15 +315,20 @@ describe("the page is wired", () => {
     expect(page).not.toMatch(/setInterval|setTimeout/);
     expect(page).toMatch(/ToggleRow/);
     expect(page).toMatch(/TuneRow/);
-    expect(page).toMatch(/ErrorState/);
-    expect(page).toMatch(/LoadingState/);
+    expect(page).toMatch(/PickRow/);
+    expect(page).not.toMatch(/grid-cols-\[/);
   });
 
   it("covers loading, offline, error with Retry and the empty (absent) reading", () => {
     expect(page).toContain('phase: "loading"');
     expect(page).toContain('phase: "offline"');
     expect(page).toContain('phase: "error"');
-    expect(page).toContain("onRetry={reload}");
+    expect(page).toContain('role="alert"');
+    expect(page).toContain('role="status"');
+    expect(page).toContain("onClick={reload}");
+    expect(page).toContain("No measurement source is connected yet.");
+    expect(page).toContain("Reset listening settings");
+    expect(page).toContain("disabled={isDefault}");
     expect(page).toContain("earsRows(");
   });
 });
