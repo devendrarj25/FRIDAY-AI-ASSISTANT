@@ -679,16 +679,19 @@ def admit_load(wanted: str, auto: bool) -> str:
     return "evict" if _model is not None else "load"
 
 
-def get_model(name: str, model_path: str | None = None, auto: bool = False):
+def get_model(name: str, model_path: str | None = None, auto: bool = False, compute_type: str | None = None):
     """Load WhisperModel once per worker. `local_files_only` blocks a silent download.
 
-    `auto` marks a size the tier setting picked (not the owner), which memory pressure may refuse.
+    `auto` marks a size the tier setting picked (not the owner), which memory pressure may refuse. `compute_type` is
+    the precision an optional ear wants on the GPU; the processor always keeps int8.
     """
     global _model, _model_name, _load_count, _device_name, _compute_type
     cls = _import_whisper()
     if cls is None:
         raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
     spec = model_load_kwargs(name, model_path or os.environ.get("FRIDAY_STT_MODEL_PATH"))
+    if compute_type and spec["device"] == "cuda":
+        spec["compute_type"] = compute_type
     wanted = spec["target"]
     if _model is not None and _model_name == wanted:
         touch()
@@ -1385,7 +1388,8 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
                 "durationMs": duration_ms,
             }
     alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
-    if _model is None or (alt is not None and _model_name != alt["path"]):
+    if _model is None or (alt is not None and _model_name != alt["path"]) or whisper_ears.is_trelis_path(_model_name):
+        # (The Trelis ear needs its own decoder prompt, so a live pass never decodes with it.)
         return {
             "ok": False,
             "reason": "not-ready",
@@ -1932,7 +1936,16 @@ def _transcribe_prepared(
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
-    if wants_english_stream(language, speech_pref) and samples is not None:
+    # The Trelis mixed-script ear is asked for by name and checked for files and hardware; None is the engine of today.
+    trelis, trelis_skipped = whisper_ears.trelis_verdict(extras, cuda_runtime_ready)
+
+    def retry(options: dict | None = None) -> dict:
+        return _transcribe_prepared(
+            audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
+            owner_size, model_path, hearing, original, options if options is not None else extras,
+        )  # fmt: skip
+
+    if trelis is None and wants_english_stream(language, speech_pref) and samples is not None:
         moon_dir = moonshine_model_dir()
         if moon_dir:
             moon_text = transcribe_moonshine(samples, moon_dir, on_partial)
@@ -1940,7 +1953,7 @@ def _transcribe_prepared(
                 engine = "moonshine-en"
     hindi_text = None
     ear_note = ""
-    if not moon_text and samples is not None and hindi_ear.tries_ear(language, speech_pref):
+    if trelis is None and not moon_text and samples is not None and hindi_ear.tries_ear(language, speech_pref):
         # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
         # words that mean nothing, and its own token scores say so).
@@ -2009,14 +2022,18 @@ def _transcribe_prepared(
     # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
     # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
     check_cancel()  # the ear is done and nothing was heard: do not open a model for a decode nobody wants
-    alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
+    alt = trelis or whisper_ears.choose(
+        language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref)
+    )
     model = None
     if alt is not None:
         try:
-            model = get_model(alt["id"], alt["path"])
+            model = get_model(alt["id"], alt["path"], **({"compute_type": alt["compute_type"]} if trelis else {}))
         except Exception:  # noqa: BLE001 — the generic model answers instead
             whisper_ears.mark_failed(alt["id"])
             note_fallback("ear-to-generic")
+            if trelis:
+                return retry()  # the Hinglish and Hindi ears and the generic model answer, as without the option
             alt = None
     try:
         if model is None:
@@ -2046,7 +2063,14 @@ def _transcribe_prepared(
     lang = alt["decode"] if alt is not None else resolve_language(language)
     if alt is not None:
         engine = alt["engine"]
-    hint = (initial_prompt or "").strip()
+    if trelis:
+        try:
+            model = whisper_ears.decoder_for(model, alt)
+        except Exception:  # noqa: BLE001 — an ear that cannot carry its prompt never hears
+            whisper_ears.mark_failed(trelis["id"])
+            note_fallback("ear-to-generic")
+            return retry()
+    hint = "" if trelis else (initial_prompt or "").strip()  # (the Trelis prompt has no text part)
     if lang is None and not hint:
         hint = DEFAULT_HINT
     if samples is not None:  # a clip under 600 ms is decoded without a prompt (it would be repeated back)
@@ -2073,10 +2097,7 @@ def _transcribe_prepared(
         if alt is not None:
             # The optional ear could not decode: remember it and let the engine of today hear this utterance.
             whisper_ears.mark_failed(alt["id"])
-            return _transcribe_prepared(
-                audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
-                owner_size, model_path, hearing, original, extras,
-            )  # fmt: skip
+            return retry()
         fault = classify_stt_exception(exc)
         windows_text = None
         if fault.kind in {"oom", "timeout", "dependency-incompatible"} and isinstance(audio, str):
@@ -2132,6 +2153,10 @@ def _transcribe_prepared(
 
     chosen, passes = run_hearing_ladder(first, hearing, hint, again)
     text = (chosen.get("text") or "").strip()
+    if trelis and whisper_ears.script_violation(text, speech_pref):
+        # Hindi in Roman letters breaks the script policy: the engine of today reads this utterance again.
+        note_fallback("trelis-script")
+        return retry({**(extras or {}), "hinglish_ear": ""})
     return _heard(
         {
             "ok": True,
@@ -2147,6 +2172,7 @@ def _transcribe_prepared(
             "loadCount": _load_count,
             "engine": engine,
             "turnProbability": turn_probability,
+            **whisper_ears.result_facts(alt, text, trelis_skipped),
         },
         hearing,
         chosen,
@@ -2314,6 +2340,7 @@ def status_payload() -> dict:
         "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
+        "hinglishEarTrelisReady": whisper_ears.trelis_ready(),
         "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
         **cache_status(),
@@ -2865,6 +2892,7 @@ def _handle_op(req: dict) -> dict:
                     "hotwords": req.get("hotwords"),
                     "multilingual": req.get("multilingual") is True,
                     "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
+                    **whisper_ears.request_options(req),
                 },
                 **pass_kwargs,
             )
