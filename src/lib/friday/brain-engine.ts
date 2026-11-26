@@ -1447,6 +1447,14 @@ class BrainStore {
   }
 
   /**
+   * Text the model did not write entered this spoken run (a tool result, the awareness snapshot, an attachment,
+   * screen text or recalled memory): a tag it quotes is no longer the model's own, so the run keeps no script.
+   */
+  private noteUntrusted(runId: string) {
+    if (this.voiceRuns.has(runId)) this.untrustedRuns.add(runId);
+  }
+
+  /**
    * What the model wrote for a spoken run, tags included, for the speech path only (the screen never gets it).
    * Empty for a typed run, for a run that read a tool, web, file or connector result (untrusted text must never steer
    * the voice), and for a run whose shown text was rewritten after the model wrote it.
@@ -1980,6 +1988,7 @@ class BrainStore {
       ...options,
       routingSurface: surface,
       lane: "full" as const,
+      ...(context || rawOptions.extra?.trim() ? { untrusted: true } : {}),
       ...carry,
     };
     this.startRun(
@@ -2116,6 +2125,8 @@ class BrainStore {
       routingSurface?: "voice" | "chat";
       lane?: "quick" | "full";
       turnId?: string;
+      /** The turn carries text the model did not write (awareness snapshot, attachment): no delivery tags. */
+      untrusted?: boolean;
     } = {},
     owner?: RunOwner,
   ) {
@@ -2184,6 +2195,7 @@ class BrainStore {
     const run = this.newRun(text, surface, { rule, score, matched }, multi, owner);
     if (options.turnId) run.turnId = options.turnId;
     if (options.lane) run.lane = options.lane;
+    if (options.untrusted || sight.text) this.noteUntrusted(run.id);
     const runId = run.id;
     this.recordDoneTurn(
       run,
@@ -2388,6 +2400,7 @@ class BrainStore {
       applyDesktopPhase(run, "wait", "waiting for selected model");
       const memoryStage = run.stages.find((stage) => stage.id === "memory");
       run.recalled = this.recall(run.prompt);
+      if (run.recalled.length) this.noteUntrusted(run.id);
       if (memoryStage) {
         memoryStage.detail = `${run.recalled.length} local context records selected`;
       }
@@ -2665,7 +2678,7 @@ class BrainStore {
     try {
       reply = (
         await askFriday(text, {
-          system: quickSystem(meta.context, this.quickVoiceParts(meta, surface)),
+          system: quickSystem(meta.context, this.quickVoiceParts(meta, surface), text),
           timeoutMs: 45_000,
           ephemeral: true,
         })

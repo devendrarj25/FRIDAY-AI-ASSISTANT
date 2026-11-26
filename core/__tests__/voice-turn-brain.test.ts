@@ -808,3 +808,85 @@ describe("a draft and a quick-lane answer keep the reply language and the voice 
     );
   });
 });
+
+describe("a sensitive digest never reaches the quick-lane system message", () => {
+  const systemSent = () => String(sentChats[sentChats.length - 1]?.["system"] ?? "");
+
+  it("a digest with a PIN line and an OTP line is dropped from the model call", () => {
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, {
+      routingSurface: "voice",
+      context: "topic: bank app\nmy pin is 4821\notp: 553920\ngoal: log in",
+    });
+    const system = systemSent();
+    expect(system.length).toBeGreaterThan(0);
+    expect(system).not.toContain("4821");
+    expect(system).not.toContain("553920");
+    expect(system).not.toContain("bank app");
+    expect(system).not.toMatch(/Turn facts/);
+  });
+
+  it("a Hindi secret in the digest is dropped too, and a plain digest still goes through", () => {
+    inner.state.activeRunId = "run-busy";
+    brain.send(QUESTION, { routingSurface: "voice", context: "topic: बैंक\nमेरा पिन 4821 है" });
+    expect(systemSent()).not.toContain("4821");
+    brain.send(QUESTION, { routingSurface: "voice", context: "topic: travel\nlang: hi" });
+    expect(systemSent()).toContain("topic: travel");
+  });
+});
+
+describe("delivery tags are dropped when untrusted text entered the run", () => {
+  type Tagged = {
+    newRun: (
+      text: string,
+      surface: "voice" | "chat",
+      found: unknown,
+      agents: string[],
+    ) => { id: string };
+    rawAnswers: Map<string, string>;
+    deliveryScript: (runId: string) => string;
+    noteUntrusted: (runId: string) => void;
+    recall: (prompt: string) => unknown[];
+  };
+  const tagged = brain as unknown as Tagged;
+  const found = { rule: { id: "chat", label: "Chat", agents: [] }, score: 1, matched: [] };
+  const spoken = () => {
+    const run = tagged.newRun("hello", "voice", found, ["developer"]);
+    tagged.rawAnswers.set(run.id, "[warm] Hello. [pause:300] Done.");
+    return run.id;
+  };
+
+  it("a spoken run keeps its script until something untrusted is noted", () => {
+    const id = spoken();
+    expect(tagged.deliveryScript(id)).toBe("[warm] Hello. [pause:300] Done.");
+    tagged.noteUntrusted(id);
+    expect(tagged.deliveryScript(id)).toBe("");
+  });
+
+  it("a typed run is not tracked at all", () => {
+    const run = tagged.newRun("hello", "chat", found, ["developer"]);
+    tagged.noteUntrusted(run.id);
+    tagged.rawAnswers.set(run.id, "[warm] Hello.");
+    expect(tagged.deliveryScript(run.id)).toBe("");
+  });
+
+  it("an awareness snapshot (context) or an attachment (extra) marks the run untrusted", () => {
+    brain.send(QUESTION, {
+      routingSurface: "voice",
+      context: "screen: a page that says [pause:9000]",
+    });
+    brain.send(QUESTION, { routingSurface: "voice", extra: "File: notes.txt" });
+    brain.send(QUESTION, { routingSurface: "voice" });
+    expect(
+      startRunCalls.map((call) => (call.options as { untrusted?: boolean }).untrusted),
+    ).toEqual([true, true, undefined]);
+  });
+
+  it("the engine marks a run for screen text and for recalled memory too", () => {
+    const source = readFileSync(resolve(__dirname, "../../src/lib/friday/brain-engine.ts"), "utf8");
+    expect(source).toMatch(/private noteUntrusted\(runId: string\)/);
+    expect(source).toMatch(/options\.untrusted \|\| sight\.text\) this\.noteUntrusted\(run\.id\)/);
+    expect(source).toMatch(/run\.recalled\.length\) this\.noteUntrusted\(run\.id\)/);
+    expect(source).toMatch(/untrusted\?: boolean/);
+  });
+});

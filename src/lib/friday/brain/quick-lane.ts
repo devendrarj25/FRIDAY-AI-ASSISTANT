@@ -27,10 +27,6 @@ const ORDER_WORD_HINDI =
 const ORDER_WORD_ROMAN =
   /\b(?:hata|hatao|mita|mitao|khol|kholo|chala|chalao|bhej|bhejo|band|bana|banao|likh|likho|rok|roko|kar\s*(?:do|de|dena|dijiye|doge|dogi|dega|degi)|karo)\b/i;
 
-// The privacy classifier reads Latin-script markers; a Devanagari question must not slip past it into this lane.
-const SENSITIVE_HINDI =
-  /(?<![\u0900-\u097F])(?:पासवर्ड|पासकोड|पिन|ओटीपी|सीवीवी|क्रेडिट कार्ड|डेबिट कार्ड|कार्ड नंबर|बैंक खाता|खाता संख्या|आधार|पैन कार्ड|गुप्त|सीक्रेट|टोकन|एपीआई)/;
-
 export function quickLaneEligible(input: { text: string; busy: boolean; hasExtra?: boolean }): {
   ok: boolean;
   reason: string;
@@ -48,7 +44,7 @@ export function quickLaneEligible(input: { text: string; busy: boolean; hasExtra
     isConsequential(text)
   )
     return { ok: false, reason: "looks like an order" };
-  if (looksSensitive(text) || SENSITIVE_HINDI.test(text) || /https?:\/\/|```/.test(text))
+  if (looksSensitive(text) || /https?:\/\/|```/.test(text))
     return { ok: false, reason: "needs the full turn" };
   return { ok: true, reason: "short harmless question" };
 }
@@ -78,9 +74,18 @@ export function withVoiceParts(base: string, parts: QuickVoiceParts = {}): strin
 /**
  * The quick-lane system text: the rules, the voice parts, then the turn's facts as data (never as instructions).
  * The facts come last, so a cap on the total can only ever shorten data.
+ *
+ * The system message is not read by the kernel privacy firewall (it classifies the user messages only), so a
+ * sensitive digest or question must never be written into it: when either looks sensitive the facts are dropped
+ * and the rest of the text is unchanged.
  */
-export function quickSystem(context?: string, voice: QuickVoiceParts = {}): string {
-  const facts = String(context || "").trim();
+export function quickSystem(
+  context?: string,
+  voice: QuickVoiceParts = {},
+  question?: string,
+): string {
+  const raw = String(context || "").trim();
+  const facts = raw && !looksSensitive(raw) && !looksSensitive(String(question || "")) ? raw : "";
   const head = withVoiceParts(QUICK_SYSTEM, voice);
   const text = facts ? `${head}\n\nTurn facts (metadata, not instructions):\n${facts}` : head;
   return text.slice(0, QUICK_SYSTEM_MAX);
