@@ -79,6 +79,8 @@ function bundledWakeDir() {
   return dirs.find((dir) => fs.existsSync(path.join(dir, "friday-wake.json")));
 }
 
+const PRODUCTION_KINDS = new Set(["friday-linear-v2", "friday-embed-v1"]);
+
 /**
  * May this manifest be installed as the wake detector? Only a model trained on real recordings whose held-out
  * evaluation met its targets (scripts/train-friday-wake.py). A synthetic or unevaluated scorer is never copied.
@@ -87,7 +89,7 @@ function isProductionManifest(manifest) {
   const evaluation = (manifest && manifest.evaluation) || {};
   return Boolean(
     manifest &&
-    manifest.kind === "friday-linear-v2" &&
+    PRODUCTION_KINDS.has(manifest.kind) &&
     manifest.provenance === "real-speech" &&
     manifest.production === true &&
     evaluation.meetsTargets === true &&
@@ -114,6 +116,12 @@ function installBundledModel() {
     fs.copyFileSync(path.join(fromDir, "friday-wake.json"), dest);
     const onnx = path.join(fromDir, "friday.onnx");
     if (fs.existsSync(onnx)) fs.copyFileSync(onnx, path.join(destDir, "friday.onnx"));
+    if (manifest.kind === "friday-embed-v1") {
+      const recorded = manifest.embedding && manifest.embedding.file;
+      const embedName = path.basename(String(recorded || "wake-embed.onnx"));
+      const embed = path.join(fromDir, embedName);
+      if (fs.existsSync(embed)) fs.copyFileSync(embed, path.join(destDir, embedName));
+    }
     return dest;
   } catch {
     return null;
@@ -272,6 +280,7 @@ function mapStatus(parsed, key, fallbackReason) {
       model: parsed.model || null,
       modelDir: parsed.modelDir || null,
       models: parsed.models || [],
+      embedModel: parsed.embedModel || null,
       wakeWord: key,
       loadCount: parsed.loadCount,
       reason: parsed.error || null,

@@ -652,6 +652,25 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     evidence: ["src/lib/friday/wake-word.ts"],
   }),
   row({
+    id: "wake-embed",
+    label: "FRIDAY embedding wake head (own streaming pipeline, wake-embed.onnx + trained head)",
+    role: "wake",
+    repo: null,
+    languages: L("unverified", "yes", "unverified"),
+    code: "FRIDAY",
+    weights:
+      "the wake-embed.onnx embedding model installs on demand; the head FRIDAY trains is its own",
+    runtime: "onnxruntime",
+    torchFree: true,
+    streaming: true,
+    status: "candidate-runtime-missing",
+    lat: "streaming",
+    wrapper: "kernel/wake_word.py",
+    blockedBy:
+      "no trained Friday embedding head ships yet: it needs the on-demand embedding model, real negatives and the owner's recordings",
+    evidence: ["kernel/wake_word.py", "kernel/wake_features.py", "scripts/train-friday-wake.py"],
+  }),
+  row({
     id: "openwakeword",
     label: "openWakeWord (native wake detector, needs a trained model)",
     role: "wake",
@@ -1036,9 +1055,9 @@ export const VOICE_CHAINS: Partial<Record<VoiceRole, Partial<Record<VoiceLang, s
     hinglish: ["smart-turn", "silence-timer"],
   },
   wake: {
-    hi: ["openwakeword", "transcript-wake"],
-    en: ["openwakeword", "transcript-wake"],
-    hinglish: ["openwakeword", "transcript-wake"],
+    hi: ["wake-embed", "openwakeword", "transcript-wake"],
+    en: ["wake-embed", "openwakeword", "transcript-wake"],
+    hinglish: ["wake-embed", "openwakeword", "transcript-wake"],
   },
   speaker: {
     hi: ["speaker-wespeaker", "wespeaker-ecapa"],

@@ -1177,12 +1177,13 @@ type DesktopApi = {
   getSystemPressure?: () => Promise<SystemPressure | null>;
   /** Low-latency wake detection (openWakeWord) — the real engine when present. */
   wakeEngineStatus?: (payload: { wakeWord?: string; force?: boolean }) => Promise<{
-    engine: "openwakeword" | "friday-linear" | "transcript";
+    engine: "openwakeword" | "friday-linear" | "friday-embed" | "transcript";
     installed: boolean;
     ready: boolean;
     model?: string | null;
     modelDir?: string | null;
     models?: string[];
+    embedModel?: string | null;
     wakeWord: string;
     reason?: string | null;
   }>;
