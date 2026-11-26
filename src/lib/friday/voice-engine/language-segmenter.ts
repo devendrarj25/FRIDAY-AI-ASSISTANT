@@ -8,6 +8,8 @@
  * chunks: never one chunk per word, the first chunk may end at a clause break so audio starts early.
  */
 
+import { labelLanguages, lexiconKey } from "./hinglish-lexicon";
+
 export type SpeechLang = "hi" | "en";
 export type Script = "devanagari" | "latin" | "neutral";
 export type Span = { text: string; lang: SpeechLang; script: Script };
@@ -345,4 +347,162 @@ export function scriptPolicy(text: string, requested = ""): ScriptPolicy {
     ),
     segments,
   };
+}
+
+// ---- Codemix spans -----------------------------------------------------------------------------------------------
+// One finer cut than `segment` above: script first, then the Hinglish lexicon for Roman words, and numbers and
+// punctuation as spans of their own, so the speech front end can treat each run (Devanagari path, English path,
+// Roman Hindi, number expansion) on its own. The spans rejoin to the input minus zero-width characters.
+
+export type CodemixScript = "deva" | "latn" | "digits" | "punct";
+export type CodemixLang = "hi" | "en" | "num" | "other";
+export type CodemixSpan = {
+  text: string;
+  script: CodemixScript;
+  lang: CodemixLang;
+  /** Hindi written in Latin letters: a Roman word the lexicon (or the grammar list below) knows as Hindi. */
+  romanisedHindi: boolean;
+};
+
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
+const TOKEN = /(\p{Nd}+(?:[.,:]\p{Nd}+)*)|([\p{L}\p{M}]+(?:['\u2019][\p{L}\p{M}]+)*)|(\s+)|(.)/gsu;
+const IN_DEVANAGARI = /[\u0900-\u097F]/;
+const IN_LATIN = /\p{Script=Latin}/u;
+const IS_MARK = /\p{M}/u;
+
+/**
+ * Roman Hindi grammar words the Hinglish lexicon does not list (it holds the unambiguous vocabulary). They are Hindi
+ * only; a word English shares ("do", "main") stays out. When the lexicon resolves an ambiguous word it sees these as
+ * sure Hindi neighbours.
+ */
+const ROMAN_HINDI_GRAMMAR = new Set(
+  (
+    "ek teen char paanch baat kar kare karen karein karni karne karta karti karte kholni kholna kholne hota hoti hote hoga hogi " +
+    "wala wali vala vali liye lie kuchh kyaa chahta chahti sakta sakti sakte milega milegi dena dedo diya " +
+    "lena lo le liya"
+  ).split(" "),
+);
+
+/** The text without zero-width characters (ZWSP, ZWNJ, ZWJ, word joiner, byte-order mark). */
+export function stripZeroWidth(text: string): string {
+  return String(text ?? "").replace(ZERO_WIDTH, "");
+}
+
+type Piece =
+  | { kind: "word"; text: string; script: "deva" | "latn" | "other" }
+  | { kind: "num"; text: string }
+  | { kind: "neutral"; text: string; visible: boolean };
+
+function wordPieces(word: string): Piece[] {
+  const out: Piece[] = [];
+  let cls: "deva" | "latn" | "other" = "other";
+  let run = "";
+  for (const ch of word) {
+    const next: "deva" | "latn" | "other" = IN_DEVANAGARI.test(ch)
+      ? "deva"
+      : IN_LATIN.test(ch)
+        ? "latn"
+        : (IS_MARK.test(ch) || ch === "'" || ch === "\u2019") && run
+          ? cls
+          : "other";
+    if (run && next !== cls) {
+      out.push({ kind: "word", text: run, script: cls });
+      run = "";
+    }
+    cls = next;
+    run += ch;
+  }
+  if (run) out.push({ kind: "word", text: run, script: cls });
+  return out;
+}
+
+function pieces(text: string): Piece[] {
+  const out: Piece[] = [];
+  for (const m of text.matchAll(TOKEN)) {
+    if (m[1] !== undefined) out.push({ kind: "num", text: m[1] });
+    else if (m[2] !== undefined) out.push(...wordPieces(m[2]));
+    else if (m[3] !== undefined) out.push({ kind: "neutral", text: m[3], visible: false });
+    else out.push({ kind: "neutral", text: m[4] ?? "", visible: true });
+  }
+  return out;
+}
+
+const grammarKey = (word: string): string => lexiconKey(word).replace(/['\u2019].*$/, "");
+
+/** Hindi or English for each Devanagari or Latin word, in order; Devanagari is Hindi, a Roman word by the lexicon. */
+function wordLangs(words: readonly Piece[]): Array<{ lang: "hi" | "en"; roman: boolean }> {
+  const grammar = words.map(
+    (w) => w.kind === "word" && w.script === "latn" && ROMAN_HINDI_GRAMMAR.has(grammarKey(w.text)),
+  );
+  // A grammar word counts as sure Hindi when the lexicon decides an ambiguous word beside it.
+  const cores = words.map((w, i) => (grammar[i] ? "kya" : w.text));
+  const labels = labelLanguages(cores);
+  return words.map((w, i) => {
+    if (w.kind === "word" && w.script === "deva") return { lang: "hi", roman: false };
+    const hindi = grammar[i] || labels[i] === "hi";
+    return { lang: hindi ? "hi" : "en", roman: hindi };
+  });
+}
+
+/**
+ * Cut a Hinglish string into maximal same-language spans. A Devanagari word is Hindi; a Latin word is Hindi only when
+ * the lexicon says so (`romanisedHindi`), otherwise English; digit runs (`10:30`, `3.5`, `1,000`, Devanagari digits)
+ * are number spans; a letter of another script is `other`. Whitespace and punctuation join the span they sit in, hang
+ * on the span before a change of language, or form a `punct` span of their own at the very start or in a text with
+ * no words. Empty and whitespace-only text give no spans. Pure; the spans rejoin to the input minus zero-width marks.
+ */
+export function segmentCodemix(text: string): CodemixSpan[] {
+  const clean = stripZeroWidth(text);
+  if (!clean.trim()) return [];
+  const all = pieces(clean);
+  const wordsOnly = all.filter((p) => p.kind === "word" && p.script !== "other");
+  const langs = wordLangs(wordsOnly);
+  const spans: CodemixSpan[] = [];
+  let pending = "";
+  let wordAt = 0;
+  for (const p of all) {
+    if (p.kind === "neutral") {
+      pending += p.text;
+      continue;
+    }
+    let next: CodemixSpan;
+    if (p.kind === "num") {
+      next = { text: p.text, script: "digits", lang: "num", romanisedHindi: false };
+    } else if (p.script === "other") {
+      next = { text: p.text, script: "punct", lang: "other", romanisedHindi: false };
+    } else {
+      const l = langs[wordAt++]!;
+      next = {
+        text: p.text,
+        script: p.script,
+        lang: l.lang,
+        romanisedHindi: l.roman,
+      };
+    }
+    const last = spans[spans.length - 1];
+    if (
+      last &&
+      last.lang === next.lang &&
+      last.script === next.script &&
+      last.romanisedHindi === next.romanisedHindi
+    ) {
+      last.text += pending + next.text;
+    } else if (last) {
+      last.text += pending;
+      spans.push(next);
+    } else if (pending.trim()) {
+      spans.push({ text: pending, script: "punct", lang: "other", romanisedHindi: false });
+      spans.push(next);
+    } else {
+      next.text = pending + next.text;
+      spans.push(next);
+    }
+    pending = "";
+  }
+  const tail = spans[spans.length - 1];
+  if (tail) tail.text += pending;
+  else if (pending.trim()) {
+    spans.push({ text: pending, script: "punct", lang: "other", romanisedHindi: false });
+  }
+  return spans;
 }

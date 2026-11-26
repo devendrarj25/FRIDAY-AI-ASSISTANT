@@ -14,6 +14,8 @@
  *   · `mixed-script-word`       one word holding both scripts ("meetingको"); counted once, its parts are not.
  * Pure and conservative: a word the tables do not know is never a violation. Reuses the Speech Prep tables.
  */
+import { detectTurnLanguage } from "./hinglish-lexicon";
+import { segmentCodemix, type CodemixSpan } from "./language-segmenter";
 import { ENGLISH_IN_HINDI, ROMAN_HINDI_STRONG, ROMAN_HINDI_WEAK } from "./speech-prep-lexicon";
 
 export type ExpectedLang = "hi" | "en" | "hinglish";
@@ -165,4 +167,142 @@ export function scriptViolationReport(
   samples: readonly { expected: string | undefined; text: string }[],
 ): ScriptSummary {
   return summariseScriptChecks(samples.map((s) => checkScriptPolicy(s.text, s.expected)));
+}
+
+// ---- Canonical transcript and per-span speech treatment --------------------------------------------------------
+// The canonical internal transcript is the code-mixed one: Hindi in Devanagari, English in Roman, digits as digits.
+// `canonicalise` only tidies it (no transliteration engine here: Roman Hindi stays Roman and is flagged), and
+// `scriptPolicyFor` says how the speech front end reads each span of it.
+
+export type CanonicalTranscript = {
+  /** The tidied code-mixed text. */
+  text: string;
+  spans: CodemixSpan[];
+  /** The recogniser's hypothesis, untouched. */
+  raw: string;
+  /** The turn holds Hindi written in Latin letters. */
+  romanised: boolean;
+};
+
+export type CanonicaliseOptions = { defaultLang?: "hi" | "en" };
+
+const UNICODE_SPACE = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
+const ASCII_PAIRS: Record<string, string> = {
+  "\uFF0C": ",",
+  "\u3002": ".",
+  "\uFF1F": "?",
+  "\uFF01": "!",
+  "\uFF1A": ":",
+  "\uFF1B": ";",
+};
+
+function asciiDigit(ch: string): string {
+  const code = ch.codePointAt(0)!;
+  if (code >= 0x0966 && code <= 0x096f) return String(code - 0x0966);
+  if (code >= 0xff10 && code <= 0xff19) return String(code - 0xff10);
+  return ch;
+}
+
+/**
+ * The canonical code-mixed transcript of a recogniser hypothesis. `raw` keeps the hypothesis byte for byte. `text` is
+ * NFC, without zero-width characters, with one space between words, quotes straight, no space before closing
+ * punctuation, and Devanagari and full-width digits written as ASCII digits. Number words are not turned into digits,
+ * Devanagari Hindi and Roman English keep their script, and Roman Hindi is never transliterated: it is flagged.
+ */
+export function canonicalise(raw: string, _options: CanonicaliseOptions = {}): CanonicalTranscript {
+  const original = String(raw ?? "");
+  const text = original
+    .normalize("NFC")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(UNICODE_SPACE, " ")
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\uFF0C\u3002\uFF1F\uFF01\uFF1A\uFF1B]/g, (c) => ASCII_PAIRS[c] ?? c)
+    .replace(/[\u0966-\u096F\uFF10-\uFF19]/g, asciiDigit)
+    .replace(/\s+/g, " ")
+    .replace(/ ([,.;:!?\u0964])/g, "$1")
+    .trim();
+  const spans = segmentCodemix(text);
+  const romanised = spans.some((s) => s.romanisedHindi) || detectTurnLanguage(text).romanised;
+  return { text, spans, raw: original, romanised };
+}
+
+export type SpeechPath = "devanagari" | "english" | "hinglish" | "numbers" | "none";
+
+export type SpanTreatment = {
+  span: CodemixSpan;
+  /** Which front end reads the span: the Devanagari path, the English path, romanised Hindi, a number, or nothing. */
+  path: SpeechPath;
+  lang: "hi" | "en" | "none";
+  /** For a number: the language its words are spoken in. */
+  numberLang?: "hi" | "en";
+  /** The named engine can read this span as is; false means a Hindi-capable engine has to take it. */
+  engineReads: boolean;
+};
+
+export type SpanContext = {
+  prev?: CodemixSpan;
+  next?: CodemixSpan;
+  defaultLang?: "hi" | "en";
+};
+
+/** Engines that read Devanagari: FRIDAY Voice (the neural and Supertonic engines). The system voice and unknowns do not. */
+const HINDI_READING_ENGINES = new Set(["neural", "supertonic", "friday", "hindi-light"]);
+const isWord = (s: CodemixSpan | undefined): s is CodemixSpan =>
+  s?.lang === "hi" || s?.lang === "en";
+
+/**
+ * How the speech front end treats one span for an engine. A Hindi span takes the Devanagari path, an English span the
+ * English path, romanised Hindi the Hinglish path (kept Roman, read with Hindi phonetics), punctuation is not read.
+ * A number takes the language of the word after it, else the word before it, else `defaultLang` (English): Hindi
+ * context expands it with Hindi words, English context with English words.
+ */
+export function scriptPolicyFor(
+  span: CodemixSpan,
+  ttsEngine: string,
+  context: SpanContext = {},
+): SpanTreatment {
+  const hindiEngine = HINDI_READING_ENGINES.has(String(ttsEngine).toLowerCase());
+  if (span.lang === "num") {
+    const numberLang =
+      (isWord(context.next) ? context.next.lang : undefined) ??
+      (isWord(context.prev) ? context.prev.lang : undefined) ??
+      context.defaultLang ??
+      "en";
+    const lang = numberLang as "hi" | "en";
+    return {
+      span,
+      path: "numbers",
+      lang,
+      numberLang: lang,
+      engineReads: lang === "en" || hindiEngine,
+    };
+  }
+  if (span.lang === "hi") {
+    return {
+      span,
+      path: span.romanisedHindi ? "hinglish" : "devanagari",
+      lang: "hi",
+      engineReads: hindiEngine,
+    };
+  }
+  if (span.lang === "en") return { span, path: "english", lang: "en", engineReads: true };
+  return { span, path: "none", lang: "none", engineReads: true };
+}
+
+/** `scriptPolicyFor` for every span of a sentence, each number resolved from the nearest Hindi or English spans. */
+export function spanTreatments(
+  spans: readonly CodemixSpan[],
+  ttsEngine: string,
+  options: CanonicaliseOptions = {},
+): SpanTreatment[] {
+  return spans.map((span, i) => {
+    const prev = spans.slice(0, i).reverse().find(isWord);
+    const next = spans.slice(i + 1).find(isWord);
+    return scriptPolicyFor(span, ttsEngine, {
+      ...(prev ? { prev } : {}),
+      ...(next ? { next } : {}),
+      ...(options.defaultLang ? { defaultLang: options.defaultLang } : {}),
+    });
+  });
 }
