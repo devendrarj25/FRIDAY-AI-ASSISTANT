@@ -795,7 +795,13 @@ type DesktopApi = {
   /** Cloud speech (Sarvam, Azure Speech). The main process makes the request; no key reaches the renderer. */
   voiceCloudSpeak?: (
     provider: string,
-    request: { text: string; language: string; speaker?: string; pace?: number },
+    request: {
+      text: string;
+      language: string;
+      speaker?: string;
+      pace?: number;
+      sensitiveReply?: boolean;
+    },
   ) => Promise<{ ok: boolean; error?: string; audioBase64?: string; mime?: string }>;
   voiceCloudTranscribe?: (
     provider: string,

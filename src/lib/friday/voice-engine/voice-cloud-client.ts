@@ -41,6 +41,8 @@ export async function speakWithCloud(
     keys: Record<string, boolean>;
     privacyMode: boolean;
     online: boolean;
+    /** The whole reply was classified SENSITIVE (not just this clause): refuse here and tell the main process. */
+    sensitiveReply?: boolean;
   },
   deps: CloudSpeakDeps,
 ): Promise<CloudSpeakResult> {
@@ -49,7 +51,7 @@ export async function speakWithCloud(
     {
       need: "tts",
       needHindi: input.language.startsWith("hi"),
-      sensitive: false,
+      sensitive: input.sensitiveReply === true,
       privacyMode: input.privacyMode,
       billingAllowsPaid: false,
       online: input.online,
@@ -75,6 +77,7 @@ export async function speakWithCloud(
   const out = await speak(provider, {
     text: input.text,
     language: input.language,
+    ...(input.sensitiveReply === true ? { sensitiveReply: true } : {}),
     ...(provider === "sarvam" && typeof input.pace === "number" ? { pace: input.pace } : {}),
     ...(provider === "sarvam" && input.prefs.sarvamSpeaker
       ? { speaker: input.prefs.sarvamSpeaker }

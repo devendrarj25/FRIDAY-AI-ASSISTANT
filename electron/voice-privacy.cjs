@@ -9,8 +9,13 @@
  *   3. the consent record: the time the owner agreed that FRIDAY may store a voice sample. It holds that time and a
  *      notice number, nothing else (no name, no address, no device id).
  *
+ *   4. the audio caches the speech paths leave in the cache folder: the spoken replies (`cache/tts`), raw clips a
+ *      crash left behind (`cache/stt-in`), wake-word temp clips (`cache/wake-in`, and the temp folder when no
+ *      folder was chosen) and the system-voice clips in the temp folder (`friday-sapi`). Only FRIDAY's own
+ *      folders and, in the shared temp folder, only files FRIDAY names that way are touched.
+ *
  * Saving an enrolment sample or building a voiceprint needs the consent record. "Delete my voice data" removes all
- * three and says what it removed and what is left. Nothing here leaves the PC.
+ * of them and says what it removed and what is left. Nothing here leaves the PC.
  */
 "use strict";
 
@@ -33,6 +38,7 @@ function useForTests(deps = {}) {
 
 const now = () => (injected.now ? injected.now() : Date.now());
 const enroll = () => injected.enroll || require("./voice-enroll.cjs");
+const tmpRoot = () => (injected.tmpdir ? injected.tmpdir() : require("node:os").tmpdir());
 
 function privacyDir() {
   return paths.file("preferences", "voice-privacy");
@@ -152,6 +158,72 @@ function setRetention({ keep, days } = {}) {
   return { ...pruneWavs(next), retention: next };
 }
 
+// ----------------------------------------------------------------------------- audio caches
+/** Files FRIDAY writes into the shared temp folder: a random hex name, an audio extension (wake-engine.cjs). */
+const TEMP_CLIP = /^[0-9a-f]{16}\.(?:webm|ogg|wav)$/;
+
+/** Every audio cache location with the group it is counted under. A `names` filter limits a shared folder. */
+function cacheTargets() {
+  const targets = [];
+  if (paths.root()) {
+    const cache = paths.dir("cache");
+    targets.push(
+      { group: "replies", dir: path.join(cache, "tts"), own: true },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), own: true },
+      { group: "wakeClips", dir: path.join(cache, "wake-in"), own: true },
+    );
+  }
+  const tmp = tmpRoot();
+  targets.push(
+    { group: "wakeClips", dir: path.join(tmp, "wake-in"), own: false },
+    { group: "systemClips", dir: path.join(tmp, "friday-sapi"), own: true },
+  );
+  return targets;
+}
+
+function cacheFiles(target) {
+  try {
+    return fs
+      .readdirSync(target.dir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && (target.own || TEMP_CLIP.test(entry.name)))
+      .map((entry) => path.join(target.dir, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function cacheSummary() {
+  let count = 0;
+  let bytes = 0;
+  for (const target of cacheTargets()) {
+    for (const file of cacheFiles(target)) {
+      count += 1;
+      try {
+        bytes += fs.statSync(file).size;
+      } catch {
+        /* a file that vanished is not counted */
+      }
+    }
+  }
+  return { count, bytes };
+}
+
+/** Remove the spoken-reply, raw-clip, wake and system-voice audio. Returns how many files went, per group. */
+function clearCaches() {
+  const cleared = { replies: 0, rawClips: 0, wakeClips: 0, systemClips: 0 };
+  for (const target of cacheTargets()) {
+    for (const file of cacheFiles(target)) {
+      try {
+        fs.rmSync(file, { force: true });
+        cleared[target.group] += 1;
+      } catch {
+        /* named by the check that follows */
+      }
+    }
+  }
+  return cleared;
+}
+
 // ----------------------------------------------------------------------------- status and delete
 function status() {
   const consent = readConsent();
@@ -167,6 +239,7 @@ function status() {
     consent: { given: consent !== null, givenAt: consent ? consent.givenAt : 0 },
     enrolment,
     wavs: wavSummary(),
+    caches: cacheSummary(),
     retention: readRetention(),
     limits: { minDays: MIN_DAYS, maxDays: MAX_DAYS, defaultDays: DEFAULT_DAYS },
   };
@@ -179,13 +252,14 @@ function leftovers() {
   const enrolment = paths.file("preferences", "voice-enrollment");
   if (fs.existsSync(enrolment)) left.push("voice enrolment");
   if (listWavs().length) left.push("kept utterance clips");
+  if (cacheSummary().count) left.push("spoken-reply and clip caches");
   if (fs.existsSync(consentFile())) left.push("consent record");
   return left;
 }
 
 /**
- * Delete every piece of voice data FRIDAY holds: enrolment samples and voiceprint, kept utterance WAVs and the
- * consent record. The answer says how much went and whether anything is left.
+ * Delete every piece of voice data FRIDAY holds: enrolment samples and voiceprint, kept utterance WAVs, the audio caches
+ * and the consent record. The answer says how much went and whether anything is left.
  */
 async function deleteAll() {
   if (!paths.root())
@@ -202,6 +276,7 @@ async function deleteAll() {
   } catch {
     /* named by the check below */
   }
+  const cleared = clearCaches();
   try {
     fs.rmSync(consentFile(), { force: true });
   } catch {
@@ -216,6 +291,7 @@ async function deleteAll() {
       wavs: before.wavs.count,
       consent: before.consent.given,
     },
+    cleared,
     left,
     status: status(),
   };

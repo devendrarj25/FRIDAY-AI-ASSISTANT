@@ -166,6 +166,53 @@ describe("cloud speech gates in the main process", () => {
     }
   });
 
+  it("refuses sensitive text in the main process before any network call, whatever the renderer sent", async () => {
+    for (const provider of ["sarvam", "azure-speech"]) {
+      for (const text of [
+        "my password is x",
+        "card 4111 1111 1111 1111 expires soon",
+        "my pin is 4821",
+      ]) {
+        const { api, calls } = rig();
+        const out = await api.speak(provider, { text, language: "en-IN" });
+        expect(out).toMatchObject({ ok: false, sensitive: true });
+        expect(out.error).toMatch(/sensitive/i);
+        expect(calls).toEqual([]);
+      }
+    }
+  });
+
+  it("refuses a clause that looks harmless when the renderer says the whole reply is sensitive", async () => {
+    const { api, calls } = rig();
+    const out = await api.speak("sarvam", {
+      text: "The number is on the next line.",
+      language: "en-IN",
+      sensitiveReply: true,
+    });
+    expect(out).toMatchObject({ ok: false, sensitive: true });
+    expect(calls).toEqual([]);
+  });
+
+  it("lets a harmless clause through, and a false or missing flag never lifts a refusal", async () => {
+    const ok = rig();
+    expect(
+      await ok.api.speak("sarvam", {
+        text: "The weather is fine today.",
+        language: "en-IN",
+        sensitiveReply: false,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(ok.calls).toHaveLength(1);
+    const blocked = rig();
+    const out = await blocked.api.speak("azure-speech", {
+      text: "my password is x",
+      language: "en-IN",
+      sensitiveReply: false,
+    });
+    expect(out.ok).toBe(false);
+    expect(blocked.calls).toEqual([]);
+  });
+
   it("refuses an unknown provider, empty or oversized text and a bad language", async () => {
     const { api, calls } = rig();
     expect((await api.speak("evil", { text: "x", language: "en-IN" })).ok).toBe(false);
@@ -278,6 +325,26 @@ describe("cloud speech from the renderer", () => {
     expect(out).toMatchObject({ ok: true, provider: "sarvam" });
     expect(seen).toEqual([["sarvam", { text: base.text, language: "hi-IN", speaker: "shubh" }]]);
     expect(ledger.usage("sarvam").day).toBe(1);
+  });
+
+  it("carries the whole-reply flag to the main process and lets the router refuse a sensitive reply", async () => {
+    const ledger = new UsageLedger(() => Date.parse("2026-02-02T10:00:00Z"));
+    const seen: unknown[] = [];
+    const speak = async (provider: string, request: unknown) => (
+      seen.push([provider, request]),
+      { ok: true, audioBase64: "QUJD", mime: "audio/wav" }
+    );
+    const refused = await speakWithCloud(
+      "sarvam",
+      { ...base, sensitiveReply: true },
+      { ledger, speak },
+    );
+    expect(refused.ok).toBe(false);
+    expect(seen).toEqual([]);
+    expect(ledger.usage("sarvam").day).toBe(0);
+    // Plain text is never flagged by the client, so the request keeps its old shape.
+    await speakWithCloud("sarvam", base, { ledger, speak });
+    expect(seen).toEqual([["sarvam", { text: base.text, language: "hi-IN", speaker: "shubh" }]]);
   });
 
   it("refuses without calling or counting when the router says no", async () => {

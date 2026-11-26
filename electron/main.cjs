@@ -5356,20 +5356,28 @@ let pttShortcutOn = false;
 function setPttShortcut(on) {
   const { globalShortcut } = require("electron");
   if (on && !pttShortcutOn) {
-    pttShortcutOn = globalShortcut.register(PTT_TOGGLE_ACCELERATOR, () =>
-      send("voice:ptt-toggle", {}),
-    );
+    let reason = "another app holds that shortcut";
+    try {
+      pttShortcutOn = globalShortcut.register(PTT_TOGGLE_ACCELERATOR, () =>
+        send("voice:ptt-toggle", {}),
+      );
+    } catch (error) {
+      pttShortcutOn = false;
+      reason = `the system refused that shortcut (${String(error?.message || error).slice(0, 120)})`;
+    }
+    // `registered` is what the system says now, so the window never claims a key nobody holds.
     return {
       ok: pttShortcutOn,
+      registered: pttShortcutOn,
       accelerator: PTT_TOGGLE_ACCELERATOR,
-      reason: pttShortcutOn ? "" : "another app holds that shortcut",
+      reason: pttShortcutOn ? "" : reason,
     };
   }
   if (!on && pttShortcutOn) {
     globalShortcut.unregister(PTT_TOGGLE_ACCELERATOR);
     pttShortcutOn = false;
   }
-  return { ok: true, accelerator: PTT_TOGGLE_ACCELERATOR, reason: "" };
+  return { ok: true, registered: pttShortcutOn, accelerator: PTT_TOGGLE_ACCELERATOR, reason: "" };
 }
 ipcMain.handle("voice:ptt-shortcut", (_e, on) => setPttShortcut(on === true));
 app.on("will-quit", () => setPttShortcut(false));

@@ -73,6 +73,16 @@ describe("push-to-talk wiring", () => {
     expect(mode).toContain('decision.reason = "push-to-talk"');
   });
 
+  it("answers every shortcut request with whether the key is really held, and why not", () => {
+    const start = main.indexOf("function setPttShortcut(on)");
+    const body = main.slice(start, main.indexOf('ipcMain.handle("voice:ptt-shortcut"', start));
+    // A refused or throwing registration is reported with a reason, never as a held key.
+    expect(body).toMatch(/try \{\s*pttShortcutOn = globalShortcut\.register\(/);
+    expect(body).toContain("registered: pttShortcutOn");
+    expect(body).toContain("another app holds that shortcut");
+    expect(body.match(/registered: pttShortcutOn/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("registers the global toggle only on request and releases it on quit", () => {
     expect(main).toContain('ipcMain.handle("voice:ptt-shortcut"');
     expect(main).toContain('app.on("will-quit", () => setPttShortcut(false))');

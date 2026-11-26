@@ -10,9 +10,13 @@
  *                           `Ocp-Apim-Subscription-Key`, `Content-Type: application/ssml+xml`,
  *                           `X-Microsoft-OutputFormat`, `User-Agent`; body SSML
  * Nothing here has been run against a live account. Gates (checked here, in this order): cloud voice switched on,
- * the provider allowed, privacy mode off, a key saved. Quotas are counted by the renderer's usage ledger before
+ * the provider allowed, privacy mode off, a key saved. Before any request the text itself is classified here
+ * (the privacy firewall), so a SENSITIVE reply never leaves this PC whatever the renderer sent; a renderer
+ * `sensitiveReply: true` (the whole reply was classified) can only add a refusal. Quotas are counted by the renderer's usage ledger before
  * the call. Only the two fixed hosts below are ever contacted; an error text is scrubbed of the key.
  */
+const { classify } = require("./privacy-firewall.cjs");
+
 const SARVAM_HOST = "api.sarvam.ai";
 const REGION = /^[a-z0-9]{3,30}$/;
 const VOICE = /^[A-Za-z0-9-]{3,64}$/;
@@ -157,7 +161,7 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
     }
   }
 
-  /** @returns {Promise<{ok: boolean, error?: string, audioBase64?: string, mime?: string, provider?: string}>} */
+  /** @returns {Promise<{ok: boolean, sensitive?: boolean, error?: string, audioBase64?: string, mime?: string, provider?: string}>} */
   async function speak(provider, request) {
     const text = String(request?.text ?? "").trim();
     if (!text) return { ok: false, error: "there is no text to speak" };
@@ -167,6 +171,9 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
     if (!LANG.test(language)) return { ok: false, error: "name the language as hi-IN or en-IN" };
     const allowed = gate(provider);
     if (!allowed.ok) return allowed;
+    // The firewall runs on this side too: the renderer flag can only add a refusal, never lift one.
+    if (request?.sensitiveReply === true || classify(text).level === "sensitive")
+      return { ok: false, sensitive: true, error: "cloud speech is blocked for sensitive text" };
     let spec;
     if (provider === "sarvam") {
       const speaker = request.speaker ? String(request.speaker) : "";
