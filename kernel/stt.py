@@ -46,6 +46,7 @@ if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
 import hindi_ear  # noqa: E402
+import speech_segments  # noqa: E402
 import stream_ear  # noqa: E402
 import voice_runtime  # noqa: E402
 import whisper_ears  # noqa: E402
@@ -1578,16 +1579,18 @@ def plan_chunks(
     max_s: float = LONGFORM_CHUNK_S,
     overlap_s: float = LONGFORM_OVERLAP_S,
     min_chunk_s: float = LONGFORM_MIN_CHUNK_S,
+    pauses: list[tuple[float, float]] | None = None,
 ) -> list[dict]:
     """Pieces of at most ``max_s`` seconds, each cut in the middle of the latest pause that fits, else hard at
     ``max_s``. A piece starts ``overlap_s`` before the previous one ended. ``cut`` says how a piece ends:
-    "silence", "hard" or "end"."""
+    "silence", "hard" or "end". ``pauses`` are (start, end) seconds of the quiet stretches to cut in (from the voice
+    model, see ``longform_pauses``); without them the clip's own energy decides."""
     total = len(samples) / rate
     if total <= 0:
         return []
     if not (max_s > overlap_s + min_chunk_s > 0):
         raise ValueError("max_s must exceed overlap_s plus min_chunk_s")
-    pauses = [(a + b) / 2 for a, b in silence_runs(samples, rate)]
+    middles = [(a + b) / 2 for a, b in (silence_runs(samples, rate) if pauses is None else pauses)]
     pieces: list[dict] = []
     start = 0.0
     while True:
@@ -1595,10 +1598,28 @@ def plan_chunks(
             pieces.append({"start": round(start, 3), "end": round(total, 3), "cut": "end"})
             return pieces
         limit = start + max_s
-        fits = [p for p in pauses if start + min_chunk_s <= p <= limit]
+        fits = [p for p in middles if start + min_chunk_s <= p <= limit]
         cut, kind = (max(fits), "silence") if fits else (limit, "hard")
         pieces.append({"start": round(start, 3), "end": round(cut, 3), "cut": kind})
         start = cut - overlap_s
+
+
+def longform_pauses(samples, language: str | None = None, rate: int = RATE) -> list[tuple[float, float]] | None:
+    """The quiet stretches of a long clip as the Silero voice model hears them: the gaps between its speech spans
+    (cut at ``LONGFORM_CHUNK_S`` at the best silence, so an unbroken run still has cut points). A clip with no speech
+    is one long pause. None when the model, numpy or onnxruntime is missing: the caller plans from energy instead."""
+    try:
+        import vad_onnx
+
+        stream = vad_onnx.SileroStream()
+        probs = speech_segments.frame_probabilities(samples, stream, tick=check_cancel)
+    except Exception:  # noqa: BLE001 — no model, no runtime or a broken frame: the energy plan stays (a cancel is a BaseException and passes)
+        return None
+    options = speech_segments.options_for_language(language, max_speech_s=LONGFORM_CHUNK_S)
+    spans = speech_segments.speech_spans(probs, len(samples), options, rate)
+    if not spans:
+        return [(0.0, len(samples) / rate)]
+    return speech_segments.silence_gaps(spans, rate, options.min_cut_silence_ms / 1000)
 
 
 def _spread_words(text: str, begin: float, end: float) -> list[Word]:
@@ -1634,7 +1655,7 @@ def _consume_longform(model, samples, kwargs: dict, hint: str, on_partial) -> di
     with (a word is kept once, a repeat of the last words at the seam is dropped). Same result shape as
     ``_consume_whisper``."""
     total = len(samples) / RATE
-    pieces = plan_chunks(samples)
+    pieces = plan_chunks(samples, pauses=longform_pauses(samples, kwargs.get("language")))
     committer = LocalAgreementCommitter(max_kept_words=LONGFORM_KEPT_WORDS)
     rows: list[dict] = []
     no_speech: list[float] = []
