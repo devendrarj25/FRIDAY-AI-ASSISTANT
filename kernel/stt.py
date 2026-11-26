@@ -58,6 +58,7 @@ from la2_partials import (  # noqa: E402
     segments_from_words,
     snap_hotwords,
     turn_mode,
+    with_ctc_bias,
 )
 from stream_commit import Word, words_from_text  # noqa: E402
 
@@ -2580,7 +2581,9 @@ def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]
         words = [Word(str(w["text"]), float(w["start"]), float(w["end"])) for w in heard["words"]]
         return snap_hotwords(words, hotwords)
 
-    return read
+    # With the owner's words in play, the ear's own CTC head is biased toward them while decoding; with none, or when
+    # the head is not exposed, today's reader answers unchanged (``with_ctc_bias`` falls back by itself).
+    return with_ctc_bias(read, hotwords) if hotwords else read
 
 
 class WhisperStreamReader:
