@@ -328,7 +328,8 @@ describe("single funnel", () => {
     const assistant = readFileSync(path.join(ROOT, "src/lib/friday/assistant-mode.ts"), "utf8");
     const chat = readFileSync(path.join(ROOT, "src/components/friday/ChatDock.tsx"), "utf8");
     const brain = readFileSync(path.join(ROOT, "src/lib/friday/brain-engine.ts"), "utf8");
-    expect(assistant).toContain('routingSurface: "voice"');
+    expect(assistant).toContain("...VOICE_SEND");
+    expect(brain).toContain('export const VOICE_SEND = { routingSurface: "voice" } as const;');
     expect(chat).toContain('routingSurface: "chat"');
     expect(brain).toContain("routingSurface:");
     expect(brain).not.toContain("/chat/completions");

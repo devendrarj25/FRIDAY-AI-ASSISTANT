@@ -70,11 +70,11 @@ describe("background request wiring", () => {
       block.indexOf("voiceTaskActions.cancel(route.supersedes)"),
     );
     expect(mode).toMatch(
-      /runApproved\(command: string\) \{[\s\S]*?voiceTaskActions\.cancel\(sup\.id\)[\s\S]*?this\.beginBackground\(background\)/,
+      /runApproved\(command: string, hints\?: TurnHints\) \{[\s\S]*?voiceTaskActions\.cancel\(sup\.id\)[\s\S]*?this\.replayWith\(heardWith[\s\S]*?this\.beginBackground\(background\)/,
     );
     expect(block).toContain("this.beginBackground(background)");
     expect(mode).toMatch(
-      /runApproved\(command: string\) \{[\s\S]*?this\.beginBackground\(background\)/,
+      /runApproved\(command: string, hints\?: TurnHints\) \{[\s\S]*?this\.beginBackground\(background\)/,
     );
     const start = mode.indexOf("private beginBackground(");
     const method = mode.slice(start, start + 600);

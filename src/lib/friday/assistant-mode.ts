@@ -22,7 +22,13 @@
  */
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
-import { brain, type QuickAnswer, type TurnHints } from "./brain-engine";
+import {
+  brain,
+  scrubSendContext,
+  VOICE_SEND,
+  type QuickAnswer,
+  type TurnHints,
+} from "./brain-engine";
 import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
@@ -121,6 +127,8 @@ import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice
 import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
+import { identity as replyIdentity } from "./brain/identity";
+import { replyLanguageLine } from "./brain/turn-hints";
 import { attentionWindowMs } from "./attention-window";
 import { preferSpoken, socialRegister } from "./conversation-style";
 import { chooseFresh, vary, type RepeatBucket } from "./brain/anti-repeat";
@@ -384,6 +392,8 @@ export type PendingConfirm = {
   command: string;
   reason: string;
   at: number;
+  /** What the ear knew when the command was heard: the approved command replays with these, never the "yes" turn's. */
+  hints?: TurnHints;
 };
 
 /**
@@ -722,6 +732,8 @@ class AssistantModeStore {
   private turnRecord: TurnRecord | null = null;
   /** `turnRecord` belongs to the turn being routed now (cleared when the next voice begins). */
   private turnRecordLive = false;
+  /** The id of the heard turn, kept apart from the record so only the intake reads the record to make it. */
+  private heardTurnId = "";
   private streamTurnId = "";
   private holdTurnId = "";
   private holdSeenAt = 0;
@@ -3706,13 +3718,14 @@ class AssistantModeStore {
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         if (!this.approvalVoiceAllows(text)) return;
         const cmd = this.state.pending.command;
+        const cmdHints = this.state.pending.hints;
         this.state.pending = null;
         this.to("confirm-resolved");
         this.remember("confirmed", text, cmd);
         this.caption("user", text);
         this.state.status = "Confirmed — running";
         this.emit();
-        this.runApproved(cmd);
+        this.runApproved(cmd, cmdHints);
         return;
       }
       if (confirmationVerdict(text) === "no") {
@@ -4082,10 +4095,12 @@ class AssistantModeStore {
     this.ackTurnKind = "control";
     this.supersedeOnConfirm = null;
     this.discardEager();
+    const hints = this.turnHints();
     this.state.pending = {
       command,
       reason: approvalReason("exec", this.state.mode),
       at: Date.now(),
+      ...(hints ? { hints } : {}),
     };
     const ask = confirmQuestion(command);
     this.caption("friday", ask);
@@ -4097,7 +4112,7 @@ class AssistantModeStore {
   }
 
   /** A confirmed command: a background one starts its task, anything else goes to the Brain. */
-  private runApproved(command: string) {
+  private runApproved(command: string, hints?: TurnHints) {
     this.ackTurnKind = "confirm-turn";
     const sup = this.supersedeOnConfirm;
     this.supersedeOnConfirm = null;
@@ -4105,8 +4120,13 @@ class AssistantModeStore {
       voiceTaskActions.cancel(sup.id);
     }
     const background = this.state.mode === "auto" ? parseBackgroundRequest(command) : null;
-    if (background) this.beginBackground(background);
-    else this.dispatch(command);
+    // The command goes ahead with the hints it was heard with, minus the doubt the confirmation already settled: the
+    // reply language follows the command, and a doubtful "haan" never makes the Brain ask "did you say ...".
+    const heardWith = hints ? { ...hints, confidence: null, clipped: false } : undefined;
+    this.replayWith(heardWith, () => {
+      if (background) this.beginBackground(background);
+      else this.dispatch(command);
+    });
   }
 
   /** The work of a background task: the real Brain turn for one request. Also how a restored task runs again. */
@@ -4358,6 +4378,30 @@ class AssistantModeStore {
     this.emit();
   }
 
+  /** The id of the heard turn, for the Brain's records; none while a stored command is replayed. */
+  private turnIdOption() {
+    const id = this.replayTurn ? "" : this.heardTurnId;
+    return id ? { turnId: id } : {};
+  }
+
+  /**
+   * The voice facts of a side question, for the Brain's quick lane: scrubbed `context` (metadata, never an attachment),
+   * the reply language the ear heard first. Only a real attachment ever stays in `extra`.
+   */
+  private sideQuestionContext(): string {
+    const pinned = replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user";
+    const digest = conversationDigest();
+    return scrubSendContext(
+      [
+        replyLanguageLine(this.turnHints() ?? null, pinned),
+        digest ? `VOICE SESSION: ${digest}` : "",
+        this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+
   /**
    * Run a command through the existing brain pipeline. True when a run was started.
    */
@@ -4375,18 +4419,19 @@ class AssistantModeStore {
     const running = live.activeRunId
       ? live.runs.find((run) => run.id === live.activeRunId)
       : undefined;
-    if (running && this.state.mode === "auto") {
-      // A short harmless question is answered by the quick lane whatever the age of the work: the lane is a
-      // plain model call beside the run, so there is no age at which it should wait or cut the work short.
-      const lane =
-        this.taskPrefs().sideQuestionLane && quickLaneEligible({ text: command, busy: true }).ok;
-      const decision = lane
-        ? ({ kind: "interrupt" } as const)
-        : whileBusy(
-            command,
-            { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
-            { queued: this.queuedCommands.length },
-          );
+    // A short harmless question is answered by the quick lane whatever the age of the work: the lane is a plain
+    // model call beside the run, so there is no age at which it should wait or cut the work short.
+    const side =
+      running !== undefined &&
+      this.state.mode === "auto" &&
+      this.taskPrefs().sideQuestionLane &&
+      quickLaneEligible({ text: command, busy: true }).ok;
+    if (running && this.state.mode === "auto" && !side) {
+      const decision = whileBusy(
+        command,
+        { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
+        { queued: this.queuedCommands.length },
+      );
       if (decision.kind === "reply" || decision.kind === "queue") {
         if (decision.kind === "queue") {
           // She keeps working and keeps talking: the new request is heard, answered with a
@@ -4405,11 +4450,15 @@ class AssistantModeStore {
         return true;
       }
     }
-    this.clearHoldLines();
-    const heard = this.heardOfReply();
-    this.dropPlayback();
-    this.trimReplyToHeard(heard);
-    this.markTurnAccepted();
+    // Only a real new run tears the live reply down. A side question leaves its playback, its reply cursor and its
+    // heard-so-far bookkeeping alone, so the next clause carries on and nothing is marked cut or spoken twice.
+    if (!side) {
+      this.clearHoldLines();
+      const heard = this.heardOfReply();
+      this.dropPlayback();
+      this.trimReplyToHeard(heard);
+      this.markTurnAccepted();
+    }
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
     const { extra, modelIds } = composer.directive();
@@ -4419,23 +4468,57 @@ class AssistantModeStore {
       privacy: voiceNow.privacyMode === true,
       allowAmbientCloud: voiceNow.allowAmbientCloud === true,
     });
-    const merged = mergeTurnExtra(
-      extra,
-      turnAwarenessExtra(command, { kind: "voice" }),
-      ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
-      this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
-    );
-    const payload = {
-      ...(merged ? { extra: merged } : {}),
-      ...(modelIds.length ? { modelIds } : {}),
-      routingSurface: "voice" as const,
-      ...this.turnHintsOption(),
-    };
+    const merged = side
+      ? ""
+      : mergeTurnExtra(
+          extra,
+          turnAwarenessExtra(command, { kind: "voice" }),
+          ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+          this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
+        );
+    const sideContext = side ? this.sideQuestionContext() : "";
+    const payload = side
+      ? {
+          // The voice facts are scrubbed metadata: only a real attachment stays in `extra` and can keep the lane away.
+          ...(extra ? { extra } : {}),
+          ...VOICE_SEND,
+          lane: "quick" as const,
+          ...(sideContext ? { context: sideContext } : {}),
+          ...this.turnHintsOption(),
+          ...this.turnIdOption(),
+        }
+      : {
+          ...(merged ? { extra: merged } : {}),
+          ...(modelIds.length ? { modelIds } : {}),
+          ...VOICE_SEND,
+          // A request that is not a side question is a whole turn: the Brain must not take it for one while work runs.
+          ...(running ? { lane: "full" as const } : {}),
+          ...this.turnHintsOption(),
+          ...this.turnIdOption(),
+        };
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
-    // A new spoken command is an interrupt: stop the in-flight foreground turn, then start. A background
-    // task's run is not the foreground: it keeps going, and the request waits its turn behind it.
+    if (side && !result.accepted && result.refused && result.foregroundUntouched) {
+      if (result.reason === "lane-refused" || result.reason === "busy") {
+        // The lane cannot take it now (an attachment, the model budget, a question that needs the work): it waits
+        // behind the running turn like any other request heard while she works. The running turn is never stopped
+        // for a refusal that left it untouched.
+        this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+        this.queueCommand(command);
+        this.remember("busy-queue", command, "queued: the quick lane could not take it");
+        this.drainQueuedCommands();
+        const line = "Noted. That is next, once this is done.";
+        this.caption("friday", line);
+        this.state.status = "Working — next request queued";
+        this.emit();
+        this.speak(line);
+        return true;
+      }
+    }
+    // A new spoken command (not a side question, which took the lane above) is an interrupt: stop the in-flight
+    // foreground turn, then start. A background task's run is not the foreground: it keeps going, and the request
+    // waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
       brain.stop("foreground");
       result = brain.send(command, payload);
@@ -4482,6 +4565,8 @@ class AssistantModeStore {
       this.remember("side-question", command, "answered by the quick lane while the run continues");
       return true;
     }
+    // The work ended as a side question was asked, so the Brain began a real turn: it is a normal new run.
+    if (side) this.markTurnAccepted();
     this.armHoldLines(command);
     return true;
   }
@@ -4738,7 +4823,7 @@ class AssistantModeStore {
     if (ok) {
       this.state.status = "Confirmed — running";
       this.emit();
-      this.runApproved(pending.command);
+      this.runApproved(pending.command, pending.hints);
     } else {
       this.supersedeOnConfirm = null;
       const dropped = this.variedLine("cancelled", this.lastOwnerLine);
@@ -5458,6 +5543,9 @@ class AssistantModeStore {
   private cloudSpeechKeys: Record<string, boolean> = {};
   private cloudSpeechKeysAt = 0;
   private cloudSpeechBlockedUntil = 0;
+  /** The reply being spoken (by run) was classified SENSITIVE as a whole: no clause of it may reach a cloud voice. */
+  private replySensitiveRunId = "";
+  private replySensitive = false;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
   private streamSpeakerPlayback = false;
@@ -5909,6 +5997,7 @@ class AssistantModeStore {
     });
     this.lastInterruptedPlayedMs = null;
     this.turnRecordLive = true;
+    this.heardTurnId = this.turnRecord.turnId;
     this.handleHeard(text, meta?.wake ?? null);
   }
 
@@ -6152,6 +6241,8 @@ class AssistantModeStore {
           keys: this.cloudSpeechKeys,
           privacyMode: preferences.getSnapshot().voice.privacyMode === true,
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+          // The whole reply, not just this clause: a harmless clause of a sensitive reply stays on this PC.
+          ...(this.replySensitive ? { sensitiveReply: true } : {}),
         },
         {
           ledger,
@@ -6160,14 +6251,21 @@ class AssistantModeStore {
             ? {
                 speak: (
                   p: string,
-                  r: { text: string; language: string; speaker?: string; pace?: number },
+                  r: {
+                    text: string;
+                    language: string;
+                    speaker?: string;
+                    pace?: number;
+                    sensitiveReply?: boolean;
+                  },
                 ) => this.streamingSpeak().speak(p, r),
               }
             : {}),
         },
       );
       if (!out.ok) {
-        this.cloudSpeechBlockedUntil = Date.now() + 60_000;
+        // A refusal for a sensitive reply is the rule working, not a failing provider: no cool-down for the next reply.
+        if (!this.replySensitive) this.cloudSpeechBlockedUntil = Date.now() + 60_000;
         this.trace("segment", `cloud voice skipped — ${out.error}`);
         return null;
       }
@@ -6332,9 +6430,19 @@ class AssistantModeStore {
     }).active;
   }
 
+  /** Classify the reply read so far once per reply: one sensitive part marks every clause of it. */
+  private noteReplySensitivity(runId: string, text: string) {
+    if (this.replySensitiveRunId !== runId) {
+      this.replySensitiveRunId = runId;
+      this.replySensitive = false;
+    }
+    if (!this.replySensitive && looksSensitive(text)) this.replySensitive = true;
+  }
+
   private speakStreamed(runId: string, text: string, final: boolean) {
     if (!text.trim()) return;
     if (isBootHolding()) return;
+    this.noteReplySensitivity(runId, text);
     if (this.interruptHold) {
       // Paused for a possible interruption: keep the newest text and say it if the owner only nodded along.
       this.deferredStream = { runId, text, final };
