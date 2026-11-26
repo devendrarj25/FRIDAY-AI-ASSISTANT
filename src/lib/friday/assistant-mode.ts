@@ -577,7 +577,7 @@ const desktop = (): VoiceDesktop | null =>
  */
 function ownedBrain(taskId: string): Parameters<typeof askBrain>[1]["brain"] {
   return {
-    send: (prompt) => brain.send(prompt, { owner: { kind: "task", taskId } }),
+    send: (prompt) => brain.send(prompt, { ...VOICE_SEND, owner: { kind: "task", taskId } }),
     subscribe: (listener) => brain.subscribe(listener),
     getSnapshot: () => brain.getSnapshot(),
   };
@@ -748,10 +748,6 @@ class AssistantModeStore {
   private gateKeep = false;
   /** The warm-up pass of this Auto session has run to the end once. */
   private prewarmDone = false;
-  /**
-   * True only when the owner saved Hands-free off. A missing key leaves Auto
-   * mode as the hands-free conversation and does not write the key.
-   */
   /** Hands-free starts off, so the wake word is required until the stored choice says otherwise. */
   private wakeWordRequired = true;
   /** Barge-in and a mode change drop every queued clip from an older turn. */
@@ -1090,7 +1086,7 @@ class AssistantModeStore {
     restoreFromDisk<AssistantMode>(STORAGE_KEY, (mode) => {
       if ((mode === "auto" || mode === "manual") && mode !== this.state.mode) this.setMode(mode);
     });
-    restoreFromDisk<boolean>(HANDS_FREE_KEY, (on) => this.setHandsFree(Boolean(on)));
+    restoreFromDisk<unknown>(HANDS_FREE_KEY, (on) => this.setHandsFree(on === true));
     const savedConduct = readLocalState<unknown>(CONDUCT_KEY);
     if (savedConduct) this.conduct = loadConduct(savedConduct);
     restoreFromDisk<unknown>(CONDUCT_KEY, (value) => {
@@ -1532,7 +1528,10 @@ class AssistantModeStore {
     const earsEager = viaTurn && preferences.getSnapshot().voice.ears.eagerTurn === true;
     if (!earsEager && preferences.getSnapshot().voice.eagerTurn !== true) return;
     if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
-    const started = brain.startDraft(command, viaTurn ? { onlyLocal: true } : {});
+    const started = brain.startDraft(command, {
+      ...(viaTurn ? { onlyLocal: true } : {}),
+      ...this.turnHintsOption(),
+    });
     if (!started.started) return;
     this.draftsThisTurn += 1;
     this.speculative = command;
@@ -1759,8 +1758,8 @@ class AssistantModeStore {
 
   /**
    * Hands-free conversation on/off. The owner’s choice is remembered.
-   * Auto mode turns it on in memory when nothing was saved, without writing
-   * the key, so a fresh profile is not persisted as an explicit opt-in.
+   * Hands-free starts off; only a stored `true` opens it, and a fresh profile
+   * writes nothing, so it is never saved as an explicit opt-in.
    */
   setHandsFree(on: boolean, persist = true) {
     this.wakeWordRequired = !on;
@@ -4260,7 +4259,7 @@ class AssistantModeStore {
       // because the adopted run's caption arrives while adoptDraft replays what the draft already heard.
       this.clearHoldLines();
       this.pendingUserEcho += 1;
-      this.markTurnAccepted();
+      this.markTurnAccepted(command);
       if (brain.adoptDraft(this.draftId, this.speculative, this.turnHints())) {
         this.discardEager(true);
         this.remember("speculative", command, "already-started");
@@ -4368,7 +4367,8 @@ class AssistantModeStore {
   }
 
   /** A turn is on its way to the Brain: the speech bookkeeping of the last reply restarts, and she is Thinking. */
-  private markTurnAccepted() {
+  private markTurnAccepted(command = "") {
+    this.turnSensitive = looksSensitive(command);
     this.voicedRunId = "";
     this.voicedChars = 0;
     this.voicedPrefix = "";
@@ -4457,7 +4457,7 @@ class AssistantModeStore {
       const heard = this.heardOfReply();
       this.dropPlayback();
       this.trimReplyToHeard(heard);
-      this.markTurnAccepted();
+      this.markTurnAccepted(command);
     }
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
@@ -4468,15 +4468,25 @@ class AssistantModeStore {
       privacy: voiceNow.privacyMode === true,
       allowAmbientCloud: voiceNow.allowAmbientCloud === true,
     });
-    const merged = side
-      ? ""
-      : mergeTurnExtra(
-          extra,
-          turnAwarenessExtra(command, { kind: "voice" }),
-          ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
-          this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
-        );
     const sideContext = side ? this.sideQuestionContext() : "";
+    // A whole turn carries the pinned models, the awareness text, the heard-nearby text and the tone line.
+    const fullPayload = () => {
+      const merged = mergeTurnExtra(
+        extra,
+        turnAwarenessExtra(command, { kind: "voice" }),
+        ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+        this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
+      );
+      return {
+        ...(merged ? { extra: merged } : {}),
+        ...(modelIds.length ? { modelIds } : {}),
+        ...VOICE_SEND,
+        // A request that is not a side question is a whole turn: the Brain must not take it for one while work runs.
+        ...(running ? { lane: "full" as const } : {}),
+        ...this.turnHintsOption(),
+        ...this.turnIdOption(),
+      };
+    };
     const payload = side
       ? {
           // The voice facts are scrubbed metadata: only a real attachment stays in `extra` and can keep the lane away.
@@ -4487,15 +4497,7 @@ class AssistantModeStore {
           ...this.turnHintsOption(),
           ...this.turnIdOption(),
         }
-      : {
-          ...(merged ? { extra: merged } : {}),
-          ...(modelIds.length ? { modelIds } : {}),
-          ...VOICE_SEND,
-          // A request that is not a side question is a whole turn: the Brain must not take it for one while work runs.
-          ...(running ? { lane: "full" as const } : {}),
-          ...this.turnHintsOption(),
-          ...this.turnIdOption(),
-        };
+      : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
@@ -4515,6 +4517,16 @@ class AssistantModeStore {
         this.speak(line);
         return true;
       }
+    }
+    // The work ended as a side question was asked, so the Brain began a real turn from the side payload: it is a
+    // normal new run. The old reply is torn down as for any new run, and the turn goes again with the full payload.
+    if (side && result.accepted && result.reason !== "quick-lane") {
+      this.clearHoldLines();
+      const heard = this.heardOfReply();
+      this.dropPlayback();
+      this.trimReplyToHeard(heard);
+      brain.stop("foreground");
+      result = brain.send(command, fullPayload());
     }
     // A new spoken command (not a side question, which took the lane above) is an interrupt: stop the in-flight
     // foreground turn, then start. A background task's run is not the foreground: it keeps going, and the request
@@ -4566,7 +4578,7 @@ class AssistantModeStore {
       return true;
     }
     // The work ended as a side question was asked, so the Brain began a real turn: it is a normal new run.
-    if (side) this.markTurnAccepted();
+    if (side) this.markTurnAccepted(command);
     this.armHoldLines(command);
     return true;
   }
@@ -5471,7 +5483,7 @@ class AssistantModeStore {
       !localOnly && (typeof navigator === "undefined" ? true : navigator.onLine !== false);
     const voicePrivacy = preferences.getSnapshot().voice.privacyMode === true;
     // A line that looks private (a password, a PIN, a card number) is said by a local voice, whatever the settings.
-    const sensitive = looksSensitive(spoken);
+    const sensitive = this.turnSensitive || looksSensitive(spoken);
     const engine = chooseTtsEngine({
       network: online,
       supertonicReady: this.offlineVoiceReady,
@@ -5546,6 +5558,8 @@ class AssistantModeStore {
   /** The reply being spoken (by run) was classified SENSITIVE as a whole: no clause of it may reach a cloud voice. */
   private replySensitiveRunId = "";
   private replySensitive = false;
+  /** The heard command of the turn in flight was SENSITIVE: its whole reply stays on this PC, whatever the reply says. */
+  private turnSensitive = false;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
   private streamSpeakerPlayback = false;
@@ -6222,7 +6236,8 @@ class AssistantModeStore {
     if (!provider || !cloud.cloudEnabled || !cloud.allowedProviders.includes(provider))
       return undefined;
     return async (text, lang, tone) => {
-      if (Date.now() < this.cloudSpeechBlockedUntil || looksSensitive(text)) return null;
+      if (Date.now() < this.cloudSpeechBlockedUntil || this.turnSensitive || looksSensitive(text))
+        return null;
       const api = desktopApi();
       if (Date.now() - this.cloudSpeechKeysAt > 60_000) {
         this.cloudSpeechKeysAt = Date.now();
@@ -6242,7 +6257,7 @@ class AssistantModeStore {
           privacyMode: preferences.getSnapshot().voice.privacyMode === true,
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
           // The whole reply, not just this clause: a harmless clause of a sensitive reply stays on this PC.
-          ...(this.replySensitive ? { sensitiveReply: true } : {}),
+          ...(this.replySensitive || this.turnSensitive ? { sensitiveReply: true } : {}),
         },
         {
           ledger,
@@ -6265,7 +6280,8 @@ class AssistantModeStore {
       );
       if (!out.ok) {
         // A refusal for a sensitive reply is the rule working, not a failing provider: no cool-down for the next reply.
-        if (!this.replySensitive) this.cloudSpeechBlockedUntil = Date.now() + 60_000;
+        if (!this.replySensitive && !this.turnSensitive)
+          this.cloudSpeechBlockedUntil = Date.now() + 60_000;
         this.trace("segment", `cloud voice skipped — ${out.error}`);
         return null;
       }
@@ -6434,7 +6450,7 @@ class AssistantModeStore {
   private noteReplySensitivity(runId: string, text: string) {
     if (this.replySensitiveRunId !== runId) {
       this.replySensitiveRunId = runId;
-      this.replySensitive = false;
+      this.replySensitive = this.turnSensitive;
     }
     if (!this.replySensitive && looksSensitive(text)) this.replySensitive = true;
   }

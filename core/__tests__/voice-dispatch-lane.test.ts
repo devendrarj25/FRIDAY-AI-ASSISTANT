@@ -489,7 +489,8 @@ describe("L5: the reply is torn down only for a real new run", () => {
     expect(guardAt).toBeGreaterThan(-1);
     expect(guardAt).toBeLessThan(dropAt);
     expect(dispatchSource.indexOf("this.trimReplyToHeard(heard)")).toBeGreaterThan(dropAt);
-    expect(dispatchSource.indexOf("this.markTurnAccepted()")).toBeGreaterThan(dropAt);
+    expect(dispatchSource.indexOf("this.markTurnAccepted(command)")).toBeGreaterThan(dropAt);
+    expect(dispatchSource).not.toContain("this.markTurnAccepted()");
     // The one stop of the foreground sits behind the real-request busy answer, after the side-question refusal.
     expect(dispatchSource.indexOf("result.refused && result.foregroundUntouched")).toBeLessThan(
       dispatchSource.indexOf('brain.stop("foreground")'),

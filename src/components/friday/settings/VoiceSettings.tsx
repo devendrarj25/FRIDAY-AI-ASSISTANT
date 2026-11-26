@@ -597,7 +597,7 @@ export function VoiceSettings() {
                 hinglish: true,
               });
               resetToBestVoice();
-              assistantMode.setHandsFree(true);
+              assistantMode.setHandsFree(false);
               assistantMode.setMuted(false);
               assistantMode.setPaused(false);
               void preferences.flush();

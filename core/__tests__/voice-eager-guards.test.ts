@@ -290,7 +290,10 @@ describe("eager guards, live: the speculative start that ships", () => {
     expect(handler).not.toMatch(/this\.dispatch\(/);
     const start = method(modeSource, /\n {2}private startDraftRun\([^{]*\{/);
     // The one call: a plain draft for the transcript path, and a local-only one when the ear's turn started it.
-    expect(start).toMatch(/brain\.startDraft\(command, viaTurn \? \{ onlyLocal: true \} : \{\}\)/);
+    // The draft is written under the heard turn's own hints (reply language, confidence), as the final turn will be.
+    expect(start).toMatch(
+      /brain\.startDraft\(command, \{\s*\.\.\.\(viaTurn \? \{ onlyLocal: true \} : \{\}\),\s*\.\.\.this\.turnHintsOption\(\),\s*\}\)/,
+    );
     expect(start).not.toMatch(/this\.dispatch\(|brain\.send\(|pendingUserEcho/);
     expect(modeSource).not.toMatch(/dispatch\(command, true\)|draftEchoBase|draftRunId/);
     settle("remind me to call the bank.");
