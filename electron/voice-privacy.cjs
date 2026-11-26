@@ -39,6 +39,7 @@ function useForTests(deps = {}) {
 const now = () => (injected.now ? injected.now() : Date.now());
 const enroll = () => injected.enroll || require("./voice-enroll.cjs");
 const tmpRoot = () => (injected.tmpdir ? injected.tmpdir() : require("node:os").tmpdir());
+const voiceprint = () => injected.voiceprint || require("./voiceprint.cjs");
 
 function privacyDir() {
   return paths.file("preferences", "voice-privacy");
@@ -167,25 +168,26 @@ const BOOT_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.mp3)$/;
 /** Every audio cache location with the group it is counted under. A `names` filter limits a shared folder. */
 function cacheTargets() {
   const targets = [];
+  const cache = paths.dir("cache");
   if (paths.root()) {
-    const cache = paths.dir("cache");
+    const base = paths.root();
     targets.push(
-      { group: "replies", dir: path.join(cache, "tts"), own: true },
-      { group: "rawClips", dir: path.join(cache, "stt-in"), own: true },
-      { group: "wakeClips", dir: path.join(cache, "wake-in"), own: true },
+      { group: "replies", dir: path.join(cache, "tts"), base, own: true },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), base, own: true },
+      { group: "wakeClips", dir: path.join(cache, "wake-in"), base, own: true },
     );
   } else {
     // No folder chosen: the speech paths write into the bootstrap cache, so their clips live there.
-    const cache = paths.dir("cache");
+    const base = path.dirname(cache);
     targets.push(
-      { group: "replies", dir: path.join(cache, "tts"), own: false, names: BOOT_CLIP },
-      { group: "rawClips", dir: path.join(cache, "stt-in"), own: false, names: BOOT_CLIP },
+      { group: "replies", dir: path.join(cache, "tts"), base, own: false, names: BOOT_CLIP },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), base, own: false, names: BOOT_CLIP },
     );
   }
   const tmp = tmpRoot();
   targets.push(
-    { group: "wakeClips", dir: path.join(tmp, "wake-in"), own: false },
-    { group: "systemClips", dir: path.join(tmp, "friday-sapi"), own: true },
+    { group: "wakeClips", dir: path.join(tmp, "wake-in"), base: tmp, own: false },
+    { group: "systemClips", dir: path.join(tmp, "friday-sapi"), base: tmp, own: true },
   );
   return targets;
 }
@@ -233,6 +235,95 @@ function clearCaches() {
     }
   }
   return cleared;
+}
+
+/** A folder that is a real folder (not a link) and whose real path stays inside its base (the root or the temp folder). */
+function insideBase(target) {
+  try {
+    if (!fs.lstatSync(target.dir).isDirectory()) return false;
+    const rel = path.relative(fs.realpathSync(target.base), fs.realpathSync(target.dir));
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+/** Remove one FRIDAY-named regular file (never a link). Returns its size, or -1 when it stayed. */
+function removeClip(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) return -1;
+    fs.rmSync(file, { force: true });
+    return stat.size;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * "Delete voice data" in one call: the voiceprint and every audio cache the speech paths leave behind. Strict: only a
+ * file named the way FRIDAY names it (16 hex and an audio extension, or 40 hex and mp3) goes, a link is never followed
+ * or removed, and a cache folder that links out of its root is skipped. Safe to call twice.
+ * Answers how many files went (the voiceprint counts as one), their size, and how many stayed.
+ */
+function clearVoiceData() {
+  let removed = 0;
+  let bytes = 0;
+  let failed = 0;
+  const print = voiceprint();
+  try {
+    if (print.status().enrolled) {
+      print.clear();
+      removed += 1;
+    }
+  } catch {
+    failed += 1;
+  }
+  if (paths.root()) {
+    // The voiceprint file the root holds, when the store above did not reach it.
+    const own = path.join(paths.root(), "voiceprint.json");
+    if (isFile(own)) {
+      const size = removeClip(own);
+      if (size < 0) failed += 1;
+      else {
+        removed += 1;
+        bytes += size;
+      }
+    }
+  }
+  for (const target of cacheTargets()) {
+    if (!insideBase(target)) continue;
+    let names = [];
+    try {
+      names = fs.readdirSync(target.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of names) {
+      if (!entry.isFile() || !BOOT_CLIP.test(entry.name)) continue;
+      const size = removeClip(path.join(target.dir, entry.name));
+      if (size < 0) failed += 1;
+      else {
+        removed += 1;
+        bytes += size;
+      }
+    }
+  }
+  let enrolled = false;
+  try {
+    enrolled = print.status().enrolled === true;
+  } catch {
+    /* an unreadable store is reported through `failed` above */
+  }
+  return { ok: failed === 0 && !enrolled, removed, bytes, failed, enrolled };
+}
+
+function isFile(file) {
+  try {
+    return fs.lstatSync(file).isFile();
+  } catch {
+    return false;
+  }
 }
 
 // ----------------------------------------------------------------------------- status and delete
@@ -330,5 +421,6 @@ module.exports = {
   readRetention,
   status,
   deleteAll,
+  clearVoiceData,
   useForTests,
 };

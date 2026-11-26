@@ -5405,7 +5405,7 @@ ipcMain.handle("voice:duck", (_e, payload) => {
 });
 ipcMain.handle("voice:meeting", () => meetingWatch.status());
 ipcMain.handle("voice:voiceprint-status", () => voiceprint.status());
-ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
+ipcMain.handle("voice:voiceprint-clear", () => voicePrivacy.clearVoiceData());
 
 // ------------------------------------------- the owner's own voice (Settings -> Voice) --
 // Samples recorded in Settings become a voiceprint and a personal "Friday" template (electron/voice-enroll.cjs).
