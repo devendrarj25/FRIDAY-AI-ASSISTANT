@@ -72,12 +72,31 @@ const OPTIONAL_INSTALL = {
   "local-tts": "supertonic-3",
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
+  "wake-embed": "wake-embed",
   "hindi-ear": "hindi-ear",
   "hinglish-ear": "hinglish-ear",
   "hindi-fallback-ear": "hindi-fallback-ear",
   "hindi-punct": "hindi-punct",
   "hindi-light-tts": "hindi-light-tts",
 };
+
+/** The runner behind every `selftest-<id>` row and the Smart Turn load row: `voice_pin_selftest.py` in the kernel Python. */
+function runPinSelfTest(exe, prefix) {
+  return async ({ dir, spec }) => {
+    const out = await run(
+      exe,
+      [...prefix, pinSelfTestScript(), "--dir", dir, "--spec", JSON.stringify(spec)],
+      120000,
+    );
+    return (
+      parseJsonLine(out.stdout) || {
+        ok: false,
+        reason: "no-answer",
+        detail: tail(out.stderr, "the self-test printed nothing"),
+      }
+    );
+  };
+}
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 
@@ -474,25 +493,25 @@ async function verifyVoiceRuntime({
     }
   }
 
+  // Smart Turn: the kernel line only says the file is present. Open it with the pinned signature self-test, and
+  // replace that row with the answer (red when the file does not load).
+  const turnAt = checks.findIndex(
+    (check) => check.id === "smart-turn" && check.ok && !check.optional,
+  );
+  if (turnAt >= 0) {
+    const loaded = await require("./voice-weights.cjs").smartTurnLoadCheck(paths.root() || "", {
+      exists: (file) => fs.existsSync(file),
+      runSelfTest: runPinSelfTest(exe, prefix),
+    });
+    if (loaded) checks[turnAt] = loaded;
+  }
+
   // The optional pins (denoiser, speaker model, Hindi Vaani ear): installed ones open and run one pass, the rest offer
   // their install button. Never required, and a green row does not mean the engine is used (see voice-pins.cjs SELF_TESTS).
   checks.push(
     ...(await require("./voice-weights.cjs").pinSelfTests(paths.root() || "", {
       exists: (file) => fs.existsSync(file),
-      runSelfTest: async ({ dir, spec }) => {
-        const out = await run(
-          exe,
-          [...prefix, pinSelfTestScript(), "--dir", dir, "--spec", JSON.stringify(spec)],
-          120000,
-        );
-        return (
-          parseJsonLine(out.stdout) || {
-            ok: false,
-            reason: "no-answer",
-            detail: tail(out.stderr, "the self-test printed nothing"),
-          }
-        );
-      },
+      runSelfTest: runPinSelfTest(exe, prefix),
     })),
   );
 

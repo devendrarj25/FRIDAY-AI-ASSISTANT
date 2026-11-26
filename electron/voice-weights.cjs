@@ -3,6 +3,7 @@
  * The worker does not download. Every speech size and the neural voice are pinned by revision and
  * SHA-256 in `voice-pins.cjs`; the downloader enforces the pin and a repair removes only a bad file.
  */
+const fs = require("fs");
 const path = require("path");
 const pins = require("./voice-pins.cjs");
 
@@ -217,6 +218,8 @@ const PINNED = [
     sha256: SMART_TURN_SHA256,
     bytes: SMART_TURN_BYTES,
     dir: ["models", "smart-turn"],
+    license: "BSD-2-Clause",
+    firewallClass: "local",
     optional: true,
     fallback: "the pause timer alone (Smart Turn can only lengthen a pause)",
     sources: [
@@ -236,6 +239,8 @@ const PINNED = [
     sha256: SILERO_SHA256,
     bytes: SILERO_BYTES,
     dir: ["models", "silero-vad"],
+    license: "MIT",
+    firewallClass: "local",
     optional: true,
     fallback: "the energy VAD",
     sources: [
@@ -263,6 +268,8 @@ const PINNED = [
     sha256: WAKE_EMBED_SHA256,
     bytes: WAKE_EMBED_BYTES,
     dir: ["models", "wake"],
+    license: "Apache-2.0",
+    firewallClass: "local",
     optional: true,
     fallback: "the bundled wake scorer",
     sources: [
@@ -285,6 +292,25 @@ const HELPER_LABELS = {
   "silero-vad": "Silero VAD",
   "smart-turn": "Smart Turn",
   "wake-embed": "Wake word embedding",
+};
+
+/**
+ * Internal catalog metadata on every registered voice model (`modelRegistry`, `manifestOf`, the installer catalog):
+ * `license` is the pinned source's licence id and `firewallClass` says where the weights run. "local" means the model
+ * runs inside the kernel on this PC, so microphone audio never leaves it. The manifest test fails on an empty value.
+ */
+const FIREWALL_CLASSES = ["local"];
+
+/**
+ * What the Smart Turn helper must do before the Doctor may call it loaded: the same onnx-signature self-test the other
+ * optional pins use (`kernel/voice_pin_selftest.py`). Read from the pinned file with onnxruntime 1.29 on 2026-11-26: one
+ * float input `input_features` [B, 80, 800] (eight seconds of 80 mel bins) and one output `logits` [B, 1].
+ */
+const SMART_TURN_SELF_TEST = {
+  kind: "onnx-signature",
+  file: "smart-turn-v3.2-cpu.onnx",
+  inputs: [{ name: "input_features", shape: ["B", 80, 800], type: "float32", run: [1, 80, 800] }],
+  outputs: [{ name: "logits", shape: ["B", 1] }],
 };
 
 /** True for a helper FRIDAY can run without (its `fallback` engine takes over); a failed fetch is then a note, not a failure. */
@@ -566,7 +592,76 @@ async function pinChecks(root, deps = {}) {
       detail: describe(tts),
     });
   }
+  rows.push(...helperPinChecks(root, { ...deps, exists }));
   return rows;
+}
+
+/**
+ * One `<id>-pin` row per installed single-file helper (Silero VAD, Smart Turn, the wake embedding): the file is the
+ * pinned size, and with `hash` its SHA-256 matches too. The helpers are optional, so a row is never required and a
+ * red one carries the helper's own install id, which fetches the pinned file again. `fileSize` and `hashFile` are
+ * injectable for a test.
+ */
+function helperPinChecks(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const sizeOf = deps.fileSize || ((file) => fs.statSync(file).size);
+  const hashOf = deps.hashFile || pins.sha256FileSync;
+  const rows = [];
+  for (const row of PINNED) {
+    const file = path.join(root || "", ...row.dir, row.file);
+    if (!root || !exists(file)) continue;
+    let problem = "";
+    try {
+      if (sizeOf(file) !== row.bytes) problem = `${row.file} wrong size`;
+      else if (deps.hash && hashOf(file) !== row.sha256) problem = `${row.file} fails SHA-256`;
+    } catch (error) {
+      problem = `${row.file} cannot be read (${String(error?.message || error).slice(0, 80)})`;
+    }
+    const label = HELPER_LABELS[row.id] || row.id;
+    rows.push({
+      id: `${row.id}-pin`,
+      label: `${label} matches its pin`,
+      ok: !problem,
+      optional: true,
+      required: false,
+      ...(problem ? { installId: row.id } : {}),
+      detail: problem || `${row.file} matches the pinned size${deps.hash ? " and SHA-256" : ""}`,
+    });
+  }
+  return rows;
+}
+
+/**
+ * The Smart Turn Doctor row that opens the file. The kernel check only says "file present"; this runs the pinned
+ * signature self-test (`runSelfTest({ dir, spec })`, the same runner the optional pins use) so a truncated, wrong or
+ * unreadable file is red. Null when the file is not in its registered folder (the kernel's own row stays). A thrown
+ * or missing runner is red, never a silent pass.
+ */
+async function smartTurnLoadCheck(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const row = PINNED.find((item) => item.id === "smart-turn");
+  const dir = path.join(root || "", ...row.dir);
+  if (!root || !exists(path.join(dir, row.file))) return null;
+  let result;
+  try {
+    result = deps.runSelfTest
+      ? await deps.runSelfTest({ catalogId: row.id, dir, spec: SMART_TURN_SELF_TEST })
+      : { ok: false, reason: "no-runner", detail: "the self-test runner is not available" };
+  } catch (error) {
+    result = { ok: false, reason: "run-failed", detail: String(error?.message || error) };
+  }
+  const ok = Boolean(result?.ok);
+  return {
+    id: row.id,
+    label: ok ? "Smart Turn loads and runs" : "Smart Turn does not load",
+    ok,
+    optional: true,
+    required: false,
+    ...(ok ? {} : { installId: row.id }),
+    detail: ok
+      ? String(result.detail || "opens and ran one pass")
+      : [result?.reason, result?.detail].filter(Boolean).join(": ") || "the file did not open",
+  };
 }
 
 /**
@@ -742,6 +837,10 @@ async function packChecks(root, deps = {}) {
  * One list of every pinned voice model with the folder it lives in, so the manifest, the Doctor rows, the rollback and
  * the install plan all read the same table. `kind` is the Models-page kind: stt, tts or voice (a helper).
  */
+function licenceOf(repo) {
+  return String(pins.pinForRepo(repo)?.license || "");
+}
+
 function modelRegistry() {
   const rows = [];
   for (const size of SIZE_ORDER) {
@@ -751,6 +850,8 @@ function modelRegistry() {
       repo: STT_REPOS[size],
       dir: ["cache", "stt", size],
       label: `Speech ${size}`,
+      license: licenceOf(STT_REPOS[size]),
+      firewallClass: "local",
     });
   }
   for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
@@ -760,6 +861,8 @@ function modelRegistry() {
       repo: ear.repo,
       dir: ["models", ear.catalogId],
       label: ear.label,
+      license: licenceOf(ear.repo),
+      firewallClass: "local",
     });
   }
   rows.push({
@@ -768,6 +871,8 @@ function modelRegistry() {
     repo: TTS_REPO,
     dir: ["models", "supertonic-3"],
     label: "Neural voice",
+    license: licenceOf(TTS_REPO),
+    firewallClass: "local",
   });
   for (const row of PINNED) {
     rows.push({
@@ -779,6 +884,8 @@ function modelRegistry() {
       dir: [...row.dir],
       label: HELPER_LABELS[row.id] || row.id,
       optional: row.optional === true,
+      license: row.license,
+      firewallClass: row.firewallClass,
     });
   }
   return rows;
@@ -790,10 +897,28 @@ function manifestOf(catalogId) {
   if (!row) return null;
   if (row.repo) {
     const facts = pins.manifestFor(row.repo);
-    return facts ? { catalogId, kind: row.kind, ...facts } : null;
+    return facts
+      ? {
+          catalogId,
+          kind: row.kind,
+          ...facts,
+          license: row.license,
+          firewallClass: row.firewallClass,
+        }
+      : null;
   }
   const facts = pins.FILE_FACTS[catalogId];
-  return facts ? { catalogId, kind: row.kind, repo: null, diskBytes: row.bytes, ...facts } : null;
+  return facts
+    ? {
+        catalogId,
+        kind: row.kind,
+        repo: null,
+        diskBytes: row.bytes,
+        ...facts,
+        license: row.license,
+        firewallClass: row.firewallClass,
+      }
+    : null;
 }
 
 /** Where a model lives under a FRIDAY root (the folder, or the single file for a helper). */
@@ -1477,6 +1602,9 @@ module.exports = {
   auditStt,
   auditTts,
   pinChecks,
+  helperPinChecks,
+  smartTurnLoadCheck,
+  FIREWALL_CLASSES,
   pinSelfTests,
   packChecks,
   VOICE_PACKS,

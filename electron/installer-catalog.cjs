@@ -166,6 +166,9 @@ function voiceRows(root, deps = {}) {
       installed,
       installedVersion: version,
       facts: manifest || null,
+      // Internal catalog metadata; the Models and Installer pages never print either field.
+      license: manifest?.license || entry.license || null,
+      firewallClass: manifest?.firewallClass || entry.firewallClass || null,
       optional: manifest?.fallbackPriority === "experimental",
       byRevision: Boolean(pin),
       // FRIDAY installs the PINNED revision; the model host's newest revision is shown, never installed unseen.
