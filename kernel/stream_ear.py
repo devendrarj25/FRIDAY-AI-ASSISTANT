@@ -87,6 +87,18 @@ STREAM_OPS = frozenset({"stream-open", "stream-feed", "stream-close"})
 WARM_OP = "stream-warm"
 # How long a stream op or an unload waits for a running warm before it answers "warming" (or skips the unload).
 HOST_WAIT_S = 0.25
+# The worker's memory admission (``stt.admit``), asked before an engine or the speaker model opens weights of its own:
+# ``(kind, est_mb) -> bool``. Alone (tests, tools) every load is admitted. Rough resident sizes below.
+
+
+def admit_all(_kind: str, _mb: float) -> bool:
+    """The admission of a module run alone (tests, tools): every load may open. The worker sets ``admit_hook``."""
+    return True
+
+
+admit_hook: Callable[[str, float], bool] = admit_all
+NEMOTRON_LOAD_MB = 900.0
+SPEAKER_LOAD_MB = 60.0
 SLICE_MS = 20
 MAX_FEED_BYTES = 1_048_576
 MAX_ID_CHARS = 64
@@ -134,6 +146,7 @@ class EngineSpec:
     languages: Callable[[Path], set[str]] | None = None  # the locales the files on disk can hear
     priority: int = 100  # lower runs first under "auto"
     locate: Callable[[], Path | None] | None = None  # an ear with its own pin check (its folder, or None)
+    load_mb: float = 0.0  # weights the engine opens itself (0: it reads models the worker already admits)
 
 
 # ---- registry and tier choice -------------------------------------------------------------------------------------
@@ -721,12 +734,16 @@ class TransducerEngine:
         try:
             from ear_scene import SceneTracker, SpeakerScorer
 
+            if voice and not admit_hook("speaker", SPEAKER_LOAD_MB):
+                voice = False  # no memory for the speaker model: the turn carries no speaker tag
+                if not scene:
+                    return
             speaker = SpeakerScorer(ears.get("ownerEmbedding")) if voice else None
             self._scene = SceneTracker(score_scene=scene, score_speaker=voice, speaker=speaker)
         except Exception:  # noqa: BLE001 — numpy missing: the room is simply not read
             self._scene = None
             return
-        self._hold_other = ears.get("otherVoice") == "hold"
+        self._hold_other = voice and ears.get("otherVoice") == "hold"
 
     def _apply_scene(self) -> None:
         """Make the voice gate stricter while music or a tv holds, and put it back when it clears. Only ever up:
@@ -1170,6 +1187,7 @@ register_engine(
         aliases=("nemotron",),
         languages=_nemotron_languages,
         priority=10,
+        load_mb=NEMOTRON_LOAD_MB,
     )
 )
 
@@ -1241,6 +1259,34 @@ class StreamHost:
         finally:
             self._lock.release()
 
+    def resident_mb(self) -> float:
+        """The memory an idle engine's own weights hold (0 while a stream is live or for an engine without weights)."""
+        spec = self._spec
+        if self.active is not None or spec is None or not self.loaded_name():
+            return 0.0
+        return spec.load_mb
+
+    def unload_idle_engine(self) -> list[str]:
+        """Close the engine only when no stream is live and no warm or stream op holds the slot (never waits): the
+        memory admission's eviction, which must not cut the owner off mid-turn or stall on a running load."""
+        if not self._lock.acquire(blocking=False):
+            return []
+        try:
+            if self.active is not None or self._engine is None:
+                return []
+            names = self.loaded_name()
+            self._engine.close()
+            self._engine, self._spec = None, None
+            return names
+        finally:
+            self._lock.release()
+
+    def _admitted(self, spec: EngineSpec) -> bool:
+        """True when ``spec`` is resident already, opens no weights of its own, or the worker admits the load."""
+        if self._engine is not None and self._spec is spec and self.loaded_name():
+            return True
+        return spec.load_mb <= 0 or admit_hook("stream", spec.load_mb)
+
     def warm(self, req: dict[str, Any]) -> dict[str, Any]:
         """``stream-warm`` {streamEngine|engine, locale?, providers?} -> {ok, op, engine, loadedMs, already}.
 
@@ -1270,6 +1316,8 @@ class StreamHost:
             return {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": 0, "already": True}
         if self.active is not None:
             return {"ok": False, "op": WARM_OP, "reason": "stream-active", "fallback": True}
+        if not self._admitted(spec):
+            return {"ok": False, "op": WARM_OP, "reason": "low-memory", "fallback": True}
         if self._engine is not None:
             self._engine.close()
         self._engine, self._spec = spec.factory(), spec
@@ -1334,6 +1382,8 @@ class StreamHost:
         spec = engine_spec(choice.engine)
         if spec is None:
             return {"ok": False, "op": "stream-open", "streamId": sid, "reason": "unknown-engine", "fallback": True}
+        if not self._admitted(spec):
+            return {"ok": False, "op": "stream-open", "streamId": sid, "reason": "low-memory", "fallback": True}
         if self._engine is None or self._spec is not spec:
             if self._engine is not None:
                 self._engine.close()

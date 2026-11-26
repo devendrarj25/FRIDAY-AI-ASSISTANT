@@ -8,7 +8,9 @@ downloaded on demand by the Install Manager into ``<FRIDAY root>/models/hindi-ea
 
 It is used only when the owner picks Hindi. English stays on Moonshine or faster-whisper, and Hinglish and
 auto stay on faster-whisper, which also answers whenever this ear is missing, fails, or hears nothing in
-Devanagari, so a missing file or a bad run can never lose an utterance. Text stays as heard; nothing is
+Devanagari, so a missing file or a bad run can never lose an utterance. A folder neither runner can open is
+remembered (by its model file's time and size) and reported in ``error()``, so it is tried once, not on every
+interim; every load first asks the worker's memory admission (``admit_hook``). Text stays as heard; nothing is
 transliterated. When the optional punctuation model (``hindi_punct.py``) is installed, marks are added to a line the
 ear wrote without any; the words themselves are never changed.
 
@@ -22,7 +24,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,29 @@ _model_dir = ""
 _timed = None  # (model, its timed reader)
 _owner_words: tuple[str, ...] = ()  # the owner's words for the read in progress (see ``with_hotwords``)
 _bias = None  # (model, words, graph): the bias graph of the last word list, built once per model and list
+# Rough resident sizes for the worker's memory admission (``stt.admit``): the int8 ear and the punctuation model.
+LOAD_MB = 450.0
+PUNCT_LOAD_MB = 350.0
+# The worker's admission check before a load: ``(kind, est_mb) -> bool``. Alone (tests, tools) every load is admitted.
+
+
+def admit_all(_kind: str, _mb: float) -> bool:
+    """The admission of a module run alone (tests, tools): every load may open. The worker sets ``admit_hook``."""
+    return True
+
+
+admit_hook: Callable[[str, float], bool] = admit_all
+# A folder neither runner could open, keyed by folder, model file mtime and size: tried once, not on every interim.
+_broken: dict[tuple[str, int, int], str] = {}
+_last_skip = ""  # why the last read did not run: "", "low-memory" (refused) or "broken"
+
+
+class EarSkipped(RuntimeError):
+    """The ear did not open: ``kind`` is ``low-memory`` (the worker refused the load) or ``broken``."""
+
+    def __init__(self, kind: str) -> None:
+        super().__init__(kind)
+        self.kind = kind
 
 
 def model_dir() -> Path | None:
@@ -62,8 +87,38 @@ def model_dir() -> Path | None:
     return folder
 
 
+def _folder_key(folder: Path) -> tuple[str, int, int]:
+    try:
+        stat = (folder / MODEL_FILE).stat()
+    except OSError:
+        return (str(folder), 0, 0)
+    return (str(folder), stat.st_mtime_ns, stat.st_size)
+
+
 def ready() -> bool:
-    return model_dir() is not None
+    """The files are on disk and this worker has not found them unreadable."""
+    folder = model_dir()
+    return folder is not None and _folder_key(folder) not in _broken
+
+
+def error() -> str | None:
+    """Why the ear on disk cannot open (no folder names), or None."""
+    folder = model_dir()
+    return None if folder is None else _broken.get(_folder_key(folder))
+
+
+def last_skip() -> str:
+    """Why the last read did not run: "" (it ran, or there was nothing to read), "low-memory" or "broken"."""
+    return _last_skip
+
+
+def _error_text(exc: BaseException) -> str:
+    try:
+        from voice_runtime import _safe_error
+
+        return _safe_error(exc)
+    except Exception:  # noqa: BLE001 - without the scrubber only the class name leaves
+        return type(exc).__name__
 
 
 def wants_hindi(language: str, speech_pref: str) -> bool:
@@ -250,19 +305,41 @@ def settle_gate(gate: Mapping[str, Any], cue: Mapping[str, float] | None, prior:
 
 
 def _load(folder: Path):
-    global _model, _model_dir
+    """The open ear for ``folder``. Raises ``EarSkipped`` when the worker refuses the memory or the folder already
+    failed to open in this worker (a re-download changes the file and is tried again)."""
+    global _model, _model_dir, _last_skip
     if _model is not None and _model_dir == str(folder):
         return _model
+    key = _folder_key(folder)
+    if key in _broken:
+        _last_skip = "broken"
+        raise EarSkipped("broken")
+    if not admit_hook("hindi-ear", LOAD_MB):
+        _last_skip = "low-memory"
+        raise EarSkipped("low-memory")
     try:
-        import nemo_ear
+        try:
+            import nemo_ear
 
-        model = nemo_ear.NemoEar.load(folder, kind=nemo_ear.kind_of(MODEL_TYPE), quantization="int8")
-    except Exception:  # noqa: BLE001 — the own runner could not open the folder: the pip package may still
-        import onnx_asr  # type: ignore
+            model = nemo_ear.NemoEar.load(folder, kind=nemo_ear.kind_of(MODEL_TYPE), quantization="int8")
+        except Exception:  # noqa: BLE001 — the own runner could not open the folder: the pip package may still
+            import onnx_asr  # type: ignore
 
-        model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8")
+            model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8")
+    except Exception as exc:  # noqa: BLE001 — neither runner opens it: remembered, so faster-whisper answers at once
+        _broken[key] = _error_text(exc)
+        _last_skip = "broken"
+        raise EarSkipped("broken") from exc
     _model, _model_dir = model, str(folder)
     return _model
+
+
+def _punctuate(text: str) -> str:
+    """Marks from the optional punctuation model, when it is open or the worker admits opening it."""
+    opened = getattr(hindi_punct, "_runtime", None) is not None
+    if hindi_punct.ready() and not opened and not admit_hook("punct", PUNCT_LOAD_MB):
+        return text
+    return hindi_punct.apply(text)
 
 
 @contextmanager
@@ -484,8 +561,8 @@ def log_probs(samples):
 
 def transcribe(samples) -> str | None:
     """Hindi text for 16 kHz mono float samples, or None to let faster-whisper answer."""
-    global _last_confidence
-    _last_confidence = None
+    global _last_confidence, _last_skip
+    _last_confidence, _last_skip = None, ""
     folder = model_dir()
     if folder is None:
         return None
@@ -501,7 +578,7 @@ def transcribe(samples) -> str | None:
         _last_confidence = None
         return None
     # A Hindi recogniser that wrote no Devanagari heard nothing it understands.
-    return hindi_punct.apply(text) if _DEVANAGARI.search(text) else None
+    return _punctuate(text) if _DEVANAGARI.search(text) else None
 
 
 def transcribe_words(samples) -> dict | None:
@@ -510,8 +587,8 @@ def transcribe_words(samples) -> dict | None:
     The same ear, the same gates and the same score as ``transcribe`` (so a partial and its final agree on who hears
     it), but the words carry times and no punctuation model runs: this is a guess made while the owner still speaks.
     """
-    global _last_confidence
-    _last_confidence = None
+    global _last_confidence, _last_skip
+    _last_confidence, _last_skip = None, ""
     folder = model_dir()
     if folder is None:
         return None

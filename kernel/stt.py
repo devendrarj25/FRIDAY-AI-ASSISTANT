@@ -306,6 +306,8 @@ def fast_english_model():
         spec = model_load_kwargs(policy["size"], str(folder))
         if spec["device"] != "cpu":
             return None  # a graphics card reads the owner's own model fast enough
+        if not admit("fast", load_estimate_mb(policy["size"])):
+            return None  # refused, not broken: it is tried again when the memory returns
         _fast["model"], _ = open_whisper(cls, spec["target"], spec)
     except Exception:  # noqa: BLE001 — the owner's model answers instead
         _fast["failed"] = True
@@ -901,7 +903,88 @@ def cache_status() -> dict:
         "unloadCount": _unloads,
         "fallbacks": {"total": sum(_fallbacks.values()), "byKind": dict(_fallbacks)},
         "memory": memory_pressure(),
+        "admit": _last_admit,
     }
+
+
+# --- one admission before every model load -------------------------------------------------------------------------
+# Every load (the owner's model, the resident base, the Hindi ear, the stream engine, the punctuation and speaker
+# models) asks ``admit`` first. A load that would leave less free memory than the critical line first drops resident
+# models in this order, re-reading the machine after each; a load that still would not fit is refused (the owner's
+# own model is required: it drops the others and loads anyway). Each drop and refusal is a counted fallback.
+EVICT_ORDER = ("stream", "fast", "whisper", "hindi-ear")
+_ADMIT_SLOT = {"speaker": "stream", "punct": "hindi-ear"}  # a load never drops the slot it belongs to
+_WHISPER_LOAD_MB = {1: 150.0, 2: 300.0, 3: 700.0, 4: 1700.0, 5: 1800.0, 6: 3300.0}  # rough int8 resident sizes
+_last_admit: dict | None = None
+
+
+def load_estimate_mb(name: str | None) -> float:
+    """The rough resident size of a whisper model by its size word (unknown names read as small)."""
+    return _WHISPER_LOAD_MB.get(model_rank(name) or 0, 700.0)
+
+
+def _resident_mb(kind: str) -> float:
+    if kind == "stream":
+        return stream_ear.HOST.resident_mb()
+    if kind == "fast":
+        return load_estimate_mb(str(_fast["name"])) if _fast["model"] is not None else 0.0
+    if kind == "whisper":
+        return load_estimate_mb(_model_name) if _model is not None else 0.0
+    return hindi_ear.LOAD_MB if hindi_ear.loaded() else 0.0
+
+
+def _evict(kind: str) -> bool:
+    global _model, _model_name
+    if kind == "stream":
+        return bool(stream_ear.HOST.unload_idle_engine())
+    if kind == "fast":
+        _fast["model"], _fast["name"] = None, ""
+    elif kind == "whisper":
+        _model, _model_name = None, None
+    else:
+        return hindi_ear.unload()
+    return True
+
+
+def admit(kind: str, est_mb: float, required: bool = False) -> bool:
+    """True when a load of about ``est_mb`` MB may open now (see the comment above). Never raises."""
+    global _last_admit
+    pressure = memory_pressure()
+    available, total = pressure.get("availableMb"), pressure.get("totalMb")
+    record: dict[str, Any] = {"kind": kind, "estMb": int(est_mb), "level": pressure.get("level"), "evicted": []}
+    _last_admit = record
+    if not pressure.get("known", True) or available is None or total is None:
+        record["verdict"] = "unknown"  # a machine that cannot be read never stops speech
+        return True
+    line = _pressure_line(float(total), PRESSURE_CRITICAL)
+    slot = _ADMIT_SLOT.get(kind, kind)
+    order = [k for k in EVICT_ORDER if k != slot]
+    fits = float(available) - est_mb >= line
+    gain = 0.0 if fits else sum(_resident_mb(k) for k in order)
+    if not fits and (required or float(available) + gain - est_mb >= line):
+        for victim in order:
+            if _resident_mb(victim) <= 0 or not _evict(victim):
+                continue
+            record["evicted"].append(victim)
+            note_fallback(f"evicted-{victim}")
+            gc.collect()
+            again = memory_pressure().get("availableMb")
+            if again is None:
+                break
+            available = again
+            if float(available) - est_mb >= line:
+                fits = True
+                break
+    record["availableMb"] = available
+    if fits:
+        record["verdict"] = "load"
+        return True
+    if required:
+        record["verdict"] = "over-line"
+        return True
+    record["verdict"] = "refused"
+    note_fallback(f"admit-refused-{kind}")
+    return False
 
 
 def admit_load(wanted: str, auto: bool) -> str:
@@ -953,6 +1036,7 @@ def get_model(name: str, model_path: str | None = None, auto: bool = False, comp
     if verdict == "evict":
         _model, _model_name = None, None
         gc.collect()
+    admit("whisper", load_estimate_mb(wanted), required=True)
     started = _now()
     _model, _used = open_whisper(cls, wanted, spec)
     if _used != spec["device"]:
@@ -2232,6 +2316,7 @@ def _transcribe_prepared(
     ear_note = ""
     ear_heard: dict | None = None  # the ear's line and cue behind an English gate, handed to the open re-read
     gate_why, ear_unsure = "", False
+    skip_note = ""  # the Hindi ear could not open for this turn: said in the reply, never a silent English decode
     if trelis is None and not moon_text and samples is not None and route.ear:
         # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
@@ -2245,6 +2330,10 @@ def _transcribe_prepared(
             with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
                 hindi_text = hindi_ear.transcribe(samples)
             ear_conf = hindi_ear.last_confidence()
+            skipped = hindi_ear.last_skip()
+            if skipped:
+                why = "low memory" if skipped == "low-memory" else "its files cannot be opened"
+                skip_note = f"the Hindi ear could not open ({why}): faster-whisper heard it"
             if _ear_loaded():
                 if not ear_was_open:
                     # The first reading opens the ear, so this time includes that one decode.
@@ -2280,9 +2369,10 @@ def _transcribe_prepared(
             hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
         elif gate_english:
             route = route_after_english_gate(route, gate_why)
-        else:
+        elif not skip_note:
             # The ear listened and kept nothing: after an English turn that is English, not Hindi; a line it was unsure
-            # of, with no English before it, is read by the base model first with the language open.
+            # of, with no English before it, is read by the base model first with the language open. An ear that never
+            # opened heard nothing, so the turn before it does not lock this one to English.
             route = lane_after_ear(lock_after_ear(route, prior, mode), mode, ear_unsure)
     turn_probability = None
     # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
@@ -2490,6 +2580,7 @@ def _transcribe_prepared(
             lambda clip, forced: _consume_whisper(model, clip, {**plain, "language": forced}, None),
         )
         language_note = "; ".join(n for n in (language_note, rescore_note) if n)
+    language_note = "; ".join(n for n in (skip_note, language_note) if n)
 
     def again(kind: str) -> dict:
         check_cancel()
@@ -2707,6 +2798,7 @@ def status_payload() -> dict:
         "error": whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
+        "hindiEarError": hindi_ear.error(),
         "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
@@ -3186,6 +3278,8 @@ stream_ear.register_engine(
     )
 )
 stream_ear.HOST.hardware = stream_hardware_tier
+hindi_ear.admit_hook = admit
+stream_ear.admit_hook = admit
 
 
 def handle_request(req: dict) -> dict:

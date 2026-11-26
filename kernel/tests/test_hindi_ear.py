@@ -35,6 +35,8 @@ def _fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("FRIDAY_ROOT", str(tmp_path))
     monkeypatch.setattr(hindi_ear, "_model", None)
     monkeypatch.setattr(hindi_ear, "_model_dir", "")
+    monkeypatch.setattr(hindi_ear, "_broken", {})
+    monkeypatch.setattr(hindi_ear, "admit_hook", lambda _kind, _mb: True)
 
 
 def _fake_onnx_asr(monkeypatch, text="आज मौसम अच्छा है", fail=False):
@@ -490,6 +492,56 @@ def test_with_neither_runner_the_ear_gives_way_to_faster_whisper(monkeypatch, tm
     monkeypatch.setitem(sys.modules, "onnx_asr", None)
     assert hindi_ear.transcribe(_clip()) is None and hindi_ear.last_confidence() is None
     assert hindi_ear.transcribe_words(_clip()) is None and hindi_ear.log_probs(_clip()) is None
+
+
+def _broken_runners(monkeypatch) -> list[int]:
+    tries: list[int] = []
+
+    def boom(*_a, **_k):
+        tries.append(1)
+        raise RuntimeError(f"cannot open {Path.home()}/secret/model.int8.onnx")
+
+    monkeypatch.setattr(nemo_ear.NemoEar, "load", classmethod(lambda cls, *a, **k: boom()))
+    monkeypatch.setitem(sys.modules, "onnx_asr", types.SimpleNamespace(load_model=boom))
+    return tries
+
+
+def test_a_broken_folder_is_tried_once_and_then_reported_not_retried_on_every_interim(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    tries = _broken_runners(monkeypatch)
+    assert hindi_ear.ready() is True and hindi_ear.error() is None
+    assert hindi_ear.transcribe(_clip()) is None
+    for _ in range(5):  # live interims, the final, the head and the scores
+        assert hindi_ear.transcribe_words(_clip()) is None
+    assert hindi_ear.transcribe(_clip()) is None and hindi_ear.log_probs(_clip()) is None
+    assert hindi_ear.ctc_head() is None
+    assert len(tries) == 2, "one try: the own runner, then the package, once each"
+    assert hindi_ear.ready() is False and hindi_ear.last_skip() == "broken"
+    error = hindi_ear.error()
+    assert error and "RuntimeError" in error and str(Path.home()) not in error and "secret" not in error
+
+
+def test_a_new_download_of_the_broken_folder_is_tried_again(monkeypatch, tmp_path):
+    import os
+
+    folder = _stage(tmp_path)
+    tries = _broken_runners(monkeypatch)
+    assert hindi_ear.transcribe(_clip()) is None and hindi_ear.ready() is False
+    stat = (folder / hindi_ear.MODEL_FILE).stat()
+    os.utime(folder / hindi_ear.MODEL_FILE, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert hindi_ear.ready() is True and hindi_ear.error() is None  # a changed file is a new folder to try
+    loads = _fake_onnx_asr(monkeypatch)
+    assert hindi_ear.transcribe(_clip()) == "आज मौसम अच्छा है" and len(loads) == 1 and len(tries) == 3
+
+
+def test_the_status_reports_the_broken_ear_and_the_route_does_not_lean_on_it(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _broken_runners(monkeypatch)
+    hindi_ear.transcribe(_clip())
+    status = stt.status_payload()
+    assert status["hindiEarReady"] is False and "RuntimeError" in status["hindiEarError"]
+    monkeypatch.setattr(hindi_ear, "_broken", {})
+    assert stt.status_payload()["hindiEarError"] is None
 
 
 def test_the_own_runner_is_not_asked_for_a_head_the_package_has_to_give(monkeypatch, tmp_path):
