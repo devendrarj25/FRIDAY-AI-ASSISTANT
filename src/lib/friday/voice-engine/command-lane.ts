@@ -36,6 +36,8 @@ export type CommandHit = {
   args?: { target?: string; id?: string };
   confidence: number;
   folded: string;
+  /** Set on a fuzzy snap to a name that holds a consequential word: read it back and ask first. */
+  readBack?: true;
 };
 export type CommandMatch = { hit: false } | CommandHit;
 
@@ -429,17 +431,52 @@ function foldedName(name: string): string {
   return folded;
 }
 
-/** True when `a` and `b` differ by exactly one insertion, deletion or substitution. */
-function oneEditApart(a: string, b: string): boolean {
-  const diff = a.length - b.length;
-  if (diff > 1 || diff < -1 || a === b) return false;
-  const [long, short] = a.length >= b.length ? [a, b] : [b, a];
-  let i = 0;
-  while (i < short.length && long[i] === short[i]) i++;
-  if (long.length === short.length) return long.slice(i + 1) === short.slice(i + 1);
-  return long.slice(i + 1) === short.slice(i);
+/** One edit (insert, delete, substitute) per five characters of the registry name; shorter than five is exact only. */
+const editsAllowed = (name: string): number => Math.floor(name.length / FUZZY_CHARS_PER_EDIT);
+
+/** Edit distance between `a` and `b`, or `limit + 1` as soon as it must exceed `limit` (banded, no allocation). */
+function boundedEdits(a: string, b: string, limit: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let lo = 0;
+  while (lo < a.length && lo < b.length && a.charCodeAt(lo) === b.charCodeAt(lo)) lo++;
+  let ea = a.length;
+  let eb = b.length;
+  while (ea > lo && eb > lo && a.charCodeAt(ea - 1) === b.charCodeAt(eb - 1)) {
+    ea--;
+    eb--;
+  }
+  const n = ea - lo;
+  const m = eb - lo;
+  if (n === 0 || m === 0) return Math.max(n, m) <= limit ? Math.max(n, m) : limit + 1;
+  let prev = ROW_A;
+  let cur = ROW_B;
+  if (m + 1 > prev.length) {
+    prev = new Int32Array(m + 1);
+    cur = new Int32Array(m + 1);
+  }
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    cur[0] = i;
+    let least = i;
+    const ci = a.charCodeAt(lo + i - 1);
+    for (let j = 1; j <= m; j++) {
+      const sub = (prev[j - 1] as number) + (ci === b.charCodeAt(lo + j - 1) ? 0 : 1);
+      const v = Math.min(sub, (prev[j] as number) + 1, (cur[j - 1] as number) + 1);
+      cur[j] = v;
+      if (v < least) least = v;
+    }
+    if (least > limit) return limit + 1;
+    const swap = prev;
+    prev = cur;
+    cur = swap;
+  }
+  return prev[m] as number;
 }
 
+const ROW_A = new Int32Array(96);
+const ROW_B = new Int32Array(96);
+const FUZZY_CHARS_PER_EDIT = 5;
 const FUZZY_MIN_NAME_CHARS = 5;
 const FUZZY_MIN_HEARD_CHARS = 4;
 
@@ -475,7 +512,7 @@ function openTarget(tokens: readonly string[]): { name: string; lang: CommandLan
 function matchOpen(
   tokens: readonly string[],
   ctx: CommandContext,
-): { id: string; target: string; fuzzy: boolean; lang: CommandLang } | null {
+): { id: string; target: string; fuzzy: boolean; lang: CommandLang; risky: boolean } | null {
   const parsed = openTarget(tokens);
   if (!parsed) return null;
   const registry = Array.isArray(ctx.registry) ? ctx.registry : [];
@@ -492,7 +529,7 @@ function matchOpen(
       else if (
         fuzzyOk &&
         folded.length >= FUZZY_MIN_NAME_CHARS &&
-        oneEditApart(folded, parsed.name)
+        boundedEdits(folded, parsed.name, editsAllowed(folded)) <= editsAllowed(folded)
       )
         near.set(entry.id, raw);
     }
@@ -500,7 +537,8 @@ function matchOpen(
   const pool = exact.size ? exact : near;
   if (pool.size !== 1) return null;
   const [[id, target]] = [...pool] as [[string, string]];
-  return { id, target, fuzzy: !exact.size, lang: parsed.lang };
+  const risky = !exact.size && foldTokens(target).some((token) => CONSEQUENTIAL.has(token));
+  return { id, target, fuzzy: !exact.size, lang: parsed.lang, risky };
 }
 
 /** Matches one whole utterance against the closed vocabulary; a miss means the open speech path takes it. */
@@ -526,5 +564,6 @@ export function matchCommand(text: string, ctx: CommandContext): CommandMatch {
     confidence:
       Math.round((open.fuzzy ? 0.8 : 0.95) * langFactor(ctx?.lang, open.lang) * 1000) / 1000,
     folded,
+    ...(open.risky ? { readBack: true as const } : {}),
   };
 }

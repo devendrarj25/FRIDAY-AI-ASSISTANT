@@ -380,6 +380,33 @@ export function buildHints(
   return out;
 }
 
+/** The command-name hint tier holds up to this many written names (the ear takes the first 64 it can use). */
+export const COMMAND_HINTS_MAX = 100;
+
+/**
+ * The hint list for the command lane: the written form of each registry name, one per phonetic key (so Spotify and
+ * Spotifi count once), in the order given, no private string, none over 40 characters, at most 100.
+ */
+export function commandHints(
+  names: readonly string[] | null | undefined,
+  max: number = COMMAND_HINTS_MAX,
+): string[] {
+  const cap = Math.max(0, Math.min(Math.trunc(max), COMMAND_HINTS_MAX));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of Array.isArray(names) ? names : []) {
+    if (out.length >= cap) break;
+    if (typeof raw !== "string") continue;
+    const written = raw.trim();
+    if (!written || [...written].length > STREAM_HOTWORD_CHARS || looksSensitive(written)) continue;
+    const key = phoneticFold(written);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(written);
+  }
+  return out;
+}
+
 // --- replacements ----------------------------------------------------------------------------------------------
 
 export type Replacement = {

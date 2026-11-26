@@ -1,4 +1,5 @@
 /** Capture decisions for real Windows audio events. The events are injected. */
+import type { MicState } from "./voice-audio";
 
 export function negotiateRate(offered: readonly number[], want = 16000): number {
   const rates = offered.filter((rate) => Number.isFinite(rate) && rate > 0);
@@ -138,7 +139,19 @@ export function savedInputPlan(
 
 const HI = /[\u0900-\u097F]/;
 
-type FaultRule = { test: RegExp; en: string; hi: string; hinglish: string };
+type FaultRule = {
+  test: RegExp;
+  en: string;
+  hi: string;
+  hinglish: string;
+  /** Said after the line only while a heal is running. */
+  heal?: { en: string; hi: string; hinglish: string };
+};
+
+/** What the capture gate and the heal loop know when a fault line is shown. */
+export type FaultContext = { micState?: MicState; healing?: boolean };
+
+const NO_MIC = /no-microphone|no microphone|NotFoundError|no audio input/i;
 
 const FAULTS: FaultRule[] = [
   {
@@ -154,13 +167,18 @@ const FAULTS: FaultRule[] = [
     hinglish: "Voice ka ek part repair maangta hai. Doctor kholo aur Repair dabao.",
   },
   {
-    test: /no audio frames|no-frames|not reachable|device-offline|NotReadable|in use by/i,
-    en: "The microphone is quiet or busy. Reopening it now.",
-    hi: "माइक्रोफ़ोन शांत या व्यस्त है। उसे दोबारा खोल रही हूँ।",
-    hinglish: "Microphone chup ya busy hai. Dobara khol rahi hoon.",
+    test: /no audio frames|no-frames|not reachable|device-offline|NotReadable|(microphone|device|input)[^.]*in use by|in use by (another|other) (app|program)/i,
+    en: "The microphone is quiet or busy.",
+    hi: "माइक्रोफ़ोन शांत या व्यस्त है।",
+    hinglish: "Microphone chup ya busy hai.",
+    heal: {
+      en: " Reopening now.",
+      hi: " उसे दोबारा खोल रही हूँ।",
+      hinglish: " Dobara khol rahi hoon.",
+    },
   },
   {
-    test: /no-microphone|no microphone|not found|NotFound/i,
+    test: NO_MIC,
     en: "No microphone found. Plug one in.",
     hi: "कोई माइक्रोफ़ोन नहीं मिला। एक लगाइए।",
     hinglish: "Koi microphone nahi mila. Ek laga do.",
@@ -172,15 +190,30 @@ const FAULTS: FaultRule[] = [
  * stays in the Doctor detail; an unknown line is returned unchanged so nothing is hidden. The language follows the
  * owner's reply language ("hi" Devanagari, "hinglish" Latin Hindi, anything else English).
  */
-export function plainFaultLine(raw: string | null | undefined, language = "en"): string {
+export function plainFaultLine(
+  raw: string | null | undefined,
+  language = "en",
+  context: FaultContext = {},
+): string {
   const text = String(raw ?? "").trim();
   if (!text) return "";
   if (HI.test(text)) return text;
-  const rule = FAULTS.find((row) => row.test.test(text));
+  const rule = ruleFor(text, context.micState);
   if (!rule) return text;
-  if (/^hi/i.test(language) && !/hinglish/i.test(language)) return rule.hi;
-  if (/hinglish|hi-en|hi-latn/i.test(language)) return rule.hinglish;
-  return rule.en;
+  const pool =
+    /^hi/i.test(language) && !/hinglish/i.test(language)
+      ? "hi"
+      : /hinglish|hi-en|hi-latn/i.test(language)
+        ? "hinglish"
+        : "en";
+  return rule[pool] + (context.healing === true && rule.heal ? rule.heal[pool] : "");
+}
+
+/** The mic state (`voice.mic.state`) names the class first; the raw text only decides when the state is silent. */
+function ruleFor(text: string, micState: MicState | undefined): FaultRule | undefined {
+  if (micState === "no-microphone") return FAULTS.find((row) => row.test === NO_MIC);
+  if (micState === "permission-denied" || micState === "permission-required") return FAULTS[0];
+  return FAULTS.find((row) => row.test.test(text));
 }
 
 /** The language pool for plain fault lines, from the owner's reply-language settings. */
