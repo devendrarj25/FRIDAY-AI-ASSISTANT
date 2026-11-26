@@ -175,15 +175,29 @@ def tts_status() -> dict:
 
 
 SPEAKER_FILE = "wespeaker-ecapa.onnx"
+# The file the optional pin (electron/voice-pins.cjs, WeSpeaker ResNet34-LM int8) downloads.
+SPEAKER_PINNED = ("speaker-wespeaker", "onnx", "model_int8.onnx")
 SPEAKER_LICENSE = "CC-BY-4.0"
-SPEAKER_ATTRIBUTION = "WeSpeaker ECAPA. CC-BY-4.0. Not bundled. Not downloaded here."
+SPEAKER_ATTRIBUTION = "WeSpeaker. CC-BY-4.0. Not bundled. Not downloaded here."
+
+
+def speaker_engine() -> str:
+    """The speaker model on disk: the pinned download, then a hand-placed legacy file; "none" without one."""
+    pinned = voice_root().joinpath(*SPEAKER_PINNED)
+    try:
+        if pinned.is_file() and pinned.stat().st_size > 0:
+            return "wespeaker-resnet34-lm"
+    except OSError:
+        pass
+    return "wespeaker-ecapa" if find_named(SPEAKER_FILE) is not None else "none"
 
 
 def speaker_status() -> dict:
-    present = find_named(SPEAKER_FILE) is not None
+    engine = speaker_engine()
+    present = engine != "none"
     return {
         "ready": present,
-        "engine": "wespeaker-ecapa" if present else "none",
+        "engine": engine,
         "reason": "" if present else "optional - not installed",
         "optional": True,
         "gate": False,
@@ -971,7 +985,7 @@ def check_lines() -> list[str]:
         lines.append(f"OPTIONAL echo-canceller {echo['reason']}")
     speaker = speaker_status()
     if speaker["ready"]:
-        lines.append("PASS speaker wespeaker-ecapa")
+        lines.append(f"PASS speaker {speaker['engine']}")
     else:
         lines.append(f"OPTIONAL speaker {speaker['reason']}")
     lines.append(_hindi_ear_line())

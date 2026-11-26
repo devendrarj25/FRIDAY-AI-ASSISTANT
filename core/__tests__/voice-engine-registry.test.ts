@@ -336,4 +336,27 @@ describe("the fallback chain per role and language", () => {
     const tiny = chainFor("tts", "hi", pc(2, 0.6));
     expect(ids(tiny.order)).toEqual(expect.arrayContaining(["sapi", "formant"]));
   });
+
+  it("Moonshine is the English streaming ear setup really installs, and the row says so truthfully", () => {
+    const engine = voiceEngineById.get("moonshine-en")!;
+    expect(engine.status).toBe("installed-by-default");
+    expect(isUsable(engine)).toBe(true);
+    expect(engine.runtime).toBe("python-package");
+    expect(engine.wrapper).toBe("kernel/stt.py");
+    expect(engine.label).toContain("tiny streaming");
+    expect(engine.blockedBy).toBe("");
+    expect(engine.languages).toEqual({ hi: "no", en: "yes", hinglish: "no" });
+    // The row matches the code that runs it: the package is required, the kernel reports this model name.
+    const requirements = fs.readFileSync(
+      path.join(ROOT, "kernel/requirements-capabilities.txt"),
+      "utf8",
+    );
+    expect(requirements).toMatch(/^moonshine-voice>=/m);
+    const stt = fs.readFileSync(path.join(ROOT, "kernel/stt.py"), "utf8");
+    expect(stt).toContain('"model": "moonshine-tiny-streaming"');
+    expect(ids(chainFor("stt", "en", pc(16, 10)).order)).toContain("moonshine-en");
+    expect(chainFor("stt", "hi", pc(16, 10)).order.map((row) => row.id)).not.toContain(
+      "moonshine-en",
+    );
+  });
 });

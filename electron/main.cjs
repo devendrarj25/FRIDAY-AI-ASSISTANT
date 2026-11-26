@@ -1651,6 +1651,19 @@ async function preparePortablePython(root, python, resourcePaths) {
   }
 }
 
+// The resolved FRIDAY folder, as stt.cjs and neural-voice.cjs already pass it to their workers: the kernel's own
+// speech calls (stt.transcribe_file, voice_runtime.speak_wav_bytes) look for the weights setup wrote under
+// <FRIDAY_ROOT> and otherwise fell back to ~/.friday/models. Semantic memory reads its embedding model from the
+// folder setup fetched it into (kernel/memory.py applies CHROMA_CACHE_DIR to Chroma).
+function kernelRootEnv() {
+  const root = paths.root();
+  if (!root) return {};
+  return {
+    FRIDAY_ROOT: root,
+    CHROMA_CACHE_DIR: process.env.CHROMA_CACHE_DIR || path.join(root, "cache", "chroma"),
+  };
+}
+
 async function startKernel(root) {
   kernelBootPending = true;
   try {
@@ -1728,6 +1741,12 @@ async function startKernelNow(root) {
   }
 
   kernelInstanceId = crypto.randomUUID();
+  // Program Files tools (Tesseract, FFmpeg, Git) join PATH before the first kernel start, as after an install.
+  try {
+    toolchain.applyManagedPath(root);
+  } catch {
+    /* the kernel then starts with the PATH it already has */
+  }
   try {
     kernel = spawn(python, [...pythonPrefix, entry], {
       env: {
@@ -1746,6 +1765,8 @@ async function startKernelNow(root) {
         PYTHONDONTWRITEBYTECODE: "1",
         // The kernel re-scans this root on every launch and then watches it.
         FRIDAY_WORKSPACE_ROOT: root || "",
+        // The resolved FRIDAY folder and the Chroma model cache setup filled (see kernelRootEnv).
+        ...kernelRootEnv(),
         // Packaged builds never read a source checkout; only a dev run may.
         FRIDAY_PACKAGED: app.isPackaged ? "1" : "",
         // Phone companion: the kernel only listens on the LAN when the user

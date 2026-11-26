@@ -336,8 +336,8 @@ export function waveCapabilityChecks(input: WaveSnapshot = {}): WaveCheck[] {
       status: speaker ? "Ready" : "Missing",
       detail: speaker
         ? "A speaker file is present. A match still does not execute. This check did not score a voice."
-        : "WeSpeaker ECAPA is CC-BY-4.0, not bundled, and was not downloaded here. A missing file is not a match.",
-      fix: "Place the file on this PC when you choose to. FRIDAY does not fetch it.",
+        : "The WeSpeaker ResNet34-LM speaker model is CC-BY-4.0, not bundled, and was not downloaded here. A missing file is not a match.",
+      fix: "Install the optional speaker model or place a speaker file on this PC when you choose to. FRIDAY does not fetch it on its own.",
       fixable: false,
       // Speaker match is an opt-in extra; a match never approves anything.
       optional: true,

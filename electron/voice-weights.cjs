@@ -29,6 +29,12 @@ const STT_FALLBACK_REPOS = {
 /** The neural voice repository; its folder is `<root>/models/supertonic-3`. */
 const TTS_REPO = "Supertone/supertonic-3";
 
+/**
+ * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the Supertonic
+ * code repository): the second source for the neural voice. Same files, same SHA-256 (`voice-pins.cjs` MIRROR_REPOS).
+ */
+const TTS_ARCHIVE_REPO = "supertone-oss-archive/supertonic-3";
+
 /** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
 const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
@@ -196,6 +202,34 @@ function isOptionalHelper(id) {
 
 function helperFallback(id) {
   return PINNED.find((row) => row.id === String(id || ""))?.fallback || "";
+}
+
+/**
+ * The opt-in mirror (`config/download-hosts.json` `optInHosts`). It is only another road to the same bytes: the file
+ * is checked against the same SHA-256 and size, so a wrong mirror is refused and the next source is tried. The
+ * downloader refuses the host unless `FRIDAY_HF_MIRROR=1`, so it is added to a plan only when the owner allows it.
+ */
+const HF_MIRROR_HOST = "hf-mirror.com";
+const HF_RESOLVE = /^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/([0-9a-f]{40})\/(.+)$/;
+
+/**
+ * `sources` plus, last, the mirror copy of every immutable Hugging Face url (a commit in the path, never a branch)
+ * when `env.FRIDAY_HF_MIRROR` is "1". Any other source, and every source without the switch, is returned as it was.
+ */
+function withOptInMirrors(sources, env) {
+  const list = Array.isArray(sources) ? sources : [];
+  if (String(env?.FRIDAY_HF_MIRROR || "") !== "1") return list;
+  const mirrors = [];
+  for (const source of list) {
+    const found = source?.kind === "url" ? HF_RESOLVE.exec(String(source.url || "")) : null;
+    if (!found) continue;
+    mirrors.push({
+      ...source,
+      url: `https://${HF_MIRROR_HOST}/${found[1]}/resolve/${found[2]}/${found[3]}`,
+      label: `${HF_MIRROR_HOST} (opt-in mirror, same SHA-256)`,
+    });
+  }
+  return [...list, ...mirrors];
 }
 
 /**
@@ -1043,6 +1077,15 @@ function budgetForProbe(probe, options = {}) {
 
 const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
 
+/** An upper bound for the English streaming speech download, used only to check the disk (its real size is the publisher's). */
+const MOONSHINE_DISK_BYTES = 100 * 1024 ** 2;
+
+/** The speech sizes besides the planned ear that a setup keeps: the lite fallback, and small beside a GPU-sized ear. */
+function extraSizesFor(primary) {
+  const above = SIZE_ORDER.indexOf(primary) > SIZE_ORDER.indexOf("small");
+  return [...(primary === "tiny" ? [] : ["tiny"]), ...(above ? ["small"] : [])];
+}
+
 /**
  * What a fresh setup does about the voice on THIS PC, from the probe: which pinned models are fetched, which are already
  * on disk, which are skipped and why, and what stays optional on demand. Pure: `deps.exists` and `deps.statfs` stand in
@@ -1090,6 +1133,40 @@ function voiceInstallPlan(root, probe, deps = {}) {
     if (item.state === "download") planned += item.bytes;
     items.push(item);
   }
+  // The extras: what a setup fetches besides the planned models, decided here and nowhere else. The lite size is the
+  // fallback for a busy PC; small is the CPU companion of a PC whose ear runs on the GPU; English streaming speech is a
+  // small download of its own. Any other size (base, medium, the big ones) is not fetched here: the Models page has it.
+  const extras = [];
+  let extraBytes = 0;
+  const extraItem = (id, kind, bytes, here) => {
+    const item = { id, kind, bytes, state: "download", reason: "", optional: true };
+    if (here) item.state = "on-disk";
+    else {
+      const room = pins.diskPreflight(
+        root,
+        planned + extraBytes + bytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (room.ok) extraBytes += bytes;
+      else {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    return item;
+  };
+  for (const size of extraSizesFor(budget.sttSize)) {
+    const dir = path.join(root, "cache", "stt", size);
+    extras.push(
+      extraItem(
+        `stt-${size}`,
+        "stt",
+        manifestOf(STT_CATALOG[size]).diskBytes,
+        weightsReady(dir, exists),
+      ),
+    );
+  }
+  extras.push(extraItem("moonshine-en", "engine", MOONSHINE_DISK_BYTES, false));
   const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
     id: size,
     size,
@@ -1130,6 +1207,7 @@ function voiceInstallPlan(root, probe, deps = {}) {
     probe,
     budget,
     items,
+    extras,
     blocked,
     optional,
     downloadBytes: planned,
@@ -1243,6 +1321,9 @@ module.exports = {
   voiceInstallPlan,
   probeHardware,
   TTS_REPO,
+  TTS_ARCHIVE_REPO,
+  HF_MIRROR_HOST,
+  withOptInMirrors,
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,
   HINDI_FALLBACK_REPO,

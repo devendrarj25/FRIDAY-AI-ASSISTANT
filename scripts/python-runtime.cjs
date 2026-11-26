@@ -90,6 +90,53 @@ const CAPABILITY_PACKAGES = [
   "pywin32",
 ];
 
+/** pip's name rule: case-insensitive, and `-`, `_` and `.` are the same character. */
+const pipName = (name) =>
+  String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_.]+/g, "-");
+
+/** The GPU builds of ONNX Runtime. They hold the same `onnxruntime` module as the plain wheel and replace it. */
+const GPU_ONNX_RUNTIMES = ["onnxruntime-gpu", "onnxruntime-directml"];
+
+/**
+ * Which ONNX Runtime wheels a venv holds, from `pip list --format=json`: `{ gpu: [{name, version}], plain }`. Pure.
+ * Anything that is not the expected list shape reads as "none installed" (the plain requirement then installs as before).
+ */
+function onnxRuntimesIn(list) {
+  const rows = Array.isArray(list) ? list : [];
+  const named = (want) =>
+    rows.filter((row) => pipName(row?.name) === want).map((row) => ({ ...row, name: want }));
+  return {
+    gpu: GPU_ONNX_RUNTIMES.flatMap((want) =>
+      named(want).map((row) => ({ name: want, version: String(row.version || "") })),
+    ),
+    plain: named("onnxruntime").length > 0,
+  };
+}
+
+/**
+ * Requirement lines without the plain `onnxruntime` when a GPU or DirectML build is installed: pip treats them as two
+ * different packages, so the plain line would put the CPU wheel on top of the GPU one (same module, same files).
+ * Pure. Returns `{ lines, dropped }`.
+ */
+function keepGpuOnnxRuntime(lines, installed) {
+  if (!installed?.gpu?.length) return { lines: [...lines], dropped: [] };
+  const dropped = [];
+  const kept = lines.filter((line) => {
+    const name = pipName(
+      String(line)
+        .trim()
+        .split(/[\s[<>=!~;#]/)[0],
+    );
+    if (name !== "onnxruntime") return true;
+    dropped.push(line);
+    return false;
+  });
+  return { lines: kept, dropped };
+}
+
 /** Selected FRIDAY folder `runtime` directory, or null when none is chosen. */
 function selectedRuntimeParent() {
   try {
@@ -551,6 +598,10 @@ module.exports = {
   venvPython,
   VOICE_PACKAGES,
   CAPABILITY_PACKAGES,
+  GPU_ONNX_RUNTIMES,
+  pipName,
+  onnxRuntimesIn,
+  keepGpuOnnxRuntime,
   compare,
   isSupported,
   isWheelProven,

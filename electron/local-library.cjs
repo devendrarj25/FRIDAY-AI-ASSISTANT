@@ -320,12 +320,48 @@ const bareTag = (name) =>
     .replace(/:latest$/, "");
 
 /**
+ * The router's own voice-surface score for an installed tag (electron/model-router.cjs scoreModel), so the model the
+ * Auto warm-up loads is the one the router ranks first for the voice turn. Zero for every row (plain quality order)
+ * when the surface is chat, when no hardware facts are known, or when the router cannot score.
+ */
+function voiceScore(row, options) {
+  if (!options.facts || options.surface === "chat") return 0;
+  try {
+    const router = require("./model-router.cjs");
+    const { inferRole } = require("./models.cjs");
+    const model = router.describe({
+      id: `ollama:${row.name}`,
+      type: "local",
+      role: inferRole(row.name),
+      contextK: 32,
+      providerId: "ollama",
+      meta: {
+        providerId: "ollama",
+        kind: "local",
+        modelName: row.name,
+        connected: true,
+        ...(row.weightsGb ? { sizeGb: row.weightsGb } : {}),
+      },
+    });
+    const score = router.scoreModel(model, {
+      surface: "voice",
+      hardware: options.facts,
+      policy: "free-only",
+    });
+    return Number.isFinite(score) ? score : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * The chat model this PC really has in Ollama. The setup plan (electron/setup-plan.cjs) chooses the chat model by
  * this PC's memory, so the app must not assume one tag. Order: `options.prefer` (the tag in use) when installed; else
  * the installed chat model ranked best by the plan's `qualityOf`, among those whose weights plus margin fit the plan's
  * usable memory (`options.facts` = hardware facts; without them every installed chat model counts), the plan's own
  * tier tag winning a tie; else the default row of `ollamaModels()` (qwen3:4b), which is also what a PC with only
- * that model gets. `installed`: tag strings or `{ name|model, size }` rows. Pure; null only when nothing is configured.
+ * that model gets. With `facts`, the router's voice score orders first (`options.surface: "chat"` keeps quality
+ * first), because the only caller is the Auto warm-up. `installed`: tag strings or `{ name|model, size }` rows. Pure; null only when nothing is configured.
  * Returns `{ tag, source: "prefer" | "installed" | "default" }`.
  */
 function installedChatModel(installed, options = {}) {
@@ -373,8 +409,10 @@ function installedChatModel(installed, options = {}) {
           row.weightsGb === null ||
           row.weightsGb * margin <= usable + 1e-9,
       )
+      .map((row) => ({ ...row, voice: voiceScore(row, options) }))
       .sort(
         (a, b) =>
+          b.voice - a.voice ||
           b.quality - a.quality ||
           Number(b.key === bareTag(pick?.tag)) - Number(a.key === bareTag(pick?.tag)),
       );

@@ -421,6 +421,31 @@ const ALIASES = {
 };
 
 /**
+ * A second official repository of a pinned model: the same files and SHA-256 at the revision of its own. It is a source,
+ * not a model: it has no pin row, no facts and no registry entry of its own, and a folder fetched from it is certified
+ * as the pinned model itself (see `canonicalRepo` and `canonicalRevision`).
+ * `supertone-oss-archive/supertonic-3` is the publisher's one-commit duplicate of `Supertone/supertonic-3` (linked from
+ * the Supertonic code repository); all 17 files were compared with the pin on 2026-11-24 (13 by SHA-256 of the bytes,
+ * the 4 ONNX files by the SHA-256 Hugging Face lists).
+ */
+const MIRROR_REPOS = {
+  "supertone-oss-archive/supertonic-3": {
+    of: "Supertone/supertonic-3",
+    revision: "aafc6e32416a594460b32413efc49d7fe4ce6d46",
+  },
+};
+
+/** The pinned repository a name stands for: a rename and a second official repository both resolve to it. */
+function canonicalRepo(repo) {
+  return MIRROR_REPOS[repo]?.of || ALIASES[repo] || repo;
+}
+
+/** The revision a folder is certified at: the pinned model's own, whichever official repository supplied the bytes. */
+function canonicalRevision(pin) {
+  return pin?.canonicalRevision || pin?.revision;
+}
+
+/**
  * What each pinned model needs from the machine, for the hardware budget (`voice-weights.cjs` `budgetFor`) and the
  * Models page. Keyed by repository, merged with the pin by `manifestFor`; `diskBytes` is never typed here, it is the sum
  * of the pinned bytes. The numbers are the model's own working set while loaded, not the PC's RAM:
@@ -684,6 +709,13 @@ function manifestFor(repo) {
 }
 
 function pinForRepo(repo) {
+  const mirror = Object.prototype.hasOwnProperty.call(MIRROR_REPOS, repo)
+    ? MIRROR_REPOS[repo]
+    : null;
+  if (mirror) {
+    const base = PINS[mirror.of];
+    return { ...base, revision: mirror.revision, canonicalRevision: base.revision };
+  }
   const key = ALIASES[repo] || repo;
   return Object.prototype.hasOwnProperty.call(PINS, key) ? PINS[key] : null;
 }
@@ -948,8 +980,8 @@ function writeMarker(dir, repo, pin, options = {}) {
   try {
     const record = {
       schema: 1,
-      repo: ALIASES[repo] || repo,
-      revision: pin.revision,
+      repo: canonicalRepo(repo),
+      revision: canonicalRevision(pin),
       verifiedAt: (options.now ? options.now() : new Date()).toISOString(),
       files: Object.fromEntries(
         Object.entries(pin.files).map(([name, row]) => [
@@ -1030,9 +1062,8 @@ function beginRevisionSwap(dir, repo, pin, options = {}) {
   recoverSwap(dir);
   const marker = readMarker(dir);
   if (!marker) return none("the folder has no verification marker");
-  if (marker.repo !== (ALIASES[repo] || repo))
-    return none("the marker belongs to another repository");
-  if (marker.revision === pin.revision) return none("the pinned revision did not change");
+  if (marker.repo !== canonicalRepo(repo)) return none("the marker belongs to another repository");
+  if (marker.revision === canonicalRevision(pin)) return none("the pinned revision did not change");
   for (const [name, row] of Object.entries(marker.files)) {
     const info = fs.statSync(path.join(dir, ...name.split("/")), { throwIfNoEntry: false });
     if (!info || !info.isFile() || info.size !== row.bytes)

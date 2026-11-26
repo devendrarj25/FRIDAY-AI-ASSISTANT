@@ -34,7 +34,8 @@ export type VoiceProfile = {
     threads: number;
     beam: number;
   };
-  llm: { model: string; device: "cpu" | "gpu"; context: number };
+  /** Where and how large the language model runs. Which model is Setup's choice (electron/setup-plan.cjs), never guessed here. */
+  llm: { device: "cpu" | "gpu"; context: number };
   tts: { engine: "supertonic"; device: "cpu" };
   vad: { engine: "silero-onnx"; device: "cpu" };
   maxBackgroundWorkers: number;
@@ -43,7 +44,7 @@ export type VoiceProfile = {
   downloadsNeedApproval: boolean;
 };
 
-export type ModelOnDisk = { stt?: string[]; llm?: string[] };
+export type ModelOnDisk = { stt?: string[] };
 
 export function selectProfile(facts: HardwareFacts, requested?: ProfileName): VoiceProfile {
   const reasons: string[] = [];
@@ -95,7 +96,6 @@ export function selectProfile(facts: HardwareFacts, requested?: ProfileName): Vo
     beam: name === "quality" ? 2 : 1,
   };
   const llm: VoiceProfile["llm"] = {
-    model: name === "lite" ? "qwen3:1.7b" : vram >= 6 || ram >= 14 ? "qwen3:4b" : "qwen3:1.7b",
     device: llmOnGpu ? "gpu" : "cpu",
     context: name === "lite" ? 2048 : 4096,
   };
@@ -116,7 +116,6 @@ export function missingModels(profile: VoiceProfile, onDisk: ModelOnDisk): strin
   const out: string[] = [];
   if (!(onDisk.stt ?? []).includes(profile.stt.model))
     out.push(`faster-whisper ${profile.stt.model}`);
-  if (!(onDisk.llm ?? []).includes(profile.llm.model)) out.push(`ollama ${profile.llm.model}`);
   return out;
 }
 

@@ -66,4 +66,13 @@ describe("scanned PDF OCR fallback", () => {
       expect(result.error).toMatch(/will not invent/i);
     }
   });
+
+  it("reads the page in the screen reader's OCR language, never a hard-coded English", () => {
+    const source = fs.readFileSync(path.join(ROOT, "kernel/document_ocr.py"), "utf8");
+    expect(source).toContain("from control import ocr_language");
+    expect(source).toContain("pytesseract.image_to_string(image, lang=_ocr_language(");
+    expect(source).toContain("get_textpage_ocr(language=_ocr_language(");
+    expect(source).not.toMatch(/lang="eng"/);
+    expect(source).not.toMatch(/language="eng", dpi/);
+  });
 });

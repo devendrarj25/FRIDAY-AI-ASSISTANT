@@ -63,6 +63,7 @@ const path = require("node:path");
 const os = require("node:os");
 
 const voiceWeights = require("../electron/voice-weights.cjs");
+const voicePins = require("../electron/voice-pins.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const { DownloadBoard } = require("./download-board.cjs");
@@ -116,7 +117,15 @@ const STT_MAX = { size: "large-v3" };
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
   id: "supertonic-3",
-  sources: [{ kind: "hf-repo", repo: "Supertone/supertonic-3", label: "Hugging Face (Supertone)" }],
+  sources: [
+    { kind: "hf-repo", repo: voiceWeights.TTS_REPO, label: "Hugging Face (Supertone)" },
+    // The publisher's own archive of the same model: the same files at its own pinned revision (voice-pins.cjs MIRROR_REPOS).
+    {
+      kind: "hf-repo",
+      repo: voiceWeights.TTS_ARCHIVE_REPO,
+      label: "Hugging Face (Supertone archive, same files)",
+    },
+  ],
 };
 
 /** The same Qwen3 4B as the one Ollama pulls, from the publisher's own GGUF repo (Apache-2.0): the file copy used when Ollama's registry cannot be reached. */
@@ -202,7 +211,8 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
         modelId: path.basename(dir),
         dir: path.dirname(dir),
         // Every source the pin lists, tried in order (the immutable revision first, the release second).
-        sources: pinned.sources.map((source) => ({
+        // The opt-in mirror (FRIDAY_HF_MIRROR=1) comes last, with the same digest, so it is only another road.
+        sources: voiceWeights.withOptInMirrors(pinned.sources, env).map((source) => ({
           ...source,
           sha256: source.sha256 || pinned.sha256,
           bytes: source.bytes || pinned.bytes,
@@ -291,19 +301,14 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
         modelId: "ollama",
         dir,
         sources: [
+          // The pinned release is an immutable file. The site's own url (ollama.com/download) always serves the newest
+          // build, so it is added only by useLatestInstaller, with the digest of that newest release.
           {
             kind: "url",
             url: release.url,
             sha256: release.sha256,
             bytes: release.bytes,
             label: `Ollama ${release.tag} (official release)`,
-          },
-          {
-            kind: "url",
-            url: "https://ollama.com/download/OllamaSetup.exe",
-            sha256: release.sha256,
-            bytes: release.bytes,
-            label: "ollama.com (official site)",
           },
         ],
       },
@@ -342,13 +347,26 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
     const job = jobs.find((row) => row.id === `stt-${blocked.size}` && !row.explicit);
     if (job) job.skipReason = blocked.reason;
   }
-  // With a plan, a speech size the plan does not list is a cheap extra (the fast starter, the lite fallback): fetched,
-  // but a failed fetch is a note and the Doctor does not require it.
+  // With a plan, a speech size the plan does not list is an extra, and the plan alone decides which extras this PC
+  // takes (`plan.extras`: the lite fallback, small beside a GPU-sized ear). A kept extra is fetched, its failure is a
+  // note and the Doctor does not require it. Any other size is named with the reason and left to the Models page.
   if (have.plan) {
     const listed = new Set(
       (have.plan.items || []).filter((i) => i.state !== "skipped").map((i) => voiceJobId(i.id)),
     );
-    for (const job of jobs) if (job.kind === "stt" && !listed.has(job.id)) job.optional = true;
+    const extras = Array.isArray(have.plan.extras)
+      ? new Map(have.plan.extras.map((extra) => [extra.id, extra]))
+      : null;
+    const ear = have.plan.budget?.sttSize;
+    for (const job of jobs) {
+      if (job.kind !== "stt" || listed.has(job.id)) continue;
+      job.optional = true;
+      if (!extras || job.explicit || job.skipReason) continue;
+      const extra = extras.get(job.id);
+      if (!extra)
+        job.skipReason = `not in this PC's voice plan${ear ? ` (the speech size here is ${ear})` : ""}: install ${job.id.slice(4)} from the Models page if you want it`;
+      else if (extra.state === "skipped") job.skipReason = extra.reason;
+    }
   }
   return jobs;
 }
@@ -449,14 +467,25 @@ function alreadyThere(row) {
       return false;
     }
   }
-  if (!fs.existsSync(row.ready)) return false;
-  // A kept file is reused only when it is the exact bytes the publisher signed off.
-  const want = row.job.sources[0]?.sha256;
-  if (!want) return true;
-  try {
+  if (row.kind === "tts" && !fs.existsSync(row.ready)) {
+    // The marker is written by this script; the Install Manager and the repair write the pinned folder without it.
+    // Every pinned file in place is the same proof here (the downloader checks sizes and digests when it runs).
+    const pin = voiceWeights.TTS_REPO ? voicePins.pinForRepo(voiceWeights.TTS_REPO) : null;
+    const dir = path.dirname(row.ready);
     return (
-      require("../electron/model-download.cjs").hashFile(row.ready) === String(want).toLowerCase()
+      Boolean(pin) &&
+      Object.keys(pin.files).every((name) => fs.existsSync(path.join(dir, ...name.split("/"))))
     );
+  }
+  if (!fs.existsSync(row.ready)) return false;
+  // A kept file is reused only when it is the exact bytes a publisher signed off: any digest the job lists counts,
+  // so the pinned installer already on disk is kept even after a newer release changed the first source's digest.
+  if (!row.job.sources[0]?.sha256) return true;
+  const wanted = row.job.sources
+    .map((source) => String(source.sha256 || "").toLowerCase())
+    .filter(Boolean);
+  try {
+    return wanted.includes(require("../electron/model-download.cjs").hashFile(row.ready));
   } catch {
     return false;
   }
@@ -1017,19 +1046,38 @@ async function detectOllama({ fetchImpl = fetch, find = findOllama } = {}) {
   };
 }
 
-/** Point the installer job at the newest official release (digest-verified), else keep the pin. */
+/** The moving file the official site always serves: the newest build, so only the newest release's digest vouches for it. */
+const OLLAMA_SITE_URL = "https://ollama.com/download/OllamaSetup.exe";
+
+/**
+ * Point the installer job at the newest official release when its own digest is known: that release first, the site's
+ * newest-build url second (same digest), and the pinned release last, as the fallback that never moves. With no newer
+ * release, no digest, or no answer, the pinned release stays the only source, so a pin that lags never makes the
+ * moving site url download 1.8 GB only to fail its checksum.
+ */
 async function useLatestInstaller(row, latest) {
   const release = await latest("ollama");
-  if (!release?.url || !release.sha256) return release;
-  const sources = row.job.sources;
-  sources[0] = {
-    ...sources[0],
-    url: release.url,
-    sha256: release.sha256,
-    bytes: release.bytes,
-    label: `Ollama ${release.tag} (${release.source === "live" ? "latest official release" : "official release"})`,
-  };
-  if (sources[1]) sources[1] = { ...sources[1], sha256: release.sha256, bytes: release.bytes };
+  const [pin] = row.job.sources;
+  if (!release?.url || !release.sha256 || !pin || release.url === pin.url) return release;
+  row.job.sources.splice(
+    0,
+    row.job.sources.length,
+    {
+      ...pin,
+      url: release.url,
+      sha256: release.sha256,
+      bytes: release.bytes,
+      label: `Ollama ${release.tag} (${release.source === "live" ? "latest official release" : "official release"})`,
+    },
+    {
+      ...pin,
+      url: OLLAMA_SITE_URL,
+      sha256: release.sha256,
+      bytes: release.bytes,
+      label: "ollama.com (official site, newest build)",
+    },
+    { ...pin, label: pin.label.replace("(official release)", "(pinned release, fallback)") },
+  );
   return release;
 }
 
@@ -1287,13 +1335,27 @@ async function prefetch(
   const uiRef = { current: null };
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
   // The English streaming speech is small and comes from its own host, so it downloads beside the big files.
-  const moonshineRun = enabled(env, "FRIDAY_PREFETCH_MOONSHINE")
-    ? fetchMoonshine(root, {
-        env,
-        log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
-        ...(moonshine ? { run: moonshine } : {}),
-      })
-    : null;
+  // With a plan, English streaming speech is one of its extras: kept unless the plan leaves it out (a disk too full).
+  const moonshineExtra = Array.isArray(voicePlan?.extras)
+    ? voicePlan.extras.find((extra) => extra.id === "moonshine-en")
+    : undefined;
+  const moonshineSkip = !Array.isArray(voicePlan?.extras)
+    ? ""
+    : !moonshineExtra
+      ? "not in this PC's voice plan"
+      : moonshineExtra.state === "skipped"
+        ? moonshineExtra.reason
+        : "";
+  if (moonshineSkip && enabled(env, "FRIDAY_PREFETCH_MOONSHINE"))
+    log(`[friday] INFO     moonshine-en skipped: ${moonshineSkip}`);
+  const moonshineRun =
+    enabled(env, "FRIDAY_PREFETCH_MOONSHINE") && !moonshineSkip
+      ? fetchMoonshine(root, {
+          env,
+          log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
+          ...(moonshine ? { run: moonshine } : {}),
+        })
+      : null;
   // The speech, voice and chat files are independent, so several download at once: one
   // connection per file rarely fills a fast line. Rows keep their order in the result.
   const parallel = prefetchParallelism(env);
@@ -1320,11 +1382,17 @@ async function prefetch(
     if (alreadyThere(row)) {
       // One listing request per repository says whether a file here has changed upstream. A network that
       // cannot answer keeps the folder as it is.
-      const stale = checkFreshness
-        ? await require("../electron/model-freshness.cjs").staleFor(row, {
-            ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
-          })
-        : [];
+      // A pinned folder is judged against its pin (revision, size, SHA-256) by the downloader, never against a branch
+      // that may have moved: asking the branch only said "changed upstream" about files the pin keeps as they are.
+      const pinned = row.job.sources.some(
+        (source) => source.kind === "hf-repo" && voicePins.pinForRepo(source.repo),
+      );
+      const stale =
+        checkFreshness && !pinned
+          ? await require("../electron/model-freshness.cjs").staleFor(row, {
+              ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
+            })
+          : [];
       if (!stale.length) {
         if (ui)
           ui.finish(row.id, {
@@ -1525,6 +1593,8 @@ async function prefetch(
     ...extra,
   );
   if (moonshineRun) rows.push(await moonshineRun);
+  else if (moonshineSkip && enabled(env, "FRIDAY_PREFETCH_MOONSHINE"))
+    rows.push({ id: "moonshine-en", ok: true, downloaded: false, skipped: true });
   // Last of all: a newer Ollama is a 1.6 GB installer and nothing waits on it, so every speech, voice and
   // chat file is already in place when it starts (it used to download first and hold everything else back).
   await updateOllamaLast();
@@ -1580,6 +1650,8 @@ module.exports = {
   setupCudaVerdict,
   setupProbe,
   thisPcPlan,
+  onnxruntimeInstalled,
+  useLatestInstaller,
   readPlanSync,
   plainBlocked,
   voiceJobId,
@@ -1671,6 +1743,36 @@ function setupProbe(env = process.env, deps = {}) {
   return verdict ? voiceWeights.probeHardware({ ...facts, cudaRuntimeReady: true }) : first;
 }
 
+/**
+ * Is ONNX Runtime in FRIDAY's Python environment? One short isolated call of the venv Python reads the installed
+ * distributions (no import, so no DLL is loaded): the CPU, GPU or DirectML wheel counts, a look-alike package does
+ * not. Any failure, a missing Python or no wheel answers false, and the plan then says "install".
+ */
+function onnxruntimeInstalled(env = process.env, deps = {}) {
+  try {
+    const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
+    if (!python) return false;
+    const run = deps.spawnSync || require("node:child_process").spawnSync;
+    const code = [
+      "import importlib.metadata as m",
+      "names = ('onnxruntime', 'onnxruntime-gpu', 'onnxruntime-directml')",
+      "found = [(n, m.version(n)) for n in names if any(d.metadata['Name'].lower() == n for d in m.distributions())]",
+      "print('%s %s' % found[0] if found else 'none')",
+    ].join("\n");
+    const out = run(python, ["-I", "-c", code], {
+      encoding: "utf8",
+      timeout: 15000,
+      windowsHide: true,
+      shell: false,
+      env: { ...env, PYTHONIOENCODING: "utf-8" },
+    });
+    if (!out || out.error || out.status !== 0) return false;
+    return /^onnxruntime(-gpu|-directml)? \S+/m.test(String(out.stdout || ""));
+  } catch {
+    return false;
+  }
+}
+
 /** The measured facts of this PC (electron/hardware.cjs), or `{}` when they cannot be read: the plan then says "unknown". */
 async function measureThisPc(root) {
   try {
@@ -1700,6 +1802,7 @@ async function thisPcPlan(root, options = {}) {
     root,
     installedModels,
     installed: {
+      onnxruntime: onnxruntimeInstalled(env, { spawnSync: options.spawnSync }),
       llama: (() => {
         try {
           return llamaRuntime.installed(root) === true;

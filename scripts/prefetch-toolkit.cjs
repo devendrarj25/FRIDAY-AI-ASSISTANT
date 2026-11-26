@@ -22,7 +22,9 @@
  *   size cap: a needed tool is installed however large it is (Docker Desktop,
  *   WSL 2, Windows Sandbox, the CUDA Toolkit).
  * - An entry gated on hardware (`requires`) is skipped on a PC without it: CUDA
- *   only where an NVIDIA GPU driver answers.
+ *   only where an NVIDIA GPU driver answers. An `optional` entry (the CUDA Toolkit: nothing runs nvcc,
+ *   speech uses the CUDA 12 libraries pip installs) is shown as skipped with its reason and is installed
+ *   only with FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1 or from the Install Manager; an installed copy is kept.
  * - What stays for later is a kind, not a size (config/agent-toolkit.json
  *   `onDemand`): big AI models come from the Models section, and runners that
  *   only a model needs (Hugging Face runner with PyTorch, vLLM) from the Install
@@ -250,6 +252,7 @@ function toolkitPlan({
   latest = {},
   update = true,
   elevated = true,
+  optional = false,
   entries = config.prefetch,
 } = {}) {
   return entries.map((entry) => {
@@ -266,6 +269,16 @@ function toolkitPlan({
       !have?.installed
     ) {
       return { ...base, action: "skip", note: "no NVIDIA GPU driver on this PC" };
+    }
+    // An `optional` tool (the CUDA Toolkit: nothing runs nvcc, speech uses pip's CUDA 12 libraries) is not installed
+    // by default. The row stays in the output as skipped with its reason; an installed copy is kept and updated as
+    // any other, and FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1 or the Install Manager installs it on purpose.
+    if (entry.optional && !optional && !have?.installed) {
+      return {
+        ...base,
+        action: "skip",
+        note: `optional, not installed by default (${entry.optionalReason || "install it from the Install Manager when needed"})`,
+      };
     }
     if (have?.unsupported && !have.installed) {
       return {
@@ -441,6 +454,7 @@ async function prefetchToolkit(root, deps = {}) {
   const progressLine = deps.progressLine || require("./stage-toolchain.cjs").progressLine;
   const update = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_UPDATE");
   const elevated = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_ELEVATED");
+  const optional = String(env.FRIDAY_PREFETCH_TOOLKIT_OPTIONAL ?? "0").trim() === "1";
   const detected = {};
   const latest = {};
   try {
@@ -470,7 +484,7 @@ async function prefetchToolkit(root, deps = {}) {
   } catch {
     /* an unknown latest version only means "no update is claimed" */
   }
-  const plan = toolkitPlan({ detected, latest, update, elevated }).map((row) => {
+  const plan = toolkitPlan({ detected, latest, update, elevated, optional }).map((row) => {
     if (row.action !== "update") return row;
     const earlier = alreadyTried(history, row.id, row.to);
     return earlier ? { ...row, action: "tried", outcome: earlier.outcome } : row;

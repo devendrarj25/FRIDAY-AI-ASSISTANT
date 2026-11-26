@@ -15,6 +15,7 @@ const fs = require("node:fs");
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
 if (require.main === module) require("./live-console.cjs").installColorConsole();
 const path = require("node:path");
+const { jobHosts, sourceHosts, sourcesLine, probeModules } = require("./doctor-probes.cjs");
 
 const REPO = path.resolve(__dirname, "..");
 const read = (rel) => {
@@ -50,16 +51,9 @@ function packageNames(text) {
     );
 }
 
-/**
- * Is a setup job verified, and how? A source digest; the publisher's own listing (speech, voice, chat); or a repository
- * pin in electron/voice-pins.cjs with a full revision AND a SHA-256 for every file (the Hindi ears and the other
- * pinned models, fetched by revision). Anything else is not verified.
- */
-function verifiedBy(job, pins = require(path.join(REPO, "electron", "voice-pins.cjs"))) {
-  const src = job.job?.sources?.[0];
+/** How one download source is verified: its own SHA-256, or a repository pin with a revision and a digest per file. */
+function sourceVerdict(src, pins) {
   if (src?.sha256) return { ok: true, how: "pinned SHA-256" };
-  if (["stt", "tts", "chat"].includes(job.kind))
-    return { ok: true, how: "checked against the publisher's listing" };
   const pin = src?.kind === "hf-repo" && src.repo ? pins.pinForRepo(src.repo) : null;
   const files = Object.values(pin?.files || {});
   if (
@@ -71,7 +65,39 @@ function verifiedBy(job, pins = require(path.join(REPO, "electron", "voice-pins.
       ok: true,
       how: `pinned revision ${pin.revision.slice(0, 8)}, SHA-256 for ${files.length} files`,
     };
-  return { ok: false, how: `${job.id} has no digest` };
+  return { ok: false, how: "" };
+}
+
+/**
+ * Is a setup job verified, and how? EVERY source of the job is looked at (a mirror without a digest is a way in
+ * for unverified bytes): a source digest; the publisher's own listing (speech, voice, chat); or a repository pin in
+ * electron/voice-pins.cjs with a full revision AND a SHA-256 for every file (the Hindi ears and the other pinned
+ * models, fetched by revision). Anything else is not verified, and the row names the first source that has no digest.
+ */
+function verifiedBy(job, pins = require(path.join(REPO, "electron", "voice-pins.cjs"))) {
+  const sources = Array.isArray(job.job?.sources) ? job.job.sources : [];
+  if (sources.length && sources.every((src) => src?.sha256))
+    return {
+      ok: true,
+      how:
+        sources.length > 1 ? `pinned SHA-256 on all ${sources.length} sources` : "pinned SHA-256",
+    };
+  if (["stt", "tts", "chat"].includes(job.kind))
+    return { ok: true, how: "checked against the publisher's listing" };
+  const verdicts = sources.map((src) => sourceVerdict(src, pins));
+  if (verdicts.length && verdicts.every((v) => v.ok)) {
+    const hows = [...new Set(verdicts.map((v) => v.how))];
+    return {
+      ok: true,
+      how: verdicts.length > 1 ? `all ${verdicts.length} sources: ${hows.join("; ")}` : hows[0],
+    };
+  }
+  const bad = verdicts.findIndex((v) => !v.ok);
+  const host = bad >= 0 && sources.length > 1 ? sourceHosts([sources[bad]])[0] : "";
+  return {
+    ok: false,
+    how: host ? `${job.id} source ${host} has no digest` : `${job.id} has no digest`,
+  };
 }
 
 /** Engines that need no download: always there, so every role has a last fallback. */
@@ -117,7 +143,7 @@ function engineChains(text) {
 }
 
 /** INFO rows: per role (and language for listening and speaking) the engine in use and the installed fallbacks. */
-function engineRows(chains, installed) {
+function engineRows(chains, installed, proof = {}) {
   const rows = [];
   for (const [role, langs] of Object.entries(chains)) {
     const perLang = role === "stt" || role === "tts";
@@ -134,8 +160,14 @@ function engineRows(chains, installed) {
         });
         continue;
       }
-      const here = chain.filter((id) => BUILT_IN_ENGINES.has(id) || installed.has(id));
-      const unchecked = chain.filter((id) => UNCHECKED_ENGINES.has(id) && !here.includes(id));
+      const here = chain.filter(
+        (id) => BUILT_IN_ENGINES.has(id) || installed.has(id) || proof.present?.has(id),
+      );
+      // An engine in a Python package is "not checked" only when no venv python answered; with an answer it is
+      // either here (the package is importable) or not installed.
+      const unchecked = chain.filter(
+        (id) => UNCHECKED_ENGINES.has(id) && !here.includes(id) && !proof.absent?.has(id),
+      );
       const missing = chain.filter((id) => !here.includes(id) && !unchecked.includes(id));
       const none = role === "stt" ? "no listening engine installed" : "no engine installed";
       const detail = here.length
@@ -152,13 +184,209 @@ function engineRows(chains, installed) {
   return rows;
 }
 
+/** The Python module behind each engine that lives in a package (the importable name, not the pip name). */
+const ENGINE_MODULES = {
+  rnnoise: "pyrnnoise",
+  openwakeword: "openwakeword",
+  "fasttext-lid218": "fasttext",
+  "moonshine-en": "moonshine_voice",
+};
+
+/** Every module a language, engine or role row needs from the venv, probed together in one python run. */
+const VOICE_MODULES = [
+  ...new Set([
+    ...Object.values(ENGINE_MODULES),
+    "pyaec",
+    "supertonic",
+    "onnx_asr",
+    "sentencepiece",
+    "faster_whisper",
+    "onnxruntime",
+  ]),
+];
+
+/** Pip names for the modules whose import name differs, for the detail text. */
+const PIP_NAME = {
+  onnx_asr: "onnx-asr",
+  moonshine_voice: "moonshine-voice",
+  faster_whisper: "faster-whisper",
+};
+
+/** Folders `kernel/voice_runtime.py find_named` looks in for the speaker file. */
+const SPEAKER_FILE = "wespeaker-ecapa.onnx";
+const SPEAKER_DIRS = ["", "voice", "silero-vad", "kokoro-v1", "smart-turn"];
+
+function speakerFileThere(root, exists) {
+  return SPEAKER_DIRS.some((dir) => exists(path.join(root, "models", dir, SPEAKER_FILE)));
+}
+
+/**
+ * Proof for the engines in UNCHECKED_ENGINES: `present` and `absent` sets of engine ids. A package engine is proven by
+ * the venv python (`mods`: `{ module: boolean }`, or null when no python answered, which proves nothing); the Moonshine
+ * English streaming ear also needs its model folder; the speaker file is a file, checked on disk.
+ */
+function engineProof({ mods, root, exists, moonshineReady }) {
+  const present = new Set();
+  const absent = new Set();
+  const mark = (id, ok) => (ok ? present : absent).add(id);
+  if (mods) {
+    for (const [id, mod] of Object.entries(ENGINE_MODULES)) {
+      if (id === "moonshine-en") mark(id, mods[mod] === true && moonshineReady === true);
+      else mark(id, mods[mod] === true);
+    }
+  }
+  if (root) mark("wespeaker-ecapa", speakerFileThere(root, exists));
+  return { present, absent };
+}
+
+/** The same switch prefetch-models.cjs reads: only the value 0 turns a download off. */
+const switchedOff = (value) => String(value ?? "1").trim() === "0";
+
+/**
+ * The voice plan as setup followed it (the required rows of `readPlanSync`, the same object check-environment.cjs builds),
+ * so the disk rows and the language rows cannot disagree about what this PC carries.
+ */
+function planAsVoicePlan(planData, weights) {
+  const skipped = new Map((planData.skipped || []).map((row) => [row.id, row.reason]));
+  return {
+    items: planData.required
+      .filter((row) => row.kind === "voice-model")
+      .map((row) => ({ id: row.id, state: row.action === "present" ? "on-disk" : "download" })),
+    blocked: weights.SIZE_ORDER.filter((size) => skipped.has(size)).map((size) => ({
+      id: size,
+      size,
+      reason: skipped.get(size),
+    })),
+  };
+}
+
+/** What this PC's plan says about a voice model: planned, skipped (with its reason) or not part of the plan. */
+function planView(planData, voicePlan) {
+  const planned = new Set();
+  const skipped = new Map();
+  if (planData && Array.isArray(planData.required)) {
+    for (const row of planData.required) if (row.kind === "voice-model") planned.add(row.id);
+    for (const row of planData.skipped || []) skipped.set(row.id, row.reason);
+    return { source: "plan", planned, skipped };
+  }
+  if (voicePlan && Array.isArray(voicePlan.items)) {
+    for (const item of voicePlan.items) {
+      if (item.state === "skipped") skipped.set(item.id, item.reason);
+      else planned.add(item.id);
+    }
+    return { source: "voice plan", planned, skipped };
+  }
+  return { source: "", planned, skipped };
+}
+
+/**
+ * One row per language and role (Hindi, English, Hinglish: ears, speaking, punctuation, the light voice, the fallback
+ * ear) plus the language-free noise and echo rows. A model that this PC's plan carries and that is not on disk is FAIL
+ * (MISSING); one the plan skipped is INFO with the plan's reason; one that is not part of the plan is INFO. A package
+ * the row needs is FAIL when absent from the venv on a PC that must have it, INFO when it was not checked.
+ */
+function languageRows({
+  onDisk,
+  view,
+  mods,
+  packagesRequired = false,
+  moonshine = { ready: false },
+  env = {},
+  hasPython = true,
+}) {
+  const rows = [];
+  const modelPart = (id) => {
+    if (onDisk.has(id)) return { state: "ok", text: `${id} on disk` };
+    if (view.skipped.has(id))
+      return {
+        state: "skipped",
+        text: `${id} skipped on this PC: ${String(view.skipped.get(id)).slice(0, 110)}`,
+      };
+    if (view.planned.has(id))
+      return { state: "missing", text: `${id} MISSING: planned for this PC, run npm run setup` };
+    if (!view.source)
+      return { state: "unknown", text: `${id} not on disk (this PC's plan could not be read)` };
+    return {
+      state: "unplanned",
+      text: `${id} not planned for this PC (optional, the Models page installs it)`,
+    };
+  };
+  const moonshinePart = () => {
+    if (moonshine.ready) return { state: "ok", text: "moonshine-en on disk" };
+    if (switchedOff(env.FRIDAY_PREFETCH_MOONSHINE) || switchedOff(env.FRIDAY_PREFETCH))
+      return {
+        state: "skipped",
+        text: "moonshine-en skipped on this PC: its prefetch is switched off",
+      };
+    if (!hasPython)
+      return {
+        state: "skipped",
+        text: "moonshine-en skipped on this PC: no Python runtime yet (npm run setup:python fetches it)",
+      };
+    return {
+      state: "missing",
+      text: "moonshine-en MISSING: setup fetches it on every PC, run npm run setup",
+    };
+  };
+  const packagePart = (mod) => {
+    const name = PIP_NAME[mod] || mod;
+    if (!mods) return { state: "unchecked", text: `package ${name} not checked (no venv python)` };
+    return mods[mod] === true
+      ? { state: "ok", text: `package ${name} present` }
+      : { state: "absent", text: `package ${name} NOT installed in the venv` };
+  };
+  const add = (name, models, modules) => {
+    const parts = [...models.map((m) => (m === "moonshine-en" ? moonshinePart() : modelPart(m)))];
+    const needed = !parts.length || parts.some((p) => p.state === "ok" || p.state === "missing");
+    const pkgs = modules.map(packagePart);
+    let state = "INFO";
+    if (parts.some((p) => p.state === "missing")) state = "FAIL";
+    else if (needed && pkgs.some((p) => p.state === "absent"))
+      state = packagesRequired ? "FAIL" : "INFO";
+    else if (needed && parts.every((p) => p.state === "ok") && pkgs.every((p) => p.state === "ok"))
+      state = "PASS";
+    rows.push({
+      layer: "language",
+      name,
+      state,
+      detail: [...parts, ...pkgs].map((p) => p.text).join("; "),
+    });
+  };
+  add("hindi ears (STT)", ["hindi-ear"], ["onnx_asr"]);
+  add("hindi fallback ear", ["hindi-fallback-ear"], ["faster_whisper"]);
+  add("hindi speaking (TTS)", ["supertonic-3"], ["supertonic"]);
+  add("hindi light TTS", ["hindi-light-tts"], []);
+  add("hindi punctuation", ["hindi-punct"], ["sentencepiece"]);
+  add("english ears (STT)", ["moonshine-en"], ["moonshine_voice"]);
+  add("english speaking (TTS)", ["supertonic-3"], ["supertonic"]);
+  add("hinglish ears (STT)", ["hinglish-ear"], ["faster_whisper"]);
+  add("hinglish speaking (TTS)", ["supertonic-3"], ["supertonic"]);
+  add("hinglish punctuation", ["hindi-punct"], ["sentencepiece"]);
+  add("noise suppression (all languages)", [], ["pyrnnoise"]);
+  add("echo canceller (all languages)", [], ["pyaec"]);
+  return rows;
+}
+
 function ipcChannels(source, pattern) {
   return [...source.matchAll(pattern)].map((m) => m[1]);
 }
 
 const VOICE_CHANNEL = /^(voice|realtime|wake|stt|neural|sapi|speech|voiceprint)[:-]/;
 
-function inventory({ root = "", platform = process.platform, env = process.env } = {}) {
+/**
+ * `planData` is this PC's setup plan as plain data (`readPlanSync` of prefetch-models.cjs); `python` the FRIDAY venv
+ * interpreter (it proves the Python packages); `reach(hosts)` answers `{ host: { state } }` for the sources line of a
+ * download. Each is optional: without one the row says "not checked" and never guesses.
+ */
+function inventory({
+  root = "",
+  platform = process.platform,
+  env = process.env,
+  planData = null,
+  python = "",
+  reach = null,
+  run,
+} = {}) {
   const rows = [];
   const row = (layer, name, state, detail) => rows.push({ layer, name, state, detail });
   const check = (layer, name, ok, good, bad) =>
@@ -242,13 +470,12 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   };
   // With a folder given, the plan is the one setup follows on this PC (the voice profile of its memory and GPU), so a
   // speech size that setup deliberately leaves out is not reported as missing.
-  const voicePlan = root
-    ? require(path.join(REPO, "electron", "voice-weights.cjs")).voiceInstallPlan(
-        root,
-        require(path.join(REPO, "electron", "voice-weights.cjs")).probeHardware(),
-        { exists: fs.existsSync },
-      )
-    : null;
+  const weightsApi = require(path.join(REPO, "electron", "voice-weights.cjs"));
+  const voicePlan = !root
+    ? null
+    : planData && Array.isArray(planData.required)
+      ? planAsVoicePlan(planData, weightsApi)
+      : weightsApi.voiceInstallPlan(root, weightsApi.probeHardware(), { exists: fs.existsSync });
   const plan = prefetch.prefetchPlan(root || "/friday", winEnv, "win32", { plan: voicePlan });
   const planned = new Set(plan.map((job) => job.id));
   for (const [id, why] of [
@@ -267,9 +494,14 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       `${why} is downloaded by npm run setup`,
       `${why} is NOT in the setup plan`,
     );
+  // Every source of every download, in the order setup tries them, and which of them answers now.
+  const reachMap = reach ? reach([...new Set(plan.flatMap((job) => jobHosts(job)))]) : {};
+  const sourcesOf = (job, missing = false) => sourcesLine(jobHosts(job), reachMap, { missing });
   for (const job of plan) {
     const verdict = verifiedBy(job);
-    check("setup", `${job.id} is verified`, verdict.ok, verdict.how, verdict.how);
+    const sources = sourcesOf(job);
+    const text = sources ? `${verdict.how}; ${sources}` : verdict.how;
+    check("setup", `${job.id} is verified`, verdict.ok, text, text);
   }
   const bigStt = [...planned].filter((id) => /^stt-(medium|large-v3$)/.test(id));
   // Planned is the good answer (the big sizes are part of setup); INFO only when none is planned.
@@ -286,6 +518,10 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     const ollamaHere = Boolean(prefetch.findOllama());
     for (const job of plan) {
       const here = prefetch.alreadyThere(job);
+      const sources = (missing) => {
+        const line = sourcesOf(job, missing);
+        return line ? `; ${line}` : "";
+      };
       // The Ollama installer is only downloaded when Ollama is not on the PC: an installed Ollama is the proof.
       if (job.kind === "installer" && !here && ollamaHere) {
         row("disk", job.id, "PASS", "Ollama is installed, so its installer was not needed");
@@ -294,22 +530,22 @@ function inventory({ root = "", platform = process.platform, env = process.env }
       // Setup skips a size this PC has too little memory for, and an optional download may not have landed:
       // neither is a gap, so they are reported but never fail the check.
       if (!here && job.skipReason) {
-        row("disk", job.id, "INFO", `not fetched on this PC: ${job.skipReason}`);
+        row("disk", job.id, "INFO", `not fetched on this PC: ${job.skipReason}${sources(true)}`);
       } else if (!here && job.minRamGb && ramGb < job.minRamGb) {
         row(
           "disk",
           job.id,
           "INFO",
-          `not fetched: needs ${job.minRamGb} GB, this PC has ${Math.floor(ramGb)}`,
+          `not fetched: needs ${job.minRamGb} GB, this PC has ${Math.floor(ramGb)}${sources(true)}`,
         );
       } else if (!here && job.optional) {
-        row("disk", job.id, "INFO", "optional, not on disk");
+        row("disk", job.id, "INFO", `optional, not on disk${sources(true)}`);
       } else {
         row(
           "disk",
           job.id,
           here ? "PASS" : "FAIL",
-          here ? "on disk" : "missing — run npm run setup",
+          here ? `on disk${sources(false)}` : `missing — run npm run setup${sources(true)}`,
         );
       }
     }
@@ -320,9 +556,34 @@ function inventory({ root = "", platform = process.platform, env = process.env }
   const onDisk = root
     ? new Set(weights.voiceModelsOnDisk(root, fs.existsSync).map((found) => found.catalogId))
     : null;
+  // Engines in a Python package are proven with the venv python (importlib.util.find_spec), not assumed.
+  const mods = root && python ? probeModules(python, VOICE_MODULES, { run }) : null;
+  const moonshineReady = root
+    ? prefetch.moonshineReady(path.join(root, ...prefetch.MOONSHINE_DIR))
+    : false;
   rows.push(
-    ...engineRows(engineChains(read("src/lib/friday/voice-engine/voice-engine-table.ts")), onDisk),
+    ...engineRows(
+      engineChains(read("src/lib/friday/voice-engine/voice-engine-table.ts")),
+      onDisk,
+      root ? engineProof({ mods, root, exists: fs.existsSync, moonshineReady }) : {},
+    ),
   );
+  if (root) {
+    rows.push(
+      ...languageRows({
+        onDisk,
+        view: planView(planData, voicePlan),
+        mods,
+        packagesRequired:
+          platform === "win32" &&
+          env.FRIDAY_OFFLINE !== "1" &&
+          String(env.FRIDAY_PREFETCH_STRICT ?? "1").trim() !== "0",
+        moonshine: { ready: moonshineReady },
+        env,
+        hasPython: Boolean(python),
+      }),
+    );
+  }
 
   // ---- speech sizes: every list that names a size must agree with the weights map ---------------------------------
   const sizes = Object.keys(weights.STT_REPOS || {});
@@ -595,12 +856,32 @@ function print(rows, log = console.log, { summary = false } = {}) {
   return fails.length;
 }
 
-module.exports = { inventory, print, packageNames, verifiedBy, engineChains, BANNED_PACKAGES };
+module.exports = {
+  inventory,
+  print,
+  packageNames,
+  verifiedBy,
+  engineChains,
+  engineRows,
+  engineProof,
+  languageRows,
+  planView,
+  VOICE_MODULES,
+  BANNED_PACKAGES,
+};
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const at = args.indexOf("--root");
-  const rows = inventory({ root: at >= 0 ? args[at + 1] : "" });
+  const root = at >= 0 ? args[at + 1] : "";
+  const probes = require("./doctor-probes.cjs");
+  const rows = inventory({
+    root,
+    // The same plan Setup and the environment check read, so the language rows say "skipped on this PC" or MISSING by it.
+    planData: root ? require("./prefetch-models.cjs").readPlanSync(process.env) : null,
+    python: root ? probes.venvPython(process.env) : "",
+    reach: (hosts) => probes.reachSync(hosts),
+  });
   if (args.includes("--json")) {
     console.log(JSON.stringify(rows, null, 2));
     process.exitCode = rows.some((r) => r.state === "FAIL") ? 1 : 0;

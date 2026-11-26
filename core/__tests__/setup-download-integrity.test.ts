@@ -34,6 +34,73 @@ describe("setup-windows.ps1 download safety", () => {
     expect(ps1).toMatch(/HashMismatch[\s\S]*Remove-Item[\s\S]*throw/);
   });
 
+  it("fails closed: a direct download runs only with a pinned or published SHA-256, or a valid signature from its publisher", () => {
+    const check = ps1.slice(
+      ps1.indexOf("function Assert-InstallerSignature"),
+      ps1.indexOf("function Wait-InstallerProcess"),
+    );
+    expect(check).toContain("Get-InstallerPin");
+    expect(check).toContain("$status -eq 'Valid'");
+    expect(check).toContain("$subject -like");
+    expect(check).toMatch(/has no pinned or published SHA-256[\s\S]*It was deleted and not run/);
+    expect(check).toMatch(/Remove-Item[^\r\n]*\r?\n\s*throw "\$name has no pinned/);
+    // the old "keep it anyway" outcomes are gone
+    expect(ps1).not.toMatch(/not blocking, the download came over TLS/);
+    expect(ps1).not.toMatch(/signature check (could not run|not available)[^\r\n]*kept/);
+    expect(ps1).not.toMatch(/download kept/);
+    // the pin table lives in the config the doctor and the build read, not in the script
+    expect(ps1).toContain("$Versions.installerPins");
+  });
+
+  it("names the expected publisher at every direct installer call site", () => {
+    const calls = [...ps1.matchAll(/^\s*Install-Package \$\w+ [^\r\n]*$/gm)].map((m) => m[0]);
+    expect(calls.length).toBeGreaterThanOrEqual(6);
+    for (const call of calls) {
+      if (call.includes("$Publishers")) continue;
+      expect(call, call).toMatch(/@\('[A-Za-z .]+'\)/);
+    }
+    expect(ps1).toMatch(/Install-Package \$file \$SilentArgs \$Publishers \$verified/);
+    for (const publisher of [
+      "OpenJS Foundation",
+      "Python Software Foundation",
+      "Johannes Schindelin",
+      "Microsoft Corporation",
+      "Mannheim",
+    ]) {
+      expect(ps1, publisher).toContain(`'${publisher}'`);
+    }
+  });
+
+  it("returns whether a checksum matched, and an archive is never unpacked unverified", () => {
+    expect(ps1).toMatch(
+      /function Assert-AssetChecksum[\s\S]*return \$false[\s\S]*function Install-FromGitHubRelease/,
+    );
+    expect(ps1).toContain("function Assert-PublishedChecksum");
+    const ffmpeg = ps1.slice(
+      ps1.indexOf("function Install-FfmpegArchive"),
+      ps1.indexOf("Expand-Archive"),
+    );
+    expect(ffmpeg).toContain("gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256");
+    expect(ffmpeg).toMatch(/if \(-not \$verified\) \{[\s\S]*throw "no published SHA-256/);
+  });
+
+  it("adds the Hindi OCR data after Tesseract, detect first, offline skipped, from the pinned source", () => {
+    const hindi = ps1.slice(ps1.indexOf("function Get-TesseractExe"));
+    expect(hindi).toContain("function Install-TesseractHindi");
+    expect(hindi).toContain("--list-langs");
+    expect(
+      hindi.indexOf("Test-TesseractHindi $exe", hindi.indexOf("function Install-TesseractHindi")),
+    ).toBeLessThan(hindi.indexOf("FRIDAY_OFFLINE"));
+    expect(hindi.indexOf("FRIDAY_OFFLINE")).toBeLessThan(hindi.indexOf("Invoke-OfficialDownload"));
+    expect(hindi).toContain("$Versions.tessdataHin");
+    expect(hindi).toMatch(/SHA-256 mismatch for hin\.traineddata[^\r\n]*file deleted/);
+    expect(hindi).toContain("TESSDATA_PREFIX");
+    expect(hindi).toContain("FRIDAY\\tools\\tessdata");
+    const tool = ps1.indexOf("Ensure-RequiredCommand 'Tesseract OCR'");
+    expect(ps1.indexOf("\n  Install-TesseractHindi\r", tool)).toBeGreaterThan(tool);
+    expect(ps1.match(/\$script:StageTotal = 9/g)?.length).toBe(1);
+  });
+
   it("checks a published SHA-256 sidecar and deletes a file that does not match", () => {
     expect(ps1).toContain("function Assert-AssetChecksum");
     expect(ps1).toMatch(/Get-FileHash[^\r\n]*SHA256/);

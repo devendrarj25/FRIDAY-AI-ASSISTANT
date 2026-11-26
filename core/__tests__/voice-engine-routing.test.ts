@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CLOUD_SETTINGS,
@@ -212,7 +213,18 @@ describe("performance profile", () => {
   it("lists missing models and never downloads them", () => {
     const p = selectProfile(target);
     expect(p.downloadsNeedApproval).toBe(true);
-    expect(missingModels(p, { stt: ["small"], llm: [] })).toEqual([`ollama ${p.llm.model}`]);
+    expect(missingModels(p, { stt: [] })).toEqual([`faster-whisper ${p.stt.model}`]);
+    expect(missingModels(p, { stt: ["small"] })).toEqual([]);
+  });
+
+  it("does not guess the chat model: Setup picks it for this PC, so it is never listed as missing", () => {
+    for (const facts of [target, { cpuThreads: 2, ramTotalGb: 4, ramAvailableGb: 2 }]) {
+      const p = selectProfile(facts);
+      expect(Object.keys(p.llm).sort()).toEqual(["context", "device"]);
+      expect(missingModels(p, {}).join(" ")).not.toMatch(/ollama|qwen/);
+    }
+    const ui = readFileSync("src/components/friday/settings/VoiceEngineSettings.tsx", "utf8");
+    expect(ui).not.toContain("profile.llm.model");
   });
 });
 

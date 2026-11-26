@@ -458,21 +458,23 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "moonshine-en",
-    label: "Moonshine English streaming partials",
+    label: "Moonshine tiny streaming (English partials, moonshine-voice package)",
     role: "stt",
-    repo: "onnx-community/moonshine-base-ONNX",
     languages: L("no", "yes", "no"),
     code: "MIT",
     weights: "MIT",
     runtime: "python-package",
     torchFree: true,
     streaming: true,
-    status: "candidate-runtime-missing",
+    status: "installed-by-default",
     lat: "streaming",
     wrapper: "kernel/stt.py",
-    blockedBy:
-      "the runtime is in kernel/stt.py but the weights are not pinned (no revision and SHA-256), so the Install Manager cannot offer it; English only",
-    evidence: [HF("onnx-community/moonshine-base-ONNX")],
+    selfTest: true,
+    evidence: [
+      "kernel/requirements-capabilities.txt: moonshine-voice (the publisher's package, installed by setup)",
+      "scripts/prefetch-models.cjs fetchMoonshine: the package downloads and checks its own files into models/moonshine-en",
+      "scripts/voice-stack.cjs engineProof: the Doctor opens the module and finds the model files",
+    ],
   }),
   row({
     id: "hindi-punct",
@@ -626,7 +628,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "wespeaker-ecapa",
-    label: "WeSpeaker ECAPA (the file kernel/voice_runtime.py looks for)",
+    label: "WeSpeaker file placed by hand (legacy name wespeaker-ecapa.onnx)",
     role: "speaker",
     languages: L("unverified", "yes", "unverified"),
     code: "Apache-2.0 (WeSpeaker)",
@@ -638,7 +640,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     lat: "fast",
     wrapper: "kernel/voice_runtime.py",
     blockedBy:
-      "the file wespeaker-ecapa.onnx has no pinned source, revision or SHA-256, so nothing can install it",
+      "kernel/voice_runtime.py finds the pinned speaker-wespeaker/onnx/model_int8.onnx first and still accepts a hand-placed wespeaker-ecapa.onnx, which has no pinned source, revision or SHA-256, so nothing installs it",
     evidence: ["kernel/voice_runtime.py speaker_status"],
   }),
 
@@ -903,7 +905,8 @@ export const VOICE_CHAINS: Partial<Record<VoiceRole, Partial<Record<VoiceLang, s
       "qwen3-asr-0.6b-gguf",
       ...WHISPER_SIZES,
     ],
-    en: ["moonshine-en", ...WHISPER_SIZES],
+    // Moonshine gives the streaming partials while Whisper finalises, so the final ear leads the chain.
+    en: [...WHISPER_SIZES, "moonshine-en"],
     hinglish: ["hinglish-ear", "hindi-ear", ...WHISPER_SIZES],
   },
   tts: {

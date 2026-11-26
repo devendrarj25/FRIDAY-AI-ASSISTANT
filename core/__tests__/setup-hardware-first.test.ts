@@ -282,8 +282,14 @@ describe("speech sizes and packages come from the same plan the Doctor reads", (
     expect(
       jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo").optional,
     ).toBeUndefined();
-    // medium is below the planned size: fetched as an extra whose failure is a note
-    expect(jobs.find((j: { id: string }) => j.id === "stt-medium").optional).toBe(true);
+    // medium is below the planned size and is not one of the plan's extras: named with the plan's reason, not fetched
+    const mediumGpu = jobs.find((j: { id: string }) => j.id === "stt-medium");
+    expect(mediumGpu.optional).toBe(true);
+    expect(mediumGpu.skipReason).toMatch(/^not in this PC's voice plan/);
+    // small stays beside the GPU-sized ear as the CPU companion, a kept extra whose failure is a note
+    const smallGpu = jobs.find((j: { id: string }) => j.id === "stt-small");
+    expect(smallGpu.optional).toBe(true);
+    expect(smallGpu.skipReason).toBeUndefined();
     const cpu = voice.voiceInstallPlan(dir, probe(16, 10), {
       exists: () => false,
       statfs: () => ({ bavail: 500 * 1024 ** 2, bsize: 1024 }),

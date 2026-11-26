@@ -6,5 +6,13 @@
   "sqliteMinimum": "3.45.3",
   "gitMinimum": "2.49.0",
   "powershellMinimum": "7.5.0",
-  "electronMinimum": "45.0.0"
+  "electronMinimum": "45.0.0",
+  "installerPins": {
+    "tesseract-ocr-w64-setup-5.4.0.20240606.exe": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9"
+  },
+  "tessdataHin": {
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4e7c9ce934584e30654178261986ca1a03ffcfe8/hin.traineddata",
+    "sha256": "4c73ffc59d497c186b19d1e90f5d721d678ea6b2e277b719bee4e2af12271825",
+    "bytes": 1122751
+  }
 }

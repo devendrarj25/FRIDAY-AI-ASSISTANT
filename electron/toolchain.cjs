@@ -1325,6 +1325,8 @@ const TOOLS = [
       "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
     sha256: "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
     needBytes: 50175248,
+    // The installer carries English and OSD only: the Hindi data is added after the install (pinned, detect-first).
+    postInstall: "tesseract-hindi",
   }),
   T("Docker Desktop", "Developer Tools", {
     cmd: "docker",
@@ -3271,7 +3273,28 @@ async function findRustup() {
  * launcher: the stable toolchain, which holds rustc and cargo, is added here, and
  * an update brings the toolchain itself up to date.
  */
-async function runPostInstall(tool, action, say) {
+async function runPostInstall(tool, action, say, root = "") {
+  if (tool.postInstall === "tesseract-hindi") {
+    if (action === "uninstall") return;
+    const ocr = require("./diagram-ocr.cjs");
+    const pin = require("./resource-paths.cjs").readConfigJson("toolchain-versions.json", {}).value
+      ?.tessdataHin;
+    const result = await ocr.ensureHindiData({
+      bin: ocr.findTesseract(),
+      pin,
+      say,
+      download: async (url) => {
+        const file = await downloadInstaller(url, root, () => {}, {
+          sha256: pin?.sha256,
+          needBytes: pin?.bytes,
+          label: "Tesseract Hindi data",
+        });
+        return fs.readFileSync(file);
+      },
+    });
+    if (!result.ok && !result.skipped) say(`Hindi OCR data not added: ${result.reason}`);
+    return;
+  }
   if (tool.postInstall !== "rustup-stable") return;
   let rustup = await findRustup();
   if (!rustup) {
@@ -4015,8 +4038,11 @@ function runJob({ id, action, root }, emit) {
         action !== "uninstall" &&
         (code === 0 || WINGET_BENIGN_CODES.has(code))
       ) {
-        await runPostInstall(tool, action, (line) =>
-          emit({ id, action, phase: "Running", line: `[${label}] ${line}` }),
+        await runPostInstall(
+          tool,
+          action,
+          (line) => emit({ id, action, phase: "Running", line: `[${label}] ${line}` }),
+          root,
         );
         await refreshPathFromRegistry();
       }

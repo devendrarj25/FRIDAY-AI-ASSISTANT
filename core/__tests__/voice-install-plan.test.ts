@@ -206,13 +206,16 @@ describe("setup uses the plan (prefetch-models.cjs)", () => {
       },
     });
     expect(rows.every((row) => row.ok)).toBe(true);
+    // The plan's ear, its lite fallback and the rest of the plan; base is not part of this PC's plan.
     expect(fetched).toEqual(
-      expect.arrayContaining(["small", "base", "hindi-ear", "hindi-punct", "supertonic-3"]),
+      expect.arrayContaining(["small", "tiny", "hindi-ear", "hindi-punct", "supertonic-3"]),
     );
+    expect(fetched).not.toContain("base");
     expect(fetched).not.toContain("medium");
     expect(fetched).not.toContain("large-v3");
     const text = lines.join("\n");
     expect(text).toMatch(/voice profile: balanced/);
+    expect(text).toMatch(/stt-base skipped: not in this PC's voice plan/);
     expect(text).toMatch(/stt-medium skipped: /);
     expect(text).toMatch(/stt-large-v3 skipped: /);
   });

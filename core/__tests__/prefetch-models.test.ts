@@ -468,6 +468,12 @@ describe("an Ollama that is already on this PC", () => {
     expect(setup?.sources[0]?.url).toContain("/v9.9.9/");
     expect(setup?.sources[1]?.url).toBe("https://ollama.com/download/OllamaSetup.exe");
     expect(setup?.sources[1]?.sha256).toBe("a".repeat(64));
+    // The pinned release stays as the last resort, with its own digest (a moved or missing newest asset never ends setup).
+    expect(setup?.sources).toHaveLength(3);
+    expect(setup?.sources[2]?.url).toContain("/releases/download/v");
+    expect(setup?.sources[2]?.url).not.toContain("/v9.9.9/");
+    expect(setup?.sources[2]?.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(setup?.sources[2]?.sha256).not.toBe("a".repeat(64));
   });
 });
 
