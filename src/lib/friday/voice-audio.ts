@@ -12,7 +12,7 @@
  * this renderer graph. A second kernel capture path is not added.
  */
 
-import { captureRate } from "./mic-session";
+import { captureRate, captureRateChanged, type CaptureRates } from "./mic-session";
 import { preferences } from "./preferences";
 import { echoDiagnostics } from "./voice-engine/echo-live";
 import { echoReferenceRunning } from "./voice-engine/interruption-controller";
@@ -109,15 +109,22 @@ function classify(
 export async function listAudioDevices(): Promise<{
   inputs: AudioDeviceInfo[];
   outputs: AudioDeviceInfo[];
+  /** False when the list could not be read: an empty list then means "unknown", never "unplugged". */
+  enumerated: boolean;
+  /** False until the owner has allowed the microphone (labels stay blank before that). */
+  permitted: boolean;
 }> {
   const md = media();
-  if (!md?.enumerateDevices) return { inputs: [], outputs: [] };
+  if (!md?.enumerateDevices) {
+    return { inputs: [], outputs: [], enumerated: false, permitted: false };
+  }
   let devices: MediaDeviceInfo[] = [];
   try {
     devices = await md.enumerateDevices();
   } catch {
-    return { inputs: [], outputs: [] };
+    return { inputs: [], outputs: [], enumerated: false, permitted: false };
   }
+  const permitted = devices.some((d) => d.kind === "audioinput" && Boolean(d.label));
   const map = (kind: "audioinput" | "audiooutput") =>
     devices
       .filter((d) => d.kind === kind)
@@ -128,7 +135,7 @@ export async function listAudioDevices(): Promise<{
         kind,
         isDefault: d.deviceId === "default" || (index === 0 && d.deviceId !== "communications"),
       }));
-  return { inputs: map("audioinput"), outputs: map("audiooutput") };
+  return { inputs: map("audioinput"), outputs: map("audiooutput"), enumerated: true, permitted };
 }
 
 /**
@@ -620,6 +627,13 @@ export class VoiceGate {
   private deviceId: string | null = null;
   private lastFailure: { state: MicState; reason: string } | null = null;
   private reopening = false;
+  /** The one open in flight. A second start joins it, so two getUserMedia calls never race for the device. */
+  private opening: Promise<boolean> | null = null;
+  /** Raised by every teardown: an open that finishes after one is stale and lets its stream go. */
+  private generation = 0;
+  private openedRates: CaptureRates = { ctx: null, track: null };
+  private lastRateCheck = 0;
+  private rateTimer: ReturnType<typeof setTimeout> | null = null;
   private deviceWatch: (() => void) | null = null;
   /** Last time UI subscribers were notified (speech edges always emit). */
   private lastEmitAt = 0;
@@ -677,10 +691,19 @@ export class VoiceGate {
    * on the floor while the default device is selected.
    */
   async restart(deviceId?: string | null): Promise<boolean> {
+    const same = (deviceId ?? null) === this.deviceId;
+    // The same open already in flight is joined; a different one waits for it, then replaces it.
+    if (this.opening && same) return this.opening;
+    if (this.opening) await this.opening.catch(() => false);
     const holders = new Set(this.holders);
     this.teardown();
     this.holders = holders;
     return this.start(deviceId);
+  }
+
+  /** Live capture tracks held right now (0 or 1 when the gate is healthy). */
+  liveTracks(): number {
+    return this.stream?.getAudioTracks().filter((t) => t.readyState === "live").length ?? 0;
   }
 
   micStream(): MediaStream | null {
@@ -754,11 +777,20 @@ export class VoiceGate {
     return this.speakingGuard;
   }
 
-  async start(deviceId?: string | null): Promise<boolean> {
+  start(deviceId?: string | null): Promise<boolean> {
+    if (this.opening) return this.opening;
     if (this.ctx) {
-      await this.ensureRunning();
-      return this.ctx.state !== "closed";
+      return this.ensureRunning().then(() => this.ctx?.state !== "closed" && Boolean(this.ctx));
     }
+    const run = this.open(deviceId).finally(() => {
+      if (this.opening === run) this.opening = null;
+    });
+    this.opening = run;
+    return run;
+  }
+
+  private async open(deviceId?: string | null): Promise<boolean> {
+    const generation = this.generation;
     const md = media();
     const Ctx =
       typeof window !== "undefined"
@@ -775,6 +807,12 @@ export class VoiceGate {
       ctx = new Ctx();
       await this.resumeContext(ctx);
       const stream = await this.openStream(md, deviceId);
+      if (generation !== this.generation) {
+        // Stopped or torn down while the device was opening: nobody is waiting for this stream.
+        stream.getTracks().forEach((t) => t.stop());
+        void ctx.close().catch(() => undefined);
+        return false;
+      }
       await this.resumeContext(ctx);
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
@@ -782,6 +820,8 @@ export class VoiceGate {
       analyser.smoothingTimeConstant = 0.2;
       source.connect(analyser);
       void this.attachWorklet(ctx, source);
+      // Never leave an earlier stream live under the new one (the device would stay held).
+      if (this.stream && this.stream !== stream) this.stream.getTracks().forEach((t) => t.stop());
       this.stream = stream;
       this.ctx = ctx;
       this.source = source;
@@ -793,6 +833,7 @@ export class VoiceGate {
       // whole voice pipeline waited for speech that could never arrive.
       const track = stream.getAudioTracks()[0];
       if (track) track.addEventListener("ended", this.onTrackEnded);
+      this.openedRates = this.readRates();
       this.watchDevices();
       this.loop();
       this.lastFailure = null;
@@ -848,6 +889,9 @@ export class VoiceGate {
 
   /** Closes the audio graph but keeps the holders, so it can be reopened. */
   private teardown() {
+    this.generation += 1;
+    if (this.rateTimer) clearTimeout(this.rateTimer);
+    this.rateTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.worklet?.port.close();
@@ -902,9 +946,39 @@ export class VoiceGate {
     if (this.deviceWatch || !md?.addEventListener) return;
     const handler = () => {
       if (this.holders.size && !this.ctx) void this.reopen();
+      else this.watchRates(true);
     };
     md.addEventListener("devicechange", handler);
     this.deviceWatch = () => md.removeEventListener?.("devicechange", handler);
+  }
+
+  private readRates(): CaptureRates {
+    const track = this.stream?.getAudioTracks()[0];
+    const trackRate = (track?.getSettings?.() as { sampleRate?: number } | undefined)?.sampleRate;
+    return {
+      ctx: typeof this.ctx?.sampleRate === "number" ? this.ctx.sampleRate : null,
+      track: typeof trackRate === "number" ? trackRate : null,
+    };
+  }
+
+  /**
+   * A headset that moves between its call and media profiles changes the sample rate under a running graph.
+   * Checked on devicechange and about once a second from the frame loop (no timer of its own); one change
+   * rebuilds the graph once, after a short debounce.
+   */
+  private watchRates(force = false) {
+    if (!this.ctx || !this.holders.size || this.rateTimer) return;
+    const now = Date.now();
+    if (!force && now - this.lastRateCheck < 1000) return;
+    this.lastRateCheck = now;
+    if (!captureRateChanged(this.openedRates, this.readRates())) return;
+    this.rateTimer = setTimeout(() => {
+      this.rateTimer = null;
+      if (this.holders.size && this.ctx && captureRateChanged(this.openedRates, this.readRates())) {
+        this.rememberError("The microphone changed its sample rate. Reopening it once.");
+        void this.restart(this.deviceId);
+      }
+    }, 400);
   }
 
   private async resumeContext(ctx: AudioContext | null = this.ctx): Promise<void> {
@@ -965,6 +1039,7 @@ export class VoiceGate {
     const analyser = this.analyser;
     if (!analyser) return;
     if (this.ctx?.state === "suspended") void this.resumeContext();
+    this.watchRates();
     try {
       analyser.getFloatTimeDomainData(this.buffer as Float32Array<ArrayBuffer>);
     } catch {

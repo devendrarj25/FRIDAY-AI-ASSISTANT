@@ -273,7 +273,7 @@ describe("a changed microphone is honoured: the input reopens with the saved dev
     vi.restoreAllMocks();
   });
 
-  it("in Auto it restarts the gate; the saved device that is not plugged in is cleared and the default opens", async () => {
+  it("in Auto it restarts the gate; the saved device that is not plugged in is kept and the default opens for this open only", async () => {
     d.state.mode = "auto";
     d.state.muted = false;
     d.state.paused = false;
@@ -282,7 +282,7 @@ describe("a changed microphone is honoured: the input reopens with the saved dev
     await assistantMode.applyInputChoice();
     expect(restart).toHaveBeenCalledTimes(1);
     expect(restart).toHaveBeenCalledWith(null);
-    expect(preferences.getSnapshot().voice.inputDeviceId).toBe("");
+    expect(preferences.getSnapshot().voice.inputDeviceId).toBe("mic-unplugged");
   });
 
   it("outside Auto, or muted, or paused, nothing is opened", async () => {

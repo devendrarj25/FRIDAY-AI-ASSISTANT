@@ -28,6 +28,7 @@ export function HudButton({
   label,
   title,
   active = false,
+  flips = false,
   onClick,
   className,
   ...pointer
@@ -36,6 +37,8 @@ export function HudButton({
   label: string;
   title?: string;
   active?: boolean;
+  /** The visible label itself flips with the state (Pause, Resume), so aria-pressed is left off: never both. */
+  flips?: boolean;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   className?: string;
   onPointerDown?: () => void;
@@ -47,12 +50,12 @@ export function HudButton({
       type="button"
       title={title ?? label}
       aria-label={label}
-      aria-pressed={active}
+      {...(flips ? {} : { "aria-pressed": active })}
       data-label={label}
       onClick={onClick}
       {...pointer}
       className={cn(
-        "voice-btn friday-btn inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
+        "voice-btn friday-btn inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 relative before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']",
         active
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-primary/20 text-muted-foreground hover:border-primary/35 hover:text-primary active:bg-primary/15",

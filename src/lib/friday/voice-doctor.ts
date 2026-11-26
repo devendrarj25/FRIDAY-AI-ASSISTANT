@@ -446,7 +446,12 @@ export function voiceReadinessNote(root: string): string {
   const first = corpus[0];
   const graded = first ? gradeCase(first).length : 0;
   const wake = roomWakeDecision([0.01, 0.02, 0.8], 0.8, 0.01);
-  const watch = trackWatch({ frames: 10, sameEnergy: 0, handles: 1, crashes: 0 });
+  const watch = trackWatch({
+    frames: 0,
+    sameEnergy: 0,
+    handles: voiceGate.liveTracks(),
+    crashes: voiceGate.lastCaptureFailure() ? 1 : 0,
+  });
   const output = outputReachable({ deviceId: "default", volume: 1 });
   const memory = arcSnapshot().length;
   return `${ids}. Offline cases: ${corpus.length}. Voice steps ${steps}. Flow ${flow.phase}. Scenarios ${scenarios.length - failed}/${scenarios.length}. Budgets ${budgets.filter((row) => row.ok).length}. Sample ${sample}. Grade ${graded}. Wake ${wake.mark}. Watch ${watch.restart ? "restart" : "steady"}. Output ${output.ok ? "ready" : "silent"}. Notes ${memory}.${quiet}${sight.text}`;

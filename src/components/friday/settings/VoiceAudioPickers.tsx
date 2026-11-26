@@ -15,7 +15,11 @@ import {
   onSystemVoices,
   speakerFallbackNote,
 } from "@/lib/friday/voice-library";
-import { deviceOptions, planSavedDevice } from "@/lib/friday/voice-engine/audio-devices";
+import {
+  deviceOptions,
+  micListIssue,
+  planSavedDevice,
+} from "@/lib/friday/voice-engine/audio-devices";
 import {
   sttChoices,
   ttsChoices,
@@ -28,7 +32,12 @@ type DeviceState =
   | { phase: "loading" }
   | { phase: "unsupported" }
   | { phase: "error"; error: unknown }
-  | { phase: "ready"; inputs: AudioDeviceInfo[]; outputs: AudioDeviceInfo[] };
+  | {
+      phase: "ready";
+      inputs: AudioDeviceInfo[];
+      outputs: AudioDeviceInfo[];
+      permitted: boolean;
+    };
 
 const enumerateSupported = () =>
   typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.enumerateDevices);
@@ -37,7 +46,14 @@ async function readDevices(): Promise<DeviceState> {
   if (!enumerateSupported()) return { phase: "unsupported" };
   try {
     const listed = await listAudioDevices();
-    return { phase: "ready", inputs: listed.inputs, outputs: listed.outputs };
+    if (!listed.enumerated)
+      return { phase: "error", error: new Error("The device list could not be read.") };
+    return {
+      phase: "ready",
+      inputs: listed.inputs,
+      outputs: listed.outputs,
+      permitted: listed.permitted,
+    };
   } catch (error) {
     return { phase: "error", error };
   }
@@ -97,7 +113,9 @@ export function VoiceAudioPickers() {
 
   const inputs = useMemo(() => (devices.phase === "ready" ? devices.inputs : []), [devices]);
   const outputs = useMemo(() => (devices.phase === "ready" ? devices.outputs : []), [devices]);
-  const micPlan = planSavedDevice("microphone", prefs.voice.inputDeviceId, inputs);
+  const permitted = devices.phase === "ready" ? devices.permitted : true;
+  const micPlan = planSavedDevice("microphone", prefs.voice.inputDeviceId, inputs, { permitted });
+  const micIssue = devices.phase === "ready" ? micListIssue(inputs, { permitted }) : null;
   const speakerPlan = planSavedDevice("speaker", prefs.voice.outputDeviceId, outputs);
   const micRows = useMemo(
     () => deviceOptions("microphone", prefs.voice.inputDeviceId, inputs),
@@ -190,11 +208,16 @@ export function VoiceAudioPickers() {
             ))}
           </select>
           <span className="mt-1 block text-meta-sm text-muted-foreground">
-            {devices.phase === "ready" && inputs.length === 0
-              ? "No microphone was found. Plug one in; the list refreshes by itself."
+            {micIssue?.kind
+              ? micIssue.text
               : micPlan.note ||
                 "Reopened when you change it. While muted or paused it is read when the microphone opens."}
           </span>
+          {micIssue?.kind === "permission" ? (
+            <Button size="sm" variant="outline" className="mt-1" onClick={refresh}>
+              Retry
+            </Button>
+          ) : null}
         </label>
         <label className="block">
           <span className="label-xs text-muted-foreground">Speaker</span>

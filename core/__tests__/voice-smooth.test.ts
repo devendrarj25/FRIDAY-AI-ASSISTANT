@@ -394,21 +394,26 @@ describe("voice frame clock", () => {
 });
 
 describe("microphone reopen", () => {
-  it("drops a saved device that is no longer present", () => {
+  it("keeps a saved device that is no longer present and uses the default for this open", () => {
     expect(savedInputPlan("usb-mic", [{ id: "usb-mic" }])).toEqual({
       deviceId: "usb-mic",
       cleared: false,
       message: "Microphone reopened.",
+      restore: null,
     });
+    // A missing id opens the default for this open only; the saved choice is kept and comes back (S3).
     expect(savedInputPlan("usb-mic", [{ id: "built-in" }])).toEqual({
       deviceId: null,
-      cleared: true,
-      message: "The saved microphone is gone. Using the default device.",
+      cleared: false,
+      message: "The saved microphone is not connected. Using the default device until it returns.",
+      restore: "usb-mic",
     });
+    expect(savedInputPlan("usb-mic", [{ id: "built-in" }], { remove: true }).cleared).toBe(true);
     expect(savedInputPlan("", [])).toEqual({
       deviceId: null,
       cleared: false,
       message: "Microphone changed. Using the default device.",
+      restore: null,
     });
   });
 });
