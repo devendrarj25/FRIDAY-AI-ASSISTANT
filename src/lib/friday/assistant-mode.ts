@@ -509,6 +509,10 @@ const CAPTION_TAIL_MS = 1_500;
 /** A quiet gap this long between provisional transcripts is a new utterance, so one more draft is allowed (ms). */
 const DRAFT_TURN_GAP_MS = 4_000;
 
+/** The echo window after her sound: the room's tail, the estimated speech per word, and the hard cap per clause. */
+const ECHO_TAIL_MS = 1_500;
+const ECHO_WORD_MS = 400;
+const ECHO_CAP_MS = 30_000;
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
 const HANDS_FREE_KEY = "friday.assistant.handsfree";
@@ -970,6 +974,8 @@ class AssistantModeStore {
   private chartOfferedFor = "";
   /** Hangover so echo STT that arrives after tts-end is still rejected. */
   private echoUntil = 0;
+  /** The latest moment the echo window may stay open for the clause now playing (a hard cap of 30 s from its start). */
+  private echoCapAt = 0;
   private hydrated = false;
   private spokenUpTo = 0;
   private unBrain: (() => void) | null = null;
@@ -4506,6 +4512,11 @@ class AssistantModeStore {
   }
 
   private openFollowUp() {
+    // After a sensitive turn or reply no follow-up window opens: what comes next needs her name again.
+    if (this.turnSensitive || this.replySensitive) {
+      this.followUpUntil = 0;
+      return;
+    }
     if (normalizeAddressMode(preferences.getSnapshot().voice.addressMode) === "name-only") return;
     this.followUpUntil = Date.now() + this.followMs();
   }
@@ -5474,6 +5485,7 @@ class AssistantModeStore {
       if (held) this.unfinished = held;
     }
     this.speechGen += 1;
+    this.echoCapAt = 0;
     stopAckClip();
     // A real interruption drops what was queued to say, but an approval prompt still has to be asked.
     this.arbiter.bargeIn();
@@ -5486,7 +5498,8 @@ class AssistantModeStore {
     voiceGate.setSpeakingGuard(false);
     voiceGate.wake.speakEnd(performance.now());
     this.state.speaking = false;
-    this.echoUntil = Date.now() + 800;
+    // Every stop lowers the window: what she was saying is cut, only the room's tail is left.
+    this.echoUntil = Date.now() + ECHO_TAIL_MS;
   }
 
   private cancelSpeech() {
@@ -5517,7 +5530,34 @@ class AssistantModeStore {
   }
 
   private recentlySpeaking(): boolean {
+    this.holdEchoWhilePlaying();
     return this.state.speaking || Date.now() < this.echoUntil;
+  }
+
+  /**
+   * The window for a clause that just started: its estimated length (a lower bound, about 400 ms a word) plus the
+   * room's tail, never more than the hard cap. The play promise and the end hook are not trusted to close it.
+   */
+  private openEchoWindow(spoken: string) {
+    const now = Date.now();
+    const words = spoken.split(/\s+/).filter(Boolean).length;
+    this.echoCapAt = now + ECHO_CAP_MS;
+    this.echoUntil = Math.min(now + words * ECHO_WORD_MS + ECHO_TAIL_MS, this.echoCapAt);
+  }
+
+  /**
+   * While the sample player still holds scheduled audio the clip is longer than the estimate: the window stays open
+   * for what the speaker has left plus the tail, up to the cap. Without a player the estimate stands.
+   */
+  private holdEchoWhilePlaying() {
+    const now = Date.now();
+    if (now >= this.echoCapAt) return;
+    const backlog = playbackPressure()?.backlogMs ?? 0;
+    if (backlog <= 0) return;
+    this.echoUntil = Math.max(
+      this.echoUntil,
+      Math.min(now + backlog + ECHO_TAIL_MS, this.echoCapAt),
+    );
   }
 
   /** True when the recognised text is just FRIDAY's own voice coming back. */
@@ -6553,14 +6593,14 @@ class AssistantModeStore {
         this.replyStartedAt = Date.now();
         this.noteApprovalSpoken();
         this.bargeDetector.playbackStarted(performance.now());
-        this.echoUntil = Date.now() + 120_000;
+        this.openEchoWindow(spoken);
         if (this.to("tts-start")) this.pauseForSpeech();
         this.emit();
       },
       onEnd: () => {
         if (gen !== this.speechGen) return;
         this.bargeDetector.playbackEnded();
-        this.echoUntil = Date.now() + 1500;
+        this.echoUntil = Date.now() + ECHO_TAIL_MS;
         this.noteApprovalSpoken();
         // The follow-up window counts from the end of her reply, not its start,
         // so a long answer does not use up the owner's turn.
