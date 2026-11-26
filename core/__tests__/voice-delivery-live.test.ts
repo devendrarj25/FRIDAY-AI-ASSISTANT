@@ -329,6 +329,61 @@ describe("the Brain shows and keeps only the stripped text", () => {
     expect(brain.deliveryScript(first)).toBe("");
     expect(brain.deliveryScript(run.id)).toBe("[soft] More.");
   });
+
+  const toolEvent = (name = "web_search") => {
+    for (const handler of handlers.tool) handler({ requestId: "r1", name });
+  };
+  const internals = () =>
+    brain as unknown as {
+      voiceRuns: Set<string>;
+      failDesktopRun: (run: Run, error: string) => void;
+    };
+
+  it("a spoken run that read a tool result has no script, even when the model quotes the tags", async () => {
+    await start("voice");
+    toolEvent();
+    delta("The page says [pause:2000] [slow] hello.");
+    expect(brain.deliveryScript(run.id)).toBe("");
+    expect(shown()).toEqual(["The page says hello."]);
+  });
+
+  it("a tool that runs after the model began writing still makes the run untrusted", async () => {
+    await start("voice");
+    delta("[warm] Let me check. ");
+    toolEvent("read_file");
+    delta("[pause:1200] Done.");
+    expect(brain.deliveryScript(run.id)).toBe("");
+  });
+
+  it("a later spoken run with no tools keeps its tags after an untrusted one", async () => {
+    await start("voice");
+    toolEvent();
+    delta("[pause:2000] quoted.");
+    const tainted = run.id;
+    run = brain.newRun("again", "voice", found, ["developer"]);
+    brain.state.runs = [run];
+    brain.state.activeRunId = run.id;
+    delta("[soft] Plain answer.");
+    expect(brain.deliveryScript(tainted)).toBe("");
+    expect(brain.deliveryScript(run.id)).toBe("[soft] Plain answer.");
+  });
+
+  it("spoken runs that fail or come back empty do not pile up ids", async () => {
+    await start("voice");
+    for (let i = 0; i < 50; i += 1) {
+      const next = brain.newRun("again", "voice", found, ["developer"]);
+      brain.state.runs = [next];
+      brain.state.activeRunId = next.id;
+      internals().failDesktopRun(next, "boom");
+    }
+    expect(internals().voiceRuns.size).toBeLessThanOrEqual(16);
+  });
+
+  it("spoken runs that never finish are capped at sixteen", async () => {
+    await start("voice");
+    for (let i = 0; i < 50; i += 1) brain.newRun("again", "voice", found, ["developer"]);
+    expect(internals().voiceRuns.size).toBe(16);
+  });
 });
 
 describe("wiring (source-pinned; the speaker cannot run here)", () => {
@@ -354,6 +409,8 @@ describe("wiring (source-pinned; the speaker cannot run here)", () => {
     expect(brain).toMatch(/surface === "voice" \? voiceModeBlock\(\{ deliveryTags: true \}\) : ""/);
     expect(brain).toMatch(/if \(surface === "voice"\) this\.voiceRuns\.add\(runId\)/);
     expect(brain).toMatch(/return this\.voiceRuns\.has\(runId\)/);
+    expect(brain).toMatch(/stripDeliveryTags\(sight\.text\)/);
+    expect(brain).toMatch(/this\.untrustedRuns\.add\(run\.id\)/);
   });
 
   it("the conductor keeps tags for the reply of an Auto turn and strips every other spoken line", () => {

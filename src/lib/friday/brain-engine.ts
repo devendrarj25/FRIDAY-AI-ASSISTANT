@@ -599,6 +599,8 @@ const MAX_LOG = 160;
 const MAX_RUNS = 12;
 /** How many runs keep the text the model wrote with its delivery tags (the speech path reads it after the run ends). */
 const RAW_ANSWERS_KEPT = 16;
+/** Spoken run ids kept for the speech path; a run that never produced text must not leak its id. */
+const VOICE_RUNS_KEPT = 16;
 
 let seq = 0;
 const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
@@ -901,6 +903,8 @@ class BrainStore {
   private quickListeners = new Set<(answer: QuickAnswer) => void>();
   /** Runs of a spoken turn: only their text may carry delivery tags, and only for the speech path. */
   private voiceRuns = new Set<string>();
+  /** Spoken runs that read a tool, web, file or connector result: that text is data, so nothing in them steers the voice. */
+  private untrustedRuns = new Set<string>();
   /** What the model wrote for the latest runs, tags and all. The screen, memory and history only ever get the stripped text. */
   private rawAnswers = new Map<string, string>();
   /** The four chat stream handlers, so a draft that is adopted can replay what it already heard. */
@@ -1180,6 +1184,8 @@ class BrainStore {
       if (event.requestId !== this.activeRequestId) return;
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (!run) return;
+      // A tool ran in this run: whatever it returned is untrusted, so the model's tags are no longer the model's own.
+      if (this.voiceRuns.has(run.id)) this.untrustedRuns.add(run.id);
       const execute = run.stages.find((stage) => stage.id === "execute");
       if (execute) {
         execute.state = "running";
@@ -1320,6 +1326,17 @@ class BrainStore {
     for (const conflict of result.conflicts.slice(0, 3)) this.push("warn", conflict);
   }
 
+  /** Keep only the latest spoken run ids (a Set keeps insertion order, so the oldest go first). */
+  private capVoiceRuns() {
+    for (const id of [...this.voiceRuns].slice(0, -VOICE_RUNS_KEPT)) this.dropVoiceRun(id);
+  }
+
+  private dropVoiceRun(id: string) {
+    this.voiceRuns.delete(id);
+    this.untrustedRuns.delete(id);
+    this.rawAnswers.delete(id);
+  }
+
   /** Rewrites the reply already shown for this run, in place. */
   private replaceAnswer(run: Run, written: string) {
     const text = stripDeliveryTags(written);
@@ -1344,6 +1361,7 @@ class BrainStore {
     for (const id of [...this.rawAnswers.keys()].slice(0, -RAW_ANSWERS_KEPT)) {
       this.rawAnswers.delete(id);
       this.voiceRuns.delete(id);
+      this.untrustedRuns.delete(id);
     }
     return raw;
   }
@@ -1358,9 +1376,11 @@ class BrainStore {
 
   /**
    * What the model wrote for a spoken run, tags included, for the speech path only (the screen never gets it).
-   * Empty for a typed run, and for a run whose shown text was rewritten after the model wrote it.
+   * Empty for a typed run, for a run that read a tool, web, file or connector result (untrusted text must never steer
+   * the voice), and for a run whose shown text was rewritten after the model wrote it.
    */
   deliveryScript(runId: string): string {
+    if (this.untrustedRuns.has(runId)) return "";
     return this.voiceRuns.has(runId) ? (this.rawAnswers.get(runId) ?? "") : "";
   }
 
@@ -1518,6 +1538,8 @@ class BrainStore {
       if (agent.state === "queued" || agent.state === "running") agent.state = "failed";
     });
     this.flushAnswer(run);
+    // A failed run is spoken plain: its id and script are no use to the speech path.
+    this.dropVoiceRun(run.id);
     const settled = settleInterrupted(run.answer, error);
     if (!(settled.keep && settled.text == null)) {
       const text = stripDeliveryTags(
@@ -1929,6 +1951,7 @@ class BrainStore {
   ): Run {
     const runId = nextId("run");
     if (surface === "voice") this.voiceRuns.add(runId);
+    this.capVoiceRuns();
     return {
       id: runId,
       prompt: text,
@@ -1993,7 +2016,9 @@ class BrainStore {
     if (sight.text) {
       options = {
         ...options,
-        extra: `${options.extra || ""}\nUntrusted screen data: ${sight.text}`.trim(),
+        // Tags in what was seen on screen are text, never delivery: the model must not meet one it could copy.
+        extra:
+          `${options.extra || ""}\nUntrusted screen data: ${stripDeliveryTags(sight.text)}`.trim(),
       };
     }
     const history = this.state.messages.map((m) => ({ role: m.role, text: m.text }));
@@ -3680,6 +3705,8 @@ class BrainStore {
     run.ms = Date.now() - run.startedAt;
     noteObserve({ latencyMs: run.ms });
     this.recordTurn(run, true);
+    // A turn that ended with no text at all has nothing for the speech path to keep.
+    if (!this.rawAnswers.has(run.id)) this.dropVoiceRun(run.id);
     this.state.activeRunId = null;
     const n = this.state.stats.requests || 1;
     this.state.stats.avgMs = Math.round((this.state.stats.avgMs * (n - 1) + run.ms) / n);
