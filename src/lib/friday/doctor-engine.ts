@@ -27,7 +27,8 @@ function earsDoctorInput() {
   } catch {
     /* an unreadable front end is simply not measured */
   }
-  return { prefs: preferences.getSnapshot().voice.ears, stats };
+  const voice = preferences.getSnapshot().voice;
+  return { prefs: voice.ears, stats, gate: voice.interruptGate };
 }
 
 export type DoctorStatus =
