@@ -1766,7 +1766,7 @@ async function transcribeNow(req = {}, onPartial) {
           keep_wav: Boolean(req.keepWav || req.keep_wav),
           ...decodeExtras(req),
         },
-        loadBudget,
+        transcribeDeadlineMs(loadBudget, file),
         onPartial,
       );
     } catch (error) {
@@ -1798,7 +1798,7 @@ async function transcribeNow(req = {}, onPartial) {
               keep_wav: Boolean(req.keepWav || req.keep_wav),
               ...decodeExtras(req),
             },
-            loadBudget,
+            transcribeDeadlineMs(loadBudget, file),
             onPartial,
           );
         } else if (!ladderEngine) {
@@ -1823,7 +1823,7 @@ async function transcribeNow(req = {}, onPartial) {
               keep_wav: Boolean(req.keepWav || req.keep_wav),
               ...decodeExtras(req),
             },
-            voiceInstall.loadBudgetMs(fallback),
+            transcribeDeadlineMs(voiceInstall.loadBudgetMs(fallback), file),
             onPartial,
           );
         } else {
@@ -1915,6 +1915,22 @@ async function scoreInWorker(file, session = worker) {
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * The worker's deadline for one transcribe: the model's load budget, or three times the clip's length when that is longer.
+ * A 3 to 5 minute dictation on a CPU decodes in chunks and can outlast a load budget sized for a short utterance.
+ * Only a 16 kHz mono 16-bit WAV (what the capture ring sends) is measured; any other clip keeps the load budget.
+ */
+function transcribeDeadlineMs(loadBudget, file) {
+  try {
+    if (!/\.wav$/i.test(String(file || ""))) return loadBudget;
+    const bytes = fs.statSync(file).size;
+    const seconds = Math.max(0, bytes - 44) / 32000;
+    return Math.max(loadBudget, Math.round(seconds * 3000));
+  } catch {
+    return loadBudget;
   }
 }
 
@@ -2061,6 +2077,7 @@ module.exports = {
   status,
   cudaRuntimeVerdict,
   cleanStreamEars,
+  transcribeDeadlineMs,
   install,
   setProgressSink,
   setLoadLeases,

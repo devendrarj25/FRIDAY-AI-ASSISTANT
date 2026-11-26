@@ -601,3 +601,21 @@ describe("wiring", () => {
     expect(block).not.toMatch(/cloudEngine|fetch\(|getUserMedia|navigator|https?:\/\//);
   });
 });
+
+describe("the transcribe deadline follows the clip length", () => {
+  it("is the load budget for a short clip and three times the length for a long WAV", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "friday-deadline-"));
+    const wav = (seconds: number) => {
+      const file = join(dir, `${seconds}.wav`);
+      writeFileSync(file, Buffer.alloc(44 + seconds * 32000));
+      return file;
+    };
+    expect(stt.transcribeDeadlineMs(120_000, wav(5))).toBe(120_000);
+    expect(stt.transcribeDeadlineMs(120_000, wav(300))).toBe(900_000);
+    expect(stt.transcribeDeadlineMs(120_000, join(dir, "x.webm"))).toBe(120_000);
+    expect(stt.transcribeDeadlineMs(120_000, join(dir, "missing.wav"))).toBe(120_000);
+  });
+});
