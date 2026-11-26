@@ -8,7 +8,7 @@
  * cleanup, then exits once.
  */
 
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -205,7 +205,91 @@ function stopChild(child, signal, options = {}) {
   }
 }
 
-function createPidRegistry({ file, fsImpl = fs } = {}) {
+function normalizeImage(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.exe$/, "");
+}
+
+/**
+ * Read one process's identity: the program image name and the time it started. A pid alone is not an identity,
+ * because the system hands a finished process's pid to the next program that starts.
+ * Returns { image, startTime } for a live process, null when no such process exists, and undefined when the
+ * table cannot be read here. Windows reads the process list through PowerShell (name and creation time);
+ * Linux reads /proc/<pid>/stat; other systems use ps. Tests inject their own table instead of calling this.
+ */
+function inspectProcess(pid, options = {}) {
+  const id = Number(pid);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const platform = options.platform || process.platform;
+  try {
+    if (platform === "win32") {
+      const run = options.execFile || execFileSync;
+      const script =
+        `$p = Get-Process -Id ${id} -ErrorAction SilentlyContinue; ` +
+        "if ($p) { $p.ProcessName + '|' + $p.StartTime.ToUniversalTime().Ticks }";
+      const out = String(
+        run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 4000,
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      ).trim();
+      if (!out) return null;
+      const cut = out.lastIndexOf("|");
+      if (cut <= 0 || cut === out.length - 1) return undefined;
+      return { image: out.slice(0, cut), startTime: out.slice(cut + 1) };
+    }
+    if (platform === "linux") {
+      const read = options.readFile || ((file) => fs.readFileSync(file, "utf8"));
+      let stat;
+      try {
+        stat = String(read(`/proc/${id}/stat`));
+      } catch (error) {
+        return error && error.code === "ENOENT" ? null : undefined;
+      }
+      const open = stat.indexOf("(");
+      const close = stat.lastIndexOf(")");
+      if (open < 0 || close < open) return undefined;
+      const fields = stat
+        .slice(close + 2)
+        .trim()
+        .split(/\s+/);
+      // After the "(comm)" field the state is field 3, so the start time (field 22) sits at index 19.
+      const started = fields[19];
+      if (!started) return undefined;
+      return { image: stat.slice(open + 1, close), startTime: started };
+    }
+    const run = options.execFile || execFileSync;
+    const out = String(
+      run("ps", ["-o", "lstart=,comm=", "-p", String(id)], {
+        encoding: "utf8",
+        timeout: 4000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ).trim();
+    if (!out) return null;
+    const match = /^(\S+\s+\S+\s+\d+\s+[\d:]+\s+\d{4})\s+(.+)$/.exec(out);
+    if (!match) return undefined;
+    return { image: path.basename(match[2]), startTime: match[1] };
+  } catch (error) {
+    // `ps` and Get-Process answer with an empty list or exit code 1 for a missing pid; anything else is unreadable.
+    return error && error.status === 1 ? null : undefined;
+  }
+}
+
+/** True only when the live process is the one that was recorded: both image and start time match. */
+function sameIdentity(row, live) {
+  return (
+    !!live &&
+    normalizeImage(live.image) === normalizeImage(row.image) &&
+    String(live.startTime) === String(row.startTime)
+  );
+}
+
+function createPidRegistry({ file, fsImpl = fs, inspectProcess: inspect = inspectProcess } = {}) {
   const rows = new Map();
 
   function save() {
@@ -242,6 +326,11 @@ function createPidRegistry({ file, fsImpl = fs } = {}) {
     if (!pid) return false;
     const row = { role: String(role || ""), command: String(command || ""), pid };
     if (isOwnerRuntime(row.command)) return false;
+    const identity = inspect(pid);
+    if (identity && identity.image && identity.startTime) {
+      row.image = String(identity.image);
+      row.startTime = String(identity.startTime);
+    }
     rows.set(pid, row);
     save();
     if (child && typeof child.once === "function") {
@@ -262,10 +351,23 @@ function createPidRegistry({ file, fsImpl = fs } = {}) {
     return [...rows.values()];
   }
 
+  /**
+   * A row is killed only while the process under its pid is the one that was recorded (image and start time both
+   * match). A different process, or none, means the pid was reused or the process ended: the entry is dropped and
+   * nothing is signalled. A row recorded without identity (the table could not be read then) keeps the old
+   * pid-alive check only while the table still cannot be read; an unreadable table never kills a row that has one.
+   */
+  function isRecordedProcess(row) {
+    const live = inspect(row.pid);
+    if (row.image && row.startTime) return sameIdentity(row, live);
+    if (live === undefined) return pidAlive(row.pid);
+    return false;
+  }
+
   function stopMatching(predicate, kill = killProcessTree) {
     for (const row of list()) {
       if (!shouldStop(row) || !predicate(row)) continue;
-      if (pidAlive(row.pid)) kill(row.pid, { command: row.command });
+      if (isRecordedProcess(row)) kill(row.pid, { command: row.command });
       rows.delete(row.pid);
     }
     save();
@@ -604,6 +706,7 @@ module.exports = {
   killImage,
   waitForProcessGone,
   createPidRegistry,
+  inspectProcess,
   usePidRegistry,
   trackOwned,
   writeOwnerPid,
