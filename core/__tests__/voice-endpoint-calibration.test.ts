@@ -1,8 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CalibrationRing,
   eotHoldFrames,
 } from "../../src/lib/friday/voice-engine/endpoint-calibration";
+import {
+  BACKCHANNEL_WORDS,
+  DANGLING_TAIL_WORDS,
+} from "../../src/lib/friday/voice-engine/hinglish-lexicon";
 
 describe("eotHoldFrames: dangling tail words", () => {
   it("'aur' tail adds 6", () => {
@@ -121,6 +126,48 @@ describe("eotHoldFrames: expect yesno", () => {
 
   it("a dangling tail still holds under expect yesno", () => {
     expect(eotHoldFrames("haan aur", "yesno")).toBe(6);
+  });
+});
+
+describe("eotHoldFrames: the word lists are the lexicon's", () => {
+  it("reads the tail and backchannel words from the lexicon, with no list of its own", () => {
+    const source = readFileSync(
+      new URL("../../src/lib/friday/voice-engine/endpoint-calibration.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('from "./hinglish-lexicon"');
+    expect(source).not.toMatch(/const (DANGLING|YES_NO) = new Set/);
+  });
+
+  it("every lexicon tail word holds a turn open and nothing else does", () => {
+    for (const word of DANGLING_TAIL_WORDS) {
+      expect(eotHoldFrames(`mujhe batana hai ${word}`), word).toBe(6);
+    }
+  });
+
+  it("achha and a Devanagari yes close a yes/no turn fast, and only then", () => {
+    for (const word of ["achha", "accha", "अच्छा", "ठीक", "okay"]) {
+      expect(BACKCHANNEL_WORDS.has(word), word).toBe(true);
+      expect(eotHoldFrames(word, "yesno"), word).toBe(-4);
+      expect(eotHoldFrames(word), word).toBe(0);
+      expect(eotHoldFrames(word, "number"), word).toBe(0);
+    }
+  });
+
+  it("hmm is a thought, not an answer: it holds the turn even when a yes/no is expected", () => {
+    for (const word of ["hmm", "Hmm,", "हम्म"]) {
+      expect(eotHoldFrames(word, "yesno"), word).toBeGreaterThanOrEqual(0);
+    }
+    expect(eotHoldFrames("hmm", "yesno")).toBe(6);
+    expect(eotHoldFrames("hmm")).toBe(6);
+    expect(eotHoldFrames("हम्म", "yesno")).toBe(6);
+    expect(eotHoldFrames("हम्म")).toBe(6);
+    expect(eotHoldFrames("hmm.", "yesno")).toBe(0);
+  });
+
+  it("a backchannel word that ends a longer sentence is not a yes/no answer without the expectation", () => {
+    expect(eotHoldFrames("main kal aaunga achha")).toBe(0);
+    expect(eotHoldFrames("sab theek hai achha", "number")).toBe(0);
   });
 });
 

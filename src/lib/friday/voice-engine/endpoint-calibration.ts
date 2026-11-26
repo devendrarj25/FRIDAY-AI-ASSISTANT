@@ -9,6 +9,7 @@
  *
  * No clock, no timers, no storage here: the caller owns when to push and where to save.
  */
+import { BACKCHANNEL_WORDS, DANGLING_TAIL_WORDS } from "./hinglish-lexicon";
 import type { TurnExpect } from "./turn-engine";
 
 export const DANGLING_HOLD_FRAMES = 6;
@@ -23,57 +24,8 @@ export const FALSE_CUT_RAISE_ABOVE = 0.05;
 export const FALSE_CUT_LOWER_BELOW = 0.01;
 export const LOWER_P50_ABOVE_MS = 480;
 
-/** A word after which a speaker nearly always goes on (Latin and Devanagari). */
-const DANGLING = new Set([
-  "aur",
-  "ki",
-  "ke",
-  "ko",
-  "toh",
-  "matlab",
-  "ya",
-  "jaise",
-  "kyunki",
-  "lekin",
-  "and",
-  "or",
-  "the",
-  "of",
-  "to",
-  "um",
-  "uh",
-  "hmm",
-  "so",
-  "but",
-  "और",
-  "की",
-  "के",
-  "को",
-  "तो",
-  "मतलब",
-  "या",
-  "लेकिन",
-]);
-
-const YES_NO = new Set([
-  "haan",
-  "han",
-  "nahi",
-  "nahin",
-  "ji",
-  "yes",
-  "no",
-  "ok",
-  "okay",
-  "theek",
-  "thik",
-  "हाँ",
-  "हां",
-  "नहीं",
-  "नही",
-  "जी",
-  "ठीक",
-]);
+/** A thinking sound: in the backchannel list, but a thought is not an answer, so it holds the turn open. */
+const THINKING = new Set(["hmm", "हम्म"]);
 
 const NUMBER_WORDS = new Set([
   "zero",
@@ -159,9 +111,11 @@ export function eotHoldFrames(text: string, expect?: TurnExpect): number {
   if (trimmed === "") return 0;
   const word = lastWord(trimmed);
   if (word === "") return 0;
-  if (expect === "yesno" && YES_NO.has(word)) return Math.max(YESNO_FAST_FRAMES, -4);
+  if (expect === "yesno" && BACKCHANNEL_WORDS.has(word) && !THINKING.has(word)) {
+    return Math.max(YESNO_FAST_FRAMES, -4);
+  }
   if (SENTENCE_END.test(trimmed)) return 0;
-  if (DANGLING.has(word)) return DANGLING_HOLD_FRAMES;
+  if (DANGLING_TAIL_WORDS.has(word) || THINKING.has(word)) return DANGLING_HOLD_FRAMES;
   if (expect === "number" && (/\d$/u.test(word) || NUMBER_WORDS.has(word))) {
     return NUMBER_HOLD_FRAMES;
   }
