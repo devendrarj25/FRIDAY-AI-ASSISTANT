@@ -29,6 +29,12 @@ import {
 } from "../voice-session";
 import type { ApprovalLevel } from "../self/autonomy";
 import { parseBackgroundRequest } from "./background-request";
+import {
+  SAFETY_COMMANDS,
+  matchCommand,
+  type CommandContext,
+  type CommandHit,
+} from "./command-lane";
 import { classifyVoiceControl, isBackchannel } from "./interruption-controller";
 import { TERMINAL, type TaskState } from "./task-orchestrator";
 
@@ -588,4 +594,42 @@ export function routeUtterance(input: RouterInput): Route {
     };
   }
   return { kind: "foreground-turn", reason: "turn" };
+}
+
+export type CommandRouteInput = {
+  text: string;
+  /** The transcript is still growing (an interim result), not a final one. */
+  partial: boolean;
+  ctx: CommandContext;
+  /** She is speaking right now. */
+  speakingNow: boolean;
+  /** Auto mode's hands-free gate is open: a line needs no wake word. */
+  handsFree: boolean;
+  /** The wake word was heard for this line. */
+  wakeHeard: boolean;
+};
+export type CommandRoute = {
+  route: "command" | "brain" | "ignore";
+  command?: CommandHit;
+  reason: string;
+};
+
+/**
+ * Where the closed-vocabulary command lane places one line. A line that is not exactly one known command goes to
+ * the brain. A command is taken without the wake word only while she is speaking and only for the verbs that make
+ * her quieter or stop (stop, stop-all, mute, pause, volume-down, quieter); every other verb needs the wake word
+ * or the hands-free gate, so this never grants a bypass of the wake requirement. A partial transcript may route
+ * a safety verb only. The route names a command; it never approves, confirms or answers yes for anything.
+ */
+export function routeCommandLane(input: CommandRouteInput): CommandRoute {
+  if (!String(input.text ?? "").trim()) return { route: "ignore", reason: "empty" };
+  const match = matchCommand(input.text, input.ctx);
+  if (!match.hit) return { route: "brain", reason: "no-command" };
+  const safety = SAFETY_COMMANDS.has(match.command);
+  if (input.partial && !safety) return { route: "brain", reason: "partial-needs-final" };
+  const gated = input.handsFree || input.wakeHeard;
+  if (gated || (input.speakingNow && safety)) {
+    return { route: "command", command: match, reason: safety ? "safety-command" : "command" };
+  }
+  return { route: "brain", reason: "wake-required" };
 }
