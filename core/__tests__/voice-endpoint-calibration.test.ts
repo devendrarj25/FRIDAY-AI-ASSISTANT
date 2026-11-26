@@ -1,8 +1,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  CalibrationBook,
   CalibrationRing,
+  DICTATION_EAGER_FRAMES,
+  LANG_BASE_OFFSET,
+  MAX_BASE_FRAMES,
+  MAX_WAIT_FRAMES,
+  MIN_BASE_FRAMES,
+  eotEagerFrames,
   eotHoldFrames,
+  maxWaitFramesFor,
+  withLangOffset,
 } from "../../src/lib/friday/voice-engine/endpoint-calibration";
 import {
   BACKCHANNEL_WORDS,
@@ -284,5 +293,127 @@ describe("CalibrationRing", () => {
     fill(ring, 3, 600, 0);
     ring.toJSON().samples.pop();
     expect(ring.size()).toBe(3);
+  });
+});
+
+describe("end of turn per language", () => {
+  it("LANG_BASE_OFFSET is en 0, hi 2, hinglish 2", () => {
+    expect(LANG_BASE_OFFSET).toEqual({ en: 0, hi: 2, hinglish: 2 });
+  });
+
+  it("a Hindi or Hinglish dangling tail holds at least as long as English, and by the offset", () => {
+    const text = "mujhe batao ki";
+    const en = eotHoldFrames(text, undefined, "en");
+    expect(eotHoldFrames(text, undefined, "hi")).toBeGreaterThanOrEqual(en);
+    expect(eotHoldFrames(text, undefined, "hi")).toBe(6 + LANG_BASE_OFFSET.hi);
+    expect(eotHoldFrames(text, undefined, "hinglish")).toBe(6 + LANG_BASE_OFFSET.hinglish);
+    expect(en).toBe(6);
+  });
+
+  it("without a language every old answer is unchanged", () => {
+    expect(eotHoldFrames("chai aur")).toBe(6);
+    expect(eotHoldFrames("haan", "yesno")).toBe(-4);
+    expect(eotHoldFrames("mera number hai 98", "number")).toBe(4);
+  });
+
+  it("a finished sentence and a fast yes never wait longer for a language", () => {
+    expect(eotHoldFrames("chai chahiye.", undefined, "hi")).toBe(0);
+    expect(eotHoldFrames("haan", "yesno", "hinglish")).toBe(-4);
+    expect(eotHoldFrames("mera number hai 98", undefined, "hi")).toBe(0);
+  });
+
+  it("withLangOffset adds the offset, never past MAX_BASE_FRAMES + 2, and never lowers a base", () => {
+    expect(withLangOffset(6, "hi")).toBe(8);
+    expect(withLangOffset(6, "en")).toBe(6);
+    expect(withLangOffset(6, undefined)).toBe(6);
+    expect(withLangOffset(MAX_BASE_FRAMES, "hinglish")).toBe(MAX_BASE_FRAMES + 2);
+    expect(withLangOffset(MAX_BASE_FRAMES + 1, "hi")).toBe(MAX_BASE_FRAMES + 2);
+    expect(withLangOffset(400, "hi")).toBe(400);
+  });
+});
+
+describe("end of turn eagerness and the longest wait", () => {
+  it("dictation and open wait 4 frames more, the rest add nothing", () => {
+    expect(DICTATION_EAGER_FRAMES).toBe(4);
+    expect(eotEagerFrames("dictation")).toBe(4);
+    expect(eotEagerFrames("open")).toBe(4);
+    for (const e of ["yesno", "number", "name", undefined] as const) {
+      expect(eotEagerFrames(e)).toBe(0);
+    }
+  });
+
+  it("the longest quiet wait is 2.4 s, 4 s for dictation and open", () => {
+    expect(MAX_WAIT_FRAMES).toBe(30);
+    expect(maxWaitFramesFor(undefined)).toBe(30);
+    expect(maxWaitFramesFor("yesno")).toBe(30);
+    expect(maxWaitFramesFor("dictation")).toBe(50);
+    expect(maxWaitFramesFor("open")).toBe(50);
+  });
+
+  it("a configured wait is clamped to 1.2..4 s", () => {
+    expect(maxWaitFramesFor(undefined, 2)).toBe(15);
+    expect(maxWaitFramesFor(undefined, 400)).toBe(50);
+    expect(maxWaitFramesFor("open", 400)).toBe(50);
+    expect(maxWaitFramesFor(undefined, Number.NaN)).toBe(30);
+  });
+
+  it("a fast yes/no base is the minimum base", () => {
+    expect(MIN_BASE_FRAMES).toBe(4);
+  });
+});
+
+describe("CalibrationBook: one ring per language", () => {
+  const fill = (book: CalibrationBook, lang: "en" | "hi" | "hinglish", n: number, cuts = 0) => {
+    for (let i = 0; i < n; i += 1) book.push(lang, { eotWaitMs: 700, falseCut: i < cuts });
+  };
+
+  it("19 samples of a language keep the base, 20 move it", () => {
+    const book = new CalibrationBook();
+    fill(book, "hi", 19, 19);
+    expect(book.suggestedBaseFrames("hi", 6)).toBe(6);
+    fill(book, "hi", 1, 1);
+    expect(book.suggestedBaseFrames("hi", 6)).toBe(7);
+  });
+
+  it("another language's samples never count", () => {
+    const book = new CalibrationBook();
+    fill(book, "hi", 40, 40);
+    expect(book.size("en")).toBe(0);
+    expect(book.suggestedBaseFrames("en", 6)).toBe(6);
+    expect(book.suggestedBaseFrames("hinglish", 6)).toBe(6);
+    expect(book.suggestedBaseFrames("hi", 6)).toBe(7);
+  });
+
+  it("baseFramesFor adds the language offset to the suggestion within the clamp", () => {
+    const book = new CalibrationBook();
+    expect(book.baseFramesFor("hi", 6)).toBe(8);
+    expect(book.baseFramesFor("en", 6)).toBe(6);
+    expect(book.baseFramesFor("hinglish", MAX_BASE_FRAMES)).toBe(MAX_BASE_FRAMES + 2);
+  });
+
+  it("round-trips by language, and a bad shape loads empty", () => {
+    const book = new CalibrationBook();
+    fill(book, "en", 3);
+    fill(book, "hinglish", 5, 1);
+    const back = CalibrationBook.fromJSON(JSON.parse(JSON.stringify(book.toJSON())));
+    expect(back.size("en")).toBe(3);
+    expect(back.size("hinglish")).toBe(5);
+    expect(back.size("hi")).toBe(0);
+    for (const bad of [
+      null,
+      3,
+      { v: 1 },
+      { v: 2, rings: 4 },
+      { v: 2, rings: { en: [{ x: 1 }] } },
+    ]) {
+      const empty = CalibrationBook.fromJSON(bad);
+      expect(empty.size("en") + empty.size("hi") + empty.size("hinglish")).toBe(0);
+    }
+  });
+
+  it("each language ring keeps at most 200 samples", () => {
+    const book = new CalibrationBook();
+    fill(book, "en", 260);
+    expect(book.size("en")).toBe(200);
   });
 });

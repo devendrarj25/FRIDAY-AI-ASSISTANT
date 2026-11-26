@@ -19,9 +19,20 @@ import {
   noteDraft,
   type DraftGovState,
 } from "./draft-governor";
-import { eotHoldFrames } from "./endpoint-calibration";
+import {
+  MAX_WAIT_FRAMES,
+  MAX_MAX_WAIT_FRAMES,
+  MIN_BASE_FRAMES,
+  MIN_MAX_WAIT_FRAMES,
+  eotEagerFrames,
+  eotHoldFrames,
+  maxWaitFramesFor,
+  withLangOffset,
+  type EotLang,
+} from "./endpoint-calibration";
 import {
   buildTurnRecord,
+  languageMix,
   sameWords,
   type StreamTurn,
   type TurnEnv,
@@ -42,7 +53,7 @@ export const MAX_FASTER_FRAMES = 4;
 
 export type TurnState = "idle" | "listen" | "think" | "speak" | "yield";
 export type VoiceLane = "command" | "quick" | "full";
-export type TurnExpect = "yesno" | "number" | "name" | "open";
+export type TurnExpect = "yesno" | "number" | "name" | "open" | "dictation";
 
 export type TurnInput = { t: number } & (
   | { k: "tick" }
@@ -93,8 +104,17 @@ export type TurnEngineConfig = {
   eotBaseFrames: number;
   /** A turn that has run this many frames is cut and handed on. */
   maxListenFrames: number;
+  /**
+   * The most quiet frames any hold may add: after this many the turn closes even when the words look unfinished.
+   * Default 30 (2.4 s), clamped to 15..50; a dictation or an open answer gets up to 50 (4 s).
+   */
+  maxWaitFrames: number;
+  /** The owner's language for the quiet wait: a language, or `auto` to read it off the words. Default: none. */
+  lang?: EotLang | "auto";
+  /** Echo-clean voice frames in a row, while FRIDAY speaks, before the owner takes the floor. Default 1. */
+  onsetFrames: number;
   /** Extra quiet frames to wait for these words (a dangling "and", a digit run). Default `eotHoldFrames`. */
-  holdFor?: (text: string, expect: TurnExpect | undefined) => number;
+  holdFor?: (text: string, expect: TurnExpect | undefined, lang?: EotLang) => number;
   /** Whether a speculative draft may start now. Default: the draft governor (one in flight, three per turn). */
   draft?: (s: TurnEngineState, req: DraftRequest) => DraftVerdict;
   /** Whether these words are read-only work a draft may start on. Default: never, so drafts stay off. */
@@ -128,6 +148,9 @@ export type TurnEngineState = {
   ducked: boolean;
   /** Milliseconds of the current utterance FRIDAY has played, from the last speech event. */
   playedMs: number;
+  /** Echo-clean voice frames in a row while FRIDAY speaks, and the frame of the last one. */
+  onsetRun: number;
+  onsetFrame: number;
   cfg: TurnEngineConfig;
   /** The wake word is needed before the next turn opens. */
   needWake: boolean;
@@ -158,6 +181,12 @@ export function createTurnEngine(cfg: Partial<TurnEngineConfig> = {}): TurnEngin
     handsFree,
     eotBaseFrames: posInt(cfg.eotBaseFrames, 6),
     maxListenFrames: posInt(cfg.maxListenFrames, 125),
+    maxWaitFrames: Math.min(
+      MAX_MAX_WAIT_FRAMES,
+      Math.max(MIN_MAX_WAIT_FRAMES, posInt(cfg.maxWaitFrames, MAX_WAIT_FRAMES)),
+    ),
+    ...(cfg.lang ? { lang: cfg.lang } : {}),
+    onsetFrames: posInt(cfg.onsetFrames, 1),
     holdFor: cfg.holdFor ?? eotHoldFrames,
     ...(cfg.draft ? { draft: cfg.draft } : {}),
     isReadOnly: cfg.isReadOnly ?? (() => false),
@@ -177,6 +206,8 @@ export function createTurnEngine(cfg: Partial<TurnEngineConfig> = {}): TurnEngin
     gov: initialDraftGov(),
     ducked: false,
     playedMs: 0,
+    onsetRun: 0,
+    onsetFrame: -1,
     cfg: full,
     needWake: !handsFree,
     halted: false,
@@ -185,12 +216,38 @@ export function createTurnEngine(cfg: Partial<TurnEngineConfig> = {}): TurnEngin
   };
 }
 
-function hold(n: TurnEngineState): number {
+/** The language the quiet wait is for: the configured one, or what the words look like. */
+function eotLang(n: TurnEngineState): EotLang | undefined {
+  const lang = n.cfg.lang;
+  if (lang !== "auto") return lang;
+  const read = languageMix(n.text).lang;
+  return read === "hi" ? "hi" : read === "hi-en" ? "hinglish" : "en";
+}
+
+function hold(n: TurnEngineState, lang: EotLang | undefined): number {
   const fn = n.cfg.holdFor;
   if (!fn) return 0;
-  const extra = fn(n.text, n.expect);
+  const extra = fn(n.text, n.expect, lang);
   if (typeof extra !== "number" || !Number.isFinite(extra)) return 0;
   return Math.max(-MAX_FASTER_FRAMES, Math.trunc(extra));
+}
+
+/**
+ * Quiet frames after the last voice before the turn closes: the base (plus the language's offset and the
+ * dictation allowance), plus the hold. A yes/no or number answer with no hold closes at the minimum base. A
+ * hold can never push the wait past the longest wait, and the longest wait never cuts a base the owner set.
+ */
+function eotWaitFrames(n: TurnEngineState): number {
+  const lang = eotLang(n);
+  const extra = hold(n, lang);
+  const raw = n.cfg.eotBaseFrames;
+  if (extra === 0 && (n.expect === "yesno" || n.expect === "number")) {
+    return Math.min(raw, MIN_BASE_FRAMES);
+  }
+  const base = withLangOffset(raw, lang) + eotEagerFrames(n.expect);
+  const wait = base + extra;
+  if (extra <= 0) return wait;
+  return Math.min(wait, Math.max(maxWaitFramesFor(n.expect, n.cfg.maxWaitFrames), base));
 }
 
 function readOnly(n: TurnEngineState, text: string): boolean {
@@ -330,7 +387,13 @@ function onVad(n: TurnEngineState, p: number, echoClean: boolean, out: TurnComma
       n.lastVoiceFrame = n.frame;
       return;
     case "speak": {
-      if (!echoClean) return;
+      if (!echoClean) {
+        n.onsetRun = 0;
+        return;
+      }
+      if (n.onsetFrame !== n.frame) n.onsetRun = n.onsetFrame === n.frame - 1 ? n.onsetRun + 1 : 1;
+      n.onsetFrame = n.frame;
+      if (n.onsetRun < n.cfg.onsetFrames) return;
       const verdict = bargeVerdict(n, p);
       if (verdict === "ignore") return;
       n.lastVoiceFrame = n.frame;
@@ -455,7 +518,7 @@ function toThink(n: TurnEngineState, out: TurnCommand[]): void {
 function runTimers(n: TurnEngineState, out: TurnCommand[]): void {
   if (n.state === "listen") {
     const hasText = n.text.trim() !== "";
-    n.eotAtFrame = hasText ? n.lastVoiceFrame + n.cfg.eotBaseFrames + hold(n) : null;
+    n.eotAtFrame = hasText ? n.lastVoiceFrame + eotWaitFrames(n) : null;
     if (n.frame - n.listenStartFrame >= n.cfg.maxListenFrames) {
       if (hasText) toThink(n, out);
       else {

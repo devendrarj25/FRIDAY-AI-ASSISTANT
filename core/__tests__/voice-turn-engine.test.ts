@@ -49,7 +49,7 @@ const vad = (frame: number, p = 0.9, echoClean = true): TurnInput => ({
 const control = (
   frame: number,
   ev: "stop-all" | "mute" | "pause" | "wake" | "asked",
-  expect?: "yesno" | "number" | "name" | "open",
+  expect?: "yesno" | "number" | "name" | "open" | "dictation",
 ): TurnInput => ({ t: at(frame), k: "control", ev, ...(expect ? { expect } : {}) });
 const tts = (
   frame: number,
@@ -626,5 +626,119 @@ describe("turn engine: determinism and immutability with the new parts", () => {
     expect(next.state.gov.thisTurn).toBe(1);
     expect(frozen.gov.thisTurn).toBe(0);
     expect(frozen.draft.inFlight).toBe(false);
+  });
+});
+
+describe("turn engine: language, eagerness and the longest wait", () => {
+  const ki = (cfg: Partial<TurnEngineConfig>) =>
+    run(open(cfg), [ear(0, "partial", "mujhe batao ki")]).s.eotAtFrame;
+
+  it("a Hindi or Hinglish turn waits at least as long as English, and by the offsets", () => {
+    const en = ki({ lang: "en" });
+    expect(en).toBe(0 + 6 + 6);
+    expect(ki({ lang: "hi" })).toBe(0 + 6 + 2 + 6 + 2);
+    expect(ki({ lang: "hinglish" })).toBeGreaterThanOrEqual(en as number);
+    expect(ki({ lang: "auto" })).toBe(0 + 6 + 2 + 6 + 2);
+    expect(ki({})).toBe(en);
+  });
+
+  it("auto reads the language off the words: English text gets no offset", () => {
+    const heard = run(open({ lang: "auto" }), [ear(0, "partial", "open the file")]);
+    expect(heard.s.eotAtFrame).toBe(6);
+    const deva = run(open({ lang: "auto" }), [ear(0, "partial", "मुझे बताओ कि")]);
+    expect(deva.s.eotAtFrame).toBe(0 + 6 + 2);
+  });
+
+  it("endless dangling words commit by frame 30", () => {
+    const heard = run(open({ holdFor: () => 999 }), [ear(0, "partial", "chai aur")]);
+    expect(heard.s.eotAtFrame).toBe(30);
+    expect(run(heard.s, [tick(29)]).s.state).toBe("listen");
+    const at30 = run(heard.s, [tick(30)]);
+    expect(at30.s.state).toBe("think");
+    expect(kinds(at30.commands)).toEqual(["commit"]);
+  });
+
+  it("the longest wait counts from the last voice, not the turn start", () => {
+    const heard = run(open({ holdFor: () => 999 }), [ear(0, "partial", "chai aur"), vad(10)]);
+    expect(heard.s.eotAtFrame).toBe(40);
+  });
+
+  it("dictation and open turns may wait 4 s and add 4 frames to the base", () => {
+    const dict = run(open({ holdFor: () => 999 }), [
+      control(0, "asked", "dictation"),
+      ear(1, "partial", "likho ki"),
+    ]);
+    expect(dict.s.eotAtFrame).toBe(1 + 50);
+    const plain = run(open(), [control(0, "asked", "open"), ear(1, "partial", "main kal")]);
+    expect(plain.s.eotAtFrame).toBe(1 + 6 + 4);
+    const named = run(open(), [control(0, "asked", "name"), ear(1, "partial", "main kal")]);
+    expect(named.s.eotAtFrame).toBe(1 + 6);
+  });
+
+  it("a yes/no or number answer without a hold closes at the minimum base", () => {
+    const yes = run(open(), [control(0, "asked", "yesno"), ear(1, "partial", "haan theek hai")]);
+    expect(yes.s.eotAtFrame).toBe(1 + 4);
+    expect(run(yes.s, [tick(4)]).s.state).toBe("listen");
+    expect(run(yes.s, [tick(5)]).s.state).toBe("think");
+    const num = run(open(), [
+      control(0, "asked", "number"),
+      ear(1, "partial", "mera number batao"),
+    ]);
+    expect(num.s.eotAtFrame).toBe(1 + 4);
+    const free = run(open(), [ear(0, "partial", "haan theek hai")]);
+    expect(free.s.eotAtFrame).toBe(6);
+  });
+
+  it("a big configured base is never cut by the longest wait", () => {
+    const heard = run(open({ eotBaseFrames: 400, maxListenFrames: 900 }), [ear(0, "partial", "x")]);
+    expect(heard.s.eotAtFrame).toBe(400);
+  });
+
+  it("holdFor is told the language", () => {
+    const seen: Array<string | undefined> = [];
+    const holdFor = (_t: string, _e: string | undefined, lang?: string) => {
+      seen.push(lang);
+      return 0;
+    };
+    run(open({ holdFor, lang: "hi" }), [ear(0, "partial", "chai")]);
+    expect(seen).toContain("hi");
+  });
+
+  it("the defaults: longest wait 30 frames, clamped 15..50, onset 1", () => {
+    const s = createTurnEngine({});
+    expect(s.cfg.maxWaitFrames).toBe(30);
+    expect(createTurnEngine({ maxWaitFrames: 2 }).cfg.maxWaitFrames).toBe(15);
+    expect(createTurnEngine({ maxWaitFrames: 900 }).cfg.maxWaitFrames).toBe(50);
+    expect(s.cfg.onsetFrames).toBe(1);
+  });
+});
+
+describe("turn engine: onset debounce while FRIDAY speaks", () => {
+  it("with 3 onset frames a single or broken voice frame does not take the floor", () => {
+    const sp = speaking({ onsetFrames: 3 });
+    const one = run(sp.s, [vad(20)]);
+    expect(one.s.state).toBe("speak");
+    expect(one.commands).toEqual([]);
+    const gap = run(sp.s, [vad(20), vad(22), vad(24)]);
+    expect(gap.s.state).toBe("speak");
+  });
+
+  it("three voice frames in a row (240 ms) take the floor, at the third", () => {
+    const sp = speaking({ onsetFrames: 3 });
+    const two = run(sp.s, [vad(20), vad(21)]);
+    expect(two.s.state).toBe("speak");
+    const three = run(sp.s, [vad(20), vad(21), vad(22)]);
+    expect(three.s.state).toBe("yield");
+    expect(three.commands).toEqual([{ k: "duck", db: -12 }]);
+  });
+
+  it("a frame of silence or echo resets the count", () => {
+    const sp = speaking({ onsetFrames: 3 });
+    const reset = run(sp.s, [vad(20), vad(21), vad(22, 0.9, false), vad(23)]);
+    expect(reset.s.state).toBe("speak");
+  });
+
+  it("the default stays one frame", () => {
+    expect(run(speaking().s, [vad(20)]).s.state).toBe("yield");
   });
 });
