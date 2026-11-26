@@ -251,8 +251,17 @@ export function isBoundConfirmation(text: string, affirms: (value: string) => bo
   return affirms(text);
 }
 
-/** How long a spoken confirmation stays valid. A late yes does not run the old action. */
-export const APPROVAL_TTL_MS = 120_000;
+/** How long a spoken confirmation stays valid (30 s, the owner's decision). A late yes does not run the old action. */
+export const APPROVAL_TTL_MS = 30_000;
+
+/**
+ * The owner's expiry preference (`voice.approvalTtlSec`) in milliseconds, clamped to 10-60 s. A missing, non-number
+ * or non-finite value keeps the 30 s default. The caller reads the preference and passes it in.
+ */
+export function approvalTtlMs(sec?: unknown): number {
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return APPROVAL_TTL_MS;
+  return Math.min(60, Math.max(10, sec)) * 1000;
+}
 
 export function approvalFresh(askedAt: number, now: number, ttlMs = APPROVAL_TTL_MS): boolean {
   return askedAt > 0 && now >= askedAt && now - askedAt <= ttlMs;
