@@ -231,10 +231,40 @@ _SECRET_LIKE = re.compile(r"\b[A-Za-z0-9_-]{24,}\b")
 ERROR_CHARS = 120
 
 
+def scrub_text(text: object, limit: int = ERROR_CHARS) -> str:
+    """Text that leaves this process (a reply, a reason): paths and long tokens blanked, cut to ``limit``."""
+    return _SECRET_LIKE.sub("<redacted>", _PATH_LIKE.sub("<path>", str(text)))[:limit]
+
+
 def _safe_error(exc: BaseException) -> str:
     """A short, shareable line for an engine error: the class and a message with paths and long tokens blanked."""
-    message = _SECRET_LIKE.sub("<redacted>", _PATH_LIKE.sub("<path>", str(exc)))
-    return f"{type(exc).__name__}: {message[:ERROR_CHARS]}".strip()
+    return f"{type(exc).__name__}: {scrub_text(exc)}".strip()
+
+
+def _json_default(value: Any) -> Any:
+    """numpy scalars and arrays (anything with ``item`` or ``tolist``), paths and sets become plain JSON."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (set, frozenset)):
+        return sorted(value, key=str)
+    for name in ("tolist", "item"):
+        convert = getattr(value, name, None)
+        if callable(convert):
+            return convert()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def json_line(payload: dict) -> str:
+    """One reply line, ASCII-escaped. A payload that cannot be written becomes an error envelope with the same id,
+    so a bad value (an odd type, a loop) never ends a worker loop."""
+    try:
+        return json.dumps(payload, ensure_ascii=True, default=_json_default) + "\n"
+    except Exception as exc:  # noqa: BLE001 - a reply that cannot be written is still answered
+        envelope: dict[str, Any] = {"ok": False, "reason": "serialise-error", "error": _safe_error(exc)}
+        rid = payload.get("id") if isinstance(payload, dict) else None
+        if isinstance(rid, (str, int, float)) and not isinstance(rid, bool):
+            envelope = {"id": rid, **envelope}
+        return json.dumps(envelope, ensure_ascii=True) + "\n"
 
 
 def _engine_state(directory: Path | None) -> str:
@@ -365,7 +395,7 @@ def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> d
             "engine": "energy",
             "ready": False,
             "probability": None,
-            "reason": str(exc)[:200],
+            "reason": _safe_error(exc),
         }
     return {
         "ok": True,
@@ -1185,7 +1215,7 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
         out = session.run(None, {"input_features": feat})[0]
         probability = float(np.asarray(out).reshape(-1)[0])
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "ready": False, "probability": None, "reason": str(exc)[:200]}
+        return {"ok": True, "ready": False, "probability": None, "reason": _safe_error(exc)}
     return {
         "ok": True,
         "ready": True,
@@ -1843,8 +1873,13 @@ def serve() -> int:
     out_lock = threading.Lock()
 
     def emit(payload: dict) -> None:
+        line = json_line(payload)
         with out_lock:
-            print(json.dumps(payload), flush=True)
+            try:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            except (OSError, ValueError):  # the app closed the pipe: the reader sees the end and the loop stops
+                pass
 
     inbox: queue.Queue[object] = queue.Queue()
 

@@ -609,11 +609,16 @@ def _utf8_streams() -> None:
 
 
 def emit(payload: dict) -> None:
-    # ASCII-escaped JSON is valid on any code page and parses to the same text (the kernel worker does the same)
-    line = json.dumps(payload, ensure_ascii=True) + "\n"
+    # ASCII-escaped JSON is valid on any code page and parses to the same text (the kernel worker does the same).
+    # numpy values are written as plain numbers; a reply that still cannot be written goes out as an error envelope
+    # with its id, so one odd value never ends the serve loop.
+    line = voice_runtime.json_line(payload)
     with _emit_lock:
-        sys.stdout.write(line)
-        sys.stdout.flush()
+        try:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        except (OSError, ValueError):  # the app closed the pipe: the reader sees the end and the loop stops
+            pass
 
 
 def _import_whisper():
@@ -628,7 +633,7 @@ def _import_whisper():
         _whisper_cls = WhisperModel
         return _whisper_cls
     except Exception as exc:  # noqa: BLE001 — surfaced to the UI verbatim
-        _whisper_error = f"faster-whisper is not installed ({exc})."
+        _whisper_error = f"faster-whisper is not installed ({voice_runtime.scrub_text(exc, 300)})."
         return None
 
 
@@ -650,7 +655,9 @@ PRESSURE_CRITICAL = (0.07, 1024, 1536)
 # Substring order matters: "large-v3-turbo" must read as turbo before it reads as large.
 _MODEL_RANKS = (("tiny", 1), ("base", 2), ("small", 3), ("medium", 4), ("turbo", 5), ("large", 6))
 HEAVY_RANK = 4
-USE_OPS = frozenset({"load", "transcribe", "flush", "self-test", "hearing-self-test", "stream-open", "stream-feed"})
+USE_OPS = frozenset(
+    {"load", "transcribe", "flush", "self-test", "hearing-self-test", "stream-open", "stream-feed", "stream-warm"}
+)
 
 
 class MemoryStatusEx(ctypes.Structure):
@@ -2531,6 +2538,13 @@ def windows_speech_ready() -> bool:
     return bool(_windows_speech)
 
 
+def windows_speech_known() -> bool | None:
+    """The Windows recogniser answer without asking: the cached probe, False off Windows, None while unprobed."""
+    if _windows_speech is not None:
+        return bool(_windows_speech)
+    return None if sys.platform == "win32" else False
+
+
 def transcribe_windows(audio: str) -> str | None:
     """Dictation from a wav through the installed Windows language pack. No download."""
     if sys.platform != "win32" or not audio or not os.path.exists(audio):
@@ -2614,15 +2628,33 @@ def live_ladder(facts: dict | None) -> dict:
     }
 
 
+def whisper_known() -> tuple[bool, str | None]:
+    """Is faster-whisper here, without importing it: the import's own answer once it ran, else a package lookup."""
+    if _whisper_cls is not None:
+        return True, None
+    if _whisper_error:
+        return False, _whisper_error
+    try:
+        import importlib.util
+
+        found = importlib.util.find_spec("faster_whisper") is not None
+    except (ImportError, ValueError):
+        found = False
+    return found, None if found else "faster-whisper is not installed."
+
+
 def status_payload() -> dict:
-    cls = _import_whisper()
+    """The light status the app pings with a deadline: no faster_whisper import, no PowerShell probe. The heavy
+    checks run once, in ``probe_payload`` (the ``probe`` op and ``--probe``), and this answer reports them after."""
+    available, whisper_error = whisper_known()
+    speech = windows_speech_known()
     cuda_ready = cuda_runtime_ready()
     device = choose_stt_device(cuda_ready)
-    return {
+    payload = {
         "ok": True,
         "cudaRuntimeReady": cuda_ready,
-        "available": cls is not None,
-        "dependency": "ready" if cls is not None else "missing",
+        "available": available,
+        "dependency": "ready" if available else "missing",
         "modelLoaded": _model is not None,
         "model": _model_name or DEFAULT_MODEL,
         "cache": cache_dir(),
@@ -2631,14 +2663,13 @@ def status_payload() -> dict:
         "compute": device["compute_type"],
         "deviceReason": device["reason"],
         "inference": "verified" if _model is not None else "unverified",
-        "error": None if cls is not None else _whisper_error,
+        "error": whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
         "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
         "hinglishEarTrelisReady": whisper_ears.trelis_ready(),
-        "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
         **cache_status(),
         "counters": counters_payload(),
@@ -2646,15 +2677,25 @@ def status_payload() -> dict:
         "local": True,
         "ladder": live_ladder(
             {
-                "whisperReady": cls is not None,
+                "whisperReady": available,
                 "weightsReady": _model is not None,
                 "size": _model_name or DEFAULT_MODEL,
                 "english": False,
                 "moonshineReady": moonshine_model_dir() is not None,
-                "windowsSpeech": windows_speech_ready(),
+                "windowsSpeech": bool(speech),
             }
         ),
     }
+    if speech is not None:  # unprobed on Windows: the key stays out, so the app keeps what its own probe found
+        payload["windowsSpeech"] = speech
+    return payload
+
+
+def probe_payload() -> dict:
+    """The heavy probe, run lazily and cached: the faster_whisper import and the Windows recogniser question."""
+    _import_whisper()
+    windows_speech_ready()
+    return status_payload()
 
 
 def run_speech_self_test(transcribe=None) -> dict:
@@ -3120,8 +3161,12 @@ def handle_request(req: dict) -> dict:
 
 def _handle_op(req: dict) -> dict:
     op = str(req.get("op") or "")
-    if op in {"status", "probe"}:
+    if op == "status":
         return status_payload()
+    if op == "probe":
+        return probe_payload()
+    if op == stream_ear.WARM_OP:
+        return stream_ear.HOST.warm(req)
     if op == "self-test":
         return run_speech_self_test()
     if op == "hearing-self-test":
@@ -3215,7 +3260,7 @@ def _handle_op(req: dict) -> dict:
                 "dropCode": "stt-fault",
                 "reason": fault.kind,
                 "sttClass": fault.kind,
-                "error": str(fault)[-600:],
+                "error": voice_runtime.scrub_text(str(fault)[-600:], 600),
                 "fix": fault.fix,
                 "loadCount": _load_count,
             }
@@ -3225,6 +3270,35 @@ def _handle_op(req: dict) -> dict:
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
+
+
+_warm_lock = threading.Lock()
+_warm_waiters: list[Any] = []  # the ids of the stream-warm requests the running warm answers when it finishes
+
+
+def _warm_in_background(req: dict) -> None:
+    """Start the stream-warm on its own thread, outside the cache lock, or join the one already running. Every
+    request that joined gets the same answer, under its own id, when the load finishes."""
+    with _warm_lock:
+        _warm_waiters.append(req.get("id"))
+        if len(_warm_waiters) > 1:
+            return
+
+    def run() -> None:
+        try:
+            result = stream_ear.HOST.warm(req)
+            if result.get("ok") and stream_ear.HOST.loaded_name():
+                touch()
+        except Exception as exc:  # noqa: BLE001 - a failed warm is answered, never fatal
+            error = voice_runtime._safe_error(exc)
+            result = {"ok": False, "op": stream_ear.WARM_OP, "reason": "worker-error", "error": error}
+        with _warm_lock:
+            waiters = list(_warm_waiters)
+            _warm_waiters.clear()
+        for rid in waiters:
+            emit({"id": rid, **result} if rid is not None else result)
+
+    threading.Thread(target=run, name="stt-stream-warm", daemon=True).start()
 
 
 def serve() -> int:
@@ -3245,11 +3319,16 @@ def serve() -> int:
         if req is None:
             return 0
         rid = req.get("id")
+        if str(req.get("op") or "") == stream_ear.WARM_OP:
+            # A first load can take minutes: it runs beside this loop, so a transcribe or a status is still answered.
+            configure_idle(req)
+            _warm_in_background(req)
+            continue
         try:
             with _cache_lock:
                 result = handle_request(req)
         except Exception as exc:  # noqa: BLE001 — one bad request never stops the worker
-            result = {"ok": False, "reason": "worker-error", "error": f"{type(exc).__name__}: {exc}"[-300:]}
+            result = {"ok": False, "reason": "worker-error", "error": voice_runtime._safe_error(exc)}
         if rid is not None:
             result = {"id": rid, **result}
         emit(result)
@@ -3314,7 +3393,7 @@ def main() -> int:
         return 0 if payload.get("ok") else 1
 
     if args.probe:
-        emit(status_payload())
+        emit(probe_payload())
         return 0
 
     if _import_whisper() is None:
@@ -3353,7 +3432,7 @@ def main() -> int:
                 "ok": False,
                 "reason": fault.kind,
                 "sttClass": fault.kind,
-                "error": str(fault)[-600:],
+                "error": voice_runtime.scrub_text(str(fault)[-600:], 600),
                 "fix": fault.fix,
             }
         )

@@ -63,6 +63,7 @@ import importlib.util
 import json
 import math
 import os
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -81,6 +82,11 @@ from vad_onnx import build_gate, clamp_config
 ENGINE_NAME = "stream-ear-nemotron"
 SETTING_KEY = "voice.streamEngine"
 STREAM_OPS = frozenset({"stream-open", "stream-feed", "stream-close"})
+# Load the streaming model ahead of the first turn, with no stream opened. Not a stream op: the worker runs it on its
+# own thread so a long first load never holds up a transcribe or a status.
+WARM_OP = "stream-warm"
+# How long a stream op or an unload waits for a running warm before it answers "warming" (or skips the unload).
+HOST_WAIT_S = 0.25
 SLICE_MS = 20
 MAX_FEED_BYTES = 1_048_576
 MAX_ID_CHARS = 64
@@ -1171,6 +1177,16 @@ register_engine(
 # ---- the worker's slot --------------------------------------------------------------------------------------------
 
 
+def _error_text(exc: BaseException) -> str:
+    """The class and a message with paths and long tokens blanked: a reply never carries a folder name."""
+    try:
+        from voice_runtime import _safe_error
+
+        return _safe_error(exc)
+    except Exception:  # noqa: BLE001 - without the scrubber only the class name leaves
+        return type(exc).__name__
+
+
 def _clean_id(raw: Any) -> str:
     text = str(raw).strip() if isinstance(raw, (str, int)) else ""
     return text[:MAX_ID_CHARS] or "default"
@@ -1188,6 +1204,8 @@ class StreamHost:
         self._tier: str | None = None
         self._tier_read = False
         self._ledger: RtfLedger | None = None
+        # One writer of the slot at a time: a warm runs on the worker's warm thread, the stream ops on its main one.
+        self._lock = threading.Lock()
 
     def tier(self) -> str | None:
         """The hardware tier, read once per worker. None means no speed gate (never a refused stream)."""
@@ -1211,11 +1229,54 @@ class StreamHost:
         return [engine.name] if engine is not None and getattr(engine, "loaded", False) else []
 
     def unload(self) -> list[str]:
-        names = self.loaded_name()
+        """Close the engine. While a warm is loading it, nothing is unloaded (the next idle tick tries again)."""
+        if not self._lock.acquire(timeout=HOST_WAIT_S):
+            return []
+        try:
+            names = self.loaded_name()
+            if self._engine is not None:
+                self._engine.close()
+            self._engine, self._spec, self.active = None, None, None
+            return names
+        finally:
+            self._lock.release()
+
+    def warm(self, req: dict[str, Any]) -> dict[str, Any]:
+        """``stream-warm`` {streamEngine|engine, locale?, providers?} -> {ok, op, engine, loadedMs, already}.
+
+        Loads the model the next ``stream-open`` with the same engine and providers reuses, and opens no stream.
+        Idempotent: a loaded engine answers ``already: true`` with ``loadedMs: 0``; a live stream is never touched."""
+        started = self._clock()
+        with self._lock:
+            try:
+                return self._warm(req, started)
+            except Exception as exc:  # noqa: BLE001 - a failed warm never stops the worker
+                if self._engine is not None and self.active is None:
+                    self._engine.close()
+                    self._engine, self._spec = None, None
+                kind = str(getattr(exc, "kind", "") or "warm-failed")
+                return {"ok": False, "op": WARM_OP, "reason": kind, "error": _error_text(exc), "fallback": True}
+
+    def _warm(self, req: dict[str, Any], started: float) -> dict[str, Any]:
+        locale = str(req.get("locale") or req.get("language") or "")
+        choice = choose_tier(req.get("streamEngine", req.get("engine")), locale, tier=self.tier(), ledger=self.ledger())
+        if choice.engine is None or choice.model_dir is None:
+            reason = "stream-engine-off" if choice.reason == "off" else choice.reason
+            return {"ok": False, "op": WARM_OP, "reason": reason, "fallback": True}
+        spec = engine_spec(choice.engine)
+        if spec is None:
+            return {"ok": False, "op": WARM_OP, "reason": "unknown-engine", "fallback": True}
+        if self._engine is not None and self._spec is spec and self.loaded_name():
+            return {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": 0, "already": True}
+        if self.active is not None:
+            return {"ok": False, "op": WARM_OP, "reason": "stream-active", "fallback": True}
         if self._engine is not None:
             self._engine.close()
-        self._engine, self._spec, self.active = None, None, None
-        return names
+        self._engine, self._spec = spec.factory(), spec
+        self._engine.open(choice.model_dir, locale=locale or "en-US", providers=req.get("providers"))
+        self._engine.reset()
+        loaded_ms = int((self._clock() - started) * 1000)
+        return {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": loaded_ms, "already": False}
 
     def status(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -1242,6 +1303,14 @@ class StreamHost:
                          (finalize false drops the audio and returns {final: false}).
         """
         op = str(req.get("op") or "")
+        if not self._lock.acquire(timeout=HOST_WAIT_S):
+            return {"ok": False, "op": op, "reason": "warming", "fallback": True}
+        try:
+            return self._handle(op, req)
+        finally:
+            self._lock.release()
+
+    def _handle(self, op: str, req: dict[str, Any]) -> dict[str, Any]:
         try:
             if op == "stream-open":
                 return self._open(req)
@@ -1252,7 +1321,7 @@ class StreamHost:
         except Exception as exc:  # noqa: BLE001 — a bad stream never stops the worker
             self.active = None
             kind = str(getattr(exc, "kind", "") or "stream-error")
-            return {"ok": False, "op": op, "reason": kind, "error": f"{type(exc).__name__}: {exc}"[-400:]}
+            return {"ok": False, "op": op, "reason": kind, "error": _error_text(exc)}
         return {"ok": False, "op": op, "reason": "unknown-op", "error": f"unknown op {op!r}"}
 
     def _open(self, req: dict[str, Any]) -> dict[str, Any]:
@@ -1289,7 +1358,7 @@ class StreamHost:
                 "op": "stream-open",
                 "streamId": sid,
                 "reason": reason,
-                "error": f"{type(exc).__name__}: {exc}"[-400:],
+                "error": _error_text(exc),
                 "fallback": True,
             }
         self.active = sid
