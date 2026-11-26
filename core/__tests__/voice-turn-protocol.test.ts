@@ -170,6 +170,57 @@ describe("turn protocol: the session hands the events on", () => {
   });
 });
 
+describe("turn protocol: the dictation session passes onTurn through", () => {
+  const stt = readFileSync(
+    resolve(import.meta.dirname, "../../src/lib/friday/voice-stt.ts"),
+    "utf8",
+  );
+  const open = stt.slice(stt.indexOf("private openStream()"));
+
+  it("builds the stream session with an onTurn that is dropped once the session is replaced", () => {
+    const build = open.slice(0, open.indexOf("onFallback"));
+    expect(build).toMatch(
+      /onTurn:\s*\(turn\)\s*=>\s*\{\s*if \(this\.streamSession === session\) this\.options\.onStreamTurn\?\.\(turn\)/,
+    );
+  });
+
+  it("keeps the global subscription: the conductor still listens through subscribeStreamTurns", () => {
+    const mode = readFileSync(
+      resolve(import.meta.dirname, "../../src/lib/friday/assistant-mode.ts"),
+      "utf8",
+    );
+    expect(mode).toContain("subscribeStreamTurns((turn) => this.noteStreamTurn(turn))");
+  });
+
+  it("onTurn and the global listeners both see the same turn", async () => {
+    const seen: StreamTurn[] = [];
+    const heard: StreamTurn[] = [];
+    const off = subscribeStreamTurns((t) => heard.push(t));
+    const session = new SttStreamSession({
+      bridge: {
+        openSttStream: async () => ({
+          ok: true,
+          streamId: "s9",
+          engine: "stream-ear",
+          chunkMs: 80,
+        }),
+        feedSttStream: async () => ({
+          ok: true,
+          turn: { turnId: "p1", event: "partial", text: "hi" },
+        }),
+        closeSttStream: async () => ({ ok: true, text: "" }),
+      },
+      onTurn: (t) => seen.push(t),
+    });
+    await session.open({ streamEngine: "auto", locale: "en" });
+    session.push(new Float32Array(1280).fill(0.2));
+    await new Promise((r) => setTimeout(r, 0));
+    off();
+    expect(seen.length).toBe(1);
+    expect(heard).toEqual(seen);
+  });
+});
+
 describe("turn protocol: the speculative draft", () => {
   it("is off unless the owner switched it on: an eager endpoint is counted and starts nothing", () => {
     const tracker = new TurnTracker();

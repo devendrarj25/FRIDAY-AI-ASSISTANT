@@ -132,6 +132,7 @@ import {
   lastClipUsedPcm,
   lastSpeechRoute,
   pcmPlaybackNote,
+  playbackEndsAt,
   playedReplyCut,
   playedReplySnapshot,
   prefetchSpeech,
@@ -4780,7 +4781,7 @@ class AssistantModeStore {
       ...(input.waitingForAnswer ? { waitingForAnswer: true } : {}),
       ...(input.selfEcho ? { selfEcho: true } : {}),
       replyStartedAt: this.replyStartedAt,
-      replyEndsAt: null,
+      replyEndsAt: playbackEndsAt(input.t),
     });
     return this.gateVerdictOf(verdict);
   }

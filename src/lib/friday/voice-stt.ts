@@ -62,6 +62,7 @@ import {
   streamWanted,
   type StreamBridge,
   type StreamPlan,
+  type StreamTurn,
 } from "./voice-engine/stream-session";
 import type { VoiceMatchResult } from "./desktop";
 
@@ -436,6 +437,8 @@ export interface DictationOptions {
   streamPlan?: () => StreamPlan | null;
   /** A live partial from the streaming ear: display and barge-in data only, never a turn. */
   onStreamPartial?: (update: LiveWordsUpdate) => void;
+  /** A turn event of the streaming ear (also reaches every `subscribeStreamTurns` listener). */
+  onStreamTurn?: (turn: StreamTurn) => void;
 }
 
 /**
@@ -1129,6 +1132,9 @@ export class DesktopDictation {
     this.streamSeq += 1;
     const session: SttStreamSession = new SttStreamSession({
       bridge: earsBridge(desktop()),
+      onTurn: (turn) => {
+        if (this.streamSession === session) this.options.onStreamTurn?.(turn);
+      },
       streamId: `dictation-${Date.now().toString(36)}-${this.streamSeq}`,
       onPartial: (update) => {
         if (this.streamSession === session) this.options.onStreamPartial?.(update);

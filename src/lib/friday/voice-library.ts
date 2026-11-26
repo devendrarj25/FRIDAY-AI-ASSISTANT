@@ -629,6 +629,20 @@ export function playedReplyCut(): PlayedCut | null {
   return playedTracker.heardAtMs(pcmPlayer.playedMs());
 }
 
+/**
+ * The wall-clock time her scheduled speech ends, from the sample player's own queue, or null when nothing is queued
+ * or the last clause did not go through the sample player. Changes nothing.
+ */
+export function playbackEndsAt(now = Date.now()): number | null {
+  if (!pcmPlayer || !pcmPlayedLast) return null;
+  try {
+    const queued = pcmPlayer.stats().queuedMs;
+    return queued > 0 ? now + queued : null;
+  } catch {
+    return null;
+  }
+}
+
 /** How far FRIDAY's own voice is lowered while the owner may be talking over her (1 = not lowered). */
 let duckLevel = 1;
 let currentAudioVolume = 1;

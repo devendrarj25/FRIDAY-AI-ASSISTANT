@@ -13,6 +13,7 @@ const library = vi.hoisted(() => ({
   levels: [] as Array<number | undefined>,
   stops: 0,
   cut: null as null | Record<string, unknown>,
+  endsIn: null as number | null,
 }));
 
 vi.mock("../../src/lib/friday/voice-library", async (importOriginal) => {
@@ -27,6 +28,7 @@ vi.mock("../../src/lib/friday/voice-library", async (importOriginal) => {
       library.stops += 1;
     },
     playedReplyCut: () => library.cut,
+    playbackEndsAt: (now = Date.now()) => (library.endsIn === null ? null : now + library.endsIn),
     playedReplySnapshot: () => ({
       runId: "run-1",
       text: "",
@@ -133,6 +135,7 @@ beforeEach(() => {
   library.duck = [];
   library.levels = [];
   library.stops = 0;
+  library.endsIn = null;
   library.cut = {
     runId: "run-1",
     text: "First open the report.",
@@ -613,6 +616,36 @@ describe("the barge-in ladder on the live conductor (opt-in)", () => {
     ).mockImplementation(() => undefined);
     d.acceptFinalUtterance({ text: "kya hua", source: "local" });
     expect(d.lastTurn()?.interruptedPlayedMs).toBe(1100);
+  });
+
+  it("echo-cleaned speech inside the last second of her reply (the player's real end) neither ducks nor stops her", () => {
+    library.endsIn = 700;
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 600; spent += 50) {
+      earTurn("partial", "", "t1");
+      vi.advanceTimersByTime(50);
+    }
+    expect(library.duck).toEqual([]);
+    expect(library.stops).toBe(0);
+    expect(d.interruptHold).toBeNull();
+  });
+
+  it("with her reply still seconds from its end the same speech ducks and pauses her", () => {
+    library.endsIn = 5000;
+    speech = true;
+    d.beginInterruptCandidate();
+    for (let spent = 0; spent < 600; spent += 50) {
+      earTurn("partial", "", "t1");
+      vi.advanceTimersByTime(50);
+    }
+    expect(library.duck[0]).toBe(true);
+    expect(library.stops).toBe(1);
+  });
+
+  it("reads the end from the player at the moment of the look, never a stored value", () => {
+    const body = modeSource.slice(modeSource.indexOf("private judgeCandidate("));
+    expect(body.slice(0, 1200)).toContain("replyEndsAt: playbackEndsAt(input.t)");
   });
 
   it("a nod while echo-cleaned speech goes on stops nothing", () => {
