@@ -335,6 +335,23 @@ let speaker = null;
 
 /** The speaker leaves memory after this long with no request; the next speak starts it and warms it again. */
 const TTS_IDLE_UNLOAD_MS = 10 * 60 * 1000;
+/** The idle unload the speech profile asks for (setIdleUnloadMs); 0 keeps the ten minute default. */
+let profileIdleMs = 0;
+
+function ttsIdleUnloadMs() {
+  return profileIdleMs > 0 ? profileIdleMs : TTS_IDLE_UNLOAD_MS;
+}
+
+/**
+ * The voice budget's idle unload (electron/voice-weights.cjs, read by main): the speaker built after this call leaves
+ * memory after that long. A speaker that is up and idle is rebuilt on its next speak; a busy one is never touched.
+ */
+function setIdleUnloadMs(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return false;
+  profileIdleMs = Math.round(value);
+  return true;
+}
 /** A speak that has not answered after this long is slow (it keeps running); the hard deadline decides dead. */
 const SPEAK_SOFT_MS = 8000;
 /** The hard deadline of a warm speaker: this long per PCM_TEXT_CAP characters, never under the minimum. */
@@ -377,7 +394,10 @@ async function speakerInit(send, { generation }) {
 
 function speakerWorker(py) {
   const key = JSON.stringify([py[0], py[1]]);
-  if (speaker?.key === key) return speaker.worker;
+  if (speaker?.key === key) {
+    const busy = speaker.worker.status().state === "busy";
+    if (speaker.idleMs === ttsIdleUnloadMs() || busy) return speaker.worker;
+  }
   if (speaker) speaker.worker.stop().catch(() => {});
   // A new worker counts its generations from 1 again: the old warm value must not match its first one.
   warmGeneration = -1;
@@ -386,7 +406,7 @@ function speakerWorker(py) {
     script: py[0],
     args: () => [...py[1], runtimeScript(), "--serve"],
     env: () => ({ FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" }),
-    idleUnloadMs: TTS_IDLE_UNLOAD_MS,
+    idleUnloadMs: ttsIdleUnloadMs(),
     init: speakerInit,
     spawn: (exe, args, options) => {
       const child = spawn(exe, args, options);
@@ -398,7 +418,7 @@ function speakerWorker(py) {
       warmedOnce = false;
     },
   });
-  speaker = { key, worker };
+  speaker = { key, worker, idleMs: ttsIdleUnloadMs() };
   return worker;
 }
 
@@ -1129,6 +1149,8 @@ module.exports = {
   replyReason,
   speakDeadlineMs,
   TTS_IDLE_UNLOAD_MS,
+  ttsIdleUnloadMs,
+  setIdleUnloadMs,
   speakerRequest,
   PREFERRED,
   pitchOffsetHz,

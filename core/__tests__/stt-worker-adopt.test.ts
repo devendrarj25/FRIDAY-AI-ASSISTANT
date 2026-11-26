@@ -421,6 +421,9 @@ describe("the old lifecycle code is gone from the bridge", () => {
   it("builds one voice worker for the stt role with the breaker the plan names", () => {
     expect(src).toMatch(/require\("\.\/voice-worker\.cjs"\)/);
     expect(src).toMatch(/role: "stt"/);
-    expect(src).toMatch(/breaker: \{ max: 3, windowMs: 60_000, coolMs: 300_000 \}/);
+    // Three crashes in a minute open it; the first cool-down is 30 s, a second open in a row holds 5 minutes.
+    expect(src).toMatch(/breaker: \{ max: 3, windowMs: 60_000, coolMs: BREAKER_COOL_MS \}/);
+    expect(src).toMatch(/BREAKER_COOL_MS = 30_000/);
+    expect(src).toMatch(/CRASH_LOOP_HOLD_MS = 300_000/);
   });
 });

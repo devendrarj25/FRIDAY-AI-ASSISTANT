@@ -299,6 +299,7 @@ export const FLOW_REGISTRY = {
     "voice.addressName",
     "voice.addressWindowSec",
     "voice.allowAmbientCloud",
+    "voice.approvalTtlSec",
     "voice.cloudVoice",
     "voice.confirmLevel",
     "voice.duckOthers",
@@ -350,6 +351,8 @@ export const FLOW_REGISTRY = {
     "voice.tidyDictation",
     "voice.trimHistoryToPlayed",
     "voice.ttsEngine",
+    "voice.turn",
+    "voice.understanding",
     "voice.utteranceWavDays",
     "voice.vocabulary",
     "voice.voiceName",
@@ -2327,6 +2330,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:stt-stream-open",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-warm",
       file: "electron/main.cjs",
     },
     {
@@ -9705,16 +9712,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 166,
-      total: 166,
+      mapped: 169,
+      total: 169,
     },
     capabilities: {
       mapped: 1114,
       total: 1114,
     },
     ipc: {
-      mapped: 519,
-      total: 519,
+      mapped: 520,
+      total: 520,
     },
     kernel: {
       mapped: 14,

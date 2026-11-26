@@ -5512,6 +5512,7 @@ ipcMain.handle("voice:score-turn", (_e, payload) => stt.scoreTurn(payload || {})
 ipcMain.handle("voice:cancel-transcribe", (_e, payload) => stt.cancelTranscribe(payload || {}));
 // FRIDAY's own streaming ear (voice.streamEngine, off by default): local only, one stream, holds the turn gate.
 ipcMain.handle("voice:stt-stream-open", (_e, payload) => stt.streamOpen(payload || {}));
+ipcMain.handle("voice:stt-stream-warm", (_e, payload) => stt.streamWarm(payload || {}));
 ipcMain.handle("voice:stt-stream-feed", (_e, payload) => stt.streamFeed(payload || {}));
 ipcMain.handle("voice:stt-stream-close", (_e, payload) => stt.streamClose(payload || {}));
 
@@ -5555,10 +5556,11 @@ ipcMain.handle("voice:budget", async () => {
   const llmResidentVramGb = await residentLlmVramGb();
   const cudaRuntimeReady = await stt.cudaRuntimeVerdict();
   const probe = weights.probeHardware({ gpuInfo, hardwareFacts: () => facts, cudaRuntimeReady });
-  return {
-    ok: true,
-    ...weights.budgetForProbe(probe, llmResidentVramGb > 0 ? { llmResidentVramGb } : {}),
-  };
+  const budget = weights.budgetForProbe(probe, llmResidentVramGb > 0 ? { llmResidentVramGb } : {});
+  // The profile's idle unload reaches both workers (the speech ear and the speaker).
+  void stt.setSpeechProfile(budget);
+  neuralVoice.setIdleUnloadMs(budget.idleUnloadMs);
+  return { ok: true, ...budget };
 });
 ipcMain.handle("voice:restore", (_e, id) => {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) {

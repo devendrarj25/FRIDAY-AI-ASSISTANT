@@ -26,6 +26,7 @@ import {
 } from "./voice-engine/prewarm";
 import { stopAckClip } from "./voice-engine/ack-player";
 import { bytesToPcm16 } from "./voice-engine/pcm-clip-player";
+import { streamLocale, streamWanted } from "./voice-engine/stream-session";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 
 /** An acknowledgement line made in advance: raw samples, kept in memory only. */
@@ -55,6 +56,11 @@ type WarmBridge = {
     pcm?: ArrayLike<number> & { length: number };
   }>;
   transcribe?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
+  /** Loads the streaming ear's model on the live worker; never opens a stream (voice:stt-stream-warm). */
+  warmSttStream?: (payload: {
+    streamEngine: string;
+    locale: string;
+  }) => Promise<{ ok: boolean; reason?: string }>;
   scoreTurn?: (payload: {
     audioBytes: Uint8Array;
     mime: string;
@@ -145,8 +151,18 @@ export function createPrewarmIO(alive: () => boolean = () => true): PrewarmIO {
       const state = await sttStatus(false, true, true);
       if (!state.ready)
         return { ok: false, reason: state.reason || "the speech engine is not ready" };
-      if (!api.transcribe) return { ok: true };
       const voice = preferences.getSnapshot().voice;
+      // The streaming ear's model loads here, on its own limit, so the first stream-open of a turn only reuses it. Only
+      // when the owner asked for that ear; a miss or refusal is a fallback to the ordinary decode, never a failed step.
+      if (streamWanted(voice.streamEngine) && api.warmSttStream) {
+        await api
+          .warmSttStream({
+            streamEngine: voice.streamEngine,
+            locale: streamLocale(voice.recognitionLang),
+          })
+          .catch(() => null);
+      }
+      if (!api.transcribe) return { ok: true };
       const language = whisperLanguageArg(voice.recognitionLang) || undefined;
       const out = await api.transcribe({
         audioBytes: silence(),

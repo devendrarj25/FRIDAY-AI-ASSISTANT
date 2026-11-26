@@ -220,6 +220,7 @@ contextBridge.exposeInMainWorld("friday", {
   scoreTurn: (payload) => ipcRenderer.invoke("voice:score-turn", payload || {}),
   cancelTranscribe: (payload) => ipcRenderer.invoke("voice:cancel-transcribe", payload || {}),
   openSttStream: (payload) => ipcRenderer.invoke("voice:stt-stream-open", payload || {}),
+  warmSttStream: (payload) => ipcRenderer.invoke("voice:stt-stream-warm", payload || {}),
   feedSttStream: (payload) => ipcRenderer.invoke("voice:stt-stream-feed", payload || {}),
   closeSttStream: (payload) => ipcRenderer.invoke("voice:stt-stream-close", payload || {}),
   wakeEngineStatus: (payload) => ipcRenderer.invoke("voice:wake-status", payload || {}),

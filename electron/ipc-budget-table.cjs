@@ -496,6 +496,7 @@ const CHANNEL_CLASS = Object.freeze({
   "voice:stt-stream-close": "quick",
   "voice:stt-stream-feed": "quick",
   "voice:stt-stream-open": "quick",
+  "voice:stt-stream-warm": "quick",
   "voice:transcribe": "stream",
   "voice:tray-state": "quick",
   "voice:verify": "long-job",

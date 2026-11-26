@@ -88,6 +88,8 @@ describe("live speech ladder", () => {
       kernel.indexOf("if _import_whisper() is None:"),
     );
     expect(kernel).toContain('"moonshineReady": moonshine_model_dir() is not None');
-    expect(kernel).toContain('"windowsSpeech": windows_speech_ready()');
+    expect(kernel).toContain('"windowsSpeech": bool(speech)');
+    expect(kernel).toContain('payload["windowsSpeech"] = speech');
+    expect(kernel).toContain("def probe_payload() -> dict:");
   });
 });

@@ -87,7 +87,8 @@ describe("the speaker is started by the shared lifecycle module", () => {
     const source = read("electron/neural-voice.cjs");
     expect(source).toContain('require("./voice-worker.cjs")');
     expect(source).toContain("createVoiceWorker({");
-    expect(source).toContain("idleUnloadMs: TTS_IDLE_UNLOAD_MS");
+    expect(source).toContain("idleUnloadMs: ttsIdleUnloadMs()");
+    expect(source).toContain("const TTS_IDLE_UNLOAD_MS = 10 * 60 * 1000");
     expect(source).not.toContain("pending: new Map()");
     expect(source).not.toContain('child.on("close"');
     expect(source).not.toMatch(/spawn\(py\[0\]/);
