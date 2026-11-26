@@ -8,29 +8,19 @@
 import type { MemoryItem, MemoryTier } from "../self/memory-engine";
 import { meaningsDisagree, memoryContentTokens, tokenJaccard } from "../self/memory-engine";
 import { shouldRememberChats } from "../settings-runtime";
+import markerTable from "../../../../config/sensitive-markers.json";
 
 export { meaningsDisagree };
 
 const CHATTER = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|hmm+|lol)\b/i;
 
 /**
- * Same SENSITIVE signals as `electron/privacy-firewall.cjs` / `kernel/privacy.py`.
- * Kept here so the renderer never stores credential-like text as memory even
- * when it cannot load the main-process module. Tests lock the two together.
+ * The SENSITIVE text markers (English, Hindi, Hinglish) are ONE table,
+ * `config/sensitive-markers.json`, read here, by `electron/privacy-firewall.cjs` and by
+ * `kernel/privacy.py`. The renderer keeps no copy, so it never stores credential-like
+ * text as memory even when it cannot load the main-process module.
  */
-const SENSITIVE_MARKERS = [
-  /\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
-  /\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+/i,
-  /\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+/i,
-  /\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|\b(account (number|no\.?)|a\/c)\s*[:#]?\s*\d{8,}/i,
-  // Hindi and Hinglish. JavaScript's \b does not see Devanagari, so a word starts after a non-Devanagari character.
-  // A Devanagari word that is also an everyday word (आधार "basis", गुप्त in a surname, पिन "to pin", पिन कोड with a
-  // six-digit postal code) needs its second word, a value or its own end, so ordinary talk is not caught.
-  /(?<![\u0900-\u097F])(?:पासवर्ड|पासकोड|ओटीपी|सीवीवी|क्रेडिट कार्ड|डेबिट कार्ड|कार्ड न(?:ं|म्)बर|बैंक खाता|खाता (?:संख्या|न(?:ं|म्)बर)|पैन (?:कार्ड|न(?:ं|म्)बर)|एपीआई (?:कुंजी|key)|आधार (?:कार्ड|न(?:ं|म्)बर|संख्या)|(?:मेरा|मेरी|मेरे)\s+आधार)/i,
-  /(?<![\u0900-\u097F])(?:पिन(?![\u0900-\u097F])(?!\s*कर)(?!\s*कोड\s*\d{6}(?!\d))|गुप्त(?![\u0900-\u097F])|सीक्रेट(?![\u0900-\u097F])|टोकन(?![\u0900-\u097F]))/,
-  /\b(?:paasword|pasword|paaswurd|paswurd|passwurd|paaswd|paasward|passward)\b/i,
-  /\b(?:(?:mera|meri|mere|apna|apni|apne)\s+(?:pin(?!\s+code\s+\d{6}(?!\d))|otp|cvv|cvc|password|passcode|aadhaar|aadhar|adhaar)|(?:aadhaar|aadhar|adhaar)\s+(?:card|number|no\.?|nambar)|(?:pin|atm\s+pin)\s+(?:number|no\.?|nambar)|\batm\s+pin|(?:otp|pin|cvv|password)\s+(?:hai|he)\s*[:=]?\s*\d{3,}|khat[ae]\s*(?:ka\s+)?(?:number|no\.?|nambar|sankhya)|(?:pan|credit|debit|atm)\s*card\s+(?:ka\s+|ki\s+)?(?:number|no\.?|nambar|pin|cvv))\b/i,
-];
+const SENSITIVE_MARKERS = markerTable.markers.map((row) => new RegExp(row.pattern, row.flags));
 
 /** Same financial rule as electron/privacy-firewall.cjs. Bare words do not match. */
 export function financialIdentityHit(text: string): boolean {

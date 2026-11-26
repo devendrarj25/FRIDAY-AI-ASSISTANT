@@ -110,37 +110,54 @@ function financialIdentityHit(text) {
 }
 
 /**
- * Signals, checked in order. Each entry: what it detects, and the plain words
- * shown to the owner in the confirmation prompt.
+ * The SENSITIVE text markers (English, Hindi, Hinglish) are ONE table,
+ * `config/sensitive-markers.json`, shared with kernel/privacy.py and the
+ * renderer's memory policy. This file keeps no copy. If the table cannot be read
+ * or a row does not compile, nothing may leave: the loader fails closed.
  */
-const SIGNALS = [
-  {
-    level: "sensitive",
-    label: "credential or key material",
-    re: /\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
-  },
-  {
-    level: "sensitive",
-    label: "password or secret named in the text",
-    // Named secret with := / "is", or a following token that looks like a
-    // secret (contains a digit) so "password hunter2" is caught without
-    // also treating "password manager" as credential material.
-    re: /\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+/i,
-  },
-  {
-    level: "sensitive",
-    label: "PIN, passcode or one-time code named in the text",
-    re: /\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+/i,
-  },
+const MARKERS_FILE = "sensitive-markers.json";
+const MARKERS_MISSING_LABEL = "the sensitive-marker table could not be loaded";
+
+/** A table that cannot be read hard-stops every non-empty message. */
+const FAIL_CLOSED = [
+  { level: "sensitive", label: MARKERS_MISSING_LABEL, test: (text) => String(text).trim() !== "" },
+];
+
+function loadMarkerSignals(table) {
+  try {
+    const rows = table && Array.isArray(table.markers) ? table.markers : [];
+    const signals = rows.map((row) => ({
+      level: "sensitive",
+      label: String(row.label),
+      re: new RegExp(String(row.pattern), String(row.flags || "")),
+    }));
+    return signals.length ? signals : FAIL_CLOSED;
+  } catch {
+    return FAIL_CLOSED;
+  }
+}
+
+/** The text markers from the shared table, read once. */
+let markerSignals = null;
+function textMarkers() {
+  if (!markerSignals) {
+    let table = null;
+    try {
+      table = require("./resource-paths.cjs").readConfigJson(MARKERS_FILE, null).value;
+    } catch {
+      table = null;
+    }
+    markerSignals = loadMarkerSignals(table);
+  }
+  return markerSignals;
+}
+
+/** Signals, checked in order: the shared markers, then the financial rule, then the lower tiers. */
+const OTHER_SIGNALS = [
   {
     level: "sensitive",
     label: "financial or identity number",
     test: financialIdentityHit,
-  },
-  {
-    level: "sensitive",
-    label: "business ledger or bank-account figures",
-    re: /\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|\b(account (number|no\.?)|a\/c)\s*[:#]?\s*\d{8,}/i,
   },
   {
     level: "private",
@@ -168,13 +185,17 @@ const SIGNALS = [
  * Classify one piece of outbound content.
  * @returns {{level: string, reasons: string[], sample: number}}
  */
+function signals() {
+  return [...textMarkers(), ...OTHER_SIGNALS];
+}
+
 function classify(content) {
   const text = typeof content === "string" ? content : safeText(content);
   if (!text.trim()) return { level: "public", reasons: [], sample: 0 };
   const reasons = [];
   // The most sensitive signal that matched wins — never the average.
   let rank = LEVELS.indexOf("public");
-  for (const signal of SIGNALS) {
+  for (const signal of signals()) {
     const hit = typeof signal.test === "function" ? signal.test(text) : signal.re.test(text);
     if (!hit) continue;
     reasons.push(signal.label);
@@ -271,7 +292,12 @@ function describeEgress(decision, model, destination) {
 
 module.exports = {
   LEVELS,
-  SIGNALS,
+  get SIGNALS() {
+    return signals();
+  },
+  MARKERS_FILE,
+  MARKERS_MISSING_LABEL,
+  loadMarkerSignals,
   WAY_FORWARD,
   luhnOk,
   financialIdentityHit,

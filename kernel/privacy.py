@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import local_engines
@@ -27,6 +28,8 @@ import local_engines
 LEVELS = ("sensitive", "private", "internal", "public")
 SENSITIVE = "sensitive"
 WAY_FORWARD = "Remove it from the message, or run this turn on a local model."
+# System messages that router.py builds from the owner's own words.
+OWNER_TEXT_SYSTEM_PREFIXES = ("Relevant memory:", "Earlier in this same conversation")
 
 
 def luhn_ok(digits: str) -> bool:
@@ -117,47 +120,47 @@ def financial_identity_hit(text: str) -> bool:
     return False
 
 
+# The SENSITIVE text markers are ONE table, ``config/sensitive-markers.json``, shared with
+# electron/privacy-firewall.cjs and src/lib/friday/brain/memory-policy.ts (English, Hindi and Hinglish).
+# This file keeps no copy. If the table cannot be read, nothing is sent: the loader fails closed.
+_MARKERS_PATH = Path(__file__).resolve().parents[1] / "config" / "sensitive-markers.json"
+MARKERS_MISSING_LABEL = "the sensitive-marker table could not be loaded"
+
+
+def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))["markers"]
+        signals = tuple(
+            {
+                "level": "sensitive",
+                "label": str(row["label"]),
+                "re": re.compile(str(row["pattern"]), re.I if "i" in str(row.get("flags", "")) else 0),
+            }
+            for row in rows
+        )
+        if signals:
+            return signals
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        pass
+    return (
+        {
+            "level": "sensitive",
+            "label": MARKERS_MISSING_LABEL,
+            "test": lambda text: bool(str(text).strip()),
+        },
+    )
+
+
+_MARKER_SIGNALS = _load_markers(_MARKERS_PATH)
+MARKERS_LOADED = _MARKER_SIGNALS[0]["label"] != MARKERS_MISSING_LABEL
+
 # Same signals, same order, as electron/privacy-firewall.cjs.
 SIGNALS: tuple[dict[str, Any], ...] = (
-    {
-        "level": "sensitive",
-        "label": "credential or key material",
-        "re": re.compile(
-            r"\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
-            r"AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
-        ),
-    },
-    {
-        "level": "sensitive",
-        "label": "password or secret named in the text",
-        "re": re.compile(
-            r"\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b"
-            r"(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+",
-            re.I,
-        ),
-    },
-    {
-        "level": "sensitive",
-        "label": "PIN, passcode or one-time code named in the text",
-        "re": re.compile(
-            r"\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b"
-            r"(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+",
-            re.I,
-        ),
-    },
+    *_MARKER_SIGNALS,
     {
         "level": "sensitive",
         "label": "financial or identity number",
         "test": financial_identity_hit,
-    },
-    {
-        "level": "sensitive",
-        "label": "business ledger or bank-account figures",
-        "re": re.compile(
-            r"\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|"
-            r"\b(account (number|no\.?)|a/c)\s*[:#]?\s*\d{8,}",
-            re.I,
-        ),
     },
     {
         "level": "private",
@@ -234,7 +237,12 @@ def is_local_kind(model: Any) -> bool:
 
 
 def user_content(messages: Any) -> str:
-    """Owner-authored turns only — system persona is not classified."""
+    """Owner-authored turns, plus the system lines that carry the owner's own text.
+
+    The persona and tool lists are FRIDAY's, so they are not classified (a tool called
+    ``api key`` must not block every chat). Recalled memory and the shortened gist of the
+    conversation are the owner's words in a system message, so they are classified.
+    """
     if isinstance(messages, str):
         return messages
     if not isinstance(messages, list):
@@ -243,9 +251,10 @@ def user_content(messages: Any) -> str:
     for item in messages:
         if not isinstance(item, dict):
             continue
-        if str(item.get("role") or "") == "system":
+        text = _safe_text(item.get("content"))
+        if str(item.get("role") or "") == "system" and not text.startswith(OWNER_TEXT_SYSTEM_PREFIXES):
             continue
-        parts.append(_safe_text(item.get("content")))
+        parts.append(text)
     return "\n".join(parts)
 
 
