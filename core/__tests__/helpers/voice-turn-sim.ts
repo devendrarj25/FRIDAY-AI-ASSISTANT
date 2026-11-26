@@ -26,6 +26,7 @@ import {
   FRAME_MS,
   VOICED_P,
   aggregateRun,
+  createTurnMetricsRecorder,
   scoreTrace,
   type BrainEv,
   type ControlEv,
@@ -34,6 +35,7 @@ import {
   type TraceEvent,
   type TraceScore,
   type TruthKind,
+  type TurnMetricsSummary,
   type TtsEv,
 } from "../../../src/lib/friday/voice-engine/turn-metrics";
 
@@ -264,6 +266,8 @@ export type SimResult = {
   trace: TraceEvent[];
   score: TraceScore;
   run: RunMetrics;
+  /** The same trace fed through the live recorder: what the app's recorder would report for it, with the gates. */
+  summary: TurnMetricsSummary;
   h: SimHarness;
 };
 
@@ -520,6 +524,8 @@ export async function runScenario(scenario: Scenario): Promise<SimResult> {
     // Her own reply the simulator did not script a stop for is still "speaking" at the end; nothing else is read.
     const trace = shared.trace.slice().sort((a, b) => a.t - b.t);
     const score = scoreTrace(trace);
+    const recorder = createTurnMetricsRecorder({ maxEvents: trace.length });
+    for (const e of trace) recorder.record(e);
     return {
       name: scenario.name,
       spoken: h.spoken.slice(),
@@ -528,6 +534,7 @@ export async function runScenario(scenario: Scenario): Promise<SimResult> {
       trace,
       score,
       run: aggregateRun([score]),
+      summary: recorder.summary(),
       h,
     };
   } finally {

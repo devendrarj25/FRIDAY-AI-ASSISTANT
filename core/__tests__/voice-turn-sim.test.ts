@@ -13,10 +13,12 @@ import {
   BACKCHANNEL_FALSE_STOP_MAX_RATE,
   BARGE_STOP_WINDOW_MS,
   CONTINUATION_WINDOW_MS,
+  createTurnMetricsRecorder,
   FALSE_CUT_MAX_RATE,
   FRAME_MS,
   INTERRUPT_STOP_MIN_RATE,
   INTERRUPT_STOP_WITHIN_MS,
+  judgeGates,
   judgeRun,
   MID_SENTENCE_TAKEOVER_MAX_RATE,
   percentile,
@@ -25,6 +27,7 @@ import {
   spreadStat,
   TTFA_P50_MAX_MS,
   TTFA_P90_MAX_MS,
+  VOICE_TURN_GATES,
   wilsonInterval,
   type TraceEvent,
 } from "../../src/lib/friday/voice-engine/turn-metrics";
@@ -445,6 +448,208 @@ describe("aggregateRun and judgeRun", () => {
   });
 });
 
+describe("V3-E1: recorder, new metrics and gates (pure)", () => {
+  /** A barge-in trace: she speaks from 0, the owner's voice begins at 1000, she stops `stopAfter` later (null: never). */
+  const bargeTrace = (
+    kind: "interruption" | "backchannel" | "stop-word",
+    stopAfter: number | null,
+  ): TraceEvent[] => [
+    tts(0, "first-audio"),
+    { t: 1000, k: "truth", kind },
+    ...frames(1000, 1160),
+    ...frames(1160, 1240, 0.05),
+    ...(stopAfter === null ? [] : [{ t: 1000 + stopAfter, k: "stop" } as TraceEvent]),
+    { t: 1400, k: "tts", ev: "drained", utteranceId: "u", playedMs: 0 },
+  ];
+
+  it("exports the gates under their names with the planned numbers", () => {
+    expect(VOICE_TURN_GATES).toEqual({
+      falseInterrupt: 0.1,
+      falseCut: 0.03,
+      cutOff: 0.05,
+      bargeToSilenceP95Ms: 300,
+      ttfaP95Ms: 1500,
+      commandLaneP95Ms: 50,
+    });
+    expect(Object.isFrozen(VOICE_TURN_GATES)).toBe(true);
+  });
+
+  it("the recorder scores what it was given exactly as scoreTrace scores the same list", () => {
+    const trace = [
+      ...bargeTrace("interruption", 160),
+      ...bargeTrace("backchannel", null).map((e) => ({ ...e, t: e.t + 5000 })),
+    ];
+    const rec = createTurnMetricsRecorder();
+    for (const e of trace) rec.record(e);
+    const summary = rec.summary();
+    expect(summary.score).toEqual(scoreTrace(trace));
+    expect(summary.run).toEqual(aggregateRun([scoreTrace(trace)]));
+    expect(summary.events).toBe(trace.length);
+    expect(summary.dropped).toBe(0);
+  });
+
+  it("summary does not change the recorder: it can be read twice and recording goes on", () => {
+    const rec = createTurnMetricsRecorder();
+    for (const e of bargeTrace("interruption", 160)) rec.record(e);
+    const a = rec.summary();
+    const b = rec.summary();
+    expect(b).toEqual(a);
+    expect(a.run.interruptStopped.n).toBe(1);
+    for (const e of bargeTrace("interruption", 80).map((x) => ({ ...x, t: x.t + 9000 })))
+      rec.record(e);
+    expect(rec.summary().run.interruptStopped.n).toBe(2);
+    expect(a.run.interruptStopped.n).toBe(1);
+  });
+
+  it("an event is copied on record: changing it afterwards does not change the score", () => {
+    const rec = createTurnMetricsRecorder();
+    const events = bargeTrace("interruption", 160);
+    for (const e of events) rec.record(e);
+    const before = rec.summary().run.takeoverLatency;
+    for (const e of events) if (e.k === "stop") e.t = 99_000;
+    expect(rec.summary().run.takeoverLatency).toEqual(before);
+  });
+
+  it("takes events out of order and refuses an event with no usable time", () => {
+    const rec = createTurnMetricsRecorder();
+    for (const e of [...bargeTrace("interruption", 160)].reverse()) rec.record(e);
+    expect(rec.summary().run.takeoverLatency).toMatchObject({ n: 1, p50: 160 });
+    expect(() => rec.record({ t: Number.NaN, k: "stop" })).toThrow(RangeError);
+    expect(() => rec.record({ t: -1, k: "stop" })).toThrow(RangeError);
+    expect(() => rec.record({ t: Number.POSITIVE_INFINITY, k: "stop" })).toThrow(RangeError);
+    expect(rec.summary().events).toBe(bargeTrace("interruption", 160).length);
+  });
+
+  it("keeps at most maxEvents, drops the oldest first and says how many it dropped", () => {
+    const rec = createTurnMetricsRecorder({ maxEvents: 4 });
+    for (let i = 0; i < 10; i += 1) rec.record({ t: i * FRAME_MS, k: "vad", p: 0.9 });
+    const summary = rec.summary();
+    expect(summary.events).toBe(4);
+    expect(summary.dropped).toBe(6);
+    expect(createTurnMetricsRecorder({ maxEvents: 0 }).summary().events).toBe(0);
+  });
+
+  it("when full it forgets the oldest events, not the newest: the score is of the latest ones", () => {
+    const first = bargeTrace("interruption", 160);
+    const later = bargeTrace("interruption", 80).map((e) => ({ ...e, t: e.t + 9000 }));
+    const rec = createTurnMetricsRecorder({ maxEvents: later.length });
+    for (const e of [...first, ...later]) rec.record(e);
+    const summary = rec.summary();
+    expect(summary.dropped).toBe(first.length);
+    expect(summary.run.takeoverLatency).toEqual({ n: 1, p50: 80, p90: 80 });
+  });
+
+  it("is empty-safe: no events means no samples and every gate is null, never a pass", () => {
+    const summary = createTurnMetricsRecorder().summary();
+    expect(summary.run.turns).toBe(0);
+    expect(summary.gates).toHaveLength(6);
+    expect(summary.gates.every((g) => g.pass === null)).toBe(true);
+    expect(summary.run.pauseTOR.rate).toBeNull();
+    expect(summary.run.cutOff.rate).toBeNull();
+    expect(summary.run.takeoverLatency).toEqual({ n: 0, p50: null, p90: null });
+    expect(summary.run.ttfaP95Ms).toBeNull();
+  });
+
+  it("takeoverLatency is the voice-to-stop time of real interruptions only, backchannel stops are not in it", () => {
+    const run = aggregateRun([
+      scoreTrace(bargeTrace("interruption", 160)),
+      scoreTrace(bargeTrace("stop-word", 480)),
+      scoreTrace(bargeTrace("interruption", null)),
+      scoreTrace(bargeTrace("backchannel", 80)),
+    ]);
+    expect(run.takeoverLatency).toEqual({ n: 2, p50: 160, p90: 480 });
+    expect(run.bargeToSilence.n).toBe(3);
+    expect(run.backchannelFalseStop).toMatchObject({ k: 1, n: 1 });
+  });
+
+  it("bargeToSilenceP95Ms is the nearest-rank 95th percentile over every stop", () => {
+    const stops = [80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 400];
+    const run = aggregateRun(stops.map((ms) => scoreTrace(bargeTrace("interruption", ms))));
+    expect(run.bargeToSilenceP95Ms).toBe(80);
+    const run2 = aggregateRun(
+      [...stops, 400].map((ms) => scoreTrace(bargeTrace("interruption", ms))),
+    );
+    expect(run2.bargeToSilenceP95Ms).toBe(400);
+  });
+
+  it("pauseTOR is the share of marked pauses the engine took over; cutOff is the share of turns closed too early", () => {
+    const pauseTurn = (id: string, takeover: boolean): TraceEvent[] => [
+      earT(0, "start", id),
+      { t: 0, k: "truth", kind: "command" },
+      ...frames(0, 400),
+      { t: 400, k: "truth", kind: "pause" },
+      ...(takeover
+        ? [earT(800, "end", id, "x"), { t: 1200, k: "truth", kind: "continuation" } as TraceEvent]
+        : []),
+      ...frames(1600, 1920),
+      earT(2400, "end", id, "x y"),
+    ];
+    const run = aggregateRun([
+      scoreTrace(pauseTurn("a", true)),
+      scoreTrace(pauseTurn("b", false)),
+      scoreTrace(pauseTurn("c", false)),
+      scoreTrace(pauseTurn("d", false)),
+    ]);
+    expect(run.pauseTOR).toMatchObject({ k: 1, n: 4, rate: 0.25 });
+    expect(run.pauseTOR).toEqual(run.midSentenceTakeover);
+    expect(run.cutOff).toMatchObject({ k: 1, n: 4, rate: 0.25 });
+  });
+
+  it("commandLaneMs is the time from the hand-over to the command lane, null for any other lane", () => {
+    const laneTurn = (lane: "command" | "quick", laneAt: number): TraceEvent[] => [
+      earT(0, "start", "a"),
+      ...frames(0, 400),
+      earT(560, "end", "a", "x"),
+      { t: 640, k: "final", text: "x", turnId: "a" },
+      { t: 640, k: "dispatch", text: "x", turnId: "a" },
+      { t: laneAt, k: "brain", ev: "lane", runId: "r", turnId: "a", lane },
+    ];
+    const fast = scoreTrace(laneTurn("command", 640));
+    expect(fast.turns[0]?.commandLaneMs).toBe(0);
+    const slow = scoreTrace(laneTurn("command", 880));
+    expect(slow.turns[0]?.commandLaneMs).toBe(240);
+    expect(scoreTrace(laneTurn("quick", 640)).turns[0]?.commandLaneMs).toBeNull();
+    const run = aggregateRun([fast, slow, scoreTrace(laneTurn("quick", 700))]);
+    expect(run.commandLaneP95Ms).toBe(240);
+  });
+
+  it("judgeGates: rates are strictly below the limit, milliseconds are at most the limit (command lane strictly below)", () => {
+    const at = (name: string, run: ReturnType<typeof aggregateRun>) =>
+      judgeGates(run).find((g) => g.name === name);
+    const base = aggregateRun([]);
+    const withRun = (patch: Partial<typeof base>) => ({ ...base, ...patch });
+    expect(at("false interrupt rate", withRun({ falseInterrupt: rateStat(1, 10) }))?.pass).toBe(
+      false,
+    );
+    expect(at("false interrupt rate", withRun({ falseInterrupt: rateStat(1, 11) }))?.pass).toBe(
+      true,
+    );
+    expect(at("false cut rate", withRun({ falseCut: rateStat(3, 100) }))?.pass).toBe(false);
+    expect(at("false cut rate", withRun({ falseCut: rateStat(2, 100) }))?.pass).toBe(true);
+    expect(at("cut off rate", withRun({ cutOff: rateStat(5, 100) }))?.pass).toBe(false);
+    expect(at("cut off rate", withRun({ cutOff: rateStat(4, 100) }))?.pass).toBe(true);
+    expect(at("barge to silence p95 ms", withRun({ bargeToSilenceP95Ms: 300 }))?.pass).toBe(true);
+    expect(at("barge to silence p95 ms", withRun({ bargeToSilenceP95Ms: 301 }))?.pass).toBe(false);
+    expect(at("ttfa p95 ms", withRun({ ttfaP95Ms: 1500 }))?.pass).toBe(true);
+    expect(at("ttfa p95 ms", withRun({ ttfaP95Ms: 1501 }))?.pass).toBe(false);
+    expect(at("command lane p95 ms", withRun({ commandLaneP95Ms: 49 }))?.pass).toBe(true);
+    expect(at("command lane p95 ms", withRun({ commandLaneP95Ms: 50 }))?.pass).toBe(false);
+    expect(judgeGates(base).map((g) => g.pass)).toEqual([null, null, null, null, null, null]);
+  });
+
+  it("the gate limits in the verdicts are the VOICE_TURN_GATES numbers", () => {
+    const limits = Object.fromEntries(judgeGates(aggregateRun([])).map((g) => [g.name, g.limit]));
+    expect(limits).toEqual({
+      "false interrupt rate": VOICE_TURN_GATES.falseInterrupt,
+      "false cut rate": VOICE_TURN_GATES.falseCut,
+      "cut off rate": VOICE_TURN_GATES.cutOff,
+      "barge to silence p95 ms": VOICE_TURN_GATES.bargeToSilenceP95Ms,
+      "ttfa p95 ms": VOICE_TURN_GATES.ttfaP95Ms,
+      "command lane p95 ms": VOICE_TURN_GATES.commandLaneP95Ms,
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------------------
 // Part two: scripted scenarios on the real controller
 // ---------------------------------------------------------------------------------------------------------------
@@ -705,6 +910,120 @@ const SCENARIOS: Record<string, Scenario> = {
       ttsEv(3600, "drained", "u1c", { playedMs: 800 }),
     ),
   },
+  // ---- V3-E1 scenarios: the cases the evaluation plan names (Hinglish pause, nods, TV, takeover, yes/no, dictation) ----
+  hinglishPause: {
+    name: "hinglish pause after aur, then the rest",
+    script: script(
+      ear(0, "start", "t1"),
+      truth(0, "command"),
+      vad(0, 1520),
+      truth(1520, "pause"),
+      quiet(1520, 3040),
+      ear(2000, "partial", "t1", "Friday mujhe ek file banani hai aur"),
+      vad(3040, 3920),
+      quiet(3920, 5200),
+      ear(4720, "partial", "t1", "Friday mujhe ek file banani hai aur report wali"),
+      ear(4800, "end", "t1", "Friday mujhe ek file banani hai aur report wali", { speechMs: 2400 }),
+      fin(4880, "Friday mujhe ek file banani hai aur report wali"),
+      brainEv(5040, "first-token", "r1", { lane: "quick" }),
+      brainEv(5120, "done", "r1", { text: "Theek hai, file bana rahi hoon." }),
+      ttsEv(5440, "first-audio", "u1"),
+      ttsEv(6640, "drained", "u1", { playedMs: 1200 }),
+    ),
+  },
+  haanHaan: {
+    name: "two nods (haan haan) while she speaks",
+    script: script(
+      herAnswer(),
+      ear(1600, "start", "t2"),
+      truth(1600, "backchannel"),
+      vad(1600, 1760),
+      quiet(1760, 3200),
+      ear(1680, "partial", "t2", "haan"),
+      ear(2400, "end", "t2", "haan", { speechMs: 160 }),
+      fin(2480, "haan"),
+      ear(3200, "start", "t3"),
+      truth(3200, "backchannel"),
+      vad(3200, 3360),
+      quiet(3360, 5000),
+      ear(3280, "partial", "t3", "haan"),
+      ear(4000, "end", "t3", "haan", { speechMs: 160 }),
+      fin(4080, "haan"),
+    ),
+  },
+  tvBurstSilent: {
+    name: "two tv bursts with no words and no ear turn",
+    script: script(
+      herAnswer(),
+      truth(1600, "noise"),
+      vad(1600, 2320, 0.7),
+      quiet(2320, 4000),
+      truth(4000, "noise"),
+      vad(4000, 4480, 0.7),
+      quiet(4480, 6000),
+    ),
+  },
+  takeover3: {
+    name: "three-word takeover over her answer",
+    script: script(
+      herAnswer(),
+      ear(1600, "start", "t2"),
+      truth(1600, "interruption"),
+      vad(1600, 2400),
+      quiet(2400, 4000),
+      ear(1840, "partial", "t2", "wait open budget"),
+      ear(2960, "end", "t2", "wait open budget", { speechMs: 800 }),
+      fin(3040, "wait open budget"),
+      brainEv(3040, "lane", "r2", { lane: "command", turnId: "t2" }),
+      brainEv(3120, "first-token", "r2", { lane: "command", turnId: "t2" }),
+    ),
+  },
+  yesNoClose: {
+    name: "yes after her question closes fast on the command lane",
+    script: script(
+      ear(0, "start", "t1"),
+      truth(0, "command"),
+      vad(0, 1120),
+      quiet(1120, 2400),
+      ear(1680, "end", "t1", "Friday delete all the old invoices", { speechMs: 1120 }),
+      fin(1760, "Friday delete all the old invoices"),
+      ttsEv(2400, "first-audio", "u1", { turnId: "t1" }),
+      ttsEv(3200, "drained", "u1", { playedMs: 800, turnId: "t1" }),
+      ear(3600, "start", "t2"),
+      truth(3600, "answer"),
+      vad(3600, 3840),
+      quiet(3840, 5000),
+      ear(3760, "partial", "t2", "haan"),
+      ear(4160, "end", "t2", "haan", { speechMs: 240 }),
+      fin(4240, "haan"),
+      brainEv(4240, "lane", "r2", { lane: "command", turnId: "t2" }),
+      brainEv(4320, "first-token", "r2", { lane: "command", turnId: "t2" }),
+      brainEv(4400, "done", "r2", { text: "Deleted.", turnId: "t2" }),
+      ttsEv(4560, "first-audio", "u2", { turnId: "t2" }),
+      ttsEv(5200, "drained", "u2", { playedMs: 640, turnId: "t2" }),
+    ),
+  },
+  dictationLongPause: {
+    name: "dictation with a 3.2 s thinking pause",
+    script: script(
+      ear(0, "start", "t1"),
+      truth(0, "command"),
+      vad(0, 2000),
+      truth(2000, "pause"),
+      quiet(2000, 5200),
+      ear(3040, "partial", "t1", "Friday likho aaj ka din bahut accha tha"),
+      vad(5200, 6400),
+      quiet(6400, 7600),
+      ear(7200, "end", "t1", "Friday likho aaj ka din bahut accha tha aur shaam ko baarish hui", {
+        speechMs: 3200,
+      }),
+      fin(7280, "Friday likho aaj ka din bahut accha tha aur shaam ko baarish hui"),
+      brainEv(7440, "first-token", "r1", { lane: "full" }),
+      brainEv(7520, "done", "r1", { text: "Likh diya." }),
+      ttsEv(7760, "first-audio", "u1"),
+      ttsEv(8400, "drained", "u1", { playedMs: 640 }),
+    ),
+  },
 };
 
 const played = new Map<string, SimResult>();
@@ -936,10 +1255,142 @@ describe("turn simulator: scenarios on the real controller", () => {
   });
 });
 
+describe("turn simulator: V3-E1 scenarios on the real controller", () => {
+  const dots = (r: SimResult) =>
+    events(r, "duck").map((e) => (e.k === "duck" ? [e.t, e.on] : null));
+
+  it("a 1.5 s Hinglish pause after 'aur' is waited out: one command goes out, with the whole sentence", async () => {
+    const r = await play("hinglishPause");
+    expect(r.sent).toEqual(["mujhe ek file banani hai aur report wali"]);
+    expect(r.spoken).toEqual(["Theek hai, file bana rahi hoon."]);
+    expect(r.score.pauses).toEqual([{ at: 1520, resumedAt: 3040, takeover: false }]);
+    expect(turn(r)).toMatchObject({ prematureEnd: false, falseCut: false, speechEndAt: 3920 });
+    expect(events(r, "dispatch")[0]?.t).toBe(4880);
+    expect(r.h.hints[0]?.lang).toBe("hi-en");
+    expect(r.run.pauseTOR).toMatchObject({ k: 0, n: 1, rate: 0 });
+    expect(r.run.cutOff).toMatchObject({ k: 0, n: 1, rate: 0 });
+  });
+
+  it("two nods ('haan haan') while she speaks only lower her volume each time: she is never stopped", async () => {
+    const r = await play("haanHaan");
+    expect(r.score.barges).toHaveLength(2);
+    expect(r.score.barges.map((b) => [b.truth, b.ducked, b.stoppedAt, b.falseStop])).toEqual([
+      ["backchannel", true, null, false],
+      ["backchannel", true, null, false],
+    ]);
+    expect(dots(r)).toEqual([
+      [1600, true],
+      [2480, false],
+      [3200, true],
+      [4700, false],
+    ]);
+    expect(events(r, "stop")).toEqual([]);
+    expect(r.sent).toEqual([]);
+    expect(r.cancelled).toBe(0);
+    expect(r.h.brainStops).toEqual([]);
+    expect(r.run.backchannelFalseStop).toMatchObject({ k: 0, n: 2, rate: 0 });
+    expect(r.run.falseInterrupt).toMatchObject({ k: 0, n: 2, rate: 0 });
+    expect(r.run.takeoverLatency.n).toBe(0);
+  });
+
+  it("[P2-F noise no words] a TV burst of 0.7 s with no words and no ear turn STOPS her and she repeats herself", async () => {
+    const r = await play("tvBurstSilent");
+    // Today a voiced burst that outlasts the hold timer is read as an interruption even with no words at all.
+    expect(r.score.barges).toHaveLength(1);
+    expect(r.score.barges[0]).toMatchObject({
+      truth: "noise",
+      at: 1600,
+      ducked: true,
+      stoppedAt: 2200,
+      silenceMs: 600,
+      falseStop: true,
+      takeoverMs: null,
+    });
+    expect(r.spoken.filter((t) => t.startsWith("Then I will read"))).toHaveLength(2);
+    expect(r.sent).toEqual([]);
+    expect(r.score.turns).toEqual([]);
+    // No turn was opened, yet the false stop is counted: the run-level false interrupt is per barge-in.
+    expect(r.run.falseInterrupt).toMatchObject({ k: 1, n: 1, rate: 1 });
+    expect(r.run.backchannelFalseStop).toMatchObject({ k: 1, n: 1, rate: 1 });
+    expect(judgeGates(r.run).find((g) => g.name === "false interrupt rate")?.pass).toBe(false);
+  });
+
+  it("a three-word takeover stops her at the third word, 240 ms after the voice began, and the command goes out", async () => {
+    const r = await play("takeover3");
+    expect(r.score.barges[0]).toMatchObject({
+      truth: "interruption",
+      at: 1600,
+      stoppedAt: 1840,
+      silenceMs: 240,
+      takeoverMs: 240,
+      stoppedInTime: true,
+    });
+    expect(r.sent).toEqual(["wait open budget"]);
+    expect(r.h.brainStops).toEqual(["foreground"]);
+    expect(r.run.takeoverLatency).toEqual({ n: 1, p50: 240, p90: 240 });
+    expect(r.run.bargeToSilenceP95Ms).toBe(240);
+    expect(turn(r)).toMatchObject({
+      bargeToSilenceMs: 240,
+      falseInterrupt: false,
+      commandLaneMs: 0,
+    });
+  });
+
+  it("a yes to her question closes fast: sent at the final, the command lane reports in the same frame", async () => {
+    const r = await play("yesNoClose");
+    expect(r.spoken).toEqual(["Should I delete all the old invoices?", "Deleted."]);
+    expect(r.sent).toEqual(["delete all the old invoices"]);
+    expect(r.score.barges).toEqual([]);
+    expect(r.score.turns).toHaveLength(2);
+    expect(turn(r, 1)).toMatchObject({
+      speechEndAt: 3840,
+      eotWaitMs: 320,
+      commandLaneMs: 0,
+      falseCut: false,
+      prematureEnd: false,
+      lane: "command",
+    });
+    expect(r.run.commandLaneP95Ms).toBe(0);
+    expect(r.run.eotWait.p90 ?? Infinity).toBeLessThanOrEqual(560);
+  });
+
+  it("a 3.2 s thinking pause in a dictated line is not taken over: one command with the whole line", async () => {
+    const r = await play("dictationLongPause");
+    expect(r.sent).toEqual(["likho aaj ka din bahut accha tha aur shaam ko baarish hui"]);
+    expect(r.spoken).toEqual(["Likh diya."]);
+    expect(r.score.pauses).toEqual([{ at: 2000, resumedAt: 5200, takeover: false }]);
+    expect(events(r, "dispatch")[0]?.t).toBe(7280);
+    expect(turn(r)).toMatchObject({ prematureEnd: false, falseCut: false });
+    expect(r.run.pauseTOR).toMatchObject({ k: 0, n: 1 });
+    expect(r.run.cutOff).toMatchObject({ k: 0, n: 1 });
+  });
+});
+
+const BASELINE_15 = [
+  "clean",
+  "pauseKept",
+  "prematureEnd",
+  "trailingAur",
+  "backchannel",
+  "interruption",
+  "tvNoise",
+  "eagerResumed",
+  "eagerAdopted",
+  "twoQuick",
+  "confirmation",
+  "mute",
+  "stopAll",
+  "hinglish",
+  "fallback",
+];
+
 describe("turn simulator: the whole set", () => {
   it("scores the baseline against the proposed thresholds and prints it", async () => {
-    const results = await Promise.all(Object.keys(SCENARIOS).map((key) => play(key)));
-    expect(results.length).toBeGreaterThanOrEqual(12);
+    // The first fifteen scenarios and their pinned baseline stay as they were. One after the other: every scenario
+    // owns the fake timers while it plays.
+    const results: SimResult[] = [];
+    for (const key of BASELINE_15) results.push(await play(key));
+    expect(results.length).toBe(15);
     const run = aggregateRun(results.map((r) => r.score));
     const verdicts = judgeRun(run);
     console.info(JSON.stringify({ baseline: run, verdicts }));
@@ -953,6 +1404,36 @@ describe("turn simulator: the whole set", () => {
     expect(byName["interrupt stopped in time rate"]).toBe(false);
     expect(byName["backchannel false stop rate"]).toBe(true);
   });
+
+  it("scores the V3 gates over the whole set: today's pass and fail, printed", async () => {
+    const results: SimResult[] = [];
+    for (const key of Object.keys(SCENARIOS)) results.push(await play(key));
+    expect(results.length).toBeGreaterThanOrEqual(21);
+    const run = aggregateRun(results.map((r) => r.score));
+    const gates = judgeGates(run);
+    console.info(JSON.stringify({ gates, run }));
+    expect(gates.map((g) => g.name)).toEqual([
+      "false interrupt rate",
+      "false cut rate",
+      "cut off rate",
+      "barge to silence p95 ms",
+      "ttfa p95 ms",
+      "command lane p95 ms",
+    ]);
+    // Every gate has samples in this set: none is null.
+    expect(gates.every((g) => g.pass !== null)).toBe(true);
+    // Today every gate fails over the set; the packets that fix a defect flip one line each. The first-sound and
+    // command-lane numbers come from the scripted brain and voice events (the fallback scenario, the 160 ms hand-over).
+    expect(gates.map((g) => [g.name, g.pass, g.value])).toEqual([
+      ["false interrupt rate", false, 0.125],
+      ["false cut rate", false, 0.08],
+      ["cut off rate", false, 0.08],
+      ["barge to silence p95 ms", false, 600],
+      ["ttfa p95 ms", false, 2000],
+      ["command lane p95 ms", false, 160],
+    ]);
+    expect(run.turns).toBe(25);
+  });
 });
 
 describe("turn simulator: guards", () => {
@@ -960,6 +1441,17 @@ describe("turn simulator: guards", () => {
     await expect(
       runScenario({ name: "off the grid", script: script(ear(40, "start", "t1")) }),
     ).rejects.toThrow(/frame clock/);
+  });
+
+  it("the live recorder fed with a scenario's trace reports what the scorers report for it", async () => {
+    for (const key of ["interruption", "hinglishPause", "tvBurstSilent"]) {
+      const r = await play(key);
+      expect(r.summary.score).toEqual(r.score);
+      expect(r.summary.run).toEqual(r.run);
+      expect(r.summary.events).toBe(r.trace.length);
+      expect(r.summary.dropped).toBe(0);
+      expect(r.summary.gates).toEqual(judgeGates(r.run));
+    }
   });
 
   it("plays the same script to the same trace every time", async () => {

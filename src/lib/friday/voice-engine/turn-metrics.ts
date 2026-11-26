@@ -25,6 +25,23 @@ export const INTERRUPT_STOP_MIN_RATE = 0.95;
 export const INTERRUPT_STOP_WITHIN_MS = 300;
 export const BACKCHANNEL_FALSE_STOP_MAX_RATE = 0.02;
 
+/**
+ * The live gates of the voice architecture. Rates must be strictly below the number; `bargeToSilenceP95Ms` and
+ * `ttfaP95Ms` are at most the number; `commandLaneP95Ms` is strictly below it. A gate with no samples is `null`.
+ */
+export const VOICE_TURN_GATES = Object.freeze({
+  /** Barge-ins (voice over her) that stopped her though they were a nod or noise, over labelled barge-ins. */
+  falseInterrupt: 0.1,
+  /** Turns where she took the floor while the owner's voice was on. */
+  falseCut: 0.03,
+  /** Turns the owner had to carry on after the engine had closed them (the owner was cut off). */
+  cutOff: 0.05,
+  bargeToSilenceP95Ms: 300,
+  ttfaP95Ms: 1500,
+  /** The command lane: hand-over of the command to the lane report. */
+  commandLaneP95Ms: 50,
+});
+
 /** After a turn ended, a continuation inside this window means the end was premature. */
 export const CONTINUATION_WINDOW_MS = 3000;
 /** A barge-in is looked at until this long after its first voiced frame. */
@@ -104,6 +121,8 @@ export type TurnMetrics = {
   fallbackRung: number;
   /** The lane the Brain reported, when it did. */
   lane: LaneName | null;
+  /** Hand-over of the command to the first report of the command lane. Null on any other lane. */
+  commandLaneMs: number | null;
   refused: boolean;
 };
 
@@ -117,6 +136,8 @@ export type BargeScore = {
   stoppedInTime: boolean;
   /** A nod or noise that stopped her. */
   falseStop: boolean;
+  /** A real interruption, stop word or answer: voice to the output stopping (any time inside the window). */
+  takeoverMs: number | null;
 };
 
 export type PauseScore = { at: number; resumedAt: number | null; takeover: boolean };
@@ -185,6 +206,7 @@ function scoreBarge(trace: readonly TraceEvent[], at: number): BargeScore {
     silenceMs,
     stoppedInTime: real && silenceMs !== null && silenceMs <= INTERRUPT_STOP_WITHIN_MS,
     falseStop: (truth === "backchannel" || truth === "noise") && stoppedAt !== null,
+    takeoverMs: real ? silenceMs : null,
   };
 }
 
@@ -302,6 +324,8 @@ function scoreTurn(trace: readonly TraceEvent[], window: TurnWindow): TurnMetric
       trace.some((v) => voiced(v) && v.t >= e.t - FRAME_MS && v.t <= e.t),
   );
   const lane = last(brains.filter((e) => e.lane !== undefined))?.lane ?? null;
+  const firstCommandReport = first(brains.filter((e) => e.lane === "command"));
+  const commandLaneMs = gap(dispatch?.t, firstCommandReport?.t);
 
   return {
     turnId: window.turnId,
@@ -321,6 +345,7 @@ function scoreTurn(trace: readonly TraceEvent[], window: TurnWindow): TurnMetric
     stages,
     fallbackRung: tts.filter((e) => e.ev === "failed").length,
     lane,
+    commandLaneMs,
     refused: brains.some((e) => e.ev === "refused"),
   };
 }
@@ -387,6 +412,15 @@ export type RunMetrics = {
   /** Nods and noise that stopped her. */
   backchannelFalseStop: RateStat;
   midSentenceTakeover: RateStat;
+  /** Pause takeover rate: marked pauses the engine took over (the same numbers as `midSentenceTakeover`). */
+  pauseTOR: RateStat;
+  /** Turns the engine closed and the owner carried on inside the window: the owner was cut off. */
+  cutOff: RateStat;
+  /** Real interruptions, stop words and answers: voice to the output stopping. */
+  takeoverLatency: SpreadStat;
+  ttfaP95Ms: number | null;
+  bargeToSilenceP95Ms: number | null;
+  commandLaneP95Ms: number | null;
   fallbackRungs: Record<string, number>;
 };
 
@@ -411,13 +445,33 @@ export function aggregateRun(scores: readonly TraceScore[]): RunMetrics {
     draftHit: rateStat(drafts.filter((t) => t.draftHit === true).length, drafts.length),
     eagerResumed: rateStat(Math.min(resumed, eagers), eagers),
     falseCut: rateStat(turns.filter((t) => t.falseCut).length, turns.length),
-    falseInterrupt: rateStat(turns.filter((t) => t.falseInterrupt).length, turns.length),
+    falseInterrupt: rateStat(
+      barges.filter((b) => b.falseStop).length,
+      barges.filter((b) => b.truth !== null).length,
+    ),
     interruptStopped: rateStat(real.filter((b) => b.stoppedInTime).length, real.length),
     bargeToSilence: spreadStat(
       barges.map((b) => b.silenceMs).filter((v): v is number => v !== null),
     ),
     backchannelFalseStop: rateStat(nods.filter((b) => b.falseStop).length, nods.length),
     midSentenceTakeover: rateStat(pauses.filter((p) => p.takeover).length, pauses.length),
+    pauseTOR: rateStat(pauses.filter((p) => p.takeover).length, pauses.length),
+    cutOff: rateStat(turns.filter((t) => t.prematureEnd).length, turns.length),
+    takeoverLatency: spreadStat(
+      barges.map((b) => b.takeoverMs).filter((v): v is number => v !== null),
+    ),
+    ttfaP95Ms: percentile(
+      nums((t) => t.ttfaMs),
+      0.95,
+    ),
+    bargeToSilenceP95Ms: percentile(
+      barges.map((b) => b.silenceMs).filter((v): v is number => v !== null),
+      0.95,
+    ),
+    commandLaneP95Ms: percentile(
+      nums((t) => t.commandLaneMs),
+      0.95,
+    ),
     fallbackRungs: rungs,
   };
 }
@@ -461,4 +515,75 @@ export function judgeRun(run: RunMetrics): Verdict[] {
       BACKCHANNEL_FALSE_STOP_MAX_RATE,
     ),
   ];
+}
+
+const below = (name: string, value: number | null, limit: number): Verdict => ({
+  name,
+  pass: value === null ? null : value < limit,
+  value,
+  limit,
+});
+
+/** The run against `VOICE_TURN_GATES`. A gate with no samples is `null`, never a pass. */
+export function judgeGates(run: RunMetrics): Verdict[] {
+  return [
+    below("false interrupt rate", run.falseInterrupt.rate, VOICE_TURN_GATES.falseInterrupt),
+    below("false cut rate", run.falseCut.rate, VOICE_TURN_GATES.falseCut),
+    below("cut off rate", run.cutOff.rate, VOICE_TURN_GATES.cutOff),
+    atMost(
+      "barge to silence p95 ms",
+      run.bargeToSilenceP95Ms,
+      VOICE_TURN_GATES.bargeToSilenceP95Ms,
+    ),
+    atMost("ttfa p95 ms", run.ttfaP95Ms, VOICE_TURN_GATES.ttfaP95Ms),
+    below("command lane p95 ms", run.commandLaneP95Ms, VOICE_TURN_GATES.commandLaneP95Ms),
+  ];
+}
+
+export type TurnMetricsSummary = {
+  /** Events held now. */
+  events: number;
+  /** Events thrown away because the recorder was full (the oldest go first). */
+  dropped: number;
+  score: TraceScore;
+  run: RunMetrics;
+  gates: Verdict[];
+};
+
+export type TurnMetricsRecorder = {
+  /** Add one event. Its time `t` is the caller's (a frame clock or a session clock); a bad time is refused. */
+  record(event: TraceEvent): void;
+  /** Score what was recorded. Reading it changes nothing; recording can go on after it. */
+  summary(): TurnMetricsSummary;
+};
+
+/** Events one recorder keeps before it drops the oldest. About an hour of a busy session. */
+export const DEFAULT_RECORDER_EVENTS = 50_000;
+
+/**
+ * A recorder for the live app and the simulator. It never reads a clock: every event carries its own time, so the
+ * same events always give the same numbers. Events may arrive out of order; they are scored by time.
+ */
+export function createTurnMetricsRecorder(
+  options: { maxEvents?: number } = {},
+): TurnMetricsRecorder {
+  const maxEvents = Math.max(0, Math.floor(options.maxEvents ?? DEFAULT_RECORDER_EVENTS));
+  let events: TraceEvent[] = [];
+  let dropped = 0;
+  return {
+    record(event) {
+      if (!Number.isFinite(event.t) || event.t < 0)
+        throw new RangeError(`turn metrics event needs a finite time of 0 or more, got ${event.t}`);
+      events.push({ ...event });
+      if (events.length > maxEvents) {
+        dropped += events.length - maxEvents;
+        events = events.slice(events.length - maxEvents);
+      }
+    },
+    summary() {
+      const score = scoreTrace(events);
+      const run = aggregateRun([score]);
+      return { events: events.length, dropped, score, run, gates: judgeGates(run) };
+    },
+  };
 }
