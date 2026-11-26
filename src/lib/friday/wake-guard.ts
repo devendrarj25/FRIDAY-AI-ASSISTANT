@@ -19,6 +19,11 @@
  *   patience      A frame-level score must clear it for `patienceFrames` frames in a row (an utterance-level
  *                 transcript match is one decision and skips this).
  *
+ * The ears' scene tag (`observeScene`, from the kernel's `env {kind, score}` on a turn note) may RAISE the threshold
+ * while music or a TV is read at 0.6 or more, by up to `SCENE_BOOST_MAX`, for `SCENE_HOLD_MS` after the last tag; any
+ * other kind, a low score or junk raises nothing and nothing here ever lowers it. A speaker tag has no way in:
+ * "owner" is a label, never a reason to wake sooner or to skip a gate.
+ *
  * Hands-free stays what the owner saved: `handsFree` starts false, and while it is false a wake is required in
  * the asleep state. Time is always passed in (`nowMs`), no timers, so every rule is tested on a fake clock.
  * Unverified until the owner's PC: the thresholds against a real room, a real TV and a real speaker.
@@ -102,6 +107,9 @@ export function normalizeWakeGuardConfig(
   return out;
 }
 
+/** The kernel's room reading of a turn note (`env`). Only `music` and `tv` at or above `SCENE_ACT_AT` count. */
+export type SceneTag = { kind: string; score: number };
+
 export type WakeFrame = {
   nowMs: number;
   /** The level the VAD judged (after the echo reference, when it cleans the frame), 0..1. */
@@ -174,6 +182,19 @@ const STEADY_MIN_LEVEL = 0.02;
 /** A relative level wobble under this is steady (a hum); speech wobbles far more. */
 const STEADY_WOBBLE = 0.25;
 const PLAYBACK_AUDIBLE = 0.02;
+/** Lead values (ears.scene): the most a music or TV tag raises the wake threshold, the score it needs, how long it holds. */
+export const SCENE_BOOST_MAX = 0.15;
+export const SCENE_ACT_AT = 0.6;
+export const SCENE_HOLD_MS = 4000;
+
+/** 0 for anything but a music or TV tag with a finite score at or above the bar; else up to `SCENE_BOOST_MAX`. */
+function raiseForTag(tag: unknown): number {
+  if (!tag || typeof tag !== "object") return 0;
+  const { kind, score } = tag as Partial<SceneTag>;
+  if (kind !== "music" && kind !== "tv") return 0;
+  if (typeof score !== "number" || !Number.isFinite(score) || score < SCENE_ACT_AT) return 0;
+  return Math.round(SCENE_BOOST_MAX * Math.min(1, score) * 1000) / 1000;
+}
 
 const emptyBlocked = (): Record<WakeBlock, number> => ({
   locked: 0,
@@ -191,6 +212,8 @@ export class WakeGuard {
   private handsFreeOn = false;
   private lockReason = "";
   private boost = 0;
+  private sceneBoost = 0;
+  private sceneUntil = -Infinity;
   private cooldownUntil = 0;
   private hits = 0;
   private lastObs = 0;
@@ -302,6 +325,28 @@ export class WakeGuard {
     this.boost = Math.max(0, this.boost - (this.cfg.steadyBoost * dt) / this.cfg.steadyDecayMs);
   }
 
+  /**
+   * The ears' room reading. Music or TV at `SCENE_ACT_AT` or more raises the wake threshold by up to
+   * `SCENE_BOOST_MAX` (scaled by the score) until `SCENE_HOLD_MS` after this tag; a calmer scene tag ends the raise.
+   * Anything without a scene `kind` (a speaker tag, junk) is ignored; another kind or a score below the bar never
+   * raises, and nothing here can lower the threshold.
+   */
+  observeScene(tag: unknown, nowMs: number): void {
+    if (!tag || typeof tag !== "object" || typeof (tag as Partial<SceneTag>).kind !== "string")
+      return;
+    const raise = raiseForTag(tag);
+    const was = this.sceneRaise(nowMs);
+    this.sceneBoost = raise;
+    this.sceneUntil = raise > 0 ? nowMs + SCENE_HOLD_MS : -Infinity;
+    if (raise > 0 && was === 0)
+      this.note(nowMs, "scene", `${(tag as SceneTag).kind} +${raise.toFixed(2)}`);
+  }
+
+  /** The scene raise in force at `nowMs` (0 once its hold ran out). */
+  sceneRaise(nowMs: number): number {
+    return nowMs <= this.sceneUntil ? this.sceneBoost : 0;
+  }
+
   /** Speech the VAD heard that can still back a wake: the live run, or a run that ended recently. */
   speechHeardMs(nowMs: number): number {
     const earlier = nowMs - this.lastRunEndAt <= this.cfg.speechRecencyMs ? this.utterMs : 0;
@@ -340,9 +385,10 @@ export class WakeGuard {
     if (input.nowMs < this.cooldownUntil) return "cooldown";
     if (this.speakingNow(input.nowMs) && this.isSelfVoice(input)) return "self-voice";
     if (this.speechHeardMs(input.nowMs) < this.cfg.minSpeechMs) return "no-speech";
-    const effective = Math.min(0.98, input.threshold + this.boost);
+    const raise = this.boost + this.sceneRaise(input.nowMs);
+    const effective = Math.min(0.98, input.threshold + raise);
     if (input.score < effective) {
-      return this.boost > 0 && input.score >= input.threshold ? "room-noise" : "below-threshold";
+      return raise > 0 && input.score >= input.threshold ? "room-noise" : "below-threshold";
     }
     if (input.kind === "frame") {
       this.hits += 1;
@@ -449,6 +495,8 @@ export class WakeGuard {
   resetAudio(): void {
     this.hits = 0;
     this.boost = 0;
+    this.sceneBoost = 0;
+    this.sceneUntil = -Infinity;
     this.steadyAccum = 0;
     this.emaLevel = 0;
     this.wobble = 1;

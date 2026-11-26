@@ -4,6 +4,9 @@ import { wakeGuardRows } from "../../src/lib/friday/voice-diagnostics-rows";
 import { MAX_RING_MS, PcmRing, TARGET_RATE } from "../../src/lib/friday/pcm-capture";
 import {
   normalizeWakeGuardConfig,
+  SCENE_ACT_AT,
+  SCENE_BOOST_MAX,
+  SCENE_HOLD_MS,
   WAKE_GUARD_DEFAULTS,
   WakeGuard,
   type HandsFreeState,
@@ -323,6 +326,108 @@ describe("wake guard: TV and room noise raise the threshold instead of waking", 
     room.quiet(500);
     room.run(30_000, (i) => speechFrame(i, 0.3), true);
     expect(room.guard.snapshot(room.now).thresholdBoost).toBe(0);
+  });
+});
+
+describe("wake guard: the ears' scene tag only ever raises the bar", () => {
+  const talked = () => {
+    const room = new Room();
+    room.quiet(500);
+    room.talk(800, 0.5);
+    return room;
+  };
+
+  it("music or a TV at 0.6 or more refuses a borderline wake and a strong one still passes", () => {
+    const room = talked();
+    room.guard.observeScene({ kind: "music", score: 0.9 }, room.now);
+    const raise = room.guard.sceneRaise(room.now);
+    expect(raise).toBeGreaterThan(0);
+    expect(raise).toBeLessThanOrEqual(SCENE_BOOST_MAX);
+    expect(wakeAt(room, { score: THRESHOLD + 0.05 })).toEqual({
+      accept: false,
+      reason: "room-noise",
+    });
+    expect(wakeAt(room, { score: THRESHOLD + raise + 0.01 }).accept).toBe(true);
+  });
+
+  it("a score between the base and the raised threshold is refused as room-noise", () => {
+    const room = talked();
+    room.guard.observeScene({ kind: "tv", score: 1 }, room.now);
+    const verdict = wakeAt(room, { score: THRESHOLD + 0.05 });
+    expect(verdict).toEqual({ accept: false, reason: "room-noise" });
+    expect(wakeAt(room, { score: 0.95 }).accept).toBe(true);
+    expect(room.guard.snapshot(room.now).thresholdBoost).toBe(0); // the steady-noise boost is a separate thing
+  });
+
+  it("speech, noise, junk, a low score or a missing tag raises nothing", () => {
+    const room = talked();
+    for (const tag of [
+      { kind: "speech", score: 1 },
+      { kind: "noise", score: 1 },
+      { kind: "music", score: SCENE_ACT_AT - 0.01 },
+      { kind: "music", score: Number.NaN },
+      { kind: "music", score: "0.9" },
+      { kind: "music" },
+      { tag: "other", score: 1 },
+      null,
+      undefined,
+      "tv",
+      7,
+    ]) {
+      room.guard.observeScene(tag, room.now);
+      expect(room.guard.sceneRaise(room.now)).toBe(0);
+    }
+    expect(wakeAt(room, { score: THRESHOLD + 0.01 }).accept).toBe(true);
+  });
+
+  it("the raise holds for a while after the last tag and then lets go", () => {
+    const room = talked();
+    room.guard.observeScene({ kind: "music", score: 0.8 }, room.now);
+    expect(room.guard.sceneRaise(room.now + SCENE_HOLD_MS)).toBeGreaterThan(0);
+    expect(room.guard.sceneRaise(room.now + SCENE_HOLD_MS + 1)).toBe(0);
+  });
+
+  it("a calmer tag ends the raise at once, and a mute or forced sleep forgets it", () => {
+    const room = talked();
+    room.guard.observeScene({ kind: "tv", score: 0.9 }, room.now);
+    room.guard.observeScene({ kind: "speech", score: 0.9 }, room.now + 100);
+    expect(room.guard.sceneRaise(room.now + 100)).toBe(0);
+    room.guard.observeScene({ kind: "tv", score: 0.9 }, room.now);
+    room.guard.forceAsleep("mute", room.now);
+    expect(room.guard.sceneRaise(room.now)).toBe(0);
+  });
+
+  it("with no tag the verdicts are exactly the old ones", () => {
+    for (const score of [0.3, 0.49, 0.5, 0.51, 0.7, 1]) {
+      const plain = talked();
+      const tagged = talked();
+      tagged.guard.observeScene(undefined, tagged.now);
+      expect(wakeAt(tagged, { score })).toEqual(wakeAt(plain, { score }));
+    }
+  });
+
+  it("a speaker tag has no way in: the guard takes no speaker input and never lowers a score bar", () => {
+    const room = talked();
+    room.guard.observeScene(
+      { kind: "music", score: 0.9, speaker: { tag: "owner", score: 0.99 } },
+      room.now,
+    );
+    const before = room.guard.sceneRaise(room.now);
+    expect(before).toBeGreaterThan(0);
+    room.guard.observeScene({ speaker: { tag: "owner", score: 0.99 } }, room.now + 3000);
+    room.guard.observeScene({ tag: "owner", score: 0.99 }, room.now + 3000);
+    expect(room.guard.sceneRaise(room.now + 3000)).toBe(before); // neither changed it, held it longer nor cleared it
+    expect(room.guard.sceneRaise(room.now + SCENE_HOLD_MS + 1)).toBe(0);
+    expect(wakeAt(room, { score: 0.1 })).toEqual({ accept: false, reason: "below-threshold" });
+  });
+
+  it("the scene raise stacks on the noise raise and the cap of 0.98 still lets a spoken wake word through", () => {
+    const room = new Room();
+    room.quiet(500);
+    room.noise(8000, 0.06);
+    room.talk(800, 0.5);
+    room.guard.observeScene({ kind: "tv", score: 1 }, room.now);
+    expect(wakeAt(room, { score: 1, kind: "utterance" }).accept).toBe(true);
   });
 });
 

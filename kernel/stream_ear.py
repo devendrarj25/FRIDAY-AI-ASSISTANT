@@ -26,6 +26,13 @@ Interface contract
   (the last) and ``turns`` (all). ``eager`` is sent only when ``ears.eagerTurn`` is true. A final reading goes
   through ``transcript_gate.stream_text_dropped`` with the voiced time of the Silero gate. Without ``ears``
   none of this runs and the engine behaves as before.
+* The room seam (``ear_scene``): with ``ears.scene == "score"`` every 1.5 s of audio is read for speech, music, tv or
+  noise and the turn notes carry ``env {kind, score}``; while music or a tv holds (hysteresis) the voice gate start
+  is raised to 0.6 and a final of fewer than 2 words is dropped (``scene-needs-words``). With ``ears.otherVoice``
+  ``score`` or ``hold`` each window of speech is scored against ``ears.ownerEmbedding`` (the WeSpeaker int8 file) and
+  the notes carry ``speaker {tag, score}`` (owner, other, unknown); ``hold`` adds ``needsWake`` (an other voice, or
+  a tv) and the renderer decides. These are tags and stricter gates only: a speaker tag is never read by an approval
+  and never lowers a threshold. Absent ``scene`` and ``otherVoice`` nothing of this runs.
 * Under ``auto`` the chooser also gates on speed: ``hardware_tier`` names the PC (``small-cpu``, ``mid``, ``gpu``),
   ``RtfLedger`` keeps the real-time factor each engine measured on this PC per tier (``<models>/stream-ear-rtf.json``,
   written after every stream of a second or more), and an engine measured slower than ``RTF_LIMIT`` is skipped for
@@ -364,6 +371,9 @@ class TransducerEngine:
         self._turn_scorer = turn_scorer or _smart_turn_scorer
         self._ears_on = False
         self._smart_turn = False
+        self._scene: Any = None
+        self._hold_other = False
+        self._gate_base: tuple[Any, ...] | None = None
         self._tracker = TurnTracker(self._endpoint_config)
         self._vad: Any = EnergyVad()
         self.vad_engine = "energy"
@@ -443,8 +453,64 @@ class TransducerEngine:
             EnergyVad,
             threshold=self._endpoint_config.start_probability,
         )
+        self._open_scene(ears)
+
+    def _open_scene(self, ears: Any) -> None:
+        """The room reading of this stream (``ear_scene``): on only when ``ears.scene`` is ``score`` or
+        ``ears.otherVoice`` is ``score`` or ``hold``; otherwise nothing is built and nothing is read."""
+        self._scene, self._hold_other, self._gate_base = None, False, None
+        if not isinstance(ears, Mapping):
+            return
+        scene = ears.get("scene") == "score"
+        voice = ears.get("otherVoice") in ("score", "hold")
+        if not (scene or voice):
+            return
+        try:
+            from ear_scene import SceneTracker, SpeakerScorer
+
+            speaker = SpeakerScorer(ears.get("ownerEmbedding")) if voice else None
+            self._scene = SceneTracker(score_scene=scene, score_speaker=voice, speaker=speaker)
+        except Exception:  # noqa: BLE001 — numpy missing: the room is simply not read
+            self._scene = None
+            return
+        self._hold_other = ears.get("otherVoice") == "hold"
+
+    def _apply_scene(self) -> None:
+        """Make the voice gate stricter while music or a tv holds, and put it back when it clears. Only ever up:
+        the Silero start becomes the larger of its own and 0.6; the energy margin gains 3 dB."""
+        from ear_scene import GATE_START_RAISED
+
+        raising = bool(self._scene is not None and self._scene.raising)
+        if raising == (self._gate_base is not None):
+            return
+        gate = self._vad
+        stream = getattr(gate, "_stream", None)
+        if raising:
+            if stream is not None and hasattr(stream, "start"):
+                self._gate_base = ("silero", stream, float(stream.start))
+                stream.start = max(float(stream.start), GATE_START_RAISED)
+            elif hasattr(gate, "margin_db"):
+                self._gate_base = ("energy", gate, float(gate.margin_db))
+                gate.margin_db = float(gate.margin_db) + 3.0
+            else:
+                self._gate_base = ("none", None, 0.0)
+            return
+        self._restore_gate()
+
+    def _restore_gate(self) -> None:
+        base, self._gate_base = self._gate_base, None
+        if base is None:
+            return
+        kind, target, value = base
+        if kind == "silero":
+            target.start = value
+        elif kind == "energy":
+            target.margin_db = value
 
     def _clear(self) -> None:
+        self._restore_gate()
+        if self._scene is not None:
+            self._scene.reset()
         self._vad.reset()
         self._endpointer.reset()
         self._stabiliser.reset()
@@ -507,6 +573,9 @@ class TransducerEngine:
         """Keep the last 8 s of audio for Smart Turn and count the voiced time the gate heard."""
         if not self._ears_on:
             return
+        if self._scene is not None:
+            self._scene.push(piece)
+            self._apply_scene()
         self._tail.append(piece)
         self._tail_samples += int(piece.size)
         keep = RATE * TURN_WINDOW_S
@@ -559,6 +628,8 @@ class TransducerEngine:
         if self._ears_on:
             if t.decision["event"] == "StartOfTurn":
                 self._turn_voiced_ms = 0
+                if self._scene is not None:
+                    self._scene.new_turn()
             for note in self._tracker.step(obs, decision):
                 self._pending_turns.append(
                     {
@@ -567,11 +638,30 @@ class TransducerEngine:
                         "text": note.text,
                         "vadP": round(float(self._vad.probability), 3),
                         "speechMs": self._turn_voiced_ms,
+                        **self._scene_notes(),
                     }
                 )
         if decision.event is None:
             return []
         return [{"type": "endpoint", **t.decision, "audioMs": t.audio_ms, "silenceMs": self._vad.silence_ms}]
+
+    def _scene_notes(self) -> dict[str, Any]:
+        """``env``, ``speaker`` and ``needsWake`` for a turn note: tags only, and only the ones switched on. Nothing an
+        approval reads: ``speaker`` labels the turn and ``needsWake`` can only ask for MORE proof, never less."""
+        scene = self._scene
+        if scene is None:
+            return {}
+        out: dict[str, Any] = {}
+        env = scene.env
+        if env is not None:
+            out["env"] = env
+        who = scene.speaker_tag
+        if who is not None:
+            out["speaker"] = who
+        if self._hold_other:
+            tv = scene.raising and env is not None and env["kind"] == "tv"
+            out["needsWake"] = bool(tv or (who is not None and who["tag"] == "other"))
+        return out
 
     def take_turns(self) -> list[dict[str, Any]]:
         """The turn-protocol notes since the last call (empty without ``ears``)."""
@@ -583,6 +673,11 @@ class TransducerEngine:
         is the gate's own count when it is Silero; the energy gate gives no evidence, so only the text rules apply."""
         if not self._ears_on or not text.strip():
             return ""
+        if self._scene is not None and self._scene.raising:
+            from ear_scene import MIN_WORDS_RAISED
+
+            if len(_words(text)) < MIN_WORDS_RAISED:
+                return "scene-needs-words"
         voiced = float(self._voiced_ms) if self.vad_engine == "silero" else None
         fraction = voiced / audio_ms if voiced is not None and audio_ms > 0 else None
         return stream_text_dropped(
