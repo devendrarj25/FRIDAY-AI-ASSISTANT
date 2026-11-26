@@ -18,6 +18,14 @@ Interface contract
   audio clock (no wall clock), so a run repeats exactly. ``endpoint`` events follow ``endpointer``
   (StartOfTurn, EagerEndOfTurn, TurnResumed, EndOfTurn); the engine never ends a turn by itself: the
   caller calls ``finalize``.
+* When the stream-open payload carries ``ears``, the engine also speaks the turn protocol: ``eagerness`` picks the
+  endpointer preset (``endpointer.config_for_ears``); about 200 ms after the voice gate stops, the pinned Smart Turn
+  model (``voice_runtime.score_turn``, the last 8 s, front-padded) scores the turn once, and again after speech
+  resumes; a missing file or failure leaves the silence rules alone. ``take_turns`` hands the host the
+  ``start``/``partial``/``eager``/``resumed``/``end``/``revised`` notes, which ``stream-feed`` returns as ``turn``
+  (the last) and ``turns`` (all). ``eager`` is sent only when ``ears.eagerTurn`` is true. A final reading goes
+  through ``transcript_gate.stream_text_dropped`` with the voiced time of the Silero gate. Without ``ears``
+  none of this runs and the engine behaves as before.
 * Under ``auto`` the chooser also gates on speed: ``hardware_tier`` names the PC (``small-cpu``, ``mid``, ``gpu``),
   ``RtfLedger`` keeps the real-time factor each engine measured on this PC per tier (``<models>/stream-ear-rtf.json``,
   written after every stream of a second or more), and an engine measured slower than ``RTF_LIMIT`` is skipped for
@@ -42,14 +50,16 @@ import json
 import math
 import os
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from endpointer import EndpointConfig, Endpointer, Observation
+from endpointer import EndpointConfig, Endpointer, Observation, TurnTracker, config_for_ears
 from la2_partials import RATE, La2Partials, TurnLanguage
 from stream_commit import LocalAgreementCommitter, PartialStabiliser, Word, join_words
+from transcript_gate import stream_text_dropped
 from vad_onnx import build_gate, clamp_config
 
 ENGINE_NAME = "stream-ear-nemotron"
@@ -310,6 +320,19 @@ class EnergyVad:
 
 # ---- the engine ---------------------------------------------------------------------------------------------------
 
+TURN_WINDOW_S = 8  # Smart Turn reads the last 8 s of 16 kHz audio
+
+
+def _smart_turn_scorer(samples: Any, rate: int) -> dict[str, Any]:
+    """The pinned end-of-turn model of the voice runtime (resident session, front-pads a short clip)."""
+    import voice_runtime
+
+    return voice_runtime.score_turn(samples, rate)
+
+
+def _language_of(locale: str) -> str | None:
+    return (locale or "").split("-")[0].split("_")[0].lower() or None
+
 
 def _words(text: str) -> list[str]:
     return text.split()
@@ -328,9 +351,20 @@ class TransducerEngine:
 
     name = ENGINE_NAME
 
-    def __init__(self, stream: Any = None, *, endpoint_config: EndpointConfig | None = None) -> None:
+    def __init__(
+        self,
+        stream: Any = None,
+        *,
+        endpoint_config: EndpointConfig | None = None,
+        turn_scorer: Callable[[Any, int], dict[str, Any]] | None = None,
+    ) -> None:
         self._stream = stream
         self._endpoint_config = endpoint_config or EndpointConfig()
+        self._ctor_config = self._endpoint_config
+        self._turn_scorer = turn_scorer or _smart_turn_scorer
+        self._ears_on = False
+        self._smart_turn = False
+        self._tracker = TurnTracker(self._endpoint_config)
         self._vad: Any = EnergyVad()
         self.vad_engine = "energy"
         self._endpointer = Endpointer(self._endpoint_config)
@@ -340,6 +374,7 @@ class TransducerEngine:
         self._model_dir = ""
         self._providers_key: tuple[str, ...] = ()
         self._partial: dict[str, Any] = self._partial_dict(self._stabiliser.update([]), 0)
+        self._reset_turn_state()
 
     @property
     def loaded(self) -> bool:
@@ -352,11 +387,7 @@ class TransducerEngine:
         hotwords = [str(w)[:MAX_HOTWORD_CHARS] for w in (options.get("hotwords") or []) if str(w).strip()][
             :MAX_HOTWORDS
         ]
-        overrides = options.get("endpoint")
-        if isinstance(overrides, Mapping):
-            allowed = EndpointConfig.__dataclass_fields__
-            self._endpoint_config = EndpointConfig(**{k: v for k, v in overrides.items() if k in allowed})
-        self._endpointer = Endpointer(self._endpoint_config)
+        self._open_endpoint(options.get("endpoint"), options.get("ears"))
         self._open_vad(options.get("ears"))
         key = tuple(providers) if isinstance(providers, (list, tuple)) else ()
         if self._stream is None:
@@ -379,6 +410,31 @@ class TransducerEngine:
             "vad": self.vad_engine,
         }
 
+    def _open_endpoint(self, overrides: Any, ears: Any) -> None:
+        """The endpointer of this stream: the ``ears.eagerness`` preset (when ``ears`` names one), then the
+        ``endpoint`` overrides on top. With neither, the constructor's config stands."""
+        preset = config_for_ears(ears)
+        self._ears_on = isinstance(ears, Mapping)
+        if preset is not None or isinstance(overrides, Mapping):
+            allowed = EndpointConfig.__dataclass_fields__
+            picked = {k: v for k, v in overrides.items() if k in allowed} if isinstance(overrides, Mapping) else {}
+            self._endpoint_config = EndpointConfig(**{**(preset or {}), **picked})
+        else:
+            self._endpoint_config = self._ctor_config
+        self._endpointer = Endpointer(self._endpoint_config)
+        self._tracker = TurnTracker(self._endpoint_config)
+        self._smart_turn = self._ears_on
+
+    def _reset_turn_state(self) -> None:
+        self._tail: deque[Any] = deque()
+        self._tail_samples = 0
+        self._turn_p: float | None = None
+        self._scored = False
+        self._voiced_ms = 0
+        self._turn_voiced_ms = 0
+        self._pending_turns: list[dict[str, Any]] = []
+        self._tracker.reset()
+
     def _open_vad(self, ears: Any) -> None:
         """The voice gate of this stream: Silero when the pinned file is on disk and ``ears.vad`` allows it
         (``auto`` or ``silero``), otherwise the energy gate. ``ears`` is the clamped stream-open object."""
@@ -395,6 +451,7 @@ class TransducerEngine:
         self._turn = _Turn()
         self._carry = bytearray()
         self._partial = self._partial_dict(self._stabiliser.update([]), 0)
+        self._reset_turn_state()
 
     def reset(self) -> None:
         if self._stream is not None and self.loaded:
@@ -435,6 +492,7 @@ class TransducerEngine:
             piece = samples[start : start + per_slice]
             self._vad.push(piece, int(piece.size * 1000 // stream.contract.sample_rate) or SLICE_MS)
             self._turn.audio_ms += int(piece.size * 1000 // stream.contract.sample_rate)
+            self._hear(piece, int(piece.size * 1000 // stream.contract.sample_rate))
             for event in stream.feed(piece):
                 if event.text != self._turn.last_text:
                     self._turn.last_text = event.text
@@ -445,24 +503,95 @@ class TransducerEngine:
             events += self._step_endpoint()
         return events
 
+    def _hear(self, piece: Any, ms: int) -> None:
+        """Keep the last 8 s of audio for Smart Turn and count the voiced time the gate heard."""
+        if not self._ears_on:
+            return
+        self._tail.append(piece)
+        self._tail_samples += int(piece.size)
+        keep = RATE * TURN_WINDOW_S
+        while self._tail and self._tail_samples - int(self._tail[0].size) >= keep:
+            self._tail_samples -= int(self._tail.popleft().size)
+        if self._vad.probability >= self._endpoint_config.start_probability:
+            self._voiced_ms += ms
+            self._turn_voiced_ms += ms
+
+    def _score_turn(self) -> None:
+        """Ask Smart Turn once per pause, about ``vad_stop_ms`` after the voice gate stopped; speech clears it so
+        the next pause is scored on the whole turn again. No answer is never waited for."""
+        if not self._smart_turn or not self._endpointer.in_turn:
+            return
+        if self._vad.probability >= self._endpoint_config.start_probability:
+            self._turn_p, self._scored = None, False
+            return
+        if self._scored or self._vad.silence_ms < self._endpoint_config.vad_stop_ms or not self._tail:
+            return
+        self._scored = True
+        import numpy as np
+
+        try:
+            answer = self._turn_scorer(np.concatenate(list(self._tail)), RATE)
+        except Exception:  # noqa: BLE001 — a failing model leaves the silence rules alone
+            self._smart_turn = False
+            return
+        probability = answer.get("probability") if answer.get("ready") else None
+        if isinstance(probability, (int, float)) and 0.0 <= float(probability) <= 1.0:
+            self._turn_p = float(probability)
+        elif "absent" in str(answer.get("reason") or ""):
+            self._smart_turn = False  # no file on this PC: stop asking for the rest of the stream
+
     def _step_endpoint(self) -> list[dict[str, Any]]:
         t = self._turn
-        decision = self._endpointer.step(
-            Observation(
-                vad_probability=self._vad.probability,
-                trailing_silence_ms=self._vad.silence_ms,
-                token_age_ms=max(0, t.audio_ms - t.last_token_ms),
-                text=t.last_text,
-            )
+        self._score_turn()
+        obs = Observation(
+            vad_probability=self._vad.probability,
+            trailing_silence_ms=self._vad.silence_ms,
+            token_age_ms=max(0, t.audio_ms - t.last_token_ms),
+            text=t.last_text,
+            turn_probability=self._turn_p,
         )
+        decision = self._endpointer.step(obs)
         t.decision = {
             "event": str(decision.event) if decision.event is not None else None,
             "requiredWaitMs": decision.required_wait_ms,
             "reason": decision.reason,
         }
+        if self._ears_on:
+            if t.decision["event"] == "StartOfTurn":
+                self._turn_voiced_ms = 0
+            for note in self._tracker.step(obs, decision):
+                self._pending_turns.append(
+                    {
+                        "turnId": note.turn_id,
+                        "event": note.event,
+                        "text": note.text,
+                        "vadP": round(float(self._vad.probability), 3),
+                        "speechMs": self._turn_voiced_ms,
+                    }
+                )
         if decision.event is None:
             return []
         return [{"type": "endpoint", **t.decision, "audioMs": t.audio_ms, "silenceMs": self._vad.silence_ms}]
+
+    def take_turns(self) -> list[dict[str, Any]]:
+        """The turn-protocol notes since the last call (empty without ``ears``)."""
+        out, self._pending_turns = self._pending_turns, []
+        return out
+
+    def _gate_final(self, text: str, audio_ms: int, locale: str) -> str:
+        """The reason a final reading is not trusted (``transcript_gate.stream_text_dropped``), or ''. The voiced time
+        is the gate's own count when it is Silero; the energy gate gives no evidence, so only the text rules apply."""
+        if not self._ears_on or not text.strip():
+            return ""
+        voiced = float(self._voiced_ms) if self.vad_engine == "silero" else None
+        fraction = voiced / audio_ms if voiced is not None and audio_ms > 0 else None
+        return stream_text_dropped(
+            text,
+            duration_s=audio_ms / 1000.0,
+            speech_fraction=fraction,
+            voiced_ms=voiced,
+            language=_language_of(locale),
+        )
 
     def partial(self) -> dict[str, Any]:
         return dict(self._partial)
@@ -479,13 +608,17 @@ class TransducerEngine:
         self._stabiliser.update(_words(result.text))
         final = self._stabiliser.finalize()
         audio_ms = max(1, result.audio_ms)
+        dropped = self._gate_final(result.text, audio_ms, stream.locale)
         return {
-            "text": result.text,
-            "committed": join_words(final.committed),
-            "words": [
+            "text": "" if dropped else result.text,
+            "committed": "" if dropped else join_words(final.committed),
+            "words": []
+            if dropped
+            else [
                 {"text": w.text, **({} if w.start_ms is None else {"startMs": w.start_ms, "endMs": w.end_ms})}
                 for w in result.words
             ],
+            **({"dropped": dropped} if dropped else {}),
             "audioMs": result.audio_ms,
             "chunks": result.chunks,
             "computeMs": round(result.compute_ms, 1),
@@ -532,11 +665,7 @@ class La2Engine(TransducerEngine):
     def open(self, model_dir: str | Path, **options: Any) -> dict[str, Any]:
         self._locale = str(options.get("locale") or "")
         self._hotwords = _clean_hotwords(options.get("hotwords"))
-        overrides = options.get("endpoint")
-        if isinstance(overrides, Mapping):
-            allowed = EndpointConfig.__dataclass_fields__
-            self._endpoint_config = EndpointConfig(**{k: v for k, v in overrides.items() if k in allowed})
-        self._endpointer = Endpointer(self._endpoint_config)
+        self._open_endpoint(options.get("endpoint"), options.get("ears"))
         self._open_vad(options.get("ears"))
         started = time.perf_counter()
         self._model_dir = str(model_dir)
@@ -589,6 +718,7 @@ class La2Engine(TransducerEngine):
             ms = int(piece.size * 1000 // RATE)
             self._vad.push(piece, ms or SLICE_MS)
             self._turn.audio_ms += ms
+            self._hear(piece, ms)
         events: list[dict[str, Any]] = []
         partial = la2.push(samples)
         if partial is not None and partial.revision != self._partial.get("revision"):
@@ -621,10 +751,12 @@ class La2Engine(TransducerEngine):
                 changed = 0
             compute_s += time.perf_counter() - started
         audio_ms = int(la2.audio_s * 1000)
+        dropped = self._gate_final(text, max(1, audio_ms), self._locale)
         return {
-            "text": text,
-            "committed": join_words(final.committed),
-            "words": [_word_row(w) for w in words],
+            "text": "" if dropped else text,
+            "committed": "" if dropped else join_words(final.committed),
+            "words": [] if dropped else [_word_row(w) for w in words],
+            **({"dropped": dropped} if dropped else {}),
             "audioMs": audio_ms,
             "chunks": la2.readings,
             "computeMs": round(compute_s * 1000, 1),
@@ -729,7 +861,7 @@ class StreamHost:
                          (``ears`` holds ``vad`` auto|silero|energy, ``vadStart``, ``vadEnd``, ``minSpeechMs``,
                          ``preRollMs``; clamped in ``vad_onnx.clamp_config``)
         ``stream-feed``  {streamId?, pcm: base64 of int16 little-endian 16 kHz mono}
-                         -> {events: [partial | endpoint], text, committed, audioMs, endpoint}
+                         -> {events: [partial | endpoint], text, committed, audioMs, endpoint, turn?, turns?}
         ``stream-close`` {streamId?, finalize?: true} -> {final: true, text, words, audioMs, rtf, ...}
                          (finalize false drops the audio and returns {final: false}).
         """
@@ -816,7 +948,7 @@ class StreamHost:
             return {"ok": False, "op": "stream-feed", "streamId": sid, "reason": "bad-audio", "error": "not base64"}
         events = engine.feed(data)
         snap = engine.partial()
-        return {
+        reply: dict[str, Any] = {
             "ok": True,
             "op": "stream-feed",
             "streamId": sid,
@@ -826,6 +958,11 @@ class StreamHost:
             "audioMs": snap["audioMs"],
             "endpoint": engine.endpoint(),
         }
+        take_turns: Callable[[], list[dict[str, Any]]] | None = getattr(engine, "take_turns", None)
+        turns = take_turns() if take_turns is not None else []
+        if turns:
+            reply["turn"], reply["turns"] = turns[-1], turns
+        return reply
 
     def _close(self, req: dict[str, Any]) -> dict[str, Any]:
         engine, sid, refusal = self._live(req, "stream-close")

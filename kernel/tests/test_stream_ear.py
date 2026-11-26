@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import stream_ear  # noqa: E402
+from endpointer import EndpointConfig  # noqa: E402
 from fake_transducer import FakeModel, install_fake_engine, pcm_bytes, write_model_dir  # noqa: E402
 from stream_ear import (  # noqa: E402
     ENGINE_NAME,
@@ -321,6 +322,225 @@ def test_the_endpoint_options_are_limited_to_the_known_fields(tmp_path):
     engine, _, folder = make_engine(tmp_path)
     engine.open(folder, endpoint={"open_silence_ms": 300, "bogus": 1, "hard_cap_ms": 900})
     assert engine._endpoint_config.open_silence_ms == 300 and engine._endpoint_config.hard_cap_ms == 900
+
+
+# ---- the turn protocol, Smart Turn on a VAD stop and the final gate -------------------------------------------------
+
+EARS = {"vad": "energy", "eagerness": "normal", "eagerTurn": True}
+
+
+class Scorer:
+    """Stands in for ``voice_runtime.score_turn``: records every call and answers ``probability``."""
+
+    def __init__(self, probability: float | None = 0.9, reason: str = ""):
+        self.probability, self.reason, self.calls = probability, reason, []
+
+    def __call__(self, samples, rate):
+        self.calls.append((len(samples), rate))
+        if self.probability is None:
+            return {"ok": True, "ready": False, "probability": None, "reason": self.reason}
+        return {"ok": True, "ready": True, "probability": self.probability, "complete": True, "reason": ""}
+
+
+def turn_events(engine, data, step=640):
+    """Feed in 20 ms steps and keep the turn notes with the audio position they came at."""
+    seen, fed = [], 0
+    for i in range(0, len(data), step):
+        engine.feed(data[i : i + step])
+        fed += step // 32
+        seen += [(fed, t["event"], t) for t in engine.take_turns()]
+    return seen
+
+
+def test_without_ears_there_are_no_turn_events_no_scoring_and_no_gate(tmp_path):
+    scorer = Scorer()
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer)
+    engine.open(folder, locale="en-US")
+    events = drive(engine, SPEECH + QUIET)
+    assert engine.take_turns() == [] and scorer.calls == []
+    assert engine._endpoint_config == EndpointConfig()  # the defaults stay
+    assert [e["event"] for e in events if e["type"] == "endpoint"][-1] == "EndOfTurn"
+    assert "dropped" not in engine.finalize()
+
+
+def test_with_ears_the_turn_runs_start_partial_eager_end_with_the_fields_the_renderer_reads(tmp_path):
+    scorer = Scorer(0.9)
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer)
+    info = engine.open(folder, locale="en-US", ears=EARS)
+    assert (
+        info["vad"] == "energy" and engine._endpoint_config.open_silence_ms == 420
+    )  # the normal preset keeps today's pause
+    seen = turn_events(engine, SPEECH + QUIET)
+    assert [e for _, e, _ in seen if e != "partial"] == ["start", "eager", "end"]
+    first = seen[0][2]
+    assert set(first) == {"turnId", "event", "text", "vadP", "speechMs"} and first["turnId"] == 1
+    assert [t["text"] for _, e, t in seen if e == "partial"][-1] == "Open Chrome, please"
+    eager = next(t for _, e, t in seen if e == "eager")
+    assert eager["text"] == "Open Chrome, please" and eager["speechMs"] >= 700
+    end = next(t for _, e, t in seen if e == "end")
+    assert end["text"] == eager["text"]  # the speculative reply is adopted: same words
+
+
+def test_smart_turn_runs_once_per_pause_after_200_ms_on_the_last_8_seconds(tmp_path):
+    scorer = Scorer(0.9)
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer)
+    engine.open(folder, locale="en-US", ears=EARS)
+    drive(engine, SPEECH + pcm_bytes(0.16))
+    assert scorer.calls == []  # 160 ms of quiet is not a VAD stop yet
+    drive(engine, pcm_bytes(0.1))
+    assert [rate for _, rate in scorer.calls] == [16000]
+    drive(engine, pcm_bytes(1.0))
+    assert len(scorer.calls) == 1  # one answer per pause
+    long = pcm_bytes(0.9, 0.3) * 12 + pcm_bytes(0.4)
+    engine.reset()
+    engine.open(folder, locale="en-US", ears=EARS)
+    drive(engine, long)
+    assert scorer.calls[-1][0] <= 16000 * 8  # never more than the last 8 s
+
+
+def test_the_model_is_asked_again_on_the_whole_turn_after_speech_resumes(tmp_path):
+    scorer = Scorer(0.3)
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer)
+    engine.open(folder, ears={**EARS, "eagerTurn": False})
+    drive(engine, SPEECH + pcm_bytes(0.4))
+    assert len(scorer.calls) == 1
+    drive(engine, SPEECH + pcm_bytes(0.4))
+    assert len(scorer.calls) == 2 and scorer.calls[1][0] > scorer.calls[0][0]  # the second read has the extra speech
+
+
+def test_eager_then_resumed_when_speech_returns_and_no_eager_without_the_setting(tmp_path):
+    engine, _, folder = make_engine(tmp_path, turn_scorer=Scorer(0.55))
+    engine.open(folder, locale="en-US", ears=EARS)
+    seen = turn_events(engine, SPEECH + pcm_bytes(0.4) + SPEECH + QUIET)
+    names = [e for _, e, _ in seen if e != "partial"]
+    assert names[:3] == ["start", "eager", "resumed"] and names[-1] == "end"
+    assert len({t["turnId"] for _, _, t in seen}) == 1
+    off, _, folder2 = make_engine(tmp_path / "b", turn_scorer=Scorer(0.9))
+    off.open(folder2, locale="en-US", ears={**EARS, "eagerTurn": False})
+    assert "eager" not in [e for _, e, _ in turn_events(off, SPEECH + QUIET)]
+
+
+def test_a_confident_score_ends_the_turn_sooner_and_a_low_one_waits_for_the_fallback(tmp_path):
+    ends = {}
+    for name, probability in (("none", None), ("sure", 0.9), ("unsure", 0.2)):
+        engine, _, folder = make_engine(tmp_path / name, turn_scorer=Scorer(probability, "smart-turn file absent"))
+        engine.open(folder, ears={**EARS, "eagerTurn": False})
+        seen = turn_events(engine, SPEECH + pcm_bytes(3.6))
+        ends[name] = next(at for at, e, _ in seen if e == "end") - len(SPEECH) // 32
+    assert ends["sure"] < ends["none"] < ends["unsure"]
+    assert 2900 <= ends["unsure"] <= 3200  # the 3.0 s silence fallback of the normal preset
+    assert ends["sure"] <= 360
+
+
+def test_a_missing_smart_turn_file_is_asked_once_and_never_blocks_the_turn(tmp_path):
+    scorer = Scorer(None, "smart-turn file absent")
+    engine, _, folder = make_engine(tmp_path, turn_scorer=scorer)
+    engine.open(folder, ears=EARS)
+    seen = turn_events(engine, SPEECH + pcm_bytes(0.4) + SPEECH + QUIET)
+    assert len(scorer.calls) == 1 and [e for _, e, _ in seen][-1] == "end"
+    assert "eager" not in [e for _, e, _ in seen]  # an eager end needs a real score
+
+
+def test_a_failing_scorer_degrades_to_the_silence_rules(tmp_path):
+    def broken(samples, rate):
+        raise RuntimeError("onnx exploded")
+
+    engine, _, folder = make_engine(tmp_path, turn_scorer=broken)
+    engine.open(folder, ears=EARS)
+    seen = turn_events(engine, SPEECH + QUIET)
+    assert [e for _, e, _ in seen][-1] == "end"
+
+
+@pytest.mark.parametrize("filler", ["matlab", "umm"])
+def test_a_hesitation_word_holds_the_end_and_sends_no_eager(tmp_path, filler):
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, ears=EARS)
+    engine._turn_scorer = Scorer(0.9)
+    seen = turn_events(engine, SPEECH)
+    engine._turn.last_text = f"mujhe batana tha {filler}"  # the recogniser's last words
+    seen += turn_events(engine, pcm_bytes(1.0))
+    assert [e for _, e, _ in seen if e not in ("partial", "start")] == []  # no eager, and no end within 1 s
+    assert engine.endpoint()["requiredWaitMs"] >= 420 + 780 and engine.endpoint()["inTurn"] is True
+    seen += turn_events(engine, pcm_bytes(1.0))
+    assert [e for _, e, _ in seen if e == "end"] == ["end"]
+
+
+def test_ears_without_an_eagerness_keep_the_default_endpointer(tmp_path):
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, ears={"vad": "energy"})
+    assert engine._endpoint_config == EndpointConfig()
+    engine.open(folder, ears={"vad": "energy", "eagerness": "patient"}, endpoint={"hard_cap_ms": 900})
+    assert engine._endpoint_config.open_silence_ms == 800 and engine._endpoint_config.hard_cap_ms == 900
+    engine.open(folder)  # a plain stream after a preset goes back to the constructor config
+    assert engine._endpoint_config == EndpointConfig()
+
+
+class Level:
+    """A Silero stand-in: p is high for a loud frame, low for a quiet one (``SileroStream`` adds hysteresis)."""
+
+    def __call__(self, frame):
+        return 0.9 if float((frame * frame).mean()) ** 0.5 > 0.02 else 0.05
+
+    def reset(self):
+        pass
+
+
+def with_silero(engine):
+    import vad_onnx
+
+    engine._vad = vad_onnx.SileroGate(vad_onnx.SileroStream(scorer=Level()), fallback=EnergyVad())
+    engine.vad_engine = "silero"
+
+
+def test_a_final_reading_goes_through_the_transcript_gate_with_the_voiced_time(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_gate(text, **kw):
+        seen.update(kw, text=text)
+        return "no-speech"
+
+    monkeypatch.setattr(stream_ear, "stream_text_dropped", fake_gate)
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="hi-IN", ears=EARS)
+    with_silero(engine)
+    drive(engine, SPEECH + QUIET)
+    final = engine.finalize()
+    assert final["text"] == "" and final["committed"] == "" and final["words"] == [] and final["dropped"] == "no-speech"
+    assert seen["text"] == "Open Chrome, please" and seen["language"] == "hi"
+    assert 700 <= seen["voiced_ms"] <= 1000 and 0.2 < seen["speech_fraction"] < 0.6
+
+
+def test_too_little_voice_drops_the_final_and_enough_voice_keeps_it(tmp_path):
+    engine, _, folder = make_engine(tmp_path)
+    engine.open(folder, locale="en-US", ears=EARS)
+    with_silero(engine)
+    drive(engine, SPEECH + QUIET)
+    engine._voiced_ms = 60  # under the 120 ms that is never a word
+    assert engine.finalize()["dropped"] == "no-speech"
+    again, _, folder2 = make_engine(tmp_path / "b")
+    again.open(folder2, locale="en-US", ears=EARS)
+    with_silero(again)
+    drive(again, SPEECH + QUIET)
+    final = again.finalize()
+    assert final["text"] == "Open Chrome, please" and "dropped" not in final
+
+
+def test_the_host_returns_the_last_turn_note_and_all_of_them(host, monkeypatch):
+    monkeypatch.setattr(stream_ear, "_smart_turn_scorer", Scorer(0.9))
+    host.handle({"op": "stream-open", "streamEngine": "auto", "locale": "en-US", "ears": EARS})
+    data, notes, last = SPEECH + QUIET, [], None
+    for i in range(0, len(data), 6400):
+        reply = host.handle({"op": "stream-feed", "pcm": b64(data[i : i + 6400])})
+        assert reply["ok"] and set(reply["endpoint"]) >= {"event", "inTurn"}  # the old fields are still there
+        if "turn" in reply:
+            assert reply["turn"] == reply["turns"][-1]
+            notes += reply["turns"]
+            last = reply["turn"]
+    assert [n["event"] for n in notes if n["event"] != "partial"] == ["start", "eager", "end"]
+    assert last is not None and last["event"] == "end"
+    host.handle({"op": "stream-close"})
+    host.handle({"op": "stream-open", "streamEngine": "auto", "locale": "en-US"})
+    assert "turn" not in host.handle({"op": "stream-feed", "pcm": b64(SPEECH)})
 
 
 # ---- the worker slot ----------------------------------------------------------------------------------------------
