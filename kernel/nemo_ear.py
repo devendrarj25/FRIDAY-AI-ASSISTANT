@@ -10,8 +10,12 @@ Interface contract
   and the width of the joint decide. Nothing is downloaded here; a missing or odd file raises ``NemoEarError``.
 * ``recognize(samples)`` gives the text of 16 kHz mono float samples (int16 is scaled). ``with_timestamps()`` gives a
   reader whose ``recognize`` returns a ``NemoReading``: text, the pieces, the time of each piece's first frame in
-  seconds and the log probability of each piece. ``hotwords`` (a ``hotword_trie.HotwordTrie``) turns the CTC prefix
-  beam or the transducer beam on; those readings carry no piece times or scores.
+  seconds and the log probability of each piece. ``hotwords`` (any ``context_graph.TokenBias``: a ``HotwordTrie`` or a
+  ``ContextGraph``) turns the CTC prefix beam or the transducer beam on. ``ear.hotword_bias(words)`` builds that graph
+  from the owner's words and their Roman and Devanagari spellings (``text_norm.hotword_variants``). A biased CTC
+  reading from ``with_timestamps()`` still carries piece times and scores (the beam's pieces are force-aligned to the
+  frames, the scores are acoustic only), and when no hotword made it into the beam's best line the greedy reading
+  answers, so words that were not spoken change nothing. A biased transducer reading carries no times or scores.
 * ``log_probs(samples)`` and ``ctc_head()`` expose the CTC head for the chunked reader; both are None for a transducer.
 * The log-mel features are ``NemoFeatures``: the NeMo recipe on ``mel_frontend``'s filterbank, pre-emphasis and power
   spectrum, with NeMo's symmetric Hann window and its utterance mean and variance. ``mel_frontend``'s own Hann is
@@ -26,15 +30,15 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from ctc_decode import ctc_greedy, ctc_prefix_beam
-from hotword_trie import HotwordTrie
+from context_graph import ContextGraph, TokenBias, graph_for_words
+from ctc_decode import ctc_align, ctc_greedy, ctc_prefix_beam
 from mel_frontend import mel_filterbank, nemo_config, power_spectrum, preemphasis
 from rnnt_decode import (
     DEFAULT_DURATIONS,
@@ -55,6 +59,7 @@ DEFAULT_FEATURES = 80
 DEFAULT_SUBSAMPLING = 8
 DEFAULT_MAX_TOKENS_PER_STEP = 10
 DEFAULT_THREADS = 4
+MAX_SPELLINGS = 8  # spellings tried per owner word (the word itself first)
 _SPACES = re.compile(r"\A\s|\s\B|(\s)\b")  # a space survives only between two words
 
 
@@ -283,7 +288,23 @@ class _TimedReader:
         self._ear = ear
 
     def recognize(self, samples: npt.ArrayLike, sample_rate: int = SAMPLE_RATE, **kwargs: Any) -> NemoReading:
-        return self._ear.read(samples, sample_rate, **kwargs)
+        return self._ear.read(samples, sample_rate, timed=True, **kwargs)
+
+
+def hotword_bias(
+    words: Sequence[str], vocab: Mapping[str, int], *, boost: float | None = None, word_mark: str = WORD_MARK
+) -> ContextGraph | None:
+    """A bias graph of the owner's words and the spellings a recogniser may write for each (Roman and Devanagari, see
+    ``text_norm.hotword_variants``), as far as ``vocab`` (piece to id) can spell them; None when none can be spelled
+    or no word was given, so a decoder skips biasing."""
+    from text_norm import hotword_variants
+
+    spelled: list[str] = []
+    for word in words:
+        for variant in hotword_variants(str(word), MAX_SPELLINGS):
+            if variant not in spelled:
+                spelled.append(variant)
+    return graph_for_words(spelled, vocab, boost=boost, word_mark=word_mark) if spelled else None
 
 
 def _float_samples(samples: npt.ArrayLike, sample_rate: int) -> npt.NDArray[np.float32]:
@@ -395,19 +416,38 @@ class NemoEar:
 
     # -- reading -----------------------------------------------------------------------------------------------------
 
+    def hotword_bias(self, words: Sequence[str], *, boost: float | None = None) -> ContextGraph | None:
+        """The bias graph of the owner's words (and their spellings) in this model's vocabulary, or None."""
+        vocab = {piece: index for index, piece in self._pieces.items() if piece and index != self.blank_id}
+        return hotword_bias(words, vocab, boost=boost)
+
     def read(
-        self, samples: npt.ArrayLike, sample_rate: int = SAMPLE_RATE, *, hotwords: HotwordTrie | None = None
+        self,
+        samples: npt.ArrayLike,
+        sample_rate: int = SAMPLE_RATE,
+        *,
+        hotwords: TokenBias | None = None,
+        timed: bool = False,
     ) -> NemoReading:
-        """The reading of one clip. ``hotwords`` biases a beam search; without them the decode is greedy."""
+        """The reading of one clip. ``hotwords`` biases a beam search; without them the decode is greedy. ``timed``
+        asks a biased CTC reading for its piece times and scores too (``with_timestamps()`` readers always do)."""
         trie = hotwords if hotwords else None
         if self.kind == "ctc":
-            return self._read_ctc(self._ctc_rows(samples, sample_rate), trie)
+            return self._read_ctc(self._ctc_rows(samples, sample_rate), trie, timed=timed)
         return self._read_transducer(self._encoded(samples, sample_rate), trie)
 
-    def _read_ctc(self, rows: npt.NDArray[np.float32], trie: HotwordTrie | None) -> NemoReading:
+    def _read_ctc(self, rows: npt.NDArray[np.float32], trie: TokenBias | None, *, timed: bool = False) -> NemoReading:
         if trie and rows.shape[0]:
             best = ctc_prefix_beam(rows, blank_id=self.blank_id, hotwords=trie)[0]
-            return self._reading(best.tokens, None, None)
+            if not timed:
+                return self._reading(best.tokens, None, None)
+            if best.bonus > 0.0:  # a hotword made it into the line: time and score the beam's pieces
+                try:
+                    spans = ctc_align(rows, best.tokens, self.blank_id)
+                except ValueError:  # too few frames to align: the pieces without times
+                    return self._reading(best.tokens, None, None)
+                scores = [float(rows[a : b + 1, tok].sum()) for tok, (a, b) in zip(best.tokens, spans, strict=True)]
+                return self._reading(best.tokens, [a for a, _ in spans], scores)
         greedy = ctc_greedy(rows, self.blank_id)
         if not greedy.tokens:
             return self._reading([], [], [])
@@ -415,7 +455,7 @@ class NemoEar:
         kept = np.where(rows.argmax(axis=1) != self.blank_id, rows.max(axis=1), 0.0)
         return self._reading(greedy.tokens, greedy.frames, np.add.reduceat(kept, greedy.frames))
 
-    def _read_transducer(self, enc: npt.NDArray[np.float32], trie: HotwordTrie | None) -> NemoReading:
+    def _read_transducer(self, enc: npt.NDArray[np.float32], trie: TokenBias | None) -> NemoReading:
         fused = self._fused
         if fused is None:
             raise NemoEarError("a CTC model has no decoder and joint")

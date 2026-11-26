@@ -12,6 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from context_graph import ContextGraph  # noqa: E402
+from ctc_decode import ctc_prefix_beam  # noqa: E402
 from hotword_trie import HotwordTrie  # noqa: E402
 from rnnt_decode import (  # noqa: E402
     RnntBeamDecoder,
@@ -442,3 +444,120 @@ def test_tdt_beam_keeps_a_blank_with_zero_duration_moving_and_reset_starts_again
     assert engine.best().tokens == () and engine.frames_seen == 5
     engine.reset()
     assert engine.frames_seen == 0 and engine.best().tokens == ()
+
+
+# ---- a ContextGraph (any TokenBias) in the transducer beams ----------------------------------------------------------
+
+
+def _graph(*phrases: list[int], boost: float = 1.5) -> ContextGraph:
+    graph = ContextGraph(boost=boost)
+    for phrase in phrases:
+        graph.add_phrase(phrase)
+    return graph
+
+
+def _trie(*phrases: list[int], bonus: float = 1.5) -> HotwordTrie:
+    trie = HotwordTrie(bonus=bonus)
+    for phrase in phrases:
+        trie.add_phrase(phrase)
+    return trie
+
+
+def _near_tie_joint(p_hot: float):
+    """After nothing: token 1 holds 0.5 and the hotword token 2 holds ``p_hot``; once said: blank."""
+
+    def joint(frame: np.ndarray, dec: np.ndarray) -> np.ndarray:
+        rest = max(1e-4, 1.0 - 0.5 - p_hot - 0.0001)
+        probs = [rest, 0.50, p_hot, 0.0001] if int(dec[0]) == 0 else [0.9997, 0.0001, 0.0001, 0.0001]
+        return np.log(np.array(probs))
+
+    return joint
+
+
+def _near_tie_tdt(p_hot: float):
+    plain = _near_tie_joint(p_hot)
+    jump_one = np.array([-9.0, 9.0, -9.0, -9.0, -9.0])
+    return lambda frame, dec: (plain(frame, dec), jump_one)
+
+
+def _hot_probs() -> list[float]:
+    return [float(p) for p in np.random.default_rng(7).uniform(0.15, 0.49, size=12)]
+
+
+def test_a_context_graph_runs_in_the_rnnt_beam_with_an_integer_state_and_a_running_bonus():
+    graph = _graph([2])
+    best = rnnt_beam(encoder_frames(1), fake_decoder, _near_tie_joint(0.45), blank_id=BLANK, hotwords=graph)
+    assert best.tokens == (2,) and best.bonus == pytest.approx(graph.sequence_bonus([2], finish=True))
+    engine = RnntBeamDecoder(fake_decoder, _near_tie_joint(0.45), blank_id=BLANK, hotwords=graph)
+    engine.decode_chunk(encoder_frames(1))
+    assert all(isinstance(h.hot_state, int) for h in engine._hyps.values())
+
+
+def test_a_half_matched_graph_phrase_is_given_back_in_the_rnnt_and_the_tdt_beam():
+    graph = _graph([1, 2])
+    rnnt = rnnt_beam(encoder_frames(1), fake_decoder, _near_tie_joint(0.45), blank_id=BLANK, hotwords=graph)
+    assert rnnt.tokens == (1,) and rnnt.bonus == pytest.approx(0.0)
+    tdt = tdt_beam(encoder_frames(1), fake_decoder, _near_tie_tdt(0.45), blank_id=BLANK, hotwords=graph)
+    assert tdt.tokens == (1,) and tdt.bonus == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("kind", ["rnnt", "tdt"])
+def test_graph_recall_is_at_least_the_hotword_trie_on_close_calls(kind):
+    def run(p_hot: float, bias):
+        if kind == "rnnt":
+            return rnnt_beam(encoder_frames(2), fake_decoder, _near_tie_joint(p_hot), blank_id=BLANK, hotwords=bias)
+        return tdt_beam(encoder_frames(2), fake_decoder, _near_tie_tdt(p_hot), blank_id=BLANK, hotwords=bias)
+
+    cases = _hot_probs()
+    plain = sum(run(p, None).tokens[:1] == (2,) for p in cases)
+    by_trie = sum(run(p, _trie([2])).tokens[:1] == (2,) for p in cases)
+    by_graph = sum(run(p, _graph([2])).tokens[:1] == (2,) for p in cases)
+    assert plain == 0 and by_trie == len(cases) and by_graph >= by_trie
+
+
+def test_ctc_graph_recall_is_at_least_the_hotword_trie_on_close_calls():
+    def rows(p_hot: float) -> np.ndarray:
+        probs = np.full((3, 5), 0.02)
+        probs[0, 0] = probs[2, 0] = 0.92
+        probs[1, 3], probs[1, 2] = 0.5, p_hot
+        return np.log(probs / probs.sum(axis=1, keepdims=True))
+
+    cases = _hot_probs()
+    plain = sum(ctc_prefix_beam(rows(p), blank_id=0)[0].tokens == (2,) for p in cases)
+    by_trie = sum(ctc_prefix_beam(rows(p), blank_id=0, hotwords=_trie([2]))[0].tokens == (2,) for p in cases)
+    by_graph = sum(ctc_prefix_beam(rows(p), blank_id=0, hotwords=_graph([2]))[0].tokens == (2,) for p in cases)
+    assert plain == 0 and by_trie == len(cases) and by_graph >= by_trie
+    older = ctc_prefix_beam(rows(0.3), blank_id=0, context=_graph([2]))  # the older keyword still works
+    assert older[0].tokens == (2,)
+
+
+def test_a_finished_short_hotword_survives_a_failed_longer_one_in_the_beam():
+    def joint(frame: np.ndarray, dec: np.ndarray) -> np.ndarray:
+        said = int(dec[0])
+        probs = {0: [0.05, 0.50, 0.40, 0.0001], 1: [0.05, 0.001, 0.949, 0.0001]}.get(said)
+        return np.log(np.array(probs if probs else [0.9997, 0.0001, 0.0001, 0.0001]))
+
+    graph = _graph([2], [2, 3, 3])
+    best = rnnt_beam(encoder_frames(3), fake_decoder, joint, blank_id=BLANK, hotwords=graph)
+    assert best.bonus == pytest.approx(graph.sequence_bonus(list(best.tokens), finish=True))
+    assert best.tokens[:1] == (2,) and best.bonus > 0
+
+
+@pytest.mark.parametrize("kind", ["rnnt", "tdt"])
+def test_no_hotwords_and_unspoken_hotwords_insert_nothing(kind):
+    def sharp(frame, dec):
+        return np.log(np.array([0.9997, 0.0001, 0.0001, 0.0001]))
+
+    def sharp_tdt(frame, dec):
+        return sharp(frame, dec), np.array([-9.0, 9.0, -9.0, -9.0, -9.0])
+
+    huge = _graph([1], [2, 3], [3], boost=10_000.0)
+
+    def run(bias):
+        if kind == "rnnt":
+            return rnnt_beam(encoder_frames(6), fake_decoder, sharp, blank_id=BLANK, hotwords=bias)
+        return tdt_beam(encoder_frames(6), fake_decoder, sharp_tdt, blank_id=BLANK, hotwords=bias)
+
+    assert run(None).tokens == () and run(ContextGraph()).tokens == ()
+    biased = run(huge)
+    assert biased.tokens == () and biased.bonus == 0.0

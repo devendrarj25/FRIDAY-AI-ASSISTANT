@@ -279,3 +279,64 @@ def test_the_seam_gate_can_drop_a_ctc_window_and_an_open_gate_changes_nothing():
     assert seen and seen[0][0] == "call devendra" and seen[0][1] is not None
     open_gate = with_ctc_bias(_fallback, ["devendra"], FakeEar(lp), gate=lambda text, confidence: False)
     assert [w.text for w in open_gate(None, "")] == ["call", "devendra"]
+
+
+# ---- the ear's own bias graph (the owner's words and their spellings) in the chunked CTC reader ----------------------
+
+
+def _close_call_frames():
+    return _ear_frames([{5: 0.9}, {0: 0.9}, {1: 0.45, 2: 0.5}, {3: 0.45, 4: 0.5}, {0: 0.9}])
+
+
+def test_a_bias_builder_replaces_the_plain_word_trie_in_the_chunked_reader():
+    import hindi_ear
+    from context_graph import ContextGraph
+
+    lp = _close_call_frames()
+    seen: list = []
+
+    def build(words, vocab, *, word_mark):
+        seen.append((list(words), word_mark, len(vocab)))
+        return hindi_ear.hotword_bias(words, vocab, word_mark=word_mark)
+
+    reader = CtcChunkReader(lambda audio: lp, EAR_PIECES, frame_s=0.08, hotwords=["Devendra"], bias=build)
+    assert isinstance(reader.trie, ContextGraph) and seen == [(["Devendra"], WORD_MARK, len(EAR_PIECES) - 1)]
+    assert [w.text for w in reader(None)] == ["call", "devendra"]  # the Roman spelling of the word reaches the graph
+
+
+def test_a_bias_builder_that_spells_nothing_leaves_the_reader_plain():
+    lp = _close_call_frames()
+    nothing = lambda *a, **k: None  # noqa: E731
+    reader = CtcChunkReader(lambda audio: lp, EAR_PIECES, frame_s=0.08, hotwords=["devendra"], bias=nothing)
+    assert reader.trie is None and [w.text for w in reader(None)] == ["call", "didra"]
+
+
+class BiasingEar(FakeEar):
+    """The Hindi ear module as ``with_ctc_bias`` sees it when its runner can build a bias graph."""
+
+    def hotword_bias(self, words, vocab, *, word_mark=WORD_MARK, boost=None):
+        import hindi_ear
+
+        self.asked = (list(words), word_mark)
+        return hindi_ear.hotword_bias(words, vocab, word_mark=word_mark, boost=boost)
+
+
+def test_the_seam_uses_the_ears_graph_when_it_has_one_and_the_trie_when_it_does_not():
+    from la2_partials import with_ctc_bias
+
+    lp = _close_call_frames()
+    ear = BiasingEar(lp)
+    assert [w.text for w in with_ctc_bias(_fallback, ["Devendra"], ear)(None, "")] == ["call", "devendra"]
+    assert ear.asked == (["Devendra"], WORD_MARK)
+    assert [w.text for w in with_ctc_bias(_fallback, ["devendra"], FakeEar(lp))(None, "")] == ["call", "devendra"]
+
+
+def test_the_seam_with_the_ears_graph_keeps_the_gate_and_the_zero_word_behaviour():
+    from la2_partials import with_ctc_bias
+
+    lp = _close_call_frames()
+    seen: list = []
+    gated = with_ctc_bias(_fallback, ["Devendra"], BiasingEar(lp), gate=lambda t, c: seen.append((t, c)) or True)
+    assert gated(None, "") == [] and seen and seen[0][0] == "call devendra"
+    plain = with_ctc_bias(_fallback, [], BiasingEar(lp))
+    assert plain is not _fallback and [w.text for w in plain(None, "")] == ["call", "didra"]

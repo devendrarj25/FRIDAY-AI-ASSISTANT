@@ -523,3 +523,149 @@ def test_the_doctor_line_passes_on_the_own_runner_without_onnx_asr(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "onnxruntime" else real(n, *a))
     assert voice_runtime._hindi_ear_line().startswith("FAIL hindi-ear")
     assert "onnxruntime" in voice_runtime._hindi_ear_line()
+
+
+# ---- the owner's words bias the ear (a context graph of the words and their spellings) -----------------------------
+
+
+class _BiasableModel:
+    """A stand-in for FRIDAY's own runner: a timed reader that records what it is asked, plus ``hotword_bias``."""
+
+    def __init__(self):
+        self.asked: list[dict] = []
+        self.built: list[list[str]] = []
+
+    def hotword_bias(self, words):
+        self.built.append(list(words))
+        return ("graph", tuple(words))
+
+    def with_timestamps(self):
+        outer = self
+
+        class Reader:
+            def recognize(self, audio, sample_rate=16000, **kwargs):
+                outer.asked.append(kwargs)
+                return nemo_ear.NemoReading("आज", [" आज"], [0.0], [-0.1])
+
+        return Reader()
+
+
+def _biasable(monkeypatch, tmp_path, model=None):
+    _stage(tmp_path)
+    monkeypatch.setattr(hindi_ear, "_last_confidence", None)  # restored after the test: no score leaks on
+    model = model or _BiasableModel()
+    monkeypatch.setattr(hindi_ear, "_load", lambda folder: model)
+    monkeypatch.setattr(hindi_ear, "_timed", None)
+    monkeypatch.setattr(hindi_ear, "_bias", None)
+    return model
+
+
+def test_with_hotwords_scopes_the_words_and_restores_the_earlier_ones():
+    assert hindi_ear._owner_words == ()
+    with hindi_ear.with_hotwords(["Devendra", " ", "Friday"]):
+        assert hindi_ear._owner_words == ("Devendra", "Friday")
+        with hindi_ear.with_hotwords(None):
+            assert hindi_ear._owner_words == ()
+        assert hindi_ear._owner_words == ("Devendra", "Friday")
+    assert hindi_ear._owner_words == ()
+
+
+def test_the_words_reach_the_timed_reader_as_one_graph_built_once_per_list(monkeypatch, tmp_path):
+    model = _biasable(monkeypatch, tmp_path)
+    with hindi_ear.with_hotwords(["Devendra"]):
+        heard = hindi_ear.transcribe_words(_clip())
+        assert heard is not None and heard["text"] == "आज"
+        assert hindi_ear.transcribe(_clip()) == "आज"
+    assert model.asked == [{"hotwords": ("graph", ("Devendra",))}] * 2 and model.built == [["Devendra"]]
+    with hindi_ear.with_hotwords(["Friday"]):
+        hindi_ear.transcribe(_clip())
+    assert model.built == [["Devendra"], ["Friday"]]
+
+
+def test_with_no_words_the_reader_is_asked_exactly_as_before(monkeypatch, tmp_path):
+    model = _biasable(monkeypatch, tmp_path)
+    hindi_ear.transcribe(_clip())
+    hindi_ear.transcribe_words(_clip())
+    with hindi_ear.with_hotwords([]):
+        hindi_ear.transcribe(_clip())
+    assert model.asked == [{}, {}, {}] and model.built == []
+
+
+def test_words_that_spell_nothing_are_not_passed(monkeypatch, tmp_path):
+    model = _biasable(monkeypatch, tmp_path)
+    model.hotword_bias = lambda words: None  # type: ignore[method-assign]
+    with hindi_ear.with_hotwords(["Zzyzx"]):
+        hindi_ear.transcribe(_clip())
+    assert model.asked == [{}]
+
+
+def test_the_package_fallback_takes_no_words_and_still_reads(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    _fake_onnx_asr(monkeypatch)
+    monkeypatch.setitem(sys.modules, "nemo_ear", types.SimpleNamespace(NemoEar=None, kind_of=lambda t: "ctc"))
+    with hindi_ear.with_hotwords(["Devendra"]):
+        assert hindi_ear.transcribe(_clip()) == "आज मौसम अच्छा है"
+
+
+def test_the_own_runner_biases_a_spoken_word_and_keeps_the_acoustic_gate(monkeypatch, tmp_path):
+    _, _, make = _stage_own(tmp_path)
+    monkeypatch.setattr(nemo_ear, "_default_session", lambda path, threads: make(path))
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    plain = hindi_ear.transcribe_words(_clip())
+    with hindi_ear.with_hotwords(["है"]):  # a word that was spoken: the beam keeps it, now with times and scores
+        biased = hindi_ear.transcribe_words(_clip())
+    assert plain is not None and biased is not None and biased["text"] == plain["text"]
+    assert biased["confidence"] == pytest.approx(plain["confidence"], abs=1e-3)
+    assert hindi_ear.confident("hi", biased["confidence"]) is True
+
+
+def test_an_unspoken_word_leaves_the_reading_and_its_score_untouched(monkeypatch, tmp_path):
+    _, _, make = _stage_own(tmp_path)
+    monkeypatch.setattr(nemo_ear, "_default_session", lambda path, threads: make(path))
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    plain = hindi_ear.transcribe_words(_clip())
+    with hindi_ear.with_hotwords(["सम", "देवेंद्र", "Jarvis"]):
+        biased = hindi_ear.transcribe_words(_clip())
+    assert biased == plain
+
+
+def test_a_biased_reading_with_weak_acoustic_scores_is_still_dropped_by_the_gate(monkeypatch, tmp_path):
+    model = _biasable(monkeypatch, tmp_path)
+
+    class Weak:
+        def recognize(self, audio, sample_rate=16000, **kwargs):
+            return nemo_ear.NemoReading("आज", [" आज"], [0.0], [-2.5])
+
+    model.with_timestamps = lambda: Weak()  # type: ignore[method-assign]
+    with hindi_ear.with_hotwords(["आज"]):
+        heard = hindi_ear.transcribe_words(_clip())
+    assert heard is not None and heard["confidence"] == pytest.approx(-2.5)
+    assert hindi_ear.confident("hi", heard["confidence"]) is False and hindi_ear.confident("auto", -2.5) is False
+
+
+def test_stt_puts_the_owners_words_around_every_hindi_ear_read(monkeypatch):
+    seen: list[tuple[str, tuple[str, ...]]] = []
+    line = "मुझे चाय चाहिए"
+    monkeypatch.setattr(stt.hindi_ear, "transcribe", lambda s: seen.append(("final", hindi_ear._owner_words)) or line)
+    monkeypatch.setattr(stt.voice_runtime, "score_turn", lambda *a, **k: {})
+    monkeypatch.setattr(stt, "get_model", lambda *a, **k: pytest.fail("faster-whisper must not run"))
+    hot = {"hotwords": ["देवेंद्र", "Jarvis"]}
+    stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi", extras=hot)
+    stt._transcribe_prepared("x.wav", [0.01] * 16000, "base", "hi", "", None, "hi")
+    assert seen == [("final", ("देवेंद्र", "Jarvis")), ("final", ())] and hindi_ear._owner_words == ()
+
+
+def test_the_hindi_stream_reader_reads_inside_the_words_and_keeps_its_gates(monkeypatch):
+    seen: list[tuple[str, ...]] = []
+    heard = {"text": "आज", "words": [{"text": "आज", "start": 0.0, "end": 0.5}], "confidence": -0.05}
+
+    def read(window):
+        seen.append(hindi_ear._owner_words)
+        return dict(heard)
+
+    monkeypatch.setattr(stt.hindi_ear, "transcribe_words", read)
+    reader = stt._hindi_stream_reader(Path(), stt.TurnLanguage("hi"), ["Devendra"])
+    assert [w.text for w in reader([0.0] * 16000, "")] == ["आज"]
+    heard["confidence"] = -2.0  # the unsure gate drops it, with or without words
+    assert reader([0.0] * 16000, "") == []
+    assert seen == [("Devendra",), ("Devendra",)] and hindi_ear._owner_words == ()

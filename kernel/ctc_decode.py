@@ -117,7 +117,7 @@ def ctc_prefix_beam(
     *,
     beam_width: int = 8,
     blank_id: int = 0,
-    hotwords: HotwordTrie | None = None,
+    hotwords: TokenBias | None = None,
     context: ContextGraph | None = None,
     max_candidates: int = 16,
     prune_log_prob: float = -15.0,

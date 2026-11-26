@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import nemo_ear  # noqa: E402
+from context_graph import ContextGraph  # noqa: E402
 from hotword_trie import HotwordTrie  # noqa: E402
 from mel_frontend import MelFrontend, mel_filterbank, nemo_config  # noqa: E402
 from nemo_ear import NemoEar, NemoEarError, NemoFeatures, NemoFiles  # noqa: E402
@@ -506,3 +507,84 @@ def test_a_whole_clip_goes_through_features_encoder_and_joint():
     heard = ear.with_timestamps().recognize(tone(1.5))
     assert heard.tokens and len(heard.tokens) == len(heard.timestamps or []) == len(heard.logprobs or [])
     assert ear.recognize(tone(1.5)) == heard.text
+
+
+# ---- the owner's words as a context graph (spellings included) -------------------------------------------------------
+
+HOT_PIECES = {0: "<blk>", 1: MARK + "देवे", 2: "न्द्र", 3: MARK + "call", 4: MARK + "है", 5: "x"}
+
+
+def hot_ear() -> NemoEar:
+    return NemoEar(NemoFiles("ctc", Path("v"), Path("e"), None, {}), HOT_PIECES, [CtcSession([0], vocab=6)])
+
+
+def _close_rows() -> np.ndarray:
+    probs = np.full((6, 6), 0.01)
+    for t in (0, 2, 4, 5):
+        probs[t, 0] = 0.9
+    probs[1, 1], probs[1, 3] = 0.4, 0.5  # "देवे" against "call" at frame 1
+    probs[3, 2], probs[3, 4] = 0.42, 0.5  # "न्द्र" against "है" at frame 3
+    return np.log(probs / probs.sum(axis=1, keepdims=True)).astype(np.float32)
+
+
+def test_the_spellings_of_an_owner_word_reach_the_graph():
+    graph = nemo_ear.hotword_bias(["Devendra"], {p: i for i, p in HOT_PIECES.items() if i}, word_mark=MARK)
+    assert isinstance(graph, ContextGraph) and len(graph) >= 1
+    assert [m.start for m in graph.scan([1, 2])] == [0]  # the Devanagari spelling, spoken with the Roman word given
+    assert graph.scan([3, 4]) == []
+
+
+def test_a_word_the_vocabulary_cannot_spell_gives_no_graph():
+    assert nemo_ear.hotword_bias(["Zzyzx"], {MARK + "call": 3}) is None
+    assert nemo_ear.hotword_bias([], {MARK + "call": 3}) is None
+
+
+def test_the_ear_builds_its_graph_from_its_own_pieces_without_the_blank():
+    graph = hot_ear().hotword_bias(["देवेन्द्र"])
+    assert graph is not None and graph.scan([1, 2]) and graph.scan([0, 0]) == []
+    assert hot_ear().hotword_bias(["unknownword"]) is None
+
+
+def test_a_biased_ctc_reading_from_the_timed_reader_keeps_times_and_acoustic_scores():
+    ear = hot_ear()
+    rows = _close_rows()
+    graph = ear.hotword_bias(["देवेन्द्र"])
+    assert ear._read_ctc(rows, None).tokens == [" call", " है"]
+    plain = ear._read_ctc(rows, graph)  # a bare read: a bias still carries no times, as before
+    assert plain.tokens == [" देवे", "न्द्र"] and plain.timestamps is None and plain.logprobs is None
+    timed = ear._read_ctc(rows, graph, timed=True)
+    assert timed.tokens == plain.tokens and timed.timestamps == pytest.approx([0.08, 0.24])
+    assert timed.logprobs == pytest.approx([float(rows[1, 1]), float(rows[3, 2])])  # acoustic only, no bonus in it
+
+
+def test_hotwords_that_were_not_spoken_leave_the_timed_reading_exactly_greedy():
+    ear = hot_ear()
+    probs = np.full((6, 6), 0.01)
+    for t, token in enumerate([0, 3, 0, 4, 0, 0]):
+        probs[t, token] = 0.9
+    rows = np.log(probs / probs.sum(axis=1, keepdims=True)).astype(np.float32)
+    graph = ear.hotword_bias(["देवेन्द्र"])
+    greedy, biased = ear._read_ctc(rows, None), ear._read_ctc(rows, graph, timed=True)
+    assert (biased.text, biased.tokens, biased.timestamps) == (greedy.text, greedy.tokens, greedy.timestamps)
+    assert biased.logprobs == pytest.approx(greedy.logprobs or [])
+
+
+def test_the_timed_reader_hands_the_bias_to_the_model_and_a_bare_read_does_not_time_it(monkeypatch):
+    ear = hot_ear()
+    rows = _close_rows()
+    monkeypatch.setattr(ear, "_ctc_rows", lambda samples, rate: rows)
+    graph = ear.hotword_bias(["देवेन्द्र"])
+    assert ear.with_timestamps().recognize(SECOND, hotwords=graph).timestamps is not None
+    assert ear.read(SECOND, hotwords=graph).timestamps is None
+    assert ear.recognize(SECOND, hotwords=graph) == " देवेन्द्र".strip()
+
+
+def test_a_clip_that_cannot_be_aligned_keeps_the_biased_pieces_without_times(monkeypatch):
+    ear = hot_ear()
+
+    def too_short(*args, **kwargs):
+        raise ValueError("the frames are too few to say the tokens")
+
+    monkeypatch.setattr(nemo_ear, "ctc_align", too_short)
+    heard = ear._read_ctc(_close_rows(), ear.hotword_bias(["देवेन्द्र"]), timed=True)
+    assert heard.tokens == [" देवे", "न्द्र"] and heard.timestamps is None and heard.logprobs is None

@@ -1372,7 +1372,8 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
     check_cancel()
     mode = hindi_ear.listen_mode(language, speech_pref)
     if mode in {"hi", "auto"} and hindi_ear.ready():
-        heard = hindi_ear.transcribe_words(clip)
+        with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+            heard = hindi_ear.transcribe_words(clip)
         if _ear_loaded():
             touch()
         check_cancel()
@@ -1450,7 +1451,8 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
                 continue
             lo = max(0.0, row["start"] - LIVE_PAD_S)
             hi = min(len(clip) / rate, row["end"] + LIVE_PAD_S)
-            heard = hindi_ear.transcribe_words(clip[int(lo * rate) : int(hi * rate)])
+            with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+                heard = hindi_ear.transcribe_words(clip[int(lo * rate) : int(hi * rate)])
             check_cancel()
             if heard and hindi_ear.confident("auto", heard.get("confidence")):
                 row["words"] = _shifted(heard["words"], lo)
@@ -1979,7 +1981,8 @@ def _transcribe_prepared(
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
         # words that mean nothing, and its own token scores say so).
         ear_was_open, ear_started = _ear_loaded(), _now()
-        hindi_text = hindi_ear.transcribe(samples)
+        with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+            hindi_text = hindi_ear.transcribe(samples)
         if _ear_loaded():
             if not ear_was_open:
                 # The first reading opens the ear, so this time includes that one decode.
@@ -2699,7 +2702,8 @@ def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]
     """The Hindi ear over the window (always Hindi, Devanagari), with the owner's words snapped in."""
 
     def read(window, _prompt: str) -> list[Word]:
-        heard = hindi_ear.transcribe_words(window)
+        with hindi_ear.with_hotwords(hotwords):
+            heard = hindi_ear.transcribe_words(window)
         if not heard or not hindi_ear.confident("hi", heard.get("confidence")):
             return []
         if stream_text_dropped(heard.get("text") or "", confidence=heard.get("confidence"), language="hi"):

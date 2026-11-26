@@ -17,8 +17,9 @@ frame. It returns the ``RnntEmission`` list of that chunk (token id, global fram
 
 ``RnntBeamDecoder.decode_chunk(enc)`` keeps ``beam_width`` hypotheses across chunks (one decoder state each, same
 carry rule). Hypotheses with the same tokens are merged by summing probability. ``best()`` returns the best
-``RnntHypothesis``; with ``hotwords`` (a ``hotword_trie.HotwordTrie``) a bonus is added as tokens are emitted and a
-half-matched hotword is given back in ``best()``. ``reset()`` starts a new utterance.
+``RnntHypothesis``; with ``hotwords`` (any ``context_graph.TokenBias``: a ``HotwordTrie`` or a ``ContextGraph``) each
+hypothesis keeps one integer bias state and a running bonus, added as tokens are emitted, and a half-matched hotword
+is given back in ``best()``. ``reset()`` starts a new utterance.
 
 Functions ``rnnt_greedy`` and ``rnnt_beam`` decode one whole ``enc`` with a fresh decoder.
 
@@ -47,7 +48,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from hotword_trie import HotwordTrie
+from context_graph import TokenBias
 
 DecoderFn = Callable[[int, Any], tuple[Any, Any]]  # the decoder output is whatever the joint reads back
 JointFn = Callable[[npt.NDArray[Any], Any], npt.NDArray[Any]]
@@ -212,7 +213,7 @@ class RnntBeamDecoder(_BeamCore):
         blank_id: int,
         beam_width: int = 4,
         max_symbols_per_step: int = 3,
-        hotwords: HotwordTrie | None = None,
+        hotwords: TokenBias | None = None,
         initial_state: Any = None,
     ) -> None:
         if beam_width < 1 or max_symbols_per_step < 1:
@@ -222,12 +223,13 @@ class RnntBeamDecoder(_BeamCore):
         self.beam_width = beam_width
         self.max_symbols_per_step = max_symbols_per_step
         self.hotwords = hotwords if hotwords else None
+        self._root = self.hotwords.ROOT if self.hotwords else 0
         self._initial_state = initial_state
         self.reset()
 
     def reset(self) -> None:
         self.frames_seen = 0
-        self._hyps: dict[tuple[int, ...], _Hyp] = {(): _Hyp((), 0.0, HotwordTrie.ROOT, 0.0)}
+        self._hyps: dict[tuple[int, ...], _Hyp] = {(): _Hyp((), 0.0, self._root, 0.0)}
         self._cache: dict[tuple[int, ...], tuple[Any, Any]] = {(): self.decoder(self.blank_id, self._initial_state)}
 
     def decode_chunk(self, enc: npt.ArrayLike) -> None:
@@ -249,7 +251,7 @@ class RnntBeamDecoder(_BeamCore):
                 if depth == self.max_symbols_per_step:
                     continue  # the symbol budget of this frame is spent: only the blank may follow
                 for token in self._best_tokens(logp):
-                    hot, delta = self.hotwords.step(hyp.hot_state, token) if self.hotwords else (HotwordTrie.ROOT, 0.0)
+                    hot, delta = self.hotwords.step(hyp.hot_state, token) if self.hotwords else (self._root, 0.0)
                     child = _Hyp(
                         hyp.tokens + (token,), hyp.acoustic + float(logp[token]), hot, hyp.bonus + delta, state_after
                     )
@@ -278,7 +280,7 @@ def rnnt_beam(
     blank_id: int,
     beam_width: int = 4,
     max_symbols_per_step: int = 3,
-    hotwords: HotwordTrie | None = None,
+    hotwords: TokenBias | None = None,
     initial_state: Any = None,
 ) -> RnntHypothesis:
     engine = RnntBeamDecoder(
@@ -393,7 +395,7 @@ class TdtBeamDecoder(_BeamCore):
         durations: Sequence[int] = DEFAULT_DURATIONS,
         beam_width: int = 4,
         max_symbols_per_step: int = 3,
-        hotwords: HotwordTrie | None = None,
+        hotwords: TokenBias | None = None,
         initial_state: Any = None,
     ) -> None:
         if beam_width < 1 or max_symbols_per_step < 1:
@@ -404,12 +406,13 @@ class TdtBeamDecoder(_BeamCore):
         self.beam_width = beam_width
         self.max_symbols_per_step = max_symbols_per_step
         self.hotwords = hotwords if hotwords else None
+        self._root = self.hotwords.ROOT if self.hotwords else 0
         self._initial_state = initial_state
         self.reset()
 
     def reset(self) -> None:
         self.frames_seen = 0
-        root = _Hyp((), 0.0, HotwordTrie.ROOT, 0.0)
+        root = _Hyp((), 0.0, self._root, 0.0)
         self._due: dict[int, dict[tuple[int, ...], _Hyp]] = {0: {(): root}}  # frame -> hypotheses waiting for it
         self._cache: dict[tuple[int, ...], tuple[Any, Any]] = {(): self.decoder(self.blank_id, self._initial_state)}
 
@@ -441,7 +444,7 @@ class TdtBeamDecoder(_BeamCore):
                 if depth == self.max_symbols_per_step:
                     continue  # the symbol budget of this frame is spent: only the blank may follow
                 for token in self._best_tokens(logp):
-                    hot, delta = self.hotwords.step(hyp.hot_state, token) if self.hotwords else (HotwordTrie.ROOT, 0.0)
+                    hot, delta = self.hotwords.step(hyp.hot_state, token) if self.hotwords else (self._root, 0.0)
                     for index, jump in enumerate(self.durations):
                         child = _Hyp(
                             hyp.tokens + (token,),
@@ -482,7 +485,7 @@ def tdt_beam(
     durations: Sequence[int] = DEFAULT_DURATIONS,
     beam_width: int = 4,
     max_symbols_per_step: int = 3,
-    hotwords: HotwordTrie | None = None,
+    hotwords: TokenBias | None = None,
     initial_state: Any = None,
 ) -> RnntHypothesis:
     engine = TdtBeamDecoder(

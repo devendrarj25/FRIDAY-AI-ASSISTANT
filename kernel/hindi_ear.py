@@ -11,12 +11,19 @@ auto stay on faster-whisper, which also answers whenever this ear is missing, fa
 Devanagari, so a missing file or a bad run can never lose an utterance. Text stays as heard; nothing is
 transliterated. When the optional punctuation model (``hindi_punct.py``) is installed, marks are added to a line the
 ear wrote without any; the words themselves are never changed.
+
+The owner's own words (names, project terms) bias the ear while it decodes: ``with_hotwords(words)`` scopes them around
+a read, and the ear then gets a ``context_graph`` of those words and their Roman and Devanagari spellings
+(``hotword_bias``). Only FRIDAY's own runner takes them; the confidence and noise gates judge the biased reading by its
+acoustic scores, and with no words, or none that made it into the line, the reading is the plain greedy one.
 """
 
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +42,8 @@ _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 _model = None
 _model_dir = ""
 _timed = None  # (model, its timed reader)
+_owner_words: tuple[str, ...] = ()  # the owner's words for the read in progress (see ``with_hotwords``)
+_bias = None  # (model, words, graph): the bias graph of the last word list, built once per model and list
 
 
 def model_dir() -> Path | None:
@@ -126,6 +135,38 @@ def _load(folder: Path):
     return _model
 
 
+@contextmanager
+def with_hotwords(words: Sequence[str] | None) -> Iterator[None]:
+    """Bias every read inside the block toward the owner's words; the previous words come back on exit."""
+    global _owner_words
+    before = _owner_words
+    _owner_words = tuple(str(w) for w in (words or ()) if str(w).strip())
+    try:
+        yield
+    finally:
+        _owner_words = before
+
+
+def hotword_bias(
+    words: Sequence[str], vocab: Mapping[str, int], *, boost: float | None = None, word_mark: str = "\u2581"
+):
+    """The bias graph of ``words`` (with Roman and Devanagari spellings) over ``vocab`` (piece to id), or None."""
+    import nemo_ear
+
+    return nemo_ear.hotword_bias(words, vocab, boost=boost, word_mark=word_mark)
+
+
+def _bias_for(model) -> dict:
+    """``{"hotwords": graph}`` for the owner's words when this model takes them (FRIDAY's runner), else nothing."""
+    global _bias
+    build = getattr(model, "hotword_bias", None)
+    if not _owner_words or not callable(build):
+        return {}
+    if _bias is None or _bias[0] is not model or _bias[1] != _owner_words:
+        _bias = (model, _owner_words, build(list(_owner_words)))
+    return {"hotwords": _bias[2]} if _bias[2] else {}
+
+
 def loaded() -> bool:
     """True while the ear holds its model in memory."""
     return _model is not None
@@ -133,9 +174,9 @@ def loaded() -> bool:
 
 def unload() -> bool:
     """Drop the model and its timed reader so the memory returns; True when one was open. It loads again on demand."""
-    global _model, _model_dir, _timed
+    global _model, _model_dir, _timed, _bias
     was_open = _model is not None
-    _model, _model_dir, _timed = None, "", None
+    _model, _model_dir, _timed, _bias = None, "", None, None
     return was_open
 
 
@@ -201,13 +242,13 @@ def _read_timed(model, audio):
         timed = _timed[1]
     seconds = len(audio) / SAMPLE_RATE
     if timed is not None:
-        heard = timed.recognize(audio, sample_rate=SAMPLE_RATE)
+        heard = timed.recognize(audio, sample_rate=SAMPLE_RATE, **_bias_for(model))
         scores = [float(v) for v in (getattr(heard, "logprobs", None) or [])]
         mean = sum(scores) / len(scores) if scores else None
         text = str(getattr(heard, "text", "") or "").strip()
         words = group_words(getattr(heard, "tokens", None), getattr(heard, "timestamps", None), seconds, text)
         return text, mean, words
-    text = str(model.recognize(audio, sample_rate=SAMPLE_RATE) or "").strip()
+    text = str(model.recognize(audio, sample_rate=SAMPLE_RATE, **_bias_for(model)) or "").strip()
     return text, None, group_words(None, None, seconds, text)
 
 
@@ -220,11 +261,11 @@ def _read(model, audio):
             _timed = (model, model.with_timestamps())
         timed = _timed[1]
     if timed is not None:
-        heard = timed.recognize(audio, sample_rate=SAMPLE_RATE)
+        heard = timed.recognize(audio, sample_rate=SAMPLE_RATE, **_bias_for(model))
         scores = [float(v) for v in (getattr(heard, "logprobs", None) or [])]
         mean = sum(scores) / len(scores) if scores else None
         return str(getattr(heard, "text", "") or "").strip(), mean
-    return str(model.recognize(audio, sample_rate=SAMPLE_RATE) or "").strip(), None
+    return str(model.recognize(audio, sample_rate=SAMPLE_RATE, **_bias_for(model)) or "").strip(), None
 
 
 BLANK_PIECE = "<blk>"
