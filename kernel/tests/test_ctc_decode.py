@@ -12,7 +12,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ctc_decode import CtcHypothesis, ctc_greedy, ctc_prefix_beam, log_softmax  # noqa: E402
+from ctc_decode import (  # noqa: E402
+    CtcHypothesis,
+    ctc_align,
+    ctc_greedy,
+    ctc_prefix_beam,
+    log_softmax,
+    word_start_ids,
+    word_timings,
+)
 from hotword_trie import HotwordTrie  # noqa: E402
 
 BLANK, A, B = 0, 1, 2
@@ -150,3 +158,46 @@ def test_large_vocabulary_is_pruned_to_the_best_candidates():
     table = peaked(path, 5000, sharp=0.9)
     best = ctc_prefix_beam(table, beam_width=3, max_candidates=8)[0]
     assert list(best.tokens) == path
+
+
+def test_greedy_reports_the_last_frame_of_each_run_as_spans():
+    result = ctc_greedy(peaked([A, A, A, BLANK, B, BLANK, A], 3))
+    assert result.frames == [0, 4, 6] and result.end_frames == [2, 4, 6]
+    assert result.spans == [(0, 2), (4, 4), (6, 6)]
+
+
+def test_align_finds_the_frames_of_each_token_and_keeps_a_repeat_apart():
+    table = peaked([BLANK, A, A, BLANK, A, B, B, BLANK], 3)
+    assert ctc_align(table, [A, A, B]) == [(1, 2), (4, 4), (5, 6)]
+    assert ctc_align(table, []) == []
+
+
+def test_align_refuses_too_few_frames_and_bad_tokens():
+    with pytest.raises(ValueError):
+        ctc_align(peaked([A, A], 3), [A, A])  # a repeat needs a blank frame between
+    with pytest.raises(ValueError):
+        ctc_align(peaked([A, B], 3), [BLANK])
+    with pytest.raises(ValueError):
+        ctc_align(np.zeros((0, 3)), [A])
+
+
+def test_word_timings_group_tokens_by_word_start_and_give_seconds():
+    vocab = {"▁fri": 1, "day": 2, "▁hi": 3, "<blank>": 0}
+    starts = word_start_ids(vocab)
+    assert starts == {1, 3}
+    table = peaked([1, 1, 2, 0, 3, 3, 0], 4)
+    tokens = [1, 2, 3]
+    words = word_timings(tokens, ctc_align(table, tokens), starts, frame_seconds=0.1)
+    assert [w.tokens for w in words] == [(1, 2), (3,)]
+    assert (words[0].first_frame, words[0].last_frame) == (0, 2)
+    assert words[0].start_s == pytest.approx(0.0) and words[0].end_s == pytest.approx(0.3)
+    assert words[1].start_s == pytest.approx(0.4) and words[1].end_s == pytest.approx(0.6)
+    spans = ctc_greedy(table).spans
+    assert [w.tokens for w in word_timings(ctc_greedy(table).tokens, spans, lambda t: t == 3)] == [(1, 2), (3,)]
+
+
+def test_word_timings_refuse_a_mismatched_span_list():
+    with pytest.raises(ValueError):
+        word_timings([1, 2], [(0, 0)], {1})
+    with pytest.raises(ValueError):
+        word_timings([1], [(0, 0)], {1}, frame_seconds=0)

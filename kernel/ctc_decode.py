@@ -10,9 +10,13 @@ Interface contract
   ending in a blank and of ending in a token, so paths that collapse to the same text are summed. It returns the
   ``beam_width`` best ``CtcHypothesis`` objects, best first (``score`` is acoustic log probability plus hotword
   bonus). With no hotwords the best one has the exact CTC prefix probability, which can differ from greedy.
-* ``hotwords`` is an optional ``hotword_trie.HotwordTrie``. A bonus is added when a hypothesis appends a token
-  that continues a hotword, and a half-matched hotword is given back at the end, so a hotword is never rewarded
-  for being merely started. The trie's caps bound the boost; blank frames never earn it.
+* ``hotwords`` is an optional ``hotword_trie.HotwordTrie`` and ``context`` an optional
+  ``context_graph.ContextGraph`` (give one, not both). A bonus is added when a hypothesis appends a token that
+  continues a hotword, and a half-matched hotword is given back at the end, so a hotword is never rewarded for being
+  merely started. The caps bound the boost; blank frames never earn it. The graph adds a boost per hotword, backoff
+  that keeps hotwords already finished, partial-match weight and look-alike spellings.
+* ``ctc_align`` forces the best frame alignment of a token sequence (Viterbi) and ``word_timings`` groups tokens
+  and their frames into words with start and end seconds, for the CTC ear's word timestamps.
 * Per frame only the ``max_candidates`` best tokens (and the blank) are expanded and tokens below ``prune_log_prob``
   are skipped, which keeps a large vocabulary cheap. Output is deterministic: ties break on token ids.
 
@@ -22,11 +26,13 @@ No import side effects; import it inside the feature that needs it.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
 
 import numpy as np
 import numpy.typing as npt
-from hotword_trie import HotwordTrie
+from context_graph import ContextGraph, TokenBias
+from hotword_trie import WORD_MARK, HotwordTrie
 
 NEG_INF = -math.inf
 
@@ -50,6 +56,12 @@ def _lse(a: float, b: float) -> float:
 class CtcGreedyResult:
     tokens: list[int]
     frames: list[int]  # frame where each token first appeared
+    end_frames: list[int] = field(default_factory=list)  # last frame of each token's run
+
+    @property
+    def spans(self) -> list[tuple[int, int]]:
+        """``(first_frame, last_frame)`` per token, ready for ``word_timings``."""
+        return list(zip(self.frames, self.end_frames or self.frames, strict=False))
 
 
 @dataclass(frozen=True)
@@ -76,13 +88,17 @@ def ctc_greedy(log_probs: npt.ArrayLike, blank_id: int = 0) -> CtcGreedyResult:
     arr = _check(log_probs, blank_id)
     tokens: list[int] = []
     frames: list[int] = []
+    ends: list[int] = []
     previous = blank_id
     for t, best in enumerate(np.argmax(arr, axis=1).tolist()):
         if best != blank_id and best != previous:
             tokens.append(int(best))
             frames.append(t)
+            ends.append(t)
+        elif best != blank_id:
+            ends[-1] = t
         previous = int(best)
-    return CtcGreedyResult(tokens, frames)
+    return CtcGreedyResult(tokens, frames, ends)
 
 
 def _candidates(row: npt.NDArray[np.float64], blank_id: int, limit: int, floor: float) -> list[int]:
@@ -102,14 +118,17 @@ def ctc_prefix_beam(
     beam_width: int = 8,
     blank_id: int = 0,
     hotwords: HotwordTrie | None = None,
+    context: ContextGraph | None = None,
     max_candidates: int = 16,
     prune_log_prob: float = -15.0,
 ) -> list[CtcHypothesis]:
     arr = _check(log_probs, blank_id)
     if beam_width < 1 or max_candidates < 1:
         raise ValueError("beam_width and max_candidates must be >= 1")
-    trie = hotwords if hotwords else None
-    root = HotwordTrie.ROOT
+    if hotwords and context:
+        raise ValueError("give hotwords or context, not both")
+    trie: TokenBias | None = context if context else hotwords if hotwords else None
+    root = trie.ROOT if trie is not None else HotwordTrie.ROOT
     beams: dict[tuple[int, ...], tuple[float, float]] = {(): (0.0, NEG_INF)}
     meta: dict[tuple[int, ...], tuple[int, float]] = {(): (root, 0.0)}
 
@@ -152,3 +171,89 @@ def ctc_prefix_beam(
         out.append(CtcHypothesis(prefix, _lse(p_blank, p_token), bonus))
     out.sort(key=lambda h: (-h.score, h.tokens))
     return out
+
+
+def ctc_align(log_probs: npt.ArrayLike, tokens: Sequence[int], blank_id: int = 0) -> list[tuple[int, int]]:
+    """Best CTC alignment of ``tokens`` to the frames (Viterbi): ``(first_frame, last_frame)`` for each token.
+
+    Raises ValueError when the frames are too few to say the tokens (a repeat needs a blank frame between)."""
+    arr = _check(log_probs, blank_id)
+    ids = [int(t) for t in tokens]
+    if not ids:
+        return []
+    if any(not 0 <= t < arr.shape[1] or t == blank_id for t in ids):
+        raise ValueError("tokens must be inside the vocabulary and never the blank")
+    frames, states = arr.shape[0], 2 * len(ids) + 1
+    ext = np.full(states, blank_id, dtype=np.int64)
+    ext[1::2] = ids
+    emit = arr[:, ext]
+    skip = np.zeros(states, dtype=bool)
+    skip[3::2] = ext[3::2] != ext[1:-2:2]  # a token may skip the blank before it unless it repeats the last token
+    if frames == 0:
+        raise ValueError("no frames to align")
+    delta = np.full(states, NEG_INF)
+    delta[0], delta[1] = emit[0, 0], emit[0, 1]
+    back = np.zeros((frames, states), dtype=np.int8)
+    for t in range(1, frames):
+        one = np.concatenate(([NEG_INF], delta[:-1]))
+        two = np.where(skip, np.concatenate(([NEG_INF, NEG_INF], delta[:-2])), NEG_INF)
+        choice = np.argmax(np.stack((delta, one, two)), axis=0)  # ties keep the earlier option, deterministic
+        back[t] = choice
+        delta = np.stack((delta, one, two))[choice, np.arange(states)] + emit[t]
+    state = states - 1 if delta[states - 1] >= delta[states - 2] else states - 2
+    if delta[state] == NEG_INF:
+        raise ValueError("too few frames for these tokens")
+    first = [-1] * len(ids)
+    last = [-1] * len(ids)
+    for t in range(frames - 1, -1, -1):
+        if state % 2 == 1:
+            k = state // 2
+            first[k] = t
+            if last[k] < 0:
+                last[k] = t
+        state -= int(back[t, state])
+    return list(zip(first, last, strict=True))
+
+
+@dataclass(frozen=True)
+class WordTiming:
+    tokens: tuple[int, ...]
+    first_frame: int
+    last_frame: int
+    start_s: float
+    end_s: float
+
+
+def word_start_ids(vocab: Mapping[str, int], word_mark: str = WORD_MARK) -> frozenset[int]:
+    """Ids of the vocabulary pieces that open a word (a SentencePiece-style word mark in front)."""
+    return frozenset(int(i) for piece, i in vocab.items() if piece.startswith(word_mark))
+
+
+def word_timings(
+    tokens: Sequence[int],
+    spans: Sequence[tuple[int, int]],
+    word_starts: Collection[int] | Callable[[int], bool],
+    *,
+    frame_seconds: float = 0.04,
+) -> list[WordTiming]:
+    """Group tokens into words (a token in ``word_starts`` opens a new word; the first token always does) with the
+    first and last frame of each word and its start and end in seconds (``end_s`` is the end of the last frame)."""
+    if len(tokens) != len(spans):
+        raise ValueError("one span per token is needed")
+    if frame_seconds <= 0:
+        raise ValueError("frame_seconds must be > 0")
+    opens = word_starts if callable(word_starts) else word_starts.__contains__
+    words: list[WordTiming] = []
+    group: list[int] = []
+    first = last = 0
+    for token, (a, b) in zip(tokens, spans, strict=True):
+        if group and opens(int(token)):
+            words.append(WordTiming(tuple(group), first, last, first * frame_seconds, (last + 1) * frame_seconds))
+            group = []
+        if not group:
+            first = a
+        group.append(int(token))
+        last = b
+    if group:
+        words.append(WordTiming(tuple(group), first, last, first * frame_seconds, (last + 1) * frame_seconds))
+    return words
