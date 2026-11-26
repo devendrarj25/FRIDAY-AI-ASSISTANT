@@ -315,6 +315,7 @@ export const FLOW_REGISTRY = {
     "voice.inputDeviceId",
     "voice.instantAck",
     "voice.interruptGate",
+    "voice.itn",
     "voice.keepUtteranceWavs",
     "voice.listenStyle",
     "voice.liveWake",
@@ -340,6 +341,7 @@ export const FLOW_REGISTRY = {
     "voice.speakReplies",
     "voice.speechLang",
     "voice.speechPrep",
+    "voice.streamEngine",
     "voice.sttMultilingual",
     "voice.sttSize",
     "voice.tasks",
@@ -2302,6 +2304,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:stt-stream-close",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-feed",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-open",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:transcribe",
       file: "electron/main.cjs",
     },
@@ -2594,6 +2608,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "local",
       file: "kernel/billing.py",
+    },
+    {
+      kind: "locale",
+      file: "kernel/stream_ear.py",
     },
     {
       kind: "md",
@@ -9557,16 +9575,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 162,
-      total: 162,
+      mapped: 164,
+      total: 164,
     },
     capabilities: {
       mapped: 1112,
       total: 1112,
     },
     ipc: {
-      mapped: 513,
-      total: 513,
+      mapped: 516,
+      total: 516,
     },
     kernel: {
       mapped: 14,
