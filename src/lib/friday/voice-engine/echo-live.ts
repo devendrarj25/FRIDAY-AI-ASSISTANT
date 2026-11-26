@@ -31,7 +31,7 @@ import {
   workletCapturing,
   type CaptureProcessor,
 } from "../pcm-capture";
-import { EchoCanceller, type EchoStats } from "./audio-aec";
+import { EchoCanceller, MAX_AEC_FAILURES, type EchoStats } from "./audio-aec";
 import { floatToPcm16, pcm16ToBase64, StreamSincResampler } from "./audio-format";
 import {
   cancelMicFrame,
@@ -75,6 +75,8 @@ export type EchoLiveDeps = {
   shadow?: () => EchoShadowSend | null;
   captureLatency?: () => number;
   capturing?: () => boolean;
+  /** Lower the echo a converged filter leaves (the residual suppressor). Read when the session attaches; default off. */
+  suppressor?: () => boolean;
 };
 
 export type EchoLiveDiagnostics = {
@@ -93,6 +95,8 @@ export type EchoLiveDiagnostics = {
   shadowReady: boolean | null;
   shadowReason: string;
   shadowSent: number;
+  /** The canceller failed five frames in a row (or switched itself to passthrough): every frame passes untouched. */
+  fellBack?: boolean;
   reference: EchoReferenceStats | null;
   canceller: EchoStats | null;
 };
@@ -172,6 +176,8 @@ export class EchoLive {
   private mic: MicState | null = null;
   private clock: MicClock | null = null;
   private clearAt: number | null = null;
+  private failStreak = 0;
+  private fellBack = false;
   private counts = { cancelled: 0, passed: 0, errors: 0, clears: 0, shadowSent: 0 };
   private lastClear = "";
   private shadow = {
@@ -199,6 +205,7 @@ export class EchoLive {
       shadow: deps.shadow ?? realShadow,
       captureLatency: deps.captureLatency ?? captureLatencySeconds,
       capturing: deps.capturing ?? workletCapturing,
+      suppressor: deps.suppressor ?? (() => false),
     };
   }
 
@@ -215,7 +222,12 @@ export class EchoLive {
         latencySeconds: () => contextLatencySeconds(clock),
         marginMs: LIVE_MARGIN_MS,
       });
-      this.canceller = new EchoCanceller({ rate: ECHO_RATE });
+      this.canceller = new EchoCanceller({
+        rate: ECHO_RATE,
+        suppressor: this.deps.suppressor() === true,
+      });
+      this.failStreak = 0;
+      this.fellBack = false;
       this.unsubscribe = [
         player.addScheduledListener((when, pcm) => this.onScheduled(when, pcm)),
         player.addStopListener((at) => this.onStop(at)),
@@ -309,6 +321,7 @@ export class EchoLive {
     try {
       const reference = this.reference;
       const canceller = this.canceller;
+      if (this.fellBack) return null;
       if (!reference || !canceller || !(fromRate > 0) || !this.deps.capturing()) return null;
       if (!this.deps.enabled()) {
         if (reference.stats().chunks > 0 || this.mic) this.clear("setting off");
@@ -357,6 +370,13 @@ export class EchoLive {
         inputLatencySeconds: latency,
       });
       this.measure(raw, startTime - latency);
+      this.failStreak = 0;
+      if (canceller.isPassthrough()) {
+        // the canceller gave up on its own (five failed frames): the frame goes on exactly as it came in
+        this.fellBack = true;
+        this.counts.passed += 1;
+        return null;
+      }
       if (cleaned === raw) {
         this.counts.passed += 1;
         return null;
@@ -365,6 +385,11 @@ export class EchoLive {
       return cleaned;
     } catch {
       this.counts.errors += 1;
+      this.failStreak += 1;
+      if (this.failStreak >= MAX_AEC_FAILURES) {
+        this.fellBack = true;
+        this.clear("failed");
+      }
       return null;
     }
   }
@@ -457,6 +482,7 @@ export class EchoLive {
       shadowReady: shadow.ready,
       shadowReason: shadow.reason,
       shadowSent: this.counts.shadowSent,
+      fellBack: this.fellBack,
       reference: this.reference?.stats() ?? null,
       canceller: this.canceller?.stats() ?? null,
     };

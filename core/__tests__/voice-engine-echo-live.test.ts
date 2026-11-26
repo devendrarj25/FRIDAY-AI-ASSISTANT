@@ -257,6 +257,7 @@ function session(opts: {
   clock?: { ms: number };
   probe?: (frame: { at: number; delivered: number; echo: Float32Array }) => void;
   biasMs?: number;
+  suppressor?: boolean;
 }) {
   const seconds = 5;
   const outLat = 0.03;
@@ -269,6 +270,7 @@ function session(opts: {
     enabled: () => opts.on,
     nowMs: () => clock.ms,
     shadow: () => opts.shadow ?? null,
+    suppressor: () => opts.suppressor === true,
   });
   resetCaptureRing();
   setCaptureProcessor(null);
@@ -406,6 +408,32 @@ describe("capture hook: setting off and fail closed", () => {
     expect(Math.abs(out.at(-1)! - (20 * 128) / 3)).toBeLessThanOrEqual(20);
   });
 
+  it("five failed frames in a row switch the hook off for the session; attaching again brings it back", () => {
+    const clock = { ms: 0 };
+    let broken = true;
+    const live = new EchoLive({
+      enabled: () => true,
+      nowMs: () => clock.ms,
+      captureLatency: () => {
+        if (broken) throw new Error("no latency");
+        return 0.01;
+      },
+    });
+    live.attach(newPlayer(clock));
+    markWorklet(true);
+    const player = (live as unknown as { player: PcmClipPlayer }).player;
+    player.start(new Int16Array(24_000).fill(3000), 24_000);
+    const frame = new Float32Array(128).fill(0.1);
+    for (let i = 0; i < 20; i += 1) {
+      clock.ms = 5000 + i * 2.7;
+      noteCaptureFrame(frame, clock.ms, 48_000);
+    }
+    expect(live.diagnostics()).toMatchObject({ errors: 5, fellBack: true, cancelledFrames: 0 });
+    broken = false;
+    live.attach(newPlayer(clock));
+    expect(live.diagnostics().fellBack).toBe(false);
+  });
+
   it("the analyser fallback (no worklet) is never cancelled", () => {
     const clock = { ms: 0 };
     const live = new EchoLive({ enabled: () => true, nowMs: () => clock.ms });
@@ -428,7 +456,7 @@ describe("capture hook: setting on, synthetic playback (simulated rooms, not a r
     ["60 ms path", { delayMs: 60, gain: 0.6, seed: 31 }],
     ["140 ms path", { delayMs: 140, gain: 0.5, seed: 32 }],
   ])(
-    "takes at least 20 dB of her voice out of the ring that feeds the recogniser: %s",
+    "takes at least 25 dB of her voice out of the ring that feeds the recogniser: %s",
     (_n, room) => {
       const off = session({ on: false, install: true, ...room });
       const raw = settledPower(off.echoStart, off.seconds);
@@ -436,7 +464,7 @@ describe("capture hook: setting on, synthetic playback (simulated rooms, not a r
       const cleaned = settledPower(on.echoStart, on.seconds);
       const reduction = 10 * Math.log10(raw / Math.max(cleaned, 1e-12));
       expect(on.live.diagnostics().cancelledFrames).toBeGreaterThan(100);
-      expect(reduction).toBeGreaterThanOrEqual(20);
+      expect(reduction).toBeGreaterThanOrEqual(25);
     },
   );
 
@@ -470,6 +498,16 @@ describe("capture hook: setting on, synthetic playback (simulated rooms, not a r
     const off = levels(false);
     expect(off.cleaned).toHaveLength(0);
     expect(off.nulls).toBeGreaterThan(300);
+  });
+
+  it("the residual suppressor is off by default and, when asked for, takes more of her voice out", () => {
+    const room = { delayMs: 60, gain: 0.6, seed: 31 };
+    const base = session({ on: true, install: true, ...room });
+    expect(base.live.diagnostics().canceller?.suppressionDb).toBe(0);
+    const plain = settledPower(base.echoStart, base.seconds);
+    const lowered = session({ on: true, install: true, suppressor: true, ...room });
+    // at least 6 dB (a factor of four in power) below the plain canceller over the settled second half
+    expect(settledPower(lowered.echoStart, lowered.seconds)).toBeLessThan(plain / 4);
   });
 
   it("keeps the owner's own voice when it talks over her (double talk is not removed)", () => {
