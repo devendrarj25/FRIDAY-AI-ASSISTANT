@@ -26,7 +26,8 @@ const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { classify } = require("./privacy-firewall.cjs");
-const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
+const { trackOwned } = require("./app-lifecycle.cjs");
+const { createVoiceWorker } = require("./voice-worker.cjs");
 
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
 
@@ -98,6 +99,17 @@ const LOCAL_STYLE_DEFAULT = "friday";
 /** The engines the worker may name in its status: FRIDAY's own runner, the old package, or none. */
 const FRIDAY_VOICE_ENGINES = new Set(["friday-voice", "supertonic-3", "none"]);
 
+/** The states the speech engine reports for itself (kernel `engineState`). */
+const FRIDAY_VOICE_ENGINE_STATES = new Set(["idle", "ready", "failing", "stopped"]);
+
+/** A failing or stopped engine says when it tries again, unless its own reason already does. */
+function withRetryHint(reason, engineState, retryIn) {
+  if (!retryIn || (engineState !== "failing" && engineState !== "stopped")) return reason;
+  if (/next try in/i.test(reason)) return reason;
+  const hint = `Next try in ${retryIn} s.`;
+  return (reason ? `${reason} ${hint}` : hint).slice(0, 200);
+}
+
 /** The canonical style id for a value, or "" (the default voice) when it is not on the list. */
 function normaliseLocalStyle(style) {
   if (typeof style !== "string") return "";
@@ -125,8 +137,12 @@ function normaliseFridayVoiceStatus(raw) {
           .slice(0, 200)
       : "";
   const failures = Number(tts.failures);
+  const retryInS = Number(tts.retryInS);
   const stateRaw = typeof tts.engineState === "string" ? tts.engineState : tts.state;
   const state = typeof stateRaw === "string" ? stateRaw.toLowerCase().slice(0, 32) : "";
+  const engineState = FRIDAY_VOICE_ENGINE_STATES.has(tts.engineState) ? tts.engineState : "";
+  const retryIn =
+    Number.isFinite(retryInS) && retryInS > 0 ? Math.min(3600, Math.ceil(retryInS)) : 0;
   return {
     engine,
     own: engine === "friday-voice" && tts.own === true,
@@ -134,7 +150,9 @@ function normaliseFridayVoiceStatus(raw) {
     voiceId,
     sampleRate: cleanSampleRate(rate),
     recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
-    reason,
+    reason: withRetryHint(reason, engineState, retryIn),
+    ...(engineState ? { engineState } : {}),
+    ...(retryIn ? { retryInS: retryIn } : {}),
     ...(typeof tts.live === "boolean" ? { live: tts.live } : {}),
     ...(/^[a-z0-9-]+$/.test(state) ? { state } : {}),
     ...(Number.isFinite(failures) ? { failures: Math.max(0, Math.floor(failures)) } : {}),
@@ -149,7 +167,8 @@ function cleanSampleRate(value) {
 
 /** The running speech worker's own status line, or null when no worker is up (it is never started for this). */
 async function askRunningWorker(py) {
-  if (!speaker?.alive) return null;
+  // A busy speaker is never asked (the question would queue behind the clause); the cold read answers instead.
+  if (speakerState() !== "ready") return null;
   const answered = await speakerRequest(py, { op: "status" }, 15000);
   return answered && typeof answered === "object" ? answered : null;
 }
@@ -310,136 +329,207 @@ async function localStatus() {
   );
 }
 
+/** The speech worker's lifecycle (spawn, stderr drain, exit, deadlines, breaker, idle unload) is electron/voice-worker.cjs. */
 let speaker = null;
-let speakerSeq = 0;
 
-function killTree(child) {
-  if (!child || !child.pid) return;
-  try {
-    if (process.platform === "win32") {
-      killProcessTree(child.pid);
-    } else {
-      child.kill("SIGTERM");
-    }
-  } catch {
-    /* already gone */
+/** The speaker leaves memory after this long with no request; the next speak starts it and warms it again. */
+const TTS_IDLE_UNLOAD_MS = 10 * 60 * 1000;
+/** A speak that has not answered after this long is slow (it keeps running); the hard deadline decides dead. */
+const SPEAK_SOFT_MS = 8000;
+/** The hard deadline of a warm speaker: this long per PCM_TEXT_CAP characters, never under the minimum. */
+const SPEAK_WARM_MS_PER_CAP = 15000;
+const SPEAK_WARM_MIN_MS = 8000;
+/** A cold or still loading speaker gets this much extra for its model load. */
+const SPEAK_COLD_EXTRA_MS = 60000;
+/** A cancel never waits behind a clause; if even it is not answered the speaker is hung. */
+const CANCEL_DEADLINE_MS = 10000;
+
+/** The generation of the speaker that last finished a warm-up or a speak; any other generation is cold. */
+let warmGeneration = -1;
+/** The next start comes from a speak, so its init gate runs the warm-up op. */
+let warmOnStart = false;
+/** The deadlines of the speak requests sent and not yet answered. */
+let speakQueuedMs = 0;
+let lastSlow = null;
+let lastFailure = null;
+
+/** How long a speak of this many characters may take before the speaker is called hung. */
+function speakDeadlineMs(chars, warm) {
+  const length = Number.isFinite(chars) && chars > 0 ? chars : 0;
+  const scaled = Math.max(
+    SPEAK_WARM_MIN_MS,
+    Math.round((length / PCM_TEXT_CAP) * SPEAK_WARM_MS_PER_CAP),
+  );
+  return warm ? scaled : scaled + SPEAK_COLD_EXTRA_MS;
+}
+
+/** Start-time gate: a speak-started worker is warmed (model loaded) before it counts as ready. */
+async function speakerInit(send, { generation }) {
+  if (!warmOnStart) return;
+  warmOnStart = false;
+  const answered = await send({ op: "warm-up", style: "" }, { hardMs: SPEAK_COLD_EXTRA_MS });
+  if (answered?.ok === true) {
+    warmedOnce = true;
+    warmGeneration = generation;
   }
+}
+
+function speakerWorker(py) {
+  const key = JSON.stringify([py[0], py[1]]);
+  if (speaker?.key === key) return speaker.worker;
+  if (speaker) speaker.worker.stop().catch(() => {});
+  const worker = createVoiceWorker({
+    role: "tts",
+    script: py[0],
+    args: () => [...py[1], runtimeScript(), "--serve"],
+    env: () => ({ FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" }),
+    idleUnloadMs: TTS_IDLE_UNLOAD_MS,
+    init: speakerInit,
+    spawn: (exe, args, options) => {
+      const child = spawn(exe, args, options);
+      trackOwned("tts", child, exe);
+      return child;
+    },
+    onExit: () => {
+      // A worker that left (idle unload, crash, restart) is cold: its successor loads the model again.
+      warmedOnce = false;
+    },
+  });
+  speaker = { key, worker };
+  return worker;
+}
+
+/** "cold" | "starting" | "ready" | "busy" | "breaker-open" | "stopped" of the speaker; "cold" when none was made. */
+function speakerState() {
+  return speaker ? speaker.worker.status().state : "cold";
+}
+
+/** The speaker's cached lifecycle view with the last slow or failed request; it never waits for the speaker. */
+function speakerHealth() {
+  return {
+    ...(speaker ? speaker.worker.status() : { role: "tts", state: "cold", pid: null }),
+    ...(lastSlow ? { lastSlow } : {}),
+    ...(lastFailure ? { lastFailure } : {}),
+  };
 }
 
 /**
  * Stop the speaker process. It used to have no stop at all: it stayed up after the app closed (a model held in
  * memory, and a file lock on the bundled Python that blocked an update or an uninstall) and a hung one answered
- * every later line with a timeout.
+ * every later line with a timeout. The next speak starts a fresh one.
  */
 function shutdown() {
-  const session = speaker;
+  const held = speaker;
   speaker = null;
-  if (!session?.child) return;
-  session.intentional = true;
-  session.alive = false;
-  for (const wait of session.pending.values()) wait(null);
-  session.pending.clear();
-  const child = session.child;
-  try {
-    if (child.stdin && !child.stdin.destroyed) child.stdin.end();
-  } catch {
-    /* closing anyway */
-  }
-  setTimeout(() => killTree(child), 400);
+  warmedOnce = false;
+  lastFailure = null;
+  lastSlow = null;
+  if (held) held.worker.stop().catch(() => {});
 }
 
-function speakerRequest(py, payload, timeoutMs = 120000) {
-  return new Promise((resolve) => {
-    const ensure = () => {
-      if (speaker?.alive && speaker.child?.stdin && !speaker.child.stdin.destroyed) return speaker;
-      const child = spawn(py[0], [...py[1], runtimeScript(), "--serve"], {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONUNBUFFERED: "1",
-          PYTHONIOENCODING: "utf-8",
-          FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
-        },
-      });
-      const session = {
-        child,
-        alive: true,
-        intentional: false,
-        buf: "",
-        pending: new Map(),
-      };
-      child.stdout?.on("data", (chunk) => {
-        session.buf += String(chunk);
-        const lines = session.buf.split(/\r?\n/);
-        session.buf = lines.pop() || "";
-        for (const line of lines) {
-          const text = line.trim();
-          if (!text) continue;
-          let msg;
-          try {
-            msg = JSON.parse(text);
-          } catch {
-            continue;
-          }
-          const id = msg && msg.id;
-          if (id != null && session.pending.has(id)) {
-            const wait = session.pending.get(id);
-            session.pending.delete(id);
-            wait(msg);
-          }
-        }
-      });
-      const fail = () => {
-        if (!session.alive) return;
-        session.alive = false;
-        for (const wait of session.pending.values()) wait(null);
-        session.pending.clear();
-        if (speaker === session) speaker = null;
-      };
-      child.on("error", fail);
-      child.on("close", fail);
-      child.stdin?.on("error", fail);
-      trackOwned("tts", child, py[0]);
-      speaker = session;
-      return session;
-    };
-    const session = ensure();
-    const id = ++speakerSeq;
-    const timer = setTimeout(() => {
-      session.pending.delete(id);
-      resolve(null);
-      // The speaker missed its deadline, so it is hung: stop it, so the next line starts a fresh one instead
-      // of queueing behind it for another full timeout.
-      killTree(session.child);
-    }, timeoutMs);
-    session.pending.set(id, (msg) => {
-      clearTimeout(timer);
-      resolve(msg);
-    });
-    try {
-      session.child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
-    } catch {
-      clearTimeout(timer);
-      session.pending.delete(id);
-      resolve(null);
-    }
-  });
+/** Drop a hung speaker so the next clause is not queued behind it (the supervisor's restart-tts remedy). */
+function restartSpeaker() {
+  const had = speaker !== null;
+  shutdown();
+  return { ok: true, restarted: had };
+}
+
+const FAILURE_WORDS = {
+  deadline: "the local voice took too long and was restarted",
+  stalled: "the local voice took too long and was restarted",
+  exit: "the local voice stopped unexpectedly",
+  "breaker-open": "the local voice is paused after repeated crashes",
+  "start-failed": "the local voice could not start",
+  "write-failed": "the local voice did not take the request",
+};
+
+/** Why the last request got no reply (read once, and only when it is fresh), or "". */
+function takeFailureReason() {
+  const failure = lastFailure;
+  lastFailure = null;
+  if (!failure || Date.now() - failure.at > 5000) return "";
+  return FAILURE_WORDS[failure.code] || "";
 }
 
 /**
- * One line to the running speaker with no reply wanted (the per-utterance cancel). It never starts a worker: with
- * none running there is nothing to cancel. True when the line was written.
+ * The reason a worker reply gives: its `reason` string, else the `message` of an `error` object (a plain string
+ * `error` of an older kernel stays valid), else the transport failure, else the caller's fallback.
+ */
+function replyReason(answered, fallback) {
+  if (typeof answered?.reason === "string" && answered.reason) return answered.reason;
+  const error = answered?.error;
+  if (typeof error === "string" && error) return error.slice(0, 200);
+  if (error && typeof error === "object" && typeof error.message === "string" && error.message) {
+    return error.message.slice(0, 200);
+  }
+  return (answered ? "" : takeFailureReason()) || fallback;
+}
+
+const SPEAK_OPS = new Set(["speak", "speak-pcm"]);
+
+/**
+ * One request to the speech worker: its reply, or null when there is none (it hung, died, was stopped or is paused
+ * by the breaker). A speak gets a deadline scaled to its text (and a longer one while the model loads), so a hung
+ * speaker is killed and the next line starts a fresh one instead of waiting out a fixed two minutes. A status or an
+ * echo check never queues behind a busy speaker.
+ */
+async function speakerRequest(py, payload, timeoutMs = 120000) {
+  const op = String(payload?.op || "");
+  const speaks = SPEAK_OPS.has(op);
+  const worker = speakerWorker(py);
+  try {
+    if ((op === "echo-shadow" || op === "status") && worker.status().state === "busy") return null;
+    if (speaks) {
+      warmOnStart = true;
+      try {
+        await worker.ensure();
+      } finally {
+        warmOnStart = false;
+      }
+    }
+    const view = worker.status();
+    // The speaker answers in order, so a clause also waits for the clauses sent before it: their deadlines count.
+    const own = speaks
+      ? Math.min(
+          timeoutMs,
+          speakDeadlineMs(String(payload.text || "").length, view.generation === warmGeneration),
+        )
+      : timeoutMs;
+    const hardMs = speaks ? own + speakQueuedMs : own;
+    if (speaks) speakQueuedMs += own;
+    let reply;
+    try {
+      reply = await worker.request(payload, {
+        hardMs,
+        ...(speaks
+          ? {
+              softMs: SPEAK_SOFT_MS,
+              onSlow: (info) => {
+                lastSlow = { op: info.op, elapsedMs: info.elapsedMs };
+              },
+            }
+          : {}),
+      });
+    } finally {
+      if (speaks) speakQueuedMs = Math.max(0, speakQueuedMs - own);
+    }
+    if (speaks && reply?.ok === true) warmGeneration = worker.status().generation;
+    return reply;
+  } catch (error) {
+    lastFailure = { code: String(error?.code || "unknown"), at: Date.now() };
+    return null;
+  }
+}
+
+/**
+ * One line to the running speaker, reply ignored (the per-utterance cancel). It never starts a worker: with none
+ * running there is nothing to cancel. True when the line was written; the line goes out before this returns.
  */
 function speakerNotify(payload) {
-  const session = speaker;
-  if (!session?.alive || !session.child?.stdin || session.child.stdin.destroyed) return false;
-  try {
-    session.child.stdin.write(`${JSON.stringify(payload)}\n`);
-    return true;
-  } catch {
-    return false;
-  }
+  const state = speakerState();
+  if (state !== "ready" && state !== "busy") return false;
+  speaker.worker.request(payload, { hardMs: CANCEL_DEADLINE_MS }).catch(() => {});
+  return true;
 }
 
 /** The reason a reply says a fallback engine spoke, or "" when it is absent or not a clean token. */
@@ -513,7 +603,7 @@ async function speakLocal(
       ok: false,
       engine: "local",
       cloud: false,
-      reason: answered?.reason || "local neural voice is not installed",
+      reason: replyReason(answered, "local neural voice is not installed"),
     };
   }
   const engine = CACHEABLE_ENGINES.includes(answered.engine) ? answered.engine : "supertonic-3";
@@ -641,8 +731,7 @@ async function warmUp(style, { request = speakerRequest, resolvePy = python } = 
       ok: false,
       engine: "local",
       cloud: false,
-      reason:
-        typeof answered?.reason === "string" ? answered.reason.slice(0, 120) : "warm-up failed",
+      reason: replyReason(answered, "warm-up failed").slice(0, 120),
     };
   } catch {
     return { ok: false, engine: "local", cloud: false, reason: "warm-up failed" };
@@ -705,7 +794,7 @@ async function speakPcm(
       ok: false,
       engine: "local",
       cloud: false,
-      reason: answered?.reason || "local neural voice is not installed",
+      reason: replyReason(answered, "local neural voice is not installed"),
     };
   }
   const pcm = Buffer.from(answered.pcm16, "base64");
@@ -1030,6 +1119,10 @@ module.exports = {
   ECHO_SHADOW_MIN_GAP_MS,
   ECHO_SHADOW_MAX_B64,
   shutdown,
+  restartSpeaker,
+  speakerHealth,
+  speakDeadlineMs,
+  TTS_IDLE_UNLOAD_MS,
   speakerRequest,
   PREFERRED,
   pitchOffsetHz,

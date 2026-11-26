@@ -25,6 +25,8 @@ export type SupervisorInput = {
   speaking: boolean;
   /** A speech model is being fetched (a first load is slow on purpose, not stuck). */
   downloading: boolean;
+  /** How long since audio last came out of the speaker (unset when the caller does not know). */
+  silentMs?: number;
 };
 
 export type SupervisorVerdict =
@@ -32,8 +34,11 @@ export type SupervisorVerdict =
   | {
       act: true;
       state: VoiceState;
-      /** What to do: let go of the state, restart the speech engine, reopen the microphone, or run a full check. */
-      remedy: "release" | "restart-speech" | "reopen-mic" | "self-check";
+      /**
+       * What to do: let go of the state, restart the listening engine, restart the speaking engine (a hung speaker
+       * that holds the queue), reopen the microphone, or run a full check.
+       */
+      remedy: "release" | "restart-speech" | "restart-tts" | "reopen-mic" | "self-check";
       fault: HealClass | "none";
       reason: string;
     };
@@ -50,6 +55,9 @@ export const STUCK_AFTER_MS: Partial<Record<VoiceState, number>> = {
   INTERRUPTED: 60_000,
   ERROR: 120_000,
 };
+
+/** Replies wait and no sound has come out for this long: the speaker is hung, not slow. */
+export const SPEAKER_HUNG_AFTER_MS = 45_000;
 
 export function superviseVoice(input: SupervisorInput): SupervisorVerdict {
   if (input.mode !== "auto" || input.paused) return { act: false };
@@ -94,7 +102,21 @@ export function superviseVoice(input: SupervisorInput): SupervisorVerdict {
         reason: `thinking for ${seconds} s with no turn running`,
       };
     case "SPEAKING":
-      if (input.speaking || input.speechQueued) return { act: false };
+      if (input.speaking) return { act: false };
+      if (input.speechQueued) {
+        // Replies wait but nothing plays: a speaker that is merely between clauses is quiet for a moment, a hung one
+        // for the whole spell. Restart it so the next clause is not queued behind the hung one.
+        if (input.silentMs === undefined || input.silentMs < SPEAKER_HUNG_AFTER_MS) {
+          return { act: false };
+        }
+        return {
+          act: true,
+          state: input.state,
+          remedy: "restart-tts",
+          fault: "tts-engine-fail",
+          reason: `replies waited ${Math.round(input.silentMs / 1000)} s with no sound`,
+        };
+      }
       return {
         act: true,
         state: input.state,
