@@ -887,13 +887,16 @@ function createStreamEar({
   function discard(stream) {
     if (!stream.session?.alive) return;
     Promise.resolve()
-      .then(() =>
-        request(
+      .then(() => {
+        // A newer stream may hold the same id by now (a retried open): its open already replaced this one in the worker,
+        // so a close with the shared id would end the wrong stream.
+        if (current && current !== stream && current.id === stream.id) return null;
+        return request(
           stream.session,
           { op: "stream-close", streamId: stream.id, finalize: false },
           STREAM_CLOSE_MS,
-        ),
-      )
+        );
+      })
       .catch(() => {});
   }
 

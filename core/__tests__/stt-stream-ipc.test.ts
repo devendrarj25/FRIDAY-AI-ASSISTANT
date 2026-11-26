@@ -190,6 +190,35 @@ describe("stream-open", () => {
     expect(order).toEqual(["guard-in", "request", "guard-out"]);
   });
 
+  it("a retried open with the same id is never closed by the first open's late reply", async () => {
+    let release: (value: unknown) => void = () => {};
+    let first = true;
+    const r = rig({
+      "stream-open": (p) => {
+        if (first) {
+          first = false;
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        }
+        return openOk(p);
+      },
+    });
+    const firstOpen = r.ear.open({ ...OPEN, streamId: "same" });
+    await Promise.resolve();
+    await Promise.resolve();
+    const second = await r.ear.open({ ...OPEN, streamId: "same" });
+    expect(second).toMatchObject({ ok: true, streamId: "same" });
+    const openIndex = r.calls.map((c) => c.payload.op).lastIndexOf("stream-open");
+    release(openOk({ streamId: "same", locale: "hi-en" }));
+    expect(await firstOpen).toMatchObject({ ok: false, reason: "aborted" });
+    await Promise.resolve();
+    await Promise.resolve();
+    // Nothing may close the stream the retry opened: no stream-close after the retry's open.
+    expect(r.calls.slice(openIndex + 1).some((c) => c.payload.op === "stream-close")).toBe(false);
+    expect(r.gate.busy()).toBe(true);
+  });
+
   it("a mute while the model loads ends the stream, answers aborted and discards what the worker opened", async () => {
     let finish: (v: unknown) => void = () => {};
     const r = rig({
