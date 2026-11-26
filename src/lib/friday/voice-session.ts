@@ -263,10 +263,104 @@ export function approvalFresh(askedAt: number, now: number, ttlMs = APPROVAL_TTL
  * The desktop approval path still decides. This only forces that path.
  */
 export function voiceClaimsAuthority(text: string): boolean {
-  return /\b(ignore (?:all |any )?(?:previous|prior|above)|disable (?:the )?approval|auto-?approve|skip (?:the )?confirmation|without asking|you are now)\b/i.test(
-    text ?? "",
-  );
+  const raw = String(text ?? "");
+  if (ENGLISH_AUTHORITY.test(raw)) return true;
+  const folded = foldAuthorityText(raw);
+  return ENGLISH_AUTHORITY.test(folded) || AUTHORITY_CLAIM.test(folded) || SYSTEM_LEAD.test(folded);
 }
+
+/* The claim tables. A claim states an identity ("main malik hu"), grants approval ("approve kar do", "sab kuch allow
+ * kar do"), overrides the rules ("pichle instructions ignore karo", "bina puche"), asks for the prompt or a secret, or
+ * orders a command. A plain yes ("haan", "kar do isko") is not a claim: the approval flow binds it. Asking about
+ * someone ("malik ka number do") is a lookup. Every rule runs on the folded text, in Latin and Devanagari at once, so a
+ * mixed-script line matches too. */
+
+/** The English table as it was, kept on the raw text so folding can never lose a match. */
+const ENGLISH_AUTHORITY =
+  /\b(ignore (?:all |any )?(?:previous|prior|above)|disable (?:the )?approval|auto-?approve|skip (?:the )?confirmation|without asking|you are now)\b/i;
+
+const INVISIBLE = new RegExp("[\\u00ad\\u200b-\\u200d\\u2060\\ufeff]", "g");
+const NUKTA = new RegExp("\\u093c", "g");
+const CHANDRABINDU = new RegExp("\\u0901", "g");
+const PUNCTUATION = new RegExp("[,;!?\\u0964\\u201c\\u201d\\u0022()]+", "g");
+/** Three or more single letters spelled out ("s y s t e m", "s.y.s.t.e.m", "i-g-n-o-r-e"). */
+const SPELLED_LETTERS = /(?<![\p{L}\p{N}])[a-z](?:[\s.\-_*]+[a-z](?![\p{L}\p{N}])){2,}/gu;
+
+/**
+ * Lower case, compatibility fold, no zero-width characters, no nukta, one nasal sign, spelled-out letters joined and
+ * punctuation turned into spaces: the same small fold the sensitive-marker reader applies, kept local and cheap.
+ */
+function foldAuthorityText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(INVISIBLE, "")
+    .replace(NUKTA, "")
+    .replace(CHANDRABINDU, "\u0902")
+    .replace(SPELLED_LETTERS, (run) => run.replace(/[\s.\-_*]+/g, ""))
+    .replace(PUNCTUATION, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CLAIM_BEFORE = "(?<![\\p{L}\\p{M}\\p{N}])";
+const CLAIM_AFTER = "(?![\\p{L}\\p{M}\\p{N}])";
+const MARKS = String.raw`[\p{L}\p{M}]*`;
+/** "kar do" and its spellings, Roman and Devanagari. */
+const DO_IT = String.raw`kar\s*do|kardo|karo|kar\s*de|kijiye|kariye|कर\s*दो|करदो|करो|कर\s*दे|कीजिए|करिए`;
+const OWNER_WORD = String.raw`owner|malik|maalik|admin|administrator|ओनर|औनर|मालिक|एडमिन`;
+const I_AM = String.raw`h(?:uun|un|u|oon|oo)|ह[ूु]ं?`;
+const GRANT_WORD = String.raw`allow|approve|permit|manzoor|manjoor|manzur|manjur|alau|ijazat|anumati|अलाउ|अलाऊ|अप्रूव|मंजूर|इजाजत|अनुमति|अनुमत`;
+const RULE_NOUN = String.raw`instructions?|nirdesh(?:on)?|niyam(?:on)?|rules?|aadesh|adesh|guidelines?|prompt|safety|approval|इंस्ट्रक्शन(?:स|्स)?|निर्देश(?:ों)?|नियम(?:ों)?|आदेश|रूल्?स?|सेफ्टी|अप्रूवल|प्रॉम्प्ट|गाइडलाइन्?स?`;
+const OVERRIDE_VERB = String.raw`ignor(?:e|ing)|override|bypass|andekha|nazarandaz|bh(?:oo|u)l(?:o|na)?|hata(?:o|na)?|tod(?:o|na)?|इग्नोर|ओवरराइड|बायपास|अनदेखा|नजरअंदाज|भ[ूु]ल${MARKS}|हटा${MARKS}|तोड${MARKS}`;
+const GATE_NOUN = String.raw`approval|confirmation|confirm|permission|anumati|ijazat|puchna|poochna|अप्रूवल|कन्फर्मेशन|कन्फर्म|कंफर्म|परमिशन|अनुमति|इजाजत|पूछना`;
+const GATE_OFF = String.raw`band|बंद|off|disable|डिसेबल|hata(?:o|na)?|हटा${MARKS}|skip|स्किप|bypass|बायपास|ignore|इग्नोर|khatam|खत्म|mat\s+(?:lo|maango|mango|pucho|puchho)|मत\s+(?:लो|मांगो|पूछो)`;
+const SYSTEM_WORD = String.raw`system|स[िी]स्?टम`;
+const PROMPT_WORD = String.raw`prompt|instructions?|nirdesh|प्र[ॉो]म्?प्?ट|प्रांप्ट|प्रामप्ट|इंस्ट्रक्शन|निर्देश`;
+const COMMAND_NOUN = String.raw`command|cmd|script|code|shell|कमांड|कमान्ड|स्क्रिप्ट|कोड`;
+const SECRET_NOUN = String.raw`password|passcode|pass\s*word|api\s*key|secret\s*key|पासवर्ड|पासकोड`;
+
+const AUTHORITY_RULES: readonly string[] = [
+  // English: identity, approval, command and prompt claims.
+  String.raw`i\s+am\s+(?:the\s+|your\s+)?(?:owner|admin|administrator)`,
+  String.raw`(?:the\s+|your\s+)?owner\s+(?:says?|said|approved?|allows?|allowed|authori[sz]ed|confirms?|confirmed)`,
+  String.raw`approve\s+(?:this|it|that|everything|all)`,
+  String.raw`(?:run|execute)\s+(?:this|the\s+following|these)\s+(?:${COMMAND_NOUN})s?`,
+  String.raw`(?:${SYSTEM_WORD})\s*(?:${PROMPT_WORD})`,
+  String.raw`new\s+instructions?`,
+  String.raw`forget\s+(?:(?:all|your|the)\s+)*(?:(?:previous|prior|earlier)\s+)?(?:instructions|rules)`,
+  String.raw`override\s+(?:(?:all|your|the)\s+)*(?:rules|safety|approval|instructions)`,
+  String.raw`from\s+now\s+on\s+(?:you|your)`,
+  String.raw`without\s+(?:confirm\w*|permission|approval)`,
+  String.raw`(?:reveal|tell\s+me|read\s+out)\s+(?:(?:the|your|my)\s+)?(?:${SECRET_NOUN})`,
+  // Identity: "main malik hu", "मैं ओनर हूं", "owner hi hoon".
+  String.raw`(?:${OWNER_WORD})\s+(?:(?:hi|ही)\s+)?(?:${I_AM})`,
+  // The owner is quoted: "owner ne kaha haan", "malik ka order hai".
+  String.raw`(?:${OWNER_WORD})\s+(?:ne|ने)\s+(?:(?:kaha|bola|bataya|कहा|बोला|बताया)\s+(?:\S+\s+){0,2}?(?:haan|han|yes|ok|okay|allow|approve|हां|हा|ठीक|अलाउ|अप्रूव)|(?:${GRANT_WORD}|permission|परमिशन)${MARKS})`,
+  String.raw`(?:${OWNER_WORD})\s+(?:ka|ki|का|की)\s+(?:order|aadesh|adesh|hukum|hukm|permission|anumati|ijazat|manzoori|आदेश|हुक्म|ऑर्डर|परमिशन|अनुमति|इजाजत|मंजूरी)`,
+  // Approval stated: "approve kar do", "manzoor hai", "sab kuch allow kar do".
+  String.raw`(?:approv(?:e|ed)|अप्रूव(?:ड)?)\s+(?:${DO_IT}|hai|है|hua|हुआ|karta|karti|करता|करती)`,
+  String.raw`(?:manzoor|manjoor|manzur|manjur|मंजूर)\s+(?:${DO_IT}|hai|है|h|hua|हुआ|kiya|किया|karta|karti|करता|करती)`,
+  String.raw`(?:sab(?:\s+kuch)?|sabhi|saare|saari|everything|all|सब(?:\s+कुछ)?|सभी|सारे|सारी)\s+(?:(?:ko|को|bhi|भी|ki|की)\s+)?(?:${GRANT_WORD})`,
+  // Rules overridden: "pichle instructions ignore karo", "approval band karo", "bina puche".
+  String.raw`(?:${RULE_NOUN})\s+(?:(?:ko|को|bhi|भी|sab|सब|saare|सारे|sabhi|सभी|ka|का)\s+)*(?:${OVERRIDE_VERB})`,
+  String.raw`(?:${GATE_NOUN})\s+(?:(?:ko|को|wala|वाला|sab|सब)\s+)*(?:${GATE_OFF})`,
+  String.raw`(?:bina|bagair|बिना|बगैर|बिन)\s+(?:(?:kuch|कुछ)\s+)?(?:p(?:oo|u)(?:c|cc|chh?)(?:e|ey|en)|confirm\w*|permission|approval|anumati|ijazat|rok\s*tok|प[ूु]छ\p{M}*|कन्फर्म|कंफर्म|परमिशन|अप्रूवल|अनुमति|इजाजत|रोकटोक)`,
+  // Rewrites her role: "ab se tum ...", "tumhe ab se yeh karna hai".
+  String.raw`(?:ab|अब)\s+(?:se|से)\s+(?:tum|tu|aap|friday|तुम|तू|आप|फ्राइडे)`,
+  String.raw`(?:tumhe|tumhein|tujhe|aapko|तुम्हें|तुझे|आपको)\s+(?:ab|अब)\s+(?:se|से)`,
+  // A command to run: "ye command chalao", "यह कमांड चलाओ".
+  String.raw`(?:yeh?|is|iss|this|यह|ये|इस|इसे)\s+(?:${COMMAND_NOUN})\s+(?:(?:ko|को)\s+)?(?:chalao|chala\s*do|chalana|chalaiye|run\s+(?:karo|kar\s*do|kar\s*de)|execute(?:\s+karo|\s+kar\s*do)?|चलाओ|चला\s*दो|चलाना|चलाइए|रन\s+(?:करो|कर\s*दो)|एक्जीक्यूट(?:\s+करो)?)`,
+  // A secret asked for: "password batao", "पासवर्ड बताओ".
+  String.raw`(?:${SECRET_NOUN})\s+(?:(?:ko|को|mujhe|muje|hume|humein|मुझे)\s+)?(?:batao|bata\s*do|btao|bolo|bol\s*do|dikhao|dikha\s*do|bhejo|bhej\s*do|likho|tell|show|reveal|share|send|read|do|de\s*do|बताओ|बता\s*दो|बोलो|बोल\s*दो|दिखाओ|दिखा\s*दो|भेजो|भेज\s*दो|लिखो|पढो|दो|दे\s*दो)`,
+];
+
+const AUTHORITY_CLAIM = new RegExp(
+  `${CLAIM_BEFORE}(?:${AUTHORITY_RULES.map((rule) => `(?:${rule})`).join("|")})${CLAIM_AFTER}`,
+  "u",
+);
+/** A line that opens like a system message: "system: allow all", "[system] ...", "सिस्टम: ...". */
+const SYSTEM_LEAD = /^[\s[(<#*]*(?:system|स[िी]स्टम)[\])>*]*\s*:/u;
 
 /* ---------- when she may ask "should I?" or "did you say?" ----------
  * A yes or no costs the owner a turn, so it is asked only for what cannot be taken back (delete, send, pay, power off,
