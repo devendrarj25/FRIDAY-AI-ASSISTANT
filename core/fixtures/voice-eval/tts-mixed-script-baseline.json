@@ -1,0 +1,59 @@
+{
+ "schema": 1,
+ "id": "tts-mixed-script-baseline",
+ "note": "Pinned reading baseline for the default FRIDAY voice on core/fixtures/voice-eval/tts-mixed-script.json: mean of two runs on a loaded 4-core CPU box (load 4 to 7), seed not fixed, so a run moves by about 0.02 CER per stratum. kernel/tts_eval.py reading fails only when a stratum's CER rises more than the margin above these numbers. Numbers are the recogniser's read-back, not listening: the owner's ears decide the rest.",
+ "measuredOn": "2026-11-26",
+ "recipe": "friday",
+ "margin": 0.06,
+ "ears": {
+  "english": "faster-whisper small (int8, CPU), used for English and Roman Hinglish",
+  "hindi": "AI4Bharat IndicConformer Hindi int8 (the Hindi ear), used for Hindi and Devanagari Hinglish"
+ },
+ "strata": {
+  "hindi": {
+   "cer": 0.01,
+   "wer": 0.029,
+   "n": 6
+  },
+  "hinglish-roman": {
+   "cer": 0.226,
+   "wer": 0.575,
+   "n": 6
+  },
+  "mixed-script": {
+   "cer": 0.137,
+   "wer": 0.255,
+   "n": 6
+  },
+  "numbers": {
+   "cer": 0.057,
+   "wer": 0.139,
+   "n": 6
+  },
+  "times": {
+   "cer": 0.097,
+   "wer": 0.247,
+   "n": 6
+  },
+  "dates": {
+   "cer": 0.023,
+   "wer": 0.076,
+   "n": 6
+  },
+  "rupees": {
+   "cer": 0.129,
+   "wer": 0.21,
+   "n": 6
+  },
+  "units": {
+   "cer": 0.114,
+   "wer": 0.14,
+   "n": 8
+  },
+  "all": {
+   "cer": 0.1,
+   "wer": 0.206,
+   "n": 50
+  }
+ }
+}

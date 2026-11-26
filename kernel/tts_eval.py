@@ -17,7 +17,12 @@ Interface contract
   ``rank_candidates`` applies the gates. ``main`` is the command line:
   ``python kernel/tts_eval.py sweep --model-dir D [--stt-dir D] [--hindi-ear-dir D] --out DIR``. The report is written
   outside the repository only (a folder inside it is refused, as in ``stt_bench``). Exit 0 done, 1 usage,
-  2 refused, 3 no data (no voice model on disk).
+  2 refused, 3 no data (no voice model on disk), 4 a reading stratum got worse than its baseline.
+* ``reading_report`` speaks the 50 lines of ``core/fixtures/voice-eval/tts-mixed-script.json`` (Hindi, Roman and mixed
+  Hinglish, numbers, times, dates, rupees, units) with the default voice through ``voice_runtime``'s own render, reads
+  them back with ``ears_listener`` and scores CER and WER per stratum; ``reading_regressions`` compares with the pinned
+  ``tts-mixed-script-baseline.json``. Command line: ``reading --model-dir D --stt-dir D [--hindi-ear-dir D] --out DIR
+  [--update-baseline]``.
 
 Nothing here downloads, and nothing runs unless the command line is used.
 """
@@ -42,7 +47,7 @@ import stt_bench
 import voice_fx
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXIT_OK, EXIT_USAGE, EXIT_REFUSED, EXIT_NO_DATA = 0, 1, 2, 3
+EXIT_OK, EXIT_USAGE, EXIT_REFUSED, EXIT_NO_DATA, EXIT_REGRESSED = 0, 1, 2, 3, 4
 
 KINDS = ("hi", "en", "hing-roman", "hing-deva")
 LANG_OF = {"hi": "hi", "en": "en", "hing-roman": "na", "hing-deva": "hi"}
@@ -663,6 +668,143 @@ def run_sweep(
     }
 
 
+# ---- the reading check: FRIDAY's default voice on mixed-script reply lines -------------------------------------------
+# 50 fixed reply lines (Devanagari Hindi, Roman and mixed Hinglish, numbers, times, dates, rupees, units) are spoken
+# through the same path a reply takes (front end, the default recipe, finishing chain), read back by the local ears,
+# and scored per stratum. The result is compared with a pinned baseline: it fails only when a stratum got worse by
+# more than the margin, never because the absolute error is high.
+
+READING_FIXTURE = REPO_ROOT / "core" / "fixtures" / "voice-eval" / "tts-mixed-script.json"
+READING_BASELINE = REPO_ROOT / "core" / "fixtures" / "voice-eval" / "tts-mixed-script-baseline.json"
+READING_STRATA = ("hindi", "hinglish-roman", "mixed-script", "numbers", "times", "dates", "rupees", "units")
+READING_HINT = {"hi": "hi", "en": "en", "hing-roman": "hi", "hing-deva": "hi"}
+# A stratum may rise this much (absolute CER) over the baseline before the check fails; measured run-to-run spread of
+# the same lines through the same ears is far below it.
+READING_MARGIN = 0.06
+
+
+def reading_lines(path: str | os.PathLike[str] | None = None) -> list[dict[str, Any]]:
+    """The fixture's lines: ``id``, ``stratum``, ``kind``, ``text`` (what is spoken) and ``spoken`` (what a listener
+    should hear: digits, times, rupees and units as words), plus ``numbers`` for a line with a digit."""
+    data = json.loads(Path(path or READING_FIXTURE).read_text(encoding="utf-8"))
+    return [dict(row) for row in data["lines"]]
+
+
+def ears_listener(english: Listener, hindi: Listener | None = None) -> Listener:
+    """One recogniser that sends Hindi and Devanagari Hinglish to the Hindi ear when there is one, the rest to the
+    first recogniser (as ``gate_stt`` does for the sweep)."""
+
+    def listen(audio: np.ndarray, kind: str, text: str) -> str:
+        if hindi is not None and kind in ("hi", "hing-deva"):
+            return hindi(audio, kind, text)
+        return english(audio, kind, text)
+
+    return listen
+
+
+def reading_render(voice: Any, text: str, kind: str, *, style: str = "") -> tuple[np.ndarray, int]:
+    """One line as FRIDAY speaks it: through ``voice_runtime``'s own render with the default style (an empty style
+    is the ``friday`` recipe), so the front end, the recipe and its chain are the ones a reply gets."""
+    import voice_runtime
+
+    audio, rate = voice_runtime._render_friday(
+        voice, text, 1.0, READING_HINT.get(kind, ""), style, None, voice_runtime.SpeakOptions()
+    )
+    return np.asarray(audio, dtype=np.float32), int(rate)
+
+
+def _digits_as_words(heard: str, line: Mapping[str, Any]) -> str:
+    """What a recogniser wrote with digits ("5200", "10:30", "20%") as words in the language the line's number is read
+    in (the fixture's ``numbers``), so an ear's way of writing numbers is not counted against the voice."""
+    import tts_frontend
+
+    numbers = line.get("numbers") or []
+    lang = str(numbers[0].get("lang", "en")) if numbers else "en"
+    return " ".join(tts_frontend.expand_numbers(heard, lang).split())
+
+
+def reading_scores(
+    lines: Sequence[Mapping[str, Any]], clips: Sequence[np.ndarray], listen: Listener
+) -> dict[str, dict[str, float]]:
+    """Mean CER and WER per stratum and over all lines. ``clips`` are 16 kHz audio, one per line; the reference is the
+    line's ``spoken`` words. A recogniser that raises on a clip counts it as fully wrong and ``failed``."""
+    per: dict[str, list[tuple[float, float, bool]]] = {}
+    for line, audio in zip(lines, clips, strict=True):
+        try:
+            said = _digits_as_words(listen(audio, str(line["kind"]), str(line["text"])), line)
+            wer, cer = error_rates(str(line["kind"]), str(line["spoken"]), said)
+            miss = False
+        except Exception:  # noqa: BLE001 - one clip a recogniser cannot read is a miss, never a crash of the check
+            wer, cer, miss = 1.0, 1.0, True
+        per.setdefault(str(line["stratum"]), []).append((wer, cer, miss))
+    out = {name: _pool(per[name]) for name in READING_STRATA if name in per}
+    everything = [row for rows in per.values() for row in rows]
+    if everything:
+        out["all"] = _pool(everything)
+    return out
+
+
+def reading_regressions(
+    now: Mapping[str, Mapping[str, float]], baseline: Mapping[str, Mapping[str, float]], margin: float = READING_MARGIN
+) -> list[str]:
+    """The strata (and ``all``) whose CER rose more than ``margin`` over the baseline, worst first, as plain lines.
+    A stratum missing on either side is not compared; an improvement is never a failure."""
+    found: list[tuple[float, str]] = []
+    for name, before in baseline.items():
+        after = now.get(name)
+        if after is None:
+            continue
+        rise = float(after["cer"]) - float(before["cer"])
+        if rise > margin:
+            found.append(
+                (rise, f"{name}: CER {before['cer']:.3f} -> {after['cer']:.3f} (+{rise:.3f}, margin {margin:.3f})")
+            )
+    return [line for _rise, line in sorted(found, reverse=True)]
+
+
+def reading_report(
+    voice: Any,
+    listen: Listener,
+    *,
+    lines: Sequence[Mapping[str, Any]] | None = None,
+    style: str = "",
+    render: Callable[[Any, str, str], tuple[np.ndarray, int]] | None = None,
+    clock: Callable[[], float] = time.perf_counter,
+) -> dict[str, Any]:
+    """Speak every line with the default voice, read it back, and score it per stratum. ``render`` is a stand-in
+    for tests; the real one is ``reading_render``. The report holds the per-line text heard for the owner to read."""
+    rows = list(lines if lines is not None else reading_lines())
+    make = render or (lambda v, text, kind: reading_render(v, text, kind, style=style))
+    clips: list[np.ndarray] = []
+    seconds = compute = 0.0
+    for row in rows:
+        began = clock()
+        audio, rate = make(voice, str(row["text"]), str(row["kind"]))
+        compute += clock() - began
+        seconds += audio.size / max(1, rate)
+        clips.append(resample(audio, rate, STT_RATE))
+    heard: list[str] = []
+
+    def spy(audio: np.ndarray, kind: str, text: str) -> str:
+        try:
+            said = listen(audio, kind, text)
+        except Exception:
+            heard.append("")
+            raise
+        heard.append(said)
+        return said
+
+    scores = reading_scores(rows, clips, spy)
+    return {
+        "schema": 1,
+        "style": style or "default",
+        "lines": len(rows),
+        "rtf": rtf(compute, seconds),
+        "strata": scores,
+        "heard": [{"id": r["id"], "stratum": r["stratum"], "heard": h} for r, h in zip(rows, heard, strict=False)],
+    }
+
+
 # ---- the command line -------------------------------------------------------------------------------------------
 
 
@@ -676,7 +818,7 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print) -
     import argparse
 
     ap = argparse.ArgumentParser(prog="tts_eval.py")
-    ap.add_argument("command", choices=["sweep"])
+    ap.add_argument("command", choices=["sweep", "reading"])
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--stt-dir")
     ap.add_argument("--hindi-ear-dir")
@@ -689,6 +831,7 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print) -
     ap.add_argument("--fx", help="comma separated chain names to cross with every blend (default: the clean chain)")
     ap.add_argument("--recipes", help="comma separated recipe ids to measure instead of the default candidates")
     ap.add_argument("--save-audio", action="store_true", help="also write the clips as .wav files next to the report")
+    ap.add_argument("--update-baseline", action="store_true", help="reading: write the pinned baseline from this run")
     try:
         args = ap.parse_args(argv)
     except SystemExit:
@@ -701,6 +844,8 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print) -
     if voice is None:
         out(f"NO DATA: no voice model in {args.model_dir}; nothing was measured")
         return EXIT_NO_DATA
+    if args.command == "reading":
+        return _reading_main(args, voice, dest, out)
     candidates = _pick_candidates(args)
     if candidates is None:
         out("REFUSED: no candidate matches --only or --recipes")
@@ -741,6 +886,43 @@ def main(argv: list[str] | None = None, *, out: Callable[[str], None] = print) -
     out(f"best passing candidate: {report['ranking']['best']}")
     out(f"report written: {target}")
     return EXIT_OK
+
+
+def _reading_main(args: Any, voice: Any, dest: Path, out: Callable[[str], None]) -> int:
+    """``reading``: speak the fixture lines with the default voice, score them per stratum, compare with the baseline.
+    Exit 0 within the margin, 4 when a stratum got worse, 3 when no recogniser opened."""
+    try:
+        if not args.stt_dir:
+            raise ValueError("--stt-dir is needed for the reading check")
+        listen = ears_listener(
+            whisper_listener(args.stt_dir), hindi_ear_listener(args.hindi_ear_dir) if args.hindi_ear_dir else None
+        )
+    except Exception as exc:  # noqa: BLE001 - a recogniser that cannot open is named; nothing was measured
+        out(f"NO DATA: no recogniser opened ({exc}); nothing was measured")
+        return EXIT_NO_DATA
+    report = reading_report(voice, listen)
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / "tts-reading.json"
+    target.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    for name, row in report["strata"].items():
+        out(f"{name}: CER {row['cer']:.3f}, WER {row['wer']:.3f}, lines {int(row['n'])}, unread {int(row['failed'])}")
+    out(f"report written: {target}")
+    if args.update_baseline:
+        keep = {
+            n: {"cer": round(r["cer"], 3), "wer": round(r["wer"], 3), "n": int(r["n"])}
+            for n, r in report["strata"].items()
+        }
+        base = json.loads(READING_BASELINE.read_text(encoding="utf-8")) if READING_BASELINE.exists() else {"schema": 1}
+        READING_BASELINE.write_text(
+            json.dumps({**base, "strata": keep}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+        out(f"baseline written: {READING_BASELINE}")
+        return EXIT_OK
+    base = json.loads(READING_BASELINE.read_text(encoding="utf-8"))
+    worse = reading_regressions(report["strata"], base["strata"], float(base.get("margin", READING_MARGIN)))
+    for line in worse:
+        out(f"REGRESSION {line}")
+    return EXIT_REGRESSED if worse else EXIT_OK
 
 
 def _pick_candidates(args: Any) -> list[dict[str, Any]] | None:

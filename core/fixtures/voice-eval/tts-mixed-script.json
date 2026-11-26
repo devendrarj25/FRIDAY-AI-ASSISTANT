@@ -1,0 +1,564 @@
+{
+ "schema": 1,
+ "id": "tts-mixed-script",
+ "title": "FRIDAY Voice reading fixture: 50 reply lines, written for this repository, no audio",
+ "createdOn": "2026-11-26",
+ "note": "text is what FRIDAY says; spoken is the same line as a listener should hear it (digits, times, rupees and units as words). A line with a digit also lists numberLangs: the language each number is read in, by the neighbouring word (script-policy spanTreatments). kernelReads names the lines where the kernel front end reads a number in the other language today.",
+ "strata": [
+  "hindi",
+  "hinglish-roman",
+  "mixed-script",
+  "numbers",
+  "times",
+  "dates",
+  "rupees",
+  "units"
+ ],
+ "lines": [
+  {
+   "id": "t01",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "नमस्ते, मैं फ्राइडे हूँ। बताइए, आपकी क्या मदद करूँ?",
+   "spoken": "नमस्ते, मैं फ्राइडे हूँ। बताइए, आपकी क्या मदद करूँ?"
+  },
+  {
+   "id": "t02",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "आज बारिश की वजह से सड़कों पर पानी भर गया है।",
+   "spoken": "आज बारिश की वजह से सड़कों पर पानी भर गया है।"
+  },
+  {
+   "id": "t03",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "कृपया अपना नाम और पता धीरे-धीरे बोलिए।",
+   "spoken": "कृपया अपना नाम और पता धीरे-धीरे बोलिए।"
+  },
+  {
+   "id": "t04",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "मैंने आपकी फ़ाइल सुरक्षित जगह पर रख दी है।",
+   "spoken": "मैंने आपकी फ़ाइल सुरक्षित जगह पर रख दी है।"
+  },
+  {
+   "id": "t05",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "क्या आप कल शाम को मुझसे बात कर सकते हैं?",
+   "spoken": "क्या आप कल शाम को मुझसे बात कर सकते हैं?"
+  },
+  {
+   "id": "t06",
+   "stratum": "hindi",
+   "kind": "hi",
+   "text": "बहुत बढ़िया, आपका काम पूरा हो गया है।",
+   "spoken": "बहुत बढ़िया, आपका काम पूरा हो गया है।"
+  },
+  {
+   "id": "t07",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Haan boss, main abhi aapka message bhej deti hoon.",
+   "spoken": "Haan boss, main abhi aapka message bhej deti hoon."
+  },
+  {
+   "id": "t08",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Kal subah gym jaana hai, alarm laga dena please.",
+   "spoken": "Kal subah gym jaana hai, alarm laga dena please."
+  },
+  {
+   "id": "t09",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Aapki battery bahut kam hai, charger laga lijiye.",
+   "spoken": "Aapki battery bahut kam hai, charger laga lijiye."
+  },
+  {
+   "id": "t10",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Mujhe lagta hai yeh email kaafi zaroori hai.",
+   "spoken": "Mujhe lagta hai yeh email kaafi zaroori hai."
+  },
+  {
+   "id": "t11",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Chalo, ab dinner ke liye restaurant book karte hain.",
+   "spoken": "Chalo, ab dinner ke liye restaurant book karte hain."
+  },
+  {
+   "id": "t12",
+   "stratum": "hinglish-roman",
+   "kind": "hing-roman",
+   "text": "Thoda wait kijiye, main file search kar rahi hoon.",
+   "spoken": "Thoda wait kijiye, main file search kar rahi hoon."
+  },
+  {
+   "id": "t13",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "आपकी meeting कल सुबह शुरू होगी।",
+   "spoken": "आपकी meeting कल सुबह शुरू होगी।"
+  },
+  {
+   "id": "t14",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "मैंने आपका email भेज दिया है, please check कर लीजिए।",
+   "spoken": "मैंने आपका email भेज दिया है, please check कर लीजिए।"
+  },
+  {
+   "id": "t15",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "Battery low है, इसलिए charger लगा दीजिए।",
+   "spoken": "Battery low है, इसलिए charger लगा दीजिए।"
+  },
+  {
+   "id": "t16",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "आज का weather बहुत अच्छा है, बाहर थोड़ी हवा चल रही है।",
+   "spoken": "आज का weather बहुत अच्छा है, बाहर थोड़ी हवा चल रही है।"
+  },
+  {
+   "id": "t17",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "मैंने आपके लिए reminder set कर दिया है।",
+   "spoken": "मैंने आपके लिए reminder set कर दिया है।"
+  },
+  {
+   "id": "t18",
+   "stratum": "mixed-script",
+   "kind": "hing-deva",
+   "text": "Your file is saved, और backup भी हो गया है।",
+   "spoken": "Your file is saved, और backup भी हो गया है।"
+  },
+  {
+   "id": "t19",
+   "stratum": "numbers",
+   "kind": "hi",
+   "text": "आपके पास 3 नए संदेश हैं।",
+   "spoken": "आपके पास तीन नए संदेश हैं।",
+   "numbers": [
+    {
+     "text": "3",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t20",
+   "stratum": "numbers",
+   "kind": "en",
+   "text": "You have 3 new messages.",
+   "spoken": "You have three new messages.",
+   "numbers": [
+    {
+     "text": "3",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t21",
+   "stratum": "numbers",
+   "kind": "hing-roman",
+   "text": "Aapke paas 12 nayi emails hain.",
+   "spoken": "Aapke paas twelve nayi emails hain.",
+   "numbers": [
+    {
+     "text": "12",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t22",
+   "stratum": "numbers",
+   "kind": "hi",
+   "text": "मेरे पास 250 फ़ोटो हैं।",
+   "spoken": "मेरे पास दो सौ पचास फ़ोटो हैं।",
+   "numbers": [
+    {
+     "text": "250",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t23",
+   "stratum": "numbers",
+   "kind": "en",
+   "text": "The room number is 405.",
+   "spoken": "The room number is four hundred five.",
+   "numbers": [
+    {
+     "text": "405",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t24",
+   "stratum": "numbers",
+   "kind": "hi",
+   "text": "कमरा नंबर 405 है।",
+   "spoken": "कमरा नंबर चार सौ पाँच है।",
+   "numbers": [
+    {
+     "text": "405",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t25",
+   "stratum": "times",
+   "kind": "hi",
+   "text": "आपकी बैठक 10:30 बजे शुरू होगी।",
+   "spoken": "आपकी बैठक दस तीस बजे शुरू होगी।",
+   "numbers": [
+    {
+     "text": "10:30",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t26",
+   "stratum": "times",
+   "kind": "en",
+   "text": "Your meeting starts at 10:30 tomorrow.",
+   "spoken": "Your meeting starts at ten thirty tomorrow.",
+   "numbers": [
+    {
+     "text": "10:30",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t27",
+   "stratum": "times",
+   "kind": "hing-roman",
+   "text": "Alarm 7:15 baje ke liye set hai.",
+   "spoken": "Alarm saat pandrah baje ke liye set hai.",
+   "numbers": [
+    {
+     "text": "7:15",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t28",
+   "stratum": "times",
+   "kind": "en",
+   "text": "The flight leaves at 6:40 in the evening.",
+   "spoken": "The flight leaves at six forty in the evening.",
+   "numbers": [
+    {
+     "text": "6:40",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t29",
+   "stratum": "times",
+   "kind": "hi",
+   "text": "शाम 5 बजे डॉक्टर से मिलना है।",
+   "spoken": "शाम पाँच बजे डॉक्टर से मिलना है।",
+   "numbers": [
+    {
+     "text": "5",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t30",
+   "stratum": "times",
+   "kind": "hing-roman",
+   "text": "Kal subah 6 baje uthna hai.",
+   "spoken": "Kal subah chhe baje uthna hai.",
+   "numbers": [
+    {
+     "text": "6",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t31",
+   "stratum": "dates",
+   "kind": "hi",
+   "text": "आपका जन्मदिन 15 मार्च को है।",
+   "spoken": "आपका जन्मदिन पंद्रह मार्च को है।",
+   "numbers": [
+    {
+     "text": "15",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t32",
+   "stratum": "dates",
+   "kind": "en",
+   "text": "Your flight lands on 14 March at six.",
+   "spoken": "Your flight lands on fourteen March at six.",
+   "numbers": [
+    {
+     "text": "14",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t33",
+   "stratum": "dates",
+   "kind": "hing-roman",
+   "text": "Kal 3 April ko meeting hai.",
+   "spoken": "Kal three April ko meeting hai.",
+   "numbers": [
+    {
+     "text": "3",
+     "lang": "en"
+    }
+   ],
+   "kernelReads": "hi"
+  },
+  {
+   "id": "t34",
+   "stratum": "dates",
+   "kind": "hi",
+   "text": "परीक्षा 2 दिसंबर को होगी।",
+   "spoken": "परीक्षा दो दिसंबर को होगी।",
+   "numbers": [
+    {
+     "text": "2",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t35",
+   "stratum": "dates",
+   "kind": "en",
+   "text": "The deadline is 31 December.",
+   "spoken": "The deadline is thirty one December.",
+   "numbers": [
+    {
+     "text": "31",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t36",
+   "stratum": "dates",
+   "kind": "hi",
+   "text": "आज 26 नवंबर है।",
+   "spoken": "आज छब्बीस नवंबर है।",
+   "numbers": [
+    {
+     "text": "26",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t37",
+   "stratum": "rupees",
+   "kind": "hi",
+   "text": "आपके खाते में ₹5200 जमा हुए हैं।",
+   "spoken": "आपके खाते में पाँच हज़ार दो सौ रुपये जमा हुए हैं।",
+   "numbers": [
+    {
+     "text": "₹5200",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t38",
+   "stratum": "rupees",
+   "kind": "en",
+   "text": "Your bill is ₹1,250 for this month.",
+   "spoken": "Your bill is one thousand two hundred fifty rupees for this month.",
+   "numbers": [
+    {
+     "text": "₹1,250",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t39",
+   "stratum": "rupees",
+   "kind": "hing-roman",
+   "text": "Aapka balance Rs. 750 hai.",
+   "spoken": "Aapka balance seven hundred fifty rupees hai.",
+   "numbers": [
+    {
+     "text": "Rs. 750",
+     "lang": "en"
+    }
+   ],
+   "kernelReads": "none"
+  },
+  {
+   "id": "t40",
+   "stratum": "rupees",
+   "kind": "hi",
+   "text": "यह फ़ोन 15000 रुपये का है।",
+   "spoken": "यह फ़ोन पंद्रह हज़ार रुपये का है।",
+   "numbers": [
+    {
+     "text": "15000",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t41",
+   "stratum": "rupees",
+   "kind": "en",
+   "text": "The ticket costs ₹499 only.",
+   "spoken": "The ticket costs four hundred ninety nine rupees only.",
+   "numbers": [
+    {
+     "text": "₹499",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t42",
+   "stratum": "rupees",
+   "kind": "en",
+   "text": "Payment of ₹2,50,000 received.",
+   "spoken": "Payment of two lakh fifty thousand rupees received.",
+   "numbers": [
+    {
+     "text": "₹2,50,000",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t43",
+   "stratum": "units",
+   "kind": "en",
+   "text": "The distance is 5 km from here.",
+   "spoken": "The distance is five kilometres from here.",
+   "numbers": [
+    {
+     "text": "5",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t44",
+   "stratum": "units",
+   "kind": "hi",
+   "text": "दूरी 5 किलोमीटर है।",
+   "spoken": "दूरी पाँच किलोमीटर है।",
+   "numbers": [
+    {
+     "text": "5",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t45",
+   "stratum": "units",
+   "kind": "hing-roman",
+   "text": "Aaj temperature 32 degree hai.",
+   "spoken": "Aaj temperature thirty two degree hai.",
+   "numbers": [
+    {
+     "text": "32",
+     "lang": "en"
+    }
+   ],
+   "kernelReads": "hi"
+  },
+  {
+   "id": "t46",
+   "stratum": "units",
+   "kind": "en",
+   "text": "The battery is at 20% now.",
+   "spoken": "The battery is at twenty percent now.",
+   "numbers": [
+    {
+     "text": "20%",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t47",
+   "stratum": "units",
+   "kind": "hi",
+   "text": "बैटरी अभी 20% बची है।",
+   "spoken": "बैटरी अभी बीस प्रतिशत बची है।",
+   "numbers": [
+    {
+     "text": "20%",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t48",
+   "stratum": "units",
+   "kind": "hi",
+   "text": "आज तापमान 32 डिग्री है।",
+   "spoken": "आज तापमान बत्तीस डिग्री है।",
+   "numbers": [
+    {
+     "text": "32",
+     "lang": "hi"
+    }
+   ]
+  },
+  {
+   "id": "t49",
+   "stratum": "units",
+   "kind": "en",
+   "text": "This file is 2.5 GB in size.",
+   "spoken": "This file is two point five gigabytes in size.",
+   "numbers": [
+    {
+     "text": "2.5",
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "id": "t50",
+   "stratum": "units",
+   "kind": "hi",
+   "text": "वज़न 70 किलो है।",
+   "spoken": "वज़न सत्तर किलो है।",
+   "numbers": [
+    {
+     "text": "70",
+     "lang": "hi"
+    }
+   ]
+  }
+ ]
+}
