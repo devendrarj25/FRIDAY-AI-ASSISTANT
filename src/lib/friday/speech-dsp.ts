@@ -1,5 +1,7 @@
 /** First-party capture maths. Samples stay in memory for the turn. */
 
+import { resampleFir } from "./voice-engine/front-end-dsp";
+
 export function removeDc(samples: Float32Array): Float32Array {
   let mean = 0;
   for (let i = 0; i < samples.length; i += 1) mean += samples[i] ?? 0;
@@ -56,25 +58,17 @@ export function resampleLinear(
   return out;
 }
 
-/** Four-tap windowed sinc. Used when the rate ratio is not 1. */
+/**
+ * Band-limited resample with a Kaiser-windowed sinc low-pass (about 65 dB of rejection above the new band), used
+ * when the rate ratio is not 1. The old linear step plus four-tap smoothing let energy above the new Nyquist fold
+ * back into speech.
+ */
 export function polyphaseResample(
   samples: Float32Array,
   fromRate: number,
   toRate: number,
 ): Float32Array {
-  const linear = resampleLinear(samples, fromRate, toRate);
-  if (linear.length < 4) return linear;
-  const kernel = [0.1, 0.4, 0.4, 0.1];
-  const out = new Float32Array(linear.length);
-  for (let i = 0; i < linear.length; i += 1) {
-    let sum = 0;
-    for (let tap = 0; tap < kernel.length; tap += 1) {
-      const index = Math.min(linear.length - 1, i + tap);
-      sum += (linear[index] ?? 0) * (kernel[tap] ?? 0);
-    }
-    out[i] = sum;
-  }
-  return out;
+  return resampleFir(samples, fromRate, toRate);
 }
 
 export function spectralGate(samples: Float32Array, frame = 160): Float32Array {

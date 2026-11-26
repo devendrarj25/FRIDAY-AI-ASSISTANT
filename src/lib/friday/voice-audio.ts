@@ -21,6 +21,7 @@ import {
   setCaptureLatency,
   workletCapturing,
 } from "./pcm-capture";
+import { CAPTURE_BATCH_MS } from "./voice-engine/front-end-dsp";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 import { WakeGuard } from "./wake-guard";
@@ -790,9 +791,13 @@ export class VoiceGate {
    */
   private async attachWorklet(ctx: AudioContext, source: MediaStreamAudioSourceNode) {
     if (!ctx.audioWorklet) return;
+    // Batch CAPTURE_BATCH_MS of audio per message (one every 20 ms, not one per 128-sample quantum).
     const code = [
       "class FridayCapture extends AudioWorkletProcessor {",
-      "process(inputs){ const ch=inputs[0]&&inputs[0][0]; if(ch) this.port.postMessage(ch); return true; }",
+      `constructor(){ super(); this.n=Math.max(128,Math.round(sampleRate*${CAPTURE_BATCH_MS}/1000)); this.b=new Float32Array(this.n); this.i=0; }`,
+      "process(inputs){ const ch=inputs[0]&&inputs[0][0]; if(!ch) return true; let o=0;",
+      "while(o<ch.length){ const t=Math.min(ch.length-o,this.n-this.i); this.b.set(ch.subarray(o,o+t),this.i); this.i+=t; o+=t;",
+      "if(this.i>=this.n){ this.port.postMessage(this.b); this.i=0; } } return true; }",
       "}",
       "registerProcessor('friday-capture', FridayCapture);",
     ].join("");
