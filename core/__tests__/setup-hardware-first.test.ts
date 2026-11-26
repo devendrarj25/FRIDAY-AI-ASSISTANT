@@ -386,7 +386,14 @@ describe("the Doctor reads the same required set", () => {
     const out = spawnSync(process.execPath, [path.join(root, "scripts/check-environment.cjs")], {
       encoding: "utf8",
       timeout: 170000,
-      env: { ...process.env, FRIDAY_PREFETCH: "1", CI: "", GITHUB_ACTIONS: "" },
+      // A temp home: a Doctor run must never record this checkout as the FRIDAY home in the real registry.
+      env: {
+        ...process.env,
+        FRIDAY_WORKSPACE_ROOT: mkdtempSync(path.join(tmpdir(), "friday-home-")),
+        FRIDAY_PREFETCH: "1",
+        CI: "",
+        GITHUB_ACTIONS: "",
+      },
     });
     const text = `${out.stdout}`;
     expect(text).toMatch(/PASS\s+Speech model: medium \(accurate\)\s+skipped on this PC: /);

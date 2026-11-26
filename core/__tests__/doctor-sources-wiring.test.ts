@@ -33,6 +33,8 @@ const environment = () =>
     env: {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}`,
+      // A temp home: a Doctor run must never record this checkout as the FRIDAY home in the real registry.
+      FRIDAY_WORKSPACE_ROOT: fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-")),
       FRIDAY_REACH_PROBE: "0",
       FRIDAY_PREFETCH: "1",
       CI: "",
