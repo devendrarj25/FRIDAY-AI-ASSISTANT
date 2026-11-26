@@ -52,6 +52,27 @@ Press **Record** next to each line, say it, then **Stop** (a recording also stop
 
 The recordings stay on this PC in your FRIDAY folder and the voiceprint is encrypted. Nothing is uploaded. **Forget my voice** deletes the recordings and the profile; **Delete recordings, keep profile** keeps only the profile. This is a convenience, not a lock, and it was only measured on your own recordings.
 
+### How FRIDAY listens: the listening settings (Settings → Voice)
+
+FRIDAY cleans the sound from your microphone, finds where you start and stop, and decides when your turn is over. The defaults are safe; none of this is tried on your microphone yet, so treat every number as a starting point and change one thing at a time.
+
+- **Cut rumble and hum** (on): removes fan hum and desk thumps below about 85 Hz.
+- **Warn when the microphone is clipping** (on): a meter in Voice diagnostics (`ears-clip`). If it warns, lower the microphone level in Windows. It changes no sound.
+- **Volume levelling**: the browser (default), FRIDAY's own slow leveller (moves only while you speak and never boosts silence), or none. Picking FRIDAY's own turns the browser's off so they never fight.
+- **Speech detector**: Automatic uses the small speech model when it is installed (Models page), else loudness only. Start, end, shortest sound and the sound kept from before you speak are under it; the defaults are 0.5, 0.35, 120 ms and 500 ms.
+- **How long she waits after a pause**: Quick, Normal (default, the same pauses as before) or Patient (waits through long pauses; good if you think aloud). A turn that sounds unfinished ("matlab...", "umm...", a number half said) waits longer.
+- **Start the answer at a likely end of turn** (off): she prepares a reply on this PC early and drops it if you keep talking. Streaming ear only.
+- **Noise clean-up copy** (off): the choice is saved and shown, but no clean-up runs yet.
+- **Room and other voices**: she scores whether the room sounds like speech, music or a TV, and whether a voice is yours. With music or a TV playing she needs a clearer phrase of at least two words before she takes it as you. These are scores only: a voice match never approves anything.
+- **Duck, then stop, when you talk over her** (off, experimental): she gets quieter after a moment of your voice, stops after half a second or one real word, and carries on if you said nothing. A nod such as "haan" or "hmm" does not stop her.
+- **Use the PC's own playback as the echo reference** (off): reserved; it does nothing yet.
+- **FRIDAY's own streaming ear** (off): words appear while you speak, in Hindi, English and Hinglish, on this PC only. Setup downloads it (about 755 MB) only when this PC can carry it; otherwise install it from the Models page. If it is missing or fails, the normal listening path carries on and nothing is lost.
+- **Write spoken numbers, times and money as digits** (on): "paanch sau rupaye" is shown as ₹500, only where the reading is sure.
+- When she is not sure what she heard, she asks one short question instead of acting, and she does not repeat a number or a secret back to you.
+- A long dictation (up to about five minutes) is read in pieces cut at your pauses.
+
+The button "Put every listening front end setting back" restores the defaults. Voice diagnostics shows seven rows (`ears-vad`, `ears-turn`, `ears-clip`, `ears-agc`, `ears-denoise`, `ears-scene`, `ears-bargein`); a row says "absent" when its part is not running, never a made-up number. Technical detail: [FRIDAY_VOICE_ENGINE.md](FRIDAY_VOICE_ENGINE.md).
+
 ### Voice window sizes
 
 Pick them on the captions strip (**Compact**, **Expanded**, **Transcript**), or press Alt+1, Alt+2, or Alt+3 in the voice window while not typing. The choice is remembered after a restart.
