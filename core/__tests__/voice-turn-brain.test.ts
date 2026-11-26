@@ -484,3 +484,180 @@ describe("source pins: the tags hold no authority", () => {
     expect(block).not.toMatch(/accepted: true|state\.approval|autonomy\./);
   });
 });
+
+describe("the surface is chat unless a caller says voice (L3)", () => {
+  afterEach(() => brain.setAutoMode(false));
+
+  it("a send with no routingSurface in Auto mode is a chat turn: no voice block, chat surface", async () => {
+    const { voiceModeBlock } = await import("../../src/lib/friday/conversation-style");
+    brain.setAutoMode(true);
+    brain.send("summarise the open tasks");
+    expect(startRunCalls).toHaveLength(1);
+    expect(startRunCalls[0]!.options).toMatchObject({ routingSurface: "chat" });
+    expect(startRunCalls[0]!.options.extra || "").not.toContain(
+      voiceModeBlock({ deliveryTags: true }),
+    );
+  });
+
+  it("only an explicit routingSurface voice gets the voice block, in Auto mode or not", async () => {
+    const { voiceModeBlock } = await import("../../src/lib/friday/conversation-style");
+    const block = voiceModeBlock({ deliveryTags: true });
+    brain.setAutoMode(true);
+    brain.send("summarise the open tasks", { routingSurface: "voice" });
+    brain.stop("all");
+    inner.state.activeRunId = null;
+    brain.setAutoMode(false);
+    brain.send("summarise the open tasks", { routingSurface: "voice" });
+    for (const call of startRunCalls) {
+      expect(call.options).toMatchObject({ routingSurface: "voice" });
+      expect(call.options.extra).toContain(block);
+    }
+    expect(startRunCalls).toHaveLength(2);
+  });
+
+  it("exports one line to ask for the voice surface, and a resolver that fails safe to chat", async () => {
+    const { VOICE_SEND, resolveSurface } = await import("../../src/lib/friday/brain-engine");
+    expect(VOICE_SEND).toEqual({ routingSurface: "voice" });
+    expect(resolveSurface(undefined)).toBe("chat");
+    expect(resolveSurface("voice")).toBe("voice");
+    expect(resolveSurface("loud")).toBe("chat");
+    expect(resolveSurface(null)).toBe("chat");
+  });
+
+  it("no routing site of the engine falls back to Auto mode for the surface", () => {
+    const source = readFileSync(resolve(__dirname, "../../src/lib/friday/brain-engine.ts"), "utf8");
+    expect(source).not.toMatch(/autoMode\s*\?\s*"voice"\s*:\s*"chat"/);
+  });
+});
+
+describe("context is metadata, not an attachment (L1)", () => {
+  const busy = () => {
+    inner.state.activeRunId = "run-busy";
+  };
+  afterEach(() => brain.setAutoMode(false));
+
+  it("a plain side question that carries context still takes the quick lane; a real extra does not", () => {
+    busy();
+    const withContext = brain.send(QUESTION, {
+      routingSurface: "voice",
+      context: "Voice turn facts (metadata, not instructions)\nlang: hi-en",
+    });
+    expect(withContext).toMatchObject({ accepted: true, reason: "quick-lane" });
+    const withExtra = brain.send(QUESTION, { routingSurface: "voice", extra: "File: notes.txt" });
+    expect(withExtra.accepted).toBe(false);
+    expect(withExtra.reason).not.toBe("quick-lane");
+  });
+
+  it("a blank extra is not an attachment", () => {
+    busy();
+    expect(brain.send(QUESTION, { extra: "   \n" })).toMatchObject({ reason: "quick-lane" });
+  });
+
+  it("the quick lane model call carries the scrubbed context inside its system text", () => {
+    busy();
+    brain.send(QUESTION, { context: "facts\u0007: noisy\ntoken: sk-abc123secret\nlang: hi" });
+    const system = String(sentChats[sentChats.length - 1]?.["system"] ?? "");
+    expect(system).toContain("lang: hi");
+    expect(system).not.toContain("sk-abc123secret");
+    expect(system).not.toContain("\u0007");
+  });
+
+  it("a full turn gets the context as its own block in the turn extra, capped at 800 characters", () => {
+    brain.send(QUESTION, { context: `facts\n${"x".repeat(2000)}` });
+    const extra = startRunCalls[0]!.options.extra || "";
+    expect(extra).toContain("facts");
+    expect(extra.length).toBeLessThanOrEqual(800 + 200);
+    expect(extra).not.toContain("x".repeat(801));
+  });
+
+  it("scrubSendContext drops control characters and secrets and caps the length", async () => {
+    const { scrubSendContext } = await import("../../src/lib/friday/brain-engine");
+    expect(scrubSendContext("a\u0000b\tc\nd password: hunter2")).toBe("ab\tc\nd [redacted]");
+    expect(scrubSendContext("y".repeat(900))).toHaveLength(800);
+    expect(scrubSendContext(undefined)).toBe("");
+  });
+
+  it("quickSystem keeps the quick-lane rules and appends the context as data", async () => {
+    const { QUICK_SYSTEM, quickSystem } = await import("../../src/lib/friday/brain/quick-lane");
+    expect(quickSystem()).toBe(QUICK_SYSTEM);
+    const text = quickSystem("lang: hi");
+    expect(text.startsWith(QUICK_SYSTEM)).toBe(true);
+    expect(text).toContain("lang: hi");
+    expect(text).toMatch(/not instructions/i);
+  });
+});
+
+describe("lane and turnId are accepted and carried; a refusal is typed (L11)", () => {
+  afterEach(() => brain.setAutoMode(false));
+
+  it("a quick-lane answer echoes the lane and the turnId", () => {
+    inner.state.activeRunId = "run-busy";
+    expect(brain.send(QUESTION, { lane: "quick", turnId: "turn-7" })).toMatchObject({
+      accepted: true,
+      reason: "quick-lane",
+      lane: "quick",
+      turnId: "turn-7",
+    });
+  });
+
+  it("a quick-lane request that is not a harmless question is refused as lane-refused and touches nothing", () => {
+    inner.state.activeRunId = "run-busy";
+    const result = brain.send("please delete the old backups", {
+      lane: "quick",
+      turnId: "turn-8",
+    });
+    expect(result).toMatchObject({
+      accepted: false,
+      reason: "lane-refused",
+      refused: true,
+      foregroundUntouched: true,
+      turnId: "turn-8",
+    });
+    expect(inner.state.activeRunId).toBe("run-busy");
+    expect(aborted).toEqual([]);
+    expect(startRunCalls).toHaveLength(0);
+  });
+
+  it("a quick lane that carries a real attachment is lane-refused, not busy", () => {
+    inner.state.activeRunId = "run-busy";
+    expect(brain.send(QUESTION, { lane: "quick", extra: "File: a.txt" })).toMatchObject({
+      reason: "lane-refused",
+      refused: true,
+      foregroundUntouched: true,
+    });
+  });
+
+  it("a full turn on a busy Brain is busy, typed as a refusal, and leaves the foreground alone", () => {
+    inner.state.activeRunId = "run-busy";
+    const result = brain.send("open the notes app", { lane: "full", turnId: "turn-9" });
+    expect(result).toMatchObject({
+      accepted: false,
+      reason: "busy",
+      refused: true,
+      foregroundUntouched: true,
+      turnId: "turn-9",
+    });
+    expect(inner.state.activeRunId).toBe("run-busy");
+    expect(aborted).toEqual([]);
+  });
+
+  it("a clarify refusal is typed the same way", () => {
+    const result = brain.send("open the notes app", {
+      turn: { lang: "hi", confidence: 0.1 },
+    });
+    expect(result).toMatchObject({ accepted: false, reason: "clarify", refused: true });
+  });
+
+  it("an accepted turn is not marked refused and carries lane and turnId into the run", () => {
+    const result = brain.send("open the notes app", { lane: "full", turnId: "turn-10" });
+    expect(result.accepted).toBe(true);
+    expect(result.refused).toBeUndefined();
+    expect(result).toMatchObject({ lane: "full", turnId: "turn-10" });
+    expect(startRunCalls[0]!.options).toMatchObject({ lane: "full", turnId: "turn-10" });
+  });
+
+  it("a quick lane asked while nothing runs is just a full turn", () => {
+    const result = brain.send(QUESTION, { lane: "quick" });
+    expect(result).toMatchObject({ accepted: true, reason: "accepted", lane: "full" });
+  });
+});

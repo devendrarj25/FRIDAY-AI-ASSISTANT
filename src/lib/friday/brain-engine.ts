@@ -34,7 +34,7 @@ import { checkAnswer, feedbackFor, type CheckFailure } from "./brain/answer-chec
 import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks";
 import { sandboxToolPort } from "./sandbox-agent";
 import { compactHistory } from "./brain/history-compact";
-import { QUICK_SYSTEM, quickLaneEligible } from "./brain/quick-lane";
+import { quickLaneEligible, quickSystem } from "./brain/quick-lane";
 import { looksLikeLiveFact } from "./brain/research";
 import {
   DRAFT_SYSTEM,
@@ -48,6 +48,7 @@ import {
   type StopScope,
 } from "./self/brain-draft";
 import { askFriday, canAsk } from "./ask";
+import { scrubSecrets } from "./self/run-receipt";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { taskPreference } from "./brain/task-routing";
 import { modelRegistry as usageRegistry } from "./model-registry";
@@ -198,6 +199,31 @@ export function taskRoutingFor(
   } catch {
     return null;
   }
+}
+
+/** Where a send came from. A missing value is chat: only a caller that says "voice" gets the voice treatment. */
+export type RoutingSurface = "voice" | "chat";
+
+/** Spread this into the options of every spoken send: `brain.send(text, { ...VOICE_SEND })`. */
+export const VOICE_SEND = { routingSurface: "voice" } as const;
+
+/** Fails safe: anything that is not exactly "voice" is chat (Auto mode alone never makes a send spoken). */
+export function resolveSurface(raw: unknown): RoutingSurface {
+  return raw === "voice" ? "voice" : "chat";
+}
+
+export const SEND_CONTEXT_MAX = 800;
+
+/** Turn facts for the model: metadata, never an attachment. No control characters, no secrets, at most 800 characters. */
+export function scrubSendContext(raw: unknown): string {
+  const text = scrubSecrets(typeof raw === "string" ? raw : "");
+  let clean = "";
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (code < 32 && code !== 9 && code !== 10) continue;
+    clean += char;
+  }
+  return clean.trim().slice(0, SEND_CONTEXT_MAX);
 }
 
 export function withRoutingDefaults(options: {
@@ -422,6 +448,10 @@ export type Run = {
   answeredBy?: AnsweredBy;
   /** Set when a task owns this run: a foreground stop leaves it running. Absent for the foreground turn. */
   owner?: RunOwner;
+  /** The caller's id for the turn that started this run, when it sent one. */
+  turnId?: string;
+  /** The lane this run took. */
+  lane?: "quick" | "full";
 };
 
 export function accessBadge(entry: { access?: string; type?: string | null }): string {
@@ -527,12 +557,28 @@ export type ScheduledJob = {
  */
 export type SendResult = {
   accepted: boolean;
-  reason: "accepted" | "empty" | "busy" | "quick-lane" | "draft" | "draft-refused" | "clarify";
+  reason:
+    | "accepted"
+    | "empty"
+    | "busy"
+    | "quick-lane"
+    | "lane-refused"
+    | "draft"
+    | "draft-refused"
+    | "clarify";
   message: string | null;
   /** The run this send started. Absent for a quick-lane answer, a draft and a refused turn. */
   runId?: string;
   /** Set for a draft send: the handle, or why no draft was started. */
   draft?: DraftStart;
+  /** True when the Brain did not take the turn (empty, busy, lane-refused, clarify). The reason says why; it is not a voice fault. */
+  refused?: true;
+  /** True on every refusal: `send` never stops the running foreground turn, so a refused lane must not cause a stop. */
+  foregroundUntouched?: true;
+  /** The lane that took (or would have taken) the turn, when the caller named one. */
+  lane?: "quick" | "full";
+  /** The caller's turn id, echoed back. */
+  turnId?: string;
 };
 
 export type { DraftHandle, DraftStart, RunOwner, StopScope };
@@ -545,6 +591,8 @@ export type QuickAnswer = {
   /** False when the line is the plain "I could not answer that" one. */
   ok: boolean;
   messageId: string;
+  /** The turn id the caller sent with the question, when it sent one. */
+  turnId?: string;
 };
 
 type ChatBridge = NonNullable<typeof window.friday>;
@@ -1808,6 +1856,15 @@ class BrainStore {
        * it picks the reply language and can turn a low-confidence line into a question. It carries no authority.
        */
       turn?: Partial<TurnHints>;
+      /**
+       * Turn facts for the model (voice digest, noise, language). Metadata, never an attachment: it is scrubbed,
+       * capped at 800 characters, and does not stop a short question from taking the quick lane.
+       */
+      context?: string;
+      /** Ask for a lane: "quick" is a plain side answer beside the running turn (refused, never queued, when it cannot be); "full" is a whole turn. */
+      lane?: "quick" | "full";
+      /** The caller's id for this turn. Carried to the run and echoed in the result. */
+      turnId?: string;
     } = {},
   ): SendResult {
     if (rawOptions.draft) {
@@ -1832,11 +1889,22 @@ class BrainStore {
     // The registry is the single source of truth, filled in here for callers
     // that do not carry it.
     const named = promptRouting(prompt, rawOptions);
-    const surface = rawOptions.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(rawOptions.routingSurface);
     const withTask = named ?? taskRoutingFor(prompt, rawOptions, surface);
     const options = withRoutingDefaults(withTask ? { ...rawOptions, ...withTask } : rawOptions);
     const text = prompt.trim();
-    if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
+    const carry = {
+      ...(rawOptions.turnId ? { turnId: rawOptions.turnId } : {}),
+    };
+    // Every refusal says so, and says the running turn was not touched: `send` never stops anything.
+    const refusal = {
+      refused: true as const,
+      foregroundUntouched: true as const,
+      ...(rawOptions.lane ? { lane: rawOptions.lane } : {}),
+      ...carry,
+    };
+    if (!text)
+      return { accepted: false, reason: "empty", message: "I didn't catch anything.", ...refusal };
     // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
     // never read by an approval, authority or permission check.
     const hints = cleanTurnHints(rawOptions.turn);
@@ -1848,22 +1916,31 @@ class BrainStore {
           accepted: false,
           reason: "clarify",
           message: clarificationLine(hints, text, { echo: !looksSensitive(text) }),
+          ...refusal,
         };
       }
     }
     this.clarifiedAt = null;
+    // The context is metadata: only a real attachment (`extra`) can keep a question out of the quick lane.
+    const context = scrubSendContext(rawOptions.context);
     if (this.state.activeRunId) {
-      if (
-        quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra) }).ok &&
-        canAsk()
-      ) {
-        void this.answerQuick(text, surface);
-        return { accepted: true, reason: "quick-lane", message: null };
+      const laneOk =
+        rawOptions.lane !== "full" &&
+        quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra?.trim()) }).ok &&
+        canAsk();
+      if (laneOk) {
+        const meta = context || carry.turnId ? { context, ...carry } : undefined;
+        void (meta ? this.answerQuick(text, surface, meta) : this.answerQuick(text, surface));
+        return { accepted: true, reason: "quick-lane", message: null, lane: "quick", ...carry };
+      }
+      if (rawOptions.lane === "quick") {
+        return { accepted: false, reason: "lane-refused", message: null, ...refusal };
       }
       return {
         accepted: false,
         reason: "busy",
         message: "I'm still working on the last request — one moment.",
+        ...refusal,
       };
     }
     const languageLine = replyLanguageLine(
@@ -1872,17 +1949,28 @@ class BrainStore {
     );
     // A spoken turn also gets the voice-mode block (tone, pacing, pronunciation, variety).
     const voiceBlock = surface === "voice" ? voiceModeBlock({ deliveryTags: true }) : "";
+    const startOptions = {
+      ...options,
+      routingSurface: surface,
+      lane: "full" as const,
+      ...carry,
+    };
     this.startRun(
       text,
-      languageLine || voiceBlock
-        ? { ...options, extra: mergeTurnExtra(options.extra, languageLine, voiceBlock) }
-        : options,
+      languageLine || voiceBlock || context
+        ? {
+            ...startOptions,
+            extra: mergeTurnExtra(options.extra, context, languageLine, voiceBlock),
+          }
+        : startOptions,
       rawOptions.owner,
     );
     return {
       accepted: true,
       reason: "accepted",
       message: null,
+      lane: "full",
+      ...carry,
       ...(this.state.activeRunId ? { runId: this.state.activeRunId } : {}),
     };
   }
@@ -1999,12 +2087,14 @@ class BrainStore {
       routeMode?: string;
       routingContract?: ModelRoutingContract;
       routingSurface?: "voice" | "chat";
+      lane?: "quick" | "full";
+      turnId?: string;
     } = {},
     owner?: RunOwner,
   ) {
     // A real turn takes the lane: a guess made before it can no longer be adopted.
     this.dropDraft();
-    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(options.routingSurface);
     const budget = thinkBudget(surface);
     const traces = tracePlan(["understand", "evidence", "answer"], surface);
     withinBudget(0, surface);
@@ -2065,6 +2155,8 @@ class BrainStore {
     const multi = this.state.settings.multiModel ? chosen : chosen.slice(0, 1);
 
     const run = this.newRun(text, surface, { rule, score, matched }, multi, owner);
+    if (options.turnId) run.turnId = options.turnId;
+    if (options.lane) run.lane = options.lane;
     const runId = run.id;
     this.recordDoneTurn(
       run,
@@ -2283,7 +2375,7 @@ class BrainStore {
         ...(options.modelIds ? { modelIds: options.modelIds } : {}),
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
-        routingSurface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        routingSurface: resolveSurface(options.routingSurface),
       });
       this.emit(false);
       return;
@@ -2340,7 +2432,7 @@ class BrainStore {
     try {
       cognition = await coreBrain.cognize(text, {
         mode: this.autoMode ? "auto" : "manual",
-        surface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        surface: resolveSurface(options.routingSurface),
         observe: false,
         multiModel: this.state.settings.multiModel,
         useKnowledge: this.state.settings.useKnowledge,
@@ -2409,7 +2501,7 @@ class BrainStore {
     ) {
       const route = this.routeModel(
         task,
-        options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        resolveSurface(options.routingSurface),
         this.privateTurn(text),
       );
       if (route.outcome === NO_LIVE_MODEL) {
@@ -2438,7 +2530,7 @@ class BrainStore {
         : collaboration.reason,
     );
     this.finishTurnStep(run, "done");
-    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(options.routingSurface);
     if (collaboration.warranted && hedgeAllowed(surface) && desktop.parallelChat) {
       if (this.phoneCognizeSession) this.phoneCognizeStreamed = true;
       const handled = await this.collaborate(run, text, requestId, desktop, collaboration, {
@@ -2531,7 +2623,11 @@ class BrainStore {
    * A short question asked while a long run is going: one plain model call, shown in the thread beside the
    * running work. It never touches the run, its tools or memory; a failure says so in one line.
    */
-  private async answerQuick(text: string, surface: "voice" | "chat"): Promise<void> {
+  private async answerQuick(
+    text: string,
+    surface: "voice" | "chat",
+    meta: { context?: string; turnId?: string } = {},
+  ): Promise<void> {
     this.state.messages = [
       ...this.state.messages,
       { id: nextId("msg"), role: "user", text, at: Date.now(), source: surface },
@@ -2541,7 +2637,11 @@ class BrainStore {
     let failed = false;
     try {
       reply = (
-        await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000, ephemeral: true })
+        await askFriday(text, {
+          system: quickSystem(meta.context),
+          timeoutMs: 45_000,
+          ephemeral: true,
+        })
       ).trim();
     } catch {
       failed = true;
@@ -2562,6 +2662,7 @@ class BrainStore {
           surface,
           ok: Boolean(reply) && !failed,
           messageId,
+          ...(meta.turnId ? { turnId: meta.turnId } : {}),
         });
       } catch {
         /* a listener that throws must not break the thread */
