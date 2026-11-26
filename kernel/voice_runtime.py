@@ -43,6 +43,7 @@ from typing import Any
 import echo_canceller
 import language_segmenter
 import tts_hindi_light
+import voice_budget
 
 SILERO_NAME = "silero_vad.onnx"
 SILERO_SHA256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
@@ -1145,7 +1146,9 @@ def _turn_session(path: Path):
     import onnxruntime as ort  # type: ignore
     from turn_features import TurnFeatures
 
-    session = ort.InferenceSession(key, providers=session_providers(False))
+    session = ort.InferenceSession(
+        key, sess_options=voice_budget.ort_session_options("turn"), providers=session_providers(False)
+    )
     extractor = TurnFeatures(feature_size=80, chunk_length=8)
     _turn_model.clear()
     _turn_model[key] = (session, extractor)

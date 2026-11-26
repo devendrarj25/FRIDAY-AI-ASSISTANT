@@ -111,9 +111,11 @@ def _poison_package(monkeypatch):
 
 
 def _stand_in_runtime(monkeypatch, probability: float = 0.8):
+    opened: list = []
+
     class Session:
-        def __init__(self, path, providers=None):
-            pass
+        def __init__(self, path, sess_options=None, providers=None):
+            opened.append(sess_options)
 
         def run(self, _names, feeds):
             assert feeds["input_features"].shape == (1, 80, 800)
@@ -122,6 +124,7 @@ def _stand_in_runtime(monkeypatch, probability: float = 0.8):
     ort = types.ModuleType("onnxruntime")
     ort.InferenceSession = Session  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "onnxruntime", ort)
+    return opened
 
 
 def _boom(*_a, **_k):
@@ -146,6 +149,20 @@ def test_scoring_uses_the_own_extractor_and_never_loads_the_package(monkeypatch,
     assert out["ready"] is True and abs(out["probability"] - 0.8) < 1e-6
     held = next(iter(voice_runtime._turn_model.values()))
     assert isinstance(held[1], tf.TurnFeatures)
+
+
+def test_the_smart_turn_session_gets_the_budget_options_not_the_runtime_default(monkeypatch, _model_dir):
+    opened = _stand_in_runtime(monkeypatch)
+    _poison_package(monkeypatch)
+    seen = {}
+
+    def budget(role, phase=None, cores=None, intra=None):
+        seen["role"] = role
+        return "options-from-the-budget"
+
+    monkeypatch.setattr(voice_runtime.voice_budget, "ort_session_options", budget)
+    voice_runtime.score_turn(_speechlike(2.0), 16000)
+    assert seen == {"role": "turn"} and opened == ["options-from-the-budget"]
 
 
 def test_the_package_extractor_is_the_fallback_when_the_own_one_fails(monkeypatch, _model_dir):

@@ -316,6 +316,21 @@ def test_load_opens_the_files_it_found_through_the_session_factory(tmp_path):
     assert ear.frame_s == pytest.approx(0.04)
 
 
+def test_load_builds_its_sessions_with_the_shared_thread_budget_unless_told_a_count(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, ["model.int8.onnx"], {"features_size": 128, "subsampling_factor": 4})
+    asked: list[int] = []
+
+    def fake_session(path: Path, threads: int) -> CtcSession:
+        asked.append(threads)
+        return CtcSession([0], vocab=V)
+
+    monkeypatch.setattr(nemo_ear, "_default_session", fake_session)
+    monkeypatch.setenv("FRIDAY_VOICE_THREADS", "asr_final=3")
+    NemoEar.load(folder, kind="nemo-conformer-ctc", quantization="int8")
+    NemoEar.load(folder, kind="nemo-conformer-ctc", quantization="int8", threads=2)
+    assert asked == [3, 2]
+
+
 @pytest.mark.parametrize("key", ["features_size", "subsampling_factor", "max_tokens_per_step"])
 def test_a_config_that_would_divide_by_zero_is_refused(key):
     files = NemoFiles("ctc", Path("v"), Path("m"), None, {key: 0})

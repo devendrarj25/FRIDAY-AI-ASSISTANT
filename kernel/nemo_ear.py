@@ -37,6 +37,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import voice_budget
 from context_graph import ContextGraph, TokenBias, graph_for_words
 from ctc_decode import ctc_align, ctc_greedy, ctc_prefix_beam
 from mel_frontend import mel_filterbank, nemo_config, power_spectrum, preemphasis
@@ -58,7 +59,6 @@ KINDS = ("ctc", "rnnt", "tdt")
 DEFAULT_FEATURES = 80
 DEFAULT_SUBSAMPLING = 8
 DEFAULT_MAX_TOKENS_PER_STEP = 10
-DEFAULT_THREADS = 4
 MAX_SPELLINGS = 8  # spellings tried per owner word (the word itself first)
 _SPACES = re.compile(r"\A\s|\s\B|(\s)\b")  # a space survives only between two words
 
@@ -178,8 +178,7 @@ def discover(folder: Path, kind: str | None = None, quantization: str | None = N
 def _default_session(path: Path, threads: int) -> Any:
     import onnxruntime as ort  # type: ignore
 
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = max(1, threads)
+    options = voice_budget.ort_session_options("asr_final", intra=threads) or ort.SessionOptions()
     options.log_severity_level = 3
     return ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
 
@@ -355,12 +354,12 @@ class NemoEar:
         kind: str | None = None,
         quantization: str | None = None,
         *,
-        threads: int = DEFAULT_THREADS,
+        threads: int | None = None,
         session_factory: Callable[[Path], Any] | None = None,
     ) -> NemoEar:
         files = discover(Path(folder), kind, quantization)
         vocab = read_vocab(files.vocab)
-        make = session_factory or (lambda path: _default_session(path, threads))
+        make = session_factory or (lambda path: _default_session(path, threads or voice_budget.steady("asr_final")))
         sessions = [make(path) for path in [files.encoder] + ([files.decoder_joint] if files.decoder_joint else [])]
         if files.kind == "rnnt" and not kind:
             wide = _joint_width(sessions[1])

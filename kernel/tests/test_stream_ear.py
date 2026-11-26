@@ -209,6 +209,28 @@ def make_engine(tmp_path, model=None, **kw):
     return engine, model, folder
 
 
+def test_the_engine_builds_its_stream_with_the_live_reader_budget(tmp_path, monkeypatch):
+    import transducer_loop
+
+    built: list[int | None] = []
+
+    class Recorder:
+        is_open = False
+
+        def __init__(self, *args, threads=None, **kw):
+            built.append(threads)
+
+        def open(self, *args):
+            raise TransducerError("files", "stop here")
+
+    monkeypatch.setattr(transducer_loop, "NemotronStream", Recorder)
+    monkeypatch.setenv("FRIDAY_VOICE_THREADS", "asr_stream=2")
+    engine = TransducerEngine()
+    with pytest.raises(TransducerError):
+        engine.open(tmp_path)
+    assert built == [2]
+
+
 SPEECH = pcm_bytes(0.9, 0.3)
 QUIET = pcm_bytes(2.0)
 

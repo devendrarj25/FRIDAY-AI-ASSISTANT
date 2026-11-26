@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import voice_budget
 
 LANGUAGES = (
     "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it",
@@ -187,10 +188,7 @@ class FridayVoice:
             raise RuntimeError("no model folder")
         import onnxruntime as ort  # type: ignore
 
-        options = ort.SessionOptions()
-        count = self.threads or max(1, min(8, (os.cpu_count() or 2) - 1))
-        options.intra_op_num_threads = count
-        options.inter_op_num_threads = 1
+        options = voice_budget.ort_session_options("tts", intra=self.threads) or ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         session = ort.InferenceSession(
             str(self.model_dir / "onnx" / GRAPHS[name]), sess_options=options, providers=["CPUExecutionProvider"]

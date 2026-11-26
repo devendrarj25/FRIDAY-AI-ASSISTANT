@@ -70,6 +70,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+import voice_budget
 from endpointer import EndpointConfig, Endpointer, Observation, TurnTracker, config_for_ears
 from la2_partials import RATE, La2Partials, TurnLanguage
 from stream_commit import LocalAgreementCommitter, PartialStabiliser, Word, join_words
@@ -534,7 +535,7 @@ class TransducerEngine:
         if self._stream is None:
             from transducer_loop import NemotronStream
 
-            self._stream = NemotronStream()
+            self._stream = NemotronStream(threads=voice_budget.steady("asr_stream"))
         info: dict[str, Any]
         if self.loaded and self._model_dir == str(model_dir) and self._providers_key == key:
             self._stream.configure(locale, hotwords)

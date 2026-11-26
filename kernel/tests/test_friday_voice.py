@@ -49,6 +49,37 @@ def style(value: float = 1.0) -> fv.Style:
     return fv.Style(np.full((1, 4, 6), value, dtype=np.float32), np.full((1, 2, 5), value, dtype=np.float32))
 
 
+def test_the_graph_sessions_take_their_threads_from_the_budget_unless_told_a_count(tmp_path, monkeypatch):
+    import types
+
+    opened: list[tuple[int, int, dict[str, str]]] = []
+
+    class Options:
+        def __init__(self):
+            self.entries: dict[str, str] = {}
+            self.intra_op_num_threads = 0
+            self.inter_op_num_threads = 0
+
+        def add_session_config_entry(self, key, value):
+            self.entries[key] = value
+
+    class Session:
+        def __init__(self, path, sess_options: Options, providers=None):
+            opened.append((sess_options.intra_op_num_threads, sess_options.inter_op_num_threads, sess_options.entries))
+
+    ort = types.ModuleType("onnxruntime")
+    ort.SessionOptions = Options  # type: ignore[attr-defined]
+    ort.InferenceSession = Session  # type: ignore[attr-defined]
+    ort.GraphOptimizationLevel = types.SimpleNamespace(ORT_ENABLE_ALL=99)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "onnxruntime", ort)
+    monkeypatch.setenv("FRIDAY_VOICE_THREADS", "tts=3")
+    shared = {"config": CONFIG, "indexer": INDEXER}
+    fv.FridayVoice(tmp_path, **shared)._session(next(iter(fv.GRAPHS)))
+    fv.FridayVoice(tmp_path, threads=2, **shared)._session(next(iter(fv.GRAPHS)))
+    assert [(a, b) for a, b, _ in opened] == [(3, 1), (2, 1)]
+    assert all(entries == {"session.intra_op.allow_spinning": "0"} for _, _, entries in opened)
+
+
 def test_clean_text_adds_a_stop_and_language_tags():
     assert fv.clean_text("hello world") == "hello world."
     assert fv.clean_text("hello world", "en") == "<en>hello world.</en>"
