@@ -13,7 +13,16 @@
  */
 
 import {
+  draftVerdict,
+  governDraft,
+  initialDraftGov,
+  noteDraft,
+  type DraftGovState,
+} from "./draft-governor";
+import { eotHoldFrames } from "./endpoint-calibration";
+import {
   buildTurnRecord,
+  sameWords,
   type StreamTurn,
   type TurnEnv,
   type TurnRecord,
@@ -28,8 +37,8 @@ export const VAD_VOICE_P = 0.5;
 export const YIELD_DUCK_DB = -12;
 /** Quiet frames in the yield state before FRIDAY carries on. */
 export const YIELD_RESUME_FRAMES = 5;
-/** Most drafts started for one turn by the default governor. */
-export const MAX_DRAFTS_PER_TURN = 3;
+/** Most quiet frames a hold may take off the base wait (a bare yes or no closes fast). */
+export const MAX_FASTER_FRAMES = 4;
 
 export type TurnState = "idle" | "listen" | "think" | "speak" | "yield";
 export type VoiceLane = "command" | "quick" | "full";
@@ -61,12 +70,18 @@ export type TurnInput = { t: number } & (
 
 export type TurnCommand =
   | { k: "draft-start" | "draft-cancel" | "draft-adopt"; turnId: string; text: string }
-  | { k: "commit"; record: TurnRecord }
+  | { k: "commit"; record: TurnRecordV2 }
   | { k: "duck"; db: number }
   | { k: "stop-speech"; reason: string; resumable: boolean }
   | { k: "resume-speech" }
   | { k: "ack"; key: string }
   | { k: "require-wake"; why: string };
+
+/** What the engine does when the owner's voice arrives while FRIDAY speaks. */
+export type BargeVerdict = "keep" | "takeover" | "ignore";
+
+/** The record the engine commits: today's turn record plus the wait it measured and the lane it chose, if any. */
+export type TurnRecordV2 = TurnRecord & { v: 2; lane?: VoiceLane; eotWaitMs: number | null };
 
 export type DraftRequest = { turnId: string; text: string; frame: number; started: number };
 export type DraftVerdict = { allow: boolean };
@@ -78,13 +93,20 @@ export type TurnEngineConfig = {
   eotBaseFrames: number;
   /** A turn that has run this many frames is cut and handed on. */
   maxListenFrames: number;
-  /** Extra quiet frames to wait for these words (a dangling "and", a digit run). Default 0. */
+  /** Extra quiet frames to wait for these words (a dangling "and", a digit run). Default `eotHoldFrames`. */
   holdFor?: (text: string, expect: TurnExpect | undefined) => number;
-  /** Whether a speculative draft may start now. Default: one in flight, at most three per turn. */
+  /** Whether a speculative draft may start now. Default: the draft governor (one in flight, three per turn). */
   draft?: (s: TurnEngineState, req: DraftRequest) => DraftVerdict;
+  /** Whether these words are read-only work a draft may start on. Default: never, so drafts stay off. */
+  isReadOnly?: (text: string) => boolean;
+  /**
+   * What to do with echo-clean voice while FRIDAY speaks: `keep` talks on, ducked; `takeover` gives the owner the
+   * floor (duck and yield); `ignore` does nothing. Default `takeover` at p >= 0.5.
+   */
+  barge?: (p: number, playedMs: number) => BargeVerdict;
 };
 
-export type TurnDraft = { inFlight: boolean; turnId: string; text: string; count: number };
+export type TurnDraft = { inFlight: boolean; turnId: string; text: string };
 type TurnFactsLite = { speaker: TurnSpeaker | null; env: TurnEnv | null; clipped: boolean };
 
 export type TurnEngineState = {
@@ -100,6 +122,12 @@ export type TurnEngineState = {
   utteranceId: string;
   expect?: TurnExpect;
   draft: TurnDraft;
+  /** The draft governor's counters for the open turn. */
+  gov: DraftGovState;
+  /** Speech is being kept at a lower volume while the owner makes a short sound. */
+  ducked: boolean;
+  /** Milliseconds of the current utterance FRIDAY has played, from the last speech event. */
+  playedMs: number;
   cfg: TurnEngineConfig;
   /** The wake word is needed before the next turn opens. */
   needWake: boolean;
@@ -111,7 +139,7 @@ export type TurnEngineState = {
 
 export type TurnStep = { state: TurnEngineState; commands: TurnCommand[] };
 
-const NO_DRAFT: TurnDraft = { inFlight: false, turnId: "", text: "", count: 0 };
+const NO_DRAFT: TurnDraft = { inFlight: false, turnId: "", text: "" };
 const NO_FACTS: TurnFactsLite = { speaker: null, env: null, clipped: false };
 
 function posInt(value: unknown, fallback: number): number {
@@ -130,8 +158,10 @@ export function createTurnEngine(cfg: Partial<TurnEngineConfig> = {}): TurnEngin
     handsFree,
     eotBaseFrames: posInt(cfg.eotBaseFrames, 6),
     maxListenFrames: posInt(cfg.maxListenFrames, 125),
-    ...(cfg.holdFor ? { holdFor: cfg.holdFor } : {}),
+    holdFor: cfg.holdFor ?? eotHoldFrames,
     ...(cfg.draft ? { draft: cfg.draft } : {}),
+    isReadOnly: cfg.isReadOnly ?? (() => false),
+    ...(cfg.barge ? { barge: cfg.barge } : {}),
   };
   return {
     v: 1,
@@ -144,6 +174,9 @@ export function createTurnEngine(cfg: Partial<TurnEngineConfig> = {}): TurnEngin
     runId: "",
     utteranceId: "",
     draft: NO_DRAFT,
+    gov: initialDraftGov(),
+    ducked: false,
+    playedMs: 0,
     cfg: full,
     needWake: !handsFree,
     halted: false,
@@ -156,14 +189,24 @@ function hold(n: TurnEngineState): number {
   const fn = n.cfg.holdFor;
   if (!fn) return 0;
   const extra = fn(n.text, n.expect);
-  return typeof extra === "number" && Number.isFinite(extra) && extra > 0 ? Math.floor(extra) : 0;
+  if (typeof extra !== "number" || !Number.isFinite(extra)) return 0;
+  return Math.max(-MAX_FASTER_FRAMES, Math.trunc(extra));
+}
+
+function readOnly(n: TurnEngineState, text: string): boolean {
+  try {
+    return n.cfg.isReadOnly?.(text) === true;
+  } catch {
+    return false;
+  }
 }
 
 function cancelDraft(n: TurnEngineState, out: TurnCommand[]): void {
   if (n.draft.inFlight) {
     out.push({ k: "draft-cancel", turnId: n.draft.turnId, text: n.draft.text });
   }
-  n.draft = { ...NO_DRAFT, count: n.draft.count };
+  n.draft = NO_DRAFT;
+  n.gov = noteDraft(n.gov, "end");
 }
 
 /** A fresh stretch of listening: the old draft is dropped, the clock for the turn starts here. */
@@ -173,6 +216,8 @@ function openListen(n: TurnEngineState, turnId: string, out: TurnCommand[]): voi
   n.turnId = turnId;
   n.text = "";
   n.draft = NO_DRAFT;
+  n.gov = noteDraft(n.gov, "new-turn");
+  n.ducked = false;
   n.facts = NO_FACTS;
   n.lastVoiceFrame = n.frame;
   n.listenStartFrame = n.frame;
@@ -182,6 +227,7 @@ function openListen(n: TurnEngineState, turnId: string, out: TurnCommand[]): voi
 
 function goIdle(n: TurnEngineState): void {
   n.state = "idle";
+  n.ducked = false;
   n.eotAtFrame = null;
   n.runId = "";
   n.utteranceId = "";
@@ -205,17 +251,27 @@ function applyEarListen(n: TurnEngineState, turn: StreamTurn, out: TurnCommand[]
   }
   if (turn.event === "resumed") cancelDraft(n, out);
   if (turn.event === "eager" && n.text.trim() !== "" && !n.draft.inFlight) {
+    const audioMs = Math.max(0, n.frame - n.listenStartFrame) * FRAME_MS;
     const req: DraftRequest = {
       turnId: n.turnId,
       text: n.text,
       frame: n.frame,
-      started: n.draft.count,
+      started: n.gov.thisTurn,
     };
     const verdict = n.cfg.draft
       ? n.cfg.draft(n, req)
-      : { allow: n.draft.count < MAX_DRAFTS_PER_TURN };
+      : draftVerdict(
+          governDraft(n.gov, {
+            turnId: n.turnId,
+            text: n.text,
+            audioMs,
+            lane: "quick",
+            readOnly: readOnly(n, n.text),
+          }),
+        );
     if (verdict.allow) {
-      n.draft = { inFlight: true, turnId: n.turnId, text: n.text, count: n.draft.count + 1 };
+      n.draft = { inFlight: true, turnId: n.turnId, text: n.text };
+      n.gov = noteDraft(n.gov, "start", audioMs);
       out.push({ k: "draft-start", turnId: n.turnId, text: n.text });
     }
   }
@@ -254,6 +310,16 @@ function onEar(n: TurnEngineState, turn: StreamTurn, out: TurnCommand[]): void {
   applyEarListen(n, turn, out);
 }
 
+function bargeVerdict(n: TurnEngineState, p: number): BargeVerdict {
+  if (!n.cfg.barge) return "takeover";
+  try {
+    const v = n.cfg.barge(p, n.playedMs);
+    return v === "keep" || v === "ignore" ? v : "takeover";
+  } catch {
+    return "takeover";
+  }
+}
+
 function onVad(n: TurnEngineState, p: number, echoClean: boolean, out: TurnCommand[]): void {
   if (n.halted || !(p >= VAD_VOICE_P)) return;
   switch (n.state) {
@@ -263,12 +329,23 @@ function onVad(n: TurnEngineState, p: number, echoClean: boolean, out: TurnComma
     case "listen":
       n.lastVoiceFrame = n.frame;
       return;
-    case "speak":
+    case "speak": {
       if (!echoClean) return;
-      n.state = "yield";
+      const verdict = bargeVerdict(n, p);
+      if (verdict === "ignore") return;
       n.lastVoiceFrame = n.frame;
+      if (verdict === "keep") {
+        if (!n.ducked) {
+          n.ducked = true;
+          out.push({ k: "duck", db: YIELD_DUCK_DB });
+        }
+        return;
+      }
+      n.state = "yield";
+      n.ducked = false;
       out.push({ k: "duck", db: YIELD_DUCK_DB });
       return;
+    }
     case "yield":
       if (echoClean) n.lastVoiceFrame = n.frame;
       return;
@@ -298,10 +375,12 @@ function onTts(n: TurnEngineState, i: Extract<TurnInput, { k: "tts" }>, out: Tur
     if (n.state === "think" && i.utteranceId !== "") {
       n.state = "speak";
       n.utteranceId = i.utteranceId;
+      n.playedMs = 0;
     }
     return;
   }
   if ((n.state !== "speak" && n.state !== "yield") || i.utteranceId !== n.utteranceId) return;
+  if (Number.isFinite(i.playedMs) && i.playedMs >= 0) n.playedMs = i.playedMs;
   if (i.ev === "drained" || i.ev === "failed") afterSpeech(n, out);
 }
 
@@ -319,6 +398,7 @@ function onControl(
     }
     if (i.ev !== "stop-all") n.halted = true;
     n.draft = NO_DRAFT;
+    n.gov = noteDraft(n.gov, "new-turn");
     n.text = "";
     delete n.expect;
     goIdle(n);
@@ -335,28 +415,35 @@ function onControl(
 }
 
 function toThink(n: TurnEngineState, out: TurnCommand[]): void {
+  const adopted = n.draft.inFlight && sameWords(n.text, n.draft.text);
   if (n.draft.inFlight) {
-    out.push(
-      n.draft.text === n.text
-        ? { k: "draft-adopt", turnId: n.draft.turnId, text: n.draft.text }
-        : { k: "draft-cancel", turnId: n.draft.turnId, text: n.draft.text },
-    );
+    out.push({
+      k: adopted ? "draft-adopt" : "draft-cancel",
+      turnId: n.draft.turnId,
+      text: n.draft.text,
+    });
   }
   const eagerText = n.draft.text;
   out.push({
     k: "commit",
-    record: buildTurnRecord({
-      text: n.text,
-      facts: {
-        turnId: n.turnId,
-        eagerText,
-        speaker: n.facts.speaker,
-        env: n.facts.env,
-        clipped: n.facts.clipped,
-      },
-    }),
+    record: {
+      ...buildTurnRecord({
+        text: n.text,
+        facts: {
+          turnId: n.turnId,
+          eagerText,
+          speaker: n.facts.speaker,
+          env: n.facts.env,
+          clipped: n.facts.clipped,
+        },
+      }),
+      v: 2,
+      eotWaitMs: Math.max(0, n.frame - n.lastVoiceFrame) * FRAME_MS,
+      ...(adopted ? { lane: "quick" as const } : {}),
+    },
   });
-  n.draft = { ...NO_DRAFT, count: n.draft.count };
+  n.draft = NO_DRAFT;
+  n.gov = noteDraft(n.gov, "end");
   n.state = "think";
   n.eotAtFrame = null;
   n.runId = "";
@@ -382,6 +469,11 @@ function runTimers(n: TurnEngineState, out: TurnCommand[]): void {
     return;
   }
   n.eotAtFrame = null;
+  if (n.state === "speak" && n.ducked && n.frame - n.lastVoiceFrame >= YIELD_RESUME_FRAMES) {
+    n.ducked = false;
+    out.push({ k: "resume-speech" });
+    return;
+  }
   if (n.state === "yield" && n.frame - n.lastVoiceFrame >= YIELD_RESUME_FRAMES) {
     n.state = "speak";
     out.push({ k: "resume-speech" });

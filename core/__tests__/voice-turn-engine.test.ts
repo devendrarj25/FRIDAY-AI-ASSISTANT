@@ -6,6 +6,7 @@ import {
   createTurnEngine,
   frameOf,
   step,
+  type BargeVerdict,
   type TurnCommand,
   type TurnEngineConfig,
   type TurnEngineState,
@@ -75,6 +76,8 @@ function run(
 
 const kinds = (cmds: TurnCommand[]) => cmds.map((c) => c.k);
 const open = (cfg: Partial<TurnEngineConfig> = {}) => createTurnEngine({ handsFree: true, ...cfg });
+/** Drafts are off until the conductor passes the real read-only check; these tests turn them on. */
+const drafting = (cfg: Partial<TurnEngineConfig> = {}) => open({ isReadOnly: () => true, ...cfg });
 
 /** A heard turn "hello there" ending at frame 10, thinking from frame 16. */
 function thinking(cfg: Partial<TurnEngineConfig> = {}) {
@@ -311,7 +314,7 @@ describe("turn engine: think, speak and yield", () => {
 
 describe("turn engine: drafts", () => {
   it("an eager turn starts a draft; the same words at the end adopt it", () => {
-    const eager = run(open(), [ear(0, "partial", "play music"), ear(4, "eager", "play music")]);
+    const eager = run(drafting(), [ear(0, "partial", "play music"), ear(4, "eager", "play music")]);
     expect(eager.commands).toEqual([{ k: "draft-start", turnId: "t1", text: "play music" }]);
     const done = run(eager.s, [tick(10)]);
     expect(kinds(done.commands)).toEqual(["draft-adopt", "commit"]);
@@ -320,12 +323,12 @@ describe("turn engine: drafts", () => {
   });
 
   it("resumed speech cancels the draft; changed words at the end cancel it; at most 3 drafts per turn", () => {
-    const eager = run(open(), [ear(0, "partial", "play music"), ear(4, "eager", "play music")]);
+    const eager = run(drafting(), [ear(0, "partial", "play music"), ear(4, "eager", "play music")]);
     const resumed = run(eager.s, [ear(5, "resumed", "play music now")]);
     expect(kinds(resumed.commands)).toEqual(["draft-cancel"]);
     const changed = run(eager.s, [ear(5, "partial", "play jazz"), tick(20)]);
     expect(kinds(changed.commands)).toEqual(["draft-cancel", "commit"]);
-    let s = open();
+    let s = drafting();
     let starts = 0;
     for (let n = 0; n < 5; n += 1) {
       const out = run(s, [
@@ -339,7 +342,7 @@ describe("turn engine: drafts", () => {
   });
 
   it("the draft hook can refuse", () => {
-    const out = run(open({ draft: () => ({ allow: false }) }), [ear(0, "eager", "play music")]);
+    const out = run(drafting({ draft: () => ({ allow: false }) }), [ear(0, "eager", "play music")]);
     expect(out.commands).toEqual([]);
   });
 });
@@ -359,8 +362,9 @@ describe("turn engine: purity", () => {
   ];
 
   it("the same input list gives byte-identical commands and state", () => {
-    const a = run(createTurnEngine({ handsFree: false }), script);
-    const b = run(createTurnEngine({ handsFree: false }), script);
+    const cfg = { handsFree: false, isReadOnly: () => true };
+    const a = run(createTurnEngine(cfg), script);
+    const b = run(createTurnEngine(cfg), script);
     expect(JSON.stringify(a.commands)).toBe(JSON.stringify(b.commands));
     expect(JSON.stringify(a.s)).toBe(JSON.stringify(b.s));
     expect(a.s.state).toBe("idle");
@@ -382,7 +386,10 @@ describe("turn engine: purity", () => {
   });
 
   it("never emits a run or an approval command", () => {
-    const all = run(createTurnEngine({ handsFree: false }), script).commands;
+    const all = run(
+      createTurnEngine({ handsFree: false, isReadOnly: () => true }),
+      script,
+    ).commands;
     for (const c of all) expect(["run", "approve", "approval"]).not.toContain(c.k);
     const src = readFileSync(
       resolve(__dirname, "../../src/lib/friday/voice-engine/turn-engine.ts"),
@@ -391,5 +398,233 @@ describe("turn engine: purity", () => {
     expect(src).not.toMatch(/k:\s*"(run|approve|approval)"/);
     expect(src).not.toMatch(/from\s+"\.\.\/(assistant-mode|preferences)"/);
     expect(src).not.toMatch(/Date\.now|window|document|setTimeout/);
+    expect(src).not.toMatch(/interruption|classif/i);
+  });
+});
+
+describe("turn engine: defaults come from the calibration and the governor", () => {
+  it("holdFor defaults to the end-of-turn prior and drafts stay off without a read-only check", () => {
+    const s = createTurnEngine({ handsFree: true });
+    expect(typeof s.cfg.holdFor).toBe("function");
+    expect(s.cfg.holdFor?.("chai aur", undefined)).toBe(6);
+    const eager = run(s, [ear(0, "partial", "play music"), ear(4, "eager", "play music")]);
+    expect(eager.commands).toEqual([]);
+    const throws = open({
+      isReadOnly: () => {
+        throw new Error("boom");
+      },
+    });
+    expect(run(throws, [ear(0, "eager", "play music")]).commands).toEqual([]);
+  });
+
+  it("think waits longer after a dangling aur", () => {
+    const plain = run(open(), [ear(0, "partial", "chai pilao")]);
+    const dangling = run(open(), [ear(0, "partial", "chai aur")]);
+    expect(plain.s.eotAtFrame).toBe(6);
+    expect(dangling.s.eotAtFrame).toBe(12);
+    expect(run(dangling.s, [tick(11)]).s.state).toBe("listen");
+    expect(run(dangling.s, [tick(12)]).s.state).toBe("think");
+    const finished = run(open(), [ear(0, "partial", "chai aur biscuit.")]);
+    expect(finished.s.eotAtFrame).toBe(6);
+  });
+
+  it("a bare yes to a yes/no question closes faster, a digit run waits", () => {
+    const yes = run(open(), [control(0, "asked", "yesno"), ear(1, "partial", "haan")]);
+    expect(yes.s.eotAtFrame).toBe(1 + 6 - 4);
+    expect(run(yes.s, [tick(3)]).s.state).toBe("think");
+    const num = run(open(), [control(0, "asked", "number"), ear(1, "partial", "forty two")]);
+    expect(num.s.eotAtFrame).toBe(1 + 6 + 4);
+  });
+
+  it("a hold can never take more than four frames off", () => {
+    const heard = run(open({ holdFor: () => -50 }), [ear(0, "partial", "yes")]);
+    expect(heard.s.eotAtFrame).toBe(2);
+  });
+
+  it("resumed cancels draft; next eager starts draft 2 of 3", () => {
+    const first = run(drafting(), [ear(0, "eager", "play music")]);
+    expect(first.s.gov.thisTurn).toBe(1);
+    const resumed = run(first.s, [ear(2, "resumed", "play music now")]);
+    expect(resumed.commands).toEqual([{ k: "draft-cancel", turnId: "t1", text: "play music" }]);
+    expect(resumed.s.draft.inFlight).toBe(false);
+    const second = run(resumed.s, [ear(4, "eager", "play music now")]);
+    expect(second.commands).toEqual([{ k: "draft-start", turnId: "t1", text: "play music now" }]);
+    expect(second.s.gov.thisTurn).toBe(2);
+  });
+
+  it("fourth draft refused", () => {
+    let s = drafting();
+    const starts: string[] = [];
+    for (let n = 0; n < 4; n += 1) {
+      const out = run(s, [
+        ear(n * 2, "eager", `play ${n}`),
+        ear(n * 2 + 1, "resumed", `play ${n}!`),
+      ]);
+      for (const c of out.commands) if (c.k === "draft-start") starts.push(c.text);
+      s = out.s;
+    }
+    expect(starts).toEqual(["play 0", "play 1", "play 2"]);
+    expect(s.gov.thisTurn).toBe(3);
+  });
+
+  it("a new turn id starts the draft count again", () => {
+    let s = drafting();
+    for (let n = 0; n < 3; n += 1) {
+      s = run(s, [ear(n * 2, "eager", `a${n}`), ear(n * 2 + 1, "resumed", `a${n}!`)]).s;
+    }
+    const fresh = run(s, [ear(8, "eager", "play music", "t2")]);
+    expect(fresh.commands).toEqual([{ k: "draft-start", turnId: "t2", text: "play music" }]);
+    expect(fresh.s.gov.thisTurn).toBe(1);
+  });
+
+  it("the governor's audio cap refuses a draft after ten seconds of listening", () => {
+    const s = run(drafting({ maxListenFrames: 400, eotBaseFrames: 400 }), [ear(0, "start", "x")]);
+    const late = run(s.s, [ear(126, "eager", "play music")]);
+    expect(late.commands).toEqual([]);
+    const soon = run(s.s, [ear(100, "eager", "play music")]);
+    expect(kinds(soon.commands)).toEqual(["draft-start"]);
+  });
+
+  it("adopt only on same words", () => {
+    const base = run(drafting(), [ear(0, "eager", "Play  music!")]);
+    const same = run(base.s, [ear(2, "partial", "play music"), tick(12)]);
+    expect(kinds(same.commands)).toEqual(["draft-adopt", "commit"]);
+    const other = run(base.s, [ear(2, "partial", "play music loudly"), tick(12)]);
+    expect(kinds(other.commands)).toEqual(["draft-cancel", "commit"]);
+    expect(other.commands[0]).toEqual({ k: "draft-cancel", turnId: "t1", text: "Play  music!" });
+  });
+});
+
+describe("turn engine: the committed record", () => {
+  it("carries v2, the quiet wait from the frame clock, and the quick lane when a draft was adopted", () => {
+    const heard = run(drafting(), [ear(0, "eager", "play music"), ear(3, "partial", "play music")]);
+    const done = run(heard.s, [tick(9)]);
+    const commit = done.commands.find((c) => c.k === "commit");
+    expect(commit?.k === "commit" && commit.record.v).toBe(2);
+    expect(commit?.k === "commit" && commit.record.eotWaitMs).toBe((9 - 3) * FRAME_MS);
+    expect(commit?.k === "commit" && commit.record.lane).toBe("quick");
+    expect(commit?.k === "commit" && commit.record.eager).toBe(true);
+    const plain = run(open(), [ear(0, "partial", "open the file"), tick(6)]);
+    const rec = plain.commands[0];
+    expect(rec?.k === "commit" && rec.record.eotWaitMs).toBe(6 * FRAME_MS);
+    expect(rec?.k === "commit" && "lane" in rec.record).toBe(false);
+  });
+
+  it("a voice frame moves the wait measure with it", () => {
+    const heard = run(open(), [ear(0, "partial", "wait"), vad(5)]);
+    const done = run(heard.s, [tick(11)]);
+    const rec = done.commands[0];
+    expect(rec?.k === "commit" && rec.record.eotWaitMs).toBe(6 * FRAME_MS);
+  });
+});
+
+describe("turn engine: barge verdicts", () => {
+  it("takeover is the default at p >= 0.5: duck and yield", () => {
+    const sp = speaking();
+    const out = run(sp.s, [vad(20, 0.5)]);
+    expect(out.s.state).toBe("yield");
+    expect(out.commands).toEqual([{ k: "duck", db: -12 }]);
+    expect(run(sp.s, [vad(20, 0.49)]).s.state).toBe("speak");
+  });
+
+  it("keep talks on, ducked once, and restores after five quiet frames", () => {
+    const sp = speaking({ barge: () => "keep" });
+    const first = run(sp.s, [vad(20), vad(21)]);
+    expect(first.s.state).toBe("speak");
+    expect(first.commands).toEqual([{ k: "duck", db: -12 }]);
+    expect(run(first.s, [tick(25)]).commands).toEqual([]);
+    const back = run(first.s, [tick(26)]);
+    expect(back.commands).toEqual([{ k: "resume-speech" }]);
+    expect(back.s.ducked).toBe(false);
+  });
+
+  it("ignore does nothing", () => {
+    const sp = speaking({ barge: () => "ignore" });
+    const out = run(sp.s, [vad(20), vad(21), tick(40)]);
+    expect(out.s.state).toBe("speak");
+    expect(out.commands).toEqual([]);
+  });
+
+  it("is told the voice level and the milliseconds played, and a throwing or odd hook means takeover", () => {
+    const seen: Array<[number, number]> = [];
+    const sp = speaking({
+      barge: (p, played) => {
+        seen.push([p, played]);
+        return "keep";
+      },
+    });
+    const played = run(sp.s, [
+      { t: at(18), k: "tts", ev: "clause-end", utteranceId: "u1", playedMs: 640 },
+      vad(19, 0.8),
+    ]);
+    expect(seen).toEqual([[0.8, 640]]);
+    expect(played.s.playedMs).toBe(640);
+    const odd = speaking({
+      barge: (() => "maybe") as unknown as (p: number, playedMs: number) => BargeVerdict,
+    });
+    expect(run(odd.s, [vad(20)]).s.state).toBe("yield");
+    const bad = speaking({
+      barge: () => {
+        throw new Error("x");
+      },
+    });
+    expect(run(bad.s, [vad(20)]).s.state).toBe("yield");
+  });
+
+  it("an echo-polluted frame never reaches the hook", () => {
+    let calls = 0;
+    const sp = speaking({
+      barge: () => {
+        calls += 1;
+        return "takeover";
+      },
+    });
+    run(sp.s, [vad(20, 0.9, false)]);
+    expect(calls).toBe(0);
+  });
+});
+
+describe("turn engine: determinism and immutability with the new parts", () => {
+  const script2: TurnInput[] = [
+    control(0, "wake"),
+    ear(1, "start", "chai aur", "t1"),
+    ear(3, "eager", "chai aur", "t1"),
+    ear(4, "resumed", "chai aur biscuit", "t1"),
+    ear(6, "eager", "chai aur biscuit", "t1"),
+    tick(30),
+    tts(31, "first-audio"),
+    vad(32, 0.7),
+    tick(40),
+    tts(41, "drained"),
+  ];
+  const cfg = () => ({
+    isReadOnly: () => true,
+    barge: (p: number) => (p > 0.6 ? "keep" : "takeover") as BargeVerdict,
+  });
+
+  it("same inputs give byte-identical commands and state", () => {
+    const a = run(createTurnEngine({ handsFree: false, ...cfg() }), script2);
+    const b = run(createTurnEngine({ handsFree: false, ...cfg() }), script2);
+    expect(JSON.stringify(a.commands)).toBe(JSON.stringify(b.commands));
+    expect(JSON.stringify(a.s)).toBe(JSON.stringify(b.s));
+    expect(kinds(a.commands)).toEqual([
+      "draft-start",
+      "draft-cancel",
+      "draft-start",
+      "draft-adopt",
+      "commit",
+      "duck",
+      "resume-speech",
+    ]);
+  });
+
+  it("run() deep-freezes every state and input, so any write would have thrown", () => {
+    const out = run(createTurnEngine({ handsFree: false, ...cfg() }), script2);
+    expect(out.s.state).toBe("idle");
+    const frozen = deepFreeze(createTurnEngine({ handsFree: true, ...cfg() }));
+    const next = step(frozen, ear(1, "eager", "hello"));
+    expect(next.state.gov.thisTurn).toBe(1);
+    expect(frozen.gov.thisTurn).toBe(0);
+    expect(frozen.draft.inFlight).toBe(false);
   });
 });
