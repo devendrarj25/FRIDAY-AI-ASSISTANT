@@ -495,6 +495,8 @@ const DRAFT_TURN_GAP_MS = 4_000;
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
 const HANDS_FREE_KEY = "friday.assistant.handsfree";
+/** How long the same microphone fault message is treated as one report. */
+const MIC_FAULT_REPEAT_MS = 10_000;
 const MAX_CAPTIONS = 40;
 /**
  * How long follow-ups are accepted without repeating the wake word. Owned by
@@ -738,7 +740,8 @@ class AssistantModeStore {
    * True only when the owner saved Hands-free off. A missing key leaves Auto
    * mode as the hands-free conversation and does not write the key.
    */
-  private wakeWordRequired = false;
+  /** Hands-free starts off, so the wake word is required until the stored choice says otherwise. */
+  private wakeWordRequired = true;
   /** Barge-in and a mode change drop every queued clip from an older turn. */
   private speechGen = 0;
   private unfinished = "";
@@ -815,6 +818,7 @@ class AssistantModeStore {
   private followUpUntil = 0;
   private readonly micRestarts: number[] = [];
   private shownMicFault = "";
+  private shownMicFaultAt = 0;
   private awakeTimer: number | null = null;
   /** Last accepted wake, so a second copy of the name inside the cooldown is ignored. */
   private lastWakeAt = 0;
@@ -1062,9 +1066,11 @@ class AssistantModeStore {
       if (saved === "auto" || saved === "manual") this.state.mode = saved;
       setActionMode(this.state.mode);
       const savedHands = readLocalState<boolean>(HANDS_FREE_KEY);
-      if (savedHands === true) this.state.handsFree = true;
-      else if (savedHands === false) this.wakeWordRequired = true;
-      else if (this.state.mode === "auto") this.state.handsFree = true;
+      // Only a stored `true` opens hands-free; nothing saved keeps the wake word required.
+      if (savedHands === true) {
+        this.state.handsFree = true;
+        this.wakeWordRequired = false;
+      }
     } catch {
       /* storage blocked — keep the auto default */
     }
@@ -1147,12 +1153,6 @@ class AssistantModeStore {
       this.applyVoiceHeal("vad-too-quiet", false);
     });
     this.turnStreamOff ??= subscribeStreamTurns((turn) => this.noteStreamTurn(turn));
-    desktop()?.onVoicePartial?.((payload) => {
-      const text = String(payload?.text || "").trim();
-      if (!text || this.state.mode !== "auto") return;
-      this.state.interim = text;
-      this.emit();
-    });
     desktop()?.onSttProgress?.((payload) => {
       const next = describeDownload(payload);
       if (!next) return;
@@ -2209,7 +2209,6 @@ class AssistantModeStore {
     this.soak.start(Date.now());
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
-    if (!this.wakeWordRequired) this.state.handsFree = true;
     voiceGate.wake.setHandsFree(this.state.handsFree);
     this.gateRelease();
     this.state.error = null;
@@ -3138,6 +3137,7 @@ class AssistantModeStore {
         if (listening === "thinking") stampEndpoint(this.turnStages, this.endpointHoldMs());
         if (listening === "listening") {
           this.soak.recovered();
+          this.shownMicFault = "";
           this.to("mic-opened");
           this.announceReady();
         } else if (listening === "thinking") this.to("transcribe-start");
@@ -4323,12 +4323,15 @@ class AssistantModeStore {
   }
 
   private noteMicFault(message: string) {
-    if (this.shownMicFault === message) return;
+    const now = Date.now();
+    // The same message again is a new fault once the microphone recovered or the first report is old enough to be
+    // history (a Bluetooth profile switch, another app taking the microphone); a burst of one message heals once.
+    if (this.shownMicFault === message && now - this.shownMicFaultAt < MIC_FAULT_REPEAT_MS) return;
     this.soak.fault();
     this.shownMicFault = message;
+    this.shownMicFaultAt = now;
     this.state.error = message;
     this.trace("error", message);
-    const now = Date.now();
     if (!allowRestart(this.micRestarts, now)) {
       this.state.status = "Press Reset microphone";
       this.emit();
