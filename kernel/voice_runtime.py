@@ -892,8 +892,11 @@ def _hindi_ear_line() -> str:
 
     if not hindi_ear.ready():
         return "OPTIONAL hindi-ear optional - not installed"
+    missing = [m for m in ("numpy", "onnxruntime") if importlib.util.find_spec(m) is None]
+    if missing:
+        return f"FAIL hindi-ear the weights are on disk but {' and '.join(missing)} is not installed"
     if importlib.util.find_spec("onnx_asr") is None:
-        return "FAIL hindi-ear the weights are on disk but the onnx-asr package is not installed"
+        return "PASS hindi-ear int8 weights present (own runner)"
     return "PASS hindi-ear int8 weights present"
 
 

@@ -2805,7 +2805,7 @@ stream_ear.register_engine(
         files={},
         factory=lambda: stream_ear.La2Engine(STREAM_HINDI, _hindi_stream_reader),
         aliases=("hindi-ear",),
-        modules=("numpy", "onnx_asr"),
+        modules=("numpy", "onnxruntime"),
         languages=lambda _folder: {"hi"},
         priority=20,
         locate=hindi_ear.model_dir,

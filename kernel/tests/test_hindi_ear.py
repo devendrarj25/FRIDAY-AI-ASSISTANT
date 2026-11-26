@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
 
 import hindi_ear  # noqa: E402
 import nemo_ear  # noqa: E402
+import stream_ear  # noqa: E402
 import stt  # noqa: E402
 from test_nemo_ear import CtcSession  # noqa: E402
 
@@ -502,3 +503,23 @@ def test_the_package_import_is_the_only_one_left_in_the_kernel():
     assert source.count("import onnx_asr") == 1
     others = [p for p in Path(hindi_ear.__file__).parent.glob("*.py") if p.name != "hindi_ear.py"]
     assert not [p.name for p in others if "import onnx_asr" in p.read_text(encoding="utf-8")]
+
+
+def test_the_hindi_engine_needs_the_own_runner_modules_not_the_pip_package():
+    spec = next(s for s in map(stream_ear.engine_spec, stream_ear.engine_names()) if s and "hindi-ear" in s.aliases)
+    assert spec.modules == ("numpy", "onnxruntime")
+    assert "onnx_asr" not in spec.modules
+
+
+def test_the_doctor_line_passes_on_the_own_runner_without_onnx_asr(monkeypatch):
+    import importlib.util
+
+    import voice_runtime
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(hindi_ear, "ready", lambda *a, **k: True)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "onnx_asr" else real(n, *a))
+    assert voice_runtime._hindi_ear_line() == "PASS hindi-ear int8 weights present (own runner)"
+    monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "onnxruntime" else real(n, *a))
+    assert voice_runtime._hindi_ear_line().startswith("FAIL hindi-ear")
+    assert "onnxruntime" in voice_runtime._hindi_ear_line()
