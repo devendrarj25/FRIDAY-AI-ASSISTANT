@@ -614,6 +614,151 @@ type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[
 /** The bound-answer id of the restart question ("Redo them?"): it is not a desk task. */
 const RESTART_ASK = "restart-redo";
 
+/** A closed table of the secrets a spoken question can ask FRIDAY to say aloud (Latin and Devanagari). */
+const SECRET_ASK_WORDS = [
+  "password",
+  "passcode",
+  "pass code",
+  "pin",
+  "otp",
+  "cvv",
+  "cvc",
+  "card number",
+  "account number",
+  "aadhaar",
+  "aadhar",
+  "adhar",
+  "pan number",
+  "pan card",
+  "wifi key",
+  "wi-fi key",
+  "token",
+  "api key",
+  "seed phrase",
+  "recovery phrase",
+  "पासवर्ड",
+  "पिन",
+  "ओटीपी",
+  "कार्ड नंबर",
+  "आधार",
+  "खाता नंबर",
+  "पैन नंबर",
+  "चाबी",
+];
+/** The verbs and question words that make a line a request to say the secret. */
+const SECRET_ASK_VERBS = [
+  "what",
+  "whats",
+  "what's",
+  "which",
+  "tell",
+  "read",
+  "show",
+  "say",
+  "give",
+  "repeat",
+  "batao",
+  "bata",
+  "bolo",
+  "bol",
+  "dikhao",
+  "padho",
+  "kya",
+  "kaun sa",
+  "kaunsa",
+  "kitna",
+  "बताओ",
+  "बताइए",
+  "बता",
+  "बोलो",
+  "दिखाओ",
+  "पढ़ो",
+  "क्या",
+  "कौन सा",
+  "कितना",
+];
+/** Next to the secret word these make it a different thing (a manager, a reset, a definition), not a value to say. */
+const SECRET_NOT_A_VALUE = [
+  "how to",
+  "how do",
+  "how can",
+  "kaise",
+  "tarika",
+  "tareeka",
+  "reset",
+  "change",
+  "manager",
+  "generator",
+  "policy",
+  "strength",
+  "meaning",
+  "define",
+  "hota hai",
+  "कैसे",
+  "तरीका",
+  "रीसेट",
+  "बदल",
+  "मैनेजर",
+  "होता है",
+];
+/** A possessive next to the word means the speaker's own secret: it overrides the "not a value" cues. */
+const SECRET_OWNED = [
+  "my",
+  "mine",
+  "your",
+  "mera",
+  "meri",
+  "mere",
+  "tumhara",
+  "tera",
+  "मेरा",
+  "मेरी",
+  "मेरे",
+  "तुम्हारा",
+];
+
+const NOT_LETTER = String.raw`(?<![\p{L}\p{M}])`;
+const NOT_LETTER_AFTER = String.raw`(?![\p{L}\p{M}])`;
+function wordRe(words: readonly string[], flags = "iu"): RegExp {
+  const body = words.map((w) =>
+    w
+      .normalize("NFC")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/ /g, String.raw`\s+`),
+  );
+  return new RegExp(`${NOT_LETTER}(?:${body.join("|")})${NOT_LETTER_AFTER}`, flags);
+}
+const SECRET_WORD_RE = wordRe(SECRET_ASK_WORDS, "giu");
+const SECRET_VERB_RE = wordRe(SECRET_ASK_VERBS);
+const SECRET_NOT_VALUE_RE = wordRe(SECRET_NOT_A_VALUE);
+const SECRET_OWNED_RE = wordRe(SECRET_OWNED);
+const SECRET_ARTICLE_BEFORE_RE = /(?<![\p{L}])(?:a|an)\s+$/iu;
+const SECRET_NEAR_CHARS = 40;
+
+/**
+ * True when the line asks FRIDAY to say a secret aloud ("what is my wifi password", "mera otp batao", "कार्ड नंबर
+ * क्या है"): a secret word with an ask verb or question word near it, in either order. The reply to such a question
+ * looks plain ("It's hunter2"), so the turn is marked sensitive from the question itself. A secret word that is only
+ * mentioned (a password manager, a reset, "a PIN") does not count unless it is owned ("my").
+ */
+export function asksForSecret(text: string): boolean {
+  const line = String(text ?? "").normalize("NFC");
+  if (!line.trim()) return false;
+  for (const hit of line.matchAll(SECRET_WORD_RE)) {
+    const start = hit.index ?? 0;
+    const end = start + hit[0].length;
+    const before = line.slice(Math.max(0, start - SECRET_NEAR_CHARS), start);
+    const after = line.slice(end, end + SECRET_NEAR_CHARS);
+    const around = `${before} ${after}`;
+    if (!SECRET_VERB_RE.test(around)) continue;
+    if (SECRET_OWNED_RE.test(around)) return true;
+    if (SECRET_ARTICLE_BEFORE_RE.test(before)) continue;
+    if (SECRET_NOT_VALUE_RE.test(around)) continue;
+    return true;
+  }
+  return false;
+}
+
 /**
  * The mic reports end of speech only once the endpoint hold has run out, so the speech end is the confirm time minus
  * that hold (never before the speech start). The confirm time is the moment the clip is handed to recognition.
@@ -4417,7 +4562,7 @@ class AssistantModeStore {
 
   /** A turn is on its way to the Brain: the speech bookkeeping of the last reply restarts, and she is Thinking. */
   private markTurnAccepted(command = "") {
-    this.turnSensitive = looksSensitive(command);
+    this.turnSensitive = looksSensitive(command) || asksForSecret(command);
     this.voicedRunId = "";
     this.voicedChars = 0;
     this.voicedPrefix = "";

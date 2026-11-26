@@ -65,6 +65,9 @@ describe("G4-2: the durable hands-free copy is read strictly", () => {
     ["null", null],
     ["the string 'true'", "true"],
     ["the number 1", 1],
+    ["an empty object", {}],
+    ["an array holding true", [true]],
+    ["the string 'TRUE'", "TRUE"],
   ])("%s leaves hands-free off and the wake word required", async (_label, stored) => {
     const d = await loadWithDisk(stored);
     expect(d.state.handsFree).toBe(false);

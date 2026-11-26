@@ -3,6 +3,7 @@
  * the clock is fake; no microphone, speaker, model or network):
  *
  *  - G4-3: a reply to a SENSITIVE question is kept off the cloud voice even when its own text looks plain;
+ *  - F14: a question that ASKS for a secret keeps the whole reply on the local voice, whatever the reply looks like;
  *  - G4-4: a spoken background task's send carries the voice surface, so it never runs as chat;
  *  - G4-5: a side question that the Brain turns into a real run (the work ended meanwhile) tears the old reply down and
  *    goes out with the full payload (pinned models, awareness text), not the side-question payload;
@@ -11,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assistantMode } from "../../src/lib/friday/assistant-mode";
+import { asksForSecret, assistantMode } from "../../src/lib/friday/assistant-mode";
 import { brain, VOICE_SEND, type Run } from "../../src/lib/friday/brain-engine";
 import { composer } from "../../src/lib/friday/composer";
 import { preferences } from "../../src/lib/friday/preferences";
@@ -54,6 +55,7 @@ type Driver = {
   markTurnAccepted: (command?: string) => void;
   noteReplySensitivity: (runId: string, text: string) => void;
   replySensitive: boolean;
+  turnSensitive: boolean;
   turnRecord: unknown;
   turnRecordLive: boolean;
   heardTurnId: string;
@@ -223,6 +225,104 @@ describe("G4-3: a sensitive question keeps its whole reply off the cloud voice",
     d.noteReplySensitivity("r1", "Four digits.");
     await d.cloudClipFor()?.("Four digits.", "en", tone);
     expect(cloud.calls).toHaveLength(0);
+  });
+});
+
+/** Questions that ask FRIDAY to say a secret aloud: English, Hinglish, Devanagari; the word may come first or last. */
+const ASKING_LINES = [
+  "what is my wifi password?",
+  "tell me my PIN",
+  "read out my card number",
+  "show me my API key",
+  "say my seed phrase",
+  "what's my aadhaar number",
+  "what is the otp",
+  "the token, tell me what it is",
+  "mera otp batao",
+  "card number kya hai",
+  "wifi password kya hai",
+  "mera pin bolo",
+  "account number dikhao",
+  "aadhaar number padho",
+  "cvv kya hai",
+  "batao mera pan number",
+  "मेरा पासवर्ड क्या है",
+  "मेरा ओटीपी बताओ",
+  "कार्ड नंबर बोलो",
+  "आधार नंबर दिखाओ",
+  "खाता नंबर पढ़ो",
+  "तिजोरी की चाबी क्या है",
+];
+/** Ordinary lines that only mention a secret word, or ask something harmless: none of these is a secret ask. */
+const ORDINARY_LINES = [
+  "password reset ka tarika",
+  "what is a password manager",
+  "how to create a strong password",
+  "open the password manager",
+  "pin this window to the top",
+  "token ring network kya hota hai",
+  "otp kya hota hai",
+  "what is the capital of France?",
+  "tell me a joke",
+  "what time is it",
+  "kya haal hai",
+  "batao aaj ka mausam",
+  "show me my calendar",
+  "read the news",
+  "what's the weather in Paris",
+  "pan ko garam karo",
+  "क्या मौसम है",
+  "पासवर्ड मैनेजर क्या है",
+  "मुझे आज का समाचार पढ़ो",
+  "आज की तारीख बताओ",
+];
+
+describe("F14: a question that asks for a secret keeps its reply off the cloud voice", () => {
+  it("has the coverage the guard promises", () => {
+    expect(ASKING_LINES.length).toBeGreaterThanOrEqual(12);
+    expect(ORDINARY_LINES.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it.each(ASKING_LINES)("asksForSecret and the turn flag are true for: %s", (line) => {
+    expect(asksForSecret(line)).toBe(true);
+    d.markTurnAccepted(line);
+    expect(d.turnSensitive).toBe(true);
+  });
+
+  it.each(ORDINARY_LINES)("an ordinary line does not set the turn flag: %s", (line) => {
+    expect(asksForSecret(line)).toBe(false);
+    d.markTurnAccepted(line);
+    expect(d.turnSensitive).toBe(false);
+  });
+
+  it.each([
+    ["what is my wifi password?", "It's hunter2."],
+    ["mera otp batao", "Chaar aath do ek."],
+    ["card number kya hai", "Four two four two."],
+    ["मेरा पासवर्ड क्या है", "चार आठ दो एक"],
+  ])("a plain value reply to %s makes no cloud voice request", async (question, reply) => {
+    enableCloudVoice();
+    d.markTurnAccepted(question);
+    d.noteReplySensitivity("r1", reply);
+    const clip = d.cloudClipFor();
+    expect(clip).toBeDefined();
+    await clip?.(reply, "en", tone);
+    await clip?.("One moment, checking.", "en", tone);
+    expect(cloud.calls).toHaveLength(0);
+  });
+
+  it("the next ordinary turn asks the cloud voice again", async () => {
+    enableCloudVoice();
+    d.markTurnAccepted("mera otp batao");
+    d.markTurnAccepted(QUESTION);
+    d.noteReplySensitivity("r2", "Paris.");
+    await d.cloudClipFor()?.("Paris.", "en", tone);
+    expect(cloud.calls).toHaveLength(1);
+  });
+
+  it("an empty or missing command asks for nothing", () => {
+    expect(asksForSecret("")).toBe(false);
+    expect(asksForSecret(undefined as unknown as string)).toBe(false);
   });
 });
 
