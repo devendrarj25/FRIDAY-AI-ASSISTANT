@@ -47,6 +47,7 @@ if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
 import hindi_ear  # noqa: E402
+import stream_ear  # noqa: E402
 import voice_runtime  # noqa: E402
 import whisper_ears  # noqa: E402
 
@@ -394,7 +395,7 @@ PRESSURE_CRITICAL = (0.07, 1024, 1536)
 # Substring order matters: "large-v3-turbo" must read as turbo before it reads as large.
 _MODEL_RANKS = (("tiny", 1), ("base", 2), ("small", 3), ("medium", 4), ("turbo", 5), ("large", 6))
 HEAVY_RANK = 4
-USE_OPS = frozenset({"load", "transcribe", "flush", "self-test", "hearing-self-test"})
+USE_OPS = frozenset({"load", "transcribe", "flush", "self-test", "hearing-self-test", "stream-open", "stream-feed"})
 
 
 class MemoryStatusEx(ctypes.Structure):
@@ -527,7 +528,7 @@ def _ear_loaded() -> bool:
 
 def loaded_names() -> list[str]:
     names = [_model_name] if _model is not None and _model_name else []
-    return names + ([HINDI_EAR_NAME] if _ear_loaded() else [])
+    return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + stream_ear.HOST.loaded_name()
 
 
 def unload_models() -> list[str]:
@@ -536,6 +537,7 @@ def unload_models() -> list[str]:
     names = loaded_names()
     _model, _model_name = None, None
     hindi_ear.unload()
+    stream_ear.HOST.unload()
     if names:
         _unloads += 1
         gc.collect()
@@ -2162,6 +2164,7 @@ def status_payload() -> dict:
         "error": None if cls is not None else _whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
+        "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
         "windowsSpeech": windows_speech_ready(),
@@ -2603,6 +2606,9 @@ def _handle_op(req: dict) -> dict:
                 "fix": fault.fix,
                 "loadCount": _load_count,
             }
+    if op in stream_ear.STREAM_OPS:
+        # The own streaming ear: off unless voice.streamEngine asks for it AND its pinned weights are on disk.
+        return stream_ear.HOST.handle(req)
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
