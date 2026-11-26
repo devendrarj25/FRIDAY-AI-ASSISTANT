@@ -19,6 +19,7 @@
  */
 const fs = require("fs");
 const os = require("os");
+const { scrubPaths } = require("./path-scrub.cjs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
@@ -443,41 +444,6 @@ async function initWorker(send, info) {
     windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
     cudaRuntimeReady: Boolean(lastLocalLayers.cudaRuntimeReady),
   };
-}
-
-/**
- * An error text or a status field that goes to the renderer never carries a path of this PC (the user profile name
- * sits in it): this PC's home folder, a drive path, a Windows profile path (also with a space in the name), a network
- * share and a POSIX home or system path each become `<path>`. The rest of the line stays, so the cause is still read.
- */
-function scrubPaths(text) {
-  let out = String(text ?? "");
-  let home = "";
-  try {
-    home = os.homedir();
-  } catch {
-    /* no home folder: the patterns below still cover the shapes */
-  }
-  if (home && home.length > 3) {
-    for (const form of new Set([home, home.replace(/\\/g, "/"), home.replace(/\//g, "\\")])) {
-      out = out.split(form).join("<home>");
-    }
-  }
-  const tail = String.raw`(?:[\\/][^\s'"<>|)\]}]*)?`;
-  return out
-    .replace(
-      new RegExp(String.raw`(?:<home>|[A-Za-z]:[\\/]+Users[\\/]+[^\\/'"\r\n]+)${tail}`, "gi"),
-      "<path>",
-    )
-    .replace(new RegExp(String.raw`\\\\[^\s\\/'"]+${tail}`, "g"), "<path>")
-    .replace(new RegExp(String.raw`[A-Za-z]:[\\/][^\s'"<>|)\]}]*`, "g"), "<path>")
-    .replace(
-      new RegExp(
-        String.raw`(?<![\w.:])/(?:home|Users|root|tmp|var|opt|usr|etc|mnt|private)(?:/[^\s'"<>|)\]}]*)?`,
-        "g",
-      ),
-      "<path>",
-    );
 }
 
 /** Every exit of the child, on purpose or not: the stream ends, the layers say what happened. */

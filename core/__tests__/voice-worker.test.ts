@@ -703,6 +703,37 @@ describe("voice worker: the child does not inherit secrets", () => {
     }
   });
 
+  it("also drops names with AUTH, PAT, PWD or PASSWD in them, and keeps PATH, PATHEXT and PYTHONPATH", async () => {
+    process.env["PATH"] = "C:\\bin";
+    process.env["PATHEXT"] = ".EXE";
+    process.env["PYTHONPATH"] = "C:\\py";
+    process.env["FRIDAY_AUTH_HEADER"] = "Bearer x";
+    process.env["FRIDAY_GH_PAT"] = "ghp";
+    process.env["FRIDAY_PAT"] = "ghp";
+    process.env["FRIDAY_DB_PWD"] = "p";
+    process.env["FRIDAY_SERVICE_PASSWD"] = "p";
+    process.env["FRIDAY_FEATURE_FLAG"] = "on";
+    const harness = setup({ env: { FRIDAY_ROOT: "C:\\friday" } });
+    await harness.worker.ensure();
+    const env = (harness.spawn.mock.calls[0] as [string, string[], SpawnOpts])[2].env as Record<
+      string,
+      string
+    >;
+    for (const name of [
+      "FRIDAY_AUTH_HEADER",
+      "FRIDAY_GH_PAT",
+      "FRIDAY_PAT",
+      "FRIDAY_DB_PWD",
+      "FRIDAY_SERVICE_PASSWD",
+    ]) {
+      expect(env[name]).toBeUndefined();
+    }
+    expect(env["PATH"]).toBe("C:\\bin");
+    expect(env["PATHEXT"]).toBe(".EXE");
+    expect(env["PYTHONPATH"]).toBe("C:\\py");
+    expect(env["FRIDAY_FEATURE_FLAG"]).toBe("on");
+  });
+
   it("passes a secret-looking name only when the caller lists it by name", async () => {
     process.env["OPENAI_API_KEY"] = "sk-open";
     const harness = setup({ env: { FRIDAY_MODEL_TOKEN: "listed" } });

@@ -44,6 +44,41 @@ describe("scrubPaths", () => {
   });
 });
 
+describe("scrubPaths: URL forms, encoded forms, shares and spaces", () => {
+  it("scrubs a file URL and an encoded drive path, keeping the rest of the line", () => {
+    const file = stt.scrubPaths("open file:///C:/Users/Jane%20Doe/AppData/x.wav failed");
+    expect(file).not.toMatch(/Jane|AppData/);
+    expect(file).toContain("failed");
+    const encoded = stt.scrubPaths("cannot read C%3A%5CUsers%5CJane%5CAppData%5Cx.wav now");
+    expect(encoded).not.toMatch(/Jane|AppData|%5C/);
+    expect(encoded).toContain("now");
+    expect(stt.scrubPaths("at file:///C%3A/Users/Jane/x.py")).not.toMatch(/Jane/);
+    expect(stt.scrubPaths("at %2Fhome%2Fjane%2Fx.py end")).not.toMatch(/jane/);
+  });
+
+  it("scrubs a forward-slash share and a path with spaces, also on another drive", () => {
+    expect(stt.scrubPaths("copy //nas01/media/Jane/x.wav failed")).not.toMatch(/nas01|Jane/);
+    const spaced = stt.scrubPaths("no file D:\\My Files\\Jane Doe\\voice\\clip.wav gone");
+    expect(spaced).not.toMatch(/My Files|Jane|voice/);
+    expect(spaced).toContain("gone");
+    expect(stt.scrubPaths("cannot write C:\\Program Files\\FRIDAY\\x.log")).not.toMatch(
+      /Program|FRIDAY/,
+    );
+  });
+
+  it("leaves a web address alone, including hosts and paths that start like a system folder", () => {
+    for (const url of [
+      "https://example.com/tmp/x",
+      "https://tmp.example.com/a",
+      "https://home/x",
+      "http://localhost:8765/var/log",
+      "wss://api.example.com/home/stream",
+    ]) {
+      expect(stt.scrubPaths(`fetch ${url} failed`)).toBe(`fetch ${url} failed`);
+    }
+  });
+});
+
 describe("what reaches the renderer", () => {
   it("a failed write of the clip answers write-failed without the profile path", async () => {
     installFakeWorker(stt);

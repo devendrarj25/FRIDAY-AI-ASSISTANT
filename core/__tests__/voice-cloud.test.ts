@@ -382,3 +382,71 @@ describe("cloud speech from the renderer", () => {
     expect(out).toEqual({ ok: false, error: "the key was refused" });
   });
 });
+
+describe("the gate refuses a paid provider while paid access is off", () => {
+  const prefsFor = (paid: Record<string, unknown> = {}) =>
+    voicePrefs({ allowedProviders: ["sarvam"], ...paid });
+  const make = (extra: Record<string, unknown>) =>
+    createVoiceCloud({
+      fetchImpl: async () => new Response("{}"),
+      getSecret: () => "key",
+      prefs: () => prefsFor(),
+      ...extra,
+    });
+
+  it("keeps a free provider working with no paid dependency wired", () => {
+    expect(make({}).gate("sarvam").ok).toBe(true);
+  });
+
+  it("refuses a provider that costs money when the billing firewall says paid is off", () => {
+    const gate = make({ costsMoney: () => true, paidUnlocked: () => false }).gate("sarvam");
+    expect(gate.ok).toBe(false);
+    expect(gate.error).toMatch(/paid/i);
+  });
+
+  it("allows it once paid access is on, and refuses when the firewall cannot answer", () => {
+    expect(make({ costsMoney: () => true, paidUnlocked: () => true }).gate("sarvam").ok).toBe(true);
+    expect(
+      make({
+        costsMoney: () => true,
+        paidUnlocked: () => {
+          throw new Error("no billing");
+        },
+      }).gate("sarvam").ok,
+    ).toBe(false);
+    expect(make({ costsMoney: () => true }).gate("sarvam").ok).toBe(false);
+  });
+
+  it("never reaches the network or reads the key when the paid check refuses", async () => {
+    let fetched = 0;
+    let keyReads = 0;
+    const api = createVoiceCloud({
+      fetchImpl: async () => {
+        fetched += 1;
+        return new Response("{}");
+      },
+      getSecret: () => {
+        keyReads += 1;
+        return "key";
+      },
+      prefs: () => prefsFor(),
+      costsMoney: () => true,
+      paidUnlocked: () => false,
+    });
+    const out = await api.speak("sarvam", { text: "hello", language: "en-IN" });
+    expect(out.ok).toBe(false);
+    expect(fetched).toBe(0);
+    expect(keyReads).toBe(0);
+  });
+
+  it("the default paid set is the router's own, and main wires the billing firewall into the gate", async () => {
+    const { PAID_BY_DEFAULT } =
+      await import("../../src/lib/friday/voice-engine/voice-provider-router");
+    const fs = await import("node:fs");
+    expect([...cloudModule.PAID_PROVIDERS].sort()).toEqual([...PAID_BY_DEFAULT].sort());
+    const main = fs.readFileSync("electron/main.cjs", "utf8");
+    expect(main).toMatch(
+      /createVoiceCloud\(\{\s*paidUnlocked: \(\) => billingPolicy\.paidUnlocked\(billingState\(\)\)\.allowed === true,/,
+    );
+  });
+});

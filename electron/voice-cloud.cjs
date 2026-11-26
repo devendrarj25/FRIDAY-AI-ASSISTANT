@@ -10,7 +10,8 @@
  *                           `Ocp-Apim-Subscription-Key`, `Content-Type: application/ssml+xml`,
  *                           `X-Microsoft-OutputFormat`, `User-Agent`; body SSML
  * Nothing here has been run against a live account. Gates (checked here, in this order): cloud voice switched on,
- * the provider allowed, privacy mode off, a key saved. Before any request the text itself is classified here
+ * the provider allowed, privacy mode off, paid access on when the provider costs money (the billing firewall), a
+ * key saved. Before any request the text itself is classified here
  * (the privacy firewall), so a SENSITIVE reply never leaves this PC whatever the renderer sent; a renderer
  * `sensitiveReply: true` (the whole reply was classified) can only add a refusal. Quotas are counted by the renderer's usage ledger before
  * the call. Only the two fixed hosts below are ever contacted; an error text is scrubbed of the key.
@@ -27,6 +28,9 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const TIMEOUT_MS = 20_000;
 
 const SECRET_IDS = { sarvam: "voice-sarvam", "azure-speech": "voice-azure-speech" };
+
+/** Providers with no free allowance at all (the renderer router's PAID_BY_DEFAULT): refused while paid access is off. */
+const PAID_PROVIDERS = new Set(["openai", "xai"]);
 
 const escapeXml = (text) =>
   String(text).replace(
@@ -108,9 +112,17 @@ function parseSarvamStt(json) {
  *   fetchImpl?: typeof fetch,
  *   getSecret: (id: string) => string,
  *   prefs: () => any,
+ *   costsMoney?: (provider: string) => boolean,
+ *   paidUnlocked?: () => boolean,
  * }} deps
  */
-function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
+function createVoiceCloud({
+  fetchImpl = globalThis.fetch,
+  getSecret,
+  prefs,
+  costsMoney = (id) => PAID_PROVIDERS.has(id),
+  paidUnlocked = () => false,
+}) {
   function gate(provider) {
     const secretId = SECRET_IDS[provider];
     if (!secretId) return { ok: false, error: "that provider has no speech connection here" };
@@ -120,6 +132,14 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
     if (!Array.isArray(cloud.allowedProviders) || !cloud.allowedProviders.includes(provider))
       return { ok: false, error: "that provider is not on the allowed list" };
     if (voice.privacyMode === true) return { ok: false, error: "Keep speech on this PC is on" };
+    // A provider that costs money is refused while paid access is off. No answer from the firewall is a refusal.
+    let paidOff = false;
+    try {
+      paidOff = costsMoney(provider) === true && paidUnlocked() !== true;
+    } catch {
+      paidOff = true;
+    }
+    if (paidOff) return { ok: false, error: "paid access is off (this provider costs money)" };
     const key = getSecret(secretId);
     if (!key) return { ok: false, error: "no key is saved for that provider" };
     return { ok: true, key, cloud };
@@ -269,4 +289,5 @@ module.exports = {
   parseSarvamStt,
   escapeXml,
   SECRET_IDS,
+  PAID_PROVIDERS,
 };

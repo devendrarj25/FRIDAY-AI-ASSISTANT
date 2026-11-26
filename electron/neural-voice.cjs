@@ -23,6 +23,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const paths = require("./friday-paths.cjs");
+const { scrubPaths } = require("./path-scrub.cjs");
 const { resolvePython } = require("./python.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { classify } = require("./privacy-firewall.cjs");
@@ -131,10 +132,7 @@ function normaliseFridayVoiceStatus(raw) {
   const recipe = Number(tts.recipeVersion);
   const reason =
     typeof tts.reason === "string"
-      ? tts.reason
-          .replace(/[\u0000-\u001f\u007f]/g, " ")
-          .trim()
-          .slice(0, 200)
+      ? scrubPaths(tts.reason.replace(/[\u0000-\u001f\u007f]/g, " ").trim()).slice(0, 200)
       : "";
   const failures = Number(tts.failures);
   const retryInS = Number(tts.retryInS);
@@ -235,7 +233,7 @@ async function status(force = false) {
       ? {
           available: true,
           version: probe.stdout.trim(),
-          python: py[0],
+          python: scrubPaths(py[0]),
           engine: "edge-tts",
           networkRequired: true,
           offline: false,
@@ -244,7 +242,7 @@ async function status(force = false) {
       : {
           available: false,
           reason: "edge-tts is not installed yet.",
-          python: py[0],
+          python: scrubPaths(py[0]),
           engine: "edge-tts",
           networkRequired: true,
           offline: false,
@@ -270,7 +268,10 @@ async function install() {
     const now = await status(true);
     return now.available
       ? { ok: true, version: now.version }
-      : { ok: false, error: (result.stderr || "pip install edge-tts failed").slice(-600) };
+      : {
+          ok: false,
+          error: scrubPaths(result.stderr || "pip install edge-tts failed").slice(-600),
+        };
   })().finally(() => {
     installing = null;
   });
@@ -460,11 +461,11 @@ function takeFailureReason() {
  * `error` of an older kernel stays valid), else the transport failure, else the caller's fallback.
  */
 function replyReason(answered, fallback) {
-  if (typeof answered?.reason === "string" && answered.reason) return answered.reason;
+  if (typeof answered?.reason === "string" && answered.reason) return scrubPaths(answered.reason);
   const error = answered?.error;
-  if (typeof error === "string" && error) return error.slice(0, 200);
+  if (typeof error === "string" && error) return scrubPaths(error).slice(0, 200);
   if (error && typeof error === "object" && typeof error.message === "string" && error.message) {
-    return error.message.slice(0, 200);
+    return scrubPaths(error.message).slice(0, 200);
   }
   return (answered ? "" : takeFailureReason()) || fallback;
 }
@@ -1007,7 +1008,7 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
         ok: false,
         engine: "edge-tts",
         cloud: true,
-        reason: (result.stderr || "edge-tts produced no audio").slice(-400),
+        reason: scrubPaths(result.stderr || "edge-tts produced no audio").slice(-400),
       };
     }
   }
@@ -1056,7 +1057,7 @@ async function speakSystem(text, options = {}) {
     return {
       ok: false,
       engine: "sapi",
-      reason: (result.error || "sapi wrote no audio").slice(0, 240),
+      reason: scrubPaths(result.error || "sapi wrote no audio").slice(0, 240),
     };
   }
   const audioBase64 = fs.readFileSync(file).toString("base64");
@@ -1125,6 +1126,7 @@ module.exports = {
   shutdown,
   restartSpeaker,
   speakerHealth,
+  replyReason,
   speakDeadlineMs,
   TTS_IDLE_UNLOAD_MS,
   speakerRequest,

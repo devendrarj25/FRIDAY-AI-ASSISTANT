@@ -1128,6 +1128,19 @@ type DesktopApi = {
     seq?: number;
     reason?: string;
   }>;
+  /** Drop a hung local speaker so the next clause starts a fresh one. `error` is short and path-free. */
+  restartTts?: () => Promise<{
+    ok: boolean;
+    state: "restarted" | "not-running" | "breaker-open" | "error";
+    error?: string;
+  }>;
+  /** Windows' own microphone privacy answer for this app (`unknown` when the platform cannot say). */
+  micAccessStatus?: () => Promise<{
+    ok: boolean;
+    status: "granted" | "denied" | "restricted" | "not-determined" | "unknown";
+  }>;
+  /** Opens the microphone privacy page in Windows Settings (that one page only). */
+  openMicPrivacySettings?: () => Promise<{ ok: boolean; error?: "refused" | "open-failed" }>;
   meetingStatus?: () => Promise<{
     ok?: boolean;
     meeting?: boolean;

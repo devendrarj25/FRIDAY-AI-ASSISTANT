@@ -2254,6 +2254,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:mic-access",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:neural-cancel-pcm",
       file: "electron/main.cjs",
     },
@@ -2278,11 +2282,19 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:open-mic-privacy",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:ptt-shortcut",
       file: "electron/main.cjs",
     },
     {
       channel: "voice:remove",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:restart-tts",
       file: "electron/main.cjs",
     },
     {
@@ -9701,8 +9713,8 @@ export const FLOW_REGISTRY = {
       total: 1114,
     },
     ipc: {
-      mapped: 516,
-      total: 516,
+      mapped: 519,
+      total: 519,
     },
     kernel: {
       mapped: 14,

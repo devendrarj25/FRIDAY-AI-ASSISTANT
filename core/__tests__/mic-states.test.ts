@@ -85,7 +85,7 @@ import {
   busyFault,
   faultView,
   reacquireDelay,
-} from "../../src/lib/friday/audio-devices";
+} from "../../src/lib/friday/mic-faults";
 import { VoiceGate } from "../../src/lib/friday/voice-audio";
 
 const live = () => tracks.filter((t) => !t.stopped).length;

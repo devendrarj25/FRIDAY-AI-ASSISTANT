@@ -26,7 +26,7 @@ import {
 } from "./pcm-capture";
 import { CAPTURE_BATCH_MS, configureFrontEnd, frontEndStats } from "./voice-engine/front-end-dsp";
 import type { EarsStats } from "./voice-diagnostics-rows";
-import { bluetoothNotice, reacquireDelay } from "./audio-devices";
+import { bluetoothNotice, reacquireDelay } from "./mic-faults";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 import { WakeGuard } from "./wake-guard";

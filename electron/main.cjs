@@ -187,7 +187,17 @@ function onFatal(kind, error) {
 process.on("uncaughtException", (error) => onFatal("uncaughtException", error));
 process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  dialog,
+  shell,
+  screen,
+  session,
+  systemPreferences,
+} = require("electron");
 
 // The portable EXE keeps its own settings, FRIDAY folder, lock, kernel port and updates (electron/portable-data.cjs), so
 // it can run beside an installed FRIDAY without touching it. This must run before anything reads `userData`, asks for
@@ -595,6 +605,7 @@ const startupTasks = loadNamed("startup-tasks", () =>
 const startupTrace = loadNamed("startup-trace", () => require("./startup-trace.cjs"));
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("load:voice");
 const neuralVoice = loadNamed("neural-voice", () => require("./neural-voice.cjs"));
+const voiceIpc = require("./voice-ipc.cjs");
 const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
 const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
 const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
@@ -5348,6 +5359,13 @@ ipcMain.handle("voice:neural-speak", (_e, payload) => neuralVoice.speak(payload 
 ipcMain.handle("voice:neural-speak-pcm", (_e, payload) => neuralVoice.speakPcm(payload || {}));
 ipcMain.handle("voice:neural-cancel-pcm", (_e, payload) => neuralVoice.cancelPcm(payload || {}));
 ipcMain.handle("voice:echo-shadow", (_e, payload) => neuralVoice.echoShadow(payload || {}));
+ipcMain.handle("voice:restart-tts", () =>
+  voiceIpc.restartTts({ neuralVoice, scrubPaths: stt.scrubPaths }),
+);
+ipcMain.handle("voice:mic-access", () => voiceIpc.micAccessStatus({ systemPreferences }));
+ipcMain.handle("voice:open-mic-privacy", (_e, url) =>
+  voiceIpc.openMicPrivacySettings({ shell }, url),
+);
 // Push-to-talk toggle. A global shortcut reports a press and no release, so it
 // toggles; hold-to-talk is Ctrl+Space inside the window. Registered only while
 // the owner picked push-to-talk in Auto mode, and released again when not.
@@ -10164,6 +10182,7 @@ ipcMain.handle("realtime:close", (_e, id) => realtimeSessions.close(String(id ||
 // ---- Cloud speech (Sarvam, Azure Speech): requests are made here so a key never reaches the renderer ----
 const voiceCloud = require("./voice-cloud.cjs");
 const voiceCloudApi = voiceCloud.createVoiceCloud({
+  paidUnlocked: () => billingPolicy.paidUnlocked(billingState()).allowed === true,
   getSecret: (id) => require("./credentials.cjs").getSecret(keyStoreRoot(), id),
   prefs: () => {
     try {
