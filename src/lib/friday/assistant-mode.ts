@@ -45,6 +45,14 @@ import {
 } from "./pcm-capture";
 import { LiveWords, livePassDeps } from "./voice-engine/live-words";
 import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
+import {
+  ScriptPolicyTally,
+  shapeHeardText,
+  streamLocale,
+  streamWanted,
+  type StreamPlan,
+} from "./voice-engine/stream-session";
+import { streamHotwords } from "./voice-engine/hotwords";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
@@ -1239,12 +1247,33 @@ class AssistantModeStore {
   private tidyShown(heard: string): { text: string; tidy?: Caption["tidy"] } {
     const voice = preferences.getSnapshot().voice;
     if (voice.tidyDictation === false) return { text: heard };
-    const done = tidyTranscript(heard, {
+    // FRIDAY Tidy first, then spoken numbers, dates and amounts written as digits (`voice.itn`, default on).
+    return shapeHeardText(heard, {
+      tidy: true,
+      itn: voice.itn !== false,
       requested: voice.recognitionLang,
       dictionary: parseVocabulary(voice.vocabulary).map((term) => ({ heard: term, write: term })),
     });
-    if (!done.changed || !done.text.trim()) return { text: heard };
-    return { text: done.text, tidy: { raw: done.raw, changes: done.changes } };
+  }
+
+  /** How heard lines keep the script policy (Hindi in Devanagari, English in Latin): counts only, last 50 lines. */
+  private readonly scriptTally = new ScriptPolicyTally();
+
+  /**
+   * The streaming ear for the next utterance, or null when `voice.streamEngine` is off (the default). Only Auto
+   * mode's dictation asks, inside a turn it already listens to; it never opens the microphone itself.
+   */
+  private streamPlan(): StreamPlan | null {
+    const voice = preferences.getSnapshot().voice;
+    if (!streamWanted(voice.streamEngine) || this.state.mode !== "auto") return null;
+    return {
+      streamEngine: voice.streamEngine,
+      locale: streamLocale(voice.recognitionLang),
+      hotwords: streamHotwords({
+        names: [voice.addressName, voice.wakeWord],
+        vocabulary: parseVocabulary(voice.vocabulary),
+      }),
+    };
   }
 
   /** Who a line is for: her (by name, or inside the open conversation), another assistant, or the room. */
@@ -2827,6 +2856,13 @@ class AssistantModeStore {
       },
       // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
       voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
+      // The streaming ear (`voice.streamEngine`, off by default): its partials take the live-words path, its final
+      // stands in for the decode, and any refusal leaves the ordinary decode to read the same audio.
+      streamPlan: () => this.streamPlan(),
+      onStreamPartial: (update) => {
+        this.startLiveWords();
+        this.liveWords?.show(update);
+      },
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         // A turn whose budget was already recorded at its first sound adds only its stage gaps here.
@@ -2925,6 +2961,19 @@ class AssistantModeStore {
       },
       onFinal: (text, meta) => {
         const trimmed = text.trim();
+        if (trimmed) {
+          const check = this.scriptTally.note(
+            trimmed,
+            meta?.quality?.language || preferences.getSnapshot().voice.recognitionLang,
+          );
+          if (!check.clean) {
+            const total = this.scriptTally.summary();
+            this.trace(
+              "segment",
+              `script: ${check.violations.length} word(s) off the script policy · ${total.violating}/${total.samples} recent lines`,
+            );
+          }
+        }
         // Which recogniser may make the turn is decided in one place (stt-authority.ts). By default the local text goes
         // straight through; when the owner made Sarvam the authority it waits briefly for the cloud sentence.
         if (trimmed) this.rememberLocalMeta(trimmed, meta);
@@ -4535,6 +4584,8 @@ class AssistantModeStore {
         this.emit();
       },
     });
+    // With the streaming ear on, its partials are the live words (`LiveWords.show`); no pass of its own runs.
+    if (streamWanted(preferences.getSnapshot().voice.streamEngine)) return;
     this.liveWords.start(performance.now() - 400);
     if (this.liveWordsTimer) return;
     this.liveWordsTimer = setInterval(() => {

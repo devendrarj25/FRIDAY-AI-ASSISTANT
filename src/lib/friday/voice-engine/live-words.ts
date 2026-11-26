@@ -177,6 +177,14 @@ export class LiveWords {
     return this.active;
   }
 
+  /**
+   * A partial from the streaming ear, already settled there (committed words never change): it takes the same path
+   * as a pass of this follower, so the caption and the barge-in gate read one shape. Display data only.
+   */
+  show(update: LiveWordsUpdate): void {
+    this.deps.onUpdate(update);
+  }
+
   private cancelRunning(): void {
     if (this.active && this.busy && this.utteranceId) this.deps.cancel?.(this.utteranceId);
   }

@@ -53,6 +53,15 @@ import {
   type HearingAudio,
 } from "./voice-hearing";
 import type { HeardQuality } from "./asr-bias";
+import type { LiveWordsUpdate } from "./voice-engine/live-words";
+import {
+  STREAM_MIN_CHUNK_MS,
+  STREAM_RATE,
+  SttStreamSession,
+  streamEarlyRead,
+  streamWanted,
+  type StreamPlan,
+} from "./voice-engine/stream-session";
 import type { VoiceMatchResult } from "./desktop";
 
 /** The same fault line is logged once. A new class replaces it. */
@@ -364,6 +373,13 @@ export interface DictationOptions {
   }) => void;
   /** One clear line when the shared capture must be rebuilt. */
   onFault?: (fault: { kind: MicFaultKind; message: string }) => void;
+  /**
+   * The streaming ear for the next utterance (`voice.streamEngine`), or null for the ordinary decode. Read once per
+   * segment; only a segment taken from the PCM ring streams. A refusal falls back to the ordinary decode.
+   */
+  streamPlan?: () => StreamPlan | null;
+  /** A live partial from the streaming ear: display and barge-in data only, never a turn. */
+  onStreamPartial?: (update: LiveWordsUpdate) => void;
 }
 
 /**
@@ -558,8 +574,18 @@ type TranscribeReply = {
   audio?: HearingAudio | null;
 };
 type ProvisionalReply = TranscribeReply;
-/** The early read of a sealed pause, carried with its utterance through the queue. */
-type EarlyRead = ProvisionalHandle<ProvisionalReply> | null;
+/**
+ * The early read of a sealed pause, or the streaming ear's final, carried with its utterance through the queue.
+ * `take` answers null when the ordinary decode must run.
+ */
+type EarlyRead =
+  | ProvisionalHandle<ProvisionalReply>
+  | {
+      source: "stream";
+      take: () => Promise<ProvisionalReply | null>;
+      cancel: () => void;
+    }
+  | null;
 
 export class DesktopDictation {
   private stream: MediaStream | null = null;
@@ -636,6 +662,12 @@ export class DesktopDictation {
   private lastFault = "";
   private histogram = emptyHistogram();
   private readonly restartStamps: number[] = [];
+
+  /** The streaming ear of the open segment (null when it is off, refused or not a PCM segment). */
+  private streamSession: SttStreamSession | null = null;
+  /** Samples of this segment already handed to the stream. */
+  private streamFed = 0;
+  private streamSeq = 0;
 
   private unsubscribe: (() => void) | null = null;
   private leaseToken = "";
@@ -788,6 +820,7 @@ export class DesktopDictation {
     this.recorder = null;
     this.pcmSegment = false;
     this.chunks = [];
+    this.dropStream("stopped");
     for (const row of this.queue) row.provisional?.cancel();
     this.queue = [];
     this.provisional.invalidate();
@@ -912,6 +945,7 @@ export class DesktopDictation {
       this.openSegmentClock();
       this.pcmSegment = true;
       this.recorder = null;
+      this.openStream();
       return true;
     }
     if (typeof MediaRecorder === "undefined") {
@@ -1025,9 +1059,81 @@ export class DesktopDictation {
     return encodeWav(samples);
   }
 
+  /** Open the streaming ear for this PCM segment when the owner asked for it. Never opens a microphone. */
+  private openStream(): void {
+    this.dropStream("replaced");
+    const plan = this.options.streamPlan?.() ?? null;
+    if (!plan || !streamWanted(plan.streamEngine)) return;
+    this.streamSeq += 1;
+    const session: SttStreamSession = new SttStreamSession({
+      bridge: desktop(),
+      streamId: `dictation-${Date.now().toString(36)}-${this.streamSeq}`,
+      onPartial: (update) => {
+        if (this.streamSession === session) this.options.onStreamPartial?.(update);
+      },
+      onEndpoint: (endpoint) => {
+        if (this.streamSession !== session || endpoint.event !== "EndOfTurn") return;
+        this.options.onDiagnostic?.({
+          stage: "segment",
+          detail: `streaming ear: end of turn${endpoint.reason ? ` · ${endpoint.reason}` : ""}`,
+          ...(endpoint.silenceMs !== null ? { ms: endpoint.silenceMs } : {}),
+        });
+      },
+      onFallback: (why) => {
+        if (this.streamSession !== session) return;
+        this.options.onDiagnostic?.({
+          stage: "segment",
+          detail: `streaming ear unavailable (${why}) — the ordinary decode reads this utterance`,
+        });
+      },
+    });
+    this.streamSession = session;
+    this.streamFed = 0;
+    void session.open(plan);
+  }
+
+  /** Hand the stream the audio of this segment it has not had yet (the ring is read only when a chunk is due). */
+  private feedStream(): void {
+    const session = this.streamSession;
+    if (!session?.live || !this.pcmFrom) return;
+    const due = capturedSince(this.pcmFrom + PRE_ROLL_MS) - this.streamFed;
+    if (due < (STREAM_MIN_CHUNK_MS / 1000) * STREAM_RATE) return;
+    const all = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    if (all.length < this.streamFed) {
+      // The ring moved past the start of this segment: what was fed no longer lines up.
+      this.dropStream("ring");
+      return;
+    }
+    session.push(all.subarray(this.streamFed));
+    this.streamFed = all.length;
+  }
+
+  /** The stream's final as this utterance's early read, or null (no stream, refused): the ordinary decode runs. */
+  private takeStreamRead(): EarlyRead {
+    const session = this.streamSession;
+    if (!session?.live) {
+      this.dropStream("closed");
+      return null;
+    }
+    this.feedStream();
+    this.streamSession = null;
+    this.streamFed = 0;
+    // Closed now, not when the queue reaches it: the stream holds the one turn gate until it is closed.
+    return streamEarlyRead(session.close(true));
+  }
+
+  private dropStream(reason: string): void {
+    this.streamSession?.abort(reason);
+    this.streamSession = null;
+    this.streamFed = 0;
+  }
+
   private finishSegment(reason: string) {
     const wav = this.pcmFrom ? this.takePcm() : null;
-    if (!wav) this.provisional.cancel();
+    if (!wav) {
+      this.provisional.cancel();
+      this.dropStream("dropped");
+    }
     const clock = segmentClock({
       startedMono: this.startedMono || performance.now(),
       nowMono: performance.now(),
@@ -1055,7 +1161,9 @@ export class DesktopDictation {
             signature: JSON.stringify(this.decodeFields()),
           })
         : null;
-      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake, sealed);
+      const streamed = this.takeStreamRead();
+      if (streamed) sealed?.cancel();
+      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake, streamed ?? sealed);
     } else if (clock.bug && !this.bugLogged) {
       this.bugLogged = true;
       this.options.onDiagnostic?.({ stage: "error", detail: clock.reason, ms: clock.reportMs });
@@ -1101,6 +1209,12 @@ export class DesktopDictation {
       });
       if (late.close) {
         this.finishSegment(late.reason);
+        return;
+      }
+      this.feedStream();
+      // The streaming ear judged the turn over: the utterance ends now (push-to-talk still waits for the key).
+      if (this.streamSession?.endOfTurn && !this.pttSegment) {
+        this.finishSegment("stream-endpoint");
         return;
       }
       const snapshot = voiceGate.getSnapshot();
@@ -1227,6 +1341,8 @@ export class DesktopDictation {
 
   /** At the model-confirmed end of the pause: read what was said now, so the answer is ready when the pause closes. */
   private maybeReadEarly(input: { speech: boolean; tooLong: boolean; quietMs: number }) {
+    // The streaming ear already reads this utterance; a second decode would only wait for its turn gate.
+    if (this.streamSession?.live) return;
     if (
       !provisionalWanted({
         score: this.turnScore,
@@ -1405,7 +1521,10 @@ export class DesktopDictation {
       if (adopted) {
         this.options.onDiagnostic?.({
           stage: "transcribing",
-          detail: "adopted the early read (same audio, no second decode)",
+          detail:
+            provisional && "source" in provisional && provisional.source === "stream"
+              ? "adopted the streaming ear's final (no second decode)"
+              : "adopted the early read (same audio, no second decode)",
           bytes: blob.size,
         });
       }
