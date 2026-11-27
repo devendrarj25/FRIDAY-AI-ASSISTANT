@@ -473,6 +473,8 @@ def score_embed(pcm, model_path: str, threshold: float) -> dict:
 
 FRAME_SAMPLES = 1280  # 80 ms at 16 kHz, the frame openWakeWord scores
 FRAME_MS = 80
+LIVE_MIN_FRAMES = 2  # consecutive hot frames a live trigger needs (a request may send its own)
+LIVE_COOLDOWN_MS = 1500  # the latch time after a trigger (a request may send its own)
 
 
 class WakeFrameScorer:
@@ -518,7 +520,10 @@ class WakeFrameScorer:
 
     def feed(self, samples) -> dict:
         """Add samples; returns {detected, score, frames} for what was scored in this call."""
-        self.pending.extend(int(v) for v in samples)
+        if hasattr(samples, "tolist"):  # numpy and array.array: one C call instead of a Python loop per sample
+            self.pending.extend(samples.tolist())
+        else:
+            self.pending.extend(int(v) for v in samples)
         detected = False
         scored = 0
         top = 0.0
@@ -643,8 +648,8 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float |
         scorer = _frame_scorers[session] = WakeFrameScorer(
             predict,
             threshold=live_threshold(model_path, threshold),
-            min_frames=int(req.get("minFrames") or 2),
-            cooldown_ms=int(req.get("cooldownMs") or 1500),
+            min_frames=int(req.get("minFrames") or LIVE_MIN_FRAMES),
+            cooldown_ms=int(req.get("cooldownMs") or LIVE_COOLDOWN_MS),
             engine=engine or "openwakeword",
         )
     try:
