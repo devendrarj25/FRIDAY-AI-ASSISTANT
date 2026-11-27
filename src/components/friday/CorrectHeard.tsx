@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,7 @@ export function CorrectHeardForm({
   status,
   message,
   learning,
+  quietUntilEdited = false,
   onChange,
   onSave,
   onCancel,
@@ -30,12 +31,26 @@ export function CorrectHeardForm({
   message?: string;
   /** The stored "Learn the words I correct" setting. */
   learning: boolean;
+  /** When set, the "change a word" hint waits until the text was edited (it is not shown at open). */
+  quietUntilEdited?: boolean;
   onChange: (next: string) => void;
   onSave: () => void | Promise<void>;
   onCancel: () => void;
 }) {
   const unchanged = !value.trim() || value.trim() === heard;
   const busy = status === "saving";
+  const [edited, setEdited] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => areaRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  useEffect(() => {
+    if (status !== "done") return;
+    const frame = requestAnimationFrame(() => closeRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [status]);
   if (status === "done") {
     return (
       <div className="mt-2 grid gap-1.5 text-left" role="status">
@@ -46,7 +61,7 @@ export function CorrectHeardForm({
           </p>
         )}
         <div>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+          <Button ref={closeRef} type="button" size="sm" variant="ghost" onClick={onCancel}>
             Close
           </Button>
         </div>
@@ -57,13 +72,17 @@ export function CorrectHeardForm({
     <div className="mt-2 grid gap-1.5 text-left">
       <p className="text-meta-sm text-muted-foreground">I heard: {heard}</p>
       <Textarea
+        ref={areaRef}
         value={value}
         disabled={busy}
         rows={2}
         aria-label="What you said"
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          setEdited(true);
+          onChange(event.target.value);
+        }}
       />
-      {unchanged ? (
+      {unchanged && (edited || !quietUntilEdited) ? (
         <p className="text-meta-sm text-muted-foreground">Change at least one word to save.</p>
       ) : null}
       {status === "saving" ? (
@@ -77,7 +96,7 @@ export function CorrectHeardForm({
         </p>
       ) : null}
       <div className="flex gap-2">
-        <Button type="button" size="sm" disabled={busy || unchanged} onClick={() => void onSave()}>
+        <Button type="button" size="sm" disabled={busy || unchanged} onClick={() => onSave()}>
           {status === "error" ? "Retry" : "Save"}
         </Button>
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
@@ -98,6 +117,7 @@ export function CorrectHeard({ caption }: { caption: Caption }) {
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<CorrectStatus>("editing");
   const [message, setMessage] = useState<string | undefined>(undefined);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const glossaryOn = prefs.toggles["brainLearnGlossary"] !== false;
   if (!canCorrect(caption)) return null;
 
@@ -122,6 +142,7 @@ export function CorrectHeard({ caption }: { caption: Caption }) {
   if (!open) {
     return (
       <button
+        ref={triggerRef}
         type="button"
         aria-label="Correct what I heard"
         title="Correct what I heard"
@@ -140,9 +161,13 @@ export function CorrectHeard({ caption }: { caption: Caption }) {
       status={status}
       {...(message !== undefined ? { message } : {})}
       learning={glossaryOn}
+      quietUntilEdited
       onChange={setValue}
       onSave={save}
-      onCancel={() => setOpen(false)}
+      onCancel={() => {
+        setOpen(false);
+        requestAnimationFrame(() => triggerRef.current?.focus());
+      }}
     />
   );
 }

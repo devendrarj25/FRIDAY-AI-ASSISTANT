@@ -370,3 +370,14 @@ describe("rows for the rails", () => {
     expect(gateFromGovernor(busy)).toMatchObject({ idle: false, onAc: false, inVoiceTurn: true });
   });
 });
+
+describe("LlmEnginePanel keeps the last reading", () => {
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "src/components/friday/LlmEnginePanel.tsx"),
+    "utf8",
+  );
+  it("does not clear state on pick and shows a stale line with Retry", () => {
+    expect(src).not.toContain("setState(null)");
+    expect(src).toContain("Showing the last reading");
+  });
+});

@@ -57,7 +57,6 @@ export function LlmEnginePanel({ controls = true }: { controls?: boolean }) {
 
   const pick = (next: EnginePrefer) => {
     preferences.setField("brainEnginePrefer", next);
-    setState(null);
     void refresh();
   };
 
@@ -90,6 +89,16 @@ export function LlmEnginePanel({ controls = true }: { controls?: boolean }) {
         <p className="text-meta-sm text-muted-foreground">Reading the engines…</p>
       ) : (
         <div className="grid gap-3">
+          {error ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p role="status" className="text-meta-sm text-muted-foreground">
+                Showing the last reading
+              </p>
+              <Button size="sm" variant="outline" onClick={() => refresh()}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
           {state.rows?.status ? (
             <p className="text-data text-foreground">{state.rows.status}</p>
           ) : null}

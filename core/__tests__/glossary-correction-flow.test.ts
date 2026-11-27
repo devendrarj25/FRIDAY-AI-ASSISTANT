@@ -201,3 +201,13 @@ describe("wiring", () => {
     expect(new Set(sources)).toEqual(new Set(["owner"]));
   });
 });
+
+describe("CorrectHeard focus and hint", () => {
+  const src = readFileSync(join(process.cwd(), "src/components/friday/CorrectHeard.tsx"), "utf8");
+  it("moves focus on open, close and save, and hints only after an edit", () => {
+    expect(src).toContain("areaRef.current?.focus()");
+    expect(src).toContain("closeRef.current?.focus()");
+    expect(src).toContain("triggerRef.current?.focus()");
+    expect(src).toContain("quietUntilEdited");
+  });
+});
