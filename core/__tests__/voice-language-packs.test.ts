@@ -157,21 +157,15 @@ describe("the pack catalog", () => {
     }
   });
 
-  it("shows the CC-BY credits of the Collabora ear and the light Hindi voice", () => {
-    const hindi = voicePackById.get("voice-pack-hindi")!;
-    const text = hindi.credits.join("\n");
-    expect(text).toMatch(/Collabora/);
-    expect(text).toMatch(/Sulabh Katiyar/);
-    expect(text).toMatch(/CC-BY-4\.0/);
+  it("shows no credit or licence text for the CC-BY members: it lives in the voice engine document", () => {
     for (const pack of voicePacks) {
-      const members = packMembers(pack).map((m) => modelById.get(m.id)!);
-      for (const model of members.filter((m) => /CC-BY/.test(m.license))) {
-        const credited = pack.credits.some((line) => line.includes("CC-BY-4.0"));
-        expect(credited, `${pack.id} credits ${model.id}`).toBe(true);
-      }
+      expect(pack, pack.id).not.toHaveProperty("credits");
+      expect(JSON.stringify(pack), pack.id).not.toMatch(/Collabora|Katiyar|CC-BY|based on/);
     }
-    // The Hinglish pack does not carry the Collabora ear, so it does not claim that credit either.
-    expect(voicePackById.get("voice-pack-hinglish")!.credits.join("\n")).not.toMatch(/Collabora/);
+    const members = packMembers(voicePackById.get("voice-pack-hindi")!).map((m) =>
+      modelById.get(m.id)!,
+    );
+    expect(members.filter((m) => /CC-BY/.test(m.license)).length).toBeGreaterThan(0);
   });
 
   it("keeps the memberships equal to the Doctor's copy in electron/voice-weights.cjs", () => {

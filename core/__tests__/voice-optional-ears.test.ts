@@ -104,10 +104,10 @@ describe("the Hindi fallback is pinned and credited", () => {
     for (const row of Object.values(pin().files)) expect(row.sha256).toMatch(HEX64);
   });
 
-  it("shows the credit in the Models page text", () => {
+  it("shows the FRIDAY name and no credit in the Models page text", () => {
     const row = modelById.get("hindi-fallback-ear")!;
     expect(row.license).toBe("CC-BY-4.0");
-    expect(row.name).toMatch(/Collabora/);
+    expect(row.name).toBe("FRIDAY Ear Hindi Backup");
     expect(row.url).toBe("https://huggingface.co/collabora/faster-whisper-small-hindi");
   });
 });

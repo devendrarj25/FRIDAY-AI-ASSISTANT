@@ -124,11 +124,10 @@ describe("the light Hindi voice is pinned and credited", () => {
     expect(pins.pinnedBytes(pin())).toBeLessThan(100_000_000); // about 91 MB: small, never the default
   });
 
-  it("shows the credit and the licence in the Models page text", () => {
+  it("shows the FRIDAY name and no credit in the Models page text, with the licence as a field", () => {
     const row = modelById.get("hindi-light-tts")!;
     expect(row.license).toBe("CC-BY-4.0");
-    expect(row.name).toMatch(/Sulabh Katiyar/);
-    expect(row.name).toMatch(/CC-BY-4\.0/);
+    expect(row.name).toBe("FRIDAY Voice Lite");
     expect(row.url).toBe("https://huggingface.co/sulabhkatiyar/indic-tiny-tts-hindi");
   });
 });

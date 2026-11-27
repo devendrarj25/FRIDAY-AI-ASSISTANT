@@ -1567,7 +1567,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-fallback-ear",
-    "FRIDAY Ear Hindi Backup (credit: Whisper small Hindi by Collabora, CC-BY-4.0)",
+    "FRIDAY Ear Hindi Backup",
     "onnx",
     "Speech to Text",
     "244M",
@@ -1597,7 +1597,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-light-tts",
-    "FRIDAY Voice Lite (credit: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0)",
+    "FRIDAY Voice Lite",
     "onnx",
     "Text to Speech",
     "22M",
@@ -1642,7 +1642,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "speaker-wespeaker",
-    "FRIDAY Speaker (candidate, credit: WeSpeaker, ONNX by onnx-community, CC-BY-4.0)",
+    "FRIDAY Speaker (candidate)",
     "onnx",
     "Speech to Text",
     "ResNet34",
@@ -1687,7 +1687,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hinglish-ear-trelis",
-    "FRIDAY Ear Hinglish Large (candidate, mixed script, credit: Trelis Research, Apache-2.0)",
+    "FRIDAY Ear Hinglish Large (candidate, mixed script)",
     "onnx",
     "Speech to Text",
     "1.5B",
@@ -2861,8 +2861,6 @@ export type VoicePack = {
   /** The Settings recognition language under which the listening path uses this pack's ear. */
   recognitionLang: string;
   members: VoicePackMember[];
-  /** Licence credit lines that must stay visible (CC-BY needs its author named). */
-  credits: string[];
 };
 
 const ENGLISH_EAR_MEMBER: VoicePackMember = {
@@ -2906,10 +2904,6 @@ export const voicePacks: VoicePack[] = [
       "Everything to hear and answer in English on this PC: the FRIDAY Ear English ear, the listen gate and turn helpers, and the fast FRIDAY Voice. One action downloads what is missing.",
     recognitionLang: "en-IN",
     members: [VAD_MEMBER, TURN_MEMBER, ENGLISH_EAR_MEMBER, NEURAL_VOICE_MEMBER],
-    credits: [
-      "FRIDAY Ear is based on Whisper (faster-whisper conversion), MIT. FRIDAY Listen Gate is based on Silero VAD, MIT. FRIDAY Turn is based on Smart Turn, BSD-2-Clause (Pipecat).",
-      "FRIDAY Voice is based on Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
-    ],
   },
   {
     kind: "voice-pack",
@@ -2933,12 +2927,6 @@ export const voicePacks: VoicePack[] = [
         bytes: 487097397,
       },
     ],
-    credits: [
-      "FRIDAY Ear Hindi Backup is based on Whisper small Hindi by Collabora, CC-BY-4.0 (faster-whisper conversion).",
-      "FRIDAY Voice Lite is based on work by Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0.",
-      "FRIDAY Ear Hindi is based on AI4Bharat IndicConformer, MIT. FRIDAY Punctuate Hindi is based on 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
-      "FRIDAY Voice is based on Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
-    ],
   },
   {
     kind: "voice-pack",
@@ -2959,12 +2947,6 @@ export const voicePacks: VoicePack[] = [
       TURN_MEMBER,
       ENGLISH_EAR_MEMBER,
       NEURAL_VOICE_MEMBER,
-    ],
-    credits: [
-      "FRIDAY Ear Hinglish is based on a Whisper base Hindi-to-Hinglish fine-tune (Oriserve, MSpider3 CT2 conversion), Apache-2.0.",
-      "FRIDAY Ear Hindi is based on AI4Bharat IndicConformer, MIT. FRIDAY Punctuate Hindi is based on 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
-      "FRIDAY Ear is based on Whisper, MIT. FRIDAY Listen Gate is based on Silero VAD, MIT. FRIDAY Turn is based on Smart Turn, BSD-2-Clause (Pipecat).",
-      "FRIDAY Voice is based on Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
     ],
   },
 ];

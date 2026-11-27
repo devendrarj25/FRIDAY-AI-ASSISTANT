@@ -1,8 +1,8 @@
 /**
  * Every voice model the owner reads about is a FRIDAY name (FRIDAY Ear, FRIDAY Voice, FRIDAY Denoise, ...), never an
  * upstream product name. The rename is label-only: ids, folders, stored words, pin keys and row ids stay as they
- * are (the setup scripts, stored settings and the kernel read them). A short origin credit stays only where a
- * licence needs it, inside a "(credit: ...)" parenthesis or a "... is based on ..." credit line.
+ * are (the setup scripts, stored settings and the kernel read them). No other developer's credit, notice or licence
+ * text is shown in the app: it lives in docs/FRIDAY_VOICE_ENGINE.md only.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -23,15 +23,16 @@ const root = path.resolve(__dirname, "../..");
 const UPSTREAM =
   /whisper|nemotron|supertonic|indicconformer|wespeaker|silero|smart[ -]?turn|dpdfnet|gtcrn|vosk|piper|coqui|xtts|pipecat|ctranslate|faster[- ]?whisper|openwakeword/i;
 
-/** A credit parenthesis is the one place an upstream name may stay in a label. */
-const withoutCredit = (text: string) => text.replace(/credit:[^)]*\)/g, ")");
+/** Credit, attribution and licence-notice wording that must not appear in a shown label. */
+const CREDIT_TEXT =
+  /credit|based on|attribution|CC-BY|Apache|OpenRAIL|licen[cs]e|Collabora|Katiyar|Trelis|Rasa/i;
 
 /**
  * Where an upstream name stays on purpose (file: reason). Pin keys, repo ids, ids and licence credit lines are
  * data, not product names.
  */
 export const ALLOWLIST = [
-  "src/lib/friday/model-catalog.ts: row ids, repo urls, and the credit lines of each pack (FRIDAY ... is based on ...)",
+  "src/lib/friday/model-catalog.ts: row ids and repo urls",
   "src/lib/friday/voice-engine/voice-engine-table.ts: ids, repo and pinRepo, evidence links and candidate engines that are not installable",
   "electron/voice-weights.cjs: repo constants, pin keys, source labels naming the download host, and comments",
   "electron/voice-verify.cjs: 'import faster_whisper' and 'import edge_tts' are Python module checks, not product names",
@@ -86,7 +87,7 @@ const EXPECTED_NAME: Record<string, RegExp> = {
 };
 
 describe("the Models page names every voice model as FRIDAY", () => {
-  it("starts each voice row with FRIDAY and carries no upstream name (credit parentheses excepted)", () => {
+  it("starts each voice row with FRIDAY and carries no upstream name and no credit text", () => {
     expect(VOICE_IDS.catalog.length).toBe(26);
     for (const id of VOICE_IDS.catalog) {
       const row = modelById.get(id);
@@ -94,7 +95,8 @@ describe("the Models page names every voice model as FRIDAY", () => {
       expect(row!.name, id).toMatch(
         /^FRIDAY (Ear|Voice|Denoise|Speaker|Listen Gate|Turn|Punctuate)/,
       );
-      expect(withoutCredit(row!.name), id).not.toMatch(UPSTREAM);
+      expect(row!.name, id).not.toMatch(UPSTREAM);
+      expect(row!.name, id).not.toMatch(CREDIT_TEXT);
     }
   });
 
@@ -105,23 +107,23 @@ describe("the Models page names every voice model as FRIDAY", () => {
     expect(modelById.get("faster-whisper")!.name).toBe("FRIDAY Ear large-v3");
   });
 
-  it("names the pack members and descriptions with FRIDAY names, upstream only in credit lines", () => {
+  it("names the pack members and descriptions with FRIDAY names and no credit lines", () => {
     for (const pack of voicePacks) {
       expect(pack.description, pack.id).not.toMatch(UPSTREAM);
       for (const member of pack.members) {
         expect(member.role, `${pack.id} ${member.id}`).not.toMatch(UPSTREAM);
       }
-      for (const line of pack.credits) {
-        const name = /^(FRIDAY [A-Za-z ]+?) is based on /.exec(line);
-        expect(name !== null, `${pack.id}: ${line}`).toBe(true);
-      }
+      expect(pack.description, pack.id).not.toMatch(CREDIT_TEXT);
+      expect(pack, pack.id).not.toHaveProperty("credits");
     }
   });
 
-  it("keeps the credit duty: the CC-BY rows still name their author in the row", () => {
-    expect(modelById.get("hindi-light-tts")!.name).toMatch(/Sulabh Katiyar/);
-    expect(modelById.get("hindi-fallback-ear")!.name).toMatch(/Collabora/);
-    expect(modelById.get("speaker-wespeaker")!.name).toMatch(/CC-BY-4\.0/);
+  it("shows no author or licence credit in the rows (the origins table is in the voice engine document)", () => {
+    expect(modelById.get("hindi-light-tts")!.name).toBe("FRIDAY Voice Lite");
+    expect(modelById.get("hindi-fallback-ear")!.name).toBe("FRIDAY Ear Hindi Backup");
+    expect(modelById.get("speaker-wespeaker")!.name).toBe("FRIDAY Speaker (candidate)");
+    expect(modelById.get("hinglish-ear-trelis")!.name).not.toMatch(CREDIT_TEXT);
+    for (const row of VOICE_ENGINE_TABLE) expect(row, row.id).not.toHaveProperty("credit");
   });
 });
 
@@ -155,7 +157,8 @@ describe("the voice registry table, the installer and the Doctor use the same na
       const row = VOICE_ENGINE_TABLE.find((r) => r.id === id);
       expect(row, id).toBeTruthy();
       expect(row!.label, id).toMatch(/^FRIDAY /);
-      expect(withoutCredit(row!.label), id).not.toMatch(UPSTREAM);
+      expect(row!.label, id).not.toMatch(UPSTREAM);
+      expect(row!.label, id).not.toMatch(CREDIT_TEXT);
     }
   });
 
@@ -194,5 +197,6 @@ describe("the voice settings page", () => {
     expect(shown).not.toMatch(
       /nemotron|supertonic|silero|indicconformer|faster-whisper|openwakeword/i,
     );
+    expect(shown).not.toMatch(/credit:|Katiyar|AI4Bharat Rasa/);
   });
 });

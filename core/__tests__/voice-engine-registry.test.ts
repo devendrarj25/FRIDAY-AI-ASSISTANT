@@ -243,7 +243,7 @@ describe("what the table says for every engine", () => {
     expect(flags("fasttext-lid218")).toContain("cc-by-nc");
     expect(flags("indicconformer-600m-multilingual")).toContain("gated");
     expect(flags("kokoro-82m-hindi-onnx")).toContain("gpl-separate-process");
-    expect(voiceEngineById.get("speaker-wespeaker")!.credit).toMatch(/CC-BY-4\.0/);
+    expect(voiceEngineById.get("speaker-wespeaker")!.weightLicence).toMatch(/CC-BY-4\.0/);
     const decided = ownerDecisions().map((row) => row.id);
     expect(decided).toEqual(
       expect.arrayContaining(["supertonic-3", "openwakeword", "indicconformer-600m-multilingual"]),

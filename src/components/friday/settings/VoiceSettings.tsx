@@ -479,7 +479,7 @@ export function VoiceSettings() {
             onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
           />
           <ToggleRow
-            label="Use FRIDAY Voice Lite for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
+            label="Use FRIDAY Voice Lite for Hindi (optional download)"
             hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the FRIDAY Voice Lite download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
             on={prefs.voice.hindiLightVoice === true}
             onToggle={() =>

@@ -4378,7 +4378,7 @@ export const FLOW_REGISTRY = {
     {
       id: "coqui-tts",
       kind: "model",
-      name: "Coqui TTS VITS",
+      name: "FRIDAY Voice Classic",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4426,13 +4426,13 @@ export const FLOW_REGISTRY = {
     {
       id: "denoise-dpdfnet",
       kind: "model",
-      name: "DPDFNet 2 denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+      name: "FRIDAY Denoise (optional, off by default)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "denoise-gtcrn",
       kind: "model",
-      name: "GTCRN denoiser (optional, off by default, MIT, tiny streaming model)",
+      name: "FRIDAY Denoise Lite (optional, off by default)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4456,37 +4456,37 @@ export const FLOW_REGISTRY = {
     {
       id: "faster-whisper",
       kind: "model",
-      name: "Faster Whisper large-v3",
+      name: "FRIDAY Ear large-v3",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-base",
       kind: "model",
-      name: "Faster Whisper base",
+      name: "FRIDAY Ear base",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-large-v3-turbo",
       kind: "model",
-      name: "Faster Whisper large v3 turbo",
+      name: "FRIDAY Ear large v3 turbo",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-medium",
       kind: "model",
-      name: "Faster Whisper medium",
+      name: "FRIDAY Ear medium",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-small",
       kind: "model",
-      name: "Faster Whisper small",
+      name: "FRIDAY Ear small",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-tiny",
       kind: "model",
-      name: "Faster Whisper tiny",
+      name: "FRIDAY Ear tiny",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4648,43 +4648,43 @@ export const FLOW_REGISTRY = {
     {
       id: "hindi-ear",
       kind: "model",
-      name: "Hindi ear (IndicConformer, int8)",
+      name: "FRIDAY Ear Hindi",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-fallback-ear",
       kind: "model",
-      name: "Hindi fallback ear (Whisper small Hindi, credit: Collabora, CC-BY-4.0)",
+      name: "FRIDAY Ear Hindi Backup",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-light-tts",
       kind: "model",
-      name: "Light Hindi voice (credit: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0)",
+      name: "FRIDAY Voice Lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-punct",
       kind: "model",
-      name: "Hindi punctuation (47 languages, adds commas and the danda, Apache-2.0)",
+      name: "FRIDAY Punctuate Hindi",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-vaani-ear",
       kind: "model",
-      name: "Hindi Vaani ear (candidate, Whisper large-v3 fine-tune by ARTPARK-IISc, Apache-2.0)",
+      name: "FRIDAY Ear Hindi Large (candidate)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hinglish-ear",
       kind: "model",
-      name: "Hinglish ear (Roman letters, Whisper base fine-tune by Oriserve, int8)",
+      name: "FRIDAY Ear Hinglish (Roman letters)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hinglish-ear-trelis",
       kind: "model",
-      name: "Hinglish mixed-script ear (candidate, Whisper large-v3 fine-tune by Trelis Research, int8, Apache-2.0)",
+      name: "FRIDAY Ear Hinglish Large (candidate, mixed script)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -5368,7 +5368,7 @@ export const FLOW_REGISTRY = {
     {
       id: "piper-en",
       kind: "model",
-      name: "Piper (en_US amy)",
+      name: "FRIDAY Voice English lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -6238,7 +6238,7 @@ export const FLOW_REGISTRY = {
     {
       id: "silero-vad",
       kind: "model",
-      name: "Silero VAD",
+      name: "FRIDAY Listen Gate",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7702,7 +7702,7 @@ export const FLOW_REGISTRY = {
     {
       id: "smart-turn",
       kind: "model",
-      name: "Smart Turn v3.2",
+      name: "FRIDAY Turn",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7714,7 +7714,7 @@ export const FLOW_REGISTRY = {
     {
       id: "speaker-wespeaker",
       kind: "model",
-      name: "WeSpeaker speaker model (candidate, credit: WeSpeaker, ONNX by onnx-community, CC-BY-4.0)",
+      name: "FRIDAY Speaker (candidate)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7732,13 +7732,13 @@ export const FLOW_REGISTRY = {
     {
       id: "stream-ear-nemotron",
       kind: "model",
-      name: "Streaming ear (candidate, NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8 by soniqo, NVIDIA Open Model License)",
+      name: "FRIDAY Ear Live (candidate)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "supertonic-3",
       kind: "model",
-      name: "Supertonic 3",
+      name: "FRIDAY Voice",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -8842,7 +8842,7 @@ export const FLOW_REGISTRY = {
     {
       id: "vosk-en",
       kind: "model",
-      name: "Vosk English small",
+      name: "FRIDAY Ear English lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -8854,13 +8854,13 @@ export const FLOW_REGISTRY = {
     {
       id: "whisper-large-v3",
       kind: "model",
-      name: "Whisper large-v3",
+      name: "FRIDAY Ear large-v3 (full precision)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "whispercpp-base",
       kind: "model",
-      name: "Whisper.cpp base",
+      name: "FRIDAY Ear base (C++ build)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9568,7 +9568,7 @@ export const FLOW_REGISTRY = {
     {
       id: "xtts-v2",
       kind: "model",
-      name: "XTTS v2 (voice clone)",
+      name: "FRIDAY Voice Clone",
       file: "src/lib/friday/model-catalog.ts",
     },
     {

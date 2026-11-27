@@ -16,7 +16,6 @@ const crypto = require("crypto");
  * was; `licenseRecord` is the structured form the bundle gate reads:
  *   · id             the licence id (SPDX-like); the allowlist below is the only set a bundled tier may carry;
  *   · url            the official licence page (HTTP 200 on 2026-11-27);
- *   · notice         the one notice or attribution line the licence asks for when a copy is redistributed;
  *   · redistribution permissive (MIT, Apache-2.0: keep the notices), attribution (credit and a copy of the agreement),
  *                    use-restricted (OpenRAIL-M: the use limits travel with the copy) or refused (never bundled).
  * No licence text body is kept in the repository: whether FRIDAY redistributes weights at all is the owner's decision,
@@ -53,12 +52,11 @@ const UPSTREAM_OPENMDW = {
   checkedAt: LICENCE_CHECKED_AT,
 };
 
-function licence(id, notice) {
+function licence(id) {
   const known = LICENCES[id];
   return {
     id,
     url: known.url,
-    notice,
     redistribution: known.redistribution,
     checkedAt: LICENCE_CHECKED_AT,
   };
@@ -73,7 +71,7 @@ function isCopyleftOrRestricted(id) {
 /**
  * The bundle gate: may this pin ship inside the installer or a bundled tier? Pure. It refuses a pin with no record,
  * a licence id that is not on the allowlist (unknown), a copyleft, non-commercial or share-alike id, a class outside
- * the four, a `refused` class, and a record whose url is not https or whose notice is not a string.
+ * the four, a `refused` class, and a record whose url is not https.
  */
 function bundleAllowed(pin) {
   const rec = pin?.licenseRecord;
@@ -84,34 +82,14 @@ function bundleAllowed(pin) {
   if (!REDISTRIBUTION_CLASSES.includes(rec.redistribution) || rec.redistribution === "refused")
     return false;
   if (typeof rec.url !== "string" || !rec.url.startsWith("https://")) return false;
-  return typeof rec.notice === "string";
-}
-
-/**
- * The notice lines a redistributed set of pins must carry, one per pin that has one, without repeats. Takes a list of
- * pins, a repository-to-pin map (like `PINS`, the default), and returns plain strings: no licence text body.
- */
-function noticesFor(pins = PINS) {
-  const list = Array.isArray(pins) ? pins : Object.values(pins || {});
-  const seen = new Set();
-  const lines = [];
-  for (const pin of list) {
-    const line = String(pin?.licenseRecord?.notice || "").trim();
-    if (!line || seen.has(line)) continue;
-    seen.add(line);
-    lines.push(line);
-  }
-  return lines;
+  return true;
 }
 
 const PINS = {
   "Systran/faster-whisper-base": {
     revision: "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper base, CTranslate2 conversion by Systran (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
@@ -134,10 +112,7 @@ const PINS = {
   "Systran/faster-whisper-large-v3": {
     revision: "edaa852ec7e145841d8ffdb056a99866b5f0a478",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper large-v3, CTranslate2 conversion by Systran (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
@@ -164,10 +139,7 @@ const PINS = {
   "Systran/faster-whisper-medium": {
     revision: "08e178d48790749d25932bbc082711ddcfdfbc4f",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper medium, CTranslate2 conversion by Systran (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807",
@@ -190,10 +162,7 @@ const PINS = {
   "Systran/faster-whisper-small": {
     revision: "536b0662742c02347bc0e980a01041f333bce120",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper small, CTranslate2 conversion by Systran (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
@@ -216,10 +185,7 @@ const PINS = {
   "Systran/faster-whisper-tiny": {
     revision: "d90ca5fe260221311c53c58e660288d3deb8d356",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper tiny, CTranslate2 conversion by Systran (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8",
@@ -242,10 +208,7 @@ const PINS = {
   "dropbox-dash/faster-whisper-large-v3-turbo": {
     revision: "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "OpenAI Whisper large-v3-turbo, CTranslate2 conversion (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e",
@@ -272,10 +235,7 @@ const PINS = {
   "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx": {
     revision: "8960b8611af5b8c375d442d52907360176410c8b",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "AI4Bharat IndicConformer Hindi, ONNX conversion by OpenVoiceOS (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "4bfb1d53736f8b675b784d6ece61f5b8e7ae73ca2c0ed4c232e9135ac44ab909",
@@ -296,10 +256,7 @@ const PINS = {
   "MSpider3/whisper-hindi2hinglish-swift-ct2": {
     revision: "484362f23d657c07c2762ce1c52d7b4a7ab49d25",
     license: "Apache-2.0",
-    licenseRecord: licence(
-      "Apache-2.0",
-      "Oriserve Whisper-base Hindi-to-Hinglish fine-tune, CTranslate2 conversion by MSpider3 (Apache-2.0): keep a copy of the Apache-2.0 licence and the upstream notices with any copy.",
-    ),
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.json": {
         sha256: "7dcc85f06f98312a1146df7f28959c358c87ab3d01c369eacd4b22f1ec2c43e4",
@@ -323,15 +280,11 @@ const PINS = {
       },
     },
   },
-  // The Hindi fallback: Collabora's Whisper-small Hindi fine-tune, CTranslate2. CC-BY-4.0: the credit is
-  // shown on the Models page. Used instead of generic small only when Hindi is chosen and the Hindi ear is missing.
+  // The Hindi fallback: Collabora's Whisper-small Hindi fine-tune, CTranslate2. CC-BY-4.0. Used instead of generic small only when Hindi is chosen and the Hindi ear is missing.
   "collabora/faster-whisper-small-hindi": {
     revision: "92e09a8982af971cf2033ed592d4ef8b249baad2",
     license: "CC-BY-4.0",
-    licenseRecord: licence(
-      "CC-BY-4.0",
-      "Whisper-small Hindi fine-tune by Collabora (CC-BY-4.0, https://creativecommons.org/licenses/by/4.0/): credit Collabora, link the licence and say the copy was modified.",
-    ),
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "config.json": {
         sha256: "a009751ea519c21514a766f08b33784c0ce0aef4f3fafdc3687f56e33ef35b1a",
@@ -360,10 +313,7 @@ const PINS = {
   "1-800-BAD-CODE/punct_cap_seg_47_language": {
     revision: "1b9d51fc7989ebc61e844d407d9dadd08ff4ba28",
     license: "Apache-2.0",
-    licenseRecord: licence(
-      "Apache-2.0",
-      "Punctuation, capitalisation and segmentation model by 1-800-BAD-CODE (Apache-2.0): keep a copy of the Apache-2.0 licence and the upstream notices with any copy.",
-    ),
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.yaml": {
         sha256: "30eb8e05fcea3865828ab73f41fbba21dd7faf127a61950a706af9156f5b84f2",
@@ -380,16 +330,12 @@ const PINS = {
     },
   },
   // The optional light Hindi voice (kernel/tts_hindi_light.py): three ONNX graphs, 91 MB. The model files are
-  // CC-BY-4.0 (credit: Sulabh Katiyar, trained on AI4Bharat Rasa): the credit is shown in the Models page row and the
-  // licence text is kept next to the weights. The package code in the repository is not downloaded; FRIDAY's own
+  // CC-BY-4.0: the licence text is kept next to the weights. The package code in the repository is not downloaded; FRIDAY's own
   // thin Devanagari frontend replaces it.
   "sulabhkatiyar/indic-tiny-tts-hindi": {
     revision: "1fb1b108ee6ffb73ee74bd68b283ec13eb39e957",
     license: "CC-BY-4.0",
-    licenseRecord: licence(
-      "CC-BY-4.0",
-      "Indic Tiny TTS Hindi by Sulabh Katiyar, trained on AI4Bharat Rasa (CC-BY-4.0): credit the model and the Rasa dataset; the vocoder is an unchanged Vocos copy (MIT).",
-    ),
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "LICENSE.md": {
         sha256: "64fa648284b590c9e62a0d40521ba8c40728ec16cfb485245ef620436f0579ed",
@@ -420,10 +366,7 @@ const PINS = {
   "Supertone/supertonic-3": {
     revision: "3cadd1ee6394adea1bd021217a0e650ede09a323",
     license: "OpenRAIL-M",
-    licenseRecord: licence(
-      "OpenRAIL-M",
-      "Supertonic 3, Copyright (c) 2026 Supertone Inc. (BigScience Open RAIL-M): pass its use restrictions on to every recipient and keep the licence copy.",
-    ),
+    licenseRecord: licence("OpenRAIL-M"),
     files: {
       "config.json": {
         sha256: "4099082b107a9d4029849ac76b89eca65e03732660969c2babe5bf308c7357f2",
@@ -504,10 +447,7 @@ const PINS = {
   "Ceva-IP/DPDFNet": {
     revision: "dd6818d00f50c836fed43a6243ebe49116de5964",
     license: "Apache-2.0",
-    licenseRecord: licence(
-      "Apache-2.0",
-      "DPDFNet by Ceva-IP (Apache-2.0): keep a copy of the Apache-2.0 licence and the upstream notices with any copy.",
-    ),
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "onnx/dpdfnet2.onnx": {
         sha256: "4f0ee28935b4a32abecc717d745416976565834d839601acf43031094b4dc94c",
@@ -523,10 +463,7 @@ const PINS = {
   "TigreGotico/audiosronnx-gtcrn": {
     revision: "eeba5e9636e7e0aad93b25fad17471a9646d2640",
     license: "MIT",
-    licenseRecord: licence(
-      "MIT",
-      "GTCRN by Xiaobin Rong, ONNX copy by TigreGotico (MIT): keep the upstream copyright and MIT permission notice with any copy.",
-    ),
+    licenseRecord: licence("MIT"),
     files: {
       "gtcrn_simple.onnx": {
         sha256: "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
@@ -534,15 +471,12 @@ const PINS = {
       },
     },
   },
-  // Optional speaker-verification candidate (CC-BY-4.0, credit shown in the Models row): WeSpeaker ResNet34-LM, int8,
+  // Optional speaker-verification candidate (CC-BY-4.0): WeSpeaker ResNet34-LM, int8,
   // 80-bin Kaldi filterbank in, one 256-number voice embedding out. Only the int8 graph and its two small configs are pinned.
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {
     revision: "6a61a1833ff2583aabeba044f5c8221f00b67ceb",
     license: "CC-BY-4.0",
-    licenseRecord: licence(
-      "CC-BY-4.0",
-      "WeSpeaker ResNet34-LM, int8 ONNX by onnx-community (CC-BY-4.0, https://creativecommons.org/licenses/by/4.0/): credit WeSpeaker, link the licence and say the copy was modified.",
-    ),
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "config.json": {
         sha256: "4a65a1544d2085d7819632f130583d83f6815f49ef6c8ba6c8eb460bd4085041",
@@ -565,10 +499,7 @@ const PINS = {
   "bjollans/whisper-large-v3-vaani-hindi-ct2": {
     revision: "27e81d52186393a5e7ee6f3a64ebd5c627dc25ed",
     license: "Apache-2.0",
-    licenseRecord: licence(
-      "Apache-2.0",
-      "ARTPARK-IISc Vaani Hindi fine-tune of OpenAI Whisper large-v3, CTranslate2 conversion by bjollans (Apache-2.0): keep a copy of the Apache-2.0 licence and the upstream notices with any copy.",
-    ),
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.json": {
         sha256: "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
@@ -595,16 +526,12 @@ const PINS = {
   // measurement is in the registry (voice-engine-table.ts). The parent is Trelis/whisper-hinglish-preview at
   // eab1188fd2d0e91f2584229b32b3bfe1901c896c; every file below was fetched at the pinned revision and hashed here, and
   // the 1,556,723,863-byte model.bin matches the SHA-256 Hugging Face lists. The repository's own LICENSE (Apache-2.0
-  // text) is pinned beside the weights so the licence travels with them; credit: Trelis Research, ARTPARK-IISc Vaani,
-  // OpenAI Whisper, conversion by nikh360pro. Its `tokenizer.json` stops at id 51865 (it does not hold the marker),
+  // text) is pinned beside the weights so the licence travels with them. Its `tokenizer.json` stops at id 51865 (it does not hold the marker),
   // while `vocabulary.json` and the model hold id 51866: the marker is written as that id, never encoded from text.
   "nikh360pro/capsbro-hinglish-ct2": {
     revision: "87a1f963adb6e7902a766a3d20217fa63d7f018b",
     license: "Apache-2.0",
-    licenseRecord: licence(
-      "Apache-2.0",
-      "Trelis Research Whisper large-v3 Hinglish fine-tune (from ARTPARK-IISc Vaani, OpenAI Whisper), CTranslate2 conversion by nikh360pro (Apache-2.0): keep a copy of the Apache-2.0 licence and the upstream notices with any copy.",
-    ),
+    licenseRecord: licence("Apache-2.0"),
     files: {
       LICENSE: {
         sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -650,10 +577,7 @@ const PINS = {
     revision: "1ce4daedd303e01d4e603634a72c28562f1a6855",
     license: "NVIDIA-Open-Model-License",
     licenseRecord: {
-      ...licence(
-        "NVIDIA-Open-Model-License",
-        "Licensed by NVIDIA Corporation under the NVIDIA Open Model License",
-      ),
+      ...licence("NVIDIA-Open-Model-License"),
       upstream: UPSTREAM_OPENMDW,
     },
     files: {
@@ -1522,7 +1446,6 @@ module.exports = {
   LICENCES,
   LICENCE_CHECKED_AT,
   bundleAllowed,
-  noticesFor,
   FACTS,
   FILE_FACTS,
   SELF_TESTS,

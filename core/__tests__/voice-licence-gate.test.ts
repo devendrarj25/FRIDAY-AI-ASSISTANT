@@ -1,7 +1,7 @@
 /**
  * The licence gate of the voice weight pins: every pin carries a structured licence record, the bundle gate refuses
- * GPL, LGPL, non-commercial, share-alike and unknown licences, and the notice lines come back per pin. Offline: no
- * network, no weights, no clock.
+ * GPL, LGPL, non-commercial, share-alike and unknown licences. The record holds machine fields only: no notice or
+ * attribution text. Offline: no network, no weights, no clock.
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
@@ -9,7 +9,6 @@ import { createRequire } from "node:module";
 type LicRecord = {
   id: string;
   url: string;
-  notice: string;
   redistribution: string;
   checkedAt?: string;
   upstream?: { id: string; url: string; source: string; checkedAt: string };
@@ -20,7 +19,6 @@ const pins = req("../../electron/voice-pins.cjs") as {
   PINS: Record<string, Pin>;
   LICENCES: Record<string, { url: string; redistribution: string }>;
   bundleAllowed: (pin: unknown) => boolean;
-  noticesFor: (pins?: unknown) => string[];
 };
 
 const STREAM_EAR = "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8";
@@ -29,7 +27,6 @@ const record = (id: string, extra: Partial<LicRecord> = {}): { licenseRecord: Li
   licenseRecord: {
     id,
     url: "https://example.org/licence",
-    notice: "a notice",
     redistribution: "permissive",
     ...extra,
   },
@@ -42,7 +39,7 @@ describe("every pin has a known licence record", () => {
     expect(entries.length).toBe(18);
   });
 
-  it.each(entries)("%s: id, official url, class, notice, date", (repo, pin) => {
+  it.each(entries)("%s: id, official url, class, date", (repo, pin) => {
     const rec = pin.licenseRecord;
     expect(rec, `${repo} licence record`).toBeTruthy();
     expect(Object.keys(pins.LICENCES), `${repo} id`).toContain(rec!.id);
@@ -53,18 +50,21 @@ describe("every pin has a known licence record", () => {
     expect(rec!.redistribution, `${repo} class from the table`).toBe(
       pins.LICENCES[rec!.id]!.redistribution,
     );
-    expect(typeof rec!.notice, `${repo} notice`).toBe("string");
+    expect(Object.keys(rec!).sort(), `${repo} machine fields only`).toEqual(
+      (rec!.upstream
+        ? ["checkedAt", "id", "redistribution", "upstream", "url"]
+        : ["checkedAt", "id", "redistribution", "url"]
+      ).sort(),
+    );
     expect(rec!.checkedAt, `${repo} checked date`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("every licence that asks for a notice has one, and no record carries a licence text body", () => {
+  it("no record carries a notice or attribution text, and the file names no one to credit", () => {
     for (const [repo, pin] of entries) {
-      expect(pin.licenseRecord!.notice.length, `${repo} notice`).toBeGreaterThan(20);
-      expect(pin.licenseRecord!.notice.length, `${repo} one line, not a text body`).toBeLessThan(
-        400,
-      );
-      expect(pin.licenseRecord!.notice, `${repo} one line`).not.toMatch(/\n/);
+      expect(pin.licenseRecord, repo).not.toHaveProperty("notice");
+      expect(JSON.stringify(pin.licenseRecord), repo).not.toMatch(/credit|copyright|based on/i);
     }
+    expect(pins).not.toHaveProperty("noticesFor");
   });
 
   it("every shipped pin passes the bundle gate", () => {
@@ -88,9 +88,6 @@ describe("the stream ear licence conflict is resolved and recorded", () => {
       "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
     );
     expect(pin().licenseRecord!.redistribution).toBe("attribution");
-    expect(pin().licenseRecord!.notice).toBe(
-      "Licensed by NVIDIA Corporation under the NVIDIA Open Model License",
-    );
   });
 
   it("the upstream NVIDIA card's OpenMDW-1.1 is kept beside it, with its source and date", () => {
@@ -140,7 +137,7 @@ describe("bundleAllowed", () => {
     expect(pins.bundleAllowed(record(id))).toBe(true);
   });
 
-  it("refuses a pin with no record, a refused class, a bad class, a non-https url or a missing notice", () => {
+  it("refuses a pin with no record, a refused class, a bad class, a non-https url or a missing url", () => {
     expect(pins.bundleAllowed({})).toBe(false);
     expect(pins.bundleAllowed(null)).toBe(false);
     expect(pins.bundleAllowed(undefined)).toBe(false);
@@ -150,9 +147,9 @@ describe("bundleAllowed", () => {
     expect(pins.bundleAllowed(record("MIT", { redistribution: "anything" }))).toBe(false);
     expect(pins.bundleAllowed(record("MIT", { url: "http://example.org/x" }))).toBe(false);
     expect(pins.bundleAllowed(record("MIT", { url: "" }))).toBe(false);
-    const noNotice = record("MIT");
-    delete (noNotice.licenseRecord as Partial<LicRecord>).notice;
-    expect(pins.bundleAllowed(noNotice)).toBe(false);
+    const noUrl = record("MIT");
+    delete (noUrl.licenseRecord as Partial<LicRecord>).url;
+    expect(pins.bundleAllowed(noUrl)).toBe(false);
   });
 
   it("is pure: the same pin gives the same answer and nothing is changed", () => {
@@ -161,28 +158,5 @@ describe("bundleAllowed", () => {
     expect(pins.bundleAllowed(pin)).toBe(true);
     expect(pins.bundleAllowed(pin)).toBe(true);
     expect(JSON.stringify(pin)).toBe(before);
-  });
-});
-
-describe("noticesFor", () => {
-  it("returns one notice line per pin for the whole catalogue, none empty", () => {
-    const lines = pins.noticesFor();
-    expect(lines.length).toBe(18);
-    for (const line of lines) expect(line.trim().length).toBeGreaterThan(0);
-    expect(lines).toContain("Licensed by NVIDIA Corporation under the NVIDIA Open Model License");
-    expect(lines.some((l) => l.includes("Supertone Inc."))).toBe(true);
-    expect(lines.some((l) => l.includes("Collabora"))).toBe(true);
-    expect(lines.some((l) => l.includes("Sulabh Katiyar"))).toBe(true);
-  });
-
-  it("takes a list or a map, skips empty and repeated lines", () => {
-    const a = record("MIT", { notice: "line a" });
-    const b = record("MIT", { notice: "line a" });
-    const c = record("MIT", { notice: "" });
-    const d = record("MIT", { notice: "line d" });
-    expect(pins.noticesFor([a, b, c, d, {}, null])).toEqual(["line a", "line d"]);
-    expect(pins.noticesFor({ "x/a": a, "x/d": d })).toEqual(["line a", "line d"]);
-    expect(pins.noticesFor([])).toEqual([]);
-    expect(pins.noticesFor(null)).toEqual([]);
   });
 });

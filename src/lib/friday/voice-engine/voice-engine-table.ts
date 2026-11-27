@@ -323,7 +323,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hindi-fallback-ear",
-    label: "FRIDAY Ear Hindi Backup (credit: Whisper small Hindi by Collabora)",
+    label: "FRIDAY Ear Hindi Backup",
     role: "stt",
     repo: "collabora/faster-whisper-small-hindi",
     pinRepo: "collabora/faster-whisper-small-hindi",
@@ -334,7 +334,6 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     torchFree: true,
     status: "optional-pinned",
     flags: ["cc-by-credit"],
-    credit: "Whisper small Hindi by Collabora, CC-BY-4.0 (faster-whisper conversion)",
     wrapper: "kernel/whisper_ears.py",
     selfTest: true,
     lat: "fast",
@@ -434,8 +433,6 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
       { dataset: "FLEURS Hindi (Trelis)", wer: 0.1257 },
       { dataset: "FLEURS English (Trelis)", wer: 0.0693 },
     ],
-    credit:
-      "Trelis Research (Whisper Hinglish preview), trained from ARTPARK-IISc Vaani and OpenAI Whisper large-v3, Apache-2.0; CTranslate2 int8 conversion by nikh360pro (weights unchanged, checked 2026-11-26).",
     evidence: [
       HF(
         "Trelis/whisper-hinglish-preview",
@@ -691,7 +688,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   /* ------------------------------------------------------------------ speaker */
   row({
     id: "speaker-wespeaker",
-    label: "FRIDAY Speaker (credit: WeSpeaker ResNet34-LM, int8, speaker verification candidate)",
+    label: "FRIDAY Speaker (ResNet34-LM, speaker verification candidate)",
     role: "speaker",
     repo: "onnx-community/wespeaker-voxceleb-resnet34-LM",
     pinRepo: "onnx-community/wespeaker-voxceleb-resnet34-LM",
@@ -702,7 +699,6 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     torchFree: true,
     status: "optional-pinned",
     flags: ["cc-by-credit", "community-conversion"],
-    credit: "WeSpeaker ResNet34-LM, ONNX conversion by onnx-community, CC-BY-4.0",
     wrapper: null,
     selfTest: true,
     lat: "fast",
@@ -862,7 +858,6 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     torchFree: true,
     status: "optional-pinned",
     flags: ["cc-by-credit"],
-    credit: "Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0",
     wrapper: "kernel/tts_hindi_light.py",
     selfTest: true,
     lat: "fast",
@@ -884,8 +879,6 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     torchFree: true,
     status: "installed-by-default",
     flags: ["openrail-m"],
-    credit:
-      "Supertonic 3 by Supertone: MIT code, OpenRAIL-M weights; the licence text stays with the weights",
     wrapper: "kernel/voice_runtime.py",
     selfTest: true,
     lat: "fast",

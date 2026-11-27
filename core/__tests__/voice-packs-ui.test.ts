@@ -107,12 +107,12 @@ const press = (props: VoicePacksCardViewProps, label: string, index = 0) => {
 };
 
 describe("the card shows every pack from real data", () => {
-  it("lists the three packs with label, plain description, total size and credits", () => {
+  it("lists the three packs with label, plain description, total size and no credit lines", () => {
     const out = html(base());
     for (const pack of voicePacks) {
       expect(out).toContain(pack.label);
       expect(out).toContain(pack.description.slice(0, 40));
-      for (const line of pack.credits) expect(out).toContain(line.slice(0, 30));
+      expect(pack).not.toHaveProperty("credits");
     }
     expect(out).toContain("Voice language packs");
     expect(out).toMatch(/\d(\.\d)? GB/);

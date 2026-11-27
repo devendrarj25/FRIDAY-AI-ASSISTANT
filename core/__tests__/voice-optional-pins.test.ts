@@ -139,7 +139,7 @@ describe("the pins read from the Hugging Face API on 2026-11-23", () => {
 });
 
 describe("the Models rows and the Install Manager rows", () => {
-  it("list each with its licence, credit and size, uninstalled by default, as audio", () => {
+  it("list each with its licence, name and size, uninstalled by default, as audio", () => {
     for (const { id, repo } of PINNED) {
       const row = modelById.get(id)!;
       expect(row.url).toBe(`https://huggingface.co/${repo}`);
@@ -147,9 +147,11 @@ describe("the Models rows and the Install Manager rows", () => {
       expect(row.installed ?? null).toBeNull();
       expect(VOICE_MODEL_IDS).toContain(id);
     }
-    expect(modelById.get("speaker-wespeaker")!.name).toMatch(/credit: WeSpeaker.*CC-BY-4\.0/);
+    expect(modelById.get("speaker-wespeaker")!.name).toBe("FRIDAY Speaker (candidate)");
+    expect(modelById.get("speaker-wespeaker")!.license).toBe("CC-BY-4.0");
     expect(modelById.get("hindi-vaani-ear")!.name).toMatch(/candidate/);
-    expect(modelById.get("hinglish-ear-trelis")!.name).toMatch(/candidate.*Apache-2\.0/);
+    expect(modelById.get("hinglish-ear-trelis")!.name).toMatch(/candidate/);
+    expect(modelById.get("hinglish-ear-trelis")!.license).toBe("Apache-2.0");
   });
 
   it("show in the Install Manager as optional voice models, with the fit read from facts", () => {
