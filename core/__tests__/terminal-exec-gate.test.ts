@@ -11,13 +11,16 @@ const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.met
 describe("terminal:exec gate", () => {
   const main = read("../../electron/main.cjs");
   const start = main.indexOf('ipcMain.handle("terminal:exec"');
-  const handler = main.slice(start, start + 1400);
+  const handler = main.slice(start, main.indexOf('ipcMain.handle("terminal:cancel"', start));
 
-  it("an agent-origin command that is not a read is gated and a halted FRIDAY refuses it", () => {
+  it("every call that does not carry the owner mark is gated, and a halted FRIDAY refuses it", () => {
     expect(start).toBeGreaterThan(0);
-    expect(handler).toContain('origin === "agent"');
+    // The default is the gate: the owner mark is the only way out, a missing or other origin is FRIDAY's own call.
+    expect(handler).toContain('const ownerTyped = origin === "owner"');
+    expect(handler).not.toContain('origin === "agent"');
+    expect(handler).toMatch(/!ownerTyped && ownerAutonomyState\(\)\.halted === true/);
     expect(handler).toMatch(
-      /terminal\.classifyCommand\(command, \{\s*untrusted: terminal\.isUntrustedFolder\(root, request\.cwd\),?\s*\}\)/,
+      /!ownerTyped &&\s*terminal\.classifyCommand\(command, \{\s*untrusted: terminal\.isUntrustedFolder\(root, request\.cwd\),?\s*\}\)/,
     );
     // The folder that is judged is the folder the command runs in: the same root and cwd reach runCommand.
     expect(handler).toMatch(/terminal\.runCommand\(\s*root,/);
@@ -25,12 +28,13 @@ describe("terminal:exec gate", () => {
     expect(handler).toContain("halted === true");
   });
 
-  it("the origin marker is stripped before the run and is set only by FRIDAY's own runner", () => {
+  it("the origin marker is stripped before the run and the owner mark is set only by the Terminal page's runner", () => {
     expect(handler).toMatch(/const \{ origin, \.\.\.request \}/);
     expect(handler).not.toMatch(/runCommand\([^)]*origin/);
     const ops = read("../../src/lib/friday/ops-engine.ts");
     expect(ops).toContain('{ ...options, origin: "agent" }');
-    expect(ops).toMatch(/executeReal[\s\S]{0,300}this\.spawn\(command, \{\}\)/);
+    expect(ops).toMatch(/executeReal[\s\S]{0,400}this\.spawn\(command, \{ origin: "owner" \}\)/);
+    expect(ops.match(/origin: "owner"/g)).toHaveLength(1);
   });
 
   it("a late Allow after Stop everything does not run the tool", () => {
@@ -77,12 +81,23 @@ describe("a folder with its own repository or project is untrusted", () => {
 });
 
 describe("contact detail screen stays linear", () => {
-  it("a 16k run of 'a-' classifies in well under a second", async () => {
-    const { createRequire } = await import("node:module");
-    const firewall = createRequire(import.meta.url)("../../electron/privacy-firewall.cjs");
-    const started = Date.now();
+  const firewall = createRequire(import.meta.url)("../../electron/privacy-firewall.cjs") as {
+    classify: (text: string) => { level: string };
+    SIGNALS: Array<{ label: string; re?: RegExp }>;
+  };
+
+  it("the contact pattern has no open-ended repeat, so no input can make it backtrack badly", () => {
+    const signal = firewall.SIGNALS.find((item) => item.label === "a personal contact detail");
+    expect(signal?.re).toBeInstanceOf(RegExp);
+    // Take out the character classes and the escaped characters; what is left are the repeats of the pattern itself.
+    const bare = signal!.re!.source.replace(/\[(?:\\.|[^\]\\])*\]/g, "").replace(/\\./g, "");
+    expect(bare).not.toMatch(/[+*]/);
+    expect(bare).not.toMatch(/\{\d+,\}/);
+  });
+
+  it("a 16k run of 'a-' is classified, and an address built at run time is not public", () => {
     firewall.classify("a-".repeat(16000));
-    expect(Date.now() - started).toBeLessThan(500);
-    expect(firewall.classify("write to dev.person@example.com today").level).not.toBe("public");
+    const address = ["dev.person", "example.com"].join("@");
+    expect(firewall.classify(`write to ${address} today`).level).not.toBe("public");
   });
 });

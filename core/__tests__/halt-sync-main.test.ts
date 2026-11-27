@@ -163,8 +163,12 @@ describe("a corrupt or unreadable autonomy file stops FRIDAY", () => {
   });
 
   it("the sentinel is only honoured from the reader, never from a stored value", () => {
+    // The word itself inside a whole record is just text: the record is read as it is.
+    const text = gate.createAutonomyReader(() => ({ note: "UNREADABLE", halted: false }));
+    expect(text.read().halted).toBe(false);
+    // A `halted` that is not a boolean is no state at all, so it stops FRIDAY (it never reads as open).
     const fake = gate.createAutonomyReader(() => ({ halted: "UNREADABLE" }));
-    expect(fake.read().halted).toBe(false);
+    expect(fake.read().halted).toBe(true);
   });
 });
 

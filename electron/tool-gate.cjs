@@ -67,34 +67,61 @@ async function askWithTimeout(
   }
 }
 
+/** How long a synchronous stop or resume signal may outrank the stored file: the renderer's 400 ms write, with margin. */
+const SIGNAL_WINDOW_MS = 2_000;
+
+const isPlainRecord = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/** A comparable picture of what the stored file said (used to tell a file that changed from one that never caught up). */
+function fingerprint(stored) {
+  if (stored === UNREADABLE) return "unreadable";
+  try {
+    return String(JSON.stringify(stored));
+  } catch {
+    return "unserialisable";
+  }
+}
+
 /**
  * The owner's autonomy state as the main process knows it. Stop everything is written to disk on a short delay, so the
  * renderer also sends a synchronous signal (`signalHalted`) the moment the state changes; `read` takes that signal
- * before the file. When a read throws (a busy file) the last known state stands, and when nothing is known at all
- * FRIDAY counts as halted (the dial "ask"). A file that exists but is corrupt or unreadable (`UNREADABLE`) is halted
+ * before the file, but only as a bridge: it ends as soon as the file agrees with it, and after the write window a
+ * resume no longer outranks a file that still says stopped. A stop whose write never landed keeps FRIDAY stopped (the
+ * file is unchanged), and is released only by a file that has itself changed. When a read throws (a busy file) the last
+ * known state stands, and when nothing is known at all FRIDAY counts as halted (the dial "ask"). A file that exists but
+ * is corrupt, is not a plain record, or holds a `halted` that is not a boolean (`UNREADABLE` or such a value) is halted
  * at once, and stays halted while the file is missing afterwards (the store set it aside), until a real state is read:
- * an unreadable state never opens the gate.
+ * an unreadable state never opens the gate, and a resume signal never opens it either.
  * @param {() => unknown} readStored returns the stored autonomy record, null when nothing is stored, or UNREADABLE;
  *   may throw.
+ * @param {{now?: () => number, windowMs?: number}} [options] a clock and the signal window (tests inject both).
  * @returns {{read: () => {dial: "ask"|"balanced"|"full", halted: boolean}, signalHalted: (value: unknown) => boolean}}
  */
-function createAutonomyReader(readStored) {
+function createAutonomyReader(readStored, { now = Date.now, windowMs = SIGNAL_WINDOW_MS } = {}) {
   let signal = null;
   let known = null;
   let damaged = false;
   return {
     read() {
       let state;
+      let whole = false;
+      let seen = "";
       try {
         const stored = readStored();
-        const record = Boolean(stored) && typeof stored === "object";
-        if (stored === UNREADABLE || (damaged && !record)) {
+        seen = fingerprint(stored);
+        const absent = stored === null || stored === undefined;
+        const usable =
+          isPlainRecord(stored) &&
+          (stored.halted === undefined || typeof stored.halted === "boolean");
+        if ((!absent && !usable) || (damaged && absent)) {
           damaged = true;
           state = { dial: known ? known.dial : "ask", halted: true };
-        } else if (!record) {
+        } else if (absent) {
           // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
           state = { dial: "balanced", halted: false };
           known = state;
+          whole = true;
         } else {
           const halted = stored.halted === true;
           if (stored.approvalLevel === "full") state = { dial: "full", halted };
@@ -103,16 +130,44 @@ function createAutonomyReader(readStored) {
           else state = { dial: "ask", halted };
           damaged = false;
           known = state;
+          whole = true;
         }
       } catch {
         if (damaged || !known) state = { dial: known ? known.dial : "ask", halted: true };
         else state = { ...known };
       }
-      return signal === null ? state : { ...state, halted: signal };
+      if (signal === null) return state;
+      // The file caught up: the signal has done its job, and a later change of the file (a restore, a rollback) is read as is.
+      if (whole && state.halted === signal.halted) {
+        signal = null;
+        return state;
+      }
+      const aged = now() - signal.at > windowMs;
+      if (signal.halted) {
+        // A stop outlives the window until the file itself has changed; a write that never landed leaves it stopped.
+        if (whole && aged && seen !== signal.baseline) {
+          signal = null;
+          return state;
+        }
+        return { ...state, halted: true };
+      }
+      // A resume never opens an unreadable file, and does not outrank a file that still says stopped past the window.
+      if (damaged) return state;
+      if (aged) {
+        signal = null;
+        return state;
+      }
+      return { ...state, halted: false };
     },
     signalHalted(value) {
-      signal = value === true;
-      return signal;
+      let baseline;
+      try {
+        baseline = fingerprint(readStored());
+      } catch {
+        baseline = "unreadable";
+      }
+      signal = { halted: value === true, at: now(), baseline };
+      return signal.halted;
     },
   };
 }
@@ -147,6 +202,7 @@ function fromMainFrame(event, contents) {
 
 module.exports = {
   ASK_TIMEOUT_MS,
+  SIGNAL_WINDOW_MS,
   UNREADABLE,
   gateDecision,
   askWithTimeout,

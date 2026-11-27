@@ -594,6 +594,8 @@ export type CompanionRemoteState = {
 
 type DesktopApi = {
   isDesktop: true;
+  /** Stop everything, told to the main process in the same tick: true when it took the signal, false when refused. */
+  signalHalted?: (halted: boolean) => boolean;
   /** Publish the nav/feature registry so the phone companion mirrors it. */
   publishCompanionFeatures?: (
     payload: unknown[] | { features: unknown[]; capabilities: unknown[]; live?: unknown },

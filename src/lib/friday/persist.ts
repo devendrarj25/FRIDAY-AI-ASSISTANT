@@ -109,12 +109,15 @@ const AUTONOMY_NAMESPACE = "friday.autonomy.v1";
 /**
  * The saved copy of the autonomy record lands on the 400 ms delay below, and the main process gates shell commands and
  * tool calls from that copy. Telling it synchronously, in the same tick the state changes, closes that window.
+ * Returns whether the main process took the signal: a refusal (a frame that is not the window's own page, a window that
+ * is gone), a missing bridge answer or a throw all read as "not taken".
  */
-function signalHalted(bridge: StateApi | undefined, value: unknown): void {
+function signalHalted(bridge: StateApi | undefined, value: unknown): boolean {
   try {
-    bridge?.signalHalted?.((value as { halted?: unknown } | null)?.halted === true);
+    return bridge?.signalHalted?.((value as { halted?: unknown } | null)?.halted === true) === true;
   } catch {
     /* no desktop bridge: the saved copy still carries the flag */
+    return false;
   }
 }
 /** Namespaces this session has already written — never overwritten by a restore. */
@@ -130,10 +133,16 @@ export function writeState(namespace: string, value: unknown): void {
   unsaved.set(namespace, value);
   localTimer ??= setTimeout(flushLocalState, LOCAL_WRITE_DELAY_MS);
   const bridge = api();
-  if (namespace === AUTONOMY_NAMESPACE) signalHalted(bridge, value);
+  const taken = namespace === AUTONOMY_NAMESPACE ? signalHalted(bridge, value) : true;
   if (!bridge?.setState) return;
   const queued = pending.get(namespace);
   if (queued) clearTimeout(queued);
+  // A Stop everything the main process did not take only reaches it through the saved copy: write it now, not in 400 ms.
+  if (!taken && (value as { halted?: unknown } | null)?.halted === true) {
+    pending.delete(namespace);
+    void bridge.setState(namespace, value).catch(() => undefined);
+    return;
+  }
   pending.set(
     namespace,
     setTimeout(() => {

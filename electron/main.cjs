@@ -10852,16 +10852,20 @@ async function terminalPython() {
 ipcMain.handle("terminal:exec", async (_e, options) => {
   const { origin, ...request } = options || {};
   const command = String(request.command || "");
+  // Gated by default: only the explicit owner mark, which the Terminal page's own runner sets for what the owner types,
+  // skips the gate. A call with no origin, an unknown one or "agent" is FRIDAY's own (the renderer cannot be trusted
+  // to remember a flag), so it follows the same rules as every other tool call.
+  const ownerTyped = origin === "owner";
+  const startedAt = Date.now();
   // Stop everything also stops FRIDAY's own shell commands: none starts while it is halted.
-  if (origin === "agent" && ownerAutonomyState().halted === true) {
+  if (!ownerTyped && ownerAutonomyState().halted === true) {
     return { ok: false, error: "Stop everything is on, so the command was not run." };
   }
-  // A command FRIDAY itself chose (agent origin) that is not a plain read/check goes through the same
-  // permission gate as every other write/exec tool. What the owner types on the Terminal page is his own.
+  // A command that is not a plain read/check goes through the same permission gate as every other write/exec tool.
   // A folder with its own repository or project can run its own hooks and scripts: there only cmd built-ins pass.
   const root = getWorkspaceRoot();
   if (
-    origin === "agent" &&
+    !ownerTyped &&
     terminal.classifyCommand(command, {
       untrusted: terminal.isUntrustedFolder(root, request.cwd),
     }) === "exec"
@@ -10869,6 +10873,10 @@ ipcMain.handle("terminal:exec", async (_e, options) => {
     const verdict = await authorizeToolCall("terminal.exec", { command });
     if (!verdict.allowed) {
       return { ok: false, error: verdict.reason || "The command was not allowed." };
+    }
+    // The invoke ended with a budget error while the question was open: a late Allow does not run it.
+    if (ipcBudgetTable.waitExpired("terminal:exec", [options], startedAt)) {
+      return { ok: false, error: "The wait for your answer ended, so the command was not run." };
     }
   }
   return terminal.runCommand(root, { ...request, python: await terminalPython() }, (event) =>

@@ -696,11 +696,53 @@ const PROJECT_MARKERS = [
 ];
 
 /**
- * True when a command run in `cwd` could run code that is not the owner's: the folder, or a folder between it and
- * the workspace root, holds its own repository or project (a clone, a downloaded package). The root itself is the
- * owner's workspace. A folder that cannot be resolved inside the root is never called trusted.
+ * Config that a check tool the allowlist runs (pytest, vitest, eslint, prettier, tsc, cargo, make) loads and executes:
+ * exact names and name prefixes, compared in lower case because the Windows file system does not tell the cases apart.
  */
-function isUntrustedFolder(root, cwd, exists = (p) => fs.existsSync(p)) {
+const CODE_CONFIG_NAMES = new Set([
+  "conftest.py",
+  "pytest.ini",
+  "tox.ini",
+  "tsconfig.json",
+  "makefile",
+  ".cargo",
+  "pom.xml",
+]);
+const CODE_CONFIG_PREFIXES = [
+  "eslint.config.",
+  ".eslintrc",
+  "prettier.config.",
+  ".prettierrc",
+  "vitest.config.",
+  "vite.config.",
+];
+
+/** A repository config key that makes git run a program (a file system monitor, a hook folder, a filter, an alias). */
+const GIT_CONFIG_RUNS_CODE =
+  /^\s*(?:fsmonitor|hookspath|sshcommand|askpass|gitproxy|pager|editor|clean|smudge|process|textconv|external|driver)\s*=|=\s*!/im;
+
+/** True when `<dir>/.git/config` holds a key that makes git run a program. A missing or unreadable one is not. */
+function gitConfigRunsCode(dir) {
+  try {
+    return GIT_CONFIG_RUNS_CODE.test(fs.readFileSync(path.join(dir, ".git", "config"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a command run in `cwd` could run code that is not the owner's: the folder, or a folder between it and
+ * the workspace root, holds its own repository or project (a clone, a downloaded package) or config that a check tool
+ * loads and runs (a conftest.py, an eslint or vitest config, a Makefile). The root itself is the owner's workspace,
+ * except that a root whose git config runs a program (a file system monitor, a hook folder, a filter) is not: git reads
+ * it for every folder below. A folder that cannot be resolved inside the root, or listed, is never called trusted.
+ */
+function isUntrustedFolder(
+  root,
+  cwd,
+  exists = (p) => fs.existsSync(p),
+  list = (p) => fs.readdirSync(p),
+) {
   let dir;
   try {
     dir = safeResolve(root, String(cwd || "") || ".");
@@ -708,9 +750,25 @@ function isUntrustedFolder(root, cwd, exists = (p) => fs.existsSync(p)) {
     return true;
   }
   const base = path.resolve(root);
+  if (gitConfigRunsCode(base)) return true;
   while (dir !== base) {
     const here = dir;
     if (PROJECT_MARKERS.some((name) => exists(path.join(here, name)))) return true;
+    let names;
+    try {
+      names = list(here).map((name) => String(name).toLowerCase());
+    } catch {
+      return true;
+    }
+    if (
+      names.some(
+        (name) =>
+          CODE_CONFIG_NAMES.has(name) ||
+          CODE_CONFIG_PREFIXES.some((prefix) => name.startsWith(prefix)),
+      )
+    ) {
+      return true;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) return true;
     dir = parent;

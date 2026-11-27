@@ -106,7 +106,11 @@ function commitState(file, value, opts = {}) {
   return { ok: true, restored: false, reason: null, backup: migrating ? bak : null };
 }
 
-/** True when the file starts like a JSON object or array and ends like one: a cheap check that reads a few bytes. */
+/**
+ * True when the file is a whole JSON object or array. The first and last bytes are looked at first (an empty or
+ * obviously cut-off file costs a few bytes); only a file that passes is read and parsed, because a write cut off inside
+ * a nested value can still end in a closing brace and must never replace a good `.bak`.
+ */
 async function looksWhole(file) {
   let handle = null;
   try {
@@ -118,7 +122,10 @@ async function looksWhole(file) {
     const tailLength = Math.min(size, 32);
     const tail = Buffer.alloc(tailLength);
     await handle.read(tail, 0, tailLength, size - tailLength);
-    return /^[{[]/.test(head.toString("utf8")) && /[}\]]\s*$/.test(tail.toString("utf8"));
+    if (!/^[{[]/.test(head.toString("utf8")) || !/[}\]]\s*$/.test(tail.toString("utf8")))
+      return false;
+    JSON.parse(await handle.readFile("utf8"));
+    return true;
   } catch {
     return false;
   } finally {
@@ -155,8 +162,8 @@ async function commitStateAsync(file, value, opts = {}) {
       });
     }
   }
-  // An empty or cut-off file (what an interrupted write used to leave) is never copied over a good `.bak`. Only the
-  // first and last bytes are looked at, so an ordinary save still does not read or parse the old body.
+  // An empty or cut-off file (what an interrupted write used to leave) is never copied over a good `.bak`. The
+  // first and last bytes are checked first, and only a body that passes them is read and parsed.
   const hadBody = migrating ? false : await looksWhole(file);
   const published = await safeWrite.writeFileSafeAsync(file, JSON.stringify(value), {
     ...safeOptions(opts, hadBody),
