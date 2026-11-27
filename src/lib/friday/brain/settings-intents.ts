@@ -43,6 +43,7 @@ import { memory } from "../self/memory-engine";
 import { identity, type ReplyLanguage, type ReplyTone, type ResponseStyle } from "./identity";
 import { looksLikeCorrection } from "./intent-engine";
 import { looksLikeLibraryTeach } from "../library-logic";
+import { createVoicePreferenceStore, sanitizePreference } from "./voice-preferences";
 
 export type StagedChange = {
   /** Stable key of the setting being changed. */
@@ -53,6 +54,8 @@ export type StagedChange = {
   to: string;
   apply: () => Promise<void>;
   at: number;
+  /** Shorter life than STAGE_TTL_MS (a spoken approval stays short). */
+  ttlMs?: number;
 };
 
 export type SettingsIntent =
@@ -104,7 +107,7 @@ let learnNow = false;
 let forceLearn = false;
 
 export function pendingChange(): StagedChange | null {
-  if (staged && Date.now() - staged.at > STAGE_TTL_MS) staged = null;
+  if (staged && Date.now() - staged.at > (staged.ttlMs ?? STAGE_TTL_MS)) staged = null;
   return staged;
 }
 
@@ -250,6 +253,151 @@ const POLICIES: { test: RegExp; policy: UsagePolicy; label: string }[] = [
   },
 ];
 
+// --- spoken voice preferences ------------------------------------------------
+
+/** Spoken approval for a preference stays short: min(STAGE_TTL_MS, 30 s). */
+const VOICE_PREF_TTL_MS = Math.min(STAGE_TTL_MS, 30_000);
+const VOICE_PREF_REFUSAL =
+  "A voice preference cannot touch approvals, autonomy, the microphone, privacy, secrets or the rules. Open Settings for those; I keep only how I sound and how long I speak.";
+
+let voicePrefStorage: Pick<Storage, "getItem" | "setItem"> | null = null;
+const voicePrefFallback = new Map<string, string>();
+
+/** Test hook: hand the store a storage (null returns to the browser storage or memory). */
+export function useVoicePreferenceStorage(storage: Pick<Storage, "getItem" | "setItem"> | null) {
+  voicePrefStorage = storage;
+}
+
+function voicePrefStore() {
+  const chosen =
+    voicePrefStorage ??
+    (typeof localStorage === "undefined"
+      ? null
+      : (localStorage as Pick<Storage, "getItem" | "setItem">));
+  return createVoicePreferenceStore(
+    chosen ?? {
+      getItem: (k) => voicePrefFallback.get(k) ?? null,
+      setItem: (k, v) => void voicePrefFallback.set(k, v),
+    },
+  );
+}
+
+const VOICE_TOPIC =
+  /\b(?:speak\w*|voice|answers?|repl(?:y|ies)|talk\w*|slow\w*|short\w*|brief|soft\w*|quiet\w*|loud\w*|louder|fast\w*|bolo|bolna|jawab|jawaab|awaaz|awaz|dheere|dhire|chhote|chote|chhota|tez)\b|आवाज|जवाब|धीमे|धीरे|छोटे|बोल/i;
+const VOICE_PREF_NOUN = /\bvoice\s+preferences?\b|वॉइस\s*प्रेफ़?रेंस|\bvoice\s+pref\w*/i;
+const PREF_LEAD =
+  /^(?:from now on|going forward|hereafter|aaj se|ab se|ab (?:aage )?se|आज से|अब से)[\s,:-]+(.+)$/i;
+const PREF_REMEMBER =
+  /^(?:please\s+)?(?:remember|note|yaad rakho|yaad rakhna|याद रखो)(?:\s+that|\s+ki|\s+कि)?[\s,:-]+(.+)$/i;
+const PREF_TAIL = /\s+(?:yaad rakhna|yaad rakho|pasand karta hoon|pasand karti hoon)$/i;
+
+function voiceRefusal(): SettingsIntent {
+  return { kind: "refused", message: VOICE_PREF_REFUSAL };
+}
+
+function stageVoice(
+  key: string,
+  summary: string,
+  from: string,
+  to: string,
+  apply: () => void,
+): SettingsIntent {
+  const result = stage({
+    key,
+    summary,
+    from,
+    to,
+    apply: async () => apply(),
+  });
+  if (staged) staged.ttlMs = VOICE_PREF_TTL_MS;
+  return result;
+}
+
+/** Read the owner's spoken voice-preference request. Text is data: never run, never used as a pattern. */
+function readVoicePreferenceIntent(text: string): SettingsIntent {
+  const store = voicePrefStore();
+  const mentionsPref = VOICE_PREF_NOUN.test(text);
+
+  if (mentionsPref) {
+    // list: answered at once, nothing staged
+    if (
+      /\b(?:what|which|list|show|tell|read|kaun\w*|kya|batao|dikhao)\b|क्या|कौन|बताओ|दिखाओ/i.test(
+        text,
+      ) &&
+      !/\b(?:forget|remove|delete|clear|erase|reset|drop|hata\w*|mita\w*|bhool\w*|bhul\w*)\b|हटा|मिटा|भूल/i.test(
+        text,
+      )
+    ) {
+      const items = store.list();
+      return {
+        kind: "applied",
+        message: items.length
+          ? `I keep ${items.length} voice preference${items.length === 1 ? "" : "s"}: ${items.map((item, i) => `${i + 1}. ${item}`).join("; ")}.`
+          : "I keep no voice preferences yet.",
+      };
+    }
+    // clear all
+    if (
+      /\b(?:clear|erase|reset|delete|remove|hata\w*|mita\w*|saari|sab|all|my)\b|सारी|सब|हटा|मिटा/i.test(
+        text,
+      ) &&
+      !/\babout\b|\bke bare\b|के बारे/i.test(text)
+    ) {
+      const items = store.list();
+      return stageVoice(
+        "voice preferences",
+        "You want me to clear all your voice preferences.",
+        `${items.length} saved`,
+        "none",
+        () => store.clear(),
+      );
+    }
+    // forget one
+    const about = text.match(/\b(?:about|on)\s+["'“]?(.+?)["'”]?[.!?\s]*$/i);
+    const needle = (about?.[1] ?? "").trim().toLowerCase();
+    if (/\b(?:forget|remove|delete|drop|hata\w*|bhool\w*|bhul\w*)\b|हटा|भूल/i.test(text)) {
+      const items = store.list();
+      const hit = needle ? items.find((item) => item.toLowerCase().includes(needle)) : undefined;
+      if (!hit) {
+        return {
+          kind: "applied",
+          message: needle
+            ? `I have no voice preference about "${needle.slice(0, 40)}".`
+            : "Tell me which voice preference, for example: forget the voice preference about driving.",
+        };
+      }
+      return stageVoice(
+        "voice preference",
+        `Remove voice preference: "${hit}".`,
+        `${items.length} saved`,
+        `${items.length - 1} saved`,
+        () => void store.remove(hit),
+      );
+    }
+    return null;
+  }
+
+  // add: "from now on ..." / "remember ..." with a voice topic (or a rule-touching line to refuse)
+  const lead = text.match(PREF_LEAD);
+  const body = (lead ?? text.match(PREF_REMEMBER))?.[1];
+  if (!body) return null;
+  const check = sanitizePreference(body.replace(PREF_TAIL, ""));
+  if (!check.ok) {
+    // claim only speech preferences, or a standing "from now on" rule that tries to touch the rules
+    const touchesRules = check.why === "safety" || check.why === "authority";
+    return VOICE_TOPIC.test(body) || (lead && touchesRules) ? voiceRefusal() : null;
+  }
+  if (!VOICE_TOPIC.test(check.text)) return null;
+  const items = store.list();
+  return stageVoice(
+    "voice preference",
+    `Add voice preference: "${check.text}".`,
+    `${items.length} saved`,
+    `"${check.text}"`,
+    () => void store.add(check.text),
+  );
+}
+
 /**
  * Read one conversational settings request. Returns null when the text is not
  * a settings change at all, so the normal brain path continues untouched.
@@ -276,6 +424,12 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
       return { kind: "cancelled", message: "Left it as it was." };
     }
     // Anything else is a new request; fall through and re-stage.
+  }
+
+  // 1b. spoken voice preferences (stage then yes; never learned silently) ----
+  if (!forceLearn) {
+    const voice = readVoicePreferenceIntent(text);
+    if (voice) return voice;
   }
 
   learnNow = forceLearn || looksLikeCorrection(text);
