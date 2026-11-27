@@ -62,7 +62,13 @@ import {
   VoiceTools,
   type VoiceTool,
   MicFaultPanel,
+  PhaseChip,
+  ModeChips,
+  LatencyChip,
 } from "@/components/friday/VoiceControlBar";
+import { interimPlaceholder, plainStateLabel } from "@/components/friday/voice-live-status-model";
+import { VoiceLevelMeter } from "@/components/friday/VoiceLevelMeter";
+import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
 import { ConfirmationCard, VoiceTranscript } from "@/components/friday/VoiceTranscript";
 
 /**
@@ -249,6 +255,14 @@ export function AutoMode() {
   const working = live.components.some((c) => c.active);
   // No layout animation while speech streams in or out.
   const streaming = Boolean(voice.interim) || voice.speaking;
+  // The live "you" line, with a placeholder while speech is picked up; nothing is invented once it ends.
+  // One plain-words fault line for the bar and the empty transcript.
+  const errorLine = voice.error
+    ? plainFaultLine(voice.error, faultLang, faultContext(voice))
+    : null;
+  const interimShown = interimPlaceholder(voice.interim, voice.voiceState);
+  // The last finished turn's time to first sound, read from the one latency record (null until a turn ran).
+  const lastTurn = voiceLatency.summary("budget.firstSound");
 
   useEffect(() => {
     if (!follow) return;
@@ -415,6 +429,12 @@ export function AutoMode() {
           {voice.muted ? "muted · " : ""}
           {plainFaultLine(voice.status, faultLang, faultContext(voice))}
         </span>
+        <VoiceLevelMeter active={voice.listening && !voice.muted && !voice.paused} />
+        <PhaseChip
+          phase={voice.phase}
+          voiceState={voice.voiceState}
+          pending={voice.pending !== null}
+        />
         <HudButton
           icon={Ear}
           onClick={() => assistantMode.toggleHandsFree()}
@@ -500,6 +520,9 @@ export function AutoMode() {
         <VoiceTools tools={tools} shown={shownTools} />
       </HudGroup>
 
+      <ModeChips handsFree={voice.handsFree} dictating={voice.dictating} />
+      <LatencyChip summary={lastTurn} />
+
       {run ? (
         <span className="inline-flex h-6 items-center gap-1.5 rounded-ctl border border-primary/30 bg-primary/5 px-2 text-primary">
           <Loader2 className="size-3 animate-spin" />
@@ -509,9 +532,7 @@ export function AutoMode() {
       <VoiceDownloadBar download={voice.download} />
       {voice.error ? (
         <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-ctl border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
-          <span className="min-w-0 break-words">
-            {plainFaultLine(voice.error, faultLang, faultContext(voice))}
-          </span>
+          <span className="min-w-0 break-words">{errorLine}</span>
           <button
             type="button"
             title="Fix voice"
@@ -667,7 +688,7 @@ export function AutoMode() {
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 text-meta-sm text-muted-foreground">
                 <StripButton
                   icon={Activity}
-                  label={`diagnostics · ${voice.voiceState.toLowerCase()}`}
+                  label={`diagnostics · ${plainStateLabel(voice.voiceState).toLowerCase()}`}
                   title={
                     panel === "diagnostics" ? "Close voice diagnostics" : "Open voice diagnostics"
                   }
@@ -710,7 +731,7 @@ export function AutoMode() {
                 role="log"
                 aria-label="Live captions"
                 aria-live="polite"
-                aria-busy={Boolean(voice.interim)}
+                aria-busy={Boolean(interimShown)}
                 onScroll={(event) => {
                   // Scrolling up to read stops following, as the follow button does.
                   if (!tall || !follow) return;
@@ -726,11 +747,16 @@ export function AutoMode() {
                 <VoiceTaskPanel />
                 <VoiceTranscript
                   captions={visible}
-                  interim={voice.interim}
+                  interim={interimShown}
                   display={voice.display}
                   pending={full ? voice.pending : null}
                   layout={full ? "bubble" : "line"}
                   showTime={full && prefs.toggles["chatTimestamps"] === true}
+                  wakeWord={wakeWord}
+                  handsFree={voice.handsFree}
+                  muted={voice.muted}
+                  paused={voice.paused}
+                  error={errorLine}
                 />
               </div>
               {tall && !follow ? (

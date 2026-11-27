@@ -1,10 +1,13 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   Bluetooth,
+  Ear,
   MicOff,
   MoreHorizontal,
+  PenLine,
   RotateCcw,
   Settings2,
+  Timer,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +30,13 @@ import { desktopApi } from "@/lib/friday/desktop";
 import { faultView, type MicAccess } from "@/lib/friday/mic-faults";
 import { useNetwork } from "@/lib/friday/use-network";
 import { voiceGate, type MicState } from "@/lib/friday/voice-audio";
+import type { VoicePhase, VoiceState } from "@/lib/friday/voice-state";
+import { LATENCY_BUDGET_MS, type LatencySummary } from "@/lib/friday/voice-engine/latency-monitor";
+import {
+  latencyChipModel,
+  phaseChipModel,
+  type PhaseChipModel,
+} from "@/components/friday/voice-live-status-model";
 import { cn } from "@/lib/utils";
 
 /**
@@ -189,6 +199,90 @@ export function VoiceTools({ tools, shown }: { tools: VoiceTool[]; shown: number
         </DropdownMenu>
       ) : null}
     </>
+  );
+}
+
+const PHASE_TONE: Record<PhaseChipModel["tone"], string> = {
+  idle: "border-primary/25 bg-primary/5 text-muted-foreground",
+  active: "border-accent/40 bg-accent/10 text-accent",
+  warn: "border-warning/40 bg-warning/10 text-warning",
+  stopped: "border-primary/20 bg-transparent text-muted-foreground",
+};
+
+/** What FRIDAY is doing right now, in one word. A polite live region: it shows state and opens nothing. */
+export function PhaseChip({
+  phase,
+  voiceState,
+  pending,
+}: {
+  phase: VoicePhase;
+  voiceState: VoiceState;
+  pending: boolean;
+}) {
+  const chip = phaseChipModel({ phase, voiceState, pending });
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      data-phase={chip.key}
+      title={chip.title}
+      className={cn(
+        "voice-phase-chip inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",
+        PHASE_TONE[chip.tone],
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 shrink-0 rounded-full bg-current",
+          chip.tone === "active" && "pulse-dot",
+        )}
+      />
+      {chip.label}
+    </span>
+  );
+}
+
+/** The mode chips that only exist while the mode is on: Hands-free and Dictating. State only, no controls. */
+export function ModeChips({ handsFree, dictating }: { handsFree: boolean; dictating: boolean }) {
+  if (!handsFree && !dictating) return null;
+  const chip =
+    "inline-flex h-6 items-center gap-1.5 rounded-ctl border border-primary/25 bg-primary/5 px-2 text-primary";
+  return (
+    <>
+      {handsFree ? (
+        <span data-chip="hands-free" className={chip}>
+          <Ear className="size-3" aria-hidden />
+          Hands-free
+        </span>
+      ) : null}
+      {dictating ? (
+        <span data-chip="dictating" className={chip}>
+          <PenLine className="size-3" aria-hidden />
+          Dictating
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+export function LatencyChip({ summary }: { summary: Pick<LatencySummary, "last"> | null }) {
+  const chip = latencyChipModel(summary);
+  if (!chip) return null;
+  return (
+    <span
+      data-chip="latency"
+      title={`Time from the end of your words to her first sound, against ${LATENCY_BUDGET_MS} ms`}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",
+        chip.overBudget
+          ? "border-warning/40 bg-warning/10 text-warning"
+          : "border-primary/25 bg-primary/5 text-muted-foreground",
+      )}
+    >
+      <Timer className="size-3" aria-hidden />
+      {chip.label}
+    </span>
   );
 }
 
