@@ -217,6 +217,25 @@ class VectorIndex {
     }
   }
 
+  /**
+   * Drop one forgotten memory from the kernel's copy now. If the kernel cannot be reached the id keeps its stamp,
+   * so the next sync (which removes every stamped id local memory no longer holds) retries it.
+   */
+  async remove(id: string): Promise<boolean> {
+    const target = String(id || "").trim();
+    if (!target) return false;
+    const res = await this.call<{ ok: boolean; removed?: number }>("memory.remove", {
+      ids: [target],
+    });
+    if (!res?.ok) return false;
+    this.pushed.delete(target);
+    this.stamps.delete(target);
+    this.state.synced = this.pushed.size;
+    this.persistSync();
+    this.emit();
+    return true;
+  }
+
   /** Live backend status straight from the kernel. */
   async refresh(): Promise<void> {
     const status = await this.call<{
@@ -461,3 +480,12 @@ class VectorIndex {
 }
 
 export const vectorIndex = new VectorIndex();
+
+/**
+ * Start the index's sync loop once, with no panel mounted: the five-second push, the five-minute sync, the refill
+ * of an emptied index and the removal of forgotten ids all live in that loop. Idempotent; a no-op outside the
+ * desktop app.
+ */
+export function ensureVectorIndexStarted(): void {
+  if (isDesktop()) vectorIndex.start();
+}

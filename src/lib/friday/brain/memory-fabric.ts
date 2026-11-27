@@ -31,6 +31,8 @@ import {
 import { brainKnowledge, deriveKnowledgeFromMemory } from "./knowledge-base";
 import { localNeighborhood } from "./knowledge-graph";
 import { considerMemory } from "./memory-policy";
+import { foldScript, isTermWord, WORD_SPLIT } from "./retrieval";
+import { ensureVectorIndexStarted, vectorIndex } from "./vector-index";
 
 export const MEMORY_FABRIC_SCHEMA = 1;
 
@@ -148,6 +150,10 @@ export type FabricBundle = {
 };
 
 const tombstones = new Set<string>();
+memory.setTombstoneCheck((id) => {
+  hydrate();
+  return tombstones.has(id);
+});
 const ingestFingerprints = new Set<string>();
 const compiledLines = new Map<string, string[]>();
 
@@ -195,6 +201,8 @@ type SavedFabric = {
 function hydrate(): void {
   if (hydrated) return;
   hydrated = true;
+  // A turn reaches the fabric whether or not a memory panel is open, so the vector index is started from here.
+  ensureVectorIndexStarted();
   const saved = readLocalState<SavedFabric>(STORAGE_KEY);
   if (!saved || (saved.schema ?? 0) > MEMORY_FABRIC_SCHEMA) return;
   for (const id of saved.tombstones ?? []) tombstones.add(id);
@@ -340,7 +348,7 @@ export function channelScores(
   hops: { from: string; to: string }[],
 ): { lexical: number; graph: number; temporal: number } {
   const words = coverWords(prompt);
-  const hay = `${item.title} ${item.text}`.toLowerCase();
+  const hay = foldScript(`${item.title} ${item.text}`);
   const lexical = words.length
     ? words.filter((word) => hay.includes(word)).length / words.length
     : 0;
@@ -457,15 +465,13 @@ function authorityRank(authority: PreferenceAuthority): number {
 }
 
 function coverWords(prompt: string): string[] {
-  const words = prompt
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length > 3 && !COVER_NOISE.has(word));
+  const words = foldScript(prompt)
+    .split(WORD_SPLIT)
+    .filter((word) => isTermWord(word, 3) && !COVER_NOISE.has(word));
   if (words.length) return words;
-  return prompt
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length > 3);
+  return foldScript(prompt)
+    .split(WORD_SPLIT)
+    .filter((word) => isTermWord(word, 3));
 }
 
 function covers(prompt: string, item: MemoryItem): boolean {
@@ -781,6 +787,8 @@ export function forgetEverywhere(id: string): { removed: boolean; knowledgeIds: 
   tombstones.add(id);
   touchCache();
   persist();
+  // The kernel's vector copy goes now, not at the next sync: a forgotten fact must not be recalled from there.
+  void vectorIndex.remove(id);
   return { removed: before, knowledgeIds };
 }
 
@@ -981,7 +989,7 @@ function contradictionBare(value: string): string {
     .replace(/\b(?:does not|do not|did not|don't|didn't|not|never|nahi|nahin)\b/g, " ")
     .replace(/\b(?:likes|liked|liking)\b/g, "like")
     .replace(/\b(?:does|do|did|is|are)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

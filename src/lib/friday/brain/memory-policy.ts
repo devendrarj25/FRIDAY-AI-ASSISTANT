@@ -215,7 +215,13 @@ export function considerMemory(input: {
       reason: "failed attempt — keep briefly so the next try can avoid it",
     };
   }
-  const important = /\b(prefer|always|never|root|owner|remember)\b/i.test(text);
+  const important =
+    /\b(prefer|always|never|root|owner|remember)\b/i.test(text) ||
+    /\b(hamesha|kabhi nahi|yaad rakh\w*|pasand)\b/i.test(text) ||
+    // Devanagari cues as escapes (this file keeps no Devanagari literal): always, never, remember, like, my name.
+    /\u0939\u092e\u0947\u0936\u093e|\u0915\u092d\u0940 \u0928\u0939\u0940\u0902|\u092f\u093e\u0926 \u0930\u0916|\u092a\u0938\u0902\u0926|\u092e\u0947\u0930\u093e \u0928\u093e\u092e/.test(
+      text,
+    );
   return {
     keep: text.length > 40 || important,
     importance: important ? 0.75 : 0.4,

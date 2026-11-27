@@ -895,9 +895,10 @@ export function redoDraft(draft: FlowDraft): FlowDraft {
 }
 
 const FEATURE_WORDS: Record<string, RegExp> = {
-  voice: /\b(voice|awaz|आवाज|bolna|microphone)\b/i,
+  // JS \b is ASCII-only: a Devanagari keyword sits outside the \b group or it never matches on its own.
+  voice: /\b(voice|awaz|bolna|microphone)\b|आवाज/i,
   chat: /\b(chat|manual)\b/i,
-  memory: /\b(memory|yaad|याद)\b/i,
+  memory: /\b(memory|yaad)\b|याद/i,
   brain: /\b(brain|soch)\b/i,
   doctor: /\b(doctor|health)\b/i,
   models: /\b(model|router|routing)\b/i,
@@ -929,7 +930,7 @@ export function parseFlowCommand(text: string): {
 } {
   const line = String(text || "").trim();
   const show = /\b(show|open|dikhao|dikha)\b/i.test(line);
-  const explain = /\b(explain|how|kaise|कैसे|samjha)\b/i.test(line);
+  const explain = /\b(explain|how|kaise|samjha)\b|कैसे/i.test(line);
   const watch = /\b(watch|live|kya ho raha|what's happening|what is happening)\b/i.test(line);
   if (!show && !explain && !watch) return { action: "none", feature: "master" };
   if (!/\b(flow|wiring|chart|graph)\b/i.test(line) && !watch)

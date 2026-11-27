@@ -20,6 +20,7 @@ import { consolidateEvent } from "../self/memory-consolidate";
 import { memory } from "../self/memory-engine";
 import { continuityKey } from "../self/run-receipt";
 import { graphProgress, taskGraph } from "../self/task-graph";
+import { looksSensitive } from "./memory-policy";
 import { retrievalTerms, termJaccard } from "./retrieval";
 
 export type SessionTurn = { role: string; text: string };
@@ -761,6 +762,7 @@ export function snapshotCurrentSituation(): void {
   const compact = compactSituation();
   if (!compact || !session.activeTopic) return;
   if (/^(hi|hello|hey|thanks|thank you)\b/i.test(session.activeTopic)) return;
+  if (looksSensitive(`${session.activeTopic}\n${compact}`)) return;
   try {
     memory.remember({
       tier: "semantic",
@@ -797,6 +799,8 @@ export function noteUserTurn(
   const value = String(text || "").trim();
   if (!value) return session;
   decayConversationState();
+  // A sensitive turn never becomes the topic, the goal or a constraint: they are snapshotted into memory.
+  if (looksSensitive(value)) return session;
 
   if (/\b(thoda simple|keep it simple|be brief|short answer|simple batao)\b/i.test(value)) {
     session.styleCue = "simple";

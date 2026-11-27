@@ -464,7 +464,10 @@ class LibraryEngine {
         source,
         confidence: 0.86,
         context: `library:${item.id}`,
-        verified: true,
+        // A document is something the owner imported, not something the owner said: it is never verified, and
+        // it carries its own provenance so a recalled chunk is read as quoted data.
+        provenance: "imported-document",
+        verified: false,
       });
       ids.push(remembered.id);
     });
