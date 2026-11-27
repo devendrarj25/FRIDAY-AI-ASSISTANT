@@ -197,6 +197,10 @@ export type StreamTurn = {
   clipped?: boolean;
   /** The ear asks for MORE proof (a wake word); it can never mean less. */
   needsWake?: boolean;
+  /** The ear's language read of the turn (auto locale only): `langConf` is 0-1, `langLocked` means it settled. */
+  lang?: "hi" | "en";
+  langConf?: number;
+  langLocked?: boolean;
 };
 
 const ENV_KINDS: readonly TurnEnv["kind"][] = ["speech", "music", "tv", "noise"];
@@ -230,6 +234,11 @@ export function parseStreamTurn(raw: unknown): StreamTurn | null {
   }
   if (row["clipped"] === true) turn.clipped = true;
   if (row["needsWake"] === true) turn.needsWake = true;
+  const lang = text(row["lang"]);
+  if (lang === "hi" || lang === "en") turn.lang = lang;
+  const langConf = num(row["langConf"]);
+  if (langConf !== null) turn.langConf = Math.max(0, Math.min(1, langConf));
+  if (typeof row["langLocked"] === "boolean") turn.langLocked = row["langLocked"];
   return turn;
 }
 
@@ -581,6 +590,8 @@ export type TurnFacts = {
   speaker: TurnSpeaker | null;
   env: TurnEnv | null;
   clipped: boolean;
+  /** The ear's locked language with conf >= `STREAM_LANG_MIN_CONF`; absent otherwise. */
+  streamLang?: "hi" | "en";
 };
 
 /** The turn facts older than this are another turn's: a record is never built from them. */
@@ -612,6 +623,7 @@ export class TurnTracker {
   private speaker: TurnSpeaker | null = null;
   private env: TurnEnv | null = null;
   private clipped = false;
+  private streamLang: "hi" | "en" | null = null;
   private lastAt = 0;
   private lastSpeechAt = Number.NEGATIVE_INFINITY;
   /** Eager endpoints seen, and how many of them the owner then continued past (the log of a wrong guess). */
@@ -657,6 +669,8 @@ export class TurnTracker {
       this.lastEndMs = turn.speechMs;
     if (turn.speaker) this.speaker = turn.speaker;
     if (turn.clipped) this.clipped = true;
+    if (turn.lang && turn.langLocked === true && (turn.langConf ?? 0) >= STREAM_LANG_MIN_CONF)
+      this.streamLang = turn.lang;
     if (turn.event === "eager") {
       this.eagers += 1;
       this.eagerText = turn.text.trim();
@@ -695,6 +709,7 @@ export class TurnTracker {
       speaker: this.speaker,
       env: this.env,
       clipped: this.clipped,
+      ...(this.streamLang ? { streamLang: this.streamLang } : {}),
     };
     this.reset();
     return facts;
@@ -708,10 +723,29 @@ export class TurnTracker {
     this.speaker = null;
     this.env = null;
     this.clipped = false;
+    this.streamLang = null;
   }
 }
 
 export type TurnLang = "hi" | "en" | "hi-en" | "";
+
+/** A language the ear locked is trusted over the script heuristic only at or above this confidence. */
+export const STREAM_LANG_MIN_CONF = 0.6;
+
+/**
+ * The language to use for a turn: the ear's locked language when it disagrees with the script and lexicon heuristic
+ * and its confidence is at least `STREAM_LANG_MIN_CONF`, else the heuristic. Pure.
+ */
+export function preferStreamLang(
+  heuristic: TurnLang,
+  streamLang: "hi" | "en" | undefined | null,
+  conf: number | null | undefined,
+): TurnLang {
+  if (streamLang !== "hi" && streamLang !== "en") return heuristic;
+  if (typeof conf !== "number" || !Number.isFinite(conf) || conf < STREAM_LANG_MIN_CONF)
+    return heuristic;
+  return streamLang;
+}
 
 /** The language of a line and how mixed it is: the minority script's share of the letters, 0 for one script. */
 export function languageMix(line: string, declared: string = ""): { lang: TurnLang; mix: number } {
@@ -765,6 +799,8 @@ export type TurnRecord = {
   env: TurnEnv | null;
   clipped: boolean;
   interruptedPlayedMs: number | null;
+  /** The ear's locked language (conf >= 0.6); present only then. */
+  streamLang?: "hi" | "en";
 };
 
 export function buildTurnRecord(input: {
@@ -807,6 +843,7 @@ export function buildTurnRecord(input: {
       typeof played === "number" && Number.isFinite(played) && played >= 0
         ? Math.round(played)
         : null,
+    ...(facts?.streamLang ? { streamLang: facts.streamLang } : {}),
   };
 }
 
