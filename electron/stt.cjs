@@ -304,8 +304,9 @@ async function setSpeechProfile(profile) {
 /**
  * The crash-loop breaker. The module opens it after three crashes in a minute and cools 30 s (one probe start, closed
  * by a good start). A second open with no good turn between holds the next start for 5 minutes. There is no offline
- * recogniser outside this worker (the Moonshine and Windows-speech rungs are served by the same child), so while it
- * is open the bridge says listening is paused and Retry works after the cool-down.
+ * recogniser outside this worker except the Windows-speech rung, which a one-shot PowerShell can serve without the
+ * child (`windowsSpeechOneShot`, a wav and a rung seen ready before): while the breaker is open a short turn is
+ * heard through it. When that rung is not there the bridge says listening is paused and Retry works after the cool-down.
  */
 const BREAKER_COOL_MS = 30_000;
 const CRASH_LOOP_HOLD_MS = 300_000;
@@ -342,6 +343,29 @@ function crashLoopClear() {
   crashLoop.seenUntil = 0;
   crashLoop.opens = 0;
   crashLoop.holdUntil = 0;
+}
+
+/** The one-shot Windows-speech rung (System.Speech dictation, installed language pack, no download). Null when it cannot hear. */
+async function windowsSpeechOneShot(file) {
+  if ((hooks.platform || process.platform) !== "win32") return null;
+  if (!lastLocalLayers.windowsSpeech || !/\.wav$/i.test(String(file))) return null;
+  const safe = String(file).replace(/'/g, "''");
+  const script =
+    "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; " +
+    "$e = New-Object System.Speech.Recognition.SpeechRecognitionEngine; " +
+    "$e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); " +
+    `$e.SetInputToWaveFile('${safe}'); $r = $e.Recognize(); if ($r) { $r.Text }`;
+  try {
+    const result = await run(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      20_000,
+    );
+    const text = String(result?.stdout || "").trim();
+    return result?.ok && text ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 function crashLoopReply(waitMs) {
@@ -2115,6 +2139,17 @@ async function transcribeNow(req = {}, onPartial) {
         getVoiceWorker().status().state === "breaker-open" ||
         waitMs > 0
       ) {
+        const heard = await windowsSpeechOneShot(file);
+        if (heard) {
+          return {
+            ok: true,
+            text: heard,
+            language: "",
+            model: "windows-speech",
+            elapsedMs: Date.now() - started,
+            engine: "windows-speech",
+          };
+        }
         return crashLoopReply(waitMs || 30_000);
       }
       try {
