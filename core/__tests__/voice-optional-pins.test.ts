@@ -333,10 +333,14 @@ describe("the Doctor self-test rows", () => {
       "optional-hindi-vaani-ear",
       "optional-stream-ear-nemotron",
       "optional-hinglish-ear-trelis",
+      "optional-hinglish-ear-pro",
     ]);
     for (const row of rows) {
       expect(row).toMatchObject({ ok: true, optional: true, required: false });
-      expect(row.installId).toBe(row.id.replace("optional-", ""));
+      // FRIDAY Ear Hinglish Pro installs from the release files only, so it has no pinned-repository button.
+      expect(row.installId).toBe(
+        row.id === "optional-hinglish-ear-pro" ? "" : row.id.replace("optional-", ""),
+      );
     }
   });
 
@@ -368,8 +372,9 @@ describe("the Doctor self-test rows", () => {
       "selftest-hindi-vaani-ear",
       "selftest-stream-ear-nemotron",
       "selftest-hinglish-ear-trelis",
+      "optional-hinglish-ear-pro",
     ]);
-    for (const row of rows) {
+    for (const row of rows.filter((entry) => entry.id !== "optional-hinglish-ear-pro")) {
       expect(row).toMatchObject({ ok: true, required: false, installId: "" });
       expect(row.detail).toMatch(/no live wrapper runs it yet/);
     }
@@ -389,7 +394,8 @@ describe("the Doctor self-test rows", () => {
         return { ok: false, reason: "inputs-differ", detail: "graph inputs are ['x']" };
       },
     });
-    for (const row of rows) {
+    // The derived ear is not staged here (its files are the release's, see voice-engine-registry.test.ts).
+    for (const row of rows.filter((entry) => entry.id !== "optional-hinglish-ear-pro")) {
       expect(row.ok, row.id).toBe(false);
       expect(row.required, row.id).toBe(false);
       expect(row.installId, row.id).toBe(row.id.replace("selftest-", ""));
@@ -400,7 +406,11 @@ describe("the Doctor self-test rows", () => {
       /run-failed: python is gone/,
     );
     const noRunner = await weights.pinSelfTests(root, { exists: (file) => fs.existsSync(file) });
-    expect(noRunner.every((row) => !row.ok && /no-runner/.test(row.detail))).toBe(true);
+    expect(
+      noRunner
+        .filter((row) => row.id !== "optional-hinglish-ear-pro")
+        .every((row) => !row.ok && /no-runner/.test(row.detail)),
+    ).toBe(true);
   });
 
   it("is wired into the voice check, which passes the pinned spec to the kernel self-test", () => {

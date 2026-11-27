@@ -606,7 +606,12 @@ describe("the command line and the upload command", () => {
       `gh release create ${manifest.tag} --repo ${manifest.repository} --title "${manifest.title}" --notes-file NOTICE.md --latest=false a.bin SHA256SUMS`,
     );
     const script = read("scripts/build-friday-models.cjs");
-    expect(script).not.toMatch(/child_process|spawn|exec\(|execSync/);
+    // The one process the script starts is its own converter (`python kernel/voice_merge.py convert`); it never starts
+    // `gh`, a shell, or anything else, so nothing is uploaded or published from here.
+    expect(script).not.toMatch(/spawn|exec\(|execSync|execFile\(|shell\s*:/);
+    expect(script.match(/child_process/g)).toHaveLength(1);
+    expect(script.match(/execFileSync\(/g)).toHaveLength(1);
+    expect(script).toMatch(/execFileSync\(\s*python,\s*\["-I", CT2_SCRIPT, "convert"/);
     expect(pack.sha256sumsText([{ file: "a.bin", sha256: "f".repeat(64) }])).toBe(
       `${"f".repeat(64)}  a.bin\n`,
     );

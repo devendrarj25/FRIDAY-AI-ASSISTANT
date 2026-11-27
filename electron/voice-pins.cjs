@@ -731,6 +731,55 @@ const PINS = {
       },
     },
   },
+  // The Hinglish Pro ear (FRIDAY Ear Hinglish Pro): Oriserve's Whisper-Hindi2Hinglish-Apex, a fine-tune of Whisper
+  // large-v3-turbo (4 decoder layers, 808,878,080 parameters, BF16), card licence apache-2.0. This pin is the SOURCE
+  // checkpoint, not a runnable folder: `scripts/build-friday-models.cjs` converts it with the `ct2-int8` recipe
+  // (`kernel/voice_merge.py convert`, numpy only, no torch) into a CTranslate2 int8 folder, and the pack pins that
+  // folder's hashes. Revision and sizes read from the Hugging Face API (`?blobs=true`) on 2026-11-27; the LFS
+  // SHA-256 of model.safetensors equals the digest of the downloaded bytes, and the seven small files (the API lists no
+  // digest for them) were fetched at the pinned revision and hashed here. The repository holds no LICENSE file, so its
+  // README (the card, with the licence front matter) is pinned beside the weights. Decode it with the language token
+  // `en` for Hinglish, the card's own setting; it writes Hindi in Roman letters, so the Devanagari policy keeps it an
+  // explicit mode, never the default. A CANDIDATE, on demand only.
+  "Oriserve/Whisper-Hindi2Hinglish-Apex": {
+    revision: "f3214eed20b4e4d4144e739982d911f87b9cb223",
+    license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
+    files: {
+      "README.md": {
+        sha256: "841ae75f5c5915e87d15698021a73c600b4ac0be29ce1f9643a9ef498026b31c",
+        bytes: 12439,
+      },
+      "added_tokens.json": {
+        sha256: "3c51f66c4c21f9e126970078f11ae77a78c74aee8df606ee9daba86e467108e0",
+        bytes: 34648,
+      },
+      "config.json": {
+        sha256: "14209b98fb68fc127201bbfebd57cc9f834b0f1a0d0d463a561c8051800af9f4",
+        bytes: 1194,
+      },
+      "generation_config.json": {
+        sha256: "ab32c08bdb83e3ce745c1dc72700b1d7d990aed2b7180a861177d826881061b1",
+        bytes: 3584,
+      },
+      "model.safetensors": {
+        sha256: "5560830fe8fa09b8cdf1b5926d0cc39a2586eadaad685d809e156432c4ebca80",
+        bytes: 1617825448,
+      },
+      "preprocessor_config.json": {
+        sha256: "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+        bytes: 357,
+      },
+      "tokenizer.json": {
+        sha256: "5c1bf30c9e716e1477bedef846b01be0013daecb89e9e3ef7ab89b23c178df1b",
+        bytes: 3930645,
+      },
+      "vocab.json": {
+        sha256: "6788c80b082e9b0d1393147d3a3e62ba19285ac0c82ace8e5ef00f37ead58971",
+        bytes: 835528,
+      },
+    },
+  },
 };
 
 /** The turbo repository was renamed; the old name redirects to the same revision and files. */
@@ -1020,6 +1069,22 @@ const FACTS = {
     quantization: "vocabulary (text)",
     fallbackPriority: "experimental",
     basis: "estimated",
+  },
+  // The pin is the BF16 source (1.6 GB); the ear that runs is its CTranslate2 int8 conversion (820 MB, recipe `ct2-int8`
+  // of the voice pack). Not measured for memory: estimated from the 4-layer turbo decoder at int8. A clip decoded at about
+  // 1.2 to 1.6 of its length on a loaded 4-core Linux CPU (2026-11-27), slower than speech, so `cpuOk` is false.
+  // `decodeLanguage` is the language token the ear is decoded with for Hinglish: `en`, the card's own setting.
+  "Oriserve/Whisper-Hindi2Hinglish-Apex": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, converted from the BF16 source)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+    decodeLanguage: "en",
   },
 };
 

@@ -829,7 +829,7 @@ def _ear_loaded() -> bool:
 def loaded_names() -> list[str]:
     names = [_model_name] if _model is not None and _model_name else []
     names += [str(_fast["name"])] if _fast["model"] is not None and _fast["name"] else []
-    own = [ear.name for ear in _own_ears() if ear.loaded()]
+    own = [ear.name for ear in _every_own_ear() if ear.loaded()]
     return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + own + stream_ear.HOST.loaded_name()
 
 
@@ -840,7 +840,7 @@ def unload_models() -> list[str]:
     _model, _model_name = None, None
     _fast["model"], _fast["name"] = None, ""
     hindi_ear.unload()
-    for ear in _own_ears():
+    for ear in _every_own_ear():
         ear.unload()
     stream_ear.HOST.unload()
     if names:
@@ -926,7 +926,7 @@ def cache_status() -> dict:
 # models) asks ``admit`` first. A load that would leave less free memory than the critical line first drops resident
 # models in this order, re-reading the machine after each; a load that still would not fit is refused (the owner's
 # own model is required: it drops the others and loads anyway). Each drop and refusal is a counted fallback.
-EVICT_ORDER = ("stream", "fast", "whisper", "english-ear", "quick-ear", "swift-ear", "hindi-ear")
+EVICT_ORDER = ("stream", "fast", "whisper", "hinglish-pro-ear", "english-ear", "quick-ear", "swift-ear", "hindi-ear")
 _ADMIT_SLOT = {"speaker": "stream", "punct": "hindi-ear"}  # a load never drops the slot it belongs to
 _WHISPER_LOAD_MB = {1: 150.0, 2: 300.0, 3: 700.0, 4: 1700.0, 5: 1800.0, 6: 3300.0}  # rough int8 resident sizes
 _last_admit: dict | None = None
@@ -1539,6 +1539,15 @@ QUICK_LOAD_MB = 150.0
 ENGLISH_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx"
 ENGLISH_FILES = ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "vocab.txt", "config.json")
 ENGLISH_LOAD_MB = 1200.0  # measured peak 1163 MB
+# FRIDAY Ear Hinglish Pro: FRIDAY's own CTranslate2 int8 conversion of Oriserve's Whisper-Hindi2Hinglish-Apex. The pin
+# is the BF16 source (never installed); the folder that runs holds the converted release files, certified under the
+# source's repository name. It writes Hinglish in Roman letters when decoded with the language token ``en``.
+HINGLISH_PRO_DIR = "hinglish-ear-pro"
+HINGLISH_PRO_REPO = "Oriserve/Whisper-Hindi2Hinglish-Apex"
+HINGLISH_PRO_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.json", "preprocessor_config.json")
+HINGLISH_PRO_MIN_BYTES = 700_000_000  # model.bin is 820,316,291 bytes; anything far smaller is a partial copy
+HINGLISH_PRO_DECODE = "en"
+HINGLISH_PRO_LOAD_MB = 2000.0  # int8 weights 820 MB, plus the decoder and the encoder's working set (estimated)
 _markers: dict[str, tuple[tuple[int, int], dict | None]] = {}
 
 
@@ -1654,6 +1663,44 @@ def _build_english(found: _Found) -> Any:
     import nemo_ear
 
     return nemo_ear.NemoEar.load(found.folder, kind="tdt", quantization="int8")
+
+
+def _hinglish_pro_found() -> _Found | None:
+    """The certified Hinglish Pro folder: every file the runtime opens is in the marker and ``model.bin`` is whole."""
+    base = _models_root() / HINGLISH_PRO_DIR
+    if certified_files(base, HINGLISH_PRO_REPO, HINGLISH_PRO_FILES) is None:
+        return None
+    try:
+        if (base / "model.bin").stat().st_size < HINGLISH_PRO_MIN_BYTES:
+            return None
+    except OSError:
+        return None
+    return _Found(base, _marker_stamp(base), {})
+
+
+def _build_hinglish_pro(found: _Found) -> Any:
+    """The CTranslate2 model through the same runner and device plan as every other faster-whisper folder."""
+    cls = _import_whisper()
+    if cls is None:
+        raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
+    spec = model_load_kwargs(HINGLISH_PRO_DIR, str(found.folder))
+    runner, used = open_whisper(cls, spec["target"], spec)
+    if used != spec["device"]:
+        note_fallback("cuda-to-cpu")
+    return runner
+
+
+def _read_hinglish_pro(runner: Any, audio: Any, _language: str | None) -> tuple[str, str]:
+    """One decode with the language token ``en``, the worker's voice filter and no-speech policy; reported as Hindi."""
+    options = {
+        "language": HINGLISH_PRO_DECODE,
+        "vad_filter": True,
+        "vad_parameters": dict(VAD_PARAMETERS),
+        "beam_size": 1,
+        "condition_on_previous_text": False,
+    }
+    heard = _consume_whisper(runner, audio, options, None)
+    return str(heard.get("text") or "").strip(), "hi"
 
 
 def _own_error(exc: BaseException) -> str:
@@ -1778,18 +1825,31 @@ ENGLISH = OwnEar(
 )  # fmt: skip
 
 
+HINGLISH_PRO = OwnEar(
+    "hinglish-pro", "FRIDAY Ear Hinglish Pro", HINGLISH_PRO_DIR, HINGLISH_PRO_LOAD_MB, _hinglish_pro_found,
+    _build_hinglish_pro, _read_hinglish_pro, "friday-ear-hinglish-pro", "whisper-hindi2hinglish-apex-ct2-int8",
+    language="hi",
+)  # fmt: skip
+
+
 def _own_ears() -> tuple[Any, ...]:
     """The three own ears, read from the module each time (a test swaps them)."""
     return (SWIFT, QUICK, ENGLISH)
 
 
+def _every_own_ear() -> tuple[Any, ...]:
+    """The three own ears and Hinglish Pro: what is resident, evicted, unloaded and named. Pro answers Roman Hinglish
+    turns only, so it is not one of the three the Doctor lists under ``ownEars``."""
+    return (*_own_ears(), HINGLISH_PRO)
+
+
 def _own_engine(name: str) -> str:
     """The engine label of a resident model name: an own ear's engine, else faster-whisper."""
-    return next((ear.engine for ear in _own_ears() if ear.name == name), "faster-whisper")
+    return next((ear.engine for ear in _every_own_ear() if ear.name == name), "faster-whisper")
 
 
 def _own_ear_of(kind: str):
-    return next((ear for ear in _own_ears() if ear.kind == kind), None)
+    return next((ear for ear in _every_own_ear() if ear.kind == kind), None)
 
 
 def _read_own(ear, samples, language: str | None = None) -> str | None:
@@ -1839,6 +1899,34 @@ def swift_final(samples, mode: str, hotwords: list[str]) -> str | None:
     return snap_text(text, hotwords)
 
 
+def hinglish_pro_final(samples, language: str, speech_pref: str, hotwords: list[str]) -> str | None:
+    """The Hinglish Pro text of a Roman Hinglish turn, or None for the Hinglish ear and the speech model of today.
+
+    Asked only for the explicit Roman Hinglish mode (``hi-Latn``), only when its certified folder is installed; every
+    load asks the memory gate first. An ear that is refused or cannot open is a counted fallback, not a broken turn."""
+    if not whisper_ears.wants_roman_hinglish(language, speech_pref) or not HINGLISH_PRO.ready():
+        return None
+    text = _read_own(HINGLISH_PRO, samples, HINGLISH_PRO_DECODE)
+    if not text:
+        if HINGLISH_PRO.last_skip() or HINGLISH_PRO.fault():
+            note_fallback("hinglish-pro-to-whisper")
+        return None
+    return snap_text(text, hotwords)
+
+
+def hinglish_pro_status() -> dict:
+    """The Doctor row of Hinglish Pro: installed and certified, loaded now, and why it cannot open."""
+    return {
+        "id": HINGLISH_PRO.ident,
+        "label": HINGLISH_PRO.label,
+        "catalogId": HINGLISH_PRO.name,
+        "engine": HINGLISH_PRO.engine,
+        "ready": HINGLISH_PRO.ready(),
+        "loaded": HINGLISH_PRO.loaded(),
+        "error": HINGLISH_PRO.error(),
+    }
+
+
 def own_ears_status() -> list[dict]:
     """One row per own ear for the Doctor: installed and certified, loaded now, and why it cannot open."""
     return [
@@ -1854,30 +1942,32 @@ def own_ears_status() -> list[dict]:
     ]
 
 
+def _ear_self_test_row(ear, samples) -> dict:
+    """One own ear on the probe clip: ``ok``, ``missing``, ``refused`` or ``failed`` (``run_own_ears_self_test``)."""
+    row: dict[str, Any] = {"id": ear.ident, "label": ear.label, "catalogId": ear.name, "local": True}
+    broken = ear.error()
+    if not ear.ready():
+        return {**row, "status": "failed" if broken else "missing", "reason": broken or "not installed", "ms": 0}
+    started = time.perf_counter()
+    _read_own(ear, samples)
+    ms = int((time.perf_counter() - started) * 1000)
+    if ear.last_skip() == "low-memory":
+        return {**row, "status": "refused", "reason": "low memory", "ms": ms}
+    if ear.last_skip() or ear.fault() or ear.error():
+        return {**row, "status": "failed", "reason": ear.fault() or ear.error() or "cannot open", "ms": ms}
+    return {**row, "status": "ok", "reason": "", "ms": ms}
+
+
 def run_own_ears_self_test(samples=None) -> dict:
     """One row per own ear on the probe clip: ``ok``, ``missing`` (not installed: the ear of today answers),
-    ``refused`` (the memory gate said no) or ``failed`` (it cannot open or decode). Nothing leaves the machine."""
+    ``refused`` (the memory gate said no) or ``failed`` (it cannot open or decode). Hinglish Pro has its own row,
+    ``hinglishPro``, beside the three. Nothing leaves the machine."""
     if samples is None:
         samples = read_pcm16_wav(write_probe_wav(str(Path(tempfile.mkdtemp(prefix="friday-ears-")) / "probe.wav")))
-    rows: list[dict] = []
-    for ear in _own_ears():
-        row: dict[str, Any] = {"id": ear.ident, "label": ear.label, "catalogId": ear.name, "local": True}
-        broken = ear.error()
-        if not ear.ready():
-            rows.append(
-                {**row, "status": "failed" if broken else "missing", "reason": broken or "not installed", "ms": 0}
-            )
-            continue
-        started = time.perf_counter()
-        _read_own(ear, samples)
-        ms = int((time.perf_counter() - started) * 1000)
-        if ear.last_skip() == "low-memory":
-            rows.append({**row, "status": "refused", "reason": "low memory", "ms": ms})
-        elif ear.last_skip() or ear.fault() or ear.error():
-            rows.append({**row, "status": "failed", "reason": ear.fault() or ear.error() or "cannot open", "ms": ms})
-        else:
-            rows.append({**row, "status": "ok", "reason": "", "ms": ms})
-    return {"ok": all(row["status"] != "failed" for row in rows), "local": True, "ears": rows}
+    rows = [_ear_self_test_row(ear, samples) for ear in _own_ears()]
+    pro = _ear_self_test_row(HINGLISH_PRO, samples)
+    ok = all(row["status"] != "failed" for row in [*rows, pro])
+    return {"ok": ok, "local": True, "ears": rows, "hinglishPro": pro}
 
 
 # True only while a provisional (not-final) pass runs: it is neither counted nor recorded.
@@ -2687,6 +2777,7 @@ def _transcribe_prepared(
     moon_text = None
     own_model = ""  # the model name of an own English ear that heard the turn
     swift_text, swift_tried = None, False
+    pro_tried = False  # Hinglish Pro already read this clip: a second pass does not decode it again
     # The Trelis mixed-script ear is asked for by name and checked for files and hardware; None is the engine of today.
     trelis, trelis_skipped = whisper_ears.trelis_verdict(extras, cuda_runtime_ready)
     # One route per turn: the Hindi ear, or whisper with the turn's language already known (no language guess).
@@ -2697,6 +2788,8 @@ def _transcribe_prepared(
         chosen = options if options is not None else extras
         if swift_tried:  # Ear Swift already read this clip: a second pass does not decode it again
             chosen = {**(chosen or {}), "swift_done": True}
+        if pro_tried:
+            chosen = {**(chosen or {}), "pro_done": True}
         return _transcribe_prepared(
             audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
             owner_size, model_path, hearing, original, chosen,
@@ -2836,6 +2929,31 @@ def _transcribe_prepared(
             {"text": hindi_text, "vadMs": None, "noSpeechProb": 0.0, "language": "hi", "noSpeechNote": ""},
             "",
             ["hindi-ear"],
+        )
+    # FRIDAY Ear Hinglish Pro reads the explicit Roman Hinglish mode before the Hinglish ear and the speech model of
+    # today, when its certified folder is installed; a refusal, a failure or silence hands the turn on unchanged.
+    pro_text = None
+    if trelis is None and samples is not None and not (extras or {}).get("pro_done"):
+        pro_tried = True
+        pro_text = hinglish_pro_final(samples, language, speech_pref, hotword_list((extras or {}).get("hotwords")))
+    if pro_text:
+        return _heard(
+            {
+                "ok": True,
+                "text": pro_text,
+                "language": "hi",
+                "languageNote": "Hinglish Pro ear: Roman letters",
+                "durationMs": 0,
+                "model": HINGLISH_PRO.model,
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": HINGLISH_PRO.engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": pro_text, "vadMs": None, "noSpeechProb": 0.0, "language": "hi", "noSpeechNote": ""},
+            "",
+            [HINGLISH_PRO.engine],
         )
     # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
     # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
@@ -3217,6 +3335,7 @@ def status_payload() -> dict:
         "hindiEarReady": hindi_ear.ready(),
         "hindiEarError": hindi_ear.error(),
         "ownEars": own_ears_status(),
+        "hinglishPro": hinglish_pro_status(),
         "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),

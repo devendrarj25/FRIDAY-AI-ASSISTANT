@@ -445,6 +445,31 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     ],
   }),
   row({
+    id: "hinglish-ear-pro",
+    label: "FRIDAY Ear Hinglish Pro (Roman letters, int8)",
+    role: "stt",
+    repo: "Oriserve/Whisper-Hindi2Hinglish-Apex",
+    pinRepo: "Oriserve/Whisper-Hindi2Hinglish-Apex",
+    languages: L("yes", "unverified", "yes"),
+    code: "MIT",
+    weights: "Apache-2.0",
+    runtime: "ctranslate2",
+    torchFree: true,
+    status: "optional-pinned",
+    flags: [],
+    wrapper: null,
+    selfTest: false,
+    lat: "heavy",
+    blockedBy:
+      "routed in kernel/stt.py as friday-ear-hinglish-pro for Roman Hinglish turns (decoded with the language token en) when its folder is installed and certified, before the Hinglish ear and the speech model of today; the pin is the 1.6 GB source checkpoint, which FRIDAY never installs: the ear installs only from the converted ct2-int8 files of the FRIDAY release (hashes pinned in config/friday-models.json) and says it needs the release while it has none; a clip decoded at 1.2 to 1.6 of its length on a loaded 4-core CPU, so it is a GPU ear in practice, and it never replaces the speech engine of today until npm run voice:bench shows it wins on the owner's own recordings",
+    evidence: [
+      HF(
+        "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "pinned revision in electron/voice-pins.cjs; card licence apache-2.0, a Whisper large-v3-turbo fine-tune with 4 decoder layers",
+      ),
+    ],
+  }),
+  row({
     id: "parakeet-ear",
     label: "FRIDAY Ear English (int8)",
     role: "stt",

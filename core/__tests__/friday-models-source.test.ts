@@ -249,8 +249,20 @@ describe("the release plan", () => {
       ...new Set((real.assets as Asset[]).map((a) => (a.from as { pin: string }).pin)),
     ];
     expect(repos.length).toBeGreaterThanOrEqual(18);
+    // The source pin of a converted ear (a `ct2-int8` asset reads it) is not a runnable folder: the release holds the
+    // converted files, not the source, so its plan is null by design.
+    const sources = new Set(
+      (real.assets as Asset[])
+        .filter((a) => (a.from as { recipe: string }).recipe !== "copy")
+        .map((a) => (a.from as { pin: string }).pin),
+    );
+    expect([...sources]).toEqual(["Oriserve/Whisper-Hindi2Hinglish-Apex"]);
     for (const repo of repos) {
       const plan = weights.fridayReleasePlan(repo, { env: {} });
+      if (sources.has(repo)) {
+        expect(plan, repo).toBeNull();
+        continue;
+      }
       expect(plan, repo).not.toBeNull();
       expect(plan.tag).toBe(real.tag);
       expect(plan.files.length).toBe(Object.keys(pins.pinForRepo(repo).files).length);

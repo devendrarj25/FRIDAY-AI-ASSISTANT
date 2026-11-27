@@ -290,8 +290,18 @@ describe("the reader that shipped before the packs still works", () => {
   it("still plans a release road for every pinned voice repository, from the same tag", () => {
     const repos = [...new Set(manifest.assets.map((a) => a.from.pin))];
     expect(repos.length).toBeGreaterThanOrEqual(18);
+    // A pin that is only the SOURCE of a converted ear (a `ct2-int8` asset reads it) is not a runnable folder: the
+    // release holds the converted files, not the source, so the plan of that repository is null by design.
+    const sources = new Set(
+      manifest.assets.filter((a) => a.from.recipe !== "copy").map((a) => a.from.pin),
+    );
+    expect([...sources]).toEqual(["Oriserve/Whisper-Hindi2Hinglish-Apex"]);
     for (const repo of repos) {
       const plan = weights.fridayReleasePlan(repo, { env: {} });
+      if (sources.has(repo)) {
+        expect(plan, repo).toBeNull();
+        continue;
+      }
       expect(plan, repo).not.toBeNull();
       expect(plan!.tag).toBe(packOf("voice-weights").tag);
     }

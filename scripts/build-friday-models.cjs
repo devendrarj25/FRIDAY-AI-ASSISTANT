@@ -15,7 +15,10 @@
  *
  * A recipe other than `copy` is used only with a derived file whose SHA-256 is pinned in the manifest and which the
  * owner passes in with `--derived <folder>` (made by kernel/voice_derive.py after its gate passed). Otherwise the
- * unchanged copy is used.
+ * unchanged copy is used. The `ct2-int8` recipe makes its own derived files: it fetches every file of the source pin
+ * (SHA-256 checked), runs `python kernel/voice_merge.py convert <source> <folder> --quantization int8` (numpy and
+ * CTranslate2, no torch), and accepts a converted file only when its SHA-256 equals the one the manifest pins. The
+ * work folder lives inside `--out` and is removed at the end.
  *
  * The weights are published as three packs, one per capability, each with its own FRIDAY name, revision, tag, SHA256SUMS,
  * NOTICE.md and upload command (`packs` in the manifest): FRIDAY Voice Weights (every ear, the speech voices and the
@@ -26,9 +29,11 @@
  *
  * Usage:
  *   node scripts/build-friday-models.cjs --pack voice-weights|brain-weights|recall-weights
- *     --out <folder outside the repository> [--max-gb 3] [--only id,id] [--part-bytes N] [--derived <folder>] [--dry-run]
+ *     --out <folder outside the repository> [--max-gb 3] [--only id,id] [--part-bytes N] [--derived <folder>]
+ *     [--python <executable>] [--dry-run]
  */
 const crypto = require("node:crypto");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -39,6 +44,17 @@ const CORE_FILE = path.join(root, "config", "friday-core.json");
 const SHA256 = /^[0-9a-f]{64}$/;
 const REVISION = /^\d{4}\.\d{1,2}\.\d{1,3}$/;
 const RECIPES = ["copy", "int8-dynamic", "ct2-int8"];
+/** The converter the `ct2-int8` recipe runs, and the quantization it asks for. */
+const CT2_SCRIPT = path.join(root, "kernel", "voice_merge.py");
+const CT2_QUANTIZATION = "int8";
+/** Files `voice_merge.py convert` leaves in its output folder; a `ct2-int8` asset must name one of them. */
+const CT2_OUTPUTS = [
+  "config.json",
+  "model.bin",
+  "vocabulary.json",
+  "tokenizer.json",
+  "preprocessor_config.json",
+];
 /** GitHub refuses a release asset of 2 GiB or more; the default part stays well under it. */
 const ASSET_LIMIT = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PART_BYTES = 1_900_000_000;
@@ -416,6 +432,8 @@ function manifestProblems(manifest, pins) {
       asset.sha256 !== from.derivedSha256
     ) {
       add(`${where}: a derived recipe must pin the derived SHA-256 as the asset's own`);
+    } else if (from.recipe === "ct2-int8" && !CT2_OUTPUTS.includes(asset.path)) {
+      add(`${where}: a ct2-int8 asset must be one of ${CT2_OUTPUTS.join(", ")}`);
     }
   }
   if (total + 3 > ASSET_COUNT_LIMIT) add("too many release assets");
@@ -442,7 +460,13 @@ function noticeLine(model, pin) {
   const upstream = rec.upstream
     ? `; the upstream card now names ${rec.upstream.id} (${rec.upstream.url})`
     : "";
-  return `- ${model.fridayName}: ${rec.id} (${rec.url}); origin ${model.pin}; unmodified copy; ${duty}${upstream}.`;
+  const converted = model.assets.find(
+    (asset) => asset.from?.recipe && asset.from.recipe !== "copy",
+  );
+  const form = converted
+    ? `converted with the ${converted.from.recipe} recipe (version ${converted.from.recipeVersion}), the content otherwise unchanged`
+    : "unmodified copy";
+  return `- ${model.fridayName}: ${rec.id} (${rec.url}); origin ${model.pin}; ${form}; ${duty}${upstream}.`;
 }
 
 /** The name of the filled manifest in the release: `friday-models.json` for the first layout, else `friday-<pack>.json`. */
@@ -506,6 +530,73 @@ async function fileIsDone(target, asset) {
   return (await sha256File(target)) === asset.sha256;
 }
 
+/** The python the converter runs with: the owner's `--python`, else `python` on Windows and `python3` elsewhere. */
+function defaultPython() {
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+/** Run `kernel/voice_merge.py convert` (isolated, no shell); throws when it fails. Injected in tests. */
+function runConvert({ python, source, out, quantization }) {
+  childProcess.execFileSync(
+    python,
+    ["-I", CT2_SCRIPT, "convert", source, out, "--quantization", quantization],
+    { stdio: ["ignore", "inherit", "inherit"] },
+  );
+}
+
+/** The conversions a model needs, one per source pin and recipe: `[{ pin, recipe, recipeVersion, files }]`. Pure. */
+function conversionsOf(model) {
+  const steps = new Map();
+  for (const asset of model.assets) {
+    const from = asset.from || {};
+    if (from.recipe !== "ct2-int8") continue;
+    const key = `${from.pin}|${from.recipe}|${from.recipeVersion}`;
+    if (!steps.has(key))
+      steps.set(key, {
+        fridayId: model.fridayId,
+        pin: from.pin,
+        recipe: from.recipe,
+        recipeVersion: from.recipeVersion,
+        files: [],
+      });
+    steps.get(key).files.push(asset.path);
+  }
+  return [...steps.values()];
+}
+
+/**
+ * Convert the source pin of a `ct2-int8` asset once: fetch every file of the pin (SHA-256 and size checked by the
+ * shared downloader) into a work folder, run the converter, and return the folder it wrote. Cached per source.
+ */
+async function convertSource(asset, pins, outDir, options) {
+  const { download, log, conversions, runner, python } = options;
+  const { pin: pinId, recipe, recipeVersion } = asset.from;
+  const key = `${asset.fridayId}|${pinId}|${recipe}|${recipeVersion}`;
+  if (conversions.has(key)) return conversions.get(key);
+  const pin = pins[pinId];
+  const work = path.join(outDir, `.work-${asset.fridayId}`);
+  const source = path.join(work, "source");
+  const converted = path.join(work, recipe);
+  fs.rmSync(converted, { recursive: true, force: true });
+  fs.mkdirSync(source, { recursive: true });
+  for (const [name, row] of Object.entries(pin.files)) {
+    const target = path.join(source, ...name.split("/"));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (!(await fileIsDone(target, row))) {
+      await download(pin.urlFor ? pin.urlFor(name) : hfUrl(pinId, pin.revision, name), target, {
+        sha256: row.sha256,
+        needBytes: row.bytes,
+        label: `${asset.fridayId} source ${name}`,
+      });
+      log(`  fetched source ${name} (${row.bytes} bytes)`);
+    }
+  }
+  log(`  converting ${pinId} with ${recipe} (version ${recipeVersion})`);
+  runner({ python, source, out: converted, quantization: CT2_QUANTIZATION });
+  conversions.set(key, converted);
+  return converted;
+}
+
 /** Make one asset in `outDir`; returns the rows it left (one, or one per part). */
 async function makeAsset(asset, pins, outDir, options) {
   const { download, partBytes, derived, log } = options;
@@ -531,6 +622,19 @@ async function makeAsset(asset, pins, outDir, options) {
       fs.copyFileSync(given, target);
       log(`  derived ${asset.file}`);
     }
+  }
+  if (from.recipe === "ct2-int8" && !(await fileIsDone(target, asset))) {
+    if (!options.conversions) throw new Error(`${asset.file}: no converter is set up`);
+    const folder = await convertSource(asset, pins, outDir, options);
+    const made = path.join(folder, asset.path);
+    if (fs.existsSync(made)) fs.copyFileSync(made, target);
+    if (!(await fileIsDone(target, asset))) {
+      fs.rmSync(target, { force: true });
+      throw new Error(
+        `${asset.file}: the converted file does not match its pinned SHA-256 (recipe ${from.recipe} version ${from.recipeVersion}; a different numpy or CTranslate2 can change the bytes)`,
+      );
+    }
+    log(`  converted ${asset.file}`);
   }
   if (!(await fileIsDone(target, asset))) {
     if (from.recipe !== "copy")
@@ -574,6 +678,8 @@ async function buildPack(options) {
     derived = null,
     download,
     dryRun = false,
+    python = defaultPython(),
+    convert = runConvert,
     log = () => {},
   } = options;
   const problems = manifestProblems(manifest, pins);
@@ -603,34 +709,56 @@ async function buildPack(options) {
   }
   for (const row of skipped) log(`skipped ${row.fridayName}: ${row.reason}`);
   if (dryRun) {
-    for (const model of selected)
+    const steps = [];
+    for (const model of selected) {
       log(
         `would build ${model.fridayName} (${model.assets.length} files, ${model.assets.reduce((n, a) => n + a.bytes, 0)} bytes)`,
       );
-    return { built: selected, skipped, files: [], rows: [], manifest, command: "" };
+      for (const step of conversionsOf(model)) {
+        steps.push(step);
+        log(
+          `  would convert ${step.pin} with ${step.recipe} (version ${step.recipeVersion}) by kernel/voice_merge.py convert into ${step.files.join(", ")}`,
+        );
+      }
+    }
+    return { built: selected, skipped, files: [], rows: [], manifest, command: "", steps };
   }
 
   fs.mkdirSync(outDir, { recursive: true });
   const rows = [];
   const partsOf = new Map();
-  for (const model of selected) {
-    log(`${model.fridayName}`);
-    for (const asset of model.assets) {
-      const made = await makeAsset(asset, pins, outDir, { download, partBytes, derived, log });
-      for (const row of made) {
-        const full = path.join(outDir, row.file);
-        rows.push({
-          file: row.file,
-          bytes: row.bytes,
-          sha256: row.sha256 || (await sha256File(full)),
+  const conversions = new Map();
+  try {
+    for (const model of selected) {
+      log(`${model.fridayName}`);
+      for (const asset of model.assets) {
+        const made = await makeAsset(asset, pins, outDir, {
+          download,
+          partBytes,
+          derived,
+          log,
+          conversions,
+          runner: convert,
+          python,
         });
+        for (const row of made) {
+          const full = path.join(outDir, row.file);
+          rows.push({
+            file: row.file,
+            bytes: row.bytes,
+            sha256: row.sha256 || (await sha256File(full)),
+          });
+        }
+        if (made.length > 1)
+          partsOf.set(
+            asset.file,
+            made.map((p) => p.file),
+          );
       }
-      if (made.length > 1)
-        partsOf.set(
-          asset.file,
-          made.map((p) => p.file),
-        );
     }
+  } finally {
+    for (const model of selected)
+      fs.rmSync(path.join(outDir, `.work-${model.fridayId}`), { recursive: true, force: true });
   }
   const sums = new Map(rows.map((row) => [row.file, row]));
   const finalRows = [...sums.values()];
@@ -669,6 +797,7 @@ function parseArgs(argv) {
     only: null,
     partBytes: 0,
     derived: "",
+    python: "",
     dryRun: false,
     manifest: MANIFEST_FILE,
   };
@@ -683,6 +812,7 @@ function parseArgs(argv) {
         .filter(Boolean);
     else if (arg === "--part-bytes") out.partBytes = Number(argv[++i]);
     else if (arg === "--derived") out.derived = argv[++i] || "";
+    else if (arg === "--python") out.python = argv[++i] || "";
     else if (arg === "--manifest") out.manifest = path.resolve(argv[++i] || "");
     else if (arg === "--dry-run") out.dryRun = true;
     else throw new Error(`unknown argument: ${arg}`);
@@ -724,6 +854,7 @@ async function main(argv) {
     maxBytes: Number.isFinite(opts.maxGb) ? Math.round(opts.maxGb * 1e9) : Infinity,
     partBytes: opts.partBytes || manifest.partBytes,
     derived: opts.derived ? path.resolve(opts.derived) : null,
+    ...(opts.python ? { python: opts.python } : {}),
     download: downloadUrl,
     dryRun: opts.dryRun,
     log: (line) => console.log(line),
@@ -766,6 +897,7 @@ module.exports = {
   DEFAULT_PART_BYTES,
   ASSET_LIMIT,
   RECIPES,
+  CT2_OUTPUTS,
   readManifest,
   readCore,
   CORE_FILE,
@@ -791,5 +923,6 @@ module.exports = {
   uploadCommand,
   hfUrl,
   buildPack,
+  conversionsOf,
   parseArgs,
 };

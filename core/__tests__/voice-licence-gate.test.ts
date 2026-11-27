@@ -35,8 +35,8 @@ const record = (id: string, extra: Partial<LicRecord> = {}): { licenseRecord: Li
 describe("every pin has a known licence record", () => {
   const entries = Object.entries(pins.PINS);
 
-  it("covers all 22 pinned repositories", () => {
-    expect(entries.length).toBe(22);
+  it("covers all 23 pinned repositories", () => {
+    expect(entries.length).toBe(23);
   });
 
   it.each(entries)("%s: id, official url, class, date", (repo, pin) => {

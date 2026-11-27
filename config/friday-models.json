@@ -34,7 +34,8 @@
         "friday-ear-english",
         "friday-ear-swift",
         "friday-ear-quick",
-        "friday-ear-quick-vocab"
+        "friday-ear-quick-vocab",
+        "friday-ear-hinglish-pro"
       ],
       "helpers": ["silero-vad", "wake-embed", "smart-turn"]
     },
@@ -1629,6 +1630,129 @@
         "file": "tokenizer.json",
         "recipe": "copy",
         "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "README.md",
+      "file": "friday-ear-hinglish-pro--README.md",
+      "sha256": "841ae75f5c5915e87d15698021a73c600b4ac0be29ce1f9643a9ef498026b31c",
+      "bytes": 12439,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "README.md",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "added_tokens.json",
+      "file": "friday-ear-hinglish-pro--added_tokens.json",
+      "sha256": "3c51f66c4c21f9e126970078f11ae77a78c74aee8df606ee9daba86e467108e0",
+      "bytes": 34648,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "added_tokens.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "config.json",
+      "file": "friday-ear-hinglish-pro--config.json",
+      "sha256": "a0feddc18de0c285ed147e5483c8d1bc911bd45e23104ae0726d79594e7a6b1d",
+      "bytes": 3300,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "config.json",
+        "recipe": "ct2-int8",
+        "recipeVersion": 1,
+        "derivedSha256": "a0feddc18de0c285ed147e5483c8d1bc911bd45e23104ae0726d79594e7a6b1d"
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "generation_config.json",
+      "file": "friday-ear-hinglish-pro--generation_config.json",
+      "sha256": "ab32c08bdb83e3ce745c1dc72700b1d7d990aed2b7180a861177d826881061b1",
+      "bytes": 3584,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "generation_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "model.bin",
+      "file": "friday-ear-hinglish-pro--model.bin",
+      "sha256": "5717d30273e73687cf619566a804ddcf34b4e5f9a943a75c8eaad7e37cb9fdd5",
+      "bytes": 820316291,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "model.safetensors",
+        "recipe": "ct2-int8",
+        "recipeVersion": 1,
+        "derivedSha256": "5717d30273e73687cf619566a804ddcf34b4e5f9a943a75c8eaad7e37cb9fdd5"
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-hinglish-pro--preprocessor_config.json",
+      "sha256": "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+      "bytes": 357,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "tokenizer.json",
+      "file": "friday-ear-hinglish-pro--tokenizer.json",
+      "sha256": "5c1bf30c9e716e1477bedef846b01be0013daecb89e9e3ef7ab89b23c178df1b",
+      "bytes": 3930645,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-pro",
+      "fridayName": "FRIDAY Ear Hinglish Pro",
+      "path": "vocabulary.json",
+      "file": "friday-ear-hinglish-pro--vocabulary.json",
+      "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+      "bytes": 1068114,
+      "parts": 1,
+      "from": {
+        "pin": "Oriserve/Whisper-Hindi2Hinglish-Apex",
+        "file": "vocab.json",
+        "recipe": "ct2-int8",
+        "recipeVersion": 1,
+        "derivedSha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"
       }
     }
   ]

@@ -229,6 +229,36 @@ const EXTRA_MODELS = [
   },
 ];
 
+/**
+ * FRIDAY Ear Hinglish Pro (`hinglish-ear-pro`): the pin is Oriserve's BF16 SOURCE checkpoint (1.6 GB), not a runnable
+ * folder. The folder that runs (`<root>/models/hinglish-ear-pro`) is FRIDAY's own CTranslate2 int8 conversion of it
+ * (820 MB; `scripts/build-friday-models.cjs`, recipe `ct2-int8`), held in the FRIDAY release as the assets of
+ * `config/friday-models.json` with their hashes pinned. So this ear is NOT in EXTRA_MODELS (every row there is installed
+ * from its pinned Hugging Face files): its registry row has `repo: null`, nothing in the setup, the prefetch or the
+ * Install Manager can fetch the source, and its install state, plan and pin check below all read the release assets.
+ * `needs` is what faster-whisper opens; `kernel/stt.py` HINGLISH_PRO routes it for Roman Hinglish turns.
+ */
+const HINGLISH_PRO_REPO = "Oriserve/Whisper-Hindi2Hinglish-Apex";
+const DERIVED_EARS = [
+  {
+    catalogId: "hinglish-ear-pro",
+    fridayId: "friday-ear-hinglish-pro",
+    repo: HINGLISH_PRO_REPO,
+    rowId: "hinglish-ear-pro-pin",
+    label: "FRIDAY Ear Hinglish Pro",
+    kind: "stt",
+    needs: [
+      "model.bin",
+      "config.json",
+      "tokenizer.json",
+      "vocabulary.json",
+      "preprocessor_config.json",
+    ],
+    fallback: "the Hinglish ear and the speech model of today",
+  },
+];
+const NEEDS_RELEASE = "needs the FRIDAY release (not published yet)";
+
 /** True when every file the pin lists is in the ear's folder. */
 function earOnDisk(root, ear, exists) {
   const dir = path.join(root, "models", ear.catalogId);
@@ -491,6 +521,128 @@ function fridayReleasePlan(repo, deps = {}) {
   return files.length ? { repo, tag: pack.tag, revision: pack.revision, files } : null;
 }
 
+/** The derived ear of a catalog id, or undefined. */
+function derivedEar(catalogId) {
+  return DERIVED_EARS.find((row) => row.catalogId === catalogId);
+}
+
+/**
+ * The release plan of a derived ear (see DERIVED_EARS): every asset of the pack that FRIDAY built from the ear's source
+ * pin, under the file name the folder holds, with the hash and size the manifest pins. A copied file must equal the
+ * source pin's own SHA-256 and size; a converted file must carry its derived hash as its own. One missing, malformed or
+ * different file, or a folder without a file the runtime opens, means no plan at all (the source is never the road).
+ * Returns `{ catalogId, repo, tag, revision, bytes, files: [{ name, file, sha256, bytes, parts: [...] }] }` or null.
+ */
+function derivedEarPlan(catalogId, deps = {}) {
+  const ear = derivedEar(catalogId);
+  if (!ear) return null;
+  const env = deps.env || process.env;
+  if (String(env?.FRIDAY_MODELS_RELEASE || "") === "0") return null;
+  const pack = readFridayModels(deps);
+  const pin = (deps.pinForRepo || pins.pinForRepo)(ear.repo);
+  if (!pack || !pin) return null;
+  const partBytes =
+    Number.isInteger(pack.partBytes) && pack.partBytes > 0 ? pack.partBytes : DEFAULT_PART_BYTES;
+  const base = `https://github.com/${pack.repository}/releases/download/${pack.tag}/`;
+  const files = [];
+  const seen = new Set();
+  for (const asset of pack.assets) {
+    if (asset?.fridayId !== ear.fridayId || asset?.from?.pin !== ear.repo) continue;
+    const name = String(asset.path || "");
+    const source = Object.prototype.hasOwnProperty.call(pin.files, String(asset.from.file || ""))
+      ? pin.files[asset.from.file]
+      : null;
+    const sound =
+      RELEASE_FILE.test(name) &&
+      !seen.has(name) &&
+      RELEASE_FILE.test(String(asset.file || "")) &&
+      SHA256_HEX.test(String(asset.sha256 || "")) &&
+      Number.isInteger(asset.bytes) &&
+      asset.bytes > 0 &&
+      Boolean(source) &&
+      (asset.from.recipe === "copy"
+        ? asset.sha256 === String(source.sha256 || "").toLowerCase() && asset.bytes === source.bytes
+        : asset.from.recipe === "ct2-int8" && asset.from.derivedSha256 === asset.sha256);
+    if (!sound) return null;
+    const count = Math.max(1, Math.ceil(asset.bytes / partBytes));
+    if (asset.parts !== count) return null;
+    seen.add(name);
+    const parts = [];
+    for (let index = 0; index < count; index += 1) {
+      const file = releasePartName(asset.file, index, count);
+      parts.push({
+        file,
+        url: base + encodeURIComponent(file),
+        bytes: Math.min(partBytes, asset.bytes - index * partBytes),
+      });
+    }
+    files.push({ name, file: asset.file, sha256: asset.sha256, bytes: asset.bytes, parts });
+  }
+  if (!ear.needs.every((name) => seen.has(name))) return null;
+  const bytes = files.reduce((total, file) => total + file.bytes, 0);
+  return { catalogId, repo: ear.repo, tag: pack.tag, revision: pin.revision, bytes, files };
+}
+
+/** A pin-shaped record of the folder a derived ear installs (its files, not the source's): what the audit and the marker read. */
+function derivedEarPin(catalogId, deps = {}) {
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan) return null;
+  const source = (deps.pinForRepo || pins.pinForRepo)(plan.repo);
+  return {
+    revision: plan.revision,
+    license: source?.license || "",
+    files: Object.fromEntries(
+      plan.files.map((file) => [file.name, { sha256: file.sha256, bytes: file.bytes }]),
+    ),
+  };
+}
+
+/** True when every file of the derived ear's plan is in its folder (a cheap look; the audit checks sizes and hashes). */
+function derivedOnDisk(root, ear, exists, deps = {}) {
+  const plan = derivedEarPlan(ear.catalogId, deps);
+  const dir = path.join(root, "models", ear.catalogId);
+  return Boolean(plan) && plan.files.every((file) => exists(path.join(dir, file.name)));
+}
+
+/**
+ * The install state of a derived ear, for the Install Manager and the Doctor: `installed` (every file on disk),
+ * `release` (not on disk; the FRIDAY release holds the converted files, so that is the only source) or `needs-release`
+ * (the pack does not hold them yet: nothing is fetched, and the text says so instead of reaching for the source).
+ */
+function derivedEarState(root, catalogId, deps = {}) {
+  const ear = derivedEar(catalogId);
+  if (!ear) return null;
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan)
+    return { catalogId, state: "needs-release", plan: null, sources: [], text: NEEDS_RELEASE };
+  const installed = Boolean(root) && derivedOnDisk(root, ear, deps.exists || (() => false), deps);
+  return {
+    catalogId,
+    state: installed ? "installed" : "release",
+    plan,
+    sources: installed ? [] : derivedEarSources(catalogId, deps),
+    text: installed
+      ? "installed from the FRIDAY release files"
+      : "installs from the FRIDAY release only; the 1.6 GB source checkpoint is never fetched",
+  };
+}
+
+/** The ordered download sources of a derived ear: the FRIDAY release alone, or none while the release has no files. */
+function derivedEarSources(catalogId, deps = {}) {
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan) return [];
+  return [
+    {
+      kind: "friday-release",
+      repo: plan.repo,
+      label: RELEASE_LABEL,
+      derived: true,
+      catalogId,
+      plan,
+    },
+  ];
+}
+
 /**
  * `sources` with, before every pinned Hugging Face repository the pack holds in full, the FRIDAY release source. Any
  * other source, and a repository the pack does not hold, is returned as it was, in the same order.
@@ -499,6 +651,9 @@ function withFridayRelease(sources, deps = {}) {
   const list = Array.isArray(sources) ? sources : [];
   const out = [];
   for (const source of list) {
+    // The source checkpoint of a derived ear is 1.6 GB of BF16 weights FRIDAY never installs: its release files are the road.
+    if (source?.kind === "hf-repo" && DERIVED_EARS.some((ear) => ear.repo === source.repo))
+      continue;
     if (
       source?.kind === "hf-repo" &&
       source.repo &&
@@ -696,6 +851,15 @@ function voiceModelsOnDisk(root, exists) {
       });
     }
   }
+  for (const ear of DERIVED_EARS) {
+    if (derivedOnDisk(root, ear, check)) {
+      found.push({
+        catalogId: ear.catalogId,
+        path: path.join(root, "models", ear.catalogId),
+        kind: ear.kind,
+      });
+    }
+  }
   return found;
 }
 
@@ -767,6 +931,18 @@ async function pinChecks(root, deps = {}) {
       label: `${ear.label} matches its pin`,
       ok: audit.ok,
       detail: describe(audit) + (audit.ok ? servedNote(earDir, earPin) : ""),
+    });
+  }
+  for (const ear of DERIVED_EARS) {
+    // The derived ear is checked against its release files, never against the source pin it was converted from.
+    if (!derivedOnDisk(root, ear, exists, deps)) continue;
+    const earDir = path.join(root, "models", ear.catalogId);
+    const audit = await pins.auditDir(earDir, derivedEarPin(ear.catalogId, deps), deps);
+    rows.push({
+      id: ear.rowId,
+      label: `${ear.label} matches its pin`,
+      ok: audit.ok,
+      detail: describe(audit),
     });
   }
   const tts = await auditTts(root, { ...deps, exists });
@@ -912,6 +1088,49 @@ async function pinSelfTests(root, deps = {}) {
         : `${String(result?.reason || "failed")}: ${String(result?.detail || "").slice(0, 200)}`,
     });
   }
+  for (const ear of DERIVED_EARS) {
+    const state = derivedEarState(root, ear.catalogId, { ...deps, exists });
+    if (state.state !== "installed") {
+      // No button: the Install Manager reaches a model through its pinned repository, and this ear's only source is
+      // the converted files of the FRIDAY release; the text says which of the two is missing.
+      const waiting = state.state === "needs-release";
+      rows.push({
+        id: `optional-${ear.catalogId}`,
+        label: `${ear.label} (optional, not installed)`,
+        ok: true,
+        optional: true,
+        required: false,
+        installId: "",
+        detail: waiting
+          ? `${state.text}; optional, ${ear.fallback} keep hearing Roman Hinglish`
+          : `not installed; optional, voice works without it (${state.text})`,
+      });
+      continue;
+    }
+    let result;
+    try {
+      result = deps.runSelfTest
+        ? await deps.runSelfTest({
+            catalogId: ear.catalogId,
+            dir: path.join(root, "models", ear.catalogId),
+            spec: { kind: "ct2-folder", wrapper: "kernel/stt.py", needs: [...ear.needs] },
+          })
+        : { ok: false, reason: "no-runner", detail: "the self-test runner is not available" };
+    } catch (error) {
+      result = { ok: false, reason: "run-failed", detail: String(error?.message || error) };
+    }
+    const ok = Boolean(result?.ok);
+    rows.push({
+      id: `selftest-${ear.catalogId}`,
+      label: `${ear.label} self-test`,
+      ok,
+      required: false,
+      installId: "",
+      detail: ok
+        ? String(result.detail || "passed")
+        : `${String(result?.reason || "failed")}: ${String(result?.detail || "").slice(0, 200)}`,
+    });
+  }
   return rows;
 }
 
@@ -971,7 +1190,7 @@ function packMemberIds(pack, sttSize) {
 /** The catalog id a failed pin row belongs to, or "" for a row that is not a pack member. */
 function catalogIdOfPinRow(rowId) {
   if (rowId === "tts-pin") return "supertonic-3";
-  const ear = [...EAR_MODELS, ...EXTRA_MODELS].find((row) => row.rowId === rowId);
+  const ear = [...EAR_MODELS, ...EXTRA_MODELS, ...DERIVED_EARS].find((row) => row.rowId === rowId);
   if (ear) return ear.catalogId;
   const size = String(rowId).startsWith("stt-pin-") ? String(rowId).slice("stt-pin-".length) : "";
   return STT_CATALOG[size] || "";
@@ -1051,6 +1270,20 @@ function modelRegistry() {
       firewallClass: "local",
     });
   }
+  for (const ear of DERIVED_EARS) {
+    // `repo` stays null on purpose: every consumer that fetches by `repo` (the prefetch, the Install Manager chain)
+    // would otherwise reach for the 1.6 GB source checkpoint. `derivedFrom` names it for the facts.
+    rows.push({
+      catalogId: ear.catalogId,
+      kind: ear.kind,
+      repo: null,
+      derivedFrom: ear.repo,
+      dir: ["models", ear.catalogId],
+      label: ear.label,
+      license: licenceOf(ear.repo),
+      firewallClass: "local",
+    });
+  }
   rows.push({
     catalogId: "supertonic-3",
     kind: "tts",
@@ -1081,6 +1314,23 @@ function modelRegistry() {
 function manifestOf(catalogId) {
   const row = modelRegistry().find((item) => item.catalogId === catalogId);
   if (!row) return null;
+  if (row.derivedFrom) {
+    // The memory and speed facts are the source pin's; the disk is what the release files weigh (the converted copy).
+    const facts = pins.manifestFor(row.derivedFrom);
+    const plan = derivedEarPlan(catalogId);
+    return facts
+      ? {
+          catalogId,
+          kind: row.kind,
+          ...facts,
+          repo: null,
+          sourceRepo: row.derivedFrom,
+          diskBytes: plan ? plan.bytes : facts.diskBytes,
+          license: row.license,
+          firewallClass: row.firewallClass,
+        }
+      : null;
+  }
   if (row.repo) {
     const facts = pins.manifestFor(row.repo);
     return facts
@@ -1193,6 +1443,13 @@ async function folderChecks(root, deps = {}) {
           ? `the pinned revision fails verification or load; restore revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB kept)`
           : `revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB) is kept beside the current one; it can be discarded to free disk`,
       });
+    }
+  }
+  for (const ear of DERIVED_EARS) {
+    // A derived ear whose hashed pin row passed gets the marker the kernel reads; without it the ear stays unused.
+    const dir = path.join(root, "models", ear.catalogId);
+    if (deps.adopt && passing.has(ear.catalogId) && !pins.readMarker(dir)) {
+      pins.writeMarker(dir, ear.repo, derivedEarPin(ear.catalogId, deps));
     }
   }
   return rows;
@@ -1889,4 +2146,11 @@ module.exports = {
   streamAutoBenchPassed,
   EAR_MODELS,
   EXTRA_MODELS,
+  HINGLISH_PRO_REPO,
+  DERIVED_EARS,
+  NEEDS_RELEASE,
+  derivedEarPlan,
+  derivedEarPin,
+  derivedEarState,
+  derivedEarSources,
 };

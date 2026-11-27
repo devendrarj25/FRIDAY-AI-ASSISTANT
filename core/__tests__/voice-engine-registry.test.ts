@@ -4,7 +4,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   VOICE_ENGINES,
@@ -370,10 +372,304 @@ describe("the fallback chain per role and language", () => {
     );
     expect(requirements).toMatch(/^moonshine-voice>=/m);
     const stt = fs.readFileSync(path.join(ROOT, "kernel/stt.py"), "utf8");
-    expect(stt).toContain('"model": "moonshine-tiny-streaming"');
+    // The English rung names the package model, or the own Quick ear's model when that one answered.
+    expect(stt).toContain('"model": own_model or "moonshine-tiny-streaming"');
+    expect(stt).toContain('"moonshine-en", "moonshine-tiny-streaming"');
     expect(ids(chainFor("stt", "en", pc(16, 10)).order)).toContain("moonshine-en");
     expect(chainFor("stt", "hi", pc(16, 10)).order.map((row) => row.id)).not.toContain(
       "moonshine-en",
     );
+  });
+});
+
+describe("FRIDAY Ear Hinglish Pro installs from the converted release files and never from its source", () => {
+  type Plan = {
+    bytes: number;
+    tag: string;
+    files: { name: string; sha256: string; bytes: number; parts: { url: string }[] }[];
+  };
+  type Check = { id: string; ok: boolean; detail: string };
+  const derived = require_("../../electron/voice-weights.cjs") as {
+    DERIVED_EARS: { catalogId: string; repo: string; needs: string[] }[];
+    NEEDS_RELEASE: string;
+    modelRegistry: () => { catalogId: string; repo: string | null; derivedFrom?: string }[];
+    manifestOf: (id: string) => Record<string, unknown> | null;
+    derivedEarPlan: (id: string, deps?: Record<string, unknown>) => Plan | null;
+    derivedEarPin: (
+      id: string,
+      deps?: Record<string, unknown>,
+    ) => { files: Record<string, { sha256: string; bytes: number }> } | null;
+    derivedEarState: (
+      root: string,
+      id: string,
+      deps?: Record<string, unknown>,
+    ) => { state: string; text: string; sources: { kind: string; repo: string }[] };
+    withFridayRelease: (sources: unknown[], deps?: Record<string, unknown>) => { kind: string }[];
+    voiceModelsOnDisk: (root: string, exists: (file: string) => boolean) => { catalogId: string }[];
+    pinChecks: (root: string, deps?: Record<string, unknown>) => Promise<Check[]>;
+    folderChecks: (root: string, deps?: Record<string, unknown>) => Promise<Check[]>;
+    pinSelfTests: (root: string, deps?: Record<string, unknown>) => Promise<Check[]>;
+  };
+  const APEX = "Oriserve/Whisper-Hindi2Hinglish-Apex";
+  const ID = "hinglish-ear-pro";
+  const sha = (data: Buffer) => crypto.createHash("sha256").update(data).digest("hex");
+  const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), "friday-hp-install-"));
+
+  // A small stand-in for the pin and its release pack: the same shape, tiny bytes, hashes the test computes itself.
+  const source: Record<string, Buffer> = {
+    "README.md": Buffer.from("card"),
+    "model.safetensors": Buffer.from("bf16-weights"),
+    "config.json": Buffer.from('{"layers":4}'),
+    "vocab.json": Buffer.from('{"a":0}'),
+    "tokenizer.json": Buffer.from("tok"),
+    "preprocessor_config.json": Buffer.from("{}"),
+  };
+  const out: Record<string, Buffer> = {
+    "model.bin": Buffer.from("ct2-int8-weights"),
+    "config.json": Buffer.from('{"ct2":true}'),
+    "vocabulary.json": Buffer.from('["a"]'),
+    "README.md": source["README.md"]!,
+    "tokenizer.json": source["tokenizer.json"]!,
+    "preprocessor_config.json": source["preprocessor_config.json"]!,
+  };
+  const FROM: Record<string, string> = {
+    "model.bin": "model.safetensors",
+    "config.json": "config.json",
+    "vocabulary.json": "vocab.json",
+    "README.md": "README.md",
+    "tokenizer.json": "tokenizer.json",
+    "preprocessor_config.json": "preprocessor_config.json",
+  };
+  const CONVERTED = new Set(["model.bin", "config.json", "vocabulary.json"]);
+  const fakePin = {
+    revision: "a".repeat(40),
+    license: "Apache-2.0",
+    files: Object.fromEntries(
+      Object.entries(source).map(([name, data]) => [
+        name,
+        { sha256: sha(data), bytes: data.length },
+      ]),
+    ),
+  };
+  const asset = (name: string) => ({
+    fridayId: "friday-ear-hinglish-pro",
+    path: name,
+    file: `friday-ear-hinglish-pro--${name}`,
+    sha256: sha(out[name]!),
+    bytes: out[name]!.length,
+    parts: 1,
+    from: {
+      pin: APEX,
+      file: FROM[name],
+      recipe: CONVERTED.has(name) ? "ct2-int8" : "copy",
+      recipeVersion: 1,
+      ...(CONVERTED.has(name) ? { derivedSha256: sha(out[name]!) } : {}),
+    },
+  });
+  const pack = (change?: (assets: ReturnType<typeof asset>[]) => void) => {
+    const assets = Object.keys(out).map(asset);
+    change?.(assets);
+    return {
+      pack: "friday-models",
+      repository: "devendrarj25/FRIDAY-AI-ASSISTANT",
+      tag: "friday-models-2026.11.1",
+      partBytes: 1_900_000_000,
+      assets,
+    };
+  };
+  const fake = (change?: (assets: ReturnType<typeof asset>[]) => void) => ({
+    fridayModels: pack(change),
+    pinForRepo: (repo: string) => (repo === APEX ? fakePin : null),
+    env: {},
+  });
+  const stage = (root: string, skip = "") => {
+    const dir = path.join(root, "models", ID);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [name, data] of Object.entries(out))
+      if (name !== skip) fs.writeFileSync(path.join(dir, name), data);
+    return dir;
+  };
+
+  it("is a registry row with no repository to fetch, whose disk is the converted copy", () => {
+    const row = derived.modelRegistry().find((item) => item.catalogId === ID)!;
+    expect(row.repo).toBeNull();
+    expect(row.derivedFrom).toBe(APEX);
+    const facts = derived.manifestOf(ID)!;
+    const plan = derived.derivedEarPlan(ID)!;
+    expect(facts["repo"]).toBeNull();
+    expect(facts["sourceRepo"]).toBe(APEX);
+    expect(facts["decodeLanguage"]).toBe("en");
+    expect(facts["diskBytes"]).toBe(plan.bytes);
+    expect(plan.bytes).toBeLessThan(pins.PINS[APEX]!.files["model.safetensors"]!.bytes);
+    expect(voiceEngineById.get(ID)!.pinRepo).toBe(APEX);
+  });
+
+  it("plans the eight converted files from the release and never the source weights", () => {
+    const plan = derived.derivedEarPlan(ID)!;
+    expect(plan.files.map((file) => file.name).sort()).toEqual([
+      "README.md",
+      "added_tokens.json",
+      "config.json",
+      "generation_config.json",
+      "model.bin",
+      "preprocessor_config.json",
+      "tokenizer.json",
+      "vocabulary.json",
+    ]);
+    for (const needed of derived.DERIVED_EARS[0]!.needs)
+      expect(plan.files.some((file) => file.name === needed)).toBe(true);
+    const urls = plan.files.flatMap((file) => file.parts.map((part) => part.url));
+    expect(urls.length).toBe(8);
+    for (const url of urls) {
+      expect(url).toContain(`/releases/download/${plan.tag}/friday-ear-hinglish-pro--`);
+      expect(url).not.toMatch(/safetensors|huggingface/);
+    }
+  });
+
+  it("has no plan, and says it needs the release, when a file is missing, changed or the road is off", () => {
+    expect(derived.derivedEarPlan(ID, fake())).not.toBeNull();
+    const without = fake((assets) => {
+      assets.splice(
+        assets.findIndex((row) => row.path === "model.bin"),
+        1,
+      );
+    });
+    expect(derived.derivedEarPlan(ID, without)).toBeNull();
+    const wrongCopy = fake((assets) => {
+      assets.find((row) => row.path === "tokenizer.json")!.sha256 = "1".repeat(64);
+    });
+    expect(derived.derivedEarPlan(ID, wrongCopy)).toBeNull();
+    const wrongDerived = fake((assets) => {
+      assets.find((row) => row.path === "model.bin")!.from.derivedSha256 = "2".repeat(64);
+    });
+    expect(derived.derivedEarPlan(ID, wrongDerived)).toBeNull();
+    const escape = fake((assets) => {
+      assets.find((row) => row.path === "model.bin")!.path = "../model.bin";
+    });
+    expect(derived.derivedEarPlan(ID, escape)).toBeNull();
+    expect(
+      derived.derivedEarPlan(ID, { ...fake(), env: { FRIDAY_MODELS_RELEASE: "0" } }),
+    ).toBeNull();
+    const state = derived.derivedEarState("/friday", ID, without);
+    expect(state).toMatchObject({ state: "needs-release", sources: [] });
+    expect(state.text).toBe("needs the FRIDAY release (not published yet)");
+    expect(derived.NEEDS_RELEASE).toBe(state.text);
+  });
+
+  it("offers the release as the only source, and drops the 1.6 GB source from any chain", () => {
+    const state = derived.derivedEarState("/friday", ID, { ...fake(), exists: () => false });
+    expect(state.state).toBe("release");
+    expect(state.sources.map((row) => [row.kind, row.repo])).toEqual([["friday-release", APEX]]);
+    expect(state.text).toContain("never fetched");
+    const chain = derived.withFridayRelease([
+      { kind: "hf-repo", repo: APEX, label: "Hugging Face" },
+      { kind: "hf-repo", repo: "Systran/faster-whisper-base", label: "Hugging Face" },
+    ]) as { kind: string; repo: string }[];
+    // The source is gone and no release source stands in for it; the other repository keeps its own chain.
+    expect(JSON.stringify(chain)).not.toContain(APEX);
+    expect(chain.every((row) => row.repo === "Systran/faster-whisper-base")).toBe(true);
+    expect(chain.some((row) => row.kind === "hf-repo")).toBe(true);
+  });
+
+  it("counts as installed only when every release file is on disk", () => {
+    const root = temp();
+    try {
+      const have = (file: string) => fs.existsSync(file);
+      expect(derived.derivedEarState(root, ID, { ...fake(), exists: have }).state).toBe("release");
+      stage(root, "model.bin");
+      expect(derived.derivedEarState(root, ID, { ...fake(), exists: have }).state).toBe("release");
+      stage(root);
+      expect(derived.derivedEarState(root, ID, { ...fake(), exists: have }).state).toBe(
+        "installed",
+      );
+      expect(derived.derivedEarState(root, ID, { ...fake(), exists: have }).sources).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("checks the folder against the release files, red for a changed file, and marks a passing one", async () => {
+    const root = temp();
+    try {
+      const deps = { ...fake(), exists: (file: string) => fs.existsSync(file), hash: true };
+      expect((await derived.pinChecks(root, deps)).map((row) => row.id)).toEqual([]);
+      const dir = stage(root);
+      const good = (await derived.pinChecks(root, deps)).find(
+        (row) => row.id === "hinglish-ear-pro-pin",
+      )!;
+      expect(good.ok).toBe(true);
+      expect(good.detail).toContain("6 files match");
+      // The doctor's adopt step writes the marker the kernel reads: the source repository's name, the release files.
+      expect(fs.existsSync(path.join(dir, ".friday-pin.json"))).toBe(false);
+      await derived.folderChecks(root, { ...deps, adopt: true });
+      const marker = JSON.parse(fs.readFileSync(path.join(dir, ".friday-pin.json"), "utf8")) as {
+        repo: string;
+        files: Record<string, { bytes: number; sha256: string }>;
+      };
+      expect(marker.repo).toBe(APEX);
+      expect(Object.keys(marker.files).sort()).toEqual(Object.keys(out).sort());
+      expect(marker.files["model.bin"]).toEqual({
+        bytes: out["model.bin"]!.length,
+        sha256: sha(out["model.bin"]!),
+      });
+      fs.writeFileSync(path.join(dir, "model.bin"), "ct2-int8-weightZ");
+      const bad = (await derived.pinChecks(root, deps)).find(
+        (row) => row.id === "hinglish-ear-pro-pin",
+      )!;
+      expect(bad.ok).toBe(false);
+      expect(bad.detail).toContain("model.bin fails SHA-256");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("gives the Doctor a self-test row that names what is missing, and runs the ct2 folder test once installed", async () => {
+    const root = temp();
+    try {
+      const none = await derived.pinSelfTests(root, {
+        ...fake((assets) => assets.splice(0, 1)),
+        exists: () => false,
+      });
+      const row = none.find((entry) => entry.id === `optional-${ID}`)!;
+      expect(row).toMatchObject({ ok: true, installId: "" });
+      expect(row.detail).toContain("needs the FRIDAY release (not published yet)");
+      const waiting = (await derived.pinSelfTests(root, { ...fake(), exists: () => false })).find(
+        (entry) => entry.id === `optional-${ID}`,
+      )!;
+      expect(waiting.detail).toContain("FRIDAY release only");
+      stage(root);
+      const seen: { catalogId: string; spec: { kind: string; needs: string[] } }[] = [];
+      const rows = await derived.pinSelfTests(root, {
+        ...fake(),
+        exists: (file: string) => fs.existsSync(file),
+        runSelfTest: async (input: unknown) => {
+          seen.push(input as never);
+          return { ok: true, reason: "", detail: "the folder is whole and ctranslate2 imports" };
+        },
+      });
+      expect(rows.find((entry) => entry.id === `selftest-${ID}`)).toMatchObject({
+        ok: true,
+        required: false,
+      });
+      expect(seen.filter((entry) => entry.catalogId === ID)[0]!.spec).toMatchObject({
+        kind: "ct2-folder",
+        needs: derived.DERIVED_EARS[0]!.needs,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lists the folder as on disk only with every release file, and no pin points at its source weights", () => {
+    const listed = (names: string[]) =>
+      derived
+        .voiceModelsOnDisk("/friday", (file) =>
+          names.some((name) => file.endsWith(`${ID}${path.sep}${name}`)),
+        )
+        .map((row) => row.catalogId);
+    const all = derived.derivedEarPlan(ID)!.files.map((file) => file.name);
+    expect(listed(all)).toContain(ID);
+    expect(listed(all.filter((name) => name !== "model.bin"))).not.toContain(ID);
+    expect(listed(["model.safetensors"])).not.toContain(ID);
   });
 });

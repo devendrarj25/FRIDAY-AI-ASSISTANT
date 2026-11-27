@@ -3269,6 +3269,19 @@ export const voiceModelFacts: Record<string, VoiceModelFacts> = {
     fallbackPriority: "experimental",
     basis: "estimated",
   },
+  // The converted copy (the release files), not the 1.6 GB source checkpoint the pin names.
+  "hinglish-ear-pro": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    diskBytes: 825369378,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, converted from the BF16 source)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
   "supertonic-3": {
     minRamGb: 0.5,
     recommendedRamGb: 0.8,

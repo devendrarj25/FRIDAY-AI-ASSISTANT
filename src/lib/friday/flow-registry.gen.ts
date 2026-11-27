@@ -434,6 +434,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "brain:core-status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "bridge:config",
       file: "electron/main.cjs",
     },
@@ -9757,8 +9761,8 @@ export const FLOW_REGISTRY = {
       total: 1118,
     },
     ipc: {
-      mapped: 520,
-      total: 520,
+      mapped: 521,
+      total: 521,
     },
     kernel: {
       mapped: 14,
