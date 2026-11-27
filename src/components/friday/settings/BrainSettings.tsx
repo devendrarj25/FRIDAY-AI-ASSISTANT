@@ -3,6 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { HardDriveDownload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudPanel, ToggleRow } from "@/components/friday/ui";
+import { LlmEnginePanel } from "@/components/friday/LlmEnginePanel";
+import { LearnSettings } from "@/components/friday/settings/LearnSettings";
 import { desktopApi, type CoreStatus } from "@/lib/friday/desktop";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { preferences } from "@/lib/friday/preferences";
@@ -52,24 +54,28 @@ export function BrainSettings() {
   }
 
   return (
-    <HudPanel title="Brain">
-      <ToggleRow
-        label="FRIDAY Core (local brain engine)"
-        hint="Off by default"
-        on={on}
-        onToggle={() => preferences.setToggle("brainCoreEnabled", !on)}
-      />
-      <p className="mt-2 text-note text-muted-foreground">{line}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: "/install-manager" })}>
-          <HardDriveDownload className="size-4" /> Install FRIDAY Core →
-        </Button>
-        {desktop && error ? (
-          <Button size="sm" variant="outline" onClick={() => refresh()}>
-            Retry
+    <>
+      <HudPanel title="Brain">
+        <ToggleRow
+          label="FRIDAY Core (local brain engine)"
+          hint="Off by default"
+          on={on}
+          onToggle={() => preferences.setToggle("brainCoreEnabled", !on)}
+        />
+        <p className="mt-2 text-note text-muted-foreground">{line}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/install-manager" })}>
+            <HardDriveDownload className="size-4" /> Install FRIDAY Core →
           </Button>
-        ) : null}
-      </div>
-    </HudPanel>
+          {desktop && error ? (
+            <Button size="sm" variant="outline" onClick={() => refresh()}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      </HudPanel>
+      <LlmEnginePanel />
+      <LearnSettings />
+    </>
   );
 }

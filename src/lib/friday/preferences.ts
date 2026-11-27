@@ -518,6 +518,37 @@ export type VoicePreferences = {
   activeId: string;
 };
 
+/** Which chat engine runs the local brain: her own build, the official one, or the one the bench found faster. */
+export const ENGINE_PREFER_CHOICES = ["auto", "own", "official"] as const;
+export type EnginePrefer = (typeof ENGINE_PREFER_CHOICES)[number];
+
+/** An unknown or missing word (an old stored shape) reads `auto`. */
+export function enginePreferOf(value: unknown): EnginePrefer {
+  return ENGINE_PREFER_CHOICES.find((choice) => choice === value) ?? "auto";
+}
+
+/** What the owner may allow FRIDAY to learn from, one class at a time. Nothing is allowed until he ticks it. */
+export const LEARN_DATA_CLASSES = [
+  {
+    id: "verified-runs",
+    label: "Tasks I asked for that finished and were checked",
+    hint: "Only my own request and her checked answer, from a task that used no tool, web page or screen.",
+  },
+  {
+    id: "corrected-lines",
+    label: "Lines I corrected myself",
+    hint: "Only text I wrote when I fixed what she heard or said.",
+  },
+] as const;
+
+/** The stored list (`brain.learn.classes`, comma separated) as known class ids, each once. */
+export function acceptedLearnClasses(stored: unknown): string[] {
+  if (typeof stored !== "string") return [];
+  const known: string[] = LEARN_DATA_CLASSES.map((entry) => entry.id);
+  const picked = stored.split(",").map((part) => part.trim());
+  return known.filter((id) => picked.includes(id));
+}
+
 export type FridayPreferences = {
   theme: string;
   toggles: Record<string, boolean>;
@@ -542,6 +573,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     autoBuild: false,
     /** FRIDAY Core (the local llama.cpp brain) starts only when the owner turns it on; off until the A/B gate on this PC. */
     brainCoreEnabled: false,
+    /** On-device learning (an adapter on top of the base model) is opt-in. Nothing trains until this is on. */
+    brainLearnAdapters: false,
+    /** Words from lines the owner corrected become hints for the ears. Local and reversible. */
+    brainLearnGlossary: true,
     circuit: true,
     glow: true,
     scanlines: true,
@@ -628,6 +663,12 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     buttonLabels: "hover",
     personality:
       "Be direct and short. State the risk before running any exec tool. Prefer local models; use an online model only for research or when local models disagree. After a failure, write one lesson to memory.",
+    /** Chat engine: auto (the bench decides), own (FRIDAY Runtime LLM) or official (llama.cpp). */
+    brainEnginePrefer: "auto",
+    /** Speculative decoding: auto lets the engine decide. */
+    brainSpeculative: "auto",
+    /** Data classes the owner allowed learning from (comma separated ids of LEARN_DATA_CLASSES). Empty = none. */
+    brainLearnClasses: "",
     cpuBudget: "50",
     modelIdleMinutes: "10",
     sampleSeconds: "2",

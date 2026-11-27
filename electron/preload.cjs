@@ -317,6 +317,8 @@ contextBridge.exposeInMainWorld("friday", {
   localModelStatus: () => ipcRenderer.invoke("models:local-status"),
   // FRIDAY Core status (variant, installed, running, ready); never the key, port or endpoint.
   brainCoreStatus: () => ipcRenderer.invoke("brain:core-status"),
+  llmEngineState: (payload) => ipcRenderer.invoke("llm-engine:state", payload),
+  llmEngineBench: (payload) => ipcRenderer.invoke("llm-engine:bench", payload),
   generateImage: (payload) => ipcRenderer.invoke("image:generate", payload),
   comfyuiStatus: () => ipcRenderer.invoke("comfyui:status"),
   comfyuiRun: (workflow) => ipcRenderer.invoke("comfyui:run", workflow),

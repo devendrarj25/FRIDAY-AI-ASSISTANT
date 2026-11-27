@@ -199,6 +199,9 @@ export const FLOW_REGISTRY = {
     "fields.archiveFormat",
     "fields.attentionWindow",
     "fields.bodyFont",
+    "fields.brainEnginePrefer",
+    "fields.brainLearnClasses",
+    "fields.brainSpeculative",
     "fields.bubbleStyle",
     "fields.buildOutput",
     "fields.buttonLabels",
@@ -253,6 +256,8 @@ export const FLOW_REGISTRY = {
     "toggles.blockUnknownHosts",
     "toggles.blur",
     "toggles.brainCoreEnabled",
+    "toggles.brainLearnAdapters",
+    "toggles.brainLearnGlossary",
     "toggles.chatTimestamps",
     "toggles.circuit",
     "toggles.clearWorkingOnQuit",
@@ -1363,6 +1368,14 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "library:zip",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "llm-engine:bench",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "llm-engine:state",
       file: "electron/main.cjs",
     },
     {
@@ -9759,16 +9772,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 170,
-      total: 170,
+      mapped: 175,
+      total: 175,
     },
     capabilities: {
       mapped: 1119,
       total: 1119,
     },
     ipc: {
-      mapped: 521,
-      total: 521,
+      mapped: 523,
+      total: 523,
     },
     kernel: {
       mapped: 14,

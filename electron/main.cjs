@@ -2040,7 +2040,7 @@ async function waitForKernel(timeoutMs = 20000) {
  * later kernel-ready (a restart) pushes the Core row again. Core starts only while the setting is on and stops when it
  * turns off; quitting stops it through `stopManagedEngines`. A failure never reaches the caller.
  */
-function createCoreWiring({ api, request, isEnabled, log: say = () => undefined }) {
+function createCoreWiring({ api, request, isEnabled, prefer, log: say = () => undefined }) {
   let bound = false;
   let desired = null;
   const guard = (promise) => Promise.resolve(promise).catch((e) => say(`core: ${e?.message || e}`));
@@ -2048,7 +2048,12 @@ function createCoreWiring({ api, request, isEnabled, log: say = () => undefined 
     const enabled = isEnabled() === true;
     desired = enabled;
     return guard(
-      enabled ? api.startCore?.({ isEnabled: () => isEnabled() === true }) : api.stopCore?.(),
+      enabled
+        ? api.startCore?.({
+            isEnabled: () => isEnabled() === true,
+            ...(prefer ? { prefer: prefer() } : {}),
+          })
+        : api.stopCore?.(),
     );
   };
   return {
@@ -2075,6 +2080,8 @@ const coreWiring = createCoreWiring({
   api: modelsApi,
   request: (method, params, timeoutMs) => kernelRequest(method, params, timeoutMs),
   isEnabled: () => ownerPrefToggle("brainCoreEnabled", false),
+  // The owner's `brain.engine.prefer` (auto, own or official) picks which llama.cpp build runs Core.
+  prefer: () => ownerPrefField("brainEnginePrefer", "auto"),
   log: (m) => log(m),
 });
 
@@ -5857,6 +5864,8 @@ ipcMain.handle("kernel:rpc", async (_e, method, params) => {
     return { ok: false, error: `kernel method not allowed: ${name}`, denied: true };
   const payload = params && typeof params === "object" ? { ...params } : {};
   for (const field of kernelMethods.CALLER_FORBIDDEN_FIELDS) delete payload[field];
+  // The page never decides that a paid model may be used: only the main process says `explicitPaid`.
+  if (name === "model.route_generation") delete payload.explicitPaid;
   if (touchesCoreRow(name, payload))
     return { ok: false, error: "the FRIDAY Core model is managed by the desktop", denied: true };
   if (name === "chat.complete" || name === "chat.stream") {
@@ -6103,6 +6112,16 @@ function ownerPrefToggle(key, fallback) {
     const raw = latestPreferences || JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
     const value = raw && raw.toggles ? raw.toggles[key] : undefined;
     return typeof value === "boolean" ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function ownerPrefField(key, fallback) {
+  try {
+    const raw = latestPreferences || JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+    const value = raw && raw.fields ? raw.fields[key] : undefined;
+    return typeof value === "string" ? value : fallback;
   } catch {
     return fallback;
   }
@@ -7125,6 +7144,33 @@ ipcMain.handle("brain:core-status", () => {
   }
   return buildCoreStatus({ endpoint, plan });
 });
+// The dual chat engine: the read of both engines and the owner-started bench (electron/llm-engine-ipc.cjs). The stored
+// `brain.engine.prefer` goes into the engine choice; a voice lease in the governor means a turn is running.
+let llmEngineIpc = null;
+function llmEngine() {
+  if (llmEngineIpc) return llmEngineIpc;
+  llmEngineIpc = require("./llm-engine-ipc.cjs").createLlmEngineIpc({
+    runtime: require("./llama-runtime.cjs"),
+    finetune,
+    core: require("./friday-core.cjs"),
+    root: () => paths.root() || paths.base(),
+    readPrefer: () => ownerPrefField("brainEnginePrefer", "auto"),
+    governor,
+    coreLoaded: () => Boolean(modelsApi.coreEndpoint()),
+    stopCore: () => modelsApi.stopCore(),
+    resumeCore: () =>
+      ownerPrefToggle("brainCoreEnabled", false)
+        ? modelsApi.startCore({
+            isEnabled: () => ownerPrefToggle("brainCoreEnabled", false),
+            prefer: ownerPrefField("brainEnginePrefer", "auto"),
+          })
+        : undefined,
+    voiceBusy: () => Boolean(governor?.status().leases.some((lease) => lease.priority === "voice")),
+  });
+  return llmEngineIpc;
+}
+ipcMain.handle("llm-engine:state", (_e, payload) => llmEngine().state(payload));
+ipcMain.handle("llm-engine:bench", (_e, payload) => llmEngine().bench(payload));
 ipcMain.handle("models:local-status", async () =>
   require("./local-model-status.cjs").describeLocal({
     inventory: await modelsApi.inventory(modelsContext()),
@@ -8062,6 +8108,8 @@ function getInstallerCatalog() {
   installerCatalogMemo = api.createInstallerCatalog({
     root: () => getWorkspaceRoot(),
     facts: () => routingHardwareFacts(),
+    // The Doctor and Install Manager row (`engine:friday-runtime-llm`) names the engine the owner's choice picks.
+    enginePrefer: () => ownerPrefField("brainEnginePrefer", "auto"),
     tools: () => toolchain.TOOLS,
     detected: () => toolchain.lastDetected(),
     packs: () => require("./toolchain-pack.cjs").readManifest().packs || [],
@@ -9364,7 +9412,13 @@ function initSelfMaintenance(root) {
   if (!root) return;
   // Local LoRA/QLoRA training lives beside self-maintenance: same workspace
   // root, same logging, and it never runs without the owner's approval.
-  finetune.init({ send, log, projectRoot: app.isPackaged ? null : path.join(__dirname, "..") });
+  finetune.init({
+    send,
+    log,
+    projectRoot: app.isPackaged ? null : path.join(__dirname, ".."),
+    // The one privacy classifier (kernel/privacy.py): rows the kernel cannot classify never train.
+    classify: (text) => kernelRequest("privacy.classify", { text: String(text || "") }),
+  });
   selfMaintenance.init({
     root,
     send,

@@ -664,9 +664,11 @@ const hashCache = new Map();
 /** The own build's record (`config/friday-runtime-llm.json`); null when it cannot be read. */
 function readOwnRecord(fsApi = fs) {
   try {
-    const record = JSON.parse(
-      fsApi.readFileSync(path.join(__dirname, "..", "config", "friday-runtime-llm.json"), "utf8"),
-    );
+    // resource-paths finds `config/` beside the app, packaged or not (it is not inside app.asar).
+    const record =
+      fsApi === fs
+        ? require("./resource-paths.cjs").readConfigJson("friday-runtime-llm.json", null)
+        : JSON.parse(fsApi.readFileSync("config/friday-runtime-llm.json", "utf8"));
     return record && typeof record === "object" ? record : null;
   } catch {
     return null;
