@@ -6684,6 +6684,10 @@ ipcMain.handle("workspace:set", async (_e, root) => {
       paths.ensureStructure(resolvedRoot);
       ensureCanonicalConfig(resolvedRoot);
       ensureRootFiles(resolvedRoot, { version: productVersion() });
+      // The new root gets the same data steps as a first boot, before the kernel restarts. They never throw.
+      runDataBootSteps(resolvedRoot);
+      modelCheckState.last = null;
+      modelCheckState.settled = false;
       await adoptStagedDownloads(resolvedRoot);
       // A different root means different models, keys and endpoints: never
       // serve the previous folder's cached catalogue.
@@ -9927,9 +9931,11 @@ async function rebuildRootIndexes(root, { ms = 0 } = {}) {
 ipcMain.handle("root:registry", () => rebuildRootIndexes(getWorkspaceRoot()));
 
 ipcMain.handle("capabilities:list", () => capabilityIndex.list(capabilityRoots()));
-ipcMain.handle("capabilities:reset-builtin", (_e, id) =>
-  capabilityIndex.resetBuiltin(capabilityRoots(), String(id || "")),
-);
+ipcMain.handle("capabilities:reset-builtin", (_e, id) => {
+  const result = capabilityIndex.resetBuiltin(capabilityRoots(), String(id || ""));
+  if (result.ok) send("capabilities:changed", { reset: result.id });
+  return result;
+});
 ipcMain.handle("capabilities:set-enabled", async (_e, id, enabled) => {
   const key = String(id || "");
   const result = capabilityIndex.setEnabled(capabilityRoots(), key, enabled);

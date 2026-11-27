@@ -27,16 +27,19 @@ const MIGRATIONS = [
   },
 ];
 
-/** The ledger rows, or null when the file exists but neither it nor its backup can be read. */
+/**
+ * The ledger rows and where they came from ("file", "backup", or "none" when there is no ledger yet), or null
+ * when a ledger exists but neither it nor its backup can be read.
+ */
 function readLedger(root) {
   const file = ledgerFile(root);
-  if (!fs.existsSync(file) && !fs.existsSync(`${file}.bak`)) return [];
+  if (!fs.existsSync(file) && !fs.existsSync(`${file}.bak`)) return { rows: [], source: "none" };
   const read = safeWrite.readJsonSafe(file, null);
-  return Array.isArray(read.value) ? read.value : null;
+  return Array.isArray(read.value) ? { rows: read.value, source: read.source } : null;
 }
 
 function appliedMigrations(root) {
-  return readLedger(root) || [];
+  return readLedger(root)?.rows || [];
 }
 
 function run(
@@ -48,18 +51,28 @@ function run(
     return { applied: [], skipped: "disabled" };
   if (!root) return { applied: [], error: "no FRIDAY folder is set" };
   try {
-    const rows = readLedger(root);
-    if (!rows)
+    const ledger = readLedger(root);
+    if (!ledger)
       return { applied: [], error: "the migration ledger is damaged and was left as it is" };
+    const rows = ledger.rows;
     const seen = new Set(rows.map((row) => row && row.id));
     const pending = migrations.filter((migration) => !seen.has(migration.id));
     if (!pending.length) return { applied: [] };
 
     const file = ledgerFile(root);
-    try {
-      if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
-    } catch {
-      /* the write below keeps a backup of its own */
+    // The ledger read from the main file is copied to .bak before anything runs. A ledger read from the backup
+    // never overwrites it: the main file is the damaged one then.
+    const backup = `${file}.bak`;
+    let before = null;
+    let copied = false;
+    if (ledger.source === "file") {
+      try {
+        before = fs.existsSync(backup) ? fs.readFileSync(backup) : null;
+        fs.copyFileSync(file, backup);
+        copied = true;
+      } catch {
+        /* the write below keeps a backup of its own */
+      }
     }
     const applied = [];
     let error = null;
@@ -77,7 +90,17 @@ function run(
       });
       applied.push(migration.id);
     }
-    if (applied.length) safeWrite.writeJsonSafe(file, rows);
+    if (applied.length) {
+      safeWrite.writeJsonSafe(file, rows, 2, { keepBackup: ledger.source === "file" });
+    } else if (copied) {
+      // Nothing was recorded, so the backup goes back to what it was.
+      try {
+        if (before) fs.writeFileSync(backup, before);
+        else fs.rmSync(backup, { force: true });
+      } catch {
+        /* a copy of the unchanged ledger is as good as the old backup */
+      }
+    }
     return error ? { applied, error } : { applied };
   } catch (cause) {
     return { applied: [], error: String(cause && cause.message ? cause.message : cause) };

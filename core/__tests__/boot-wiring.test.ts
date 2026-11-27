@@ -106,6 +106,34 @@ describe("boot order in app.whenReady", () => {
     expect(lines.some((line) => line.includes("sync broke"))).toBe(true);
   });
 
+  it("runs against the root it is given, so a folder switch reaches the new root", () => {
+    const calls: string[] = [];
+    const runDataBootSteps = build<(root: string, state: { last: unknown }) => void>(
+      "runDataBootSteps",
+      {
+        dataMigrations: {
+          run: (r: string) => {
+            calls.push(`migrate:${r}`);
+            return { applied: [] };
+          },
+        },
+        builtinsSync: {
+          run: (args: { workspaceRoot: string }) => {
+            calls.push(`sync:${args.workspaceRoot}`);
+            return { ok: true, skipped: null };
+          },
+        },
+        productVersion: () => "1.0.0.0",
+        packagedCapabilityRoot: () => "/app",
+        log: vi.fn(),
+      },
+    );
+    const state = { last: null as unknown };
+    runDataBootSteps("/old", state);
+    runDataBootSteps("/new", state);
+    expect(calls).toEqual(["migrate:/old", "sync:/old", "migrate:/new", "sync:/new"]);
+  });
+
   it("keeps the kill switches in the modules, not in main", () => {
     expect(fs.readFileSync(path.join(root, "electron/data-migrations.cjs"), "utf8")).toContain(
       "FRIDAY_DATA_MIGRATIONS",
@@ -205,7 +233,7 @@ describe("doctor rows", () => {
 describe("capabilities:reset-builtin", () => {
   it("is handled in main by capabilities.resetBuiltin with the roots and a string id", () => {
     expect(main).toContain(
-      'ipcMain.handle("capabilities:reset-builtin", (_e, id) =>\n  capabilityIndex.resetBuiltin(capabilityRoots(), String(id || "")),\n);',
+      'ipcMain.handle("capabilities:reset-builtin", (_e, id) => {\n  const result = capabilityIndex.resetBuiltin(capabilityRoots(), String(id || ""));\n  if (result.ok) send("capabilities:changed", { reset: result.id });\n  return result;\n});',
     );
     expect(main.match(/"capabilities:reset-builtin"/g)).toHaveLength(1);
   });

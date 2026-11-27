@@ -173,3 +173,111 @@ describe("updater/migration passes the new version to the ledger", () => {
     for (const record of report.applied) expect(record).not.toHaveProperty("appVersion");
   });
 });
+
+describe("the ledger backup is never overwritten by a damaged file", () => {
+  const throwing = {
+    id: "9002-bad",
+    describe: "fails",
+    run() {
+      throw new Error("disk is full");
+    },
+  };
+  const old = [{ id: "0000-old", appliedAt: 1 }];
+  const writeLedgerFiles = (main: string | null, bak: string | null) => {
+    fs.mkdirSync(path.join(root, "database"), { recursive: true });
+    if (main !== null) fs.writeFileSync(runner.ledgerFile(root), main);
+    if (bak !== null) fs.writeFileSync(`${runner.ledgerFile(root)}.bak`, bak);
+  };
+  const bakFile = () => `${runner.ledgerFile(root)}.bak`;
+
+  it("keeps a good .bak when the main file is damaged and the only pending step throws", () => {
+    writeLedgerFiles("{not json", JSON.stringify(old));
+    const result = runner.run(root, "2.0.0", { migrations: [throwing] });
+    expect(result.applied).toEqual([]);
+    expect(result.error).toContain("9002-bad");
+    expect(JSON.parse(fs.readFileSync(bakFile(), "utf8"))).toEqual(old);
+    expect(fs.readFileSync(runner.ledgerFile(root), "utf8")).toBe("{not json");
+  });
+
+  it("writes no .bak at all when nothing was applied and none existed", () => {
+    writeLedgerFiles(JSON.stringify(old), null);
+    runner.run(root, "2.0.0", { migrations: [throwing] });
+    expect(fs.existsSync(bakFile())).toBe(false);
+    expect(readLedger()).toEqual(old);
+  });
+
+  it("copies the readable main file to .bak once a step was applied", () => {
+    writeLedgerFiles(JSON.stringify(old), null);
+    const ok = { id: "9001-ok", describe: "ok", run() {} };
+    expect(runner.run(root, "2.0.0", { migrations: [ok] }).applied).toEqual(["9001-ok"]);
+    expect(JSON.parse(fs.readFileSync(bakFile(), "utf8"))).toEqual(old);
+    expect(readLedger().map((row: { id: string }) => row.id)).toEqual(["0000-old", "9001-ok"]);
+  });
+
+  it("recovers from a good .bak when the main file is damaged and does not poison the .bak", () => {
+    writeLedgerFiles("{not json", JSON.stringify(old));
+    const ok = { id: "9001-ok", describe: "ok", run() {} };
+    expect(runner.run(root, "2.0.0", { migrations: [ok] }).applied).toEqual(["9001-ok"]);
+    expect(readLedger().map((row: { id: string }) => row.id)).toEqual(["0000-old", "9001-ok"]);
+    expect(JSON.parse(fs.readFileSync(bakFile(), "utf8"))).toEqual(old);
+  });
+});
+
+describe("both runners treat a damaged ledger the same way", () => {
+  const damagedFixtures: [string, string, string | null][] = [
+    ["main is not JSON and there is no backup", "{not json", null],
+    ["main is JSON but not a list and there is no backup", '{"id":"x"}', null],
+    ["main and backup are both damaged", "{not json", "[oops"],
+  ];
+  for (const [name, main, bak] of damagedFixtures) {
+    it(`refuses and changes nothing when ${name}`, () => {
+      const other = fs.mkdtempSync(path.join(os.tmpdir(), "friday-data-migrations-ts-"));
+      try {
+        for (const dir of [root, other]) {
+          fs.mkdirSync(path.join(dir, "database"), { recursive: true });
+          fs.writeFileSync(path.join(dir, "database", "migrations.json"), main);
+          if (bak !== null)
+            fs.writeFileSync(path.join(dir, "database", "migrations.json.bak"), bak);
+        }
+        const cjs = runner.run(root, "3.0.0");
+        migrateAfterUpdate("2.0.0", "3.0.0", other);
+        expect(cjs.applied).toEqual([]);
+        for (const dir of [root, other]) {
+          expect(fs.readFileSync(path.join(dir, "database", "migrations.json"), "utf8")).toBe(main);
+          expect(fs.existsSync(path.join(dir, "config", "capabilities.json"))).toBe(false);
+        }
+      } finally {
+        fs.rmSync(other, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("both recover the same rows from a good backup when the main file is damaged", () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), "friday-data-migrations-ts-"));
+    try {
+      for (const dir of [root, other]) {
+        fs.mkdirSync(path.join(dir, "database"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "database", "migrations.json"), "{not json");
+        fs.writeFileSync(
+          path.join(dir, "database", "migrations.json.bak"),
+          JSON.stringify([{ id: "0000-old", appliedAt: 1 }]),
+        );
+      }
+      runner.run(root, "3.0.0");
+      migrateAfterUpdate("2.0.0", "3.0.0", other);
+      const ids = (dir: string) =>
+        JSON.parse(fs.readFileSync(path.join(dir, "database", "migrations.json"), "utf8")).map(
+          (row: { id: string }) => row.id,
+        );
+      expect(ids(root)).toEqual(["0000-old", "0001-config-capabilities"]);
+      expect(ids(other)).toEqual(ids(root));
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("states in the updater module that the CommonJS runner exists too", () => {
+    const source = fs.readFileSync(path.join(repo, "updater/migration/index.ts"), "utf8");
+    expect(source).not.toContain("exactly one place");
+  });
+});
