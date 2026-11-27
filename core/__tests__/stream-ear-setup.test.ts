@@ -329,3 +329,65 @@ describe("a failed streaming-ear download never fails setup", () => {
     expect(report).toEqual([]);
   });
 });
+
+describe("a local build is the first source of the streaming ear's download", () => {
+  type Source = { kind: string; repo?: string; label?: string };
+  const chain = req("../../electron/voice-weights.cjs") as {
+    withFridayRelease: (sources: Source[], deps: Record<string, unknown>) => Source[];
+  };
+
+  it("puts local-bundle before the pinned hf-repo job of a planned ear, and only for the pinned files", () => {
+    const root = temp();
+    const planned = weights.voiceInstallPlan(root, pc(16, 10), plenty);
+    const row = prefetch
+      .prefetchPlan(root, {}, "win32", { plan: planned })
+      .find((r) => r.id === ID)!;
+    const pin = pins.pinForRepo(REPO)! as {
+      revision: string;
+      files: Record<string, { sha256: string; bytes: number }>;
+    };
+    const bundleOf = (sha: (value: string) => string) => ({
+      origin: "build-root",
+      dir: path.resolve("/built"),
+      bundle: {
+        packs: [],
+        models: [
+          {
+            fridayId: ID,
+            dir: `models/${ID}`,
+            files: Object.entries(pin.files).map(([name, f]) => ({
+              path: name,
+              bytes: f.bytes,
+              sha256: sha(f.sha256),
+            })),
+          },
+        ],
+      },
+    });
+    const disk = {
+      statSync: (file: string) => {
+        const name = Object.keys(pin.files).find((n) =>
+          file.endsWith(path.join("models", ID, ...n.split("/"))),
+        );
+        if (!name) throw Object.assign(new Error("missing"), { code: "ENOENT" });
+        return { isFile: () => true, size: pin.files[name]!.bytes };
+      },
+      realpathSync: Object.assign((p: string) => p, { native: (p: string) => p }),
+    };
+    const out = chain.withFridayRelease(row.job.sources, {
+      modelId: ID,
+      localBundles: [bundleOf((s) => s)],
+      localFs: disk,
+      env: {},
+    });
+    expect(out.map((s) => s.kind)[0]).toBe("local-bundle");
+    expect(out[out.length - 1]).toEqual(expect.objectContaining({ kind: "hf-repo", repo: REPO }));
+    const differs = chain.withFridayRelease(row.job.sources, {
+      modelId: ID,
+      localBundles: [bundleOf(() => "f".repeat(64))],
+      localFs: disk,
+      env: {},
+    });
+    expect(differs.map((s) => s.kind)).not.toContain("local-bundle");
+  });
+});

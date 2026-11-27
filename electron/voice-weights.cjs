@@ -6,6 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 const pins = require("./voice-pins.cjs");
+const localSources = require("./local-sources.cjs");
 
 const STT_REPOS = {
   tiny: "Systran/faster-whisper-tiny",
@@ -432,6 +433,8 @@ function withOptInMirrors(sources, env) {
  * hash. A model with no complete manifest entry has no release source, so its chain is exactly what it was.
  */
 const RELEASE_LABEL = "FRIDAY release";
+/** A model copied from a build this PC made (a `friday-bundle.json` folder), tried before the release. */
+const LOCAL_LABEL = localSources.LOCAL_LABEL;
 const OFFICIAL_LABEL = "official source";
 const RELEASE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
 const RELEASE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -644,8 +647,36 @@ function derivedEarSources(catalogId, deps = {}) {
 }
 
 /**
- * `sources` with, before every pinned Hugging Face repository the pack holds in full, the FRIDAY release source. Any
- * other source, and a repository the pack does not hold, is returned as it was, in the same order.
+ * The local-bundle source of one pinned repository, or null. It exists only when `deps.localBundles` (from
+ * `local-sources.discoverLocalBundles`) holds a bundle that serves `deps.modelId` with exactly the pinned files
+ * (`planLocalModel`: the config pin wins, so a bundle hash that differs means no source). `plan` is the release plan of
+ * the same repository when there is one, so a local pack can serve its part files too.
+ */
+function localBundleSource(repo, plan, deps = {}) {
+  if (!Array.isArray(deps.localBundles) || !deps.localBundles.length || !deps.modelId) return null;
+  const pin = (deps.pinForRepo || pins.pinForRepo)(repo);
+  if (!pin?.files) return null;
+  const local = localSources.planLocalModel({
+    bundles: deps.localBundles,
+    installRoot: deps.installRoot,
+    modelId: deps.modelId,
+    pinFiles: Object.entries(pin.files).map(([name, row]) => ({
+      path: name,
+      bytes: row.bytes,
+      sha256: row.sha256,
+    })),
+    releasePlan: plan,
+    // The copy holds every file to the pinned SHA-256 while it streams (model-download), so no multi-GB hash blocks here.
+    deep: deps.localDeep === true,
+    ...(deps.localFs ? { fs: deps.localFs } : {}),
+  });
+  return local ? { kind: "local-bundle", repo, label: LOCAL_LABEL, plan: local } : null;
+}
+
+/**
+ * `sources` with, before every pinned Hugging Face repository the pack holds in full, the FRIDAY release source, and
+ * before that the local-bundle source when a build on this PC holds the same pinned files. Any other source, and a
+ * repository neither holds, is returned as it was, in the same order.
  */
 function withFridayRelease(sources, deps = {}) {
   const list = Array.isArray(sources) ? sources : [];
@@ -660,6 +691,10 @@ function withFridayRelease(sources, deps = {}) {
       !list.some((s) => s?.kind === "friday-release" && s.repo === source.repo)
     ) {
       const plan = fridayReleasePlan(source.repo, deps);
+      if (!list.some((s) => s?.kind === "local-bundle" && s.repo === source.repo)) {
+        const local = localBundleSource(source.repo, plan, deps);
+        if (local) out.push(local);
+      }
       if (plan) out.push({ kind: "friday-release", repo: source.repo, label: RELEASE_LABEL, plan });
     }
     out.push(source);
@@ -672,11 +707,14 @@ function sourceNotePath(dir) {
   return `${dir}${SOURCE_NOTE}`;
 }
 
-/** "FRIDAY release" or "official source" for the pinned revision on disk; "" when unknown (an older install, another revision). */
+/** "local build", "FRIDAY release" or "official source" for the pinned revision on disk; "" when unknown (an older install, another revision). */
 function servedSource(dir, pin) {
   try {
     const note = JSON.parse(fs.readFileSync(sourceNotePath(dir), "utf8"));
-    const known = note?.source === RELEASE_LABEL || note?.source === OFFICIAL_LABEL;
+    const known =
+      note?.source === RELEASE_LABEL ||
+      note?.source === OFFICIAL_LABEL ||
+      note?.source === LOCAL_LABEL;
     return known && (!pin || note.pinRevision === pin.revision) ? note.source : "";
   } catch {
     return "";
@@ -2113,9 +2151,11 @@ module.exports = {
   HF_MIRROR_HOST,
   withOptInMirrors,
   RELEASE_LABEL,
+  LOCAL_LABEL,
   OFFICIAL_LABEL,
   readFridayModels,
   fridayReleasePlan,
+  localBundleSource,
   withFridayRelease,
   sourceNotePath,
   servedSource,

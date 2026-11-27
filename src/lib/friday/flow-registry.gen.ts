@@ -270,6 +270,7 @@ export const FLOW_REGISTRY = {
     "toggles.gpuRender",
     "toggles.highContrast",
     "toggles.installApproval",
+    "toggles.installUseLocalBuilds",
     "toggles.keepModelsWarm",
     "toggles.launchMinimized",
     "toggles.lessons",
@@ -9780,8 +9781,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 175,
-      total: 175,
+      mapped: 176,
+      total: 176,
     },
     capabilities: {
       mapped: 1119,
