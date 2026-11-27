@@ -14,6 +14,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { hub } from "@/lib/friday/hub-engine";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
@@ -74,7 +75,7 @@ function ModulesPage() {
   const [importBusy, setImportBusy] = useState<"forge" | "test" | null>(null);
   const [forgeGoal, setForgeGoal] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, items, toggle, refresh } = useCapabilities("modules");
+  const { supported, error, items, toggle, refresh } = useCapabilities("modules");
 
   const modules = useMemo<ModuleRow[]>(() => {
     if (!supported)
@@ -287,7 +288,14 @@ function ModulesPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          {rows.length ? (
+          {error ? (
+            <ErrorState
+              className="md:col-span-2"
+              title="Your modules could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : rows.length ? (
             rows.map((mod) => (
               <Panel key={mod.key} title={mod.name} hint={`v${mod.version}`}>
                 <p className="text-sm text-muted-foreground">{mod.description}</p>

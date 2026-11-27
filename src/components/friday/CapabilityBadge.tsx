@@ -5,10 +5,10 @@
  * (electron/capabilities.cjs `list`); this file only shows it and offers the
  * one way back: Reset to built-in, which saves a backup first.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,9 +20,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  ROW_SELECTOR,
   RESET_CONFIRM_TEXT,
+  RESET_UNFINISHED_TEXT,
+  alreadyInReleaseSummary,
   badgeSpec,
   canResetBuiltin,
+  keptYoursSummary,
+  rowFocusTarget,
   runBuiltinReset,
   type AlreadyInRelease,
   type CapabilityStatus,
@@ -42,17 +47,21 @@ export function CapabilityBadge({
 }) {
   const spec = badgeSpec(status, origin);
   if (!spec) return null;
+  // A span, so the badge is valid inside the name span of a row; the hint is said once, as the title.
   return (
-    <Badge
-      variant="outline"
-      className={cn("text-note", spec.tone, className)}
+    <span
+      className={cn(badgeVariants({ variant: "outline" }), "text-note", spec.tone, className)}
       title={spec.hint}
       data-capability-status={status ?? origin}
     >
       {spec.label}
-      <span className="sr-only"> — {spec.hint}</span>
-    </Badge>
+    </span>
   );
+}
+
+function focusElement(element: HTMLElement) {
+  if (!element.hasAttribute("tabindex")) element.setAttribute("tabindex", "-1");
+  element.focus({ preventScroll: true });
 }
 
 export function ResetConfirmBody({ name }: { name: string }) {
@@ -65,6 +74,8 @@ export function ResetConfirmBody({ name }: { name: string }) {
 }
 
 export interface ResetBuiltinViewProps {
+  /** Lets the control that owns the row find the button (and its row) after a reset. */
+  askRef?: RefObject<HTMLButtonElement | null>;
   status?: CapabilityStatus | null | undefined;
   name: string;
   phase: ResetPhase;
@@ -79,15 +90,25 @@ export interface ResetBuiltinViewProps {
 /** Presentation only: the button, its busy state and its error with Retry. */
 export function ResetBuiltinView(props: ResetBuiltinViewProps) {
   const { status, name, phase } = props;
-  const askRef = useRef<HTMLButtonElement>(null);
+  const ownRef = useRef<HTMLButtonElement>(null);
+  const askRef = props.askRef ?? ownRef;
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const previousKind = useRef(phase.kind);
+  // Keyboard users keep their place: Retry takes focus on an error, the button gets it back after Dismiss.
+  useEffect(() => {
+    if (phase.kind === "error") retryRef.current?.focus();
+    else if (phase.kind === "idle" && previousKind.current === "error") askRef.current?.focus();
+    previousKind.current = phase.kind;
+  }, [phase.kind, askRef]);
   if (!canResetBuiltin(status)) return null;
   if (phase.kind === "error") {
     return (
       <span className="flex flex-wrap items-center gap-1" data-reset-state="error">
-        <span role="alert" className="text-note text-destructive">
+        <span role="alert" className="max-w-prose break-words text-note text-destructive">
           {phase.message}
         </span>
         <Button
+          ref={retryRef}
           size="sm"
           variant="outline"
           className="h-7 px-2 text-note"
@@ -119,12 +140,15 @@ export function ResetBuiltinView(props: ResetBuiltinViewProps) {
         disabled={Boolean(props.disabled) || working}
         aria-busy={working}
         aria-label={`Reset ${name} to built-in`}
-        title="Remove your copy and use the version that ships with FRIDAY. A backup is saved first."
+        title="Remove your copy and use the built-in version. A backup is saved first."
         data-reset-state={phase.kind}
         onClick={props.onAsk}
       >
         {working ? "Resetting…" : "Reset to built-in"}
       </Button>
+      <span role="status" className="sr-only">
+        {working ? `Resetting ${name} to built-in…` : ""}
+      </span>
       <AlertDialog
         open={phase.kind === "confirm"}
         onOpenChange={(next) => {
@@ -173,13 +197,33 @@ export function ResetBuiltinButton({
   disabled?: boolean;
 }) {
   const [phase, setPhase] = useState<ResetPhase>({ kind: "idle" });
+  const askRef = useRef<HTMLButtonElement>(null);
+  const rowRef = useRef<HTMLElement | null>(null);
+  const resettable = canResetBuiltin(status);
+  // After a good reset the button is gone: focus moves to its row (or the page), never to nowhere.
+  useEffect(() => {
+    if (resettable || !rowRef.current) return;
+    const target = rowFocusTarget(rowRef.current, () =>
+      document.querySelector<HTMLElement>("main"),
+    );
+    rowRef.current = null;
+    if (target) focusElement(target);
+  }, [resettable]);
   const start = async () => {
+    const row = askRef.current?.closest<HTMLElement>(ROW_SELECTOR);
+    if (row) rowRef.current = row;
     setPhase({ kind: "working" });
-    const outcome = await runBuiltinReset({ id, name, refresh, notify: toast });
-    setPhase(outcome.ok ? { kind: "idle" } : { kind: "error", message: outcome.error });
+    let next: ResetPhase = { kind: "error", message: RESET_UNFINISHED_TEXT };
+    try {
+      const outcome = await runBuiltinReset({ id, name, refresh, notify: toast });
+      next = outcome.ok ? { kind: "idle" } : { kind: "error", message: outcome.error };
+    } finally {
+      setPhase(next);
+    }
   };
   return (
     <ResetBuiltinView
+      askRef={askRef}
       status={status}
       name={name}
       phase={phase}
@@ -188,12 +232,13 @@ export function ResetBuiltinButton({
       onCancel={() => setPhase((now) => (now.kind === "confirm" ? { kind: "idle" } : now))}
       onConfirm={start}
       onRetry={start}
-      onDismiss={() => setPhase({ kind: "idle" })}
+      onDismiss={() => {
+        rowRef.current = null;
+        setPhase({ kind: "idle" });
+      }}
     />
   );
 }
-
-const plural = (count: number) => (count === 1 ? "item" : "items");
 
 /** What "Update content" did not change: already shipped in this release, or yours and kept. */
 export function ContentUpdateReport({
@@ -211,7 +256,7 @@ export function ContentUpdateReport({
       {shipped.length ? (
         <details data-content-report-shipped>
           <summary className="cursor-pointer text-foreground">
-            {shipped.length} {plural(shipped.length)} already in this release
+            {alreadyInReleaseSummary(shipped.length)}
           </summary>
           <ul className="mt-1 list-disc pl-5 font-mono text-note">
             {shipped.map((entry) => (
@@ -226,15 +271,20 @@ export function ContentUpdateReport({
       {mine.length ? (
         <details data-content-report-yours>
           <summary className="cursor-pointer text-foreground">
-            {mine.length} {plural(mine.length)} kept your version
+            {keptYoursSummary(mine.length)}
           </summary>
           <ul className="mt-1 list-disc pl-5 font-mono text-note">
-            {mine.map((entry) => (
-              <li key={entry.id}>
-                {entry.id}
-                {entry.version ? ` (yours v${entry.version})` : ""}
-              </li>
-            ))}
+            {mine.map((entry) => {
+              const notes = [entry.version ? `yours v${entry.version}` : "", entry.reason ?? ""]
+                .filter(Boolean)
+                .join(", ");
+              return (
+                <li key={entry.id}>
+                  {entry.id}
+                  {notes ? ` (${notes})` : ""}
+                </li>
+              );
+            })}
           </ul>
         </details>
       ) : null}

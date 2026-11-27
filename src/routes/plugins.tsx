@@ -22,6 +22,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
 import { uninstallPack } from "@/lib/friday/marketplace";
@@ -137,6 +138,7 @@ function PluginsPage() {
   const {
     supported,
     loading,
+    error,
     items: pluginPacks,
     refresh: refreshPlugins,
     toggle,
@@ -549,10 +551,17 @@ function PluginsPage() {
             />
           ) : loading ? (
             <LoadingState label="Reading your plugin folders…" rows={4} />
+          ) : error ? (
+            <ErrorState
+              title="Your plugins could not be listed"
+              error={error}
+              onRetry={() => void refreshPlugins()}
+            />
           ) : rows.length ? (
             <>
               <DataTable
                 pinLast
+                rowKey={(index) => rows[index]?.id || index}
                 columns={["Plugin Name", "Type", "Reacts to", "Version", "Status", "Latest", ""]}
                 rows={rows.slice(0, shown).map((p) => [
                   <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">

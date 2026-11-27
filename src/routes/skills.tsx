@@ -31,6 +31,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useLedger } from "@/lib/friday/self/use-self";
 import { lastUsedLabel, statsFor } from "@/lib/friday/self/mastery";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
@@ -121,7 +122,7 @@ function SkillsPage() {
   const [forgeGoal, setForgeGoal] = useState("");
   const [testInput, setTestInput] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, loading, items, refresh, toggle } = useCapabilities("skills");
+  const { supported, loading, error, items, refresh, toggle } = useCapabilities("skills");
   const { tasks } = useLedger();
 
   // Real skills come from the skill manifests on disk. Mastery/level are
@@ -606,10 +607,17 @@ function SkillsPage() {
             />
           ) : loading ? (
             <LoadingState label="Reading your skill folders…" rows={4} />
+          ) : error ? (
+            <ErrorState
+              title="Your skills could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
           ) : rows.length ? (
             <>
               <DataTable
                 pinLast
+                rowKey={(index) => rows[index]?.id || index}
                 columns={["Skill Name", "Category", "Status", "Level", "Last Used", "Actions"]}
                 rows={rows.slice(0, shown).map((s) => [
                   <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">

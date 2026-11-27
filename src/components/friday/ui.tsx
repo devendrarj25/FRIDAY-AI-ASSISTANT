@@ -462,9 +462,12 @@ export function DataTable({
   rows,
   pinLast = false,
   step = TABLE_ROW_STEP,
+  rowKey,
 }: {
   columns: string[];
   rows: ReactNode[][];
+  /** A stable key per row (an id), so a row keeps its own state when the list shifts. Defaults to the index. */
+  rowKey?: (index: number) => string | number;
   /** Keep the final (action) column reachable when the table scrolls sideways. */
   pinLast?: boolean;
   /** How many rows to draw before "Show more". */
@@ -497,7 +500,7 @@ export function DataTable({
         <tbody>
           {visible.map((row, i) => (
             <tr
-              key={i}
+              key={rowKey ? rowKey(i) : i}
               className="border-b border-border/60 transition-colors last:border-0 hover:bg-primary/6"
             >
               {row.map((cell, j) => (

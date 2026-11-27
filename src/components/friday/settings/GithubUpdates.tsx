@@ -137,7 +137,16 @@ export function GithubUpdates() {
     channelSwitch?: boolean;
   } | null>(null);
 
-  const reload = useCallback(async () => setConfig(await githubConfig()), []);
+  // A content report describes one update of one checked ref: a reload or another ref makes it stale.
+  const reload = useCallback(async () => {
+    setContentReport(null);
+    setConfig(await githubConfig());
+  }, []);
+  const [reportRef, setReportRef] = useState(check?.ref);
+  if (check?.ref !== reportRef) {
+    setReportRef(check?.ref);
+    setContentReport(null);
+  }
 
   // The credential is stored once and restored by the main process at startup;
   // the UI only ever reads the resulting session state.
@@ -658,12 +667,12 @@ export function GithubUpdates() {
                     toast.error(result.error || "Update failed — nothing was changed.");
                     return;
                   }
+                  setProgress(null);
+                  await reload();
                   setContentReport({
                     alreadyInRelease: result.alreadyInRelease ?? [],
                     keptYours: result.keptYours ?? [],
                   });
-                  setProgress(null);
-                  await reload();
                   toast.success(
                     result.applied
                       ? `Merged ${result.applied} file(s) of content${result.restartRequired ? " — restart FRIDAY to load them" : ""}`

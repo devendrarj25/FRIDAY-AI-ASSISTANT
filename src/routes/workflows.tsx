@@ -21,6 +21,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
 import { uninstallPack } from "@/lib/friday/marketplace";
@@ -123,6 +124,7 @@ function WorkflowsPage() {
   const [catalogQuery, setCatalogQuery] = useState("");
   const {
     supported,
+    error,
     items: workflowPacks,
     refresh: refreshWorkflows,
     toggle,
@@ -471,87 +473,96 @@ function WorkflowsPage() {
                 />
               }
             >
-              <DataTable
-                columns={["Workflow Name", "Category", "Steps", "Schedule", "Status", ""]}
-                rows={rows.map((row) => [
-                  <span key="n" className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 text-left text-foreground"
-                      onClick={() =>
-                        setOpenId((current) =>
-                          current === (row.id || row.name) ? null : row.id || row.name,
-                        )
-                      }
-                    >
-                      <WorkflowIcon className="size-3.5 text-primary" />
-                      {row.name}
-                    </button>
-                    <CapabilityBadge status={row.layer} origin={row.origin} />
-                  </span>,
-                  <span key="k" className="text-muted-foreground">
-                    {row.category}
-                  </span>,
-                  <span key="c" className="font-mono text-xs text-foreground">
-                    {row.steps.length || "—"}
-                  </span>,
-                  <span key="x" className="font-mono text-xs text-primary">
-                    {row.schedule}
-                  </span>,
-                  <span key="s" className="flex items-center gap-2">
-                    {supported && row.id ? (
-                      <Switch
-                        checked={row.enabled}
-                        onCheckedChange={(next) => void onToggle(row, next)}
+              {error ? (
+                <ErrorState
+                  title="Your workflows could not be listed"
+                  error={error}
+                  onRetry={() => void refreshWorkflows()}
+                />
+              ) : (
+                <DataTable
+                  rowKey={(index) => rows[index]?.id || rows[index]?.name || index}
+                  columns={["Workflow Name", "Category", "Steps", "Schedule", "Status", ""]}
+                  rows={rows.map((row) => [
+                    <span key="n" className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="flex items-center gap-2 text-left text-foreground"
+                        onClick={() =>
+                          setOpenId((current) =>
+                            current === (row.id || row.name) ? null : row.id || row.name,
+                          )
+                        }
+                      >
+                        <WorkflowIcon className="size-3.5 text-primary" />
+                        {row.name}
+                      </button>
+                      <CapabilityBadge status={row.layer} origin={row.origin} />
+                    </span>,
+                    <span key="k" className="text-muted-foreground">
+                      {row.category}
+                    </span>,
+                    <span key="c" className="font-mono text-xs text-foreground">
+                      {row.steps.length || "—"}
+                    </span>,
+                    <span key="x" className="font-mono text-xs text-primary">
+                      {row.schedule}
+                    </span>,
+                    <span key="s" className="flex items-center gap-2">
+                      {supported && row.id ? (
+                        <Switch
+                          checked={row.enabled}
+                          onCheckedChange={(next) => void onToggle(row, next)}
+                          disabled={Boolean(busyId)}
+                          aria-label={`Enable ${row.name}`}
+                        />
+                      ) : null}
+                      <StatusPill label={row.status} tone={toneForStatus(row.status)} />
+                    </span>,
+                    <span key="a" className="flex flex-wrap items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-note"
+                        disabled={!row.id || importBusy !== null}
+                        aria-label={`Test ${row.name}`}
+                        onClick={() => onTest(row)}
+                      >
+                        <Play className="size-3.5" />
+                      </Button>
+                      <ResetBuiltinButton
+                        id={row.id}
+                        name={row.name}
+                        status={row.layer}
+                        refresh={refreshWorkflows}
                         disabled={Boolean(busyId)}
-                        aria-label={`Enable ${row.name}`}
                       />
-                    ) : null}
-                    <StatusPill label={row.status} tone={toneForStatus(row.status)} />
-                  </span>,
-                  <span key="a" className="flex flex-wrap items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-note"
-                      disabled={!row.id || importBusy !== null}
-                      aria-label={`Test ${row.name}`}
-                      onClick={() => onTest(row)}
-                    >
-                      <Play className="size-3.5" />
-                    </Button>
-                    <ResetBuiltinButton
-                      id={row.id}
-                      name={row.name}
-                      status={row.layer}
-                      refresh={refreshWorkflows}
-                      disabled={Boolean(busyId)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-note"
-                      disabled={!row.id && supported}
-                      onClick={() =>
-                        setOpenId((current) =>
-                          current === (row.id || row.name) ? null : row.id || row.name,
-                        )
-                      }
-                    >
-                      {openId === (row.id || row.name) ? "Hide" : "Details"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={confirmId === row.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-note"
-                      disabled={!row.id || Boolean(busyId)}
-                      onClick={() => onRemove(row)}
-                    >
-                      {confirmId === row.id ? "Confirm remove" : "Remove"}
-                    </Button>
-                  </span>,
-                ])}
-              />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-note"
+                        disabled={!row.id && supported}
+                        onClick={() =>
+                          setOpenId((current) =>
+                            current === (row.id || row.name) ? null : row.id || row.name,
+                          )
+                        }
+                      >
+                        {openId === (row.id || row.name) ? "Hide" : "Details"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={confirmId === row.id ? "destructive" : "outline"}
+                        className="h-7 px-2 text-note"
+                        disabled={!row.id || Boolean(busyId)}
+                        onClick={() => onRemove(row)}
+                      >
+                        {confirmId === row.id ? "Confirm remove" : "Remove"}
+                      </Button>
+                    </span>,
+                  ])}
+                />
+              )}
             </HudPanel>
 
             {openRow ? (

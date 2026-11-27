@@ -59,11 +59,11 @@ const badge = (status?: CapabilityStatus, origin?: string) =>
 describe("the badge says which layer an item is", () => {
   it.each([
     ["builtin", "Built-in", "Ships with FRIDAY"],
-    ["identical", "Built-in", "Ships with FRIDAY"],
+    ["identical", "Same as built-in", "identical to the built-in version"],
     ["custom", "Custom", "Added by you"],
-    ["overridden", "Overridden", "Your copy wins"],
-    ["forked-stale", "Forked-stale", "The release changed this item, your fork is older"],
-    ["removed", "Removed", "no longer ships it"],
+    ["overridden", "Your copy", "Your copy wins"],
+    ["forked-stale", "Out of date", "The release changed this item; your copy is older"],
+    ["removed", "Not in release", "This release no longer includes it. Your copy stays."],
   ] as const)("%s shows %s with its meaning", (status, label, meaning) => {
     const html = badge(status);
     expect(html).toContain(`>${label}<`);
@@ -117,9 +117,9 @@ describe("only your own copy of a built-in can be reset", () => {
     const html = renderToStaticMarkup(createElement(ResetConfirmBody, { name: "Daily brief" }));
     expect(html).toContain("Daily brief");
     expect(html).toContain(
-      "A backup copy is saved first, then your copy is removed and the release version is used.",
+      "A backup is saved first. Then your copy is removed and the built-in version is used.",
     );
-    expect(RESET_CONFIRM_TEXT).toContain("backup copy is saved first");
+    expect(RESET_CONFIRM_TEXT).toContain("backup is saved first");
   });
 
   it("an error is announced and has a Retry and a Dismiss", () => {
@@ -292,16 +292,16 @@ describe("Update content reports what it left alone", () => {
     const html = renderToStaticMarkup(
       createElement(ContentUpdateReport, { alreadyInRelease: shipped }),
     );
-    expect(html).toContain("2 items already in this release");
+    expect(html).toContain("2 items are already in this release");
     expect(html).toContain("skills/core/alpha");
     expect(html).toContain("agents/core/beta");
     expect(html).toContain("<details");
-    expect(html).not.toContain("kept your version");
+    expect(html).not.toContain("Kept your version");
   });
 
   it("says how many of the owner's own items were kept", () => {
     const html = renderToStaticMarkup(createElement(ContentUpdateReport, { keptYours: mine }));
-    expect(html).toContain("1 item kept your version");
+    expect(html).toContain("Kept your version of 1 item");
     expect(html).toContain("skills/core/gamma");
     expect(html).not.toContain("already in this release");
   });

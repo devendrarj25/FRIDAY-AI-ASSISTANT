@@ -21,6 +21,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useLedger } from "@/lib/friday/self/use-self";
 import { lastUsedLabel, statsFor, tasksFor } from "@/lib/friday/self/mastery";
 import { hub } from "@/lib/friday/hub-engine";
@@ -111,7 +112,7 @@ function AgentsPage() {
   const [forgeGoal, setForgeGoal] = useState("");
   const [testInput, setTestInput] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, items, refresh, toggle } = useCapabilities("agents");
+  const { supported, error, items, refresh, toggle } = useCapabilities("agents");
   const { tasks } = useLedger();
 
   // Real agents come from the agent manifests on disk; their status and load
@@ -352,10 +353,17 @@ function AgentsPage() {
               ]}
             />
           </div>
-          {rows.length ? (
+          {error ? (
+            <ErrorState
+              title="Your agents could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : rows.length ? (
             <>
               <DataTable
                 pinLast
+                rowKey={(index) => rows[index]?.id || index}
                 columns={[
                   "Agent Name",
                   "Category",

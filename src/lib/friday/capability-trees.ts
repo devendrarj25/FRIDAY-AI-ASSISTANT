@@ -6,7 +6,7 @@
  * reports "no desktop bridge", so callers keep their existing static preview
  * data and the page renders exactly as before.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { desktopApi, isDesktopApp, safeCall } from "./desktop";
 import { deferEffect } from "./defer-effect";
 
@@ -97,6 +97,8 @@ export interface KeptYours {
   version: string | null;
   incomingVersion: string | null;
   provenance: string;
+  /** Why the copy was kept (importer.cjs `KEPT_REASON`); absent on an older main process. */
+  reason?: string;
 }
 
 /** Result of `resetBuiltinCapability` (channel `capabilities:reset-builtin`). */
@@ -160,54 +162,81 @@ export async function resetBuiltin(id: string): Promise<ResetBuiltinResult> {
   if (!reset) return { ok: false, error: RESET_DESKTOP_ONLY };
   try {
     const result = await reset(id);
-    if (!result || typeof result !== "object") return { ok: false, error: "No answer." };
+    if (!result || typeof result !== "object") return { ok: false, error: RESET_NO_ANSWER_TEXT };
     return result.ok
       ? {
           ok: true,
           ...(result.id ? { id: result.id } : {}),
           ...(result.backup ? { backup: result.backup } : {}),
         }
-      : { ok: false, error: result.error || "The reset did not finish." };
+      : { ok: false, error: result.error || RESET_UNFINISHED_TEXT };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
 export const RESET_CONFIRM_TEXT =
-  "A backup copy is saved first, then your copy is removed and the release version is used.";
+  "A backup is saved first. Then your copy is removed and the built-in version is used.";
+/** The bridge gave no answer at all: the main process never ran the reset. */
+export const RESET_NO_ANSWER_TEXT = "FRIDAY got no answer. Nothing was changed. Try again.";
+/** The reset stopped without a reason, so what is on disk is not known: look first. */
+export const RESET_UNFINISHED_TEXT =
+  "The reset did not finish. Check the list before you try again.";
+/** The list call failed or the desktop did not answer. */
+export const LIST_ERROR_TEXT = "The list could not be read. Nothing was changed. Try again.";
+
+/** The nearest row-like container of a control; focus returns there when the control goes away. */
+export const ROW_SELECTOR = "tr, li, section, [data-capability-row]";
+
+/** The row when it is still on the page, else the fallback (the page's main area). */
+export function rowFocusTarget<T extends { isConnected: boolean }>(
+  row: T | null,
+  fallback: () => T | null,
+): T | null {
+  return row?.isConnected ? row : fallback();
+}
+
+/** "1 item" or "3 items". */
+export const itemCount = (count: number): string => `${count} ${count === 1 ? "item" : "items"}`;
+export const keptYoursSummary = (count: number): string =>
+  `Kept your version of ${itemCount(count)}`;
+export const alreadyInReleaseSummary = (count: number): string =>
+  `${itemCount(count)} ${count === 1 ? "is" : "are"} already in this release`;
 export const RESET_DESKTOP_TEXT = "This change needs the FRIDAY desktop app.";
 
 export type BadgeSpec = { label: string; hint: string; tone: string };
 
-const BADGES: Record<"builtin" | "custom" | "overridden" | "forked-stale" | "removed", BadgeSpec> =
-  {
-    builtin: { label: "Built-in", hint: "Ships with FRIDAY.", tone: "" },
-    custom: { label: "Custom", hint: "Added by you.", tone: "" },
-    overridden: {
-      label: "Overridden",
-      hint: "Your copy wins over the built-in.",
-      tone: "border-primary/40 text-primary",
-    },
-    "forked-stale": {
-      label: "Forked-stale",
-      hint: "The release changed this item, your fork is older.",
-      tone: "border-warning/40 text-warning",
-    },
-    removed: {
-      label: "Removed",
-      hint: "This release no longer ships it; your copy stays.",
-      tone: "text-muted-foreground",
-    },
-  };
+const BADGES: Record<CapabilityStatus, BadgeSpec> = {
+  builtin: { label: "Built-in", hint: "Ships with FRIDAY.", tone: "" },
+  custom: { label: "Custom", hint: "Added by you.", tone: "" },
+  identical: {
+    label: "Same as built-in",
+    hint: "Your copy is identical to the built-in version.",
+    tone: "",
+  },
+  overridden: {
+    label: "Your copy",
+    hint: "Your copy wins over the built-in.",
+    tone: "border-primary/40 text-primary",
+  },
+  "forked-stale": {
+    label: "Out of date",
+    hint: "The release changed this item; your copy is older.",
+    tone: "border-warning/40 text-warning",
+  },
+  removed: {
+    label: "Not in release",
+    hint: "This release no longer includes it. Your copy stays.",
+    tone: "text-muted-foreground",
+  },
+};
 
 /** The badge a row shows, or null when neither a status nor an origin is known. */
 export function badgeSpec(
   status?: CapabilityStatus | null,
   origin?: string | null,
 ): BadgeSpec | null {
-  if (status === "identical") return BADGES.builtin;
-  if (status && Object.prototype.hasOwnProperty.call(BADGES, status))
-    return BADGES[status as keyof typeof BADGES];
+  if (status && Object.prototype.hasOwnProperty.call(BADGES, status)) return BADGES[status];
   if (origin === "app") return BADGES.builtin;
   if (origin === "workspace") return BADGES.custom;
   return null;
@@ -229,15 +258,35 @@ export async function runBuiltinReset(options: {
   id: string;
   name: string;
   refresh: () => Promise<unknown> | unknown;
-  notify: { success: (message: string) => unknown };
+  notify: { success: (message: string) => unknown; warning?: (message: string) => unknown };
   reset?: (id: string) => Promise<ResetBuiltinResult>;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const { id, name, refresh, notify, reset = resetBuiltin } = options;
-  const result = await reset(id);
+  let result: ResetBuiltinResult;
+  try {
+    result = await reset(id);
+  } catch {
+    return { ok: false, error: RESET_UNFINISHED_TEXT };
+  }
   if (!result.ok) return { ok: false, error: resetErrorText(result.error) };
   notify.success(`${name} is back to the built-in version. Your copy was backed up first.`);
-  await refresh();
+  // The reset is done; a list that cannot be re-read is a warning, never a failed reset.
+  try {
+    await refresh();
+  } catch {
+    notify.warning?.(
+      "The reset worked, but the list could not be refreshed. Reload it to see the new state.",
+    );
+  }
   return { ok: true };
+}
+
+/** The next list state after a read: a failed read keeps what was shown and names the error. */
+export function settleCapabilityList(
+  previous: CapabilityIndex | null,
+  next: CapabilityIndex | null,
+): { index: CapabilityIndex | null; error: string | null } {
+  return next ? { index: next, error: null } : { index: previous, error: LIST_ERROR_TEXT };
 }
 
 /**
@@ -247,11 +296,16 @@ export async function runBuiltinReset(options: {
 export function useCapabilities(tree?: CapabilityTree) {
   const [index, setIndex] = useState<CapabilityIndex | null>(null);
   const [loading, setLoading] = useState(isDesktopApp());
+  const [error, setError] = useState<string | null>(null);
+  const indexRef = useRef<CapabilityIndex | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isDesktopApp()) return;
     const next = await listCapabilities();
-    setIndex(next);
+    const settled = settleCapabilityList(indexRef.current, next);
+    indexRef.current = settled.index;
+    setIndex(settled.index);
+    setError(settled.error);
     setLoading(false);
   }, []);
 
@@ -285,6 +339,7 @@ export function useCapabilities(tree?: CapabilityTree) {
     items,
     counts: index?.counts ?? {},
     scannedAt: index?.scannedAt ?? 0,
+    error,
     refresh,
     toggle,
   };

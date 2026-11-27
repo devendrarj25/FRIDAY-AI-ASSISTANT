@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { runtimes as sampleRuntimes, tools as sampleTools } from "@/lib/friday/mock";
 import { useCapabilities, type CapabilityStatus } from "@/lib/friday/capability-trees";
 import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useInstaller } from "@/lib/friday/use-installer";
 import { installer } from "@/lib/friday/installer-engine";
 import { toast } from "sonner";
@@ -62,7 +63,8 @@ const riskTone = {
 const DESKTOP_ONLY = "This change needs the FRIDAY desktop app.";
 
 function ToolsPage() {
-  const { supported, items, toggle, refresh } = useCapabilities("tools");
+  const { supported, error, items, toggle, refresh } = useCapabilities("tools");
+  const [busyId, setBusyId] = useState<string | null>(null);
   const state = useInstaller();
   const [importBusy, setImportBusy] = useState<"zip" | "folder" | "git" | "forge" | "test" | null>(
     null,
@@ -86,7 +88,8 @@ function ToolsPage() {
         layer: item.status as CapabilityStatus | undefined,
         toggleable: true,
         onToggle: (next: boolean) => {
-          void toggle(item.id, next);
+          setBusyId(item.id);
+          void toggle(item.id, next).finally(() => setBusyId(null));
         },
       }))
     : sampleTools.map((tool) => ({
@@ -301,7 +304,13 @@ function ToolsPage() {
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Tool permissions" hint="risk gated">
-          {tools.length ? (
+          {error ? (
+            <ErrorState
+              title="Your tools could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : tools.length ? (
             <ul className="space-y-3">
               {tools.map((tool) => (
                 <li key={tool.id || tool.name} className="flex items-start justify-between gap-3">
@@ -323,6 +332,7 @@ function ToolsPage() {
                           name={tool.name}
                           status={tool.layer}
                           refresh={refresh}
+                          disabled={Boolean(busyId)}
                         />
                       </div>
                     ) : null}
@@ -330,7 +340,7 @@ function ToolsPage() {
                   <Switch
                     checked={tool.enabled}
                     onCheckedChange={tool.onToggle}
-                    disabled={!tool.toggleable}
+                    disabled={!tool.toggleable || Boolean(busyId)}
                     aria-label={`Enable ${tool.name}`}
                   />
                 </li>
