@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import friday_runtime
 import numpy as np
 import numpy.typing as npt
 import voice_budget
@@ -178,14 +179,14 @@ def pick_providers(requested: Iterable[str] | str | None, available: Iterable[st
 
 def default_session_factory(path: str, providers: list[str], threads: int) -> Any:
     """Open one onnxruntime session. Imported here so a missing runtime only fails the feature that needs it."""
-    import onnxruntime as ort  # type: ignore
 
-    options = voice_budget.ort_session_options("asr_stream", intra=threads) or ort.SessionOptions()
-    options.log_severity_level = 3
-    if DML in providers:  # DirectML needs a sequential plan and no memory pattern
-        options.enable_mem_pattern = False
-        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    return ort.InferenceSession(path, options, providers=providers)
+    def configure(options: Any, ort: Any, used: list[str]) -> None:
+        options.log_severity_level = 3
+        if DML in used:  # DirectML needs a sequential plan and no memory pattern
+            options.enable_mem_pattern = False
+            options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+
+    return friday_runtime.open_session(path, "asr_stream", intra=threads, providers=providers, configure=configure)
 
 
 def available_providers() -> list[str]:

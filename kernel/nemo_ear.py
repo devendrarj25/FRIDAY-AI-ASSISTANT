@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import friday_runtime
 import numpy as np
 import numpy.typing as npt
 import voice_budget
@@ -176,11 +177,11 @@ def discover(folder: Path, kind: str | None = None, quantization: str | None = N
 
 
 def _default_session(path: Path, threads: int) -> Any:
-    import onnxruntime as ort  # type: ignore
 
-    options = voice_budget.ort_session_options("asr_final", intra=threads) or ort.SessionOptions()
-    options.log_severity_level = 3
-    return ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
+    def quiet(options: Any, _ort: Any, _used: list[str]) -> None:
+        options.log_severity_level = 3
+
+    return friday_runtime.open_session(path, "asr_final", intra=threads, configure=quiet)
 
 
 # ---- the fused decoder + joint graph, shown to rnnt_decode as a separate decoder and joint ---------------------------

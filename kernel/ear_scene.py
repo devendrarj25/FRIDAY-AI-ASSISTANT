@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import friday_runtime
 import numpy as np
 
 RATE = 16_000
@@ -280,12 +281,7 @@ def speaker_model_path() -> Path | None:
 
 def onnx_embedder(path: Path) -> Callable[[np.ndarray], np.ndarray]:
     """``embed(float pcm) -> vector`` over the WeSpeaker file. Raises when onnxruntime or the file fails."""
-    import onnxruntime as ort  # type: ignore
-
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.inter_op_num_threads = 1
-    session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+    session = friday_runtime.open_session(path, "vad")  # one thread, in the audio group's budget
     name = session.get_inputs()[0].name
 
     def embed(pcm: np.ndarray) -> np.ndarray:

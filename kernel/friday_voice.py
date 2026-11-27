@@ -31,8 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import friday_runtime
 import numpy as np
-import voice_budget
 
 LANGUAGES = (
     "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it",
@@ -186,12 +186,12 @@ class FridayVoice:
             return found
         if self.model_dir is None:
             raise RuntimeError("no model folder")
-        import onnxruntime as ort  # type: ignore
 
-        options = voice_budget.ort_session_options("tts", intra=self.threads) or ort.SessionOptions()
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        session = ort.InferenceSession(
-            str(self.model_dir / "onnx" / GRAPHS[name]), sess_options=options, providers=["CPUExecutionProvider"]
+        def configure(options: Any, ort: Any, _used: list[str]) -> None:
+            options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        session = friday_runtime.open_session(
+            self.model_dir / "onnx" / GRAPHS[name], "tts", intra=self.threads, configure=configure
         )
         self._sessions[name] = session
         return session

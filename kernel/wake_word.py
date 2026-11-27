@@ -38,6 +38,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import friday_runtime
+
 N_BANDS = 32
 FEATURE_DIM = N_BANDS
 MIN_NORM = 1e-4
@@ -228,11 +230,9 @@ def score_linear(pcm, model_path: str, threshold: float) -> dict | None:
         }
     if weights is None and path.suffix.lower() == ".onnx":
         try:
-            import onnxruntime as ort  # type: ignore
-
             global _linear_session, _linear_path, _load_count
             if _linear_session is None or _linear_path != str(path):
-                _linear_session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+                _linear_session = friday_runtime.open_session(path, "wake")
                 _linear_path = str(path)
                 _load_count += 1
             name = _linear_session.get_inputs()[0].name

@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 import echo_canceller
+import friday_runtime
 import language_segmenter
 import tts_hindi_light
 import voice_budget
@@ -1173,12 +1174,9 @@ def _turn_session(path: Path):
     held = _turn_model.get(key)
     if held is not None:
         return held
-    import onnxruntime as ort  # type: ignore
     from turn_features import TurnFeatures
 
-    session = ort.InferenceSession(
-        key, sess_options=voice_budget.ort_session_options("turn"), providers=session_providers(False)
-    )
+    session = friday_runtime.open_session(path, "turn", providers=session_providers(False))
     extractor = TurnFeatures(feature_size=80, chunk_length=8)
     _turn_model.clear()
     _turn_model[key] = (session, extractor)

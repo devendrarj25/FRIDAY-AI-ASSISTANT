@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import friday_runtime
 import numpy as np
-import voice_budget
 
 RATE = 16000
 DENOISE_ENGINES = ("dpdfnet2", "gtcrn")
@@ -109,12 +109,11 @@ def _session(path: Path) -> Any:
         if cached is not None:
             return cached
         try:
-            import onnxruntime as ort  # type: ignore
+            import onnxruntime  # type: ignore  # noqa: F401 — only the check: the door opens the file
         except ImportError as exc:
             raise DenoiseUnavailable("onnxruntime is not installed") from exc
         try:
-            options = voice_budget.ort_session_options("denoise") or ort.SessionOptions()
-            made = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+            made = friday_runtime.open_session(path, "denoise")
         except Exception as exc:  # noqa: BLE001
             raise DenoiseUnavailable(f"the model did not open: {type(exc).__name__}: {exc}"[:300]) from exc
         _SESSIONS[key] = made

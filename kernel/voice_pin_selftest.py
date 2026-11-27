@@ -25,6 +25,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import friday_runtime
+
 _TYPES = {"float32": "tensor(float)", "float16": "tensor(float16)", "int64": "tensor(int64)", "int32": "tensor(int32)"}
 
 
@@ -64,7 +66,7 @@ def selftest_onnx(
     if ort is None or np is None:
         return {"ok": False, "reason": "runtime-missing", "detail": "onnxruntime or numpy is not available"}
     try:
-        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        session = friday_runtime.open_session(path, "turn", ort_module=ort)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": "cannot-open", "detail": f"{type(exc).__name__}: {str(exc)[:160]}"}
 

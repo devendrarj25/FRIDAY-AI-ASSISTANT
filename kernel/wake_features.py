@@ -21,8 +21,8 @@ import math
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
+import friday_runtime
 import numpy as np
-import voice_budget
 
 RATE = 16000
 WINDOW = RATE  # one second
@@ -477,10 +477,7 @@ def evaluate_embed_clips(positives: list, negatives: list, embed: Embedder, head
 
 def load_embedder(path: str) -> Embedder:
     """The embedding model through onnxruntime on one CPU thread: (n, 76, 32) mel windows in, (n, 96) out."""
-    import onnxruntime as ort  # type: ignore
-
-    options = voice_budget.ort_session_options("wake") or ort.SessionOptions()
-    session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+    session = friday_runtime.open_session(path, "wake")
     name = session.get_inputs()[0].name
 
     def embed(windows: np.ndarray) -> np.ndarray:
