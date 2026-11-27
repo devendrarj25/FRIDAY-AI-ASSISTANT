@@ -1896,6 +1896,7 @@ const ENGINE_CONTROL = {
       // The llama-server setup installed under the FRIDAY folder; the one on PATH is the fallback.
       bin: () =>
         require("./llama-runtime.cjs").findServer(paths.root() || paths.base()) || "llama-server",
+      // A user's own GGUF keeps the stock command line. FRIDAY Core has its own start (`startCore`).
       args: (file) => ["-m", file, "--host", "127.0.0.1", "--port", "8080", "-c", "4096"],
       // FRIDAY starts this one and so keeps its process id, to stop it again.
       managed: true,
@@ -1996,7 +1997,199 @@ async function killManaged(id) {
 
 /** Stop every engine FRIDAY started. Called when the app quits or on Stop everything. */
 async function stopManagedEngines() {
-  await Promise.all([...managedEngines.keys()].map((id) => killManaged(id).catch(() => false)));
+  await Promise.all([
+    stopCore().catch(() => false),
+    ...[...managedEngines.keys()].map((id) => killManaged(id).catch(() => false)),
+  ]);
+}
+
+// ------------------------------------------------------- FRIDAY Core server
+// FRIDAY Core runs on FRIDAY Runtime LLM (llama.cpp), started from config/friday-core.json on its own free loopback
+// port with a key made for this launch. The key is held here, in memory, and handed to the one caller that registers
+// the endpoint with the router (`coreEndpoint`, `onCoreChange`); it is never logged, written to a file or put on argv.
+/** The running Core: `{ child, pid, port, key, baseUrl, variant, fridayName, vision }`, or null. */
+let coreServer = null;
+let coreJob = false;
+const coreListeners = new Set();
+
+/** The endpoint the router registers: `{ baseUrl, apiKey, model, variant, vision, port }`, or null when Core is down. */
+function coreEndpoint() {
+  if (!coreServer) return null;
+  const { baseUrl, key, variant, fridayName, vision, port } = coreServer;
+  return { baseUrl, apiKey: key, model: "friday-core", variant, fridayName, vision, port };
+}
+
+/** Call `fn(endpoint | null)` whenever Core comes up or goes down. Returns the function that stops listening. */
+function onCoreChange(fn) {
+  coreListeners.add(fn);
+  return () => coreListeners.delete(fn);
+}
+
+/** What the last launch can do; kept after a stop so the "unavailable" row still describes the same model. */
+let coreCapabilities = { chat: true, vision: false, audio: false, tools: true };
+/** The kernel call `(method, params) => Promise`, bound by the main process (see `bindCoreKernel`). */
+let coreKernelRequest = null;
+
+/**
+ * The router row for FRIDAY Core: the running endpoint and this launch's key, or (Core down) the same row marked
+ * unavailable with no endpoint and no key. The kernel keeps the key in memory only and stores the row without it.
+ */
+function coreKernelRow(endpoint = coreEndpoint()) {
+  const up = Boolean(endpoint);
+  return {
+    id: "friday-core",
+    label: "FRIDAY Core",
+    provider: "llamacpp",
+    role: "brain",
+    endpoint: up ? endpoint.baseUrl : "",
+    apiKey: up ? endpoint.apiKey : "",
+    status: up ? "ready" : "unavailable",
+    capabilities: coreCapabilities,
+  };
+}
+
+/** Tell the kernel router where Core is (or that it is gone). A failure never breaks start or stop, and never logs the row. */
+async function pushCoreToKernel() {
+  if (!coreKernelRequest) return false;
+  try {
+    await coreKernelRequest("model.add", coreKernelRow(), 20000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The main process hands in its kernel call once (`modelsApi.bindCoreKernel(kernelRequest)`). From then on every
+ * start and stop pushes the Core row; call `pushCoreToKernel()` again after the kernel restarts. Returns an unbind.
+ */
+function bindCoreKernel(request) {
+  coreKernelRequest = typeof request === "function" ? request : null;
+  return () => {
+    if (coreKernelRequest === request) coreKernelRequest = null;
+  };
+}
+
+function announceCore() {
+  const endpoint = coreEndpoint();
+  for (const fn of [...coreListeners]) {
+    try {
+      fn(endpoint);
+    } catch {
+      /* a listener must never break the engine */
+    }
+  }
+  return pushCoreToKernel();
+}
+
+/** `/health` is public on the server (no key) and answers 200 only once the model is loaded. */
+const coreHealthy = async (port, probe) => {
+  const res = await (probe || request)(`http://127.0.0.1:${port}/health`, { timeout: 2000 });
+  return Boolean(res && res.ok);
+};
+
+/**
+ * Start FRIDAY Core. Returns `{ ok, running, endpoint }` once the server answers `/health`, or `{ ok: false, error }`.
+ * `options`: `variant`, plus injections for tests (`launch`, `spawn`, `probe`, `timeoutMs`, `stepMs`).
+ */
+async function startCore(options = {}) {
+  if (coreServer)
+    return { ok: true, running: true, endpoint: coreEndpoint(), detail: "already running" };
+  if (coreJob) return { ok: false, error: "a start/stop job is already running" };
+  coreJob = true;
+  try {
+    const runtime = require("./llama-runtime.cjs");
+    const root = paths.root() || paths.base();
+    const launch =
+      options.launch ||
+      (await runtime.coreLaunch(root, options.variant ? { variant: options.variant } : {}));
+    if (!launch.ok) return { ok: false, running: false, error: launch.reason };
+    if (!options.launch && !(await commandAvailable(launch.bin)))
+      return { ok: false, running: false, error: `${launch.bin} is not installed` };
+    let child;
+    try {
+      // Not detached: Core ends with FRIDAY. It stands in a neutral folder so it never pins the program folder.
+      child = (options.spawn || spawn)(launch.bin, launch.args, {
+        stdio: "ignore",
+        windowsHide: true,
+        cwd: os.tmpdir(),
+        env: launch.env,
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        running: false,
+        error: `could not be started: ${String(err.message || err)}`,
+      };
+    }
+    let exited = null;
+    child.once("exit", (code) => {
+      exited = code ?? -1;
+      if (coreServer && coreServer.child === child) {
+        coreServer = null;
+        announceCore();
+      }
+    });
+    child.once("error", (err) => {
+      exited = String(err.message || err);
+    });
+    const until = Date.now() + (options.timeoutMs || 120000);
+    const step = options.stepMs || 500;
+    for (;;) {
+      if (exited !== null)
+        return {
+          ok: false,
+          running: false,
+          error: `the runtime stopped while loading (${exited})`,
+        };
+      if (await coreHealthy(launch.port, options.probe).catch(() => false)) break;
+      if (Date.now() > until) {
+        killChild(child);
+        return { ok: false, running: false, error: "the runtime started but never became healthy" };
+      }
+      await new Promise((r) => setTimeout(r, step));
+    }
+    coreCapabilities = launch.capabilities || coreCapabilities;
+    coreServer = {
+      child,
+      pid: child.pid,
+      port: launch.port,
+      key: launch.key,
+      baseUrl: launch.baseUrl,
+      variant: launch.variant,
+      fridayName: launch.fridayName,
+      vision: launch.vision,
+    };
+    await announceCore();
+    return { ok: true, running: true, endpoint: coreEndpoint() };
+  } finally {
+    coreJob = false;
+  }
+}
+
+function killChild(child) {
+  try {
+    if (process.platform === "win32" && child.pid)
+      execFile(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        { windowsHide: true },
+        () => {},
+      );
+    else child.kill("SIGTERM");
+  } catch {
+    /* already gone */
+  }
+}
+
+/** Stop the Core FRIDAY started. True when none is left running. */
+async function stopCore() {
+  if (!coreServer) return true;
+  const { child } = coreServer;
+  coreServer = null;
+  killChild(child);
+  await announceCore();
+  return true;
 }
 
 const runCommand = (cmd, args, timeout = 20000) =>
@@ -2064,9 +2257,10 @@ function resolveEngineStart(id, files, selection = null) {
   if (spec.modelStart) {
     const download = require("./model-download.cjs");
     const inventory = Array.isArray(files) ? files : ownedModelFiles();
+    // A projector (mmproj) or a FRIDAY Core file next to a chat model does not make the pick ambiguous.
     const picked =
       spec.modelStart.kind === "gguf"
-        ? download.uniqueGgufPaths(inventory)
+        ? require("./llama-runtime.cjs").chatCandidates(download.uniqueGgufPaths(inventory))
         : download.uniqueSafetensorDirs(inventory);
     const selected = exactSelectedWeight(id, selection, picked, inventory);
     // Several GGUF files and no choice: the chat model setup downloaded is used rather than guessing.
@@ -3113,6 +3307,13 @@ module.exports = {
   startEngine,
   stopEngine,
   stopManagedEngines,
+  startCore,
+  stopCore,
+  coreEndpoint,
+  onCoreChange,
+  bindCoreKernel,
+  pushCoreToKernel,
+  coreKernelRow,
   engineStatus,
   resolveEngineStart,
   ENGINE_CONTROL,

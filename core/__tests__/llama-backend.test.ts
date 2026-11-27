@@ -958,3 +958,43 @@ describe("pinned wheels: pip verifies the SHA-256 before anything installed is t
     ]);
   });
 });
+
+describe("FRIDAY Core launch follows the installed build", () => {
+  const tmpRoot = () => mkdtempSync(path.join(tmpdir(), "friday-core-build-"));
+  const stat = (r: string) => {
+    const core = require_(path.join(root, "electron/friday-core.cjs"));
+    const manifest = require_(path.join(root, "config/friday-core.json"));
+    const have = new Map<string, number>();
+    for (const f of core.variantOf(manifest, "e4b").files)
+      have.set(core.diskPath(r, f.disk), f.bytes);
+    return (p: string) => (have.has(p) ? { size: have.get(p) } : undefined);
+  };
+  function installBuild(r: string, backend: string) {
+    const folder = path.join(llama.engineDir(r), `b12230-${backend}`);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, SERVER), "x");
+    writeFileSync(
+      path.join(folder, ".friday-engine.json"),
+      JSON.stringify({ backend, healthy: true }),
+    );
+  }
+
+  it("adds GPU offload for a CUDA or Vulkan folder and none for a CPU folder", async () => {
+    for (const [backend, gpu] of [
+      ["cuda", true],
+      ["vulkan", true],
+      ["cpu", false],
+    ] as const) {
+      const r = tmpRoot();
+      try {
+        installBuild(r, backend);
+        const out = await llama.coreLaunch(r, { stat: stat(r), port: 40101, key: "k", cpus: 8 });
+        expect(out.ok).toBe(true);
+        expect(out.bin).toBe(llama.findServer(r));
+        expect(out.args.includes("-ngl")).toBe(gpu);
+      } finally {
+        rmSync(r, { recursive: true, force: true });
+      }
+    }
+  });
+});

@@ -13,6 +13,10 @@
  * API. After an install a 3 second health check runs the binary; a build that does not start is removed and the next
  * step down (CUDA, Vulkan, CPU) is tried, with the reason recorded (`electron/engine-install.cjs`).
  *
+ * FRIDAY Core is started from `config/friday-core.json` (`coreLaunch`): its own free loopback port, a per-launch API key
+ * that lives in memory and reaches the server through its environment (never the command line, never a file), and
+ * the flags in `coreArgs`. The server binary may be named `friday-runtime-llm` or the upstream `llama-server`.
+ *
  * The zip is unpacked by Python's zipfile after every entry is checked to stay inside the target folder, so a
  * zip with a `..` or absolute path cannot write elsewhere.
  */
@@ -20,7 +24,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 
-const SERVER_NAMES = process.platform === "win32" ? ["llama-server.exe"] : ["llama-server"];
+const exeName = (name) => (process.platform === "win32" ? `${name}.exe` : name);
+/** The runtime binary, in order of preference: FRIDAY's own name first, the upstream name next to it. */
+const SERVER_NAMES = ["friday-runtime-llm", "llama-server"].map(exeName);
 /** The chat model setup downloads for her; its file name carries this id. */
 const DEFAULT_CHAT_ID = "qwen3-4b";
 
@@ -94,12 +100,17 @@ function orderedFolders(base, fsApi = fs) {
     );
 }
 
-/** The llama-server FRIDAY installed (the folder installed last wins, see orderedFolders), or null. */
+/**
+ * The runtime FRIDAY installed (the folder installed last wins, see orderedFolders), or null. In one folder the
+ * `friday-runtime-llm` name wins over the upstream `llama-server` name; either is accepted.
+ */
 function findServer(root) {
   if (!root) return null;
   for (const { dir } of orderedFolders(engineDir(root))) {
-    const found = walk(dir, 2, (name) => SERVER_NAMES.includes(name.toLowerCase()));
-    if (found) return found;
+    for (const wanted of SERVER_NAMES) {
+      const found = walk(dir, 2, (name) => name.toLowerCase() === wanted);
+      if (found) return found;
+    }
   }
   return null;
 }
@@ -373,6 +384,219 @@ function readBackend(root) {
   };
 }
 
+/* ------------------------------------------------------ FRIDAY Core launch */
+
+/** Never the stock llama.cpp port: a user's own llama-server and FRIDAY Core must not meet on one socket. */
+const STOCK_PORT = 8080;
+const LOOPBACK = "127.0.0.1";
+/** Core serves one conversation at a time (see coreArgs), so the one slot gets the whole served context. */
+const CORE_SLOTS = 1;
+/** Decode is memory-bound: threads past this number add contention, not speed. */
+const MAX_LLM_THREADS = 8;
+/** The ears (speech recognition and the voice stack) keep this many cores while Core runs a turn. */
+const EARS_CORES = 2;
+const CORE_ROLES = ["default", "lite"];
+
+/**
+ * Threads for the language model, leaving cores for the ears. A 4-core PC gives 3 (one core stays for speech
+ * recognition and the app), 6 cores give 4, 8 give 6, and the number is capped because decode stops scaling.
+ * An unknown core count is treated as 4.
+ */
+function threadBudget(cpus) {
+  const n = Number.isInteger(cpus) && cpus > 0 ? cpus : 4;
+  const free = n <= 4 ? n - 1 : n - EARS_CORES;
+  return Math.max(1, Math.min(MAX_LLM_THREADS, free));
+}
+
+/** A key for one launch, kept in memory by the caller. It is never written to a file or to the command line. */
+function newLaunchKey(random = require("node:crypto").randomBytes) {
+  return `fk-${random(32).toString("hex")}`;
+}
+
+/** A free loopback port chosen by the OS, never the stock 8080. `net` is injected by tests. */
+async function freeLoopbackPort({ net = require("node:net"), tries = 8 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    const port = await new Promise((resolve, reject) => {
+      const server = net.createServer();
+      server.unref();
+      server.once("error", reject);
+      server.listen(0, LOOPBACK, () => {
+        const { port: p } = server.address();
+        server.close(() => resolve(p));
+      });
+    });
+    if (port !== STOCK_PORT) return port;
+  }
+  throw new Error("no free loopback port was found");
+}
+
+/** True for a build that can use the graphics card (the CUDA and Vulkan zips); the CPU zip cannot. */
+const isGpuBackend = (backend) => backend === "cuda" || backend === "vulkan";
+
+/**
+ * The command line of FRIDAY Core. The API key is NOT here: the pinned build reads `LLAMA_API_KEY` from its
+ * environment, so the key stays off the command line (other processes of the user can read an argv) and off disk.
+ *
+ *   -np 1            one slot, so `-c` is all one conversation's context. Voice and chat turns queue through it;
+ *                    two slots would halve each one's window and compete for the same cores.
+ *   -t               the thread budget above, so the ears keep their cores.
+ *   --cache-reuse    reuse the cached prompt prefix (the fixed system and tools text) after a small change.
+ *   -ngl auto        only on a GPU build; a CPU build gets no GPU flag at all.
+ *   no slot saving   no `--slot-save-path`: a saved slot holds prompt text, which can be owner data.
+ *   --no-webui       the server's bundled page is not wanted.
+ */
+function coreArgs({ model, mmproj = "", port, ctx = 8192, threads, gpu = false }) {
+  if (!model) throw new Error("FRIDAY Core needs a model file");
+  if (!Number.isInteger(port) || port <= 0 || port === STOCK_PORT)
+    throw new Error("FRIDAY Core needs its own free loopback port");
+  const args = ["-m", model];
+  if (mmproj) args.push("--mmproj", mmproj);
+  args.push(
+    "--host",
+    LOOPBACK,
+    "--port",
+    String(port),
+    "-c",
+    String(ctx),
+    "-np",
+    String(CORE_SLOTS),
+    "-t",
+    String(threads ?? threadBudget()),
+    "--jinja",
+    "-fa",
+    "auto",
+    "--cache-reuse",
+    "256",
+    "--no-webui",
+  );
+  if (gpu) args.push("-ngl", "auto");
+  return args;
+}
+
+/** A GGUF that is not a chat model by itself: a projector, or one of FRIDAY Core's own files (started by Core). */
+function coreDiskNames(deps = {}) {
+  try {
+    const manifest = require("./friday-core.cjs").read(deps);
+    return new Set(
+      (manifest?.variants || []).flatMap((v) => (v.files || []).map((f) => String(f.disk))),
+    );
+  } catch {
+    return new Set();
+  }
+}
+const MMPROJ_NAME = /(^|[-_.])mmproj([-_.]|$)/i;
+
+/**
+ * The GGUF files the generic "start the one model you have" rule may count: projectors (`mmproj`) and the FRIDAY Core
+ * files (model, projector, embedder; Core has its own start) sit next to a chat model without making it ambiguous.
+ */
+function chatCandidates(paths, deps = {}) {
+  const core = coreDiskNames(deps);
+  return (paths || []).filter((p) => {
+    const base = path.basename(String(p));
+    return !MMPROJ_NAME.test(base) && !core.has(base);
+  });
+}
+
+/**
+ * Which FRIDAY Core variant to start: `opts.variant`, else the default then the lite one, each only when its model
+ * file is on disk at the pinned size. A projector that is missing starts the model text-only (`mmproj` is null).
+ * The embedder is never a brain. `deps.stat` and `deps.manifest` are injected by tests.
+ */
+function corePlan(root, opts = {}) {
+  const core = require("./friday-core.cjs");
+  const manifest = core.read(opts);
+  if (!manifest) return { ok: false, reason: "the FRIDAY Core manifest could not be read" };
+  const brains = manifest.variants.filter((v) => v.role !== "embedder");
+  const order = opts.variant
+    ? brains.filter((v) => v.id === opts.variant)
+    : CORE_ROLES.flatMap((role) => brains.filter((v) => v.role === role));
+  for (const v of order) {
+    const planned = core.planAssets(root, v.id, { ...opts, pack: null });
+    if (!planned.ok) continue;
+    const model = planned.assets.find((a) => a.kind === "model" && a.present);
+    if (!model) continue;
+    const proj = planned.assets.find((a) => a.kind === "mmproj" && a.present);
+    return {
+      ok: true,
+      variant: v.id,
+      fridayName: v.fridayName,
+      model: model.dest,
+      mmproj: proj ? proj.dest : null,
+      caps: Array.isArray(v.caps) ? v.caps : [],
+      ctx: Number(manifest.serve?.ctx) > 0 ? Number(manifest.serve.ctx) : 8192,
+    };
+  }
+  return {
+    ok: false,
+    reason: "no FRIDAY Core model is installed yet (install it from the Install Manager)",
+  };
+}
+
+/**
+ * What the router may rely on for this launch: text always; image and audio only when the projector is loaded and
+ * the manifest lists them; tools because the chat template runs with `--jinja`.
+ */
+function coreCapabilities(plan) {
+  const caps = new Set(plan.caps || []);
+  const seen = Boolean(plan.mmproj);
+  return {
+    chat: true,
+    vision: seen && caps.has("image"),
+    audio: seen && [...caps].some((c) => c.startsWith("audio")),
+    tools: caps.has("tools"),
+  };
+}
+
+/** The environment of the child: ours, minus any inherited llama.cpp settings, plus this launch's key. */
+function coreEnv(key, base = process.env) {
+  const env = {};
+  for (const [name, value] of Object.entries(base || {})) {
+    if (/^LLAMA_(ARG_|API_KEY)/i.test(name)) continue;
+    env[name] = value;
+  }
+  env.LLAMA_API_KEY = key;
+  return env;
+}
+
+/**
+ * Everything needed to start FRIDAY Core, from the manifest: `{ ok, bin, args, env, port, key, baseUrl, variant }`.
+ * Nothing is spawned and nothing is written. The key exists only in the returned object.
+ * `deps`: `port`, `key`, `cpus`, `backend`, `bin`, plus the `corePlan` injections (`stat`, `manifest`).
+ */
+async function coreLaunch(root, deps = {}) {
+  const plan = corePlan(root, deps);
+  if (!plan.ok) return plan;
+  const bin = deps.bin !== undefined ? deps.bin : findServer(root);
+  if (!bin)
+    return { ok: false, reason: "the FRIDAY Runtime LLM is not installed (Install Manager)" };
+  const port = deps.port ?? (await freeLoopbackPort());
+  const key = deps.key ?? newLaunchKey();
+  const backend = deps.backend !== undefined ? deps.backend : readBackend(root)?.backend;
+  const args = coreArgs({
+    model: plan.model,
+    mmproj: plan.mmproj || "",
+    port,
+    ctx: plan.ctx,
+    threads: threadBudget(deps.cpus ?? require("node:os").cpus().length),
+    gpu: isGpuBackend(backend),
+  });
+  return {
+    ok: true,
+    bin,
+    args,
+    env: coreEnv(key, deps.env),
+    port,
+    key,
+    baseUrl: `http://${LOOPBACK}:${port}/v1`,
+    variant: plan.variant,
+    fridayName: plan.fridayName,
+    vision: Boolean(plan.mmproj),
+    capabilities: coreCapabilities(plan),
+    gpu: isGpuBackend(backend),
+  };
+}
+
 /** The llama.cpp release repo and the pinned release (the CPU zip the setup path already verifies). */
 const LLAMA_REPO = "ggml-org/llama.cpp";
 
@@ -398,4 +622,17 @@ module.exports = {
   healthCheck,
   readBackend,
   walk,
+  STOCK_PORT,
+  CORE_SLOTS,
+  SERVER_NAMES,
+  threadBudget,
+  newLaunchKey,
+  freeLoopbackPort,
+  isGpuBackend,
+  coreArgs,
+  chatCandidates,
+  corePlan,
+  coreCapabilities,
+  coreEnv,
+  coreLaunch,
 };

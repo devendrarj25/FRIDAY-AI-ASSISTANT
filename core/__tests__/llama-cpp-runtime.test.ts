@@ -188,6 +188,22 @@ describe("llama.cpp is planned, downloaded and installed by setup", () => {
 });
 
 describe("the llama-server FRIDAY installed", () => {
+  it("accepts the FRIDAY runtime name beside the old one and prefers it in one folder", () => {
+    const dir = tmp();
+    try {
+      const folder = path.join(llama.engineDir(dir), "b12230");
+      mkdirSync(folder, { recursive: true });
+      const own = process.platform === "win32" ? "friday-runtime-llm.exe" : "friday-runtime-llm";
+      writeFileSync(path.join(folder, own), "x");
+      expect(llama.findServer(dir)).toBe(path.join(folder, own));
+      writeFileSync(path.join(folder, serverName), "x");
+      expect(llama.findServer(dir)).toBe(path.join(folder, own));
+      expect(llama.SERVER_NAMES).toEqual([own, serverName]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("is found in its own folder, newest release first, and only there", () => {
     const dir = tmp();
     try {
