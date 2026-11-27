@@ -117,13 +117,90 @@ export function streamLocale(recognitionLang: string | null | undefined): Stream
   return "";
 }
 
-/** True only when the owner asked for the streaming ear (`voice.streamEngine`); off, absent or unknown is off. */
+/** The "auto" verdict of this PC as the speech status carries it (`streamAuto`, electron/stt.cjs). */
+export type StreamAutoView = {
+  state: "on" | "off" | "unknown";
+  reason: string;
+  p95Ms: number | null;
+  limitMs: number | null;
+  detail: string;
+};
+
+/** The reasons that mean this PC is too small or too slow for "auto": the ear will not run until restart or a new bench. */
+const AUTO_REFUSALS: readonly string[] = ["low-ram", "few-cores", "slow"];
+let autoRefusal: string | null = null;
+
+const finiteOrNull = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+/** The `streamAuto` field of the speech status, read defensively; null when absent or malformed. */
+export function parseStreamAuto(raw: unknown): StreamAutoView | null {
+  if (!raw || typeof raw !== "object") return null;
+  const view = raw as Record<string, unknown>;
+  const state = view["state"];
+  if (state !== "on" && state !== "off" && state !== "unknown") return null;
+  return {
+    state,
+    reason: typeof view["reason"] === "string" ? view["reason"].slice(0, 48) : "",
+    p95Ms: finiteOrNull(view["p95Ms"]),
+    limitMs: finiteOrNull(view["limitMs"]),
+    detail: typeof view["detail"] === "string" ? view["detail"].slice(0, 400) : "",
+  };
+}
+
+/**
+ * Remembers what the speech status says about "auto": a refusal for size or speed makes `streamWanted("auto")` false,
+ * so the live-words pass and the barge-in ladder never assume a stream that does not run. Any other verdict (on,
+ * not checked yet, nothing measured) clears it. Returns the parsed view.
+ */
+export function noteStreamAuto(raw: unknown): StreamAutoView | null {
+  const view = parseStreamAuto(raw);
+  if (!view) return null;
+  autoRefusal = view.state === "off" && AUTO_REFUSALS.includes(view.reason) ? view.reason : null;
+  return view;
+}
+
+/** An open or warm reply that reads `auto-low-ram`, `auto-few-cores` or `auto-slow` is the same refusal. */
+export function noteStreamRefusal(reason: unknown): void {
+  const word = typeof reason === "string" && reason.startsWith("auto-") ? reason.slice(5) : "";
+  if (AUTO_REFUSALS.includes(word)) autoRefusal = word;
+}
+
+/** The refusal reason ("low-ram", "few-cores", "slow") while Electron refuses "auto" on this PC, else null. */
+export function streamAutoRefusal(): string | null {
+  return autoRefusal;
+}
+
+/** Forgets the remembered verdict (a new check, or a test). */
+export function resetStreamAuto(): void {
+  autoRefusal = null;
+}
+
+/**
+ * True only when the owner asked for the streaming ear (`voice.streamEngine`) and it can run; off, absent or unknown
+ * is off, and "auto" is off while Electron refuses it on this PC (`noteStreamAuto`).
+ */
 export function streamWanted(
   streamEngine: unknown,
 ): streamEngine is Exclude<StreamEngineChoice, "off"> {
-  return (
-    streamEngine === "auto" || streamEngine === "nemotron" || streamEngine === "stream-ear-nemotron"
-  );
+  if (streamEngine === "auto") return autoRefusal === null;
+  return streamEngine === "nemotron" || streamEngine === "stream-ear-nemotron";
+}
+
+/** What "auto" does, in one line, for the stream ear hint. */
+export const STREAM_AUTO_EXPLAINER =
+  "Auto turns it on when this PC has 12 GB of memory, 4 cores and passes a quick speed check the first time it is used.";
+
+/** The one-line status of the stream ear for the settings hint: what the stored choice does on this PC right now. */
+export function streamEarHint(choice: unknown, auto: StreamAutoView | null): string {
+  if (choice === "off") {
+    return "Off is your choice and is kept. Auto is available: it turns the live ear on only when this PC can run it.";
+  }
+  if (choice !== "auto") return "";
+  if (!auto) return `${STREAM_AUTO_EXPLAINER} No verdict yet.`;
+  return auto.detail
+    ? `${STREAM_AUTO_EXPLAINER} Now: ${auto.detail}.`
+    : `${STREAM_AUTO_EXPLAINER} Now: ${auto.state === "on" ? "on" : auto.state === "off" ? "off" : "not checked yet"}.`;
 }
 
 /** Float samples (-1..1) as base64 of int16 little-endian, the ear's wire format. */
@@ -344,7 +421,10 @@ export class SttStreamSession {
           endpoint: true,
           localOnly: true,
         });
-        if (!reply?.ok || !reply.streamId) return this.giveUp(text(reply?.reason) || "refused");
+        if (!reply?.ok || !reply.streamId) {
+          if (plan.streamEngine === "auto") noteStreamRefusal(reply?.reason);
+          return this.giveUp(text(reply?.reason) || "refused");
+        }
         if (this.phase !== "opening") {
           // Aborted while the model loaded: the ear holds a stream nobody wants.
           void bridge.closeSttStream!({ streamId: reply.streamId, finalize: false }).catch(

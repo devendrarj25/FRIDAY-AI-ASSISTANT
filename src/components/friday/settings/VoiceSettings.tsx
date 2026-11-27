@@ -11,7 +11,12 @@ import {
   Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { HudPanel, LoadingState, StatusPill, ToggleRow } from "@/components/friday/ui";
+import {
+  noteStreamAuto,
+  streamEarHint,
+  type StreamAutoView,
+} from "@/lib/friday/voice-engine/stream-session";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
 import { readEarsStats } from "@/lib/friday/voice-audio";
@@ -85,6 +90,68 @@ const RECOGNITION_LANGS = [
   { value: "en-IN", label: "English (India)" },
   { value: "en-US", label: "English (US)" },
 ];
+
+type StreamEarRead =
+  | { phase: "loading" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; auto: StreamAutoView | null };
+
+/**
+ * What the stream ear setting does on this PC right now: the Auto explainer and the speed-check line from the speech
+ * status (`streamAuto`), or a one-line note that Auto is available when Off is stored. It also tells the listening
+ * path when Auto is refused, so the live-words pass never assumes a stream that does not run. Read when the choice
+ * changes; Retry asks again. The stored choice is never changed here.
+ */
+function StreamEarStatus({ choice }: { choice: string }) {
+  const [read, setRead] = useState<StreamEarRead>({ phase: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const offline = !desktopApi()?.sttStatus;
+  useEffect(() => {
+    let live = true;
+    const api = desktopApi();
+    if (!api?.sttStatus) return undefined;
+    api
+      .sttStatus(false, true, false)
+      .then((status) => {
+        if (!live) return;
+        const auto = noteStreamAuto((status as { streamAuto?: unknown } | null)?.streamAuto);
+        setRead({ phase: "ready", auto });
+      })
+      .catch((error: unknown) => {
+        if (live) setRead({ phase: "error", message: String((error as Error)?.message || error) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [choice, attempt]);
+
+  if (!offline && read.phase === "loading") {
+    return <LoadingState label="Checking this PC" rows={0} />;
+  }
+  if (!offline && read.phase === "error") {
+    return (
+      <ErrorState
+        title="The streaming ear status did not load"
+        error={read.message}
+        onRetry={() => {
+          setRead({ phase: "loading" });
+          setAttempt((n) => n + 1);
+        }}
+        className="py-3"
+      />
+    );
+  }
+  const line =
+    offline || read.phase !== "ready"
+      ? "Open the FRIDAY desktop app to see whether this PC runs the streaming ear."
+      : streamEarHint(choice, read.auto);
+  if (!line) return null;
+  return (
+    <p className="text-meta-sm text-muted-foreground" role="status">
+      {line}
+    </p>
+  );
+}
 
 export function VoiceSettings() {
   const prefs = usePreferences();
@@ -373,7 +440,7 @@ export function VoiceSettings() {
                 Off: the normal listening path
               </option>
               <option value="auto" className="bg-background">
-                Auto: use it when its model is installed
+                Auto: on when this PC is fast enough (default)
               </option>
               <option value="nemotron" className="bg-background">
                 FRIDAY Ear Live
@@ -385,10 +452,11 @@ export function VoiceSettings() {
             <span className="mt-1 block text-meta-sm text-muted-foreground">
               Auto mode only. Words appear while you speak, in Hindi, English and Hinglish, on this
               PC only; nothing is sent anywhere. It needs the streaming model (Models page); without
-              it, or when anything fails, the normal listening path carries on. Off by default and
-              not yet tried on a real microphone.
+              it, or when anything fails, the normal listening path carries on. Not yet tried on a
+              real microphone.
             </span>
           </label>
+          <StreamEarStatus choice={sanitizeStreamEngine(prefs.voice.streamEngine)} />
           <ToggleRow
             label="Write spoken numbers, times and money as digits"
             hint="Hindi, English and Hinglish: spoken numbers, times, money and web addresses are written as digits in the words shown, only where the reading is sure. It runs on this PC after the tidy step and never changes the script you spoke. On by default."
