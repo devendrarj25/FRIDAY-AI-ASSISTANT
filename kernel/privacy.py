@@ -18,12 +18,14 @@ Pure logic only (no I/O, no httpx) so it can be unit tested on its own.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 import local_engines
 
@@ -312,6 +314,40 @@ def classify(content: Any) -> dict[str, Any]:
     return {"level": LEVELS[rank], "reasons": reasons, "sample": len(text)}
 
 
+def is_loopback_endpoint(endpoint: Any) -> bool:
+    """True when the URL's host is this PC: localhost or a loopback address.
+
+    The host is parsed, never searched for, so ``http://127.0.0.1.evil.test`` or a loopback
+    address in a path, query or user-info is not this machine.
+    """
+    text = str(endpoint or "").strip()
+    if not text:
+        return False
+    try:
+        host = (urlsplit(text if "://" in text else f"http://{text}").hostname or "").lower()
+    except ValueError:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def endpoint_of(model: Any) -> str:
+    if isinstance(model, dict):
+        return str(model.get("endpoint") or "").strip()
+    return str(getattr(model, "endpoint", "") or "").strip()
+
+
+def endpoint_allows_local(model: Any) -> bool:
+    """A model with an endpoint is local only when that endpoint is loopback. No endpoint set: the kind decides."""
+    endpoint = endpoint_of(model)
+    return not endpoint or is_loopback_endpoint(endpoint)
+
+
 def is_local_kind(model: Any) -> bool:
     options = getattr(model, "options", None)
     if not isinstance(options, dict):
@@ -323,7 +359,13 @@ def is_local_kind(model: Any) -> bool:
         or (model.get("type") if isinstance(model, dict) else "")
         or ""
     ).lower()
-    return kind in LOCAL_KINDS
+    provider = str(
+        options.get("provider")
+        or getattr(model, "provider", "")
+        or (model.get("provider") if isinstance(model, dict) else "")
+        or ""
+    ).lower()
+    return (kind in LOCAL_KINDS or (not kind and provider in LOCAL_KINDS)) and endpoint_allows_local(model)
 
 
 def user_content(messages: Any) -> str:

@@ -453,7 +453,6 @@ class Model:
 
 #: Host names that mean "this model runs on this PC" — an offline route.
 # These names classify a local endpoint. They are not a listen address.
-_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "host.docker.internal")  # noqa: S104
 
 #: Substrings that identify a *transport* failure (the request never reached a
 #: model) as opposed to a model/inference failure.
@@ -483,14 +482,27 @@ _BRAIN_CAPABLE_ROLES = ("brain", "fast")
 
 def is_local_model(model: Model) -> bool:
     """True when the model answers from this machine (Ollama, llama.cpp, ...)."""
-    endpoint = (model.endpoint or "").lower()
-    if model.provider and local_engines.is_local_kind(model.provider):
-        return True
-    return any(host in endpoint for host in _LOCAL_HOSTS)
+    endpoint = (model.endpoint or "").strip()
+    if endpoint:
+        # The endpoint decides. A provider name alone never makes a remote host local.
+        return privacy.is_loopback_endpoint(endpoint)
+    return bool(model.provider and local_engines.is_local_kind(model.provider))
 
 
 #: The registry id the desktop gives the bundled local model. Endpoint and key arrive at run time.
 CORE_MODEL_ID = "friday-core"
+#: The only endpoint shape Core is ever started on (electron/llama-runtime.cjs): plain http on loopback.
+_CORE_ENDPOINT = re.compile(r"^http://(?:127\.0\.0\.1|\[::1\]):[0-9]{1,5}/v1/?$")
+
+
+def core_endpoint_ok(endpoint: object, status: object = "ready") -> bool:
+    """Core is this PC's own model: loopback http with a port, or no endpoint while it is unavailable."""
+    text = str(endpoint or "").strip()
+    if not text:
+        return str(status or "").lower() == "unavailable"
+    return bool(_CORE_ENDPOINT.match(text))
+
+
 #: What Core handles itself. Anything above goes up (see escalate).
 CORE_MAX_CONTEXT_TOKENS = 32768
 CORE_MAX_AUDIO_SECONDS = 30
@@ -1010,6 +1022,9 @@ class ModelRouter:
 
     def register(self, spec: dict) -> Model:
         model = Model(**self._coerce(spec))
+        if model.id == CORE_MODEL_ID and not core_endpoint_ok(model.endpoint, model.status):
+            # The desktop only ever starts Core on loopback. Anything else is a forged row, never a local model.
+            raise ValueError("FRIDAY Core must run on this PC: its endpoint must be http://127.0.0.1:<port>/v1")
         self._models[model.id] = model
         # Registry sync visibility: every model the desktop pushes is logged with
         # the three fields a live request depends on. No key material is printed —
@@ -1047,7 +1062,10 @@ class ModelRouter:
             data = self._coerce(spec)
             data.setdefault("options", {})
             data["options"] = {**data["options"], "auto": True}
-            self.register(data)
+            try:
+                self.register(data)
+            except ValueError:
+                continue
             seen.add(data["id"])
         removed = [mid for mid, m in list(self._models.items()) if m.options.get("auto") and mid not in seen]
         for mid in removed:
@@ -1151,7 +1169,7 @@ class ModelRouter:
         where = escalate(full)
         core = self._models.get(CORE_MODEL_ID)
         if where == "core":
-            return core if core is not None and self._routable(core) else None
+            return core if core is not None and self._routable(core) and is_local_model(core) else None
         want_local = where == "local_heavy"
         pool = [
             m
@@ -1286,6 +1304,8 @@ class ModelRouter:
     def _kind(self, model: Model) -> str:
         options = model.options if isinstance(model.options, dict) else {}
         kind = str(options.get("type") or "").lower()
+        if not privacy.endpoint_allows_local(model):
+            return "cloud"
         if kind == "local" or local_engines.is_local_kind(model.provider):
             return "local"
         return "cloud"
