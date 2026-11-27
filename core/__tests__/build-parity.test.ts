@@ -114,3 +114,281 @@ describe("the CMD pack is the same build as Release", () => {
     expect(release).toContain('exe.blockmap" \\');
   });
 });
+
+describe("builtins.json and the wheelhouse ride the one shared build", () => {
+  type Api = {
+    PHASES: string[];
+    PHASE_COMMANDS: Record<string, string[]>;
+    parseArgs: (argv: string[]) => { from: string; through: string; targets: string[] };
+    selectedPhases: (options: { from: string; through: string }) => string[];
+    installerBounds: (manifest: unknown) => { ceiling: number; floor: number };
+    assertPackagedLayout: (input: {
+      releaseDir: string;
+      manifest: unknown;
+      targets: string[];
+      env?: Record<string, string | undefined>;
+      wheels?: unknown[];
+    }) => { ok: boolean };
+    writeBuiltins: (input: { root: string; outFile?: string; version?: string }) => {
+      schema: number;
+      release: string;
+      trees: Record<string, unknown[]>;
+    };
+    assertBuiltins: (resourcesDir: string) => { ok: boolean };
+  };
+  const api = require_(path.join(ROOT, "scripts/build-pipeline.cjs")) as Api;
+  const stripComments = (text: string) =>
+    text
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+  const workflowFiles = fs
+    .readdirSync(path.join(ROOT, ".github/workflows"))
+    .filter((name) => name.endsWith(".yml"));
+
+  it("is invoked by Release, Test Build, PR Validation and the CMD wrapper, and by nothing else", () => {
+    const callers = workflowFiles.filter((name) =>
+      stripComments(read(`.github/workflows/${name}`)).includes("scripts/build-pipeline.cjs"),
+    );
+    expect(callers.sort()).toEqual(["pr-validation.yml", "release.yml", "test-build.yml"]);
+    expect(stripComments(read("scripts/build-windows.cmd"))).toContain("build-pipeline.cjs");
+  });
+
+  it("is never bypassed: no workflow and not the CMD wrapper calls electron-builder or the pack wrapper", () => {
+    const texts = [
+      ...workflowFiles.map((name) => [name, read(`.github/workflows/${name}`)] as const),
+      ["build-windows.cmd", read("scripts/build-windows.cmd")] as const,
+    ];
+    for (const [name, text] of texts) {
+      const live = text
+        .split("\n")
+        .filter((line) => !/^\s*(#|REM\b)/i.test(line))
+        .join("\n");
+      expect(live, name).not.toMatch(/electron-builder|electron-pack\.cjs/);
+    }
+  });
+
+  it("gives every build invocation the package phase, where builtins.json is written", () => {
+    const invocations: string[] = [];
+    for (const name of ["release.yml", "test-build.yml", "pr-validation.yml"]) {
+      for (const match of stripComments(read(`.github/workflows/${name}`)).matchAll(
+        /build-pipeline\.cjs([^\n]*--from stage-toolchain[^\n]*)/g,
+      ))
+        invocations.push(match[1] ?? "");
+    }
+    invocations.push(" --channel production --caller cmd");
+    expect(invocations.length).toBeGreaterThanOrEqual(5);
+    for (const line of invocations) {
+      const tokens = line
+        .replace(/"[^"]*"/g, "x")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const options = api.parseArgs(["node", "build-pipeline.cjs", ...tokens]);
+      expect(api.selectedPhases(options), line).toContain("package");
+    }
+    const commands = api.PHASE_COMMANDS["package"] ?? [];
+    expect(commands.indexOf("scripts/builtins-manifest.cjs")).toBeGreaterThanOrEqual(0);
+    expect(commands.indexOf("scripts/builtins-manifest.cjs")).toBeLessThan(
+      commands.indexOf("scripts/electron-pack.cjs"),
+    );
+    expect(api.PHASE_COMMANDS["verify-artifacts"]).toContain("scripts/builtins-manifest.cjs");
+    const source = read("scripts/build-pipeline.cjs");
+    const packBranch = source.slice(
+      source.indexOf('if (phase === "package")'),
+      source.indexOf('if (phase === "packaged-requires")'),
+    );
+    expect(packBranch).toContain("writeBuiltins(");
+    expect(packBranch.indexOf("writeBuiltins(")).toBeLessThan(
+      packBranch.indexOf('runNode("scripts/electron-pack.cjs"'),
+    );
+    const verifyBranch = source.slice(
+      source.indexOf('if (phase === "verify-artifacts")'),
+      source.indexOf('if (phase === "verify-boot")'),
+    );
+    expect(verifyBranch).toContain("assertBuiltins(");
+  });
+
+  it("publishes exactly the assets the release manifest writes, plus the changelog", () => {
+    const release = read(".github/workflows/release.yml");
+    const loop = /for asset in \\\n([\s\S]*?); do/.exec(release)?.[1] ?? "";
+    const listed = [...loop.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? "");
+    expect(listed.length).toBeGreaterThan(4);
+    expect(listed).toContain("CHANGELOG.md");
+    const uploaded = listed
+      .filter((entry) => entry !== "CHANGELOG.md")
+      .map((entry) =>
+        path.posix.basename(entry.replace("${{ steps.plan.outputs.version }}", "9.9.9.9")),
+      )
+      .sort();
+    const dir = fs.mkdtempSync(path.join(require_("node:os").tmpdir(), "friday-parity-"));
+    try {
+      for (const name of [
+        "FRIDAY-Setup-9.9.9.9.exe",
+        "FRIDAY-Portable-9.9.9.9.exe",
+        "FRIDAY-Setup-9.9.9.9.exe.blockmap",
+        "latest.yml",
+      ])
+        fs.writeFileSync(path.join(dir, name), name);
+      const manifest = (
+        require_(path.join(ROOT, "scripts/release-manifest.cjs")) as {
+          build: (input: Record<string, unknown>) => { assets: { name: string }[] };
+        }
+      ).build({ version: "9.9.9.9", releaseDir: dir, outDir: dir, syncLatest: false });
+      const written = [
+        ...manifest.assets.map((asset) => asset.name),
+        ...["SHA256SUMS.txt", "friday-update.json"].filter((name) =>
+          fs.existsSync(path.join(dir, name)),
+        ),
+      ].sort();
+      expect(written).toEqual(uploaded);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the packaging settings and drops only the owner's workflow runs from the pack", () => {
+    type Builder = {
+      nsis: { perMachine: boolean; deleteAppDataOnUninstall: boolean; guid?: string };
+      win: { signExecutable: boolean };
+      differentialPackage?: unknown;
+      extraResources: { from: string; to?: string; filter?: string[] }[];
+    };
+    const yaml = require_("js-yaml") as { load: (text: string) => Builder };
+    const config = yaml.load(read("electron-builder.yml"));
+    expect(config.nsis.perMachine).toBe(false);
+    expect(config.nsis.deleteAppDataOnUninstall).toBe(false);
+    expect(config.win.signExecutable).toBe(false);
+    expect(config.nsis.guid).toBeUndefined();
+    expect(config.differentialPackage).toBeUndefined();
+    const entry = config.extraResources.find((item) => item.from === "workflows");
+    expect(entry?.to).toBe("workflows");
+    expect(entry?.filter).toEqual(["**/*", "!active/**", "!history/**", "!schedules/**"]);
+  });
+
+  it("writes builtins.json from the tree that is packed and fails the build when the pack differs", async () => {
+    const yaml = require_("js-yaml") as { load: (text: string) => unknown };
+    const { getFileMatchers } = require_("app-builder-lib/out/fileMatcher.js") as {
+      getFileMatchers: (
+        config: unknown,
+        name: string,
+        destination: string,
+        options: Record<string, unknown>,
+      ) => Array<{
+        from: string;
+        isEmpty: () => boolean;
+        prependPattern: (pattern: string) => void;
+        createFilter: () => (file: string, stat: { isDirectory: () => boolean }) => boolean;
+      }>;
+    };
+    const { copyDir } = require_("builder-util/out/fs.js") as {
+      copyDir: (
+        src: string,
+        destination: string,
+        options?: { filter?: (file: string, stat: { isDirectory: () => boolean }) => boolean },
+      ) => Promise<void>;
+    };
+    const os = require_("node:os") as typeof import("node:os");
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "friday-builtins-pack-"));
+    try {
+      const resources = path.join(work, "win-unpacked", "resources");
+      const config = yaml.load(read("electron-builder.yml"));
+      const matchers = getFileMatchers(config, "extraResources", resources, {
+        macroExpander: (value: string) => value,
+        customBuildOptions: {},
+        globalOutDir: path.join(work, "out"),
+        defaultSrc: ROOT,
+      });
+      for (const tree of ["agents", "skills", "tools", "modules", "plugins", "workflows"]) {
+        const matcher = matchers.find((m) => m.from === path.join(ROOT, tree));
+        expect(matcher, tree).toBeTruthy();
+        if (!matcher) continue;
+        if (matcher.isEmpty()) matcher.prependPattern("**/*");
+        await copyDir(matcher.from, path.join(resources, tree), { filter: matcher.createFilter() });
+      }
+      for (const dropped of ["active", "history", "schedules"])
+        expect(fs.existsSync(path.join(resources, "workflows", dropped)), dropped).toBe(false);
+      expect(fs.existsSync(path.join(resources, "workflows", "index.ts"))).toBe(true);
+      expect(fs.readdirSync(path.join(resources, "workflows", "saved")).length).toBeGreaterThan(5);
+
+      const manifest = api.writeBuiltins({
+        root: ROOT,
+        outFile: path.join(resources, "builtins.json"),
+        version: "9.9.9.9",
+      });
+      expect(manifest.release).toBe("9.9.9.9");
+      expect(Object.values(manifest.trees).flat().length).toBeGreaterThan(50);
+      expect(api.assertBuiltins(resources).ok).toBe(true);
+
+      const first = manifest.trees["skills"]?.[0] as { path: string } | undefined;
+      expect(first).toBeTruthy();
+      fs.writeFileSync(path.join(resources, first?.path ?? "", "added-after-build.txt"), "x");
+      expect(() => api.assertBuiltins(resources)).toThrow(/content differs/);
+      fs.rmSync(path.join(resources, "builtins.json"));
+      expect(() => api.assertBuiltins(resources)).toThrow(/builtins\.json/);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  it("raises the installer ceiling by the wheelhouse budget and keeps it under 2 GiB", () => {
+    const manifest = JSON.parse(read("config/toolchain-manifest.json")) as {
+      budgetBytes: number;
+      wheelhouse: { budgetBytes: number };
+    };
+    const bounds = api.installerBounds(manifest);
+    expect(bounds.ceiling).toBe(
+      manifest.budgetBytes + manifest.wheelhouse.budgetBytes + 800 * 1024 * 1024,
+    );
+    expect(bounds.ceiling).toBe(1288860800);
+    expect(bounds.ceiling).toBeLessThan(2147483648);
+  });
+
+  it("requires the staged wheelhouse in the packed app unless FRIDAY_WHEELHOUSE=0", () => {
+    const os = require_("node:os") as typeof import("node:os");
+    const stageApi = require_(path.join(ROOT, "scripts/stage-toolchain.cjs")) as {
+      stagePlan: (manifest: unknown) => { packs: { id: string; dest: string }[] };
+    };
+    const wheelhouse = require_(path.join(ROOT, "scripts/wheelhouse.cjs")) as {
+      writeStoredZip: (file: string, entries: { name: string; body: Buffer }[]) => void;
+    };
+    const manifest = JSON.parse(read("config/toolchain-manifest.json"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-wheel-layout-"));
+    try {
+      const release = path.join(root, "release");
+      fs.mkdirSync(release, { recursive: true });
+      for (const pack of stageApi.stagePlan(manifest).packs) {
+        const dir = path.join(release, "win-unpacked", "resources", pack.dest, pack.id);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, "pack.bin"), Buffer.alloc(8));
+      }
+      const floor = api.installerBounds(manifest).floor;
+      const big = Buffer.alloc(floor, 2);
+      fs.writeFileSync(path.join(release, "FRIDAY-Setup-1.0.1.2.exe"), big);
+      fs.writeFileSync(path.join(release, "FRIDAY-Portable-1.0.1.2.exe"), big);
+      const input = { releaseDir: release, manifest, targets: ["nsis", "portable"] };
+      expect(() => api.assertPackagedLayout({ ...input, env: {} })).toThrow(/wheelhouse/i);
+      expect(api.assertPackagedLayout({ ...input, env: { FRIDAY_WHEELHOUSE: "0" } }).ok).toBe(true);
+
+      const pack = path.join(release, "win-unpacked", "resources", "toolchain", "wheelhouse");
+      fs.mkdirSync(pack, { recursive: true });
+      const wheel = Buffer.from("not a real wheel");
+      wheelhouse.writeStoredZip(path.join(pack, "pack.bin"), [
+        { name: "demo-1.0-py3-none-any.whl", body: wheel },
+      ]);
+      expect(api.assertPackagedLayout({ ...input, env: {} }).ok).toBe(true);
+      const sha = require_("node:crypto").createHash("sha256").update(wheel).digest("hex");
+      const good = { filename: "demo-1.0-py3-none-any.whl", sha256: sha, bytes: wheel.length };
+      expect(api.assertPackagedLayout({ ...input, env: {}, wheels: [good] }).ok).toBe(true);
+      expect(() =>
+        api.assertPackagedLayout({
+          ...input,
+          env: {},
+          wheels: [{ ...good, sha256: "0".repeat(64) }],
+        }),
+      ).toThrow(/SHA-256/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

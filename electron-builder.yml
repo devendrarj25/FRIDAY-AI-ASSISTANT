@@ -77,6 +77,13 @@ extraResources:
     to: plugins
   - from: workflows
     to: workflows
+    # The owner's runs, schedules and history are his own state, never part of the installer. The shipped templates
+    # (saved/) and the barrel stay.
+    filter:
+      - "**/*"
+      - "!active/**"
+      - "!history/**"
+      - "!schedules/**"
   - from: config
     to: config
     # When the FRIDAY folder is this checkout, the owner's settings, keys and state sit in config/. They are

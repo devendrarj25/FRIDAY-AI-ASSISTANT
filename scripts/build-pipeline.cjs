@@ -56,11 +56,11 @@ const PHASE_COMMANDS = {
   ],
   "stage-toolchain": ["scripts/stage-toolchain.cjs"],
   "build-renderer": ["npm run build:desktop"],
-  package: ["scripts/electron-pack.cjs"],
+  package: ["scripts/builtins-manifest.cjs", "scripts/electron-pack.cjs"],
   "packaged-requires": ["scripts/packaged-requires.cjs"],
   "sign-hook": ["scripts/sign-windows.ps1"],
   manifest: ["scripts/release-manifest.cjs"],
-  "verify-artifacts": ["scripts/verify-build.cjs"],
+  "verify-artifacts": ["scripts/verify-build.cjs", "scripts/builtins-manifest.cjs"],
   "verify-boot": ["scripts/verify-boot.cjs"],
   readiness: ["scripts/readiness-test.cjs --pack"],
   "packaged-self-check": [
@@ -150,9 +150,11 @@ function commandsFor(phases = PHASES) {
 function installerBounds(manifest) {
   const plan = stage.stagePlan(manifest);
   const floor = Math.floor(plan.sum * 0.7);
+  // The wheelhouse (offline Python wheels) is a second tier beside the toolchain budget.
+  const wheelhouseBudget = Number(manifest.wheelhouse?.budgetBytes) || 0;
   const ceiling = Math.min(
     GITHUB_ASSET_LIMIT - 1,
-    Number(manifest.budgetBytes) + 800 * 1024 * 1024,
+    Number(manifest.budgetBytes) + wheelhouseBudget + 800 * 1024 * 1024,
   );
   return {
     floor,
@@ -171,7 +173,13 @@ function readManifest(root = ROOT) {
  * A Setup or Portable file below the toolchain floor means staging did not
  * land. A file at or above the ceiling cannot be a GitHub release asset.
  */
-function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portable"] }) {
+function assertPackagedLayout({
+  releaseDir,
+  manifest,
+  targets = ["nsis", "portable"],
+  env = process.env,
+  wheels,
+}) {
   const plan = stage.stagePlan(manifest);
   const bounds = installerBounds(manifest);
   const errors = [];
@@ -182,6 +190,20 @@ function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portab
       errors.push(
         `${pack.id} is missing at ${file} — toolchain staging did not land inside the app; refusing a small EXE`,
       );
+    }
+  }
+  // The offline Python wheelhouse is part of every build unless FRIDAY_WHEELHOUSE=0 switched it off.
+  if (manifest.wheelhouse && String(env.FRIDAY_WHEELHOUSE || "") !== "0") {
+    const wheelhouse = require("./wheelhouse.cjs");
+    const file = path.join(unpacked, "resources", ...wheelhouse.DEST.split("/"), "pack.bin");
+    if (!fs.existsSync(file)) {
+      errors.push(
+        `the Python wheelhouse is missing at ${file} — wheelhouse staging did not land inside the app (FRIDAY_WHEELHOUSE=0 builds without it)`,
+      );
+    } else if (Array.isArray(wheels)) {
+      for (const problem of wheelhouse.verifyWheelhouseZip(file, wheels)) {
+        errors.push(`wheelhouse ${problem}`);
+      }
     }
   }
   const names = fs.existsSync(releaseDir) ? fs.readdirSync(releaseDir) : [];
@@ -216,6 +238,42 @@ function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portab
     throw error;
   }
   return { ok: true, bounds, setup: setup || null, portable: portable || null };
+}
+
+/** The wheels the lock pins, for the content check of the packed wheelhouse; undefined when it is switched off. */
+function lockedWheels(root, manifest, env = process.env) {
+  if (!manifest.wheelhouse || String(env.FRIDAY_WHEELHOUSE || "") === "0") return undefined;
+  const wheelhouse = require("./wheelhouse.cjs");
+  const lock = wheelhouse.readLock(path.join(root, manifest.wheelhouse.lock));
+  return Array.isArray(lock.wheels) ? lock.wheels : [];
+}
+
+/**
+ * Writes resources/builtins.json (scripts/builtins-manifest.cjs) from the checkout trees that electron-builder is
+ * about to copy, so the installer and the portable EXE carry it. The generator needs electron/capabilities.cjs, which
+ * lives inside app.asar once packed, so it runs here and verify-artifacts then proves it against the real pack.
+ */
+function writeBuiltins({ root = ROOT, outFile, version } = {}) {
+  const out = outFile || path.join(root, "resources", "builtins.json");
+  return require("./builtins-manifest.cjs").write(
+    root,
+    out,
+    version ? { release: version } : undefined,
+  );
+}
+
+/** Fails the build when win-unpacked\resources\builtins.json is missing or does not describe the packed trees. */
+function assertBuiltins(resourcesDir) {
+  const result = require("./builtins-manifest.cjs").verify(
+    resourcesDir,
+    path.join(resourcesDir, "builtins.json"),
+  );
+  if (!result.ok) {
+    const shown = result.problems.slice(0, 10).join("; ");
+    const more = result.problems.length > 10 ? ` (and ${result.problems.length - 10} more)` : "";
+    throw new Error(`builtins.json does not match the packed app: ${shown}${more}`);
+  }
+  return result;
 }
 
 function runtimeSmokePlan(manifest = readManifest()) {
@@ -902,8 +960,10 @@ function runPhase(phase, options, root) {
         "-c.nsis.uninstallDisplayName=FRIDAY Test - Personal AI Assistant",
       );
     }
+    const written = writeBuiltins({ root, version: options.version });
+    const builtinCount = Object.values(written.trees).reduce((sum, list) => sum + list.length, 0);
     runNode("scripts/electron-pack.cjs", packArgs, root);
-    return `packaged ${packArgs.join(" ")}`;
+    return `packaged ${packArgs.join(" ")}; builtins.json lists ${builtinCount} built-ins`;
   }
   if (phase === "packaged-requires") {
     runNode("scripts/packaged-requires.cjs", [], root);
@@ -971,11 +1031,14 @@ function runPhase(phase, options, root) {
       verifyArgs.push("--version", options.version || identity.releaseVersion, "--manifest");
     }
     runNode("scripts/verify-build.cjs", verifyArgs, root);
+    assertBuiltins(path.join(root, "release", "win-unpacked", "resources"));
     if (!options.targets.includes("dir") || options.targets.length > 1) {
+      const manifest = readManifest(root);
       assertPackagedLayout({
         releaseDir: path.join(root, "release"),
-        manifest: readManifest(root),
+        manifest,
         targets: options.targets,
+        wheels: lockedWheels(root, manifest),
       });
     }
     return "artifacts verified";
@@ -1277,6 +1340,8 @@ module.exports = {
   commandsFor,
   installerBounds,
   assertPackagedLayout,
+  writeBuiltins,
+  assertBuiltins,
   runtimeSmokePlan,
   applyChannel,
   signingRequested,

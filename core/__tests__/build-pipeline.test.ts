@@ -251,6 +251,17 @@ describe("build pipeline", () => {
     const big = Buffer.alloc(boundsSafe(data), 2);
     fs.writeFileSync(path.join(release, "FRIDAY-Setup-1.0.1.2.exe"), big);
     fs.writeFileSync(path.join(release, "FRIDAY-Portable-1.0.1.2.exe"), big);
+    // The offline Python wheelhouse is a required pack of the app too.
+    expect(() =>
+      pipeline.assertPackagedLayout({
+        releaseDir: release,
+        manifest: data,
+        targets: ["nsis", "portable"],
+      }),
+    ).toThrow(/wheelhouse/);
+    const wheelDir = path.join(release, "win-unpacked", "resources", "toolchain", "wheelhouse");
+    fs.mkdirSync(wheelDir, { recursive: true });
+    fs.writeFileSync(path.join(wheelDir, "pack.bin"), Buffer.alloc(8));
     try {
       expect(
         pipeline.assertPackagedLayout({
