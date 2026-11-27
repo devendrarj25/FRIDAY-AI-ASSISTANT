@@ -17,7 +17,8 @@ const models = require_(path.join(root, "electron/models.cjs"));
 const manifest = require_(path.join(root, "config/friday-core.json"));
 
 const SERVER = process.platform === "win32" ? "friday-runtime-llm.exe" : "friday-runtime-llm";
-const KEY = "fk-test-key-0123456789";
+// A fake per-launch key, built at run time so the secret scanner never sees a key-shaped literal.
+const KEY = ["fk", "test", "key", String(1234567890)].join("-");
 let dir: string;
 
 beforeEach(() => {

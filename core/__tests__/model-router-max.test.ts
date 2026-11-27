@@ -227,6 +227,7 @@ describe("per-model breaker and score", () => {
     expect(ignore.split("\n")).toEqual([
       "1fc8c6073be152b1f676ac56d813a1b676e35c02:core/__tests__/model-router-max.test.ts:generic-api-key:178",
       "9be8ad49459946516ffff49efa683067b52f28ab:core/__tests__/voice-turn-brain.test.ts:generic-api-key:558",
+      "2df14b2e5b729ab19a338b971887d8a3364ec6e4:core/__tests__/friday-runtime-llm-args.test.ts:generic-api-key:20",
     ]);
   });
 
