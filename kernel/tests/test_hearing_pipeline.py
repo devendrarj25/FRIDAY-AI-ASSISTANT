@@ -222,8 +222,9 @@ class PipelineOrder(unittest.TestCase):
     def test_voice_and_chat_share_one_brain_funnel(self):
         root = Path(__file__).resolve().parents[2]
         mode = (root / "src/lib/friday/assistant-mode.ts").read_text(encoding="utf-8")
-        # Heard text enters handleHeard, then the shared brain, never a second one.
-        self.assertIn("this.handleHeard(text, meta?.wake ?? null)", mode)
+        # Heard text (its canonical code-mix form when the turn record has one) enters handleHeard, then the
+        # shared brain, never a second one.
+        self.assertIn("this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null)", mode)
         self.assertIn("brain.subscribe(() => this.speakNewReplies())", mode)
         self.assertIn("brain.send(command, payload)", mode)
 
