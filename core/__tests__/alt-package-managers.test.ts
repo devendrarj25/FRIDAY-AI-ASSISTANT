@@ -53,8 +53,13 @@ describe("alternate package managers", () => {
 
   it("is the last step of the install chain, after the package manager and the vendor feed", () => {
     const source = readFileSync(path.join(root, "electron/toolchain.cjs"), "utf8");
-    expect(source).toContain("[tryPackageManager, tryVendorInstaller, tryAlternateManagers]");
-    expect(source).toContain("[tryVendorInstaller, tryPackageManager, tryAlternateManagers]");
+    // The row's own data-file address sits between the vendor installer and the last-resort managers.
+    expect(source).toMatch(
+      /\[\s*tryPackageManager,\s*tryVendorInstaller,\s*tryDataFileInstaller,\s*tryAlternateManagers,?\s*\]/,
+    );
+    expect(source).toMatch(
+      /\[\s*tryVendorInstaller,\s*tryDataFileInstaller,\s*tryPackageManager,\s*tryAlternateManagers,?\s*\]/,
+    );
     expect(source).toContain("if (!cmd || !(await which(manager))) continue;");
   });
 

@@ -1143,6 +1143,8 @@ const TOOLS = [
     requirements: { diskBytes: 25_000_000 },
   }),
   T("friday-runtime-llm", "AI Runtimes", {
+    // Where it lives (the install index reads this): FRIDAY's own engine folder under the FRIDAY folder.
+    home: "friday-root",
     cmd: "friday-runtime-llm",
     args: ["--version"],
     url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
@@ -1302,6 +1304,8 @@ const TOOLS = [
     source: "ffmpeg.org",
   }),
   T("FFmpeg (LGPL, portable)", "Media Tools", {
+    // Where it lives (the install index reads this): a portable zip unpacked under the FRIDAY folder.
+    home: "friday-root",
     url: "https://github.com/BtbN/FFmpeg-Builds",
     source: "github.com/BtbN",
     latest: { kind: "github", ref: "BtbN/FFmpeg-Builds" },
@@ -1312,6 +1316,8 @@ const TOOLS = [
     requirements: { diskBytes: 150_000_000, recommended: false },
   }),
   T("stable-diffusion.cpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): a zip engine unpacked under the FRIDAY folder.
+    home: "friday-root",
     url: "https://github.com/leejet/stable-diffusion.cpp",
     source: "github.com/leejet",
     latest: { kind: "github", ref: "leejet/stable-diffusion.cpp", strip: "^master-" },
@@ -1372,6 +1378,8 @@ const TOOLS = [
     source: "qemu.org",
   }),
   T("Docker Compose", "Developer Tools", {
+    // Where it lives (the install index reads this): ships inside Docker Desktop, which installs system-wide.
+    home: "machine",
     cmd: "docker",
     args: ["compose", "version"],
     url: "https://docs.docker.com/compose/",
@@ -1431,6 +1439,8 @@ const TOOLS = [
     latest: { kind: "npm", ref: "n8n" },
   }),
   T("WSL 2", "Developer Tools", {
+    // Where it lives (the install index reads this): a Windows optional feature, installed by Windows itself.
+    home: "machine",
     cmd: "wsl",
     args: ["--version"],
     url: "https://learn.microsoft.com/windows/wsl/install",
@@ -1544,6 +1554,8 @@ const TOOLS = [
       "Maven 3.9.16. Apache-2.0. Needs a JDK. SHA-512 from archive.apache.org checked on 2026-11-21.",
   }),
   T("Composer", "Languages & Runtimes", {
+    // Where it lives (the install index reads this): a .phar kept next to a launcher under the FRIDAY folder.
+    home: "friday-root",
     cmd: "composer",
     args: ["--version"],
     url: "https://getcomposer.org/download/",
@@ -1562,6 +1574,8 @@ const TOOLS = [
     manual: "Composer 2.11.2. MIT. Needs PHP. SHA-256 from getcomposer.org checked on 2026-11-19.",
   }),
   T("dotnet-script", "Languages & Runtimes", {
+    // Where it lives (the install index reads this): a dotnet global tool in the user's profile.
+    home: "machine",
     cmd: "dotnet-script",
     args: ["--version"],
     url: "https://github.com/dotnet-script/dotnet-script",
@@ -1613,6 +1627,8 @@ const TOOLS = [
     latest: { kind: "pypi", ref: "soundfile" },
   }),
   T("KoboldCpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): a single program kept under the FRIDAY folder.
+    home: "friday-root",
     // One self-contained executable; it still needs a model file to start, so it
     // is stored under runtime\\ and run from there, never registered as a service.
     url: "https://github.com/LostRuins/koboldcpp",
@@ -1626,6 +1642,8 @@ const TOOLS = [
     manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
   }),
   T("Hugging Face runner", "AI Runtimes", {
+    // Where it lives (the install index reads this): its own environment is built under the FRIDAY folder.
+    home: "friday-root",
     // `transformers serve` in its own virtual environment under runtime\\ (PyTorch
     // is too large for the kernel's environment). The folder is the proof.
     url: "https://huggingface.co/docs/transformers/serve-cli/serving",
@@ -1856,6 +1874,8 @@ const TOOLS = [
       "Windows only. Installing onnxruntime-directml replaces the CPU onnxruntime wheel, so FRIDAY does not install it from requirements. CPUExecutionProvider stays the fallback.",
   }),
   T("Playwright browsers", "Web Automation", {
+    // Where it lives (the install index reads this): Playwright keeps the browsers in the user's cache folder.
+    home: "machine",
     url: "https://playwright.dev/python/",
     source: "pypi.org",
     latest: { kind: "pypi", ref: "playwright" },
@@ -2337,6 +2357,8 @@ const TOOLS = [
     source: "mariadb.org",
   }),
   T("Whisper.cpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): comes with FRIDAY's own whisper.cpp under the FRIDAY folder.
+    home: "friday-root",
     cmd: "whisper-cli",
     url: "https://github.com/ggml-org/whisper.cpp",
     source: "github.com/ggml-org",
@@ -2440,6 +2462,18 @@ try {
 } catch {
   /* a missing manifest leaves the pins written on the tools themselves */
 }
+
+/**
+ * The installer addresses written in this file (and the pack manifest) when it loaded. Only these may bring their own
+ * host past `config/download-hosts.json`; an address that came from a feed, a data file or a release answer never
+ * does, so a remote answer cannot widen the allowlist.
+ */
+const PINNED_INSTALLER_URLS = new Set(
+  TOOLS.flatMap((tool) => [directInstaller(tool)?.url, ...(tool.installerMirrors || [])]).filter(
+    (url) => typeof url === "string" && /^https:\/\//i.test(url),
+  ),
+);
+const installerExtraHosts = (url) => (PINNED_INSTALLER_URLS.has(String(url)) ? [String(url)] : []);
 
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 const BUILT_IN_COUNT = TOOLS.length;
@@ -2823,6 +2857,15 @@ let detectInflight = null;
 let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
+/** The home a row declares itself or in its data file (the install index reads it), else null. */
+const declaredHomeOf = (tool) => vendorSources.declaredHome(tool);
+
+/** A scan result with the home of its row, when the row declares one. */
+function withHome(tool, probe) {
+  const home = declaredHomeOf(tool);
+  return home ? { ...probe, home } : probe;
+}
+
 async function detectTools({ force = false, root: rootArg, only = null } = {}) {
   syncExtensions(rootArg ?? fridayPaths.root() ?? "");
   // A caller that needs a handful of tools (the build-time toolkit step) probes
@@ -2837,7 +2880,7 @@ async function detectTools({ force = false, root: rootArg, only = null } = {}) {
     const probed = await pool(
       TOOLS.filter((t) => want.has(t.id)),
       6,
-      (t) => probeTool(t, freeze, installedPackages, root),
+      async (t) => withHome(t, await probeTool(t, freeze, installedPackages, root)),
     );
     try {
       require("./managed-path.cjs").applyManagedPath(root, TOOLS);
@@ -2864,7 +2907,9 @@ async function detectTools({ force = false, root: rootArg, only = null } = {}) {
       loadPipFreeze(force),
       loadWingetList(force),
     ]);
-    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages, root));
+    const probed = await pool(TOOLS, 6, async (t) =>
+      withHome(t, await probeTool(t, freeze, installedPackages, root)),
+    );
     // A component that several catalog rows share is reported once per row, so
     // every row carries the same real machine state instead of "Unknown".
     const tools = probed.flatMap((p) => {
@@ -3435,10 +3480,9 @@ async function downloadInstaller(url, root, report, { sha256, needBytes, label, 
     sha256,
     needBytes,
     label: label || name,
-    // The URL is one FRIDAY's own tool table or an official release feed named;
-    // without this only GitHub and Hugging Face downloads were accepted and
-    // every other vendor's installer was refused as "off allowlist".
-    extraHosts: [url],
+    // Only an address written in FRIDAY's own tool table brings its host along; a feed's, a data file's or a
+    // release answer's address must already be on config/download-hosts.json.
+    extraHosts: installerExtraHosts(url),
   });
   return target;
 }
@@ -3490,6 +3534,48 @@ async function withLatestRelease(tool) {
     needBytes: latest.bytes || tool.needBytes,
     releaseTag: latest.tag,
   };
+}
+
+/** What FRIDAY can put in place from a data-file download: run an installer, or unpack into its own folder. */
+const DATA_FILE_ARCHIVES = new Set(["exe", "msi", "zip", "tar.gz"]);
+
+/** A row bundled in the app (data file `notifyOnly`) reports a newer version and never changes at run time. */
+const isNotifyOnly = (tool) =>
+  tool?.notifyOnly === true || vendorSources.rowSpec(tool?.id)?.notifyOnly === true;
+
+/**
+ * The row's own download from its data file, as a checked plan: the newest version from the row's source chain, the
+ * address from `download.urlTemplate`, the digest read again from its digest source, the pin and the digest in
+ * agreement, plain silent switches. `{ ok: false }` says why; `reused: true` means the installed copy is already the
+ * newest (nothing to download). Nothing is downloaded here.
+ * deps: { root, toolSources, fetchImpl, store, now, installedVersion }
+ */
+async function dataFileDownload(tool, deps = {}) {
+  const spec = vendorSources.rowSpec(tool?.id, { toolSources: deps.toolSources });
+  if (!spec?.download?.urlTemplate)
+    return { ok: false, error: "the row has no download address in its data file" };
+  if (spec.notifyOnly)
+    return { ok: false, notifyOnly: true, error: "bundled: shows a newer version only" };
+  const archive = spec.download.archive || "";
+  if (!DATA_FILE_ARCHIVES.has(archive))
+    return { ok: false, error: `FRIDAY cannot unpack a ${archive || "plain"} download yet` };
+  if ((archive === "zip" || archive === "tar.gz") && !tool.archiveBin)
+    return { ok: false, error: "the row names no program path inside the archive" };
+  const plan = await vendorSources.planRowDownload(tool.id, {
+    toolSources: deps.toolSources,
+    sources: vendorSources.chainFor(tool, { toolSources: deps.toolSources }),
+    fetchImpl: deps.fetchImpl,
+    store: deps.store,
+    now: deps.now,
+    ...(tool.pinVersion && tool.sha256
+      ? { pin: { version: tool.pinVersion, sha256: tool.sha256 } }
+      : {}),
+  });
+  if (!plan.ok) return plan;
+  const have = String(deps.installedVersion || "");
+  if (/\d/.test(have) && vendorSources.compareVersions(have, plan.version) >= 0)
+    return { ok: false, reused: true, version: plan.version, installed: have };
+  return plan;
 }
 
 /** Silent-run command for a downloaded installer. A zip is unpacked, not executed. */
@@ -3633,7 +3719,7 @@ async function runEngineJob({ tool, action, root }, emit, hooks = {}) {
             signal: abort.signal,
             sha256: o.sha256,
             label: `Downloading ${path.basename(dest)}`,
-            extraHosts: [url],
+            // Engine files come from release answers: their host must be on config/download-hosts.json (GitHub is).
           }),
         extract: (zip, dest) =>
           pyRun
@@ -3778,6 +3864,13 @@ function runJob({ id, action, root }, emit) {
   if (jobs.has(key)) {
     emit({ id, action, phase: "Running", line: "job already running — reusing it" });
     return Promise.resolve({ ok: true, reused: true });
+  }
+
+  // A bundled runtime (Electron, FRIDAY Node, the pip bootstrap) only reports a newer version; it is never swapped here.
+  if (action === "update" && isNotifyOnly(tool)) {
+    const line = `a newer version of ${tool.name || id} may be available; it is bundled with FRIDAY and changes only with a FRIDAY update`;
+    emit({ id, action, ok: false, notifyOnly: true, manual: true, phase: "Manual", line });
+    return Promise.resolve({ ok: false, notifyOnly: true, error: line });
   }
 
   // A component that is part of another tool (Compose in Docker Desktop, the
@@ -4246,8 +4339,22 @@ function runJob({ id, action, root }, emit) {
       return finished;
     };
 
-    const tryVendorInstaller = async () => {
-      let direct = fallback;
+    // `alt` is a checked plan from the row's data file (`dataFileDownload`): its address and digest replace the pin.
+    const tryVendorInstaller = async (alt = null) => {
+      let direct = alt ? { url: alt.url } : fallback;
+      if (alt) {
+        tool = {
+          ...tool,
+          installerUrl: alt.url,
+          sha256: alt.sha256 || "",
+          installerMirrors: [],
+          needBytes: 0,
+          releaseTag: alt.version,
+          allowUnsigned: false,
+          verifySignature: alt.needsSignature === true || tool.verifySignature,
+          ...(alt.args ? { installerArgs: alt.args } : {}),
+        };
+      }
       // No pinned installer: ask the vendor's own feed, which gives the newest
       // installer and its SHA-256. Without a digest nothing is downloaded.
       if (!direct && vendorFeeds.hasFeed(tool.id)) {
@@ -4401,6 +4508,31 @@ function runJob({ id, action, root }, emit) {
           file = null;
         }
       }
+      if (file && alt?.algo === "sha512") {
+        emit({
+          id,
+          action,
+          phase: "Verifying",
+          line: "checking the SHA-512 against the official release",
+        });
+        const checked = await vendorSources.verifyFile(file, alt.digest);
+        if (!checked.ok) {
+          emit({ id, action, phase: "Running", line: checked.error });
+          tried.push("sha512 (failed)");
+          try {
+            fs.unlinkSync(file);
+          } catch {
+            /* already gone */
+          }
+          file = null;
+        }
+      }
+      // A digest that only a community registry holds is not enough: the installer's own Windows signature is
+      // the gate, and where it cannot be read nothing is run.
+      if (file && alt?.needsSignature && !WIN) {
+        tried.push("signature (cannot be checked here)");
+        file = null;
+      }
       if (file && WIN && (tool.release || tool.verifySignature) && /\.(exe|msi)$/i.test(file)) {
         const signed = require("./download-safety.cjs").authenticodeStatus(file);
         // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
@@ -4472,6 +4604,54 @@ function runJob({ id, action, root }, emit) {
         line: `installed from ${usedUrl} · health check: ${last.probe.status}`,
       });
       return { ok: true, code: last.code, version: last.probe.version, via: "url" };
+    };
+
+    // The row's own address from its data file: only after the primary installer had no address or failed, and only
+    // with a digest read again from its source. An installed copy that is already the newest is left alone.
+    const tryDataFileInstaller = async () => {
+      if (action === "uninstall" || keptCurrent || !vendorSources.rowSpec(tool.id)?.download)
+        return null;
+      let installedVersion = null;
+      try {
+        const now = await probeTool(
+          tool,
+          await loadPipFreeze(false),
+          await loadWingetList(false),
+          root,
+        );
+        if (now.installed && now.status !== "Error") installedVersion = now.version;
+      } catch {
+        installedVersion = null;
+      }
+      const plan = await dataFileDownload(tool, {
+        root,
+        installedVersion,
+        store: root ? vendorSources.storeFor(root) : undefined,
+      });
+      if (plan.reused) {
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          version: plan.installed,
+          line: `already the newest official version (${plan.installed}); nothing was downloaded`,
+        });
+        return { ok: true, reused: true, version: plan.installed };
+      }
+      if (!plan.ok) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the official address of ${tool.name || id} cannot be used (${plan.error || "no digest"}); trying the next source`,
+        });
+        return null;
+      }
+      const before = tool;
+      const done = await tryVendorInstaller(plan);
+      if (!done?.ok) tool = before;
+      return done;
     };
 
     // Chocolatey and Scoop are last resorts, used only when already on this PC.
@@ -4560,8 +4740,8 @@ function runJob({ id, action, root }, emit) {
     for (const step of [
       tryExisting,
       ...(vendorFirst
-        ? [tryVendorInstaller, tryPackageManager, tryAlternateManagers]
-        : [tryPackageManager, tryVendorInstaller, tryAlternateManagers]),
+        ? [tryVendorInstaller, tryDataFileInstaller, tryPackageManager, tryAlternateManagers]
+        : [tryPackageManager, tryVendorInstaller, tryDataFileInstaller, tryAlternateManagers]),
     ]) {
       const done = await step();
       if (done) return done;
@@ -4767,6 +4947,10 @@ module.exports = {
   useBundledEmbedDirect,
   managedRuntimeChoice,
   acceptPinnedFile,
+  dataFileDownload,
+  installerExtraHosts,
+  declaredHomeOf,
+  isNotifyOnly,
   diskRoom,
   fileSha256,
   archiveInstallCommand,

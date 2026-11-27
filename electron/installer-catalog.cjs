@@ -53,15 +53,31 @@ function updateStatusOf({ installed, installedVersion, latest, byRevision = fals
 function planUpdate({ row, autonomy, consent } = {}) {
   const dial = AUTONOMY.includes(String(autonomy)) ? String(autonomy) : "ask";
   if (!row) return { allowed: false, needsConsent: false, reason: "unknown row" };
+  // A runtime bundled in the app (Electron, FRIDAY Node, the pip bootstrap) only reports a newer version: no dial and
+  // no consent swaps it at run time; the owner's version bump does.
+  if (row.notifyOnly === true) {
+    return {
+      allowed: false,
+      needsConsent: false,
+      notifyOnly: true,
+      reason:
+        "a newer version is available; this runtime is bundled and changes only with a FRIDAY update",
+      dial,
+    };
+  }
   if (row.updateStatus !== "update") {
     return { allowed: false, needsConsent: false, reason: "there is no update for this row" };
   }
   if (row.fit?.state === "unsupported") {
     return { allowed: false, needsConsent: false, reason: "this PC cannot run the update" };
   }
+  // A machine-home install writes into Windows' own folders: Windows shows its own permission prompt, FRIDAY never
+  // answers it, and the plan says so.
+  const machine = row.home === "machine" ? { home: "machine", elevation: "windows" } : {};
   if (consent?.granted === true)
-    return { allowed: true, needsConsent: false, via: "consent", dial };
-  if (dial === "full") return { allowed: true, needsConsent: false, via: "full-autonomy", dial };
+    return { allowed: true, needsConsent: false, via: "consent", dial, ...machine };
+  if (dial === "full")
+    return { allowed: true, needsConsent: false, via: "full-autonomy", dial, ...machine };
   return {
     allowed: false,
     needsConsent: true,
@@ -70,6 +86,7 @@ function planUpdate({ row, autonomy, consent } = {}) {
         ? "Balanced asks before updating a tool"
         : "Ask every time: updating needs your OK",
     dial,
+    ...(row.home === "machine" ? { home: "machine" } : {}),
   };
 }
 
@@ -89,6 +106,14 @@ function chainOfTool(tool) {
   return sources.length ? { key: tool.id, sources } : null;
 }
 
+/** Where a tool without a declared home goes, from the one route it installs through. */
+function routeHome(tool) {
+  if (tool.winget) return "machine";
+  if (tool.npm) return "npm-global";
+  if (tool.pip || tool.pipDist || tool.pipBundle) return "friday-root";
+  return null;
+}
+
 /** Rows from the tool list the Install Manager already scans. */
 function toolRows(tools, detected) {
   const seen = new Map((detected?.tools || []).map((t) => [t.id, t]));
@@ -97,8 +122,15 @@ function toolRows(tools, detected) {
     if (!tool || !tool.id || tool.aliasOf) continue;
     const found = seen.get(tool.id);
     const chain = chainOfTool(tool);
+    // What the data file says about the row (home, notify-only, download, silent switches): read, never copied.
+    const spec = vendor.rowSpec(tool.id);
     out.push({
       id: tool.id,
+      home: vendor.declaredHome(tool) || routeHome(tool),
+      notifyOnly: spec?.notifyOnly === true,
+      ...(spec?.download ? { download: spec.download } : {}),
+      ...(spec?.silentInstall ? { silentInstall: spec.silentInstall } : {}),
+      downloadReady: spec ? vendor.downloadReadiness(spec).installable : false,
       kind: tool.engine || tool.pipBundle ? "engine" : "tool",
       name: tool.name || tool.id,
       category: tool.category || "Tool",
@@ -375,6 +407,9 @@ function createInstallerCatalog(deps = {}) {
         checkedAt: latest?.checkedAt ?? null,
         stale: latest ? Boolean(latest.stale) : false,
         pinnedAnswer: Boolean(latest?.pinned),
+        ...(row.home ? { home: row.home } : {}),
+        notifyOnly: row.notifyOnly === true,
+        ...(row.id && row.kind === "tool" ? { downloadReady: row.downloadReady === true } : {}),
         ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
         ...(row.needsRelease ? { needsRelease: true, note: row.note } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),
@@ -583,6 +618,17 @@ function doctorRows(rows) {
         ? `${row.installedVersion || "installed"}${row.engine?.active?.backend ? `, ${row.engine.active.backend} build` : ""}`
         : "optional: not installed",
       repair: row.installed ? { id, action: "repair" } : null,
+    });
+  }
+  // A bundled runtime with a newer version out: shown, never installed (it changes with a FRIDAY update).
+  for (const row of rows) {
+    if (row.notifyOnly !== true || row.updateStatus !== "update") continue;
+    out.push({
+      id: `bundled:${row.id}`,
+      label: `${row.name}: a newer version is available`,
+      status: "warn",
+      detail: `installed ${row.installedVersion || "unknown"}, newest ${row.latestVersion}; bundled with FRIDAY, so it changes only with a FRIDAY update`,
+      repair: null,
     });
   }
   const ownRow = pick("friday-runtime-llm");

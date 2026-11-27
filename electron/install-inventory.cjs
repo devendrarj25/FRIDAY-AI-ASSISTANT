@@ -42,11 +42,21 @@ const inside = (child, parent) => {
   return Boolean(rel) && !rel.startsWith("..") && !path.isAbsolute(rel);
 };
 
-/** Home of an installed or planned tool. `where` is the executable or package path, when known. */
+/**
+ * Home of an installed or planned tool. `where` is the executable or package path, when known.
+ * The route facts come first (pip, npm, a path under runtime); then the home the row declares (`tool.home`:
+ * friday-root, machine or npm-global, from the data files or the tool table); only a row that declares nothing is
+ * guessed from its manager. A real path outside the FRIDAY folder beats a declared friday-root: the index says
+ * where the program really is.
+ */
 function homeOf(tool, root) {
   if (tool.manager === "pip") return "friday-python-env";
   if (tool.manager === "npm") return "npm-global";
-  if (root && tool.path && inside(tool.path, path.join(root, "runtime"))) return "friday-runtime";
+  const underRuntime = Boolean(root && tool.path && inside(tool.path, path.join(root, "runtime")));
+  if (underRuntime) return "friday-runtime";
+  if (tool.home === "machine") return "machine";
+  if (tool.home === "npm-global") return "npm-global";
+  if (tool.home === "friday-root") return tool.path ? "machine" : "friday-runtime";
   if (tool.manager === "vendor" && !tool.path) return "friday-runtime";
   return "machine";
 }

@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "rows": {
+    "Visual Studio": {
+      "home": "machine",
+      "homeReason": "Large installer with UAC; installs system-wide under Program Files.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://aka.ms/vs/18/stable/channel",
+          "path": "$.info.productDisplayVersion"
+        },
+        { "kind": "endoflife", "product": "visual-studio" }
+      ],
+      "download": {
+        "urlTemplate": "https://aka.ms/vs/18/stable/vs_community.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "vs_Community.exe --quiet --wait --norestart --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "VS Build Tools": {
+      "home": "machine",
+      "homeReason": "The MSVC build tools installer needs UAC and writes to Program Files and the registry.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://aka.ms/vs/18/stable/channel",
+          "path": "$.info.productDisplayVersion"
+        },
+        { "kind": "endoflife", "product": "visual-studio" }
+      ],
+      "download": {
+        "urlTemplate": "https://aka.ms/vs/18/stable/vs_BuildTools.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "vs_BuildTools.exe --quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "VC++ Redistributable": {
+      "home": "machine",
+      "homeReason": "System-wide runtime installed with UAC: one unified 2015-2022 package for x64.",
+      "sources": [
+        { "kind": "scoop-manifest", "name": "vcredist2022", "bucket": "Extras" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='vcredist140'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "VC_redist.x64.exe /install /quiet /norestart",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Windows SDK": {
+      "home": "machine",
+      "homeReason": "Installs into Program Files (x86)\\Windows Kits and the registry with UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://learn.microsoft.com/en-us/windows/apps/windows-sdk/downloads",
+          "pattern": "Windows SDK for Windows 11 \\((10\\.0\\.\\d+\\.\\d+)\\)"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://azuresearch-usnc.nuget.org/query?q=packageid:microsoft.windows.sdk.buildtools&prerelease=false&take=1",
+          "path": "$.data[0].version"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://go.microsoft.com/fwlink/?linkid=2382519",
+        "archive": "exe"
+      },
+      "silentInstall": "winsdksetup.exe /quiet /norestart /features OptionId.WindowsDesktopDebuggers OptionId.DesktopCPPx64",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "WebView2 Runtime": {
+      "home": "machine",
+      "homeReason": "Evergreen runtime installed system-wide; it updates itself and is already present on current Windows.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://edgeupdates.microsoft.com/api/products?view=enterprise",
+          "pattern": "\"Product\":\"Stable\",\"Releases\":\\[(?:(?!\"Product\":).)*?\"Platform\":\"Windows\",\"Architecture\":\"x64\"(?:(?!\"Platform\").)*?\"ProductVersion\":\"([\\d.]+)\"",
+          "flags": "s"
+        },
+        { "kind": "scoop-manifest", "name": "webview2", "bucket": "Extras" }
+      ],
+      "download": {
+        "urlTemplate": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        "archive": "exe"
+      },
+      "silentInstall": "MicrosoftEdgeWebview2Setup.exe /silent /install",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Windows Terminal": {
+      "home": "machine",
+      "homeReason": "MSIX package registered for the user through the Windows package installer.",
+      "sources": [
+        { "kind": "github-api", "repo": "microsoft/terminal", "strip": "^v" },
+        { "kind": "scoop-manifest", "name": "windows-terminal", "bucket": "Extras" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='microsoft-windows-terminal'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/microsoft/terminal/releases/download/v{version}/Microsoft.WindowsTerminal_{version}_8wekyb3d8bbwe.msixbundle",
+        "archive": "msix"
+      },
+      "silentInstall": "winget install --id Microsoft.WindowsTerminal -e --silent --accept-package-agreements --accept-source-agreements",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Visual Studio Code": {
+      "home": "machine",
+      "homeReason": "The per-user installer needs no UAC; it is an IDE kept on the PC, not inside FRIDAY's folder.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://update.code.visualstudio.com/api/update/win32-x64-user/stable/latest",
+          "path": "$.productVersion"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://update.code.visualstudio.com/api/releases/stable",
+          "path": "$[0]"
+        },
+        { "kind": "scoop-manifest", "name": "vscode", "bucket": "Extras" }
+      ],
+      "download": {
+        "urlTemplate": "https://update.code.visualstudio.com/{version}/win32-x64-user/stable",
+        "archive": "exe",
+        "digestUrl": "https://update.code.visualstudio.com/api/update/win32-x64-user/stable/latest",
+        "digestPath": "$.sha256hash"
+      },
+      "silentInstall": "VSCodeUserSetup-x64-{version}.exe /VERYSILENT /NORESTART /MERGETASKS=!runcode",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Docker Desktop": {
+      "home": "machine",
+      "homeReason": "Needs administrator rights, WSL 2 or Hyper-V, services and a restart; it cannot be portable.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://docs.docker.com/desktop/release-notes/",
+          "pattern": "<h2[^>]*id=\\d+><a[^>]*>(4\\.\\d+\\.\\d+)</a></h2>"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='docker-desktop'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe",
+        "archive": "exe",
+        "digestUrl": "https://desktop.docker.com/win/main/amd64/checksums.txt"
+      },
+      "silentInstall": "\"Docker Desktop Installer.exe\" install --quiet --accept-license --backend=wsl-2",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "QEMU": {
+      "home": "machine",
+      "homeReason": "The Windows build is an installer with UAC under Program Files; GPL-2.0, optional and run as a separate process only.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://qemu.weilnetz.de/w64/",
+          "pattern": "New QEMU installer \\(([\\d.]+)\\)"
+        },
+        { "kind": "scoop-manifest", "name": "qemu", "bucket": "Main" }
+      ],
+      "download": {
+        "archive": "exe"
+      },
+      "silentInstall": "qemu-w64-setup-<yyyymmdd>.exe /S /D=<path>",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "CUDA Toolkit": {
+      "home": "machine",
+      "homeReason": "A multi-gigabyte NVIDIA installer that needs UAC and a matching display driver.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://developer.download.nvidia.com/compute/cuda/redist/",
+          "pattern": "redistrib_(\\d+\\.\\d+\\.\\d+)\\.json(?![\\s\\S]*redistrib_\\d)"
+        },
+        { "kind": "scoop-manifest", "name": "cuda", "bucket": "Main" }
+      ],
+      "download": {
+        "archive": "exe"
+      },
+      "silentInstall": "cuda_<version>_windows.exe -s nvcc_<major.minor> cudart_<major.minor>",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Android Platform Tools (adb)": {
+      "home": "friday-root",
+      "homeReason": "A plain zip with adb.exe and fastboot.exe, no installer, portable.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://dl.google.com/android/repository/repository2-3.xml",
+          "pattern": "<url>platform-tools_r([\\d.]+)-win\\.zip</url>"
+        },
+        { "kind": "scoop-manifest", "name": "adb", "bucket": "Main" }
+      ],
+      "download": {
+        "urlTemplate": "https://dl.google.com/android/repository/platform-tools_r{version}-win.zip",
+        "archive": "zip"
+      },
+      "silentInstall": "none (unzip)",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Android Studio": {
+      "home": "machine",
+      "homeReason": "A large IDE (about 1.5 GB) with a Windows installer, kept on the PC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://jb.gg/android-studio-releases-list.json",
+          "pattern": "\"channel\":\"(?:Release|Patch)\",\"version\":\"(\\d[\\d.]*)\""
+        },
+        { "kind": "scoop-manifest", "name": "android-studio", "bucket": "Extras" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='androidstudio'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "archive": "exe"
+      },
+      "silentInstall": "android-studio-<name>-windows.exe /S /D=<dir>",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "AWS CLI": {
+      "home": "machine",
+      "homeReason": "The official distribution is an MSI that installs to Program Files and PATH.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst",
+          "pattern": "^(\\d+\\.\\d+\\.\\d+)$",
+          "flags": "m"
+        },
+        { "kind": "scoop-manifest", "name": "aws", "bucket": "Main" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='awscli'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://awscli.amazonaws.com/AWSCLIV2-{version}.msi",
+        "archive": "msi"
+      },
+      "silentInstall": "msiexec /i AWSCLIV2.msi /qn /norestart",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "LM Studio": {
+      "home": "machine",
+      "homeReason": "An app with its own installer plus large model storage, kept on the PC.",
+      "sources": [
+        {
+          "kind": "redirect-regex",
+          "url": "https://lmstudio.ai/download/latest/win32/x64",
+          "pattern": "LM-Studio-([0-9.]+-[0-9]+)-x64\\.exe"
+        },
+        { "kind": "scoop-manifest", "name": "lmstudio", "bucket": "Extras" }
+      ],
+      "download": {
+        "urlTemplate": "https://installers.lmstudio.ai/win32/x64/{version}/LM-Studio-{version}-x64.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "LM-Studio-{version}-x64.exe /S",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Tesseract OCR": {
+      "home": "machine",
+      "homeReason": "Installed by its own setup program under Program Files; a portable unpack into FRIDAY's folder is possible but unverified.",
+      "sources": [
+        {
+          "kind": "github-list",
+          "repo": "tesseract-ocr/tesseract",
+          "assetPattern": "^tesseract-ocr-w64-setup-.*\\.exe$"
+        },
+        { "kind": "scoop-manifest", "name": "tesseract", "bucket": "Main" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='tesseract'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "archive": "exe"
+      },
+      "silentInstall": "tesseract-ocr-w64-setup-<version>.exe /S",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "FRIDAY GitHub CLI": {
+      "home": "friday-root",
+      "homeReason": "The release ships a plain zip with bin/gh.exe, portable.",
+      "sources": [
+        { "kind": "github-api", "repo": "cli/cli", "strip": "^v" },
+        { "kind": "github-atom", "repo": "cli/cli", "strip": "^v" },
+        { "kind": "scoop-manifest", "name": "gh", "bucket": "Main" },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Search()?searchTerm='gh'&targetFramework=''&includePrerelease=false&$filter=IsLatestVersion&$top=1",
+          "pattern": "<d:Version>([^<]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_amd64.zip",
+        "archive": "zip",
+        "digestUrl": "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt"
+      },
+      "silentInstall": "none (unzip)",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Electron": {
+      "home": "npm-global",
+      "homeReason": "Bundled in the EXE through the npm package and never swapped at run time; the row only reports a newer version.",
+      "sources": [
+        { "kind": "github-api", "repo": "electron/electron", "strip": "^v" },
+        { "kind": "npm", "pkg": "electron" },
+        { "kind": "endoflife", "product": "electron" }
+      ],
+      "notifyOnly": true,
+      "checked": "2026-11-27"
+    }
+  }
+}

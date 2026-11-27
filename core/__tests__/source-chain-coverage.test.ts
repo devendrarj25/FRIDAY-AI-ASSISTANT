@@ -43,131 +43,29 @@ type Source = { kind: string };
  * `ids` entries are compared as sets against what the catalogue measures now.
  */
 const KNOWN_GAPS = {
-  /** Fewer than two sources in the row's chain (chainOfTool). Vendor-feed-only rows and rows with no chain at all. */
+  /** Fewer than two sources in the row's chain (chainOfTool). */
   singleSource: {
     reason:
-      "the chain holds one vendor feed (or nothing): no second official source is wired in electron/vendor-sources.cjs yet",
-    ids: [
-      ".NET SDK",
-      "7-Zip",
-      "AWS CLI",
-      "Android Platform Tools (adb)",
-      "Android Studio",
-      "CUDA Toolkit",
-      "D2",
-      "Docker Desktop",
-      "FFmpeg",
-      "FRIDAY GitHub CLI",
-      "FRIDAY Node",
-      "FRIDAY Python",
-      "FRIDAY Python embed",
-      "FRIDAY pip bootstrap",
-      "Git",
-      "Go",
-      "Gradle",
-      "Graphviz",
-      "ImageMagick",
-      "LLVM / Clang",
-      "LM Studio",
-      "Lua",
-      "MSYS2",
-      "Maven",
-      "MariaDB",
-      "MinGit",
-      "MongoDB",
-      "MySQL",
-      "NSIS",
-      "Node.js LTS",
-      "OpenJDK (Temurin)",
-      "PHP",
-      "Pandoc",
-      "Perl",
-      "PostgreSQL",
-      "Python",
-      "QEMU",
-      "Redis (Memurai)",
-      "Ruby",
-      "Rust",
-      "SQLite",
-      "Temurin JDK zip",
-      "Tesseract OCR",
-      "VC++ Redistributable",
-      "VS Build Tools",
-      "Visual Studio",
-      "Visual Studio Code",
-      "WebView2 Runtime",
-      "Windows SDK",
-      "Windows Terminal",
-      "aria2",
-      "friday-runtime-llm",
-      "ggml-base",
-      "ggml-tiny",
-      "w64devkit",
-      "whisper.cpp",
-    ],
+      "Memurai publishes its versions only on its own download page (the community registries carry a stale copy or a different product); FRIDAY's own runtime build has no release asset to read until the owner publishes one (config/friday-runtime-llm.json holds null fields)",
+    ids: ["Redis (Memurai)", "friday-runtime-llm"],
   },
-  /** No live (non-pinned) source at all: the row has an installer or a pin but nothing that reads the newest version. */
+  /** No live (non-pinned) source at all. */
   noLatestCheck: {
     reason:
-      "no vendor feed or registry source reads the newest version; only the installer or a pinned file is known",
-    ids: [
-      ".NET SDK",
-      "AWS CLI",
-      "Android Platform Tools (adb)",
-      "Android Studio",
-      "D2",
-      "FFmpeg",
-      "FRIDAY Python",
-      "FRIDAY Python embed",
-      "FRIDAY pip bootstrap",
-      "Gradle",
-      "ImageMagick",
-      "LM Studio",
-      "Lua",
-      "MSYS2",
-      "Maven",
-      "MariaDB",
-      "MongoDB",
-      "MySQL",
-      "NSIS",
-      "PHP",
-      "Perl",
-      "PostgreSQL",
-      "Python",
-      "QEMU",
-      "Redis (Memurai)",
-      "Ruby",
-      "SQLite",
-      "VC++ Redistributable",
-      "VS Build Tools",
-      "Visual Studio",
-      "WebView2 Runtime",
-      "Windows SDK",
-      "Windows Terminal",
-      "friday-runtime-llm",
-      "ggml-base",
-      "ggml-tiny",
-      "w64devkit",
-      "whisper.cpp",
-    ],
+      "FRIDAY's own runtime build has no release asset to read until the owner publishes one; its chain is empty and the row says so instead of showing an error",
+    ids: ["friday-runtime-llm"],
   },
-  /** The index files a row under the guessed home (vendor manager, no path yet) although its install route differs. */
-  homeGuess: {
+  /** Every live source is a community registry: no vendor page or feed is read for the version. */
+  communityOnly: {
     reason:
-      "install-inventory.homeOf files a vendor row with no path under friday-runtime, but the real route is a machine install or another tool",
-    ids: ["Docker Compose", "Hugging Face runner", "Playwright browsers", "WSL 2", "dotnet-script"],
+      "the vendor publishes no machine-readable feed (VC++ Redistributable is a fixed Microsoft link with no version feed; MySQL's download page is not readable), so only community registries answer and they may only notify",
+    ids: ["MySQL", "VC++ Redistributable"],
   },
-  /** No catalogue row carries its own `home` field; the home is derived from the install route. */
-  declaredHome: {
+  /** The data file says why all of a row's official sources are one host. */
+  oneOfficialHost: {
     reason:
-      "rows declare no `home` (friday-root | machine | npm-global); it is derived from winget, npm, pip or the archive route",
-    ids: ["(all rows)"],
-  },
-  /** Rows the owner wants notify-only (bundled in the EXE) that Full autonomy can still swap at run time. */
-  notifyOnly: {
-    reason:
-      "planUpdate has no notify-only flag: Full autonomy may run installer:update on a bundled runtime (docs: D13)",
-    ids: ["Electron", "FRIDAY Node"],
+      "the official host is the only publisher: Hugging Face for the ggml weights (a revision and the file's content id are two reads of one repository), Memurai's own page for Redis (Memurai)",
+    ids: ["Redis (Memurai)", "ggml-base", "ggml-tiny"],
   },
   /** `releases/latest` strings outside vendor-sources.cjs that bypass the source chain (counts per file). */
   rawLatestUrl: {
@@ -266,6 +164,35 @@ describe("source chain coverage: the catalogue", () => {
     expect(stale, "fixed: delete these from KNOWN_GAPS.noLatestCheck").toEqual([]);
   });
 
+  it("no row relies on community registries alone for its version, or is listed with the reason", () => {
+    const community = (x: Source & { url?: string }) =>
+      x.kind === "scoop-manifest" ||
+      x.kind === "endoflife" ||
+      /community\.chocolatey\.org|formulae\.brew\.sh/.test(String(x.url || ""));
+    const found = sortedIds(
+      ROWS.filter((t) => {
+        const live = sourcesOf(t).filter((x) => x.kind !== "pinned");
+        return live.length > 0 && live.every((x) => community(x as Source & { url?: string }));
+      }),
+    );
+    const { fresh, stale } = unlisted(found, KNOWN_GAPS.communityOnly.ids);
+    expect(fresh, "a row's only live sources are community registries").toEqual([]);
+    expect(stale, "fixed: delete these from KNOWN_GAPS.communityOnly").toEqual([]);
+  });
+
+  it("a data-file row whose official sources are one host says so, and the list matches", () => {
+    vendor.clearToolSources();
+    const found = Object.entries(
+      vendor.loadToolSources().rows as Record<string, { singleSourceReason?: string }>,
+    )
+      .filter(([, r]) => r.singleSourceReason)
+      .map(([id]) => id)
+      .sort();
+    const { fresh, stale } = unlisted(found, KNOWN_GAPS.oneOfficialHost.ids);
+    expect(fresh).toEqual([]);
+    expect(stale, "fixed: delete these from KNOWN_GAPS.oneOfficialHost").toEqual([]);
+  });
+
   it("every chain answers through the one source table, never an unknown reader", () => {
     const known = new Set(Object.keys(vendor.SOURCE_READERS || {}));
     const kinds = new Set(ROWS.flatMap((t) => sourcesOf(t).map((s) => s.kind)));
@@ -284,29 +211,51 @@ describe("source chain coverage: the catalogue", () => {
   });
 });
 
+/** The home a row declares (its own `home` or its data file), else the one its package-manager route implies. */
+const declaredHome = (t: Tool): string | null => vendor.declaredHome(t) ?? null;
+const packageRoute = (t: Tool) =>
+  Boolean(t["winget"] || t["npm"] || t["pip"] || t["pipDist"] || t["pipBundle"]);
+/** What the install index must say for a row, from the declaration. */
+function indexHome(t: Tool): string {
+  const home = declaredHome(t);
+  if (managerOf(t) === "pip" || t["pipBundle"]) return "friday-python-env";
+  if (managerOf(t) === "npm") return "npm-global";
+  if (home === "machine" || home === "npm-global") return home;
+  if (home === "friday-root") return "friday-runtime";
+  return routeHome(t);
+}
+
 describe("source chain coverage: install home and index entry", () => {
   it("every downloading row has a derivable home that the inventory knows", () => {
     for (const t of ROWS) {
       expect(Object.keys(inventory.HOMES), t.id).toContain(routeHome(t));
       expect(Object.keys(inventory.HOMES), t.id).toContain(
-        inventory.homeOf({ manager: managerOf(t) }),
+        inventory.homeOf({ manager: managerOf(t), home: declaredHome(t) }),
       );
     }
   });
 
-  it("a home the row declares must be valid, and until one does the gap stays listed", () => {
-    const declared = ROWS.filter((t) => t["home"] !== undefined);
-    for (const t of declared) {
-      expect(
-        ["friday-root", "machine", "npm-global", ...Object.keys(inventory.HOMES)],
-        t.id,
-      ).toContain(t["home"]);
+  it("every row names its home: declared on the row or in its data file, or implied by one package-manager route", () => {
+    const undeclared = ROWS.filter((t) => !declaredHome(t));
+    for (const t of ROWS) {
+      const home = declaredHome(t);
+      if (home) expect(["friday-root", "machine", "npm-global"], t.id).toContain(home);
     }
-    if (declared.length === ROWS.length) {
-      throw new Error("every row declares a home: delete KNOWN_GAPS.declaredHome");
+    expect(
+      sortedIds(undeclared.filter((t) => !packageRoute(t))),
+      "a row with its own install route must declare where it lives",
+    ).toEqual([]);
+    expect(ROWS.length - undeclared.length).toBeGreaterThan(60);
+  });
+
+  it("the catalogue rows carry the declared home, and the data file is the only copy", () => {
+    const rows = catalog.toolRows(ROWS, { tools: [] }) as { id: string; home: string | null }[];
+    for (const r of rows) {
+      const t = ROWS.find((x) => x.id === r.id) as Tool;
+      expect(r.home, r.id).toBe(
+        declaredHome(t) ?? (t["winget"] ? "machine" : t["npm"] ? "npm-global" : "friday-root"),
+      );
     }
-    expect(KNOWN_GAPS.declaredHome.ids).toEqual(["(all rows)"]);
-    expect(declared.length, "partial declaration: list the rest or finish it").toBe(0);
   });
 
   it("the inventory indexes every downloading row under a home in or out of the root", () => {
@@ -333,13 +282,24 @@ describe("source chain coverage: install home and index entry", () => {
     expect(git).toMatchObject({ home: "machine", removedByDeleteAllData: false });
   });
 
-  it("the home the inventory guesses matches the install route, except the listed gaps", () => {
-    const wrong = sortedIds(
-      ROWS.filter((t) => inventory.homeOf({ manager: managerOf(t) }) !== routeHome(t)),
-    );
-    const { fresh, stale } = unlisted(wrong, KNOWN_GAPS.homeGuess.ids);
-    expect(fresh, "a new row is filed under the wrong home").toEqual([]);
-    expect(stale, "fixed: delete these from KNOWN_GAPS.homeGuess").toEqual([]);
+  it("the index files every row where its declaration says, with no guess left (the five former guesses included)", () => {
+    for (const t of ROWS) {
+      expect(
+        inventory.homeOf({ manager: managerOf(t), home: declaredHome(t) }, "/friday-root"),
+        t.id,
+      ).toBe(indexHome(t));
+    }
+    const former = [
+      "Docker Compose",
+      "Hugging Face runner",
+      "Playwright browsers",
+      "WSL 2",
+      "dotnet-script",
+    ];
+    for (const id of former) {
+      expect(declaredHome(toolchain.toolById(id) as Tool), id).toBeTruthy();
+      expect(NOT_A_CHAIN_ROW[id] || routeHome(toolchain.toolById(id) as Tool), id).toBeTruthy();
+    }
   });
 
   it("an archive tool FRIDAY unpacks lands in its own runtime folder and on the managed PATH", () => {
@@ -556,24 +516,34 @@ describe("source chain coverage: bundled runtimes are notify-only (D13)", () => 
     }
   });
 
-  it("which runtime rows Full autonomy could still swap is exactly the listed gap", () => {
-    const swappable = ["Electron", "FRIDAY Node"].filter((id) => {
+  it("Electron, FRIDAY Node and the pip bootstrap are notify-only: no dial and no consent swaps them", () => {
+    const dials = ["ask", "balanced", "full"];
+    for (const id of ["Electron", "FRIDAY Node", "FRIDAY pip bootstrap"]) {
       const tool = toolchain.toolById(id) as Tool;
       const row = catalog.toolRows([tool], { tools: [] })[0];
-      const plan = catalog.planUpdate({
-        row: { ...row, updateStatus: "update", fit: { state: "supported" } },
-        autonomy: "full",
-      });
-      return plan.allowed === true;
-    });
-    const { fresh, stale } = unlisted(swappable.sort(), KNOWN_GAPS.notifyOnly.ids);
-    expect(fresh).toEqual([]);
-    expect(stale, "fixed: delete these from KNOWN_GAPS.notifyOnly").toEqual([]);
+      expect(row.notifyOnly, id).toBe(true);
+      for (const autonomy of dials) {
+        const plan = catalog.planUpdate({
+          row: { ...row, updateStatus: "update", fit: { state: "supported" } },
+          autonomy,
+          consent: { granted: true },
+        });
+        expect(plan.allowed, `${id} ${autonomy}`).toBe(false);
+        expect(plan.notifyOnly).toBe(true);
+      }
+    }
   });
 
   it("every KNOWN_GAPS entry carries a reason, so the list explains itself", () => {
     for (const [name, gap] of Object.entries(KNOWN_GAPS)) {
       expect(gap.reason.length, name).toBeGreaterThan(20);
     }
+    expect(Object.keys(KNOWN_GAPS).sort()).toEqual([
+      "communityOnly",
+      "noLatestCheck",
+      "oneOfficialHost",
+      "rawLatestUrl",
+      "singleSource",
+    ]);
   });
 });

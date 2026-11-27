@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "rows": {
+    "Python": {
+      "home": "machine",
+      "homeReason": "The python.org installer registers the py launcher and PATH for every tool on the PC; per-user mode needs no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.python.org/downloads/windows/",
+          "pattern": "Python (3\\.14\\.[0-9]+)"
+        },
+        {
+          "kind": "endoflife",
+          "product": "python",
+          "cycle": "3.14"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://www.python.org/ftp/python/{version}/python-{version}-amd64.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "python-{version}-amd64.exe /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0",
+      "checked": "2026-11-27"
+    },
+    "FRIDAY Python": {
+      "home": "friday-root",
+      "homeReason": "Relocatable CPython archive unpacks into the FRIDAY folder with no installer, no registry and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/latest/download/SHA256SUMS",
+          "pattern": "cpython-(3\\.12\\.[0-9]+)\\+[0-9]+-x86_64-pc-windows-msvc-install_only\\.tar\\.gz"
+        },
+        {
+          "kind": "endoflife",
+          "product": "python",
+          "cycle": "3.12"
+        }
+      ],
+      "download": {
+        "archive": "tar.gz",
+        "digestUrl": "https://github.com/astral-sh/python-build-standalone/releases/latest/download/SHA256SUMS"
+      },
+      "checked": "2026-11-27"
+    },
+    "FRIDAY Python embed": {
+      "home": "friday-root",
+      "homeReason": "The embeddable zip unpacks anywhere, needs no registry entry and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.python.org/downloads/windows/",
+          "pattern": "Python (3\\.14\\.[0-9]+)"
+        },
+        {
+          "kind": "endoflife",
+          "product": "python",
+          "cycle": "3.14"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://www.python.org/ftp/python/{version}/python-{version}-embed-amd64.zip",
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    "FRIDAY pip bootstrap": {
+      "home": "friday-root",
+      "homeReason": "get-pip.py runs inside the FRIDAY Python and writes pip into that folder's site-packages.",
+      "sources": [
+        {
+          "kind": "pypi-json",
+          "pkg": "pip"
+        },
+        {
+          "kind": "pypi-simple",
+          "pkg": "pip"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://pip.pypa.io/en/stable/",
+          "pattern": "<title>pip documentation v([0-9.]+)</title>"
+        }
+      ],
+      "notifyOnly": true,
+      "checked": "2026-11-27"
+    },
+    "Node.js LTS": {
+      "home": "machine",
+      "homeReason": "The MSI installs node and npm system-wide on PATH and asks for UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://nodejs.org/dist/index.json",
+          "pattern": "\"version\":\"v([0-9.]+)\"[^{}]*?\"lts\":\"[A-Za-z]"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "nodejs-lts"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://nodejs.org/dist/v{version}/node-v{version}-x64.msi",
+        "archive": "msi",
+        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt"
+      },
+      "silentInstall": "msiexec /i node-v{version}-x64.msi /qn /norestart",
+      "checked": "2026-11-27"
+    },
+    "FRIDAY Node": {
+      "home": "friday-root",
+      "homeReason": "The portable zip runs from the FRIDAY folder without UAC; the app ships its own Node, so this row only reports a newer one.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt",
+          "pattern": "node-v([0-9.]+)-win-x64\\.zip"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://nodejs.org/dist/index.json",
+          "pattern": "\"version\":\"v(22\\.[0-9.]+)\""
+        },
+        {
+          "kind": "endoflife",
+          "product": "nodejs",
+          "cycle": "22"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://nodejs.org/dist/v{version}/node-v{version}-win-x64.zip",
+        "archive": "zip",
+        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt"
+      },
+      "notifyOnly": true,
+      "checked": "2026-11-27"
+    },
+    "Go": {
+      "home": "friday-root",
+      "homeReason": "The zip unpacks to a self-contained GOROOT, no installer and no UAC.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://go.dev/dl/?mode=json",
+          "path": "[0].version",
+          "strip": "^go"
+        },
+        {
+          "kind": "text-line",
+          "url": "https://go.dev/VERSION?m=text",
+          "line": 0,
+          "pattern": "^go([0-9.]+)"
+        },
+        {
+          "kind": "endoflife",
+          "product": "go"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://go.dev/dl/go{version}.windows-amd64.zip",
+        "archive": "zip",
+        "digestUrl": "https://dl.google.com/go/go{version}.windows-amd64.zip.sha256"
+      },
+      "checked": "2026-11-27"
+    },
+    "Rust": {
+      "home": "machine",
+      "homeReason": "rustup installs per user under the profile and shares the toolchain with every tool; it also depends on the machine's MSVC build tools.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml",
+          "pattern": "\\[pkg\\.rust\\]\\s+version = \"([0-9.]+) "
+        },
+        {
+          "kind": "endoflife",
+          "product": "rust"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "rust"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe",
+        "archive": "exe",
+        "digestUrl": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe.sha256"
+      },
+      "silentInstall": "rustup-init.exe -y --default-toolchain stable --profile minimal",
+      "checked": "2026-11-27"
+    },
+    "Ruby": {
+      "home": "friday-root",
+      "homeReason": "The portable 7z archive unpacks into the FRIDAY folder with no installer and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://rubyinstaller.org/downloads/",
+          "pattern": "rubyinstaller-([0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+)-x64\\.exe"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://raw.githubusercontent.com/oneclick/rubyinstaller.org-website/master/_data/downloads.yaml",
+          "pattern": "RubyInstaller-([0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+)/rubyinstaller-[0-9.]+-[0-9]+-x64\\.7z"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "ruby"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/oneclick/rubyinstaller2/releases/download/RubyInstaller-{version}/rubyinstaller-{version}-x64.7z",
+        "archive": "7z"
+      },
+      "checked": "2026-11-27"
+    },
+    "PHP": {
+      "home": "friday-root",
+      "homeReason": "The non-thread-safe zip is portable: copy php.ini-development to php.ini and run, no installer and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://windows.php.net/download/",
+          "pattern": "php-([0-9.]+)-nts-Win32-vs[0-9]+-x64\\.zip"
+        },
+        {
+          "kind": "endoflife",
+          "product": "php"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "php"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://windows.php.net/downloads/releases/php-{version}-nts-Win32-vs18-x64.zip",
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    "Perl": {
+      "home": "friday-root",
+      "homeReason": "The Strawberry Perl portable zip unpacks into the FRIDAY folder with no installer and no UAC.",
+      "sources": [
+        {
+          "kind": "scoop-manifest",
+          "name": "perl"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://strawberryperl.com/releases.json",
+          "pattern": "strawberry-perl-(5\\.42\\.[0-9.]+)-64bit-portable\\.zip"
+        }
+      ],
+      "download": {
+        "archive": "zip",
+        "digestUrl": "https://strawberryperl.com/releases.json",
+        "digestPath": "$[?(@.version=='{version}')].edition.portable.sha256"
+      },
+      "checked": "2026-11-27"
+    },
+    "Lua": {
+      "home": "friday-root",
+      "homeReason": "The LuaBinaries zip holds a few executables and runs from the FRIDAY folder with no installer.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://sourceforge.net/projects/luabinaries/best_release.json",
+          "pattern": "\"filename\":\\s*\"/([0-9.]+)/"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "lua"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://www.lua.org/ftp/",
+          "pattern": "lua-(5\\.[0-9.]+)\\.tar\\.gz"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://downloads.sourceforge.net/project/luabinaries/{version}/Tools%20Executables/lua-{version}_Win64_bin.zip",
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    ".NET SDK": {
+      "home": "machine",
+      "homeReason": "The SDK installer writes the shared dotnet folder and PATH and asks for UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json",
+          "pattern": "\"latest-sdk\":\\s*\"([0-9.]+)\",[^{}]*?\"support-phase\":\\s*\"active\",\\s*\"release-type\":\\s*\"lts\""
+        },
+        {
+          "kind": "redirect-regex",
+          "url": "https://aka.ms/dotnet/10.0/dotnet-sdk-win-x64.exe",
+          "pattern": "/Sdk/([0-9.]+)/dotnet-sdk"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
+          "pattern": "\"latest-sdk\":\\s*\"([0-9.]+)\""
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-win-x64.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "dotnet-sdk-{version}-win-x64.exe /install /quiet /norestart",
+      "checked": "2026-11-27"
+    },
+    "OpenJDK (Temurin)": {
+      "home": "machine",
+      "homeReason": "The MSI sets JAVA_HOME and PATH system-wide and asks for UAC.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://api.adoptium.net/v3/assets/latest/25/hotspot?os=windows&architecture=x64&image_type=jdk",
+          "path": "[0].release_name",
+          "strip": "^jdk-"
+        },
+        {
+          "kind": "redirect-regex",
+          "url": "https://api.adoptium.net/v3/installer/latest/25/ga/windows/x64/jdk/hotspot/normal/eclipse",
+          "pattern": "OpenJDK25U-jdk_x64_windows_hotspot_([0-9._]+)\\.msi"
+        },
+        {
+          "kind": "endoflife",
+          "product": "eclipse-temurin",
+          "cycle": "25"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://api.adoptium.net/v3/installer/latest/25/ga/windows/x64/jdk/hotspot/normal/eclipse",
+        "archive": "msi",
+        "digestUrl": "https://api.adoptium.net/v3/assets/latest/25/hotspot?os=windows&architecture=x64&image_type=jdk",
+        "digestPath": "[0].binary.installer.checksum"
+      },
+      "silentInstall": "msiexec /i OpenJDK25U-jdk_x64_windows_hotspot.msi /qn /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJavaHome",
+      "checked": "2026-11-27"
+    },
+    "Temurin JDK zip": {
+      "home": "friday-root",
+      "homeReason": "The zip unpacks into the FRIDAY folder; FRIDAY points JAVA_HOME at it, no installer and no UAC.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://api.adoptium.net/v3/assets/latest/25/hotspot?os=windows&architecture=x64&image_type=jdk",
+          "path": "[0].release_name",
+          "strip": "^jdk-"
+        },
+        {
+          "kind": "redirect-regex",
+          "url": "https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/jdk/hotspot/normal/eclipse",
+          "pattern": "OpenJDK25U-jdk_x64_windows_hotspot_([0-9._]+)\\.zip"
+        },
+        {
+          "kind": "endoflife",
+          "product": "eclipse-temurin",
+          "cycle": "25"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/jdk/hotspot/normal/eclipse",
+        "archive": "zip",
+        "digestUrl": "https://api.adoptium.net/v3/assets/latest/25/hotspot?os=windows&architecture=x64&image_type=jdk",
+        "digestPath": "[0].binary.package.checksum"
+      },
+      "checked": "2026-11-27"
+    },
+    "PostgreSQL": {
+      "home": "friday-root",
+      "homeReason": "The EDB binaries zip runs initdb and pg_ctl from the FRIDAY folder, with no Windows service and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.enterprisedb.com/downloads/postgres-postgresql-downloads",
+          "pattern": "postgresql-([0-9.]+-[0-9]+)-windows-x64\\.exe"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "postgresql"
+        },
+        {
+          "kind": "endoflife",
+          "product": "postgresql"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://get.enterprisedb.com/postgresql/postgresql-{version}-windows-x64-binaries.zip",
+        "archive": "zip",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/postgresql.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "checked": "2026-11-27"
+    },
+    "MySQL": {
+      "home": "friday-root",
+      "homeReason": "The noinstall zip runs mysqld from the FRIDAY folder with no Windows service and no UAC.",
+      "sources": [
+        {
+          "kind": "scoop-manifest",
+          "name": "mysql"
+        },
+        {
+          "kind": "endoflife",
+          "product": "mysql"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://cdn.mysql.com/Downloads/MySQL-{majorMinor}/mysql-{version}-winx64.zip",
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    "MariaDB": {
+      "home": "friday-root",
+      "homeReason": "The winx64 zip runs mariadb-install-db and mysqld from the FRIDAY folder with no Windows service and no UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://downloads.mariadb.org/rest-api/mariadb/13.1/",
+          "pattern": "\"release_id\":\\s*\"(13\\.1\\.[0-9]+)\""
+        },
+        {
+          "kind": "endoflife",
+          "product": "mariadb"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "mariadb"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://archive.mariadb.org/mariadb-{version}/winx64-packages/mariadb-{version}-winx64.zip",
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    "MongoDB": {
+      "home": "friday-root",
+      "homeReason": "The zip holds mongod.exe and runs from the FRIDAY folder with no Windows service and no UAC.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://downloads.mongodb.org/current.json",
+          "path": "$.versions[0].version"
+        },
+        {
+          "kind": "endoflife",
+          "product": "mongodb"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "mongodb"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-{version}.zip",
+        "archive": "zip",
+        "digestUrl": "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-{version}.zip.sha256"
+      },
+      "checked": "2026-11-27"
+    },
+    "SQLite": {
+      "home": "friday-root",
+      "homeReason": "The tools zip holds sqlite3.exe and two helpers and runs from the FRIDAY folder with no installer.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.sqlite.org/download.html",
+          "pattern": "PRODUCT,([0-9.]+),[0-9]{4}/sqlite-tools-win-x64-"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://sqlite.org/index.html",
+          "pattern": "Version ([0-9.]+)"
+        },
+        {
+          "kind": "endoflife",
+          "product": "sqlite"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "sqlite"
+        }
+      ],
+      "download": {
+        "archive": "zip"
+      },
+      "checked": "2026-11-27"
+    },
+    "Redis (Memurai)": {
+      "home": "machine",
+      "homeReason": "The Memurai MSI installs a Windows service and asks for UAC; there is no official portable build.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.memurai.com/get-memurai",
+          "pattern": "download\\.memurai\\.com/Memurai-Developer/([0-9]+\\.[0-9]+\\.[0-9]+)/Memurai-for-Redis-v"
+        }
+      ],
+      "singleSourceReason": "Memurai publishes its versions only on its own download page; the community registries carry a stale copy (Chocolatey 4.1.8) or a different product (the unofficial Redis port in Scoop).",
+      "download": {
+        "urlTemplate": "https://download.memurai.com/Memurai-Developer/{version}/Memurai-for-Redis-v{version}.msi",
+        "archive": "msi"
+      },
+      "silentInstall": "msiexec /i Memurai-for-Redis-v{version}.msi /qn /norestart",
+      "checked": "2026-11-27"
+    }
+  }
+}
