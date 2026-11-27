@@ -264,6 +264,7 @@ import { usesHindiVoice } from "./voice-engine/speech-prep";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
 import { autonomy } from "./self/autonomy";
+import { ownerVoiceOrigin } from "./self/turn-provenance";
 import {
   applyTaskRoute,
   attachVoiceTaskNarrator,
@@ -1449,6 +1450,11 @@ class AssistantModeStore {
    * can only ADD a wake requirement there; no approval, confirmation or authority check reads it.
    */
   private addressFacts: AddressFacts | null = null;
+  /**
+   * The final's speaker tag, kept for the send only so the turn's origin can be noted for learning: "owner" marks the
+   * owner's own voice. It is never read by an approval, a confirmation or an authority check (a match never approves).
+   */
+  private heardSpeaker: "owner" | "other" | "unknown" | null = null;
   private streamTurnId = "";
   private holdTurnId = "";
   private holdSeenAt = 0;
@@ -3988,6 +3994,7 @@ class AssistantModeStore {
         // Speech from the owner while she speaks: with the gate on it only lowers her volume until words decide
         // (`beginInterruptCandidate`); with it off, voice activity pauses her at once as before.
         this.turnRecordLive = false;
+        this.heardSpeaker = null;
         // A draft started in a pause of this sentence is stale the moment the voice resumes.
         if (this.speculativeKind === "brain") this.discardEager();
         if (this.state.speaking) {
@@ -5740,6 +5747,11 @@ class AssistantModeStore {
     this.emit();
   }
 
+  /** The owner-voice origin of the heard turn when the ear tagged the owner; none for any other voice or a replay. */
+  private voiceOriginOption() {
+    return this.replayTurn ? {} : ownerVoiceOrigin(this.heardSpeaker);
+  }
+
   /** The id of the heard turn, for the Brain's records; none while a stored command is replayed. */
   private turnIdOption() {
     const id = this.replayTurn ? "" : this.heardTurnId;
@@ -5847,6 +5859,7 @@ class AssistantModeStore {
         ...(running ? { lane: "full" as const } : {}),
         ...this.turnHintsOption(),
         ...this.turnIdOption(),
+        ...this.voiceOriginOption(),
       };
     };
     const payload = side
@@ -5858,6 +5871,7 @@ class AssistantModeStore {
           ...(sideContext ? { context: sideContext } : {}),
           ...this.turnHintsOption(),
           ...this.turnIdOption(),
+          ...this.voiceOriginOption(),
         }
       : fullPayload();
     this.pendingUserEcho += 1;
@@ -7773,6 +7787,8 @@ class AssistantModeStore {
     };
     this.lastInterruptedPlayedMs = null;
     this.turnRecordLive = true;
+    this.heardSpeaker =
+      record.speaker && (!record.env || record.env.kind === "speech") ? record.speaker.tag : null;
     this.heardTurnId = this.turnRecord.turnId;
     // A yes is judged on the ear's sureness band and on when its voice began (both numbers; never the speaker or the
     // room), for this turn only.
