@@ -178,8 +178,10 @@ def _uia_focus() -> dict[str, Any] | None:
 # Keys reach whatever has focus, and a clipboard or screen read can hold a secret,
 # so for these an unknown screen is a refusal.
 _KEY_ACTIONS = frozenset({"type", "hotkey"})
-_STRICT_ACTIONS = _KEY_ACTIONS | {"read_text", "clipboard_read"}
+_STRICT_ACTIONS = _KEY_ACTIONS | {"read_text", "clipboard_read", "click", "drag"}
 _TYPE_CHUNK = 8
+_POINTER_ACTIONS = frozenset({"click", "drag"})
+_REFUSED_VERB = {**dict.fromkeys(_KEY_ACTIONS, "press any key"), **dict.fromkeys(_POINTER_ACTIONS, "click")}
 
 
 def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) -> dict[str, Any]:
@@ -187,9 +189,10 @@ def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) 
 
     A secure prompt (UAC, Windows Security, a credential dialog), a focused password
     field (read directly, so a page deeper than the walk is covered), or a password
-    field under a pointer point stops the action. When the tree cannot be read, or was
-    cut short while the focused element cannot be read, keys and screen reads are
-    refused; a pointer action keeps today's behaviour.
+    field under a pointer point stops the action. When the tree cannot be read, keys,
+    screen reads, clicks and drags are refused (a password field is never clicked); when
+    it was cut short while the focused element cannot be read, keys and screen reads are
+    refused. Scrolling does not enter anything and keeps working.
     """
     from uia_tree import focus_unverified, secure_refusal
 
@@ -199,7 +202,7 @@ def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) 
         if action in _STRICT_ACTIONS:
             raise ControlError(
                 "FRIDAY could not check the screen for a password field or a secure prompt, "
-                f"so it did not {'press any key' if action in _KEY_ACTIONS else 'read the screen'} ({exc})"
+                f"so it did not {_REFUSED_VERB.get(action, 'read the screen')} ({exc})"
             ) from exc
         return {}
     reason = secure_refusal(raw, points)
@@ -207,7 +210,7 @@ def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) 
         raise ControlError("That is a password field. The owner types or reads it, not FRIDAY")
     if reason:
         raise ControlError("A secure prompt is on screen and needs the owner")
-    if action in _STRICT_ACTIONS and focus_unverified(raw):
+    if action in _STRICT_ACTIONS and action not in _POINTER_ACTIONS and focus_unverified(raw):
         raise ControlError(
             "FRIDAY could not check the focused field for a password, and the screen is too deep to "
             "scan fully, so it did not " + ("press any key" if action in _KEY_ACTIONS else "read the screen")
@@ -235,7 +238,9 @@ def _focus_guard(baseline: Any) -> None:
     if reason:
         raise ControlError("A secure prompt is on screen and needs the owner")
     start = baseline.get("runtimeId") if isinstance(baseline, dict) else None
-    if start and probe.get("runtimeId") != start:
+    if not start:
+        raise ControlError("FRIDAY could not identify the field it started typing in, so it stopped")
+    if probe.get("runtimeId") != start:
         raise ControlError("The focus changed while FRIDAY was typing, so it stopped")
 
 
@@ -306,6 +311,8 @@ def type_text(
             if index == 0:
                 seen = _secure_guard("type")
                 baseline = seen.get("focusedElement")
+                if len(chunks) > 1 and not (isinstance(baseline, dict) and baseline.get("runtimeId")):
+                    raise ControlError("FRIDAY could not identify the field it started typing in, so it did not type")
             else:
                 _focus_guard(baseline)
         except ControlError as exc:

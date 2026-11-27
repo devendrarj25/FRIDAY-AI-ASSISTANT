@@ -359,6 +359,10 @@ class VectorMemory:
         self._copy_task: asyncio.Future | None = None
         self._merge_task: asyncio.Future | None = None
         self._merge_needed = False
+        # One fold of the local log into Chroma at a time. remove() shares this lock for the local log, and every id
+        # forgotten while a fold is pending or running is deleted again after the last upsert so it is never recalled.
+        self._merge_lock = asyncio.Lock()
+        self._forgotten: set[str] = set()
 
     def _locked(self, fn, /, *args, **kwargs):
         with self._thread_lock:
@@ -463,7 +467,8 @@ class VectorMemory:
     def _fallback_file(self) -> Path:
         return self.path / "local" / "records.jsonl"
 
-    def _start_merge(self) -> None:
+    def start_merge(self) -> None:
+        """Fold the local log into Chroma in the background: one task at a time, kept so nothing starts a second."""
         if not self._merge_needed or self.collection is None:
             return
         if self._merge_task is not None and not self._merge_task.done():
@@ -474,17 +479,27 @@ class VectorMemory:
             return
 
     async def merge_fallback(self) -> int:
-        """Upsert the local index's records into Chroma, then archive the local log. Returns how many moved."""
-        col = self.collection
-        if col is None:
+        """Upsert the local index's records into Chroma, then archive the local log. Returns how many moved. A
+        failure is logged and leaves the local log in place for the next turn; it never raises."""
+        if self.collection is None:
             return 0
+        async with self._merge_lock:
+            try:
+                return await self._merge_records(self.collection)
+            except Exception as exc:
+                print(f"[memory] local records could not be folded into the vector store ({exc})")
+                return 0
+
+    async def _merge_records(self, col) -> int:
         local = self.path / "local"
         index = NumpyIndex(local)
         await asyncio.to_thread(index.load)
         records = [r for r in index.records if r.get("id") and r.get("text")]
         try:
             for i in range(0, len(records), 100):
-                batch = records[i : i + 100]
+                batch = [r for r in records[i : i + 100] if r["id"] not in self._forgotten]
+                if not batch:
+                    continue
                 await self._chroma(
                     col.upsert,
                     ids=[r["id"] for r in batch],
@@ -493,19 +508,24 @@ class VectorMemory:
                         {"kind": r.get("kind", "document"), "title": r.get("title", ""), "id": r["id"]} for r in batch
                     ],
                 )
+            if self._forgotten:
+                # A remove() that ran while a batch was in flight lost the race to that upsert: delete it again.
+                await self._chroma(col.delete, ids=sorted(self._forgotten))
         except Exception as exc:
             print(f"[memory] could not move local records into the vector store yet ({exc})")
             return 0
-        archive = index.records_file.with_name("records.jsonl.merged")
-        os.replace(index.records_file, archive)
+        if index.records_file.exists():
+            os.replace(index.records_file, index.records_file.with_name("records.jsonl.merged"))
         for leftover in (
             index.matrix_file,
             index.version_file,
             index.records_file.with_name(index.records_file.name + ".bak"),
         ):
             leftover.unlink(missing_ok=True)
+        moved = len([r for r in records if r["id"] not in self._forgotten])
         self._merge_needed = False
-        return len(records)
+        self._forgotten.clear()
+        return moved
 
     def _open_fallback(self) -> None:
         try:
@@ -581,7 +601,7 @@ class VectorMemory:
         if self.warming:
             return []
         self._pending = None
-        self._start_merge()
+        self.start_merge()
         budget = timeout if timeout is not None else (RECALL_TIMEOUT_VOICE if voice else RECALL_TIMEOUT_CHAT)
         task = asyncio.ensure_future(self.search(prompt, k=k))
         try:
@@ -598,7 +618,7 @@ class VectorMemory:
     async def add(self, text: str, kind: str, title: str, record_id: str | None = None) -> None:
         rid = (record_id or "").strip() or uuid.uuid4().hex
         meta = {"kind": kind, "title": title, "id": rid}
-        self._start_merge()
+        self.start_merge()
         if self.collection is None:
             if self.fallback:
                 self.fallback.add(text, kind=kind, title=title, record_id=rid)
@@ -623,11 +643,25 @@ class VectorMemory:
             return 0
         if self.collection is None:
             return self.fallback.remove(ids) if self.fallback else 0
+        if self._merge_needed:
+            # Local records still waiting to be folded in would bring this id back: remember it for a running fold,
+            # and drop it from the local log when no fold is running.
+            self._forgotten.update(ids)
+            if not self._merge_lock.locked():
+                async with self._merge_lock:
+                    await asyncio.to_thread(self._forget_local, ids)
         try:
             await self._chroma(self._ensure().delete, ids=ids)
         except Exception:
             return self.fallback.remove(ids) if self.fallback else 0
         return len(ids)
+
+    def _forget_local(self, ids: list[str]) -> None:
+        if not self._fallback_file().exists():
+            return
+        index = NumpyIndex(self.path / "local")
+        index.load()
+        index.remove(ids)
 
     async def add_lesson(self, rule: str, context: str) -> None:
         """A self-written lesson. The id is the hash of the rule (the same lesson twice is one row), the title is

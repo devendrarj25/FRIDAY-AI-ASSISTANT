@@ -1371,9 +1371,7 @@ async def on_startup() -> None:
 
     router.on_billing_spent = _report_spend
     # Fold any records written while the vector store was down into it, off the boot path.
-    _boot_merge = loop.create_task(memory.merge_fallback())
-    reports.add(_boot_merge)
-    _boot_merge.add_done_callback(reports.discard)
+    memory.start_merge()
     router.on_privacy_ask = ask_desktop_privacy
     # Tasks that were mid-flight when the kernel died become resumable instead
     # of staying stuck in 'running'.

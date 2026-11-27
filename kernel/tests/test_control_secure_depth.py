@@ -306,6 +306,41 @@ def test_a_short_text_is_one_chunk_and_never_rechecks(monkeypatch, gui):
     assert log == []
 
 
+# --------------------------------------------- an unreadable tree stops the pointer too, and so does a nameless start
+
+
+def test_click_and_drag_are_refused_when_the_screen_cannot_be_read(monkeypatch, gui):
+    _raw(monkeypatch, error=RuntimeError("UI Automation is unavailable"))
+    with pytest.raises(control.ControlError, match="could not check.*did not click"):
+        control.click(x=10, y=10)
+    with pytest.raises(control.ControlError, match="could not check.*did not click"):
+        control.click()
+    with pytest.raises(control.ControlError, match="could not check.*did not click"):
+        control.drag(1, 2, 30, 40)
+    assert gui.calls == []
+
+
+def test_scroll_still_moves_when_the_screen_cannot_be_read(monkeypatch, gui):
+    _raw(monkeypatch, error=RuntimeError("UI Automation is unavailable"))
+    assert control.scroll(-3, x=10, y=10)["ok"] is True
+
+
+def test_typing_in_chunks_is_refused_when_the_starting_field_has_no_runtime_id(monkeypatch, gui):
+    _raw(monkeypatch, _page(focusedElement=_focus(runtimeId=None)))
+    log = _focus_feed(monkeypatch, [_focus(), _focus()])
+    with pytest.raises(control.ControlError, match="could not identify"):
+        control.type_text("x" * 20)
+    assert gui.calls == [] and log == []
+
+
+def test_the_between_chunk_guard_fails_closed_without_a_starting_runtime_id(monkeypatch):
+    monkeypatch.setattr(control, "_uia_focus", lambda: _focus())
+    with pytest.raises(control.ControlError, match="could not identify"):
+        control._focus_guard({"controlType": "Edit"})
+    with pytest.raises(control.ControlError, match="could not identify"):
+        control._focus_guard(None)
+
+
 # --------------------------------------------- F13: a password with unknown bounds
 
 

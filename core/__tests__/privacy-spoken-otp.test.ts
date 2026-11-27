@@ -22,7 +22,27 @@ const six = ["4", "8", "2", "9", "1", "3"];
 const spaced = six.join(" ");
 const joined = six.join("");
 
+const groupedA = joined.slice(0, 3);
+const groupedB = joined.slice(3);
+
 const SPOKEN_SENSITIVE = [
+  `otp ${groupedA}-${groupedB}`,
+  `otp (${joined})`,
+  `OTP [${joined}]`,
+  `use ${joined.slice(0, 4)} ${joined.slice(4)} as otp`,
+  `use ${groupedA} ${groupedB} as the otp`,
+  `the OTP that I received on my phone just now from the bank is ${joined}`,
+  `bank ka code ${joined} hai`,
+  `bank code ${joined} hai`,
+  `bank ka code ${spaced} hai`,
+  `code is ${spaced}`,
+  `your code is ${spaced}`,
+  `ओटीपी ${groupedA}-${groupedB}`,
+  `ओटीपी (${joined})`,
+  `बैंक का कोड ${joined} है`,
+  `बैंक का ओटीपी जो अभी फोन पर आया है ${joined}`,
+  `mera bank ka otp abhi phone par aaya hai ${joined}`,
+  `कोड है ${spaced}`,
   `OTP ${spaced}`,
   `otp is ${spaced}`,
   "mera cvv teen sau bees hai",
@@ -58,6 +78,13 @@ const SPOKEN_SENSITIVE = [
 ];
 
 const ORDINARY = [
+  "bank ka code review kal hai",
+  "the code is 4829 lines long",
+  "the code compiles fine and the build passes on every machine today",
+  "I scored 482913 points as a player",
+  "bank ka code of conduct padhna hai",
+  "बैंक का कोड रिव्यू कल है",
+  "कोड ठीक चल रहा है",
   "the code is in main.cjs",
   "the code compiles fine",
   "the area code is 011",
@@ -93,6 +120,22 @@ describe("spoken and spelled codes are SENSITIVE", () => {
     for (const content of [`OTP ${spaced}`, `the code is ${joined}`, "ओटीपी चार आठ दो नौ एक तीन"]) {
       expect(firewall.guardEgress({ model, content, connected: true }).hardStop).toBe(true);
     }
+  });
+});
+
+describe("the grouped-digit rows stay fast on long input", () => {
+  it.each([
+    "otp 1 ",
+    "bank ka code ",
+    "code is 4 8 ",
+    "otp (",
+    "ओटीपी 12-",
+    `${"w ".repeat(9)}otp `,
+  ])("%s", (unit) => {
+    const text = unit.repeat(Math.ceil(32000 / unit.length)).slice(0, 32000);
+    const start = performance.now();
+    firewall.classify(text);
+    expect(performance.now() - start).toBeLessThan(500);
   });
 });
 

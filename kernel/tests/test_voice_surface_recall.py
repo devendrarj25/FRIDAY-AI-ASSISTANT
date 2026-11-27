@@ -23,8 +23,9 @@ def test_startup_starts_the_fallback_merge_without_awaiting_it():
     source = MAIN.read_text(encoding="utf-8")
     start = source.index("async def on_startup")
     body = source[start : source.index("\nasync def ", start + 10)]
-    assert "merge_fallback()" in body
+    assert "memory.start_merge()" in body
     assert "await memory.merge_fallback" not in body
+    assert "await memory.start_merge" not in body
 
 
 MAIN = Path(__file__).resolve().parents[1] / "main.py"
@@ -64,10 +65,39 @@ def _messages(monkeypatch, **kwargs) -> list[dict]:
     return seen[0]
 
 
-def test_voice_surface_does_not_prepend_the_kernel_persona(monkeypatch):
+def _owner_identity(monkeypatch, tmp_path, text: str) -> None:
+    path = tmp_path / "identity.md"
+    path.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(router, "_identity_path", lambda: path)
+
+
+def test_voice_surface_keeps_a_short_core_of_the_owner_identity_before_the_lean_prompt(monkeypatch, tmp_path):
+    rules = "Call the owner sir. Never use emoji. " + "Keep every reply to one short sentence. " * 40
+    _owner_identity(monkeypatch, tmp_path, rules)
     messages = _messages(monkeypatch, prompt="hi", system="Lean voice prompt.", surface="voice")
     systems = [m["content"] for m in messages if m["role"] == "system"]
-    assert systems == ["Lean voice prompt."]
+    assert len(systems) == 2 and systems[1] == "Lean voice prompt."
+    core = systems[0]
+    assert core.startswith("Call the owner sir. Never use emoji.")
+    assert 0 < len(core) <= router.VOICE_IDENTITY_CAP == 600
+    assert rules.strip().startswith(core)  # a clean prefix, never a rewrite
+    assert len(core) < len(rules.strip())  # the whole rule book is not sent on a spoken turn
+
+
+def test_a_short_identity_goes_to_a_spoken_turn_whole(monkeypatch, tmp_path):
+    _owner_identity(monkeypatch, tmp_path, "Call the owner sir.")
+    messages = _messages(monkeypatch, prompt="hi", system="Lean voice prompt.", surface="voice")
+    systems = [m["content"] for m in messages if m["role"] == "system"]
+    assert systems == ["Call the owner sir.", "Lean voice prompt."]
+
+
+def test_a_voice_prompt_that_already_carries_the_identity_is_not_given_a_second_persona(monkeypatch, tmp_path):
+    rules = "Call the owner sir. " * 30
+    _owner_identity(monkeypatch, tmp_path, rules)
+    lean = rules.strip()[:300] + " Speak briefly."
+    messages = _messages(monkeypatch, prompt="hi", system=lean, surface="voice")
+    systems = [m["content"] for m in messages if m["role"] == "system"]
+    assert systems == [lean]
 
 
 def test_other_surfaces_keep_the_persona(monkeypatch):

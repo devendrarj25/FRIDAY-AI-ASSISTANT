@@ -517,6 +517,20 @@ def friday_persona() -> str:
 # Kept for callers that imported the constant directly.
 FRIDAY_PERSONA = DEFAULT_PERSONA
 
+# A spoken turn carries the renderer's lean voice prompt, so only a short core of the owner's identity rules goes
+# with it: his rules still apply to what is said aloud, and the full persona is not sent a second time.
+VOICE_IDENTITY_CAP = 600
+
+
+def voice_identity_core(persona: str) -> str:
+    """The first VOICE_IDENTITY_CAP characters of the identity text, cut at a word boundary."""
+    text = persona.strip()
+    if len(text) <= VOICE_IDENTITY_CAP:
+        return text
+    cut = text[:VOICE_IDENTITY_CAP]
+    boundary = cut.rfind(" ")
+    return (cut[:boundary] if boundary > VOICE_IDENTITY_CAP // 2 else cut).rstrip()
+
 
 @dataclass
 class Model:
@@ -1670,10 +1684,13 @@ class ModelRouter:
         # FRIDAY's own identity always leads, whichever model answers. The desktop's system text is usually the
         # same persona plus this turn's extras; sending both would put the persona in the prompt twice.
         persona = friday_persona()
-        # A spoken turn's system text is the renderer's lean voice prompt: the persona is not prepended again.
+        # A spoken turn's system text is the renderer's lean voice prompt: the full persona is not prepended again,
+        # only a short core of the owner's identity rules, unless that prompt already carries them.
         spoken_with_prompt = surface == "voice" and bool(system)
-        if not spoken_with_prompt and not (system and persona.strip()[:200] in system):
-            messages.append({"role": "system", "content": persona})
+        if not (system and persona.strip()[:200] in system):
+            messages.append(
+                {"role": "system", "content": voice_identity_core(persona) if spoken_with_prompt else persona}
+            )
         if system:
             messages.append({"role": "system", "content": system})
         # The conversation so far, so a reply stays inside the talk (see history_messages).
