@@ -109,7 +109,13 @@ export const DEFAULT_AUTONOMY: AutonomySettings = {
 const STORAGE_KEY = "friday.autonomy.v1";
 
 /** What Stop everything stopped, counted per kind. */
-export type StopSummary = { graphs: number; kernelTasks: number; terminalRuns: number };
+export type StopSummary = {
+  graphs: number;
+  kernelTasks: number;
+  terminalRuns: number;
+  /** Set when the kernel did not answer the open-task query or a cancel: its tasks may still be running. */
+  kernelSilent?: boolean;
+};
 export type StopReport = {
   settings: AutonomySettings;
   /** Counted at once (background graphs). */
@@ -117,22 +123,27 @@ export type StopReport = {
   /** Counted once the kernel and the terminal answered. Never rejects. */
   settled: Promise<StopSummary>;
 };
-type StopParticipant = { name: keyof StopSummary; stop: () => number | Promise<number> };
+type StopName = "graphs" | "kernelTasks" | "terminalRuns";
+type StopParticipant = { name: StopName; stop: () => number | Promise<number> };
 
 const KERNEL_FINISHED = new Set(["done", "failed", "cancelled", "denied"]);
 
 /** Cancels every kernel task that has not finished. The planner honours the cancel between steps. */
-async function cancelOpenKernelTasks(): Promise<number> {
+async function cancelOpenKernelTasks(): Promise<{ count: number; silent: boolean }> {
   const { kernelApi } = await import("../kernel-api");
-  const open = (await kernelApi.tasks.pending().catch(() => null))?.tasks ?? [];
+  const answer = await kernelApi.tasks.pending().catch(() => null);
+  // No answer is not "nothing is running": the caller must say the kernel was silent.
+  if (!answer || !Array.isArray(answer.tasks)) return { count: 0, silent: true };
   let count = 0;
-  for (const task of open) {
+  let silent = false;
+  for (const task of answer.tasks) {
     const id = String(task["taskId"] ?? task.id ?? "");
     if (!id || KERNEL_FINISHED.has(String(task["state"] ?? ""))) continue;
-    const answer = await kernelApi.tasks.cancel(id).catch(() => null);
-    if (answer?.ok) count += 1;
+    const reply = await kernelApi.tasks.cancel(id).catch(() => null);
+    if (!reply) silent = true;
+    else if (reply.ok) count += 1;
   }
-  return count;
+  return { count, silent };
 }
 
 /** Cancels every terminal run (the whole process tree on Windows). */
@@ -156,10 +167,15 @@ export function describeStop(summary: StopSummary): string {
     summary.kernelTasks ? `cancelled ${plural(summary.kernelTasks, "kernel task")}` : "",
     summary.terminalRuns ? `ended ${plural(summary.terminalRuns, "terminal run")}` : "",
   ].filter(Boolean);
-  if (!parts.length) return "Stopped. Nothing else was running.";
+  const silent = summary.kernelSilent
+    ? " The kernel did not answer, so its tasks may still be running."
+    : "";
+  if (!parts.length) {
+    return summary.kernelSilent ? `Stopped here.${silent}` : "Stopped. Nothing else was running.";
+  }
   const last = parts.pop()!;
   const list = parts.length ? `${parts.join(", ")} and ${last}` : last;
-  return `Stopped: ${list}.`;
+  return `Stopped: ${list}.${silent}`;
 }
 
 class AutonomyStore {
@@ -205,10 +221,7 @@ class AutonomyStore {
    * A part of FRIDAY that runs work on its own registers how to stop it. Stop everything calls every one. The
    * background task graph registers itself; kernel tasks and terminal runs are stopped below.
    */
-  registerStopParticipant(
-    name: keyof StopSummary,
-    stop: () => number | Promise<number>,
-  ): () => void {
+  registerStopParticipant(name: StopName, stop: () => number | Promise<number>): () => void {
     const entry: StopParticipant = { name, stop };
     this.participantSeq += 1;
     const key = `${name}:${this.participantSeq}`;
@@ -226,7 +239,7 @@ class AutonomyStore {
     const settings = this.update({ halted: true });
     const stopped: StopSummary = { graphs: 0, kernelTasks: 0, terminalRuns: 0 };
     const later: Promise<void>[] = [];
-    const add = (name: keyof StopSummary, count: number | Promise<number>) => {
+    const add = (name: StopName, count: number | Promise<number>) => {
       if (typeof count === "number") stopped[name] += count;
       else later.push(count.then((n) => void (stopped[name] += n)).catch(() => undefined));
     };
@@ -237,7 +250,14 @@ class AutonomyStore {
         /* one part failing to stop must not keep the rest running */
       }
     }
-    add("kernelTasks", cancelOpenKernelTasks());
+    later.push(
+      cancelOpenKernelTasks()
+        .then(({ count, silent }) => {
+          stopped.kernelTasks += count;
+          if (silent) stopped.kernelSilent = true;
+        })
+        .catch(() => void (stopped.kernelSilent = true)),
+    );
     add("terminalRuns", cancelTerminalRuns());
     void import("../desktop")
       .then(({ desktopApi }) => desktopApi()?.mcpDesk?.({ action: "halt" }))

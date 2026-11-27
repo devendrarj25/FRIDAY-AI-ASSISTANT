@@ -57,6 +57,13 @@ describe("credential entry asks early in Hindi, Hinglish and login / payment phr
     "fill the payment form",
     "enter my card details",
     "ｐａｓｓｗｏｒｄ type karo",
+    "paste my password",
+    "paste the password into the form",
+    "enter my credentials",
+    "type in my credentials for me",
+    // Cyrillic lookalikes of the Latin letters p and a.
+    "type the \u0440\u0430ssword",
+    "enter my \u0440\u0430ssw\u043Erd",
   ];
   for (const line of asks) {
     it(`asks: ${line}`, () => {
@@ -70,6 +77,9 @@ describe("credential entry asks early in Hindi, Hinglish and login / payment phr
     "fix the login page bug in my app",
     "explain how OTP works",
     "open the calendar",
+    "explain what credentials are",
+    "paste the report into the document",
+    "how do I reset a forgotten password",
   ];
   for (const line of plain) {
     it(`does not ask: ${line}`, () => {

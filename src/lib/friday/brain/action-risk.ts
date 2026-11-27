@@ -64,7 +64,7 @@ export function isConsequential(text: string): boolean {
  * clicked or typed by FRIDAY, whatever the mode or the autonomy dial says; the owner enters them himself.
  */
 const CREDENTIAL_ENTRY =
-  /\b(password|passcode|pin|otp|cvv|card\s*number|card\s*details|upi\s*pin)\b.*\b(bhar|daal|dal|type|enter|fill|likh|bhej|share|put|bata)(?:o|na|ni|do|de|dena|iye|kar|karo)?\b|\b(type|enter|fill|put|daal|daalo|bharo|likho)\b.*\b(password|passcode|otp|cvv|card\s*number|card\s*details|upi\s*pin)\b/i;
+  /\b(password|passcode|pin|otp|cvv|credentials?|card\s*number|card\s*details|upi\s*pin)\b.*\b(bhar|daal|dal|type|enter|fill|paste|likh|bhej|share|put|bata)(?:o|na|ni|do|de|dena|iye|kar|karo)?\b|\b(type|enter|fill|paste|put|daal|daalo|bharo|likho)\b.*\b(password|passcode|otp|cvv|credentials?|card\s*number|card\s*details|upi\s*pin)\b/i;
 
 /** Logging in or filling a payment form for the owner: a password or a card comes next, so it is asked first. */
 const LOGIN_OR_PAYMENT =
@@ -76,12 +76,51 @@ const DEVANAGARI_ENTRY = /भर|डाल|लिख|टाइप|भेज|ब�
 const DEVANAGARI_LOGIN = /(?:लॉग\s*इन|लॉगिन|साइन\s*इन)\s*(?:कर|करो|कर\s*दो)/u;
 const INVISIBLE = /[\u200b-\u200d\u2060\ufeff]/g;
 
-/** NFKC (full-width and compatibility forms fold to plain letters), lower case, no zero-width characters. */
+/** Cyrillic and Greek letters that look like a Latin letter, folded to it so "раssword" matches "password". */
+const CONFUSABLES: Record<string, string> = {
+  "\u0430": "a",
+  "\u0432": "b",
+  "\u0435": "e",
+  "\u043e": "o",
+  "\u0440": "p",
+  "\u0441": "c",
+  "\u0443": "y",
+  "\u0445": "x",
+  "\u0456": "i",
+  "\u0458": "j",
+  "\u0455": "s",
+  "\u0501": "d",
+  "\u04bb": "h",
+  "\u04cf": "l",
+  "\u051b": "q",
+  "\u051d": "w",
+  "\u043a": "k",
+  "\u043c": "m",
+  "\u043d": "h",
+  "\u0442": "t",
+  "\u03b1": "a",
+  "\u03bf": "o",
+  "\u03c1": "p",
+  "\u03b9": "i",
+  "\u03ba": "k",
+  "\u03bd": "v",
+  "\u03c5": "u",
+  "\u03b5": "e",
+  "\u03c4": "t",
+  "\u0131": "i",
+};
+const CONFUSABLE_RE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "g");
+
+/**
+ * NFKC (full-width and compatibility forms fold to plain letters), lower case, no zero-width characters, and the
+ * common Cyrillic and Greek lookalikes folded to ASCII.
+ */
 function foldCredentialText(text: string): string {
   return String(text ?? "")
     .normalize("NFKC")
     .replace(INVISIBLE, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(CONFUSABLE_RE, (letter) => CONFUSABLES[letter] ?? letter);
 }
 
 /**

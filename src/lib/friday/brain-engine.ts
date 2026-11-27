@@ -3487,6 +3487,8 @@ class BrainStore {
   approve(allow: boolean) {
     const req = this.state.approval;
     if (!req) return;
+    // Stop everything is on: a tap on Approve (or a stale yes) never runs anything.
+    if (autonomy.getSnapshot().halted) allow = false;
     // An action gated by gateAction() resumes exactly where it paused.
     if (this.pendingAction) {
       const resume = this.pendingAction;
@@ -3527,6 +3529,25 @@ class BrainStore {
     this.state.activeRunId = run.id;
     this.ensureTimer();
     this.emit();
+  }
+
+  /**
+   * Stop everything reached the brain: end the active run and deny the action that waits for a yes, so a later
+   * Approve tap finds nothing to run. Counts nothing: a chat turn is not a background task.
+   */
+  haltForStopEverything(): number {
+    this.stop("all");
+    const resume = this.pendingAction;
+    this.pendingAction = null;
+    this.clearApprovalTimer();
+    if (this.state.approval) {
+      const run = this.state.runs.find((r) => r.id === this.state.approval?.runId);
+      if (run && run.state === "awaiting-approval") run.state = "running";
+      this.state.approval = null;
+      this.emit();
+    }
+    resume?.(false);
+    return 0;
   }
 
   clearChat() {
@@ -4381,4 +4402,6 @@ class BrainStore {
 }
 
 export const brain = new BrainStore();
+// The brain is a stop participant: Stop everything from the voice or Settings reaches a run waiting on an approval.
+autonomy.registerStopParticipant("graphs", () => brain.haltForStopEverything());
 export { agentSpecs, agentById, pipelineStages, identity };
