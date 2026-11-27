@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -171,3 +173,91 @@ def test_prompt_hint_is_short_and_empty_when_off_or_empty(tmp_path):
 def test_garbage_rows_never_raise(tmp_path):
     rows = [None, 5, "text", {}, {"corrected": True, "source": "owner", "text": None}, row(None, ["x"])]
     assert glossary_learn.learn_from_corrections(rows, True, root=tmp_path) == []
+
+
+# ---- approval and stop words, command verbs, the owner's stored setting ---------------------------------------------
+
+
+def _confirm_phrases() -> list[str]:
+    """Every yes, no and unclear phrase of the one table in voice-session.ts (read from the source file)."""
+    src = (Path(__file__).resolve().parents[2] / "src" / "lib" / "friday" / "voice-session.ts").read_text(
+        encoding="utf-8"
+    )
+    start = src.index("export const CONFIRM_WORDS")
+    body = src[start : src.index("fillers:", start)]
+    phrases: list[str] = []
+    for name in ("yes", "no", "unclear"):
+        block = body[body.index(f"{name}: [") :]
+        block = block[block.index("[") + 1 : block.index("]")]
+        phrases += re.findall(r'"([^"]+)"', block)
+    return phrases
+
+
+def test_blocked_words_cover_every_confirm_and_stop_token_of_the_voice_session_table():
+    phrases = _confirm_phrases()
+    assert len(phrases) > 100  # the parse found the table
+    tokens = {glossary_learn._fold(tok) for phrase in phrases for tok in phrase.split()}
+    assert tokens - glossary_learn.BLOCKED_WORDS == set()
+
+
+@pytest.mark.parametrize(
+    "word", ["haan", "yes", "confirm", "OK", "theek", "kar", "हाँ", "हां", "ठीक", "बिल्कुल", "ज़रूर", "stop"]
+)
+def test_approval_and_stop_words_are_never_learned(tmp_path, word):
+    terms = glossary_learn.learn_from_corrections([row("zz qq", f"{word} Zorblax")], True, root=tmp_path)
+    assert terms == ["Zorblax"]
+
+
+def test_command_verbs_are_not_learned(tmp_path):
+    terms = glossary_learn.learn_from_corrections([row("zz", "delete sudo Zorblax")], True, root=tmp_path)
+    assert terms == ["Zorblax"]
+
+
+def test_an_old_file_with_an_approval_word_does_not_reach_the_ears(tmp_path):
+    path = glossary_learn.glossary_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    terms = [{"term": "haan", "count": 9, "seq": 1}, {"term": "Zorblax", "count": 1, "seq": 2}]
+    path.write_text(json.dumps({"v": 1, "seq": 2, "terms": terms}), encoding="utf-8")
+    assert glossary_learn.glossary_terms(True, root=tmp_path) == ["Zorblax"]
+    assert "haan" not in glossary_learn.prompt_hint(True, root=tmp_path)
+
+
+def test_setting_on_reads_the_settings_dict_default_true_only_when_never_set():
+    assert glossary_learn.setting_on({}) is True
+    assert glossary_learn.setting_on({"brain.learn.glossary": True}) is True
+    assert glossary_learn.setting_on({"brain.learn.glossary": False}) is False
+    assert glossary_learn.setting_on({"brain.learn.glossary": "false"}) is False
+
+
+def _db(path: Path, value: Any | None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    if value is not None:
+        con.execute("INSERT INTO settings VALUES(?,?)", (glossary_learn.SETTING_KEY, json.dumps(value)))
+    con.commit()
+    con.close()
+
+
+def _only_friday_root(tmp_path, monkeypatch) -> Path:
+    for name in ("FRIDAY_WORKSPACE_ROOT", "FRIDAY_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("FRIDAY_ROOT", str(tmp_path))
+    return tmp_path / "database" / "friday.sqlite3"
+
+
+def test_setting_on_reads_the_kernel_database_from_the_friday_folder(tmp_path, monkeypatch):
+    db = _only_friday_root(tmp_path, monkeypatch)
+    assert glossary_learn.setting_on() is True  # no database yet: never set
+    _db(db, None)
+    assert glossary_learn.setting_on() is True  # a database without the key: never set
+    db.unlink()
+    _db(db, False)
+    assert glossary_learn.setting_on() is False
+
+
+def test_an_unreadable_settings_file_counts_as_off(tmp_path, monkeypatch):
+    db = _only_friday_root(tmp_path, monkeypatch)
+    db.parent.mkdir()
+    db.write_bytes(b"not a database at all" * 50)
+    assert glossary_learn.setting_on() is False

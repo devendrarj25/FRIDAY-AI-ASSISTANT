@@ -16,6 +16,10 @@ Interface contract
 * A line or a word the kernel privacy classifier (``privacy.classify``, the only one) rates above public is dropped,
   and a word with a digit, a symbol or more than ``MAX_WORD_CHARS`` letters is not a word (keys and numbers).
   Hindi (Devanagari with its marks), Roman and mixed Hinglish words are kept as spoken.
+* The setting is read by the kernel itself (``setting_on``, the owner's stored ``brain.learn.glossary``, on only when it
+  was never set or is true). A caller cannot turn it on: a caller's ``on`` may only say no.
+* An approval, refusal or stop word (``BLOCKED_WORDS``, which covers ``CONFIRM_WORDS`` of ``voice-session.ts``) and a
+  small list of command verbs are never learned and never handed to the ears, even when an old file holds them.
 * ``glossary_terms``/``prompt_hint`` are the read side for the ears; ``forget(term)`` and ``forget_all()`` are undo
   (a forgotten word is not learned again). The file is ``<FRIDAY_ROOT>/glossary/learned.json``, written atomically.
 """
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 import unicodedata
 from collections.abc import Iterable
@@ -44,7 +49,82 @@ PROMPT_LIMIT = 160
 
 UNTRUSTED_KINDS = frozenset({"tool", "web", "screen", "file", "email", "calendar", "mcp", "transcript"})
 
+SETTING_KEY = "brain.learn.glossary"
+
+# Words that answer a "should I go ahead?" or stop FRIDAY (one token each: the words of every yes, no and unclear phrase
+# of ``CONFIRM_WORDS`` in ``src/lib/friday/voice-session.ts``, a test keeps this list covering that file), plus a few
+# command verbs. A learned word must never make a spoken line read as a yes, a stop or an instruction.
+_APPROVAL_STOP_WORDS = """
+yes yeah yea yep yup ok okay okey sure go ahead do it confirm confirmed proceed of course absolutely
+haan han haa ha haanji hanji ji theek thik he hai kar de dijiye karo bilkul zaroor zarur jaroor jarur
+हाँ हां जी हाँ करो ठीक है कर दो दें दीजिए बिल्कुल बिलकुल ज़रूर ओके यस
+no not nope nah never cancel stop abort reject don't dont nahi nahin nhi nai nako na naa mat matt mana
+ruk ruko rukiye rukk jao rok roko tham thamo thehro thahro theher rehne rahne chhod chod chhodo chodo jane jaane
+wait hold on off pause skip enough nevermind never mind leave forget later tomorrow band bandh bas baad baadme badme
+mein me kal problem worries why bad doubt koi baat
+नहीं नही नहि ना कर मत मना रुको रुकिए रुक रोको रोक ठहरो ठहरिए थमो थम बंद बन्द बस बाद कल रहने दे दें
+छोड़ छोड़ो छोड़िए जाने कैंसल रद्द स्टॉप पॉज़ स्किप होल्ड
+"""
+_COMMAND_WORDS = """
+delete remove erase format shutdown restart reboot execute install uninstall sudo kill download upload send pay
+transfer purchase buy sell
+हटाओ मिटाओ भेजो खरीदो
+"""
+
+
+def _fold(word: str) -> str:
+    """One spelling for matching, like ``confirmAnswerKey``: case, quotes, chandrabindu and nukta folded."""
+    text = unicodedata.normalize("NFC", word).casefold().replace("’", "'")
+    return text.replace("ँ", "ं").replace("़", "").strip()
+
+
+BLOCKED_WORDS = frozenset(_fold(w) for w in (_APPROVAL_STOP_WORDS + _COMMAND_WORDS).split())
+
 _LOCK = threading.Lock()
+
+
+def _off(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"false", "off", "no", "0"}
+    return value is False or (isinstance(value, int) and value == 0)
+
+
+def _settings_files() -> list[Path]:
+    """Where the kernel keeps its stored settings, seen from a process that is not the kernel (the ears worker)."""
+    out: list[Path] = []
+    for env, sub in (("FRIDAY_ROOT", "database"), ("FRIDAY_WORKSPACE_ROOT", "database")):
+        base = os.environ.get(env, "").strip()
+        if base:
+            out.append(Path(base) / sub / "friday.sqlite3")
+    data = os.environ.get("FRIDAY_DATA_DIR", "").strip()
+    if data:
+        out.append(Path(data) / "friday.sqlite3")
+    return out
+
+
+def setting_on(settings: dict[str, Any] | None = None) -> bool:
+    """The owner's stored ``brain.learn.glossary``: True when it was never set, False when he turned it off.
+
+    ``settings`` is the kernel's own settings dict when the caller is the kernel; otherwise the kernel database is read
+    (read only). A file that exists but cannot be read counts as off: a broken read never turns learning on.
+    """
+    if settings is not None:
+        return SETTING_KEY not in settings or not _off(settings[SETTING_KEY])
+    for path in _settings_files():
+        if not path.is_file():
+            continue
+        try:
+            con = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=1.0)
+            try:
+                row = con.execute("SELECT value FROM settings WHERE key=?", (SETTING_KEY,)).fetchone()
+            finally:
+                con.close()
+            if row is None:
+                continue
+            return not _off(json.loads(row[0]))
+        except (sqlite3.Error, ValueError, OSError):
+            return False
+    return True
 
 
 def glossary_path(root: Path | str | None = None) -> Path:
@@ -103,7 +183,7 @@ def _save(path: Path, store: dict[str, Any]) -> None:
 
 def _ordered(store: dict[str, Any]) -> list[str]:
     ranked = sorted(store["terms"], key=lambda t: (-t["count"], t["term"].casefold(), t["term"]))
-    return [t["term"] for t in ranked]
+    return [t["term"] for t in ranked if _fold(t["term"]) not in BLOCKED_WORDS]
 
 
 # ---- from a corrected line to words -------------------------------------------------------------------------------
@@ -163,7 +243,7 @@ def _new_words(row: dict[str, Any]) -> list[str]:
     for part in text.split():
         word = _clean_word(part)
         key = word.casefold()
-        if not word or key in heard or key in seen:
+        if not word or key in heard or key in seen or _fold(word) in BLOCKED_WORDS:
             continue
         seen.add(key)
         if _public(word):

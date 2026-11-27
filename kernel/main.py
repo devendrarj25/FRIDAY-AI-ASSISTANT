@@ -1001,12 +1001,13 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "memory.search":
         return {"results": await memory.search(params["query"], k=params.get("k", 8))}
     if method == "glossary.learn":
-        terms = await asyncio.to_thread(
-            glossary_learn.learn_from_corrections, list(params.get("rows") or []), bool(params.get("on"))
-        )
-        return {"terms": terms}
+        # The owner's stored setting decides; a caller's ``on`` can only say no.
+        glossary_on = params.get("on") is not False and glossary_learn.setting_on(storage.settings())
+        rows = list(params.get("rows") or [])
+        return {"terms": await asyncio.to_thread(glossary_learn.learn_from_corrections, rows, glossary_on)}
     if method == "glossary.list":
-        return {"terms": await asyncio.to_thread(glossary_learn.glossary_terms, bool(params.get("on")))}
+        glossary_on = params.get("on") is not False and glossary_learn.setting_on(storage.settings())
+        return {"terms": await asyncio.to_thread(glossary_learn.glossary_terms, glossary_on)}
     if method == "glossary.forget":
         if params.get("all"):
             return {"removed": await asyncio.to_thread(glossary_learn.forget_all)}

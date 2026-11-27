@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -110,3 +112,52 @@ async def test_privacy_classify_call(root):
     assert out["level"] == "public"
     assert (await call("privacy.classify", {"text": ""}))["level"] == "public"
     assert (await call("privacy.classify", {}))["level"] == "public"
+
+
+def _store_setting(tmp_path, monkeypatch, value) -> None:
+    for name in ("FRIDAY_WORKSPACE_ROOT", "FRIDAY_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    db = tmp_path / "database" / "friday.sqlite3"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    con.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (glossary_learn.SETTING_KEY, json.dumps(value)))
+    con.commit()
+    con.close()
+
+
+def test_stored_setting_off_keeps_learned_words_out_of_hotwords_and_prompt(root, monkeypatch):
+    learn("pro jet", "Zorblax", root)
+    _store_setting(root, monkeypatch, False)
+    assert stt.ears_hotwords({"hotwords": ["Devendra"]}) == "Devendra"
+    # a request cannot turn it on
+    assert stt.ears_hotwords({"hotwords": ["Devendra"], "learnGlossary": True}) == "Devendra"
+    assert stt.with_glossary_hint("Namaste.", {}) == "Namaste."
+    assert stt.with_glossary_hint("Namaste.", {"learnGlossary": True}) == "Namaste."
+    assert stt.decode_options({"hotwords": ["Devendra"]}, False)["hotwords"] == "Devendra"
+
+
+def test_stored_setting_on_still_injects_learned_words(root, monkeypatch):
+    learn("pro jet", "Zorblax", root)
+    _store_setting(root, monkeypatch, True)
+    assert "Zorblax" in stt.ears_hotwords({})
+
+
+@pytest.mark.asyncio
+async def test_caller_on_true_cannot_override_a_stored_off(root):
+    rows = [{"source": "owner", "corrected": True, "heard": "pro jet", "text": "Zorblax"}]
+    main.storage.set_setting(glossary_learn.SETTING_KEY, False)
+    try:
+        assert (await call("glossary.learn", {"rows": rows, "on": True}))["terms"] == []
+        assert not glossary_learn.glossary_path(root).exists()
+        assert (await call("glossary.list", {"on": True}))["terms"] == []
+    finally:
+        main.storage.set_setting(glossary_learn.SETTING_KEY, True)
+    assert "Zorblax" in (await call("glossary.learn", {"rows": rows, "on": True}))["terms"]
+    assert "Zorblax" in (await call("glossary.list", {}))["terms"]  # an omitted `on` follows the stored setting
+
+
+@pytest.mark.asyncio
+async def test_approval_words_never_become_hotwords_through_the_call(root):
+    rows = [{"source": "owner", "corrected": True, "heard": "zz", "text": "haan yes confirm theek hai kar do Zorblax"}]
+    assert (await call("glossary.learn", {"rows": rows, "on": True}))["terms"] == ["Zorblax"]

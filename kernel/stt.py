@@ -574,8 +574,11 @@ def snap_text(text: str, hotwords: list[str]) -> str:
 
 
 def _learn_on(extras: dict | None) -> bool:
-    """The owner's ``learnGlossary`` setting (extras); on unless it is explicitly false."""
-    return (extras or {}).get("learnGlossary") is not False
+    """Learned words are used only when the owner's stored ``brain.learn.glossary`` is on (read by the kernel itself).
+
+    A request's ``learnGlossary`` may only say no: it can never turn on what the owner turned off.
+    """
+    return (extras or {}).get("learnGlossary") is not False and glossary_learn.setting_on()
 
 
 def ears_hotwords(extras: dict | None) -> str:
