@@ -223,9 +223,11 @@ describe("per-model breaker and score", () => {
     const oldFixture = "sk-" + "abcdefghij123456";
     expect(src).not.toContain(oldFixture);
     const ignore = readFileSync(path.resolve(__dirname, "../../.gitleaksignore"), "utf8").trim();
-    expect(ignore).toBe(
+    // Exactly the known history hits of fake fixtures are ignored, nothing else.
+    expect(ignore.split("\n")).toEqual([
       "1fc8c6073be152b1f676ac56d813a1b676e35c02:core/__tests__/model-router-max.test.ts:generic-api-key:178",
-    );
+      "9be8ad49459946516ffff49efa683067b52f28ab:core/__tests__/voice-turn-brain.test.ts:generic-api-key:558",
+    ]);
   });
 
   it("picks the same model for the same pool, and skips a model that lacks the task", () => {
