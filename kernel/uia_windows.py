@@ -40,6 +40,7 @@ _FOCUS = 30008
 _AUTO = 30011
 _OFFSCREEN = 30022
 _PASSWORD = 30019
+_RUNTIME_ID = 30000
 
 
 def guarded_collect(body, initialize, uninitialize):
@@ -65,33 +66,91 @@ def collect_uia_raw(max_depth: int = 8, max_nodes: int = 400) -> dict[str, Any]:
 
     def _body() -> dict[str, Any]:
         _dpi_aware()
-        comtypes.client.GetModule("UIAutomationCore.dll")
-        from comtypes.gen.UIAutomationClient import CUIAutomation, IUIAutomation
-
-        uia = comtypes.CoCreateInstance(
-            CUIAutomation._reg_clsid_,
-            interface=IUIAutomation,
-            clsctx=comtypes.CLSCTX_INPROC_SERVER,
-        )
-        state = {"count": 0}
-        root = uia.GetRootElement()
-        windows = []
-        walker = uia.ControlViewWalker
-        child = walker.GetFirstChildElement(root)
-        while child is not None and state["count"] < max_nodes:
-            built = _node(walker, child, 1, max_depth, max_nodes, state)
-            if built:
-                windows.append(built)
-            child = walker.GetNextSiblingElement(child)
-        return {"monitors": _monitors(), "windows": windows}
+        return collect_from(_automation(comtypes), _monitors(), max_depth, max_nodes)
 
     return guarded_collect(_body, comtypes.CoInitialize, comtypes.CoUninitialize)
 
 
+def collect_focused() -> dict[str, Any] | None:
+    """Only the focused element, read directly: cheap enough to repeat between key chunks.
+
+    None when it cannot be read (the secure desktop, a closed window, no comtypes).
+    """
+    if not WINDOWS:
+        raise RuntimeError("UI Automation collection is only available on Windows")
+    try:
+        import comtypes
+        import comtypes.client
+    except Exception as exc:  # pragma: no cover - Windows helper
+        raise RuntimeError("comtypes is not installed in FRIDAY's Python runtime.") from exc
+    return guarded_collect(lambda: read_focused(_automation(comtypes)), comtypes.CoInitialize, comtypes.CoUninitialize)
+
+
+def _automation(comtypes: Any) -> Any:  # pragma: no cover - Windows helper
+    import comtypes.client
+
+    comtypes.client.GetModule("UIAutomationCore.dll")
+    from comtypes.gen.UIAutomationClient import CUIAutomation, IUIAutomation
+
+    return comtypes.CoCreateInstance(
+        CUIAutomation._reg_clsid_,
+        interface=IUIAutomation,
+        clsctx=comtypes.CLSCTX_INPROC_SERVER,
+    )
+
+
+def collect_from(uia: Any, monitors: list[dict[str, int]], max_depth: int, max_nodes: int) -> dict[str, Any]:
+    """Walk the desktop with `uia`, say if the walk was cut, and read the focused element directly."""
+    state: dict[str, Any] = {"count": 0, "truncated": False}
+    root = uia.GetRootElement()
+    windows = []
+    walker = uia.ControlViewWalker
+    child = walker.GetFirstChildElement(root)
+    while child is not None:
+        if state["count"] >= max_nodes:
+            state["truncated"] = True
+            break
+        built = _node(walker, child, 1, max_depth, max_nodes, state)
+        if built:
+            windows.append(built)
+        child = walker.GetNextSiblingElement(child)
+    return {
+        "monitors": monitors,
+        "windows": windows,
+        "truncated": bool(state["truncated"]),
+        "focusedElement": read_focused(uia),
+    }
+
+
+def read_focused(uia: Any) -> dict[str, Any] | None:
+    """The focused element's type, password flag and identity, or None when any of it cannot be read.
+
+    The password flag is read without the quiet fallback `_prop` has: a failed read is
+    "unknown", never "not a password". A password field's name is never copied.
+    """
+    try:
+        element = uia.GetFocusedElement()
+        if element is None:
+            return None
+        secret = bool(element.GetCurrentPropertyValue(_PASSWORD))
+        control_id = element.GetCurrentPropertyValue(_CONTROL)
+    except Exception:
+        return None
+    runtime = _prop(element, _RUNTIME_ID)
+    return {
+        "controlType": "Password" if secret else _TYPES.get(int(control_id or 0), "Control"),
+        "isPassword": secret,
+        "name": "" if secret else str(_prop(element, _NAME) or ""),
+        "className": str(_prop(element, _CLASS) or ""),
+        "runtimeId": [int(part) for part in runtime] if isinstance(runtime, (list, tuple)) else None,
+    }
+
+
 def _node(
-    walker: Any, element: Any, depth: int, max_depth: int, max_nodes: int, state: dict[str, int]
+    walker: Any, element: Any, depth: int, max_depth: int, max_nodes: int, state: dict[str, Any]
 ) -> dict[str, Any] | None:
-    if state["count"] >= max_nodes or depth > max_depth:
+    if depth > max_depth or state["count"] >= max_nodes:
+        state["truncated"] = True
         return None
     state["count"] += 1
     secret = bool(_prop(element, _PASSWORD))
@@ -117,10 +176,15 @@ def _node(
     if secret:
         node["controlType"] = "Password"
         return node
-    if depth >= max_depth:
-        return node
     child = walker.GetFirstChildElement(element)
-    while child is not None and state["count"] < max_nodes:
+    if depth >= max_depth:
+        if child is not None:
+            state["truncated"] = True
+        return node
+    while child is not None:
+        if state["count"] >= max_nodes:
+            state["truncated"] = True
+            break
         built = _node(walker, child, depth + 1, max_depth, max_nodes, state)
         if built:
             node["children"].append(built)

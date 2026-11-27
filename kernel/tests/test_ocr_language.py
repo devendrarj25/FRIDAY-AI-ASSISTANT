@@ -149,6 +149,8 @@ class ReadTextTests(unittest.TestCase):
         pil.Image = image
         with (
             mock.patch.object(control, "_require", side_effect=self.require),
+            # A screen read first checks for a password field; an ordinary, whole tree lets it go on.
+            mock.patch.object(control, "_uia_raw", return_value={"windows": []}),
             mock.patch.dict(sys.modules, {"PIL": pil, "PIL.Image": image}),
         ):
             return control.read_text(**kwargs)

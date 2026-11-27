@@ -268,8 +268,18 @@ def secure_refusal(raw: dict[str, Any] | None, points: list[tuple[float, float]]
     A secure prompt anywhere on screen ("uac", "credential"), a focused password
     field, or a password field under one of `points` ("password"). The points and
     the raw bounds share one space: physical pixels, as the collector reports them.
+    The focused element, read directly by the collector, is checked first: the walk
+    is cut at a fixed depth and a page can hide the field far below that. A password
+    node whose bounds are unknown cannot be ruled out of any point, so it refuses them all.
     """
     tree = raw if isinstance(raw, dict) else {}
+    focus = tree.get("focusedElement")
+    if isinstance(focus, dict):
+        if _password(focus):
+            return "password"
+        handoff = _node_handoff(focus)
+        if handoff:
+            return handoff
     roots = _roots(tree)
     handoff = _tree_handoff(roots)
     if handoff:
@@ -285,16 +295,40 @@ def secure_refusal(raw: dict[str, Any] | None, points: list[tuple[float, float]]
         if _password(node):
             if node.get("focused"):
                 return "password"
-            found = node.get("bounds")
-            box: dict[str, Any] = found if isinstance(found, dict) else {}
-            left, top = float(box.get("x") or 0), float(box.get("y") or 0)
-            right, bottom = left + float(box.get("w") or 0), top + float(box.get("h") or 0)
-            if any(left <= px < right and top <= py < bottom for px, py in wanted):
+            box = _known_box(node.get("bounds"))
+            if wanted and box is None:
+                return "password"
+            if box and any(box[0] <= px < box[2] and box[1] <= py < box[3] for px, py in wanted):
                 return "password"
         children = node.get("children")
         if isinstance(children, list):
             stack.extend(child for child in children if isinstance(child, dict))
     return None
+
+
+def focus_unverified(raw: dict[str, Any] | None) -> bool:
+    """True when the walk was cut short and the focused element could not be read directly.
+
+    Then a password field below the cut cannot be ruled out, so keys and screen reads
+    must not run. A whole tree, or a readable focus, is enough to go on.
+    """
+    if not isinstance(raw, dict) or raw.get("truncated") is not True:
+        return False
+    return not isinstance(raw.get("focusedElement"), dict)
+
+
+def _known_box(value: Any) -> tuple[float, float, float, float] | None:
+    """(left, top, right, bottom) of a node with real bounds, else None."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        left, top = float(value.get("x") or 0), float(value.get("y") or 0)
+        width, height = float(value.get("w") or 0), float(value.get("h") or 0)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return left, top, left + width, top + height
 
 
 def _password(node: dict[str, Any]) -> bool:

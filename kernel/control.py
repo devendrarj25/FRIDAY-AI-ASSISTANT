@@ -166,33 +166,77 @@ def _uia_raw() -> dict[str, Any]:
     return collect_uia_raw()
 
 
-# Keys reach whatever has focus, so an unknown screen is a refusal for them.
+def _uia_focus() -> dict[str, Any] | None:
+    """Only the focused element, read directly. Tests replace this."""
+    if not WINDOWS:
+        raise ControlError("UI Automation is only available on Windows")
+    from uia_windows import collect_focused
+
+    return collect_focused()
+
+
+# Keys reach whatever has focus, and a clipboard or screen read can hold a secret,
+# so for these an unknown screen is a refusal.
 _KEY_ACTIONS = frozenset({"type", "hotkey"})
+_STRICT_ACTIONS = _KEY_ACTIONS | {"read_text", "clipboard_read"}
+_TYPE_CHUNK = 8
 
 
-def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) -> None:
-    """Fail closed before a raw key, pointer or screen read.
+def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) -> dict[str, Any]:
+    """Fail closed before a raw key, pointer or screen read. Returns the tree it checked.
 
     A secure prompt (UAC, Windows Security, a credential dialog), a focused password
-    field, or a password field under a pointer point stops the action. When the tree
-    cannot be read, keys are refused; a pointer or a read keeps today's behaviour.
+    field (read directly, so a page deeper than the walk is covered), or a password
+    field under a pointer point stops the action. When the tree cannot be read, or was
+    cut short while the focused element cannot be read, keys and screen reads are
+    refused; a pointer action keeps today's behaviour.
     """
-    from uia_tree import secure_refusal
+    from uia_tree import focus_unverified, secure_refusal
 
     try:
         raw = _uia_raw()
     except Exception as exc:
-        if action in _KEY_ACTIONS:
+        if action in _STRICT_ACTIONS:
             raise ControlError(
                 "FRIDAY could not check the screen for a password field or a secure prompt, "
-                f"so it did not press any key ({exc})"
+                f"so it did not {'press any key' if action in _KEY_ACTIONS else 'read the screen'} ({exc})"
             ) from exc
-        return
+        return {}
     reason = secure_refusal(raw, points)
     if reason == "password":
         raise ControlError("That is a password field. The owner types or reads it, not FRIDAY")
     if reason:
         raise ControlError("A secure prompt is on screen and needs the owner")
+    if action in _STRICT_ACTIONS and focus_unverified(raw):
+        raise ControlError(
+            "FRIDAY could not check the focused field for a password, and the screen is too deep to "
+            "scan fully, so it did not " + ("press any key" if action in _KEY_ACTIONS else "read the screen")
+        )
+    return raw if isinstance(raw, dict) else {}
+
+
+def _focus_guard(baseline: Any) -> None:
+    """Between key chunks: the focused element is still the same ordinary field."""
+    from uia_tree import secure_refusal
+
+    try:
+        probe = _uia_focus()
+    except Exception as exc:
+        raise ControlError(
+            f"FRIDAY could not check the screen for a password field or a secure prompt, so it stopped typing ({exc})"
+        ) from exc
+    if not isinstance(probe, dict):
+        raise ControlError(
+            "FRIDAY could not check the screen for a password field or a secure prompt, so it stopped typing"
+        )
+    reason = secure_refusal({"focusedElement": probe})
+    if reason == "password":
+        raise ControlError("That is a password field. The owner types or reads it, not FRIDAY")
+    if reason:
+        raise ControlError("A secure prompt is on screen and needs the owner")
+    start = baseline.get("runtimeId") if isinstance(baseline, dict) else None
+    if start and probe.get("runtimeId") != start:
+        raise ControlError("The focus changed while FRIDAY was typing, so it stopped")
 
 
 def _focus_if_asked(target: str | None, hwnd: int | None) -> dict[str, Any] | None:
@@ -253,9 +297,24 @@ def type_text(
                 raise
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
-    _secure_guard("type")
-    gui.typewrite(str(text), interval=max(0.0, float(interval)))
-    return {"ok": True, "typed": len(str(text)), "window": focused}
+    body = str(text)
+    chunks = [body[i : i + _TYPE_CHUNK] for i in range(0, len(body), _TYPE_CHUNK)] or [""]
+    baseline: Any = None
+    typed = 0
+    for index, chunk in enumerate(chunks):
+        try:
+            if index == 0:
+                seen = _secure_guard("type")
+                baseline = seen.get("focusedElement")
+            else:
+                _focus_guard(baseline)
+        except ControlError as exc:
+            if not typed:
+                raise
+            raise ControlError(f"{exc} (typed {typed} of {len(body)} characters)") from exc
+        gui.typewrite(chunk, interval=max(0.0, float(interval)))
+        typed += len(chunk)
+    return {"ok": True, "typed": len(body), "window": focused}
 
 
 def hotkey(keys: list[str], target: str | None = None, hwnd: int | None = None) -> dict[str, Any]:
@@ -393,27 +452,30 @@ def clipboard_write(text: str) -> dict[str, Any]:
 
 
 def perceive() -> dict[str, Any]:
-    """UI Automation tree, then OCR. Text is data. A secure prompt has no content."""
+    """UI Automation tree, then OCR. Text is data. A secure prompt has no content.
+
+    OCR runs only after the same secure check as `read_text`: without the tree (no
+    comtypes) FRIDAY cannot rule out a focused password field, so it does not read the
+    screen at all, and a thin tree with a focused password field keeps its structure only.
+    """
     if not WINDOWS:
         raise ControlError("structured screen perception is only available on Windows")
-    from uia_tree import choose_layer, comtypes_missing, ocr_fallback, perception_from_raw
-    from uia_windows import collect_uia_raw
+    from uia_tree import choose_layer, comtypes_missing, focus_unverified, perception_from_raw, secure_refusal
 
     now = int(time.time() * 1000)
     try:
-        raw = collect_uia_raw()
+        raw = _uia_raw()
     except Exception as exc:
-        if not comtypes_missing(str(exc)):
-            raise ControlError(str(exc)) from exc
-        try:
-            ocr = _read_text_unchecked()
-        except ControlError as ocr_exc:
+        if comtypes_missing(str(exc)):
             raise ControlError(
-                "comtypes is not installed in FRIDAY's Python runtime. OCR was not available either."
-            ) from ocr_exc
-        return ocr_fallback(now, str(ocr.get("text") or ""))
+                "comtypes is not installed in FRIDAY's Python runtime, so FRIDAY cannot check the screen "
+                "for a password field and did not read it with OCR either."
+            ) from exc
+        raise ControlError(str(exc)) from exc
     seen = perception_from_raw(raw, now)
     if seen.get("handoff") or float(seen.get("confidence") or 0) >= 0.75:
+        return seen
+    if secure_refusal(raw) or focus_unverified(raw):
         return seen
     try:
         ocr = _read_text_unchecked()
