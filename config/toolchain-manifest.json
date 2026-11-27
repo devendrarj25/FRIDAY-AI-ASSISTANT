@@ -2,6 +2,11 @@
   "checked": "2026-10-08",
   "budgetBytes": 220000000,
   "budgetReason": "The bundled tier is the embeddable interpreter, pip bootstrap, portable Node, whisper.cpp, and the ggml base model. Their pinned sizes sum to 205118234 bytes. 220000000 bytes leaves a small margin inside a GitHub release asset. Copyleft and heavy packs stay on demand.",
+  "wheelhouse": {
+    "lock": "config/wheelhouse.lock.json",
+    "budgetBytes": 230000000,
+    "budgetReason": "The pinned Windows wheels of kernel/requirements.txt for CPython 3.12, 3.13 and 3.14 sum to 209821438 bytes (74 wheels; the pure and abi3 wheels are shared). 230000000 bytes leaves room for a patch release of a binary wheel. The Setup EXE stays far below the 2 GiB installer cap."
+  },
   "packs": [
     {
       "id": "python-embed",

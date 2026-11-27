@@ -11,6 +11,7 @@ const fs = require("fs");
 const path = require("path");
 
 const layout = require("./electron-module.cjs").load("runtime-layout.cjs");
+const wheelhouse = require("./wheelhouse.cjs");
 
 function packBytes(pack) {
   return Number(pack?.bytes || 0);
@@ -164,6 +165,42 @@ async function stageBundledPacks({
   return { staged, sum: plan.sum, budget: plan.budget };
 }
 
+/**
+ * The packs, then the offline Python wheelhouse (scripts/wheelhouse.cjs): every wheel of config/wheelhouse.lock.json
+ * checked against its SHA-256 and packed into resources/toolchain/wheelhouse/pack.bin, inside the budget the
+ * manifest gives it. FRIDAY_WHEELHOUSE=0 leaves it out (Setup then installs Python packages from the network, as
+ * before) and removes a wheelhouse an earlier build staged, so it never ships stale.
+ */
+async function stageAll({
+  manifest,
+  lock,
+  requirementsText,
+  cacheDir,
+  wheelCacheDir,
+  stageDir,
+  fetchImpl,
+  offline = false,
+  log = () => {},
+  env = process.env,
+}) {
+  const packs = await stageBundledPacks({ manifest, cacheDir, stageDir, fetchImpl, offline, log });
+  if (String(env.FRIDAY_WHEELHOUSE || "") === "0" || !manifest?.wheelhouse) {
+    wheelhouse.removeStaged(stageDir);
+    return { ...packs, wheelhouse: null };
+  }
+  const staged = await wheelhouse.stageWheelhouse({
+    lock,
+    requirementsText,
+    budgetBytes: Number(manifest.wheelhouse.budgetBytes || 0),
+    cacheDir: wheelCacheDir,
+    stageDir,
+    fetchImpl,
+    offline,
+    log,
+  });
+  return { ...packs, wheelhouse: staged };
+}
+
 async function beforePack(options = {}) {
   if (process.env.FRIDAY_SKIP_TOOLCHAIN_STAGE === "1") return { skipped: true };
   const offline = options.offline === true || process.env.FRIDAY_OFFLINE === "1";
@@ -195,9 +232,13 @@ async function beforePack(options = {}) {
       fs.rmSync(temp, { force: true });
     }
   };
-  return stageBundledPacks({
+  const lock = manifest.wheelhouse ? wheelhouse.readLock() : null;
+  return stageAll({
     manifest,
+    lock,
+    requirementsText: lock ? wheelhouse.readRequirements(lock) : null,
     cacheDir: path.join(__dirname, "../.cache/toolchain"),
+    wheelCacheDir: path.join(__dirname, "../.cache/wheelhouse"),
     stageDir: path.join(__dirname, "../resources"),
     fetchImpl,
     offline,
@@ -208,6 +249,7 @@ async function beforePack(options = {}) {
 module.exports = beforePack;
 module.exports.stagePlan = stagePlan;
 module.exports.stageBundledPacks = stageBundledPacks;
+module.exports.stageAll = stageAll;
 module.exports.sha256 = sha256;
 module.exports.sourceUrls = sourceUrls;
 module.exports.progressLine = progressLine;
@@ -222,9 +264,13 @@ if (require.main === module) {
         console.log("[friday] ok       packs for the EXE: staging is switched off");
         return;
       }
-      const mib = Math.round(result.sum / 1024 ** 2);
+      const wheels = result.wheelhouse;
+      const mib = Math.round((result.sum + (wheels ? wheels.bytes : 0)) / 1024 ** 2);
+      const what = wheels
+        ? `${result.staged.length} packs and ${wheels.wheels} Python wheels`
+        : `${result.staged.length} packs`;
       console.log(
-        `[friday] ok       ${result.staged.length} packs for the EXE are ready (${mib} MB); the build reuses them`,
+        `[friday] ok       ${what} for the EXE are ready (${mib} MB); the build reuses them`,
       );
     },
     (err) => {

@@ -19,6 +19,12 @@ $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $requirements = Join-Path $InstallDir 'resources\kernel\requirements.txt'
 $pythonHelper = Join-Path $InstallDir 'resources\installer\build\install-python.ps1'
 $pythonPathFile = Join-Path $env:TEMP "friday-python-$PID.txt"
+# The Setup EXE carries the pinned Windows wheels of kernel\requirements.txt for each Python series it supports
+# (scripts/wheelhouse.cjs checks every one against its SHA-256 at build). It is unpacked to a temporary folder only
+# when something has to be installed, and that folder is removed when this script ends.
+$wheelhousePack = Join-Path $InstallDir 'resources\toolchain\wheelhouse\pack.bin'
+$wheelhouseDir = Join-Path $env:TEMP "friday-wheelhouse-$PID"
+$script:wheelhouse = $null
 
 # The FRIDAY folder's own environment is the one this script repairs, reuses and, when nothing exists, builds:
 # <root>\runtime\.venv, the home the storage contract names. An update and a normal uninstall never touch it, so a
@@ -37,6 +43,7 @@ if ((Split-Path -Leaf $InstallDir) -ieq 'App') {
 function Finish([string]$Status, [int]$Code) {
   Set-Content -LiteralPath $StatusFile -Value $Status -Encoding ASCII
   Remove-Item -LiteralPath $pythonPathFile -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $wheelhouseDir -Recurse -Force -ErrorAction SilentlyContinue
   exit $Code
 }
 
@@ -74,9 +81,46 @@ function Test-VoiceCore {
   return ($LASTEXITCODE -eq 0)
 }
 
+# The unpacked wheelhouse folder, or '' when this EXE carries none or it cannot be read. Never an error.
+function Get-Wheelhouse {
+  if ($null -ne $script:wheelhouse) { return $script:wheelhouse }
+  $script:wheelhouse = ''
+  if (-not (Test-Path -LiteralPath $wheelhousePack -PathType Leaf)) { return '' }
+  try {
+    Remove-Item -LiteralPath $wheelhouseDir -Recurse -Force -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($wheelhousePack, $wheelhouseDir)
+    if (Test-Path -LiteralPath (Join-Path $wheelhouseDir 'wheelhouse.json') -PathType Leaf) {
+      $script:wheelhouse = $wheelhouseDir
+    }
+  } catch {
+    $script:wheelhouse = ''
+  }
+  return $script:wheelhouse
+}
+
+# Offline first: every package from the wheelhouse, with no network at all. When that cannot finish (a wheel this
+# EXE does not carry), the wheelhouse is kept and the network fills only what is missing, at the same pinned
+# versions. Returns $true or $false and never ends Setup: on $false the caller's network methods run as before.
+function Install-FromWheelhouse([string]$Requirements) {
+  if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
+  $tag = & $venvPython -c "import sys;print('cp%d%d' % sys.version_info[:2])" 2>$null | Select-Object -First 1
+  $tag = "$tag".Trim()
+  if ($tag -notmatch '^cp[0-9]+$') { return $false }
+  $house = Get-Wheelhouse
+  if (-not $house) { return $false }
+  $constraints = Join-Path $house "constraints-$tag.txt"
+  if (-not (Test-Path -LiteralPath $constraints -PathType Leaf)) { return $false }
+  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house -r $Requirements | Out-Host
+  if ($LASTEXITCODE -eq 0) { return $true }
+  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints -r $Requirements | Out-Host
+  return ($LASTEXITCODE -eq 0)
+}
+
 function Install-VoiceCore {
   if (Test-VoiceCore) { return }
   if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { return }
+  if (Install-FromWheelhouse $requirements) { return }
   $voiceMethods = @(
     @('--disable-pip-version-check', '--only-binary=:all:', '-r', $requirements),
     @('--disable-pip-version-check', '--prefer-binary', '-r', $requirements),
@@ -128,7 +172,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $venvPython)) {
 }
 
 function Install-Pip {
-  & $venvPython -m ensurepip --upgrade
+  & $venvPython -m ensurepip --upgrade | Out-Host
   if ($LASTEXITCODE -eq 0) { return $true }
   $downloads = Join-Path $InstallDir 'temporary\downloads'
   New-Item -ItemType Directory -Force -Path $downloads | Out-Null
@@ -151,7 +195,7 @@ function Install-Pip {
       }
     }
     if (-not $got) { continue }
-    & $venvPython $file
+    & $venvPython $file | Out-Host
     if ($LASTEXITCODE -eq 0) { return $true }
   }
   return $false
@@ -165,10 +209,12 @@ $pipMethods = @(
   @('--disable-pip-version-check', '--prefer-binary', '--no-cache-dir', '-r', $requirements),
   @('--disable-pip-version-check', '--prefer-binary', '--index-url', 'https://pypi.org/simple', '-r', $requirements)
 )
-$installed = $false
-foreach ($method in $pipMethods) {
-  & $venvPython -m pip install @method
-  if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+$installed = Install-FromWheelhouse $requirements
+if (-not $installed) {
+  foreach ($method in $pipMethods) {
+    & $venvPython -m pip install @method
+    if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+  }
 }
 if (-not $installed) { Finish 'requirements-failed' 8 }
 if (-not (Test-Runtime)) { Finish 'verification-failed' 9 }
