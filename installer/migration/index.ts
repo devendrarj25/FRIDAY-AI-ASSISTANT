@@ -22,6 +22,8 @@ import type { FridayModule, ModuleContext } from "../../core/types";
 export interface MigrationRecord {
   id: string;
   appliedAt: number;
+  /** The app version that applied it. Rows written before this field existed have none. */
+  appVersion?: string;
 }
 
 export interface Migration {
@@ -48,13 +50,20 @@ export function appliedMigrations(root = capabilities.getRoot()): MigrationRecor
   return readJson<MigrationRecord[]>(ledgerFile(root)) ?? [];
 }
 
-export function runMigrations(root = capabilities.getRoot()): MigrationRecord[] {
+export function runMigrations(
+  root = capabilities.getRoot(),
+  appVersion?: string | null,
+): MigrationRecord[] {
   const applied = appliedMigrations(root);
   const seen = new Set(applied.map((m) => m.id));
   for (const migration of MIGRATIONS) {
     if (seen.has(migration.id)) continue;
     migration.run(root);
-    applied.push({ id: migration.id, appliedAt: Date.now() });
+    applied.push({
+      id: migration.id,
+      appliedAt: Date.now(),
+      ...(appVersion ? { appVersion } : {}),
+    });
   }
   writeJson(ledgerFile(root), applied);
   return applied;

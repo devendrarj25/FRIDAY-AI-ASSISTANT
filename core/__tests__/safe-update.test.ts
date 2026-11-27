@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { appliedMigrations, runMigrations } from "../../installer/migration";
 
 const require = createRequire(import.meta.url);
 const safety = require(path.resolve(process.cwd(), "electron/update-safety.cjs"));
@@ -160,5 +161,111 @@ describe("backup, health check and rollback", () => {
     expect(safety.MUST_PRESERVE).toContain("models");
     expect(safety.MUST_PRESERVE).toContain("voices");
     expect(safety.MUST_PRESERVE).toEqual(expect.arrayContaining(safety.PROTECTED));
+  });
+});
+
+describe("installer pruning keeps the rollback target", () => {
+  const dir = () => path.join(root, "updates", "installers");
+  const seed = (names: string[]) => {
+    fs.mkdirSync(dir(), { recursive: true });
+    // names[0] is the newest; every file gets its own, strictly older timestamp.
+    names.forEach((name, index) => {
+      const file = path.join(dir(), name);
+      fs.writeFileSync(file, "x");
+      const when = new Date(Date.UTC(2026, 0, 30 - index));
+      fs.utimesSync(file, when, when);
+    });
+  };
+  const left = () => fs.readdirSync(dir()).sort();
+
+  it("keeps the installer named by stable.json even when it is older than the newest two", () => {
+    seed([
+      "FRIDAY-Setup-1.2.5.9.exe",
+      "FRIDAY-Setup-1.2.5.8.exe",
+      "FRIDAY-Setup-1.2.5.7.exe",
+      "FRIDAY-Setup-1.2.5.6.exe",
+    ]);
+    safety.markStable({
+      root,
+      version: "1.2.5.6",
+      installer: path.join(dir(), "FRIDAY-Setup-1.2.5.6.exe"),
+    });
+    const out = safety.pruneInstallers({ root, keep: 2 });
+    expect(out.removed).toEqual(["FRIDAY-Setup-1.2.5.7.exe"]);
+    expect(left()).toEqual([
+      "FRIDAY-Setup-1.2.5.6.exe",
+      "FRIDAY-Setup-1.2.5.8.exe",
+      "FRIDAY-Setup-1.2.5.9.exe",
+    ]);
+  });
+
+  it("finds the stable installer when stable.json holds a Windows path or a bare name", () => {
+    seed(["a-3.exe", "a-2.exe", "a-1.exe", "a-0.exe"]);
+    safety.markStable({
+      root,
+      version: "0",
+      installer: "D:\\FRIDAY\\updates\\installers\\a-0.exe",
+    });
+    safety.pruneInstallers({ root, keep: 2 });
+    expect(left()).toContain("a-0.exe");
+    safety.markStable({ root, version: "1", installer: "a-1.exe" });
+    seed(["a-3.exe", "a-2.exe", "a-1.exe", "a-0.exe"]);
+    safety.pruneInstallers({ root, keep: 2 });
+    expect(left()).toEqual(["a-1.exe", "a-2.exe", "a-3.exe"]);
+  });
+
+  it("keeps the previous installer a pending update will roll back to, and its blockmap", () => {
+    seed(["n-3.exe", "n-2.exe", "n-1.exe", "n-0.exe"]);
+    fs.writeFileSync(path.join(dir(), "n-0.exe.blockmap"), "map");
+    safety.markStable({ root, version: "n-0", installer: "n-0.exe" });
+    safety.beginInstall({ root, version: "n-3", currentVersion: "n-0", installer: "n-3.exe" });
+    // Only the pending record names the rollback target now.
+    fs.rmSync(path.join(root, "updates", "stable.json"));
+    safety.pruneInstallers({ root, keep: 2 });
+    expect(left()).toEqual(["n-0.exe", "n-0.exe.blockmap", "n-2.exe", "n-3.exe"]);
+  });
+
+  it("still keeps the newest two and removes the rest when there is no stable record", () => {
+    seed(["z-3.exe", "z-2.exe", "z-1.exe", "z-0.exe"]);
+    const out = safety.pruneInstallers({ root, keep: 2 });
+    expect(out.removed.sort()).toEqual(["z-0.exe", "z-1.exe"]);
+    expect(left()).toEqual(["z-2.exe", "z-3.exe"]);
+  });
+
+  it("never lets a stable record point outside the installers folder", () => {
+    seed(["q-2.exe", "q-1.exe", "q-0.exe"]);
+    const outside = path.join(root, "keep-me.exe");
+    fs.writeFileSync(outside, "x");
+    safety.markStable({ root, version: "0", installer: "../../keep-me.exe" });
+    safety.pruneInstallers({ root, keep: 2 });
+    expect(left()).toEqual(["q-1.exe", "q-2.exe"]);
+    expect(fs.existsSync(outside)).toBe(true);
+  });
+});
+
+describe("migration ledger records the app version", () => {
+  it("stamps each newly applied migration with the version that applied it", () => {
+    const applied = runMigrations(root, "1.2.5.8");
+    expect(applied.length).toBeGreaterThan(0);
+    for (const record of applied) expect(record.appVersion).toBe("1.2.5.8");
+    expect(appliedMigrations(root)).toEqual(applied);
+  });
+
+  it("is idempotent: a later run never re-applies or re-stamps a recorded migration", () => {
+    const first = runMigrations(root, "1.2.5.8");
+    const second = runMigrations(root, "1.2.5.9");
+    expect(second).toEqual(first);
+  });
+
+  it("keeps an old ledger row without appVersion as it is and still reads it", () => {
+    fs.mkdirSync(path.join(root, "database"), { recursive: true });
+    const old = [{ id: "0001-config-capabilities", appliedAt: 5 }];
+    fs.writeFileSync(path.join(root, "database", "migrations.json"), JSON.stringify(old));
+    expect(runMigrations(root, "1.2.5.8")).toEqual(old);
+  });
+
+  it("omits the field when no version is given", () => {
+    const applied = runMigrations(root);
+    for (const record of applied) expect(record).not.toHaveProperty("appVersion");
   });
 });

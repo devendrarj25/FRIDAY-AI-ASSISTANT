@@ -346,8 +346,10 @@ function installerLaunch({ file, appExe = "", platform = process.platform } = {}
 
 /**
  * Keep the newest few downloaded installers and delete the rest. Each one is
- * about 200 MB and an update leaves it behind; the previous one stays for a
- * rollback. Only files in <root>/updates/installers are touched.
+ * about 200 MB and an update leaves it behind. The installer that stable.json
+ * names (the last build that started healthy) and the one a pending update
+ * would roll back to are kept as well, however old, so a rollback installer
+ * always exists. Only files in <root>/updates/installers are touched.
  */
 function pruneInstallers({ root, keep = 2 } = {}) {
   if (!root) return { ok: false, removed: [] };
@@ -368,6 +370,12 @@ function pruneInstallers({ root, keep = 2 } = {}) {
       }
     })
     .sort((a, b) => b.at - a.at);
+  // Rollback targets are matched by file name only, so a record can never point the cleanup elsewhere.
+  const rollbackNames = new Set(
+    [readJson(stableFile(root))?.installer, readJson(stateFile(root))?.previousInstaller]
+      .filter((value) => typeof value === "string" && value)
+      .map((value) => value.split(/[\\/]/).pop().toLowerCase()),
+  );
   const removed = [];
   // A half-finished download nobody resumed within a week is just disk space.
   try {
@@ -387,6 +395,7 @@ function pruneInstallers({ root, keep = 2 } = {}) {
     /* next time */
   }
   for (const row of rows.slice(Math.max(1, keep))) {
+    if (rollbackNames.has(row.name.toLowerCase())) continue;
     try {
       fs.rmSync(path.join(dir, row.name), { force: true });
       fs.rmSync(path.join(dir, `${row.name}.part`), { force: true });
