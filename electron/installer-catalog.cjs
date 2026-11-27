@@ -25,6 +25,7 @@ const vendor = require("./vendor-sources.cjs");
 const fitApi = require("./engine-fit.cjs");
 const engineInstall = require("./engine-install.cjs");
 const llama = require("./llama-runtime.cjs");
+const llmSelect = require("./llm-engine-select.cjs");
 const inventory = require("./install-inventory.cjs");
 
 const UPDATE_STATUSES = Object.freeze(["current", "update", "unknown", "error"]);
@@ -76,7 +77,9 @@ function planUpdate({ row, autonomy, consent } = {}) {
 function chainOfTool(tool) {
   if (tool.engine && engineInstall.ENGINES[tool.engine]) {
     const spec = engineInstall.ENGINES[tool.engine];
-    return { key: spec.id, sources: engineInstall.engineSources(spec), spec };
+    const sources = engineInstall.engineSources(spec);
+    // FRIDAY's own build has nothing to read until its release asset is recorded; no chain means no "error" row.
+    return sources.length ? { key: spec.id, sources, spec } : null;
   }
   if (tool.pipBundle && engineInstall.PIP_BUNDLES[tool.pipBundle]) {
     const main = engineInstall.PIP_BUNDLES[tool.pipBundle].parts.at(-1).dist;
@@ -283,6 +286,24 @@ function createInstallerCatalog(deps = {}) {
 
   const factsNow = () => safe(() => (deps.facts ? deps.facts() : null), null);
 
+  /** Which engine runs and the row strings of both (`llama-runtime.engineState`); null when nothing can be read. */
+  function ownEngineState() {
+    const root = rootDir();
+    if (!root) return null;
+    const state = safe(
+      () =>
+        deps.engineState
+          ? deps.engineState(root)
+          : llama.engineState(root, {
+              prefer: deps.enginePrefer ? safe(deps.enginePrefer, "auto") : "auto",
+            }),
+      null,
+    );
+    return state
+      ? { active: state.active, outdated: Boolean(state.outdated), rows: state.rows }
+      : null;
+  }
+
   /** The catalogue as it is now: quick, no network, no probe. */
   function snapshot() {
     const facts = factsNow();
@@ -374,6 +395,7 @@ function createInstallerCatalog(deps = {}) {
             : null,
         };
       }
+      if (row.engine === "friday-runtime-llm") out.engineState = ownEngineState();
       return out;
     });
     return {
@@ -561,6 +583,21 @@ function doctorRows(rows) {
         ? `${row.installedVersion || "installed"}${row.engine?.active?.backend ? `, ${row.engine.active.backend} build` : ""}`
         : "optional: not installed",
       repair: row.installed ? { id, action: "repair" } : null,
+    });
+  }
+  const ownRow = pick("friday-runtime-llm");
+  if (ownRow) {
+    const state = ownRow.engineState;
+    const names = state?.rows || llmSelect.rowNames({});
+    out.push({
+      id: "engine:friday-runtime-llm",
+      label: ownRow.installed ? names.own : "FRIDAY Runtime LLM (own build, native)",
+      status: !ownRow.installed ? "skip" : state?.outdated ? "warn" : "ok",
+      detail: !ownRow.installed
+        ? "optional: not installed, the official llama.cpp runs FRIDAY Core"
+        : [names.status, names.outdated].filter(Boolean).join("; ") ||
+          `installed ${ownRow.installedVersion || ""}`.trim(),
+      repair: { id: ownRow.id, action: ownRow.installed ? "repair" : "install" },
     });
   }
   return out;

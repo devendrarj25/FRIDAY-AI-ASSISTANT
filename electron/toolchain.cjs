@@ -1142,6 +1142,19 @@ const TOOLS = [
     detect: engineDetector("llama.cpp", { pathFallback: true }),
     requirements: { diskBytes: 25_000_000 },
   }),
+  T("friday-runtime-llm", "AI Runtimes", {
+    cmd: "friday-runtime-llm",
+    args: ["--version"],
+    url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+    source: "github.com/devendrarj25",
+    manual:
+      "FRIDAY's own build of the llama.cpp server for this PC. Sources in order: the release asset (only once its SHA-256 is recorded), a local build in runtime/own-build/friday-runtime-llm, then the official llama.cpp, which stays installed as the fallback and runs when this build does not.",
+    // Installs through electron/engine-install.cjs `installOwnEngine`; it is used only when it is the same tag as the
+    // official engine and starts, otherwise the official engine keeps running.
+    engine: "friday-runtime-llm",
+    detect: engineDetector("friday-runtime-llm"),
+    requirements: { diskBytes: 25_000_000, recommended: false },
+  }),
 
   T("LM Studio", "AI Runtimes", {
     cmd: "lms",
@@ -3551,7 +3564,7 @@ function execCapture(exe, args, { timeoutMs = 60_000 } = {}) {
  * (`tool.pipBundle`: the CUDA runtime pair, the ONNX Runtime variants). The new copy is built next to the old one
  * and swapped in only after it was checked; any failure leaves the old install as it was.
  */
-async function runEngineJob({ tool, action, root }, emit) {
+async function runEngineJob({ tool, action, root }, emit, hooks = {}) {
   const id = tool.id;
   const key = `${id}:${action}`;
   const say = (line, extra = {}) => emit({ id, action, phase: "Running", line, ...extra });
@@ -3585,17 +3598,23 @@ async function runEngineJob({ tool, action, root }, emit) {
         emit({ id, action, ok: true, phase: "Done", line: gone ? "removed" : "nothing to remove" });
         return { ok: true };
       }
-      const answer = await vendorSources.resolveLatest(spec.id, engineInstall.engineSources(spec), {
-        store: feeds,
-        force: true,
-      });
-      const release = engineInstall.releaseForInstall(spec, answer);
-      if (!release.ok) return fail(release.error);
-      say(
-        release.usedPin
-          ? `the release list could not be read; using the pinned release ${release.tag}`
-          : `newest official release is ${release.tag} (${release.source})`,
-      );
+      // FRIDAY's own build has no vendor feed: owner release asset, local build folder, then the official engine.
+      const own = spec.origin === "friday-own";
+      let release = null;
+      if (!own) {
+        const answer = await vendorSources.resolveLatest(
+          spec.id,
+          engineInstall.engineSources(spec),
+          { store: feeds, force: true },
+        );
+        release = engineInstall.releaseForInstall(spec, answer);
+        if (!release.ok) return fail(release.error);
+        say(
+          release.usedPin
+            ? `the release list could not be read; using the pinned release ${release.tag}`
+            : `newest official release is ${release.tag} (${release.source})`,
+        );
+      }
       const python = await resolvePython(path.join(__dirname, ".."));
       const pyRun = python
         ? (cmd, args) =>
@@ -3607,36 +3626,62 @@ async function runEngineJob({ tool, action, root }, emit) {
               }),
             )
         : null;
-      const out = await engineInstall.installEngine(
-        root,
-        spec,
-        { release, facts: readFacts(), computeCap: await readComputeCap() },
-        {
-          download: (url, dest, o) =>
-            require("./model-download.cjs").downloadUrl(url, dest, {
-              onEvent: progress(new URL(url).hostname),
-              signal: abort.signal,
-              sha256: o.sha256,
-              label: `Downloading ${path.basename(dest)}`,
-              extraHosts: [url],
-            }),
-          extract: (zip, dest) =>
-            pyRun
-              ? llamaRuntime.extractZip(zip, dest, { python: python.exe, run: pyRun })
-              : Promise.resolve({
-                  ok: false,
-                  error: "a Python runtime is needed to unpack the zip safely",
-                }),
-          health: (bin, args) => llamaRuntime.healthCheck(bin, args),
-          fetchText: async (url) => {
-            const { fetchCompat } = require("./net-fetch.cjs");
-            return (await fetchCompat(url, { signal: AbortSignal.timeout(8000) })).text();
-          },
-          diskFree: (dir) => diskRoom(dir),
-          run: (kind, fn) => inLane(kind, fn, abort.signal),
-          emit: (line) => say(line),
+      const engineDeps = {
+        download: (url, dest, o) =>
+          require("./model-download.cjs").downloadUrl(url, dest, {
+            onEvent: progress(new URL(url).hostname),
+            signal: abort.signal,
+            sha256: o.sha256,
+            label: `Downloading ${path.basename(dest)}`,
+            extraHosts: [url],
+          }),
+        extract: (zip, dest) =>
+          pyRun
+            ? llamaRuntime.extractZip(zip, dest, { python: python.exe, run: pyRun })
+            : Promise.resolve({
+                ok: false,
+                error: "a Python runtime is needed to unpack the zip safely",
+              }),
+        health: (bin, args) => llamaRuntime.healthCheck(bin, args),
+        fetchText: async (url) => {
+          const { fetchCompat } = require("./net-fetch.cjs");
+          return (await fetchCompat(url, { signal: AbortSignal.timeout(8000) })).text();
         },
-      );
+        diskFree: (dir) => diskRoom(dir),
+        run: (kind, fn) => inLane(kind, fn, abort.signal),
+        emit: (line) => say(line),
+      };
+      const facts = { facts: readFacts(), computeCap: await readComputeCap() };
+      if (own) {
+        const done = await engineInstall.installOwnEngine(
+          root,
+          { ...facts, ...(hooks.own || {}) },
+          { ...engineDeps, ...(hooks.deps || {}) },
+        );
+        for (const a of done.attempts.filter((x) => !x.ok)) say(`${a.source}: ${a.reason}`);
+        if (!done.ok) return fail(done.error, { fellBack: done.fellBack });
+        const note = done.reused
+          ? "already the recorded build and healthy, nothing was downloaded"
+          : `from the ${done.source === "release" ? "release asset" : "local build folder"}`;
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          version: done.tag,
+          line: `installed ${spec.label} ${done.tag} (${note})${
+            done.outdated ? "; own build outdated, the official engine stays active" : ""
+          } at ${done.bin || root}`,
+        });
+        return {
+          ok: true,
+          version: done.tag,
+          source: done.source,
+          reused: Boolean(done.reused),
+          outdated: Boolean(done.outdated),
+        };
+      }
+      const out = await engineInstall.installEngine(root, spec, { release, ...facts }, engineDeps);
       if (!out.ok) {
         for (const a of out.attempts.filter((x) => !x.ok)) say(`${a.backend}: ${a.reason}`);
         return fail(out.error);

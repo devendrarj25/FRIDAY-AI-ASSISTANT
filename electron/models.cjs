@@ -2107,10 +2107,22 @@ const coreKeyed = async (port, key, probe) => {
 /** The runtime child while it loads (spawned, not yet ready): `stopCore` can end it, and `coreJob` knows it was told to. */
 let pendingChild = null;
 let coreCancelled = false;
+/** Aborts the start in flight: the engine start path stops waiting and tries no other engine. */
+let coreAbort = null;
+
+/** What the engine start path says (`llama-runtime.startEngine`) in the words the owner already reads. */
+function coreStartError(reason) {
+  const text = String(reason || "FRIDAY Core could not be started");
+  return /never became healthy/.test(text) ? "the runtime started but never became healthy" : text;
+}
 
 /**
- * Start FRIDAY Core. Returns `{ ok, running, endpoint }` once the server answers `/health`, or `{ ok: false, error }`.
- * `options`: `variant`, plus injections for tests (`launch`, `spawn`, `probe`, `timeoutMs`, `stepMs`).
+ * Start FRIDAY Core. Returns `{ ok, running, engine, endpoint }` once the server answers `/health` and this launch's
+ * key, or `{ ok: false, error }`. The engine is chosen and started by `llama-runtime.startEngine` (own build or official
+ * engine, the other one when the first does not come up, health recorded in the folder marker); everything around it
+ * stays here: the stop during a slow load, the key proof, the setting re-read, the tracked child.
+ * `options`: `variant`, `prefer` (auto, own or official), plus injections for tests (`launch`, `spawn`, `probe`,
+ * `timeoutMs`, `stepMs`, `root`, `engine` for the engine start path).
  */
 async function startCore(options = {}) {
   if (coreServer)
@@ -2118,69 +2130,67 @@ async function startCore(options = {}) {
   if (coreJob) return { ok: false, error: "a start/stop job is already running" };
   coreJob = true;
   coreCancelled = false;
+  const abort = new AbortController();
+  coreAbort = abort;
+  const stopped = () => ({
+    ok: false,
+    running: false,
+    error: "FRIDAY Core was stopped while loading",
+  });
   try {
     const runtime = require("./llama-runtime.cjs");
-    const root = paths.root() || paths.base();
-    const launch =
-      options.launch ||
-      (await runtime.coreLaunch(root, options.variant ? { variant: options.variant } : {}));
-    if (!launch.ok) return { ok: false, running: false, error: launch.reason };
-    if (!options.launch && !(await commandAvailable(launch.bin)))
-      return { ok: false, running: false, error: `${launch.bin} is not installed` };
-    let child;
+    const root = options.root || paths.root() || paths.base();
+    // Not detached: Core ends with FRIDAY. It stands in a neutral folder (the engine start path sets that).
+    const spawnWatched = (bin, args, opts) => {
+      if (coreCancelled) throw new Error("FRIDAY Core was stopped while loading");
+      const child = (options.spawn || spawn)(bin, args, opts);
+      pendingChild = child;
+      child.once("exit", () => {
+        if (coreServer && coreServer.child === child) {
+          coreServer = null;
+          announceCore();
+        }
+      });
+      return child;
+    };
+    let result;
     try {
-      // Not detached: Core ends with FRIDAY. It stands in a neutral folder so it never pins the program folder.
-      child = (options.spawn || spawn)(launch.bin, launch.args, {
-        stdio: "ignore",
-        windowsHide: true,
-        cwd: os.tmpdir(),
-        env: launch.env,
+      result = await runtime.startEngine(root, {
+        isHealthy: (entry) => fs.existsSync(entry.bin),
+        ...(options.engine || {}),
+        ...(options.variant ? { variant: options.variant } : {}),
+        ...(options.prefer ? { prefer: options.prefer } : {}),
+        ...(options.launch ? { launch: options.launch } : {}),
+        ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.stepMs ? { stepMs: options.stepMs } : {}),
+        spawn: spawnWatched,
+        stop: killChild,
+        signal: abort.signal,
+        probe: async (url) => (options.probe || request)(url, { timeout: 2000 }),
       });
     } catch (err) {
+      if (coreCancelled) return stopped();
       return {
         ok: false,
         running: false,
         error: `could not be started: ${String(err.message || err)}`,
       };
     }
-    pendingChild = child;
-    // The one lifecycle owner stops it on quit or after a crash, like the speech workers.
-    require("./app-lifecycle.cjs").trackOwned("runner", child, launch.bin);
-    let exited = null;
-    child.once("exit", (code) => {
-      exited = code ?? -1;
-      if (coreServer && coreServer.child === child) {
-        coreServer = null;
-        announceCore();
-      }
-    });
-    child.once("error", (err) => {
-      exited = String(err.message || err);
-    });
-    const until = Date.now() + (options.timeoutMs || 120000);
-    const step = options.stepMs || 500;
-    const stopped = () => ({
-      ok: false,
-      running: false,
-      error: "FRIDAY Core was stopped while loading",
-    });
-    for (;;) {
-      if (coreCancelled) return stopped();
-      if (exited !== null)
-        return {
-          ok: false,
-          running: false,
-          error: `the runtime stopped while loading (${exited})`,
-        };
-      if (await coreHealthy(launch.port, options.probe).catch(() => false)) break;
-      if (Date.now() > until) {
-        killChild(child);
-        return { ok: false, running: false, error: "the runtime started but never became healthy" };
-      }
-      await new Promise((r) => setTimeout(r, step));
+    if (coreCancelled) {
+      if (result.child) killChild(result.child);
+      return stopped();
     }
-    if (coreCancelled) return stopped();
-    if (!(await coreKeyed(launch.port, launch.key, options.probe).catch(() => false))) {
+    if (!result.ok) {
+      const last = result.tried?.at(-1);
+      return {
+        ok: false,
+        running: false,
+        error: coreStartError(last?.reason || result.reason),
+        ...(result.tried?.length ? { tried: result.tried } : {}),
+      };
+    }
+    const { child, port, key } = result;
+    if (!(await coreKeyed(port, key, options.probe).catch(() => false))) {
       killChild(child);
       return {
         ok: false,
@@ -2196,28 +2206,34 @@ async function startCore(options = {}) {
       killChild(child);
       return stopped();
     }
-    coreCapabilities = launch.capabilities || coreCapabilities;
+    coreCapabilities = result.capabilities || coreCapabilities;
     coreServer = {
       child,
       pid: child.pid,
-      port: launch.port,
-      key: launch.key,
-      baseUrl: launch.baseUrl,
-      variant: launch.variant,
-      fridayName: launch.fridayName,
-      vision: launch.vision,
+      port,
+      key,
+      baseUrl: result.baseUrl,
+      variant: result.variant,
+      fridayName: result.fridayName,
+      vision: result.vision,
+      engine: result.engine ?? null,
     };
     pendingChild = null;
     await announceCore();
-    return { ok: true, running: true, endpoint: coreEndpoint() };
+    return { ok: true, running: true, engine: result.engine ?? null, endpoint: coreEndpoint() };
   } finally {
     pendingChild = null;
+    coreAbort = null;
     coreJob = false;
   }
 }
 
-/** Stops a child FRIDAY started through the one lifecycle owner (a process tree on Windows). Never throws. */
+const killedChildren = new WeakSet();
+
+/** Stops a child FRIDAY started through the one lifecycle owner (a process tree on Windows). Once per child; never throws. */
 function killChild(child) {
+  if (!child || killedChildren.has(child)) return;
+  killedChildren.add(child);
   try {
     require("./app-lifecycle.cjs").stopChild(child, "SIGTERM");
   } catch {
@@ -2227,11 +2243,14 @@ function killChild(child) {
 
 /** Stop the Core FRIDAY started. True when none is left running. */
 async function stopCore() {
-  if (pendingChild) {
+  if (coreJob) {
     // Stopped mid-load: end the runtime now; the start in flight sees the flag and returns without a Core.
+    coreCancelled = true;
+    coreAbort?.abort();
+  }
+  if (pendingChild) {
     const loading = pendingChild;
     pendingChild = null;
-    coreCancelled = true;
     killChild(loading);
   }
   if (!coreServer) return true;
