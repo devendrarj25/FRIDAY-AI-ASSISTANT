@@ -6,7 +6,11 @@
     "github.com",
     "api.github.com",
     "lmstudio.ai",
-    "huggingface.co"
+    "huggingface.co",
+    "archive.apache.org",
+    "getcomposer.org",
+    "cmake.org",
+    "downloads.gradle.org"
   ],
   "families": [
     {

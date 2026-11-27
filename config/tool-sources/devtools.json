@@ -272,8 +272,7 @@
       ],
       "download": {
         "urlTemplate": "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/{version}/windows_10_cmake_Release_Graphviz-{version}-win64.zip",
-        "archive": "zip",
-        "digestUrl": "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/{version}/windows_10_cmake_Release_Graphviz-{version}-win64.zip.sha256"
+        "archive": "zip"
       },
       "notifyOnly": false,
       "checked": "2026-11-27"

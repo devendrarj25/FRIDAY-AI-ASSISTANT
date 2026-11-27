@@ -744,6 +744,28 @@ describe("the shipped data files (config/tool-sources/*.json)", () => {
     expect(family?.hosts ?? []).toEqual([...(family?.hosts ?? [])].sort());
   });
 
+  it("hosts that rows reach only through the tool table or a redirect are listed exactly", () => {
+    for (const h of [
+      "downloads.gradle.org",
+      "archive.apache.org",
+      "getcomposer.org",
+      "cmake.org",
+    ]) {
+      expect(policy.hosts.filter((x) => x === h)).toEqual([h]);
+      expect(allowed(h)).toBe(true);
+    }
+    expect(allowed("evil.gradle.org")).toBe(false);
+    expect(policy.families.some((f) => (f.suffixes || []).includes("gradle.org"))).toBe(false);
+  });
+
+  it("Graphviz has no usable digest source, so it only notifies and never installs", () => {
+    const spec = vendor.rowSpec("Graphviz", {
+      toolSources: vendor.loadToolSources({ dir: SOURCES_DIR }),
+    });
+    expect(spec?.download?.digestUrl).toBeUndefined();
+    expect(vendor.downloadReadiness(spec).installable).toBe(false);
+  });
+
   it("the allowlist date is a real, current date", () => {
     expect(policy.checked).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(policy.checked >= "2026-11-27").toBe(true);
