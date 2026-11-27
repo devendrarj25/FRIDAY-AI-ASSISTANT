@@ -316,6 +316,34 @@ def test_load_opens_the_files_it_found_through_the_session_factory(tmp_path):
     assert ear.frame_s == pytest.approx(0.04)
 
 
+def test_a_folder_shaped_like_the_hindi_pin_keeps_its_blank_last_and_decodes_by_that_id(tmp_path):
+    """IndicConformer hi: ``<unk>`` is id 0, the blank is the LAST id, the config is the pin's four keys, the graph
+    is ``model.int8.onnx`` and the frame step is 40 ms (subsampling 4)."""
+    pieces = ["<unk>", MARK + "आज", "मौ", "सम", MARK + "है", "<blk>"]
+    (tmp_path / "vocab.txt").write_text("\n".join(f"{p} {i}" for i, p in enumerate(pieces)), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "nemo-conformer-ctc",
+                "features_size": 80,
+                "subsampling_factor": 4,
+                "max_tokens_per_step": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "model.int8.onnx").write_bytes(b"x")
+    session = CtcSession([5, 1, 1, 5, 2, 5, 2, 2, 3, 5, 5, 4, 5], vocab=len(pieces))
+    ear = NemoEar.load(tmp_path, kind="nemo-conformer-ctc", quantization="int8", session_factory=lambda _p: session)
+    assert (ear.kind, ear.blank_id, ear.vocab_size, ear.subsampling) == ("ctc", 5, 6, 4)
+    assert ear.frame_s == pytest.approx(0.04)
+    assert ear.pieces()[0] == "<unk>" and ear.pieces()[5] == "<blk>"  # the head reader gets the blank where it is
+    heard = ear.with_timestamps().recognize(SECOND)
+    tokens = heard.tokens or []
+    assert heard.text == "आजमौमौसम है" and "<unk>" not in tokens and "<blk>" not in tokens
+    assert heard.timestamps == pytest.approx([f * 0.04 for f in (1, 4, 6, 8, 11)])
+
+
 def test_load_builds_its_sessions_with_the_shared_thread_budget_unless_told_a_count(tmp_path, monkeypatch):
     folder = _folder(tmp_path, ["model.int8.onnx"], {"features_size": 128, "subsampling_factor": 4})
     asked: list[int] = []
