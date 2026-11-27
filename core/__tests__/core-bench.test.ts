@@ -145,9 +145,9 @@ describe("streaming: TTFT and tokens per second", () => {
       headers: Record<string, string>;
     };
     expect(sent.url).toBe("http://127.0.0.1:8080/v1/chat/completions");
-    expect(sent.body.stream).toBe(true);
-    expect(sent.body.tools).toBeUndefined();
-    expect(sent.headers.authorization).toBe("Bearer k-test");
+    expect(sent.body["stream"]).toBe(true);
+    expect(sent.body["tools"]).toBeUndefined();
+    expect(sent.headers["authorization"]).toBe("Bearer k-test");
   });
 
   it("counts chunks when the server sends no usage, and keeps the server's own timing", async () => {
@@ -188,8 +188,10 @@ describe("streaming: TTFT and tokens per second", () => {
     });
     expect(r.ttftMs).toBe(120);
     expect(r.toolCalls).toEqual([{ name: "set_timer", arguments: '{"minutes": 10}' }]);
-    expect(((seen[0] as { body: Json }).body.tools as unknown[]).length).toBe(dataset.tools.length);
-    expect(bench.validateToolCall(r.toolCalls[0], dataset.tools).valid).toBe(true);
+    expect(((seen[0] as { body: Json }).body["tools"] as unknown[]).length).toBe(
+      dataset.tools.length,
+    );
+    expect(bench.validateToolCall(r.toolCalls[0] as Call, dataset.tools).valid).toBe(true);
   });
 
   it("reports an http error or a stream with no tokens as an error row instead of throwing", async () => {
@@ -429,9 +431,9 @@ describe("statistics", () => {
     const res = bench.compareReports(mk("A", 900, "stt"), faster);
     expect(res.pairs).toBe(12);
     expect(res.loadMatch).toBe(true);
-    expect(res.overall.ttftMs.verdict).toBe("B better");
-    expect(res.overall.ttftMs.meanDiff).toBe(-500);
-    expect(res.overall.score.verdict).toBe("no clear difference");
+    expect(res.overall["ttftMs"]?.verdict).toBe("B better");
+    expect(res.overall["ttftMs"]?.meanDiff).toBe(-500);
+    expect(res.overall["score"]?.verdict).toBe("no clear difference");
     expect(bench.compareReports(mk("A", 900, "none"), faster).loadMatch).toBe(false);
   });
 });
@@ -459,9 +461,9 @@ describe("the committed prompt set", () => {
     for (const item of dataset.items.filter((i) => ["hinglish", "en"].includes(i.group))) {
       expect(bench.scriptMatch(item.prompt, "latin").pass, item.id).toBe(true);
     }
-    expect(dataset.items.filter((i) => i.group === "tool" && i.expect.tool === null).length).toBe(
-      3,
-    );
+    expect(
+      dataset.items.filter((i) => i.group === "tool" && i.expect["tool"] === null).length,
+    ).toBe(3);
     for (const item of dataset.items.filter((i) => i.group === "vision")) {
       const png = bench.solidPng(
         (item.image as { rgb: number[] }).rgb,
@@ -529,13 +531,13 @@ describe("concurrent load", () => {
   });
 
   it("stt load repeats the kernel self-test until stopped and reports its runs", async () => {
-    const handlers: Record<string, ((v?: unknown) => void)[]> = {};
+    const handlers: { current: ((v?: unknown) => void)[] } = { current: [] };
     let launched = 0;
     let killed = false;
     const spawn = (python: string, args: string[]) => {
       launched += 1;
       expect(python).toBe("py");
-      expect(args[0].replace(/\\/g, "/")).toMatch(/kernel\/stt\.py$/);
+      expect(String(args[0]).replace(/\\/g, "/")).toMatch(/kernel\/stt\.py$/);
       expect(args[1]).toBe("--self-test");
       const h: Record<string, ((v?: unknown) => void)[]> = {};
       handlers.current = [];
@@ -551,7 +553,7 @@ describe("concurrent load", () => {
     };
     const load = bench.startLoad("stt", { spawn, python: "py" });
     expect(launched).toBe(1);
-    handlers.current[0](); // first run ends well, the next one starts
+    (handlers.current[0] as () => void)(); // first run ends well, the next one starts
     expect(launched).toBe(2);
     const end = await load.stop();
     expect(killed).toBe(true);
@@ -673,7 +675,7 @@ describe("command line against a fake streaming server", () => {
         }),
       },
     );
-    expect(code).toBe(bench.EXIT.OK);
+    expect(code).toBe(bench.EXIT["OK"]);
     const report = JSON.parse(readFileSync(out, "utf8"));
     expect(report).toMatchObject({
       kind: "core-bench",
@@ -681,8 +683,8 @@ describe("command line against a fake streaming server", () => {
       load: { mode: "cpu" },
       options: { repeat: 2, warmup: 1 },
     });
-    expect(report.items.map((i: Json) => i.id)).toEqual(["hi-a", "en-a", "tl-a"]);
-    expect(report.items.every((i: Json) => i.score === 1)).toBe(true);
+    expect(report.items.map((i: Json) => i["id"])).toEqual(["hi-a", "en-a", "tl-a"]);
+    expect(report.items.every((i: Json) => i["score"] === 1)).toBe(true);
     expect(report.summary.all.score.rate).toBe(1);
     expect(report.summary.groups.tool.n).toBe(1);
     expect(JSON.stringify(report)).not.toContain("secret-key-xyz");
@@ -717,7 +719,7 @@ describe("command line against a fake streaming server", () => {
       dataset: miniSet,
       out: (l: string) => lines.push(l),
     });
-    expect(code).toBe(bench.EXIT.NO_DATA);
+    expect(code).toBe(bench.EXIT["NO_DATA"]);
     expect(existsSync(out)).toBe(false);
     expect(lines.join(" ")).toMatch(/no data/);
   });
@@ -725,14 +727,14 @@ describe("command line against a fake streaming server", () => {
   it("refuses a remote server, a report inside the repository, and a load that cannot start", async () => {
     const quiet = { dataset: miniSet, out: () => undefined };
     expect(await bench.main(["run", "--url", "http://203.0.113.9:8080"], quiet)).toBe(
-      bench.EXIT.REFUSED,
+      bench.EXIT["REFUSED"],
     );
     expect(
       await bench.main(
         ["run", "--url", "http://127.0.0.1:1", "--out", join(__dirname, "report.json")],
         quiet,
       ),
-    ).toBe(bench.EXIT.REFUSED);
+    ).toBe(bench.EXIT["REFUSED"]);
     const failing = {
       ...quiet,
       startLoad: () => {
@@ -741,9 +743,9 @@ describe("command line against a fake streaming server", () => {
     };
     expect(
       await bench.main(["run", "--url", "http://127.0.0.1:1", "--with-load", "stt"], failing),
-    ).toBe(bench.EXIT.REFUSED);
-    expect(await bench.main(["run"], quiet)).toBe(bench.EXIT.USAGE);
-    expect(await bench.main(["bogus"], quiet)).toBe(bench.EXIT.USAGE);
+    ).toBe(bench.EXIT["REFUSED"]);
+    expect(await bench.main(["run"], quiet)).toBe(bench.EXIT["USAGE"]);
+    expect(await bench.main(["bogus"], quiet)).toBe(bench.EXIT["USAGE"]);
   });
 
   it("compare reads two reports and prints the paired verdict", async () => {
@@ -775,8 +777,8 @@ describe("command line against a fake streaming server", () => {
     expect(lines.join("\n")).toMatch(/ttftMs\s+800\.00 to 500\.00\s+diff -300\.000 .* B better/);
     expect(JSON.parse(readFileSync(join(dir, "c.json"), "utf8")).pairs).toBe(10);
     expect(await bench.main(["compare", join(dir, "a.json"), join(dir, "bad.json")], { out })).toBe(
-      bench.EXIT.USAGE,
+      bench.EXIT["USAGE"],
     );
-    expect(await bench.main(["compare", join(dir, "a.json")], { out })).toBe(bench.EXIT.USAGE);
+    expect(await bench.main(["compare", join(dir, "a.json")], { out })).toBe(bench.EXIT["USAGE"]);
   });
 });
