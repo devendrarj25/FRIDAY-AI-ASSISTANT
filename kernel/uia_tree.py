@@ -262,6 +262,41 @@ def _node_handoff(node: dict[str, Any]) -> str | None:
     return None
 
 
+def secure_refusal(raw: dict[str, Any] | None, points: list[tuple[float, float]] | None = None) -> str | None:
+    """Why a raw key, pointer or screen read must not run now, or None.
+
+    A secure prompt anywhere on screen ("uac", "credential"), a focused password
+    field, or a password field under one of `points` ("password"). The points and
+    the raw bounds share one space: physical pixels, as the collector reports them.
+    """
+    tree = raw if isinstance(raw, dict) else {}
+    roots = _roots(tree)
+    handoff = _tree_handoff(roots)
+    if handoff:
+        return handoff
+    wanted = [(float(px), float(py)) for px, py in (points or [])]
+    stack = list(roots)
+    visited: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
+        if _password(node):
+            if node.get("focused"):
+                return "password"
+            found = node.get("bounds")
+            box: dict[str, Any] = found if isinstance(found, dict) else {}
+            left, top = float(box.get("x") or 0), float(box.get("y") or 0)
+            right, bottom = left + float(box.get("w") or 0), top + float(box.get("h") or 0)
+            if any(left <= px < right and top <= py < bottom for px, py in wanted):
+                return "password"
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend(child for child in children if isinstance(child, dict))
+    return None
+
+
 def _password(node: dict[str, Any]) -> bool:
     if node.get("isPassword") is True:
         return True

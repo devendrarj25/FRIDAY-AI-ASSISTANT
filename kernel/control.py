@@ -157,6 +157,44 @@ def launch_app(app: str, args: list[str] | None = None, cwd: str | None = None) 
 # ------------------------------------------------------------------- input
 
 
+def _uia_raw() -> dict[str, Any]:
+    """The raw UI Automation tree of the desktop. Tests replace this."""
+    if not WINDOWS:
+        raise ControlError("UI Automation is only available on Windows")
+    from uia_windows import collect_uia_raw
+
+    return collect_uia_raw()
+
+
+# Keys reach whatever has focus, so an unknown screen is a refusal for them.
+_KEY_ACTIONS = frozenset({"type", "hotkey"})
+
+
+def _secure_guard(action: str, points: list[tuple[float, float]] | None = None) -> None:
+    """Fail closed before a raw key, pointer or screen read.
+
+    A secure prompt (UAC, Windows Security, a credential dialog), a focused password
+    field, or a password field under a pointer point stops the action. When the tree
+    cannot be read, keys are refused; a pointer or a read keeps today's behaviour.
+    """
+    from uia_tree import secure_refusal
+
+    try:
+        raw = _uia_raw()
+    except Exception as exc:
+        if action in _KEY_ACTIONS:
+            raise ControlError(
+                "FRIDAY could not check the screen for a password field or a secure prompt, "
+                f"so it did not press any key ({exc})"
+            ) from exc
+        return
+    reason = secure_refusal(raw, points)
+    if reason == "password":
+        raise ControlError("That is a password field. The owner types or reads it, not FRIDAY")
+    if reason:
+        raise ControlError("A secure prompt is on screen and needs the owner")
+
+
 def _focus_if_asked(target: str | None, hwnd: int | None) -> dict[str, Any] | None:
     if target or hwnd:
         return focus_window(target, hwnd)
@@ -215,6 +253,7 @@ def type_text(
                 raise
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
+    _secure_guard("type")
     gui.typewrite(str(text), interval=max(0.0, float(interval)))
     return {"ok": True, "typed": len(str(text)), "window": focused}
 
@@ -224,6 +263,7 @@ def hotkey(keys: list[str], target: str | None = None, hwnd: int | None = None) 
         raise ControlError("at least one key is required")
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
+    _secure_guard("hotkey")
     gui.hotkey(*[str(k).lower() for k in keys])
     return {"ok": True, "keys": keys, "window": focused}
 
@@ -248,9 +288,11 @@ def click(
         raise ControlError("button must be left, right or middle")
     if x is None or y is None:
         position = gui.position()
+        _secure_guard("click", [(float(position[0]), float(position[1]))])
         gui.click(clicks=int(clicks), button=button)
         at = [int(position[0]), int(position[1])]
     else:
+        _secure_guard("click", [(float(x), float(y))])
         gui.click(x=int(x), y=int(y), clicks=int(clicks), button=button)
         at = [int(x), int(y)]
     return {"ok": True, "at": at, "button": button, "clicks": int(clicks), "window": focused}
@@ -265,6 +307,12 @@ def scroll(
 ) -> dict[str, Any]:
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
+    if x is None or y is None:
+        position = gui.position()
+        point = (float(position[0]), float(position[1]))
+    else:
+        point = (float(x), float(y))
+    _secure_guard("scroll", [point])
     gui.scroll(int(amount), x=None if x is None else int(x), y=None if y is None else int(y))
     return {"ok": True, "amount": int(amount), "window": focused, "undoHint": "scroll back"}
 
@@ -279,6 +327,7 @@ def drag(
 ) -> dict[str, Any]:
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
+    _secure_guard("drag", [(float(x), float(y)), (float(x2), float(y2))])
     gui.moveTo(int(x), int(y))
     gui.dragTo(int(x2), int(y2), duration=0.2, button="left")
     return {
@@ -303,6 +352,7 @@ def _windows_clipboard():
 def clipboard_read() -> dict[str, Any]:
     if not WINDOWS:
         raise ControlError("clipboard control is only available on Windows")
+    _secure_guard("clipboard_read")
     ctypes, user32, kernel32 = _windows_clipboard()
     if not user32.OpenClipboard(None):
         raise ControlError("Windows refused the clipboard")
@@ -356,7 +406,7 @@ def perceive() -> dict[str, Any]:
         if not comtypes_missing(str(exc)):
             raise ControlError(str(exc)) from exc
         try:
-            ocr = read_text()
+            ocr = _read_text_unchecked()
         except ControlError as ocr_exc:
             raise ControlError(
                 "comtypes is not installed in FRIDAY's Python runtime. OCR was not available either."
@@ -366,7 +416,7 @@ def perceive() -> dict[str, Any]:
     if seen.get("handoff") or float(seen.get("confidence") or 0) >= 0.75:
         return seen
     try:
-        ocr = read_text()
+        ocr = _read_text_unchecked()
     except ControlError:
         return seen
     return choose_layer(
@@ -476,7 +526,14 @@ def read_text(region: list[int] | None = None, lang: str | None = None) -> dict[
     """OCR the current screen (or a [left, top, width, height] region).
 
     `lang` None reads with `hin+eng` when the Hindi data is installed and `eng` otherwise.
+    A secure prompt or a focused password field on screen is never read.
     """
+    _secure_guard("read_text")
+    return _read_text_unchecked(region, lang)
+
+
+def _read_text_unchecked(region: list[int] | None = None, lang: str | None = None) -> dict[str, Any]:
+    """The OCR itself. Only `read_text` and `perceive`, after their own secure check, call this."""
     mss_mod = _require("mss", "mss")
     pytesseract = _require("pytesseract", "pytesseract")
     binary = _tesseract_binary()
