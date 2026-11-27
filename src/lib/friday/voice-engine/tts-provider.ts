@@ -177,6 +177,16 @@ export const TTS_INFO = {
   },
 } as const satisfies Record<string, TtsProviderInfo>;
 
+/**
+ * A cloud voice counts as free-quota only with proof of a free allowance (the lane's cost proof is official or a
+ * cached copy of it). No proof, only a one-time trial credit, or no lane at all is paid: the billing firewall
+ * decides, never a guess from the plan name.
+ */
+function hasFreeProof(p: ProviderCaps): boolean {
+  if (PAID_BY_DEFAULT.has(p.id) || p.freeTier === "none") return false;
+  return p.lane?.costProof === "official" || p.lane?.costProof === "cached";
+}
+
 /** The cloud voices the existing provider router knows (Sarvam, Azure, ...), as ranking rows. */
 export function cloudTtsInfos(table: ProviderCaps[] = PROVIDERS): TtsProviderInfo[] {
   return table
@@ -186,11 +196,7 @@ export function cloudTtsInfos(table: ProviderCaps[] = PROVIDERS): TtsProviderInf
       label: p.label,
       kind: "cloud" as const,
       languages: p.hindi ? ["hi", "en"] : ["en"],
-      cost: PAID_BY_DEFAULT.has(p.id)
-        ? ("paid" as const)
-        : p.freeTier === "none"
-          ? ("paid" as const)
-          : ("free-quota" as const),
+      cost: hasFreeProof(p) ? ("free-quota" as const) : ("paid" as const),
       privacy: "cloud" as const,
       viaRouter: true,
     }));
@@ -657,6 +663,7 @@ export function legacyEngineChoice(input: {
       privacyMode: input.privacy,
       sensitive: false,
       allowCloud: true,
+      // Every voice ranked here is free (online voice, this PC's voices): no paid lane can enter this ranking.
       billingAllowsPaid: false,
       ...(input.prefer ? { prefer: input.prefer } : {}),
       systemVoice: input.systemVoice !== false,

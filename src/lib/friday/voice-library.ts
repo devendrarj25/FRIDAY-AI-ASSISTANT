@@ -35,6 +35,8 @@ import { listAudioDevices } from "./voice-audio";
 import { routeToSpeaker, type SinkTarget } from "./voice-engine/audio-devices";
 import { ttsEnginePlan } from "./voice-engine/voice-choices";
 import { models } from "./models-engine";
+import { billing } from "./billing";
+import { sanitizeCloudPrefs } from "./voice-engine/voice-cloud-settings";
 import { looksSensitive } from "./brain/memory-policy";
 import {
   DEFAULT_LOCAL_STYLE,
@@ -44,6 +46,7 @@ import {
 import {
   TTS_INFO,
   TtsFallbackManager,
+  cloudTtsInfos,
   type TtsProvider,
   type TtsProviderInfo,
 } from "./voice-engine/tts-provider";
@@ -1484,6 +1487,38 @@ const CLOUD_CLIP_INFO: TtsProviderInfo = {
 };
 
 /**
+ * The billing firewall's answer for paid use, read from the same store the settings page shows. Anything other
+ * than a plain yes (no desktop record, a failed read, an unreadable state) is no: a lane with no free-allowance
+ * proof stays refused.
+ */
+export function billingAllowsPaidNow(): boolean {
+  try {
+    const state = billing.getSnapshot();
+    return state.bridge === "desktop" && state.error === null && state.billing.paidAccess === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the cloud voice the owner picked costs and whether paid use is open, for the fallback manager's rules. A
+ * provider with no proof of a free allowance (Sarvam's trial credit) is ranked as paid, so it is not even asked
+ * while paid access is off. With no known provider the row keeps the generic label; the real gate is then inside
+ * the clip maker itself.
+ */
+export function cloudClipGate(): { info: TtsProviderInfo; billingAllowsPaid: boolean } {
+  let cost = CLOUD_CLIP_INFO.cost;
+  try {
+    const picked = sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice).speakWith;
+    const row = picked ? cloudTtsInfos().find((i) => i.id === picked) : undefined;
+    if (row) cost = row.cost;
+  } catch {
+    cost = "paid";
+  }
+  return { info: { ...CLOUD_CLIP_INFO, cost }, billingAllowsPaid: billingAllowsPaidNow() };
+}
+
+/**
  * Make the audio for one clause. Null when no engine could make it. The voices are the ones this path always
  * used, in the same order (the cloud voice the owner picked, then this PC's voice op); the fallback manager runs
  * them, keeps the privacy and sensitive-line rules in front of any cloud voice, tries at most two, and says which
@@ -1501,9 +1536,10 @@ async function makeClip(
       : "supertonic";
   const order: string[] = [];
   const voices: TtsProvider[] = [];
+  const gate = cloudClipGate();
   if (tuning.cloudClip) {
     order.push(CLOUD_CLIP_INFO.id);
-    voices.push(clipVoice(CLOUD_CLIP_INFO, () => cloudClipOf(plan, tuning)));
+    voices.push(clipVoice(gate.info, () => cloudClipOf(plan, tuning)));
   }
   order.push(localId);
   voices.push(clipVoice(TTS_INFO[localId], () => localClipOf(plan, tuning, api)));
@@ -1514,7 +1550,7 @@ async function makeClip(
       allowCloud: true,
       privacyMode: preferences.getSnapshot().voice.privacyMode === true,
       sensitive: looksSensitive(plan.plain),
-      billingAllowsPaid: false,
+      billingAllowsPaid: gate.billingAllowsPaid,
       // A private line may be spoken by any voice on this PC (FRIDAY Voice first); a cloud voice stays refused.
       privateVoice: "local",
     },

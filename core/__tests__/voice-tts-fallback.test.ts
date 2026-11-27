@@ -5,6 +5,7 @@ import { chooseTts, switchMidSentence as speechSwitch } from "../../src/lib/frid
 import { chooseTtsEngine, switchMidSentence } from "../../src/lib/friday/tts-ladder";
 import {
   DEFAULT_CLOUD_SETTINGS,
+  PROVIDERS,
   UsageLedger,
   routeVoice,
   type VoiceCloudSettings,
@@ -301,17 +302,30 @@ describe("the provider router decides the cloud voices", () => {
       expect.arrayContaining(["sarvam", "azure-speech", "openai"]),
     );
     expect(table.find((i) => i.id === "openai")?.cost).toBe("paid");
-    expect(table.find((i) => i.id === "sarvam")?.cost).toBe("free-quota");
+    // Sarvam has only a one-time trial credit (no proof of a free allowance), so it is ranked as paid.
+    expect(table.find((i) => i.id === "sarvam")?.cost).toBe("paid");
+    expect(table.find((i) => i.id === "azure-speech")?.cost).toBe("free-quota");
+    // The label follows the lane's cost proof for every row: official or cached is free-quota, anything else paid.
+    for (const row of table) {
+      const proof = PROVIDERS.find((p) => p.id === row.id)?.lane?.costProof;
+      const free = proof === "official" || proof === "cached";
+      expect(row.cost, row.id).toBe(free ? "free-quota" : "paid");
+    }
     expect(table.every((i) => i.kind === "cloud" && i.privacy === "cloud" && i.viaRouter)).toBe(
       true,
     );
   });
 
   it("a router-approved cloud voice leads; the router's refusal keeps it out", () => {
-    const allowed = rankTtsProviders(infos, HI, { ...base, cloud: route() });
+    const paidOpen = { ...base, billingAllowsPaid: true };
+    const allowed = rankTtsProviders(infos, HI, { ...paidOpen, cloud: route() });
     expect(allowed.order[0]?.id).toBe("sarvam");
+    // Sarvam is ranked paid (a trial credit is no free allowance): the caller's own billing answer must say yes too.
+    const billingClosed = rankTtsProviders(infos, HI, { ...base, cloud: route() });
+    expect(billingClosed.order.map((i) => i.id)).not.toContain("sarvam");
+    expect(billingClosed.refused.find((r) => r.id === "sarvam")?.why).toMatch(/paid/);
     const quotaGone = rankTtsProviders(infos, HI, {
-      ...base,
+      ...paidOpen,
       cloud: route({ dailyRequests: 0 }),
     });
     expect(quotaGone.order.map((i) => i.id)).not.toContain("sarvam");
