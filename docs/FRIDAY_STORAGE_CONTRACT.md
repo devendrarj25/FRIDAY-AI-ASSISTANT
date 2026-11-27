@@ -80,6 +80,13 @@ An update writes only files the package contains and deletes nothing outside `Ap
 
 The folders under `FRIDAY_ROOT` stay the storage layout. A second tree that moves user data was not adopted. Official payload can be replaced. User components, user runtimes, and user data stay.
 
+## 5a. Durable stored state
+
+- **Desktop state files** (`electron/state-store.cjs` through `electron/safe-write.cjs`) are written to a temporary file, flushed with fsync, then renamed over the old file. The last good body is kept as a rolling `<file>.bak`, never copied from an empty or damaged file. A file that is empty or does not parse is set aside as `<file>.corrupt-<stamp>` (the newest few are kept) and the last good body comes back from the `.bak`. Test: `core/__tests__/state-store-durability.test.ts`.
+- **Kernel database** (`kernel/db.py`): WAL journal and a `busy_timeout`, then `PRAGMA quick_check`. Only a malformed or not-a-database error counts as corrupt; a locked or busy file is healthy and is never set aside. When the file cannot be opened or repaired the health state is `unavailable`: the kernel runs in memory and never overwrites the file. Tests: `kernel/tests/test_db_integrity.py`, `kernel/tests/test_db_locked_not_corrupt.py`.
+- **Memory index** (`kernel/memory.py`): the `records.jsonl.bak` is read only when the main file is missing or unreadable; `remove` rewrites it and a merge deletes it, so a forgotten id is not replayed. Test: `kernel/tests/test_memory_store_safety.py`.
+- UNVERIFIED: NTFS fsync and rename behaviour on the owner's PC (Linux tests only). A Doctor row for database health (`kernel.status.database`) is not built.
+
 ## 6. Logical records
 
 Request, task, run, capability, provider, action, observation, verification, and evidence records are checked in `src/lib/friday/self/run-receipt.ts` (`acceptRequest`, `backendInvariants`). The task graph calls them when a request is queued and when a run finishes. Secret rows are refused by `secretStaysOutOfMemory` before `memory.remember` writes. The kernel keeps one SQLite file. `kernel/db.py` `migrate()` copies that file before new columns, then stores `schema_version`. The same idempotency key does not open a second task. There is no second task database, model registry, approval store, memory system, or connector registry.

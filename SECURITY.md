@@ -54,6 +54,19 @@ an already-connected provider.
 The billing firewall (`electron/billing-firewall.cjs`) does not make a paid
 model a silent default.
 
+Raw key, pointer, OCR and clipboard actions in `kernel/control.py` check UI
+Automation first (`_secure_guard`, `kernel/uia_tree.py` `secure_refusal`). A
+secure prompt, a focused password field (read directly from the focused
+element) or a password under the pointer stops the action. A password node with
+unknown bounds blocks pointer actions, and a cut tree with an unreadable focus
+refuses keys and screen reads. Typing is split into 8-character chunks and the
+focus is checked again between chunks. Without `comtypes`, `perceive` does not
+fall back to OCR. `fs.write` keeps a before-copy of an existing file under
+`<workspace>/.friday-trash/before-write/` and returns an undo handle; there is
+no restore button yet. Tests: `kernel/tests/test_control_secure_guard.py`,
+`kernel/tests/test_control_secure_depth.py`. Real UI Automation password
+detection and the hit-test pixel space are unverified on the owner's PC.
+
 `kernel/env_guard.py` `guard_public_url` refuses a non-public address after
 resolving the host. Production uses `socket.getaddrinfo`. A test passes a
 fake resolver. The kernel suite refuses a public DNS lookup or a public
