@@ -1,0 +1,8 @@
+{
+  "name": "friday-runtime",
+  "engine": "onnxruntime",
+  "tag": "v1.32.0",
+  "commit": null,
+  "wheels": {},
+  "builtAt": null
+}
