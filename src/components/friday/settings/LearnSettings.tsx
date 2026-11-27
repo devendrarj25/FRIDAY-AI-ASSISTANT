@@ -7,6 +7,7 @@ import { EmptyState, HudPanel, ToggleRow } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
 import { kernelApi } from "@/lib/friday/kernel-api";
 import { adapterUndoTarget } from "@/lib/friday/llm-engine";
+import { onGlossaryLearned } from "@/lib/friday/glossary-correction";
 import { mirrorGlossarySetting, reconcileGlossarySetting } from "@/lib/friday/learn-from-me";
 import { LEARN_DATA_CLASSES, acceptedLearnClasses, preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -79,6 +80,9 @@ export function LearnSettings() {
       offActive?.();
     };
   }, [reload]);
+
+  // A correction saved from the transcript refreshes this list straight away.
+  useEffect(() => onGlossaryLearned(() => setReload((n) => n + 1)), []);
 
   const setGlossary = async (next: boolean) => {
     preferences.setToggle("brainLearnGlossary", next);

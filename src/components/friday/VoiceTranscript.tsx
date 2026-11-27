@@ -7,6 +7,7 @@ import {
   type PendingConfirm,
 } from "@/lib/friday/assistant-mode";
 import { copyText } from "@/lib/friday/clipboard";
+import { CorrectHeard } from "@/components/friday/CorrectHeard";
 import { formatOwnerDate } from "@/lib/friday/settings-runtime";
 import { cn } from "@/lib/utils";
 import {
@@ -256,6 +257,7 @@ export const CaptionRow = memo(function CaptionRow({
           {caption.text}
           <CaptionMeta caption={caption} />
         </p>
+        <CorrectHeard caption={caption} />
       </div>
     </div>
   );
