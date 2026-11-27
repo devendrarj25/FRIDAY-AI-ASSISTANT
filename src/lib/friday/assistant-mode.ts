@@ -148,6 +148,7 @@ import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
   beginPlayedReply,
+  billingAllowsPaidNow,
   cloudFallbackVoice,
   duckSpeech,
   lastClipUsedPcm,
@@ -197,11 +198,26 @@ import {
   effectiveConfirmLevel,
   heardNeedsReadBack,
   heardQuestion,
+  voiceConfirmKind,
   voiceNeedsConfirmation,
   wakeOnCooldown,
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import {
+  buildConfirmDigest,
+  digestLine as confirmDigestLine,
+  explainDigestAnswer,
+  onBargeIn,
+  ownerSaidCancelTask,
+  strictest,
+  type AsrBand as ConfirmAsrBand,
+  type BargeInPlan,
+  type ConfirmDigest,
+  type TaskRiskClass,
+} from "./voice-engine/confirm-digest";
+import { TaskSpeechRouter, toVoiceTaskEvent } from "./voice-engine/task-announcer";
+import { renderVoiceContext, type VoiceContextMeta } from "./brain/voice-context";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
 import {
   BARGE_LADDER,
@@ -439,6 +455,11 @@ export type PendingConfirm = {
   at: number;
   /** What the ear knew when the command was heard: the approved command replays with these, never the "yes" turn's. */
   hints?: TurnHints;
+  /**
+   * What she read back (verb, object, where, how much) and its expiry. Only a short, fresh yes to this digest that is
+   * not her own voice approves; a corrected digest has a new id and a new ask time. It holds words and times only.
+   */
+  digest?: ConfirmDigest;
 };
 
 /**
@@ -902,6 +923,51 @@ export type TurnShadowReport = {
   calibration: Record<EotLang, number>;
 };
 
+/** What the voice turn context block is built from: the heard turn, the mode, the open digest, the running tasks. */
+export type VoiceTurnContextInput = {
+  record: TurnRecord | null;
+  handsFree: boolean;
+  digest: ConfirmDigest | null;
+  tasks: readonly Pick<VoiceTask, "label" | "state">[];
+  now: number;
+};
+
+const CONTEXT_NOISE = { speech: "crowd", music: "music", tv: "tv", noise: "noise" } as const;
+
+/**
+ * The voice turn context block (brain/voice-context.ts) for one heard turn: language, the ear's sureness band, the
+ * room, the mode, the open digest and the running tasks, as data. Pure, for the dispatch that will carry it; nothing
+ * sends it yet. The speaker is always "unknown" here, and the renderer drops any sensitive words.
+ */
+export function voiceTurnContext(input: VoiceTurnContextInput): string {
+  const { record, digest } = input;
+  const meta: VoiceContextMeta = {
+    modality: record ? "spoken" : "typed",
+    lang: record?.lang === "hi" ? "hi" : record?.lang === "hi-en" ? "hinglish" : "en",
+    langConfidence: record?.confidence ?? 0,
+    romanised: record?.romanised === true,
+    asrBand: record?.asrBand === "mid" ? "medium" : (record?.asrBand ?? "low"),
+    noise: record?.env ? CONTEXT_NOISE[record.env.kind] : "quiet",
+    speaker: "unknown",
+    handsFree: input.handsFree,
+    bargeIn: typeof record?.interruptedPlayedMs === "number",
+    approval: digest
+      ? {
+          verb: digest.verb,
+          object: digest.object,
+          expiresInS: Math.max(0, Math.round((digest.expiresAt - input.now) / 1000)),
+        }
+      : null,
+    tasks: input.tasks
+      .filter((t) => !TERMINAL.includes(t.state))
+      .map((t) => ({
+        title: t.label,
+        state: t.state === "WAITING_FOR_APPROVAL" ? ("waiting" as const) : ("running" as const),
+      })),
+  };
+  return renderVoiceContext(meta, { isSensitive: looksSensitive });
+}
+
 /** What the shadow keeps of a line: nothing of a private one, no digits, at most 80 characters. */
 function shadowText(text: string): string {
   const line = String(text || "")
@@ -1204,6 +1270,12 @@ export class TurnEngineAdapter {
     return decision;
   }
 
+  /** The barge-in contract the running tasks would follow (confirm-digest onBargeIn): written to the log only. */
+  bargePlan(risk: TaskRiskClass, plan: BargeInPlan, now: number): void {
+    const detail = `${risk} cancel:${plan.cancelTask} checkpoint:${plan.runToCheckpoint} undo:${plan.undoJournal}`;
+    this.row(this.at(now), "barge-plan", detail);
+  }
+
   engineState(): TurnEngineState {
     return this.engine;
   }
@@ -1324,6 +1396,12 @@ class AssistantModeStore {
   private turnRecordLive = false;
   /** The id of the heard turn, kept apart from the record so only the intake reads the record to make it. */
   private heardTurnId = "";
+  /** The stream turn the ear is framing and when its voice began (a time only; never a speaker or a room tag). */
+  private streamTurnBegan: { turnId: string; at: number } | null = null;
+  /** The digest she already read a second time, so a repeated doubtful yes is not answered every time. */
+  private digestReasked = "";
+  /** Set by the intake for the one turn it hands on: the ear's sureness band (null: not measured) and voice start. */
+  private heardEar: { asrBand: ConfirmAsrBand | null; beganAt: number | null } | null = null;
   /**
    * The ear's room and voice tags of the final being handled, for the addressedness gate only (spent by it). A tag
    * can only ADD a wake requirement there; no approval, confirmation or authority check reads it.
@@ -1365,6 +1443,8 @@ class AssistantModeStore {
   private speechPoll: ReturnType<typeof setTimeout> | null = null;
   /** What the narration policy remembers between task updates (this session only). */
   private narration = createNarrationMemory();
+  /** Settles a cancelled task so a late result of it is never said (task-announcer.ts). */
+  private taskSpeech = new TaskSpeechRouter();
   /** Her approval prompt, while it is the last thing she said and the owner has not answered it. */
   private approvalAsked: { askedAt: number; taskId?: string } | null = null;
   /** The last approval prompt that was voiced for the Brain's slot, so it is asked once. */
@@ -2084,6 +2164,9 @@ class AssistantModeStore {
     // A new turn id is a new turn: its first draft is allowed again.
     if (turn.turnId !== this.streamTurnId || now - this.partialSeenAt > DRAFT_TURN_GAP_MS)
       this.draftsThisTurn = 0;
+    // When this turn's voice began: a yes is bound to the digest that was asked before it (answeredBefore).
+    if (turn.turnId !== this.streamTurnBegan?.turnId)
+      this.streamTurnBegan = { turnId: turn.turnId, at: now };
     this.streamTurnId = turn.turnId;
     for (const action of this.turnTracker.ingest(turn, now)) {
       if (action.kind === "cancel-draft") {
@@ -4132,6 +4215,23 @@ class AssistantModeStore {
    * becomes a notification. Raw tool output never reaches the speaker; a SENSITIVE task gets a neutral line.
    */
   narrateTask(update: TaskUpdate, task: VoiceTask) {
+    // A task the owner cancelled is settled: a late result, failure or step of it is dropped, never said.
+    if (this.taskSpeech.isSettled(task.id)) {
+      this.taskSpeech.dropped += 1;
+      this.trace("dropped", "a late update of a cancelled task");
+      return;
+    }
+    if (update.kind === "cancelled") {
+      const event = toVoiceTaskEvent(update, {
+        seq: 0,
+        now: Date.now(),
+        turnSeqAtStart: 0,
+        risk: this.taskRiskClass(task),
+        verified: false,
+        foreground: false,
+      });
+      this.taskSpeech.route(event, 0, this.narrationLang());
+    }
     // What is said about a task is judged by its label AND by what it answered or failed with: a harmless label can
     // end with a private answer.
     const base = this.narrationCtx(this.taskIsSensitive(task));
@@ -4475,7 +4575,40 @@ class AssistantModeStore {
         this.speak(expired);
         return;
       }
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+      // The answer is judged against the digest she read: her own played-back words, a claim of authority, a yes
+      // that names another amount or person, or a doubtful yes to a full read-back never approve. Who said it is
+      // not an input here; the saved voice can only refuse a yes afterwards (approvalVoiceAllows).
+      const pending = this.state.pending;
+      const digest = pending.digest ?? this.confirmDigestFor(pending.command, pending.at);
+      const band = this.heardEar?.asrBand ?? null;
+      const ruling = explainDigestAnswer(digest, text, Date.now(), {
+        ownPlayback: this.ownPlaybackHeard(text),
+        ...(band ? { asrBand: band } : {}),
+      });
+      if (ruling.reason === "self-echo") {
+        this.trace("dropped", "her own read-back is not an answer");
+        this.emit();
+        return;
+      }
+      if (typeof ruling.answer === "object") {
+        this.correctPending(pending, ruling.answer.digest, text);
+        return;
+      }
+      if (
+        ruling.answer === "unclear" &&
+        (ruling.reason === "mismatch" || ruling.reason === "low-asr")
+      ) {
+        this.reaskDigest(digest, text, ruling.reason);
+        return;
+      }
+      if (
+        ruling.answer === "yes" &&
+        isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")
+      ) {
+        if (this.answeredBefore(digest)) {
+          this.reaskDigest(digest, text, "older yes");
+          return;
+        }
         if (!this.approvalVoiceAllows(text)) return;
         const cmd = this.state.pending.command;
         const cmdHints = this.state.pending.hints;
@@ -4488,7 +4621,8 @@ class AssistantModeStore {
         this.runApproved(cmd, cmdHints);
         return;
       }
-      if (confirmationVerdict(text) === "no") {
+      // A no is always safe to take, bound or not; a second correction is a no too.
+      if (ruling.answer === "no" || confirmationVerdict(text) === "no") {
         this.state.pending = null;
         this.supersedeOnConfirm = null;
         this.caption("user", text);
@@ -5039,19 +5173,148 @@ class AssistantModeStore {
     this.supersedeOnConfirm = null;
     this.discardEager();
     const hints = this.turnHints();
+    const at = Date.now();
+    const digest = this.confirmDigestFor(command, at);
     this.state.pending = {
       command,
       reason: approvalReason("exec", this.state.mode),
-      at: Date.now(),
+      at,
       ...(hints ? { hints } : {}),
+      digest,
     };
-    const ask = confirmQuestion(command);
+    const ask = this.digestAsk(digest, command);
     this.caption("friday", ask);
     this.to("confirm-required");
     this.state.status = this.line("waiting-confirm");
     this.emit();
     this.speak(ask, { priority: "approval" });
     this.remember("needs-approval", command, "paused");
+  }
+
+  /** The digest of an order she asks about, with the owner's yes window (`voice.approvalTtlSec`, 10-60 s). */
+  private confirmDigestFor(command: string, at: number): ConfirmDigest {
+    return buildConfirmDigest({
+      command,
+      turnId: this.heardTurnId,
+      now: at,
+      ttlSec: preferences.getSnapshot().voice.approvalTtlSec,
+      kind: voiceConfirmKind(command),
+    });
+  }
+
+  /**
+   * What she asks. A digest that names where or how much (an amount, a person, a place) is read in full; any other
+   * order keeps the short question, which already says what will be done.
+   */
+  private digestAsk(digest: ConfirmDigest, command: string): string {
+    const full = digest.mode === "explicit" && Boolean(digest.amount || digest.target);
+    return full ? confirmDigestLine(digest) : confirmQuestion(command);
+  }
+
+  /**
+   * A yes that began before this digest was asked answers an older question (one she has since corrected), never
+   * this one. Known only for a turn the ear framed; a turn without that timing is judged on its words alone.
+   */
+  private answeredBefore(digest: ConfirmDigest): boolean {
+    const began = this.heardEar?.beganAt ?? null;
+    return began !== null && began < digest.askedAt;
+  }
+
+  /**
+   * Her own words coming back while her voice or its room tail can still be heard (the same window as the intake's
+   * echo drop), or the acknowledgement that just sounded: never an answer. Words that repeat her prompt's own tail
+   * ("say yes to confirm") are refused by the digest itself at any time.
+   */
+  private ownPlaybackHeard(heard: string): boolean {
+    return (this.recentlySpeaking() && this.isSelfEcho(heard)) || this.ackEchoHeard(heard);
+  }
+
+  /** The command with the one field the owner corrected; null when that field is not in the words as said. */
+  private correctedCommand(
+    command: string,
+    was: ConfirmDigest,
+    next: ConfirmDigest,
+  ): string | null {
+    const swap = (pattern: RegExp, value: string): string | null => {
+      let last: RegExpExecArray | null = null;
+      for (const hit of command.matchAll(pattern)) last = hit;
+      if (!last || last.index === undefined) return null;
+      return `${command.slice(0, last.index)}${value}${command.slice(last.index + last[0].length)}`;
+    };
+    const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (next.target !== was.target && was.target && next.target) {
+      const word = new RegExp(
+        `(?<![\\p{L}\\p{M}\\p{N}])${escape(was.target)}(?![\\p{L}\\p{M}\\p{N}])`,
+        "giu",
+      );
+      return swap(word, next.target);
+    }
+    if (next.amount !== was.amount && was.amount && next.amount) {
+      const value = was.amount.split(" ")[0] ?? "";
+      const nextValue = next.amount.split(" ")[0] ?? "";
+      if (!value || !nextValue) return null;
+      const number = /[\d०-९][\d०-९,]*(?:\.[\d०-९]+)?/gu;
+      const same = (raw: string) =>
+        raw.replace(/[०-९]/gu, (d) => String(d.charCodeAt(0) - 0x0966)).replace(/,/g, "") === value;
+      let found: { index: number; length: number } | null = null;
+      for (const hit of command.matchAll(number)) {
+        if (hit.index !== undefined && same(hit[0]))
+          found = { index: hit.index, length: hit[0].length };
+      }
+      if (!found) return null;
+      return `${command.slice(0, found.index)}${nextValue}${command.slice(found.index + found.length)}`;
+    }
+    return null;
+  }
+
+  /** Read the digest again (a yes that named something else, a doubtful yes, an older yes); the window does not grow. */
+  private reaskDigest(digest: ConfirmDigest, heard: string, why: string) {
+    this.remember("confirm-unclear", heard, why);
+    this.trace("dropped", `yes not taken (${why}): asking again`);
+    this.caption("user", heard);
+    if (this.digestReasked === digest.id) {
+      this.emit();
+      return;
+    }
+    this.digestReasked = digest.id;
+    // The same words as the first ask; a corrected digest is always explicit, so it is read in full again.
+    const ask = this.digestAsk(digest, this.state.pending?.command ?? digest.command);
+    this.caption("friday", ask);
+    this.emit();
+    this.speak(ask, { priority: "approval" });
+  }
+
+  /**
+   * One field of the order corrected ("no, to Rohan", "make it 500"): the command takes the new value, the new digest
+   * is read in full with a fresh window, and nothing runs until a yes to it. A field that cannot be found in the
+   * words as said drops the order instead of guessing.
+   */
+  private correctPending(pending: PendingConfirm, next: ConfirmDigest, heard: string) {
+    const was = pending.digest ?? this.confirmDigestFor(pending.command, pending.at);
+    const command = this.correctedCommand(pending.command, was, next);
+    this.caption("user", heard);
+    if (!command) {
+      this.state.pending = null;
+      this.supersedeOnConfirm = null;
+      this.remember("confirm-corrected", heard, "dropped: the change did not fit the order");
+      const dropped = {
+        en: "I could not fit that change in. Say the whole order again.",
+        hinglish: "Ye badlav fit nahi hua. Poora order phir se boliye.",
+        hi: "यह बदलाव जुड़ नहीं पाया। पूरा आदेश फिर से बोलिए।",
+      }[next.lang];
+      this.caption("friday", dropped);
+      this.state.status = this.line("cancelled");
+      this.emit();
+      this.speak(dropped);
+      return;
+    }
+    this.state.pending = { ...pending, command, at: next.askedAt, digest: next };
+    this.remember("confirm-corrected", heard, command);
+    const ask = confirmDigestLine(next);
+    this.caption("friday", ask);
+    this.state.status = this.line("waiting-confirm");
+    this.emit();
+    this.speak(ask, { priority: "approval" });
   }
 
   /** A confirmed command: a background one starts its task, anything else goes to the Brain. */
@@ -6228,6 +6491,7 @@ class AssistantModeStore {
       );
       this.holdForInterruption();
       shadow();
+      this.shadowBargePlan(text);
     }
     if (!this.interruptHold) return false;
     const verdict = judgeInterruption(text, {
@@ -6244,7 +6508,24 @@ class AssistantModeStore {
     }
     this.confirmInterruption();
     shadow();
+    this.shadowBargePlan(text);
     return false;
+  }
+
+  /** A desk task's risk in the three classes of the barge-in contract (a task that may ask is treated as hard). */
+  private taskRiskClass(task: VoiceTask): TaskRiskClass {
+    return task.risk === "safe" ? "read-only" : "irreversible";
+  }
+
+  /**
+   * What the barge-in contract says for the running tasks (stop her speech; cancel, or run a hard one to its next
+   * checkpoint), beside the live path: written to the shadow log only, after the live stop, never acted on.
+   */
+  private shadowBargePlan(heard: string): void {
+    const running = listVoiceTasks().filter((t) => !TERMINAL.includes(t.state));
+    const risk = strictest(running.map((t) => this.taskRiskClass(t)));
+    const plan = onBargeIn(risk, ownerSaidCancelTask(heard));
+    this.shadowTurn((a) => a.bargePlan(risk, plan, Date.now()));
   }
 
   /** Stop playback without touching the brain. A newer clip must not start. */
@@ -7089,6 +7370,8 @@ class AssistantModeStore {
         keys: this.cloudSpeechKeys,
         privacyMode: false,
         online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+        // The billing firewall, read now and failing closed: a lane with no free-allowance proof needs paid access.
+        billingAllowsPaid: billingAllowsPaidNow(),
       },
       this.cloudLedger,
     );
@@ -7183,8 +7466,19 @@ class AssistantModeStore {
     this.lastInterruptedPlayedMs = null;
     this.turnRecordLive = true;
     this.heardTurnId = this.turnRecord.turnId;
+    // A yes is judged on the ear's sureness band and on when its voice began (both numbers; never the speaker or the
+    // room), for this turn only.
+    const began = this.streamTurnBegan;
+    this.heardEar = {
+      asrBand: this.turnRecord.confidence === null ? null : this.turnRecord.asrBand,
+      beganAt: began && began.turnId === this.turnRecord.turnId ? began.at : null,
+    };
     // The canonical code-mixed line (script policy) is what the turn acts on; the raw words stay in the record.
-    this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
+    try {
+      this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
+    } finally {
+      this.heardEar = null;
+    }
   }
 
   /**
@@ -7257,6 +7551,7 @@ class AssistantModeStore {
           keys: this.cloudSpeechKeys,
           privacyMode: false, // privacy mode already returned above
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+          billingAllowsPaid: billingAllowsPaidNow(),
         },
         ledger,
       );
@@ -7437,6 +7732,7 @@ class AssistantModeStore {
           keys: this.cloudSpeechKeys,
           privacyMode: preferences.getSnapshot().voice.privacyMode === true,
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+          billingAllowsPaid: billingAllowsPaidNow(),
           // The whole reply, not just this clause: a harmless clause of a sensitive reply stays on this PC.
           ...(this.replySensitive || this.turnSensitive ? { sensitiveReply: true } : {}),
         },
