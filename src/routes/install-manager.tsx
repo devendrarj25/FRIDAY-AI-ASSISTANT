@@ -257,7 +257,7 @@ function InstallManagerPage() {
 
   useEffect(() => {
     registerInstallerAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatInstallerExtra() });
+      const result = brain.send(prompt, { extra: formatInstallerExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerInstallerAsk(null);
@@ -315,7 +315,10 @@ function InstallManagerPage() {
   const askAbout = (pkg: string) => {
     if (brainState.activeRunId) return;
     setSelectedPkg(pkg);
-    brain.send(`look at ${pkg} on the install manager`, { extra: formatInstallerExtra() });
+    brain.send(`look at ${pkg} on the install manager`, {
+      extra: formatInstallerExtra(),
+      promptOrigin: "typed",
+    });
   };
 
   const askFriday = () => {
@@ -325,7 +328,7 @@ function InstallManagerPage() {
     const prompt = /install|scan|update|verify|catalog|package|toolchain/i.test(text)
       ? text
       : `${text} in the install manager`;
-    brain.send(prompt, { extra: formatInstallerExtra() });
+    brain.send(prompt, { extra: formatInstallerExtra(), promptOrigin: "typed" });
   };
 
   const onInstallRequired = () => {

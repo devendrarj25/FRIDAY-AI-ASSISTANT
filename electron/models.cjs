@@ -1028,8 +1028,36 @@ function ollamaNumCtx({
   return Math.max(NUM_CTX_MIN, window);
 }
 
+/**
+ * How long Ollama keeps a warmed model: FRIDAY_OLLAMA_KEEP_ALIVE (a duration or whole seconds), then
+ * ollamaSettings.keep_alive in config/chat-tiers.json (the plan the kernel follows too), then 20 minutes.
+ */
+const KEEP_ALIVE_DEFAULT = "20m";
+
+function keepAliveValue(raw) {
+  if (typeof raw === "number") return Number.isInteger(raw) ? raw : null;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const text = raw.trim();
+  return /^-?\d+$/.test(text) ? Number(text) : text;
+}
+
+function ollamaKeepAlive({ env = process.env, tiers = undefined } = {}) {
+  const fromEnv = keepAliveValue(env.FRIDAY_OLLAMA_KEEP_ALIVE);
+  if (fromEnv !== null) return fromEnv;
+  let plan = tiers;
+  if (plan === undefined) {
+    try {
+      plan = require("./resource-paths.cjs").readConfigJson("chat-tiers.json", null)?.value;
+    } catch {
+      plan = null;
+    }
+  }
+  return keepAliveValue(plan?.ollamaSettings?.keep_alive) ?? KEEP_ALIVE_DEFAULT;
+}
+
 /** The warm-up request: an empty prompt loads the model; the window is the chat's, so the chat does not reload it. */
-function ollamaWarmBody(model, keepAlive = "20m", options = {}) {
+function ollamaWarmBody(model, keepAlive = undefined, options = {}) {
+  keepAlive = keepAlive === undefined ? ollamaKeepAlive(options) : keepAlive;
   const window = ollamaNumCtx(options);
   return {
     model,
@@ -1044,7 +1072,7 @@ function ollamaWarmBody(model, keepAlive = "20m", options = {}) {
  * Load a model into memory now and keep it there, so the first spoken question after a quiet spell does not wait
  * for it to load. An empty prompt loads without generating anything. Best effort: no Ollama, no harm.
  */
-async function ollamaWarm(model, keepAlive = "20m") {
+async function ollamaWarm(model, keepAlive = ollamaKeepAlive()) {
   if (!model) return { ok: false, error: "no model" };
   const res = await request(`${OLLAMA}/api/generate`, {
     method: "POST",
@@ -3410,6 +3438,7 @@ module.exports = {
   ollamaUnload,
   ollamaWarm,
   ollamaWarmBody,
+  ollamaKeepAlive,
   ollamaNumCtx,
   ollamaRunning,
   localFolders,

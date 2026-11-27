@@ -112,7 +112,7 @@ function LibraryPage() {
 
   useEffect(() => {
     registerLibraryAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatLibraryExtra() });
+      const result = brain.send(prompt, { extra: formatLibraryExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerLibraryAsk(null);
@@ -178,6 +178,7 @@ function LibraryPage() {
             ? `EXTRACT library:${item.id}\n${extract}`
             : "No extractable text. Say so instead of guessing.",
         ].join("\n\n"),
+        promptOrigin: "typed",
       },
     );
     if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
@@ -186,7 +187,7 @@ function LibraryPage() {
 
   const askAbout = (item: LibraryRecord) => {
     const prompt = `Ask FRIDAY about Library file ${item.name} (library:${item.id}). Use only the extract that exists — do not invent pages I did not store.`;
-    const result = brain.send(prompt, { extra: formatLibraryExtra() });
+    const result = brain.send(prompt, { extra: formatLibraryExtra(), promptOrigin: "typed" });
     if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     else toast.success("Sent to Chat.");
   };
@@ -203,6 +204,7 @@ function LibraryPage() {
     const text = ask.trim() || "What is in my Library right now?";
     const result = brain.send(looksLikeLibraryTeach(text) ? text : `Library: ${text}`, {
       extra: formatLibraryExtra(),
+      promptOrigin: "typed",
     });
     if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     else {
@@ -437,6 +439,7 @@ function LibraryPage() {
                         `Generate or edit from Library file ${open.name}. If image/video generate is not wired, say so.`,
                         {
                           extra: formatLibraryExtra(),
+                          promptOrigin: "typed",
                         },
                       );
                       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
