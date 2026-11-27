@@ -269,6 +269,14 @@ export type InstallerCatalogRow = {
   /** The version is the catalogue's own pin, not a fresh answer. */
   pinnedAnswer: boolean;
   error?: string;
+  /** Where a tool lives: friday-root, machine, npm-global (others are shown by nobody). */
+  home?: string;
+  /** The row only shows a newer version; FRIDAY never updates it. */
+  notifyOnly?: boolean;
+  /** Tool rows: false until the catalogue holds a published checksum, so FRIDAY cannot install it itself. */
+  downloadReady?: boolean;
+  /** How the newest version was reached, when the row says so. */
+  via?: "primary" | "fallback" | "cache" | "pinned";
   /** The model host's newest revision when it differs from the pinned one FRIDAY installs. */
   upstreamVersion?: string;
   fit: EngineFit;

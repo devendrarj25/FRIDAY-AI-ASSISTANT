@@ -194,7 +194,14 @@ function RowCard({
         {view.installedText} · {view.latestText} · via {view.sourceText} · {view.checkedText}
         {view.upstreamVersion ? ` · host newest ${view.upstreamVersion}` : ""}
       </p>
-      <p className="label-xs text-muted-foreground/80">{view.category}</p>
+      <p className="label-xs text-muted-foreground/80">
+        {view.category}
+        {view.homeText ? ` · ${view.homeText}` : ""}
+      </p>
+      {view.latestFromText ? (
+        <p className="text-meta text-muted-foreground">{view.latestFromText}</p>
+      ) : null}
+      {view.notifyText ? <p className="text-meta text-warning">{view.notifyText}</p> : null}
       {view.hint ? <p className="text-xs text-primary">{view.hint}</p> : null}
       {view.engineLine ? (
         <p className="text-meta text-muted-foreground">{view.engineLine}</p>

@@ -130,7 +130,7 @@ function toolRows(tools, detected) {
       notifyOnly: spec?.notifyOnly === true,
       ...(spec?.download ? { download: spec.download } : {}),
       ...(spec?.silentInstall ? { silentInstall: spec.silentInstall } : {}),
-      downloadReady: spec ? vendor.downloadReadiness(spec).installable : false,
+      ...(spec ? { downloadReady: vendor.downloadReadiness(spec).installable } : {}),
       kind: tool.engine || tool.pipBundle ? "engine" : "tool",
       name: tool.name || tool.id,
       category: tool.category || "Tool",
@@ -409,7 +409,9 @@ function createInstallerCatalog(deps = {}) {
         pinnedAnswer: Boolean(latest?.pinned),
         ...(row.home ? { home: row.home } : {}),
         notifyOnly: row.notifyOnly === true,
-        ...(row.id && row.kind === "tool" ? { downloadReady: row.downloadReady === true } : {}),
+        ...(row.id && row.kind === "tool" && typeof row.downloadReady === "boolean"
+          ? { downloadReady: row.downloadReady }
+          : {}),
         ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
         ...(row.needsRelease ? { needsRelease: true, note: row.note } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),

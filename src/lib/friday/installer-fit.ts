@@ -75,6 +75,41 @@ export const sourceLabel = (source: string | null | undefined): string =>
 
 export type Badge = { id: string; label: string; tone: Tone; title?: string };
 
+const HOME_LABEL: Record<string, string> = {
+  "friday-root": "In FRIDAY's folder",
+  machine: "On this PC",
+  "npm-global": "npm global",
+};
+
+/** Where a tool lives, in plain words; null when the row does not say or the home is not one we name. */
+export const homeLine = (row: Pick<InstallerCatalogRow, "home">): string | null =>
+  row.home ? (HOME_LABEL[row.home] ?? null) : null;
+
+/** "Latest checked from <source kind> (via primary|fallback|cache|pinned)"; null when no source answered. */
+export function latestFromLine(
+  row: Pick<InstallerCatalogRow, "source" | "stale" | "pinnedAnswer" | "via">,
+): string | null {
+  if (!row.source) return null;
+  const via = row.via ?? (row.pinnedAnswer ? "pinned" : row.stale ? "cache" : null);
+  return `Latest checked from ${sourceLabel(row.source)}${via ? ` (via ${via})` : ""}`;
+}
+
+/** A notify-only row with a newer version: the owner updates it; FRIDAY has no Update button for it. */
+export const notifyLine = (
+  row: Pick<InstallerCatalogRow, "notifyOnly" | "updateStatus">,
+): string | null =>
+  row.notifyOnly === true && row.updateStatus === "update"
+    ? "Newer version available, update it yourself"
+    : null;
+
+/** A tool row whose download has no published checksum yet: FRIDAY will not install it. */
+export const checksumLine = (
+  row: Pick<InstallerCatalogRow, "kind" | "downloadReady">,
+): string | null =>
+  row.kind === "tool" && row.downloadReady === false
+    ? "No published checksum yet: the direct download fallback stays off for this tool"
+    : null;
+
 /** The update badge, and a second "Saved answer" badge when the version is the last cached one. */
 export function updateBadges(row: InstallerCatalogRow): Badge[] {
   const out: Badge[] = [];
@@ -229,6 +264,10 @@ export function rowActions(
   let install: RowAction | null = null;
   let note: string | null = null;
   if (runnable && row.installed === false && row.needsRelease !== true) {
+    // A missing checksum only closes the data-file download fallback (it fails closed on its own); the
+    // vendor installer or winget route keeps its Install button, so we say so in a note and never hide it.
+    const unchecked = checksumLine(row);
+    if (unchecked) note = unchecked;
     if (ctx.target) {
       const limited = row.fit.state === "limited";
       install = {
@@ -249,6 +288,7 @@ export function rowActions(
   const update: RowAction | null =
     runnable &&
     row.updateStatus === "update" &&
+    row.notifyOnly !== true &&
     (row.kind === "tool" || row.kind === "engine") &&
     ctx.target?.via === "installer"
       ? {
@@ -397,6 +437,12 @@ export type RowView = {
   servedLine: string | null;
   /** The catalogue's note for a row whose release asset is not published yet; null otherwise. */
   noteLine: string | null;
+  /** Where the tool lives, or null. */
+  homeText: string | null;
+  /** Where the newest version was read from, or null. */
+  latestFromText: string | null;
+  /** The notify-only notice, or null. */
+  notifyText: string | null;
   upstreamVersion: string | null;
   row: InstallerCatalogRow;
 };
@@ -437,6 +483,9 @@ export function rowView(
     engineLine: chain ? `Builds for this PC, best first: ${chain}${active}` : null,
     servedLine: servedLine(row),
     noteLine: row.needsRelease === true && row.note ? row.note : null,
+    homeText: homeLine(row),
+    latestFromText: latestFromLine(row),
+    notifyText: notifyLine(row),
     upstreamVersion: row.upstreamVersion ?? null,
     row,
   };
