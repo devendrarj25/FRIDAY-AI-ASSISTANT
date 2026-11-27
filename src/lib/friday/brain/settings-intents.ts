@@ -25,6 +25,7 @@
  */
 
 import { preferences } from "../preferences";
+import { confirmationVerdict } from "../voice-session";
 import { modelRegistry as usageRegistry, type UsagePolicy } from "../model-registry";
 import {
   ATTENTION_FIELD,
@@ -69,7 +70,6 @@ export type SettingsIntent =
 const PROTECTED =
   /\b(exec(ution)? approval|workspace writes?|safe tools?|encryption|biometric|secure comm|permission(s| broker| tier)?|privacy( firewall)?|governance|billing( firewall)?|tool[- ]authority|approval (gate|code)|security tier|admin rights?|elevate)\b/i;
 
-const AFFIRM = /^(yes|yeah|yep|ya|haan|haa|ok|okay|do it|go ahead|confirm|apply|sure|kar do)\b/i;
 /** Whole-utterance cancel only — "no humour" / "no, I meant …" are new requests. */
 const DENY_CONFIRM = /^(no|nope|nah|cancel|stop|don'?t|na|nahi|leave it|forget it)[.!?\s]*$/i;
 
@@ -410,7 +410,7 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
   // 1. answer to a change FRIDAY already repeated back ----------------------
   const waiting = pendingChange();
   if (waiting) {
-    if (AFFIRM.test(text)) {
+    if (confirmationVerdict(text) === "yes") {
       const change = waiting;
       staged = null;
       void change.apply().catch(() => undefined);

@@ -4,8 +4,15 @@
  * (`CONFIRM_WORDS`, `confirmationVerdict`) and nothing else, so the three agree line by line and none of them
  * gives a false yes.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { AFFIRM } from "../../src/lib/friday/brain/action-risk";
+import { conversationalMove } from "../../src/lib/friday/brain/intent-engine";
+import {
+  clearPendingChange,
+  readSettingsIntent,
+  useVoicePreferenceStorage,
+} from "../../src/lib/friday/brain/settings-intents";
 import { isYesLike } from "../../src/lib/friday/voice-engine/instant-ack";
 import {
   buildConfirmDigest,
@@ -186,6 +193,49 @@ describe("one yes table: every approval path agrees with it", () => {
       );
     });
     expect(falseYes).toEqual([]);
+  });
+});
+
+describe("one yes table: the typed paths agree with it too", () => {
+  const storage = () => {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+    };
+  };
+  beforeEach(() => {
+    useVoicePreferenceStorage(storage());
+    clearPendingChange();
+  });
+  afterEach(() => {
+    useVoicePreferenceStorage(null);
+    clearPendingChange();
+  });
+
+  it.each(LINES)("%j", (line, want) => {
+    const yes = want === "yes";
+    // The action-risk yes test, the intent engine's approval move and the settings confirmation: a yes only for a yes.
+    expect(AFFIRM.test(line)).toBe(yes);
+    expect(conversationalMove(line) === "approval").toBe(yes);
+    readSettingsIntent("from now on speak slower");
+    expect(readSettingsIntent(line)?.kind === "applied").toBe(yes);
+  });
+
+  it("keeps the real typed phrases that approve, and never a bare apply, ya or approved", () => {
+    for (const line of ["yes", "ok", "confirm", "kar do", "proceed", "do it", "haan kar do"])
+      expect(AFFIRM.test(line)).toBe(true);
+    for (const line of ["apply", "ya", "approved", "bas kar do", "yes send it to Rohan"])
+      expect(AFFIRM.test(line)).toBe(false);
+  });
+
+  it("the three sources keep no yes list of their own", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const file of ["action-risk", "settings-intents", "intent-engine"]) {
+      const source = readFileSync(`src/lib/friday/brain/${file}.ts`, "utf8");
+      expect(source).toMatch(/confirmationVerdict/);
+      expect(source).not.toMatch(/\^?\(yes\|yeah|\\b\(yes\|yeah/);
+    }
   });
 });
 

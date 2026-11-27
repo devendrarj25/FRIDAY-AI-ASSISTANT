@@ -11,6 +11,7 @@
  */
 
 import { autonomy } from "../self/autonomy";
+import { confirmationVerdict } from "../voice-session";
 import { isRoutineTerminalCommand } from "../terminal-command";
 import { isRoutineSandboxCommand, extractSandboxRun } from "../sandbox-command";
 
@@ -26,8 +27,10 @@ export type ActionRisk = "safe" | "write" | "exec";
 export const CONSEQUENTIAL =
   /\b(delete|remove|erase|format|wipe|uninstall|install|update|upgrade|reinstall|shutdown|shut down|restart|reboot|kill|terminate|stop\s+service|run|execute|launch|build|rebuild|deploy|publish|overwrite|rename|move|copy|write|save\s+file|create\s+file|download|fetch|git\s+(clone|push|reset|clean)|pull\s+model|npm|pip|powershell|cmd|registry|disable|enable\s+service|purchase|buy|pay|subscribe|hata\s*do|hata\s*dena|hatao|mita\s*do|mita\s*dena|mitao|saaf\s*kar|uda\s*do|udao|nikal\s*do|khatam\s*kar|band\s*kar(?:o|na|do)|bhej\s*do|bhejo|kharid(?:o|na)|bharo|payment\s*kar|order\s*(?:kar|karo|kardo|do|de\s*do)|place\s+(?:an?\s+)?order|book\s*kar(?:o|do)?|transfer\s*kar(?:o|do)?)\b/i;
 
-export const AFFIRM =
-  /\b(yes|yeah|yep|confirm|confirmed|do it|go ahead|proceed|haan|haa|thik hai|ok|okay)\b/i;
+/** A yes answer: only what the one table in voice-session.ts reads as a yes (it reads it lazily, so no import cycle). */
+export const AFFIRM: { test(value: string): boolean } = {
+  test: (value) => confirmationVerdict(value) === "yes",
+};
 
 /**
  * The live mode. assistant-mode.ts owns the user-facing switch and mirrors it
