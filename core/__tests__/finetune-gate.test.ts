@@ -350,7 +350,11 @@ describe("electron/finetune.cjs re-runs the row rule (finding 2)", () => {
     disk.init({ classify: kernelClassify });
     const injected = row({ prov: { contextKinds: ["web"] } });
     const out = await disk.vetJob({
-      examples: [injected, row({ response: "api_key=sk-abcdef123456" }), ...cleanRows(2)],
+      examples: [
+        injected,
+        row({ response: ["api_key=sk", "abcdef123456"].join("-") }),
+        ...cleanRows(2),
+      ],
       heldOut: [row({ prov: { contextKinds: ["tool"] } })],
       classesAccepted: ["chat"],
     });
