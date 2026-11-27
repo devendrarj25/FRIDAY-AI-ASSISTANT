@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
@@ -314,20 +315,40 @@ def classify(content: Any) -> dict[str, Any]:
     return {"level": LEVELS[rank], "reasons": reasons, "sample": len(text)}
 
 
+def _host_of(value: Any) -> str:
+    """The lower-case host of an endpoint or a bare ``host[:port]``; empty when there is none."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return (urlsplit(text if "://" in text else f"http://{text}").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def trusted_engine_hosts(env: Mapping[str, str] | None = None) -> frozenset[str]:
+    """THE locality rule, part 2 (same rule as ``trustedEngineHosts`` in electron/model-access.cjs).
+
+    A model is local only on a loopback host or on a host the OWNER set in this process's
+    environment (``OLLAMA_HOST`` and any other ``env`` named in ``local_engines.json``), so a LAN
+    engine the owner chose keeps working. The set is read from the environment at each call and from
+    nowhere else: never a model row, a renderer message or a kernel RPC.
+    """
+    source = os.environ if env is None else env
+    hosts = {_host_of(source.get(row["env"])) for row in local_engines.ENGINES.values() if row.get("env")}
+    return frozenset(h for h in hosts if h)
+
+
 def is_loopback_endpoint(endpoint: Any) -> bool:
-    """True when the URL's host is this PC: localhost or a loopback address.
+    """True when the URL's host is this PC (localhost or a loopback address) or the owner's engine host.
 
     The host is parsed, never searched for, so ``http://127.0.0.1.evil.test`` or a loopback
-    address in a path, query or user-info is not this machine.
+    address in a path, query or user-info is not this machine. See ``trusted_engine_hosts``.
     """
-    text = str(endpoint or "").strip()
-    if not text:
+    host = _host_of(endpoint)
+    if not host:
         return False
-    try:
-        host = (urlsplit(text if "://" in text else f"http://{text}").hostname or "").lower()
-    except ValueError:
-        return False
-    if host == "localhost":
+    if host == "localhost" or host in trusted_engine_hosts():
         return True
     try:
         address = ipaddress.ip_address(host)

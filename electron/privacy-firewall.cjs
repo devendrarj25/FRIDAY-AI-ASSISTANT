@@ -31,6 +31,7 @@
  */
 
 const billingFirewall = require("./billing-firewall.cjs");
+const modelAccess = require("./model-access.cjs");
 
 /** Classification tiers, most to least sensitive. */
 const LEVELS = ["sensitive", "private", "internal", "public"];
@@ -303,7 +304,8 @@ function isExternal(model) {
 
 function isLocalKind(model) {
   const kind = String(model?.type || model?.meta?.kind || "").toLowerCase();
-  return billingFirewall.LOCAL_KINDS.has(kind);
+  // A name alone never makes a remote host local: the endpoint must be local too (model-access.cjs).
+  return billingFirewall.LOCAL_KINDS.has(kind) && modelAccess.endpointAllowsLocal(model);
 }
 
 /* --------------------------------------------- the two, and only two, tiers */
