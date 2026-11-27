@@ -351,7 +351,7 @@ export async function handleImportIntent(
   }
 
   const startedAt = Date.now();
-  const result = brain.send(text, { extra });
+  const result = brain.send(text, { extra, promptOrigin: "typed" });
   if (!result.accepted) {
     return {
       text: result.message || result.reason || "Core Brain did not accept this turn.",

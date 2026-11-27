@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CHAT_LEVELS, VOICE_LEVEL_LABELS, type ChatLevel } from "@/lib/friday/chat-level";
-import { useSlidingThumb } from "@/components/friday/ui";
+import { PANEL_BUTTON, useSlidingThumb } from "@/components/friday/ui";
 import {
   micFaultPanelModel,
   micLiveText,
@@ -286,9 +286,6 @@ export function LatencyChip({ summary }: { summary: Pick<LatencySummary, "last">
     </span>
   );
 }
-
-const PANEL_BUTTON =
-  "friday-btn relative inline-flex h-6 min-w-6 items-center gap-1.5 rounded-ctl border border-primary/25 px-2 text-meta-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']";
 
 /** The gate's fault and Bluetooth notice as one string, so the store read stays stable between renders. */
 function gateKey(): string {

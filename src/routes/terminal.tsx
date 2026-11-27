@@ -48,7 +48,7 @@ function TerminalPage() {
 
   useEffect(() => {
     registerTerminalAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatTerminalExtra() });
+      const result = brain.send(prompt, { extra: formatTerminalExtra(), promptOrigin: "typed" });
       if (!result.accepted) ops.note("warn", result.message || "FRIDAY is busy.");
     });
     return () => registerTerminalAsk(null);
@@ -70,7 +70,7 @@ function TerminalPage() {
     const text = ask.trim();
     if (!text || brainState.activeRunId) return;
     setAsk("");
-    brain.send(text, { extra: formatTerminalExtra() });
+    brain.send(text, { extra: formatTerminalExtra(), promptOrigin: "typed" });
   };
 
   const copyBuffer = async () => {

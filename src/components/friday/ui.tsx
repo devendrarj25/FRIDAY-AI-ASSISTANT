@@ -450,6 +450,10 @@ export function MetricBar({
   );
 }
 
+/** Small bordered panel button (voice bar, panels): one definition, the standard focus ring. */
+export const PANEL_BUTTON =
+  "friday-btn relative inline-flex h-6 min-w-6 items-center gap-1.5 rounded-ctl border border-primary/25 px-2 text-meta-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']";
+
 /** Rows drawn at first; the rest follow on request, so a long catalogue opens quickly. */
 export const TABLE_ROW_STEP = 40;
 

@@ -751,7 +751,7 @@ function BrowserPage() {
 
   useEffect(() => {
     registerBrowserAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatBrowserExtra() });
+      const result = brain.send(prompt, { extra: formatBrowserExtra(), promptOrigin: "typed" });
       if (!result.accepted) setStatus(result.message || "FRIDAY is busy.");
     });
     return () => registerBrowserAsk(null);
@@ -761,7 +761,7 @@ function BrowserPage() {
     const text = ask.trim();
     if (!text || brainState.activeRunId) return;
     setAsk("");
-    brain.send(text, { extra: formatBrowserExtra() });
+    brain.send(text, { extra: formatBrowserExtra(), promptOrigin: "typed" });
   };
 
   // ---- keyboard shortcuts --------------------------------------------------

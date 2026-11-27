@@ -328,13 +328,11 @@ describe("the live wiring", () => {
     expect(read("src/routes/tasks.tsx")).toMatch(
       /taskGraph\.submit\([\s\S]{0,400}promptOrigin: "typed"/,
     );
-    for (const file of [
-      "src/lib/friday/self/ask-brain.ts",
-      "src/lib/friday/import-chat.ts",
-      "src/lib/friday/hub-chat.ts",
-      "src/lib/friday/character/link.ts",
-    ]) {
+    for (const file of ["src/lib/friday/self/ask-brain.ts", "src/lib/friday/character/link.ts"]) {
       expect(read(file)).not.toContain("promptOrigin");
+    }
+    for (const file of ["src/lib/friday/import-chat.ts", "src/lib/friday/hub-chat.ts"]) {
+      expect(read(file)).toContain('promptOrigin: "typed"');
     }
   });
 });
