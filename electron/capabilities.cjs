@@ -30,6 +30,8 @@ function contains(base, target) {
 const TREES = require("./friday-contract.cjs").TREES;
 const packShape = require("./pack-shape.cjs");
 const { boundedInit } = require("./net-fetch.cjs");
+const safeWrite = require("./safe-write.cjs");
+const builtinsSync = require("./builtins-sync.cjs");
 
 const RISKS = new Set(["safe", "write", "exec"]);
 const STATE_FILE = path.join("config", "capabilities.json");
@@ -59,6 +61,68 @@ function overridesFile(workspaceRoot) {
 function readOverrides(workspaceRoot) {
   if (!workspaceRoot) return {};
   return readJson(overridesFile(workspaceRoot)) || {};
+}
+
+// config/capabilities.json is the owner's record. Schema 1 (no `schema` key) is
+// a flat id -> boolean toggle map. Schema 2 keeps that map unchanged and adds
+// records beside it: forks, removedBuiltins and lastBuiltins. Migration is
+// forward only; a file from a newer FRIDAY is never rewritten.
+const STATE_SCHEMA = 2;
+const RESERVED_KEYS = new Set(["schema", "forks", "removedBuiltins", "lastBuiltins"]);
+const PROVENANCE = new Set(["user", "import", "marketplace", "forge", "release-content"]);
+const isPlain = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
+
+/** `{ exists, readable, value }`; `value` is `{}` when the file is missing or damaged. */
+function readStateFile(workspaceRoot) {
+  const file = overridesFile(workspaceRoot);
+  if (!fs.existsSync(file)) return { exists: false, readable: true, value: {} };
+  const value = readJson(file);
+  return isPlain(value)
+    ? { exists: true, readable: true, value }
+    : { exists: true, readable: false, value: {} };
+}
+
+/** The schema-2 shape of a record, toggles untouched. Pure; a newer schema is returned as it is. */
+function upgradeState(raw) {
+  const source = isPlain(raw) ? raw : {};
+  if (Number(source.schema) > STATE_SCHEMA) return source;
+  const { schema: _schema, forks, removedBuiltins, lastBuiltins, ...toggles } = source;
+  return {
+    schema: STATE_SCHEMA,
+    ...toggles,
+    forks: isPlain(forks) ? forks : {},
+    removedBuiltins: isPlain(removedBuiltins) ? removedBuiltins : {},
+    ...(isPlain(lastBuiltins) ? { lastBuiltins } : {}),
+  };
+}
+
+/** Atomic JSON write that keeps the previous body as `<file>.bak`. */
+function writeAtomic(file, value) {
+  try {
+    safeWrite.writeJsonSafe(file, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeState(workspaceRoot, state) {
+  return writeAtomic(overridesFile(workspaceRoot), state);
+}
+
+/** v1 to v2, once. Never creates a file, never downgrades, never touches a damaged one. */
+function migrateState(workspaceRoot) {
+  if (!workspaceRoot) return { ok: false, migrated: false, reason: "no-root" };
+  const current = readStateFile(workspaceRoot);
+  if (!current.exists) return { ok: true, migrated: false, reason: "none" };
+  if (!current.readable) return { ok: false, migrated: false, reason: "unreadable" };
+  if (Number(current.value.schema) >= STATE_SCHEMA)
+    return { ok: true, migrated: false, reason: "current" };
+  const ok = writeState(workspaceRoot, upgradeState(current.value));
+  return ok
+    ? { ok: true, migrated: true, from: 1 }
+    : { ok: false, migrated: false, reason: "write" };
 }
 
 /**
@@ -180,6 +244,9 @@ function normalize(tree, segment, id, target, manifestFile, manifest, origin, ro
     uiIcon: m.ui && typeof m.ui === "object" && !Array.isArray(m.ui) ? String(m.ui.icon || "") : "",
     keywords: Array.isArray(m.keywords) ? m.keywords.map(String).slice(0, 24) : [],
     risk: RISKS.has(risk) ? risk : "safe",
+    // Who put a workspace item there; a missing value reads as the owner's own.
+    provenance:
+      origin === "workspace" ? (PROVENANCE.has(m.provenance) ? m.provenance : "user") : null,
     enabled: m.enabled !== false,
     configured: Boolean(manifest),
     requires: state.requires,
@@ -370,8 +437,11 @@ function versionGreater(a, b) {
  * Workspace entries win over app entries with the same id (user override),
  * unless the built-in is strictly newer.
  */
-function list({ appRoot, workspaceRoot }) {
-  const overrides = readOverrides(workspaceRoot);
+function list({ appRoot, workspaceRoot, state }) {
+  const overrides = state || readOverrides(workspaceRoot);
+  const forks = isPlain(overrides.forks) ? overrides.forks : {};
+  const removed = isPlain(overrides.removedBuiltins) ? overrides.removedBuiltins : {};
+  const shipped = builtinsSync.readBuiltins(appRoot);
   const merged = new Map();
   // Dependencies may be satisfied by either root (shipped or user-installed).
   const roots = [appRoot, workspaceRoot].filter(Boolean);
@@ -381,15 +451,42 @@ function list({ appRoot, workspaceRoot }) {
   // keeps updates flowing: a built-in whose version is strictly newer than the
   // copy in the workspace (an older "Update content" merge, or an old
   // customisation) wins, and the older copy is recorded as `staleOverride`
-  // instead of silently blocking the fix the new app ships.
+  // instead of silently blocking the fix the new app ships. The reverse
+  // exception is the owner's recorded fork (config/capabilities.json `forks`):
+  // it always wins, and is `forked-stale` once the built-in it was cut from changed.
+  // `status` says which of these an item is.
   for (const entry of scanRoot(appRoot, "app", roots))
-    merged.set(entry.id, { ...entry, shadows: null });
+    merged.set(entry.id, { ...entry, shadows: null, status: "builtin" });
   for (const entry of scanRoot(workspaceRoot, "workspace", roots)) {
     const builtIn = merged.get(entry.id);
+    const key = entry.id.toLowerCase();
+    const shippedItem = shipped.ok ? shipped.byId.get(key) : null;
+    if (builtIn && shippedItem && builtinsSync.itemHash(entry.path) === shippedItem.sha256) {
+      merged.set(entry.id, {
+        ...builtIn,
+        shadows: null,
+        status: "identical",
+        identicalCopy: { origin: "workspace", path: entry.path },
+      });
+      continue;
+    }
+    const fork =
+      builtIn && own(forks, entry.id) && isPlain(forks[entry.id]) ? forks[entry.id] : null;
+    if (fork) {
+      const behind = Boolean(shippedItem) && fork.baseSha256 !== shippedItem.sha256;
+      merged.set(entry.id, {
+        ...entry,
+        shadows: { origin: builtIn.origin, path: builtIn.path, version: builtIn.version },
+        status: behind ? "forked-stale" : "overridden",
+        fork,
+      });
+      continue;
+    }
     if (builtIn && versionGreater(builtIn.version, entry.version)) {
       merged.set(entry.id, {
         ...builtIn,
         shadows: null,
+        status: "builtin",
         staleOverride: { origin: "workspace", path: entry.path, version: entry.version },
       });
       continue;
@@ -399,6 +496,7 @@ function list({ appRoot, workspaceRoot }) {
       shadows: builtIn
         ? { origin: builtIn.origin, path: builtIn.path, version: builtIn.version }
         : null,
+      status: builtIn ? "overridden" : own(removed, key) ? "removed" : "custom",
     });
   }
   const items = [...merged.values()].map((entry) =>
@@ -422,6 +520,7 @@ function list({ appRoot, workspaceRoot }) {
 
 function setEnabled({ workspaceRoot }, id, enabled) {
   if (!workspaceRoot) return { ok: false, error: "no workspace root selected" };
+  if (RESERVED_KEYS.has(String(id))) return { ok: false, error: "not a capability id" };
   const overrides = readOverrides(workspaceRoot);
   overrides[id] = Boolean(enabled);
   const ok = writeJson(overridesFile(workspaceRoot), overrides);
@@ -593,6 +692,13 @@ function installPack({ workspaceRoot }, pack, hint) {
     : DEFAULT_SEGMENT[tree];
   const slug = slugify(pack.slug || pack.id || pack.name);
   if (!slug) return { ok: false, error: "The pack needs an id." };
+  // Where the pack came from: an explicit valid value wins, a page/import hint
+  // means an import, and a plain install is the marketplace path.
+  const provenance = PROVENANCE.has(pack.provenance)
+    ? pack.provenance
+    : hint
+      ? "import"
+      : "marketplace";
 
   const dir = packDir(workspaceRoot, tree, segment, slug);
   try {
@@ -626,6 +732,7 @@ function installPack({ workspaceRoot }, pack, hint) {
         inputs: Array.isArray(pack.inputs) ? pack.inputs : [],
         version: Number(existing?.version || 0) + 1,
         author: pack.author || "friday-marketplace",
+        provenance,
         createdAt: Number(existing?.createdAt || Date.now()),
         updatedAt: Date.now(),
         runs: Number(existing?.runs || 0),
@@ -655,6 +762,7 @@ function installPack({ workspaceRoot }, pack, hint) {
           pack.approvalPrompt || `FRIDAY wants to run the tool “${name}”. Allow this?`,
         ).trim(),
         author: pack.author || "friday-marketplace",
+        provenance,
         verification: { status: "pending", at: Date.now() },
         installedAt: Date.now(),
         ...(Array.isArray(pack.keywords)
@@ -676,6 +784,7 @@ function installPack({ workspaceRoot }, pack, hint) {
         permissions: Array.isArray(pack.permissions) ? pack.permissions.map(String) : [],
         entry: entryName,
         author: pack.author || "friday-marketplace",
+        provenance,
         enabled: false,
         verification: { status: "pending", at: Date.now() },
         installedAt: Date.now(),
@@ -699,6 +808,7 @@ function installPack({ workspaceRoot }, pack, hint) {
         hooks,
         entry: entryName,
         author: pack.author || "friday-marketplace",
+        provenance,
         enabled: false,
         verification: { status: "pending", at: Date.now() },
         installedAt: Date.now(),
@@ -741,6 +851,7 @@ function installPack({ workspaceRoot }, pack, hint) {
             ],
         inputs: Array.isArray(pack.inputs) ? pack.inputs.map(String) : [],
         author: pack.author || "friday-marketplace",
+        provenance,
         enabled: false,
         verification: { status: "pending", at: Date.now() },
         installedAt: Date.now(),
@@ -765,6 +876,7 @@ function installPack({ workspaceRoot }, pack, hint) {
         ...(pack.manifest || {}),
         ...(Array.isArray(pack.skills) ? { skills: pack.skills.map(String) } : {}),
         ...(Array.isArray(pack.workflows) ? { workflows: pack.workflows.map(String) } : {}),
+        provenance,
       };
       writeJson(path.join(dir, "manifest.json"), manifest);
       if (pack.code)
@@ -878,7 +990,9 @@ function uninstallPack({ workspaceRoot }, id) {
   }
   const file = overridesFile(workspaceRoot);
   const overrides = readOverrides(workspaceRoot);
-  if (overrides[id] !== undefined) {
+  const hadFork = isPlain(overrides.forks) && own(overrides.forks, id);
+  if (hadFork) delete overrides.forks[id];
+  if (overrides[id] !== undefined || hadFork) {
     delete overrides[id];
     writeJson(file, overrides);
   }
@@ -912,7 +1026,113 @@ async function installFromUrl(roots, url) {
   return failed ? failed : { ok: true, installed: results.map((r) => r.id) };
 }
 
+/** The scanned item with this id in one root, or null. Ids compare without case. */
+function findItem(root, origin, id) {
+  const key = String(id || "").toLowerCase();
+  if (!root || !key) return null;
+  return scanRoot(root, origin, [root]).find((item) => item.id.toLowerCase() === key) || null;
+}
+
+/** Records that the workspace copy of a built-in is the owner's fork, cut from today's built-in. */
+function recordFork({ appRoot, workspaceRoot }, id, now = Date.now) {
+  if (!workspaceRoot) return { ok: false, error: "No FRIDAY workspace is selected." };
+  const builtIn = findItem(appRoot, "app", id);
+  if (!builtIn) return { ok: false, error: "That is not a built-in capability." };
+  const shipped = builtinsSync.readBuiltins(appRoot);
+  const known = shipped.ok ? shipped.byId.get(builtIn.id.toLowerCase()) : null;
+  const state = upgradeState(readStateFile(workspaceRoot).value);
+  if (Number(state.schema) > STATE_SCHEMA) return { ok: false, error: "The record is newer." };
+  state.forks[builtIn.id] = {
+    baseVersion: builtIn.version,
+    baseSha256: known ? known.sha256 : builtinsSync.itemHash(builtIn.path),
+    at: now(),
+  };
+  return writeState(workspaceRoot, state)
+    ? { ok: true, id: builtIn.id }
+    : { ok: false, error: "could not write config/capabilities.json" };
+}
+
+/** Copies a built-in into the workspace (never over an existing copy) and records the fork. */
+function forkBuiltin({ appRoot, workspaceRoot }, id, now = Date.now) {
+  if (!workspaceRoot) return { ok: false, error: "No FRIDAY workspace is selected." };
+  const builtIn = findItem(appRoot, "app", id);
+  if (!builtIn) return { ok: false, error: "That is not a built-in capability." };
+  const target = path.join(workspaceRoot, path.relative(appRoot, builtIn.path));
+  if (!contains(workspaceRoot, target))
+    return { ok: false, error: "Refusing to write outside the workspace." };
+  if (fs.existsSync(target))
+    return { ok: false, error: "A copy already exists in this workspace." };
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(builtIn.path, target, { recursive: true, errorOnExist: true });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+  const recorded = recordFork({ appRoot, workspaceRoot }, builtIn.id, now);
+  return recorded.ok ? { ok: true, id: builtIn.id, path: target } : recorded;
+}
+
+/**
+ * Reset to built-in: the owner's copy of a built-in goes to
+ * <workspace>/backup/capabilities/<id>-<stamp> first, and only then is the user
+ * copy removed. The built-in in the program folder is never touched.
+ */
+function resetBuiltin({ appRoot, workspaceRoot }, id, { now = Date.now } = {}) {
+  if (!workspaceRoot) return { ok: false, error: "No FRIDAY workspace is selected." };
+  if (!findItem(appRoot, "app", id))
+    return { ok: false, error: "That is not a built-in capability." };
+  const copy = findItem(workspaceRoot, "workspace", id);
+  if (!copy) return { ok: false, error: "There is no copy of it in this workspace." };
+  if (
+    !contains(workspaceRoot, copy.path) ||
+    path.resolve(copy.path) === path.resolve(workspaceRoot)
+  )
+    return { ok: false, error: "Refusing to remove outside the workspace." };
+  const stamp = new Date(now())
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "");
+  const base = path.join(
+    workspaceRoot,
+    "backup",
+    "capabilities",
+    `${copy.id.replace(/[\\/:*?"<>|]/g, "__")}-${stamp}`,
+  );
+  let backup = base;
+  for (let n = 2; fs.existsSync(backup); n += 1) backup = `${base}-${n}`;
+  try {
+    fs.mkdirSync(path.dirname(backup), { recursive: true });
+    fs.cpSync(copy.path, backup, { recursive: true, errorOnExist: true });
+    if (!fs.existsSync(backup)) throw new Error("the backup copy was not written");
+    fs.rmSync(copy.path, { recursive: true, force: true });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+  const current = readStateFile(workspaceRoot);
+  if (
+    current.exists &&
+    current.readable &&
+    isPlain(current.value.forks) &&
+    own(current.value.forks, copy.id)
+  ) {
+    delete current.value.forks[copy.id];
+    writeState(workspaceRoot, current.value);
+  }
+  return { ok: true, id: copy.id, backup };
+}
+
 module.exports = {
+  STATE_SCHEMA,
+  RESERVED_KEYS,
+  PROVENANCE,
+  readStateFile,
+  upgradeState,
+  writeState,
+  writeAtomic,
+  migrateState,
+  recordFork,
+  forkBuiltin,
+  resetBuiltin,
   TREES,
   list,
   setEnabled,

@@ -92,4 +92,40 @@ describe("built-in versus workspace copy of the same capability", () => {
     expect(items.find((i) => i.id.endsWith("mine"))?.origin).toBe("workspace");
     expect(items.find((i) => i.id.endsWith("demo"))?.origin).toBe("app");
   });
+
+  it("lets a recorded fork win over a strictly newer built-in, and names the status", () => {
+    write(appRoot, "2.0.0");
+    write(workspaceRoot, "1.0.0", { summary: "mine" });
+    expect(pick().origin).toBe("app");
+    fs.mkdirSync(path.join(workspaceRoot, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "config", "capabilities.json"),
+      JSON.stringify({
+        schema: 2,
+        forks: { "agents/core/demo": { baseVersion: "1.0.0", baseSha256: "0", at: 1 } },
+        removedBuiltins: {},
+      }),
+    );
+    const item = pick() as ReturnType<typeof pick> & { status: string };
+    expect(item.origin).toBe("workspace");
+    expect(item.version).toBe("1.0.0");
+    expect(item.status).toBe("overridden");
+  });
+
+  it("gives every row a status: builtin, custom or overridden", () => {
+    write(appRoot, "1.0.0");
+    const solo = path.join(workspaceRoot, "agents", "core", "mine");
+    fs.mkdirSync(solo, { recursive: true });
+    fs.writeFileSync(path.join(solo, "manifest.json"), JSON.stringify({ name: "Mine" }));
+    const status = (suffix: string) =>
+      (
+        capabilities
+          .list({ appRoot, workspaceRoot })
+          .items.find((i) => i.id.endsWith(suffix)) as unknown as { status: string }
+      ).status;
+    expect(status("demo")).toBe("builtin");
+    expect(status("mine")).toBe("custom");
+    write(workspaceRoot, "1.0.0", { summary: "edited" });
+    expect(status("demo")).toBe("overridden");
+  });
 });
