@@ -229,7 +229,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   /* ------------------------------------------------------------------ speech to text */
   whisper(
     "faster-whisper-tiny",
-    "Whisper tiny (CTranslate2 int8)",
+    "FRIDAY Ear tiny (int8)",
     "Systran/faster-whisper-tiny",
     0,
     "installed-by-default",
@@ -238,7 +238,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   whisper(
     "faster-whisper-base",
-    "Whisper base (CTranslate2 int8)",
+    "FRIDAY Ear base (int8)",
     "Systran/faster-whisper-base",
     1,
     "installed-by-default",
@@ -247,7 +247,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   whisper(
     "faster-whisper-small",
-    "Whisper small (CTranslate2 int8)",
+    "FRIDAY Ear small (int8)",
     "Systran/faster-whisper-small",
     2,
     "installed-by-default",
@@ -256,7 +256,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   whisper(
     "faster-whisper-medium",
-    "Whisper medium (CTranslate2)",
+    "FRIDAY Ear medium",
     "Systran/faster-whisper-medium",
     3,
     "optional-pinned",
@@ -265,7 +265,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   whisper(
     "faster-whisper",
-    "Whisper large-v3 (CTranslate2)",
+    "FRIDAY Ear large-v3",
     "Systran/faster-whisper-large-v3",
     4,
     "optional-pinned",
@@ -274,7 +274,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   whisper(
     "faster-whisper-large-v3-turbo",
-    "Whisper large-v3-turbo (CTranslate2, multilingual fallback for GPU tiers)",
+    "FRIDAY Ear large-v3-turbo (multilingual fallback for GPU tiers)",
     "dropbox-dash/faster-whisper-large-v3-turbo",
     5,
     "optional-pinned",
@@ -283,7 +283,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   ),
   row({
     id: "hindi-ear",
-    label: "Hindi ear (AI4Bharat IndicConformer, int8 ONNX)",
+    label: "FRIDAY Ear Hindi (int8)",
     role: "stt",
     repo: "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
     pinRepo: "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
@@ -305,7 +305,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hinglish-ear",
-    label: "Hinglish ear (Whisper base fine-tune, Roman letters)",
+    label: "FRIDAY Ear Hinglish (Roman letters)",
     role: "stt",
     repo: "MSpider3/whisper-hindi2hinglish-swift-ct2",
     pinRepo: "MSpider3/whisper-hindi2hinglish-swift-ct2",
@@ -323,7 +323,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hindi-fallback-ear",
-    label: "Hindi fallback ear (Whisper small Hindi, Collabora)",
+    label: "FRIDAY Ear Hindi Backup (credit: Whisper small Hindi by Collabora)",
     role: "stt",
     repo: "collabora/faster-whisper-small-hindi",
     pinRepo: "collabora/faster-whisper-small-hindi",
@@ -342,8 +342,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hindi-vaani-ear",
-    label:
-      "Hindi Vaani ear (Whisper large-v3 fine-tune, ARTPARK-IISc; CTranslate2 by a community account)",
+    label: "FRIDAY Ear Hindi Large (candidate)",
     role: "stt",
     repo: "bjollans/whisper-large-v3-vaani-hindi-ct2",
     pinRepo: "bjollans/whisper-large-v3-vaani-hindi-ct2",
@@ -379,7 +378,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "stream-ear-nemotron",
-    label: "Streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8 by soniqo)",
+    label: "FRIDAY Ear Live (int8)",
     role: "stt",
     repo: "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
     pinRepo: "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
@@ -410,8 +409,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hinglish-ear-trelis",
-    label:
-      "Hinglish mixed-script ear (Whisper large-v3 fine-tune by Trelis Research; CTranslate2 int8 by a community account)",
+    label: "FRIDAY Ear Hinglish Large (mixed script, int8)",
     role: "stt",
     repo: "nikh360pro/capsbro-hinglish-ct2",
     pinRepo: "nikh360pro/capsbro-hinglish-ct2",
@@ -550,7 +548,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hindi-punct",
-    label: "Hindi punctuation (47 languages, adds commas and the danda)",
+    label: "FRIDAY Punctuate Hindi (adds commas and the danda)",
     role: "punct",
     repo: "1-800-BAD-CODE/punct_cap_seg_47_language",
     pinRepo: "1-800-BAD-CODE/punct_cap_seg_47_language",
@@ -569,7 +567,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   /* ------------------------------------------------------------------ voice activity, turn end, wake word */
   row({
     id: "silero-vad",
-    label: "Silero VAD (ONNX weights only, never the silero-vad pip package)",
+    label: "FRIDAY Listen Gate (ONNX weights only, never a pip package)",
     role: "vad",
     languages: L("yes", "yes", "yes"),
     code: "MIT",
@@ -601,7 +599,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "smart-turn",
-    label: "Smart Turn v3.2 CPU (Pipecat, int8 ONNX, knows when you finished a sentence)",
+    label: "FRIDAY Turn (int8, knows when you finished a sentence)",
     role: "turn",
     repo: "pipecat-ai/smart-turn-v3",
     languages: L("yes", "yes", "unverified"),
@@ -623,7 +621,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "silence-timer",
-    label: "Silence timer (built in: the end-of-turn rule when Smart Turn is absent)",
+    label: "Silence timer (built in: the end-of-turn rule when FRIDAY Turn is absent)",
     role: "turn",
     languages: L("yes", "yes", "yes"),
     code: "FRIDAY",
@@ -693,7 +691,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   /* ------------------------------------------------------------------ speaker */
   row({
     id: "speaker-wespeaker",
-    label: "WeSpeaker ResNet34-LM (int8 ONNX, speaker verification candidate)",
+    label: "FRIDAY Speaker (credit: WeSpeaker ResNet34-LM, int8, speaker verification candidate)",
     role: "speaker",
     repo: "onnx-community/wespeaker-voxceleb-resnet34-LM",
     pinRepo: "onnx-community/wespeaker-voxceleb-resnet34-LM",
@@ -719,7 +717,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "wespeaker-ecapa",
-    label: "WeSpeaker file placed by hand (legacy name wespeaker-ecapa.onnx)",
+    label: "FRIDAY Speaker file placed by hand (legacy file name)",
     role: "speaker",
     languages: L("unverified", "yes", "unverified"),
     code: "Apache-2.0 (WeSpeaker)",
@@ -790,7 +788,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "denoise-dpdfnet",
-    label: "DPDFNet 2 (streaming speech enhancement, 16 kHz, optional, off by default)",
+    label: "FRIDAY Denoise (streaming speech enhancement, 16 kHz, optional, off by default)",
     role: "denoise",
     repo: "Ceva-IP/DPDFNet",
     pinRepo: "Ceva-IP/DPDFNet",
@@ -810,7 +808,8 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "denoise-gtcrn",
-    label: "GTCRN (tiny streaming speech enhancement, 16 kHz, optional, off by default)",
+    label:
+      "FRIDAY Denoise Lite (tiny streaming speech enhancement, 16 kHz, optional, off by default)",
     role: "denoise",
     repo: "TigreGotico/audiosronnx-gtcrn",
     pinRepo: "TigreGotico/audiosronnx-gtcrn",
@@ -851,7 +850,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "hindi-light-tts",
-    label: "Light Hindi voice (indic-tiny-tts-hindi, three ONNX graphs, Devanagari only)",
+    label: "FRIDAY Voice Lite (three ONNX graphs, Devanagari only)",
     role: "tts",
     ladderId: "hindi-light",
     repo: "sulabhkatiyar/indic-tiny-tts-hindi",
@@ -873,7 +872,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
   }),
   row({
     id: "supertonic-3",
-    label: "Supertonic 3 (the standard local voice, 31 languages)",
+    label: "FRIDAY Voice (the standard local voice, 31 languages)",
     role: "tts",
     ladderId: "supertonic",
     repo: "Supertone/supertonic-3",

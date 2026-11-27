@@ -104,18 +104,23 @@ function planFallback(catalogId) {
  * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
  */
 const EAR_MODELS = [
-  { catalogId: "hindi-ear", repo: HINDI_EAR_REPO, rowId: "hindi-ear-pin", label: "Hindi ear" },
+  {
+    catalogId: "hindi-ear",
+    repo: HINDI_EAR_REPO,
+    rowId: "hindi-ear-pin",
+    label: "FRIDAY Ear Hindi",
+  },
   {
     catalogId: "hinglish-ear",
     repo: HINGLISH_EAR_REPO,
     rowId: "hinglish-ear-pin",
-    label: "Hinglish ear",
+    label: "FRIDAY Ear Hinglish",
   },
   {
     catalogId: "hindi-fallback-ear",
     repo: HINDI_FALLBACK_REPO,
     rowId: "hindi-fallback-ear-pin",
-    label: "Hindi fallback ear",
+    label: "FRIDAY Ear Hindi Backup",
   },
 ];
 
@@ -129,14 +134,14 @@ const EXTRA_MODELS = [
     catalogId: "hindi-punct",
     repo: HINDI_PUNCT_REPO,
     rowId: "hindi-punct-pin",
-    label: "Hindi punctuation model",
+    label: "FRIDAY Punctuate Hindi",
     kind: "stt",
   },
   {
     catalogId: "hindi-light-tts",
     repo: HINDI_LIGHT_REPO,
     rowId: "hindi-light-tts-pin",
-    label: "Light Hindi voice",
+    label: "FRIDAY Voice Lite",
     kind: "tts",
   },
   // The optional pins below with no live wrapper yet download and verify, and each has a self-test (`voice-pins.cjs`
@@ -145,42 +150,42 @@ const EXTRA_MODELS = [
     catalogId: "denoise-dpdfnet",
     repo: DENOISE_REPO,
     rowId: "denoise-dpdfnet-pin",
-    label: "DPDFNet denoiser",
+    label: "FRIDAY Denoise",
     kind: "voice",
   },
   {
     catalogId: "denoise-gtcrn",
     repo: GTCRN_REPO,
     rowId: "denoise-gtcrn-pin",
-    label: "GTCRN denoiser",
+    label: "FRIDAY Denoise Lite",
     kind: "voice",
   },
   {
     catalogId: "speaker-wespeaker",
     repo: SPEAKER_REPO,
     rowId: "speaker-wespeaker-pin",
-    label: "WeSpeaker speaker model",
+    label: "FRIDAY Speaker",
     kind: "voice",
   },
   {
     catalogId: "hindi-vaani-ear",
     repo: HINDI_VAANI_REPO,
     rowId: "hindi-vaani-ear-pin",
-    label: "Hindi Vaani ear (candidate)",
+    label: "FRIDAY Ear Hindi Large (candidate)",
     kind: "stt",
   },
   {
     catalogId: "stream-ear-nemotron",
     repo: STREAM_EAR_REPO,
     rowId: "stream-ear-nemotron-pin",
-    label: "Streaming ear (Nemotron, candidate)",
+    label: "FRIDAY Ear Live (candidate)",
     kind: "stt",
   },
   {
     catalogId: "hinglish-ear-trelis",
     repo: HINGLISH_TRELIS_REPO,
     rowId: "hinglish-ear-trelis-pin",
-    label: "Hinglish mixed-script ear (candidate)",
+    label: "FRIDAY Ear Hinglish Large (candidate)",
     kind: "stt",
   },
 ];
@@ -289,8 +294,8 @@ const PINNED = [
 
 /** Models-page label of each single-file helper. */
 const HELPER_LABELS = {
-  "silero-vad": "Silero VAD",
-  "smart-turn": "Smart Turn",
+  "silero-vad": "FRIDAY Listen Gate",
+  "smart-turn": "FRIDAY Turn",
   "wake-embed": "Wake word embedding",
 };
 
@@ -563,7 +568,7 @@ async function pinChecks(root, deps = {}) {
     const audit = await auditStt(size, root, deps);
     rows.push({
       id: `stt-pin-${size}`,
-      label: `speech ${size} matches its pin`,
+      label: `FRIDAY Ear ${size} matches its pin`,
       ok: audit.ok,
       detail: describe(audit),
     });
@@ -587,7 +592,7 @@ async function pinChecks(root, deps = {}) {
   if (tts) {
     rows.push({
       id: "tts-pin",
-      label: "neural voice matches its pin",
+      label: "FRIDAY Voice matches its pin",
       ok: tts.ok,
       detail: describe(tts),
     });
@@ -653,7 +658,7 @@ async function smartTurnLoadCheck(root, deps = {}) {
   const ok = Boolean(result?.ok);
   return {
     id: row.id,
-    label: ok ? "Smart Turn loads and runs" : "Smart Turn does not load",
+    label: ok ? "FRIDAY Turn loads and runs" : "FRIDAY Turn does not load",
     ok,
     optional: true,
     required: false,
@@ -849,7 +854,7 @@ function modelRegistry() {
       kind: "stt",
       repo: STT_REPOS[size],
       dir: ["cache", "stt", size],
-      label: `Speech ${size}`,
+      label: `FRIDAY Ear ${size}`,
       license: licenceOf(STT_REPOS[size]),
       firewallClass: "local",
     });
@@ -870,7 +875,7 @@ function modelRegistry() {
     kind: "tts",
     repo: TTS_REPO,
     dir: ["models", "supertonic-3"],
-    label: "Neural voice",
+    label: "FRIDAY Voice",
     license: licenceOf(TTS_REPO),
     firewallClass: "local",
   });

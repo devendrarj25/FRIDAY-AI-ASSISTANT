@@ -376,10 +376,10 @@ export function VoiceSettings() {
                 Auto: use it when its model is installed
               </option>
               <option value="nemotron" className="bg-background">
-                Nemotron streaming
+                FRIDAY Ear Live
               </option>
               <option value="stream-ear-nemotron" className="bg-background">
-                Nemotron streaming, int8 (the pinned download)
+                FRIDAY Ear Live, int8 (the pinned download)
               </option>
             </select>
             <span className="mt-1 block text-meta-sm text-muted-foreground">
@@ -397,7 +397,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Listen for the wake word live (needs a wake model)"
-            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs an openWakeWord model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
+            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs a wake model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
             on={prefs.voice.liveWake === true}
             onToggle={() => preferences.setVoice({ liveWake: prefs.voice.liveWake !== true })}
           />
@@ -474,13 +474,13 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Play the local voice as raw samples (experimental)"
-            hint={`Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. ${ON_BY_DEFAULT_HINT}`}
+            hint={`Only for the local FRIDAY Voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. ${ON_BY_DEFAULT_HINT}`}
             on={prefs.voice.pcmPlayback === true}
             onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
           />
           <ToggleRow
-            label="Use the light Hindi voice for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
-            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the Hindi light voice download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
+            label="Use FRIDAY Voice Lite for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
+            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the FRIDAY Voice Lite download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
             on={prefs.voice.hindiLightVoice === true}
             onToggle={() =>
               preferences.setVoice({ hindiLightVoice: prefs.voice.hindiLightVoice !== true })
@@ -488,7 +488,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Check the language on every phrase (experimental)"
-            hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
+            hint="FRIDAY Ear listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
             on={prefs.voice.sttMultilingual === true}
             onToggle={() =>
               preferences.setVoice({ sttMultilingual: prefs.voice.sttMultilingual !== true })
