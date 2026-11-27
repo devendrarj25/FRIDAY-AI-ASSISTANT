@@ -25,6 +25,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const FILE = "inventory.json";
 
@@ -151,15 +152,99 @@ function diskRows(root) {
   return rows;
 }
 
+/* ------------------------------------------------------------------ locally built copies
+ * `localSources()` is injected (production: `local-sources.discoverLocalBundles`) and returns
+ * `[{ origin, dir, bundle }]`. A model row gets `localSource: { origin, dir }` when a bundle lists that model and its
+ * files are on this PC with the listed size. The SHA-256 is held by the copy step and by `adoptByHash`, so a scan
+ * stays cheap; `verifyLocal` can be injected to be stricter. A row no bundle holds gets no key at all.
+ */
+const lastSegment = (dir) =>
+  String(dir || "")
+    .split("/")
+    .filter(Boolean)
+    .pop() || "";
+
+function defaultBases(entry) {
+  try {
+    return require("./local-sources.cjs").baseRootsOf(entry);
+  } catch {
+    return [entry.dir];
+  }
+}
+
+function sizeOnDisk(file, bytes) {
+  try {
+    const info = fs.statSync(file);
+    return info.isFile() && info.size === bytes;
+  } catch {
+    return false;
+  }
+}
+
+function defaultVerifyLocal(entry, model) {
+  const files = Array.isArray(model.files) ? model.files : [];
+  if (!files.length) return false;
+  return defaultBases(entry).some((base) =>
+    files.every((file) =>
+      sizeOnDisk(
+        path.resolve(base, ...String(model.dir).split("/"), ...String(file.path).split("/")),
+        file.bytes,
+      ),
+    ),
+  );
+}
+
+function localSourceFor(row, entries, verify) {
+  const name = String(row.id).toLowerCase();
+  for (const entry of entries) {
+    const models = Array.isArray(entry?.bundle?.models) ? entry.bundle.models : [];
+    for (const model of models) {
+      const matches =
+        lastSegment(model.dir).toLowerCase() === name ||
+        String(model.fridayId || "").toLowerCase() === name;
+      if (matches && verify(entry, model)) return { origin: entry.origin, dir: entry.dir };
+    }
+  }
+  return null;
+}
+
+function withLocalSources(items, { localSources, verifyLocal }) {
+  if (typeof localSources !== "function") return items;
+  let entries = [];
+  try {
+    entries = localSources() || [];
+  } catch {
+    entries = [];
+  }
+  if (!Array.isArray(entries) || !entries.length) return items;
+  const verify = typeof verifyLocal === "function" ? verifyLocal : defaultVerifyLocal;
+  return items.map((row) => {
+    if (row.category !== "Model") return row;
+    let found = null;
+    try {
+      found = localSourceFor(row, entries, verify);
+    } catch {
+      found = null;
+    }
+    return found ? { ...row, localSource: found } : row;
+  });
+}
+
 /**
  * The inventory object for one scan. Pure: tools come from `tools:detect`,
  * `latest` from `tools:latest`, and the folders from the disk.
  */
-function buildInventory(root, { tools = [], latest = null, version = "0.0.0", at = null } = {}) {
-  const items = [
-    ...tools.filter((tool) => !tool.aliasOf).map((tool) => toolRow(tool, root, latest)),
-    ...diskRows(root),
-  ];
+function buildInventory(
+  root,
+  { tools = [], latest = null, version = "0.0.0", at = null, localSources, verifyLocal } = {},
+) {
+  const items = withLocalSources(
+    [
+      ...tools.filter((tool) => !tool.aliasOf).map((tool) => toolRow(tool, root, latest)),
+      ...diskRows(root),
+    ],
+    { localSources, verifyLocal },
+  );
   const byHome = {};
   for (const item of items) {
     if (!item.installed) continue;
@@ -198,6 +283,8 @@ function writeInventory(root, scan, options = {}) {
       latest: options.latest,
       version: options.version,
       at: scan.at,
+      localSources: options.localSources,
+      verifyLocal: options.verifyLocal,
     });
     const file = path.join(root, FILE);
     let previous = null;
@@ -326,13 +413,17 @@ function modelCheckRow(result) {
     required: false,
     badIds: bad.map((item) => item.id),
     detail: `${result.checked} downloaded file(s) checked by ${how}`,
+    // No Doctor handler fixes this row, so it never claims one: the owner repairs the model by hand.
+    fixable: false,
   };
   if (bad.length) {
     const shown = bad
       .slice(0, 5)
       .map((item) => `${item.id} (${item.detail})`)
       .join(", ");
-    row.detail = `${bad.length} flagged, not deleted: ${shown}${bad.length > 5 ? ", ..." : ""}; repair fetches only those files again`;
+    row.detail = `${bad.length} flagged, not deleted: ${shown}${bad.length > 5 ? ", ..." : ""}`;
+    row.fix =
+      "Open Install Manager, find the model and use Repair: it fetches only the flagged files again. Nothing was changed on disk.";
   } else if (errors.length) {
     row.detail = `could not be checked, so unverified: ${errors.join("; ")}`;
   }
@@ -363,6 +454,106 @@ function recordModelCheck(root, result, version, now) {
   } catch {
     return false;
   }
+}
+
+/* ------------------------------------------------------------------ adopt by hash, and busy files
+ * A file already in its canonical place with the pinned size and SHA-256 is kept where it is and counts as
+ * installed: nothing is downloaded or copied for it. The size is read first (a stat does not touch the data of a
+ * cloud-synced file); the full hash is read only on a size match, so a mismatch never makes OneDrive fetch it.
+ * Nothing here deletes, moves or rewrites a file.
+ */
+const hashOfFile = (file) =>
+  new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(file);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+
+/**
+ * `items` are `[{ id, dest, bytes, sha256 }]` (the pin). Returns `{ adopted: [id], pending: [id], items }` where each
+ * item reports a `state`: adopted, missing, size, sha256, unreadable or no-pin. `pending` is what still needs a copy
+ * or a download. Never throws.
+ */
+async function adoptByHash(items, deps = {}) {
+  const stat = deps.stat || ((file) => fs.statSync(file, { throwIfNoEntry: false }));
+  const hashFile = deps.hashFile || hashOfFile;
+  const rows = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const base = { id: item.id, dest: item.dest };
+    const done = (state) => rows.push({ ...base, state, adopted: state === "adopted" });
+    if (!item.sha256 || typeof item.sha256 !== "string") {
+      done("no-pin");
+      continue;
+    }
+    let info = null;
+    try {
+      info = stat(item.dest);
+    } catch {
+      done("unreadable");
+      continue;
+    }
+    if (!info || !info.isFile()) done("missing");
+    else if (info.size !== item.bytes) done("size");
+    else {
+      try {
+        const seen = String(await hashFile(item.dest)).toLowerCase();
+        done(seen === item.sha256.toLowerCase() ? "adopted" : "sha256");
+      } catch {
+        done("unreadable");
+      }
+    }
+  }
+  return {
+    adopted: rows.filter((row) => row.adopted).map((row) => row.id),
+    pending: rows.filter((row) => !row.adopted).map((row) => row.id),
+    items: rows,
+  };
+}
+
+// Five tries; a short wait that doubles from 100 ms and stops at 800 ms. A scanner or a sync client holds a file
+// for a moment, so EBUSY and EPERM are waited out; any other error is a real failure and ends at once.
+const BUSY_RETRY = { tries: 5, delays: [100, 200, 400, 800] };
+const BUSY_CODES = new Set(["EBUSY", "EPERM"]);
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function retryBusy(op, deps = {}) {
+  const sleep = deps.sleep || realSleep;
+  let last = null;
+  for (let attempt = 1; attempt <= BUSY_RETRY.tries; attempt += 1) {
+    try {
+      return { ok: true, value: await op(), tries: attempt };
+    } catch (error) {
+      last = error;
+      if (!BUSY_CODES.has(error?.code) || attempt === BUSY_RETRY.tries)
+        return { ok: false, tries: attempt, code: error?.code || "UNKNOWN", error };
+      await sleep(BUSY_RETRY.delays[attempt - 1]);
+    }
+  }
+  return { ok: false, tries: BUSY_RETRY.tries, code: last?.code || "UNKNOWN", error: last };
+}
+
+/**
+ * Move a verified new copy over `dest`. When the file stays locked, the OLD copy is kept as it is, the new file stays
+ * where it was written, and the result says so. `{ ok, tries }` or `{ ok: false, kept: "old", code, tries, src, dest, detail }`.
+ */
+async function replaceKeepingOld(src, dest, deps = {}) {
+  const rename = deps.rename || fs.renameSync;
+  const out = await retryBusy(() => rename(src, dest), deps);
+  if (out.ok) return { ok: true, tries: out.tries };
+  const busy = BUSY_CODES.has(out.code);
+  return {
+    ok: false,
+    kept: "old",
+    code: out.code,
+    tries: out.tries,
+    src,
+    dest,
+    detail: busy
+      ? `old copy kept: ${path.basename(dest)} stayed busy (${out.code}) after ${out.tries} tries; the new file is left at ${src}`
+      : `old copy kept: ${path.basename(dest)} could not be replaced (${out.code})`,
+  };
 }
 
 async function runCheck(root, deps) {
@@ -401,4 +592,8 @@ module.exports = {
   needsModelCheck,
   postUpdateCheck,
   verifyModelHashes,
+  adoptByHash,
+  BUSY_RETRY,
+  retryBusy,
+  replaceKeepingOld,
 };

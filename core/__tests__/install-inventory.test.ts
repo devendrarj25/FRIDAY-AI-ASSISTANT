@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -337,5 +338,295 @@ describe("post-update model check", () => {
       "utf8",
     );
     expect(source).not.toMatch(/rmSync|unlinkSync|rmdirSync|removeBad|quarantine/);
+  });
+});
+
+/* ------------------------------------------------------------------ local builds, adopt-by-hash, busy retry */
+
+const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+
+const bundleFor = (modelDir: string, files: Array<{ path: string; text: string }>) => ({
+  schema: 1,
+  models: [
+    {
+      fridayId: path.basename(modelDir),
+      dir: modelDir,
+      bytes: files.reduce((sum, file) => sum + file.text.length, 0),
+      files: files.map((file) => ({
+        path: file.path,
+        bytes: file.text.length,
+        sha256: sha(file.text),
+      })),
+    },
+  ],
+});
+
+describe("local build source on a row", () => {
+  const scan = { at: 1, tools: [] as unknown[] };
+
+  const seedModel = (name: string) => {
+    fs.mkdirSync(path.join(root, "models", name), { recursive: true });
+  };
+  const seedBuild = (name: string, text: string) => {
+    const build = path.join(root, "release");
+    fs.mkdirSync(path.join(build, "models", name), { recursive: true });
+    fs.writeFileSync(path.join(build, "models", name, "w.bin"), text);
+    return build;
+  };
+
+  it("adds localSource {origin, dir} to a model row that a local bundle holds, through the injected function", () => {
+    seedModel("alpha");
+    seedModel("beta");
+    const build = seedBuild("alpha", "alpha-weights");
+    const localSources = () => [
+      {
+        origin: "release",
+        dir: build,
+        bundle: bundleFor("models/alpha", [{ path: "w.bin", text: "alpha-weights" }]),
+      },
+    ];
+    const built = inventory.buildInventory(root, { ...scan, localSources });
+    const alpha = built.items.find((row: { id: string }) => row.id === "alpha");
+    const beta = built.items.find((row: { id: string }) => row.id === "beta");
+    expect(alpha.localSource).toEqual({ origin: "release", dir: build });
+    // Additive: a row that no bundle holds has no key at all, so old readers see today's shape.
+    expect("localSource" in beta).toBe(false);
+  });
+
+  it("skips a bundle whose files are not on disk with the listed size, and survives a throwing source", () => {
+    seedModel("alpha");
+    const build = seedBuild("alpha", "short");
+    const wrong = () => [
+      {
+        origin: "release",
+        dir: build,
+        bundle: bundleFor("models/alpha", [{ path: "w.bin", text: "alpha-weights" }]),
+      },
+    ];
+    expect(
+      inventory.buildInventory(root, { ...scan, localSources: wrong }).items[0].localSource,
+    ).toBeUndefined();
+    const boom = () => {
+      throw new Error("registry offline");
+    };
+    const none = inventory.buildInventory(root, { ...scan, localSources: boom });
+    expect(none.items).toHaveLength(1);
+    expect(none.items[0].localSource).toBeUndefined();
+  });
+
+  it("is written into inventory.json by writeInventory and absent when no source is given", () => {
+    seedModel("alpha");
+    const build = seedBuild("alpha", "alpha-weights");
+    const localSources = () => [
+      {
+        origin: "installers",
+        dir: build,
+        bundle: bundleFor("models/alpha", [{ path: "w.bin", text: "alpha-weights" }]),
+      },
+    ];
+    inventory.writeInventory(root, scan, { version: "1", localSources });
+    expect(inventory.readInventory(root).items[0].localSource).toEqual({
+      origin: "installers",
+      dir: build,
+    });
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), "friday-inventory-plain-"));
+    try {
+      fs.mkdirSync(path.join(plain, "models", "alpha"), { recursive: true });
+      inventory.writeInventory(plain, scan, { version: "1" });
+      expect("localSource" in inventory.readInventory(plain).items[0]).toBe(false);
+    } finally {
+      fs.rmSync(plain, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("adopt by hash", () => {
+  const place = (name: string, text: string) => {
+    const dest = path.join(root, "models", "m", name);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, text);
+    return dest;
+  };
+
+  it("keeps a file in its canonical place when size then SHA-256 match, and downloads nothing for it", async () => {
+    const dest = place("w.bin", "weights");
+    const hashed: string[] = [];
+    const out = await inventory.adoptByHash(
+      [{ id: "m/w.bin", dest, bytes: 7, sha256: sha("weights") }],
+      {
+        hashFile: async (file: string) => {
+          hashed.push(file);
+          return sha("weights");
+        },
+      },
+    );
+    expect(out.adopted).toEqual(["m/w.bin"]);
+    expect(out.pending).toEqual([]);
+    expect(out.items[0]).toMatchObject({ id: "m/w.bin", state: "adopted", adopted: true });
+    expect(hashed).toEqual([dest]);
+    expect(fs.readFileSync(dest, "utf8")).toBe("weights");
+  });
+
+  it("checks the size first and never hashes a file whose size differs (no cloud hydration of mismatches)", async () => {
+    const dest = place("w.bin", "weights");
+    const hashed: string[] = [];
+    const out = await inventory.adoptByHash(
+      [
+        { id: "wrong-size", dest, bytes: 99, sha256: sha("weights") },
+        { id: "absent", dest: path.join(root, "models", "m", "nope.bin"), bytes: 7, sha256: "a" },
+      ],
+      {
+        hashFile: async (file: string) => {
+          hashed.push(file);
+          return sha("weights");
+        },
+      },
+    );
+    expect(hashed).toEqual([]);
+    expect(out.adopted).toEqual([]);
+    expect(out.pending).toEqual(["wrong-size", "absent"]);
+    expect(out.items.map((row: { state: string }) => row.state)).toEqual(["size", "missing"]);
+    expect(fs.existsSync(dest)).toBe(true);
+  });
+
+  it("hashes only on a size match, leaves a same-size different file untouched and does not adopt it", async () => {
+    const dest = place("w.bin", "weightX");
+    const out = await inventory.adoptByHash([
+      { id: "m/w.bin", dest, bytes: 7, sha256: sha("weights") },
+      { id: "no-pin", dest, bytes: 7, sha256: null },
+    ]);
+    expect(out.adopted).toEqual([]);
+    expect(out.items.map((row: { state: string }) => row.state)).toEqual(["sha256", "no-pin"]);
+    expect(fs.readFileSync(dest, "utf8")).toBe("weightX");
+  });
+
+  it("reports an unreadable file as pending instead of throwing", async () => {
+    const dest = place("w.bin", "weights");
+    const out = await inventory.adoptByHash(
+      [{ id: "m/w.bin", dest, bytes: 7, sha256: sha("weights") }],
+      {
+        hashFile: async () => {
+          throw Object.assign(new Error("locked"), { code: "EBUSY" });
+        },
+      },
+    );
+    expect(out.adopted).toEqual([]);
+    expect(out.items[0].state).toBe("unreadable");
+  });
+});
+
+describe("busy retry", () => {
+  const busy = (code = "EBUSY") => Object.assign(new Error(code), { code });
+
+  it("tries up to five times with 100 to 800 ms backoff and returns the value of the first success", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const out = await inventory.retryBusy(
+      () => {
+        calls += 1;
+        if (calls < 3) throw busy(calls === 1 ? "EBUSY" : "EPERM");
+        return "done";
+      },
+      { sleep: async (ms: number) => void waits.push(ms) },
+    );
+    expect(out).toMatchObject({ ok: true, value: "done", tries: 3 });
+    expect(waits).toEqual([100, 200]);
+    expect(inventory.BUSY_RETRY).toEqual({ tries: 5, delays: [100, 200, 400, 800] });
+  });
+
+  it("gives up after five busy tries and reports the code, without sleeping after the last one", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const out = await inventory.retryBusy(
+      () => {
+        calls += 1;
+        throw busy("EBUSY");
+      },
+      { sleep: async (ms: number) => void waits.push(ms) },
+    );
+    expect(calls).toBe(5);
+    expect(waits).toEqual([100, 200, 400, 800]);
+    expect(out).toMatchObject({ ok: false, tries: 5, code: "EBUSY" });
+  });
+
+  it("does not retry an error that is not a lock (a missing file fails at once)", async () => {
+    let calls = 0;
+    const out = await inventory.retryBusy(
+      () => {
+        calls += 1;
+        throw busy("ENOENT");
+      },
+      { sleep: async () => undefined },
+    );
+    expect(calls).toBe(1);
+    expect(out).toMatchObject({ ok: false, tries: 1, code: "ENOENT" });
+  });
+
+  it("replaces a copy once the lock clears", async () => {
+    const dest = path.join(root, "w.bin");
+    const src = `${dest}.part`;
+    fs.writeFileSync(dest, "old");
+    fs.writeFileSync(src, "new");
+    let calls = 0;
+    const out = await inventory.replaceKeepingOld(src, dest, {
+      sleep: async () => undefined,
+      rename: (from: string, to: string) => {
+        calls += 1;
+        if (calls < 3) throw busy();
+        fs.renameSync(from, to);
+      },
+    });
+    expect(out).toMatchObject({ ok: true, tries: 3 });
+    expect(fs.readFileSync(dest, "utf8")).toBe("new");
+  });
+
+  it("keeps the OLD copy when the lock never clears, leaves the new file where it is and says so", async () => {
+    const dest = path.join(root, "w.bin");
+    const src = `${dest}.part`;
+    fs.writeFileSync(dest, "old");
+    fs.writeFileSync(src, "new");
+    const out = await inventory.replaceKeepingOld(src, dest, {
+      sleep: async () => undefined,
+      rename: () => {
+        throw busy("EPERM");
+      },
+    });
+    expect(out).toMatchObject({ ok: false, kept: "old", code: "EPERM", tries: 5, src, dest });
+    expect(out.detail).toMatch(/old copy kept/i);
+    expect(fs.readFileSync(dest, "utf8")).toBe("old");
+    expect(fs.readFileSync(src, "utf8")).toBe("new");
+  });
+});
+
+describe("model check row wording", () => {
+  const red = {
+    ok: false,
+    checked: 3,
+    hashed: false,
+    bad: [{ source: "voice", id: "tts-pin", label: "FRIDAY Voice", detail: "x wrong size" }],
+    errors: [],
+  };
+
+  it("tells the owner what to do (Install Manager > Repair) and promises no automatic fix", () => {
+    const row = inventory.modelCheckRow(red);
+    expect(row.fixable).toBe(false);
+    expect(row.detail).toMatch(/not deleted/i);
+    expect(row.detail).toContain("tts-pin");
+    expect(row.detail).not.toMatch(/repair fetches|will be repaired|fixed automatically/i);
+    expect(row.fix).toMatch(/Install Manager/);
+    expect(row.fix).toMatch(/Repair/);
+    expect(row.badIds).toEqual(["tts-pin"]);
+  });
+
+  it("has no fix text on a green row", () => {
+    const row = inventory.modelCheckRow({
+      ok: true,
+      checked: 2,
+      hashed: true,
+      bad: [],
+      errors: [],
+    });
+    expect(row.fix ?? null).toBeNull();
+    expect(row.fixable).toBe(false);
   });
 });
