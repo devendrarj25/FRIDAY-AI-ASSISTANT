@@ -209,7 +209,7 @@ const PHASE_TONE: Record<PhaseChipModel["tone"], string> = {
   stopped: "border-primary/20 bg-transparent text-muted-foreground",
 };
 
-/** What FRIDAY is doing right now, in one word. A polite live region: it shows state and opens nothing. */
+/** What FRIDAY is doing right now, in one word. Only the confirm and stopped chips are polite live regions (four extra announcements a turn otherwise); it shows state and opens nothing. */
 export function PhaseChip({
   phase,
   voiceState,
@@ -220,10 +220,10 @@ export function PhaseChip({
   pending: boolean;
 }) {
   const chip = phaseChipModel({ phase, voiceState, pending });
+  const announce = chip.key === "confirm" || chip.key === "stopped";
   return (
     <span
-      role="status"
-      aria-live="polite"
+      {...(announce ? { role: "status", "aria-live": "polite" as const } : {})}
       data-phase={chip.key}
       title={chip.title}
       className={cn(
@@ -272,6 +272,7 @@ export function LatencyChip({ summary }: { summary: Pick<LatencySummary, "last">
   return (
     <span
       data-chip="latency"
+      aria-label={`Last reply took ${chip.label} to her first sound, against ${LATENCY_BUDGET_MS} ms`}
       title={`Time from the end of your words to her first sound, against ${LATENCY_BUDGET_MS} ms`}
       className={cn(
         "inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",

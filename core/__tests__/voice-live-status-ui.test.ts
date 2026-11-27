@@ -82,15 +82,32 @@ describe("phase chip", () => {
       phaseChipModel({ phase: "unavailable", voiceState: "PAUSED", pending: true }).label,
     ).toBe("Stopped");
   });
-  it("renders one polite status region that carries the words, not only a colour", () => {
+  it("renders the words, not only a colour, for the chip", () => {
     const html = renderToStaticMarkup(
       createElement(PhaseChip, { phase: "hearing", voiceState: "SPEECH_DETECTED", pending: false }),
     );
-    expect(html).toContain('role="status"');
-    expect(html).toContain('aria-live="polite"');
     expect(html).toContain("Hearing you");
     expect(html).toContain('data-phase="hearing"');
     expect(html).not.toMatch(/SPEECH_DETECTED(?!")/);
+  });
+  it("is a live region only for confirm and stopped, silent for the other phases", () => {
+    const render = (phase: "hearing" | "unavailable", voiceState: "SPEECH_DETECTED" | "PAUSED") =>
+      renderToStaticMarkup(createElement(PhaseChip, { phase, voiceState, pending: false }));
+    expect(render("hearing", "SPEECH_DETECTED")).not.toContain("aria-live");
+    expect(render("hearing", "SPEECH_DETECTED")).not.toContain('role="status"');
+    const stopped = render("unavailable", "PAUSED");
+    expect(stopped).toContain('data-phase="stopped"');
+    expect(stopped).toContain('role="status"');
+    const confirm = renderToStaticMarkup(
+      createElement(PhaseChip, { phase: "hearing", voiceState: "SPEECH_DETECTED", pending: true }),
+    );
+    expect(confirm).toContain('data-phase="confirm"');
+    expect(confirm).toContain('aria-live="polite"');
+  });
+  it("gives the latency chip a sentence label", () => {
+    const html = renderToStaticMarkup(createElement(LatencyChip, { summary: { last: 640 } }));
+    expect(html).toContain("aria-label=");
+    expect(html).toContain("her first sound");
   });
 });
 

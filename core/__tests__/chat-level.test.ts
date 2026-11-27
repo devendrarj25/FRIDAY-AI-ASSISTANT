@@ -22,6 +22,7 @@ import {
   secondaryFit,
   toolbarFit,
   visibleMessages,
+  VOICE_FIXED_WIDTH,
   VOICE_LEVEL_KEY,
   VOICE_LEVEL_LABELS,
   voiceBarFit,
@@ -292,6 +293,10 @@ describe("voice window level", () => {
     expect(voiceBarFit(700, 4)).toBe(4);
     expect(voiceBarFit(480, 4)).toBeLessThan(4);
     expect(voiceBarFit(300, 4)).toBe(0);
+    // Meter and phase chip are fixed: 560 px reserved, so 4 tools need 560 + 120 px.
+    expect(VOICE_FIXED_WIDTH.iconOnly).toBe(560);
+    expect(voiceBarFit(679, 4)).toBeLessThan(4);
+    expect(voiceBarFit(700, 4)).toBe(4);
     let last = voiceBarFit(300, 4);
     for (let w = 300; w < 768; w += 9) {
       expect(voiceBarFit(w, 4)).toBeGreaterThanOrEqual(last);

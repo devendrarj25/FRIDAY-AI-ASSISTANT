@@ -255,13 +255,14 @@ export function AutoMode() {
   const working = live.components.some((c) => c.active);
   // No layout animation while speech streams in or out.
   const streaming = Boolean(voice.interim) || voice.speaking;
-  // The live "you" line, with a placeholder while speech is picked up; nothing is invented once it ends.
   // One plain-words fault line for the bar and the empty transcript.
   const errorLine = voice.error
     ? plainFaultLine(voice.error, faultLang, faultContext(voice))
     : null;
+  // The live "you" line, with a placeholder while speech is picked up; nothing is invented once it ends.
   const interimShown = interimPlaceholder(voice.interim, voice.voiceState);
   // The last finished turn's time to first sound, read from the one latency record (null until a turn ran).
+  // The monitor has no subscribe, so this refreshes on the voice-state re-render that follows each turn.
   const lastTurn = voiceLatency.summary("budget.firstSound");
 
   useEffect(() => {
