@@ -224,21 +224,32 @@ export function wakeOnCooldown(
  * A spoken answer to "should I go ahead?": yes, no, or neither. A no always beats a yes, so "okay cancel that",
  * "haan nahi" and "ok mat karo" stop the action instead of approving it. Hindi and Hinglish count: "ha kar do",
  * "theek hai kar do", "kar do" are yes; "mat karo", "ruko", "rehne do", "nahi" are no. The particle "na"
- * ("kar do na", please do it) is a no only when it is the whole answer.
+ * ("kar do na", please do it) is a no only when it is the whole answer. A stop or a later is a no too, in Latin and
+ * in Devanagari: "band karo", "bas karo", "baad mein karo", "kal karo", "abhi nahi", "not now", "later", "not yet",
+ * "नहीं", "मत", "रुको", "बंद", "बस", "बाद में", "कल" (the "karo" in them never makes a yes). Laughter ("ha ha ha") is
+ * no answer.
  */
 const NO_WORDS =
-  /\b(no|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|rehne do|rahne do|chhod do|chod do|wait|hold on|never ?mind|leave it|forget it)\b/i;
+  /\b(no|not|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|ruk jao|rehne do|rahne do|chhod do|chod do|wait|hold on|hold off|never ?mind|leave it|forget it|later|tomorrow|band|bandh|bas|baad|baad mein|baad me|kal)\b/i;
+/** The Devanagari no, stop and later words; a letter or a vowel sign on either side makes it another word. */
+const DEVANAGARI_NO_WORDS =
+  /(?<![\p{L}\p{M}])(?:नहीं|नही|नहि|मत|रुको|रुकिए|रुक|बंद|बन्द|बस|बाद|कल|रहने दो|छोड़ दो|छोड़ो|कैंसल|रद्द|स्टॉप)(?![\p{L}\p{M}])/u;
 const YES_WORDS =
   /\b(yes|yeah|yep|yup|sure|confirm(?:ed)?|do it|go ahead|proceed|haan|haa|han|ha|ji|jee|bilkul|theek hai|thik hai|ok|okay|kar do|kar de|karo|chalao|chala do)\b/i;
+/** Two or more bare "ha" (or "haha") and nothing else: laughter, not an answer. */
+const LAUGHTER = /^(?:ha\s*){2,}$/;
 
 export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
+  // Vowel signs (\p{M}) are kept: dropping them would turn "नहीं" into "न ह" and the no would be missed.
   const value = String(text || "")
+    .normalize("NFC")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}'\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!value) return "unclear";
-  if (value === "na" || NO_WORDS.test(value)) return "no";
+  if (value === "na" || NO_WORDS.test(value) || DEVANAGARI_NO_WORDS.test(value)) return "no";
+  if (LAUGHTER.test(value)) return "unclear";
   if (YES_WORDS.test(value)) return "yes";
   return "unclear";
 }

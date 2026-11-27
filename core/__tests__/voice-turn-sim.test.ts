@@ -835,14 +835,44 @@ describe("turn simulator: scenarios on the real controller", () => {
     expect(r.run.ttfa).toEqual({ n: 2, p50: 1040, p90: 1040 });
   });
 
-  it("[L2 confirmed command keeps its own hints] a spoken yes over her question stops her at the first word and runs the command", async () => {
+  it("[L2 a hard order's question binds the yes] a spoken yes over her question stops her at the first word, runs nothing and asks again", async () => {
+    // Deliberately stricter (approval safety): a delete is a hard order, so a yes that began over its question,
+    // short or not, never runs it; she stops at the first word as before and asks the same question again.
     const r = await play("confirmation");
-    expect(r.spoken).toEqual(["Should I delete all the old invoices?"]);
+    expect(r.spoken).toEqual([
+      "Should I delete all the old invoices?",
+      "Should I delete all the old invoices?",
+    ]);
     expect(r.score.barges[0]).toMatchObject({
       truth: "answer",
       silenceMs: 160,
       stoppedInTime: true,
     });
+    expect(r.sent).toEqual([]);
+    expect(r.h.d.lastTurn()?.text).toBe("yes");
+    expect(r.h.d.state.pending?.command).toBe("delete all the old invoices");
+  });
+
+  it("[L2 confirmed command keeps its own hints] a yes after her question runs the command with the command's own hints", async () => {
+    const r = await runScenario({
+      name: "yes after the hard question",
+      script: script(
+        ear(0, "start", "t1"),
+        truth(0, "command"),
+        vad(0, 1120),
+        quiet(1120, 2400),
+        ear(1680, "end", "t1", "Friday delete all the old invoices", { speechMs: 1120 }),
+        fin(1760, "Friday delete all the old invoices"),
+        ear(5040, "start", "t2"),
+        truth(5040, "answer"),
+        vad(5040, 5280),
+        quiet(5280, 6400),
+        ear(5200, "partial", "t2", "yes"),
+        ear(5760, "end", "t2", "yes", { speechMs: 240 }),
+        fin(5840, "yes"),
+      ),
+    });
+    expect(r.spoken).toEqual(["Should I delete all the old invoices?"]);
     expect(r.sent).toEqual(["delete all the old invoices"]);
     // The hints that went with the command are the command's own (no confidence), not those of the "yes" turn.
     expect(r.h.hints[0]?.confidence).toBeNull();
@@ -965,8 +995,41 @@ describe("turn simulator: V3-E1 scenarios on the real controller", () => {
     });
   });
 
-  it("a yes to her question closes fast: sent at the final, the command lane reports in the same frame", async () => {
+  it("a yes after her question by the word estimate only (no player hooks) is asked again: a hard order waits for the end", async () => {
+    // Deliberately stricter: the simulator's speaker gives no end hook, so the 7-word question counts as sounding
+    // until about 4560 ms and the yes at 3600 ms began over it.
     const r = await play("yesNoClose");
+    // The scripted Brain events still stream their own "Deleted."; the order itself is never sent.
+    expect(r.spoken.slice(0, 2)).toEqual([
+      "Should I delete all the old invoices?",
+      "Should I delete all the old invoices?",
+    ]);
+    expect(r.sent).toEqual([]);
+    expect(r.h.d.state.pending?.command).toBe("delete all the old invoices");
+  });
+
+  it("a yes to her question closes fast once the player says it ended: sent at the final, the command lane reports in the same frame", async () => {
+    const base = SCENARIOS["yesNoClose"];
+    if (!base) throw new Error("no scenario yesNoClose");
+    const r = await runScenario({
+      ...base,
+      name: `${base.name} (player hooks)`,
+      // The player's own start and end hooks for the question, at its first audio and its drain.
+      setup: (h) => {
+        const d = h.d as unknown as {
+          playingItem: { priority: string } | null;
+          noteApprovalSpoken: (phase: "start" | "end") => void;
+        };
+        setTimeout(() => {
+          d.playingItem = { priority: "approval" };
+          d.noteApprovalSpoken("start");
+        }, 2400);
+        setTimeout(() => {
+          d.noteApprovalSpoken("end");
+          d.playingItem = null;
+        }, 3200);
+      },
+    });
     expect(r.spoken).toEqual(["Should I delete all the old invoices?", "Deleted."]);
     expect(r.sent).toEqual(["delete all the old invoices"]);
     expect(r.score.barges).toEqual([]);

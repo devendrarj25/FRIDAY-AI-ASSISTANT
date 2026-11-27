@@ -108,7 +108,7 @@ type Drive = {
   approvalAsked: { askedAt: number; taskId?: string } | null;
   approvalSpoken: { at: number; taskId?: string; ended?: boolean } | null;
   restartAsk: { ids: string[] } | null;
-  playingItem: { priority: string; taskId?: string } | null;
+  playingItem: { priority: string; taskId?: string; text?: string } | null;
   noteApprovalSpoken: (phase?: "start" | "end") => void;
 };
 const drive = (r: { h: { d: unknown } }): Drive => r.h.d as Drive;
@@ -338,6 +338,253 @@ describe("finding 4: an unknown voice start never skips the older-yes rule", () 
       ),
     });
     expect(r.sent).toEqual(["send 5000 rupees to rahul"]);
+  });
+});
+
+/** A prompt for `taskId` that starts sounding now and ends at `endMs` on the scenario clock (the player's hooks). */
+function promptEndsAt(h: { d: unknown }, taskId: string, endMs: number, text?: string) {
+  const d = h.d as Drive;
+  d.playingItem = { priority: "approval", taskId, ...(text ? { text } : {}) };
+  d.noteApprovalSpoken("start");
+  setTimeout(() => {
+    d.playingItem = { priority: "approval", taskId, ...(text ? { text } : {}) };
+    d.noteApprovalSpoken("end");
+    d.playingItem = null;
+  }, endMs);
+  d.playingItem = null;
+}
+
+describe("re-check 1: a stop, a later or a not is never a yes", () => {
+  const NOT_YES = [
+    "band karo",
+    "band kar do",
+    "bas karo",
+    "baad mein karo",
+    "kal karo",
+    "abhi nahi",
+    "okay not now",
+    "yes but not now",
+    "sure, later",
+    "not yet okay",
+    "ok नहीं",
+    "yes नहीं",
+    "नहीं",
+    "हाँ नहीं",
+    "मत करो",
+    "रुको",
+    "बंद करो",
+    "बस",
+    "बाद में",
+    "कल करना",
+  ];
+  const TRUE_YES = [
+    "haan",
+    "haan karo",
+    "ji haan",
+    "theek hai",
+    "yes",
+    "okay",
+    "kar do",
+    "ha kar do",
+  ];
+
+  it.each(NOT_YES)("'%s' is no, never yes", async (line) => {
+    const { confirmationVerdict } = await import("../../src/lib/friday/voice-session");
+    expect(confirmationVerdict(line)).toBe("no");
+  });
+
+  it.each(TRUE_YES)("'%s' is still a yes", async (line) => {
+    const { confirmationVerdict } = await import("../../src/lib/friday/voice-session");
+    expect(confirmationVerdict(line)).toBe("yes");
+  });
+
+  it("laughter ('ha ha ha', 'hahaha') is no answer", async () => {
+    const { confirmationVerdict } = await import("../../src/lib/friday/voice-session");
+    expect(confirmationVerdict("ha ha ha")).toBe("unclear");
+    expect(confirmationVerdict("hahaha")).toBe("unclear");
+    expect(confirmationVerdict("ha")).toBe("yes");
+  });
+
+  it("the code-mix canonical keeps the Devanagari no, so the check still sees it", async () => {
+    const { canonicalise } = await import("../../src/lib/friday/voice-engine/script-policy");
+    const { confirmationVerdict } = await import("../../src/lib/friday/voice-session");
+    for (const line of ["ok नहीं", "yes नहीं", "बस करो"])
+      expect(confirmationVerdict(canonicalise(line).text)).toBe("no");
+  });
+
+  it.each(["bas karo", "baad mein karo", "okay not now", "ok नहीं"])(
+    "'%s' after a full read-back sends nothing",
+    async (line) => {
+      const r = await runScenario({
+        name: `later ${line}`,
+        script: script(
+          said({ id: "t1", at: 0, text: SEND }),
+          said({ id: "t2", at: AFTER_READ, text: line }),
+        ),
+      });
+      expect(r.sent).toEqual([]);
+    },
+  );
+
+  it("'bas karo' to a waiting task is never an approval", async () => {
+    await runScenario({
+      name: "task bas karo",
+      setup: (h) => waitingTask(h),
+      script: script(said({ id: "t1", at: 400, text: "Friday bas karo" })),
+    });
+    expect(taskSpy().approved.filter(([, yes]) => yes)).toEqual([]);
+  });
+});
+
+describe("re-check 2: an unknown voice start is put early for task and restart prompts too", () => {
+  // The prompt ends at 1500 ms. The yes voice runs 1040-1520 ms (it began over the prompt), and the recogniser hands
+  // only a final at 2240 ms: final less heard length would say about 1760 ms, after the end.
+  it("a final-only yes to a task prompt that began before the prompt ended is not taken", async () => {
+    await runScenario({
+      name: "task unknown start",
+      setup: (h) => {
+        waitingTask(h, { playing: true });
+        promptEndsAt(h, "task-7", 1500);
+      },
+      script: script(
+        said({ id: "t1", at: 1040, text: "Friday yes", finalOnly: true, finalAt: 2240 }),
+      ),
+    });
+    expect(taskSpy().approved).toEqual([]);
+  });
+
+  it("the same for the restart question", async () => {
+    await runScenario({
+      name: "restart unknown start",
+      setup: (h) => {
+        taskSpy().redone = [];
+        (h.d as unknown as Drive).restartAsk = { ids: ["row-gone"] };
+        promptEndsAt(h, "restart-redo", 1500);
+      },
+      script: script(
+        said({ id: "t1", at: 1040, text: "Friday yes", finalOnly: true, finalAt: 2240 }),
+      ),
+    });
+    expect(taskSpy().redone).toEqual([]);
+  });
+
+  it("the control: a final-only yes long after the task prompt ended approves it", async () => {
+    await runScenario({
+      name: "task unknown start control",
+      setup: (h) => waitingTask(h),
+      script: script(
+        said({ id: "t1", at: 4000, text: "Friday yes", finalOnly: true, finalAt: 4640 }),
+      ),
+    });
+    expect(taskSpy().approved).toEqual([["task-7", true]]);
+  });
+
+  it("every older-yes check passes the early flag when a prompt end is known", () => {
+    const refusal = SOURCE.slice(SOURCE.indexOf("  private yesRefusal("));
+    expect(refusal.slice(0, 700)).toContain("this.yesBeganAt(true)");
+  });
+});
+
+describe("re-check 3: mute drops a waiting order and a waiting read-back", () => {
+  it("a mute during the read-back leaves nothing pending, so a yes after unmute binds to nothing", async () => {
+    const r = await runScenario({
+      name: "mute drops pending",
+      script: script(said({ id: "t1", at: 0, text: SEND }), ctl(2960, "mute")),
+    });
+    expect(pendingOf(r)).toBeNull();
+    expect((drive(r) as unknown as { pendingHeard: unknown }).pendingHeard).toBeNull();
+  });
+
+  it("a read-back of doubtful words waiting for yes is dropped by mute", async () => {
+    const r = await runScenario({
+      name: "mute drops read-back",
+      setup: (h) => {
+        (h.d as unknown as { pendingHeard: unknown }).pendingHeard = {
+          command: "delete the folder photos",
+          at: Date.now(),
+        };
+      },
+      script: script(ctl(400, "mute")),
+    });
+    expect((drive(r) as unknown as { pendingHeard: unknown }).pendingHeard).toBeNull();
+  });
+});
+
+describe("re-check 4: a hard order's short question is tracked too", () => {
+  const DELETE_INVOICES = "Friday delete all the old invoices";
+  const QUESTION = "Should I delete all the old invoices?";
+
+  it("a yes over the short question of a delete is asked again and deletes nothing", async () => {
+    const r = await runScenario({
+      name: "hard short question yes over it",
+      script: script(
+        said({ id: "t1", at: 0, text: DELETE_INVOICES }),
+        // The final lands at about 1760 ms; the 7-word question sounds until about 4560 ms.
+        said({ id: "t2", at: 2640, text: "yes" }),
+      ),
+    });
+    expect(r.sent).toEqual([]);
+    expect(r.spoken).toEqual([QUESTION, QUESTION]);
+    expect(pendingOf(r)?.command).toMatch(/delete all the old invoices/i);
+  });
+
+  it("the control: a yes after the short question ended deletes them", async () => {
+    const r = await runScenario({
+      name: "hard short question yes after",
+      script: script(
+        said({ id: "t1", at: 0, text: DELETE_INVOICES }),
+        said({ id: "t2", at: 6000, text: "yes" }),
+      ),
+    });
+    expect(r.sent).toEqual(["delete all the old invoices"]);
+  });
+
+  it("the tracking gate covers every explicit digest and every hard order", () => {
+    const body = SOURCE.slice(SOURCE.indexOf("  private noteAskSounding("));
+    expect(body.slice(0, 600)).toContain('digest.mode === "explicit" || digest.risk === "hard"');
+  });
+});
+
+describe("re-check 5: a read-back cut before its end is asked again", () => {
+  it("a read-back cut by a cough or barge-in never lets a later yes run on the word estimate", async () => {
+    const r = await runScenario({
+      name: "cut read-back",
+      setup: (h) => {
+        const d = h.d as unknown as Drive & { cancelSpeech: () => void };
+        setTimeout(() => {
+          d.playingItem = { priority: "approval" };
+          d.noteApprovalSpoken("start");
+        }, 2400);
+        // The cut: a new speech generation; the player's end hook never fires for the old clip.
+        setTimeout(() => {
+          d.cancelSpeech();
+          d.playingItem = null;
+        }, 2640);
+      },
+      script: script(
+        said({ id: "t1", at: 0, text: SEND }),
+        // Well after start + estimate (2400 + 3600 ms) and the queued estimate (about 5520 ms).
+        said({ id: "t2", at: 7040, text: "yes" }),
+      ),
+    });
+    expect(r.sent).toEqual([]);
+    expect(r.spoken).toEqual([DIGEST_RAHUL, DIGEST_RAHUL]);
+  });
+});
+
+describe("re-check 6: a refused yes re-asks the prompt in its own words", () => {
+  it("a yes over a task prompt is answered with that prompt again, not a generic line", async () => {
+    const PROMPT = "Should I delete the folder Photos?";
+    const r = await runScenario({
+      name: "refusal says the prompt",
+      setup: (h) => {
+        waitingTask(h, { playing: true });
+        promptEndsAt(h, "task-7", 1500, PROMPT);
+      },
+      script: script(said({ id: "t1", at: 1040, text: "Friday yes" })),
+    });
+    expect(taskSpy().approved).toEqual([]);
+    expect(r.spoken.at(-1)).toContain(PROMPT);
   });
 });
 

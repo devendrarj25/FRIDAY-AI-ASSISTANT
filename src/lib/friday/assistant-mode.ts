@@ -576,6 +576,9 @@ const DRAFT_TURN_GAP_MS = 4_000;
 /** The echo window after her sound: the room's tail, the estimated speech per word, and the hard cap per clause. */
 const ECHO_TAIL_MS = 1_500;
 const ECHO_WORD_MS = 400;
+/** The leads of a refused yes (refuseYes); stripped when the re-ask is stamped as the prompt's own words. */
+const REFUSAL_LEAD =
+  /^(?:Main abhi pooch rahi thi\. Sawaal ke baad haan boliye\.|I was still asking\. Say yes after the question\.|Sirf haan ya na boliye\.|Just yes or no, please\.)\s*/;
 /** The recogniser's delay from the end of speech to the final, when the engine did not report it. */
 const STT_DELAY_GUESS_MS = 1_000;
 const ECHO_CAP_MS = 30_000;
@@ -1506,13 +1509,17 @@ class AssistantModeStore {
     startedAt: number | null;
     endedAt: number | null;
     owed: number;
+    /** It started sounding and was stopped before its end hook (a new speech generation). */
+    cut: boolean;
   } | null = null;
   /** The words of this final as heard, before any rewrite (code-mix canonical, learned corrections, self-repair). */
   private heardRawLines: string[] = [];
   /** The recogniser's own words of the final being handled, copied at the intake and cleared after it. */
   private heardRaw = "";
   /** The line the speech queue is playing now, for the approval stamp. */
-  private playingItem: { priority: SpeechPriority; taskId?: string } | null = null;
+  private playingItem: { priority: SpeechPriority; taskId?: string; text?: string } | null = null;
+  /** The words of the last task, restart or Brain prompt that sounded, so a refused yes re-asks that same question. */
+  private approvalPrompt: { taskId: string; text: string } | null = null;
   /** "I was working on A and B when I closed. Redo them?": asked once per app session. */
   private restartAsked = false;
   private restartAsk: { ids: string[] } | null = null;
@@ -2599,6 +2606,16 @@ class AssistantModeStore {
     if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
     if (muted) clearEchoReference("muted");
+    if (muted) {
+      // Like the tray pause: a waiting order, a waiting read-back and a voiced prompt are dropped, so a yes after
+      // unmute binds to nothing (a task still waiting is answered on the screen).
+      this.state.pending = null;
+      this.pendingHeard = null;
+      this.approvalAsked = null;
+      this.approvalSpoken = null;
+      this.approvalPrompt = null;
+      this.askSound = null;
+    }
     if (muted && this.state.mode === "auto") {
       this.stopRecognition();
       voiceGate.release("auto-mode");
@@ -6664,6 +6681,8 @@ class AssistantModeStore {
     // A new speech generation ends a draft.
     this.discardEager();
     if (!this.gateKeep) this.endInterruptCandidate();
+    // A read-back stopped before its end is asked again.
+    this.noteAskCut();
     if (hold && (this.state.speaking || this.arbiter.size())) {
       const waiting = this.arbiter
         .peek()
@@ -6711,6 +6730,7 @@ class AssistantModeStore {
   private forgetOpenQuestions() {
     this.approvalAsked = null;
     this.approvalSpoken = null;
+    this.approvalPrompt = null;
     this.restartAsk = null;
     this.supersedeOnConfirm = null;
     this.unfinished = "";
@@ -6873,6 +6893,7 @@ class AssistantModeStore {
             this.playingItem = {
               priority: item.priority,
               ...(item.taskId ? { taskId: item.taskId } : {}),
+              text: item.text,
             };
             await this.playSpoken(item.text, gen);
           }
@@ -6910,6 +6931,11 @@ class AssistantModeStore {
       ended: phase === "end",
     };
     if (item.taskId) this.approvalAsked = { askedAt: at, taskId: item.taskId };
+    if (item.taskId && item.text && phase === "start") {
+      // A refusal line re-asks the prompt; its lead is not part of the question.
+      const text = stripDeliveryTags(item.text).replace(REFUSAL_LEAD, "").trim();
+      if (text) this.approvalPrompt = { taskId: item.taskId, text };
+    }
     const sound = this.askSound;
     if (item.taskId || !sound) return;
     if (phase === "start") {
@@ -6928,21 +6954,33 @@ class AssistantModeStore {
     return this.approvalAsked?.taskId === taskId ? this.approvalAsked.askedAt : null;
   }
 
+  /** The read-back playing now is stopped before its end hook: a yes to it waits for a full re-read. */
+  private noteAskCut() {
+    const sound = this.askSound;
+    const item = this.playingItem;
+    if (!sound || !item || item.priority !== "approval" || item.taskId) return;
+    if (sound.startedAt !== null && sound.endedAt === null) sound.cut = true;
+  }
+
   /** A digest read-back was handed to the voice: a yes to it waits for the end of this read. */
   private noteAskSounding(digest: ConfirmDigest, ask: string) {
-    // Only a full read names where or how much; the short question restates the owner's own words, and a yes over
-    // it may still barge in and run (the window then counts from the ask, as before).
-    if (!(digest.mode === "explicit" && Boolean(digest.amount || digest.target))) return;
+    // Every explicit digest and every hard order (delete, uninstall, format, shut down, run or install a file, send,
+    // share, pay) is tracked, its short question too: a yes over the question's tail never runs it. Only a soft,
+    // reversible order keeps the barge-in yes (the window then counts from the ask, as before).
+    if (!(digest.mode === "explicit" || digest.risk === "hard")) return;
     const now = Date.now();
     const estimateMs = ask.split(/\s+/).filter(Boolean).length * ECHO_WORD_MS;
     const same = this.askSound?.digestId === digest.id ? this.askSound : null;
+    // A read that was cut owes nothing more: the re-read is the one to finish.
+    const owed = same && !same.cut ? same.owed : 0;
     this.askSound = {
       digestId: digest.id,
       estimateEnd: Math.max(same?.estimateEnd ?? 0, now + estimateMs),
       estimateMs,
       startedAt: null,
       endedAt: null,
-      owed: (same?.owed ?? 0) + 1,
+      owed: owed + 1,
+      cut: false,
     };
   }
 
@@ -6953,6 +6991,8 @@ class AssistantModeStore {
   private askEndsAt(digest: ConfirmDigest): number {
     const sound = this.askSound;
     if (!sound || sound.digestId !== digest.id) return digest.askedAt;
+    // Cut before its end (a barge-in, a cough): the owner never heard all of it, so it is asked again.
+    if (sound.cut) return Number.POSITIVE_INFINITY;
     if (sound.endedAt !== null) return sound.endedAt;
     const playing = this.playingItem?.priority === "approval" && !this.playingItem.taskId;
     if (playing && sound.startedAt !== null) return Number.POSITIVE_INFINITY;
@@ -6994,7 +7034,8 @@ class AssistantModeStore {
     const scene = room?.scene?.kind;
     if (scene === "tv" || scene === "music" || room?.speaker === "other") return "room";
     if (askEnd === null) return null;
-    const began = this.yesBeganAt();
+    // A known prompt end: an unknown voice start is put early, as for a digest read-back.
+    const began = this.yesBeganAt(true);
     if (askEnd === Number.POSITIVE_INFINITY || (began !== null && began < askEnd))
       return "older yes";
     return null;
@@ -7006,7 +7047,7 @@ class AssistantModeStore {
     this.trace("dropped", `yes not taken (${why}): the question stays open`);
     this.caption("user", text);
     const hi = this.narrationLang() === "hi";
-    const line =
+    const lead =
       why === "older yes"
         ? hi
           ? "Main abhi pooch rahi thi. Sawaal ke baad haan boliye."
@@ -7014,6 +7055,9 @@ class AssistantModeStore {
         : hi
           ? "Sirf haan ya na boliye."
           : "Just yes or no, please.";
+    // The prompt's own words come again, so the yes that follows answers the question it names.
+    const prompt = taskId && this.approvalPrompt?.taskId === taskId ? this.approvalPrompt.text : "";
+    const line = prompt ? `${lead} ${prompt}` : lead;
     this.caption("friday", line);
     this.emit();
     // Said as the same prompt again: a yes binds once this line has sounded.
