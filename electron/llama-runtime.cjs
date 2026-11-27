@@ -635,14 +635,15 @@ const binIn = (dir, names) => {
  * marker that says `friday-own` (a missing origin is official; old markers are never rewritten), `trusted` and `at`
  * come from the ordering, `tag` and `backend` from the marker (the folder name when there is none).
  */
-function engineEntries(root, fsApi = fs) {
+function engineEntries(root, fsApi = fs, ownRecord) {
   if (!root) return [];
   const out = [];
+  // The folder decides the origin, never the marker: a marker in the official folder cannot claim friday-own.
   for (const e of orderedFolders(engineDir(root), fsApi)) {
     const bin = binIn(e.dir, SERVER_NAMES);
-    if (bin)
-      out.push({ ...e, bin, origin: e.marker?.origin === "friday-own" ? "own" : "official" });
+    if (bin) out.push({ ...e, bin, origin: "official" });
   }
+  const record = ownRecord === undefined ? readOwnRecord(fsApi) : ownRecord;
   for (const e of orderedFolders(ownEngineDir(root), fsApi)) {
     const bin = binIn(e.dir, [OWN_NAME]);
     if (!bin) continue;
@@ -651,9 +652,75 @@ function engineEntries(root, fsApi = fs) {
   }
   return out.map((e) => ({
     ...e,
+    trusted: e.trusted && filesVerified(e, record, fsApi),
     tag: String(e.marker?.tag || e.name.split("-")[0] || ""),
     backend: e.marker?.backend || null,
   }));
+}
+
+const HEX64 = /^[a-f0-9]{64}$/;
+const hashCache = new Map();
+
+/** The own build's record (`config/friday-runtime-llm.json`); null when it cannot be read. */
+function readOwnRecord(fsApi = fs) {
+  try {
+    const record = JSON.parse(
+      fsApi.readFileSync(path.join(__dirname, "..", "config", "friday-runtime-llm.json"), "utf8"),
+    );
+    return record && typeof record === "object" ? record : null;
+  } catch {
+    return null;
+  }
+}
+
+function sha256File(file, fsApi) {
+  let key = null;
+  try {
+    const st = fsApi.statSync?.(file);
+    if (st) key = `${file}|${st.size}|${st.mtimeMs}`;
+  } catch {
+    /* no stat: hash every time */
+  }
+  const hit = key ? hashCache.get(key) : undefined;
+  if (hit) return hit;
+  const hex = require("node:crypto")
+    .createHash("sha256")
+    .update(fsApi.readFileSync(file))
+    .digest("hex");
+  if (key) {
+    if (hashCache.size > 256) hashCache.clear();
+    hashCache.set(key, hex);
+  }
+  return hex;
+}
+
+/**
+ * Re-hash the files the marker lists before the engine may be spawned. An own build is checked against the SHA-256
+ * in the own record when the record lists the file, otherwise against the marker; an official engine against the
+ * marker. A listed file that is missing or differs makes the folder untrusted. Archive names (the official marker
+ * records the zip it came from) are not files of the folder and are skipped; a marker with no hashes has nothing to check.
+ */
+function filesVerified(entry, record, fsApi = fs) {
+  const expected = new Map();
+  const add = (list, override) => {
+    for (const f of Array.isArray(list) ? list : []) {
+      const name = String(f?.name || "");
+      if (!name || /\.(zip|7z|tar|gz)$/i.test(name) || !HEX64.test(f.sha256 || "")) continue;
+      if (override || !expected.has(name.toLowerCase())) expected.set(name.toLowerCase(), f.sha256);
+    }
+  };
+  add(entry.marker?.files, false);
+  if (entry.origin === "own") add(record?.files, true);
+  for (const [name, sha] of expected) {
+    const file = walk(entry.dir, 2, (n) => n.toLowerCase() === name);
+    if (!file) return false;
+    try {
+      if (sha256File(file, fsApi) !== sha) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** The PC facts a bench depends on (see `select().fingerprint`); `deps.gpu` is the measured card name, if any. */
@@ -677,7 +744,7 @@ function machineFacts(deps = {}) {
 function chooseEngine(root, deps = {}) {
   const sel = select();
   const exclude = new Set(deps.exclude || []);
-  const usable = engineEntries(root, deps.fs).filter(
+  const usable = engineEntries(root, deps.fs, deps.ownRecord).filter(
     (e) => !exclude.has(e.dir) && (typeof deps.isHealthy !== "function" || deps.isHealthy(e)),
   );
   const live = usable.filter((e) => e.trusted);
@@ -734,6 +801,8 @@ function standbyFor(model, deps = {}) {
   });
 }
 
+/** Free RAM a bench needs on top of the model when Core stays loaded. */
+const BENCH_HEADROOM_GB = 1;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const defaultProbe = async (url, init) => {
   const res = await fetch(url, { ...(init || {}), signal: AbortSignal.timeout(2000) });
@@ -799,7 +868,8 @@ async function startEngine(root, deps = {}) {
   const tried = [];
   const skip = [];
   for (let round = 0; round < 2; round += 1) {
-    const launch = await coreLaunch(root, { ...deps, exclude: skip });
+    // `deps.launch` is a ready launch (tests, a caller that planned it): it has no folder to record or to fail over from.
+    const launch = deps.launch || (await coreLaunch(root, { ...deps, exclude: skip }));
     if (!launch.ok) return { ok: false, reason: launch.reason, tried };
     const entry = launch.entry;
     const child = spawnEngine(launch.bin, launch.args, launch.env, deps);
@@ -809,7 +879,8 @@ async function startEngine(root, deps = {}) {
       return { ok: true, child, tried, ...launch };
     }
     stopOf(deps)(child);
-    if (entry) {
+    // A stop the owner asked for is not a failed health check: it never counts against the folder.
+    if (entry && state.reason !== "stopped") {
       note(entry, false, deps);
       skip.push(entry.dir);
     }
@@ -830,24 +901,27 @@ async function startStandby(root, launch, deps = {}) {
     return { ok: false, reason: "there is no standby engine installed" };
   const plan = launch.standbyPlan || standbyFor(launch.model, deps);
   const need = Math.max(0.1, modelBytesOf(launch.model, deps) / GB);
-  let lease = null;
-  if (deps.governor?.acquire) {
-    const got = await deps.governor.acquire({
-      owner: "llm-standby",
-      kind: "llm",
-      priority: "chat",
-      label: "FRIDAY Runtime LLM standby",
-      ttlMs: 6 * 60 * 60 * 1000,
-      queue: false,
-      options: [{ ramGb: need + 0.5 }],
-    });
-    if (got?.state !== "granted")
-      return {
-        ok: false,
-        reason: `the resource governor did not grant memory (${got?.reason || got?.state})`,
-      };
-    lease = got.lease;
-  }
+  // No governor, no standby: without a lease nothing checks the memory, so this fails closed.
+  if (!deps.governor?.acquire)
+    return {
+      ok: false,
+      reason: "the resource governor is not available, so no standby is started",
+    };
+  const got = await deps.governor.acquire({
+    owner: "llm-standby",
+    kind: "llm",
+    priority: "chat",
+    label: "FRIDAY Runtime LLM standby",
+    ttlMs: 6 * 60 * 60 * 1000,
+    queue: false,
+    options: [{ ramGb: need + 0.5 }],
+  });
+  if (got?.state !== "granted")
+    return {
+      ok: false,
+      reason: `the resource governor did not grant memory (${got?.reason || got?.state})`,
+    };
+  const lease = got.lease;
   const port = deps.port ?? (await freeLoopbackPort());
   const key = deps.key ?? newLaunchKey();
   const args = coreArgs({
@@ -951,7 +1025,7 @@ async function runBench(root, deps = {}) {
   });
   if (deps.voiceBusy?.()) return refuse("voice-turn");
   if (deps.signal?.aborted) return refuse("stopped", { stopped: true });
-  const live = engineEntries(root, deps.fs).filter((e) => e.trusted);
+  const live = engineEntries(root, deps.fs, deps.ownRecord).filter((e) => e.trusted);
   const own = live.find((e) => e.origin === "own");
   const official = live.find((e) => e.origin === "official");
   if (!own || !official) return refuse("needs-both-engines");
@@ -965,8 +1039,24 @@ async function runBench(root, deps = {}) {
   const plan = deps.plan || corePlan(root, deps);
   if (!plan.ok) return refuse("no-model", { error: plan.reason });
   let lease = null;
-  if (!deps.ownerStarted) {
-    if (deps.idle?.() !== true || !deps.governor?.acquire) return refuse("not-idle");
+  // A loaded Core and a benched engine must not both sit in RAM: stop Core first, or refuse when both do not fit.
+  const modelGb = Math.max(0.1, modelBytesOf(plan.model, deps) / GB);
+  let coreStopped = false;
+  if (deps.coreLoaded?.() === true) {
+    const os = deps.os || require("node:os");
+    if (os.freemem() / GB < modelGb + BENCH_HEADROOM_GB) {
+      if (typeof deps.stopCore !== "function") return refuse("core-loaded");
+      await deps.stopCore();
+      coreStopped = true;
+      if (deps.voiceBusy?.()) {
+        await deps.resumeCore?.();
+        return refuse("voice-turn");
+      }
+    }
+  }
+  if (!deps.ownerStarted || deps.governor?.acquire) {
+    if (!deps.ownerStarted && deps.idle?.() !== true) return refuse("not-idle");
+    if (!deps.governor?.acquire) return refuse("not-idle");
     const got = await deps.governor.acquire({
       owner: "llm-bench",
       kind: "llm",
@@ -974,10 +1064,12 @@ async function runBench(root, deps = {}) {
       label: "FRIDAY Runtime LLM bench",
       ttlMs: 20 * 60 * 1000,
       queue: false,
-      options: [{ ramGb: Math.max(0.1, modelBytesOf(plan.model, deps) / GB) + 0.5 }],
+      options: [{ ramGb: modelGb + 0.5 }],
     });
-    if (got?.state !== "granted")
+    if (got?.state !== "granted") {
+      if (coreStopped) await deps.resumeCore?.();
       return refuse("governor-refused", { detail: got?.reason || got?.state });
+    }
     lease = got.lease;
   }
   try {
@@ -1017,6 +1109,7 @@ async function runBench(root, deps = {}) {
     };
   } finally {
     lease?.release?.();
+    if (coreStopped) await deps.resumeCore?.();
   }
 }
 

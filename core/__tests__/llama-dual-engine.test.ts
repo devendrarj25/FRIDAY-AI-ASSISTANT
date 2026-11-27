@@ -601,3 +601,132 @@ describe("the one lifecycle owner", () => {
     expect(text).not.toMatch(/writeFile|renameSync/);
   });
 });
+
+describe("standby and bench fail closed on memory", () => {
+  const launchOf = async () => {
+    official();
+    own();
+    bench("own");
+    return llama.coreLaunch(dir, { stat: disk(), facts: FACTS, port: 40555, key: "k", cpus: 4 });
+  };
+  const GOOD = { state: "granted", lease: { release: () => {} } };
+
+  it("starts no standby without a governor, with a plain reason", async () => {
+    const launch = await launchOf();
+    const p = procs();
+    const out = await llama.startStandby(dir, launch, { ...p.deps, stat: disk() });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain("governor");
+    expect(p.spawned).toHaveLength(0);
+  });
+
+  it("an owner-started bench refuses while Core is loaded and RAM would not fit both, with no stop hook", async () => {
+    official();
+    own();
+    const p = procs();
+    const deps = {
+      ...p.deps,
+      plan: { ok: true, model: "/m/core.gguf" },
+      facts: FACTS,
+      stat: () => ({ size: 8 * 1024 ** 3 }),
+      os: { freemem: () => 4 * 1024 ** 3 },
+      coreLoaded: () => true,
+      ownerStarted: true,
+    };
+    expect(await llama.runBench(dir, deps)).toMatchObject({ ran: false, reason: "core-loaded" });
+    expect(p.spawned).toHaveLength(0);
+  });
+
+  it("stops Core first, benches, then brings Core back and releases the lease", async () => {
+    official();
+    own();
+    const order: string[] = [];
+    const p = procs();
+    const request = async () => ({
+      tokens: Array.from({ length: 32 }, (_, i) => i + 1),
+      timings: { predicted_per_second: 10 },
+    });
+    const governor = {
+      acquire: async () => (
+        order.push("lease"),
+        { ...GOOD, lease: { release: () => order.push("release") } }
+      ),
+    };
+    const out = await llama.runBench(dir, {
+      ...p.deps,
+      request,
+      plan: { ok: true, model: "/m/core.gguf" },
+      facts: FACTS,
+      clock: () => TS,
+      stat: () => ({ size: 8 * 1024 ** 3 }),
+      os: { freemem: () => 4 * 1024 ** 3, tmpdir, cpus: () => [] },
+      coreLoaded: () => true,
+      stopCore: async () => void order.push("stop-core"),
+      resumeCore: async () => void order.push("resume-core"),
+      ownerStarted: true,
+      governor,
+    });
+    expect(out.ran).toBe(true);
+    expect(order).toEqual(["stop-core", "lease", "release", "resume-core"]);
+  });
+
+  it("an owner-started bench still asks the governor when one is passed and respects a refusal", async () => {
+    official();
+    own();
+    const p = procs();
+    let resumed = 0;
+    const out = await llama.runBench(dir, {
+      ...p.deps,
+      plan: { ok: true, model: "/m/core.gguf" },
+      stat: () => ({ size: 3 * 1024 ** 3 }),
+      ownerStarted: true,
+      governor: { acquire: async () => ({ state: "refused", reason: "no-room" }) },
+      resumeCore: async () => void (resumed += 1),
+    });
+    expect(out).toMatchObject({ ran: false, reason: "governor-refused" });
+    expect(p.spawned).toHaveLength(0);
+    expect(resumed).toBe(0);
+  });
+});
+
+describe("the marker is re-checked before an engine may be spawned", () => {
+  const withFile = (base: string, name: string, bin: string, extra: Record<string, unknown>) =>
+    put(base, name, bin, extra);
+
+  it("an official folder whose binary no longer matches the marker hash is demoted and never spawned", async () => {
+    withFile(officialBase(), "b12230-cpu", OFFICIAL_BIN, {
+      files: [{ name: OFFICIAL_BIN, sha256: sha("b12230-cpu") }],
+    });
+    withFile(officialBase(), "b12100-cpu", OFFICIAL_BIN, {
+      files: [{ name: OFFICIAL_BIN, sha256: sha("not-what-is-on-disk") }],
+    });
+    const entries = llama.engineEntries(dir) as { name: string; trusted: boolean }[];
+    expect(entries.find((e) => e.name === "b12100-cpu")!.trusted).toBe(false);
+    expect(entries.find((e) => e.name === "b12230-cpu")!.trusted).toBe(true);
+    const p = procs();
+    const out = await llama.startEngine(dir, { ...p.deps, stat: disk(), facts: FACTS });
+    expect(out.ok).toBe(true);
+    expect(p.spawned.map((s) => s.bin).every((b) => b.includes("b12230-cpu"))).toBe(true);
+  });
+
+  it("an own build is checked against the recorded sha256 in the own record, not the marker", () => {
+    own("b12230", { files: [{ name: OWN_BIN, sha256: sha("b12230-friday-native") }] });
+    const good = { files: [{ name: OWN_BIN, sha256: sha("b12230-friday-native") }] };
+    const bad = { files: [{ name: OWN_BIN, sha256: sha("something-else") }] };
+    const trustedOf = (rec: unknown) =>
+      (llama.engineEntries(dir, undefined, rec) as { trusted: boolean }[])[0]!.trusted;
+    expect(trustedOf(good)).toBe(true);
+    expect(trustedOf(bad)).toBe(false);
+  });
+
+  it("a missing listed file makes the folder untrusted", () => {
+    own("b12230", { files: [{ name: "missing.dll", sha256: sha("x") }] });
+    expect((llama.engineEntries(dir) as { trusted: boolean }[])[0]!.trusted).toBe(false);
+  });
+
+  it("a marker in the official folder cannot claim friday-own", () => {
+    official("b12230", { origin: "friday-own" });
+    const entries = llama.engineEntries(dir) as { origin: string }[];
+    expect(entries.map((e) => e.origin)).toEqual(["official"]);
+  });
+});
