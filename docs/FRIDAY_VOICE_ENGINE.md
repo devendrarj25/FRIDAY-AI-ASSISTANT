@@ -1013,6 +1013,20 @@ Measured proxies of the default recipe (2026-11-26, Linux 4-core CPU only, 40-se
 - Raw gapless playback and the short first clause are on by default, chosen for speed; unverified on a real speaker (a first playback failure turns raw playback off for the session and speech goes on through the file path).
 - Steps 3 versus 4 is an ear call for the owner.
 
+### Int8 derive tool (Linux sandbox numbers only)
+
+`kernel/voice_derive.py` writes a dynamic int8 copy of a pinned graph (QInt8 per-channel weights, `reduce_range`, fp32 activations) in a scratch folder, and `accept` gates it on accuracy and speed; tests are in `kernel/tests/test_voice_derive.py`. Nothing derived is pinned or bundled. Dependency record: `onnx` 1.23.2, Apache-2.0, checked 2026-11-27, ADOPT for the derive tool only, installed on demand, never bundled, not in `kernel/requirements.txt`.
+
+| Graph set                       | Accuracy (int8 minus fp32, paired 95% interval)                                                      | Speed (4 CPU threads)                                                                       | Size             | Verdict                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------------------- |
+| Ear decoder and joint           | Hindi WER +0.20 [-0.12, +0.53], English WER -0.36 [-1.16, +0.28] (200 FLEURS sentences each); passes | idle p95 207 against 234 ms; loaded p95 +17.7% pooled (within run-to-run noise); gate fails | 97.6 to 24.6 MB  | keep fp32                                            |
+| Voice text encoder and duration | round-trip CER +0.30 [-0.66, +1.27] (50 mixed-script lines, 3 seeds); passes                         | first clause +4% idle; passes                                                               | 40.1 to 11.1 MB  | passes the gate; not default until the owner listens |
+| Voice vector estimator (extra)  | round-trip CER +0.27; passes                                                                         | 3x slower (RTF 0.54); fails                                                                 | 256.5 to 65.4 MB | keep fp32                                            |
+
+No Hinglish speech set with an open licence was found, so there is no Hinglish recognition number. Neither variant meets the CPU targets on this box (ear p95 120 ms, first audio 400 ms).
+
+UNVERIFIED: the numbers are from a shared Linux sandbox and moved a lot between runs. Open decisions: a Windows re-bench on a quiet PC for the ear pair, and the owner's listening check for the text and duration pair.
+
 ## FRIDAY Runtime: one door for every own model session
 
 `kernel/friday_runtime.py` (config `config/friday-runtime.json`; Linux unit tests in `kernel/tests/test_friday_runtime.py` and `test_runtime_single_door.py`; nothing run on Windows, a GPU, a microphone or a speaker).
