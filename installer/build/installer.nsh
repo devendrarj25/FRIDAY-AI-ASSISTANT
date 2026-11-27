@@ -538,6 +538,15 @@ FunctionEnd
         nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Move-Item -LiteralPath $\'$FridayUnRoot$\' -Destination $\'$4$\' -Force -ErrorAction SilentlyContinue"'
         Pop $0
       ${EndIf}
+      ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder
+      ; must be gone from it. A rename that failed, and a move helper that moved only part of the data (a locked file),
+      ; both leave data here: stop now, leave the program folder, the data and the pointer exactly as they are, and say
+      ; so. /SD IDOK keeps a silent uninstall (the update path) from waiting for a click; it still stops.
+      ${If} ${FileExists} "$FridayUnRoot\*.*"
+        DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot"
+        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again." /SD IDOK
+        Abort
+      ${EndIf}
       ${If} ${FileExists} "$4\*.*"
         StrCpy $FridayUnRoot "$4"
         WriteRegStr HKCU "Software\FRIDAY" "WorkspacePath" "$4"
