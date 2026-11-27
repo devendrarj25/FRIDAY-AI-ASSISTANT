@@ -52,6 +52,8 @@ The renderer never runs shell. Every call is `ipcRenderer.invoke` / `send` on na
 
 Conversation goes through `src/lib/friday/brain-engine.ts` → `src/lib/friday/brain/core-brain.ts`. Retrieval: `src/lib/friday/brain/retrieval.ts`. Orchestration: `src/lib/friday/brain/orchestrator.ts`. Spec-only graphs under `core/brain/` are tests/contracts, not a second runtime brain.
 
+**Local brain.** FRIDAY Core is the local model FRIDAY runs on this PC, described by `config/friday-core.json` and read by `electron/friday-core.cjs`. FRIDAY Runtime LLM (`electron/llama-runtime.cjs`, started and stopped through `electron/models.cjs`, the one lifecycle owner) serves it on a free loopback port. `kernel/router.py` `escalate()` keeps a turn on Core or sends it to a heavier local model or the cloud after both firewalls; SENSITIVE and private-mode work never reaches the cloud and a model of unknown cost is never taken automatically. Weights come from the FRIDAY Brain, Voice and Recall weight packs (owner-built, see [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md)), release first with the official source as the fallback. Detail: [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md) section 6 and [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Linux tests only; Windows, GPU, a real model start and the release download are unverified; nothing is uploaded yet; Core default off until the A/B gate.
+
 ## 5. Navigation
 
 Sidebar, companion, and landing path share `src/lib/friday/navigation.ts`. Settings is footer-only (`SETTINGS_NAV`). `/character` exists as `src/routes/character.tsx` and is not a sidebar row.

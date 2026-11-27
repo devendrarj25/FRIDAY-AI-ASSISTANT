@@ -16,6 +16,8 @@ Forty canonical top-level names including `app`, `runtime`, `models`, `memory`, 
 
 Python live venv: `<root>\runtime\.venv` when a folder is chosen.
 
+**Model weights.** FRIDAY Core's weights live in `<root>\models\friday-core\` (manifest `config/friday-core.json`, `diskDir`); every file is checked by size and SHA-256 before it is put in place and none is committed or bundled in the EXE. A release download is staged in `<model folder>\.cache\friday-release` (a part already whole is kept so a stopped download resumes) and removed once the file is joined and checked. Beside each pinned model folder, outside it so the pin never sees it, `<folder>.source.json` records which source served it (the FRIDAY release or the official source); Doctor and the Install Manager read it. Update, rollback and app-only uninstall leave these folders alone. UNVERIFIED: Linux tests only; Windows paths, a real download and a real model start were not run; nothing is uploaded yet.
+
 ### Where each thing goes, and why `App` is separate
 
 `<root>\App` is only the program: `FRIDAY.exe` and the files that ship inside it. An update or reinstall replaces it wholesale, which is why nothing FRIDAY downloads or the owner adds is stored there. Everything else is a sibling folder in the root that an update never touches, so the new program finds the same models, libraries, memory and files and nothing is fetched again. After an update the program is new and the data is the old data.
