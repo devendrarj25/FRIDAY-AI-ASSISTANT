@@ -467,8 +467,8 @@ function TasksPage() {
     taskGraph.submit(
       text,
       looksLikeHorizonGoal(text)
-        ? { horizon: { goal: text, ...(deadline ? { deadline } : {}) } }
-        : {},
+        ? { horizon: { goal: text, ...(deadline ? { deadline } : {}) }, promptOrigin: "typed" }
+        : { promptOrigin: "typed" },
     );
     setDraft("");
     toast.success("Queued on the live task graph.");

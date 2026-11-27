@@ -25,8 +25,10 @@ import {
   type SuggestionKind,
 } from "./brain-catalog";
 import {
+  apiIdFor,
   modelById,
   providers as catalogProviders,
+  registryTag,
   routeRefs,
   type RoutingTask,
 } from "./model-catalog";
@@ -75,10 +77,16 @@ import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
 import {
   kindOfTool,
+  kindOfRecalled,
   kindsOfCognition,
+  kindsOfRecalled,
+  modelKindOf,
   turnProvenance,
+  type ContextKind,
   type PromptOrigin,
+  type RoutedModel,
 } from "./self/turn-provenance";
+import { brainKnowledge } from "./brain/knowledge-base";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
 import { forgetEverywhere } from "./brain/memory-fabric";
@@ -312,6 +320,7 @@ import { handleInstallerCommand } from "./installer-engine";
 import { handleModelsCommand } from "./models-command";
 import { parseImageRequest, runImageRequest } from "./image-command";
 import {
+  desktopApi,
   kernelCall,
   checkForUpdates,
   applyUpdate as applyDesktopUpdate,
@@ -957,6 +966,8 @@ class BrainStore {
   private updateWatch: ReturnType<typeof setInterval> | null = null;
   /** Per-engine stream buffers for the active run, used to reconcile answers. */
   private servedModelIds = new Map<string, string>();
+  /** The router's live model list, kept to name the kind of the engine that served a turn. */
+  private routedModels: RoutedModel[] = [];
   private streamBuffers = new Map<string, { text: string; at: number }>();
   /** Runs that already used their single verification-repair retry. */
   private repairedRuns = new Set<string>();
@@ -1249,7 +1260,10 @@ class BrainStore {
       const waiting = run.trace?.some(
         (step) => step.nodeId === "router.select" && step.state === "running",
       );
-      if (event.modelId) this.servedModelIds.set(run.id, event.modelId);
+      if (event.modelId) {
+        this.servedModelIds.set(run.id, event.modelId);
+        turnProvenance.noteServed(run.id, event.modelId);
+      }
       if (waiting) {
         this.finishTurnStep(run, "done", `first token from ${event.modelId ?? "selected model"}`);
       }
@@ -2216,6 +2230,7 @@ class BrainStore {
       extra: Boolean(options.untrusted),
       screen: Boolean(sight.text),
     });
+    this.refreshRoutedModels();
     const runId = run.id;
     this.recordDoneTurn(
       run,
@@ -3862,6 +3877,57 @@ class BrainStore {
     this.autoMode = on;
   }
 
+  /** Re-read the router's live model list (a cached answer on the main side); a failure keeps the last list. */
+  private refreshRoutedModels() {
+    const read = desktopApi()?.routableModels;
+    if (!read) return;
+    void read().then(
+      (result) => {
+        this.routedModels = (result?.models ?? []).map((row) => ({
+          id: row.id,
+          providerModelId: row.options?.model ?? "",
+          kind: row.meta?.kind ?? "",
+          endpoint: row.endpoint ?? "",
+        }));
+      },
+      () => undefined,
+    );
+  }
+
+  /** The kind of one engine that answered: the router's list first, the catalog second, else unknown. */
+  private kindOfServed(modelId: string) {
+    return modelKindOf(modelId, this.routedModels, (id) => {
+      for (const spec of modelById.values()) {
+        if (spec.id === id || apiIdFor(spec) === id || registryTag(spec) === id) return spec.kind;
+      }
+      return undefined;
+    });
+  }
+
+  /**
+   * Outside content that came in through recall: memory records used since this run began and not written by the
+   * owner, and the knowledge entries this prompt recalls. A record names its kind when its source does; otherwise
+   * it is the conservative kind "memory". The knowledge look-up replays the retrieval (it leaves no trace).
+   */
+  private recalledKinds(run: Run): ContextKind[] {
+    const kinds = new Set<ContextKind>();
+    try {
+      for (const kind of kindsOfRecalled(memoryStore.getSnapshot().items, run.startedAt)) {
+        kinds.add(kind);
+      }
+      const cognition = this.lastCognition?.runId === run.id ? this.lastCognition.cognition : null;
+      if (cognition?.useKnowledge) {
+        for (const entry of brainKnowledge.recall(run.prompt, { k: 3 })) {
+          const kind = kindOfRecalled(entry);
+          if (kind) kinds.add(kind);
+        }
+      }
+    } catch {
+      /* provenance is best effort: a failed look-up must not break a finished turn */
+    }
+    return [...kinds];
+  }
+
   private recordTurn(run: Run, ok: boolean, error?: string) {
     const ms = run.ms || Date.now() - run.startedAt;
     // Core Brain closes its own loop: verify the result, learn what is useful
@@ -3870,7 +3936,13 @@ class BrainStore {
     turnProvenance.flush(
       run.id,
       this.lastCognition?.runId === run.id ? this.lastCognition.cognition.taskId : run.id,
-      this.lastCognition?.runId === run.id ? kindsOfCognition(this.lastCognition.cognition) : [],
+      [
+        ...(this.lastCognition?.runId === run.id
+          ? kindsOfCognition(this.lastCognition.cognition)
+          : []),
+        ...this.recalledKinds(run),
+      ],
+      (modelId) => this.kindOfServed(modelId),
     );
     if (this.lastCognition?.runId === run.id) {
       const tVerify = Date.now();

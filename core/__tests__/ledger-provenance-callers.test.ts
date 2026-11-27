@@ -322,4 +322,19 @@ describe("the live wiring", () => {
     expect(voice).not.toContain("promptOrigin");
     expect(engine).not.toMatch(/promptOrigin:\s*"owner-voice"/);
   });
+
+  it("the Brain page and the Tasks queue mark owner-typed text; app-composed senders stay unmarked", () => {
+    expect(read("src/routes/brain.tsx")).toContain('brain.send(input, { promptOrigin: "typed" })');
+    expect(read("src/routes/tasks.tsx")).toMatch(
+      /taskGraph\.submit\([\s\S]{0,400}promptOrigin: "typed"/,
+    );
+    for (const file of [
+      "src/lib/friday/self/ask-brain.ts",
+      "src/lib/friday/import-chat.ts",
+      "src/lib/friday/hub-chat.ts",
+      "src/lib/friday/character/link.ts",
+    ]) {
+      expect(read(file)).not.toContain("promptOrigin");
+    }
+  });
 });

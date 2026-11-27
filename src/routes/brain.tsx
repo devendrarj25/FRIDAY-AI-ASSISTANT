@@ -171,7 +171,7 @@ function BrainPage() {
 
   const submit = () => {
     if (!input.trim()) return;
-    brain.send(input);
+    brain.send(input, { promptOrigin: "typed" });
     setInput("");
   };
 

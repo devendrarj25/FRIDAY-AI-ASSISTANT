@@ -455,6 +455,16 @@ export type PromptAuthor = (typeof PROMPT_AUTHORS)[number];
 const asAuthor = (value: unknown): PromptAuthor =>
   PROMPT_AUTHORS.includes(value as PromptAuthor) ? (value as PromptAuthor) : "unknown";
 
+const asModelKind = (value: unknown): ExperienceModel["kind"] =>
+  value === "local" || value === "cloud" ? value : "unknown";
+
+/** One kind for the models that answered: all local is local, any cloud is cloud, anything else is unknown. */
+const kindOfModels = (models: readonly ExperienceModel[]): ExperienceModel["kind"] => {
+  if (!models.length) return "unknown";
+  if (models.some((model) => model.kind === "cloud")) return "cloud";
+  return models.every((model) => model.kind === "local") ? "local" : "unknown";
+};
+
 /** Trimmed, lower-case, de-duplicated, sorted. Anything that is not a non-empty string is dropped. */
 const cleanKinds = (value: unknown): string[] =>
   [
@@ -487,6 +497,10 @@ export type Experience = {
   promptAuthor?: PromptAuthor;
   /** Untrusted-content kinds that were in the model context of this turn. Missing = unknown = not trainable. */
   contextKinds?: string[];
+  /** Which side answered: local, cloud or unknown. A row stored before this existed reads as "unknown". */
+  modelKind?: ExperienceModel["kind"];
+  /** The engine that served the reply, as the router named it. */
+  modelId?: string;
 };
 
 export type ExperienceInput = {
@@ -511,7 +525,12 @@ export type ExperienceInput = {
 };
 
 /** What was noted about a turn before its task finished (see `noteProvenance`). */
-export type ProvenanceNote = { promptAuthor?: PromptAuthor; contextKind?: string };
+export type ProvenanceNote = {
+  promptAuthor?: PromptAuthor;
+  contextKind?: string;
+  /** An engine that served the reply, with the kind the router's list gave it. */
+  model?: ExperienceModel;
+};
 
 export type ModelCall = {
   at: number;
@@ -548,13 +567,18 @@ const normaliseModel = (model: string | ExperienceModel): ExperienceModel =>
  * is not a list of strings is dropped. Idempotent, so it runs on every load.
  */
 export function migrateExperience(raw: unknown): Experience {
-  const { contextKinds, promptAuthor, ...rest } = raw as Omit<Experience, "contextKinds"> & {
+  const { contextKinds, promptAuthor, modelKind, ...rest } = raw as Omit<
+    Experience,
+    "contextKinds" | "modelKind"
+  > & {
     contextKinds?: unknown;
+    modelKind?: unknown;
   };
   const kinds = Array.isArray(contextKinds) ? cleanKinds(contextKinds) : undefined;
   return {
     ...rest,
     promptAuthor: asAuthor(promptAuthor),
+    modelKind: asModelKind(modelKind),
     ...(kinds ? { contextKinds: kinds } : {}),
   };
 }
@@ -579,7 +603,10 @@ class ExperienceStore {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private seq = 0;
   /** Provenance noted while a task runs, merged into its record and then forgotten. */
-  private pending = new Map<string, { author: PromptAuthor; kinds: Set<string> }>();
+  private pending = new Map<
+    string,
+    { author: PromptAuthor; kinds: Set<string>; models: ExperienceModel[]; context: boolean }
+  >();
 
   subscribe = (fn: () => void) => {
     this.load();
@@ -635,10 +662,22 @@ class ExperienceStore {
   noteProvenance(taskId: string, note: ProvenanceNote): void {
     const entry = this.pending.get(taskId) ?? {
       author: "unknown" as PromptAuthor,
-      kinds: new Set(),
+      kinds: new Set<string>(),
+      models: [] as ExperienceModel[],
+      context: false,
     };
-    if (note.promptAuthor) entry.author = asAuthor(note.promptAuthor);
-    for (const kind of cleanKinds([note.contextKind])) entry.kinds.add(kind);
+    if (note.promptAuthor) {
+      entry.author = asAuthor(note.promptAuthor);
+      entry.context = true;
+    }
+    for (const kind of cleanKinds([note.contextKind])) {
+      entry.kinds.add(kind);
+      entry.context = true;
+    }
+    if (note.model?.id) {
+      const served = { id: note.model.id, kind: asModelKind(note.model.kind) };
+      entry.models = [...entry.models.filter((model) => model.id !== served.id), served];
+    }
     this.pending.delete(taskId);
     this.pending.set(taskId, entry);
     if (this.pending.size > MAX_PENDING) {
@@ -654,20 +693,22 @@ class ExperienceStore {
    */
   record(input: ExperienceInput): Experience {
     this.load();
-    const models = (input.models ?? []).map(normaliseModel);
+    const noted = this.pending.get(input.taskId);
+    this.pending.delete(input.taskId);
+    // The engines that really served the reply, when the turn noted them, replace the planned bare ids: the row's
+    // model kind is the kind of what answered, never of what was only a candidate.
+    const models = noted?.models.length ? noted.models : (input.models ?? []).map(normaliseModel);
     const tools = input.tools ?? [];
     const domains = (input.domains ?? domainsForTask(`${input.title} ${input.kind}`)).filter((d) =>
       DOMAINS.includes(d),
     );
-    const noted = this.pending.get(input.taskId);
-    this.pending.delete(input.taskId);
     const promptAuthor = input.promptAuthor
       ? asAuthor(input.promptAuthor)
       : (noted?.author ?? "unknown");
     // The context is known when the caller said so, when a note was made, or when the owner wrote the turn
     // (then it holds exactly what the tools brought in). Otherwise it stays unknown.
     const known =
-      input.contextKinds !== undefined || noted !== undefined || promptAuthor === "owner";
+      input.contextKinds !== undefined || noted?.context === true || promptAuthor === "owner";
     const contextKinds = cleanKinds([
       ...(input.contextKinds ?? []),
       ...(noted?.kinds ?? []),
@@ -690,6 +731,8 @@ class ExperienceStore {
       ...(input.detail ? { detail: input.detail } : {}),
       ...(input.feedback ? { feedback: input.feedback } : {}),
       promptAuthor,
+      modelKind: kindOfModels(models),
+      ...(models[0] ? { modelId: models[0].id } : {}),
       ...(known || contextKinds.length ? { contextKinds } : {}),
     };
     this.experiences = [experience, ...this.experiences].slice(0, MAX_EXPERIENCES);
