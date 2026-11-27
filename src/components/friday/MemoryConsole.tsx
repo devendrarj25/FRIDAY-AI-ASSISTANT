@@ -202,12 +202,7 @@ export function MemoryConsole() {
             >
               Backup
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={restoring}
-              onClick={() => void restoreNow()}
-            >
+            <Button size="sm" variant="outline" disabled={restoring} onClick={() => restoreNow()}>
               {restoring ? "Restoring…" : "Restore"}
             </Button>
             <Button

@@ -149,7 +149,7 @@ export function MemorySettings() {
             size="sm"
             variant="outline"
             disabled={!backupAt || restoring}
-            onClick={() => void restoreNow()}
+            onClick={() => restoreNow()}
           >
             <RefreshCw className="size-4" /> {restoring ? "Restoring…" : "Restore snapshot"}
           </Button>
