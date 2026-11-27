@@ -7,11 +7,12 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 const req = createRequire(import.meta.url);
 const stt = req("../../electron/stt.cjs");
-const root = new URL("../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 
 const vec = (n: number, base = 0.25) => Array.from({ length: n }, (_v, i) => base + i / 1000);
