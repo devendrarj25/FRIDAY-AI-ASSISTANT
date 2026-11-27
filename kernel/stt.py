@@ -960,21 +960,33 @@ def admit(kind: str, est_mb: float, required: bool = False) -> bool:
     slot = _ADMIT_SLOT.get(kind, kind)
     order = [k for k in EVICT_ORDER if k != slot]
     fits = float(available) - est_mb >= line
-    gain = 0.0 if fits else sum(_resident_mb(k) for k in order)
-    if not fits and (required or float(available) + gain - est_mb >= line):
-        for victim in order:
-            if _resident_mb(victim) <= 0 or not _evict(victim):
-                continue
-            record["evicted"].append(victim)
-            note_fallback(f"evicted-{victim}")
-            gc.collect()
-            again = memory_pressure().get("availableMb")
-            if again is None:
-                break
-            available = again
-            if float(available) - est_mb >= line:
-                fits = True
-                break
+    # Dropping the base, owner or Hindi model is only safe while no decode reads it: the request loop holds
+    # ``_cache_lock`` for a whole request. A caller on another thread (the stream-warm) never waits for it: busy
+    # means only the idle stream engine may go (it closes only when no stream is live), so the load is refused
+    # (a counted fallback, ``low-memory`` to the caller) rather than pulling a model from under a decode.
+    locked = False if fits else _cache_lock.acquire(blocking=False)
+    try:
+        if not fits and not locked:
+            order = [k for k in order if k == "stream"]
+            record["lockBusy"] = True
+        gain = 0.0 if fits else sum(_resident_mb(k) for k in order)
+        if not fits and (required or float(available) + gain - est_mb >= line):
+            for victim in order:
+                if _resident_mb(victim) <= 0 or not _evict(victim):
+                    continue
+                record["evicted"].append(victim)
+                note_fallback(f"evicted-{victim}")
+                gc.collect()
+                again = memory_pressure().get("availableMb")
+                if again is None:
+                    break
+                available = again
+                if float(available) - est_mb >= line:
+                    fits = True
+                    break
+    finally:
+        if locked:
+            _cache_lock.release()
     record["availableMb"] = available
     if fits:
         record["verdict"] = "load"

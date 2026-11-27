@@ -4,7 +4,10 @@ readings and fake models only: no weights, no wall clock."""
 
 from __future__ import annotations
 
+import contextlib
+import queue
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -134,6 +137,100 @@ def test_a_load_never_evicts_its_own_slot(machine):
     machine["empty"] = 1500.0  # 1100 MB free, only the Hindi ear resident
     assert stt.admit("hindi-ear", 400) is False
     assert hindi_ear.loaded() and _by_kind() == {"admit-refused-hindi-ear": 1}
+
+
+@contextlib.contextmanager
+def _decode_holds_the_cache_lock():
+    """Another thread holds ``stt._cache_lock`` the way the request loop does for a whole decode."""
+    held, release = threading.Event(), threading.Event()
+
+    def decode() -> None:
+        with stt._cache_lock:
+            held.set()
+            release.wait(10)
+
+    thread = threading.Thread(target=decode, daemon=True)
+    thread.start()
+    assert held.wait(5)
+    try:
+        yield
+    finally:
+        release.set()
+        thread.join(5)
+
+
+def test_a_busy_cache_lock_never_lets_a_concurrent_admit_drop_a_model_under_a_decode(machine):
+    machine["load"]("fast", "whisper", "hindi-ear")
+    machine["empty"] = 2400.0  # 600 MB free: critical; dropping the three would fit a stream engine
+    with _decode_holds_the_cache_lock():
+        assert stt.admit("stream", 900) is False
+    assert all(machine["resident"]()[kind] for kind in ("fast", "whisper", "hindi-ear"))
+    assert stt.cache_status()["admit"]["evicted"] == [] and stt.cache_status()["admit"]["lockBusy"] is True
+    assert _by_kind() == {"admit-refused-stream": 1}
+
+
+def test_a_busy_cache_lock_still_lets_the_idle_stream_engine_go(machine):
+    machine["load"]("stream", "fast", "whisper")
+    machine["empty"] = 2700.0  # 800 MB free: critical; the stream engine alone frees enough for the Hindi ear
+    with _decode_holds_the_cache_lock():
+        assert stt.admit("hindi-ear", 400) is True
+    assert machine["resident"]() == {"stream": False, "fast": True, "whisper": True, "hindi-ear": False}
+    assert stt.cache_status()["admit"]["evicted"] == ["stream"]
+
+
+def _warm_under_pressure(machine, monkeypatch, tmp_path, *, busy: bool) -> tuple[dict, list[bool]]:
+    """Run a stream-warm on its own thread (as the loop does) under memory pressure; return its answer."""
+    opened_free: list[bool] = []
+
+    class Fake:
+        name = "fake-stream"
+        loaded = False
+
+        def open(self, model_dir, **options):
+            free = stt._cache_lock.acquire(blocking=False)  # a load must never run under the cache lock
+            if free:
+                stt._cache_lock.release()
+            opened_free.append(free)
+            self.loaded = True
+
+        def reset(self):
+            pass
+
+        def close(self):
+            self.loaded = False
+
+    spec = stream_ear.EngineSpec(name="fake-stream", folder="fake", files={}, factory=Fake, load_mb=900.0)  # type: ignore[arg-type]
+    choice = stream_ear.TierChoice(engine="fake-stream", model_dir=tmp_path, reason="ok", tier=None, rtf=None)
+    monkeypatch.setattr(stream_ear, "choose_tier", lambda *a, **k: choice)
+    monkeypatch.setattr(stream_ear, "engine_spec", lambda name: spec)
+    monkeypatch.setattr(stream_ear, "admit_hook", stt.admit)
+    monkeypatch.setattr(stt, "_warm_waiters", [])
+    answers: queue.Queue = queue.Queue()
+    monkeypatch.setattr(stt, "emit", answers.put)
+    machine["load"]("fast", "whisper")
+    machine["empty"] = 2200.0  # 1200 MB free: critical; the base then the owner model must go to fit 900 MB
+    if busy:
+        with _decode_holds_the_cache_lock():
+            stt._warm_in_background({"id": 7, "op": "stream-warm", "streamEngine": "fake-stream"})
+            return answers.get(timeout=5), opened_free
+    stt._warm_in_background({"id": 7, "op": "stream-warm", "streamEngine": "fake-stream"})
+    return answers.get(timeout=5), opened_free
+
+
+def test_a_warm_beside_a_decode_answers_low_memory_and_leaves_every_other_model_loaded(machine, monkeypatch, tmp_path):
+    reply, _ = _warm_under_pressure(machine, monkeypatch, tmp_path, busy=True)
+    assert reply["id"] == 7 and reply["ok"] is False and reply["reason"] == "low-memory" and reply["fallback"] is True
+    assert machine["resident"]() == {"stream": False, "fast": True, "whisper": True, "hindi-ear": False}
+
+
+def test_a_warm_with_the_cache_lock_free_evicts_in_the_documented_order_then_loads(machine, monkeypatch, tmp_path):
+    reply, opened_free = _warm_under_pressure(machine, monkeypatch, tmp_path, busy=False)
+    assert reply["id"] == 7 and reply["ok"] is True and reply["already"] is False
+    assert opened_free == [True]
+    assert stt.cache_status()["admit"]["evicted"] == ["fast", "whisper"]
+    assert machine["resident"]()["fast"] is False and machine["resident"]()["whisper"] is False
+    assert stt._cache_lock.acquire(blocking=False)  # the admission released the lock before the load
+    stt._cache_lock.release()
 
 
 def test_a_live_stream_is_never_dropped_under_the_owner(machine):
