@@ -62,3 +62,15 @@ describe("one shared panel button class", () => {
     expect(def.slice(0, def.indexOf(";"))).not.toContain("ring-primary/60");
   });
 });
+
+describe("Library page keeps the typed origin and keeps file names out of the prompt", () => {
+  it("every Library send is typed and no prompt carries a stored name", () => {
+    const src = read("src/routes/library.tsx");
+    const calls = sendCalls(src);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call).toContain('promptOrigin: "typed"');
+      expect(call).not.toMatch(/\$\{\s*(item|open)\.name\s*\}[^`]*`,\s*\{[^}]*promptOrigin/s);
+    }
+  });
+});

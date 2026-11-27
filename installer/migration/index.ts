@@ -41,7 +41,8 @@ export const MIGRATIONS: Migration[] = [
     describe: "create config/capabilities.json for persisted capability toggles",
     run(root) {
       const file = path.join(root, "config", "capabilities.json");
-      if (!exists(file)) writeJson(file, {});
+      // A missing main file with a readable .bak is still the owner's record: leave it to the readers.
+      if (!exists(file) && !readJson(`${file}.bak`)) writeJson(file, {});
     },
   },
 ];

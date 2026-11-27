@@ -58,7 +58,7 @@ type Caps = {
     roots: Roots,
     id: string,
     options?: { now?: () => number },
-  ) => { ok: boolean; backup?: string; warning?: string; undo?: { from: string; to: string } };
+  ) => { ok: boolean; backup?: string; warning?: string; undo?: { id: string; backupId: string } };
   RESERVED_KEYS: Set<string>;
 };
 type Sync = {
@@ -471,6 +471,8 @@ describe("Reset to built-in resolves the copy the way list() does", () => {
   it("removes the copy list() shows (the last one wins) and refuses a case-variant id", () => {
     put(appRoot, "demo", "1.0.0");
     const folder = put(workspaceRoot, "demo", "1.0.0", { summary: "folder copy" });
+    // A flat manifest's id is its path's (never its body's, owner-data-hardening.test.ts), so a
+    // flat file that claims the built-in's id is not a copy of it and reset leaves it alone.
     const flat = path.join(workspaceRoot, "agents", "manifests", "demo.json");
     writeRaw(
       flat,
@@ -480,9 +482,11 @@ describe("Reset to built-in resolves the copy the way list() does", () => {
     expect(capabilities.resetBuiltin({ appRoot, workspaceRoot }, ID.toUpperCase()).ok).toBe(false);
     const result = capabilities.resetBuiltin({ appRoot, workspaceRoot }, ID);
     expect(result.ok).toBe(true);
-    expect(fs.existsSync(flat)).toBe(false);
-    expect(fs.existsSync(path.join(folder, "manifest.json"))).toBe(true);
-    expect(fs.readFileSync(result.backup as string, "utf8")).toContain("flat copy");
+    expect(fs.existsSync(flat)).toBe(true);
+    expect(fs.existsSync(path.join(folder, "manifest.json"))).toBe(false);
+    expect(fs.readFileSync(path.join(result.backup as string, "manifest.json"), "utf8")).toContain(
+      "folder copy",
+    );
   });
 
   it("warns when the fork record could not be dropped, and gives the undo pointer", () => {
@@ -495,7 +499,17 @@ describe("Reset to built-in resolves the copy the way list() does", () => {
     const result = capabilities.resetBuiltin({ appRoot, workspaceRoot }, ID);
     expect(result.ok).toBe(true);
     expect(result.warning ?? "").toContain("capabilities.json");
-    expect(result.undo).toEqual({ from: result.backup, to: mine });
+    // The undo record carries ids; the paths are re-derived (and checked) by resolveUndo.
+    expect(result.undo).toEqual({
+      id: ID,
+      backupId: path.posix.join("capabilities", path.basename(result.backup as string)),
+    });
+    expect(
+      (capabilities as unknown as { resolveUndo: (r: Roots, u: unknown) => unknown }).resolveUndo(
+        { appRoot, workspaceRoot },
+        result.undo,
+      ),
+    ).toEqual({ ok: true, from: result.backup, to: mine });
     expect(readState().forks[ID]).toBeDefined();
   });
 

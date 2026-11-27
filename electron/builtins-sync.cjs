@@ -54,73 +54,137 @@ const isIgnored = (name) => {
 };
 
 /** Text hashes the same with CRLF or LF; the same rule as scripts/builtins-manifest.cjs. */
-function fileHash(file) {
-  const data = fs.readFileSync(file);
+function bufferHash(data) {
   if (data.subarray(0, 8000).includes(0)) return sha256(data);
   return sha256(Buffer.from(data.toString("latin1").replace(/\r\n/g, "\n"), "latin1"));
 }
 
-function collect(dir, rel, out) {
+const CHUNK_BYTES = 1024 * 1024;
+
+/** Reads until the buffer is full or the file ends; returns the bytes read. */
+function fill(fd, buffer) {
+  let total = 0;
+  while (total < buffer.length) {
+    const got = fs.readSync(fd, buffer, total, buffer.length - total, null);
+    if (!got) break;
+    total += got;
+  }
+  return total;
+}
+
+/**
+ * The same digest as `bufferHash(fs.readFileSync(file))`; a file over 1 MB is read in 1 MB
+ * chunks, so a very large file never has to fit in memory (a whole-file read throws past about 2 GB). A CR that ends a
+ * chunk waits for the next one, so CRLF is folded to LF across a chunk boundary too.
+ */
+function fileHash(file) {
+  if (fs.statSync(file).size <= CHUNK_BYTES) return bufferHash(fs.readFileSync(file));
+  const fd = fs.openSync(file, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
+    let got = fill(fd, buffer);
+    const hash = crypto.createHash("sha256");
+    if (buffer.subarray(0, Math.min(got, 8000)).includes(0)) {
+      while (got) {
+        hash.update(buffer.subarray(0, got));
+        got = fill(fd, buffer);
+      }
+      return hash.digest("hex");
+    }
+    let carry = "";
+    while (got) {
+      let chunk = carry + buffer.toString("latin1", 0, got);
+      carry = chunk.endsWith("\r") ? "\r" : "";
+      if (carry) chunk = chunk.slice(0, -1);
+      hash.update(Buffer.from(chunk.replace(/\r\n/g, "\n"), "latin1"));
+      got = fill(fd, buffer);
+    }
+    if (carry) hash.update(Buffer.from(carry, "latin1"));
+    return hash.digest("hex");
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function collect(dir, rel, out, override) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (isIgnored(entry.name)) continue;
     const full = path.join(dir, entry.name);
     const name = rel ? `${rel}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) collect(full, name, out);
-    else if (entry.isFile()) out.push([name, fileHash(full)]);
+    if (entry.isDirectory()) collect(full, name, out, override);
+    else if (entry.isFile()) out.push([name, fileHashOf(full, override)]);
   }
 }
 
-/** SHA-256 of the sorted "relpath\0filehash\n" lines of an item folder (a flat manifest is one file). */
-function itemHash(target) {
+/** One file's hash; `override.file` is hashed from `override.text` instead of the disk. */
+function fileHashOf(file, override) {
+  if (override && path.resolve(file) === path.resolve(override.file))
+    return bufferHash(Buffer.from(override.text));
+  return fileHash(file);
+}
+
+/**
+ * SHA-256 of the sorted "relpath\0filehash\n" lines of an item folder (a flat manifest is one
+ * file). THE one recipe for an item: the importer's release-content hash uses it too.
+ * `override: { file, text }` hashes that one file as `text` (the manifest as it was before its
+ * own hash field was written, since a stored hash cannot contain itself).
+ */
+function itemHash(target, { override = null } = {}) {
   const files = [];
-  if (fs.statSync(target).isDirectory()) collect(target, "", files);
-  else files.push([path.basename(target), fileHash(target)]);
+  if (fs.statSync(target).isDirectory()) collect(target, "", files, override);
+  else files.push([path.basename(target), fileHashOf(target, override)]);
   files.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return sha256(files.map(([rel, hash]) => `${rel}\0${hash}\n`).join(""));
 }
 
-/** Most bytes list() will read to compare one shadowing copy with the shipped item. */
+/** Most bytes, and most files, list() will read to compare one shadowing copy with the shipped item. */
 const MAX_HASH_BYTES = 64 * 1024 * 1024;
+const MAX_HASH_FILES = 5000;
 const MAX_CACHED_ITEMS = 4000;
 const hashCache = new Map();
 
-/** `count:bytes:newest-mtime` of an item without reading it; `null` over the byte cap. */
-function stampOf(target, maxBytes) {
-  let count = 0;
+/**
+ * A digest of the item's sorted `relative name, size, modified time` lines, read without opening
+ * a file; `null` over the byte or file cap. A rename inside the item changes it even when sizes
+ * and times stay the same.
+ */
+function stampOf(target, maxBytes, maxFiles) {
+  const rows = [];
   let bytes = 0;
-  let newest = 0;
-  const take = (file) => {
+  const take = (file, rel) => {
     const stat = fs.statSync(file);
-    count += 1;
+    rows.push(`${rel}\0${stat.size}\0${stat.mtimeMs}`);
     bytes += stat.size;
-    if (stat.mtimeMs > newest) newest = stat.mtimeMs;
-    return bytes <= maxBytes;
+    return bytes <= maxBytes && rows.length <= maxFiles;
   };
-  const walk = (dir) => {
+  const walk = (dir, rel) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (isIgnored(entry.name)) continue;
       const full = path.join(dir, entry.name);
+      const name = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (!walk(full)) return false;
-      } else if (entry.isFile() && !take(full)) return false;
+        if (!walk(full, name)) return false;
+      } else if (entry.isFile() && !take(full, name)) return false;
     }
     return true;
   };
-  const whole = fs.statSync(target).isDirectory() ? walk(target) : take(target);
-  return whole ? `${count}:${bytes}:${newest}` : null;
+  const whole = fs.statSync(target).isDirectory()
+    ? walk(target, "")
+    : take(target, path.basename(target));
+  return whole ? `${rows.length}:${bytes}:${sha256(rows.sort().join("\n"))}` : null;
 }
 
 /**
  * The hash capabilities.list() compares with the shipped item, or `null` when it cannot be
- * had (a locked or vanished file, an item over the byte cap). `null` always means "not
- * identical", so one bad file never breaks a listing. Cached by path, file count, size and
- * newest modified time, so an unchanged copy is read once.
+ * had (a locked or vanished file, an item over the byte or file cap). `null` always means "not
+ * identical", so one bad file never breaks a listing. Cached by path and the stamp of the item
+ * (its file names, sizes and modified times), so an unchanged copy is read once.
  */
-function shadowHash(target, { maxBytes = MAX_HASH_BYTES } = {}) {
+function shadowHash(target, { maxBytes = MAX_HASH_BYTES, maxFiles = MAX_HASH_FILES } = {}) {
   try {
-    const stamp = stampOf(target, maxBytes);
+    const stamp = stampOf(target, maxBytes, maxFiles);
     if (stamp === null) return null;
-    const key = `${stamp}:${maxBytes}`;
+    const key = `${stamp}:${maxBytes}:${maxFiles}`;
     const hit = hashCache.get(target);
     if (hit && hit.key === key) return hit.hash;
     const hash = itemHash(target);
@@ -251,49 +315,65 @@ function run({ appRoot, workspaceRoot, env = process.env, now = Date.now, capabi
     if (last && last.sha256 === built.sha256 && snapshot.sha256 === built.sha256)
       return { ...report, fast: true, release: built.release, counts: last.counts || null };
 
-    const state = caps.upgradeState(current.value);
-    const removedBuiltins = { ...state.removedBuiltins };
-    for (const id of snapshot.ids) {
-      const key = id.toLowerCase();
-      if (!built.byId.has(key) && !removedBuiltins[key]) {
-        removedBuiltins[key] = { since: built.release };
-        report.removed.push(key);
-      }
-    }
-    for (const key of built.byId.keys()) delete removedBuiltins[key];
-    state.removedBuiltins = removedBuiltins;
-
-    // Statuses read the record, so list against the tombstones this run just wrote.
-    const listing = caps.list({ appRoot, workspaceRoot, state });
-    const present = new Set(listing.items.map((item) => item.id.toLowerCase()));
-    const exists = (key) => present.has(key.toLowerCase()) || built.byId.has(key.toLowerCase());
-    // A toggle is never lost: one for an item missing from this scan waits in prunedToggles
-    // and is given back (unless the owner set a newer one) when the item returns.
-    const parked = { ...(state.prunedToggles || {}) };
-    for (const key of Object.keys(parked)) {
-      if (typeof parked[key] !== "boolean" || !exists(key)) continue;
-      if (typeof state[key] !== "boolean") state[key] = parked[key];
-      delete parked[key];
-    }
-    for (const key of Object.keys(state)) {
-      if (caps.RESERVED_KEYS.has(key) || typeof state[key] !== "boolean" || exists(key)) continue;
-      parked[key] = state[key];
-      delete state[key];
-      report.pruned.push(key);
-    }
-    const parkedKeys = Object.keys(parked);
-    for (const key of parkedKeys.slice(0, Math.max(0, parkedKeys.length - MAX_PRUNED_TOGGLES)))
-      delete parked[key];
-    if (Object.keys(parked).length) state.prunedToggles = parked;
-    else delete state.prunedToggles;
-
-    const counts = countRows(listing.items, built.byId.size);
-    state.lastBuiltins = { release: built.release, sha256: built.sha256, counts };
+    // The whole reconcile runs inside editState: one guarded read-modify-write of the record,
+    // so a damaged file with no backup or a record from a newer FRIDAY is never rebuilt.
+    let counts = null;
     const ids = [...built.byId.keys()].sort();
-    const next = { schema: 1, release: built.release, sha256: built.sha256, at: now(), ids };
+    const edited = caps.editState(
+      workspaceRoot,
+      (value) => {
+        const state = caps.upgradeState(value);
+        const removedBuiltins = { ...state.removedBuiltins };
+        for (const id of snapshot.ids) {
+          const key = id.toLowerCase();
+          if (!built.byId.has(key) && !removedBuiltins[key]) {
+            removedBuiltins[key] = { since: built.release };
+            report.removed.push(key);
+          }
+        }
+        for (const key of built.byId.keys()) delete removedBuiltins[key];
+        state.removedBuiltins = removedBuiltins;
+
+        // Statuses read the record, so list against the tombstones this run just wrote.
+        const listing = caps.list({ appRoot, workspaceRoot, state });
+        const present = new Set(listing.items.map((item) => item.id.toLowerCase()));
+        const exists = (key) => present.has(key.toLowerCase()) || built.byId.has(key.toLowerCase());
+        const notAToggle = (key) => caps.RESERVED_KEYS.has(key) || caps.NOT_AN_ID.has(key);
+        // A toggle is never lost: one for an item missing from this scan waits in prunedToggles
+        // and is given back (unless the owner set a newer one) when the item returns. A reserved
+        // key is never a toggle, parked or restored.
+        const parked = { ...(state.prunedToggles || {}) };
+        for (const key of Object.keys(parked)) {
+          if (notAToggle(key)) {
+            delete parked[key];
+            continue;
+          }
+          if (typeof parked[key] !== "boolean" || !exists(key)) continue;
+          if (typeof state[key] !== "boolean") state[key] = parked[key];
+          delete parked[key];
+        }
+        for (const key of Object.keys(state)) {
+          if (notAToggle(key) || typeof state[key] !== "boolean" || exists(key)) continue;
+          parked[key] = state[key];
+          delete state[key];
+          report.pruned.push(key);
+        }
+        const parkedKeys = Object.keys(parked);
+        for (const key of parkedKeys.slice(0, Math.max(0, parkedKeys.length - MAX_PRUNED_TOGGLES)))
+          delete parked[key];
+        if (Object.keys(parked).length) state.prunedToggles = parked;
+        else delete state.prunedToggles;
+
+        counts = countRows(listing.items, built.byId.size);
+        state.lastBuiltins = { release: built.release, sha256: built.sha256, counts };
+        return state;
+      },
+      { write: caps.writeState },
+    );
     // The record first: only after it is safe does the snapshot move on. A failure on either
     // leaves the fast path closed, so the next boot runs the sync again.
-    if (!caps.writeState(workspaceRoot, state)) return failed(built.release, STATE_FILE);
+    if (!edited.ok) return failed(built.release, STATE_FILE);
+    const next = { schema: 1, release: built.release, sha256: built.sha256, at: now(), ids };
     if (!caps.writeAtomic(path.join(workspaceRoot, SNAPSHOT_FILE), next))
       return failed(built.release, SNAPSHOT_FILE);
     return { ...report, release: built.release, counts };

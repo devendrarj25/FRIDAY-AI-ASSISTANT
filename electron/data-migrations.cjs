@@ -22,7 +22,10 @@ const MIGRATIONS = [
     describe: "create config/capabilities.json for persisted capability toggles",
     run(root) {
       const file = path.join(root, "config", "capabilities.json");
-      if (!fs.existsSync(file)) safeWrite.writeJsonSafe(file, {}, 2, { keepBackup: false });
+      // A missing main file with a readable .bak is a record the readers still find (capabilities.cjs
+      // readStateFile): a fresh {} would hide its forks and tombstones, so nothing is created.
+      if (fs.existsSync(file) || safeWrite.readJsonSafe(`${file}.bak`, null).value) return;
+      safeWrite.writeJsonSafe(file, {}, 2, { keepBackup: false });
     },
   },
 ];

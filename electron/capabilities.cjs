@@ -38,7 +38,8 @@ const STATE_FILE = path.join("config", "capabilities.json");
 
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    // A UTF-8 byte order mark (an editor's save) is not content.
+    return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
   } catch {
     return null;
   }
@@ -85,11 +86,17 @@ const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, 
  * `{ exists, readable, value, source }`; `value` is `{}` when the file is missing or damaged
  * beyond repair. A truncated or damaged file is read from its `.bak` (the previous good body
  * the atomic writer keeps); `source` says "backup" then. `readable: false` means neither
- * body parses: no writer may then build a new record from `{}`.
+ * body parses: no writer may then build a new record from `{}`. A main file that is missing
+ * while a good `.bak` is there (a move or a cleanup took the main) reads from the backup too.
  */
 function readStateFile(workspaceRoot) {
   const file = overridesFile(workspaceRoot);
-  if (!fs.existsSync(file)) return { exists: false, readable: true, value: {} };
+  if (!fs.existsSync(file)) {
+    const kept = readJson(`${file}.bak`);
+    return isPlain(kept)
+      ? { exists: true, readable: true, source: "backup", value: kept }
+      : { exists: false, readable: true, value: {} };
+  }
   const main = readJson(file);
   if (isPlain(main)) return { exists: true, readable: true, source: "file", value: main };
   const backup = readJson(`${file}.bak`);
@@ -138,9 +145,11 @@ function writeState(workspaceRoot, state) {
  * The one way to change the owner's record: read it (through the .bak), let `mutate` edit the
  * value (return `false` for "nothing to write"), write it atomically. A record that cannot be
  * read, or that a newer FRIDAY wrote, is never rebuilt from `{}` and never rewritten, so a
- * truncated file cannot cost the forks and tombstones it holds.
+ * truncated file cannot cost the forks and tombstones it holds. `mutate` may return a plain
+ * object to be written instead of the edited value (the boot sync builds a whole new record);
+ * `write` is injectable for tests.
  */
-function editState(workspaceRoot, mutate) {
+function editState(workspaceRoot, mutate, { write = writeState } = {}) {
   const current = readStateFile(workspaceRoot);
   if (current.exists && !current.readable)
     return {
@@ -152,8 +161,9 @@ function editState(workspaceRoot, mutate) {
       ok: false,
       error: "config/capabilities.json is from a newer FRIDAY and was not changed",
     };
-  if (mutate(current.value) === false) return { ok: true, changed: false };
-  return writeState(workspaceRoot, current.value)
+  const edited = mutate(current.value);
+  if (edited === false) return { ok: true, changed: false };
+  return write(workspaceRoot, isPlain(edited) ? edited : current.value)
     ? { ok: true, changed: true }
     : { ok: false, error: "could not write config/capabilities.json" };
 }
@@ -166,8 +176,8 @@ function migrateState(workspaceRoot) {
   if (!current.readable) return { ok: false, migrated: false, reason: "unreadable" };
   if (Number(current.value.schema) >= STATE_SCHEMA)
     return { ok: true, migrated: false, reason: "current" };
-  const ok = writeState(workspaceRoot, upgradeState(current.value));
-  return ok
+  const edited = editState(workspaceRoot, (value) => upgradeState(value));
+  return edited.ok
     ? { ok: true, migrated: true, from: 1 }
     : { ok: false, migrated: false, reason: "write" };
 }
@@ -390,6 +400,30 @@ function scanSegment(root, origin, tree, segment, names, roots = [root]) {
   return out;
 }
 
+/**
+ * The id of a flat `<tree>/manifests/<file>.json`. The path's id by default; the body may only
+ * pick another name inside the same `<tree>/manifests/` namespace, and never a name that is
+ * another file's path id or a reserved record key. So a flat manifest cannot claim a folder
+ * item's id (`skills/core/<owner item>`), another flat file's id, or `forks`, and shadow it.
+ * core/discovery.ts applies the same rule.
+ */
+function flatManifestId(tree, file, claimed, fileIds) {
+  const prefix = `${tree}/manifests/`;
+  const own = `${prefix}${path.basename(file, ".json")}`;
+  const want = typeof claimed === "string" ? claimed : "";
+  const name = want.slice(prefix.length);
+  if (
+    want.toLowerCase().startsWith(prefix) &&
+    name &&
+    !name.includes("/") &&
+    !RESERVED_KEYS.has(want) &&
+    !NOT_AN_ID.has(want) &&
+    (want.toLowerCase() === own.toLowerCase() || !fileIds.has(want.toLowerCase()))
+  )
+    return want;
+  return own;
+}
+
 function scanManifestFolder(root, origin, tree, roots = [root]) {
   const dir = path.join(root, tree, "manifests");
   let files = [];
@@ -399,12 +433,15 @@ function scanManifestFolder(root, origin, tree, roots = [root]) {
     return [];
   }
   const out = [];
-  for (const file of files) {
-    if (!file.toLowerCase().endsWith(".json")) continue;
+  const jsonFiles = files.filter((file) => file.toLowerCase().endsWith(".json"));
+  const fileIds = new Set(
+    jsonFiles.map((file) => `${tree}/manifests/${path.basename(file, ".json")}`.toLowerCase()),
+  );
+  for (const file of jsonFiles) {
     const full = path.join(dir, file);
     const manifest = readJson(full);
     if (!manifest) continue;
-    const id = String(manifest.id || `${tree}/manifests/${path.basename(file, ".json")}`);
+    const id = flatManifestId(tree, file, manifest.id, fileIds);
     out.push(normalize(tree, "manifests", id, full, full, manifest, origin, roots));
   }
   return out;
@@ -992,6 +1029,8 @@ function packPath(workspaceRoot, id) {
  * failed stays installed-but-disabled with its real error attached.
  */
 function markVerified({ workspaceRoot }, id, result) {
+  if (RESERVED_KEYS.has(String(id)) || NOT_AN_ID.has(String(id)))
+    return { ok: false, error: "not a capability id" };
   const dir = packPath(workspaceRoot, id);
   if (!dir || !fs.existsSync(dir)) return { ok: false, error: "Not installed in this workspace." };
   const tree = String(id).split("/")[0];
@@ -1113,16 +1152,19 @@ function recordFork({ appRoot, workspaceRoot }, id, now = Date.now) {
   if (!builtIn) return { ok: false, error: "That is not a built-in capability." };
   const shipped = builtinsSync.readBuiltins(appRoot);
   const known = shipped.ok ? shipped.byId.get(builtIn.id.toLowerCase()) : null;
-  const state = upgradeState(readStateFile(workspaceRoot).value);
-  if (Number(state.schema) > STATE_SCHEMA) return { ok: false, error: "The record is newer." };
-  state.forks[builtIn.id] = {
+  const fork = {
     baseVersion: builtIn.version,
     baseSha256: known ? known.sha256 : builtinsSync.itemHash(builtIn.path),
     at: now(),
   };
-  return writeState(workspaceRoot, state)
-    ? { ok: true, id: builtIn.id }
-    : { ok: false, error: "could not write config/capabilities.json" };
+  // Through editState like every other writer: a damaged record with no backup, or one from a
+  // newer FRIDAY, is refused instead of being rebuilt around this one fork.
+  const written = editState(workspaceRoot, (value) => {
+    const state = upgradeState(value);
+    state.forks[builtIn.id] = fork;
+    return state;
+  });
+  return written.ok ? { ok: true, id: builtIn.id } : { ok: false, error: written.error };
 }
 
 /** Copies a built-in into the workspace (never over an existing copy) and records the fork. */
@@ -1187,21 +1229,73 @@ function resetBuiltin({ appRoot, workspaceRoot }, id, { now = Date.now } = {}) {
     delete record.forks[copy.id];
     return true;
   });
-  // `undo` is what a caller records in the undo journal: put `from` back at `to`.
+  // `backup` is the absolute folder, for the main process only (publicResetResult drops it
+  // before anything goes to a window). `undo` is what a caller records in the undo journal: the
+  // id and the backup's name under <workspace>/backup; resolveUndo re-derives both paths.
+  const backupId = `capabilities/${path.basename(backup)}`;
   return {
     ok: true,
     id: copy.id,
     backup,
-    undo: { from: backup, to: copy.path },
+    backupId,
+    undo: { id: copy.id, backupId },
     ...(recorded.ok
       ? {}
       : { warning: `${recorded.error}; the fork record of ${copy.id} may still be there` }),
   };
 }
 
+/** What a window may see of a reset: ids and names, never an absolute path. */
+function publicResetResult(result) {
+  if (!result || typeof result !== "object") return { ok: false, error: "reset failed" };
+  const { ok, id, backupId, error, warning } = result;
+  return {
+    ok: Boolean(ok),
+    ...(id ? { id } : {}),
+    ...(backupId ? { backupId } : {}),
+    ...(error ? { error } : {}),
+    ...(warning ? { warning } : {}),
+  };
+}
+
+/**
+ * The two absolute paths of an undo record, derived here from its id and backup name and
+ * checked against the workspace; never taken from a caller. `{ ok, from, to }`: put `from` back
+ * at `to`.
+ */
+function resolveUndo({ workspaceRoot }, undo) {
+  const bad = (error) => ({ ok: false, error });
+  if (!workspaceRoot) return bad("No FRIDAY workspace is selected.");
+  if (!isPlain(undo) || typeof undo.id !== "string" || typeof undo.backupId !== "string")
+    return bad("That is not an undo record.");
+  const parts = undo.id.split("/");
+  if (
+    !TREES[parts[0]] ||
+    parts.length < 2 ||
+    parts.some((part) => !part || part === "." || part === ".." || /[\\:]/.test(part))
+  )
+    return bad("Unknown capability id.");
+  if (!/^capabilities\/[^\\/:]+$/.test(undo.backupId) || undo.backupId.includes(".."))
+    return bad("That is not a backup of a reset.");
+  const flat = parts.length === 3 && parts[1] === "manifests";
+  const to = path.join(workspaceRoot, ...parts) + (flat ? ".json" : "");
+  const from = path.join(workspaceRoot, "backup", ...undo.backupId.split("/"));
+  if (
+    !contains(workspaceRoot, to) ||
+    !contains(path.join(workspaceRoot, "backup", "capabilities"), from)
+  )
+    return bad("Refusing a path outside the workspace.");
+  if (!fs.existsSync(from)) return bad("The backup is gone.");
+  return { ok: true, from, to };
+}
+
 module.exports = {
   STATE_SCHEMA,
   RESERVED_KEYS,
+  NOT_AN_ID,
+  editState,
+  publicResetResult,
+  resolveUndo,
   PROVENANCE,
   readStateFile,
   upgradeState,

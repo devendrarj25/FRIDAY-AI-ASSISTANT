@@ -150,12 +150,14 @@ describe("Update content never overwrites or deletes the owner's items", () => {
 
   it("updates an item an earlier Update content placed (release-content) when the release is newer", async () => {
     const { root, staged, scan } = setup();
-    putItem(
-      root,
-      "skills/core/gamma",
-      { name: "gamma", version: "1.0.0", provenance: "release-content" },
-      "old",
-    );
+    // Placed by a real earlier Update content: the mark carries the content hash. A mark with
+    // no hash is the owner's (owner-data-hardening.test.ts).
+    putItem(staged, "skills/core/gamma", { name: "gamma", version: "1.0.0" }, "old");
+    await apply(root, scan, builtins([]));
+    expect(readManifest(root, "skills/core/gamma")).toMatchObject({
+      provenance: "release-content",
+      releaseSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
     putItem(staged, "skills/core/gamma", { name: "gamma", version: "1.1.0" }, "newer");
     const result = await apply(root, scan, builtins([]));
     expect(result.keptYours).toEqual([]);

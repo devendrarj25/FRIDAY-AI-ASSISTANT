@@ -46,6 +46,48 @@ function renameWithRetry(from, to, { fsApi = fs, wait = pause } = {}) {
   throw lastError;
 }
 
+/** Largest JSON body read back to check it parses before it is backed up. */
+const MAX_PARSE_CHECK = 8 * 1024 * 1024;
+const parses = (body) => {
+  try {
+    JSON.parse(String(body).replace(/^\uFEFF/, ""));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * A `.json` main file that does not parse while a `.bak` exists: copying it over the backup
+ * would replace the last good body with the damaged one. Any trouble reading it means "not
+ * known to be damaged", so the old behaviour (copy) stays.
+ */
+function isDamagedJson(file, fsApi) {
+  if (!/\.json$/i.test(file)) return false;
+  let body;
+  try {
+    if (!fsApi.existsSync(`${file}.bak`) || fsApi.statSync(file).size > MAX_PARSE_CHECK)
+      return false;
+    body = fsApi.readFileSync(file, "utf8");
+  } catch {
+    return false;
+  }
+  return !parses(body);
+}
+
+async function isDamagedJsonAsync(file, fsApi) {
+  if (!/\.json$/i.test(file)) return false;
+  let body;
+  try {
+    await fsApi.stat(`${file}.bak`);
+    if ((await fsApi.stat(file)).size > MAX_PARSE_CHECK) return false;
+    body = await fsApi.readFile(file, "utf8");
+  } catch {
+    return false;
+  }
+  return !parses(body);
+}
+
 function writeFileSafe(file, data, { fsApi = fs, wait = pause, keepBackup = true } = {}) {
   fsApi.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -62,7 +104,8 @@ function writeFileSafe(file, data, { fsApi = fs, wait = pause, keepBackup = true
     fd = null;
     if (keepBackup) {
       try {
-        if (fsApi.existsSync(file)) fsApi.copyFileSync(file, `${file}.bak`);
+        if (fsApi.existsSync(file) && !isDamagedJson(file, fsApi))
+          fsApi.copyFileSync(file, `${file}.bak`);
       } catch {
         /* the backup is a bonus; the save goes on without it */
       }
@@ -135,7 +178,7 @@ async function writeFileSafeAsync(
     if (!shouldCommit()) return false;
     if (keepBackup) {
       try {
-        await fsApi.copyFile(file, `${file}.bak`);
+        if (!(await isDamagedJsonAsync(file, fsApi))) await fsApi.copyFile(file, `${file}.bak`);
       } catch {
         /* no earlier file, or the backup is a bonus: the save goes on without it */
       }

@@ -99,14 +99,15 @@ function locate(rootOrRoots, id) {
   return locateInRoot(workspaceRoot, id) || locateInRoot(appRoot, id);
 }
 
-/** Same override file capabilities.cjs writes — Enable on the page is this map. */
+/**
+ * Same record capabilities.cjs writes — Enable on the page is this map. Read through
+ * readStateFile, so a truncated or missing main file answers from its .bak like the Capabilities
+ * page does, never from defaults.
+ */
 function readOverrides(workspaceRoot) {
   if (!workspaceRoot) return {};
   try {
-    const raw = JSON.parse(
-      fs.readFileSync(path.join(workspaceRoot, "config", "capabilities.json"), "utf8"),
-    );
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    return require("./capabilities.cjs").readStateFile(workspaceRoot).value;
   } catch {
     return {};
   }
