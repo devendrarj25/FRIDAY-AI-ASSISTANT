@@ -248,6 +248,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
     ...earlyStartRows(preferences.getSnapshot().voice),
     ...echoReferenceRows(echoDiagnostics()),
+    ...voiceGate.trackProcessingRows(),
     ...wakeGuardRows(voiceGate.wake.snapshot()),
     { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },
