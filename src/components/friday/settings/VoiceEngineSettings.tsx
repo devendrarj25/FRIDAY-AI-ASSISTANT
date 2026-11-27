@@ -19,7 +19,14 @@ import {
   toRouterSettings,
   type VoiceCloudPrefs,
 } from "@/lib/friday/voice-engine/voice-cloud-settings";
-import { PROVIDERS, routeVoice, type Need } from "@/lib/friday/voice-engine/voice-provider-router";
+import {
+  PROVIDERS,
+  routeVoice,
+  type ProviderCaps,
+  trainsOnDataNote,
+  visibleLanes,
+  type Need,
+} from "@/lib/friday/voice-engine/voice-provider-router";
 import {
   prepareForSpeech,
   sanitizePronunciations,
@@ -543,7 +550,9 @@ export function VoiceEngineSettings() {
   const settings = toRouterSettings(cloud, keys);
   const facts = factsFromSample(sample);
   const profile = facts ? selectProfile(facts) : null;
-  const cloudProviders = PROVIDERS.filter((p) => p.kind === "cloud");
+  const cloudProviders = visibleLanes(PROVIDERS, {
+    paidAllowed: settings.paidAllowed || billing.billing.paidAccess,
+  });
 
   return (
     <div className="grid gap-2 rounded-md border border-border p-2 text-meta-sm text-muted-foreground">
@@ -568,23 +577,26 @@ export function VoiceEngineSettings() {
       <div className="grid gap-1">
         <p className="text-foreground">Allowed providers</p>
         {cloudProviders.map((p) => (
-          <label key={p.id} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={cloud.allowedProviders.includes(p.id)}
-              onChange={() =>
-                set({
-                  allowedProviders: cloud.allowedProviders.includes(p.id)
-                    ? cloud.allowedProviders.filter((x) => x !== p.id)
-                    : [...cloud.allowedProviders, p.id],
-                })
-              }
-            />
-            <span className="text-foreground">{p.label}</span>
-            <span>
-              · {keys[p.id] ? "key saved" : "no key"} · {p.note}
-            </span>
-          </label>
+          <div key={p.id} className="grid gap-0.5">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={cloud.allowedProviders.includes(p.id)}
+                onChange={() =>
+                  set({
+                    allowedProviders: cloud.allowedProviders.includes(p.id)
+                      ? cloud.allowedProviders.filter((x) => x !== p.id)
+                      : [...cloud.allowedProviders, p.id],
+                  })
+                }
+              />
+              <span className="text-foreground">{p.label}</span>
+              <span>
+                · {keys[p.id] ? "key saved" : "no key"} · {p.note}
+              </span>
+            </label>
+            {trainsOnDataNote(p) ? <p className="pl-6">{trainsOnDataNote(p)}</p> : null}
+          </div>
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-3">
