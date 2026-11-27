@@ -90,9 +90,10 @@ export function MemoryConsole() {
     if (restoring) return;
     setRestoring(true);
     try {
-      let n = memoryEngine.restoreBackup();
-      if (!n) n = await memoryEngine.restoreBackupFromDisk();
-      if (n) toast.success(`${n} record(s) restored`);
+      const { found, restored } = await memoryEngine.restoreSnapshot();
+      if (restored) toast.success(`${restored} record(s) restored`);
+      else if (found)
+        toast.info("Nothing to restore: the snapshot is empty or holds only forgotten records");
       else toast.error("No backup found");
     } catch (error) {
       toast.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`, {

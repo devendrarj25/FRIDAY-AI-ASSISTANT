@@ -15,7 +15,8 @@ describe.each([
 ])("%s restore", (file, engine) => {
   const source = read(file);
   it("falls back to the disk copy and shows the count", () => {
-    expect(source).toContain(`${engine}.restoreBackupFromDisk()`);
+    // The panel awaits one call that reads the browser copy, else the disk copy, once.
+    expect(source).toContain(`${engine}.restoreSnapshot()`);
     expect(source).toMatch(/restored/i);
   });
   it("has a loading state and a Retry on error", () => {

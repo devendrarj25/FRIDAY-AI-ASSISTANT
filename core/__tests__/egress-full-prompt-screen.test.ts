@@ -7,11 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  attachmentOwnerText,
-  attachmentOwnerTextCut,
-  type Attachment,
-} from "../../src/lib/friday/attachments";
+import { attachmentOwnerText, type Attachment } from "../../src/lib/friday/attachments";
 
 const globals = globalThis as unknown as { window?: unknown; friday?: unknown };
 globals.window ??= globalThis;
@@ -166,27 +162,34 @@ describe("screenPromptBorne", () => {
   });
 });
 
-describe("attachment text that does not fit the privacy copy", () => {
+describe("attachment text is screened whole by the brain, not cut by the composer", () => {
   const file = (over: Partial<Attachment>): Attachment =>
     ({ name: "a.txt", mime: "text/plain", size: 10, kind: "text", ...over }) as Attachment;
 
-  it("is reported as cut so the composer can take the private route", () => {
-    const big = [
-      file({ text: "x".repeat(24_000) }),
-      file({ name: "b.txt", text: "y".repeat(24_000) }),
+  it("two ordinary 20k-char public files stay uncut and on the chosen route", () => {
+    const two = [
+      file({ text: "plain words about tea ".repeat(1000).slice(0, 20_000) }),
+      file({ name: "b.txt", text: "more plain words about milk ".repeat(1000).slice(0, 20_000) }),
     ];
-    expect(attachmentOwnerText(big).length).toBeLessThanOrEqual(40_000);
-    expect(attachmentOwnerTextCut(big)).toBe(true);
-    expect(attachmentOwnerTextCut([file({ text: "short" })])).toBe(false);
-    expect(attachmentOwnerTextCut([])).toBe(false);
+    const words = attachmentOwnerText(two);
+    const whole = two.map((item) => item.text).join("\n");
+    expect(whole.length).toBeGreaterThanOrEqual(40_000);
+    // The brain screens the whole text inside the turn's extra block: the cut copy adds no reason to go private.
+    expect(screenPromptBorne({ ownerText: words, extra: whole }).sensitive).toBe(false);
+    expect(attachmentOwnerText([])).toBe("");
   });
 
-  it("is sent from the composer as turnSensitive", () => {
+  it("a secret inside an attachment still makes the turn sensitive", () => {
+    const words = attachmentOwnerText([file({ text: `my ${"pass"}word: hunter2-hunter2` })]);
+    expect(screenPromptBorne({ ownerText: words }).sensitive).toBe(true);
+  });
+
+  it("the composer does not force turnSensitive from the attachment length", () => {
     const source = readFileSync(
       resolve(__dirname, "../../src/components/friday/ChatDock.tsx"),
       "utf8",
     );
-    expect(source).toMatch(/attachmentOwnerTextCut\(files\)/);
-    expect(source).toMatch(/fileWordsCut \? \{ turnSensitive: true \}/);
+    expect(source).not.toMatch(/attachmentOwnerTextCut|fileWordsCut/);
+    expect(source).toMatch(/\.\.\.\(fileWords \? \{ ownerText: fileWords \} : \{\}\)/);
   });
 });

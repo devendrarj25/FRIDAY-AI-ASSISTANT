@@ -314,19 +314,13 @@ const OWNER_TEXT_CAP = 40_000;
 /**
  * The words inside the attached files (names and extracted text only), for the privacy check of the turn. The
  * model gets the same words through `attachmentDirective`; this copy travels as `ownerText` so the main
- * process and the kernel can screen text the typed line never shows. Images and binaries carry no text.
+ * process and the kernel can screen text the typed line never shows. Images and binaries carry no text. The copy
+ * is capped, and a cut is no reason to make the turn private: the brain screens the same text whole inside the
+ * turn's extra block and keeps the turn on this PC only past its own, larger cap.
  */
 export function attachmentOwnerText(items: Attachment[]): string {
   const joined = attachmentWords(items);
   return joined.length > OWNER_TEXT_CAP ? joined.slice(0, OWNER_TEXT_CAP) : joined;
-}
-
-/**
- * True when `attachmentOwnerText` had to cut the attached words: the copy screened downstream is then partial, so
- * the composer treats the turn as private (local only) instead of letting the unscreened rest leave the PC.
- */
-export function attachmentOwnerTextCut(items: Attachment[]): boolean {
-  return attachmentWords(items).length > OWNER_TEXT_CAP;
 }
 
 function attachmentWords(items: Attachment[]): string {

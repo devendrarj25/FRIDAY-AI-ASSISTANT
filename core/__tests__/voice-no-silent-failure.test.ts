@@ -72,9 +72,9 @@ describe("Auto Mode never fails silently at any stage", () => {
       /if \(how !== "none"\) \{\s*this\.noteTtsOutcome\(true\);\s*return;\s*\}\s*this\.noteTtsOutcome\(false\);\s*this\.to\("tts-failed"\);/,
     );
     // TEST_REWRITE_OK: the failed-voice line moved to tts-ladder (noVoiceFailure); the conductor sets it as the error.
-    expect(assistant).toMatch(
-      /this\.state\.error = noVoiceFailure\(spoken, this\.offlineVoiceReason\)/,
-    );
+    // TEST_REWRITE_OK: the reason is the local voice's, passed only for a local-engine failure (failureReason).
+    expect(assistant).toMatch(/this\.state\.error = noVoiceFailure\(spoken, failureReason\)/);
+    expect(assistant).toMatch(/return route\.engine === "" \|\| [^;]*\? this\.offlineVoiceReason/);
     expect(noVoiceFailure("Hello")).toMatch(
       /voice output failed — no speech engine could speak the reply/,
     );

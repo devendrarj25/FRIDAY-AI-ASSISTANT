@@ -1043,6 +1043,36 @@ class MemoryEngine {
     }
   }
 
+  /** The snapshot date from the browser copy, else the durable desktop copy (browser keys can be cleared). */
+  async lastBackupAtAnywhere(): Promise<number | null> {
+    const local = this.lastBackupAt();
+    if (local) return local;
+    const saved = await readDiskState<{ at?: number }>(BACKUP_KEY);
+    return typeof saved?.at === "number" ? saved.at : null;
+  }
+
+  /**
+   * Restore for the panels: reads the browser copy, else the desktop copy once. `found` tells a missing snapshot
+   * from one with nothing left to bring back (empty, or every record forgotten).
+   */
+  async restoreSnapshot(): Promise<{ found: boolean; restored: number }> {
+    if (typeof window === "undefined") return { found: false, restored: 0 };
+    let local: { items?: MemoryItem[] } | null;
+    try {
+      local = readLocalState<{ items: MemoryItem[] }>(BACKUP_KEY);
+    } catch {
+      local = null;
+    }
+    const saved = local ?? (await readDiskState<{ items: MemoryItem[] }>(BACKUP_KEY));
+    if (!saved) return { found: false, restored: 0 };
+    const keep = (saved.items ?? []).filter(
+      (item) => !this.forgotten.has(item.id) && !this.isTombstoned(item.id),
+    );
+    // An empty or all-forgotten snapshot restores nothing and must not wipe the memory that is there now.
+    if (!keep.length) return { found: true, restored: 0 };
+    return { found: true, restored: this.applyBackup(keep) };
+  }
+
   /**
    * Put the stored backup back. A record the owner forgot since (this session, or recorded as a tombstone) stays
    * gone. With no browser copy the durable desktop copy is read instead and applied when it arrives.

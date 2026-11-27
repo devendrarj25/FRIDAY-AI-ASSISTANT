@@ -26,6 +26,7 @@
 
 import { preferences } from "../preferences";
 import { confirmationVerdict } from "../voice-session";
+import type { PromptOrigin } from "../self/turn-provenance";
 import { modelRegistry as usageRegistry, type UsagePolicy } from "../model-registry";
 import {
   ATTENTION_FIELD,
@@ -145,25 +146,24 @@ export function spokenYesNeedsScreen(change: Pick<StagedChange, "key" | "to">): 
   return false;
 }
 
-let spokenLine: { text: string; at: number } | null = null;
-const foldLine = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
-    .trim();
-
 /**
- * The voice session notes each line it hands to the Brain, so the reader here knows a yes came by voice (the Brain
- * call carries no origin to this module). A note is used once and lasts only as long as a staged change can.
+ * Where the line being read came from: the send payload's own `promptOrigin`. Only "typed" is a yes on the screen;
+ * "owner-voice" and a missing origin (a speaker the ear did not tag, a caller that did not say) are spoken, so a
+ * missing marker means "ask on the screen" and never lets a spoken yes open the microphone or spend money.
  */
-export function noteSpokenLine(text: string, at = Date.now()): void {
-  spokenLine = { text: foldLine(text), at };
-}
+type TurnOrigin = PromptOrigin | undefined;
 
-function takeSpokenLine(text: string): boolean {
-  const note = spokenLine;
-  spokenLine = null;
-  return note !== null && note.text === foldLine(text) && Date.now() - note.at <= STAGE_TTL_MS;
+let scopedOrigin: TurnOrigin;
+
+/** Runs `read` with the origin of the turn being answered, so a reader called deeper down sees the same origin. */
+export function withSettingsOrigin<T>(origin: TurnOrigin, read: () => T): T {
+  const before = scopedOrigin;
+  scopedOrigin = origin;
+  try {
+    return read();
+  } finally {
+    scopedOrigin = before;
+  }
 }
 
 /**
@@ -239,7 +239,7 @@ export function applyVerifiedCorrection(text: string): { applied: boolean; key: 
   staged = null;
   forceLearn = true;
   try {
-    const intent = readSettingsIntent(clean);
+    const intent = readSettingsIntent(clean, "typed");
     if (intent?.kind === "applied") {
       const match = intent.message.match(/^Got it — (.+?) is now /);
       return { applied: true, key: match?.[1] ?? "applied" };
@@ -497,12 +497,14 @@ function readVoicePreferenceIntent(text: string): SettingsIntent {
  * Read one conversational settings request. Returns null when the text is not
  * a settings change at all, so the normal brain path continues untouched.
  */
-export function readSettingsIntent(prompt: string): SettingsIntent {
+export function readSettingsIntent(
+  prompt: string,
+  origin: TurnOrigin = scopedOrigin,
+): SettingsIntent {
   const text = String(prompt || "").trim();
   if (!text) return null;
   if (!forceLearn) learnNow = false;
-  // Every line spends the voice note, so it never outlives the turn it was made for.
-  const byVoice = takeSpokenLine(text);
+  const byVoice = origin !== "typed";
 
   // 1. answer to a change FRIDAY already repeated back ----------------------
   const waiting = pendingChange();

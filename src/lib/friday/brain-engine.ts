@@ -96,6 +96,7 @@ import { memory as memoryStore, type MemoryTier } from "./self/memory-engine";
 import { coreBrain, type Cognition } from "./brain/core-brain";
 import { considerCollaboration, type CollaborationDecision } from "./brain/multi-model";
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
+import { withSettingsOrigin } from "./brain/settings-intents";
 import { baselineRespond, type BaselineReply } from "./brain/baseline-responder";
 import { everydayPlan } from "./everyday";
 import { shapeReply, type TalkLevel, type Warmth } from "./response-policy";
@@ -2624,10 +2625,13 @@ class BrainStore {
       return;
     }
 
-    const baseline = baselineRespond(work, {
-      ongoing: ctx.ongoing,
-      social: this.momentForGreeting(care.feeling.label),
-    });
+    // The settings reader sees where the line came from: a spoken or unmarked yes never applies a change that needs the screen.
+    const baseline = withSettingsOrigin(options.promptOrigin, () =>
+      baselineRespond(work, {
+        ongoing: ctx.ongoing,
+        social: this.momentForGreeting(care.feeling.label),
+      }),
+    );
     const decision = decideAction({
       text: work,
       intent: understood,
