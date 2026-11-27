@@ -642,6 +642,7 @@ function parseGithubRelease(json, strip) {
   return {
     version: stripTag(tag, strip),
     tag,
+    ...(json.published_at ? { publishedAt: String(json.published_at) } : {}),
     assets: (Array.isArray(json.assets) ? json.assets : []).map((a) => ({
       name: String(a.name || ""),
       url: String(a.browser_download_url || ""),

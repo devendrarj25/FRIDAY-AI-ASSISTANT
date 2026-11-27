@@ -173,6 +173,70 @@ function assessOfficialRelease(runner, payload, now = Date.now()) {
   };
 }
 
+/** A Response-like for the chain: a real response, a json-only one, or a bare payload a test stand-in returns. */
+function asChainResponse(got) {
+  if (got && typeof got.text === "function") return got;
+  const json = got && typeof got.json === "function";
+  const read = async () => JSON.stringify(json ? await got.json() : (got ?? {}));
+  return {
+    status: json ? Number(got.status) || (got.ok ? 200 : 0) : 200,
+    ok: json ? got.ok !== false : true,
+    headers: json && got.headers ? got.headers : { get: () => null },
+    text: read,
+  };
+}
+
+function chainStore(options, vendor) {
+  if (options.store) return options.store;
+  let root = options.root || null;
+  if (!root) {
+    try {
+      root = require("./friday-paths.cjs").root();
+    } catch {
+      root = null;
+    }
+  }
+  return root ? vendor.storeFor(root) : null;
+}
+
+/**
+ * The newest official release of a repository through the one source chain (API, then the public feed, then the
+ * last stored answer). Privacy mode and being offline send no request and answer from the stored one. The answer is
+ * shaped like the GitHub release payload so the callers below read it unchanged.
+ */
+async function officialReleasePayload(repo, options = {}) {
+  const vendor = require("./vendor-sources.cjs");
+  const safety = require("./download-safety.cjs");
+  const fetchImpl = async (url, init) => {
+    safety.assertAllowedUrl(url);
+    if (options.fetchImpl) return asChainResponse(await options.fetchImpl(url, init));
+    const { res } = await safety.fetchAllowlisted(url, init);
+    return asChainResponse(res);
+  };
+  const quiet = options.privacy === true || options.online === false;
+  const sources = quiet ? [] : vendor.chainFor({ latest: { kind: "github", ref: repo } });
+  const got = await vendor.resolveLatest(`release:${repo}`, sources, {
+    fetchImpl,
+    store: chainStore(options, vendor),
+    now: () => Number(options.now) || Date.now(),
+    ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+  });
+  if (!got.ok) return { ok: false, error: got.error };
+  return {
+    ok: true,
+    stale: got.stale,
+    payload: {
+      tag_name: got.tag || got.version,
+      assets: (got.assets || []).map((a) => ({
+        name: a.name,
+        browser_download_url: a.url,
+        size: a.bytes,
+        ...(a.sha256 ? { digest: `sha256:${a.sha256}` } : {}),
+      })),
+    },
+  };
+}
+
 async function checkRunnerRelease(id, options = {}) {
   const runner = typeof id === "string" ? runnerById(id) : id;
   const now = options.now || Date.now();
@@ -187,33 +251,24 @@ async function checkRunnerRelease(id, options = {}) {
   }
   if (options.payload) return assessOfficialRelease(runner, options.payload, now);
   if (!runner.release?.repo) return assessOfficialRelease(runner, null, now);
-  const url = `https://api.github.com/repos/${runner.release.repo}/releases/latest`;
-  const safety = require("./download-safety.cjs");
-  safety.assertAllowedUrl(url);
-  if (!options.fetchImpl) {
-    const { res } = await safety.fetchAllowlisted(url, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
-    });
-    if (!res.ok) {
-      const ageDays = pinAgeDays(catalog().checked, now);
-      return {
-        ok: false,
-        id: runner.id,
-        updateAvailable: false,
-        ageDays,
-        label: `Pin age: ${ageDays} days`,
-        storedSha256: runner.release?.sha256 || null,
-        offeredSha256: null,
-        wouldReplaceSha256: false,
-        autoInstall: false,
-        canRun: false,
-        reason: `release API HTTP ${res.status}`,
-      };
-    }
-    return assessOfficialRelease(runner, await res.json(), now);
+  const answer = await officialReleasePayload(runner.release.repo, options);
+  if (!answer.ok) {
+    const ageDays = pinAgeDays(catalog().checked, now);
+    return {
+      ok: false,
+      id: runner.id,
+      updateAvailable: false,
+      ageDays,
+      label: `Pin age: ${ageDays} days`,
+      storedSha256: runner.release?.sha256 || null,
+      offeredSha256: null,
+      wouldReplaceSha256: false,
+      autoInstall: false,
+      canRun: false,
+      reason: answer.error,
+    };
   }
-  const payload = await options.fetchImpl(url);
-  return assessOfficialRelease(runner, payload, now);
+  return assessOfficialRelease(runner, answer.payload, now);
 }
 
 function launcherCard(runner, probe = {}) {
@@ -441,18 +496,9 @@ async function latestOfficialRelease(id, options = {}) {
   };
   if (!pinned.repo) return fallback;
   try {
-    const url = `https://api.github.com/repos/${pinned.repo}/releases/latest`;
-    let payload;
-    if (options.fetchImpl) payload = await options.fetchImpl(url);
-    else {
-      const safety = require("./download-safety.cjs");
-      const { res } = await safety.fetchAllowlisted(url, {
-        headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
-        signal: AbortSignal.timeout(options.timeoutMs || 8000),
-      });
-      if (!res.ok) return fallback;
-      payload = await res.json();
-    }
+    const answer = await officialReleasePayload(pinned.repo, options);
+    if (!answer.ok) return fallback;
+    const payload = answer.payload;
     const exact = (Array.isArray(payload?.assets) ? payload.assets : []).some(
       (item) => String(item?.name || "").toLowerCase() === String(pinned.asset || "").toLowerCase(),
     );

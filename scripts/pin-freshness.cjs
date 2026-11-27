@@ -86,13 +86,31 @@ function readPin(pin, root = ROOT, readFile = (file) => fs.readFileSync(file, "u
   return { versions, where };
 }
 
+/** A Response-like around an already parsed JSON body. */
+function jsonResponse(body) {
+  const text = JSON.stringify(body ?? {});
+  return { status: 200, ok: true, headers: { get: () => null }, text: async () => text };
+}
+
 /** The newest release of a tool: { version, publishedAt } or null when it cannot be read. */
-async function fetchLatest(source, fetchJson) {
+async function fetchLatest(source, fetchJson, options = {}) {
   try {
     if (source.github) {
-      const body = await fetchJson(`https://api.github.com/repos/${source.github}/releases/latest`);
-      const version = String(body.tag_name || "").replace(/^v/, "");
-      return /^\d+\.\d+\.\d+$/.test(version) ? { version, publishedAt: body.published_at } : null;
+      // The one source chain: the API, then the public feed (no release date), then the last stored answer.
+      const vendor = require("../electron/vendor-sources.cjs");
+      const dir = options.root || process.env.FRIDAY_ROOT;
+      const got = await vendor.resolveLatest(
+        `release:${source.github}`,
+        vendor.chainFor({ latest: { kind: "github", ref: source.github } }),
+        {
+          fetchImpl: options.fetchImpl || (async (url) => jsonResponse(await fetchJson(url))),
+          store: options.store || (dir ? vendor.storeFor(dir) : null),
+        },
+      );
+      const version = got.ok ? String(got.version || "") : "";
+      return /^\d+\.\d+\.\d+$/.test(version)
+        ? { version, ...(got.publishedAt ? { publishedAt: got.publishedAt } : {}) }
+        : null;
     }
     if (source.pypi) {
       const body = await fetchJson(`https://pypi.org/pypi/${source.pypi}/json`);
@@ -157,11 +175,21 @@ function judge(pin, found, latest, now, graceDays = GRACE_DAYS) {
   };
 }
 
-async function check({ root = ROOT, fetchJson, now = Date.now(), pins = PINS, readFile } = {}) {
+async function check({
+  root = ROOT,
+  fetchJson,
+  fetchImpl,
+  now = Date.now(),
+  pins = PINS,
+  readFile,
+} = {}) {
   const out = [];
   for (const pin of pins) {
     const found = readPin(pin, root, readFile);
-    const latest = found.versions.size === 1 ? await fetchLatest(pin.source, fetchJson) : null;
+    const latest =
+      found.versions.size === 1
+        ? await fetchLatest(pin.source, fetchJson, fetchImpl ? { fetchImpl } : {})
+        : null;
     out.push(judge(pin, found, latest, now));
   }
   return out;
@@ -177,6 +205,15 @@ async function httpJson(url) {
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+
+/** The real thing for the source chain: the same headers and time limit as `httpJson`, the raw response back. */
+async function httpRaw(url, init = {}) {
+  const headers = { ...init.headers, "user-agent": "friday-pin-freshness" };
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (token && new URL(url).hostname === "api.github.com")
+    headers.authorization = `Bearer ${token}`;
+  return fetch(url, { ...init, headers, signal: init.signal || AbortSignal.timeout(15_000) });
 }
 
 function summarize(results) {
@@ -201,7 +238,7 @@ module.exports = {
 };
 
 if (require.main === module) {
-  check({ fetchJson: httpJson })
+  check({ fetchJson: httpJson, fetchImpl: httpRaw })
     .then((results) => {
       if (process.argv.includes("--json")) {
         process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
