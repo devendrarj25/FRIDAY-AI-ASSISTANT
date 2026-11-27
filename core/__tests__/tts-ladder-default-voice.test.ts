@@ -128,6 +128,10 @@ describe("how the conductor wires the ladder", () => {
   });
 
   it("reads FRIDAY Voice readiness as soon as the installer is subscribed", () => {
-    expect(mode).toMatch(/installed\["supertonic"\]\) this\.offlineVoiceReady = true;\s*\}\);/);
+    // TEST_REWRITE_OK: readiness is recomputed from the install on every event (it can turn off), not only set true.
+    expect(mode).toMatch(
+      /this\.offlineVoiceReady = Boolean\(installer\.getSnapshot\(\)\.installed\["supertonic"\]\);\s*\}\);/,
+    );
+    expect(mode).not.toMatch(/installed\["supertonic"\]\) this\.offlineVoiceReady = true;/);
   });
 });

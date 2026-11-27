@@ -96,10 +96,14 @@ describe("turn engine shadow: the product calls it (source)", () => {
       /noteStreamTurn\(turn: StreamTurn\) \{[\s\S]{0,2400}a\.ear\(turn, now\)/,
     );
     expect(SOURCE).toMatch(/const plan = partialPlan\(\{[\s\S]{0,1600}a\.partial\(text, now\)/);
-    expect(SOURCE).toMatch(/private handleHeard\([\s\S]{0,900}a\.liveFinal\(text,/);
+    // TEST_REWRITE_OK: the final and the dispatch feeds now run AFTER the live action (hygiene finding 8).
     expect(SOURCE).toMatch(
-      /a\.dispatch\(command, Date\.now\(\)\)\);\s*let result = brain\.send\(command, payload\)/,
+      /this\.handleHeard\(this\.turnRecord\.canonical \|\| text, meta\?\.wake \?\? null\);\s*\} finally \{[\s\S]{0,400}a\.liveFinal\(line, this\.lastOwnerAt\)/,
     );
+    expect(SOURCE).toMatch(
+      /let result = brain\.send\(command, payload\);\s*this\.shadowTurn\(\(a\) => a\.dispatch\(command, Date\.now\(\)\)\)/,
+    );
+    expect(SOURCE).not.toMatch(/private handleHeard\([\s\S]{0,900}a\.liveFinal\(/);
     expect(SOURCE).toMatch(/onStart: \(\) => \{[\s\S]{0,700}a\.tts\("first-audio"/);
     expect(SOURCE).toMatch(/onEnd: \(\) => \{[\s\S]{0,700}a\.tts\(/);
     // The live gate decides first; the shadow verdict is taken after it and before the live verdict is applied.
@@ -113,7 +117,9 @@ describe("turn engine shadow: the product calls it (source)", () => {
       /applyGateVerdict\(verdict\);\s*shadow\(\);/,
     );
     const legacy = at("const verdict = judgeInterruption(text, {");
-    expect(SOURCE.indexOf("const shadow = this.shadowJudge(verdict, text);", legacy)).toBeGreaterThan(legacy);
+    expect(
+      SOURCE.indexOf("const shadow = this.shadowJudge(verdict, text);", legacy),
+    ).toBeGreaterThan(legacy);
     expect(SOURCE.indexOf("const shadow = this.shadowJudge(verdict, text);", legacy)).toBeLessThan(
       SOURCE.indexOf('if (verdict === "resume")', legacy),
     );
@@ -204,9 +210,24 @@ describe("turn engine shadow: behaviour on the real controller", () => {
     expect(keys).toHaveLength(21);
     for (const key of keys) {
       const base = SCENARIOS[key] as Scenario;
-      const on = await runScenario(withSetup(base, classifier("shadow")));
+      // TEST_REWRITE_OK: a scenario that ends in mute or Stop everything drops the shadow (hygiene finding 4), so the
+      // shadow's work is read from the adapter it had, and an adapter must remain in every other scenario.
+      let seen: TurnEngineAdapter | null = null;
+      const on = await runScenario(
+        withSetup(base, (h) => {
+          classifier("shadow")(h);
+          seen = view(h).turnShadowAdapter();
+        }),
+      );
       const off = await runScenario(withSetup(base, classifier("off")));
-      expect(view(on.h).turnShadow, key).not.toBeNull();
+      expect(seen, key).not.toBeNull();
+      expect((seen as unknown as TurnEngineAdapter).report().counters.steps, key).toBeGreaterThan(
+        0,
+      );
+      const ends = base.script.some(
+        (e) => e.k === "control" && (e.ev === "mute" || e.ev === "stop-all"),
+      );
+      if (!ends) expect(view(on.h).turnShadow, key).not.toBeNull();
       expect(view(off.h).turnShadow, key).toBeNull();
       expect(actions(on), key).toEqual(actions(off));
     }

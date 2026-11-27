@@ -44,6 +44,7 @@ import {
 } from "./heard-log";
 import {
   allowRestart,
+  cleanedLevel,
   encodeWav,
   preRollFrom,
   subscribeCaptureFrames,
@@ -878,6 +879,8 @@ const TURN_SHADOW_EVENTS = 2400;
 const TURN_SHADOW_LOG = 40;
 /** The longest text the shadow keeps of any line, after scrubbing. */
 const TURN_SHADOW_TEXT = 80;
+/** The speech worker's breaker stays open for five minutes, then lets one probe through (`electron/voice-worker.cjs`). */
+const SPEAKER_BREAKER_COOL_MS = 300_000;
 /** Capture kept from the start of one barge-in candidate for its acoustic features, and its rate. */
 const TURN_SHADOW_AUDIO_MS = 1500;
 const TURN_SHADOW_RATE = 16_000;
@@ -978,6 +981,19 @@ function shadowText(text: string): string {
   return line.replace(/\d/g, "#").slice(0, TURN_SHADOW_TEXT);
 }
 
+/**
+ * What the engine itself is shown of a line (its state holds it between steps): the scrubbed tail, at most 80
+ * characters, which is what its end-of-turn rules read; a private line is a bare placeholder, never its words.
+ */
+function engineText(text: string): string {
+  const line = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return "";
+  if (looksSensitive(line)) return "[private]";
+  return line.replace(/\d/g, "#").slice(-TURN_SHADOW_TEXT);
+}
+
 function eotLangOf(text: string): EotLang {
   const read = languageMix(text).lang;
   return read === "hi" ? "hi" : read === "hi-en" ? "hinglish" : "en";
@@ -1010,11 +1026,13 @@ export class TurnEngineAdapter {
   private finalLang: EotLang = "en";
   private reportedTurn = "";
   private bargeAt: number | null = null;
-  /** Capture is collected only while the candidate is open; its frames stay until the next one begins. */
+  /** Capture is collected only while the candidate is open; its frames are dropped once its verdict was taken. */
   private bargeOpen = false;
   private resampler: StreamSincResampler | null = null;
   private audioFrames: Float32Array[] = [];
   private audioSamples = 0;
+  /** A verdict is due for the candidate: `bargeEnd` keeps the frames until `barge` has read them. */
+  private verdictHeld = false;
   private bargeCtx: Partial<InterruptionInput> = {};
 
   constructor(opts: TurnShadowOptions) {
@@ -1115,7 +1133,7 @@ export class TurnEngineAdapter {
       turnId: turn.turnId,
       text: shadowText(turn.text),
     });
-    this.feed({ t, k: "ear", turn });
+    this.feed({ t, k: "ear", turn: { ...turn, text: engineText(turn.text) } });
   }
 
   /** A desktop partial: on the ear's open turn, or on a turn of its own when no ear turn is open. */
@@ -1132,7 +1150,7 @@ export class TurnEngineAdapter {
     this.feed({
       t,
       k: "ear",
-      turn: { turnId, event: "partial", text, vadP: null, speechMs: null },
+      turn: { turnId, event: "partial", text: engineText(text), vadP: null, speechMs: null },
     });
   }
 
@@ -1214,14 +1232,28 @@ export class TurnEngineAdapter {
   bargeBegin(now: number): void {
     this.bargeAt = this.at(now);
     this.bargeOpen = true;
+    this.verdictHeld = false;
+    this.dropAudio();
+  }
+
+  private dropAudio(): void {
     this.audioFrames = [];
     this.audioSamples = 0;
     this.resampler = null;
   }
 
-  /** The candidate is over: collection stops; what was kept is still read by a verdict taken at its end. */
+  /** A verdict is about to be asked for this candidate (the live verdict was read): its frames outlive `bargeEnd`. */
+  holdAudioForVerdict(): void {
+    this.verdictHeld = true;
+  }
+
+  /**
+   * The candidate is over: collection stops. The frames stay only for the verdict that was announced
+   * (`holdAudioForVerdict`), which lets them go once it is taken; otherwise they go now.
+   */
   bargeEnd(): void {
     this.bargeOpen = false;
+    if (!this.verdictHeld) this.dropAudio();
   }
 
   /**
@@ -1259,6 +1291,8 @@ export class TurnEngineAdapter {
       sinceTtsStartMs: full.sinceTtsStartMs,
     };
     const decision = classifyInterruption(full);
+    this.verdictHeld = false;
+    if (!this.bargeOpen) this.dropAudio();
     this.counters.verdicts += 1;
     if (live !== null) {
       const same =
@@ -1705,7 +1739,6 @@ class AssistantModeStore {
   private followKillSwitch() {
     if (this.stopped()) {
       cancelPrewarm();
-      this.shadowTurn((a) => a.control("stop-all", Date.now()));
       this.discardEager();
       clearEchoReference("stop");
       this.forgetOpenQuestions();
@@ -1726,6 +1759,9 @@ class AssistantModeStore {
       } else if (this.state.speaking || this.arbiter.size()) {
         this.cancelSpeech();
       }
+      // The shadow hears of it after the live stop, then the session's numbers and audio are let go.
+      this.shadowTurn((a) => a.control("stop-all", Date.now()));
+      this.dropTurnShadow();
       this.emit();
       return;
     }
@@ -1960,7 +1996,8 @@ class AssistantModeStore {
       let lastWhisper = Boolean(installer.getSnapshot().installed["faster-whisper"]);
       installer.subscribe(() => {
         const now = Boolean(installer.getSnapshot().installed["faster-whisper"]);
-        if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
+        // Readiness follows the install both ways on every event (an uninstall or a failed repair turns it off).
+        this.offlineVoiceReady = Boolean(installer.getSnapshot().installed["supertonic"]);
         if (now && (!lastWhisper || this.sttGaveUp)) {
           this.resetVoiceRecovery();
           this.noteVoiceTrigger("install-finished");
@@ -1969,7 +2006,7 @@ class AssistantModeStore {
         lastWhisper = now;
       });
       // FRIDAY Voice is the default speaking voice: its readiness is read once subscribed, not only on a later event.
-      if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
+      this.offlineVoiceReady = Boolean(installer.getSnapshot().installed["supertonic"]);
     });
   }
 
@@ -2530,7 +2567,6 @@ class AssistantModeStore {
    */
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
-    if (muted) this.shadowTurn((a) => a.control("mute", Date.now()));
     this.state.muted = muted;
     // The talk key, the toggle and the wake gates follow the microphone's permission at once.
     if (muted) this.gateSleep("muted");
@@ -2552,6 +2588,11 @@ class AssistantModeStore {
         this.openAutoMic();
       }
       this.startRecognition();
+    }
+    if (muted) {
+      // After the live mute took effect; the shadow's numbers and audio go with the closed microphone.
+      this.shadowTurn((a) => a.control("mute", Date.now()));
+      this.dropTurnShadow();
     }
     this.emit();
   }
@@ -3116,6 +3157,9 @@ class AssistantModeStore {
     if (this.interruptHold?.timer) clearTimeout(this.interruptHold.timer);
     this.interruptHold = null;
     this.endInterruptCandidate(true);
+    // The shadow's numbers and audio belong to this Auto session; a fault flag is cleared for the next one.
+    this.dropTurnShadow();
+    this.turnShadowBroken = false;
     // A note that was running stops with the microphone: the banner must never show a recording that is not heard.
     voiceNotes.stop();
     this.cancelVoiceRecoveryTimer();
@@ -3467,6 +3511,12 @@ class AssistantModeStore {
 
   private ttsFailStreak = 0;
   private ttsRestartAsked = false;
+  /** Until when the local speaker's breaker counts as open (set from the restart answer, never from a guess). */
+  private supertonicBreakerUntil = 0;
+
+  private supertonicBreakerOpen(): boolean {
+    return Date.now() < this.supertonicBreakerUntil;
+  }
 
   /**
    * Speech output succeeded or failed. The second failure in a row asks the main process to drop the local speaker
@@ -3493,7 +3543,13 @@ class AssistantModeStore {
     this.trace("heal", "speaker restart requested");
     try {
       void ask()
-        .then((answer) => this.trace("heal", `speaker restart: ${answer?.state ?? "no answer"}`))
+        .then((answer) => {
+          // The main process says the local speaker keeps crashing and is paused: FRIDAY Voice leaves the ladder for the
+          // length of the worker's own cool-down (it opens one probe after that), so no line waits on a paused voice.
+          if (answer?.state === "breaker-open")
+            this.supertonicBreakerUntil = Date.now() + SPEAKER_BREAKER_COOL_MS;
+          this.trace("heal", `speaker restart: ${answer?.state ?? "no answer"}`);
+        })
         .catch(() => this.trace("heal", "speaker restart: failed"));
     } catch {
       this.trace("heal", "speaker restart: failed");
@@ -4408,7 +4464,6 @@ class AssistantModeStore {
     this.addressFacts = null;
     const sinceLastTurnMs = this.lastOwnerAt > 0 ? Date.now() - this.lastOwnerAt : null;
     this.lastOwnerAt = Date.now();
-    this.shadowTurn((a) => a.liveFinal(text, this.lastOwnerAt));
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
@@ -5714,8 +5769,8 @@ class AssistantModeStore {
       : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
-    this.shadowTurn((a) => a.dispatch(command, Date.now()));
     let result = brain.send(command, payload);
+    this.shadowTurn((a) => a.dispatch(command, Date.now()));
     if (side && !result.accepted && result.refused && result.foregroundUntouched) {
       if (result.reason === "lane-refused" || result.reason === "busy") {
         // The lane cannot take it now (an attachment, the model budget, a question that needs the work): it waits
@@ -6805,13 +6860,14 @@ class AssistantModeStore {
     const engine = chooseTtsEngine({
       network: online,
       supertonicReady: this.offlineVoiceReady,
+      supertonicBreakerOpen: this.supertonicBreakerOpen(),
       privacy: voicePrivacy || sensitive,
       prefer: this.ttsPrefer === "auto" && ownerPickedCloud ? "neural" : this.ttsPrefer,
     });
     const fallen = switchMidSentence({
       networkDropped: !online,
       current: engine,
-      supertonicReady: this.offlineVoiceReady,
+      supertonicReady: this.offlineVoiceReady && !this.supertonicBreakerOpen(),
     });
     const voicePrefs = preferences.getSnapshot().voice;
     const spokenLang = voiceForLanguage(
@@ -7042,14 +7098,29 @@ class AssistantModeStore {
       this.turnShadow = null;
       return null;
     }
-    this.turnShadow ??= new TurnEngineAdapter({
-      handsFree: () => this.state.handsFree,
-      maxWaitMs: turn.maxWaitMs,
-      calibrate: turn.calibrate,
-      startAt: Date.now(),
-      expectNow: () => this.shadowExpect(),
-    });
+    // The adapter reads `voice.turn` once, when it is made: a later change to the longest wait or to calibration
+    // makes a new one (its counters start again), so the change is never ignored.
+    const key = `${turn.maxWaitMs}|${turn.calibrate}`;
+    if (this.turnShadow && key !== this.turnShadowKey) this.turnShadow = null;
+    if (!this.turnShadow) {
+      this.turnShadowKey = key;
+      this.turnShadow = new TurnEngineAdapter({
+        handsFree: () => this.state.handsFree,
+        maxWaitMs: turn.maxWaitMs,
+        calibrate: turn.calibrate,
+        startAt: Date.now(),
+        expectNow: () => this.shadowExpect(),
+      });
+    }
     return this.turnShadow;
+  }
+
+  /** What the live adapter was built from (`voice.turn`), so a change to it is noticed. */
+  private turnShadowKey = "";
+
+  /** The session ends (Auto exit, Stop everything, mute): the shadow's numbers and audio go with it. */
+  private dropTurnShadow(): void {
+    this.turnShadow = null;
   }
 
   /** What the open turn is expected to be: a dictation while a voice note is open, a yes or no while one waits. */
@@ -7097,6 +7168,7 @@ class AssistantModeStore {
     this.shadowTurn((a) => {
       const input = read();
       const at = Date.now();
+      a.holdAudioForVerdict();
       later = () => this.shadowTurn((b) => void (b === a && b.barge(live, input, at)));
     });
     return later;
@@ -7158,7 +7230,11 @@ class AssistantModeStore {
           const v = Number(samples[i]) || 0;
           sum += v * v;
         }
-        const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        const rawLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        // With the echo reference running the capture is cleaned of her own voice: the level the detector compares
+        // with the speaker is the cleaned one (a raw level would read her own sound as the owner's).
+        const micLevel =
+          (this.echoReferenceLive() ? cleanedLevel(performance.now()) : null) ?? rawLevel;
         const playbackLevel = speechRms();
         this.bargeMicLevel = micLevel;
         this.bargeMicAt = performance.now();
@@ -7474,10 +7550,14 @@ class AssistantModeStore {
       beganAt: began && began.turnId === this.turnRecord.turnId ? began.at : null,
     };
     // The canonical code-mixed line (script policy) is what the turn acts on; the raw words stay in the record.
+    const line = this.turnRecord.canonical || text;
+    const stoppedAtFinal = this.stopped();
     try {
       this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
     } finally {
       this.heardEar = null;
+      // The shadow hears of the final after the live path has handled it (a final dropped for Stop everything is no turn).
+      if (!stoppedAtFinal) this.shadowTurn((a) => a.liveFinal(line, this.lastOwnerAt));
     }
   }
 
@@ -7870,6 +7950,7 @@ class AssistantModeStore {
               : route.engine === "sapi"
                 ? "sapi"
                 : how;
+        if (engine === "supertonic") this.supertonicBreakerUntil = 0;
         this.state.tts = {
           engine,
           voice: route.voiceId || tuning.voiceName || "",
