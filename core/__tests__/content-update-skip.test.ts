@@ -241,3 +241,85 @@ describe("outside the packaged app nothing changes", () => {
     expect(importer.readBuiltinsManifest(resources)).toBeNull();
   });
 });
+
+describe("already in this release compares content, not only the version", () => {
+  const builtinsSync = require_(path.resolve(process.cwd(), "electron/builtins-sync.cjs"));
+  const real = (base: string, rel: string, version: string) => ({
+    ...entry(rel, version),
+    sha256: builtinsSync.itemHash(path.join(base, ...rel.split("/"))),
+  });
+
+  it("skips an item whose version and content both match the built-in", async () => {
+    const { root, staged, scan } = setup();
+    putItem(staged, "skills/core/alpha", { name: "alpha", version: "1.0.0" });
+    const result = await apply(root, scan, builtins([real(staged, "skills/core/alpha", "1.0.0")]));
+    expect(has(root, "skills/core/alpha")).toBe(false);
+    expect(result.alreadyInRelease).toHaveLength(1);
+  });
+
+  it("lands an item at the same version whose content changed since the built-in", async () => {
+    const { root, staged, scan } = setup();
+    putItem(staged, "skills/core/alpha", { name: "alpha", version: "1.0.0" }, "old body");
+    const built = builtins([real(staged, "skills/core/alpha", "1.0.0")]);
+    putItem(staged, "skills/core/alpha", { name: "alpha", version: "1.0.0" }, "fixed body");
+    const result = await apply(root, scan, built);
+    expect(result.alreadyInRelease).toEqual([]);
+    expect(fs.readFileSync(path.join(root, "skills/core/alpha/SKILL.md"), "utf8")).toBe(
+      "fixed body",
+    );
+  });
+
+  it("still skips an older item whose content differs from the built-in", async () => {
+    const { root, staged, scan } = setup();
+    putItem(staged, "skills/core/alpha", { name: "alpha", version: "0.9.0" }, "other body");
+    const built = builtins([{ ...entry("skills/core/alpha", "1.0.0"), sha256: "b".repeat(64) }]);
+    const result = await apply(root, scan, built);
+    expect(has(root, "skills/core/alpha")).toBe(false);
+    expect(result.alreadyInRelease).toHaveLength(1);
+  });
+});
+
+describe("the importer compares versions the way the capability scan does", () => {
+  const capabilities = require_(path.resolve(process.cwd(), "electron/capabilities.cjs"));
+  // capabilities.cjs keeps versionGreater private; read it from source when it is not exported.
+  const versionGreater: (a: unknown, b: unknown) => boolean =
+    capabilities.versionGreater ??
+    new Function(
+      `${
+        /function versionGreater\([\s\S]*?\n}\n/.exec(
+          fs.readFileSync(path.resolve(process.cwd(), "electron/capabilities.cjs"), "utf8"),
+        )?.[0]
+      }\nreturn versionGreater;`,
+    )();
+
+  const table: Array<[unknown, unknown]> = [
+    ["1.0.0", "1.0.0"],
+    ["1.0.1", "1.0.0"],
+    ["1.0.0", "1.0.1"],
+    ["1.0", "1.0.0"],
+    ["1.0.0.1", "1.0.0"],
+    ["v1.2.5.8", "1.2.5.7"],
+    ["1.2.5.7", "v1.2.5.8"],
+    ["1.10.0", "1.9.0"],
+    ["1.9.0", "1.10.0"],
+    ["2", "10"],
+    ["10", "2"],
+    ["1.0.0-beta", "1.0.0"],
+    ["1.0.1-beta", "1.0.0"],
+    ["x", "1.0.0"],
+    [null, "1.0.0"],
+    [undefined, undefined],
+  ];
+
+  it.each(table)("agrees on %j against %j", (a, b) => {
+    expect(importer.versionNewer(a, b)).toBe(versionGreater(a, b));
+  });
+
+  it("differs only where the shipped version is unreadable, which counts as older", () => {
+    for (const shipped of ["x", null, undefined, ""]) {
+      expect(versionGreater("1.0.0", shipped)).toBe(false);
+      expect(importer.versionNewer("1.0.0", shipped)).toBe(true);
+    }
+    expect(importer.versionNewer("x", "x")).toBe(false);
+  });
+});
