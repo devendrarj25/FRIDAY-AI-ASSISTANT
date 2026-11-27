@@ -431,3 +431,40 @@ describe("the generator and the runtime share one ignore list", () => {
     expect(sync.IGNORED_NAMES.every((name) => name === name.toLowerCase())).toBe(true);
   });
 });
+
+describe("the build record is one of the published files", () => {
+  it("is written beside the update manifest, named by it, and picked up by the publish script", () => {
+    const dir = fs.mkdtempSync(path.join(require_("node:os").tmpdir(), "friday-parity-bundle-"));
+    const res = fs.mkdtempSync(path.join(require_("node:os").tmpdir(), "friday-parity-res-"));
+    try {
+      for (const name of ["FRIDAY-Setup-9.9.9.9.exe", "FRIDAY-Portable-9.9.9.9.exe", "latest.yml"])
+        fs.writeFileSync(path.join(dir, name), name);
+      fs.writeFileSync(path.join(res, "builtins.json"), "{}");
+      const manifest = (
+        require_(path.join(ROOT, "scripts/release-manifest.cjs")) as {
+          build: (input: Record<string, unknown>) => { bundle?: { name: string } };
+        }
+      ).build({
+        version: "9.9.9.9",
+        releaseDir: dir,
+        outDir: dir,
+        syncLatest: false,
+        resourcesDir: res,
+        caller: "release",
+        commit: null,
+        env: {},
+      });
+      const written = fs.readdirSync(dir).sort();
+      expect(written).toEqual(
+        expect.arrayContaining(["SHA256SUMS.txt", "friday-bundle.json", "friday-update.json"]),
+      );
+      expect(manifest.bundle?.name).toBe("friday-bundle.json");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(res, { recursive: true, force: true });
+    }
+    const publish = read("scripts/ci-publish-release.sh");
+    expect(publish).toContain("friday-bundle.json");
+    expect(publish).toContain("2147483648");
+  });
+});

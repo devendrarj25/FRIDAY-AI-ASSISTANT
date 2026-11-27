@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 
 const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
-const { verifyPublishedRelease, parseLatest } = require_(
+const { verifyPublishedRelease, parseLatest, MAX_ASSET_BYTES } = require_(
   path.join(root, "scripts/verify-published-release.cjs"),
 );
 const manifestScript = require_(path.join(root, "scripts/release-manifest.cjs"));
@@ -21,6 +21,7 @@ const VERSION = "9.9.9.9";
 const SETUP = `FRIDAY-Setup-${VERSION}.exe`;
 
 let dir = "";
+let res = "";
 const file = (name: string) => path.join(dir, name);
 const run = () => verifyPublishedRelease({ dir, version: VERSION });
 
@@ -44,9 +45,24 @@ beforeEach(() => {
       "",
     ].join("\n"),
   );
-  manifestScript.build({ version: VERSION, releaseDir: dir, outDir: dir, syncLatest: false });
+  // The build record hashes the packed builtins list; a stand-in packed folder supplies it.
+  res = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pub-res-"));
+  fs.writeFileSync(path.join(res, "builtins.json"), '{"builtins":[]}');
+  manifestScript.build({
+    version: VERSION,
+    releaseDir: dir,
+    outDir: dir,
+    syncLatest: false,
+    resourcesDir: res,
+    caller: "release",
+    commit: null,
+    env: {},
+  });
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(res, { recursive: true, force: true });
+});
 
 describe("verify the published release", () => {
   it("passes when every uploaded file is the one the manifest describes", () => {
@@ -134,6 +150,10 @@ describe("a TEST build", () => {
         releaseDir: test,
         outDir: test,
         syncLatest: false,
+        resourcesDir: res,
+        caller: "test",
+        commit: null,
+        env: {},
       });
       expect(verifyPublishedRelease({ dir: test, version: TEST }).problems).toEqual([]);
       fs.rmSync(path.join(test, `${setup}.blockmap`));
@@ -154,6 +174,53 @@ describe("a TEST build", () => {
     expect(readBack).toBeGreaterThan(wf.indexOf("bash scripts/ci-publish-release.sh"));
     expect(wf).not.toContain("gh release create");
     expect(readBack).toBeLessThan(wf.indexOf("Keep only the last 3 TEST prereleases"));
+  });
+});
+
+describe("the build record is part of the published release", () => {
+  const rewriteManifest = (edit: (m: Record<string, unknown>) => void) => {
+    const m = JSON.parse(fs.readFileSync(file("friday-update.json"), "utf8"));
+    edit(m);
+    fs.writeFileSync(file("friday-update.json"), JSON.stringify(m));
+  };
+
+  it("passes with friday-bundle.json and fails when it is missing, altered or not the one the manifest names", () => {
+    const ok = run();
+    expect(ok.problems).toEqual([]);
+    expect(ok.notes.join("\n")).toContain("friday-bundle.json matches friday-update.json");
+    const bytes = fs.readFileSync(file("friday-bundle.json"));
+    fs.writeFileSync(file("friday-bundle.json"), `${bytes.toString("utf8")} `);
+    expect(run().problems.join("\n")).toContain(
+      "friday-bundle.json on the release does not match the size or SHA-256 in friday-update.json",
+    );
+    fs.writeFileSync(file("friday-bundle.json"), bytes);
+    // An app file the record lists with the wrong hash is a bad build record too.
+    const bundle = JSON.parse(bytes.toString("utf8"));
+    bundle.app[0].sha256 = "0".repeat(64);
+    const edited = `${JSON.stringify(bundle, null, 2)}\n`;
+    fs.writeFileSync(file("friday-bundle.json"), edited);
+    rewriteManifest((m) => {
+      m["bundle"] = {
+        name: "friday-bundle.json",
+        bytes: Buffer.byteLength(edited),
+        sha256: crypto.createHash("sha256").update(edited).digest("hex"),
+      };
+    });
+    expect(run().problems.join("\n")).toContain("does not agree with the file on the release");
+    fs.rmSync(file("friday-bundle.json"));
+    expect(run().problems.join("\n")).toContain("friday-bundle.json cannot be read");
+    rewriteManifest((m) => {
+      delete m["bundle"];
+    });
+    expect(run().problems.join("\n")).toContain("friday-update.json names no bundle");
+  });
+
+  it("fails when any uploaded asset is larger than 2147483648 bytes", () => {
+    expect(MAX_ASSET_BYTES).toBe(2147483648);
+    expect(run().problems).toEqual([]);
+    const out = verifyPublishedRelease({ dir, version: VERSION, maxBytes: 4000 });
+    expect(out.problems.join("\n")).toContain(`${SETUP} is 4096 bytes`);
+    expect(out.problems.join("\n")).toContain("2147483648");
   });
 });
 

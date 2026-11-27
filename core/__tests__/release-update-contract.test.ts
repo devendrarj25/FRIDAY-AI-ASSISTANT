@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { createRequire } from "node:module";
 
 const require_ = createRequire(import.meta.url);
@@ -133,5 +134,149 @@ describe("shipped defaults reach the owner's config without overwriting edits", 
       "syncSeedConfig",
     );
     expect(seed.syncSeedConfig({ dir, names: ["nope.yaml"], resolve: () => null })).toEqual([]);
+  });
+});
+
+describe("the build record (friday-bundle.json) travels with every manifest", () => {
+  const bundleLib = require_(path.join(root, "electron/build-bundle.cjs"));
+  const manifestScript = require_(path.join(root, "scripts/release-manifest.cjs"));
+  const VERSION = "9.9.9.9";
+  const SETUP = `FRIDAY-Setup-${VERSION}.exe`;
+  const made: string[] = [];
+  const hex = (b: Buffer | string) => crypto.createHash("sha256").update(b).digest("hex");
+
+  /** A release folder, a packed-resources folder and a FRIDAY folder, all in a throwaway tree. */
+  function stage() {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "friday-bundle-rel-"));
+    made.push(base);
+    const dir = path.join(base, "release");
+    const res = path.join(base, "resources");
+    const home = path.join(base, "home");
+    fs.mkdirSync(path.join(res, "toolchain", "wheelhouse"), { recursive: true });
+    fs.mkdirSync(path.join(home, "models"), { recursive: true });
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, SETUP), "installer bytes");
+    fs.writeFileSync(path.join(dir, `FRIDAY-Portable-${VERSION}.exe`), "portable bytes");
+    fs.writeFileSync(path.join(dir, `${SETUP}.blockmap`), "blocks");
+    fs.writeFileSync(path.join(dir, "latest.yml"), `version: ${VERSION}\n`);
+    fs.writeFileSync(path.join(res, "builtins.json"), '{"builtins":[]}');
+    fs.writeFileSync(path.join(res, "toolchain", "wheelhouse", "pack.bin"), "wheels");
+    return { base, dir, res, home };
+  }
+  const run = (s: ReturnType<typeof stage>, extra: Record<string, unknown> = {}) =>
+    manifestScript.build({
+      version: VERSION,
+      releaseDir: s.dir,
+      outDir: s.dir,
+      syncLatest: false,
+      resourcesDir: s.res,
+      fridayRoot: s.home,
+      commit: null,
+      env: {},
+      ...extra,
+    });
+  const bundleOf = (s: ReturnType<typeof stage>) =>
+    bundleLib.read(path.join(s.dir, "friday-bundle.json"));
+  afterEach(() => {
+    for (const d of made.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  it("writes release/friday-bundle.json: app files, what the EXE carries and the weight packs", () => {
+    const s = stage();
+    run(s, { caller: "release" });
+    const bundle = bundleOf(s);
+    expect(bundle).not.toBeNull();
+    expect(bundle).toMatchObject({
+      schema: 1,
+      version: VERSION,
+      channel: "stable",
+      caller: "release",
+    });
+    const byKind = Object.fromEntries(bundle.app.map((a: { kind: string }) => [a.kind, a]));
+    expect(Object.keys(byKind).sort()).toEqual([
+      "blockmap",
+      "installer",
+      "latest",
+      "portable",
+      "sums",
+    ]);
+    expect(byKind["installer"]).toEqual({
+      name: SETUP,
+      kind: "installer",
+      bytes: 15,
+      sha256: hex("installer bytes"),
+    });
+    expect(byKind["sums"].sha256).toBe(hex(fs.readFileSync(path.join(s.dir, "SHA256SUMS.txt"))));
+    expect(bundle.inExe).toEqual({
+      builtins: { sha256: hex('{"builtins":[]}') },
+      wheelhouse: { bytes: 6, sha256: hex("wheels") },
+    });
+    const ids = bundle.packs.map((p: { id: string }) => p.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["voice-weights", "brain-weights", "recall-weights"]),
+    );
+    for (const p of bundle.packs) {
+      expect(p).toMatchObject({ location: "release", dir: null });
+      expect(p.tag).toMatch(/^friday-/);
+    }
+    expect(bundle.models).toEqual([]);
+    // Same inputs, same bytes: no clock in the record.
+    const first = fs.readFileSync(path.join(s.dir, "friday-bundle.json"));
+    run(s, { caller: "release" });
+    expect(fs.readFileSync(path.join(s.dir, "friday-bundle.json")).equals(first)).toBe(true);
+  });
+
+  it("names the bundle in friday-update.json without growing assets or the checksum list", () => {
+    const s = stage();
+    fs.writeFileSync(path.join(s.dir, `FRIDAY-Test-Setup-${VERSION}-test.2.exe`), "test installer");
+    const manifest = run(s, { caller: "test", channel: "test", version: `${VERSION}-test.2` });
+    const file = path.join(s.dir, "friday-bundle.json");
+    const bytes = fs.readFileSync(file);
+    expect(manifest.bundle).toEqual({
+      name: "friday-bundle.json",
+      bytes: bytes.length,
+      sha256: hex(bytes),
+    });
+    const written = JSON.parse(fs.readFileSync(path.join(s.dir, "friday-update.json"), "utf8"));
+    expect(written.bundle).toEqual(manifest.bundle);
+    expect(written.assets.map((a: { name: string }) => a.name)).not.toContain("friday-bundle.json");
+    expect(fs.readFileSync(path.join(s.dir, "SHA256SUMS.txt"), "utf8")).not.toContain(
+      "friday-bundle",
+    );
+    // A test version keeps its stamp in the manifest; the record names the base line.
+    expect(bundleOf(s)).toMatchObject({ version: VERSION, channel: "test", caller: "test" });
+  });
+
+  it("lists the model folders on this PC only for a CMD build, hashes them, and never fails on a gap", () => {
+    const s = stage();
+    const put = (rel: string, text: string) => {
+      const file = path.join(s.home, "models", ...rel.split("/"));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    };
+    put("friday-ear-tiny/config.json", "{}");
+    put("friday-ear-tiny/sub/model.bin", "weights");
+    put("friday-ear-half/model.bin.part", "unfinished");
+    put(".staging/x.bin", "scratch");
+    run(s, { caller: "cmd" });
+    expect(bundleOf(s).models).toEqual([
+      {
+        fridayId: "friday-ear-tiny",
+        dir: "models/friday-ear-tiny",
+        bytes: 9,
+        files: [
+          { path: "config.json", bytes: 2, sha256: hex("{}") },
+          { path: "sub/model.bin", bytes: 7, sha256: hex("weights") },
+        ],
+      },
+    ]);
+    // Other callers, the off switch and a missing folder each give an honest empty list.
+    run(s, { caller: "release" });
+    expect(bundleOf(s).models).toEqual([]);
+    run(s, { caller: "cmd", env: { FRIDAY_BUNDLE_MODELS: "0" } });
+    expect(bundleOf(s).models).toEqual([]);
+    fs.rmSync(path.join(s.home, "models"), { recursive: true, force: true });
+    expect(() => run(s, { caller: "cmd" })).not.toThrow();
+    expect(bundleOf(s).models).toEqual([]);
   });
 });

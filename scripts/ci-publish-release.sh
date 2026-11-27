@@ -37,6 +37,30 @@ for asset in "$@"; do
   [ -f "$asset" ] || { echo "::error::asset $asset does not exist"; exit 1; }
 done
 
+# Optional assets: the build record travels with the release when the build wrote one beside the update manifest,
+# so a workflow that lists only the installer files still publishes it. Listed by hand already: not added twice.
+for asset in "$@"; do
+  [ "$(basename "$asset")" = "friday-update.json" ] || continue
+  for optional in friday-bundle.json; do
+    candidate="$(dirname "$asset")/$optional"
+    [ -f "$candidate" ] || continue
+    listed=false
+    for have in "$@"; do
+      [ "$(basename "$have")" = "$optional" ] && listed=true
+    done
+    [ "$listed" = true ] || set -- "$@" "$candidate"
+  done
+  break
+done
+
+# GitHub refuses a release asset above 2 GiB: stop before anything is uploaded or a draft is created.
+max_bytes=2147483648
+for asset in "$@"; do
+  size=$(wc -c < "$asset" | tr -d '[:space:]')
+  [ "$size" -le "$max_bytes" ] \
+    || { echo "::error::$(basename "$asset") is $size bytes, over the $max_bytes bytes GitHub accepts for one release asset - nothing was published."; exit 1; }
+done
+
 drafts() {
   gh api "repos/$repo/releases?per_page=100" \
     --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id"
