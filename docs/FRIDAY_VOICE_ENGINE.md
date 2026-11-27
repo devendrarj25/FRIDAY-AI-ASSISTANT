@@ -778,8 +778,12 @@ The app shows only FRIDAY names. No other developer's note, credit or licence te
 | FRIDAY Speaker                                   | onnx-community/wespeaker-voxceleb-resnet34-LM                 | CC-BY-4.0                                                            | credit the author, link the licence, say it was modified     | 2026-11-27 |
 | FRIDAY Listen Gate                               | snakers4/silero-vad (official release)                        | MIT                                                                  | keep the copyright and permission notice                     | 2026-11-27 |
 | FRIDAY Turn                                      | pipecat-ai/smart-turn-v3                                      | BSD-2-Clause                                                         | keep the copyright notice and conditions                     | 2026-11-27 |
+| FRIDAY Core                                      | ggml-org/gemma-4-E4B-it-GGUF (Gemma 4 E4B)                    | Apache-2.0                                                           | keep the licence copy and upstream notices                   | 2026-11-27 |
+| FRIDAY Core Lite                                 | ggml-org/gemma-4-E2B-it-GGUF (Gemma 4 E2B)                    | Apache-2.0                                                           | keep the licence copy and upstream notices                   | 2026-11-27 |
+| FRIDAY Core Q                                    | ggml-org/Qwen3.5-4B-GGUF (Qwen3.5 4B)                         | Apache-2.0                                                           | keep the licence copy and upstream notices                   | 2026-11-27 |
+| FRIDAY Recall embedder                           | ggml-org/bge-m3-Q8_0-GGUF (BAAI bge-m3)                       | MIT                                                                  | keep the copyright and permission notice                     | 2026-11-27 |
 
-The Listen Gate and Turn rows are downloaded by `electron/voice-weights.cjs` with their own hashes and are not in the pin table, so they carry no `licenseRecord`; their licences are as shown (read from each upstream repository).
+The Core and Recall rows are read from `config/friday-core.json` (`licence`, checked 2026-11-27) and are fetched on demand like the voice weights. The Listen Gate and Turn rows are downloaded by `electron/voice-weights.cjs` with their own hashes and are not in the pin table, so they carry no `licenseRecord`; their licences are as shown (read from each upstream repository).
 
 ### Speech gate, text gates and one-word clips
 
