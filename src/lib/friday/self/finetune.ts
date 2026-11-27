@@ -297,7 +297,7 @@ export type TrainingGateInput = {
   idle?: boolean | undefined;
   onAc?: boolean | undefined;
   inVoiceTurn?: boolean | undefined;
-  /** The governor lease for the run. */
+  /** The governor reports room for a background job. The run itself takes the real lease in electron/finetune.cjs and gives it back when it ends. */
   leaseGranted?: boolean | undefined;
 };
 

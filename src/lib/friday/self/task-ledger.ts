@@ -445,6 +445,27 @@ export const ledger = new TaskLedger();
  */
 export type ExperienceModel = { id: string; kind: "local" | "cloud" | "unknown" };
 
+/**
+ * Who wrote the prompt of a task. "owner" only when the owner typed or spoke the text in this turn; every other
+ * author, and every row stored before this was recorded, is not trainable (untrusted input is data).
+ */
+export const PROMPT_AUTHORS = ["owner", "tool", "web", "screen", "mcp", "file", "unknown"] as const;
+export type PromptAuthor = (typeof PROMPT_AUTHORS)[number];
+
+const asAuthor = (value: unknown): PromptAuthor =>
+  PROMPT_AUTHORS.includes(value as PromptAuthor) ? (value as PromptAuthor) : "unknown";
+
+/** Trimmed, lower-case, de-duplicated, sorted. Anything that is not a non-empty string is dropped. */
+const cleanKinds = (value: unknown): string[] =>
+  [
+    ...new Set(
+      (Array.isArray(value) ? value : [])
+        .filter((kind): kind is string => typeof kind === "string")
+        .map((kind) => kind.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ].sort();
+
 export type Experience = {
   id: string;
   taskId: string;
@@ -462,6 +483,10 @@ export type Experience = {
   ms: number;
   detail?: string;
   feedback?: string;
+  /** Who wrote the prompt. Missing (a row stored before this existed) means "unknown", never owner. */
+  promptAuthor?: PromptAuthor;
+  /** Untrusted-content kinds that were in the model context of this turn. Missing = unknown = not trainable. */
+  contextKinds?: string[];
 };
 
 export type ExperienceInput = {
@@ -479,7 +504,14 @@ export type ExperienceInput = {
   detail?: string;
   feedback?: string;
   at?: number;
+  /** "owner" only when the owner typed or spoke this turn's text. Missing = "unknown". */
+  promptAuthor?: PromptAuthor;
+  /** Untrusted-content kinds that sat in the context (web, screen, mcp, file, tool...). */
+  contextKinds?: string[];
 };
+
+/** What was noted about a turn before its task finished (see `noteProvenance`). */
+export type ProvenanceNote = { promptAuthor?: PromptAuthor; contextKind?: string };
 
 export type ModelCall = {
   at: number;
@@ -505,10 +537,27 @@ export type ExperienceState = {
 const EXPERIENCE_KEY = "friday.experiences.v1";
 const MAX_EXPERIENCES = 400;
 const MAX_CALLS = 600;
+const MAX_PENDING = 200;
 const DAY = 86_400_000;
 
 const normaliseModel = (model: string | ExperienceModel): ExperienceModel =>
   typeof model === "string" ? { id: model, kind: "unknown" } : model;
+
+/**
+ * Bring a stored row forward: a row with no valid author becomes "unknown" (never "owner"), and a context list that
+ * is not a list of strings is dropped. Idempotent, so it runs on every load.
+ */
+export function migrateExperience(raw: unknown): Experience {
+  const { contextKinds, promptAuthor, ...rest } = raw as Omit<Experience, "contextKinds"> & {
+    contextKinds?: unknown;
+  };
+  const kinds = Array.isArray(contextKinds) ? cleanKinds(contextKinds) : undefined;
+  return {
+    ...rest,
+    promptAuthor: asAuthor(promptAuthor),
+    ...(kinds ? { contextKinds: kinds } : {}),
+  };
+}
 
 /** A comparable "how" signature: same kind, same tools, same model class. */
 export function approachSignature(input: {
@@ -529,6 +578,8 @@ class ExperienceStore {
   private loaded = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private seq = 0;
+  /** Provenance noted while a task runs, merged into its record and then forgotten. */
+  private pending = new Map<string, { author: PromptAuthor; kinds: Set<string> }>();
 
   subscribe = (fn: () => void) => {
     this.load();
@@ -557,7 +608,8 @@ class ExperienceStore {
   }
 
   private adopt(state: ExperienceState) {
-    if (Array.isArray(state.experiences)) this.experiences = state.experiences;
+    if (Array.isArray(state.experiences))
+      this.experiences = state.experiences.map(migrateExperience);
     if (Array.isArray(state.calls)) this.calls = state.calls;
   }
 
@@ -576,6 +628,26 @@ class ExperienceStore {
   }
 
   /**
+   * Note provenance while a turn runs: who wrote its prompt, and each kind of untrusted content that enters the
+   * model context. `record` merges it into the row of that task. Kinds only accumulate, so content noted here can
+   * never be erased by a later claim that the context was clean.
+   */
+  noteProvenance(taskId: string, note: ProvenanceNote): void {
+    const entry = this.pending.get(taskId) ?? {
+      author: "unknown" as PromptAuthor,
+      kinds: new Set(),
+    };
+    if (note.promptAuthor) entry.author = asAuthor(note.promptAuthor);
+    for (const kind of cleanKinds([note.contextKind])) entry.kinds.add(kind);
+    this.pending.delete(taskId);
+    this.pending.set(taskId, entry);
+    if (this.pending.size > MAX_PENDING) {
+      const oldest = this.pending.keys().next().value;
+      if (oldest !== undefined) this.pending.delete(oldest);
+    }
+  }
+
+  /**
    * Record ONE finished task. Also feeds the capability matrix — a verified
    * success nudges its domains up, a failure nudges them down, one small step
    * per real outcome (the matrix itself keeps the step conservative).
@@ -587,6 +659,20 @@ class ExperienceStore {
     const domains = (input.domains ?? domainsForTask(`${input.title} ${input.kind}`)).filter((d) =>
       DOMAINS.includes(d),
     );
+    const noted = this.pending.get(input.taskId);
+    this.pending.delete(input.taskId);
+    const promptAuthor = input.promptAuthor
+      ? asAuthor(input.promptAuthor)
+      : (noted?.author ?? "unknown");
+    // The context is known when the caller said so, when a note was made, or when the owner wrote the turn
+    // (then it holds exactly what the tools brought in). Otherwise it stays unknown.
+    const known =
+      input.contextKinds !== undefined || noted !== undefined || promptAuthor === "owner";
+    const contextKinds = cleanKinds([
+      ...(input.contextKinds ?? []),
+      ...(noted?.kinds ?? []),
+      ...(tools.length ? ["tool"] : []),
+    ]);
     const experience: Experience = {
       id: `exp-${Date.now().toString(36)}-${(this.seq += 1).toString(36)}`,
       taskId: input.taskId,
@@ -603,6 +689,8 @@ class ExperienceStore {
       ms: input.ms ?? 0,
       ...(input.detail ? { detail: input.detail } : {}),
       ...(input.feedback ? { feedback: input.feedback } : {}),
+      promptAuthor,
+      ...(known || contextKinds.length ? { contextKinds } : {}),
     };
     this.experiences = [experience, ...this.experiences].slice(0, MAX_EXPERIENCES);
     // Only an outcome that was actually checked moves a capability score; an

@@ -461,3 +461,168 @@ describe("electron/finetune.cjs re-runs the row rule (finding 2)", () => {
     }
   });
 });
+
+describe("a training run holds the real resource-governor lease", () => {
+  const paths = requireCjs("../../electron/friday-paths.cjs") as {
+    setRoot: (dir: string | null) => unknown;
+  };
+  const { EventEmitter } = requireCjs("node:events") as typeof import("node:events");
+
+  type FakeChild = InstanceType<typeof EventEmitter> & {
+    stdout: InstanceType<typeof EventEmitter>;
+    stderr: InstanceType<typeof EventEmitter>;
+    kill: ReturnType<typeof vi.fn>;
+  };
+
+  const rig = (grant: "granted" | "refused" | "none" = "granted") => {
+    const lease = { release: vi.fn(), heartbeat: vi.fn(() => true) };
+    const acquire = vi.fn(async () =>
+      grant === "granted" ? { state: "granted", lease } : { state: "refused", reason: "no-room" },
+    );
+    const child = new EventEmitter() as FakeChild;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn(() => {
+      child.emit("close", 143);
+      return true;
+    });
+    const spawn = vi.fn(() => child);
+    paths.setRoot(fs.mkdtempSync(path.join(os.tmpdir(), "friday-lease-")));
+    disk.init({
+      classify: kernelClassify,
+      governor: grant === "none" ? undefined : { acquire },
+      probe: async () => ({ ready: true, python: "py", missing: [], quantised: true, detail: "" }),
+      resolvePython: async () => ({ exe: "python" }),
+      spawn,
+    });
+    return { lease, acquire, child, spawn };
+  };
+
+  const job = () => ({
+    base: "m",
+    adaptersEnabled: true,
+    classesAccepted: ["chat"],
+    examples: cleanRows(12),
+  });
+
+  afterEach(() => {
+    disk.init({
+      classify: undefined,
+      governor: undefined,
+      probe: undefined,
+      resolvePython: undefined,
+      spawn: undefined,
+    });
+    (disk as unknown as { cancel: () => unknown }).cancel();
+    paths.setRoot(null);
+  });
+
+  it("start takes a background lease before the trainer is spawned", async () => {
+    const { acquire, spawn } = rig();
+    const out = await disk.start(job());
+    expect(out.ok).toBe(true);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    const request = (acquire.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(request["owner"]).toBe("finetune");
+    expect(request["priority"]).toBe("background");
+    expect(request["queue"]).toBe(false);
+    expect(Array.isArray(request["options"])).toBe(true);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(acquire.mock.invocationCallOrder[0]!).toBeLessThan(spawn.mock.invocationCallOrder[0]!);
+  });
+
+  it("holds the lease while the trainer runs and releases it when the trainer ends", async () => {
+    const { lease, child } = rig();
+    await disk.start(job());
+    expect(lease.release).not.toHaveBeenCalled();
+    child.emit("close", 0);
+    expect(lease.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lease when the trainer fails", async () => {
+    const { lease, child } = rig();
+    await disk.start(job());
+    child.emit("close", 1);
+    expect(lease.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lease when the trainer cannot start (error event)", async () => {
+    const { lease, child } = rig();
+    await disk.start(job());
+    child.emit("error", new Error("spawn failed"));
+    child.emit("close", -2);
+    expect(lease.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancel stops the trainer and gives the lease back, once", async () => {
+    const { lease, child } = rig();
+    await disk.start(job());
+    const stopped = (disk as unknown as { cancel: () => { ok: boolean } }).cancel();
+    expect(stopped.ok).toBe(true);
+    expect(child.kill).toHaveBeenCalled();
+    expect(lease.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses with the governor's reason and spawns nothing when no lease is granted", async () => {
+    const { spawn } = rig("refused");
+    const out = await disk.start(job());
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/no-room/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when there is no governor at all", async () => {
+    const { spawn } = rig("none");
+    const out = await disk.start(job());
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/governor/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("asks the governor for nothing when every row was dropped by the rails", async () => {
+    const { acquire } = rig();
+    const out = await disk.start({
+      ...job(),
+      examples: cleanRows(12).map((r) => ({
+        ...r,
+        provenance: { ...r.provenance, promptAuthor: "unknown" },
+      })),
+    });
+    expect(out.ok).toBe(false);
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
+  it("gives the lease back when the spawn itself throws", async () => {
+    const { lease, spawn } = rig();
+    spawn.mockImplementation(() => {
+      throw new Error("no such file");
+    });
+    const out = await disk.start(job());
+    expect(out.ok).toBe(false);
+    expect(lease.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second start while one runs takes no second lease", async () => {
+    const { acquire } = rig();
+    await disk.start(job());
+    const again = await disk.start(job());
+    expect(again.ok).toBe(false);
+    expect(acquire).toHaveBeenCalledTimes(1);
+  });
+
+  it("beats the lease while the trainer reports progress", async () => {
+    const { lease, child } = rig();
+    await disk.start(job());
+    child.stdout.emit(
+      "data",
+      Buffer.from(`${JSON.stringify({ stage: "training", step: 1, total: 20 })}\n`),
+    );
+    expect(lease.heartbeat).toHaveBeenCalled();
+  });
+
+  it("main.cjs hands the governor to the trainer (source pin)", () => {
+    const main = fs.readFileSync(path.join(__dirname, "..", "..", "electron", "main.cjs"), "utf8");
+    const at = main.indexOf("finetune.init({");
+    expect(main.slice(at, at + 700)).toMatch(/governor/);
+  });
+});

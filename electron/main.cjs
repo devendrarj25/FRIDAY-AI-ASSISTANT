@@ -9415,6 +9415,8 @@ function initSelfMaintenance(root) {
   finetune.init({
     send,
     log,
+    // A training run takes a background lease from the resource governor and gives it back when it ends.
+    governor,
     projectRoot: app.isPackaged ? null : path.join(__dirname, ".."),
     // The one privacy classifier (kernel/privacy.py): rows the kernel cannot classify never train.
     classify: (text) => kernelRequest("privacy.classify", { text: String(text || "") }),

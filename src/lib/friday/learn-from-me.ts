@@ -2,9 +2,9 @@
  * FRIDAY · "Learn from me": the inputs the training rails need, built from what the app really knows.
  *
  * The rails (`self/finetune.ts`) drop every row that is not provably the owner's own text with a clean context.
- * The experience ledger records the outcome of a task, not who wrote it or what sat in its context, so its rows are
- * tagged `unknown` and fail closed: nothing trains from them until the ledger records that provenance. A row that
- * used a tool is also tagged with a tool context, because tool output is data, never training.
+ * The experience ledger records who wrote each task's prompt and what untrusted content sat in its context. A row
+ * stored before that was recorded is `unknown` and fails closed. A row that used a tool is also tagged with a tool
+ * context, because tool output is data, never training.
  */
 import { buildTrainingSet, type TrainingGateInput, type TrainingRow } from "./self/finetune";
 import type { Experience } from "./self/task-ledger";
@@ -49,6 +49,14 @@ const responseModelOf = (item: Experience): "local" | "cloud" | "unknown" => {
   return kinds.every((kind) => kind === "local") ? "local" : "unknown";
 };
 
+/** The recorded context kinds, plus "tool" when a tool ran. A row that recorded neither stays unknown. */
+const contextKindsOf = (item: Experience): string[] | undefined => {
+  const kinds = [
+    ...new Set([...(item.contextKinds ?? []), ...(item.tools?.length ? ["tool"] : [])]),
+  ];
+  return item.contextKinds || kinds.length ? kinds.sort() : undefined;
+};
+
 /** One candidate row per verified success, each with its provenance tag. */
 export function rowsFromExperiences(items: Experience[]): TrainingRow[] {
   const rows: TrainingRow[] = [];
@@ -59,8 +67,8 @@ export function rowsFromExperiences(items: Experience[]): TrainingRow[] {
       ...example,
       dataClass: LEDGER_DATA_CLASS,
       provenance: {
-        promptAuthor: "unknown",
-        contextKinds: item.tools?.length ? ["tool"] : undefined,
+        promptAuthor: item.promptAuthor ?? "unknown",
+        contextKinds: contextKindsOf(item),
         responseModel: responseModelOf(item),
       },
     });

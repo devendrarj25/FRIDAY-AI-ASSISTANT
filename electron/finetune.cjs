@@ -33,8 +33,10 @@ const ADAPTERS_DIR = () => {
 
 // `classify` is the ONE kernel privacy classifier call path (privacy.classify), handed in by main.cjs.
 // Missing means every row is dropped: the rails fail closed.
+// `governor` is the resource governor (electron/resource-governor.cjs): a run starts only with its lease.
+// `probe`, `resolvePython` and `spawn` are injection points for tests; unset, the real ones run.
 let ctx = { send: () => {}, log: () => {}, projectRoot: null, classify: undefined };
-let active = null; // { id, child, run }
+let active = null; // { id, child, run, lease }
 
 const emit = (channel, payload) => {
   try {
@@ -241,6 +243,60 @@ function writeDataset(id, examples, suffix = "") {
   return { file, count: lines.length };
 }
 
+const LEASE_TTL_MS = 6 * 60 * 60 * 1000;
+// Rough working set of the trainer: a 4-bit QLoRA run and a full-precision LoRA run.
+const LEASE_RAM_GB = { quantised: 6, full: 12 };
+
+/**
+ * Take the real governor lease for a run. The governor defers a background job while a voice turn runs and
+ * refuses it when the PC has no room; without a governor nothing checks the memory, so the run fails closed.
+ */
+async function takeLease(quantised) {
+  const governor = ctx.governor;
+  if (typeof governor?.acquire !== "function") {
+    return {
+      ok: false,
+      error: "The resource governor is not available, so no training run is started.",
+    };
+  }
+  let got;
+  try {
+    got = await governor.acquire({
+      owner: "finetune",
+      kind: "training",
+      priority: "background",
+      label: "FRIDAY local training",
+      ttlMs: LEASE_TTL_MS,
+      queue: false,
+      options: [{ ramGb: quantised ? LEASE_RAM_GB.quantised : LEASE_RAM_GB.full }],
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: `The resource governor could not be asked: ${String(error?.message || error)}`,
+    };
+  }
+  if (got?.state !== "granted" || !got.lease) {
+    return {
+      ok: false,
+      error: `The resource governor did not grant room for training (${got?.reason || got?.state || "no answer"}). Try again when the PC is idle.`,
+    };
+  }
+  return { ok: true, lease: got.lease };
+}
+
+/** Give the lease back once, whichever path ends the run. */
+function releaseLease(holder) {
+  const lease = holder?.lease;
+  if (!lease) return;
+  holder.lease = null;
+  try {
+    lease.release?.();
+  } catch {
+    /* the governor drops a lease that is never beaten */
+  }
+}
+
 /**
  * Start a training run. `examples` come from the experience store — verified
  * successes only — and the caller must already have the owner's approval.
@@ -258,7 +314,7 @@ async function start(options = {}) {
       error: `No example passed the owner-authored, untrusted-context and privacy rails, so nothing was written and nothing trains.${describeDrops(vetted.dropped)}`,
     };
   }
-  const readiness = await probe();
+  const readiness = await (ctx.probe || probe)();
   if (!readiness.ready) return { ok: false, error: readiness.detail, missing: readiness.missing };
   if (!options.base) return { ok: false, error: "No base model was selected." };
 
@@ -271,6 +327,22 @@ async function start(options = {}) {
     };
   }
 
+  const taken = await takeLease(options.quantised !== false && readiness.quantised !== false);
+  if (!taken.ok) return { ok: false, error: taken.error };
+  const holder = { lease: taken.lease };
+  try {
+    return await launch({ id, options, vetted, readiness, dataset, count, holder });
+  } catch (error) {
+    releaseLease(holder);
+    active = null;
+    return {
+      ok: false,
+      error: `The trainer could not be started: ${String(error?.message || error)}`,
+    };
+  }
+}
+
+async function launch({ id, options, vetted, readiness, dataset, count, holder }) {
   const held = writeDataset(id, vetted.heldOut, ".heldout");
   const output = path.join(ADAPTERS_DIR(), id);
   fs.mkdirSync(output, { recursive: true });
@@ -288,7 +360,7 @@ async function start(options = {}) {
   const jobFile = path.join(JOBS_DIR(), `${id}.json`);
   fs.writeFileSync(jobFile, JSON.stringify(job, null, 2));
 
-  const python = await resolvePython(ctx.projectRoot);
+  const python = await (ctx.resolvePython || resolvePython)(ctx.projectRoot);
   const run = {
     id,
     base: job.base,
@@ -304,14 +376,25 @@ async function start(options = {}) {
   };
   record(run);
 
-  const child = spawn(python.exe, [...(python.prefix || []), scriptPath(), "--config", jobFile], {
-    windowsHide: true,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONDONTWRITEBYTECODE: "1" },
-  });
-  active = { id, child, run };
+  const child = (ctx.spawn || spawn)(
+    python.exe,
+    [...(python.prefix || []), scriptPath(), "--config", jobFile],
+    {
+      windowsHide: true,
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONDONTWRITEBYTECODE: "1" },
+    },
+  );
+  active = { id, child, run, lease: holder.lease };
+  const owned = active;
 
   let tail = "";
   child.stdout.on("data", (chunk) => {
+    // Progress is the heartbeat: a trainer that goes silent loses its lease.
+    try {
+      owned.lease?.heartbeat?.();
+    } catch {
+      /* the lease is already gone */
+    }
     tail += chunk.toString();
     const lines = tail.split("\n");
     tail = lines.pop() || "";
@@ -337,8 +420,14 @@ async function start(options = {}) {
   });
   child.stderr.on("data", (chunk) => ctx.log?.(`finetune: ${chunk.toString().trim()}`));
 
+  child.on("error", (error) => {
+    run.error = run.error || `The trainer could not run: ${String(error?.message || error)}`;
+    releaseLease(owned);
+  });
+
   child.on("close", (code) => {
-    active = null;
+    releaseLease(owned);
+    if (active === owned) active = null;
     run.endedAt = Date.now();
     run.progress = 1;
     if (code === 0 && !run.error) {
@@ -362,6 +451,7 @@ function cancel() {
   } catch {
     /* already gone */
   }
+  releaseLease(active);
   return { ok: true };
 }
 
