@@ -59,6 +59,7 @@ const CHANNEL_CLASS = Object.freeze({
   "build:pick-root": "long-job",
   "build:reveal": "long-job",
   "build:root": "long-job",
+  "brain:core-status": "quick",
   "build:start": "long-job",
   "camera:capture": "quick",
   "camera:clip": "quick",

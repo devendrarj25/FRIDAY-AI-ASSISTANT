@@ -1348,6 +1348,8 @@ type DesktopApi = {
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
   localModelStatus?: () => Promise<LocalModelStatus>;
+  /** FRIDAY Core status for the Brain settings. It never carries the launch key, the port or the endpoint. */
+  brainCoreStatus?: () => Promise<CoreStatus>;
   /** Draw a picture with a connected cloud provider (privacy and billing gates apply). */
   generateImage?: (payload: {
     prompt: string;
@@ -1428,6 +1430,15 @@ export type KnowledgeStatusRow = {
 
 export type LocalRunnerState =
   "serving" | "not-loaded" | "runner-stopped" | "runner-not-installed" | "failed";
+
+/** FRIDAY Core as the Brain settings see it. No key, port or endpoint is ever part of it. */
+export type CoreStatus = {
+  variant: string;
+  fridayName: string;
+  installed: boolean;
+  running: boolean;
+  ready: boolean;
+};
 
 export type LocalModelStatus = {
   at: number;

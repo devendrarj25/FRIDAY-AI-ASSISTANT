@@ -2078,6 +2078,24 @@ const coreWiring = createCoreWiring({
   log: (m) => log(m),
 });
 
+// CORE-STATUS-BEGIN
+/**
+ * What the Brain settings may show about FRIDAY Core: the variant and her name, whether a model is installed, whether
+ * it is running and ready. Only these five fields leave the main process: never the launch key, the port or the URL.
+ */
+function buildCoreStatus({ endpoint, plan }) {
+  const running = Boolean(endpoint);
+  const source = running ? endpoint : plan && plan.ok ? plan : null;
+  return {
+    variant: source ? String(source.variant || "") : "",
+    fridayName: source ? String(source.fridayName || "") : "",
+    installed: running || Boolean(plan && plan.ok),
+    running,
+    ready: running,
+  };
+}
+// CORE-STATUS-END
+
 /** True while something still holds the kernel's local port. */
 function portBusy(port) {
   return new Promise((resolve) => {
@@ -7095,6 +7113,18 @@ ipcMain.handle("comfyui:run", (_e, workflow) =>
     outDir: path.join(paths.ensureDir("assets"), "comfyui"),
   }),
 );
+ipcMain.handle("brain:core-status", () => {
+  const endpoint = modelsApi.coreEndpoint();
+  let plan = null;
+  if (!endpoint) {
+    try {
+      plan = require("./llama-runtime.cjs").corePlan(paths.root() || paths.base());
+    } catch {
+      plan = null;
+    }
+  }
+  return buildCoreStatus({ endpoint, plan });
+});
 ipcMain.handle("models:local-status", async () =>
   require("./local-model-status.cjs").describeLocal({
     inventory: await modelsApi.inventory(modelsContext()),

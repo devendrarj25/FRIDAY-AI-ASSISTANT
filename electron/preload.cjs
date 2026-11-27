@@ -315,6 +315,8 @@ contextBridge.exposeInMainWorld("friday", {
     ipcRenderer.invoke("models:engine-start", id, selectedModel || null),
   stopModelEngine: (id) => ipcRenderer.invoke("models:engine-stop", id),
   localModelStatus: () => ipcRenderer.invoke("models:local-status"),
+  // FRIDAY Core status (variant, installed, running, ready); never the key, port or endpoint.
+  brainCoreStatus: () => ipcRenderer.invoke("brain:core-status"),
   generateImage: (payload) => ipcRenderer.invoke("image:generate", payload),
   comfyuiStatus: () => ipcRenderer.invoke("comfyui:status"),
   comfyuiRun: (workflow) => ipcRenderer.invoke("comfyui:run", workflow),

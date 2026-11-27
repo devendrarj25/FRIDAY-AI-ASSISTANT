@@ -31,8 +31,8 @@ describe("Brain settings", () => {
     expect(fs.existsSync(path.join(root, "src/routes/install-manager.tsx"))).toBe(true);
   });
 
-  it("says plainly when status or the desktop app is missing, with no invented status", () => {
-    expect(brain).toContain("show after the next update");
+  it("says plainly when the desktop app is missing, with no invented status", () => {
     expect(brain).toContain("Offline:");
+    expect(brain).not.toContain("show after the next update");
   });
 });
