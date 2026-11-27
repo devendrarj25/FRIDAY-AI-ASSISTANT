@@ -2021,6 +2021,7 @@ async function waitForKernel(timeoutMs = 20000) {
         // boot screen waits for it, so a slower start would be the very lag this is meant to remove.
         if (kernel && kernel.pid) priority.lowerKernel(kernel.pid);
         if (process.env.FRIDAY_READINESS !== "1") connectSessionStream();
+        coreWiring.onKernelReady();
         // The kernel starts locked down; hand it the owner's real policy.
         void pushBillingToKernel();
         serviceHealth.invalidate();
@@ -2033,6 +2034,47 @@ async function waitForKernel(timeoutMs = 20000) {
   }
   return false;
 }
+
+/**
+ * FRIDAY Core wiring (the owner's `brainCoreEnabled` setting, off by default). The kernel call is bound once; every
+ * later kernel-ready (a restart) pushes the Core row again. Core starts only while the setting is on and stops when it
+ * turns off; quitting stops it through `stopManagedEngines`. A failure never reaches the caller.
+ */
+function createCoreWiring({ api, request, isEnabled, log: say = () => undefined }) {
+  let bound = false;
+  let desired = null;
+  const guard = (promise) => Promise.resolve(promise).catch((e) => say(`core: ${e?.message || e}`));
+  const reconcile = () => {
+    const enabled = isEnabled() === true;
+    desired = enabled;
+    return guard(enabled ? api.startCore?.() : api.stopCore?.());
+  };
+  return {
+    onKernelReady() {
+      if (!bound) {
+        bound = true;
+        api.bindCoreKernel?.(request);
+      }
+      // First ready and every restart: the kernel router learns where Core is (or that it is down).
+      void guard(api.pushCoreToKernel?.());
+      if (isEnabled() === true) void reconcile();
+    },
+    apply(enabled) {
+      if (typeof enabled !== "boolean" || enabled === desired) return undefined;
+      if (enabled !== true && desired === null) {
+        desired = false;
+        return undefined;
+      }
+      return reconcile();
+    },
+  };
+}
+const coreWiring = createCoreWiring({
+  api: modelsApi,
+  request: (method, params, timeoutMs) => kernelRequest(method, params, timeoutMs),
+  isEnabled: () => ownerPrefToggle("brainCoreEnabled", false),
+  log: (m) => log(m),
+});
 
 /** True while something still holds the kernel's local port. */
 function portBusy(port) {
@@ -6148,6 +6190,7 @@ function applyOwnerPreferenceEffects(value) {
       systemMonitor.setSampleMs(Number(fields.sampleSeconds) * 1000);
     }
     ensureSenses().apply(toggles, fields);
+    void coreWiring.apply(toggles.brainCoreEnabled);
   } catch (error) {
     log(`preference side effects: ${error?.message || error}`);
   }

@@ -540,6 +540,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     autoIndex: true,
     repoWatch: true,
     autoBuild: false,
+    /** FRIDAY Core (the local llama.cpp brain) starts only when the owner turns it on; off until the A/B gate on this PC. */
+    brainCoreEnabled: false,
     circuit: true,
     glow: true,
     scanlines: true,
