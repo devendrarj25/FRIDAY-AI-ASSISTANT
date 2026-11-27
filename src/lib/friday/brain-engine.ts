@@ -73,6 +73,12 @@ import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { shouldWriteLessons } from "./settings-runtime";
 import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
+import {
+  kindOfTool,
+  kindsOfCognition,
+  turnProvenance,
+  type PromptOrigin,
+} from "./self/turn-provenance";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
 import { forgetEverywhere } from "./brain/memory-fabric";
@@ -1258,6 +1264,7 @@ class BrainStore {
       if (!run) return;
       // A tool ran in this run: whatever it returned is untrusted, so the model's tags are no longer the model's own.
       if (this.voiceRuns.has(run.id)) this.untrustedRuns.add(run.id);
+      turnProvenance.add(run.id, kindOfTool(event.name));
       const execute = run.stages.find((stage) => stage.id === "execute");
       if (execute) {
         execute.state = "running";
@@ -1897,6 +1904,11 @@ class BrainStore {
       lane?: "quick" | "full";
       /** The caller's id for this turn. Carried to the run and echoed in the result. */
       turnId?: string;
+      /**
+       * "typed" for text the owner typed in a chat box, "owner-voice" for a line his own microphone path heard.
+       * Missing means unknown: only these two let the finished turn count as the owner's words in the task ledger.
+       */
+      promptOrigin?: PromptOrigin;
     } = {},
   ): SendResult {
     // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
@@ -1989,6 +2001,7 @@ class BrainStore {
       routingSurface: surface,
       lane: "full" as const,
       ...(context || rawOptions.extra?.trim() ? { untrusted: true } : {}),
+      ...(rawOptions.promptOrigin ? { promptOrigin: rawOptions.promptOrigin } : {}),
       ...carry,
     };
     this.startRun(
@@ -2127,6 +2140,8 @@ class BrainStore {
       turnId?: string;
       /** The turn carries text the model did not write (awareness snapshot, attachment): no delivery tags. */
       untrusted?: boolean;
+      /** Where the prompt text came from (see `send`). Missing = unknown. */
+      promptOrigin?: PromptOrigin;
     } = {},
     owner?: RunOwner,
   ) {
@@ -2196,6 +2211,11 @@ class BrainStore {
     if (options.turnId) run.turnId = options.turnId;
     if (options.lane) run.lane = options.lane;
     if (options.untrusted || sight.text) this.noteUntrusted(run.id);
+    turnProvenance.begin(run.id, {
+      origin: options.promptOrigin,
+      extra: Boolean(options.untrusted),
+      screen: Boolean(sight.text),
+    });
     const runId = run.id;
     this.recordDoneTurn(
       run,
@@ -3846,6 +3866,12 @@ class BrainStore {
     const ms = run.ms || Date.now() - run.startedAt;
     // Core Brain closes its own loop: verify the result, learn what is useful
     // and record which engine actually earned the routing for this task kind.
+    // The ledger row of this turn: who wrote the prompt and what outside content sat in its context.
+    turnProvenance.flush(
+      run.id,
+      this.lastCognition?.runId === run.id ? this.lastCognition.cognition.taskId : run.id,
+      this.lastCognition?.runId === run.id ? kindsOfCognition(this.lastCognition.cognition) : [],
+    );
     if (this.lastCognition?.runId === run.id) {
       const tVerify = Date.now();
       const servedModelId = this.servedModelIds.get(run.id);
