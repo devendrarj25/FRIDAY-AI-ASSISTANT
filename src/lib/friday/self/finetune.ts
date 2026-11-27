@@ -50,6 +50,38 @@ export type FinetuneState = { runs: FinetuneRun[]; activeAdapter: string | null;
 
 export type TrainingExample = { prompt: string; response: string };
 
+/** Who wrote a piece of text, or what content sat in the context that produced it. */
+export type RowProvenance = {
+  /** Who wrote the prompt. Only "owner" may train. */
+  promptAuthor: string;
+  /** Untrusted content in the context (tool, web, screen, mcp, file, email...). Must be an empty array to train; missing = unknown = dropped. */
+  contextKinds: string[] | undefined;
+  /** What produced the reply. Only a local model may train unless outputMayTrain is true. */
+  responseModel?: "local" | "cloud" | "unknown";
+  /** NEW field: a cloud or unknown output trains only when this is exactly true. Missing = false. */
+  outputMayTrain?: boolean;
+};
+
+/** A candidate training row with its provenance tag and the data class the owner would have to accept. */
+export type TrainingRow = TrainingExample & { dataClass: string; provenance: RowProvenance };
+
+/** The ONE kernel privacy classifier call path, injected (no classifier lives here). */
+export type PrivacyClassify = (text: string) => { level: string } | Promise<{ level: string }>;
+
+export type DropReason =
+  | "class-not-accepted"
+  | "not-owner-authored"
+  | "untrusted-context"
+  | "output-not-allowed"
+  | "sensitive"
+  | "classifier-failed"
+  | "empty";
+
+export type RowSelection = {
+  kept: TrainingExample[];
+  dropped: { reason: DropReason; count: number }[];
+};
+
 type Bridge = {
   finetuneState?: () => Promise<FinetuneState>;
   finetuneProbe?: () => Promise<FinetuneReadiness>;
@@ -60,6 +92,8 @@ type Bridge = {
     rank?: number;
     learningRate?: number;
     quantised?: boolean;
+    heldOut?: TrainingExample[];
+    adaptersEnabled?: boolean;
   }) => Promise<{ ok: boolean; run?: FinetuneRun; error?: string; missing?: string[] }>;
   finetuneCancel?: () => Promise<{ ok: boolean; error?: string }>;
   finetuneAdapters?: () => Promise<{
@@ -140,11 +174,161 @@ export function buildTrainingSet(
   return rows;
 }
 
+/** Held-out share of the rows (D12). */
+export const HELD_OUT_FRACTION = 0.15;
+
+const HELD_OUT_SEED = "friday-heldout-v1";
+
+/**
+ * Keep only rows that may train: a data class the owner accepted, a prompt the
+ * owner wrote, a context with NO tool/web/screen/MCP content (untrusted input is
+ * data, never training), a reply from a local model (cloud output needs
+ * outputMayTrain === true), and nothing the kernel privacy classifier calls
+ * SENSITIVE (secret-looking text included). A missing classifier or a classifier
+ * that throws drops the row: the rails fail closed.
+ */
+export async function selectTrainingRows(
+  rows: TrainingRow[],
+  options: { classesAccepted: string[]; classify?: PrivacyClassify },
+): Promise<RowSelection> {
+  const accepted = new Set(options.classesAccepted);
+  const counts = new Map<DropReason, number>();
+  const drop = (reason: DropReason) => counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  const kept: TrainingExample[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const prompt = String(row?.prompt ?? "").trim();
+    const response = String(row?.response ?? "").trim();
+    if (!prompt || !response) {
+      drop("empty");
+      continue;
+    }
+    if (!accepted.has(row.dataClass)) {
+      drop("class-not-accepted");
+      continue;
+    }
+    const source = row.provenance;
+    if (source?.promptAuthor !== "owner") {
+      drop("not-owner-authored");
+      continue;
+    }
+    if (!Array.isArray(source.contextKinds) || source.contextKinds.length > 0) {
+      drop("untrusted-context");
+      continue;
+    }
+    if (source.responseModel !== "local" && source.outputMayTrain !== true) {
+      drop("output-not-allowed");
+      continue;
+    }
+    let level: string;
+    try {
+      if (!options.classify) throw new Error("no classifier");
+      level = String((await options.classify(`${prompt}\n${response}`))?.level);
+    } catch {
+      drop("classifier-failed");
+      continue;
+    }
+    if (level === "sensitive") {
+      drop("sensitive");
+      continue;
+    }
+    const key = `${prompt}::${response}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ prompt, response });
+  }
+  return { kept, dropped: [...counts].map(([reason, count]) => ({ reason, count })) };
+}
+
+function seededOrder(length: number, seed: string): number[] {
+  let h = 2166136261;
+  for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const next = () => {
+    h = (h + 0x6d2b79f5) >>> 0;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const order = Array.from({ length }, (_, i) => i);
+  for (let i = length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  return order;
+}
+
+/** Deterministic split: the same rows and seed always give the same held-out set. Each part keeps input order. */
+export function splitHeldOut<T>(
+  rows: T[],
+  fraction: number = HELD_OUT_FRACTION,
+  seed: string = HELD_OUT_SEED,
+): { train: T[]; heldOut: T[] } {
+  const share = Number.isFinite(fraction)
+    ? Math.min(Math.max(fraction, 0), 0.5)
+    : HELD_OUT_FRACTION;
+  const want = rows.length < 2 ? 0 : Math.max(1, Math.round(rows.length * share));
+  const heldIdx = new Set(seededOrder(rows.length, seed).slice(0, want));
+  return {
+    train: rows.filter((_, i) => !heldIdx.has(i)),
+    heldOut: rows.filter((_, i) => heldIdx.has(i)),
+  };
+}
+
+export type TrainingGateInput = {
+  /** brain.learn.adapters: the owner opted in. Missing = off. */
+  enabled?: boolean | undefined;
+  idle?: boolean | undefined;
+  onAc?: boolean | undefined;
+  inVoiceTurn?: boolean | undefined;
+  /** The governor lease for the run. */
+  leaseGranted?: boolean | undefined;
+};
+
+/** Training runs only when opted in, idle, on AC power, outside a voice turn, under a lease. Unknown = blocked. */
+export function trainingGate(input: TrainingGateInput): { allowed: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (input.enabled !== true) reasons.push("on-device learning is off");
+  if (input.idle !== true) reasons.push("the PC is not idle");
+  if (input.onAc !== true) reasons.push("not on AC power");
+  if (input.inVoiceTurn !== false) reasons.push("a voice turn may be running");
+  if (input.leaseGranted !== true) reasons.push("no governor lease");
+  return { allowed: reasons.length === 0, reasons };
+}
+
+export const ADAPTER_SCORE_KEYS = ["heldout", "safety", "toolcall", "language"] as const;
+export type AdapterScores = Record<(typeof ADAPTER_SCORE_KEYS)[number], number>;
+
+/**
+ * Keep a new adapter only if held-out, safety, tool-call and language scores did
+ * not drop against the base. Anything missing or not a number counts as a drop,
+ * so a gate that measured nothing discards the adapter (automatic rollback).
+ */
+export function acceptAdapter(
+  before: Partial<AdapterScores> | null | undefined,
+  after: Partial<AdapterScores> | null | undefined,
+): { accept: boolean; dropped: string[] } {
+  const dropped = ADAPTER_SCORE_KEYS.filter((key) => {
+    const a = before?.[key];
+    const b = after?.[key];
+    if (
+      typeof a !== "number" ||
+      typeof b !== "number" ||
+      !Number.isFinite(a) ||
+      !Number.isFinite(b)
+    )
+      return true;
+    return b < a;
+  });
+  return { accept: dropped.length === 0, dropped };
+}
+
 /**
  * Propose ONE training run and, if the owner approves, actually train.
  *
- * The governance item carries the real numbers (base model, example count) so
- * the approval is informed, and the run itself is local-only.
+ * Nothing starts unless the owner opted in (brain.learn.adapters), the gate is
+ * open and provenance-tagged rows survive selection. The governance item carries
+ * the real numbers so the approval is informed, and the run itself is local-only.
  */
 export async function proposeFinetune(options: {
   base: string;
@@ -152,18 +336,37 @@ export async function proposeFinetune(options: {
   rank?: number;
   learningRate?: number;
   quantised?: boolean;
-  examples?: TrainingExample[];
+  /** brain.learn.adapters. Default false. */
+  adaptersEnabled?: boolean;
+  gate?: Omit<TrainingGateInput, "enabled">;
+  rows?: TrainingRow[];
+  classesAccepted?: string[];
+  classify?: PrivacyClassify;
 }): Promise<{ started: boolean; reason?: string; run?: FinetuneRun }> {
   if (!finetuneAvailable()) return { started: false, reason: NO_DESKTOP };
+  if (options.adaptersEnabled !== true) {
+    return {
+      started: false,
+      reason: "On-device learning is off. Turn it on in Settings first; nothing trains by default.",
+    };
+  }
+  const gate = trainingGate({ ...options.gate, enabled: true });
+  if (!gate.allowed) {
+    return { started: false, reason: `Training waits: ${gate.reasons.join(", ")}.` };
+  }
 
   const readiness = await finetuneProbe();
   if (!readiness.ready) return { started: false, reason: readiness.detail };
 
-  const examples = options.examples ?? buildTrainingSet();
+  const selection = await selectTrainingRows(options.rows ?? [], {
+    classesAccepted: options.classesAccepted ?? [],
+    ...(options.classify ? { classify: options.classify } : {}),
+  });
+  const { train: examples, heldOut } = splitHeldOut(selection.kept);
   if (examples.length < MIN_EXAMPLES) {
     return {
       started: false,
-      reason: `Only ${examples.length} verified example(s) so far — I need at least ${MIN_EXAMPLES} before training is worth it.`,
+      reason: `Only ${examples.length} safe example(s) so far — I need at least ${MIN_EXAMPLES} before training is worth it.`,
     };
   }
 
@@ -174,11 +377,12 @@ export async function proposeFinetune(options: {
   const item = await governance.submit({
     kind: "self-upgrade",
     title: `Train a local adapter for ${options.base}`,
-    rationale: `${examples.length} verified successes become a LoRA${readiness.quantised ? "/QLoRA" : ""} adapter for ${options.base}. Everything runs on this PC — no data leaves the machine — and the current model stays available to switch back to.`,
+    rationale: `${examples.length} verified successes become a LoRA${readiness.quantised ? "/QLoRA" : ""} adapter for ${options.base}, with ${heldOut.length} held out to check it. Everything runs on this PC — no data leaves the machine — and the current model stays available to switch back to.`,
     risk: "review",
     evidence: [
       `base:${options.base}`,
       `examples:${examples.length}`,
+      `heldout:${heldOut.length}`,
       readiness.quantised ? "mode:qlora-4bit" : "mode:lora",
       `python:${readiness.python ?? "unknown"}`,
     ],
@@ -186,6 +390,8 @@ export async function proposeFinetune(options: {
       const result = await bridge()!.finetuneStart!({
         base: options.base,
         examples,
+        heldOut,
+        adaptersEnabled: true,
         ...(options.epochs ? { epochs: options.epochs } : {}),
         ...(options.rank ? { rank: options.rank } : {}),
         ...(options.learningRate ? { learningRate: options.learningRate } : {}),

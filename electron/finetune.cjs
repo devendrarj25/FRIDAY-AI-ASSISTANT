@@ -134,8 +134,8 @@ async function probe() {
 }
 
 /** Write the JSONL dataset for one run and return its path. */
-function writeDataset(id, examples) {
-  const file = path.join(JOBS_DIR(), `${id}.jsonl`);
+function writeDataset(id, examples, suffix = "") {
+  const file = path.join(JOBS_DIR(), `${id}${suffix}.jsonl`);
   const lines = (examples || [])
     .filter((row) => row && row.prompt && row.response)
     .map((row) => JSON.stringify({ prompt: String(row.prompt), response: String(row.response) }));
@@ -149,6 +149,9 @@ function writeDataset(id, examples) {
  */
 async function start(options = {}) {
   if (active) return { ok: false, error: "A fine-tuning run is already in progress." };
+  if (options.adaptersEnabled !== true) {
+    return { ok: false, error: "On-device learning is off (brain.learn.adapters)." };
+  }
   const readiness = await probe();
   if (!readiness.ready) return { ok: false, error: readiness.detail, missing: readiness.missing };
   if (!options.base) return { ok: false, error: "No base model was selected." };
@@ -162,12 +165,14 @@ async function start(options = {}) {
     };
   }
 
+  const held = writeDataset(id, options.heldOut, ".heldout");
   const output = path.join(ADAPTERS_DIR(), id);
   fs.mkdirSync(output, { recursive: true });
   const job = {
     id,
     base: String(options.base),
     dataset,
+    heldOut: held.count ? held.file : null,
     output,
     epochs: Number(options.epochs) || 2,
     learningRate: Number(options.learningRate) || 2e-4,
@@ -297,6 +302,11 @@ function activate(id) {
   }
   state.activeAdapter = id || null;
   writeHistory(state);
+  if (!id) {
+    // Back on the plain base model: the same pointer, scale 0.
+    const current = readActive();
+    if (current) writeActive({ ...current, scale: 0 });
+  }
   emit("finetune:active", { activeAdapter: state.activeAdapter });
   return { ok: true, activeAdapter: state.activeAdapter };
 }
@@ -308,7 +318,131 @@ function remove(id) {
   const state = readHistory();
   if (state.activeAdapter === id) state.activeAdapter = null;
   writeHistory(state);
+  const current = readActive();
+  if (current && current.id === id) {
+    // Undo = the previous adapter if it is still there, else scale 0.
+    const back = current.previous && fs.existsSync(path.join(ADAPTERS_DIR(), current.previous));
+    writeActive({
+      id: back ? current.previous : null,
+      scale: back ? 1 : 0,
+      previous: null,
+      baseSha256: current.baseSha256,
+    });
+  }
   return { ok: true };
+}
+
+/* ------------------------------------------------------------------ adapter records (D11) */
+
+const SCORE_KEYS = ["heldout", "safety", "toolcall", "language"];
+const SHA256 = /^[a-f0-9]{64}$/;
+const RETRAIN_NEEDED = "adapter retrain needed";
+
+const safeId = (id) => (/^[A-Za-z0-9._-]{1,80}$/.test(String(id || "")) ? String(id) : null);
+
+/** Validate an eval.json body: {v, id, baseSha256, scores{heldout,safety,toolcall,language}, steps, at}. */
+function normaliseEval(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = safeId(raw.id);
+  const sha = String(raw.baseSha256 || "").toLowerCase();
+  if (raw.v !== 1 || !id || !SHA256.test(sha) || !raw.scores) return null;
+  const scores = {};
+  for (const key of SCORE_KEYS) {
+    const value = raw.scores[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    scores[key] = value;
+  }
+  const steps = Number(raw.steps);
+  const at = Number(raw.at);
+  if (!Number.isFinite(steps) || steps < 0 || !Number.isFinite(at)) return null;
+  return { v: 1, id, baseSha256: sha, scores, steps, at };
+}
+
+function readEval(id, dir = ADAPTERS_DIR()) {
+  const safe = safeId(id);
+  if (!safe) return null;
+  try {
+    return normaliseEval(JSON.parse(fs.readFileSync(path.join(dir, safe, "eval.json"), "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+function writeEval(record, dir = ADAPTERS_DIR()) {
+  const clean = normaliseEval(record);
+  if (!clean) return { ok: false, error: "The adapter eval record is not valid." };
+  fs.mkdirSync(path.join(dir, clean.id), { recursive: true });
+  fs.writeFileSync(path.join(dir, clean.id, "eval.json"), JSON.stringify(clean, null, 2));
+  return { ok: true, eval: clean };
+}
+
+/** active.json: {id, scale, previous, baseSha256}. Missing or broken = no adapter. */
+function readActive(dir = ADAPTERS_DIR()) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "active.json"), "utf8"));
+    const id = raw.id === null ? null : safeId(raw.id);
+    if (raw.id !== null && !id) return null;
+    return {
+      id,
+      scale: Number(raw.scale) > 0 ? 1 : 0,
+      previous: raw.previous === null || raw.previous === undefined ? null : safeId(raw.previous),
+      baseSha256: String(raw.baseSha256 || "").toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeActive(state, dir = ADAPTERS_DIR()) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "active.json"), JSON.stringify(state, null, 2));
+}
+
+/**
+ * What llama-server should load now. The base model file is never merged: an
+ * adapter is a scale on top of it. If the base changed since the adapter was
+ * trained, or cannot be checked, the scale is 0 and the reason is shown.
+ */
+function resolveActive(currentBaseSha256, dir = ADAPTERS_DIR()) {
+  const state = readActive(dir);
+  if (!state || !state.id) return { id: null, scale: 0 };
+  const current = String(currentBaseSha256 || "").toLowerCase();
+  if (!SHA256.test(current) || state.baseSha256 !== current) {
+    return { id: state.id, scale: 0, reason: RETRAIN_NEEDED };
+  }
+  return { id: state.id, scale: state.scale > 0 ? 1 : 0 };
+}
+
+/**
+ * Settle a finished run. accepted=false (the gate said a score dropped) deletes
+ * the adapter and leaves the active one alone: the automatic rollback. accepted
+ * writes eval.json and makes it active (previous = what was active before).
+ */
+function settleAdapter(id, { accepted, evalRecord } = {}, dir = ADAPTERS_DIR()) {
+  const safe = safeId(id);
+  if (!safe || !fs.existsSync(path.join(dir, safe))) {
+    return { ok: false, error: "That adapter no longer exists." };
+  }
+  if (accepted !== true) {
+    fs.rmSync(path.join(dir, safe), { recursive: true, force: true });
+    return { ok: true, discarded: true };
+  }
+  const written = writeEval({ ...evalRecord, id: safe }, dir);
+  if (!written.ok) {
+    fs.rmSync(path.join(dir, safe), { recursive: true, force: true });
+    return { ok: false, discarded: true, error: written.error };
+  }
+  const before = readActive(dir);
+  writeActive(
+    {
+      id: safe,
+      scale: 1,
+      previous: before?.id ?? null,
+      baseSha256: written.eval.baseSha256,
+    },
+    dir,
+  );
+  return { ok: true, discarded: false, active: safe };
 }
 
 const snapshot = () => {
@@ -325,4 +459,19 @@ function init(options = {}) {
   return snapshot();
 }
 
-module.exports = { init, probe, start, cancel, listAdapters, activate, remove, snapshot };
+module.exports = {
+  init,
+  probe,
+  start,
+  cancel,
+  listAdapters,
+  activate,
+  remove,
+  snapshot,
+  normaliseEval,
+  readEval,
+  writeEval,
+  readActive,
+  resolveActive,
+  settleAdapter,
+};
