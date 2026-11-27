@@ -242,7 +242,7 @@ const OTHER_SIGNALS = [
   {
     level: "private",
     label: "a personal contact detail",
-    re: /\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b/,
+    re: /\b[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{2,255}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b/,
   },
   {
     level: "private",
@@ -358,6 +358,27 @@ function guardEgress({ model = null, content = "", destination = null, connected
   };
 }
 
+/**
+ * What the owner brought into a turn besides the typed line (an attachment's text, recalled memory, screen text):
+ * the page sends it apart as `ownerText`, one string or a list of them. It is data, never an instruction, and it is
+ * only ever read here and by the kernel's own firewall; the model gets it through the prompt as before.
+ */
+function cleanOwnerText(value) {
+  const items = Array.isArray(value) ? value : [value];
+  return items.filter((item) => typeof item === "string" && item.trim()).join("\n");
+}
+
+/**
+ * The text a request is classified by before it leaves: the prompt and the owner's own text. The persona and the
+ * tool lists of the system text are FRIDAY's, so they are not part of it (a tool called "api key" must not block
+ * every chat). Nothing is cut: a secret on page ten of an attachment is still a secret.
+ */
+function egressContent(prompt, ownerText) {
+  const extra = cleanOwnerText(ownerText);
+  const typed = typeof prompt === "string" ? prompt : "";
+  return extra ? `${typed}\n${extra}` : typed;
+}
+
 /** Exactly what the owner is shown before anything leaves the PC. */
 function describeEgress(decision, model, destination) {
   const where = destination || model?.label || model?.id || "an external service";
@@ -394,4 +415,6 @@ module.exports = {
   guardEgress,
   describeEgress,
   autoSendable,
+  cleanOwnerText,
+  egressContent,
 };

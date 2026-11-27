@@ -1240,6 +1240,39 @@ export function takeSpeakable(
   final: boolean,
 ): { spoken: string; consumed: number } {
   if (!pending.trim()) return { spoken: "", consumed: 0 };
+  const fence = pending.indexOf("```");
+  if (fence >= 0) return takeAroundFence(pending, fence, final);
+  return takeSentences(pending, final);
+}
+
+/**
+ * A code fence is never read aloud. The text before it is spoken (the fence cannot change it), an open fence holds
+ * everything after it until it closes (or the turn ends, when it is dropped), and a closed one is cut out before
+ * the text after it is looked at.
+ */
+function takeAroundFence(
+  pending: string,
+  fence: number,
+  final: boolean,
+): { spoken: string; consumed: number } {
+  const before = pending.slice(0, fence);
+  const close = pending.indexOf("```", fence + 3);
+  if (close < 0) {
+    if (final) return { spoken: before.trim(), consumed: pending.length };
+    return takeSentences(before, false);
+  }
+  const resume = close + 3;
+  const after = takeSpeakable(pending.slice(resume), final);
+  if (!after.spoken && !final) {
+    const lead = before.trim();
+    return lead ? { spoken: lead, consumed: resume } : { spoken: "", consumed: 0 };
+  }
+  const spoken = [before.trim(), after.spoken].filter(Boolean).join(" ");
+  return { spoken, consumed: resume + after.consumed };
+}
+
+function takeSentences(pending: string, final: boolean): { spoken: string; consumed: number } {
+  if (!pending.trim()) return { spoken: "", consumed: 0 };
   if (final) return { spoken: pending.trim(), consumed: pending.length };
   const re = /[.!?।](?=\s)/g;
   let end = -1;
@@ -1659,10 +1692,26 @@ const SMALL_ACK_DEVA = /^(?:ठीक है|अच्छा|हाँ|हां
  * real request returns "" and takes the normal path, so nothing is lost or
  * answered with a guess.
  */
-export function busyReply(text: string, work: { task: string; elapsedMs: number }): string {
+export function busyReply(
+  text: string,
+  work: { task: string; elapsedMs: number; awaitingApproval?: boolean },
+): string {
   const heard = text.trim();
   if (!heard) return "";
   const form = replyForm(heard);
+  const asked =
+    STATUS_ASK.test(heard) ||
+    STATUS_ASK_DEVA.test(heard) ||
+    SMALL_ACK.test(heard) ||
+    SMALL_ACK_DEVA.test(heard);
+  if (work.awaitingApproval === true && asked) {
+    // The run is stopped at its approval: "still working" would be false. Say what it waits for, and where.
+    return {
+      en: "I'm waiting on your approval. It needs your tap on screen.",
+      hi: "आपकी मंज़ूरी का इंतज़ार है। स्क्रीन पर टैप करना होगा।",
+      hinglish: "Aapki approval ka intezaar hai. Screen par tap karna hoga.",
+    }[form];
+  }
   if (STATUS_ASK.test(heard) || STATUS_ASK_DEVA.test(heard)) {
     const task = work.task.replace(/\s+/g, " ").trim().slice(0, 60);
     const seconds = Math.max(1, Math.round(work.elapsedMs / 1000));
@@ -1702,7 +1751,7 @@ const BUSY_QUEUE_AFTER_MS = 4000;
 
 export function whileBusy(
   text: string,
-  work: { task: string; elapsedMs: number },
+  work: { task: string; elapsedMs: number; awaitingApproval?: boolean },
   limits: { queued: number; maxQueued?: number } = { queued: 0 },
 ): BusyDecision {
   const heard = text.trim();

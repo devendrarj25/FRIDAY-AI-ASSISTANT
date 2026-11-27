@@ -17,6 +17,7 @@ import {
   offerSense,
   deliverSenses,
   emptySenseGate,
+  isStopEverything,
   loadConduct,
   offersShowHow,
   partialPlan,
@@ -441,5 +442,39 @@ describe("hands-free conversation and the show-how offer", () => {
     const block = end.slice(0, end.indexOf('this.to("tts-end")'));
     expect(block).toContain("this.openFollowUp();");
     expect(block).toContain("if (this.state.handsFree) this.setAwake();");
+  });
+});
+
+describe("the spoken stop-everything words", () => {
+  it("take the whole line, with a polite tail, in English, Roman Hindi and Devanagari", () => {
+    for (const line of [
+      "stop everything",
+      "stop all",
+      "Stop everything please",
+      "stop everything now",
+      "stop everything, Friday",
+      "stop all.",
+      "ruk jao sab",
+      "band karo sab",
+      "sab roko",
+      "sab band karo",
+      "सब बंद करो",
+    ]) {
+      expect(isStopEverything(line), line).toBe(true);
+      expect(reduceVoice(EMPTY_CONDUCT, line, 1).decision, line).toBe("stop-everything");
+    }
+  });
+
+  it("never fire on a longer request or a negation", () => {
+    for (const line of [
+      "stop all the music",
+      "stop everything you were saying about the weather",
+      "don't stop everything",
+      "do not stop all",
+      "should I stop everything",
+    ]) {
+      expect(isStopEverything(line), line).toBe(false);
+      expect(reduceVoice(EMPTY_CONDUCT, line, 1).decision, line).not.toBe("stop-everything");
+    }
   });
 });

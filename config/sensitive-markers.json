@@ -432,6 +432,48 @@
       "सात",
       "आठ",
       "नौ"
+    ],
+    "numbers": [
+      "sau",
+      "hazaar",
+      "hazar",
+      "lakh",
+      "das",
+      "bees",
+      "tees",
+      "chalis",
+      "pachas",
+      "saath",
+      "sattar",
+      "assi",
+      "nabbe",
+      "double",
+      "triple",
+      "ten",
+      "twenty",
+      "thirty",
+      "forty",
+      "fifty",
+      "sixty",
+      "seventy",
+      "eighty",
+      "ninety",
+      "hundred",
+      "thousand",
+      "सौ",
+      "हजार",
+      "लाख",
+      "दस",
+      "बीस",
+      "तीस",
+      "चालीस",
+      "पचास",
+      "साठ",
+      "सत्तर",
+      "अस्सी",
+      "नब्बे",
+      "डबल",
+      "ट्रिपल"
     ]
   },
   "fragments": {
@@ -446,7 +488,15 @@
     "marker": "(?:है|hai|he)(?![{{wc}}])",
     "after": "(?:[ \\t]+(?:है|hai|he|is)(?![{{wc}}])[ \\t]*[:=]?|[ \\t]*[:=])[ \\t]*{{val}}",
     "named": "(?:{{lead}}(?:{{valueOld}}|{{cvv}}|{{val}}[ \\t,\\-]*{{marker}})|{{after}})",
-    "plain": "{{lead}}{{valueOld}}"
+    "plain": "{{lead}}{{valueOld}}",
+    "snum": "(?:{{words.digits}}|{{words.numbers}}|[0-9])(?![{{wc}}])",
+    "spokenRun": "(?:{{snum}}[ \\t,\\-]*){3,}",
+    "codeval": "(?:{{plain}}|{{lead}}{{spokenRun}})",
+    "gap": "(?:[ \\t:=,\\-]+[^\\s:=,\\-.]{1,15}){0,18}[ \\t:=,\\-]+",
+    "digits48": "[\\[(]?(?<![0-9a-z])(?=(?:[0-9][ \\-]?){4,8}(?![0-9a-z]))[0-9]{1,8}(?:[ \\-][0-9]{1,8}){0,7}[\\])]?",
+    "digits6": "[\\[(]?(?<![0-9a-z])(?:[0-9]{6}|[0-9]{3}[ \\-][0-9]{3}|[0-9]{2}[ \\-][0-9]{2}[ \\-][0-9]{2}|(?:[0-9][ \\-]){5}[0-9])(?![0-9a-z])[\\])]?",
+    "digits6s": "[\\[(]?(?<![0-9a-z])(?:[0-9]{3}[ \\-][0-9]{3}|[0-9]{2}[ \\-][0-9]{2}[ \\-][0-9]{2}|(?:[0-9][ \\-]){5}[0-9])(?![0-9a-z])[\\])]?",
+    "codeKw": "(?:otp|one[ -]?time[ -]?(?:code|password|passcode|pin)|(?:verification|verify|security|confirmation|authentication|auth|login|log[ -]?in|sign[ -]?in|2fa)\\s+(?:code|pin)|passcode|cvv|cvc)"
   },
   "markers": [
     {
@@ -512,6 +562,70 @@
       "label": "PIN, OTP, card, account or ID with its value, written in Roman Hindi",
       "flags": "i",
       "pattern": "\\b(?:(?:password|passwd|passcode|otp|cvv|cvc|pin(?!\\s+code(?:\\s+(?:hai|he|is|है))?\\s*[:=]?\\s*[0-9]{6}(?![0-9])))\\b{{named}}|(?:aadhaar|aadhar|adhaar|khat[ae]|(?:pan|credit|debit|atm)\\s*card|bank\\s+account)\\b{{plain}})"
+    },
+    {
+      "id": "spoken-code",
+      "kind": "spoken-code",
+      "lang": "hinglish",
+      "label": "PIN, OTP, CVV or password said as spaced digits or number words",
+      "flags": "i",
+      "pattern": "\\b(?:password|passwd|passcode|otp|cvv|cvc|pin(?!\\s+code)|one[ -]?time\\s+(?:password|passcode|code))\\b{{lead}}{{spokenRun}}"
+    },
+    {
+      "id": "spoken-code-hi",
+      "kind": "spoken-code",
+      "lang": "hi",
+      "label": "PIN, OTP, CVV or passcode said as digits or number words in Hindi",
+      "flags": "i",
+      "pattern": "(?<![ऀ-ॿ])(?:पासवर्ड|पासकोड|ओटीपी|सीवीवी|पीआईएन|वन\\s*टाइम\\s*(?:पासवर्ड|कोड)|पिन(?![ऀ-ॿ])(?!\\s*कोड)(?!\\s*कर))(?![ऀ-ॿ]){{lead}}{{spokenRun}}"
+    },
+    {
+      "id": "code-phrase",
+      "kind": "code-phrase",
+      "lang": "en",
+      "label": "verification or login code with its value",
+      "flags": "i",
+      "pattern": "\\b(?:(?:verification|verify|security|confirmation|authentication|auth|login|log[ -]?in|sign[ -]?in|one[ -]?time|2fa)\\s+(?:code|pin)\\b{{codeval}}|(?:the|my|your|this|mera|meri|aapka|tumhara|ye|yeh)\\s+code\\b(?:\\s+was)?{{lead}}[0-9]{6}(?![0-9a-z]))"
+    },
+    {
+      "id": "code-phrase-hi",
+      "kind": "code-phrase",
+      "lang": "hi",
+      "label": "verification or login code with its value, named in Hindi",
+      "flags": "i",
+      "pattern": "(?<![ऀ-ॿ])(?:(?:सत्यापन|वेरिफिकेशन|वेरीफिकेशन|सिक्योरिटी|सिक्यूरिटी|कन्फर्मेशन|लॉगिन)\\s*(?:कोड|पिन)(?![ऀ-ॿ]){{codeval}}|(?:मेरा|मेरी|आपका|तुम्हारा|यह|ये)\\s*कोड(?![ऀ-ॿ]){{lead}}[0-9]{6}(?![0-9a-z]))"
+    },
+    {
+      "id": "code-phrase-gap",
+      "kind": "code-phrase",
+      "lang": "hinglish",
+      "label": "one-time or verification code named a few words before its value",
+      "flags": "i",
+      "pattern": "\\b{{codeKw}}\\b{{gap}}{{digits48}}|(?<![0-9a-z\\[(]){{digits48}}[ \\t]+(?:is|as)[ \\t]+(?:(?:your|the|my|ur)[ \\t]+)?{{codeKw}}\\b"
+    },
+    {
+      "id": "code-phrase-bank",
+      "kind": "code-phrase",
+      "lang": "hinglish",
+      "label": "bank, card or login code with its value, or a code spoken digit by digit",
+      "flags": "i",
+      "pattern": "\\b(?:(?:bank|card|upi|atm|payment|transaction|txn|login|netbanking)(?:\\s+(?:ka|ki|ke|of|for))?\\s+code\\b{{lead}}{{digits6}}|code\\s+(?:is|was|hai)\\s*[:=]?\\s*{{digits6s}})"
+    },
+    {
+      "id": "code-phrase-bank-hi",
+      "kind": "code-phrase",
+      "lang": "hi",
+      "label": "bank, card or login code with its value, or a code spoken digit by digit, in Hindi",
+      "flags": "i",
+      "pattern": "(?<![ऀ-ॿ])(?:(?:बैंक|बैन्क|कार्ड|यूपीआई|एटीएम|पेमेंट|ट्रांजैक्शन|लॉगिन)\\s*(?:का|की|के)?\\s*कोड(?![ऀ-ॿ]){{lead}}{{digits6}}|कोड(?![ऀ-ॿ]){{lead}}{{digits6s}})"
+    },
+    {
+      "id": "code-phrase-gap-hi",
+      "kind": "code-phrase",
+      "lang": "hi",
+      "label": "one-time or verification code named a few words before its value, in Hindi",
+      "flags": "i",
+      "pattern": "(?<![ऀ-ॿ])(?:ओटीपी|पासकोड|वन\\s*टाइम\\s*(?:पासवर्ड|कोड)|(?:सत्यापन|वेरिफिकेशन|वेरीफिकेशन|सिक्योरिटी|सिक्यूरिटी|कन्फर्मेशन|लॉगिन)\\s*(?:कोड|पिन))(?![ऀ-ॿ]){{gap}}{{digits48}}"
     }
   ]
 }

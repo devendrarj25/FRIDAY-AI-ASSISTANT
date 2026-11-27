@@ -1,28 +1,79 @@
 import { resetCorrections } from "./asr-bias";
-import { recallArc, forgetArc } from "./conversation-arc";
+import { arcSnapshot, forgetArc, recallArc } from "./conversation-arc";
 import { resetStyleCorrection } from "./response-policy";
-import { phoneticHit } from "./speech-parse";
 import { understandSpoken } from "./speech-understand";
 import { addOpenLoop } from "./brain/open-loops";
+import { forgetEverywhere } from "./brain/memory-fabric";
+import { retrievalTerms } from "./brain/retrieval";
+import { memory } from "./self/memory-engine";
 
 export type EverydayPlan = {
   kind:
-    | "timer"
-    | "note"
-    | "draft"
-    | "digest"
-    | "convert"
-    | "open"
-    | "calendar"
-    | "calc"
-    | "recall"
-    | "forget";
+    "timer" | "note" | "draft" | "digest" | "convert" | "calendar" | "calc" | "recall" | "forget";
   text: string;
   needsApproval: boolean;
   undo: boolean;
 };
 
-export function everydayPlan(text: string): EverydayPlan | null {
+/** How long a recalled memory stays "that" for a spoken "forget that". */
+const FORGET_TARGET_MS = 10 * 60_000;
+// "don't forget that" is the opposite of a command, so the cue must not follow a negation. JS \b is ASCII-only,
+// so the Devanagari cues carry no \b.
+const FORGET_ALL =
+  /(?<!\b(?:don'?t|do not|never|mat|kabhi na)\s+)(?:\b(?:bhool jao sab|forget everything|forget all)\b|सब भूल जाओ)/i;
+const FORGET_LAST =
+  /(?<!\b(?:don'?t|do not|never|mat|kabhi na)\s+)(?:\b(?:bhool jao|forget that)\b|भूल जाओ)/i;
+const RECALL_CUE = /\byaad hai\b|याद है/i;
+const NOTE_WITH_FACT = /\b(?:yaad rakh(?:na|o)?|याद रख(?:ना|ो)?)(?:\s+(?:ki|कि))?\s+\S/i;
+
+function recallFromArc(value: string): EverydayPlan | null {
+  const notes = arcSnapshot();
+  const rest = retrievalTerms(value.replace(RECALL_CUE, " "));
+  const hit = rest.length
+    ? [...notes].reverse().find((note) => {
+        const topic = new Set(retrievalTerms(note.topic));
+        return rest.some((word) => topic.has(word));
+      })
+    : notes[notes.length - 1];
+  if (!hit) return null;
+  const last = recallArc(0);
+  const age = last && last.text === hit.topic ? last.age : "age unknown";
+  return {
+    kind: "recall",
+    text: `Saved earlier (${age}, ${hit.source}): ${hit.topic}`,
+    needsApproval: false,
+    undo: false,
+  };
+}
+
+function forgetThat(now: number): EverydayPlan {
+  const recent = memory.lastRetrieval();
+  const id = recent.ids[0];
+  const target =
+    id && now - recent.at <= FORGET_TARGET_MS
+      ? memory.getSnapshot().items.find((item) => item.id === id)
+      : undefined;
+  if (target) {
+    forgetEverywhere(target.id);
+    return {
+      kind: "forget",
+      text: `Forgot "${target.title}" everywhere: memory, knowledge and the vector copy.`,
+      needsApproval: false,
+      undo: false,
+    };
+  }
+  const note = forgetArc("last");
+  return {
+    kind: "forget",
+    text: note
+      ? "Dropped the last session note. It was not a saved memory."
+      : "Nothing matched, so nothing was forgotten.",
+    needsApproval: false,
+    undo: false,
+  };
+}
+
+export function everydayPlan(text: string, now: number = Date.now()): EverydayPlan | null {
   const value = String(text || "").trim();
   if (!value) return null;
   if (/\b(timer|alarm)\b/i.test(value) && /\b(\d+|ek|do|paanch|das)\b/i.test(value)) {
@@ -34,48 +85,25 @@ export function everydayPlan(text: string): EverydayPlan | null {
       undo: true,
     };
   }
-  if (/\byaad hai\b/i.test(value)) {
-    const hit = recallArc(0);
-    return {
-      kind: "recall",
-      text: hit
-        ? `Saved earlier (${hit.age}, ${hit.source}): ${hit.text}`
-        : "I do not have that saved.",
-      needsApproval: false,
-      undo: false,
-    };
-  }
-  if (/\b(bhool jao sab|forget everything|forget all)\b/i.test(value)) {
+  // A question about a remembered fact is the brain's job (memory.retrieve). Only a note from this session
+  // answers here, and only when one matches; otherwise nothing is claimed and the turn goes on.
+  if (RECALL_CUE.test(value)) return recallFromArc(value);
+  if (FORGET_ALL.test(value)) {
     const removed = forgetArc("all");
     resetCorrections();
     resetStyleCorrection();
     return {
       kind: "forget",
-      text: removed ? "Forgot the saved notes." : "There was nothing to forget.",
+      text: removed
+        ? "Cleared the session notes and corrections. Your saved memories stay; forget them one at a time."
+        : "Cleared the corrections. Your saved memories stay; forget them one at a time.",
       needsApproval: false,
-      undo: true,
+      undo: false,
     };
   }
-  if (/\b(bhool jao|forget that)\b/i.test(value)) {
-    const removed = forgetArc("last");
-    return {
-      kind: "forget",
-      text: removed ? "Forgot the last note." : "There was nothing to forget.",
-      needsApproval: false,
-      undo: true,
-    };
-  }
-  if (/\b(open|kholo)\b/i.test(value) && /\b(chrome|notepad|file|site|folder)\b/i.test(value)) {
-    const named = phoneticHit(value, ["Chrome", "Notepad"]);
-    return {
-      kind: "open",
-      text: named
-        ? `Opening ${named}. Undo closes it if it was ours.`
-        : "Opening that. Undo closes it if it was ours.",
-      needsApproval: false,
-      undo: true,
-    };
-  }
+  if (FORGET_LAST.test(value)) return forgetThat(now);
+  // "chrome kholo" and "open notepad" are not answered here: nothing is opened by this file, so it says nothing
+  // and the real tool path (approval, undo journal) handles the request.
   if (/\b(calendar|kalender)\b/i.test(value) && /\b(add|daal|daalo|meeting)\b/i.test(value)) {
     return {
       kind: "calendar",
@@ -104,6 +132,8 @@ export function everydayPlan(text: string): EverydayPlan | null {
       undo: true,
     };
   }
+  // "yaad rakhna <fact>" is a request to remember that fact: the settings path stages it and asks to confirm.
+  if (NOTE_WITH_FACT.test(value)) return null;
   if (/\b(note this|yaad rakhna|likh lo)\b/i.test(value)) {
     addOpenLoop("task", value.slice(0, 200));
     return {

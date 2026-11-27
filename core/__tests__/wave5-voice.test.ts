@@ -243,7 +243,8 @@ describe("speech and reply", () => {
     expect(everydayPlan("what is 12 times 8")?.text).toBe("96.");
     expect(everydayPlan("set a timer for 10 minutes")?.undo).toBe(true);
     expect(everydayPlan("yaad hai")?.text).toMatch(/the pin/);
-    expect(everydayPlan("open notepad")?.text).toMatch(/Notepad/);
+    // Nothing here opens an app, so it must not say it did: the real tool path answers.
+    expect(everydayPlan("open notepad")).toBeNull();
     expect(everydayPlan("message likho to mom")?.needsApproval).toBe(true);
     expect(everydayPlan("bhool jao sab")?.kind).toBe("forget");
     expect(everydayPlan("draft a poem")).toBeNull();

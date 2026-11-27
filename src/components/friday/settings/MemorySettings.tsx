@@ -27,6 +27,24 @@ export function MemorySettings() {
   const state = useMemory();
   const prefs = usePreferences();
   const [backupAt, setBackupAt] = useState<number | null>(() => memory.lastBackupAt());
+  const [restoring, setRestoring] = useState(false);
+
+  const restoreNow = async (): Promise<void> => {
+    if (restoring) return;
+    setRestoring(true);
+    try {
+      let n = memory.restoreBackup();
+      if (!n) n = await memory.restoreBackupFromDisk();
+      if (n) toast.success(`${n} record(s) restored`);
+      else toast.error("No backup found");
+    } catch (error) {
+      toast.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`, {
+        action: { label: "Retry", onClick: () => void restoreNow() },
+      });
+    } finally {
+      setRestoring(false);
+    }
+  };
   const [noticedTick, setNoticedTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [seenWrite, setSeenWrite] = useState(state.lastWriteAt);
@@ -130,13 +148,10 @@ export function MemorySettings() {
           <Button
             size="sm"
             variant="outline"
-            disabled={!backupAt}
-            onClick={() => {
-              const count = memory.restoreBackup();
-              toast.success(`Restored ${count} item(s) from the last snapshot`);
-            }}
+            disabled={!backupAt || restoring}
+            onClick={() => restoreNow()}
           >
-            <RefreshCw className="size-4" /> Restore snapshot
+            <RefreshCw className="size-4" /> {restoring ? "Restoring…" : "Restore snapshot"}
           </Button>
           <Button
             size="sm"

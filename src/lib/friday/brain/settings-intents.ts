@@ -61,6 +61,7 @@ export type StagedChange = {
 
 export type SettingsIntent =
   | { kind: "staged"; message: string; change: StagedChange }
+  | { kind: "ask"; message: string }
   | { kind: "applied"; message: string }
   | { kind: "cancelled"; message: string }
   | { kind: "refused"; message: string }
@@ -76,6 +77,94 @@ const DENY_CONFIRM = /^(no|nope|nah|cancel|stop|don'?t|na|nahi|leave it|forget i
 let staged: StagedChange | null = null;
 /** Staged changes expire so an old "yes" can never apply a stale change. */
 const STAGE_TTL_MS = 120_000;
+/** A change to a policy, billing, hands-free or wake-word setting waits for its yes only this long. */
+const SHORT_STAGE_TTL_MS = 30_000;
+const SHORT_TTL_KEYS = new Set(["hands-free voice", "wake word", "usage policy"]);
+
+/**
+ * One table for "off" and one for "on" in English, Roman Hindi and Devanagari, shared by every on/off setting here.
+ * A letter-aware boundary is used because `\b` does not see Devanagari.
+ */
+const OFF_WORDS = [
+  "off",
+  "disable",
+  "stop",
+  "don't",
+  "don’t",
+  "dont",
+  "no",
+  "band",
+  "bandh",
+  "hatao",
+  "hata do",
+  "nahi",
+  "nahin",
+  "mat",
+  "बंद",
+  "बन्द",
+  "हटाओ",
+  "हटा दो",
+  "रोको",
+  "नहीं",
+  "मत",
+];
+const ON_WORDS = ["on", "enable", "start", "chalu", "shuru", "चालू", "शुरू", "लगाओ"];
+const wordTable = (list: readonly string[]) =>
+  new RegExp(
+    `(?<![\\p{L}\\p{M}])(?:${list.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\p{L}\\p{M}])`,
+    "iu",
+  );
+const OFF_TABLE = wordTable(OFF_WORDS);
+const ON_TABLE = wordTable(ON_WORDS);
+
+/** Which way an on/off request points. A line that names both ways, or neither, is unclear and is asked about. */
+function readDirection(text: string, impliedOn = false): "on" | "off" | "unclear" {
+  const off = OFF_TABLE.test(text);
+  const on = ON_TABLE.test(text);
+  if (off && on) return "unclear";
+  if (off) return "off";
+  if (on || impliedOn) return "on";
+  return "unclear";
+}
+
+let handsFreeReader: (() => boolean) | null = null;
+
+/** The live voice session registers how to read hands-free, so a staged change shows the real current value. */
+export function setHandsFreeReader(read: (() => boolean) | null): void {
+  handsFreeReader = read;
+}
+
+/**
+ * Whether a spoken yes may apply a staged change. Turning hands-free on, or any paid model policy, opens the
+ * microphone without the wake word or spends money: those wait for a yes on the screen (typed in the chat).
+ */
+export function spokenYesNeedsScreen(change: Pick<StagedChange, "key" | "to">): boolean {
+  if (change.key === "hands-free voice") return change.to === "on";
+  if (change.key === "usage policy")
+    return change.to !== "free-only" && change.to !== "free-preferred";
+  return false;
+}
+
+let spokenLine: { text: string; at: number } | null = null;
+const foldLine = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+    .trim();
+
+/**
+ * The voice session notes each line it hands to the Brain, so the reader here knows a yes came by voice (the Brain
+ * call carries no origin to this module). A note is used once and lasts only as long as a staged change can.
+ */
+export function noteSpokenLine(text: string, at = Date.now()): void {
+  spokenLine = { text: foldLine(text), at };
+}
+
+function takeSpokenLine(text: string): boolean {
+  const note = spokenLine;
+  spokenLine = null;
+  return note !== null && note.text === foldLine(text) && Date.now() - note.at <= STAGE_TTL_MS;
+}
 
 /**
  * User-profile and FRIDAY-behaviour keys. Wake word, billing, hands-free and
@@ -125,7 +214,13 @@ function stage(change: Omit<StagedChange, "at">): SettingsIntent {
       message: `Got it — ${change.key} is now ${change.to}. Same setting the Settings page writes, so it holds across restarts.`,
     };
   }
-  staged = { ...change, at: Date.now() };
+  staged = {
+    ...change,
+    at: Date.now(),
+    ...(change.ttlMs === undefined && SHORT_TTL_KEYS.has(change.key)
+      ? { ttlMs: SHORT_STAGE_TTL_MS }
+      : {}),
+  };
   return {
     kind: "staged",
     change: staged,
@@ -406,11 +501,21 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
   const text = String(prompt || "").trim();
   if (!text) return null;
   if (!forceLearn) learnNow = false;
+  // Every line spends the voice note, so it never outlives the turn it was made for.
+  const byVoice = takeSpokenLine(text);
 
   // 1. answer to a change FRIDAY already repeated back ----------------------
   const waiting = pendingChange();
   if (waiting) {
     if (confirmationVerdict(text) === "yes") {
+      // A yes that came by voice never applies a change that opens the microphone or spends money: the change
+      // stays staged for a yes typed on the screen.
+      if (byVoice && spokenYesNeedsScreen(waiting)) {
+        return {
+          kind: "refused",
+          message: "That one needs your tap on screen. Type yes in the chat to confirm it.",
+        };
+      }
       const change = waiting;
       staged = null;
       void change.apply().catch(() => undefined);
@@ -459,12 +564,25 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
     !/\bhow\b/i.test(text) &&
     !durationAsked
   ) {
-    const off = /\b(off|disable|stop|don'?t|no)\b/i.test(text);
+    const direction = readDirection(
+      text,
+      /\bwithout (the )?wake word\b|\bkeep listening\b|\b(?:switch to|use|go|want|need|chahiye|chahta|chahti)\b/i.test(
+        text,
+      ),
+    );
+    if (direction === "unclear") {
+      return { kind: "ask", message: "Hands-free on or off?" };
+    }
+    const off = direction === "off";
+    const current = handsFreeReader ? (handsFreeReader() ? "on" : "off") : null;
+    if (current === direction) {
+      return { kind: "refused", message: `Hands-free is already ${direction}. Nothing to change.` };
+    }
     return stage({
       key: "hands-free voice",
       summary: `You want hands-free ${off ? "off, so I only answer after the wake word" : "on, so I take follow-ups without the wake word"}.`,
-      from: "read from the live voice session",
-      to: off ? "off" : "on",
+      from: current ?? "not known right now",
+      to: direction,
       apply: async () => {
         const { assistantMode } = await import("../assistant-mode");
         assistantMode.setHandsFree(!off);
@@ -1051,7 +1169,9 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
 
   // 8. spoken replies --------------------------------------------------------
   if (/\b(speak|voice) (replies|answers|responses)\b|\bstop (speaking|talking)\b/i.test(text)) {
-    const off = /\b(off|stop|don'?t|disable|mute|no)\b/i.test(text);
+    const direction = readDirection(text);
+    if (direction === "unclear") return { kind: "ask", message: "Spoken replies on or off?" };
+    const off = direction === "off";
     return stage({
       key: "spoken replies",
       summary: `You want spoken replies ${off ? "off" : "on"}.`,

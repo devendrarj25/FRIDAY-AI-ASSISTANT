@@ -84,6 +84,24 @@ export function MemoryConsole() {
   const state = useBrain();
   const memoryState = useMemory();
   const vector = useVectorIndex();
+  const [restoring, setRestoring] = useState(false);
+
+  const restoreNow = async (): Promise<void> => {
+    if (restoring) return;
+    setRestoring(true);
+    try {
+      let n = memoryEngine.restoreBackup();
+      if (!n) n = await memoryEngine.restoreBackupFromDisk();
+      if (n) toast.success(`${n} record(s) restored`);
+      else toast.error("No backup found");
+    } catch (error) {
+      toast.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`, {
+        action: { label: "Retry", onClick: () => void restoreNow() },
+      });
+    } finally {
+      setRestoring(false);
+    }
+  };
   const [memTitle, setMemTitle] = useState("");
   const [memText, setMemText] = useState("");
   const [memQuery, setMemQuery] = useState("");
@@ -184,15 +202,8 @@ export function MemoryConsole() {
             >
               Backup
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const n = memoryEngine.restoreBackup();
-                toast[n ? "success" : "error"](n ? `${n} record(s) restored` : "No backup found");
-              }}
-            >
-              Restore
+            <Button size="sm" variant="outline" disabled={restoring} onClick={() => restoreNow()}>
+              {restoring ? "Restoring…" : "Restore"}
             </Button>
             <Button
               size="sm"

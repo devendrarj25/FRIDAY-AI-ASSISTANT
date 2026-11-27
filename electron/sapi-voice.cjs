@@ -8,13 +8,26 @@
 const NO_INDIAN_VOICE =
   "No Indian voice is installed. Windows Settings, Time and language, Speech, Add voices, Hindi (India).";
 
+// PowerShell ends a single-quoted string on any of these, not only the ASCII one
+// (about_Quoting_Rules). Each becomes an ASCII quote, then every quote is doubled.
+const PS_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
+// C0 and C1 controls, DEL, and the Unicode line and paragraph separators.
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g;
+// A surrogate half with no partner cannot be passed on a Windows command line intact.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** One PowerShell single-quoted literal body: `$`, backticks and `$(...)` stay text. */
+function psLiteral(value, maxChars) {
+  let clean = String(value || "")
+    .replace(LONE_SURROGATE, "")
+    .replace(CONTROL_CHARS, " ");
+  if (maxChars) clean = Array.from(clean).slice(0, maxChars).join("");
+  return clean.replace(PS_SINGLE_QUOTES, "'").replace(/'/g, "''");
+}
+
 function sapiScript(text, options = {}) {
-  // Single-quoted in PowerShell: `$`, backticks and `$(...)` in a reply stay text.
-  const clean = String(text || "")
-    .replace(/[\r\n]/g, " ")
-    .slice(0, 400)
-    .replace(/'/g, "''");
-  const wav = String(options.wav || "").replace(/'/g, "''");
+  const clean = psLiteral(text, 400);
+  const wav = psLiteral(options.wav);
   const rate = Number(options.rate);
   const volume = Number(options.volume);
   const lines = [

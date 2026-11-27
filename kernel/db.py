@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import threading
+import time
 from pathlib import Path
+
+from failure_guard import restore_database_file
 
 # Bumped when ADDED_COLUMNS changes. migrate() writes this after the backup.
 SCHEMA_VERSION = 2
@@ -49,15 +54,126 @@ CREATE TABLE IF NOT EXISTS logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT, source TEXT, message TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+-- The two lookups that grow with use: one conversation's rows, and one task's steps.
+CREATE INDEX IF NOT EXISTS idx_chats_session_id ON chats(session, id);
+CREATE INDEX IF NOT EXISTS idx_task_steps_task_id ON task_steps(task_id, id);
 """
 
+BUSY_TIMEOUT_MS = 5000
 
+
+def _locked(method):
+    @functools.wraps(method)
+    def run(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return run
+
+
+def _serialised(cls):
+    """One connection is shared by every worker thread (asyncio.to_thread), so every public method takes the lock."""
+    for name, member in list(vars(cls).items()):
+        if not name.startswith("_") and callable(member):
+            setattr(cls, name, _locked(member))
+    return cls
+
+
+@_serialised
 class Storage:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self._conn: sqlite3.Connection | None = sqlite3.connect(path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
+        self._conn: sqlite3.Connection | None = None
+        self._memory_only = False
+        self._health: dict = {"state": "ok", "corruptPath": None, "storedVersion": None}
+        self._open()
+
+    # open and recover ---------------------------------------------------
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, check_same_thread=False, timeout=BUSY_TIMEOUT_MS / 1000)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    # Only these mean the file itself is damaged. "locked", "busy" or "disk I/O error" is another process
+    # (an antivirus scan, a second kernel) or a flaky drive: the file is fine and must never be set aside.
+    _CORRUPTION_MARKERS = ("malformed", "not a database")
+
+    @classmethod
+    def _is_corruption(cls, error: sqlite3.Error) -> bool:
+        text = str(error).lower()
+        return any(marker in text for marker in cls._CORRUPTION_MARKERS)
+
+    @classmethod
+    def _passes_quick_check(cls, conn: sqlite3.Connection) -> bool:
+        """False only for real damage. A transient error counts as healthy so a busy file is never discarded."""
+        try:
+            rows = conn.execute("PRAGMA quick_check").fetchall()
+        except sqlite3.Error as error:
+            return not cls._is_corruption(error)
+        return len(rows) == 1 and str(rows[0][0]).lower() == "ok"
+
+    def _set_aside(self) -> Path | None:
+        """Rename the damaged file (and its journal files) to `<name>.corrupt-<stamp>`; the bytes are kept.
+
+        Returns None when Windows refuses (file in use): the caller degrades instead of raising at import."""
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        aside = Path(f"{self.path}.corrupt-{stamp}")
+        count = 1
+        while aside.exists():
+            count += 1
+            aside = Path(f"{self.path}.corrupt-{stamp}-{count}")
+        try:
+            self.path.replace(aside)
+        except OSError:
+            return None
+        for suffix in ("-wal", "-shm"):
+            leftover = Path(str(self.path) + suffix)
+            try:
+                if leftover.exists():
+                    leftover.replace(Path(str(aside) + suffix))
+            except OSError:  # noqa: S112 — a journal file still in use is harmless once the main file moved
+                continue
+        return aside
+
+    def _open(self) -> None:
+        conn = self._connect()
+        if not self._passes_quick_check(conn):
+            # Never stop the kernel at import for a damaged file: keep it, then restore the backup or start fresh.
+            conn.close()
+            aside = self._set_aside()
+            if aside is None:
+                # The file cannot be moved: keep it untouched and run on a throw-away in-memory database.
+                self._memory_only = True
+                conn = sqlite3.connect(":memory:", check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                self._health = {"state": "unavailable", "corruptPath": None, "storedVersion": None}
+                self._conn = conn
+                return
+            state = "recreated"
+            if restore_database_file(self.path):
+                conn = self._connect()
+                if self._passes_quick_check(conn):
+                    state = "restored"
+                else:
+                    conn.close()
+                    self.path.unlink(missing_ok=True)
+                    conn = self._connect()
+            else:
+                conn = self._connect()
+            self._health = {"state": state, "corruptPath": str(aside), "storedVersion": None}
+        self._conn = conn
+        try:
+            # WAL: a reader never blocks the writer. busy_timeout: a short overlap waits instead of failing.
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.DatabaseError:  # noqa: S110 — a read-only folder keeps the default journal
+            pass
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+
+    def health(self) -> dict:
+        """What Doctor shows: ok, restored, recreated (with the set-aside path) or newer-schema."""
+        return {**self._health, "schemaVersion": SCHEMA_VERSION}
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -99,12 +215,19 @@ class Storage:
         conn = self._conn
         if conn is None:
             raise RuntimeError("database is closed")
+        if self._memory_only:
+            return ""  # never write a throw-away database over the last good backup
         dest = Path(str(self.path) + ".bak")
-        bak = sqlite3.connect(dest)
+        # Written beside, then swapped in: a cut-off backup never replaces the last good one, and a damaged
+        # old backup cannot make the new one fail.
+        fresh = Path(str(dest) + ".tmp")
+        fresh.unlink(missing_ok=True)
+        bak = sqlite3.connect(fresh)
         try:
             conn.backup(bak)
         finally:
             bak.close()
+        fresh.replace(dest)
         return str(dest)
 
     def migrate(self) -> None:
@@ -118,7 +241,12 @@ class Storage:
             self.backup_database()
             for table, column, decl in pending:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-        self.set_setting("schema_version", SCHEMA_VERSION)
+        stored = self.settings().get("schema_version")
+        if isinstance(stored, int) and stored > SCHEMA_VERSION:
+            # A newer build wrote this file (the owner rolled back). Keep working, never write the number down.
+            self._health = {**self._health, "state": "newer-schema", "storedVersion": stored}
+        else:
+            self.set_setting("schema_version", SCHEMA_VERSION)
         # Older builds persisted provider API keys in this table. Scrub them
         # once on open; the desktop re-supplies keys from its secure store.
         self.conn.execute("UPDATE models SET api_key=NULL WHERE api_key IS NOT NULL")
@@ -234,9 +362,11 @@ class Storage:
         ]
 
     def replace_chat(self, session: str, messages: list) -> int:
-        """Swap one session's transcript. Empty list = clear. Phone replay uses this."""
-        self.conn.execute("DELETE FROM chats WHERE session=?", (session,))
-        count = 0
+        """Swap one session's transcript. Empty list = clear. Phone replay uses this.
+
+        One transaction: the old transcript is only deleted when the new one is stored in full.
+        """
+        rows = []
         for item in messages or []:
             if not isinstance(item, dict):
                 continue
@@ -246,15 +376,15 @@ class Storage:
             text = str(item.get("text") or item.get("content") or "").strip()
             if not role or not text:
                 continue
-            origin = item.get("origin")
-            model_id = item.get("modelId") or item.get("model_id")
-            self.conn.execute(
-                "INSERT INTO chats(session, role, model_id, text, origin) VALUES(?,?,?,?,?)",
-                (session, role, model_id, text, origin),
-            )
-            count += 1
-        self.conn.commit()
-        return count
+            rows.append((session, role, item.get("modelId") or item.get("model_id"), text, item.get("origin")))
+        try:
+            self.conn.execute("DELETE FROM chats WHERE session=?", (session,))
+            self.conn.executemany("INSERT INTO chats(session, role, model_id, text, origin) VALUES(?,?,?,?,?)", rows)
+            self.conn.commit()
+        except BaseException:
+            self.conn.rollback()
+            raise
+        return len(rows)
 
     # tools / tasks ------------------------------------------------------
     def enabled_tools(self) -> dict:

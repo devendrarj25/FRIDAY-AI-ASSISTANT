@@ -31,9 +31,112 @@ import { governance } from "./self/governance";
 import { systemMap } from "./system-map";
 import { installToastMirror } from "./toast-bridge";
 import { ledger } from "./self/task-ledger";
-import { taskGraph } from "./self/task-graph";
+import { taskGraph, type TaskGraph } from "./self/task-graph";
+import { announceBackgroundTask, type TaskUpdate } from "./voice-engine/voice-tasks";
 
 let wired = false;
+
+type Notice = Parameters<typeof notifications.push>[0];
+
+const DONE_NODE = new Set(["completed", "verified"]);
+const clip = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+
+/** What a graph has to say now: finished, failed, or waiting on the owner. Null while it is simply working. */
+function graphOutcome(graph: TaskGraph): "completed" | "failed" | "needs-approval" | null {
+  if (graph.state === "completed") return "completed";
+  if (graph.state === "failed") return "failed";
+  if (graph.nodes.some((node) => node.state === "waiting")) return "needs-approval";
+  return null;
+}
+
+/**
+ * One short line, from what the subtasks recorded: how many finished with a checked postcondition, the failed step
+ * and its error, or the step waiting on the owner. A finish that was not checked is never counted.
+ */
+export function graphOutcomeLine(graph: TaskGraph): string {
+  const subject = clip(graph.request.replace(/\s+/g, " ").trim(), 70);
+  const total = graph.nodes.length;
+  const outcome = graphOutcome(graph);
+  if (outcome === "failed") {
+    const failed = graph.nodes.find((node) => node.state === "failed");
+    const why = failed?.error ? `: ${clip(failed.error, 60)}` : "";
+    return clip(`${subject} failed at ${failed?.title ?? "a step"}${why}.`, 160);
+  }
+  if (outcome === "needs-approval") {
+    const waiting = graph.nodes.find((node) => node.state === "waiting");
+    const tool = waiting?.checkpoint?.pendingApproval?.tool;
+    return clip(
+      `${subject} is waiting on you${tool ? ` to approve ${tool}` : ""} at ${waiting?.title ?? "a step"}.`,
+      160,
+    );
+  }
+  const checked = graph.nodes.filter(
+    (node) => DONE_NODE.has(node.state) && node.checkpoint?.checked === true,
+  ).length;
+  return clip(`Done: ${subject}. ${checked} of ${total} step(s) checked.`, 160);
+}
+
+/** Waiting notices raised this session (a waiting graph does not use up its completion notice). */
+const waitingNoticed = new Set<string>();
+/** Final notices shown on screen while the voice has not taken the line yet. */
+const finalNoticed = new Set<string>();
+
+/**
+ * Raises the notice for each graph that finished, failed or is waiting: a visual row in the notification centre and
+ * one spoken line through the voice desk. A finished or failed graph is marked announced only after the voice took
+ * the line (spoken or queued), so a line is not lost while no voice is attached.
+ */
+export function announceGraphs(
+  graphs: readonly TaskGraph[],
+  deps: {
+    notify: (notice: Notice) => void;
+    speak: (update: TaskUpdate, label: string) => boolean;
+    markAnnounced: (graphId: string) => void;
+  },
+): void {
+  for (const graph of graphs) {
+    if (graph.announced) continue;
+    const outcome = graphOutcome(graph);
+    if (!outcome) continue;
+    const line = graphOutcomeLine(graph);
+    const label = clip(graph.request.replace(/\s+/g, " ").trim(), 60);
+    if (outcome === "needs-approval") {
+      const waiting = graph.nodes.find((node) => node.state === "waiting");
+      const key = `${graph.id}:${waiting?.id ?? ""}:${waiting?.attempts ?? 0}`;
+      if (waitingNoticed.has(key)) continue;
+      waitingNoticed.add(key);
+      deps.notify({
+        id: `graph:${graph.id}:waiting:${waiting?.id ?? ""}`,
+        level: "action",
+        title: "Background task is waiting for you",
+        detail: line,
+        source: "Tasks",
+        route: "/tasks",
+      });
+      deps.speak({ taskId: `graph:${graph.id}`, kind: "needs-approval", text: line }, label);
+      continue;
+    }
+    const key = `${graph.id}:${outcome}`;
+    if (!finalNoticed.has(key)) {
+      finalNoticed.add(key);
+      deps.notify({
+        id: `graph:${graph.id}:${outcome === "completed" ? "done" : "failed"}`,
+        level: outcome === "completed" ? "success" : "error",
+        title:
+          outcome === "completed"
+            ? "Background task finished"
+            : "Background task needs you — it failed",
+        detail: `${graph.request.slice(0, 160)}\n${line}`,
+        source: "Tasks",
+        route: "/tasks",
+      });
+    }
+    if (deps.speak({ taskId: `graph:${graph.id}`, kind: outcome, text: line }, label)) {
+      deps.markAnnounced(graph.id);
+    }
+  }
+}
 
 /** Idempotent — safe to call from every mount. */
 export function wireNotifications(): void {
@@ -112,34 +215,13 @@ export function wireNotifications(): void {
   /* ------------------------------------------------------- task graph */
   // Long background jobs report themselves here, so a task that finished (or
   // stalled) while the owner was elsewhere is waiting for them when they return.
+  // The same outcome is also said once by voice, through the narrator's rules.
   taskGraph.subscribe(() => {
-    for (const graph of taskGraph.list()) {
-      if (graph.announced) continue;
-      if (graph.state === "completed") {
-        taskGraph.markAnnounced(graph.id);
-        notifications.push({
-          id: `graph:${graph.id}:done`,
-          level: "success",
-          title: "Background task finished",
-          detail: `${graph.request.slice(0, 160)}\n${graph.nodes.length} subtask(s) completed.`,
-          source: "Tasks",
-          route: "/tasks",
-        });
-      } else if (graph.state === "failed" || graph.nodes.some((n) => n.state === "waiting")) {
-        taskGraph.markAnnounced(graph.id);
-        notifications.push({
-          id: `graph:${graph.id}:${graph.state}`,
-          level: graph.state === "failed" ? "error" : "action",
-          title:
-            graph.state === "failed"
-              ? "Background task needs you — it failed"
-              : "Background task is waiting for you",
-          detail: graph.error ?? graph.request.slice(0, 160),
-          source: "Tasks",
-          route: "/tasks",
-        });
-      }
-    }
+    announceGraphs(taskGraph.list(), {
+      notify: (notice) => notifications.push(notice),
+      speak: announceBackgroundTask,
+      markAnnounced: (id) => taskGraph.markAnnounced(id),
+    });
   });
 
   /* ------------------------------------------------------- autonomy log */

@@ -13,6 +13,7 @@
 type StateApi = {
   getState?: (namespace: string) => Promise<unknown>;
   setState?: (namespace: string, value: unknown) => Promise<boolean>;
+  signalHalted?: (halted: boolean) => boolean;
   storageIdentity?: { id: string; root: string | null } | null;
 };
 
@@ -101,6 +102,21 @@ export async function readDiskState<T>(namespace: string): Promise<T | null> {
 }
 
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** The owner's autonomy record (`self/autonomy.ts`). Its `halted` flag is Stop everything. */
+const AUTONOMY_NAMESPACE = "friday.autonomy.v1";
+
+/**
+ * The saved copy of the autonomy record lands on the 400 ms delay below, and the main process gates shell commands and
+ * tool calls from that copy. Telling it synchronously, in the same tick the state changes, closes that window.
+ */
+function signalHalted(bridge: StateApi | undefined, value: unknown): void {
+  try {
+    bridge?.signalHalted?.((value as { halted?: unknown } | null)?.halted === true);
+  } catch {
+    /* no desktop bridge: the saved copy still carries the flag */
+  }
+}
 /** Namespaces this session has already written — never overwritten by a restore. */
 const written = new Set<string>();
 
@@ -114,6 +130,7 @@ export function writeState(namespace: string, value: unknown): void {
   unsaved.set(namespace, value);
   localTimer ??= setTimeout(flushLocalState, LOCAL_WRITE_DELAY_MS);
   const bridge = api();
+  if (namespace === AUTONOMY_NAMESPACE) signalHalted(bridge, value);
   if (!bridge?.setState) return;
   const queued = pending.get(namespace);
   if (queued) clearTimeout(queued);

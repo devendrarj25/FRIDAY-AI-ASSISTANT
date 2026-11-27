@@ -33,7 +33,11 @@ describe("the semantic-memory embedding model", () => {
   it("is never an event-loop call in the kernel: every Chroma call goes through the worker-thread wrapper", () => {
     const memory = read("kernel/memory.py");
     expect(memory).toContain("async def _chroma(self, fn, /, *args, **kwargs):");
-    expect(memory).toContain("asyncio.to_thread(fn, *args, **kwargs)");
+    // The worker thread runs the call under one thread lock, so two Chroma calls never overlap.
+    expect(memory).toContain("asyncio.to_thread(self._locked, fn, *args, **kwargs)");
+    expect(memory).toMatch(
+      /def _locked\(self, fn, \/, \*args, \*\*kwargs\):\s+with self\._thread_lock:\s+return fn\(\*args, \*\*kwargs\)/,
+    );
     for (const call of ["col.query", "col.upsert", "col.add", ".delete"]) {
       expect(memory, call).not.toMatch(
         new RegExp(`(?<!self\\._chroma\\()${call.replace(".", "\\.")}\\(`),

@@ -57,6 +57,8 @@ export type TerminalExecOptions = {
   shell?: string;
   timeoutMs?: number;
   env?: Record<string, string>;
+  /** "agent": FRIDAY chose this command itself, so a non-read command goes through the permission gate. */
+  origin?: "agent";
 };
 
 type Bridge = {

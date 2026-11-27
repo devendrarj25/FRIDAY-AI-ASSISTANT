@@ -66,6 +66,8 @@ def ollama_model(mid: str = "ollama:qwen3-8b") -> Model:
 
 
 async def run_ollama(monkeypatch, hint) -> dict:
+    # The context window is its own option (test_router_wire_model.py); these cases pin the placement hint alone.
+    monkeypatch.setenv("FRIDAY_OLLAMA_NUM_CTX", "off")
     client = Capture()
     monkeypatch.setattr(router, "_client", lambda: client)
     engine = ModelRouter(Store())
@@ -119,6 +121,7 @@ async def test_other_or_invalid_hints_leave_the_request_exactly_as_today(monkeyp
 
 @pytest.mark.asyncio
 async def test_thinking_field_and_gpu_option_coexist(monkeypatch) -> None:
+    monkeypatch.setenv("FRIDAY_OLLAMA_NUM_CTX", "off")
     client = Capture()
     monkeypatch.setattr(router, "_client", lambda: client)
     engine = ModelRouter(Store())

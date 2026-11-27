@@ -76,6 +76,9 @@ export function micWatch(input: {
   maxUtteranceMs: number;
   trackState?: string;
   muted?: boolean;
+  /** The worklet was trusted (it posted a frame) and has been on for this long; no frame at all is a fault. */
+  workletOn?: boolean;
+  workletLiveForMs?: number;
 }): { restart: boolean; kind: MicFaultKind | ""; message: string } {
   if (!input.live) return { restart: false, kind: "", message: "" };
   if (input.trackState === "ended") {
@@ -101,7 +104,9 @@ export function micWatch(input: {
       message: "The PC woke up. Reopening the microphone.",
     };
   }
-  if (input.lastFrameMono > 0 && frameAge > 2000) {
+  const workletDead =
+    input.workletOn === true && input.lastFrameMono === 0 && (input.workletLiveForMs ?? 0) > 2000;
+  if ((input.lastFrameMono > 0 && frameAge > 2000) || workletDead) {
     return {
       restart: true,
       kind: "no-frames",
@@ -462,6 +467,15 @@ export function preRollFrom(speechAtMono: number, preRollMs = PRE_ROLL_MS): Floa
 /** Captured sample count since the speech mark, for the watchdog (no copy). */
 export function capturedSince(speechAtMono: number, preRollMs = PRE_ROLL_MS): number {
   return ring.countSince(speechAtMono - preRollMs);
+}
+
+/**
+ * How many 16-bit samples a queued clip holds: a WAV minus its 44-byte header, anything else by its size. The
+ * queue's "short clip" test counts samples, so it must never be handed bytes.
+ */
+export function utteranceSamples(blob: { size: number; type?: string }): number {
+  const header = /wav/i.test(blob.type ?? "") ? 44 : 0;
+  return Math.max(0, Math.floor((blob.size - header) / 2));
 }
 
 export function encodeWav(samples: Float32Array, rate = TARGET_RATE): Uint8Array {

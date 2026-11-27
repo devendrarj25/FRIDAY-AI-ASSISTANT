@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { noVoiceFailure } from "../../src/lib/friday/tts-ladder";
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const brainSource = source("src/lib/friday/brain-engine.ts");
@@ -70,7 +71,13 @@ describe("Auto Mode never fails silently at any stage", () => {
     expect(assistant).toMatch(
       /if \(how !== "none"\) \{\s*this\.noteTtsOutcome\(true\);\s*return;\s*\}\s*this\.noteTtsOutcome\(false\);\s*this\.to\("tts-failed"\);/,
     );
-    expect(assistant).toMatch(/voice output failed — no speech engine could speak the reply/);
+    // TEST_REWRITE_OK: the failed-voice line moved to tts-ladder (noVoiceFailure); the conductor sets it as the error.
+    expect(assistant).toMatch(
+      /this\.state\.error = noVoiceFailure\(spoken, this\.offlineVoiceReason\)/,
+    );
+    expect(noVoiceFailure("Hello")).toMatch(
+      /voice output failed — no speech engine could speak the reply/,
+    );
     expect(assistant).toMatch(/\.catch\(\(error: unknown\) => \{[\s\S]{0,600}voice output failed/);
   });
 });

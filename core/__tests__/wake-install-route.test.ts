@@ -22,7 +22,7 @@ describe("wake word install", () => {
   });
 
   it("wake-engine install goes through that row with its own interpreter", () => {
-    const body = wake.slice(wake.indexOf("async function install()"));
+    const body = wake.slice(wake.indexOf("async function install("));
     const install = body.slice(0, body.indexOf("function tmpFile"));
     expect(install).toContain('require("./toolchain.cjs")');
     expect(install).toContain('toolById("openWakeWord")');

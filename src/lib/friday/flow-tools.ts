@@ -12,7 +12,7 @@ import { askChart } from "./flow-depth";
 import { flowStudio } from "./flow-studio-store";
 import { clearChartOffer, explainRecorded, openRecordedChart, takeChartOffer } from "./flow-modes";
 import type { ApprovalLevel } from "./self/autonomy";
-import { runComputerUse, type DesktopPort } from "./self/computer-use";
+import { realSleep, runComputerUse, type DesktopPort } from "./self/computer-use";
 
 export const FLOW_TOOL_NAMES = [
   "flow.read",
@@ -268,7 +268,7 @@ export function callFlowTool(
 }
 
 /** Flow Studio uses the same desktop loop as chat and Auto mode. */
-export function desktopFromFlow(text: string, desktop: DesktopPort, now: () => number = () => 1) {
+export function desktopFromFlow(text: string, desktop: DesktopPort, now: () => number = Date.now) {
   return runComputerUse({
     request: text,
     source: "flow",
@@ -276,6 +276,7 @@ export function desktopFromFlow(text: string, desktop: DesktopPort, now: () => n
     halted: session.halted,
     desktop,
     now,
+    sleep: realSleep,
   });
 }
 

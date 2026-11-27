@@ -28,11 +28,20 @@ export function valueChanged(before: string, after: string): boolean {
  */
 
 import { redactForExport } from "../brain/memory-policy";
-import { readLocalState, registerFlush, restoreFromDisk, writeState } from "../persist";
 import {
+  readDiskState,
+  readLocalState,
+  registerFlush,
+  restoreFromDisk,
+  writeState,
+} from "../persist";
+import {
+  foldScript,
+  isTermWord,
   rankByRetrieval,
   registerEntityAliases,
   retrievalTerms,
+  TERM_SPLIT,
   type RankSignals,
   type VectorSnippet,
 } from "../brain/retrieval";
@@ -205,10 +214,9 @@ let seq = 0;
 const newId = () => `mem-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
 
 const terms = (text: string) =>
-  text
-    .toLowerCase()
-    .split(/[^a-z0-9+#.]+/)
-    .filter((w) => w.length > 2 && !STOP.has(w));
+  foldScript(text)
+    .split(TERM_SPLIT)
+    .filter((w) => isTermWord(w, 2) && !STOP.has(w));
 
 const FILLER = new Set([
   "always",
@@ -372,6 +380,11 @@ export type RememberInput = {
   relevance?: number;
   validFrom?: number;
   validUntil?: number;
+  /**
+   * Who wrote the row, when that differs from `source` (an imported document is not the owner talking).
+   * Defaults to the source.
+   */
+  provenance?: string;
   /** Secret rows are refused. They are never written into ordinary memory. */
   sensitivity?: "public" | "internal" | "private" | "secret";
   /**
@@ -487,6 +500,10 @@ class MemoryEngine {
   private snapshot: MemoryState = { items: [], counts: emptyCounts(), lastWriteAt: 0 };
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private loaded = false;
+  /** Ids the owner forgot this session, and the fabric's persisted tombstones: a backup never brings them back. */
+  private forgotten = new Set<string>();
+  private isTombstoned: (id: string) => boolean = () => false;
+  private lastHits: { ids: string[]; at: number } = { ids: [], at: 0 };
   private lastSweepAt = 0;
   private flushRegistered = false;
   private retireListeners = new Set<(id: string) => void>();
@@ -741,7 +758,7 @@ class MemoryEngine {
       freshnessAt: now,
       scope: input.scope ?? "owner",
       verified: input.verified ?? false,
-      provenance: input.source ?? "friday",
+      provenance: input.provenance ?? input.source ?? "friday",
     };
     if (input.context) item.context = input.context;
     if (input.projectId) item.projectId = input.projectId;
@@ -846,7 +863,30 @@ class MemoryEngine {
 
   forget(id: string) {
     this.items = this.items.filter((i) => i.id !== id);
+    this.forgotten.add(id);
+    this.dropFromBackup(id);
     this.emit();
+  }
+
+  /** The fabric registers its tombstones here (it imports this engine, so the engine cannot import it). */
+  setTombstoneCheck(check: (id: string) => boolean): void {
+    this.isTombstoned = check;
+  }
+
+  /** Ids of the records the latest retrieval returned, newest first, and when. "Forget that" resolves from here. */
+  lastRetrieval(): { ids: string[]; at: number } {
+    return { ids: [...this.lastHits.ids], at: this.lastHits.at };
+  }
+
+  /** A forgotten record must not come back with Restore: it leaves the stored backup in both copies. */
+  private dropFromBackup(id: string) {
+    if (typeof window === "undefined") return;
+    const strip = (saved: { at: number; items: MemoryItem[] } | null) => {
+      if (!saved?.items?.some((item) => item.id === id)) return;
+      writeState(BACKUP_KEY, { ...saved, items: saved.items.filter((item) => item.id !== id) });
+    };
+    strip(readLocalState<{ at: number; items: MemoryItem[] }>(BACKUP_KEY));
+    void readDiskState<{ at: number; items: MemoryItem[] }>(BACKUP_KEY).then(strip);
   }
 
   archive(id: string) {
@@ -910,13 +950,17 @@ class MemoryEngine {
         (!options.tiers || options.tiers.includes(i.tier)) &&
         (options.includeHistory || (!i.supersededAt && validityState(i, now) === "current")),
     );
-    const ranked = !retrievalTerms(query).length
+    // An empty query lists the pool (a recency view); a query that has words but none a record can match on
+    // ("है", "the") recalls nothing, never an arbitrary slice of memory.
+    const ranked = !query.trim()
       ? pool.slice(0, k)
-      : rankByRetrieval(pool, query, memorySignals, {
-          k,
-          minScore: 0.05,
-          taskHint: options.context ?? query,
-        }).map((row) => row.item);
+      : !retrievalTerms(query).length
+        ? []
+        : rankByRetrieval(pool, query, memorySignals, {
+            k,
+            minScore: 0.05,
+            taskHint: options.context ?? query,
+          }).map((row) => row.item);
     if (!options.scope) return ranked;
     const preferred = retrievalTier(options.scope);
     const matches = (scope: MemoryItem["scope"]): boolean => {
@@ -967,6 +1011,7 @@ class MemoryEngine {
     });
     if (hits.length) {
       const now = Date.now();
+      this.lastHits = { ids: hits.map((h) => h.item.id), at: now };
       hits.forEach((h) => {
         h.item.uses += 1;
         h.item.lastUsedAt = now;
@@ -998,18 +1043,36 @@ class MemoryEngine {
     }
   }
 
+  /**
+   * Put the stored backup back. A record the owner forgot since (this session, or recorded as a tombstone) stays
+   * gone. With no browser copy the durable desktop copy is read instead and applied when it arrives.
+   */
   restoreBackup(): number {
     if (typeof window === "undefined") return 0;
     try {
       const parsed = readLocalState<{ items: MemoryItem[] }>(BACKUP_KEY);
-      if (!parsed) return 0;
-      this.items = parsed.items ?? [];
-      this.sweep();
-      this.emit();
-      return this.items.length;
+      if (!parsed) {
+        void this.restoreBackupFromDisk();
+        return 0;
+      }
+      return this.applyBackup(parsed.items ?? []);
     } catch {
       return 0;
     }
+  }
+
+  async restoreBackupFromDisk(): Promise<number> {
+    const saved = await readDiskState<{ items: MemoryItem[] }>(BACKUP_KEY);
+    return saved?.items ? this.applyBackup(saved.items) : 0;
+  }
+
+  private applyBackup(items: MemoryItem[]): number {
+    this.items = items.filter(
+      (item) => !this.forgotten.has(item.id) && !this.isTombstoned(item.id),
+    );
+    this.sweep();
+    this.emit();
+    return this.items.length;
   }
 
   import(json: string): number {

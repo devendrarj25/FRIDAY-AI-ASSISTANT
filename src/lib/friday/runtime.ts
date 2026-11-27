@@ -99,6 +99,7 @@ import {
   takeCompiledMemory,
 } from "./brain/memory-fabric";
 import { models } from "./models-engine";
+import { isNonOwnerRow, quotedLine, quotedLinesBlock, splitQuotedLines } from "./brain/quoted-data";
 import type { RoutingTask } from "./model-catalog";
 
 export type TurnMode = "manual" | "auto";
@@ -113,6 +114,8 @@ export type TurnDispatch = {
   pipeline: Pipeline;
   /** Memory lines that were injected, for the run detail panels. */
   context: string[];
+  /** How many recalled lines were somebody else's words, quoted as data (0 when none). */
+  quotedRows?: number;
 };
 
 export type TurnOutcome = {
@@ -166,6 +169,13 @@ function recallContext(prompt: string, depth: number, vectorHits?: VectorSnippet
           .filter((item) => (hit.item.relatedIds ?? []).includes(item.id))
           .map(memoryToSignals);
         const card = describeEvidence(memoryToSignals(hit.item), peers);
+        // Somebody else's words (an imported document, a web page, a tool result) are quoted data, not memory.
+        if (isNonOwnerRow(hit.item)) {
+          return quotedLine(
+            `[${hit.item.tier}] ${hit.item.title} (${hit.item.source})`,
+            hit.item.text,
+          );
+        }
         return `[${hit.item.tier}] ${hit.item.title}: ${hit.item.text} (${formatEvidenceLine(card)})`;
       });
     });
@@ -327,6 +337,28 @@ export async function refineTurnWithDispatchRole(
   }
 }
 
+/** The longest memory block a spoken turn carries. */
+const SPOKEN_MEMORY_CHARS = 800;
+const CHANNEL_LINE = /^This turn was (?:SPOKEN|TYPED):.*$/m;
+
+/**
+ * The one spoken-reply rule. When the caller already added the voice-mode block (tone, pacing, pronunciation),
+ * the length and markup limits are said there once; this keeps only what that block does not say.
+ */
+function spokenRule(voiceBlockPresent: boolean): string {
+  return [
+    "AUTO MODE — you are speaking out loud, like a phone voice assistant.",
+    ...(voiceBlockPresent
+      ? []
+      : [
+          "Answer in at most 2 short spoken sentences (roughly 40 words). Never list, never use markdown, bullets, headings, code fences, emoji or URLs — they cannot be heard.",
+        ]),
+    "Give the direct answer first. Offer one short follow-up question only when you genuinely need a missing detail.",
+    "If the answer is long, say the one-line summary out loud and put the rest in the panel instead of reading it.",
+    "Any action that changes files, apps or system state has already been confirmed by the owner before it reaches you.",
+  ].join(" ");
+}
+
 /** Everything the brain needs to run one turn. Pure — it changes no state. */
 export function prepareTurn(
   prompt: string,
@@ -356,21 +388,40 @@ export function prepareTurn(
   turnDone("prepare", "recall", `${context.length} lines in ${Date.now() - tRecall}ms`);
   // Read the OS clock at dispatch time so "today", "now" and "latest" are
   // never answered from a cached or trained-in date.
-  const parts: string[] = [systemContextPrompt()];
+  const parts: string[] = [];
+  const voiceBlockPresent = /Voice mode \(this reply is spoken\)/.test(options.extra ?? "");
+  // A spoken turn is lean: stable text first (the voice rule, the caller's language and voice lines), volatile
+  // text last (memory, then the minute-rounded clock), so a prompt prefix can be reused and a slow CPU reads
+  // less. The typed path keeps its full prompt.
+  if (spoken) parts.push(spokenRule(voiceBlockPresent));
+  else parts.push(systemContextPrompt());
   // Read the owner's tone from what he actually wrote, and let FRIDAY's own
   // working state shape how she answers. Simulated states only — the fragment
   // itself forbids claiming human feelings.
   try {
     affect.observePrompt(prompt);
-    parts.push(affect.prompt());
-    const verdict = classifyPriority({ text: prompt });
+    const tone = affect.prompt();
+    // The spoken rule already says how to pace a reply; the mood's own channel line would say it twice.
     parts.push(
-      `Priority of this request: ${verdict.priority}${verdict.reasons.length ? ` (${verdict.reasons.join("; ")})` : ""}.`,
+      spoken
+        ? tone
+            .replace(CHANNEL_LINE, "")
+            .replace(/\n{2,}/g, "\n")
+            .trim()
+        : tone,
     );
+    if (!spoken) {
+      const verdict = classifyPriority({ text: prompt });
+      parts.push(
+        `Priority of this request: ${verdict.priority}${verdict.reasons.length ? ` (${verdict.reasons.join("; ")})` : ""}.`,
+      );
+    }
   } catch {
     /* affect is guidance, never a hard dependency of a turn */
   }
-  const boundedMemory = boundLines(context, 2400);
+  if (spoken && options.extra) parts.push(options.extra);
+  const { own: ownContext, quoted: quotedContext } = splitQuotedLines(context);
+  const boundedMemory = boundLines(ownContext, spoken ? SPOKEN_MEMORY_CHARS : 2400);
   if (boundedMemory.lines.length) {
     parts.push(
       "What you already know that is relevant (your own memory — use it, do not repeat it back verbatim):",
@@ -382,21 +433,13 @@ export function prepareTurn(
       );
     }
   }
+  if (quotedContext.length) parts.push(quotedLinesBlock(quotedContext));
   if (spoken) {
-    parts.push(
-      [
-        "AUTO MODE — you are speaking out loud, like a phone voice assistant.",
-        "Answer in at most 2 short spoken sentences (roughly 40 words). Never list, never use markdown, bullets, headings, code fences, emoji or URLs — they cannot be heard.",
-        "Give the direct answer first. Offer one short follow-up question only when you genuinely need a missing detail.",
-        "If the answer is long, say the one-line summary out loud and put the rest in the panel instead of reading it.",
-        "Any action that changes files, apps or system state has already been confirmed by the owner before it reaches you.",
-      ].join(" "),
-    );
+    parts.push(systemContextPrompt(undefined, { surface: "voice" }));
   } else {
     parts.push(manualChatGuide(prompt, identity.getSnapshot().profile.replyLanguage));
+    if (options.extra) parts.push(options.extra);
   }
-
-  if (options.extra) parts.push(options.extra);
 
   // Auto Mode is spoken out loud, so it answers with the single best model to
   // keep latency low; Manual Mode may fan the turn out across models.
@@ -428,11 +471,13 @@ export function prepareTurn(
     /* tracing must never break a turn */
   }
   return {
-    system: identity.compile(parts.join("\n")),
+    system: identity.compile(parts.join("\n"), spoken ? { lean: true } : {}),
     modelIds: ids,
     routing: note,
     pipeline,
-    context,
+    // The marker that carried a line's origin is dropped for the run detail panels.
+    context: [...ownContext, ...quotedContext],
+    ...(quotedContext.length ? { quotedRows: quotedContext.length } : {}),
   };
 }
 

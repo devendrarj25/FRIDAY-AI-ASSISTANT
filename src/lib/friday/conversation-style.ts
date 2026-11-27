@@ -8,6 +8,7 @@
 
 import { registerOf, type Register } from "./response-policy";
 import { deliveryTagList } from "./voice-engine/delivery-tags";
+import { splitSpokenSentences } from "./voice-engine/language-segmenter";
 
 export type SocialKind = "greeting" | "goodbye" | "thanks" | "ack" | "howareyou" | "smalltalk";
 
@@ -25,8 +26,6 @@ const BOILERPLATE: RegExp[] = [
   /as an ai\b/i,
   /i(?:'| a)m here to help/i,
   /brain online/i,
-  /\d+\s+agents\b/i,
-  /\d+\s+memories\b/i,
   /ready when you are/i,
   /what(?:'| i)s first\b/i,
   /i am human\b/i,
@@ -390,18 +389,31 @@ export function boilerplateHits(text: string): string[] {
 export function guardBoilerplate(text: string): string {
   const raw = String(text || "").trim();
   if (!raw) return "";
-  const parts = raw.match(/[^.!?।]+[.!?।]+|[^.!?।]+$/g) ?? [raw];
-  const kept = parts
-    .map((part) => part.trim())
-    .filter((part) => part && boilerplateHits(part).length === 0);
+  const kept = splitSpokenSentences(raw).filter((part) => boilerplateHits(part).length === 0);
   return kept.join(" ").replace(/\s+/g, " ").trim();
 }
 
-/** Voice keeps the first two sentences. */
-export function preferSpoken(text: string): string {
-  const clean = guardBoilerplate(text);
-  const parts = clean.match(/[^.!?।]+[.!?।]+|[^.!?।]+$/g) ?? [];
-  return parts.slice(0, 2).join(" ").replace(/\s+/g, " ").trim();
+const ON_SCREEN: Record<Register, string> = {
+  en: "It is on screen.",
+  hi: "यह स्क्रीन पर है।",
+  hinglish: "Woh screen par hai.",
+};
+
+export type PreferSpokenOptions = {
+  /** Keep every sentence (approval and digest lines, reply pieces): only the stock filler is dropped. */
+  uncapped?: boolean;
+};
+
+/**
+ * Voice keeps the first two sentences, unless the caller asks for all of them. When every sentence was stock
+ * filler the owner still gets a short pointer to the screen instead of silence.
+ */
+export function preferSpoken(text: string, options: PreferSpokenOptions = {}): string {
+  const raw = String(text || "").trim();
+  const clean = guardBoilerplate(raw);
+  if (!clean) return raw ? ON_SCREEN[socialRegister(raw)] : "";
+  const parts = splitSpokenSentences(clean);
+  return (options.uncapped ? parts : parts.slice(0, 2)).join(" ").replace(/\s+/g, " ").trim();
 }
 
 /** Standing instruction added to every model prompt. */

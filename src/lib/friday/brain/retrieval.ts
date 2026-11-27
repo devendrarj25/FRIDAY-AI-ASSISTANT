@@ -42,11 +42,36 @@ const FOLD: Record<string, string> = {
   owned: "owned",
 };
 
-export function retrievalTerms(text: string): string[] {
+/**
+ * One term contract for memory, retrieval and the fabric: letters, marks and digits of every script (the
+ * Devanagari vowel signs and the virama are marks, so a plain letter split shatters a Hindi word), after NFC so the
+ * precomposed nukta letters and their base-plus-nukta form are one key. `+#.` stay inside a word as before.
+ */
+export const TERM_SPLIT = /[^\p{L}\p{M}\p{N}+#.]+/u;
+export const WORD_SPLIT = /[^\p{L}\p{M}\p{N}]+/u;
+const INVISIBLE = /[\u200b-\u200d\u2060\ufeff]/g;
+
+/** Hindi function words that carry no recall signal (the Devanagari mirror of STOP). */
+export const HINDI_STOP = new Set(
+  "है हैं था थी थे हूँ हूं हो का की के को में मैं मुझे हम तुम आप और से पर यह ये वह वो एक भी तो ही कि क्या".split(" "),
+);
+
+/** Lowercase, NFC, no zero-width characters: the form every term and every haystack is compared in. */
+export function foldScript(text: string): string {
   return String(text || "")
-    .toLowerCase()
-    .split(/[^a-z0-9+#.]+/)
-    .filter((word) => word.length > 2 && !STOP.has(word))
+    .normalize("NFC")
+    .replace(INVISIBLE, "")
+    .toLowerCase();
+}
+
+/** A non-Latin word is shorter than a Latin one for the same meaning, so its floor is two characters. */
+export const isTermWord = (word: string, min: number): boolean =>
+  /^\p{ASCII}*$/u.test(word) ? word.length > min : word.length > 1 && !HINDI_STOP.has(word);
+
+export function retrievalTerms(text: string): string[] {
+  return foldScript(text)
+    .split(TERM_SPLIT)
+    .filter((word) => isTermWord(word, 2) && !STOP.has(word))
     .map((word) => FOLD[word] ?? word);
 }
 
@@ -447,9 +472,10 @@ export function retrievalScore(
   const words = understood.terms;
   const taskWords = retrievalTerms(taskHint);
   // Folded like the query terms, or a query word such as "owner" (folded to "owned") would never be found.
-  const hay = `${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`
-    .toLowerCase()
-    .replace(/\b(owns|owner|owned)\b/g, "owned");
+  const hay = foldScript(`${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`).replace(
+    /\b(owns|owner|owned)\b/g,
+    "owned",
+  );
   const hayTerms = retrievalTerms(hay);
   const overlap = words.filter((word) => hay.includes(word)).length;
   const jaccard = termJaccard(words, hayTerms);

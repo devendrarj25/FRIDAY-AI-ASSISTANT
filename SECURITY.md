@@ -38,6 +38,8 @@ calls has a handler in the main process. Chat and tools go through the
 main process. Exec-tier kernel tools (`kernel/tools.py`) wait for desktop
 approval. `config/kernel.yaml` sets `automation.auto_approve_exec: false`.
 
+Stop everything and the shell gate: the agent shell classifier splits the line into arguments the way sh, PowerShell and cmd would and checks each against a per-command rule table (allowed flags, value flags, positionals); anything else is exec: unknown or quoted flags, URLs, UNC paths, shell metacharacters, chains other than `&&`, and network commands (ping, Test-Connection, npm view, winget, choco and scoop search); in a folder with its own repo or project files only cmd built-ins pass; both copies run one shared case-table test. Main learns the halt synchronously over `autonomy:halt-sync`; a corrupt or unreadable autonomy state file reads as halted and only the main window's main frame can send `autonomy:halt-sync`; restart and shutdown asks refuse while halted, before and after the ask; the Brain stops with Stop everything and Approve while halted denies. Boot memory merge runs once under a lock, and ids forgotten during a merge stay forgotten. Detail: [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md). UNVERIFIED on Windows.
+
 Each FRIDAY window sets `contextIsolation`, turns `nodeIntegration` off, and
 sets `sandbox`. `no-sandbox` is only the boot self-test switch. The window
 may navigate to `friday://app` or the dev-server origin
@@ -53,6 +55,19 @@ an already-connected provider.
 
 The billing firewall (`electron/billing-firewall.cjs`) does not make a paid
 model a silent default.
+
+Raw key, pointer, OCR and clipboard actions in `kernel/control.py` check UI
+Automation first (`_secure_guard`, `kernel/uia_tree.py` `secure_refusal`). A
+secure prompt, a focused password field (read directly from the focused
+element) or a password under the pointer stops the action. A password node with
+unknown bounds blocks pointer actions, and a cut tree with an unreadable focus
+refuses keys and screen reads. Typing is split into 8-character chunks and the
+focus is checked again between chunks. Without `comtypes`, `perceive` does not
+fall back to OCR. `fs.write` keeps a before-copy of an existing file under
+`<workspace>/.friday-trash/before-write/` and returns an undo handle; there is
+no restore button yet. Tests: `kernel/tests/test_control_secure_guard.py`,
+`kernel/tests/test_control_secure_depth.py`. Real UI Automation password
+detection and the hit-test pixel space are unverified on the owner's PC.
 
 `kernel/env_guard.py` `guard_public_url` refuses a non-public address after
 resolving the host. Production uses `socket.getaddrinfo`. A test passes a

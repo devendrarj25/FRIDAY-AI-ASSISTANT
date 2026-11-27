@@ -706,7 +706,7 @@ class OpsStore {
     this.remember(command);
     const builtin = await this.tryBuiltin(command);
     if (builtin) return builtin;
-    return this.spawn(command, options);
+    return this.spawn(command, { ...options, origin: "agent" });
   }
 
   /** Real execution: a child process in the FRIDAY workspace. */
@@ -795,7 +795,7 @@ class OpsStore {
   /** One real child process, with the console wired to its live output. */
   private async spawn(
     command: string,
-    options: { shell?: string; cwd?: string; timeoutMs?: number },
+    options: { shell?: string; cwd?: string; timeoutMs?: number; origin?: "agent" },
   ) {
     const runId = `term-${uid()}`;
     this.activeRun = runId;
@@ -826,6 +826,7 @@ class OpsStore {
       cwd,
       shell,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
       runId,
     });
     this.activeRun = null;

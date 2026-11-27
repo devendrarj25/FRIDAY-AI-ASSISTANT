@@ -85,3 +85,70 @@ export function outputReachable(input: { deviceId: string; volume: number }): {
   if (!(input.volume > 0)) return { ok: false, reason: "volume is silent" };
   return { ok: true, reason: "a speak test can use this device" };
 }
+
+/** Which script most of a line is written in: Hindi (Devanagari), English (Latin), or neither (digits, symbols). */
+export function dominantScript(text: string): "devanagari" | "latin" | "none" {
+  const devanagari = (String(text ?? "").match(/[\u0900-\u097F]/g) ?? []).length;
+  const latin = (String(text ?? "").match(/[A-Za-z]/g) ?? []).length;
+  if (!devanagari && !latin) return "none";
+  return devanagari >= latin ? "devanagari" : "latin";
+}
+
+/**
+ * The language tag the system voice is asked for. The Hindi tag follows the mapping above (en-in and hinglish keep
+ * asking for hi-IN), but a line written in Latin letters under a Hindi tag is asked for en-IN, so an English line is
+ * not read by a Hindi voice; a Devanagari line always gets hi-IN.
+ */
+export function fallbackUtterLang(spoken: string, tuningLang: string): string {
+  const wanted = tuningLang || "hi-IN";
+  const script = dominantScript(spoken);
+  if (script === "devanagari") return "hi-IN";
+  if (script === "latin" && wanted.toLowerCase().startsWith("hi")) return "en-IN";
+  return wanted;
+}
+
+/**
+ * What she says (and shows) when no engine could speak a line: a Hindi line names the missing Hindi voice, and the
+ * local failure reason (when the voice worker gave one) goes on the end.
+ */
+export function noVoiceFailure(spoken: string, reason = ""): string {
+  const why = String(reason ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  const line =
+    dominantScript(spoken) === "devanagari"
+      ? "voice output failed — no Hindi voice is installed. Install a Hindi voice in Install Manager (or add one in Windows speech settings)"
+      : "voice output failed — no speech engine could speak the reply (install a voice in Install Manager)";
+  return why ? `${line}. Reason: ${why}` : line;
+}
+
+/** What the output list looked like when it was last read, kept so no caller has to ask the system again. */
+export type OutputDeviceFacts = {
+  enumerated: boolean;
+  permitted: boolean;
+  outputs: ReadonlyArray<{ id: string; isDefault?: boolean }>;
+};
+
+let outputFacts: OutputDeviceFacts | null = null;
+
+/** Remember the latest read of the output devices (null forgets it). */
+export function noteOutputDevices(facts: OutputDeviceFacts | null): void {
+  outputFacts = facts;
+}
+
+/**
+ * The sink id the output check is given. "default" when the list is unknown (never read, unreadable, or the
+ * microphone is not allowed yet so nothing is named); "" when the list was read with permission and is empty (there
+ * is no output); otherwise the saved speaker when it is still there, else the default one.
+ */
+export function cachedOutputSinkId(
+  saved = "",
+  facts: OutputDeviceFacts | null = outputFacts,
+): string {
+  if (!facts || !facts.enumerated || !facts.permitted) return "default";
+  if (!facts.outputs.length) return "";
+  const own = saved ? facts.outputs.find((row) => row.id === saved) : undefined;
+  if (own) return own.id;
+  return facts.outputs.find((row) => row.isDefault)?.id || facts.outputs[0]?.id || "default";
+}

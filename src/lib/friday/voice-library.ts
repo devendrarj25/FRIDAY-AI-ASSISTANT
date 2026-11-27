@@ -13,6 +13,7 @@
  */
 import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expression";
 import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
+import { splitSpokenSentences } from "./voice-engine/language-segmenter";
 import {
   estimateWordTimes,
   PlayedTextTracker,
@@ -32,6 +33,8 @@ import {
 import { echoLive } from "./voice-engine/echo-live";
 import { LOCAL_VOICE_STYLES, preferences, type VoiceModel } from "./preferences";
 import { listAudioDevices } from "./voice-audio";
+import { readFridayVoiceStatus } from "./voice-diagnostics-rows";
+import { dominantScript, fallbackUtterLang, noteOutputDevices } from "./tts-ladder";
 import { routeToSpeaker, type SinkTarget } from "./voice-engine/audio-devices";
 import { ttsEnginePlan } from "./voice-engine/voice-choices";
 import { models } from "./models-engine";
@@ -319,6 +322,23 @@ export async function neuralVoiceStatus(): Promise<{
   } catch (error) {
     return { available: false, reason: (error as Error)?.message ?? "unavailable" };
   }
+}
+
+/**
+ * One reading of "can FRIDAY Voice speak on this PC", the same one prewarm and Doctor use: the own engine reports
+ * ready, or the worker's older flag says available, or the package row of the Install Manager says installed. The
+ * reason is the local failure the worker gave (empty when its own engine is ready), so a status line can carry it.
+ */
+export function localVoiceReadiness(
+  status: { available?: boolean; reason?: string; fridayVoice?: unknown } | null | undefined,
+  packageInstalled: boolean,
+): { ready: boolean; reason: string } {
+  const own = readFridayVoiceStatus(status?.fridayVoice);
+  const ownReady = Boolean(own && own.ready);
+  const ready = ownReady || status?.available === true || packageInstalled;
+  if (ownReady) return { ready, reason: "" };
+  const reason = (own?.reason || status?.reason || "").trim().slice(0, 120);
+  return { ready, reason };
 }
 
 /** Install edge-tts through the shared Python toolchain (free, no API key). */
@@ -787,7 +807,9 @@ export const speakerFallbackNote = (): string => (savedSpeaker() ? speakerNoteTe
 /** Send one playback target (an audio element or the PCM player's context) to the saved speaker. Never throws. */
 async function routeSpeaker(target: SinkTarget): Promise<void> {
   try {
-    const { outputs } = await listAudioDevices();
+    const listed = await listAudioDevices();
+    noteOutputDevices(listed);
+    const { outputs } = listed;
     const result = await routeToSpeaker(
       target,
       savedSpeaker(),
@@ -799,6 +821,15 @@ async function routeSpeaker(target: SinkTarget): Promise<void> {
   }
 }
 
+/** Read the output list once and remember it, so the output check names the real sink. Never throws. */
+export async function refreshOutputDevices(): Promise<void> {
+  try {
+    noteOutputDevices(await listAudioDevices());
+  } catch {
+    noteOutputDevices(null);
+  }
+}
+
 /**
  * The owner changed the speaker (or plugged one in or out): the speech that is playing and the PCM player move to
  * it now, and what plays next follows. A browser that cannot choose a speaker keeps the default and says so.
@@ -807,7 +838,9 @@ export async function applySpeakerChoice(): Promise<void> {
   if (currentAudio) await routeSpeaker(currentAudio as unknown as SinkTarget);
   if (pcmContext) await routeSpeaker(pcmContext as unknown as SinkTarget);
   if (!currentAudio && !pcmContext && savedSpeaker()) {
-    const { outputs } = await listAudioDevices();
+    const listed = await listAudioDevices();
+    noteOutputDevices(listed);
+    const { outputs } = listed;
     const result = await routeToSpeaker(
       {},
       savedSpeaker(),
@@ -824,7 +857,7 @@ function playBase64(
   ready?: unknown,
   release?: () => void,
   heardText = "",
-): Promise<void> {
+): Promise<boolean> {
   // A clip that is still arriving comes as an element that is already attached to its stream and paused.
   const audio =
     (ready as HTMLAudioElement | undefined) ?? new Audio(`data:${mime};base64,${audioBase64}`);
@@ -842,18 +875,19 @@ function playBase64(
           : {}),
       }))
     : null;
-  return cancellable<void>((finish) => {
+  // true: the clip started and ended (or a stop cut it, which is not a failure); false: it never played.
+  return cancellable<boolean>((finish) => {
     audio.onended = () => {
       heard?.end();
-      finish();
+      finish(true);
     };
     audio.onerror = () => {
       heard?.drop();
-      finish();
+      finish(false);
     };
     const failed = () => {
       heard?.drop();
-      finish();
+      finish(false);
     };
     // A saved speaker is set before the first sample; with none saved the clip plays at once, as it always did.
     if (savedSpeaker())
@@ -874,17 +908,21 @@ function playBase64(
       if (currentAudio === audio) currentAudio = null;
       stopSpeechAudio();
     };
-  }, undefined);
+  }, true);
 }
 
 /**
  * Raw-sample playback (setting `voice.pcmPlayback`, local voice only). The player is made on first use; the first
- * failure of any kind turns it off for the rest of the session and says why (`pcmPlaybackNote`), and speech goes on
- * through the page audio element, so a PCM problem never costs the owner a sentence.
+ * failure of any kind turns it off for a cool-down (30 s, doubling per failure in a row, 10 min at most) and says
+ * why (`pcmPlaybackNote`), speech goes on through the page audio element, and the next try after the cool-down
+ * brings it back; so a PCM problem never costs the owner a sentence and never costs the session its player.
  */
 let pcmPlayer: PcmClipPlayer | null = null;
 let pcmContext: PcmContext | null = null;
 let pcmOffReason = "";
+/** Failures since the last clip that played through the sample player, and when raw samples may be tried again. */
+let pcmStrikes = 0;
+let pcmRetryAt = 0;
 let pcmSeq = 0;
 /** Tags one page load, so an utterance id of an older page can never match this one's. */
 const PAGE_TAG = Math.random().toString(36).slice(2, 8) || "p";
@@ -912,14 +950,26 @@ const audioContextCtor = (): (new () => unknown) | null => {
   return w.AudioContext ?? w.webkitAudioContext ?? null;
 };
 
-function pcmFailed(reason: string) {
-  if (!pcmOffReason) pcmOffReason = reason.replace(/\s+/g, " ").trim().slice(0, 160) || "unknown";
+/** How long raw-sample playback stays off after this many failures in a row: 30 s, doubling, never over 10 min. */
+export function pcmCoolDownMs(strikes: number): number {
+  const n = Math.max(1, Math.floor(strikes));
+  return Math.min(30_000 * 2 ** (n - 1), 600_000);
 }
+
+function pcmFailed(reason: string) {
+  pcmStrikes += 1;
+  pcmOffReason = reason.replace(/\s+/g, " ").trim().slice(0, 160) || "unknown";
+  pcmRetryAt = Date.now() + pcmCoolDownMs(pcmStrikes);
+}
+
+/** Off only while the cool-down runs: after it, one more try is allowed and a success clears the record. */
+const pcmCoolingDown = (): boolean => pcmOffReason !== "" && Date.now() < pcmRetryAt;
 
 /** Why raw-sample playback is off for this session, as one line; empty while it works or the setting is off. */
 export function pcmPlaybackNote(): string {
   const voice = preferences.getSnapshot().voice;
-  if ((voice.pcmPlayback !== true && voice.hindiLightVoice !== true) || !pcmOffReason) return "";
+  if ((voice.pcmPlayback !== true && voice.hindiLightVoice !== true) || !pcmCoolingDown())
+    return "";
   return `PCM playback is off for this session (${pcmOffReason}); speech plays through the audio element.`;
 }
 
@@ -941,6 +991,8 @@ export function resetPcmPlayback(): void {
   pcmPlayer = null;
   pcmContext = null;
   pcmOffReason = "";
+  pcmStrikes = 0;
+  pcmRetryAt = 0;
   pcmSeq = 0;
   pcmUttAsked = "";
   pcmPlayedLast = false;
@@ -1029,7 +1081,7 @@ export function hindiLightNote(): string {
 function pcmWanted(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | null): boolean {
   return (
     (preferences.getSnapshot().voice.pcmPlayback === true || plan.engine === HINDI_LIGHT_ENGINE) &&
-    !pcmOffReason &&
+    !pcmCoolingDown() &&
     tuning.kind === "neural" &&
     plan.cloudVoice === "" &&
     typeof api?.speakNeuralPcm === "function" &&
@@ -1131,15 +1183,15 @@ async function playPcmClip(
   stale: () => boolean,
   heardText = "",
   options: { gapMs?: number; early?: boolean } = {},
-): Promise<void> {
+): Promise<boolean> {
   const pcm = clip.pcm;
-  if (!pcm) return;
+  if (!pcm) return true;
   let playing: PcmClip;
   let endsInMs = 0;
   try {
     const player = getPcmPlayer();
     await player.ready();
-    if (stale()) return;
+    if (stale()) return true;
     // The pause before this clause is silence in the scheduler: it is never crossfaded into the clause before.
     const gapMs = Math.max(0, Math.round(options.gapMs ?? 0));
     playing = player.start(pcm.samples, pcm.rate, volume, gapMs > 0 ? { gapMs } : {});
@@ -1147,7 +1199,7 @@ async function playPcmClip(
   } catch (error) {
     pcmFailed(`playback: ${String((error as Error)?.message || error)}`);
     pcmPlayedLast = false;
-    if (stale()) return;
+    if (stale()) return true;
     return playBase64(
       pcm16ToWavBase64(pcm.samples, pcm.rate),
       "audio/wav",
@@ -1158,6 +1210,8 @@ async function playPcmClip(
     );
   }
   pcmPlayedLast = true;
+  pcmStrikes = 0;
+  pcmOffReason = "";
   // The audio clock of the sample player says how much of the clause has been played.
   // The voice's own word times when it gave them; otherwise the words are timed by weight over the speech itself
   // (the pause the voice left after the clause is not speech).
@@ -1172,14 +1226,14 @@ async function playPcmClip(
         pcm.wordTimes ?? estimateWordTimes(heardText, speechMs),
       )
     : null;
-  return cancellable<void>((finish) => {
+  return cancellable<boolean>((finish) => {
     let natural = false;
     let handedOver = false;
     let lead: ReturnType<typeof setTimeout> | null = null;
     void playing.ended.then(() => {
       natural = true;
       if (!stale()) heard?.end();
-      finish();
+      finish(true);
     });
     // With another clause waiting, hand over just before this one ends so the next is scheduled while this tail is
     // still queued: the two join with an overlap, not a gap. The last clause is awaited to its real end.
@@ -1187,7 +1241,7 @@ async function playPcmClip(
       lead = setTimeout(
         () => {
           handedOver = true;
-          finish();
+          finish(true);
         },
         Math.max(0, endsInMs - PCM_HANDOVER_LEAD_MS),
       );
@@ -1198,13 +1252,13 @@ async function playPcmClip(
       // over to the next one, is left alone (a stop flushes the queue anyway).
       if (!natural && !handedOver) playing.stop();
     };
-  }, undefined);
+  }, true);
 }
 
 /** How long before the end of a clause the next one is handed to the scheduler (longer than the join overlap). */
 const PCM_HANDOVER_LEAD_MS = 160;
 
-function playWavClip(clip: SpeechClip, volume: number, heardText = ""): Promise<void> {
+function playWavClip(clip: SpeechClip, volume: number, heardText = ""): Promise<boolean> {
   pcmPlayedLast = false;
   return playBase64(clip.audioBase64, clip.mime, volume, clip.audio, clip.release, heardText);
 }
@@ -1677,6 +1731,24 @@ export async function speakText(
       // crossfaded); the clause after a sample clip that was not is held back by `pauseSpeech` below.
       const gapOwed = new Map<number, number>();
       const viaPcm = new Set<number>();
+      // The first clip that was made but could not be heard (the element errored, play() was refused, no speaker).
+      // Later clips are skipped, and the rest of the reply goes to the system voice like a clip that was not made.
+      const unheard: { at: number | null } = { at: null };
+      /** Play one made clip to its end; false when it never sounded. */
+      const playClip = async (clip: SpeechClip, plan: SegmentPlan, index: number) => {
+        const owed = gapOwed.get(index) ?? 0;
+        if (clip.pcm) {
+          viaPcm.add(index);
+          const more = index < plans.length - 1;
+          // What the voice already left in the clip is not asked of the scheduler a second time.
+          if (more)
+            gapOwed.set(index + 1, Math.max(0, plan.pauseAfterMs - (clip.pcm.paddedMs ?? 0)));
+          return playPcmClip(clip, plan.volume, stale, plan.plain, { gapMs: owed, early: more });
+        }
+        if (owed > 0) await pauseSpeech(owed);
+        if (stale()) return true;
+        return playWavClip(clip, plan.volume, plan.plain);
+      };
       const outcome = await runSpeechPipeline<SegmentPlan, SpeechClip>({
         items: plans,
         synthesize: async (plan) => {
@@ -1685,22 +1757,9 @@ export async function speakText(
           return clip;
         },
         play: async (clip, plan, index) => {
-          if (stale()) return;
-          const owed = gapOwed.get(index) ?? 0;
-          if (clip.pcm) {
-            viaPcm.add(index);
-            const more = index < plans.length - 1;
-            // What the voice already left in the clip is not asked of the scheduler a second time.
-            if (more)
-              gapOwed.set(index + 1, Math.max(0, plan.pauseAfterMs - (clip.pcm.paddedMs ?? 0)));
-            return playPcmClip(clip, plan.volume, stale, plan.plain, {
-              gapMs: owed,
-              early: more,
-            });
-          }
-          if (owed > 0) await pauseSpeech(owed);
-          if (stale()) return;
-          return playWavClip(clip, plan.volume, plan.plain);
+          if (stale() || unheard.at !== null) return;
+          const heard = await playClip(clip, plan, index);
+          if (!heard && !stale()) unheard.at = index;
         },
         stale,
         ahead: 2,
@@ -1720,14 +1779,27 @@ export async function speakText(
       if (last) {
         rememberSpeechRoute({ ...last, lang: [...new Set(routes.map((r) => r.lang))].join("+") });
       }
-      if (outcome.failedAt === null) {
+      const cut = unheard.at ?? outcome.failedAt;
+      if (cut === null) {
         playback.onEnd();
         return last?.engine === "sapi" ? "system" : "neural";
       }
-      if (outcome.failedAt > 0) {
+      if (unheard.at === 0) {
+        // The first clip was made but never sounded (the element failed, play() was refused): that is a failed
+        // speech, not a spoken one. The whole reply goes to the system voice; the start was already announced.
+        const finished = await speakWithSystemVoice(
+          plans.map((plan) => plan.plain).join(" "),
+          tuning,
+          { onEnd: playback.onEnd },
+          stale,
+        );
+        if (!finished && !stale()) playback.onEnd();
+        return finished ? "system" : "none";
+      }
+      if (cut > 0) {
         // Part of the reply was already spoken: finish the rest with the system voice, once, without a second start.
         const rest = plans
-          .slice(outcome.failedAt)
+          .slice(cut)
           .map((plan) => plan.plain)
           .join(" ");
         const finished = await speakWithSystemVoice(rest, tuning, { onEnd: playback.onEnd }, stale);
@@ -1745,6 +1817,17 @@ export async function speakText(
   }
 }
 
+/** How long the system voice may take for this text before it is cut off: its length at the owner's rate, with room. */
+export function systemVoiceTimeoutMs(chars: number, rate: number): number {
+  const perChar = 90 / Math.min(Math.max(Number.isFinite(rate) && rate > 0 ? rate : 1, 0.5), 3);
+  return Math.min(Math.max(15_000, 8_000 + Math.max(0, chars) * perChar * 2), 300_000);
+}
+
+/** Text that is mostly Devanagari needs a Hindi voice: without one the system voice would only mispronounce it. */
+function needsHindiVoice(text: string): boolean {
+  return dominantScript(text) === "devanagari";
+}
+
 function speakWithSystemVoice(
   spoken: string,
   tuning: { voiceName: string; lang: string; rate: number; pitch: number; volume: number },
@@ -1753,8 +1836,18 @@ function speakWithSystemVoice(
 ): Promise<boolean> {
   if (typeof window === "undefined" || !window.speechSynthesis) return Promise.resolve(false);
   const synth = window.speechSynthesis;
+  // Devanagari with no Hindi voice installed is not spoken (it would be read letter by letter, or not at all): the
+  // caller reports "none" and the install-a-voice message shows.
+  if (
+    needsHindiVoice(spoken) &&
+    !systemVoices().some((voice) => /^hi(?:[-_]|$)/i.test(voice.lang))
+  ) {
+    return Promise.resolve(false);
+  }
   const utter = new SpeechSynthesisUtterance(spoken);
-  utter.lang = tuning.lang || "hi-IN";
+  // The rung's own language follows what the line is written in (the en-in to hi-IN mapping is unchanged).
+  const wantedLang = fallbackUtterLang(spoken, tuning.lang);
+  utter.lang = wantedLang;
   utter.rate = tuning.rate;
   utter.pitch = tuning.pitch;
   utter.volume = tuning.volume;
@@ -1769,7 +1862,7 @@ function speakWithSystemVoice(
   rememberSpeechRoute({
     engine: "speechSynthesis",
     voiceId: match?.name || "",
-    lang: tuning.lang || "hi-IN",
+    lang: wantedLang,
     cloud: false,
     note: picked.note,
   });
@@ -1787,7 +1880,19 @@ function speakWithSystemVoice(
       if (started && !stale()) hooks.onEnd?.();
       resolve(started && !stale());
     };
-    const timer = window.setTimeout(finish, 30_000);
+    // The watchdog also stops the voice: a line that outlives its time would otherwise keep sounding after the
+    // turn moved on.
+    const timer = window.setTimeout(
+      () => {
+        try {
+          synth.cancel();
+        } catch {
+          /* already stopped */
+        }
+        finish();
+      },
+      systemVoiceTimeoutMs(spoken.length, tuning.rate),
+    );
     utter.onstart = () => {
       if (stale()) {
         try {
@@ -1826,12 +1931,13 @@ function speakWithSystemVoice(
 }
 
 /**
- * Hearable form of an answer. Captions keep the full text; speech drops
- * markdown, code and links and stops after a couple of sentences.
+ * Hearable form of an answer. Captions keep the full text; speech drops markdown, code and links and stops after a
+ * couple of sentences. `uncapped` keeps every sentence (an approval prompt, a digest line, a reply piece).
  */
-export function spokenSummary(text: string): string {
+export function spokenSummary(text: string, options: { uncapped?: boolean } = {}): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, " ")
+    .replace(/```[\s\S]*$/, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/\S+/g, "")
@@ -1844,14 +1950,16 @@ export function spokenSummary(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
   if (!plain) return "";
-  const sentences = plain.match(/[^.!?।]+[.!?।]?/g) ?? [plain];
-  let out = "";
+  const sentences = splitSpokenSentences(plain);
+  if (options.uncapped) return sentences.join(" ");
+  const kept: string[] = [];
   for (const sentence of sentences) {
-    if (out && (out.length + sentence.length > 240 || out.split(/\s+/).length > 45)) break;
-    out += sentence;
-    if (out.split(/[.!?।]/).filter(Boolean).length >= 2) break;
+    const soFar = kept.join(" ");
+    if (soFar && (soFar.length + sentence.length > 240 || soFar.split(/\s+/).length > 45)) break;
+    kept.push(sentence);
+    if (kept.length >= 2) break;
   }
-  return (out || plain).trim().slice(0, 320);
+  return (kept.join(" ") || plain).trim().slice(0, 320);
 }
 
 /** Resolve the tuning FRIDAY should speak with right now. */

@@ -193,3 +193,109 @@ class SystemMessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_CODE = "".join(["4", "8", "2", "9", "1", "3"])
+_GAP_SENSITIVE = (
+    "Your verification code for login is {c}",
+    "the OTP that I got is {c}",
+    "OTP aaya tha {c} use karo",
+    "ओटीपी आया था {c} इस्तेमाल करो",
+    "{c} is your OTP for transaction of INR 5,000 at AMAZON. Do not share it",
+    "Use {c} as your OTP",
+    "OTP for txn of Rs 5,000 at Amazon is {c}. Valid for 10 minutes",
+    "Dear customer, your one time password for the login to your account is {c}",
+    "Your security code for the bank app has been sent and it is {c}",
+    "Your login code was sent to your phone earlier today and it is {c}",
+)
+_GAP_ORDINARY = (
+    "the verification code field is empty and the form shows an error today",
+    "otp kab aayega mujhe batao jaldi",
+    "what is an otp and how does it work in banking",
+    "my pin code is 110001",
+    "the postal code is 110001",
+    "OTP support is open from 9 to 5",
+    "the verification code expires after 10 minutes",
+)
+
+
+_GROUPED_SENSITIVE = (
+    "otp {a}-{b}",
+    "otp ({c})",
+    "OTP [{c}]",
+    "use {d} {e} as otp",
+    "use {a} {b} as the otp",
+    "the OTP that I received on my phone just now from the bank is {c}",
+    "bank ka code {c} hai",
+    "bank code {c} hai",
+    "bank ka code {s} hai",
+    "code is {s}",
+    "your code is {s}",
+    "ओटीपी {a}-{b}",
+    "ओटीपी ({c})",
+    "बैंक का कोड {c} है",
+    "बैंक का ओटीपी जो अभी फोन पर आया है {c}",
+    "mera bank ka otp abhi phone par aaya hai {c}",
+    "कोड है {s}",
+)
+_GROUPED_ORDINARY = (
+    "bank ka code review kal hai",
+    "the code is in main.cjs",
+    "the code is 4829 lines long",
+    "the code compiles fine and the build passes on every machine today",
+    "my pin code is 110001",
+    "mera pin code 110001 hai",
+    "the postal code is 110001",
+    "otp kab aayega mujhe batao jaldi",
+    "the verification code field is empty and the form shows an error today",
+    "I scored 482913 points as a player",
+    "bank ka code of conduct padhna hai",
+    "बैंक का कोड रिव्यू कल है",
+    "कोड ठीक चल रहा है",
+)
+
+
+def _grouped(template: str) -> str:
+    c = "".join(["4", "8", "2", "9", "1", "3"])
+    return template.format(a=c[:3], b=c[3:], c=c, d=c[:4], e=c[4:], s=" ".join(c))
+
+
+class CodeWithGroupedDigitsTests(unittest.TestCase):
+    def test_grouped_bracketed_and_longer_gap_codes_are_sensitive(self):
+        for template in _GROUPED_SENSITIVE:
+            line = _grouped(template)
+            self.assertEqual(privacy.classify(line)["level"], "sensitive", line)
+            self.assertTrue(privacy.guard_egress({"type": "cloud"}, line, connected=True)["hardStop"], line)
+
+    def test_ordinary_lines_stay_public(self):
+        for line in _GROUPED_ORDINARY:
+            self.assertNotEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_the_new_rows_stay_fast_on_long_inputs(self):
+        import time
+
+        for unit in ("otp 1 ", "bank ka code ", "code is 4 8 ", "otp (", "ओटीपी 12-", "w " * 9 + "otp "):
+            text = (unit * (32000 // len(unit) + 1))[:32000]
+            start = time.perf_counter()
+            privacy.classify(text)
+            self.assertLess(time.perf_counter() - start, 0.5, unit)
+
+
+class CodeWithWordsBetweenTests(unittest.TestCase):
+    def test_a_code_named_with_words_before_its_value_is_sensitive(self):
+        for template in _GAP_SENSITIVE:
+            line = template.format(c=_CODE)
+            self.assertEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_ordinary_talk_about_codes_stays_ordinary(self):
+        for line in _GAP_ORDINARY:
+            self.assertNotEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_long_inputs_do_not_blow_up(self):
+        import time
+
+        for unit in ("otp ", "verification code ", "ओटीपी ", "a-", "1 ", "otp for the x, " + "w " * 4):
+            text = (unit * (32000 // len(unit) + 1))[:32000]
+            start = time.perf_counter()
+            privacy.classify(text)
+            self.assertLess(time.perf_counter() - start, 0.5, unit)

@@ -196,3 +196,62 @@ async def test_ollama_think_field(monkeypatch) -> None:
     )
     chunks = [c async for c in engine._stream_ollama(model, [{"role": "user", "content": "hi"}], "high")]
     assert chunks == ["Hi."] and client.bodies[0]["think"] is True
+
+
+def test_a_qwen3_voice_turn_at_low_effort_sends_think_false() -> None:
+    """The voice cap (effort low, set by the brain) must turn qwen3 thinking off on the Ollama wire."""
+    spec = rc.spec_for(opts("enable_thinking"), "low")
+    assert spec.active and spec.effort == "low"
+    assert rc.ollama_fields(spec, {"model": "qwen3:8b"})["think"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_qwen3_voice_turn_reaches_the_ollama_body_with_think_false_and_a_reply_cap(monkeypatch) -> None:
+    monkeypatch.setenv("FRIDAY_OLLAMA_NUM_CTX", "off")
+
+    class Lines:
+        status_code = 200
+        headers: dict = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def aiter_lines(self):
+            yield json.dumps({"message": {"role": "assistant", "content": "Hi."}, "done": True})
+
+    class Client:
+        bodies: list = []
+
+        def stream(self, method, url, json=None, headers=None):
+            self.bodies.append(json)
+            return Lines()
+
+    class Store:
+        def models(self):
+            return []
+
+        def upsert_model(self, _row):
+            return None
+
+    client = Client()
+    monkeypatch.setattr(router, "_client", lambda: client)
+    engine = ModelRouter(Store())
+    model = Model(
+        id="ollama:qwen3-8b",
+        label="q",
+        provider="ollama",
+        endpoint="http://127.0.0.1:11434",
+        options={"type": "local", "access": "free", "model": "qwen3:8b", **opts("enable_thinking")},
+    )
+    engine._models[model.id] = model
+    _ = [
+        c
+        async for c in engine.stream(
+            prompt="hi", model_ids=[model.id], reasoning_effort="low", max_tokens=180, surface="voice"
+        )
+    ]
+    assert client.bodies[0]["think"] is False
+    assert client.bodies[0]["options"] == {"num_predict": 180}

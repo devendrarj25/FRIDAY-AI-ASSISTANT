@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef } from "react";
 import { assistantMode } from "@/lib/friday/assistant-mode";
-import { brain } from "@/lib/friday/brain-engine";
+import { brain, type SendResult } from "@/lib/friday/brain-engine";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { useBrain } from "@/lib/friday/use-brain";
 import { useFridayLive } from "@/lib/friday/use-friday-live";
@@ -67,6 +67,33 @@ function toAction(input: {
   return "idle";
 }
 
+/** The most overlay lines kept while FRIDAY finishes the turn she is on. */
+const ASK_QUEUE_MAX = 3;
+
+/**
+ * One line typed at the overlay. When the brain takes it, nothing more happens. When it does not, the owner is
+ * told why (the brain's own message) instead of the line vanishing; a line refused only because a turn is running
+ * waits in a short queue and is sent when that turn ends.
+ */
+export function routeCharacterAsk(
+  text: string,
+  deps: {
+    send: (text: string) => SendResult;
+    say: (message: string) => void;
+    queue: string[];
+  },
+): "sent" | "queued" | "refused" {
+  const result = deps.send(text);
+  if (result.accepted) return "sent";
+  if (result.reason === "busy" && deps.queue.length < ASK_QUEUE_MAX) {
+    deps.queue.push(text);
+    deps.say(result.message ?? "I'm still working on the last request — one moment.");
+    return "queued";
+  }
+  if (result.message) deps.say(result.message);
+  return "refused";
+}
+
 export function useCharacterLink() {
   const brainState = useBrain();
   const voiceState = useAssistantMode();
@@ -78,6 +105,7 @@ export function useCharacterLink() {
   const speechTimer = useRef(0);
   const amplitudeAt = useRef(0);
   const snapshot = useRef<Partial<CharacterState>>({});
+  const askQueue = useRef<string[]>([]);
 
   // ---------------------------------------------------------------- publish
   useEffect(() => {
@@ -154,6 +182,19 @@ export function useCharacterLink() {
     [],
   );
 
+  // A line queued while a turn was running goes out as soon as that turn ends.
+  useEffect(() => {
+    if (brainState.activeRunId || !askQueue.current.length) return;
+    const next = askQueue.current.shift();
+    if (!next) return;
+    const bridge = characterBridge();
+    routeCharacterAsk(next, {
+      send: (line) => brain.send(line),
+      say: (message) => void bridge?.characterPublish({ speech: message.slice(0, 400) }),
+      queue: askQueue.current,
+    });
+  }, [brainState.activeRunId]);
+
   // -------------------------------------------------------- lip-sync stream
   useEffect(() => {
     const bridge = characterBridge();
@@ -174,7 +215,11 @@ export function useCharacterLink() {
     const offAsk = bridge.onCharacterAsk((payload) => {
       const text = String(payload?.text ?? "").trim();
       if (!text) return;
-      brain.send(text);
+      routeCharacterAsk(text, {
+        send: (line) => brain.send(line),
+        say: (message) => void bridge.characterPublish({ speech: message.slice(0, 400) }),
+        queue: askQueue.current,
+      });
     });
     const offCommand = bridge.onCharacterCommand((payload) => {
       switch (payload?.command) {

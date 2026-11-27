@@ -10,6 +10,7 @@
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { capabilityMatrix, DOMAINS, type CapabilityDomain } from "./capability-matrix";
 import { domainsForTask } from "../brain/confidence";
+import { looksSensitive } from "../brain/memory-policy";
 import { similarity } from "../brain/reconciler";
 
 export type TaskStatus =
@@ -594,6 +595,8 @@ export function approachSignature(input: {
   return [input.kind, tools.join("+") || "no-tool", kinds.join("+") || "no-model"].join("::");
 }
 
+const WITHHELD_TEXT = "(withheld: sensitive)";
+
 class ExperienceStore {
   private experiences: Experience[] = [];
   private calls: ModelCall[] = [];
@@ -702,6 +705,12 @@ class ExperienceStore {
     const domains = (input.domains ?? domainsForTask(`${input.title} ${input.kind}`)).filter((d) =>
       DOMAINS.includes(d),
     );
+    // An automatic writer: a title, detail or feedback that looks like a secret is withheld, while the outcome
+    // itself (kind, success, timing, models) still counts as evidence.
+    const sensitive = looksSensitive(
+      [input.title, input.attempted, input.detail, input.feedback].filter(Boolean).join("\n"),
+    );
+    const title = sensitive ? WITHHELD_TEXT : input.title;
     const promptAuthor = input.promptAuthor
       ? asAuthor(input.promptAuthor)
       : (noted?.author ?? "unknown");
@@ -719,17 +728,17 @@ class ExperienceStore {
       taskId: input.taskId,
       at: input.at ?? Date.now(),
       kind: input.kind,
-      title: input.title,
+      title,
       approach: input.approach ?? approachSignature({ kind: input.kind, tools, models }),
       domains: domains.length ? domains : (["conversation"] as CapabilityDomain[]),
       models,
       tools,
-      attempted: input.attempted ?? input.title,
+      attempted: sensitive ? WITHHELD_TEXT : (input.attempted ?? input.title),
       success: Boolean(input.success),
       verified: Boolean(input.verified),
       ms: input.ms ?? 0,
-      ...(input.detail ? { detail: input.detail } : {}),
-      ...(input.feedback ? { feedback: input.feedback } : {}),
+      ...(input.detail && !sensitive ? { detail: input.detail } : {}),
+      ...(input.feedback && !sensitive ? { feedback: input.feedback } : {}),
       promptAuthor,
       modelKind: kindOfModels(models),
       ...(models[0] ? { modelId: models[0].id } : {}),

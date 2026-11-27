@@ -176,6 +176,10 @@ bun.lock
 /config/*.bak
 /database/self-maintenance.json
 /database/*.sqlite3-*
+/database/*.bak
+/database/*.bak.tmp
+/database/*.corrupt-*
+/database/backups/
 /models/moonshine-en/
 
 # Isolated Python environments created by setup. Not part of the installer.

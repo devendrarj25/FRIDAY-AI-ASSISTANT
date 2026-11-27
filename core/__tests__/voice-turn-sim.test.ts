@@ -752,7 +752,8 @@ describe("turn simulator: scenarios on the real controller", () => {
     expect(r.h.brainStops).toEqual([]);
     expect(r.spoken).toEqual([
       "First I will open the file.",
-      "Then I will read the summary. After that I will send it.",
+      "Then I will read the summary.",
+      "After that I will send it.",
     ]);
     expect(r.run.backchannelFalseStop).toMatchObject({ k: 0, n: 1 });
   });
@@ -965,7 +966,14 @@ describe("turn simulator: V3-E1 scenarios on the real controller", () => {
       falseStop: true,
       takeoverMs: null,
     });
-    expect(r.spoken.filter((t) => t.startsWith("Then I will read"))).toHaveLength(2);
+    // TEST_REWRITE_OK: a reply is queued one sentence at a time, so the stop cuts "After that I will send it." and
+    // only that sentence is said again (it used to repeat the whole two-sentence piece).
+    expect(r.spoken).toEqual([
+      "First I will open the file.",
+      "Then I will read the summary.",
+      "After that I will send it.",
+      "After that I will send it.",
+    ]);
     expect(r.sent).toEqual([]);
     expect(r.score.turns).toEqual([]);
     // No turn was opened, yet the false stop is counted: the run-level false interrupt is per barge-in.

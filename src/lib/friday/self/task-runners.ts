@@ -14,33 +14,253 @@
 import kernelApi from "../kernel-api";
 import { autonomousCore } from "./autonomous-core";
 import { autonomy } from "./autonomy";
-import { parallelParts, taskGraph, withEarlier } from "./task-graph";
+import { parallelParts, taskGraph, withEarlier, type RunnerResult } from "./task-graph";
 import { extractDeadline, looksLikeHorizonGoal, trackGoalDeadline } from "./horizon-goals";
 import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
 import { timelineFromEvidence } from "./run-receipt";
+import { ledger } from "./task-ledger";
+import {
+  listVoiceTasks,
+  startVoiceTask,
+  subscribeVoiceTasks,
+  voiceTaskActions,
+} from "../voice-engine/voice-tasks";
 
 let wired = false;
+
+/** How long a background step waits for the owner's yes before it parks as "waiting" (the queue moves on). */
+let approvalWaitMs = 5 * 60_000;
+
+/** Test and settings seam: the wait for the owner's answer. */
+export function configureTaskRunners(options: { approvalWaitMs?: number }): void {
+  if (typeof options.approvalWaitMs === "number" && options.approvalWaitMs > 0) {
+    approvalWaitMs = options.approvalWaitMs;
+  }
+}
+
+export type OwnerAnswer = "yes" | "no" | "timeout" | "aborted";
+
+/**
+ * Ask the owner about one background step. The question goes to the Tasks approvals (the on-screen Approve and
+ * Deny) and to the voice desk as a task waiting for approval (the spoken yes, with its own short, bound and
+ * expiring rules). The first answer wins and closes the other prompt. No answer in time, or Stop everything,
+ * is never a yes.
+ */
+export function askOwnerToApprove(
+  question: string,
+  signal: AbortSignal,
+  waitMs = approvalWaitMs,
+): Promise<OwnerAnswer> {
+  if (signal.aborted || autonomy.getSnapshot().halted) return Promise.resolve("aborted");
+  return new Promise<OwnerAnswer>((resolve) => {
+    let settled = false;
+    let ledgerId = "";
+    let voiceId = "";
+    let stopListening: () => void = () => undefined;
+    const finish = (answer: OwnerAnswer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      stopListening();
+      const yes = answer === "yes";
+      if (ledgerId && ledger.getSnapshot().approvals.some((row) => row.taskId === ledgerId)) {
+        ledger.answerApproval(ledgerId, yes);
+      }
+      const voice = voiceId ? listVoiceTasks().find((task) => task.id === voiceId) : undefined;
+      if (voice?.state === "WAITING_FOR_APPROVAL") voiceTaskActions.approve(voiceId, yes);
+      resolve(answer);
+    };
+    const onAbort = () => finish("aborted");
+    signal.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => finish("timeout"), waitMs);
+    ledgerId = ledger.run(
+      { kind: "approval", title: question, key: `approval:${question}:${Date.now()}` },
+      async (context) => {
+        const allowed = await context.approval(question);
+        finish(allowed ? "yes" : "no");
+        return allowed;
+      },
+    ).id;
+    const voice = startVoiceTask(
+      question,
+      async () => {
+        finish("yes");
+        return "approved";
+      },
+      "needs-approval",
+    );
+    if (voice.ok) {
+      voiceId = voice.task.id;
+      stopListening = subscribeVoiceTasks(() => {
+        const task = listVoiceTasks().find((item) => item.id === voiceId);
+        if (task && (task.state === "CANCELLED" || task.state === "FAILED")) finish("no");
+      });
+    }
+  });
+}
+
+/** What kernel task.run, task.approve and task.resume answer (kernel/main.py `_collect_task`). */
+export type KernelTaskOutcome = {
+  done?: boolean;
+  state?: string;
+  taskId?: string | null;
+  results?: unknown[];
+  error?: string;
+  pendingApproval?: { stepId?: string; tool?: string; risk?: string } | null;
+} | null;
+
+/**
+ * The subtask result from what the kernel task really ended as. Only a terminal `done` is ok and checked. A task
+ * stopped at an approval gate waits (and keeps its task id and step, so the yes reaches the same task); failed,
+ * cancelled and anything unknown are not ok.
+ */
+export function mapKernelOutcome(
+  title: string,
+  outcome: KernelTaskOutcome,
+): RunnerResult & {
+  kernelTaskId?: string;
+} {
+  const taskId = outcome?.taskId ? String(outcome.taskId) : "";
+  const withId = taskId ? { kernelTaskId: taskId } : {};
+  const state = String(outcome?.state ?? (outcome?.done ? "done" : ""));
+  if (state === "done" && outcome?.done !== false) {
+    const steps = Array.isArray(outcome?.results) ? outcome.results.length : 0;
+    return {
+      ok: true,
+      result: `kernel completed: ${title}${steps ? ` (${steps} step(s))` : ""}`,
+      tools: ["kernel.task.run"],
+      checked: true,
+      postcondition: "kernel reported the task done",
+      pendingApproval: null,
+      ...withId,
+    };
+  }
+  if (state === "waiting-approval") {
+    const pending = outcome?.pendingApproval ?? {};
+    const tool = String(pending.tool ?? "a step");
+    return {
+      ok: false,
+      waiting: true,
+      result: `waiting on your approval for ${tool}`,
+      tools: ["kernel.task.run"],
+      checked: false,
+      postcondition: "",
+      pendingApproval: {
+        stepId: String(pending.stepId ?? ""),
+        tool,
+        risk: String(pending.risk ?? "write"),
+      },
+      ...withId,
+    };
+  }
+  const why = outcome ? `${state || "unknown"}${outcome.error ? `: ${outcome.error}` : ""}` : "";
+  return {
+    ok: false,
+    result: outcome ? `kernel task ${why}` : "the kernel did not answer",
+    tools: ["kernel.task.run"],
+    checked: false,
+    postcondition: "",
+    pendingApproval: null,
+    ...withId,
+  };
+}
+
+/** Resolves when the signal aborts, so a stopped subtask does not wait for a kernel answer that may never come. */
+function untilAborted(signal: AbortSignal): Promise<"aborted"> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve("aborted");
+    signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+  });
+}
+
+const HELD = "held: Stop everything is on";
+const MAX_GATES = 8;
 
 export function registerTaskRunners(): void {
   if (wired) return;
   wired = true;
 
-  taskGraph.registerRunner("goal", async ({ node, signal, log, earlier }) => {
+  // A cancelled graph cancels the kernel task its waiting step belongs to.
+  taskGraph.onCancel((graph) => {
+    for (const node of graph.nodes) {
+      const taskId = node.checkpoint?.kernelTaskId;
+      if (taskId && node.checkpoint?.pendingApproval) {
+        void kernelApi.tasks.cancel(taskId).catch(() => undefined);
+      }
+    }
+  });
+
+  taskGraph.registerRunner("goal", async ({ graph, node, signal, log, earlier }) => {
+    if (autonomy.getSnapshot().halted) return { ok: false, waiting: true, result: HELD };
     const desktop = typeof window !== "undefined" ? window.friday : undefined;
     if (!desktop) {
       return { ok: false, result: "the kernel is only available in the desktop app" };
     }
-    log(`running "${node.title}" through the kernel task planner`);
-    const outcome = await kernelApi.tasks.run(withEarlier(node.instruction, earlier));
-    if (signal.aborted) return { ok: false, result: "paused before the result was recorded" };
-    const done = Boolean((outcome as { done?: boolean } | null)?.done);
-    return {
-      ok: done,
-      result: done ? `kernel completed: ${node.title}` : "kernel did not report completion",
-      tools: ["kernel.task.run"],
-      checked: done,
-      postcondition: done ? "kernel reported the task done" : "",
-    };
+    const paused = { ok: false, result: "paused before the result was recorded" };
+    const prior = node.checkpoint;
+    let outcome: KernelTaskOutcome;
+    if (prior?.kernelTaskId && prior.pendingApproval?.stepId) {
+      // The same kernel task is still waiting on the owner: never start a second one for this step.
+      outcome = {
+        done: false,
+        state: "waiting-approval",
+        taskId: prior.kernelTaskId,
+        pendingApproval: prior.pendingApproval,
+      };
+    } else {
+      log(`running "${node.title}" through the kernel task planner`);
+      const running = kernelApi.tasks.run(withEarlier(node.instruction, earlier));
+      // A run still going when the graph is cancelled is cancelled once its task id is known.
+      void running
+        .then((late) => {
+          const id = (late as KernelTaskOutcome)?.taskId;
+          const state = (late as KernelTaskOutcome)?.state;
+          if (
+            id &&
+            state === "waiting-approval" &&
+            taskGraph.get(graph.id)?.state === "cancelled"
+          ) {
+            void kernelApi.tasks.cancel(String(id)).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+      const first = await Promise.race([running, untilAborted(signal)]);
+      if (first === "aborted" || signal.aborted) return paused;
+      outcome = first as KernelTaskOutcome;
+    }
+
+    for (let gate = 0; gate < MAX_GATES; gate += 1) {
+      const mapped = mapKernelOutcome(node.title, outcome);
+      if (!mapped.waiting || !mapped.kernelTaskId || !mapped.pendingApproval) return mapped;
+      const { stepId, tool, risk } = mapped.pendingApproval;
+      log(`waiting on the owner: ${tool} (${risk})`, "warn");
+      const answer = await askOwnerToApprove(
+        `Allow ${tool} (${risk}) for "${node.title.slice(0, 80)}"?`,
+        signal,
+      );
+      if (answer === "aborted" || signal.aborted) return { ...paused, ...pick(mapped) };
+      if (answer === "timeout") return mapped;
+      if (answer === "no") {
+        await kernelApi.tasks.approve(mapped.kernelTaskId, stepId, false).catch(() => null);
+        log(`the owner declined ${tool}`, "warn");
+        taskGraph.cancel(graph.id);
+        return {
+          ok: false,
+          result: `you declined ${tool}`,
+          checked: false,
+          pendingApproval: null,
+          kernelTaskId: mapped.kernelTaskId,
+        };
+      }
+      const next = await Promise.race([
+        kernelApi.tasks.approve(mapped.kernelTaskId, stepId, true).catch(() => null),
+        untilAborted(signal),
+      ]);
+      if (next === "aborted" || signal.aborted) return paused;
+      outcome = next as KernelTaskOutcome;
+    }
+    return { ok: false, result: "too many approval gates in one subtask", pendingApproval: null };
   });
 
   taskGraph.registerRunner("desktop", async ({ node, signal, log, earlier }) => {
@@ -51,6 +271,8 @@ export function registerTaskRunners(): void {
       source: "task",
       level: settings.approvalLevel,
       halted: settings.halted || signal.aborted,
+      isHalted: () => autonomy.getSnapshot().halted || signal.aborted,
+      approve: async (question) => (await askOwnerToApprove(question, signal)) === "yes",
       signal,
       budget: { timeMs: 120_000, maxSteps: 4, spend: 0, tokens: 0 },
       codeMap: (path, budget) => kernelApi.tools.exec("code.map", { path, budget }),
@@ -70,6 +292,7 @@ export function registerTaskRunners(): void {
   });
 
   taskGraph.registerRunner("self-improve", async ({ signal, log }) => {
+    if (autonomy.getSnapshot().halted) return { ok: false, waiting: true, result: HELD };
     const cycle = await autonomousCore.cycle();
     if (signal.aborted) return { ok: false, result: "paused for the owner" };
     const note = cycle ? cycle.note : "nothing to improve right now";
@@ -125,6 +348,17 @@ export function considerDesktopTask(text: string): Intake {
     message: queued
       ? `Queued on the desktop — ${count} step(s), number ${position} in line.`
       : `Started on the desktop — ${count} step(s), checkpointed after each one.`,
+  };
+}
+
+/** Keeps the kernel task id and the waiting step on a paused subtask, so a resume asks again instead of re-running. */
+function pick(mapped: {
+  kernelTaskId?: string;
+  pendingApproval?: RunnerResult["pendingApproval"];
+}) {
+  return {
+    ...(mapped.kernelTaskId ? { kernelTaskId: mapped.kernelTaskId } : {}),
+    ...(mapped.pendingApproval ? { pendingApproval: mapped.pendingApproval } : {}),
   };
 }
 

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { FilterTabs, HudPanel, StatusPill } from "@/components/friday/ui";
 import { brain } from "@/lib/friday/brain-engine";
+import { activeVoiceSettings, speakSample } from "@/lib/friday/voice-library";
 import { FLOW_PAGE_FEATURES, graphForFeature } from "@/lib/friday/flow-adapters";
 import { coverageGraph } from "@/lib/friday/flow-coverage";
 import {
@@ -794,18 +795,11 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
           variant="outline"
           onClick={() => {
             const line = explainTour(shown, "english")[0] || "";
-            const api = window.friday as
-              { speakNeural?: (payload: { text: string }) => Promise<unknown> } | undefined;
-            if (!api?.speakNeural) {
-              setTour(
-                line
-                  ? `${line} Speech is not available in this window.`
-                  : "Speech is not available in this window.",
-              );
-              return;
-            }
-            void api.speakNeural({ text: line });
             setTour(line);
+            // The same gates as every spoken line: Auto mode only, and never while muted.
+            if (line && !speakSample(line, activeVoiceSettings())) {
+              setTour(`${line} Speech works only in Auto mode, with sound on.`);
+            }
           }}
         >
           Speak

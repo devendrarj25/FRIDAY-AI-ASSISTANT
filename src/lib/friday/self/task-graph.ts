@@ -87,6 +87,10 @@ export type Checkpoint = {
   compensation?: string;
   /** Last sealed event for this step. Resume starts after this cursor. */
   eventCursor?: string;
+  /** The kernel task this step ran as, so an approval, a resume or a cancel reaches the same task. */
+  kernelTaskId?: string;
+  /** The kernel step waiting on the owner's yes. Null once it was answered or the task ended. */
+  pendingApproval?: { stepId: string; tool: string; risk: string } | null;
   /** Redacted step notes for the Tasks page. Never a screenshot. */
   timeline?: TimelineRow[];
 };
@@ -423,6 +427,7 @@ export class TaskGraphEngine {
   private pumping = false;
   private lastActivityAt = 0;
   private lastStamp = 0;
+  private cancelHooks = new Set<(graph: TaskGraph) => void>();
 
   constructor() {
     this.hydrate();
@@ -843,8 +848,21 @@ export class TaskGraphEngine {
     graph.finishedAt = Date.now();
     if (this.activeGraphId === graphId) this.controller?.abort("cancelled");
     this.log(graph, "cancelled by the owner", "warn");
+    for (const hook of this.cancelHooks) {
+      try {
+        hook(graph);
+      } catch {
+        /* a runner's clean-up must never keep the graph from cancelling */
+      }
+    }
     this.emit();
     void this.pump();
+  }
+
+  /** A runner that started outside work (a kernel task) cancels it too when its graph is cancelled. */
+  onCancel(hook: (graph: TaskGraph) => void): () => void {
+    this.cancelHooks.add(hook);
+    return () => void this.cancelHooks.delete(hook);
   }
 
   /**
@@ -881,6 +899,16 @@ export class TaskGraphEngine {
     this.emit();
     void this.pump();
     return true;
+  }
+
+  /**
+   * Stop everything: parks every running graph (owner or idle) at its last checkpoint and aborts the active subtask.
+   * While `halted` is on, nothing is picked or stepped; queued graphs wait and start again after the owner resumes.
+   */
+  haltAll(): number {
+    const paused = this.pauseAll();
+    this.controller?.abort("halted");
+    return paused;
   }
 
   /** Parks every running graph at its last checkpoint. */
@@ -979,6 +1007,7 @@ export class TaskGraphEngine {
   }
 
   private pick(): TaskGraph | undefined {
+    if (autonomy.getSnapshot().halted) return undefined;
     const open = this.graphs.filter((graph) => OPEN_GRAPH.includes(graph.state));
     const owner = open
       .filter((graph) => graph.priority === "owner" && graph.state !== "paused")
@@ -996,6 +1025,7 @@ export class TaskGraphEngine {
 
   /** Executes exactly one node. Returns false when this graph cannot advance. */
   private async step(graph: TaskGraph): Promise<boolean> {
+    if (autonomy.getSnapshot().halted) return false;
     const node = graph.nodes.find(
       (candidate) =>
         (candidate.state === "ready" || candidate.state === "retrying") &&
@@ -1428,3 +1458,12 @@ export function resetTaskGraphStore(): void {
 }
 
 export const taskGraph = new TaskGraphEngine();
+
+// Stop everything pauses the live graphs; lifting it lets queued work start again.
+autonomy.registerStopParticipant("graphs", () => taskGraph.haltAll());
+let wasHalted = autonomy.getSnapshot().halted;
+autonomy.subscribe(() => {
+  const halted = autonomy.getSnapshot().halted;
+  if (wasHalted && !halted) void taskGraph.pump();
+  wasHalted = halted;
+});

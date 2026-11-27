@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import arg_policy
@@ -127,6 +129,37 @@ RISK = {
 
 
 #: Words that say nothing about which tool is wanted.
+# fs.write keeps a before-copy of the file it replaces up to this size (bytes).
+WRITE_BACKUP_MAX_BYTES = 50 * 1024 * 1024
+WRITE_BACKUP_DIR = "before-write"
+
+
+def _write_with_backup(path: Path, content: str, workspace: Path, asked: str) -> dict:
+    """Write text. An existing file is first copied into <workspace>/.friday-trash/before-write,
+    and the result carries an fs.copy undo handle that puts it back."""
+    result: dict = {"ok": True, "bytes": len(content)}
+    if path.is_file():
+        size = path.stat().st_size
+        if size > WRITE_BACKUP_MAX_BYTES:
+            result["backupSkipped"] = f"the old file is too large to copy ({size} bytes)"
+        else:
+            folder = workspace / file_tools.TRASH / WRITE_BACKUP_DIR
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            target = folder / f"{stamp}-{path.name}"
+            counter = 1
+            while target.exists():
+                counter += 1
+                target = folder / f"{stamp}-{counter}-{path.name}"
+            shutil.copy2(path, target)
+            kept = target.relative_to(workspace).as_posix()
+            result["backup"] = kept
+            result["undo"] = {"tool": "fs.copy", "from": kept, "to": asked, "overwrite": True}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return result
+
+
 _FILLER = frozenset({"the", "and", "for", "from", "with", "that", "this", "into", "please", "then"})
 
 SUMMARY = {
@@ -628,9 +661,9 @@ class ToolRegistry:
 
     async def _fs_write(self, args: dict) -> dict:
         path = self._resolve(args["path"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(args["content"], encoding="utf-8")
-        return {"ok": True, "bytes": len(args["content"])}
+        return await asyncio.to_thread(
+            _write_with_backup, path, args["content"], self.workspace.resolve(), str(args["path"])
+        )
 
     async def _http_fetch(self, args: dict) -> dict:
         """Fetch a page. Write-tier: needs a signed owner authorization.

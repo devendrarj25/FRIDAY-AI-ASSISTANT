@@ -299,7 +299,11 @@ export function firstClauseCut(
   text: string,
   options: ClauseOptions = {},
 ): { spoken: string; consumed: number } | null {
-  return scanFirstClause(text, options).cut;
+  const cut = scanFirstClause(text, options).cut;
+  // A code fence is never spoken: a first clause that ends inside an open fence is not cut, so the fence-aware
+  // reader speaks what stands before the fence and holds the rest. A fence that closes inside the clause is cut
+  // out of the speech by the speaker's own filter.
+  return cut && (cut.spoken.split("```").length - 1) % 2 === 0 ? cut : null;
 }
 
 type FirstScan = { cut: { spoken: string; consumed: number } | null; gaveUp: boolean };

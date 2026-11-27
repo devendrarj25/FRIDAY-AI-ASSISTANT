@@ -9,6 +9,7 @@
 
 import { memory } from "./memory-engine";
 import { pastEvidence } from "../brain/memory-asof";
+import { looksSensitive } from "../brain/memory-policy";
 import {
   experiences,
   STRATEGY_SAMPLE_MIN,
@@ -67,6 +68,22 @@ class LearningEngine {
       ...(outcome.promptAuthor ? { promptAuthor: outcome.promptAuthor } : {}),
       ...(outcome.contextKinds ? { contextKinds: outcome.contextKinds } : {}),
     });
+
+    // A sensitive outcome (a card, a password, an OTP in its title, detail, cause, lesson or correction) is
+    // counted by the ledger above, which withholds its text, and writes nothing into memory.
+    if (
+      looksSensitive(
+        [outcome.title, outcome.detail, outcome.correction, outcome.cause, outcome.lesson]
+          .filter(Boolean)
+          .join("\n"),
+      )
+    ) {
+      return {
+        learned: false,
+        tier: null,
+        note: "sensitive content — counted, nothing written to memory",
+      };
+    }
 
     // 1. Every finished task becomes an episode — that is history, not knowledge.
 

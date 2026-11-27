@@ -6,14 +6,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import uia_windows  # noqa: E402
 from uia_tree import (  # noqa: E402
     choose_layer,
     comtypes_missing,
+    focus_unverified,
     idle_within,
     ocr_fallback,
     perception_from_raw,
     prefer_pattern,
     resolve_control,
+    secure_refusal,
 )
 from uia_windows import guarded_collect  # noqa: E402
 
@@ -268,3 +271,131 @@ def test_com_cleanup_runs_when_the_walk_raises():
     else:
         raise AssertionError("expected the walk to raise")
     assert calls == ["in", "out"]
+
+
+# ------------------------------------------- the collector reports a cut walk and reads the focus directly
+
+
+class _Element:
+    """A fake UI Automation element: properties by id, a first child, a next sibling."""
+
+    def __init__(self, props=None, focus_error=False):
+        self.props = props or {}
+        self.children: list[_Element] = []
+        self.next: _Element | None = None
+        self.focus_error = focus_error
+
+    def add(self, child: "_Element") -> "_Element":
+        if self.children:
+            self.children[-1].next = child
+        self.children.append(child)
+        return child
+
+    def GetCurrentPropertyValue(self, prop_id):
+        value = self.props.get(prop_id)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    def GetCurrentPattern(self, _prop_id):
+        return None
+
+
+class _Walker:
+    def GetFirstChildElement(self, element):
+        return element.children[0] if element.children else None
+
+    def GetNextSiblingElement(self, element):
+        return element.next
+
+
+class _Uia:
+    ControlViewWalker = _Walker()
+
+    def __init__(self, root: _Element, focused=None):
+        self.root = root
+        self.focused = focused
+
+    def GetRootElement(self):
+        return self.root
+
+    def GetFocusedElement(self):
+        if isinstance(self.focused, Exception):
+            raise self.focused
+        return self.focused
+
+
+def _chain(depth: int, leaf_props=None) -> tuple[_Element, _Element]:
+    """root -> window -> a chain `depth` levels deep, returns (root, leaf)."""
+    root = _Element()
+    node = root.add(_Element({uia_windows._NAME: "Page", uia_windows._CONTROL: 50032}))
+    for _ in range(depth):
+        node = node.add(_Element({uia_windows._NAME: "x", uia_windows._CONTROL: 50033}))
+    leaf = node.add(_Element(leaf_props or {uia_windows._NAME: "leaf", uia_windows._CONTROL: 50004}))
+    return root, leaf
+
+
+def test_a_walk_cut_at_max_depth_says_so():
+    root, _leaf = _chain(12)
+    raw = uia_windows.collect_from(_Uia(root), _monitors(), max_depth=8, max_nodes=400)
+    assert raw["truncated"] is True
+
+
+def test_a_walk_cut_at_max_nodes_says_so():
+    root = _Element()
+    window = root.add(_Element({uia_windows._NAME: "Wide", uia_windows._CONTROL: 50032}))
+    for _ in range(30):
+        window.add(_Element({uia_windows._NAME: "row", uia_windows._CONTROL: 50011}))
+    raw = uia_windows.collect_from(_Uia(root), _monitors(), max_depth=8, max_nodes=10)
+    assert raw["truncated"] is True
+
+
+def test_a_whole_walk_is_not_truncated():
+    root, _leaf = _chain(2)
+    raw = uia_windows.collect_from(_Uia(root), _monitors(), max_depth=8, max_nodes=400)
+    assert raw["truncated"] is False
+    assert len(raw["windows"]) == 1
+
+
+def test_the_focused_element_is_read_directly_even_when_it_is_below_the_cut():
+    secret = {
+        uia_windows._NAME: "Password",
+        uia_windows._CONTROL: 50004,
+        uia_windows._PASSWORD: True,
+        uia_windows._FOCUS: True,
+    }
+    root, leaf = _chain(12, secret)
+    raw = uia_windows.collect_from(_Uia(root, focused=leaf), _monitors(), max_depth=8, max_nodes=400)
+    assert raw["truncated"] is True
+    assert raw["focusedElement"]["isPassword"] is True
+    assert secure_refusal(raw) == "password"
+    assert raw["focusedElement"]["name"] == ""  # a password field's name is never copied
+
+
+def test_an_unreadable_focus_is_none_and_marks_a_cut_walk_unverified():
+    root, _leaf = _chain(12)
+    raw = uia_windows.collect_from(_Uia(root, focused=RuntimeError("secure desktop")), _monitors(), 8, 400)
+    assert raw["focusedElement"] is None
+    assert focus_unverified(raw) is True
+
+
+def test_a_focus_whose_password_flag_cannot_be_read_is_unreadable():
+    root, _leaf = _chain(1)
+    broken = _Element({uia_windows._PASSWORD: RuntimeError("no property"), uia_windows._CONTROL: 50004})
+    assert uia_windows.read_focused(_Uia(root, focused=broken)) is None
+
+
+def test_focus_unverified_only_when_cut_and_unread():
+    assert focus_unverified({"truncated": True, "focusedElement": None}) is True
+    assert focus_unverified({"truncated": True}) is True
+    assert focus_unverified({"truncated": True, "focusedElement": {"isPassword": False}}) is False
+    assert focus_unverified({"truncated": False, "focusedElement": None}) is False
+    assert focus_unverified({"windows": []}) is False
+    assert focus_unverified(None) is False
+
+
+def test_secure_refusal_reads_the_focused_element_before_the_tree():
+    raw = {"windows": [], "focusedElement": {"controlType": "Edit", "isPassword": True}}
+    assert secure_refusal(raw) == "password"
+    ok = {"windows": [], "focusedElement": {"controlType": "Edit", "isPassword": False, "name": "Search"}}
+    assert secure_refusal(ok) is None

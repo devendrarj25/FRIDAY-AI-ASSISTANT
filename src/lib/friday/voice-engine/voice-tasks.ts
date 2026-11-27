@@ -156,6 +156,40 @@ export function attachVoiceTaskSpeaker(speak: (text: string) => void, busy: () =
   busyNow = busy;
 }
 
+/**
+ * A background task-graph outcome said by the same rules as a desk task: the conductor's narrator owns priority,
+ * held lines, quiet hours, mute and sensitivity; without it the announcer holds the line until the voice is idle.
+ * Returns true when the line was delivered or queued, false when no voice is attached, so the caller can keep the
+ * graph unannounced.
+ */
+export function announceBackgroundTask(update: TaskUpdate, label: string): boolean {
+  const now = Date.now();
+  const state: VoiceTask["state"] =
+    update.kind === "completed"
+      ? "COMPLETED"
+      : update.kind === "failed"
+        ? "FAILED"
+        : update.kind === "needs-approval"
+          ? "WAITING_FOR_APPROVAL"
+          : "RUNNING";
+  const task: VoiceTask = {
+    id: update.taskId,
+    label,
+    state,
+    risk: "safe",
+    createdAt: now,
+    updatedAt: now,
+    ...(update.kind === "failed" ? { error: update.text } : { result: update.text }),
+  };
+  if (narrator) {
+    narrator(update, task);
+    return true;
+  }
+  if (!speaker) return false;
+  for (const line of announcer.offer(update, busyNow())) speaker(line.text);
+  return true;
+}
+
 /** Call when the voice goes quiet: held updates are spoken in order. */
 export function releaseTaskUpdates(): void {
   for (const line of announcer.release(busyNow())) speaker?.(line.text);

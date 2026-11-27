@@ -2754,19 +2754,25 @@ def _record_hearing(hearing: dict, original, cleaned, keep_wav: bool) -> None:
         return
 
 
+_STASH_NAME = re.compile(r"^(\d+)-(?:raw|denoised)\.wav$")
+_STASH_KEEP = 5  # utterances, each a raw and a denoised file
+
+
 def _stash_utterance_wavs(folder: Path, original, cleaned) -> None:
     folder.mkdir(parents=True, exist_ok=True)
-    existing = sorted(folder.glob("*.wav"))
-    stamp = f"{len(existing):05d}"
+    stamped = [(int(m.group(1)), path) for path in folder.glob("*.wav") if (m := _STASH_NAME.match(path.name))]
+    # One past the highest number on disk, so trimming old files never makes a new utterance reuse a name.
+    stamp = f"{max((n for n, _ in stamped), default=-1) + 1:05d}"
     _write_float_wav(folder / f"{stamp}-raw.wav", original)
     _write_float_wav(folder / f"{stamp}-denoised.wav", cleaned if cleaned is not None else original)
-    wavs = sorted(folder.glob("*.wav"))
-    # Five utterances, raw and denoised.
-    for old in wavs[:-10]:
-        try:
-            old.unlink()
-        except OSError:
-            continue
+    stamped.extend((int(stamp), folder / f"{stamp}-{kind}.wav") for kind in ("raw", "denoised"))
+    newest = sorted({n for n, _ in stamped})[-_STASH_KEEP:]
+    for number, old in stamped:
+        if number not in newest:
+            try:
+                old.unlink()
+            except OSError:
+                continue
 
 
 def _write_float_wav(path: Path, samples) -> None:

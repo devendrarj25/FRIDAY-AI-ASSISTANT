@@ -432,7 +432,10 @@ describe("wiring (source-pinned; the speaker cannot run here)", () => {
     expect(mode).toContain("this.taggedLines.add(prepared)");
     expect(mode).toMatch(/const tagged = this\.taggedLines\.delete\(spoken\)/);
     expect(mode).toMatch(/this\.spokenText = stripDeliveryTags\(spoken\)/);
-    expect(mode).toMatch(/this\.speak\(piece, \{ reply: true,/);
+    // TEST_REWRITE_OK: a reply piece is handed to the speech queue one sentence at a time (no sentence is capped away).
+    expect(mode).toMatch(
+      /for \(const sentence of sentencesOfPiece\(piece\)\) \{[\s\S]{0,300}this\.speak\(sentence, \{ reply: true,/,
+    );
     // only the streamed reply is marked as one
     expect(mode.match(/reply: true/g)?.length).toBe(1);
   });
