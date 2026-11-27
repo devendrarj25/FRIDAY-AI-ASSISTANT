@@ -1670,7 +1670,9 @@ class ModelRouter:
         # FRIDAY's own identity always leads, whichever model answers. The desktop's system text is usually the
         # same persona plus this turn's extras; sending both would put the persona in the prompt twice.
         persona = friday_persona()
-        if not (system and persona.strip()[:200] in system):
+        # A spoken turn's system text is the renderer's lean voice prompt: the persona is not prepended again.
+        spoken_with_prompt = surface == "voice" and bool(system)
+        if not spoken_with_prompt and not (system and persona.strip()[:200] in system):
             messages.append({"role": "system", "content": persona})
         if system:
             messages.append({"role": "system", "content": system})

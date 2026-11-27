@@ -831,7 +831,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
         replies: dict[str, list[str]] = {}
         errors: list[str] = []
         recall_t0 = time.perf_counter() if os.environ.get("FRIDAY_DEBUG_TURN_TIMING") == "1" else None
-        recalled = await memory.recall(params["prompt"])
+        recalled = await memory.recall(params["prompt"], voice=params.get("routingSurface") == "voice")
         if recall_t0 is not None:
             print(
                 f"[friday.turn] kernel memory.recall {(time.perf_counter() - recall_t0) * 1000:.0f}ms",
@@ -1370,6 +1370,10 @@ async def on_startup() -> None:
         task.add_done_callback(reports.discard)
 
     router.on_billing_spent = _report_spend
+    # Fold any records written while the vector store was down into it, off the boot path.
+    _boot_merge = loop.create_task(memory.merge_fallback())
+    reports.add(_boot_merge)
+    _boot_merge.add_done_callback(reports.discard)
     router.on_privacy_ask = ask_desktop_privacy
     # Tasks that were mid-flight when the kernel died become resumable instead
     # of staying stuck in 'running'.
