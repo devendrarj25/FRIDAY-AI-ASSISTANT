@@ -113,3 +113,229 @@ describe("inventory.json", () => {
     expect(main).toContain("recordInventory(toolchain.lastDetected())");
   });
 });
+
+describe("post-update model check", () => {
+  const sha = "a".repeat(64);
+  const coreManifest = {
+    schemaVersion: 1,
+    diskDir: "models/friday-core",
+    variants: [
+      {
+        id: "e4b",
+        files: [
+          {
+            kind: "weights",
+            disk: "core-e4b.gguf",
+            bytes: 8,
+            sha256: sha,
+            upstream: { repo: "o/r", revision: "r1", file: "core-e4b.gguf" },
+          },
+          {
+            kind: "projector",
+            disk: "core-e4b-mmproj.gguf",
+            bytes: 4,
+            sha256: sha,
+            upstream: { repo: "o/r", revision: "r1", file: "core-e4b-mmproj.gguf" },
+          },
+        ],
+      },
+      {
+        id: "e2b",
+        files: [
+          {
+            kind: "weights",
+            disk: "core-e2b.gguf",
+            bytes: 6,
+            sha256: sha,
+            upstream: { repo: "o/r", revision: "r1", file: "core-e2b.gguf" },
+          },
+        ],
+      },
+    ],
+  };
+  const voiceRows = [
+    { id: "stt-pin-small", label: "FRIDAY Ear small matches its pin", ok: true, detail: "ok" },
+    { id: "tts-pin", label: "FRIDAY Voice matches its pin", ok: false, detail: "x wrong size" },
+  ];
+  const weights = (rows = voiceRows, seen: Array<Record<string, unknown>> = []) => ({
+    pinChecks: async (_root: string, deps: Record<string, unknown>) => {
+      seen.push(deps);
+      return rows;
+    },
+  });
+  const coreDir = () => path.join(root, "models", "friday-core");
+  const put = (name: string, size: number) => {
+    fs.mkdirSync(coreDir(), { recursive: true });
+    fs.writeFileSync(path.join(coreDir(), name), Buffer.alloc(size, 1));
+  };
+  const base = () => ({ weights: weights(), manifest: coreManifest });
+
+  it("reads the voice pin rows by size only and flags a bad one without touching the disk", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const result = await inventory.checkDownloadedModels(root, {
+      weights: weights(voiceRows, seen),
+      manifest: coreManifest,
+    });
+    expect(seen[0]?.["hash"]).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.hashed).toBe(false);
+    expect(result.checked).toBe(2);
+    expect(result.bad).toEqual([
+      {
+        source: "voice",
+        id: "tts-pin",
+        label: "FRIDAY Voice matches its pin",
+        detail: "x wrong size",
+      },
+    ]);
+  });
+
+  it("flags a FRIDAY Core file of the wrong size or a missing sibling, and deletes nothing", async () => {
+    put("core-e4b.gguf", 5); // pinned 8
+    put("core-e2b.gguf", 6); // pinned 6: good
+    const result = await inventory.checkDownloadedModels(root, {
+      ...base(),
+      weights: weights([]),
+    });
+    const ids = result.bad.map((row: { id: string }) => row.id).sort();
+    expect(ids).toEqual(["core-e4b-mmproj.gguf", "core-e4b.gguf"]);
+    expect(result.ok).toBe(false);
+    expect(fs.statSync(path.join(coreDir(), "core-e4b.gguf")).size).toBe(5);
+    expect(fs.existsSync(path.join(coreDir(), "core-e2b.gguf"))).toBe(true);
+  });
+
+  it("does not flag a Core variant that is simply not installed", async () => {
+    const result = await inventory.checkDownloadedModels(root, {
+      ...base(),
+      weights: weights([]),
+    });
+    expect(result.bad).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.checked).toBe(0);
+  });
+
+  it("catches a same-size corrupt Core file only when asked to hash", async () => {
+    put("core-e2b.gguf", 6);
+    const fastOnly = await inventory.checkDownloadedModels(root, {
+      ...base(),
+      weights: weights([]),
+    });
+    expect(fastOnly.ok).toBe(true);
+    const hashed = await inventory.checkDownloadedModels(root, {
+      ...base(),
+      weights: weights([]),
+      hash: true,
+    });
+    expect(hashed.hashed).toBe(true);
+    expect(hashed.bad.map((row: { id: string }) => row.id)).toEqual(["core-e2b.gguf"]);
+    expect(hashed.bad[0].detail).toMatch(/sha256|SHA-256/i);
+    expect(fs.existsSync(path.join(coreDir(), "core-e2b.gguf"))).toBe(true);
+  });
+
+  it("turns a result into one Doctor row that names the files and says nothing was deleted", () => {
+    const green = inventory.modelCheckRow({
+      ok: true,
+      checked: 3,
+      hashed: false,
+      bad: [],
+      errors: [],
+    });
+    expect(green.id).toBe("models-after-update");
+    expect(green.ok).toBe(true);
+    expect(green.required).toBe(false);
+    expect(green.detail).toMatch(/3/);
+    const red = inventory.modelCheckRow({
+      ok: false,
+      checked: 3,
+      hashed: false,
+      bad: [{ source: "voice", id: "tts-pin", label: "FRIDAY Voice", detail: "x wrong size" }],
+      errors: [],
+    });
+    expect(red.ok).toBe(false);
+    expect(red.detail).toContain("tts-pin");
+    expect(red.detail).toMatch(/not deleted/i);
+    expect(red.badIds).toEqual(["tts-pin"]);
+    const broken = inventory.modelCheckRow({
+      ok: false,
+      checked: 0,
+      hashed: false,
+      bad: [],
+      errors: ["voice: boom"],
+    });
+    expect(broken.ok).toBe(false);
+    expect(broken.detail).toContain("boom");
+  });
+
+  it("runs once per version, records the outcome in inventory.json and keeps it across rewrites", async () => {
+    const scan = { at: 1_700_000_000_000, tools: [tool({ id: "FFmpeg" })] };
+    inventory.writeInventory(root, scan, { version: "1.2.5.8" });
+    expect(inventory.needsModelCheck(root, "1.2.5.8")).toBe(true);
+    const first = await inventory.postUpdateCheck(root, { ...base(), version: "1.2.5.8", now: 5 });
+    expect(first.ran).toBe(true);
+    expect(first.persisted).toBe(true);
+    expect(first.row.ok).toBe(false);
+    const record = inventory.readInventory(root).modelCheck;
+    expect(record).toMatchObject({
+      version: "1.2.5.8",
+      ok: false,
+      hashed: false,
+      bad: ["tts-pin"],
+    });
+    expect(inventory.needsModelCheck(root, "1.2.5.8")).toBe(false);
+    // The next scan rewrites inventory.json; the record is kept and an unchanged scan writes nothing.
+    expect(
+      inventory.writeInventory(root, { ...scan, at: scan.at + 1 }, { version: "1.2.5.8" }).written,
+    ).toBe(false);
+    expect(inventory.readInventory(root).modelCheck.version).toBe("1.2.5.8");
+    fs.mkdirSync(path.join(root, "models", "new-model"), { recursive: true });
+    expect(inventory.writeInventory(root, scan, { version: "1.2.5.8" }).written).toBe(true);
+    expect(inventory.readInventory(root).modelCheck.version).toBe("1.2.5.8");
+    const again = await inventory.postUpdateCheck(root, { ...base(), version: "1.2.5.8" });
+    expect(again.ran).toBe(false);
+    const next = await inventory.postUpdateCheck(root, { ...base(), version: "1.2.5.9" });
+    expect(next.ran).toBe(true);
+  });
+
+  it("hashes on request (Doctor repair) even when this version was already checked", async () => {
+    inventory.writeInventory(root, { at: 1, tools: [] }, { version: "1.2.5.8" });
+    await inventory.postUpdateCheck(root, { ...base(), version: "1.2.5.8" });
+    const seen: Array<Record<string, unknown>> = [];
+    const full = await inventory.verifyModelHashes(root, {
+      weights: weights(voiceRows, seen),
+      manifest: coreManifest,
+      version: "1.2.5.8",
+    });
+    expect(seen[0]?.["hash"]).toBe(true);
+    expect(full.result.hashed).toBe(true);
+    expect(inventory.readInventory(root).modelCheck.hashed).toBe(true);
+  });
+
+  it("never throws: a failing source is reported, and the version is not marked as checked", async () => {
+    inventory.writeInventory(root, { at: 1, tools: [] }, { version: "1.2.5.8" });
+    const boom = {
+      pinChecks: async () => {
+        throw new Error("boom");
+      },
+    };
+    const out = await inventory.postUpdateCheck(root, {
+      weights: boom,
+      manifest: coreManifest,
+      version: "1.2.5.8",
+    });
+    expect(out.ran).toBe(true);
+    expect(out.persisted).toBe(false);
+    expect(out.result.errors.join(" ")).toContain("boom");
+    expect(out.row.ok).toBe(false);
+    expect(inventory.needsModelCheck(root, "1.2.5.8")).toBe(true);
+  });
+
+  it("does nothing without a root or a version, and never removes a file (source pin)", async () => {
+    expect((await inventory.postUpdateCheck("", { version: "1" })).ran).toBe(false);
+    expect((await inventory.postUpdateCheck(root, {})).ran).toBe(false);
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "..", "electron", "install-inventory.cjs"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/rmSync|unlinkSync|rmdirSync|removeBad|quarantine/);
+  });
+});

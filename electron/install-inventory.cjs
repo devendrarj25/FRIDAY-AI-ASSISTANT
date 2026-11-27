@@ -186,7 +186,10 @@ function buildInventory(root, { tools = [], latest = null, version = "0.0.0", at
 
 const stable = (inventory) => JSON.stringify({ ...inventory, scannedAt: null });
 
-/** Write <root>/inventory.json, only when the content changed. Never throws. */
+/**
+ * Write <root>/inventory.json, only when the content changed. Never throws. The post-update model check
+ * (`modelCheck`) lives in the same file: a rewrite from a new scan keeps the last record.
+ */
 function writeInventory(root, scan, options = {}) {
   if (!root || !scan) return { written: false };
   try {
@@ -203,14 +206,20 @@ function writeInventory(root, scan, options = {}) {
     } catch {
       /* first write */
     }
+    const kept = options.modelCheck || previous?.modelCheck;
+    if (kept) inventory.modelCheck = kept;
     if (previous && stable(previous) === stable(inventory)) return { written: false, inventory };
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(inventory, null, 2)}\n`);
-    fs.renameSync(tmp, file);
-    return { written: true, inventory };
+    return atomicWrite(file, inventory) ? { written: true, inventory } : { written: false };
   } catch {
     return { written: false };
   }
+}
+
+function atomicWrite(file, value) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+  return true;
 }
 
 function readInventory(root) {
@@ -221,4 +230,175 @@ function readInventory(root) {
   }
 }
 
-module.exports = { FILE, HOMES, homeOf, buildInventory, writeInventory, readInventory, newer };
+/* ------------------------------------------------------------------ the check after an update
+ * An update replaces <root>/App only; the downloaded weights live in the root and are not touched. This check reads
+ * them once per app version and reports a file that no longer matches its pin. It only reads and reports: a bad file
+ * is flagged for the Doctor repair (which fetches just that file again), never removed here.
+ *   voice and speech weights   `voice-weights.pinChecks` (the same rows the voice Doctor shows)
+ *   FRIDAY Core chat weights   `friday-core.planAssets` (pinned size and SHA-256 per file)
+ * Size is always checked; the SHA-256 only with `hash` (a multi-GB file takes seconds, so the Doctor repair asks).
+ */
+
+async function coreProblems(root, deps, hash) {
+  const core = deps.core || require("./friday-core.cjs");
+  const stat = deps.stat || ((file) => fs.statSync(file, { throwIfNoEntry: false }));
+  const coreDeps = {
+    pack: null,
+    ...(deps.manifest !== undefined ? { manifest: deps.manifest } : {}),
+  };
+  const verify = deps.verifySha || core.verifySha;
+  const manifest = core.read(coreDeps);
+  const out = { checked: 0, bad: [] };
+  for (const variant of manifest?.variants || []) {
+    const plan = core.planAssets(root, variant.id, { ...coreDeps, stat });
+    if (!plan.ok) continue;
+    const seen = plan.assets.map((asset) => ({ asset, info: stat(asset.dest) }));
+    // A variant that was never downloaded is not a problem; one with some of its files is checked as a whole.
+    if (!seen.some((row) => row.info && row.info.isFile())) continue;
+    for (const { asset, info } of seen) {
+      out.checked += 1;
+      const flag = (detail) =>
+        out.bad.push({
+          source: "core",
+          id: asset.disk,
+          label: `FRIDAY Core ${variant.id}`,
+          detail,
+        });
+      if (!info || !info.isFile()) flag(`${asset.disk} missing`);
+      else if (info.size !== asset.bytes) flag(`${asset.disk} wrong size`);
+      else if (hash) {
+        const verdict = await verify(asset.dest, asset.sha256, { bytes: asset.bytes });
+        if (!verdict.ok) flag(`${asset.disk} fails SHA-256`);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Check every downloaded, pinned model against its pin. Never throws and never changes a file:
+ * `{ ok, checked, hashed, bad: [{ source, id, label, detail }], errors }`. A source that could not be read is in
+ * `errors` (unverified), not in `bad`.
+ */
+async function checkDownloadedModels(root, deps = {}) {
+  const hash = deps.hash === true;
+  const result = { ok: true, checked: 0, hashed: hash, bad: [], errors: [] };
+  if (!root) return { ...result, errors: ["no FRIDAY folder is set"], ok: false };
+  const exists = deps.exists || ((file) => fs.existsSync(file));
+  try {
+    const weights = deps.weights || require("./voice-weights.cjs");
+    const rows = await weights.pinChecks(root, {
+      exists,
+      hash,
+      ...(deps.stat ? { stat: deps.stat } : {}),
+      ...(deps.hashFile ? { hashFile: deps.hashFile } : {}),
+    });
+    result.checked += rows.length;
+    for (const row of rows) {
+      if (!row.ok) {
+        result.bad.push({ source: "voice", id: row.id, label: row.label, detail: row.detail });
+      }
+    }
+  } catch (error) {
+    result.errors.push(`voice weights: ${error?.message || error}`);
+  }
+  try {
+    const found = await coreProblems(root, deps, hash);
+    result.checked += found.checked;
+    result.bad.push(...found.bad);
+  } catch (error) {
+    result.errors.push(`FRIDAY Core: ${error?.message || error}`);
+  }
+  result.ok = !result.bad.length && !result.errors.length;
+  return result;
+}
+
+/** The one Doctor row for a check result. `badIds` are the files or rows the repair should fetch again. */
+function modelCheckRow(result) {
+  const bad = result.bad || [];
+  const errors = result.errors || [];
+  const how = result.hashed ? "size and SHA-256" : "size";
+  const row = {
+    id: "models-after-update",
+    label: "Downloaded models match their pins after the update",
+    ok: result.ok === true,
+    optional: true,
+    required: false,
+    badIds: bad.map((item) => item.id),
+    detail: `${result.checked} downloaded file(s) checked by ${how}`,
+  };
+  if (bad.length) {
+    const shown = bad
+      .slice(0, 5)
+      .map((item) => `${item.id} (${item.detail})`)
+      .join(", ");
+    row.detail = `${bad.length} flagged, not deleted: ${shown}${bad.length > 5 ? ", ..." : ""}; repair fetches only those files again`;
+  } else if (errors.length) {
+    row.detail = `could not be checked, so unverified: ${errors.join("; ")}`;
+  }
+  return row;
+}
+
+const previousCheck = (root) => readInventory(root)?.modelCheck || null;
+
+/** True when the models have not been checked for this app version yet. */
+function needsModelCheck(root, version) {
+  return previousCheck(root)?.version !== String(version);
+}
+
+/** Note the outcome in inventory.json (only when that file exists). Returns whether it was written. */
+function recordModelCheck(root, result, version, now) {
+  try {
+    const file = path.join(root, FILE);
+    const current = JSON.parse(fs.readFileSync(file, "utf8"));
+    current.modelCheck = {
+      version: String(version),
+      at: Number.isFinite(now) ? new Date(now).toISOString() : null,
+      ok: result.ok === true,
+      hashed: result.hashed === true,
+      checked: result.checked,
+      bad: result.bad.map((item) => item.id),
+    };
+    return atomicWrite(file, current);
+  } catch {
+    return false;
+  }
+}
+
+async function runCheck(root, deps) {
+  const result = await checkDownloadedModels(root, deps);
+  const persisted = result.errors.length
+    ? false
+    : recordModelCheck(root, result, deps.version, deps.now);
+  return { ran: true, result, row: modelCheckRow(result), persisted };
+}
+
+/** The cheap check after an update: size only, once per app version. `{ ran: false }` when already done. */
+async function postUpdateCheck(root, deps = {}) {
+  const version = String(deps.version || "");
+  if (!root || !version) return { ran: false, reason: "no FRIDAY folder or version" };
+  if (!needsModelCheck(root, version))
+    return { ran: false, reason: "already checked for this version" };
+  return runCheck(root, { ...deps, version, hash: false });
+}
+
+/** The full check from the Doctor repair: size and SHA-256 of every pinned file, whenever it is asked for. */
+async function verifyModelHashes(root, deps = {}) {
+  if (!root) return { ran: false, reason: "no FRIDAY folder" };
+  return runCheck(root, { ...deps, version: String(deps.version || ""), hash: true });
+}
+
+module.exports = {
+  FILE,
+  HOMES,
+  homeOf,
+  buildInventory,
+  writeInventory,
+  readInventory,
+  newer,
+  checkDownloadedModels,
+  modelCheckRow,
+  needsModelCheck,
+  postUpdateCheck,
+  verifyModelHashes,
+};
