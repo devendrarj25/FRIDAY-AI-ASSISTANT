@@ -92,5 +92,38 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(privacy.classify(text)["level"], "public")
 
 
+class OwnerTextTests(unittest.TestCase):
+    """`ownerText` carries what the owner brought into the turn (attachments, recalled memory, screen text).
+
+    It sits in the system text the model reads, which the firewall skips, so the desktop sends it apart and
+    the kernel classifies it with the owner's own words.
+    """
+
+    SECRET = "my password is hunter2"
+
+    def test_ownerText_sensitive_with_innocent_prompt_is_sensitive(self):
+        messages = [{"role": "system", "content": "You are FRIDAY."}, {"role": "user", "content": "summarise this"}]
+        self.assertEqual(privacy.classify(privacy.user_content(messages))["level"], "public")
+        text = privacy.user_content(messages, owner_text=self.SECRET)
+        self.assertEqual(privacy.classify(text)["level"], "sensitive")
+        self.assertTrue(privacy.guard_egress(CLOUD, text, connected=True)["hardStop"])
+
+    def test_ownerText_may_be_a_list_of_parts(self):
+        text = privacy.user_content("hello", owner_text=["a plain attachment", self.SECRET])
+        self.assertEqual(privacy.classify(text)["level"], "sensitive")
+
+    def test_ownerText_plain_text_stays_public_and_junk_is_ignored(self):
+        self.assertEqual(privacy.user_content("hello", owner_text=None), "hello")
+        self.assertEqual(privacy.user_content("hello", owner_text=42), "hello")
+        self.assertEqual(privacy.user_content("hello", owner_text="  "), "hello")
+        text = privacy.user_content("hello", owner_text="meeting notes about lunch")
+        self.assertEqual(privacy.classify(text)["level"], "public")
+
+    def test_ownerText_long_text_is_read_whole(self):
+        long_text = ("lunch notes. " * 4000) + self.SECRET
+        text = privacy.user_content("hello", owner_text=long_text)
+        self.assertEqual(privacy.classify(text)["level"], "sensitive")
+
+
 if __name__ == "__main__":
     unittest.main()

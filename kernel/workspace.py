@@ -50,6 +50,16 @@ def _skip_dir(name: str) -> bool:
     return name.lower() in SKIP_DIRS_LOWER or name.startswith(".") or name.startswith("$")
 
 
+# FRIDAY's own stores. The kernel database changes on every chat turn, so walking these makes the index
+# rewrite itself. They are skipped only at the top of FRIDAY's own folder (it holds database/ and memory/):
+# a folder called models or library in the owner's own project is still his.
+FRIDAY_STORE_DIRS_LOWER = {"database", "memory", "state", "backup", "models", "library"}
+
+
+def _is_friday_root(root: Path) -> bool:
+    return (root / "database").is_dir() and (root / "memory").is_dir()
+
+
 CODE_MARKERS = {
     "package.json": "Node",
     "pnpm-lock.yaml": "Node · pnpm",
@@ -151,8 +161,11 @@ class Workspace:
         detected: list[Folder] = []
         total_files = total_folders = 0
 
+        own_stores = FRIDAY_STORE_DIRS_LOWER if _is_friday_root(self.root) else set()
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if not _skip_dir(d)]
+            dirnames[:] = [
+                d for d in dirnames if not _skip_dir(d) and not (dirpath == str(self.root) and d.lower() in own_stores)
+            ]
             total_folders += 1
 
             stack = next((s for marker, s in CODE_MARKERS.items() if marker in filenames), None)

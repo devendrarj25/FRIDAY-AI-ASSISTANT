@@ -735,6 +735,54 @@ async def version() -> VersionBody:
     return VersionBody(ok=True, product=product_version(), kernel=app.version)
 
 
+_TASK_TERMINAL = {"done", "failed", "cancelled"}
+
+
+async def _collect_task(events, send) -> dict:
+    """Stream planner events to the desktop and say what the task really ended as.
+
+    `done` is true only when the planner itself finished the task (a terminal `done` event with no step id).
+    A task stopped at an approval gate is `waiting-approval` with the step the owner must decide on; a step
+    that finished is not the task finishing.
+    """
+    state = "running"
+    task_id: str | None = None
+    results: list = []
+    pending: dict | None = None
+    error: str | None = None
+    count = 0
+    async for event in events:
+        count += 1
+        task_id = event.get("taskId") or task_id
+        await send({"type": "task.event", "data": event})
+        kind = event.get("type")
+        if kind == "approval-required":
+            state = "waiting-approval"
+            pending = {
+                "stepId": event.get("stepId"),
+                "tool": event.get("tool"),
+                "risk": event.get("risk"),
+                "args": event.get("args") if isinstance(event.get("args"), dict) else {},
+            }
+        elif kind in _TASK_TERMINAL and not event.get("stepId"):
+            state = kind
+            pending = None
+            if isinstance(event.get("results"), list):
+                results = event["results"]
+            if kind == "failed":
+                error = str(event.get("error") or "task failed")
+        elif kind == "failed":
+            # A step failure carries a step id; the planner follows it with nothing more, so it ends the task.
+            state = "failed"
+            error = str(event.get("error") or "step failed")
+    outcome: dict = {"done": state == "done", "state": state, "taskId": task_id, "results": results, "events": count}
+    if pending is not None:
+        outcome["pendingApproval"] = pending
+    if error is not None:
+        outcome["error"] = error
+    return outcome
+
+
 async def dispatch(method: str, params: dict, send) -> dict:
     """Bridge protocol. Every UI action maps to exactly one method here."""
     if method == "kernel.status":
@@ -743,6 +791,8 @@ async def dispatch(method: str, params: dict, send) -> dict:
             "host": f"{HOST}:{PORT}",
             "version": app.version,
             "dataDir": str(DATA_DIR),
+            # Doctor reads this: ok, restored, recreated (a damaged file was set aside) or newer-schema.
+            "database": storage.health(),
             **await runtimes.hardware_status(),
         }
     if method == "model.list":
@@ -801,6 +851,14 @@ async def dispatch(method: str, params: dict, send) -> dict:
         trace_t0 = time.perf_counter()
         run_trace.record(run_id, "chat.start", effort=params.get("reasoningEffort") or "none")
         no_tools_token = router_no_tools.set(True) if ephemeral else None
+        # Sent down only when the desktop set them, so a caller that does not keeps the old call shape.
+        # maxTokens caps this reply; ownerText is what the owner brought in (attachments, screen text) and is
+        # read by the privacy firewall only.
+        turn_limits: dict = {}
+        if params.get("maxTokens") is not None:
+            turn_limits["max_tokens"] = params["maxTokens"]
+        if params.get("ownerText"):
+            turn_limits["owner_text"] = params["ownerText"]
         try:
             async for delta in router.stream(
                 prompt=params["prompt"],
@@ -818,6 +876,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
                 else None,
                 history=history,
                 hardware_hints=params.get("hardwareHints"),
+                **turn_limits,
             ):
                 if delta.get("delta"):
                     replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])
@@ -931,30 +990,26 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return {"ok": False, "error": last_error or "No configured model produced an answer."}
 
     if method == "task.run":
-        async for event in planner.run(
-            params["goal"],
-            model_ids=params.get("modelIds"),
-            priority=int(params.get("priority", 0) or 0),
-            agent=params.get("agent"),
-        ):
-            await send({"type": "task.event", "data": event})
-        return {"done": True}
+        return await _collect_task(
+            planner.run(
+                params["goal"],
+                model_ids=params.get("modelIds"),
+                priority=int(params.get("priority", 0) or 0),
+                agent=params.get("agent"),
+            ),
+            send,
+        )
     if method == "task.approve":
         # Recording the decision and actually continuing the task are one
         # operation: the same task resumes from its persisted checkpoint.
         decision = planner.approve(params["taskId"], params["stepId"], params.get("allow", True))
         if not decision.get("ok"):
             return decision
-        events = []
-        async for event in planner.resume(params["taskId"]):
-            events.append(event)
-            await send({"type": "task.event", "data": event})
-        return {**decision, "resumed": True, "events": len(events)}
+        outcome = await _collect_task(planner.resume(params["taskId"]), send)
+        return {**decision, **outcome, "resumed": True, "events": outcome["events"]}
     if method == "task.resume":
         # Crash/restart recovery: pick an interrupted task back up.
-        async for event in planner.resume(params["taskId"]):
-            await send({"type": "task.event", "data": event})
-        return {"done": True}
+        return await _collect_task(planner.resume(params["taskId"]), send)
     if method == "task.cancel":
         return planner.cancel(params["taskId"])
     if method == "task.steps":
@@ -1145,6 +1200,33 @@ def _frame(text: object) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+async def _reply_error(send, req_id, text: str) -> None:
+    await _reply_quiet(send, {"id": req_id, "type": "error", "error": text})
+
+
+async def _reply_quiet(send, payload: dict) -> None:
+    """Send a reply to a client that may already be gone; a closed socket is not an error worth a traceback."""
+    try:
+        await send(payload)
+    except (RuntimeError, WebSocketDisconnect):
+        return
+
+
+def _request_send(send, req_id):
+    """Tag a task's progress frames with the request that started it, without claiming the reply's `id`.
+
+    The desktop matches a reply on `id`; a stream frame that carried it would settle the call early, so the
+    link travels in `requestId` and stream frames keep no `id`.
+    """
+
+    async def tagged(payload: dict) -> None:
+        if req_id is not None and payload.get("type") == "task.event":
+            payload = {**payload, "requestId": req_id}
+        await send(payload)
+
+    return tagged
+
+
 @app.websocket("/bridge")
 async def bridge(ws: WebSocket) -> None:
     await ws.accept()
@@ -1168,6 +1250,67 @@ async def bridge(ws: WebSocket) -> None:
     async def send(payload: dict) -> None:
         await ws.send_text(json.dumps(payload))
 
+    async def serve(req_id, incoming: str, params) -> None:
+        """Answer one request. Every failure is reported on the request's own id, never raised into the loop."""
+        try:
+            # Desktop-only: not a renderer kernel method. Avoid `method ==`
+            # so the connectivity scanner does not list this as public API.
+            if incoming == "privacy.decide":
+                settle_privacy_ask(
+                    str((params or {}).get("askId") or ""),
+                    bool((params or {}).get("allowed")),
+                )
+                await send({"id": req_id, "type": "result", "data": {"ok": True}})
+                return
+            if incoming == "companion.cognize_ack":
+                settle_phone_cognize_ack(str((params or {}).get("sessionId") or ""))
+                await send({"id": req_id, "type": "result", "data": {"ok": True}})
+                return
+            if incoming == "companion.cognize_done":
+                payload = params or {}
+                await settle_phone_cognize_done(
+                    str(payload.get("sessionId") or ""),
+                    payload.get("text"),
+                    payload.get("error"),
+                )
+                await send({"id": req_id, "type": "result", "data": {"ok": True}})
+                return
+            result = await dispatch(incoming, params if params is not None else {}, _request_send(send, req_id))
+            await send({"id": req_id, "type": "result", "data": result})
+        except KeyError as exc:
+            # `params["id"]` with no id: say which parameter is missing instead of the bare key.
+            key = exc.args[0] if exc.args else None
+            if isinstance(key, str) and isinstance(params, dict) and key not in params:
+                text = f"missing parameter: {key}"
+            else:
+                text = str(exc)
+            await _reply_error(send, req_id, text)
+        except TypeError as exc:
+            # A parameter of the wrong type ("unhashable type", "not subscriptable"): name it as such.
+            await _reply_error(send, req_id, f"invalid parameter type: {exc}")
+        except Exception as exc:  # surfaced in the UI Logs page
+            await _reply_error(send, req_id, str(exc))
+
+    # chat.stream runs as a task so this loop keeps reading: a closed socket or a chat.cancel stops it, and the
+    # cancellation unwinds through the router so the upstream HTTP stream is closed (a model stops generating).
+    chats: dict[int, tuple[object, asyncio.Task]] = {}
+
+    def start_chat(req_id, params) -> None:
+        task = asyncio.create_task(serve(req_id, "chat.stream", params))
+        chats[id(task)] = (req_id, task)
+        task.add_done_callback(lambda t: chats.pop(id(t), None))
+
+    async def cancel_chats(request_id=None) -> int:
+        """Cancel the running chats (all, or the one request id) and wait until each has unwound."""
+        victims = [(rid, t) for rid, t in list(chats.values()) if request_id is None or rid == request_id]
+        for _rid, task in victims:
+            task.cancel()
+        for rid, task in victims:
+            await asyncio.gather(task, return_exceptions=True)
+            if task.cancelled():  # a chat that finished on its own already answered
+                await _reply_quiet(send, {"id": rid, "type": "result", "data": {"done": False, "cancelled": True}})
+        return len(victims)
+
     try:
         while True:
             try:
@@ -1188,48 +1331,24 @@ async def bridge(ws: WebSocket) -> None:
             if params is not None and not isinstance(params, dict):
                 await send({"id": req_id, "type": "error", "error": "params must be an object"})
                 continue
-            try:
-                # Desktop-only: not a renderer kernel method. Avoid `method ==`
-                # so the connectivity scanner does not list this as public API.
-                if incoming == "privacy.decide":
-                    settle_privacy_ask(
-                        str((msg.get("params") or {}).get("askId") or ""),
-                        bool((msg.get("params") or {}).get("allowed")),
-                    )
-                    await send({"id": req_id, "type": "result", "data": {"ok": True}})
-                    continue
-                if incoming == "companion.cognize_ack":
-                    settle_phone_cognize_ack(str((msg.get("params") or {}).get("sessionId") or ""))
-                    await send({"id": req_id, "type": "result", "data": {"ok": True}})
-                    continue
-                if incoming == "companion.cognize_done":
-                    payload = msg.get("params") or {}
-                    await settle_phone_cognize_done(
-                        str(payload.get("sessionId") or ""),
-                        payload.get("text"),
-                        payload.get("error"),
-                    )
-                    await send({"id": req_id, "type": "result", "data": {"ok": True}})
-                    continue
-                result = await dispatch(incoming, params if params is not None else {}, send)
-                await send({"id": req_id, "type": "result", "data": result})
-            except KeyError as exc:
-                # `params["id"]` with no id: say which parameter is missing instead of the bare key.
-                key = exc.args[0] if exc.args else None
-                if isinstance(key, str) and isinstance(params, dict) and key not in params:
-                    text = f"missing parameter: {key}"
-                else:
-                    text = str(exc)
-                await send({"id": req_id, "type": "error", "error": text})
-            except TypeError as exc:
-                # A parameter of the wrong type ("unhashable type", "not subscriptable"): name it as such.
-                await send({"id": req_id, "type": "error", "error": f"invalid parameter type: {exc}"})
-            except Exception as exc:  # surfaced in the UI Logs page
-                await send({"id": req_id, "type": "error", "error": str(exc)})
+            if incoming == "chat.stream":
+                start_chat(req_id, params)
+                continue
+            if incoming == "chat.cancel":
+                target = (params or {}).get("requestId")
+                stopped = await cancel_chats(target)
+                await send({"id": req_id, "type": "result", "data": {"cancelled": stopped}})
+                continue
+            await serve(req_id, incoming, params)
     except WebSocketDisconnect:
         return
     finally:
         DESKTOP_CLIENTS.discard(ws)
+        # The socket is gone (or the loop ended): nothing is left to read a reply, so stop the work behind it.
+        for _rid, task in list(chats.values()):
+            task.cancel()
+        if chats:
+            await asyncio.gather(*(t for _r, t in list(chats.values())), return_exceptions=True)
 
 
 async def on_startup() -> None:

@@ -389,25 +389,37 @@ def is_local_kind(model: Any) -> bool:
     return (kind in LOCAL_KINDS or (not kind and provider in LOCAL_KINDS)) and endpoint_allows_local(model)
 
 
-def user_content(messages: Any) -> str:
+def _owner_parts(owner_text: Any) -> list[str]:
+    """`ownerText` as clean strings: one string or a list of them; anything else is ignored."""
+    items = owner_text if isinstance(owner_text, list) else [owner_text]
+    return [item for item in items if isinstance(item, str) and item.strip()]
+
+
+def user_content(messages: Any, owner_text: Any = None) -> str:
     """Owner-authored turns, plus the system lines that carry the owner's own text.
 
     The persona and tool lists are FRIDAY's, so they are not classified (a tool called
     ``api key`` must not block every chat). Recalled memory and the shortened gist of the
     conversation are the owner's words in a system message, so they are classified.
+
+    ``owner_text`` is what the owner brought into the turn (an attachment, recalled memory, screen
+    text). The desktop sends it apart from the system text so it can be classified without classifying
+    FRIDAY's own persona and tool lists; it is only read here, never added to what the model receives.
     """
-    if isinstance(messages, str):
-        return messages
-    if not isinstance(messages, list):
-        return _safe_text(messages)
     parts: list[str] = []
-    for item in messages:
-        if not isinstance(item, dict):
-            continue
-        text = _safe_text(item.get("content"))
-        if str(item.get("role") or "") == "system" and not text.startswith(OWNER_TEXT_SYSTEM_PREFIXES):
-            continue
-        parts.append(text)
+    if isinstance(messages, str):
+        parts.append(messages)
+    elif isinstance(messages, list):
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            text = _safe_text(item.get("content"))
+            if str(item.get("role") or "") == "system" and not text.startswith(OWNER_TEXT_SYSTEM_PREFIXES):
+                continue
+            parts.append(text)
+    else:
+        parts.append(_safe_text(messages))
+    parts.extend(_owner_parts(owner_text))
     return "\n".join(parts)
 
 
