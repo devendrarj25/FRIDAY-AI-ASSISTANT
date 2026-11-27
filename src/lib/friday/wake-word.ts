@@ -9,7 +9,8 @@
  *   · "Friday," / "friday." / "FRIDAY!"   — punctuation glued to the word
  *   · "hey friday" / "okay friday"        — the natural spoken carrier
  *   · "फ्राइडे" / "फ्रायडे"                 — Hindi transcription of the name
- *   · "fridey" / "frydey" / "freeday"     — one-character recognition slips
+ *   · "fridey" / "frday" / "fridy"        — one-character recognition slips (two edits do not wake)
+ *   · "fry day" / "फ्राई डे"                — the name split in two tokens by the ear
  *   · `\b` does not fire at all between Devanagari characters in JS
  *
  * Everything here is pure string work on an ALREADY transcribed utterance —
@@ -17,12 +18,14 @@
  * app so Auto Mode, the tray and the tests agree on what "heard FRIDAY" means.
  */
 
+import { fixScript, lexiconKey } from "./voice-engine/hinglish-lexicon";
+
 /** Words people put in front of the name that must not become the command. */
 const CARRIERS = new Set(["hey", "hi", "hello", "ok", "okay", "yo", "अरे", "हे"]);
 
 /** Devanagari (and other) spellings that mean the configured Latin wake word. */
 const TRANSLITERATIONS: Record<string, string[]> = {
-  friday: ["फ्राइडे", "फ्रायडे", "फ्रिडे", "फ्राईडे", "फ्रैडे", "फराइडे"],
+  friday: ["फ्राइडे", "फ्रायडे", "फ्रिडे", "फ्रीडे", "फ्राईडे", "फ्रैडे", "फराइडे"],
 };
 
 /** Strip punctuation but keep letters/digits in any script (Latin + Devanagari). */
@@ -59,7 +62,10 @@ export function isWakeToken(token: string, wakeWord: string): boolean {
   const got = normalizeTranscript(token);
   if (!got) return false;
   if (got === want) return true;
-  if ((TRANSLITERATIONS[want] ?? []).some((t) => normalizeTranscript(t) === got)) return true;
+  // The nukta and the chandrabindu are spelling noise ("फ़्राइडे" is "फ्राइडे"): compare on the lexicon key.
+  const gotKey = lexiconKey(got);
+  if ((TRANSLITERATIONS[want] ?? []).some((t) => lexiconKey(normalizeTranscript(t)) === gotKey))
+    return true;
   // A five-letter-plus name tolerates exactly one slip ("fridey", "frday").
   if (want.length >= 5 && /^[\p{Script=Latin}]+$/u.test(got) && distance(got, want) <= 1)
     return true;
@@ -92,7 +98,18 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
   if (!tokens.length)
     return { matched: false, token: "", command: "", leading: false, detail: "empty transcript" };
 
-  const index = tokens.findIndex((t) => isWakeToken(t, wakeWord));
+  let index = tokens.findIndex((t) => isWakeToken(t, wakeWord));
+  // The ear may split the name in two ("fry day", "फ्राई डे"): two neighbours that join into it are the name.
+  let width = 1;
+  if (index < 0) {
+    const split = tokens.findIndex(
+      (t, i) => i + 1 < tokens.length && isWakeToken(t + (tokens[i + 1] ?? ""), wakeWord),
+    );
+    if (split >= 0) {
+      index = split;
+      width = 2;
+    }
+  }
   if (index < 0)
     return {
       matched: false,
@@ -105,10 +122,10 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
   // Only carriers ("hey", "okay") may precede the name for a leading match.
   const leading = tokens.slice(0, index).every((t) => CARRIERS.has(t));
   // "Friday's open notepad" normalises to "friday s open notepad": the lone "s" is the possessive, not a word.
-  const after = tokens.slice(index + 1);
+  const after = tokens.slice(index + width);
   if (after[0] === "s") after.shift();
   const rest = after.join(" ").trim();
-  const token = tokens[index] ?? "";
+  const token = tokens.slice(index, index + width).join(" ");
   return {
     matched: true,
     token,
@@ -215,8 +232,24 @@ export function isSelfEchoTranscript(
   spoken: string,
   options: { speaking?: boolean } = {},
 ): boolean {
-  const h = normalizeTranscript(heard);
-  const s = normalizeTranscript(spoken);
+  if (echoOf(normalizeTranscript(heard), normalizeTranscript(spoken), options)) return true;
+  // Her line in one script and the ear's in the other ("main madad kar sakti hoon" / "मैं मदद कर सकती हूँ") share no
+  // letters: put both on the lexicon's script and key, then compare again.
+  const h = scriptKeyed(heard);
+  const s = scriptKeyed(spoken);
+  return h !== "" && s !== "" && echoOf(h, s, options);
+}
+
+/** Lower case words on the one script policy and the lexicon key, so the two scripts of a word compare equal. */
+function scriptKeyed(text: string): string {
+  return normalizeTranscript(fixScript(String(text || "")))
+    .split(" ")
+    .filter(Boolean)
+    .map(lexiconKey)
+    .join(" ");
+}
+
+function echoOf(h: string, s: string, options: { speaking?: boolean }): boolean {
   if (!h || !s || h.length < 3) return false;
   // After she has finished (only the tail of the room's sound is left), a few words that sit inside what she said
   // are far more likely the owner answering her ("open it" after "Do you want me to open it now?") than an echo.

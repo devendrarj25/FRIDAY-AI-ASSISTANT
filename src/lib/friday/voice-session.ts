@@ -1240,6 +1240,39 @@ export function takeSpeakable(
   final: boolean,
 ): { spoken: string; consumed: number } {
   if (!pending.trim()) return { spoken: "", consumed: 0 };
+  const fence = pending.indexOf("```");
+  if (fence >= 0) return takeAroundFence(pending, fence, final);
+  return takeSentences(pending, final);
+}
+
+/**
+ * A code fence is never read aloud. The text before it is spoken (the fence cannot change it), an open fence holds
+ * everything after it until it closes (or the turn ends, when it is dropped), and a closed one is cut out before
+ * the text after it is looked at.
+ */
+function takeAroundFence(
+  pending: string,
+  fence: number,
+  final: boolean,
+): { spoken: string; consumed: number } {
+  const before = pending.slice(0, fence);
+  const close = pending.indexOf("```", fence + 3);
+  if (close < 0) {
+    if (final) return { spoken: before.trim(), consumed: pending.length };
+    return takeSentences(before, false);
+  }
+  const resume = close + 3;
+  const after = takeSpeakable(pending.slice(resume), final);
+  if (!after.spoken && !final) {
+    const lead = before.trim();
+    return lead ? { spoken: lead, consumed: resume } : { spoken: "", consumed: 0 };
+  }
+  const spoken = [before.trim(), after.spoken].filter(Boolean).join(" ");
+  return { spoken, consumed: resume + after.consumed };
+}
+
+function takeSentences(pending: string, final: boolean): { spoken: string; consumed: number } {
+  if (!pending.trim()) return { spoken: "", consumed: 0 };
   if (final) return { spoken: pending.trim(), consumed: pending.length };
   const re = /[.!?।](?=\s)/g;
   let end = -1;

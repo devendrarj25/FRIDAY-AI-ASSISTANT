@@ -191,6 +191,18 @@ export function splitSentences(text: string): string[] {
   if (carry) out.push(carry);
   return out;
 }
+
+/**
+ * The one splitter for text that is about to be spoken: trimmed sentences in written order. A dot between digits
+ * (2,500.50, 32.5, v1.2.5.8, ₹3.5), an abbreviation (Dr.) and an initial never end a sentence, because a cut needs
+ * white space after the mark. Used by the spoken-line trimmers, so no caller re-implements it and re-joins halves.
+ */
+export function splitSpokenSentences(text: string): string[] {
+  return splitSentences(text ?? "")
+    .map((piece) => piece.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
 const CLAUSE_BREAK = /(?<=[,;:—–])\s+/u;
 
 /**

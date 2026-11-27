@@ -21,6 +21,7 @@ import {
   cleanedLevel,
   markWorklet,
   noteCaptureFrame,
+  resetCaptureRing,
   setCaptureLatency,
   workletCapturing,
 } from "./pcm-capture";
@@ -575,12 +576,31 @@ export function suppressSelfVoice(input: {
   return { keep: true, reason: "owner" };
 }
 
+/** What the VAD remembers between frames, in milliseconds: how long speech has gone on, and how long it has been over. */
+export type VadMemory = {
+  speechMs: number;
+  sinceSpeechMs: number;
+  /** A run went past the cap: the floor keeps learning it until the level falls below the floor. */
+  absorbing?: boolean;
+};
+
+/** A capture worklet that has posted no frame by now is treated as silent. */
+export const WORKLET_LIVENESS_MS = 1000;
+
+/** The floor does not climb while speech is on, or for this long after it. */
+export const VAD_FLOOR_HOLD_MS = 500;
+/** Unbroken "speech" this long is a fan or a TV, not a person: the floor may learn it again. */
+export const VAD_SPEECH_CAP_MS = 15_000;
+
 export function advanceVad(input: {
   level: number;
   noiseFloor: number;
   voiceFrames: number;
   speakingGuard: boolean;
   ducked: boolean;
+  /** Milliseconds since the previous frame (default one 60 Hz frame). */
+  dtMs?: number;
+  memory?: VadMemory;
 }): {
   noiseFloor: number;
   voiceFrames: number;
@@ -588,12 +608,26 @@ export function advanceVad(input: {
   threshold: number;
   suggestGain: number;
   quietHardware: boolean;
+  memory: VadMemory;
 } {
+  const dtMs = Math.min(Math.max(input.dtMs ?? 1000 / 60, 0), 250);
+  const was = input.memory ?? { speechMs: 0, sinceSpeechMs: Number.POSITIVE_INFINITY };
+  const neededFrames = input.speakingGuard ? 8 : 3;
+  // The floor is the room, not the voice: while speech is on (and for a moment after) it may only fall, never
+  // rise, or steady speech would pull the floor up to its own level and drop out mid-sentence. After the cap the
+  // run is treated as the room (a fan, a TV) and may be learned again.
+  const speaking = input.voiceFrames >= neededFrames || was.speechMs > 0;
+  const absorbing = was.absorbing === true || (speaking && was.speechMs >= VAD_SPEECH_CAP_MS);
+  const frozen =
+    !absorbing &&
+    ((speaking && was.speechMs < VAD_SPEECH_CAP_MS) || was.sinceSpeechMs < VAD_FLOOR_HOLD_MS);
   const floor =
     input.noiseFloor === 0
       ? input.level
       : input.level > input.noiseFloor
-        ? input.noiseFloor * 0.995 + input.level * 0.005
+        ? frozen
+          ? input.noiseFloor
+          : input.noiseFloor * 0.995 + input.level * 0.005
         : input.noiseFloor * 0.9 + input.level * 0.1;
   const floorMul = input.speakingGuard ? 4.2 : 2.4;
   const extra = input.speakingGuard ? 0.018 : floor < 0.01 ? 0 : 0.006;
@@ -601,12 +635,22 @@ export function advanceVad(input: {
   const threshold = Math.max(floor * floorMul, floor + extra, minAbs);
   const loud = !input.ducked && input.level > threshold;
   const voiceFrames = loud ? input.voiceFrames + 1 : Math.max(0, input.voiceFrames - 2);
-  const needed = input.speakingGuard ? 8 : 3;
+  const needed = neededFrames;
   const quietHardware = floor > 0 && floor < 0.003 && !loud;
+  const speech = voiceFrames >= needed;
+  const stillAbsorbing = absorbing && !(input.noiseFloor !== 0 && input.level <= input.noiseFloor);
+  const memory: VadMemory = speech
+    ? { speechMs: was.speechMs + dtMs, sinceSpeechMs: 0, absorbing: stillAbsorbing }
+    : {
+        speechMs: 0,
+        sinceSpeechMs: Math.min(was.sinceSpeechMs + dtMs, VAD_FLOOR_HOLD_MS * 4),
+        absorbing: stillAbsorbing,
+      };
   return {
     noiseFloor: floor,
     voiceFrames,
-    speech: voiceFrames >= needed,
+    speech,
+    memory,
     threshold,
     suggestGain: quietHardware ? 2 : 1,
     quietHardware,
@@ -655,6 +699,8 @@ export class VoiceGate {
   private snapshot: VadSnapshot = SILENT;
   private listeners = new Set<(s: VadSnapshot) => void>();
   private voiceFrames = 0;
+  private vadMemory: VadMemory | undefined;
+  private lastVadAt = 0;
   private lastSpeechAt = 0;
   /** Hard mute — leftover API. Auto Mode uses speakingGuard during TTS instead. */
   private ducked = false;
@@ -691,6 +737,7 @@ export class VoiceGate {
   /** Last five capture failures. No audio and no transcript. */
   private captureErrors: string[] = [];
   private worklet: AudioWorkletNode | null = null;
+  private workletWatch: ReturnType<typeof setTimeout> | null = null;
   private softwareGain = 1;
   private quietSince = 0;
   private quietTold = false;
@@ -768,7 +815,7 @@ export class VoiceGate {
       return this.opening.run;
     if (this.opening) await this.opening.run.catch(() => false);
     const holders = new Set(this.holders);
-    this.teardown();
+    this.teardown(true);
     this.holders = holders;
     return this.start(deviceId);
   }
@@ -973,13 +1020,18 @@ export class VoiceGate {
     this.teardown();
   }
 
-  /** Closes the audio graph but keeps the holders, so it can be reopened. */
-  private teardown() {
+  /**
+   * Closes the audio graph but keeps the holders, so it can be reopened. The capture ring is emptied too (a pause,
+   * a mute or a leave must not leave the last half minute of audio in memory); a reopen in place (`keepRing`)
+   * keeps it so the pre-roll of a speech in progress survives the device change.
+   */
+  private teardown(keepRing = false) {
     this.generation += 1;
     if (this.rateTimer) clearTimeout(this.rateTimer);
     this.rateTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.clearWorkletWatch();
     this.worklet?.port.close();
     this.worklet?.disconnect();
     this.worklet = null;
@@ -994,9 +1046,12 @@ export class VoiceGate {
     this.stream = null;
     this.btLine = "";
     this.voiceFrames = 0;
+    this.vadMemory = undefined;
+    this.lastVadAt = 0;
     this.speakingGuard = false;
     this.ducked = false;
     this.wake.resetAudio();
+    if (!keepRing) resetCaptureRing();
     this.snapshot = SILENT;
     this.emit();
   }
@@ -1110,25 +1165,46 @@ export class VoiceGate {
     try {
       await ctx.audioWorklet.addModule(url);
       if (this.ctx !== ctx) return;
-      const node = new AudioWorkletNode(ctx, "friday-capture");
+      // No output: nothing for the graph to play, and the node is pulled through its input like the analyser.
+      const node = new AudioWorkletNode(ctx, "friday-capture", {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+      });
       node.port.onmessage = (event) => {
+        // The worklet is trusted only once it has really delivered a frame.
+        if (!workletCapturing()) {
+          markWorklet(true);
+          this.clearWorkletWatch();
+        }
         const frame = event.data as Float32Array;
         noteCaptureFrame(frame, performance.now(), ctx.sampleRate || 48000, Date.now());
       };
       source.connect(node);
       this.worklet = node;
+      // A worklet that stays silent (the audio thread never pulled it) must not leave the capture deaf: after about a
+      // second the analyser path (and the recorder behind it) carries the audio again, and Doctor says why.
+      this.clearWorkletWatch();
+      this.workletWatch = setTimeout(() => {
+        this.workletWatch = null;
+        if (this.worklet !== node || workletCapturing()) return;
+        this.rememberError("capture worklet silent: using the analyser path");
+      }, WORKLET_LIVENESS_MS);
       // The echo reference places each frame on the clock with this latency; a missing value is 0.
       const trackLatency = Number(
         (this.stream?.getAudioTracks()[0]?.getSettings?.() as { latency?: number } | undefined)
           ?.latency,
       );
       setCaptureLatency(Math.max(trackLatency || 0, Number(ctx.baseLatency) || 0));
-      markWorklet(true);
     } catch {
       markWorklet(false);
     } finally {
       URL.revokeObjectURL(url);
     }
+  }
+
+  private clearWorkletWatch() {
+    if (this.workletWatch) clearTimeout(this.workletWatch);
+    this.workletWatch = null;
   }
 
   private loop = () => {
@@ -1167,13 +1243,19 @@ export class VoiceGate {
       noteCaptureFrame(this.buffer, performance.now(), this.ctx?.sampleRate || 48000, Date.now());
     }
     const prev = this.snapshot;
+    const frameAt = performance.now();
+    const frameGap = this.lastVadAt ? frameAt - this.lastVadAt : undefined;
+    this.lastVadAt = frameAt;
     const step = advanceVad({
       level,
       noiseFloor: prev.noiseFloor,
       voiceFrames: this.voiceFrames,
       speakingGuard: this.speakingGuard,
       ducked: this.ducked,
+      ...(frameGap !== undefined ? { dtMs: frameGap } : {}),
+      ...(this.vadMemory ? { memory: this.vadMemory } : {}),
     });
+    this.vadMemory = step.memory;
     this.voiceFrames = step.voiceFrames;
     const speech = step.speech;
     this.wake.observe({

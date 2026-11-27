@@ -30,6 +30,7 @@ import {
   preRollFrom,
   capturedSince,
   segmentClock,
+  utteranceSamples,
   workletCapturing,
   type MicFaultKind,
 } from "./pcm-capture";
@@ -771,6 +772,8 @@ export class DesktopDictation {
   private watchTimer: number | null = null;
   private droppedCount = 0;
   private speechSince = 0;
+  /** When the worklet was first seen delivering frames in this watch (0 while it is not on). */
+  private workletSeenAt = 0;
   private bugLogged = false;
   private lastFault = "";
   private histogram = emptyHistogram();
@@ -969,6 +972,8 @@ export class DesktopDictation {
       if (this.pcmFrom)
         this.segmentSamples = this.spillSamples + capturedSince(this.pcmFrom + PRE_ROLL_MS);
       const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
+      if (!workletCapturing()) this.workletSeenAt = 0;
+      else if (!this.workletSeenAt) this.workletSeenAt = performance.now();
       const decision = micWatch({
         live: true,
         lastFrameMono: clock.lastFrameMono,
@@ -981,6 +986,8 @@ export class DesktopDictation {
         maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
         trackState: track?.readyState ?? "live",
         muted: Boolean(track?.muted),
+        workletOn: workletCapturing(),
+        workletLiveForMs: this.workletSeenAt ? performance.now() - this.workletSeenAt : 0,
       });
       if (!decision.restart || !decision.kind) return;
       if (this.lastFault === decision.message) return;
@@ -1590,9 +1597,9 @@ export class DesktopDictation {
   private enqueue(blob: Blob, wake: WakeProbe | null = null, provisional: EarlyRead = null) {
     const entry = { blob, wake, provisional };
     const admitted = admitUtterance(
-      this.queue.map((row) => ({ item: row, samples: row.blob.size })),
+      this.queue.map((row) => ({ item: row, samples: utteranceSamples(row.blob) })),
       entry,
-      blob.size,
+      utteranceSamples(blob),
     );
     const before = this.queue;
     this.queue = admitted.queue.map((row) => row.item);

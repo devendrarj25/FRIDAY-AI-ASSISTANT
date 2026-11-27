@@ -488,7 +488,10 @@ export function stripMarkup(text: string): string {
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/(\*\*|__|\*|_)(\S[^*_]*?)\1/g, "$2")
-    .replace(/[\u{1F300}-\u{1FAFF}☀-➿]/gu, "")
+    .replace(
+      /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{FE0F}|\u{200D}|\u{20E3}|[☀-➿←-⇿⬀-⯿]/gu,
+      "",
+    )
     .replace(/[ \t]+/g, " ")
     .trim();
 }
