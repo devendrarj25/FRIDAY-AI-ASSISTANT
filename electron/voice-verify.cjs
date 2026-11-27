@@ -110,9 +110,73 @@ const OWN_EARS = [
   ["friday-ear-english", "FRIDAY Ear English"],
 ];
 
-async function ownEarsRows(exe, prefix, runner = run) {
+const HINGLISH_PRO_EAR = ["friday-ear-hinglish-pro", "FRIDAY Ear Hinglish Pro"];
+
+/** The one line of an own-ear answer: ok, missing, refused or could not open. */
+function earDetail(row) {
+  const reason = String(row.reason || "").slice(0, 200);
+  const ms = Number.isFinite(Number(row.ms)) ? Number(row.ms) : 0;
+  const status = String(row.status || "");
+  return status === "ok"
+    ? `heard the probe clip in ${ms}ms`
+    : status === "missing"
+      ? "not installed; the speech engine of today answers"
+      : status === "refused"
+        ? `declined to open: ${reason || "low memory"}`
+        : `could not open: ${reason || "unknown reason"}`;
+}
+
+/**
+ * The Hinglish Pro row. It is a derived ear: it installs only from the FRIDAY release files, so a PC whose release has
+ * none says `needs the FRIDAY release (not published yet)` and offers no install button, never the 1.6 GB source.
+ */
+function hinglishProRow(parsed, deps = {}) {
+  const [id, label] = HINGLISH_PRO_EAR;
+  const weights = deps.weights || require("./voice-weights.cjs");
+  const row = parsed && typeof parsed.hinglishPro === "object" ? parsed.hinglishPro : null;
+  if (!row) {
+    return { id, label, ok: false, required: false, detail: "the kernel did not list this ear" };
+  }
+  const status = String(row.status || "");
+  const base = {
+    id,
+    label: String(row.label || label).slice(0, 80),
+    ok: status === "ok",
+    required: false,
+    detail: earDetail(row),
+  };
+  if (status !== "missing") return base;
+  let state = null;
+  try {
+    state = weights.derivedEarState(deps.root || "", "hinglish-ear-pro", {
+      exists: deps.exists || ((file) => fs.existsSync(file)),
+      ...deps.releaseDeps,
+    });
+  } catch {
+    /* the release state could not be read: the row stays a plain missing ear */
+  }
+  if (state?.state === "needs-release") return { ...base, detail: state.text, installId: "" };
+  if (state?.state === "release") {
+    return {
+      ...base,
+      detail:
+        "not installed; installs from the FRIDAY release (the Models page), the speech engine of today answers",
+      installId: "hinglish-ear-pro",
+    };
+  }
+  return base;
+}
+
+async function ownEarsRows(exe, prefix, runner = run, options = {}) {
+  const withPro = options.hinglishPro === true;
   const notReady = (detail) =>
-    OWN_EARS.map(([id, label]) => ({ id, label, ok: false, required: false, detail }));
+    [...OWN_EARS, ...(withPro ? [HINGLISH_PRO_EAR] : [])].map(([id, label]) => ({
+      id,
+      label,
+      ok: false,
+      required: false,
+      detail,
+    }));
   try {
     const out = await runner(exe, [...prefix, sttScript(), "--ears-self-test"], 120000);
     if (out && out.timedOut) return notReady("the ear check timed out");
@@ -120,7 +184,7 @@ async function ownEarsRows(exe, prefix, runner = run) {
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.ears)) {
       return notReady(tail(out && out.stderr, "the ear check printed no readable answer"));
     }
-    return OWN_EARS.map(([id, label]) => {
+    const rows = OWN_EARS.map(([id, label]) => {
       const row = parsed.ears.find((ear) => ear && ear.catalogId === id);
       if (!row)
         return {
@@ -130,25 +194,15 @@ async function ownEarsRows(exe, prefix, runner = run) {
           required: false,
           detail: "the kernel did not list this ear",
         };
-      const reason = String(row.reason || "").slice(0, 200);
-      const ms = Number.isFinite(Number(row.ms)) ? Number(row.ms) : 0;
-      const status = String(row.status || "");
-      const detail =
-        status === "ok"
-          ? `heard the probe clip in ${ms}ms`
-          : status === "missing"
-            ? "not installed; the speech engine of today answers"
-            : status === "refused"
-              ? `declined to open: ${reason || "low memory"}`
-              : `could not open: ${reason || "unknown reason"}`;
       return {
         id,
         label: String(row.label || label).slice(0, 80),
-        ok: status === "ok",
+        ok: String(row.status || "") === "ok",
         required: false,
-        detail,
+        detail: earDetail(row),
       };
     });
+    return withPro ? [...rows, hinglishProRow(parsed, options)] : rows;
   } catch (error) {
     return notReady(
       `the ear check could not run: ${String(error?.message || error).slice(0, 200)}`,
@@ -604,7 +658,9 @@ async function verifyVoiceRuntime({
   );
 
   checks.push(await runtimeRow(exe, prefix));
-  checks.push(...(await ownEarsRows(exe, prefix)));
+  checks.push(
+    ...(await ownEarsRows(exe, prefix, run, { hinglishPro: true, root: paths.root() || "" })),
+  );
 
   const speech = await speechSelfTest(sttEnv(size, prepared));
   checks.push({
@@ -653,6 +709,7 @@ module.exports = {
   verifyVoiceRuntime,
   runtimeRow,
   ownEarsRows,
+  hinglishProRow,
   restoreVoiceModel,
   speechSelfTest,
   hearingSelfTest,

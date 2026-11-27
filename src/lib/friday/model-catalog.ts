@@ -1760,6 +1760,23 @@ export const modelCatalog: ModelSpec[] = [
     ["audio"],
     { format: "ONNX", quant: "—", ramGb: 1 },
   ),
+  // A derived ear: FRIDAY's converted int8 copy of a 1.6 GB source checkpoint. It installs only from the FRIDAY release
+  // (the downloader ignores the sources a caller sends for it), so the link is the release page, never a repository.
+  M(
+    "hinglish-ear-pro",
+    "FRIDAY Ear Hinglish Pro",
+    "onnx",
+    "Speech to Text",
+    "turbo",
+    0.83,
+    0,
+    3,
+    "Apache-2.0",
+    "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/tag/friday-voice-weights-2026.11.1",
+    "pro-int8",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 3 },
+  ),
   M(
     "edge-tts",
     "Edge TTS (online voices)",

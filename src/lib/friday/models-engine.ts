@@ -263,6 +263,7 @@ export const VOICE_MODEL_IDS = [
   "shruti-ear",
   "moonshine-ear",
   "moonshine-ear-vocab",
+  "hinglish-ear-pro",
 ] as const;
 
 /* ------------------------------------------------------------ voice language packs */

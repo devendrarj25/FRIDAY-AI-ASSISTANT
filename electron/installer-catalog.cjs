@@ -147,7 +147,26 @@ function voiceRows(root, deps = {}) {
     let installed = null;
     let version = null;
     let servedFrom = null;
-    if (dir) {
+    // A derived ear (the converted copy of a source checkpoint) reads its install state from the FRIDAY release files:
+    // `null` while the release has none (no Download button; the row says so), never the source repository.
+    const derived =
+      entry.derivedFrom && typeof weights.derivedEarState === "function"
+        ? weights.derivedEarState(root, entry.catalogId, {
+            ...deps.releaseDeps,
+            exists: (file) => fsApi.existsSync(file),
+          })
+        : null;
+    const derivedPin =
+      derived?.plan && typeof weights.derivedEarPin === "function"
+        ? weights.derivedEarPin(entry.catalogId, deps.releaseDeps)
+        : null;
+    if (derived) {
+      if (dir && derived.state !== "needs-release") {
+        installed = derived.state === "installed";
+        version = installed ? pins.readMarker(dir)?.revision || null : null;
+        servedFrom = installed ? weights.RELEASE_LABEL || null : null;
+      }
+    } else if (dir) {
       const pin = entry.repo ? pins.pinForRepo(entry.repo) : null;
       if (pin) {
         installed = Object.keys(pin.files).every((name) =>
@@ -163,7 +182,7 @@ function voiceRows(root, deps = {}) {
         installed = fsApi.existsSync(nodePath.join(dir, entry.file));
       }
     }
-    const pin = entry.repo ? pins.pinForRepo(entry.repo) : null;
+    const pin = derivedPin || (entry.repo ? pins.pinForRepo(entry.repo) : null);
     out.push({
       id: `voice:${entry.catalogId}`,
       kind: "voice-model",
@@ -172,6 +191,7 @@ function voiceRows(root, deps = {}) {
       installed,
       installedVersion: version,
       servedFrom,
+      ...(derived?.state === "needs-release" ? { needsRelease: true, note: derived.text } : {}),
       facts: manifest || null,
       // Internal catalog metadata; the Models and Installer pages never print either field.
       license: manifest?.license || entry.license || null,
@@ -183,7 +203,8 @@ function voiceRows(root, deps = {}) {
         ? {
             key: `voice:${entry.catalogId}`,
             sources: [
-              { kind: "hf-api", repo: manifest?.repo || entry.repo },
+              // A derived ear never asks the source repository for a newer revision: its files are the release's.
+              ...(derived ? [] : [{ kind: "hf-api", repo: manifest?.repo || entry.repo }]),
               { kind: "pinned", version: pin.revision, revision: pin.revision, assets: [] },
             ],
             revisionPolicy: "pinned",
@@ -334,6 +355,7 @@ function createInstallerCatalog(deps = {}) {
         stale: latest ? Boolean(latest.stale) : false,
         pinnedAnswer: Boolean(latest?.pinned),
         ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
+        ...(row.needsRelease ? { needsRelease: true, note: row.note } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),
         ...(latest?.upstream && latest.upstream !== latest.version
           ? { upstreamVersion: latest.upstream }

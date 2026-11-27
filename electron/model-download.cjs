@@ -1125,10 +1125,22 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
   const { modelId, dir } = job;
   // A pinned repository the FRIDAY Models pack holds in full gets the FRIDAY release as the source before it; the
   // official source stays in the chain behind it, so a missing release or a wrong hash only costs the first try.
-  const sources = voiceWeights.withFridayRelease(job.sources, {
-    ...deps,
-    env: deps.env || process.env,
-  });
+  const chainDeps = { ...deps, env: deps.env || process.env };
+  // A derived ear (the converted copy of a 1.6 GB source checkpoint) installs from the FRIDAY release alone: the sources
+  // a caller sent are never used for it, and with no release plan nothing is fetched at all.
+  const derived = voiceWeights.DERIVED_EARS.find((ear) => ear.catalogId === modelId);
+  const sources = derived
+    ? voiceWeights.derivedEarSources(modelId, chainDeps)
+    : voiceWeights.withFridayRelease(job.sources, chainDeps);
+  if (derived && !sources.length) {
+    return {
+      ok: false,
+      error: voiceWeights.NEEDS_RELEASE,
+      cause: "needs-release",
+      needsRelease: true,
+      attempts: [],
+    };
+  }
   const releaseInChain = sources.some((source) => source?.kind === "friday-release");
   // Every downloaded byte is persistent FRIDAY data, so it must land inside
   // the selected FRIDAY folder. There is no temp-folder fallback: a caller
@@ -1287,8 +1299,15 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         // the upstream source. Every file is held to the manifest SHA-256 and size (which are the pin's own), then the
         // folder is certified exactly like a pinned Hugging Face folder. Any failure here only moves on to the upstream
         // source behind it; what already arrived whole is kept, so the upstream source fetches only the rest.
-        const pin = (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
-        const plan = source.plan;
+        // A derived ear is held to its own release files: the pin and the plan are read again here from the pinned
+        // manifest, never from what the source object says, and its folder is the ear's catalog id.
+        const isDerived = source.derived === true;
+        if (isDerived && source.catalogId !== modelId)
+          throw new Error(`${modelId} is not the ear this release source is for`);
+        const pin = isDerived
+          ? voiceWeights.derivedEarPin(modelId, chainDeps)
+          : (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
+        const plan = isDerived ? voiceWeights.derivedEarPlan(modelId, chainDeps) : source.plan;
         if (!pin || !plan?.files?.length)
           throw new Error(`no FRIDAY release plan for ${source.repo}`);
         const dest = path.join(root, modelId);
@@ -1296,7 +1315,8 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         // Nothing to fetch: the upstream source below audits and certifies the folder exactly as before.
         const names = plan.files.map((file) => file.name);
         const audit0 = await voicePins.auditDir(dest, pin);
-        if (audit0.ok && names.every(present)) continue;
+        // A derived ear has no upstream source behind this one, so it is certified here and never skipped.
+        if (!isDerived && audit0.ok && names.every(present)) continue;
         const { keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
         try {
           const audit = await voicePins.auditDir(dest, pin);
@@ -1326,7 +1346,12 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
           if (todo.length) {
             const head = await headInfo(todo[0].parts[0].url, signal);
             if (signal?.aborted) throw abortError(signal);
-            if (!head.ok) throw new Error(`not available in the FRIDAY release (${head.error})`);
+            if (!head.ok) {
+              const error = new Error(`not available in the FRIDAY release (${head.error})`);
+              // The release of a derived ear is its only road: say it needs the release, never fetch the source.
+              if (isDerived) error.needsRelease = true;
+              throw error;
+            }
           }
           const progress = combinedProgress(
             todo.length,
@@ -1572,7 +1597,9 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         const cancelled = voiceInstall.classifyDownloadError("cancelled");
         return { ok: false, error: cancelled.line, cause: cancelled.cause, attempts };
       }
-      const classified = voiceInstall.classifyDownloadError(String(err.message || err));
+      const classified = err?.needsRelease
+        ? { line: voiceWeights.NEEDS_RELEASE, cause: "needs-release" }
+        : voiceInstall.classifyDownloadError(String(err.message || err));
       attempts.push({ source: label, error: classified.line, cause: classified.cause });
       onEvent?.({
         status: `source failed (${label}): ${classified.line}`,
@@ -1586,6 +1613,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
     ok: false,
     error: last?.error || `all ${sources.length} source(s) failed`,
     cause: last?.cause || "network",
+    ...(last?.cause === "needs-release" ? { needsRelease: true } : {}),
     attempts,
   };
 }
