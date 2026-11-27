@@ -302,6 +302,81 @@ class WakeFrameScorerTests(unittest.TestCase):
                 self.wake._frame_scorers.clear()
 
 
+class WakeManifestThresholdTests(unittest.TestCase):
+    """Live frames run at the threshold the evaluation reported, never below today's 0.5."""
+
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import wake_word
+
+        self.wake = wake_word
+        self.wake._frame_scorers.clear()
+
+    def tearDown(self):
+        self.wake._frame_scorers.clear()
+
+    def run_frames(self, manifest, score, threshold=None, session="t"):
+        import base64
+        import os
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                directory = Path(tmp) / "models" / "wake"
+                directory.mkdir(parents=True)
+                (directory / "friday.onnx").write_bytes(b"\0" * 100_000)
+                predictor = lambda _path: lambda _frame: score  # noqa: E731
+                chunk = base64.b64encode(b"\0\0" * 1280 * 2).decode()
+                req = {"op": "frame", "session": session, "pcm": chunk, "minFrames": 1}
+                with mock.patch.object(self.wake, "manifest_for", return_value=manifest):
+                    return self.wake.frame_op(req, "friday", None, threshold, make_predictor=predictor)
+            finally:
+                os.environ.pop("FRIDAY_ROOT", None)
+
+    def test_a_manifest_threshold_of_0_9_blocks_a_0_7_score(self):
+        out = self.run_frames({"threshold": 0.9}, 0.7)
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["detected"])
+        self.assertEqual(out["threshold"], 0.9)
+
+    def test_a_manifest_threshold_of_0_9_still_accepts_a_0_95_score(self):
+        out = self.run_frames({"threshold": 0.9}, 0.95)
+        self.assertTrue(out["detected"])
+
+    def test_no_manifest_threshold_keeps_0_5(self):
+        for manifest in (None, {}, {"threshold": None}, {"threshold": "high"}, {"threshold": True}):
+            self.wake._frame_scorers.clear()
+            out = self.run_frames(manifest, 0.6)
+            self.assertEqual(out["threshold"], 0.5, manifest)
+            self.assertTrue(out["detected"], manifest)
+
+    def test_a_manifest_below_0_5_is_raised_to_0_5_never_lowered(self):
+        out = self.run_frames({"threshold": 0.2}, 0.4)
+        self.assertEqual(out["threshold"], 0.5)
+        self.assertFalse(out["detected"])
+
+    def test_a_manifest_above_the_ceiling_is_clamped_to_0_995(self):
+        out = self.run_frames({"threshold": 1.7}, 0.99)
+        self.assertEqual(out["threshold"], 0.995)
+        self.assertFalse(out["detected"])
+
+    def test_the_requests_own_threshold_still_wins(self):
+        out = self.run_frames({"threshold": 0.9}, 0.7, threshold=0.6)
+        self.assertEqual(out["threshold"], 0.6)
+        self.assertTrue(out["detected"])
+
+    def test_handle_request_leaves_the_threshold_to_the_manifest_when_none_is_sent(self):
+        from unittest import mock
+
+        with mock.patch.object(self.wake, "frame_op", return_value={"ok": True}) as op:
+            self.wake.handle_request({"op": "frame", "pcm": "AAAA"})
+            self.assertIsNone(op.call_args.args[3])
+            self.wake.handle_request({"op": "frame", "pcm": "AAAA", "threshold": 0.7})
+            self.assertEqual(op.call_args.args[3], 0.7)
+
+
 class WakeEvaluationTests(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, str(KERNEL))

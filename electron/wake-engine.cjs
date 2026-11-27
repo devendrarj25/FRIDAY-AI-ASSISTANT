@@ -447,13 +447,14 @@ async function detect({
 /**
  * Score a chunk of live 16 kHz mono PCM16 (base64) taken from the one shared capture. The worker keeps a streaming
  * scorer per `session`, so a phrase that spans chunks is still one trigger. Needs an openWakeWord model; the bundled
- * linear scorer scores whole clips only and says so. `reset: true` ends the session's scorer.
+ * linear scorer scores whole clips only and says so. `reset: true` ends the session's scorer. With no `threshold`
+ * the kernel runs the manifest's evaluated one (raised to 0.5 at least).
  */
 async function scoreFrames({
   session: sessionId = "default",
   pcmBase64 = "",
   wakeWord = "friday",
-  threshold = 0.5,
+  threshold,
   reset = false,
   minFrames = 2,
   cooldownMs = 1500,
@@ -469,7 +470,8 @@ async function scoreFrames({
         pcm: reset ? "" : String(pcmBase64),
         reset: Boolean(reset),
         wakeWord: String(wakeWord || "friday"),
-        threshold,
+        // Only a caller's own level is sent: otherwise the kernel uses the model manifest's evaluated threshold (never below 0.5).
+        ...(Number.isFinite(threshold) && threshold > 0 ? { threshold } : {}),
         minFrames,
         cooldownMs,
       },

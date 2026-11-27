@@ -587,8 +587,26 @@ def _predictor_for(model_path: str):
     return _oww_predictor(model_path)
 
 
-def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, make_predictor=None) -> dict:
-    """Score a chunk of live PCM16 (little endian, base64) for the session `session`. Resets with `reset: true`."""
+LIVE_THRESHOLD_DEFAULT = 0.5  # today's live level: a manifest value may only raise it, never lower it
+LIVE_THRESHOLD_CEILING = 0.995
+
+
+def live_threshold(model_path: str, requested: float | None) -> float:
+    """The level live frames run at: the caller's own when it sent one, else the manifest's evaluated threshold
+    (clamped 0.3-0.995, and never below 0.5 until the owner has a sensitivity preference), else 0.5."""
+    if requested is not None:
+        return requested
+    recorded = (manifest_for(model_path) or {}).get("threshold")
+    if isinstance(recorded, bool) or not isinstance(recorded, (int, float)) or recorded != recorded:
+        return LIVE_THRESHOLD_DEFAULT
+    clamped = min(LIVE_THRESHOLD_CEILING, max(0.3, float(recorded)))
+    return max(LIVE_THRESHOLD_DEFAULT, clamped)
+
+
+def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float | None, make_predictor=None) -> dict:
+    """Score a chunk of live PCM16 (little endian, base64) for the session `session`. Resets with `reset: true`.
+
+    `threshold` is the request's own level; None means use the manifest's evaluated one (see `live_threshold`)."""
     import array
     import base64
 
@@ -624,7 +642,7 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, 
             return {"ok": False, "reason": "missing-dependency", "error": str(exc)[-300:]}
         scorer = _frame_scorers[session] = WakeFrameScorer(
             predict,
-            threshold=threshold,
+            threshold=live_threshold(model_path, threshold),
             min_frames=int(req.get("minFrames") or 2),
             cooldown_ms=int(req.get("cooldownMs") or 1500),
             engine=engine or "openwakeword",
@@ -881,7 +899,7 @@ def handle_request(req: dict) -> dict:
     if op == "detect":
         return detect_audio(str(req.get("audio") or ""), wake_word, explicit, threshold)
     if op == "frame":
-        return frame_op(req, wake_word, explicit, threshold)
+        return frame_op(req, wake_word, explicit, threshold if req.get("threshold") else None)
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
