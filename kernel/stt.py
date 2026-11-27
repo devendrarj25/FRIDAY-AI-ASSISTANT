@@ -35,6 +35,7 @@ import threading
 import time
 import wave
 from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -683,7 +684,17 @@ PRESSURE_CRITICAL = (0.07, 1024, 1536)
 _MODEL_RANKS = (("tiny", 1), ("base", 2), ("small", 3), ("medium", 4), ("turbo", 5), ("large", 6))
 HEAVY_RANK = 4
 USE_OPS = frozenset(
-    {"load", "transcribe", "flush", "self-test", "hearing-self-test", "stream-open", "stream-feed", "stream-warm"}
+    {
+        "load",
+        "transcribe",
+        "flush",
+        "self-test",
+        "hearing-self-test",
+        "ears-self-test",
+        "stream-open",
+        "stream-feed",
+        "stream-warm",
+    }
 )
 
 
@@ -818,7 +829,8 @@ def _ear_loaded() -> bool:
 def loaded_names() -> list[str]:
     names = [_model_name] if _model is not None and _model_name else []
     names += [str(_fast["name"])] if _fast["model"] is not None and _fast["name"] else []
-    return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + stream_ear.HOST.loaded_name()
+    own = [ear.name for ear in _own_ears() if ear.loaded()]
+    return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + own + stream_ear.HOST.loaded_name()
 
 
 def unload_models() -> list[str]:
@@ -828,6 +840,8 @@ def unload_models() -> list[str]:
     _model, _model_name = None, None
     _fast["model"], _fast["name"] = None, ""
     hindi_ear.unload()
+    for ear in _own_ears():
+        ear.unload()
     stream_ear.HOST.unload()
     if names:
         _unloads += 1
@@ -889,7 +903,7 @@ def cache_status() -> dict:
     loaded = [
         {
             "name": name,
-            "engine": "hindi-ear" if name == HINDI_EAR_NAME else "faster-whisper",
+            "engine": "hindi-ear" if name == HINDI_EAR_NAME else _own_engine(name),
             "loadMs": _load_ms.get(name),
         }
         for name in loaded_names()
@@ -912,7 +926,7 @@ def cache_status() -> dict:
 # models) asks ``admit`` first. A load that would leave less free memory than the critical line first drops resident
 # models in this order, re-reading the machine after each; a load that still would not fit is refused (the owner's
 # own model is required: it drops the others and loads anyway). Each drop and refusal is a counted fallback.
-EVICT_ORDER = ("stream", "fast", "whisper", "hindi-ear")
+EVICT_ORDER = ("stream", "fast", "whisper", "english-ear", "quick-ear", "swift-ear", "hindi-ear")
 _ADMIT_SLOT = {"speaker": "stream", "punct": "hindi-ear"}  # a load never drops the slot it belongs to
 _WHISPER_LOAD_MB = {1: 150.0, 2: 300.0, 3: 700.0, 4: 1700.0, 5: 1800.0, 6: 3300.0}  # rough int8 resident sizes
 _last_admit: dict | None = None
@@ -930,6 +944,9 @@ def _resident_mb(kind: str) -> float:
         return load_estimate_mb(str(_fast["name"])) if _fast["model"] is not None else 0.0
     if kind == "whisper":
         return load_estimate_mb(_model_name) if _model is not None else 0.0
+    own = _own_ear_of(kind)
+    if own is not None:
+        return float(own.load_mb) if own.loaded() else 0.0
     return hindi_ear.LOAD_MB if hindi_ear.loaded() else 0.0
 
 
@@ -941,6 +958,8 @@ def _evict(kind: str) -> bool:
         _fast["model"], _fast["name"] = None, ""
     elif kind == "whisper":
         _model, _model_name = None, None
+    elif (own := _own_ear_of(kind)) is not None:
+        return own.unload()
     else:
         return hindi_ear.unload()
     return True
@@ -1499,6 +1518,366 @@ def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
     if text and on_partial:
         on_partial(text)
     return text or None
+
+
+# --- FRIDAY's own final-pass ears: Swift, Quick and English ---------------------------------------------------------
+# Each is used only when its pinned folder is on disk and certified (the Install Manager writes ``.friday-pin.json``
+# after it checked every pinned file), every load asks ``admit`` first, and any failure hands the turn to the ear that
+# answers today (the Hindi ear, the moonshine package, faster-whisper): a broken own ear never breaks a turn. Nothing
+# here downloads; the stream ear, the wake word and the privacy firewall are not touched. The language decides the ear:
+# Hindi, Hinglish and open turns go to Swift after the Hindi ear; an English turn goes to English, then Quick.
+PIN_MARKER = ".friday-pin.json"
+OWN_EAR_RATE = 16000
+OWN_EAR_MIN_S = 0.2
+OWN_EAR_MAX_S = 60
+SWIFT_REPO, SWIFT_SETS = "udgamlabs/Shruti-ONNX", ("hi/onnx", "hi/onnx-int8")
+QUICK_REPO, QUICK_VOCAB_REPO = "moonshine-ai/moonshine", "moonshine-ai/moonshine-tiny"
+QUICK_SET = "onnx/merged/tiny"
+QUICK_FILES = ("encoder_model.onnx", "decoder_model_merged.onnx")
+SWIFT_LOAD_MB = 800.0  # the 4-bit build expands to about 0.7 GB in the runtime (``shruti_ear.LOAD_MB``)
+QUICK_LOAD_MB = 150.0
+ENGLISH_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx"
+ENGLISH_FILES = ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "vocab.txt", "config.json")
+ENGLISH_LOAD_MB = 1200.0  # measured peak 1163 MB
+_markers: dict[str, tuple[tuple[int, int], dict | None]] = {}
+
+
+def _models_root() -> Path:
+    root = os.environ.get("FRIDAY_ROOT", "").strip()
+    return (Path(root) if root else Path.home() / ".friday") / "models"
+
+
+def _pin_marker(root: Path) -> dict | None:
+    """The verified-pin record of a model folder (read again only when the file changed), or None."""
+    file = root / PIN_MARKER
+    try:
+        stat = file.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        held = _markers.get(str(file))
+        if held is not None and held[0] == stamp:
+            return held[1]
+        record = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    good = (
+        isinstance(record, dict)
+        and isinstance(record.get("repo"), str)
+        and isinstance(record.get("revision"), str)
+        and isinstance(record.get("files"), dict)
+    )
+    _markers[str(file)] = (stamp, record if good else None)
+    return record if good else None
+
+
+def certified_files(root: Path, repo: str, names: Sequence[str]) -> dict[str, str] | None:
+    """``{name: sha256}`` when ``root`` holds the verified pin of ``repo`` and every one of ``names`` is on disk at its
+    pinned size; None otherwise (no marker, another repository, a missing or short file)."""
+    record = _pin_marker(root)
+    if record is None or str(record["repo"]).lower() != repo.lower():
+        return None
+    hashes: dict[str, str] = {}
+    for name in names:
+        row = record["files"].get(name)
+        try:
+            if not isinstance(row, dict) or (root / name).stat().st_size != int(row["bytes"]):
+                return None
+        except (OSError, KeyError, TypeError, ValueError):
+            return None
+        hashes[name] = str(row.get("sha256") or "")
+    return hashes
+
+
+def _marker_stamp(root: Path) -> tuple[str, int, int]:
+    try:
+        stat = (root / PIN_MARKER).stat()
+    except OSError:
+        return (str(root), 0, 0)
+    return (str(root), stat.st_mtime_ns, stat.st_size)
+
+
+class _Found(NamedTuple):
+    folder: Path
+    stamp: tuple[str, int, int]
+    extra: dict[str, Any]
+
+
+def _shruti() -> Any:
+    """The ``shruti_ear`` module, or None when it cannot be imported (it needs numpy and onnxruntime: an ear that
+    cannot import is an ear that is not installed). Its graphs are opened here, behind this worker's memory gate."""
+    try:
+        import shruti_ear
+    except Exception:  # noqa: BLE001 - optional at boot: the other ears answer
+        return None
+    return shruti_ear
+
+
+def _swift_found() -> _Found | None:
+    """The certified Swift model folder (``hi/onnx``, else ``hi/onnx-int8``) with every graph at a real size."""
+    module = _shruti()
+    if module is None:
+        return None
+    base = _models_root() / module.MODEL_DIR
+    for sub in SWIFT_SETS:
+        if certified_files(base, SWIFT_REPO, [f"{sub}/{name}" for name in module.REQUIRED]) is None:
+            continue
+        try:
+            if all((base / sub / name).stat().st_size >= least for name, least in module.MIN_BYTES.items()):
+                return _Found(base / sub, _marker_stamp(base), {})
+        except OSError:
+            continue
+    return None
+
+
+def _quick_found() -> _Found | None:
+    base, vocab = _models_root() / "moonshine-ear", _models_root() / "moonshine-ear-vocab"
+    graphs = certified_files(base, QUICK_REPO, [f"{QUICK_SET}/quantized/{name}" for name in QUICK_FILES])
+    if graphs is None or certified_files(vocab, QUICK_VOCAB_REPO, ["tokenizer.json"]) is None:
+        return None
+    pins = {name: graphs[f"{QUICK_SET}/quantized/{name}"] for name in QUICK_FILES}
+    return _Found(base / QUICK_SET, _marker_stamp(base), {"tokenizer": vocab / "tokenizer.json", "sha256": pins})
+
+
+def _english_found() -> _Found | None:
+    base = _models_root() / "parakeet-ear"
+    if certified_files(base, ENGLISH_REPO, ENGLISH_FILES) is None:
+        return None
+    return _Found(base, _marker_stamp(base), {})
+
+
+def _build_quick(found: _Found) -> Any:
+    import ear_quick
+
+    return ear_quick.EarQuick.load(found.folder, True, found.extra["tokenizer"], found.extra["sha256"])
+
+
+def _build_english(found: _Found) -> Any:
+    import nemo_ear
+
+    return nemo_ear.NemoEar.load(found.folder, kind="tdt", quantization="int8")
+
+
+def _own_error(exc: BaseException) -> str:
+    try:
+        return voice_runtime._safe_error(exc)
+    except Exception:  # noqa: BLE001 - without the scrubber only the class name leaves
+        return type(exc).__name__
+
+
+class _OwnEarSkipped(RuntimeError):
+    """The ear did not open: the worker refused the memory, or this folder already failed to open."""
+
+
+class OwnEar:
+    """One own final-pass ear: ``locate`` finds its certified folder, ``build`` opens it, ``read`` returns the text."""
+
+    def __init__(self, ident, label, name, load_mb, locate, build, read, engine, model, language="en") -> None:
+        self.ident, self.label, self.name, self.kind = ident, label, name, f"{ident}-ear"
+        self._language = language
+        self.load_mb, self.engine, self.model = load_mb, engine, model
+        self._locate, self._build, self._read = locate, build, read
+        self._broken: dict[tuple[str, int, int], str] = {}
+        self._runner: Any = None
+        self._stamp: tuple[str, int, int] | None = None
+        self._skip = self._fault = ""
+
+    def ready(self) -> bool:
+        found = self._locate()
+        return found is not None and found.stamp not in self._broken
+
+    def error(self) -> str | None:
+        found = self._locate()
+        return None if found is None else self._broken.get(found.stamp)
+
+    def last_skip(self) -> str:
+        return self._skip
+
+    def fault(self) -> str:
+        return self._fault
+
+    def last_language(self) -> str:
+        return self._language
+
+    def loaded(self) -> bool:
+        return self._runner is not None
+
+    def unload(self) -> bool:
+        was_open = self._runner is not None
+        self._runner, self._stamp = None, None
+        return was_open
+
+    def _open(self, found: _Found) -> Any:
+        if self._runner is not None and self._stamp == found.stamp:
+            return self._runner
+        if found.stamp in self._broken:
+            self._skip = "broken"
+            raise _OwnEarSkipped("broken")
+        if not admit(self.kind, self.load_mb):
+            self._skip = "low-memory"
+            raise _OwnEarSkipped("low-memory")
+        try:
+            runner = self._build(found)
+        except Exception as exc:  # noqa: BLE001 - remembered, so the next ear answers at once
+            self._broken[found.stamp] = _own_error(exc)
+            self._skip = "broken"
+            raise _OwnEarSkipped("broken") from exc
+        self._runner, self._stamp = runner, found.stamp
+        return runner
+
+    def transcribe(self, samples, language: str | None = None) -> str | None:
+        """Text for 16 kHz mono float samples, or None to let the next ear answer. Never raises."""
+        self._skip = self._fault = ""
+        found = self._locate()
+        if found is None:
+            return None
+        try:
+            import numpy as np  # type: ignore
+
+            audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+            if audio.size < int(OWN_EAR_RATE * OWN_EAR_MIN_S):
+                return None
+            heard = self._read(self._open(found), audio[: OWN_EAR_RATE * OWN_EAR_MAX_S], language)
+            text, used = heard if isinstance(heard, tuple) else (heard, "")
+            text = str(text or "").strip()
+            if used:
+                self._language = used
+        except _OwnEarSkipped:
+            return None
+        except Exception as exc:  # noqa: BLE001 - a broken own ear never breaks a turn
+            self._fault = _own_error(exc)
+            return None
+        return text or None
+
+
+def _build_swift(found: _Found) -> Any:
+    module = _shruti()
+    if module is None:
+        raise RuntimeError("shruti_ear cannot be imported")
+    return module.load_runner(found.folder)
+
+
+def _read_swift(runner: Any, audio: Any, language: str | None) -> tuple[str, str] | str:
+    """Beam-searched text in the script policy (Hindi words in Devanagari, English in Latin) and the language used."""
+    heard = runner.transcribe(audio, language=language if language in runner.languages else None, beams=_SWIFT_BEAMS)
+    text = str(heard["text"]).strip()
+    used = str(heard["language"] or "")
+    return (_shruti()._policy(text, used), used) if text else ""
+
+
+_SWIFT_BEAMS = 5  # the model's own default (``shruti_ear.BEAMS``)
+SWIFT = OwnEar(
+    "swift", "FRIDAY Ear Swift", "shruti-ear", SWIFT_LOAD_MB, _swift_found, _build_swift, _read_swift,
+    "friday-ear-swift", "shruti-ear", language="hi",
+)  # fmt: skip
+QUICK = OwnEar(
+    "quick", "FRIDAY Ear Quick", "moonshine-ear", QUICK_LOAD_MB, _quick_found, _build_quick,
+    lambda runner, audio, _language: runner.transcribe(audio), "friday-ear-quick", "moonshine-tiny-onnx",
+)  # fmt: skip
+ENGLISH = OwnEar(
+    "english", "FRIDAY Ear English", "parakeet-ear", ENGLISH_LOAD_MB, _english_found, _build_english,
+    lambda runner, audio, _language: runner.recognize(audio), "friday-ear-english", "parakeet-tdt-0.6b-v2-int8",
+)  # fmt: skip
+
+
+def _own_ears() -> tuple[Any, ...]:
+    """The three own ears, read from the module each time (a test swaps them)."""
+    return (SWIFT, QUICK, ENGLISH)
+
+
+def _own_engine(name: str) -> str:
+    """The engine label of a resident model name: an own ear's engine, else faster-whisper."""
+    return next((ear.engine for ear in _own_ears() if ear.name == name), "faster-whisper")
+
+
+def _own_ear_of(kind: str):
+    return next((ear for ear in _own_ears() if ear.kind == kind), None)
+
+
+def _read_own(ear, samples, language: str | None = None) -> str | None:
+    """One read by an own ear, with its load time and the idle clock kept like the Hindi ear's."""
+    was_open, started = ear.loaded(), _now()
+    text = ear.transcribe(samples, language)
+    if ear.loaded():
+        if not was_open:
+            _load_ms[ear.name] = int((_now() - started) * 1000)
+        touch()
+    check_cancel()
+    return text
+
+
+def english_final(samples, on_partial) -> tuple[str | None, str, str]:
+    """``(text, engine, model)`` of an English final read: Ear English, then Ear Quick, then the moonshine package.
+    ``(None, "faster-whisper", "")`` sends the turn to faster-whisper. An ear that ran cleanly and heard nothing ends
+    the chain (the next ones would hear the same silence); an ear that is missing, refused or broken hands on."""
+    for ear in (ENGLISH, QUICK):
+        if not ear.ready():
+            continue
+        text = _read_own(ear, samples)
+        if text:
+            if on_partial:
+                on_partial(text)
+            return text, ear.engine, ear.model
+        if not (ear.last_skip() or ear.fault()):
+            return None, "faster-whisper", ""
+        note_fallback(f"{ear.name}-to-next")
+    moon_dir = moonshine_model_dir()
+    if moon_dir:
+        text = transcribe_moonshine(samples, moon_dir, on_partial)
+        if text:
+            return text, "moonshine-en", "moonshine-tiny-streaming"
+    return None, "faster-whisper", ""
+
+
+def swift_final(samples, mode: str, hotwords: list[str]) -> str | None:
+    """The Swift text of a Hindi, Hinglish or open turn the Hindi ear left unread, or None for faster-whisper."""
+    if mode not in {"hi", "auto"} or not SWIFT.ready():
+        return None
+    text = _read_own(SWIFT, samples, "hi" if mode == "hi" else None)
+    if not text:
+        if SWIFT.last_skip() or SWIFT.fault():
+            note_fallback("shruti-ear-to-whisper")
+        return None
+    return snap_text(text, hotwords)
+
+
+def own_ears_status() -> list[dict]:
+    """One row per own ear for the Doctor: installed and certified, loaded now, and why it cannot open."""
+    return [
+        {
+            "id": ear.ident,
+            "label": ear.label,
+            "catalogId": ear.name,
+            "ready": ear.ready(),
+            "loaded": ear.loaded(),
+            "error": ear.error(),
+        }
+        for ear in _own_ears()
+    ]
+
+
+def run_own_ears_self_test(samples=None) -> dict:
+    """One row per own ear on the probe clip: ``ok``, ``missing`` (not installed: the ear of today answers),
+    ``refused`` (the memory gate said no) or ``failed`` (it cannot open or decode). Nothing leaves the machine."""
+    if samples is None:
+        samples = read_pcm16_wav(write_probe_wav(str(Path(tempfile.mkdtemp(prefix="friday-ears-")) / "probe.wav")))
+    rows: list[dict] = []
+    for ear in _own_ears():
+        row: dict[str, Any] = {"id": ear.ident, "label": ear.label, "catalogId": ear.name, "local": True}
+        broken = ear.error()
+        if not ear.ready():
+            rows.append(
+                {**row, "status": "failed" if broken else "missing", "reason": broken or "not installed", "ms": 0}
+            )
+            continue
+        started = time.perf_counter()
+        _read_own(ear, samples)
+        ms = int((time.perf_counter() - started) * 1000)
+        if ear.last_skip() == "low-memory":
+            rows.append({**row, "status": "refused", "reason": "low memory", "ms": ms})
+        elif ear.last_skip() or ear.fault() or ear.error():
+            rows.append({**row, "status": "failed", "reason": ear.fault() or ear.error() or "cannot open", "ms": ms})
+        else:
+            rows.append({**row, "status": "ok", "reason": "", "ms": ms})
+    return {"ok": all(row["status"] != "failed" for row in rows), "local": True, "ears": rows}
 
 
 # True only while a provisional (not-final) pass runs: it is neither counted nor recorded.
@@ -2306,6 +2685,8 @@ def _transcribe_prepared(
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
+    own_model = ""  # the model name of an own English ear that heard the turn
+    swift_text, swift_tried = None, False
     # The Trelis mixed-script ear is asked for by name and checked for files and hardware; None is the engine of today.
     trelis, trelis_skipped = whisper_ears.trelis_verdict(extras, cuda_runtime_ready)
     # One route per turn: the Hindi ear, or whisper with the turn's language already known (no language guess).
@@ -2313,17 +2694,16 @@ def _transcribe_prepared(
     route = route_turn(language, speech_pref, prior, bool((extras or {}).get("route_open")))
 
     def retry(options: dict | None = None) -> dict:
+        chosen = options if options is not None else extras
+        if swift_tried:  # Ear Swift already read this clip: a second pass does not decode it again
+            chosen = {**(chosen or {}), "swift_done": True}
         return _transcribe_prepared(
             audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
-            owner_size, model_path, hearing, original, options if options is not None else extras,
+            owner_size, model_path, hearing, original, chosen,
         )  # fmt: skip
 
     if trelis is None and wants_english_stream(language, speech_pref) and samples is not None:
-        moon_dir = moonshine_model_dir()
-        if moon_dir:
-            moon_text = transcribe_moonshine(samples, moon_dir, on_partial)
-            if moon_text:
-                engine = "moonshine-en"
+        moon_text, engine, own_model = english_final(samples, on_partial)
     hindi_text = None
     ear_note = ""
     ear_heard: dict | None = None  # the ear's line and cue behind an English gate, handed to the open re-read
@@ -2376,9 +2756,15 @@ def _transcribe_prepared(
                     note_fallback("hindi-ear-english-gate")
                 ear_note = f"the Hindi ear wrote English in Devanagari ({gate['why']}): faster-whisper heard English"
                 ear_heard = {"text": ear_line, "confidence": ear_conf, **({"cue": cue} if cue_known else {})}
+        if not hindi_text and not held and not (extras or {}).get("swift_done"):
+            # FRIDAY Ear Swift reads what the Hindi ear left (not installed, refused, unsure, or English in Devanagari).
+            swift_tried = True
+            swift_text = swift_final(samples, mode, hotword_list((extras or {}).get("hotwords")))
         if hindi_text:
             engine = "hindi-ear"
             hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
+        elif swift_text:
+            engine = SWIFT.engine
         elif gate_english:
             route = route_after_english_gate(route, gate_why)
         elif not skip_note:
@@ -2403,7 +2789,7 @@ def _transcribe_prepared(
                 "text": moon_text,
                 "language": "en",
                 "durationMs": 0,
-                "model": "moonshine-tiny-streaming",
+                "model": own_model or "moonshine-tiny-streaming",
                 "noSpeechProb": 0.0,
                 "loadCount": _load_count,
                 "engine": engine,
@@ -2412,7 +2798,26 @@ def _transcribe_prepared(
             hearing,
             {"text": moon_text, "vadMs": None, "noSpeechProb": 0.0, "language": "en", "noSpeechNote": ""},
             "",
-            ["moonshine"],
+            ["moonshine" if engine == "moonshine-en" else engine],
+        )
+    if swift_text:
+        swift_language = SWIFT.last_language()
+        return _heard(
+            {
+                "ok": True,
+                "text": swift_text,
+                "language": swift_language,
+                "durationMs": 0,
+                "model": SWIFT.model,
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": swift_text, "vadMs": None, "noSpeechProb": 0.0, "language": swift_language, "noSpeechNote": ""},
+            "",
+            [engine],
         )
     if hindi_text:
         return _heard(
@@ -2811,6 +3216,7 @@ def status_payload() -> dict:
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
         "hindiEarError": hindi_ear.error(),
+        "ownEars": own_ears_status(),
         "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
@@ -3320,6 +3726,8 @@ def _handle_op(req: dict) -> dict:
         return run_speech_self_test()
     if op == "hearing-self-test":
         return run_hearing_self_test()
+    if op == "ears-self-test":
+        return run_own_ears_self_test()
     if op == "load":
         import time
 
@@ -3520,6 +3928,7 @@ def main() -> int:
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--self-test", dest="self_test", action="store_true")
     ap.add_argument("--hearing-self-test", dest="hearing_self_test", action="store_true")
+    ap.add_argument("--ears-self-test", dest="ears_self_test", action="store_true")
     args = ap.parse_args()
 
     if args.serve:
@@ -3533,6 +3942,11 @@ def main() -> int:
 
     if args.hearing_self_test:
         payload = run_hearing_self_test()
+        emit(payload)
+        return 0 if payload.get("ok") else 1
+
+    if args.ears_self_test:
+        payload = run_own_ears_self_test()
         emit(payload)
         return 0 if payload.get("ok") else 1
 
