@@ -354,6 +354,138 @@ function withOptInMirrors(sources, env) {
 }
 
 /**
+ * The FRIDAY Models release (`config/friday-models.json`, built by `scripts/build-friday-models.cjs`): the same pinned
+ * files, hosted as release assets of the official repository. A pinned model that the manifest holds in full is fetched
+ * from there FIRST (a file over `partBytes` as several parts that are joined), every file is checked against the
+ * manifest SHA-256 and size, and the official upstream pin source is the fallback on a 404, a network error or a wrong
+ * hash. A model with no complete manifest entry has no release source, so its chain is exactly what it was.
+ */
+const RELEASE_LABEL = "FRIDAY release";
+const OFFICIAL_LABEL = "official source";
+const RELEASE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
+const RELEASE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const RELEASE_TAG = /^friday-models-\d{4}\.\d{1,2}\.\d{1,3}$/;
+const DEFAULT_PART_BYTES = 1_900_000_000;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SOURCE_NOTE = ".source.json";
+
+/** The parsed pack manifest, or null when it is missing or not a friday-models pack. `deps.fridayModels` is injected by tests. */
+function readFridayModels(deps = {}) {
+  let pack = deps.fridayModels;
+  if (pack === undefined) {
+    try {
+      pack = require("./resource-paths.cjs").readConfigJson("friday-models.json", null).value;
+    } catch {
+      pack = null;
+    }
+  }
+  const sound =
+    pack &&
+    pack.pack === "friday-models" &&
+    RELEASE_TAG.test(String(pack.tag || "")) &&
+    RELEASE_REPOSITORY.test(String(pack.repository || "")) &&
+    Array.isArray(pack.assets);
+  return sound ? pack : null;
+}
+
+/** `<file>.part001` when a file is split, the plain name when it is not (the same names the builder writes). */
+function releasePartName(file, index, count) {
+  return count <= 1 ? file : `${file}.part${String(index + 1).padStart(3, "0")}`;
+}
+
+/**
+ * The release plan of one pinned repository, or null. It exists only when the manifest holds EVERY pinned file of the
+ * repository as a `copy` asset with the pin's own SHA-256 and size and a part count that follows from its bytes; one
+ * missing or different file means no release source at all. `FRIDAY_MODELS_RELEASE=0` switches the release road off.
+ * Returns `{ repo, tag, revision, files: [{ name, file, sha256, bytes, parts: [{ file, url, bytes }] }] }`.
+ */
+function fridayReleasePlan(repo, deps = {}) {
+  const env = deps.env || process.env;
+  if (String(env?.FRIDAY_MODELS_RELEASE || "") === "0") return null;
+  const pack = readFridayModels(deps);
+  const pin = (deps.pinForRepo || pins.pinForRepo)(repo);
+  if (!pack || !pin) return null;
+  const partBytes =
+    Number.isInteger(pack.partBytes) && pack.partBytes > 0 ? pack.partBytes : DEFAULT_PART_BYTES;
+  const base = `https://github.com/${pack.repository}/releases/download/${pack.tag}/`;
+  const sameModel = (asset) =>
+    asset?.from?.pin === repo || (deps.pinForRepo || pins.pinForRepo)(asset?.from?.pin) === pin;
+  const files = [];
+  for (const [name, row] of Object.entries(pin.files)) {
+    const asset = (pack.assets || []).find(
+      (item) => sameModel(item) && item.path === name && item.from?.recipe === "copy",
+    );
+    if (
+      !asset ||
+      !RELEASE_FILE.test(String(asset.file || "")) ||
+      !SHA256_HEX.test(String(asset.sha256 || "")) ||
+      asset.sha256 !== String(row.sha256 || "").toLowerCase() ||
+      asset.bytes !== row.bytes ||
+      !Number.isInteger(asset.bytes) ||
+      asset.bytes < 0
+    ) {
+      return null;
+    }
+    const count = Math.max(1, Math.ceil(asset.bytes / partBytes));
+    if (asset.parts !== count) return null;
+    const parts = [];
+    for (let index = 0; index < count; index += 1) {
+      const file = releasePartName(asset.file, index, count);
+      parts.push({
+        file,
+        url: base + encodeURIComponent(file),
+        bytes: Math.min(partBytes, asset.bytes - index * partBytes),
+      });
+    }
+    files.push({ name, file: asset.file, sha256: asset.sha256, bytes: asset.bytes, parts });
+  }
+  return files.length ? { repo, tag: pack.tag, revision: pack.revision, files } : null;
+}
+
+/**
+ * `sources` with, before every pinned Hugging Face repository the pack holds in full, the FRIDAY release source. Any
+ * other source, and a repository the pack does not hold, is returned as it was, in the same order.
+ */
+function withFridayRelease(sources, deps = {}) {
+  const list = Array.isArray(sources) ? sources : [];
+  const out = [];
+  for (const source of list) {
+    if (
+      source?.kind === "hf-repo" &&
+      source.repo &&
+      !list.some((s) => s?.kind === "friday-release" && s.repo === source.repo)
+    ) {
+      const plan = fridayReleasePlan(source.repo, deps);
+      if (plan) out.push({ kind: "friday-release", repo: source.repo, label: RELEASE_LABEL, plan });
+    }
+    out.push(source);
+  }
+  return out;
+}
+
+/** The file that says which source served a model folder (`<folder>.source.json`, beside the folder, so the pin never sees it). */
+function sourceNotePath(dir) {
+  return `${dir}${SOURCE_NOTE}`;
+}
+
+/** "FRIDAY release" or "official source" for the pinned revision on disk; "" when unknown (an older install, another revision). */
+function servedSource(dir, pin) {
+  try {
+    const note = JSON.parse(fs.readFileSync(sourceNotePath(dir), "utf8"));
+    const known = note?.source === RELEASE_LABEL || note?.source === OFFICIAL_LABEL;
+    return known && (!pin || note.pinRevision === pin.revision) ? note.source : "";
+  } catch {
+    return "";
+  }
+}
+
+/** ", installed from <source>" for a Doctor detail, or "" when the source is not known. */
+function servedNote(dir, pin) {
+  const source = servedSource(dir, pin);
+  return source ? `; installed from ${source}` : "";
+}
+
+/**
  * One line for a failed helper download: every source that was tried and why it failed, so a moved file on the first
  * source and a second failure are both visible. `result` is what `model-download.cjs` `downloadModel` returned.
  */
@@ -568,22 +700,24 @@ async function pinChecks(root, deps = {}) {
       id: `stt-pin-${size}`,
       label: `FRIDAY Ear ${size} matches its pin`,
       ok: audit.ok,
-      detail: describe(audit),
+      detail:
+        describe(audit) +
+        (audit.ok
+          ? servedNote(path.join(root, "cache", "stt", size), pins.pinForRepo(STT_REPOS[size]))
+          : ""),
     });
   }
   for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
     // A row appears only when the ear is installed (every pinned file present). A short or tampered file is red.
     if (!earOnDisk(root, ear, exists)) continue;
-    const audit = await pins.auditDir(
-      path.join(root, "models", ear.catalogId),
-      pins.pinForRepo(ear.repo),
-      deps,
-    );
+    const earDir = path.join(root, "models", ear.catalogId);
+    const earPin = pins.pinForRepo(ear.repo);
+    const audit = await pins.auditDir(earDir, earPin, deps);
     rows.push({
       id: ear.rowId,
       label: `${ear.label} matches its pin`,
       ok: audit.ok,
-      detail: describe(audit),
+      detail: describe(audit) + (audit.ok ? servedNote(earDir, earPin) : ""),
     });
   }
   const tts = await auditTts(root, { ...deps, exists });
@@ -592,7 +726,7 @@ async function pinChecks(root, deps = {}) {
       id: "tts-pin",
       label: "FRIDAY Voice matches its pin",
       ok: tts.ok,
-      detail: describe(tts),
+      detail: describe(tts) + (tts.ok ? servedNote(tts.dir, pins.pinForRepo(TTS_REPO)) : ""),
     });
   }
   rows.push(...helperPinChecks(root, { ...deps, exists }));
@@ -1672,6 +1806,14 @@ module.exports = {
   TTS_ARCHIVE_REPO,
   HF_MIRROR_HOST,
   withOptInMirrors,
+  RELEASE_LABEL,
+  OFFICIAL_LABEL,
+  readFridayModels,
+  fridayReleasePlan,
+  withFridayRelease,
+  sourceNotePath,
+  servedSource,
+  servedNote,
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,
   HINDI_FALLBACK_REPO,

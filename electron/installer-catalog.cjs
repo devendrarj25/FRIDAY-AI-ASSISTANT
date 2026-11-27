@@ -146,6 +146,7 @@ function voiceRows(root, deps = {}) {
     const dir = root ? nodePath.join(root, ...entry.dir) : null;
     let installed = null;
     let version = null;
+    let servedFrom = null;
     if (dir) {
       const pin = entry.repo ? pins.pinForRepo(entry.repo) : null;
       if (pin) {
@@ -153,6 +154,11 @@ function voiceRows(root, deps = {}) {
           fsApi.existsSync(nodePath.join(dir, name)),
         );
         version = installed ? pins.readMarker(dir)?.revision || null : null;
+        // Which source served the folder on this PC: "FRIDAY release" or "official source" (null when unknown).
+        servedFrom =
+          installed && typeof weights.servedSource === "function"
+            ? weights.servedSource(dir, pin) || null
+            : null;
       } else if (entry.file) {
         installed = fsApi.existsSync(nodePath.join(dir, entry.file));
       }
@@ -165,6 +171,7 @@ function voiceRows(root, deps = {}) {
       category: entry.kind === "tts" ? "Voice output" : "Voice input",
       installed,
       installedVersion: version,
+      servedFrom,
       facts: manifest || null,
       // Internal catalog metadata; the Models and Installer pages never print either field.
       license: manifest?.license || entry.license || null,
@@ -326,6 +333,7 @@ function createInstallerCatalog(deps = {}) {
         checkedAt: latest?.checkedAt ?? null,
         stale: latest ? Boolean(latest.stale) : false,
         pinnedAnswer: Boolean(latest?.pinned),
+        ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),
         ...(latest?.upstream && latest.upstream !== latest.version
           ? { upstreamVersion: latest.upstream }
