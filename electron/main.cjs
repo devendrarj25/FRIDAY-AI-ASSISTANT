@@ -3380,7 +3380,7 @@ async function leaseLocalModel({ model, request, hardwareOffload, requestId }) {
     // a different placement would only make the engine load it twice.
     const tag = model.meta?.providerId === "ollama" ? model.meta?.modelName : null;
     if (tag && !taken.shrunk) {
-      const warmed = await loadLeases.runLoad(priority, () => modelsApi.ollamaWarm(tag, "5m"));
+      const warmed = await loadLeases.runLoad(priority, () => modelsApi.ollamaWarm(tag));
       if (!warmed.ran) {
         taken.lease?.release();
         const line = `${model.displayName || model.label || model.id} was not loaded: other models are still loading.`;

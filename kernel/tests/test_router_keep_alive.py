@@ -54,3 +54,20 @@ def test_bad_plan_value_falls_back_to_20m(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv(ENV, raising=False)
     _plan(tmp_path, monkeypatch, ["x"])
     assert router.ollama_keep_alive() == "20m"
+
+
+def test_hostile_env_values_never_raise_and_fall_back_to_the_plan(monkeypatch, tmp_path) -> None:
+    _plan(tmp_path, monkeypatch, "45m")
+    for bad in ("--5", "٣", "²", "5 m", "1e3", "5m;x", "+5", "5.5"):
+        monkeypatch.setenv(ENV, bad)
+        assert router.ollama_keep_alive() == "45m", bad
+    monkeypatch.setenv(ENV, "٣")
+    monkeypatch.setattr(router, "_CHAT_TIERS_PATH", tmp_path / "missing.json")
+    assert router.ollama_keep_alive() == "20m"
+
+
+def test_duration_forms_are_kept(monkeypatch, tmp_path) -> None:
+    _plan(tmp_path, monkeypatch, "45m")
+    for ok in ("500ms", "30s", "2h", "90"):
+        monkeypatch.setenv(ENV, ok)
+        assert router.ollama_keep_alive() == (90 if ok == "90" else ok)

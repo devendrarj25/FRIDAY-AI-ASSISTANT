@@ -33,6 +33,10 @@ OPENAI_COMPATIBLE = set(local_engines.openai_compatible_ids()) | {"online"}
 _DEFAULT_KEEP_ALIVE = "20m"
 
 
+_KEEP_ALIVE_SECONDS = re.compile(r"-?[0-9]+", re.ASCII)
+_KEEP_ALIVE_DURATION = re.compile(r"[0-9]+(?:ms|s|m|h)", re.ASCII)
+
+
 def _keep_alive_value(raw) -> str | int | None:
     """A keep_alive in either wire form (a duration string or whole seconds), or None when it is neither."""
     if isinstance(raw, bool):
@@ -41,7 +45,9 @@ def _keep_alive_value(raw) -> str | int | None:
         return raw
     if isinstance(raw, str) and raw.strip():
         text = raw.strip()
-        return int(text) if text.lstrip("-").isdigit() else text
+        if _KEEP_ALIVE_SECONDS.fullmatch(text):
+            return int(text)
+        return text if _KEEP_ALIVE_DURATION.fullmatch(text) else None
     return None
 
 

@@ -1038,7 +1038,8 @@ function keepAliveValue(raw) {
   if (typeof raw === "number") return Number.isInteger(raw) ? raw : null;
   if (typeof raw !== "string" || !raw.trim()) return null;
   const text = raw.trim();
-  return /^-?\d+$/.test(text) ? Number(text) : text;
+  if (/^-?[0-9]+$/.test(text)) return Number(text);
+  return /^[0-9]+(ms|s|m|h)$/.test(text) ? text : null;
 }
 
 function ollamaKeepAlive({ env = process.env, tiers = undefined } = {}) {
