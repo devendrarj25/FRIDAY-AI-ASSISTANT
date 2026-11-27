@@ -82,7 +82,10 @@ export type EchoLiveDeps = {
 export type EchoLiveDiagnostics = {
   enabled: boolean;
   attached: boolean;
-  /** Frames the canceller cleaned, frames passed through unchanged, and failures (which also pass through). */
+  /**
+   * Frames the canceller cleaned and the filter is trusted for, and frames passed through unchanged or not yet
+   * trusted (warm-up, settling), and failures (which also pass through).
+   */
   cancelledFrames: number;
   passedFrames: number;
   errors: number;
@@ -112,6 +115,16 @@ export const SHADOW_GAP_MS = 170;
 const DRIFT_PER_S = 150e-6;
 /** A candidate this much above the estimate is a real jump (a suspended context), not a late delivery. */
 const JUMP_S = 0.25;
+
+/**
+ * A frame counts as cleaned only once the filter has really been removing her voice for this long. The canceller
+ * flags itself converged before the residual falls, and the VAD holds a voice for 250 ms, so the barge-in ladder
+ * (which reads a cleaned-frame count as "the echo is gone") would take her own echo for the owner at the end of
+ * her first second. The signal itself is cleaned from the first frame the canceller changes; only the count waits.
+ */
+export const SETTLE_MS = 250;
+/** The least dB the canceller must report removing before the settling clock runs. */
+export const TRUST_ERLE_DB = 3;
 
 /**
  * The offset between a source clock and the common timeline. Every observation is "the source clock reads t, the
@@ -178,6 +191,8 @@ export class EchoLive {
   private clearAt: number | null = null;
   private failStreak = 0;
   private fellBack = false;
+  private trusted = false;
+  private settledSamples = 0;
   private counts = { cancelled: 0, passed: 0, errors: 0, clears: 0, shadowSent: 0 };
   private lastClear = "";
   private shadow = {
@@ -228,6 +243,8 @@ export class EchoLive {
       });
       this.failStreak = 0;
       this.fellBack = false;
+      this.trusted = false;
+      this.settledSamples = 0;
       this.unsubscribe = [
         player.addScheduledListener((when, pcm) => this.onScheduled(when, pcm)),
         player.addStopListener((at) => this.onStop(at)),
@@ -258,6 +275,8 @@ export class EchoLive {
     this.mic = null;
     if (closed) this.clock = null;
     this.clearAt = null;
+    this.trusted = false;
+    this.settledSamples = 0;
     this.shadow.fill = 0;
     this.shadow.first = true;
     this.counts.clears += 1;
@@ -380,6 +399,17 @@ export class EchoLive {
       if (cleaned === raw) {
         this.counts.passed += 1;
         return null;
+      }
+      if (!this.trusted) {
+        // searching, warming up or settling: the frame went through the filter but is not counted as cleaned yet
+        const st = canceller.stats();
+        const removing = st.converged && st.erleDb !== null && st.erleDb >= TRUST_ERLE_DB;
+        this.settledSamples = removing ? this.settledSamples + raw.length : 0;
+        if (this.settledSamples >= (SETTLE_MS / 1000) * ECHO_RATE) this.trusted = true;
+        else {
+          this.counts.passed += 1;
+          return cleaned;
+        }
       }
       this.counts.cancelled += 1;
       return cleaned;

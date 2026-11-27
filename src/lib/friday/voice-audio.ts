@@ -25,7 +25,7 @@ import {
   workletCapturing,
 } from "./pcm-capture";
 import { CAPTURE_BATCH_MS, configureFrontEnd, frontEndStats } from "./voice-engine/front-end-dsp";
-import type { EarsStats } from "./voice-diagnostics-rows";
+import type { DiagnosticsRow, EarsStats } from "./voice-diagnostics-rows";
 import { bluetoothNotice, reacquireDelay } from "./mic-faults";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
@@ -473,6 +473,53 @@ export function audioConstraints(
   };
 }
 
+/** The three processing flags a live track reports through `getSettings()`; `null` is "the browser did not say". */
+export type TrackProcessing = {
+  echoCancellation: boolean | null;
+  noiseSuppression: boolean | null;
+  autoGainControl: boolean | null;
+};
+
+const flag = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
+
+/** What the browser really applied to a track, or null when there is no track settings object at all. */
+export function trackProcessing(settings: object | null | undefined): TrackProcessing | null {
+  if (!settings) return null;
+  const got = settings as Partial<Record<keyof TrackProcessing, unknown>>;
+  return {
+    echoCancellation: flag(got.echoCancellation),
+    noiseSuppression: flag(got.noiseSuppression),
+    autoGainControl: flag(got.autoGainControl),
+  };
+}
+
+/**
+ * The diagnostics rows for the live track: what the capture asked for, next to what the track reports. A flag the
+ * track dropped (asked on, live off) is marked bad, because a Bluetooth headset or a driver can refuse it and then
+ * the browser's own echo defence is not there. A missing report is "not reported", never a guess.
+ */
+export function trackProcessingRows(
+  live: TrackProcessing | null,
+  asked: { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean },
+): DiagnosticsRow[] {
+  const names: Array<[keyof TrackProcessing, string]> = [
+    ["echoCancellation", "microphone echo cancellation"],
+    ["noiseSuppression", "microphone noise suppression"],
+    ["autoGainControl", "microphone auto gain"],
+  ];
+  return names.map(([key, label]) => {
+    const wanted = asked[key];
+    const side = `${wanted ? "on" : "off"} · live `;
+    const got = live ? live[key] : undefined;
+    const text = !live ? "no live microphone" : got === null ? "not reported" : got ? "on" : "off";
+    return {
+      label: `${label} (asked · live track)`,
+      value: `${side}${text}`,
+      ...(live && got === false && wanted ? { bad: true } : {}),
+    };
+  });
+}
+
 /* ----------------------------------------------------------------- the VAD */
 
 export interface VadSnapshot {
@@ -696,6 +743,18 @@ export class VoiceGate {
     const settings = track.getSettings?.() as { echoCancellation?: boolean } | undefined;
     if (typeof settings?.echoCancellation === "boolean") return settings.echoCancellation;
     return true;
+  }
+
+  /** The live track's own report of the three processing flags (rows for the Voice diagnostics list). */
+  trackProcessingRows(): DiagnosticsRow[] {
+    const track = this.stream?.getAudioTracks()[0];
+    const live = track ? trackProcessing(track.getSettings?.()) : null;
+    const asked = audioConstraints();
+    return trackProcessingRows(live, {
+      echoCancellation: asked.echoCancellation === true,
+      noiseSuppression: asked.noiseSuppression === true,
+      autoGainControl: asked.autoGainControl === true,
+    });
   }
 
   /**

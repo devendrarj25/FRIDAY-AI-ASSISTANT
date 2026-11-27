@@ -245,6 +245,8 @@ describe("the offset filter", () => {
  * `PcmClipPlayer` (24 kHz clauses), a room makes the echo, and the microphone delivers 128-sample frames to
  * `noteCaptureFrame` with a jittery delivery clock.
  */
+const liveOf: { current: EchoLive | null } = { current: null };
+
 function session(opts: {
   on: boolean;
   install: boolean;
@@ -258,6 +260,7 @@ function session(opts: {
   probe?: (frame: { at: number; delivered: number; echo: Float32Array }) => void;
   biasMs?: number;
   suppressor?: boolean;
+  onLive?: (live: EchoLive) => void;
 }) {
   const seconds = 5;
   const outLat = 0.03;
@@ -272,6 +275,7 @@ function session(opts: {
     shadow: () => opts.shadow ?? null,
     suppressor: () => opts.suppressor === true,
   });
+  opts.onLive?.(live);
   resetCaptureRing();
   setCaptureProcessor(null);
   setCaptureLatency(inLat);
@@ -498,6 +502,32 @@ describe("capture hook: setting on, synthetic playback (simulated rooms, not a r
     const off = levels(false);
     expect(off.cleaned).toHaveLength(0);
     expect(off.nulls).toBeGreaterThan(300);
+  });
+
+  it("frames still in warm-up pass the microphone through and count as passed, never as cancelled", () => {
+    // her echo begins at 10.0 + 0.03 + 0.06 s; the canceller needs time to find the delay and trust its filter
+    const early: Array<{ cancelled: number; passed: number }> = [];
+    const run = session({
+      on: true,
+      install: true,
+      delayMs: 60,
+      gain: 0.6,
+      seed: 31,
+      probe: ({ delivered }) => {
+        if (delivered > (10.09 + 0.2) * 1000 && delivered < (10.09 + 0.23) * 1000) {
+          const d = liveOf.current?.diagnostics();
+          if (d) early.push({ cancelled: d.cancelledFrames, passed: d.passedFrames });
+        }
+      },
+      onLive: (live) => {
+        liveOf.current = live;
+      },
+    });
+    expect(early.length).toBeGreaterThan(0);
+    for (const e of early) expect(e.cancelled).toBe(0);
+    expect(early.at(-1)!.passed).toBeGreaterThan(0);
+    // and once the filter is trusted the frames are cancelled again
+    expect(run.live.diagnostics().cancelledFrames).toBeGreaterThan(100);
   });
 
   it("the residual suppressor is off by default and, when asked for, takes more of her voice out", () => {
