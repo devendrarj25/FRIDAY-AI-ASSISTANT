@@ -6,7 +6,11 @@ import {
   DEFAULT_VOICE_CLOUD_PREFS,
   sanitizeCloudPrefs,
 } from "../../src/lib/friday/voice-engine/voice-cloud-settings";
-import { UsageLedger } from "../../src/lib/friday/voice-engine/voice-provider-router";
+import {
+  PAID_BY_DEFAULT,
+  PROVIDERS,
+  UsageLedger,
+} from "../../src/lib/friday/voice-engine/voice-provider-router";
 
 const require_ = createRequire(import.meta.url);
 const cloudModule = require_(path.resolve(import.meta.dirname, "../../electron/voice-cloud.cjs"));
@@ -37,6 +41,8 @@ function rig(
     prefs?: unknown;
     secrets?: Record<string, string>;
     respond?: () => Response | Promise<Response>;
+    /** The billing firewall's answer. Sarvam has no free-allowance proof, so most rows turn paid access on. */
+    paid?: boolean;
   } = {},
 ) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -58,6 +64,7 @@ function rig(
         "voice-azure-speech": "az-SECRET",
       })[id] ?? "",
     prefs: () => options.prefs ?? voicePrefs(),
+    paidUnlocked: () => options.paid !== false,
   });
   return { api, calls };
 }
@@ -302,8 +309,12 @@ describe("cloud speech from the renderer", () => {
     monthlyRequests: 10,
     monthlyAudioMinutes: 5,
     sarvamSpeaker: "shubh",
+    paidAllowed: true,
+    paidApproved: true,
+    spendLimitUsd: 5,
   });
   const base = {
+    billingAllowsPaid: true,
     text: "नमस्ते दुनिया",
     language: "hi-IN",
     prefs,
@@ -311,6 +322,30 @@ describe("cloud speech from the renderer", () => {
     privacyMode: false,
     online: true,
   };
+
+  it("refuses Sarvam while the billing firewall says no, whatever the saved paid settings, and counts nothing", async () => {
+    const calls: unknown[] = [];
+    const speak = async () => (calls.push(1), { ok: true, audioBase64: "x" });
+    for (const input of [
+      { ...base, billingAllowsPaid: false },
+      { ...base, billingAllowsPaid: undefined },
+      { ...base, prefs: { ...prefs, paidAllowed: false, spendLimitUsd: 0 } },
+      { ...base, prefs: { ...prefs, paidApproved: false } },
+    ]) {
+      const { billingAllowsPaid, ...rest } = input;
+      const ledger = new UsageLedger();
+      const out = await speakWithCloud("sarvam", billingAllowsPaid === undefined ? rest : input, {
+        ledger,
+        speak,
+      });
+      expect(out).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/paid access must be on/),
+      });
+      expect(ledger.usage("sarvam").day).toBe(0);
+    }
+    expect(calls).toEqual([]);
+  });
 
   it("counts the use, then asks the main process, with the speaker and no key", async () => {
     const ledger = new UsageLedger(() => Date.parse("2026-02-02T10:00:00Z"));
@@ -385,7 +420,7 @@ describe("cloud speech from the renderer", () => {
 
 describe("the gate refuses a paid provider while paid access is off", () => {
   const prefsFor = (paid: Record<string, unknown> = {}) =>
-    voicePrefs({ allowedProviders: ["sarvam"], ...paid });
+    voicePrefs({ allowedProviders: ["sarvam", "azure-speech"], ...paid });
   const make = (extra: Record<string, unknown>) =>
     createVoiceCloud({
       fetchImpl: async () => new Response("{}"),
@@ -394,8 +429,16 @@ describe("the gate refuses a paid provider while paid access is off", () => {
       ...extra,
     });
 
-  it("keeps a free provider working with no paid dependency wired", () => {
-    expect(make({}).gate("sarvam").ok).toBe(true);
+  it("keeps a provider with a free allowance working with no paid dependency wired", () => {
+    expect(make({}).gate("azure-speech").ok).toBe(true);
+  });
+
+  it("refuses Sarvam by default (a signup credit is not a free allowance) and allows it once paid access is on", () => {
+    const off = make({}).gate("sarvam");
+    expect(off.ok).toBe(false);
+    expect(off.error).toMatch(/paid/i);
+    expect(make({ paidUnlocked: () => false }).gate("sarvam").ok).toBe(false);
+    expect(make({ paidUnlocked: () => true }).gate("sarvam").ok).toBe(true);
   });
 
   it("refuses a provider that costs money when the billing firewall says paid is off", () => {
@@ -439,11 +482,23 @@ describe("the gate refuses a paid provider while paid access is off", () => {
     expect(keyReads).toBe(0);
   });
 
-  it("the default paid set is the router's own, and main wires the billing firewall into the gate", async () => {
-    const { PAID_BY_DEFAULT } =
-      await import("../../src/lib/friday/voice-engine/voice-provider-router");
+  it("the main-process paid set cannot drift from the router: every paid-by-default lane and every keyed lane with no free-allowance proof is in it", async () => {
     const fs = await import("node:fs");
-    expect([...cloudModule.PAID_PROVIDERS].sort()).toEqual([...PAID_BY_DEFAULT].sort());
+    for (const id of PAID_BY_DEFAULT) expect(cloudModule.PAID_PROVIDERS.has(id), id).toBe(true);
+    const unproven = PROVIDERS.filter(
+      (p) =>
+        p.id in cloudModule.SECRET_IDS &&
+        (p.lane?.costProof === "none" || p.lane?.costProof === "trial"),
+    ).map((p) => p.id);
+    expect(unproven).toContain("sarvam");
+    for (const id of unproven) expect(cloudModule.PAID_PROVIDERS.has(id), id).toBe(true);
+    // The other way round: nothing with proof of a free allowance is held back as paid.
+    for (const id of cloudModule.PAID_PROVIDERS) {
+      const row = PROVIDERS.find((p) => p.id === id);
+      expect(row?.lane?.costProof === "official" || row?.lane?.costProof === "cached", id).toBe(
+        false,
+      );
+    }
     const main = fs.readFileSync("electron/main.cjs", "utf8");
     expect(main).toMatch(
       /createVoiceCloud\(\{\s*paidUnlocked: \(\) => billingPolicy\.paidUnlocked\(billingState\(\)\)\.allowed === true,/,

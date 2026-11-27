@@ -199,6 +199,10 @@ const CLOUD_ON: VoiceCloudPrefs = {
   dailyRequests: 50,
   monthlyRequests: 500,
   monthlyAudioMinutes: 60,
+  // Sarvam has only a one-time signup credit, which is no free allowance: its lane needs paid access on as well.
+  paidAllowed: true,
+  paidApproved: true,
+  spendLimitUsd: 5,
 };
 
 /** Play a scenario with FRIDAY Voice installed and the cloud bridge tripwired, after `extra` has set the prefs. */
@@ -435,6 +439,7 @@ describe("the privacy firewall refuses a SENSITIVE line with the cloud lane enab
     const api = createVoiceCloud({
       getSecret: () => "sk-test-key",
       prefs: () => cloudPrefsForMain,
+      paidUnlocked: () => true,
     });
     for (const text of SENSITIVE_LINES) {
       const out = await api.speak("sarvam", { text, language: "en-IN", sensitiveReply: false });
@@ -471,6 +476,7 @@ describe("the privacy firewall refuses a SENSITIVE line with the cloud lane enab
     const api = createVoiceCloud({
       getSecret: () => "sk-test-key",
       prefs: () => cloudPrefsForMain,
+      paidUnlocked: () => true,
     });
     const out = await api.speak("sarvam", { text: "Opening the report.", language: "en-IN" });
     expect(out).toMatchObject({ ok: false });
@@ -564,6 +570,33 @@ describe("privacy mode never selects a cloud voice", () => {
     expect(sarvamDecision(false)).toMatchObject({ active: "cloud", provider: { id: "sarvam" } });
   });
 
+  it("the control for the control: with paid access off the same settings refuse Sarvam in the renderer and in main", async () => {
+    installTripwires(true);
+    const decide = (billingAllowsPaid: boolean, prefs: VoiceCloudPrefs) =>
+      routeVoice(
+        { need: "tts", sensitive: false, privacyMode: false, billingAllowsPaid, online: true },
+        toRouterSettings(prefs, { sarvam: true }),
+        new UsageLedger(() => SIM_BASE_MS),
+      );
+    const unpaid = decide(true, { ...CLOUD_ON, paidAllowed: false, paidApproved: false });
+    expect(unpaid.active).not.toBe("cloud");
+    expect(unpaid.refused.find((r) => r.id === "sarvam")?.why).toMatch(
+      /trial credit.*paid access must be on/,
+    );
+    // The billing firewall's own answer is what counts, whatever the saved switches say.
+    expect(decide(false, CLOUD_ON).active).not.toBe("cloud");
+    const api = createVoiceCloud({
+      getSecret: () => "sk-test-key",
+      prefs: () => ({ privacyMode: false, cloudVoice: CLOUD_ON }),
+      paidUnlocked: () => false,
+    });
+    expect(api.gate("sarvam")).toMatchObject({ ok: false });
+    expect(
+      await api.speak("sarvam", { text: "Opening the report.", language: "en-IN" }),
+    ).toMatchObject({ ok: false });
+    expectNoNetwork();
+  });
+
   it("no ranking of the speech ladder holds a cloud voice, for every setting around it", () => {
     const infos: TtsProviderInfo[] = [...Object.values(TTS_INFO), ...cloudTtsInfos()];
     const decision = sarvamDecision(false);
@@ -603,6 +636,7 @@ describe("privacy mode never selects a cloud voice", () => {
     const api = createVoiceCloud({
       getSecret: () => "sk-test-key",
       prefs: () => ({ privacyMode: true, cloudVoice: CLOUD_ON }),
+      paidUnlocked: () => true,
     });
     expect(
       await api.speak("sarvam", { text: "Opening the report.", language: "en-IN" }),

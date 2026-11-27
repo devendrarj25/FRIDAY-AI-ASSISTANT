@@ -270,15 +270,23 @@ describe("the provider router decides the cloud voices", () => {
     keyPresent: { sarvam: true },
     dailyRequests: 10,
     monthlyRequests: 100,
+    // Sarvam has only a one-time signup credit (no free allowance), so the lane needs paid access on.
+    paidAllowed: true,
+    paidApproved: true,
+    spendLimitUsd: 5,
     ...patch,
   });
-  const route = (patch: Partial<VoiceCloudSettings> = {}, ctx: Partial<TtsContext> = {}) =>
+  const route = (
+    patch: Partial<VoiceCloudSettings> = {},
+    ctx: Partial<TtsContext> = {},
+    billingAllowsPaid = true,
+  ) =>
     routeVoice(
       {
         need: "tts",
         sensitive: ctx.sensitive ?? false,
         privacyMode: ctx.privacyMode ?? false,
-        billingAllowsPaid: false,
+        billingAllowsPaid,
         online: ctx.online ?? true,
         needHindi: true,
       },
@@ -310,6 +318,18 @@ describe("the provider router decides the cloud voices", () => {
     expect(quotaGone.refused.find((r) => r.id === "sarvam")?.why).toMatch(/quota/);
     const none = rankTtsProviders(infos, HI, { ...base });
     expect(none.order.map((i) => i.id)).not.toContain("sarvam");
+  });
+
+  it("with paid access off the router refuses Sarvam (a signup credit is no free allowance) and the ladder drops it", () => {
+    for (const decision of [
+      route({}, {}, false),
+      route({ paidAllowed: false, paidApproved: false, spendLimitUsd: 0 }),
+    ]) {
+      expect(decision.active).not.toBe("cloud");
+      expect(decision.refused.find((r) => r.id === "sarvam")?.why).toMatch(/trial credit/);
+      const ranked = rankTtsProviders(infos, HI, { ...base, cloud: decision });
+      expect(ranked.order.map((i) => i.id)).not.toContain("sarvam");
+    }
   });
 
   it("a router decision never overrides privacy, a sensitive line or the billing firewall", () => {

@@ -30,7 +30,11 @@ function cloudOnlyPc() {
 }
 
 /** The gate exactly as main wires it: the statement is cut out of main.cjs and run against a real voice-cloud gate. */
-function mainGate(prefs: Record<string, unknown>, secrets: Record<string, string>) {
+function mainGate(
+  prefs: Record<string, unknown>,
+  secrets: Record<string, string>,
+  paidAccess = true,
+) {
   const source = read("electron/main.cjs");
   const statement = source.match(/stt\.setCloudGate\([\s\S]*?\);\n/)?.[0];
   expect(statement, "main.cjs wires stt.setCloudGate").toBeTruthy();
@@ -38,6 +42,7 @@ function mainGate(prefs: Record<string, unknown>, secrets: Record<string, string
     fetchImpl: vi.fn(),
     getSecret: (id: string) => secrets[id] || "",
     prefs: () => prefs,
+    paidUnlocked: () => paidAccess,
   });
   let wired: ((provider: string) => unknown) | null = null;
   new Function("stt", "voiceCloudApi", statement as string)(
@@ -145,6 +150,12 @@ describe("the cloud transcriber opens only through the cloud-voice gate", () => 
       expect(JSON.stringify(answer)).not.toMatch(/"(key|cloud)"/);
     }
     for (const provider of ["openai", "groq", "", "nope"]) expect(gate(provider).ok).toBe(false);
+  });
+
+  it("with paid access off, the gate refuses Sarvam (a signup credit is not a free allowance) and keeps Azure", () => {
+    const gate = mainGate(OPEN_PREFS, ALL_KEYS, false);
+    expect(gate("sarvam").ok).toBe(false);
+    expect(gate("azure-speech").ok).toBe(true);
   });
 
   it("privacy mode, a missing consent and a missing key close the gate for every provider", () => {

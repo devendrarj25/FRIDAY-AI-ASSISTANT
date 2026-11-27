@@ -78,7 +78,7 @@ describe("the PROVIDERS table carries a lane descriptor on every cloud row", () 
       expect(Object.keys(p.lane ?? {}).sort(), p.id).toEqual(
         ["codemixMode", "costProof", "region", "trainsOnData"].sort(),
       );
-      expect(["official", "cached", "none"], p.id).toContain(p.lane?.costProof);
+      expect(["official", "cached", "none", "trial"], p.id).toContain(p.lane?.costProof);
       expect(["no", "yes", "unknown"], p.id).toContain(p.lane?.trainsOnData);
       expect(["in", "us", "eu", "unknown"], p.id).toContain(p.lane?.region);
       expect(["native", "detect", "none"], p.id).toContain(p.lane?.codemixMode);
@@ -93,6 +93,9 @@ describe("the PROVIDERS table carries a lane descriptor on every cloud row", () 
   it("cost proof is official only where a free allowance exists, and every paid or free-less row has none", () => {
     for (const p of cloudRows) {
       if (p.lane?.costProof === "official") expect(p.freeTier, p.id).toBe("limited");
+      // No proof, or only a one-time signup credit, is never recorded as a free allowance.
+      if (p.lane?.costProof === "none" || p.lane?.costProof === "trial")
+        expect(p.freeTier, p.id).not.toBe("limited");
     }
     const proof = Object.fromEntries(cloudRows.map((p) => [p.id, p.lane?.costProof]));
     expect(proof).toEqual({
@@ -100,10 +103,21 @@ describe("the PROVIDERS table carries a lane descriptor on every cloud row", () 
       gemini: "official",
       anthropic: "none",
       xai: "none",
-      sarvam: "official",
+      sarvam: "trial",
       "azure-speech": "official",
     });
     for (const id of PAID_BY_DEFAULT) expect(proof[id], id).toBe("none");
+  });
+
+  it("Sarvam has only a one-time signup credit: freeTier unknown, trial proof, and the note says so", () => {
+    const sarvam = PROVIDERS.find((p) => p.id === "sarvam");
+    expect(sarvam?.freeTier).toBe("unknown");
+    expect(sarvam?.lane?.costProof).toBe("trial");
+    expect(sarvam?.note).toMatch(/one-time signup credit/);
+    expect(PROVIDERS.find((p) => p.id === "gemini")).toMatchObject({
+      freeTier: "limited",
+      lane: { costProof: "official" },
+    });
   });
 
   it("never claims a provider keeps data private without a source, and says so for the one page that was read", () => {
@@ -180,6 +194,65 @@ describe("a lane with no cost proof is treated like a paid lane", () => {
   });
 });
 
+describe("a lane with only a one-time trial credit is treated like a paid lane", () => {
+  const table = [row("trial", { lane: lane({ costProof: "trial" }) }), LOCAL];
+  const route = (over: Partial<VoiceCloudSettings> = {}, req: Partial<RouteRequest> = {}) =>
+    routeVoice(request(req), settings(["trial"], over), ledger(), table);
+
+  it("is refused while paid access is off, and the reason names the trial credit", () => {
+    const d = route();
+    expect(d.active).toBe("local");
+    expect(d.refused).toHaveLength(1);
+    expect(d.refused[0]?.why).toMatch(/trial credit/);
+    expect(d.refused[0]?.why).toMatch(/paid access must be on/);
+  });
+
+  it("is routed once paid access is allowed, approved, funded and the billing firewall agrees", () => {
+    const d = route(PAID_ON, { billingAllowsPaid: true });
+    expect(d.active).toBe("cloud");
+    expect(d.provider?.id).toBe("trial");
+  });
+
+  it("stays refused when any one part of paid access is missing", () => {
+    const cases: [Partial<VoiceCloudSettings>, boolean][] = [
+      [{ ...PAID_ON, paidAllowed: false }, true],
+      [{ ...PAID_ON, paidApproved: false }, true],
+      [{ ...PAID_ON, spendLimitUsd: 0 }, true],
+      [PAID_ON, false],
+    ];
+    for (const [over, billing] of cases) {
+      const d = route(over, { billingAllowsPaid: billing });
+      expect(d.active).toBe("local");
+      expect(d.refused[0]?.why).toMatch(/trial credit/);
+    }
+  });
+
+  it("the real Sarvam row is refused with paid access off and routed with it on, for every need it offers", () => {
+    for (const need of ["tts", "stt", "text"] as const) {
+      const off = routeVoice(request({ need }), settings(["sarvam"]), ledger());
+      expect(off.active, need).not.toBe("cloud");
+      expect(off.refused.find((r) => r.id === "sarvam")?.why, need).toMatch(/trial credit/);
+      const on = routeVoice(
+        request({ need, billingAllowsPaid: true }),
+        settings(["sarvam"], PAID_ON),
+        ledger(),
+      );
+      expect(on.provider?.id, need).toBe("sarvam");
+    }
+  });
+
+  it("the privacy firewall still wins with paid access on: a sensitive line never reaches Sarvam", () => {
+    for (const over of [{ sensitive: true }, { privacyMode: true }, { online: false }]) {
+      const d = routeVoice(
+        request({ need: "tts", billingAllowsPaid: true, ...over }),
+        settings(["sarvam"], PAID_ON),
+        ledger(),
+      );
+      expect(d.active, JSON.stringify(over)).not.toBe("cloud");
+    }
+  });
+});
+
 describe("a proven lane keeps routing inside its quota", () => {
   it.each(["official", "cached"] as const)("%s proof routes with paid access off", (costProof) => {
     const table = [row("proven", { lane: lane({ costProof }) }), LOCAL];
@@ -205,11 +278,11 @@ describe("a proven lane keeps routing inside its quota", () => {
     expect(d.refused[0]?.why).toMatch(/daily quota/);
   });
 
-  it("the real free rows route inside their quota with paid access off", () => {
+  it("the real free rows route inside their quota with paid access off (Sarvam is not one of them)", () => {
     expect(routeVoice(request(), settings(["gemini"]), ledger()).provider?.id).toBe("gemini");
-    expect(routeVoice(request({ need: "tts" }), settings(["sarvam"]), ledger()).provider?.id).toBe(
-      "sarvam",
-    );
+    const sarvamOff = routeVoice(request({ need: "tts" }), settings(["sarvam"]), ledger());
+    expect(sarvamOff.active).toBe("local");
+    expect(sarvamOff.refused.map((r) => r.id)).toContain("sarvam");
     expect(
       routeVoice(request({ need: "tts" }), settings(["azure-speech"]), ledger()).provider?.id,
     ).toBe("azure-speech");
@@ -232,7 +305,7 @@ describe("a row without a descriptor behaves exactly as before", () => {
 
 describe("the privacy firewall does not read the descriptor", () => {
   const descriptors: LaneDescriptor[] = [];
-  for (const costProof of ["official", "cached", "none"] as const)
+  for (const costProof of ["official", "cached", "none", "trial"] as const)
     for (const trainsOnData of ["no", "yes", "unknown"] as const)
       descriptors.push(lane({ costProof, trainsOnData, region: "in", codemixMode: "native" }));
 
@@ -252,7 +325,7 @@ describe("the privacy firewall does not read the descriptor", () => {
         cases += 1;
       }
     }
-    expect(cases).toBe(27);
+    expect(cases).toBe(36);
   });
 
   it("no real row routes a sensitive request to the cloud either", () => {
@@ -282,6 +355,7 @@ describe("visibleLanes lists what a settings page may show", () => {
     row("proven", { lane: lane({ costProof: "official" }) }),
     row("cached", { lane: lane({ costProof: "cached" }) }),
     row("unproven", { lane: lane({ costProof: "none" }) }),
+    row("trial", { lane: lane({ costProof: "trial" }) }),
     row("plain"),
   ];
   const ids = (s: Partial<VoiceCloudSettings>) =>
@@ -289,7 +363,7 @@ describe("visibleLanes lists what a settings page may show", () => {
 
   it("hides unproven lanes until paid access is on", () => {
     expect(ids({})).toEqual(["proven", "cached", "plain"]);
-    expect(ids({ paidAllowed: true })).toEqual(["proven", "cached", "unproven", "plain"]);
+    expect(ids({ paidAllowed: true })).toEqual(["proven", "cached", "unproven", "trial", "plain"]);
   });
 
   it("never lists a local row and never changes the settings it was given", () => {
@@ -301,7 +375,7 @@ describe("visibleLanes lists what a settings page may show", () => {
 
   it("on the real table, hides the unproven lanes by default and shows every cloud row with paid access", () => {
     const shown = visibleLanes(PROVIDERS, DEFAULT_CLOUD_SETTINGS).map((p) => p.id);
-    expect(shown.sort()).toEqual(["azure-speech", "gemini", "sarvam"]);
+    expect(shown.sort()).toEqual(["azure-speech", "gemini"]);
     const all = visibleLanes(PROVIDERS, { ...DEFAULT_CLOUD_SETTINGS, paidAllowed: true });
     expect(all).toHaveLength(6);
   });

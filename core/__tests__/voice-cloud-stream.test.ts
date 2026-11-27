@@ -32,6 +32,7 @@ function rig(state: { value: any } = { value: prefs() }) {
     fetchImpl: async () => new Response("{}"),
     getSecret: () => "sk-sarvam-SECRET",
     prefs: () => state.value,
+    paidUnlocked: () => true,
   });
   return { send: cloud.guardedStreamSend(api, streams), sent, state };
 }
@@ -152,5 +153,28 @@ describe("privacy mode refuses cloud speech end to end through the main handlers
     expect(spoken.error).toBe(streamed.error);
     expect(fetched).toBe(0);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("the stream needs paid access for Sarvam", () => {
+  it("refuses every clause while paid access is off, then passes it once paid access is on", () => {
+    let paid = false;
+    const sent: unknown[] = [];
+    const api = cloud.createVoiceCloud({
+      fetchImpl: async () => new Response("{}"),
+      getSecret: () => "sk-sarvam-SECRET",
+      prefs: () => prefs(),
+      paidUnlocked: () => paid,
+    });
+    const send = cloud.guardedStreamSend(api, {
+      send: (_id: string, m: unknown) => (sent.push(m), { ok: true }),
+    });
+    const off = send("s1", { type: "text", text: "hello there" });
+    expect(off).toMatchObject({ ok: false });
+    expect(String(off.error)).toMatch(/paid/i);
+    expect(sent).toEqual([]);
+    paid = true;
+    expect(send("s1", { type: "text", text: "hello there" }).ok).toBe(true);
+    expect(sent).toHaveLength(1);
   });
 });

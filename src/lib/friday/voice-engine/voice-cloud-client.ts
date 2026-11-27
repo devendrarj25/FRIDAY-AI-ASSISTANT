@@ -41,6 +41,8 @@ export async function speakWithCloud(
     keys: Record<string, boolean>;
     privacyMode: boolean;
     online: boolean;
+    /** The billing firewall's answer for paid use; a lane with no free-allowance proof (Sarvam) needs it. Absent means no. */
+    billingAllowsPaid?: boolean;
     /** The whole reply was classified SENSITIVE (not just this clause): refuse here and tell the main process. */
     sensitiveReply?: boolean;
   },
@@ -53,7 +55,7 @@ export async function speakWithCloud(
       needHindi: input.language.startsWith("hi"),
       sensitive: input.sensitiveReply === true,
       privacyMode: input.privacyMode,
-      billingAllowsPaid: false,
+      billingAllowsPaid: input.billingAllowsPaid === true,
       online: input.online,
       audioMinutes: minutes,
     },
@@ -108,6 +110,7 @@ export function canStreamSpeechToText(
     keys: Record<string, boolean>;
     privacyMode: boolean;
     online: boolean;
+    billingAllowsPaid?: boolean;
   },
   ledger: UsageLedger,
 ): { ok: true } | { ok: false; error: string } {
@@ -117,7 +120,7 @@ export function canStreamSpeechToText(
       needHindi: true,
       sensitive: false,
       privacyMode: input.privacyMode,
-      billingAllowsPaid: false,
+      billingAllowsPaid: input.billingAllowsPaid === true,
       online: input.online,
       audioMinutes: 0.5,
     },

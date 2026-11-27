@@ -29,8 +29,11 @@ const TIMEOUT_MS = 20_000;
 
 const SECRET_IDS = { sarvam: "voice-sarvam", "azure-speech": "voice-azure-speech" };
 
-/** Providers with no free allowance at all (the renderer router's PAID_BY_DEFAULT): refused while paid access is off. */
-const PAID_PROVIDERS = new Set(["openai", "xai"]);
+/**
+ * Providers refused while paid access is off: the renderer router's PAID_BY_DEFAULT plus every lane with no
+ * free-allowance proof (Sarvam has only a one-time signup credit). A test keeps this list in step with the router.
+ */
+const PAID_PROVIDERS = new Set(["openai", "xai", "sarvam"]);
 
 const escapeXml = (text) =>
   String(text).replace(
