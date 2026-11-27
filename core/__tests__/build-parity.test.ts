@@ -263,7 +263,20 @@ describe("builtins.json and the wheelhouse ride the one shared build", () => {
     expect(config.differentialPackage).toBeUndefined();
     const entry = config.extraResources.find((item) => item.from === "workflows");
     expect(entry?.to).toBe("workflows");
-    expect(entry?.filter).toEqual(["**/*", "!active/**", "!history/**", "!schedules/**"]);
+    expect(entry?.filter).toEqual([
+      "**/*",
+      "!active/**",
+      "!history/**",
+      "!schedules/**",
+      "!**/__pycache__/**",
+      "!**/*.pyc",
+    ]);
+    for (const tree of ["modules", "skills", "tools", "agents", "plugins"])
+      expect(config.extraResources.find((item) => item.from === tree)?.filter, tree).toEqual([
+        "**/*",
+        "!**/__pycache__/**",
+        "!**/*.pyc",
+      ]);
   });
 
   it("writes builtins.json from the tree that is packed and fails the build when the pack differs", async () => {
@@ -390,5 +403,31 @@ describe("builtins.json and the wheelhouse ride the one shared build", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the generator and the runtime share one ignore list", () => {
+  it("takes its ignore rule from electron/builtins-sync.cjs instead of keeping a second list", () => {
+    const generator = read("scripts/builtins-manifest.cjs");
+    expect(generator).toContain('require("../electron/builtins-sync.cjs")');
+    expect(generator).toContain("builtinsSync.isIgnored(entry.name)");
+    const runtime = read("electron/builtins-sync.cjs");
+    expect(runtime).toContain("if (isIgnored(entry.name)) continue;");
+    const sync = require_(path.join(ROOT, "electron/builtins-sync.cjs")) as {
+      IGNORED_NAMES: string[];
+      isIgnored: (name: string) => boolean;
+    };
+    for (const name of [
+      "__pycache__",
+      "node_modules",
+      ".git",
+      "Thumbs.db",
+      "desktop.ini",
+      ".DS_Store",
+      "x.pyc",
+    ])
+      expect(sync.isIgnored(name), name).toBe(true);
+    expect(sync.isIgnored("main.py")).toBe(false);
+    expect(sync.IGNORED_NAMES.every((name) => name === name.toLowerCase())).toBe(true);
   });
 });

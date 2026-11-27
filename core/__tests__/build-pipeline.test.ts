@@ -32,7 +32,12 @@ const pipeline = require(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
     ceiling: number;
     assetLimit: number;
   };
-  assertPackagedLayout: (input: { releaseDir: string; manifest: unknown; targets: string[] }) => {
+  assertPackagedLayout: (input: {
+    releaseDir: string;
+    manifest: unknown;
+    targets: string[];
+    env?: Record<string, string | undefined>;
+  }) => {
     ok: boolean;
   };
   runtimeSmokePlan: (manifest?: unknown) => {
@@ -257,6 +262,7 @@ describe("build pipeline", () => {
         releaseDir: release,
         manifest: data,
         targets: ["nsis", "portable"],
+        env: {},
       }),
     ).toThrow(/wheelhouse/);
     const wheelDir = path.join(release, "win-unpacked", "resources", "toolchain", "wheelhouse");
@@ -268,6 +274,7 @@ describe("build pipeline", () => {
           releaseDir: release,
           manifest: data,
           targets: ["nsis", "portable"],
+          env: {},
         }).ok,
       ).toBe(true);
     } finally {

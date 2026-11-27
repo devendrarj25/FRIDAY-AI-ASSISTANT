@@ -119,6 +119,20 @@ describe("builtins.json generator", () => {
     expect(builtins.generate(app, { release: "1" }).trees.agents?.[0]?.sha256).toBe(lf);
   });
 
+  it("ignores runtime caches and OS droppings, so a build that ran a module hashes the same", () => {
+    folder("agents/core/alpha", "1.0.0", { "main.py": "print(1)\n" });
+    const clean = builtins.generate(app, { release: "1" }).trees.agents?.[0]?.sha256;
+    put("agents/core/alpha/__pycache__/main.cpython-312.pyc", "compiled");
+    put("agents/core/alpha/stray.pyc", "compiled");
+    put("agents/core/alpha/Thumbs.db", "x");
+    put("agents/core/alpha/desktop.ini", "x");
+    put("agents/core/alpha/.DS_Store", "x");
+    put("agents/core/alpha/node_modules/pkg/index.js", "x");
+    expect(builtins.generate(app, { release: "1" }).trees.agents?.[0]?.sha256).toBe(clean);
+    put("agents/core/alpha/main.py", "print(2)\n");
+    expect(builtins.generate(app, { release: "1" }).trees.agents?.[0]?.sha256).not.toBe(clean);
+  });
+
   it("fails when two ids differ only by case", () => {
     put("tools/manifests/one.json", JSON.stringify({ id: "tools/manifests/dup", name: "A" }));
     put("tools/manifests/two.json", JSON.stringify({ id: "tools/manifests/DUP", name: "B" }));

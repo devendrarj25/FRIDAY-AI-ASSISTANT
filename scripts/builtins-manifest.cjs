@@ -24,6 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const capabilities = require("../electron/capabilities.cjs");
+const builtinsSync = require("../electron/builtins-sync.cjs");
 const engine = require("./release-engine.cjs");
 
 const SCHEMA = 1;
@@ -46,6 +47,8 @@ function fileHash(file) {
 
 function collect(dir, rel, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    // The one ignore list of electron/builtins-sync.cjs: caches and OS droppings are not content.
+    if (builtinsSync.isIgnored(entry.name)) continue;
     const full = path.join(dir, entry.name);
     const name = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) collect(full, name, out);

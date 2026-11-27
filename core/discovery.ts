@@ -221,6 +221,13 @@ export function scanManifestFolder(root: string, tree: CapabilityTree): Capabili
 
 type EnabledState = Record<string, boolean>;
 
+/** The one writer of config/capabilities.json lives in the Electron pass; loaded on first toggle. */
+function ownerRecord(): {
+  setEnabled: (roots: { workspaceRoot: string }, id: string, enabled: boolean) => { ok: boolean };
+} {
+  return createRequire(import.meta.url)("../electron/capabilities.cjs");
+}
+
 /**
  * Process-wide capability registry. Sources register their scan function once
  * (keyed by module id) so a module can never register twice.
@@ -302,14 +309,16 @@ export class CapabilityRegistry {
     return counts;
   }
 
-  /** Persisted toggle — survives restarts, mirrors what the UI shows. */
+  /**
+   * Persisted toggle — survives restarts, mirrors what the UI shows. It goes through the same
+   * guarded, atomic writer as the Electron pass (a reserved record key is refused, a damaged
+   * or newer record is never rewritten, the previous body is kept as `.bak`).
+   */
   setEnabled(id: string, enabled: boolean): boolean {
-    const overrides = { ...this.readOverrides(), [id]: enabled };
-    const file = path.join(this.root, "config", "capabilities.json");
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, `${JSON.stringify(overrides, null, 2)}\n`, "utf8");
-      this.overrides = overrides;
+      const result = ownerRecord().setEnabled({ workspaceRoot: this.root }, id, enabled);
+      if (!result.ok) return false;
+      this.overrides = null;
       bus.emit("capabilities:toggled", { id, enabled });
       return true;
     } catch {

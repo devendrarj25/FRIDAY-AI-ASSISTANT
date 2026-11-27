@@ -60,7 +60,7 @@ function overridesFile(workspaceRoot) {
 
 function readOverrides(workspaceRoot) {
   if (!workspaceRoot) return {};
-  return readJson(overridesFile(workspaceRoot)) || {};
+  return readStateFile(workspaceRoot).value;
 }
 
 // config/capabilities.json is the owner's record. Schema 1 (no `schema` key) is
@@ -68,32 +68,55 @@ function readOverrides(workspaceRoot) {
 // records beside it: forks, removedBuiltins and lastBuiltins. Migration is
 // forward only; a file from a newer FRIDAY is never rewritten.
 const STATE_SCHEMA = 2;
-const RESERVED_KEYS = new Set(["schema", "forks", "removedBuiltins", "lastBuiltins"]);
+const RESERVED_KEYS = new Set([
+  "schema",
+  "forks",
+  "removedBuiltins",
+  "lastBuiltins",
+  "prunedToggles",
+]);
 const PROVENANCE = new Set(["user", "import", "marketplace", "forge", "release-content"]);
+/** What a pack body may say about itself; every other mark needs a trusted caller. */
+const BODY_PROVENANCE = new Set(["forge"]);
 const isPlain = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
 
-/** `{ exists, readable, value }`; `value` is `{}` when the file is missing or damaged. */
+/**
+ * `{ exists, readable, value, source }`; `value` is `{}` when the file is missing or damaged
+ * beyond repair. A truncated or damaged file is read from its `.bak` (the previous good body
+ * the atomic writer keeps); `source` says "backup" then. `readable: false` means neither
+ * body parses: no writer may then build a new record from `{}`.
+ */
 function readStateFile(workspaceRoot) {
   const file = overridesFile(workspaceRoot);
   if (!fs.existsSync(file)) return { exists: false, readable: true, value: {} };
-  const value = readJson(file);
-  return isPlain(value)
-    ? { exists: true, readable: true, value }
-    : { exists: true, readable: false, value: {} };
+  const main = readJson(file);
+  if (isPlain(main)) return { exists: true, readable: true, source: "file", value: main };
+  const backup = readJson(`${file}.bak`);
+  return isPlain(backup)
+    ? { exists: true, readable: true, source: "backup", value: backup }
+    : { exists: true, readable: false, source: "none", value: {} };
 }
 
 /** The schema-2 shape of a record, toggles untouched. Pure; a newer schema is returned as it is. */
 function upgradeState(raw) {
   const source = isPlain(raw) ? raw : {};
   if (Number(source.schema) > STATE_SCHEMA) return source;
-  const { schema: _schema, forks, removedBuiltins, lastBuiltins, ...toggles } = source;
+  const {
+    schema: _schema,
+    forks,
+    removedBuiltins,
+    lastBuiltins,
+    prunedToggles,
+    ...toggles
+  } = source;
   return {
     schema: STATE_SCHEMA,
     ...toggles,
     forks: isPlain(forks) ? forks : {},
     removedBuiltins: isPlain(removedBuiltins) ? removedBuiltins : {},
     ...(isPlain(lastBuiltins) ? { lastBuiltins } : {}),
+    ...(isPlain(prunedToggles) && Object.keys(prunedToggles).length ? { prunedToggles } : {}),
   };
 }
 
@@ -109,6 +132,30 @@ function writeAtomic(file, value) {
 
 function writeState(workspaceRoot, state) {
   return writeAtomic(overridesFile(workspaceRoot), state);
+}
+
+/**
+ * The one way to change the owner's record: read it (through the .bak), let `mutate` edit the
+ * value (return `false` for "nothing to write"), write it atomically. A record that cannot be
+ * read, or that a newer FRIDAY wrote, is never rebuilt from `{}` and never rewritten, so a
+ * truncated file cannot cost the forks and tombstones it holds.
+ */
+function editState(workspaceRoot, mutate) {
+  const current = readStateFile(workspaceRoot);
+  if (current.exists && !current.readable)
+    return {
+      ok: false,
+      error: "config/capabilities.json is damaged and has no backup, so it was not changed",
+    };
+  if (Number(current.value.schema) > STATE_SCHEMA)
+    return {
+      ok: false,
+      error: "config/capabilities.json is from a newer FRIDAY and was not changed",
+    };
+  if (mutate(current.value) === false) return { ok: true, changed: false };
+  return writeState(workspaceRoot, current.value)
+    ? { ok: true, changed: true }
+    : { ok: false, error: "could not write config/capabilities.json" };
 }
 
 /** v1 to v2, once. Never creates a file, never downgrades, never touches a damaged one. */
@@ -461,7 +508,8 @@ function list({ appRoot, workspaceRoot, state }) {
     const builtIn = merged.get(entry.id);
     const key = entry.id.toLowerCase();
     const shippedItem = shipped.ok ? shipped.byId.get(key) : null;
-    if (builtIn && shippedItem && builtinsSync.itemHash(entry.path) === shippedItem.sha256) {
+    // shadowHash never throws (a locked file reads as "not identical") and caches per item.
+    if (builtIn && shippedItem && builtinsSync.shadowHash(entry.path) === shippedItem.sha256) {
       merged.set(entry.id, {
         ...builtIn,
         shadows: null,
@@ -518,17 +566,21 @@ function list({ appRoot, workspaceRoot, state }) {
   };
 }
 
+const NOT_AN_ID = new Set(["__proto__", "constructor", "prototype"]);
+
 function setEnabled({ workspaceRoot }, id, enabled) {
   if (!workspaceRoot) return { ok: false, error: "no workspace root selected" };
-  if (RESERVED_KEYS.has(String(id))) return { ok: false, error: "not a capability id" };
-  const overrides = readOverrides(workspaceRoot);
-  overrides[id] = Boolean(enabled);
-  const ok = writeJson(overridesFile(workspaceRoot), overrides);
+  const key = String(id);
+  if (RESERVED_KEYS.has(key) || NOT_AN_ID.has(key))
+    return { ok: false, error: "not a capability id" };
+  const written = editState(workspaceRoot, (overrides) => {
+    overrides[key] = Boolean(enabled);
+  });
   return {
-    ok,
+    ok: written.ok,
     id,
     enabled: Boolean(enabled),
-    error: ok ? undefined : "could not write config/capabilities.json",
+    error: written.ok ? undefined : written.error,
   };
 }
 
@@ -675,7 +727,7 @@ function packDir(workspaceRoot, tree, segment, slug) {
 }
 
 /** Writes one capability pack into the workspace. Returns { ok, id, path }. */
-function installPack({ workspaceRoot }, pack, hint) {
+function installPack({ workspaceRoot }, pack, hint, options = {}) {
   if (!workspaceRoot) return { ok: false, error: "No FRIDAY workspace is selected." };
   const gated = packShape.assertMatchesSection(pack, hint);
   if (!gated.ok) return { ok: false, error: gated.error };
@@ -692,13 +744,18 @@ function installPack({ workspaceRoot }, pack, hint) {
     : DEFAULT_SEGMENT[tree];
   const slug = slugify(pack.slug || pack.id || pack.name);
   if (!slug) return { ok: false, error: "The pack needs an id." };
-  // Where the pack came from: an explicit valid value wins, a page/import hint
-  // means an import, and a plain install is the marketplace path.
-  const provenance = PROVENANCE.has(pack.provenance)
-    ? pack.provenance
-    : hint
-      ? "import"
-      : "marketplace";
+  // Where the pack came from. The value comes from the trusted `options` argument of an
+  // internal caller; the pack body (a web or marketplace file) may claim only "forge", and
+  // nobody can claim "release-content": only Update content (importer.cjs) writes that mark,
+  // because it makes the item overwritable by the next release. Otherwise a page/import hint
+  // means an import and a plain install is the marketplace path.
+  const trusted = PROVENANCE.has(options?.provenance)
+    ? options.provenance
+    : BODY_PROVENANCE.has(pack.provenance)
+      ? pack.provenance
+      : null;
+  const provenance =
+    trusted && trusted !== "release-content" ? trusted : hint ? "import" : "marketplace";
 
   const dir = packDir(workspaceRoot, tree, segment, slug);
   try {
@@ -962,10 +1019,16 @@ function markVerified({ workspaceRoot }, id, result) {
     installedDependencies: Array.isArray(result?.installed) ? result.installed : [],
   };
   writeJson(file, manifest);
-  const overrides = readOverrides(workspaceRoot);
-  overrides[id] = ok;
-  writeJson(overridesFile(workspaceRoot), overrides);
-  return { ok: true, id, enabled: ok, verification: manifest.verification };
+  const recorded = editState(workspaceRoot, (overrides) => {
+    overrides[id] = ok;
+  });
+  return {
+    ok: true,
+    id,
+    enabled: ok,
+    verification: manifest.verification,
+    ...(recorded.ok ? {} : { warning: recorded.error }),
+  };
 }
 
 /** Removes an installed pack (workspace only — shipped capabilities stay). */
@@ -988,15 +1051,14 @@ function uninstallPack({ workspaceRoot }, id) {
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }
-  const file = overridesFile(workspaceRoot);
-  const overrides = readOverrides(workspaceRoot);
-  const hadFork = isPlain(overrides.forks) && own(overrides.forks, id);
-  if (hadFork) delete overrides.forks[id];
-  if (overrides[id] !== undefined || hadFork) {
+  const recorded = editState(workspaceRoot, (overrides) => {
+    const hadFork = isPlain(overrides.forks) && own(overrides.forks, id);
+    if (hadFork) delete overrides.forks[id];
+    if (overrides[id] === undefined && !hadFork) return false;
     delete overrides[id];
-    writeJson(file, overrides);
-  }
-  return { ok: true, id };
+    return true;
+  });
+  return { ok: true, id, ...(recorded.ok ? {} : { warning: recorded.error }) };
 }
 
 /** Installs a pack described by a remote JSON document (marketplace/gist/repo). */
@@ -1021,7 +1083,10 @@ async function installFromUrl(roots, url) {
     : Array.isArray(payload?.packs)
       ? payload.packs
       : [payload];
-  const results = packs.map((pack) => installPack(roots, pack));
+  // A fetched document is never trusted to say where it came from.
+  const results = packs.map((pack) =>
+    installPack(roots, pack, undefined, { provenance: "marketplace" }),
+  );
   const failed = results.find((r) => !r.ok);
   return failed ? failed : { ok: true, installed: results.map((r) => r.id) };
 }
@@ -1031,6 +1096,14 @@ function findItem(root, origin, id) {
   const key = String(id || "").toLowerCase();
   if (!root || !key) return null;
   return scanRoot(root, origin, [root]).find((item) => item.id.toLowerCase() === key) || null;
+}
+
+/** The scanned item with exactly this id in one root; when several carry it, the last one (as list() does). */
+function findExact(root, origin, id) {
+  const wanted = String(id || "");
+  if (!root || !wanted) return null;
+  const hits = scanRoot(root, origin, [root]).filter((item) => item.id === wanted);
+  return hits.length ? hits[hits.length - 1] : null;
 }
 
 /** Records that the workspace copy of a built-in is the owner's fork, cut from today's built-in. */
@@ -1079,9 +1152,10 @@ function forkBuiltin({ appRoot, workspaceRoot }, id, now = Date.now) {
  */
 function resetBuiltin({ appRoot, workspaceRoot }, id, { now = Date.now } = {}) {
   if (!workspaceRoot) return { ok: false, error: "No FRIDAY workspace is selected." };
-  if (!findItem(appRoot, "app", id))
+  // The copy is resolved the way list() does: the exact id, and the last scanned one wins.
+  if (!findExact(appRoot, "app", id))
     return { ok: false, error: "That is not a built-in capability." };
-  const copy = findItem(workspaceRoot, "workspace", id);
+  const copy = findExact(workspaceRoot, "workspace", id);
   if (!copy) return { ok: false, error: "There is no copy of it in this workspace." };
   if (
     !contains(workspaceRoot, copy.path) ||
@@ -1108,17 +1182,21 @@ function resetBuiltin({ appRoot, workspaceRoot }, id, { now = Date.now } = {}) {
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }
-  const current = readStateFile(workspaceRoot);
-  if (
-    current.exists &&
-    current.readable &&
-    isPlain(current.value.forks) &&
-    own(current.value.forks, copy.id)
-  ) {
-    delete current.value.forks[copy.id];
-    writeState(workspaceRoot, current.value);
-  }
-  return { ok: true, id: copy.id, backup };
+  const recorded = editState(workspaceRoot, (record) => {
+    if (!isPlain(record.forks) || !own(record.forks, copy.id)) return false;
+    delete record.forks[copy.id];
+    return true;
+  });
+  // `undo` is what a caller records in the undo journal: put `from` back at `to`.
+  return {
+    ok: true,
+    id: copy.id,
+    backup,
+    undo: { from: backup, to: copy.path },
+    ...(recorded.ok
+      ? {}
+      : { warning: `${recorded.error}; the fork record of ${copy.id} may still be there` }),
+  };
 }
 
 module.exports = {
