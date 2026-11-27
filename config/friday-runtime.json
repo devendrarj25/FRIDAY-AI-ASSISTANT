@@ -4,5 +4,19 @@
   "tag": "v1.32.0",
   "commit": null,
   "wheels": {},
-  "builtAt": null
+  "builtAt": null,
+  "variants": {
+    "dml": {
+      "optIn": true,
+      "note": "opt-in, owner builds on his PC",
+      "venv": "runtime/venv-friday-ort-dml",
+      "wheels": {}
+    },
+    "cuda": {
+      "optIn": true,
+      "note": "opt-in, owner builds on his PC",
+      "venv": "runtime/venv-friday-ort-cuda",
+      "wheels": {}
+    }
+  }
 }

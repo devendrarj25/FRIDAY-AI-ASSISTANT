@@ -260,3 +260,100 @@ describe("the locked chain never reaches it", () => {
       expect(fs.readFileSync(path.join(dir, name), "utf8")).not.toContain("build-friday-runtime");
   });
 });
+
+describe("the variants", () => {
+  const cuda = { cudaHome: "C:/cuda", cudnnHome: "C:/cudnn", cudaArchitecture: "8.6" };
+  const args = (o: Record<string, unknown>) =>
+    (build as unknown as { buildArgs: (o: Record<string, unknown>) => string[] }).buildArgs({
+      buildDir: "out",
+      platform: "linux",
+      ...o,
+    });
+
+  it("cpu stays the default and adds no accelerator flag", () => {
+    expect(args({})).toEqual(args({ variant: "cpu" }));
+    for (const flag of ["--use_dml", "--use_cuda"]) expect(args({})).not.toContain(flag);
+  });
+
+  it("dml adds only --use_dml", () => {
+    const a = args({ variant: "dml" });
+    expect(a).toContain("--use_dml");
+    expect(a).not.toContain("--use_cuda");
+    expect(a.length).toBe(args({}).length + 1);
+  });
+
+  it("cuda passes both homes and the architecture", () => {
+    const a = args({ variant: "cuda", ...cuda }).join(" ");
+    expect(a).toContain("--use_cuda --cuda_home C:/cuda --cudnn_home C:/cudnn");
+    expect(a).toContain("--cmake_extra_defines CMAKE_CUDA_ARCHITECTURES=86");
+  });
+
+  it("cuda refuses a missing home or architecture, and a bad architecture", () => {
+    for (const drop of ["cudaHome", "cudnnHome", "cudaArchitecture"])
+      expect(() => args({ variant: "cuda", ...cuda, [drop]: "" })).toThrow(/needs --cuda-home/);
+    expect(() => args({ variant: "cuda", ...cuda, cudaArchitecture: "86; rm" })).toThrow(
+      /bad --cuda-arch/,
+    );
+    expect(() => args({ variant: "gpu" })).toThrow(/unknown variant/);
+  });
+
+  it("parses the variant flags and keeps a plain line unchanged", () => {
+    expect(
+      build.parseArgs([
+        "--variant",
+        "cuda",
+        "--cuda-home",
+        "a",
+        "--cudnn-home",
+        "b",
+        "--cuda-arch",
+        "8.6",
+      ]),
+    ).toMatchObject({ variant: "cuda", cudaHome: "a", cudnnHome: "b", cudaArch: "8.6" });
+    expect(Object.keys(build.parseArgs([]))).not.toContain("variant");
+  });
+
+  it("a variant record keeps its own venv folder and leaves the cpu wheels alone", () => {
+    const cpu = record();
+    const dml = record({ variant: "dml", platform: "win32-x64", previous: cpu });
+    expect(dml.wheels).toEqual(cpu.wheels);
+    const v = (dml as unknown as { variants: { dml: { wheels: object } } }).variants;
+    expect(v.dml).toMatchObject({
+      optIn: true,
+      venv: "runtime/venv-friday-ort-dml",
+      note: "opt-in, owner builds on his PC",
+    });
+    expect(Object.keys(v.dml.wheels)).toEqual(["win32-x64"]);
+  });
+
+  it("the shipped record lists dml and cuda as unbuilt opt-ins", () => {
+    const shipped = JSON.parse(read("config/friday-runtime.json")) as {
+      variants: Record<string, { optIn: boolean; venv: string; wheels: object }>;
+    };
+    for (const name of ["dml", "cuda"]) {
+      expect(shipped.variants[name]?.optIn).toBe(true);
+      expect(shipped.variants[name]?.venv).toBe(`runtime/venv-friday-ort-${name}`);
+      expect(Object.keys(shipped.variants[name]?.wheels ?? { x: 1 })).toEqual([]);
+    }
+  });
+
+  it("a dry run of the dml variant prints the plan and builds nothing", () => {
+    const work = path.join(os.tmpdir(), `friday-runtime-dml-${process.pid}`);
+    const r = require_("node:child_process").spawnSync(
+      process.execPath,
+      [
+        path.join(root, "scripts", "build-friday-runtime.cjs"),
+        "--work",
+        work,
+        "--variant",
+        "dml",
+        "--dry-run",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("--use_dml");
+    expect(r.stdout).toContain("runtime/venv-friday-ort-dml");
+    expect(fs.existsSync(work)).toBe(false);
+  });
+});
