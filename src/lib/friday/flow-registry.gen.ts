@@ -2627,6 +2627,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "fast",
+      file: "kernel/stt.py",
+    },
+    {
       kind: "gif",
       file: "kernel/file_tools.py",
     },
@@ -2823,6 +2827,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "stream",
+      file: "kernel/stt.py",
+    },
+    {
       kind: "string",
       file: "kernel/tools.py",
     },
@@ -2865,6 +2873,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "wav",
       file: "kernel/file_tools.py",
+    },
+    {
+      kind: "whisper",
+      file: "kernel/stt.py",
     },
     {
       kind: "windows-executable",

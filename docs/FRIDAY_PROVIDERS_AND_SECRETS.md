@@ -97,6 +97,21 @@ Live probe: existing `probeModel()` sends a tiny chat turn (stream first, then n
 
 **Which request passes which gate (verified by reading the code, 2026-11-18).** A chat turn to any model (chat, Auto, agents, workflows, schedulers, remote clients) goes `resolveChatModels` → `streamOnceRaw` → `authoriseProviderRequest` (privacy confirmation, then the billing firewall) → the kernel's `chat.stream`, where `kernel/router.py` `_stream_one` checks privacy and billing again. A health probe from Models and a capability check also pass `authoriseProviderRequest`. The one request that does not is the free-candidate verification probe in `models.cjs` (`lazyVerifyForRoute`, `probeAndStamp`): a fixed prompt with no user content, sent only to a model whose evidence says it may be free (`selectVerificationCandidates`), never on a private turn, offline, or under a paid-only policy. It is outside the gate on purpose: the billing firewall holds an unverified model back, and this probe is how a model becomes verified. The routing contract is mirrored in two places (renderer and main process); `core/__tests__/routing-contract-parity.test.ts` fails if their lists differ. The phone path (`kernel/main.py` `companion_chat`) reads the desktop's published snapshot, which now carries `privacy`, so a private target keeps a phone turn on this PC.
 
+### Voice lane descriptor
+
+Every cloud voice lane in `src/lib/friday/voice-engine/voice-provider-router.ts` carries a descriptor: `costProof` (`official`, `cached`, `trial` or `none`), `trainsOnData` (`no` only with a source, `yes`, or `unknown`), `region` and `codemixMode`. It describes a lane and never switches one on. A lane whose proof is `none` or `trial` (a one-time signup credit is not a free allowance) is treated like a paid lane: `visibleLanes` hides it from Settings, and the router refuses it, until paid access is on.
+
+| Lane      | costProof | trainsOnData | Source                                                                                                       |
+| --------- | --------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| gemini    | official  | yes          | Official pricing page names a free-of-charge tier and states the data is used to improve the provider's products |
+| sarvam    | trial     | unknown      | Official pricing page read 2026-11-27: a one-time signup credit only; region `in`, native code-mix switch    |
+| azure-speech | official | unknown   | Pricing page names a free allowance (the allowance size is the owner's setting)                               |
+| anthropic | none      | unknown      | No free voice allowance proven: paid access needed                                                           |
+| openai    | none      | unknown      | Paid access needed                                                                                           |
+| xai       | none      | unknown      | Paid access needed                                                                                           |
+
+Linux unit tests only (`core/__tests__/voice-lane-descriptor.test.ts`); no live provider account was used. A security review of this change is pending. A cloud voice is still used only after an explicit pick, never for a SENSITIVE line or in privacy mode.
+
 ## 6. One routing contract
 
 Chat, Voice, Auto, Manual, Multi, Companion, background tasks, agents and tool calls share one routing contract (`src/lib/friday/model-routing-contract.ts`, mirrored in `electron/model-router.cjs`):
