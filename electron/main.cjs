@@ -625,6 +625,8 @@ const { runReadiness } = loadNamed("readiness", () => require("./readiness.cjs")
 const storageManager = loadNamed("storage", () => require("./storage-manager.cjs"));
 const stagedAssets = loadNamed("staged-assets", () => require("./staged-assets.cjs"));
 const installInventory = loadNamed("install-inventory", () => require("./install-inventory.cjs"));
+const dataMigrations = loadNamed("data-migrations", () => require("./data-migrations.cjs"));
+const builtinsSync = loadNamed("builtins-sync", () => require("./builtins-sync.cjs"));
 // Production EXE vs portable branch test EXE. Resolved and applied to the path
 // service before ANY FRIDAY path is read, so a test build isolates its mutable
 // state while still sharing the models/runtime/assets already on this PC.
@@ -8074,6 +8076,19 @@ ipcMain.handle("doctor:run", async (_e, options) => {
           path.join(paths.dir("cache"), "model-catalogue"),
         ),
       );
+      try {
+        const modelRow = modelCheckDoctorRow();
+        if (modelRow) checks.push(modelRow);
+        const builtinsRow = builtinsSync.doctorRow(builtinsBoot.last);
+        checks.push({
+          ...builtinsRow,
+          group: "FRIDAY",
+          status: builtinsRow.ok ? "Ready" : "Warning",
+          fixable: false,
+        });
+      } catch (error) {
+        log(`doctor: install rows skipped: ${error?.message || error}`, "warn");
+      }
       return { ...(result || {}), checks };
     })
     .finally(() => {
@@ -8225,6 +8240,7 @@ function recordInventory(scan) {
   const root = getWorkspaceRoot();
   if (!root || !scan?.tools?.length) return;
   installInventory.writeInventory(root, scan, { latest: latestSeen, version: productVersion() });
+  if (readinessTrace.backgroundWorkAllowed()) void runPostUpdateModelCheck();
 }
 ipcMain.handle("tools:detect", async (_e, force) => {
   const scan = await toolchain.detectTools({ force: Boolean(force) });
@@ -9816,6 +9832,62 @@ const capabilityRoots = () => ({
 });
 let stopCapabilityWatch = null;
 
+// Boot: data migrations first, then the built-ins sync. A throwing step is logged and the next one still runs.
+const builtinsBoot = { last: null };
+function runDataBootSteps(root, state = builtinsBoot) {
+  try {
+    const migrated = dataMigrations.run(root, productVersion());
+    if (migrated.applied.length) log(`data migrations applied: ${migrated.applied.join(", ")}`);
+    if (migrated.error) log(`data migrations: ${migrated.error}`, "warn");
+  } catch (error) {
+    log(`data migrations skipped: ${error?.message || error}`, "warn");
+  }
+  try {
+    state.last = builtinsSync.run({ appRoot: packagedCapabilityRoot(), workspaceRoot: root });
+    if (state.last.skipped) log(`built-ins sync skipped: ${state.last.skipped}`);
+  } catch (error) {
+    log(`built-ins sync skipped: ${error?.message || error}`, "warn");
+  }
+}
+
+// After an update the downloaded models are size-checked once per app version. The result feeds the Doctor row.
+const modelCheckState = { last: null, settled: false, running: false };
+async function runPostUpdateModelCheck(state = modelCheckState) {
+  const root = getWorkspaceRoot();
+  if (!root || state.settled || state.running) return null;
+  state.running = true;
+  try {
+    const outcome = await installInventory.postUpdateCheck(root, { version: productVersion() });
+    if (outcome?.ran) state.last = outcome.result;
+    // Without inventory.json nothing is recorded, so the check asks again after the first inventory write.
+    if (!outcome?.ran || outcome.persisted) state.settled = true;
+    return outcome;
+  } catch (error) {
+    log(`post-update model check skipped: ${error?.message || error}`, "warn");
+    return null;
+  } finally {
+    state.running = false;
+  }
+}
+
+/** Doctor row for the models after an update: this session's check, else the one saved in inventory.json. */
+function modelCheckDoctorRow(state = modelCheckState) {
+  let result = state.last;
+  if (!result) {
+    const saved = installInventory.readInventory(getWorkspaceRoot())?.modelCheck;
+    if (!saved) return null;
+    result = {
+      ok: saved.ok === true,
+      hashed: saved.hashed === true,
+      checked: saved.checked,
+      bad: (saved.bad || []).map((id) => ({ id, detail: "flagged at the last check" })),
+      errors: [],
+    };
+  }
+  const row = installInventory.modelCheckRow(result);
+  return { ...row, group: "Storage", status: row.ok ? "Ready" : "Warning", fixable: false };
+}
+
 /**
  * Rebuild the root's own indexes from what is really on disk: registry.json
  * (validated components), integrity.json (structure + digests) and boot.json
@@ -9855,6 +9927,9 @@ async function rebuildRootIndexes(root, { ms = 0 } = {}) {
 ipcMain.handle("root:registry", () => rebuildRootIndexes(getWorkspaceRoot()));
 
 ipcMain.handle("capabilities:list", () => capabilityIndex.list(capabilityRoots()));
+ipcMain.handle("capabilities:reset-builtin", (_e, id) =>
+  capabilityIndex.resetBuiltin(capabilityRoots(), String(id || "")),
+);
 ipcMain.handle("capabilities:set-enabled", async (_e, id, enabled) => {
   const key = String(id || "");
   const result = capabilityIndex.setEnabled(capabilityRoots(), key, enabled);
@@ -11154,6 +11229,9 @@ app
           ? `repaired ${config.repaired.join(", ")}`
           : path.join(root, "config"),
       );
+      // Stored data is brought to this build's shape, then the built-in capabilities are reconciled
+      // with the owner's record, both before the kernel reads anything. Neither step can stop boot.
+      runDataBootSteps(root);
     }
     // Screen-vision state follows the chosen folder like everything else.
     screenVision.setRoot(root);
@@ -11265,6 +11343,16 @@ app
         readiness: false,
         run() {
           startModelRegistryRefresh();
+        },
+      });
+      startupTasks.register({
+        id: "post-update-model-check",
+        phase: "idle",
+        timeoutMs: 8000,
+        readiness: false,
+        run() {
+          void runPostUpdateModelCheck();
+          return { armed: true, policy: "once-per-version" };
         },
       });
       startupTasks.register({

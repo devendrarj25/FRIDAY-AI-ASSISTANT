@@ -119,6 +119,7 @@ const CHANNEL_CLASS = Object.freeze({
   "capabilities:install-workflow-zip": "long-job",
   "capabilities:list": "quick",
   "capabilities:reload": "quick",
+  "capabilities:reset-builtin": "quick",
   "capabilities:set-enabled": "quick",
   "capabilities:uninstall": "quick",
   "capabilities:verify": "quick",

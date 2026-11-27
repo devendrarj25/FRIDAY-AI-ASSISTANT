@@ -32,7 +32,7 @@ export function migrateAfterUpdate(
   to: string | null,
   root = capabilities.getRoot(),
 ): UpgradeMigrationReport {
-  return { from, to, applied: runMigrations(root) };
+  return { from, to, applied: runMigrations(root, to) };
 }
 
 export function migrationLedger(root = capabilities.getRoot()): MigrationRecord[] {

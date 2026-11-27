@@ -80,6 +80,10 @@ describe("ipc budget table", () => {
       );
       expect(ipc.timeoutMs(channel)).toBe(ipc.QUICK_MS);
     }
+    // Reset to built-in copies one folder and removes it: a quick local call, handled in main and named in preload.
+    expect(table.CHANNEL_CLASS["capabilities:reset-builtin"]).toBe("quick");
+    expect(handles).toContain("capabilities:reset-builtin");
+    expect(ipc.timeoutMs("capabilities:reset-builtin")).toBe(ipc.QUICK_MS);
     expect(table.CHANNEL_CLASS["chat:parallel"]).toBe("stream");
     expect(table.CHANNEL_CLASS["agents:run"]).toBe("stream");
     expect(table.CHANNEL_CLASS["doctor:run"]).toBe("long-job");

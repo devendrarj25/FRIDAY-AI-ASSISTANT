@@ -707,6 +707,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "capabilities:reset-builtin",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "capabilities:set-enabled",
       file: "electron/main.cjs",
     },
@@ -9784,8 +9788,8 @@ export const FLOW_REGISTRY = {
       total: 1119,
     },
     ipc: {
-      mapped: 524,
-      total: 524,
+      mapped: 525,
+      total: 525,
     },
     kernel: {
       mapped: 14,

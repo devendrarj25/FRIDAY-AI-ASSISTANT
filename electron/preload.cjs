@@ -537,6 +537,7 @@ contextBridge.exposeInMainWorld("friday", {
   setCapabilityEnabled: (id, enabled) =>
     ipcRenderer.invoke("capabilities:set-enabled", id, enabled),
   reloadCapabilities: () => ipcRenderer.invoke("capabilities:reload"),
+  resetBuiltinCapability: (id) => ipcRenderer.invoke("capabilities:reset-builtin", id),
   installCapability: (pack) => ipcRenderer.invoke("capabilities:install", pack),
   uninstallCapability: (id) => ipcRenderer.invoke("capabilities:uninstall", id),
   installCapabilityFromUrl: (url) => ipcRenderer.invoke("capabilities:install-url", url),
