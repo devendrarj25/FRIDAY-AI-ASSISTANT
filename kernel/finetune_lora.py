@@ -53,8 +53,12 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
 
-# llama.cpp release the convert script is taken from; the script's own sha256 is pinned in the job.
+# llama.cpp release the convert script is taken from. The script's sha256 is pinned HERE, in code: a job file may
+# repeat it but never replace it. None means no pin is known and the conversion refuses (fail closed).
 LLAMA_CPP_TAG = "b12230"
+# sha256 of convert_lora_to_gguf.py at tag b12230 (ggml-org/llama.cpp), read from raw.githubusercontent.com on
+# 2026-11-27 (23258 bytes, git blob f9adecbb11d8dcecd64794fd16a2a6bf6458fe27); two fetches gave the same hash.
+CONVERT_SCRIPT_SHA256: str | None = "ddb143ac34022b0646e51d9c35e9cfa3ec3d0a36091975ebc88f553dd18ca350"
 SCORE_KEYS = ("heldout", "safety", "toolcall", "language")
 EVAL_SCHEMA_VERSION = 1
 CONVERT_TIMEOUT_SECONDS = 1800
@@ -230,14 +234,16 @@ def convert_to_gguf(
     *,
     trainer_python: str,
     script: str | os.PathLike[str],
-    script_sha256: str,
+    script_sha256: str | None = None,
     base_dir: str,
     outtype: str = "f16",
 ) -> Path:
     """Convert a saved adapter to <adapter_dir>/adapter.gguf with the pinned llama.cpp script.
 
-    The script must match its pinned sha256 and runs with the separate trainer environment's Python, never the
-    voice environment's. The runner takes an argv list and returns the exit code.
+    The script must match the sha256 pinned in code (CONVERT_SCRIPT_SHA256) and runs with the separate trainer
+    environment's Python, never the voice environment's. ``script_sha256`` is what a job file claims: None means
+    the job said nothing; any other value must equal the code pin, it never overrides it. The runner takes an
+    argv list and returns the exit code.
     """
     adapter = Path(adapter_dir)
     python = (trainer_python or "").strip()
@@ -247,10 +253,14 @@ def convert_to_gguf(
     candidate = Path(python)
     if python == sys.executable or _inside(candidate.resolve(), here) or _inside(candidate.absolute(), here):
         raise ConvertError("the trainer must be its own environment, not the voice environment")
-    pinned = (script_sha256 or "").strip().lower()
+    pinned = (CONVERT_SCRIPT_SHA256 or "").strip().lower()
+    if not _SHA256.match(pinned):
+        raise ConvertError("no pinned sha256 is known for the convert script, so it will not run")
+    if script_sha256 is not None and (script_sha256 or "").strip().lower() != pinned:
+        raise ConvertError("the job's convert script sha256 differs from the one pinned in code")
     script_path = Path(script)
-    if not _SHA256.match(pinned) or not script_path.is_file():
-        raise ConvertError("the convert script needs its pinned sha256 and must exist")
+    if not script_path.is_file():
+        raise ConvertError("the convert script must exist (its sha256 is pinned)")
     if hashlib.sha256(script_path.read_bytes()).hexdigest() != pinned:
         raise ConvertError(f"the convert script does not match its pinned sha256 (llama.cpp {LLAMA_CPP_TAG})")
     if not adapter.is_dir() or not (base_dir or "").strip():
@@ -491,7 +501,7 @@ def main() -> None:
                 run_subprocess,
                 trainer_python=str(convert.get("trainerPython", "")),
                 script=str(convert.get("script", "")),
-                script_sha256=str(convert.get("scriptSha256", "")),
+                script_sha256=None if convert.get("scriptSha256") is None else str(convert.get("scriptSha256")),
                 base_dir=str(convert.get("baseDir", "")),
             )
         except ConvertError as error:

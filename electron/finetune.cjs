@@ -31,7 +31,9 @@ const ADAPTERS_DIR = () => {
   return dir;
 };
 
-let ctx = { send: () => {}, log: () => {}, projectRoot: null };
+// `classify` is the ONE kernel privacy classifier call path (privacy.classify), handed in by main.cjs.
+// Missing means every row is dropped: the rails fail closed.
+let ctx = { send: () => {}, log: () => {}, projectRoot: null, classify: undefined };
 let active = null; // { id, child, run }
 
 const emit = (channel, payload) => {
@@ -133,6 +135,102 @@ async function probe() {
   };
 }
 
+const PRIVACY_LEVELS = ["sensitive", "private", "internal", "public"];
+
+/**
+ * The row rule, run on the main side because the renderer cannot be trusted to have run it (it is pinned equal
+ * to selectTrainingRows in src/lib/friday/self/finetune.ts by core/__tests__/finetune-gate.test.ts).
+ * A row trains only when: its data class was accepted by the owner, the prompt is owner-authored, its context
+ * had no untrusted content (contextKinds is an empty array), the reply came from a local model or was marked
+ * outputMayTrain === true, and the kernel classifier did not call it SENSITIVE. A classifier that is missing,
+ * throws or answers without a known level drops the row.
+ */
+async function selectTrainingRows(rows, options = {}) {
+  const accepted = new Set((options.classesAccepted || []).map(String));
+  const counts = new Map();
+  const drop = (reason) => counts.set(reason, (counts.get(reason) || 0) + 1);
+  const kept = [];
+  const keptRows = [];
+  const seen = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const prompt = String(row?.prompt ?? "").trim();
+    const response = String(row?.response ?? "").trim();
+    if (!prompt || !response) {
+      drop("empty");
+      continue;
+    }
+    if (!accepted.has(row.dataClass)) {
+      drop("class-not-accepted");
+      continue;
+    }
+    const source = row.provenance;
+    if (source?.promptAuthor !== "owner") {
+      drop("not-owner-authored");
+      continue;
+    }
+    if (!Array.isArray(source.contextKinds) || source.contextKinds.length > 0) {
+      drop("untrusted-context");
+      continue;
+    }
+    if (source.responseModel !== "local" && source.outputMayTrain !== true) {
+      drop("output-not-allowed");
+      continue;
+    }
+    let level;
+    try {
+      if (typeof options.classify !== "function") throw new Error("no classifier");
+      level = String((await options.classify(`${prompt}\n${response}`))?.level);
+      if (!PRIVACY_LEVELS.includes(level)) throw new Error("unknown level");
+    } catch {
+      drop("classifier-failed");
+      continue;
+    }
+    if (level === "sensitive") {
+      drop("sensitive");
+      continue;
+    }
+    const key = `${prompt}::${response}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ prompt, response });
+    keptRows.push({ ...row, prompt, response });
+  }
+  return {
+    kept,
+    rows: keptRows,
+    dropped: [...counts].map(([reason, count]) => ({ reason, count })),
+  };
+}
+
+const rowKey = (row) => `${row.prompt}::${row.response}`;
+
+/**
+ * Re-run the row rule on a job's training and held-out rows with the kernel classifier from `init`. The
+ * payload's own `classify` (or any function a caller sends) is never used. A held-out row that repeats a
+ * training row is dropped so the check never sees what the adapter learned.
+ */
+async function vetJob(options = {}) {
+  const rule = {
+    classesAccepted: Array.isArray(options.classesAccepted) ? options.classesAccepted : [],
+    classify: typeof ctx.classify === "function" ? ctx.classify : undefined,
+  };
+  const train = await selectTrainingRows(options.examples, rule);
+  const held = await selectTrainingRows(options.heldOut, rule);
+  const trained = new Set(train.rows.map(rowKey));
+  const counts = new Map();
+  for (const { reason, count } of [...train.dropped, ...held.dropped]) {
+    counts.set(reason, (counts.get(reason) || 0) + count);
+  }
+  return {
+    examples: train.rows,
+    heldOut: held.rows.filter((row) => !trained.has(rowKey(row))),
+    dropped: [...counts].map(([reason, count]) => ({ reason, count })),
+  };
+}
+
+const describeDrops = (dropped) =>
+  dropped.length ? ` Dropped: ${dropped.map((d) => `${d.reason} ${d.count}`).join(", ")}.` : "";
+
 /** Write the JSONL dataset for one run and return its path. */
 function writeDataset(id, examples, suffix = "") {
   const file = path.join(JOBS_DIR(), `${id}${suffix}.jsonl`);
@@ -152,20 +250,28 @@ async function start(options = {}) {
   if (options.adaptersEnabled !== true) {
     return { ok: false, error: "On-device learning is off (brain.learn.adapters)." };
   }
+  // The main side is the authority: whatever the renderer sent is re-checked before anything is written.
+  const vetted = await vetJob(options);
+  if (!vetted.examples.length) {
+    return {
+      ok: false,
+      error: `No example passed the owner-authored, untrusted-context and privacy rails, so nothing was written and nothing trains.${describeDrops(vetted.dropped)}`,
+    };
+  }
   const readiness = await probe();
   if (!readiness.ready) return { ok: false, error: readiness.detail, missing: readiness.missing };
   if (!options.base) return { ok: false, error: "No base model was selected." };
 
   const id = `ft-${Date.now().toString(36)}`;
-  const { file: dataset, count } = writeDataset(id, options.examples);
+  const { file: dataset, count } = writeDataset(id, vetted.examples);
   if (count < 8) {
     return {
       ok: false,
-      error: `Only ${count} verified example(s) available — not enough to train on yet.`,
+      error: `Only ${count} verified example(s) available — not enough to train on yet.${describeDrops(vetted.dropped)}`,
     };
   }
 
-  const held = writeDataset(id, options.heldOut, ".heldout");
+  const held = writeDataset(id, vetted.heldOut, ".heldout");
   const output = path.join(ADAPTERS_DIR(), id);
   fs.mkdirSync(output, { recursive: true });
   const job = {
@@ -463,6 +569,8 @@ module.exports = {
   init,
   probe,
   start,
+  selectTrainingRows,
+  vetJob,
   cancel,
   listAdapters,
   activate,

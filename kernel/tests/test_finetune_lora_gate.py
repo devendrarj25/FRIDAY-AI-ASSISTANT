@@ -230,6 +230,98 @@ def test_convert_fails_on_a_bad_exit_or_a_missing_output(convert_setup) -> None:
     assert not (convert_setup["adapter"] / "adapter.gguf").exists()
 
 
+# ---- the convert script's sha256 is pinned in code, a job may only repeat it ------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _pin_the_fake_convert_script(request, monkeypatch) -> None:
+    """The convert_setup tests run a fake script, so the code pin is pointed at that fake for them only."""
+    if "convert_setup" in request.fixturenames:
+        monkeypatch.setattr(finetune_lora, "CONVERT_SCRIPT_SHA256", request.getfixturevalue("convert_setup")["sha"])
+
+
+def make_script(tmp_path: Path, text: str = "print('x')\n") -> tuple[dict, str]:
+    adapter = tmp_path / "adapters" / "ft-9"
+    adapter.mkdir(parents=True)
+    script = tmp_path / "llama" / "convert_lora_to_gguf.py"
+    script.parent.mkdir()
+    script.write_text(text, encoding="utf-8")
+    sha = hashlib.sha256(script.read_bytes()).hexdigest()
+    return {
+        "adapter": adapter,
+        "script": script,
+        "trainer": str(tmp_path / "trainer-venv" / "Scripts" / "python.exe"),
+        "base": str(tmp_path / "base"),
+    }, sha
+
+
+def test_the_real_convert_pin_is_a_sha256_in_code() -> None:
+    assert re.fullmatch(r"[0-9a-f]{64}", finetune_lora.CONVERT_SCRIPT_SHA256 or "")
+    assert finetune_lora.LLAMA_CPP_TAG == "b12230"
+
+
+def test_a_job_supplied_sha_never_overrides_the_code_pin(tmp_path: Path, monkeypatch) -> None:
+    setup, sha = make_script(tmp_path)
+    called: list[object] = []
+    # the script matches the job's claim but NOT the pin in code: refused, the runner never runs
+    with pytest.raises(finetune_lora.ConvertError, match="sha256"):
+        finetune_lora.convert_to_gguf(
+            setup["adapter"],
+            lambda argv: called.append(argv) or 0,
+            trainer_python=setup["trainer"],
+            script=setup["script"],
+            script_sha256=sha,
+            base_dir=setup["base"],
+        )
+    assert called == []
+    # a job that says nothing uses the code pin; a mismatching script is still refused
+    with pytest.raises(finetune_lora.ConvertError, match="sha256"):
+        finetune_lora.convert_to_gguf(
+            setup["adapter"],
+            lambda argv: called.append(argv) or 0,
+            trainer_python=setup["trainer"],
+            script=setup["script"],
+            base_dir=setup["base"],
+        )
+    assert called == []
+    # pin the fake in code: a job that says nothing, or repeats it in any case, now converts
+    monkeypatch.setattr(finetune_lora, "CONVERT_SCRIPT_SHA256", sha)
+    for claim in (None, sha, sha.upper()):
+        called.clear()
+
+        def runner(argv: list[str]) -> int:
+            Path(argv[argv.index("--outfile") + 1]).write_bytes(b"GGUF")
+            called.append(argv)
+            return 0
+
+        out = finetune_lora.convert_to_gguf(
+            setup["adapter"],
+            runner,
+            trainer_python=setup["trainer"],
+            script=setup["script"],
+            script_sha256=claim,
+            base_dir=setup["base"],
+        )
+        assert out.name == "adapter.gguf" and len(called) == 1
+
+
+def test_a_missing_code_pin_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    setup, sha = make_script(tmp_path)
+    monkeypatch.setattr(finetune_lora, "CONVERT_SCRIPT_SHA256", None)
+    called: list[object] = []
+    for claim in (None, sha):
+        with pytest.raises(finetune_lora.ConvertError, match="pinned"):
+            finetune_lora.convert_to_gguf(
+                setup["adapter"],
+                lambda argv: called.append(argv) or 0,
+                trainer_python=setup["trainer"],
+                script=setup["script"],
+                script_sha256=claim,
+                base_dir=setup["base"],
+            )
+    assert called == []
+
+
 # ---- rollback keeps the previous adapter ------------------------------------------------------------------------
 
 

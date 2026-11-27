@@ -79,6 +79,8 @@ export type DropReason =
 
 export type RowSelection = {
   kept: TrainingExample[];
+  /** The same rows with their tags, for the main process to re-check. */
+  rows: TrainingRow[];
   dropped: { reason: DropReason; count: number }[];
 };
 
@@ -87,12 +89,14 @@ type Bridge = {
   finetuneProbe?: () => Promise<FinetuneReadiness>;
   finetuneStart?: (job: {
     base: string;
-    examples: TrainingExample[];
+    /** Tagged rows: the main process re-runs the row rule on them and drops what fails. */
+    examples: TrainingRow[];
+    classesAccepted?: string[];
     epochs?: number;
     rank?: number;
     learningRate?: number;
     quantised?: boolean;
-    heldOut?: TrainingExample[];
+    heldOut?: TrainingRow[];
     adaptersEnabled?: boolean;
   }) => Promise<{ ok: boolean; run?: FinetuneRun; error?: string; missing?: string[] }>;
   finetuneCancel?: () => Promise<{ ok: boolean; error?: string }>;
@@ -179,13 +183,18 @@ export const HELD_OUT_FRACTION = 0.15;
 
 const HELD_OUT_SEED = "friday-heldout-v1";
 
+/** The levels the kernel privacy classifier can answer with; anything else is a failed classification. */
+const PRIVACY_LEVELS = ["sensitive", "private", "internal", "public"];
+
 /**
  * Keep only rows that may train: a data class the owner accepted, a prompt the
  * owner wrote, a context with NO tool/web/screen/MCP content (untrusted input is
  * data, never training), a reply from a local model (cloud output needs
  * outputMayTrain === true), and nothing the kernel privacy classifier calls
  * SENSITIVE (secret-looking text included). A missing classifier or a classifier
- * that throws drops the row: the rails fail closed.
+ * that throws or answers without a known level drops the row: the rails fail closed.
+ * The main process (electron/finetune.cjs) runs this same rule again on what the renderer sends,
+ * so this is the early check, not the authority; a test pins the two equal.
  */
 export async function selectTrainingRows(
   rows: TrainingRow[],
@@ -195,6 +204,7 @@ export async function selectTrainingRows(
   const counts = new Map<DropReason, number>();
   const drop = (reason: DropReason) => counts.set(reason, (counts.get(reason) ?? 0) + 1);
   const kept: TrainingExample[] = [];
+  const keptRows: TrainingRow[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     const prompt = String(row?.prompt ?? "").trim();
@@ -224,6 +234,7 @@ export async function selectTrainingRows(
     try {
       if (!options.classify) throw new Error("no classifier");
       level = String((await options.classify(`${prompt}\n${response}`))?.level);
+      if (!PRIVACY_LEVELS.includes(level)) throw new Error("unknown level");
     } catch {
       drop("classifier-failed");
       continue;
@@ -236,8 +247,13 @@ export async function selectTrainingRows(
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push({ prompt, response });
+    keptRows.push({ ...row, prompt, response });
   }
-  return { kept, dropped: [...counts].map(([reason, count]) => ({ reason, count })) };
+  return {
+    kept,
+    rows: keptRows,
+    dropped: [...counts].map(([reason, count]) => ({ reason, count })),
+  };
 }
 
 function seededOrder(length: number, seed: string): number[] {
@@ -362,7 +378,7 @@ export async function proposeFinetune(options: {
     classesAccepted: options.classesAccepted ?? [],
     ...(options.classify ? { classify: options.classify } : {}),
   });
-  const { train: examples, heldOut } = splitHeldOut(selection.kept);
+  const { train: examples, heldOut } = splitHeldOut(selection.rows);
   if (examples.length < MIN_EXAMPLES) {
     return {
       started: false,
@@ -391,6 +407,7 @@ export async function proposeFinetune(options: {
         base: options.base,
         examples,
         heldOut,
+        classesAccepted: options.classesAccepted ?? [],
         adaptersEnabled: true,
         ...(options.epochs ? { epochs: options.epochs } : {}),
         ...(options.rank ? { rank: options.rank } : {}),
