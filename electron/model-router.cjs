@@ -2182,6 +2182,38 @@ function blipRetry({
   return { retry: true, waitMs: Math.round(600 + random() * 800) };
 }
 
+/**
+ * The reply-length cap a request carries to the kernel (`maxTokens`): a positive whole number, never above what the
+ * kernel itself allows. Anything else means "no cap asked for".
+ */
+const REPLY_CAP_MAX = 8192;
+const REPLY_CAP_START = 1024;
+const REPLY_CAP_FLOOR = 128;
+
+function cleanReplyCap(value) {
+  const number = typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : value;
+  if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) return null;
+  return Math.min(number, REPLY_CAP_MAX);
+}
+
+/**
+ * The "smaller reply" of the timeout message, made real: half the cap the request carried (a request with none
+ * starts from 1024), never below 128. The retry sends it to the kernel, which gives it to the model.
+ */
+function smallerReplyCap(current) {
+  const cap = cleanReplyCap(current) ?? REPLY_CAP_START;
+  return Math.max(REPLY_CAP_FLOOR, Math.floor(cap / 2));
+}
+
+/**
+ * What a timeout does next. A model that never produced its first words in time (a spoken turn's deadline) is not
+ * asked again with a smaller reply, because the length of the reply was never the problem: the next model is tried.
+ * Any other timeout gets one retry of the same model with a smaller reply, once per model per request.
+ */
+function timeoutRetry({ firstDeltaMiss = false, alreadyRetried = false } = {}) {
+  return { retrySmaller: !firstDeltaMiss && !alreadyRetried };
+}
+
 /** A bad request is the same on every model. Outages and a bad answer may move. */
 function midStreamFallback(category) {
   const resume = ["stream_failure", "timeout", "provider_error", "network"].includes(
@@ -3560,6 +3592,9 @@ function fanoutLanes(models, hardware = {}) {
 
 module.exports = {
   blipRetry,
+  cleanReplyCap,
+  smallerReplyCap,
+  timeoutRetry,
   retryHintFromText,
   POLICIES,
   COST_MODES,

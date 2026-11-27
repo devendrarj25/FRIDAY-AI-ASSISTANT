@@ -470,7 +470,7 @@ const paths = require("./friday-paths.cjs");
 const stateStore = require("./state-store.cjs");
 const fridayVersion = require("./friday-version.cjs");
 const productVersion = () => fridayVersion.displayVersion();
-const { createStallWatchdog } = require("./stream-watchdog.cjs");
+const { createStallWatchdog, firstDeltaDeadlineMs } = require("./stream-watchdog.cjs");
 const kernelAutoRestart = require("./kernel-auto-restart.cjs");
 const rootRegistry = require("./root-registry.cjs");
 const projectPaths = require("./project.cjs");
@@ -482,6 +482,7 @@ const billingPolicy = require("./billing-policy.cjs");
 const billingFirewall = require("./billing-firewall.cjs");
 const privacyFirewall = require("./privacy-firewall.cjs");
 const toolAuthority = require("./tool-authority.cjs");
+const toolGate = require("./tool-gate.cjs");
 const kernelMethods = require("./kernel-methods.cjs");
 // Release 38882530465 and 38892746988 wrote this milestone and then nothing
 // for 5 minutes. The packaged boot check returns before this graph and reaches
@@ -661,6 +662,7 @@ if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires")
 // show real call counts, durations and failures without each handler
 // repeating the same bookkeeping.
 const ipcTimeout = require("./ipc-timeout.cjs");
+const ipcBudgetTable = require("./ipc-budget-table.cjs");
 const rawHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) =>
   rawHandle(channel, async (event, ...args) => {
@@ -677,12 +679,15 @@ ipcMain.handle = (channel, handler) =>
       });
       return result;
     } catch (error) {
+      // A tool call whose wait ended is still running in the kernel: that is an answer, not a failure.
+      const still = ipcBudgetTable.stillRunningReply(error, args);
       telemetry.recordIpc({
         channel,
-        ok: false,
+        ok: Boolean(still),
         ms: Date.now() - started,
-        error: String(error?.message || error),
+        ...(still ? {} : { error: String(error?.message || error) }),
       });
+      if (still) return still;
       throw error;
     }
   });
@@ -2973,7 +2978,7 @@ async function kernelRequest(method, params = {}, timeoutMs = 30000) {
     const ready = await (kernelStartPromise || waitForKernel(8000));
     if (!ready) throw new Error(kernelFailure || "FRIDAY's local AI service is unavailable.");
   }
-  const budget = ipcTimeout.budgetFor("kernel:rpc", [method]);
+  const budget = ipcTimeout.budgetFor("kernel:rpc", [method, params]);
   const quickMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : ipcTimeout.QUICK_MS;
   const idleMs =
     budget.class === "stream"
@@ -3339,12 +3344,14 @@ function shortRateWaitMs(result) {
  * is passed to the kernel as the offload hint; a refusal is one plain line and the turn moves to its next model.
  */
 async function leaseLocalModel({ model, request, hardwareOffload, requestId }) {
-  const nothing = { lease: null, refused: null };
+  // `cold`: the model may still have to load during this turn (a spoken turn then waits longer for its first words).
+  // A local model whose state is not known counts as cold; one the governor sees resident does not.
+  const nothing = { lease: null, refused: null, cold: model?.type === "local" };
   try {
     if (!governor || model?.type !== "local") return nothing;
     const fit = modelRouter.hardwareFit(model, routingHardwareFacts());
     if (!fit || !(fit.needGb > 0) || fit.fit === "unknown" || fit.fit === "resident") {
-      return nothing;
+      return fit?.fit === "resident" ? { ...nothing, cold: false } : nothing;
     }
     const onGpu = fit.offload === "gpu" || fit.offload === "gpu-if-supported";
     const priority = request?.routingSurface === "voice" ? "voice" : "chat";
@@ -3380,12 +3387,17 @@ async function leaseLocalModel({ model, request, hardwareOffload, requestId }) {
       }
     }
     taken.lease?.loaded?.();
-    return { lease: taken.lease, refused: null };
+    // Loaded just now through the Ollama warm-up above: ready. A smaller plan, or an engine this cannot warm, loads
+    // through the turn itself.
+    return { lease: taken.lease, refused: null, cold: Boolean(taken.shrunk) || !tag };
   } catch (error) {
     log(`chat ${requestId}: the load lease failed (${error?.message || error}); loading as before`);
     return nothing;
   }
 }
+
+/** What of the owner's own text goes to the kernel for its privacy check (this process has already screened all of it). */
+const KERNEL_OWNER_TEXT_MAX = 800_000;
 
 async function streamOnce(args) {
   await ensureLocalService(args.model);
@@ -3394,7 +3406,7 @@ async function streamOnce(args) {
     return { ok: false, received: false, resourceRefused: true, error: held.refused };
   }
   try {
-    return await streamOnceLeased(args);
+    return await streamOnceLeased({ ...args, coldLoad: held.cold === true });
   } finally {
     held.lease?.release();
   }
@@ -3436,6 +3448,7 @@ async function streamOnceRaw({
   explicitPaid = false,
   collect = false,
   hardwareOffload = null,
+  coldLoad = false,
 }) {
   // BILLING FIREWALL — the last gate before a CHAT request leaves this
   // machine. Every caller of a chat turn (chat, agents, tools, workflows,
@@ -3445,11 +3458,15 @@ async function streamOnceRaw({
   // models.cjs): a fixed, non-sensitive prompt, never for a private turn or a
   // paid-only policy. It cannot go through this gate on purpose, because the
   // gate holds an unverified model back and the probe is what verifies it.
+  // What the owner brought into the turn (an attachment's text, recalled memory, screen text) is part of what is
+  // screened before anything leaves: the page sends it apart as `ownerText` so FRIDAY's own persona and tool lists
+  // in the system text are not classified. The kernel reads the same text for its own check.
+  const ownerText = privacyFirewall.cleanOwnerText(request?.ownerText);
   const auth = await authoriseProviderRequest({
     model,
     explicitPaid,
     label: `chat ${requestId}`,
-    content: prompt,
+    content: privacyFirewall.egressContent(prompt, ownerText),
   });
   if (!auth.allowed) {
     send("models:billing-blocked", {
@@ -3489,9 +3506,26 @@ async function streamOnceRaw({
     // read timeout, but a hang inside the kernel process would never reach it.
     // This watchdog guarantees the turn always ends with a real, spoken error
     // instead of leaving the UI (and Auto Mode) waiting forever.
-    const watchdog = createStallWatchdog((stall) => {
-      done({ ok: false, received, timedOut: true, error: stall.message });
-    });
+    // A spoken turn also has a short first-words deadline for this one candidate: a model that is too slow to start
+    // is let go (done() closes its socket) and the next candidate answers.
+    const watchdog = createStallWatchdog(
+      (stall) => {
+        done({
+          ok: false,
+          received,
+          timedOut: true,
+          ...(stall.kind === "first-delta" ? { firstDeltaMiss: true } : {}),
+          error: stall.message,
+        });
+      },
+      {
+        firstDeltaMs: firstDeltaDeadlineMs({
+          surface: request?.routingSurface,
+          model,
+          coldLoad,
+        }),
+      },
+    );
 
     function done(result) {
       if (settled) return;
@@ -3515,7 +3549,8 @@ async function streamOnceRaw({
       socket.send(JSON.stringify({ token: BRIDGE_TOKEN }));
     });
     socket.addEventListener("message", (event) => {
-      // Any frame is proof of life: restart the idle deadline.
+      // Any frame is proof of life. The "ready" frame is not the first words: a spoken turn's first-words deadline
+      // keeps running past it (stream-watchdog.cjs).
       watchdog.beat();
       try {
         const message = JSON.parse(String(event.data));
@@ -3539,6 +3574,12 @@ async function streamOnceRaw({
                 // firewall re-checks this against its own policy copy.
                 explicitPaid: Boolean(explicitPaid),
                 system: request.system,
+                // What the owner brought in, for the kernel's own privacy check only (it is never added to the prompt).
+                ...(ownerText ? { ownerText: ownerText.slice(0, KERNEL_OWNER_TEXT_MAX) } : {}),
+                // The reply cap, so "try a smaller reply" really is one: the kernel gives it to the model.
+                ...(modelRouter.cleanReplyCap(request.maxTokens)
+                  ? { maxTokens: modelRouter.cleanReplyCap(request.maxTokens) }
+                  : {}),
                 // The recent turns of the one shared thread, so the model answers inside the
                 // conversation instead of treating every message as a first one.
                 history: require("./chat-history.cjs").sanitiseHistory(request.history, prompt),
@@ -3588,6 +3629,7 @@ async function streamOnceRaw({
               };
             }
           }
+          if (message.data?.tool) watchdog.progress();
           if (message.data?.tool && !collect) {
             const name = String(message.data.tool).slice(0, 120);
             if (name) {
@@ -3602,9 +3644,14 @@ async function streamOnceRaw({
             const text = String(message.data.delta);
             // A missed fold must not land in the transcript as answer text.
             if (text.startsWith("\u001etool:")) {
-              /* tool notice */
+              /* tool notice: the model is working, but it is not an answer */
+              watchdog.progress();
             } else {
-              received = true;
+              // Only words count as an answer: a stream of blank lines is not one (the next model is tried).
+              if (text.trim()) {
+                received = true;
+                watchdog.progress();
+              }
               if (collect) {
                 collected += text;
               } else {
@@ -3945,11 +3992,20 @@ async function startChat(request) {
           continue;
         }
       }
-      if (noted.category === "timeout" && !model.timeoutRetried) {
+      if (
+        noted.category === "timeout" &&
+        modelRouter.timeoutRetry({
+          firstDeltaMiss: result.firstDeltaMiss === true,
+          alreadyRetried: model.timeoutRetried === true,
+        }).retrySmaller
+      ) {
         model.timeoutRetried = true;
-        const current = Number(request.maxTokens || 1024);
-        request.maxTokens = Math.max(128, Math.floor(current / 2));
+        // The kernel gets this cap with the retry (chat.stream `maxTokens`), so the reply really is shorter.
+        request.maxTokens = modelRouter.smallerReplyCap(request.maxTokens);
         continue;
+      }
+      if (result.firstDeltaMiss) {
+        log(`chat ${requestId}: ${model.id} was too slow to start speaking, trying the next model`);
       }
       if (noted.category === "kernel_down" && !kernelHealTried) {
         kernelHealTried = true;
@@ -5781,23 +5837,64 @@ function persistToolDecision(name, risk, granted, remember) {
   });
 }
 
+/**
+ * A permission question needs the owner, so when the window is hidden or in the background it is brought to their
+ * attention: shown without taking focus, the taskbar button flashes, and a native notice says what is waiting.
+ */
+function routeToolAskNotice(target, name) {
+  try {
+    if (!target.isVisible()) target.showInactive();
+    if (target.isFocused()) return;
+    target.flashFrame(true);
+    const { Notification } = require("electron");
+    if (!Notification.isSupported()) return;
+    const note = new Notification({
+      title: "FRIDAY needs your permission",
+      body: `Allow “${String(name).slice(0, 80)}”? Open FRIDAY to answer. No answer counts as no.`,
+    });
+    note.on("click", () => {
+      try {
+        target.show();
+        target.focus();
+      } catch {
+        /* the window is gone; the question already ended */
+      }
+    });
+    note.show();
+  } catch {
+    /* the question itself still shows */
+  }
+}
+
 async function askOwnerForTool(name, risk, args) {
   const target = liveWin();
   if (!target) return { granted: false, remember: false };
-  const { response, checkboxChecked } = await dialog.showMessageBox(target, {
-    type: "warning",
-    buttons: ["Allow once", "Deny"],
-    defaultId: 1,
-    cancelId: 1,
-    title: "FRIDAY needs your permission",
-    message: `Allow FRIDAY to run “${name}”?`,
-    detail: toolAuthority.describe(name, risk, args),
-    checkboxLabel: "Remember this choice for this tool",
-    checkboxChecked: false,
+  routeToolAskNotice(target, name);
+  // No answer is no: the question ends by itself (and closes) after the deadline.
+  return toolGate.askWithTimeout(async (signal) => {
+    const { response, checkboxChecked } = await dialog.showMessageBox(target, {
+      type: "warning",
+      buttons: ["Allow once", "Deny"],
+      defaultId: 1,
+      cancelId: 1,
+      title: "FRIDAY needs your permission",
+      message: `Allow FRIDAY to run “${name}”?`,
+      detail: toolAuthority.describe(name, risk, args),
+      checkboxLabel: "Remember this choice for this tool",
+      checkboxChecked: false,
+      signal,
+    });
+    return { granted: response === 0, remember: Boolean(checkboxChecked) };
   });
-  return { granted: response === 0, remember: Boolean(checkboxChecked) };
 }
 
+/**
+ * The gate every tool call passes before the kernel sees it. The owner's stored rules and permission toggles decide
+ * first; the autonomy dial then applies (electron/tool-gate.cjs): at Full a write or exec call runs without a prompt,
+ * a stopped FRIDAY refuses it, anything else asks. What the dial never covers stays: the app's own shutdown and
+ * restart always ask, and an allowed call still carries a signed authorization bound to its exact arguments, so the
+ * kernel's argument policy and its secret and credential refusals apply at every dial.
+ */
 async function authorizeToolCall(name, args) {
   if (appLifecycle.alwaysAsk(name)) {
     const answer = await askOwnerForTool(name, "exec", args || {});
@@ -5807,19 +5904,45 @@ async function authorizeToolCall(name, args) {
     return { allowed: true, risk: "exec", authorization: null, desktop: true };
   }
   const risk = await toolRisk(name);
-  let decision = applyOwnerPermissionOverlay(
+  const owned = applyOwnerPermissionOverlay(
     name,
     risk,
     toolAuthority.decide(name, risk, toolPolicy()),
   );
-  if (risk === "safe" && decision === "allow") return { allowed: true, authorization: null, risk };
-  if (decision === "deny")
-    return { allowed: false, risk, reason: `“${name}” is blocked by your permission settings.` };
-  if (decision === "ask") {
+  const state = ownerAutonomyState();
+  const gated = toolGate.gateDecision({
+    risk,
+    decision: owned,
+    dial: state.dial,
+    halted: state.halted,
+    stored: toolPolicy()[name],
+  });
+  if (risk === "safe" && gated.decision === "allow")
+    return { allowed: true, authorization: null, risk };
+  if (gated.decision === "deny") {
+    return {
+      allowed: false,
+      risk,
+      reason:
+        gated.reason === "halted"
+          ? `Stop everything is on, so “${name}” was not run. Resume FRIDAY to run it.`
+          : `“${name}” is blocked by your permission settings.`,
+    };
+  }
+  if (gated.decision === "ask") {
     const answer = await askOwnerForTool(name, risk, args);
     persistToolDecision(name, risk, answer.granted, answer.remember);
-    if (!answer.granted) return { allowed: false, risk, reason: `You denied “${name}”.` };
-    decision = "allow";
+    if (!answer.granted) {
+      return {
+        allowed: false,
+        risk,
+        reason: answer.timedOut
+          ? `No answer in time, so “${name}” was not run.`
+          : `You denied “${name}”.`,
+      };
+    }
+  } else if (gated.reason === "full-autonomy") {
+    log(`tool ${name} (${risk}) allowed without a prompt: autonomy is Full`);
   }
   return {
     allowed: true,
@@ -8141,18 +8264,23 @@ ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("
 // The renderer's word is never the authority: the autonomy dial is read here from the owner's stored state, the data
 // root is the paths module's one root, and every update passes `planUpdate` first. Windows' own permission prompt
 // (UAC) is never answered by FRIDAY. A bundled runtime (notify-only row) is refused under every dial.
-function ownerAutonomyDial() {
+function ownerAutonomyState() {
   try {
     const stored = stateStore.readState(stateFile("friday.autonomy.v1"));
-    if (!stored || typeof stored !== "object") return "balanced"; // the shipped default, still asks
-    if (stored.halted === true) return "ask";
-    if (stored.approvalLevel === "full") return "full";
+    // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
+    if (!stored || typeof stored !== "object") return { dial: "balanced", halted: false };
+    const halted = stored.halted === true;
+    if (stored.approvalLevel === "full") return { dial: "full", halted };
     if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
-      return "balanced";
-    return "ask";
+      return { dial: "balanced", halted };
+    return { dial: "ask", halted };
   } catch {
-    return "ask";
+    return { dial: "ask", halted: false };
   }
+}
+function ownerAutonomyDial() {
+  const { dial, halted } = ownerAutonomyState();
+  return halted ? "ask" : dial;
 }
 async function gatedToolJob({ id, action, consent }) {
   const catalogApi = getInstallerCatalog();

@@ -150,8 +150,13 @@ describe("the files that reset the app if lost are written this way", () => {
   it("the library index, the root record, durable state and the workspace record do not truncate in place", () => {
     expect(read("electron/library.cjs")).toContain("writeJsonSafe(indexPath()");
     expect(read("electron/root-registry.cjs")).toContain("writeJsonSafe(file, value)");
-    expect(read("electron/state-store.cjs")).toContain("renameWithRetry(tmp, file)");
-    expect(read("electron/state-store.cjs")).toContain("renameWithRetryAsync(tmp, file)");
+    // Durable state goes through the safe writer, which flushes the temporary file and renames it with the retry.
+    expect(read("electron/state-store.cjs")).toContain("safeWrite.writeFileSafe(file, nextText");
+    expect(read("electron/state-store.cjs")).toContain(
+      "safeWrite.writeFileSafeAsync(file, JSON.stringify(value)",
+    );
+    expect(read("electron/safe-write.cjs")).toContain("renameWithRetry(tmp, file");
+    expect(read("electron/safe-write.cjs")).toContain("renameWithRetryAsync(tmp, file");
     expect(read("electron/workspace.cjs")).toContain("writeJsonSafe(file, next)");
   });
 

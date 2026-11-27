@@ -987,6 +987,60 @@ async function ollamaUnload(model) {
 }
 
 /**
+ * The one context window FRIDAY asks Ollama for: the shared plan in config/chat-tiers.json
+ * (ollamaSettings.options.num_ctx), smaller on a PC with little memory so the cache cannot starve the weights, or the
+ * owner's FRIDAY_OLLAMA_NUM_CTX (a number, or off). The kernel reads the same rules (kernel/router.py `ollama_num_ctx`)
+ * for the chat itself; Ollama reloads a model whose window changes, so the warm-up below must ask for the same one.
+ */
+const NUM_CTX_DEFAULT = 8192;
+const NUM_CTX_MIN = 2048;
+const NUM_CTX_BY_RAM_GB = [
+  [6, 2048],
+  [9, 4096],
+  [12, 6144],
+];
+
+function ollamaNumCtx({
+  ramGb = os.totalmem() / 1024 ** 3,
+  env = process.env,
+  tiers = undefined,
+} = {}) {
+  const raw = String(env.FRIDAY_OLLAMA_NUM_CTX || "")
+    .trim()
+    .toLowerCase();
+  if (["0", "off", "none", "false"].includes(raw)) return null;
+  if (/^\d+$/.test(raw) && Number(raw) >= NUM_CTX_MIN) return Number(raw);
+  let plan = tiers;
+  if (plan === undefined) {
+    try {
+      plan = require("./resource-paths.cjs").readConfigJson("chat-tiers.json", null)?.value;
+    } catch {
+      plan = null;
+    }
+  }
+  const configured = plan?.ollamaSettings?.options?.num_ctx;
+  const window = Number.isInteger(configured) && configured > 0 ? configured : NUM_CTX_DEFAULT;
+  if (Number.isFinite(ramGb)) {
+    for (const [ceiling, cap] of NUM_CTX_BY_RAM_GB) {
+      if (ramGb < ceiling) return Math.max(NUM_CTX_MIN, Math.min(window, cap));
+    }
+  }
+  return Math.max(NUM_CTX_MIN, window);
+}
+
+/** The warm-up request: an empty prompt loads the model; the window is the chat's, so the chat does not reload it. */
+function ollamaWarmBody(model, keepAlive = "20m", options = {}) {
+  const window = ollamaNumCtx(options);
+  return {
+    model,
+    prompt: "",
+    keep_alive: keepAlive,
+    stream: false,
+    ...(window ? { options: { num_ctx: window } } : {}),
+  };
+}
+
+/**
  * Load a model into memory now and keep it there, so the first spoken question after a quiet spell does not wait
  * for it to load. An empty prompt loads without generating anything. Best effort: no Ollama, no harm.
  */
@@ -995,7 +1049,7 @@ async function ollamaWarm(model, keepAlive = "20m") {
   const res = await request(`${OLLAMA}/api/generate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model, prompt: "", keep_alive: keepAlive, stream: false }),
+    body: JSON.stringify(ollamaWarmBody(model, keepAlive)),
     timeout: 60000,
   });
   return res.ok ? { ok: true } : { ok: false, error: res.error || `HTTP ${res.status}` };
@@ -3355,6 +3409,8 @@ module.exports = {
   engineProbeRun,
   ollamaUnload,
   ollamaWarm,
+  ollamaWarmBody,
+  ollamaNumCtx,
   ollamaRunning,
   localFolders,
   readKeys,

@@ -2,9 +2,36 @@
  * One budget class for every renderer IPC channel and every kernel method.
  * quick: 30s total. long-job: no total limit. stream: inactivity only.
  * kernel:rpc reads the method. A name that is not in this table is quick.
+ * `tool.exec` also reads the tool: a tool that runs for minutes is a long job, and a quick tool's total also covers
+ * the owner's time to answer the permission question that comes first.
  */
+const { ASK_TIMEOUT_MS } = require("./tool-gate.cjs");
+
 const QUICK_MS = 30_000;
 const STREAM_IDLE_MS = 120_000;
+
+/** Kernel tools that take minutes: the tests, a check, a build, a conversion, a container, an install, a script. */
+const LONG_TOOLS = Object.freeze([
+  "test.run",
+  "dev.check",
+  "ci.run",
+  "sandbox.run",
+  "media.convert",
+  "media.frames",
+  "media.transcribe",
+  "cpp.build",
+  "cpp.run",
+  "java.compile",
+  "java.run",
+  "node.run",
+  "python.exec",
+  "npm.install",
+  "npm.run",
+  "pip.install",
+  "pip.uninstall",
+]);
+/** Every tool of these families (shell.cmd, shell.powershell, docker.pull, docker.run, ...) is a long job. */
+const LONG_TOOL_PREFIXES = Object.freeze(["shell.", "docker."]);
 
 const CHANNEL_CLASS = Object.freeze({
   "agents:list": "quick",
@@ -574,6 +601,18 @@ const KERNEL_CLASS = Object.freeze({
   "privacy.classify": "quick",
 });
 
+function isLongTool(name) {
+  const tool = typeof name === "string" ? name : "";
+  return LONG_TOOLS.includes(tool) || LONG_TOOL_PREFIXES.some((prefix) => tool.startsWith(prefix));
+}
+
+/** The tool a `tool.exec` call names, from the call's own arguments (`[method, { name, args }]`), or "". */
+function toolNamed(args) {
+  const payload = Array.isArray(args) ? args[1] : null;
+  const name = payload && typeof payload === "object" ? payload.name : "";
+  return typeof name === "string" && /^[\w.:-]{1,80}$/.test(name) ? name : "";
+}
+
 function budgetFor(channel, args) {
   const name = String(channel || "");
   let method = "";
@@ -582,8 +621,45 @@ function budgetFor(channel, args) {
     method = String((args && args[0]) || "");
     cls = method ? KERNEL_CLASS[method] || "quick" : "quick";
   } else if (!cls) cls = "quick";
-  const ms = cls === "long-job" ? 0 : cls === "stream" ? STREAM_IDLE_MS : QUICK_MS;
+  // A tool call that names its tool: a long tool has no total limit; a quick one also waits for the owner's answer.
+  let allowance = 0;
+  if (method === "tool.exec" && toolNamed(args)) {
+    if (isLongTool(toolNamed(args))) cls = "long-job";
+    else allowance = ASK_TIMEOUT_MS;
+  }
+  const ms = cls === "long-job" ? 0 : cls === "stream" ? STREAM_IDLE_MS : QUICK_MS + allowance;
   return { class: cls, ms, channel: name, method, inactivity: cls === "stream" };
 }
 
-module.exports = { QUICK_MS, STREAM_IDLE_MS, CHANNEL_CLASS, KERNEL_CLASS, budgetFor };
+/**
+ * When a limit ends the wait for a tool call, the tool itself is not cancelled (the kernel keeps running it), so the
+ * answer is "still running", never "failed". Any other error, channel or method gives null and is reported as it was.
+ */
+function stillRunningReply(error, args) {
+  if (!error || typeof error !== "object") return null;
+  if (
+    error.code !== "IPC_BUDGET" ||
+    error.channel !== "kernel:rpc" ||
+    error.method !== "tool.exec"
+  ) {
+    return null;
+  }
+  const tool = toolNamed(Array.isArray(args) ? args : []);
+  return {
+    ok: false,
+    stillRunning: true,
+    error: `${tool || "The tool"} is still running. The wait for it ended, but it was not cancelled; ask again in a moment for the result.`,
+  };
+}
+
+module.exports = {
+  QUICK_MS,
+  STREAM_IDLE_MS,
+  LONG_TOOLS,
+  LONG_TOOL_PREFIXES,
+  CHANNEL_CLASS,
+  KERNEL_CLASS,
+  isLongTool,
+  budgetFor,
+  stillRunningReply,
+};
