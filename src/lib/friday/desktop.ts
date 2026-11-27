@@ -255,6 +255,8 @@ export type InstallerCatalogRow = {
   installedVersion: string | null;
   latestVersion: string | null;
   updateStatus: InstallerUpdateStatus;
+  /** Voice rows: which source served the installed files ("FRIDAY release" or "official source"); absent or null when unknown. */
+  servedFrom?: string | null;
   /** The official source that answered (github-api, github-atom, pypi-json, pypi-simple, hf-api, npm, feed, pinned). */
   source: string | null;
   checkedAt: number | null;

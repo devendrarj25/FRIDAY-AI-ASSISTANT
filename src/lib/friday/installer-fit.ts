@@ -366,6 +366,13 @@ export function cudaHint(row: InstallerCatalogRow): string | null {
   return CUDA_HINT;
 }
 
+export function servedLine(row: Pick<InstallerCatalogRow, "kind" | "servedFrom">): string | null {
+  if (row.kind !== "voice-model") return null;
+  if (row.servedFrom === "FRIDAY release") return "from the FRIDAY release";
+  if (row.servedFrom === "official source") return "from the official source";
+  return null;
+}
+
 export type RowView = {
   id: string;
   name: string;
@@ -386,6 +393,8 @@ export type RowView = {
   hint: string | null;
   /** The builds this PC would use, best first (llama.cpp and stable-diffusion.cpp). */
   engineLine: string | null;
+  /** Voice rows only: "from the FRIDAY release" or "from the official source"; null when unknown. */
+  servedLine: string | null;
   upstreamVersion: string | null;
   row: InstallerCatalogRow;
 };
@@ -424,6 +433,7 @@ export function rowView(
       : null,
     hint: cudaHint(row),
     engineLine: chain ? `Builds for this PC, best first: ${chain}${active}` : null,
+    servedLine: servedLine(row),
     upstreamVersion: row.upstreamVersion ?? null,
     row,
   };
