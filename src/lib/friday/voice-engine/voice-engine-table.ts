@@ -461,7 +461,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     selfTest: false,
     lat: "fast",
     blockedBy:
-      "a CANDIDATE, not a default, on demand only: kernel/nemo_ear.py runs the pinned int8 pair, but it is not routed in kernel/stt.py yet and FRIDAY must measure it on the owner's own recordings (npm run voice:bench) before it joins any chain",
+      "routed in kernel/stt.py as friday-ear-english when its pinned weights are installed (Doctor shows installed, loaded, or why it cannot open); it never replaces the speech engine of today until npm run voice:bench shows it wins on the owner's own recordings",
     evidence: [
       HF("istupakov/parakeet-tdt-0.6b-v2-onnx", "pinned revision in electron/voice-pins.cjs"),
     ],
@@ -483,7 +483,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     selfTest: false,
     lat: "fast",
     blockedBy:
-      "a CANDIDATE, not a default, on demand only: kernel/shruti_ear.py runs the pinned graphs, but it is not routed in kernel/stt.py yet and FRIDAY must measure it on the owner's own recordings (npm run voice:bench) before it joins any chain",
+      "routed in kernel/stt.py as friday-ear-swift when its pinned weights are installed (Doctor shows installed, loaded, or why it cannot open); it never replaces the speech engine of today until npm run voice:bench shows it wins on the owner's own recordings",
     evidence: [HF("udgamlabs/Shruti-ONNX", "pinned revision in electron/voice-pins.cjs")],
   }),
   row({
@@ -503,7 +503,7 @@ export const VOICE_ENGINE_TABLE: VoiceEngine[] = [
     selfTest: false,
     lat: "fast",
     blockedBy:
-      "a CANDIDATE, not a default, on demand only: kernel/ear_quick.py runs the pinned int8 pair with the vocabulary row beside it, but it is not routed in kernel/stt.py yet and FRIDAY must measure it on the owner's own recordings (npm run voice:bench) before it joins any chain",
+      "routed in kernel/stt.py as friday-ear-quick when its pinned weights are installed (Doctor shows installed, loaded, or why it cannot open); it never replaces the speech engine of today until npm run voice:bench shows it wins on the owner's own recordings",
     evidence: [HF("moonshine-ai/moonshine", "pinned revision in electron/voice-pins.cjs")],
   }),
   row({

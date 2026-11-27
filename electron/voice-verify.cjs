@@ -103,6 +103,59 @@ function runPinSelfTest(exe, prefix) {
  * The FRIDAY Runtime row: `voice_pin_selftest.py --runtime-info` through the same runner and timeout as the
  * `selftest-<id>` rows. A crash, a timeout, or bad JSON gives a visible not-ready row with a plain reason; it never throws.
  */
+/** One Doctor row per own ear (`kernel/stt.py --ears-self-test`). The three ears are never required. */
+const OWN_EARS = [
+  ["friday-ear-swift", "FRIDAY Ear Swift"],
+  ["friday-ear-quick", "FRIDAY Ear Quick"],
+  ["friday-ear-english", "FRIDAY Ear English"],
+];
+
+async function ownEarsRows(exe, prefix, runner = run) {
+  const notReady = (detail) =>
+    OWN_EARS.map(([id, label]) => ({ id, label, ok: false, required: false, detail }));
+  try {
+    const out = await runner(exe, [...prefix, sttScript(), "--ears-self-test"], 120000);
+    if (out && out.timedOut) return notReady("the ear check timed out");
+    const parsed = parseJsonLine((out && out.stdout) || "");
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.ears)) {
+      return notReady(tail(out && out.stderr, "the ear check printed no readable answer"));
+    }
+    return OWN_EARS.map(([id, label]) => {
+      const row = parsed.ears.find((ear) => ear && ear.catalogId === id);
+      if (!row)
+        return {
+          id,
+          label,
+          ok: false,
+          required: false,
+          detail: "the kernel did not list this ear",
+        };
+      const reason = String(row.reason || "").slice(0, 200);
+      const ms = Number.isFinite(Number(row.ms)) ? Number(row.ms) : 0;
+      const status = String(row.status || "");
+      const detail =
+        status === "ok"
+          ? `heard the probe clip in ${ms}ms`
+          : status === "missing"
+            ? "not installed; the speech engine of today answers"
+            : status === "refused"
+              ? `declined to open: ${reason || "low memory"}`
+              : `could not open: ${reason || "unknown reason"}`;
+      return {
+        id,
+        label: String(row.label || label).slice(0, 80),
+        ok: status === "ok",
+        required: false,
+        detail,
+      };
+    });
+  } catch (error) {
+    return notReady(
+      `the ear check could not run: ${String(error?.message || error).slice(0, 200)}`,
+    );
+  }
+}
+
 async function runtimeRow(exe, prefix, runner = run) {
   const label = "FRIDAY Runtime";
   const notReady = (detail) => ({
@@ -551,6 +604,7 @@ async function verifyVoiceRuntime({
   );
 
   checks.push(await runtimeRow(exe, prefix));
+  checks.push(...(await ownEarsRows(exe, prefix)));
 
   const speech = await speechSelfTest(sttEnv(size, prepared));
   checks.push({
@@ -598,6 +652,7 @@ function restoreVoiceModel(catalogId) {
 module.exports = {
   verifyVoiceRuntime,
   runtimeRow,
+  ownEarsRows,
   restoreVoiceModel,
   speechSelfTest,
   hearingSelfTest,

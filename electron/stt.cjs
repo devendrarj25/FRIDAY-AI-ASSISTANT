@@ -423,8 +423,27 @@ function noteWorkerCache(ping) {
 /** What the worker last said about the optional large Hinglish ear: its files are ready, and why a request for it was skipped. */
 let lastHinglishEar = { ready: null, skipped: "" };
 
+/** The three own ears as the kernel's status last listed them (kernel/stt.py own_ears_status), trimmed to plain values. */
+let lastOwnEars = [];
+
+function cleanOwnEars(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((ear) => ear && typeof ear === "object" && typeof ear.id === "string")
+    .slice(0, 8)
+    .map((ear) => ({
+      id: ear.id.slice(0, 60),
+      label: String(ear.label || ear.id).slice(0, 80),
+      catalogId: String(ear.catalogId || "").slice(0, 60),
+      ready: ear.ready === true,
+      loaded: ear.loaded === true,
+      error: ear.error ? scrubPaths(String(ear.error)).slice(0, 300) : "",
+    }));
+}
+
 function copyLadder(parsed) {
   if (!parsed || typeof parsed !== "object") return;
+  if (Array.isArray(parsed.ownEars)) lastOwnEars = cleanOwnEars(parsed.ownEars);
   if (typeof parsed.hinglishEarTrelisReady === "boolean")
     lastHinglishEar.ready = parsed.hinglishEarTrelisReady;
   // The kernel's own verdict (kernel/stt.py cuda_runtime_ready: cuBLAS 12 and cuDNN 9 found), never a driver reading.
@@ -1663,6 +1682,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
   value.cudaRuntimeReady = Boolean(layers.cudaRuntimeReady);
+  value.ownEars = lastOwnEars;
   value.streamAuto = streamAuto.view();
   if (typeof lastHinglishEar.ready === "boolean")
     value.hinglishEarTrelisReady = lastHinglishEar.ready;
@@ -2674,6 +2694,7 @@ module.exports = {
   cudaRuntimeVerdict,
   scrubPaths,
   cleanStreamEars,
+  cleanOwnEars,
   transcribeDeadlineMs,
   install,
   setProgressSink,
