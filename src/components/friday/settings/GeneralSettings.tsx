@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, ToggleRow } from "@/components/friday/ui";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
+import { BrainSettings } from "@/components/friday/settings/BrainSettings";
 import { EditField, SelectField } from "@/components/friday/settings/fields";
 import { landingDestinations, resolveLandingPath } from "@/lib/friday/navigation";
 import { githubConfig, githubSetConfig, githubCheck } from "@/lib/friday/github-updates";
@@ -305,6 +306,8 @@ export function GeneralSettings() {
           </Button>
         </div>
       </HudPanel>
+
+      <BrainSettings />
     </>
   );
 }
