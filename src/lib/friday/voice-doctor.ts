@@ -67,7 +67,7 @@ export function hinglishEarRow(input: {
     group: "Voice",
   };
   const pin = [
-    "Open the Models page and pin the Hinglish mixed-script ear (hinglish-ear-trelis), then let it download.",
+    "Open the Models page and pin the Hinglish mixed-script ear (FRIDAY Ear Hinglish Large), then let it download.",
   ];
   const on = input.pref === "trelis";
   if (on && input.skipped) {

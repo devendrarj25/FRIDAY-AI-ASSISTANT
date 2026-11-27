@@ -969,7 +969,7 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; id: string; tier: string }>;
 
   /** Where inference may run: auto | local-only | cloud-only | hybrid | multi. */
-  /** On-device speech-to-text (faster-whisper) run by the main process. */
+  /** On-device speech-to-text (FRIDAY Ear) run by the main process. */
   sttStatus?: (
     force?: boolean,
     localOnly?: boolean,
@@ -1200,7 +1200,7 @@ type DesktopApi = {
   onSystemSuspend?: (cb: () => void) => () => void;
   onSystemPressure?: (cb: (snapshot: SystemPressure) => void) => () => void;
   getSystemPressure?: () => Promise<SystemPressure | null>;
-  /** Low-latency wake detection (openWakeWord) — the real engine when present. */
+  /** Low-latency wake detection (the FRIDAY wake engine) — the real engine when present. */
   wakeEngineStatus?: (payload: { wakeWord?: string; force?: boolean }) => Promise<{
     engine: "openwakeword" | "friday-linear" | "friday-embed" | "transcript";
     installed: boolean;
@@ -1244,7 +1244,7 @@ type DesktopApi = {
     frames?: number;
     reason?: string;
   }>;
-  /** Real post-install probes for faster-whisper / edge-tts. */
+  /** Real post-install probes for FRIDAY Ear / edge-tts. */
   verifyVoiceRuntime?: (payload?: { loadModel?: boolean; model?: string }) => Promise<{
     ok: boolean;
     python: string | null;

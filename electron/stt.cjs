@@ -4,7 +4,7 @@
  * The renderer's Web Speech API only works in Chromium with a live connection
  * to Google's servers — inside the packaged EXE that is neither private nor
  * reliable. This module runs REAL on-device transcription through
- * kernel/stt.py (faster-whisper) using the same shared Python resolver every
+ * kernel/stt.py (FRIDAY Ear) using the same shared Python resolver every
  * other Python feature uses.
  *
  * A persistent `--serve` worker keeps WhisperModel loaded across utterances.
@@ -57,7 +57,7 @@ const hooks = {};
 /**
  * Cloud transcription fallback.
  *
- * faster-whisper needs Python plus a model download, so a fresh machine has
+ * FRIDAY Ear needs Python plus a model download, so a fresh machine has
  * no on-device transcriber and the microphone would be dead. When the owner
  * has already connected a provider that exposes the OpenAI-compatible
  * /audio/transcriptions endpoint, that provider is used instead — same stored
@@ -420,7 +420,7 @@ function noteWorkerCache(ping) {
   if (cache) lastWorkerCache = cache;
 }
 
-/** What the worker last said about the optional Trelis Hinglish ear: its files are ready, and why a request for it was skipped. */
+/** What the worker last said about the optional large Hinglish ear: its files are ready, and why a request for it was skipped. */
 let lastHinglishEar = { ready: null, skipped: "" };
 
 function copyLadder(parsed) {
@@ -569,7 +569,9 @@ async function initWorker(send, info) {
       }
     }
     lastLocalLayers.dependency = "missing";
-    lastLocalLayers.reason = scrubPaths(ping?.error || "faster-whisper is not installed yet.");
+    lastLocalLayers.reason = scrubPaths(
+      ping?.error || "The FRIDAY Ear speech engine is not installed yet.",
+    );
     if (!(lastLocalLayers.moonshineReady || lastLocalLayers.windowsSpeech) || plan.loadModel) {
       session.failure = lastLocalLayers.reason;
     }
@@ -1655,7 +1657,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
       worker: layers.worker,
       inference: layers.inference,
       loadCount: layers.loadCount,
-      reason: layers.reason || probeReason || "faster-whisper is not installed yet.",
+      reason: layers.reason || probeReason || "The FRIDAY Ear speech engine is not installed yet.",
     };
   }
   value.moonshineReady = Boolean(layers.moonshineReady);
@@ -1773,7 +1775,7 @@ async function status(force = false, options = {}) {
         inference: "unverified",
         loadCount: 0,
         reason:
-          "whisper.cpp is on disk. Listening still needs a wav capture; this build does not mark it ready.",
+          "The FRIDAY Ear fallback is on disk. Listening still needs a wav capture; this build does not mark it ready.",
       };
       if (!localOnly) cachedStatus = { at: Date.now(), value };
       return value;
@@ -1822,7 +1824,8 @@ async function status(force = false, options = {}) {
     } else {
       lastLocalLayers.dependency = "missing";
       lastLocalLayers.reason = scrubPaths(
-        parsed?.error || (probe.stderr || "faster-whisper is not installed yet.").slice(-400),
+        parsed?.error ||
+          (probe.stderr || "The FRIDAY Ear speech engine is not installed yet.").slice(-400),
       );
     }
     lastLocalLayers.worker = "stopped";
@@ -1940,7 +1943,7 @@ async function install(options = {}) {
     reportProgress({
       stage: "check",
       status: found.satisfied
-        ? `Speech engine is installed (faster-whisper ${found.versions["faster-whisper"]})`
+        ? `Speech engine is installed (FRIDAY Ear ${found.versions["faster-whisper"]})`
         : "Speech engine needs an install",
       progress: null,
       versions: found.versions,
@@ -2241,13 +2244,17 @@ async function transcribeNow(req = {}, onPartial) {
       const whisperApi = require("./whisper-cpp.cjs");
       const found = whisperApi.locateFrom([paths.root(), process.resourcesPath]);
       if (!found) {
-        return { ok: false, reason: "unavailable", error: "whisper.cpp files are missing" };
+        return {
+          ok: false,
+          reason: "unavailable",
+          error: "The FRIDAY Ear fallback files are missing",
+        };
       }
       if (!/\.wav$/i.test(file)) {
         return {
           ok: false,
           reason: "format",
-          error: "whisper.cpp needs a wav capture. This clip is not wav.",
+          error: "The FRIDAY Ear fallback needs a wav capture. This clip is not wav.",
         };
       }
       const warm = await openWhisperServer(found);
@@ -2288,7 +2295,9 @@ async function transcribeNow(req = {}, onPartial) {
         return {
           ok: false,
           reason: "engine-failed",
-          error: scrubPaths((result.stderr || "whisper.cpp returned no text").slice(-400)),
+          error: scrubPaths(
+            (result.stderr || "The FRIDAY Ear fallback returned no text").slice(-400),
+          ),
         };
       }
       return {

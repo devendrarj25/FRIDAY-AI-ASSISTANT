@@ -1,7 +1,7 @@
 /**
  * FRIDAY · neural voice
  *
- * Offline speech is FRIDAY Voice (the own engine over the Supertonic 3 graphs, her default voice) when that
+ * Offline speech is FRIDAY Voice (the own engine, her default voice) when that
  * model is on disk, through kernel/voice_runtime.py. Until then the Windows SAPI voice speaks.
  * The speaker process stays up so the model is not loaded again for every line.
  *
@@ -678,7 +678,7 @@ async function speakLocal(
 
 /** The most text one local clause may carry (the kernel cuts at the same length). */
 const PCM_TEXT_CAP = 500;
-/** The two local engines a clause may ask for: the light Hindi voice, or Supertonic (the default). */
+/** The two local engines a clause may ask for: the light Hindi voice, or FRIDAY Voice (the default). */
 const PCM_ENGINES = new Set(["hindi-light", "supertonic"]);
 /** A fallback reason the worker may report: a short kebab-case token, never free text. */
 const PCM_FALLBACK = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -792,7 +792,7 @@ function resetWarmUp() {
 }
 
 /**
- * One clause as raw 16-bit mono PCM from the persistent Supertonic worker. Local only: no cloud voice, no SAPI
+ * One clause as raw 16-bit mono PCM from the persistent FRIDAY Voice worker. Local only: no cloud voice, no SAPI
  * fallback, no disk write and no cache, so sensitive text never leaves this PC. The samples are returned as a
  * Buffer, which the renderer receives as a Uint8Array through the structured clone (no base64 round trip).
  * On any failure the answer is { ok: false, reason } and the caller keeps the existing speak path.

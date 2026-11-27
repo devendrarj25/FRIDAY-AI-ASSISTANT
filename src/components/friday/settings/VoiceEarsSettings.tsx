@@ -33,8 +33,8 @@ const AGC_LABELS: Record<VoiceEarsPrefs["agc"], string> = {
   off: "No volume levelling",
 };
 const VAD_LABELS: Record<VoiceEarsPrefs["vad"], string> = {
-  auto: "Automatic (the small model when it is installed)",
-  silero: "The small speech model",
+  auto: "Automatic (FRIDAY Listen Gate when it is installed)",
+  silero: "FRIDAY Listen Gate",
   energy: "Loudness only",
 };
 const EAGERNESS_LABELS: Record<VoiceEarsPrefs["eagerness"], string> = {
@@ -44,9 +44,9 @@ const EAGERNESS_LABELS: Record<VoiceEarsPrefs["eagerness"], string> = {
 };
 const DENOISE_LABELS: Record<VoiceEarsPrefs["denoise"], string> = {
   off: "Off (hear the plain sound)",
-  rnnoise: "RNNoise",
-  gtcrn: "GTCRN (very small)",
-  dpdfnet2: "DPDFNet 2",
+  rnnoise: "FRIDAY Denoise Basic",
+  gtcrn: "FRIDAY Denoise Lite (very small)",
+  dpdfnet2: "FRIDAY Denoise",
 };
 const SCENE_LABELS: Record<VoiceEarsPrefs["scene"], string> = {
   off: "Off",

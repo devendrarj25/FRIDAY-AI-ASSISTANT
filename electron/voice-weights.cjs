@@ -13,15 +13,14 @@ const STT_REPOS = {
   small: "Systran/faster-whisper-small",
   medium: "Systran/faster-whisper-medium",
   "large-v3": "Systran/faster-whisper-large-v3",
-  // The MIT conversion of openai/whisper-large-v3-turbo that faster-whisper itself names `large-v3-turbo`
-  // (its model table, read 2026-11-08). Close to large-v3 in size of vocabulary with far less decoding work.
+  // The turbo size, named `large-v3-turbo` by the speech engine. Close to large-v3 in size of vocabulary with far less decoding work.
   "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 };
 
 /**
  * Where a size is fetched from if its first repository stops answering. The turbo repository was renamed
  * from `mobiuslabsgmbh` to `dropbox-dash` (Hugging Face redirects the old name today, checked 2026-11-09), so the
- * new name is the second source: the same files, the same MIT licence, used only when the first fails.
+ * new name is the second source: the same files, used only when the first fails.
  */
 const STT_FALLBACK_REPOS = {
   "large-v3-turbo": ["dropbox-dash/faster-whisper-large-v3-turbo"],
@@ -31,48 +30,47 @@ const STT_FALLBACK_REPOS = {
 const TTS_REPO = "Supertone/supertonic-3";
 
 /**
- * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the Supertonic
+ * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the voice
  * code repository): the second source for the neural voice. Same files, same SHA-256 (`voice-pins.cjs` MIRROR_REPOS).
  */
 const TTS_ARCHIVE_REPO = "supertone-oss-archive/supertonic-3";
 
-/** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
+/** FRIDAY's Hindi ear: the Hindi int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
 const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
 /** The optional Hinglish ear (Roman letters, faster-whisper CT2) in `<root>/models/hinglish-ear` (see kernel/whisper_ears.py). */
 const HINGLISH_EAR_REPO = "MSpider3/whisper-hindi2hinglish-swift-ct2";
 
-/** The optional Hindi fallback (CC-BY-4.0, faster-whisper CT2) in `<root>/models/hindi-fallback-ear`. */
+/** The optional Hindi fallback (CT2) in `<root>/models/hindi-fallback-ear`. */
 const HINDI_FALLBACK_REPO = "collabora/faster-whisper-small-hindi";
 
 /** The optional Hindi punctuation model in `<root>/models/hindi-punct` (see kernel/hindi_punct.py). */
 const HINDI_PUNCT_REPO = "1-800-BAD-CODE/punct_cap_seg_47_language";
 
-/** The optional light Hindi voice (CC-BY-4.0, credit in the Models row) in `<root>/models/hindi-light-tts`. */
+/** The optional light Hindi voice in `<root>/models/hindi-light-tts`. */
 const HINDI_LIGHT_REPO = "sulabhkatiyar/indic-tiny-tts-hindi";
 
-/** The optional streaming denoiser (DPDFNet 2, Apache-2.0) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
+/** The optional streaming denoiser (FRIDAY Denoise) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
 const DENOISE_REPO = "Ceva-IP/DPDFNet";
 
-/** The optional tiny streaming denoiser (GTCRN, MIT) in `<root>/models/denoise-gtcrn`; off by default, never fetched on its own. */
+/** The optional tiny streaming denoiser (FRIDAY Denoise Lite) in `<root>/models/denoise-gtcrn`; off by default, never fetched on its own. */
 const GTCRN_REPO = "TigreGotico/audiosronnx-gtcrn";
 
-/** The optional speaker-verification candidate (CC-BY-4.0, credit in the Models row) in `<root>/models/speaker-wespeaker`. */
+/** The optional speaker-verification candidate in `<root>/models/speaker-wespeaker`. */
 const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
 
-/** The optional Hindi Whisper large-v3 fine-tune (Apache-2.0, a candidate, never a default) in `<root>/models/hindi-vaani-ear`. */
+/** The optional Hindi large-v3 fine-tune (a candidate, never a default) in `<root>/models/hindi-vaani-ear`. */
 const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
 
 /**
- * The optional Hinglish mixed-script ear (Apache-2.0, Trelis Research's Whisper large-v3 fine-tune, int8 CTranslate2 by a
- * community account; a candidate, never a default, on demand only) in `<root>/models/hinglish-ear-trelis`. The model folder
+ * The optional Hinglish mixed-script ear (a large-v3 fine-tune, int8; a candidate, never a default, on demand only) in `<root>/models/hinglish-ear-trelis`. The model folder
  * is its `int8/` subfolder; it writes Hindi in Devanagari and English words in Latin letters, unlike `hinglish-ear`
  * (Roman letters only), which stays as it is.
  */
 const HINGLISH_TRELIS_REPO = "nikh360pro/capsbro-hinglish-ct2";
 
 /**
- * The optional streaming ear (NVIDIA Nemotron 3.5 ASR Streaming 0.6B, ONNX int8, a candidate, never a default) in
+ * The optional streaming ear (FRIDAY Ear Live, ONNX int8, a candidate, never a default) in
  * `<root>/models/stream-ear-nemotron`. Setup and prefetch fetch it only when this PC's voice plan says so
  * (`streamEarDecision`: not the lite profile, not a low-end processor, its RAM inside the speech budget, the disk with
  * headroom, and never on a metered line, on battery or under heavy load); an installed verified copy is reused. The
@@ -280,7 +278,7 @@ const PINNED = [
     sources: [
       {
         kind: "url",
-        // The speech embedding model of the wake head, from the v0.5.1 release assets (Apache-2.0); `fileName` is the
+        // The speech embedding model of the wake head, from the v0.5.1 release assets; `fileName` is the
         // name FRIDAY's wake engine opens it by (`kernel/wake_word.py` EMBED_MODEL_NAME), not the release's own.
         url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
         fileName: WAKE_EMBED_FILE,
@@ -736,7 +734,7 @@ async function pinSelfTests(root, deps = {}) {
 
 /**
  * The voice language packs: named bundles of models that are already pinned above. Each pack installs in one action
- * from the Models page (`src/lib/friday/model-catalog.ts` `voicePacks` holds the labels, sizes and credits; a test
+ * from the Models page (`src/lib/friday/model-catalog.ts` `voicePacks` holds the labels, and sizes; a test
  * keeps the two member lists equal). The English ear is the one swappable member: `faster-whisper-small` on Auto,
  * the owner's locked size otherwise. Members are listed in the order they install.
  */

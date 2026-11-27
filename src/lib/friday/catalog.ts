@@ -1940,7 +1940,7 @@ export const catalog: CatalogEntry[] = [
     "1.2.0",
     "62 MB",
     "optional",
-    "Not the FRIDAY voice runtime. Current PyPI piper-tts is GPL-3.0-or-later.",
+    "Not the FRIDAY voice runtime.",
   ),
   E(
     "Coqui TTS",
@@ -1987,7 +1987,7 @@ export const catalog: CatalogEntry[] = [
     "6.1.12",
     "1 MB",
     "recommended",
-    "Cloud Microsoft voices. FRIDAY uses them only after this Neural voice is selected, and never for sensitive text. Offline speech is Supertonic when that model is installed, otherwise the system voice.",
+    "Cloud Microsoft voices. FRIDAY uses them only after this Neural voice is selected, and never for sensitive text. Offline speech is FRIDAY Voice when that model is installed, otherwise the system voice.",
   ),
   E(
     "faster-whisper",
@@ -1999,7 +1999,7 @@ export const catalog: CatalogEntry[] = [
     "1.0.3",
     "3 MB",
     "recommended",
-    "On-device speech-to-text engine spawned by kernel/stt.py",
+    "FRIDAY Ear: the on-device speech-to-text engine spawned by kernel/stt.py",
   ),
   E(
     "supertonic",
@@ -2011,7 +2011,7 @@ export const catalog: CatalogEntry[] = [
     "1.3.1",
     "1 MB",
     "recommended",
-    "Local neural speaker. Code MIT. Weights OpenRAIL-M, downloaded on demand, not bundled in the EXE.",
+    "The FRIDAY Voice speaker engine. Weights are downloaded on demand, not bundled in the EXE.",
   ),
   E(
     "moonshine-voice",
@@ -2023,7 +2023,7 @@ export const catalog: CatalogEntry[] = [
     "0.1.5",
     "16 MB",
     "optional",
-    "English streaming model inside the one speech worker. Hindi and Hinglish stay on faster-whisper.",
+    "English streaming model inside the one speech worker. Hindi and Hinglish stay on the FRIDAY Ear worker.",
   ),
   E(
     "onnx-asr",
@@ -2035,7 +2035,7 @@ export const catalog: CatalogEntry[] = [
     "0.12.0",
     "1 MB",
     "optional",
-    "Runs the Hindi ear (IndicConformer int8) inside the one speech worker when Hindi is chosen. Weights download on demand.",
+    "Runs FRIDAY Ear Hindi inside the one speech worker when Hindi is chosen. Weights download on demand.",
   ),
   E(
     "sentencepiece",
@@ -2059,7 +2059,7 @@ export const catalog: CatalogEntry[] = [
     "0.4.3",
     "2 MB",
     "optional",
-    "Noise suppression on captured audio before the same speech worker. Apache-2.0.",
+    "Noise suppression on captured audio before the same speech worker.",
   ),
   E(
     "pyaec",

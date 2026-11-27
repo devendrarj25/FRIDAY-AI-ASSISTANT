@@ -388,7 +388,7 @@ export type VoicePreferences = {
   outputDeviceId: string;
   /** The browser's own noise suppression on the microphone. On is how FRIDAY has always opened it. */
   noiseSuppression: boolean;
-  /** Which engine speaks: auto keeps today's order; supertonic is the local voice only; sapi is the system voice only. */
+  /** Which engine speaks: auto keeps today's order; supertonic (FRIDAY Voice) is the local voice only; sapi is the system voice only. */
   ttsEngine: TtsEnginePick;
   /** Spoken reply language. */
   speechLang: string;
@@ -470,7 +470,7 @@ export type VoicePreferences = {
   ears: VoiceEarsPrefs;
   /** Read spoken numbers, times and money in Hinglish as digits in the words shown (runs after the tidy step). */
   itn: boolean;
-  /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
+  /** Score the shared microphone for the wake word as it arrives (needs a wake word model; local only). */
   liveWake: boolean;
   /** A saved voice may block a sensitive command from a voice that does not match it. It never approves anything. */
   recogniseMyVoice: boolean;
@@ -492,11 +492,11 @@ export type VoicePreferences = {
   notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
-  /** faster-whisper size. auto keeps the measured tier. */
+  /** FRIDAY Ear size. auto keeps the measured tier. */
   sttSize: SttSizePick;
-  /** Listen for the language again on every phrase (faster-whisper multilingual). Off by default; auto language only. */
+  /** Listen for the language again on every phrase (FRIDAY Ear multilingual). Off by default; auto language only. */
   sttMultilingual: boolean;
-  /** The optional large Hinglish ear for mixed Hindi-English phrases: off (default) or the Trelis one. GPU only, opt-in. */
+  /** The optional large Hinglish ear for mixed Hindi-English phrases: off (default) or on (stored word trelis). GPU only, opt-in. */
   hinglishEar: HinglishEarPick;
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
