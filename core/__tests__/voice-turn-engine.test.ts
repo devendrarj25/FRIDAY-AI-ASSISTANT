@@ -516,6 +516,38 @@ describe("turn engine: the committed record", () => {
     const rec = done.commands[0];
     expect(rec?.k === "commit" && rec.record.eotWaitMs).toBe(6 * FRAME_MS);
   });
+
+  it("carries the ear's locked language, keeps the record unchanged without it, and never loses a lock", () => {
+    const lang = (l: "hi" | "en"): Partial<StreamTurn> => ({
+      lang: l,
+      langLocked: true,
+      langConf: 0.9,
+    });
+    const locked = run(open(), [
+      ear(0, "start", "kya haal"),
+      ear(2, "partial", "kya haal hai", "t1", lang("hi")),
+      tick(8),
+    ]);
+    const rec = locked.commands.find((c) => c.k === "commit");
+    expect(rec?.k === "commit" && rec.record.streamLang).toBe("hi");
+
+    const plain = run(open(), [ear(0, "partial", "open the file"), tick(6)]);
+    const none = plain.commands[0];
+    expect(none?.k === "commit" && "streamLang" in none.record).toBe(false);
+
+    const later = run(open(), [
+      ear(0, "start", "open", "t1", lang("en")),
+      ear(2, "partial", "open the file"),
+      ear(3, "partial", "open the file now", "t1", {
+        lang: "hi",
+        langLocked: false,
+        langConf: 0.2,
+      }),
+      tick(9),
+    ]);
+    const kept = later.commands.find((c) => c.k === "commit");
+    expect(kept?.k === "commit" && kept.record.streamLang).toBe("en");
+  });
 });
 
 describe("turn engine: barge verdicts", () => {

@@ -31,6 +31,7 @@ import {
   type EotLang,
 } from "./endpoint-calibration";
 import {
+  STREAM_LANG_MIN_CONF,
   buildTurnRecord,
   languageMix,
   sameWords,
@@ -127,7 +128,13 @@ export type TurnEngineConfig = {
 };
 
 export type TurnDraft = { inFlight: boolean; turnId: string; text: string };
-type TurnFactsLite = { speaker: TurnSpeaker | null; env: TurnEnv | null; clipped: boolean };
+type TurnFactsLite = {
+  speaker: TurnSpeaker | null;
+  env: TurnEnv | null;
+  clipped: boolean;
+  /** The ear's locked language (conf >= STREAM_LANG_MIN_CONF); never replaced by an empty value. */
+  streamLang?: "hi" | "en";
+};
 
 export type TurnEngineState = {
   v: 1;
@@ -298,10 +305,15 @@ function afterSpeech(n: TurnEngineState, out: TurnCommand[]): void {
 
 function applyEarListen(n: TurnEngineState, turn: StreamTurn, out: TurnCommand[]): void {
   if (turn.text.trim() !== "") n.text = turn.text;
+  const lockedLang =
+    turn.lang && turn.langLocked === true && (turn.langConf ?? 0) >= STREAM_LANG_MIN_CONF
+      ? turn.lang
+      : n.facts.streamLang;
   n.facts = {
     speaker: turn.speaker ?? n.facts.speaker,
     env: turn.env ?? n.facts.env,
     clipped: turn.clipped === true || n.facts.clipped,
+    ...(lockedLang ? { streamLang: lockedLang } : {}),
   };
   if (turn.event === "start" || turn.event === "partial" || turn.event === "resumed") {
     n.lastVoiceFrame = n.frame;
@@ -498,6 +510,7 @@ function toThink(n: TurnEngineState, out: TurnCommand[]): void {
           speaker: n.facts.speaker,
           env: n.facts.env,
           clipped: n.facts.clipped,
+          ...(n.facts.streamLang ? { streamLang: n.facts.streamLang } : {}),
         },
       }),
       v: 2,
