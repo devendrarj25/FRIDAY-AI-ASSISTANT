@@ -48,8 +48,22 @@ const PREFERRED = [
 let installing = null;
 let cachedStatus = null;
 
+/** Keep `cache/tts` inside its size and file limits (voice-privacy.cjs); a cache that cannot be trimmed never blocks speech. */
+function trimTtsCache(keepFile) {
+  try {
+    require("./voice-privacy.cjs").boundTtsCache(keepFile ? { keep: [keepFile] } : {});
+  } catch {
+    /* the next write tries again */
+  }
+}
+let ttsCacheTrimmedAtStart = false;
+
 const cacheDir = () => {
   const dir = path.join(paths.ensureDir("cache"), "tts");
+  if (!ttsCacheTrimmedAtStart) {
+    ttsCacheTrimmedAtStart = true;
+    trimTtsCache();
+  }
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch {
@@ -658,6 +672,7 @@ async function speakLocal(
   } catch {
     return reply(engine, scratch, { own });
   }
+  trimTtsCache(kept);
   return reply(engine, kept, { own });
 }
 
@@ -1038,6 +1053,7 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
         reason: scrubPaths(result.stderr || "edge-tts produced no audio").slice(-400),
       };
     }
+    trimTtsCache(file);
   }
   return {
     ok: true,

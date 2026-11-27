@@ -248,6 +248,64 @@ function insideBase(target) {
   }
 }
 
+// ----------------------------------------------------------------------------- spoken-reply cache bound
+/** The most the spoken-reply cache (`cache/tts`) may hold: total bytes and file count. Oldest files go first. */
+const TTS_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+const TTS_CACHE_MAX_FILES = 2000;
+/** What FRIDAY writes there: a random clip (16 hex), a cloud reply (sha1 mp3) or a local reply (sha1 wav). */
+const TTS_CACHE_NAME = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav|mp3)|[0-9a-f]{40}\.(?:mp3|wav))$/;
+
+/**
+ * Keep the spoken-reply cache inside its limits: the oldest FRIDAY-named regular files go first until both the size
+ * and the count fit. A link, a stranger's file and a folder that links out of the FRIDAY folder are never touched.
+ * `keep` lists paths that stay whatever the limits say (the file just written). Called at the first speech and after
+ * each write; safe to call twice.
+ * @param {{ maxBytes?: number, maxFiles?: number, keep?: string[] }} [options]
+ * @returns {{ removed: number, freed: number, kept: number, keptBytes: number }}
+ */
+function boundTtsCache({
+  maxBytes = TTS_CACHE_MAX_BYTES,
+  maxFiles = TTS_CACHE_MAX_FILES,
+  keep = [],
+} = {}) {
+  const none = { removed: 0, freed: 0, kept: 0, keptBytes: 0 };
+  const target = cacheTargets().find((entry) => entry.group === "replies");
+  if (!target || !insideBase(target)) return none;
+  const protectedNames = new Set(keep.map((file) => path.basename(String(file))));
+  let entries = [];
+  try {
+    entries = fs.readdirSync(target.dir, { withFileTypes: true });
+  } catch {
+    return none;
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !TTS_CACHE_NAME.test(entry.name)) continue;
+    const file = path.join(target.dir, entry.name);
+    try {
+      const stat = fs.lstatSync(file);
+      if (stat.isFile()) files.push({ file, name: entry.name, size: stat.size, at: stat.mtimeMs });
+    } catch {
+      /* a file that vanished is not counted */
+    }
+  }
+  files.sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
+  let count = files.length;
+  let bytes = files.reduce((sum, item) => sum + item.size, 0);
+  let removed = 0;
+  let freed = 0;
+  for (const item of files) {
+    if (count <= maxFiles && bytes <= maxBytes) break;
+    if (protectedNames.has(item.name)) continue;
+    if (removeClip(item.file) < 0) continue;
+    count -= 1;
+    bytes -= item.size;
+    removed += 1;
+    freed += item.size;
+  }
+  return { removed, freed, kept: count, keptBytes: bytes };
+}
+
 /** Remove one FRIDAY-named regular file (never a link). Returns its size, or -1 when it stayed. */
 function removeClip(file) {
   try {
@@ -422,5 +480,8 @@ module.exports = {
   status,
   deleteAll,
   clearVoiceData,
+  boundTtsCache,
+  TTS_CACHE_MAX_BYTES,
+  TTS_CACHE_MAX_FILES,
   useForTests,
 };

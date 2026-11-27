@@ -123,10 +123,18 @@ function createVoiceCloud({
   costsMoney = (id) => PAID_PROVIDERS.has(id),
   paidUnlocked = () => false,
 }) {
-  function gate(provider) {
-    const secretId = SECRET_IDS[provider];
-    if (!secretId) return { ok: false, error: "that provider has no speech connection here" };
-    const voice = prefs() || {};
+  /**
+   * The settings part of the gate, with no key read: cloud voice on, the provider allowed, privacy mode off, and
+   * paid access on when the provider costs money. Returns the refusal, or null. Preferences that cannot be read
+   * refuse. The streaming path asks this on every clause, so a switch turned off mid-stream stops the next one.
+   */
+  function refusal(provider) {
+    let voice;
+    try {
+      voice = prefs() || {};
+    } catch {
+      return { ok: false, error: "voice settings could not be read" };
+    }
     const cloud = voice.cloudVoice || {};
     if (cloud.cloudEnabled !== true) return { ok: false, error: "cloud voice is switched off" };
     if (!Array.isArray(cloud.allowedProviders) || !cloud.allowedProviders.includes(provider))
@@ -140,9 +148,32 @@ function createVoiceCloud({
       paidOff = true;
     }
     if (paidOff) return { ok: false, error: "paid access is off (this provider costs money)" };
+    return null;
+  }
+
+  function gate(provider) {
+    const secretId = SECRET_IDS[provider];
+    if (!secretId) return { ok: false, error: "that provider has no speech connection here" };
+    const refused = refusal(provider);
+    if (refused) return refused;
     const key = getSecret(secretId);
     if (!key) return { ok: false, error: "no key is saved for that provider" };
-    return { ok: true, key, cloud };
+    return { ok: true, key, cloud: (prefs() || {}).cloudVoice || {} };
+  }
+
+  /**
+   * One frame for the streaming speech socket. A text clause is checked here, in the main process, with the privacy
+   * firewall and the settings gate, before it can be sent; a renderer `sensitiveReply: true` can only add a refusal.
+   * Every other frame (flush, config) carries no text and passes. The reply then stays on the local voice.
+   */
+  function screenStreamMessage(provider, message) {
+    if (message?.type !== "text") return { ok: true };
+    const refused = refusal(provider);
+    if (refused) return refused;
+    const text = String(message.text ?? "").trim();
+    if (message.sensitiveReply === true || classify(text).level === "sensitive")
+      return { ok: false, sensitive: true, error: "cloud speech is blocked for sensitive text" };
+    return { ok: true };
   }
 
   async function call(spec, key, provider) {
@@ -276,11 +307,25 @@ function createVoiceCloud({
       : { ok: false, error: "the provider returned no transcript" };
   }
 
-  return { speak, transcribe, gate };
+  return { speak, transcribe, gate, screenStreamMessage };
+}
+
+/**
+ * The `voice-stream:send` handler body: screen the frame in the main process, then hand it to the open stream.
+ * The key never passes through here; the stream holds it.
+ * @param {{ screenStreamMessage: (provider: string, message: any) => any }} api
+ * @param {{ send: (id: string, message: any) => any }} streams
+ */
+function guardedStreamSend(api, streams, provider = "sarvam") {
+  return (id, message) => {
+    const screened = api.screenStreamMessage(provider, message);
+    return screened.ok === true ? streams.send(id, message) : screened;
+  };
 }
 
 module.exports = {
   createVoiceCloud,
+  guardedStreamSend,
   buildSarvamTts,
   sarvamModelFor,
   SARVAM_V2_FEMALE,

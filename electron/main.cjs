@@ -10224,9 +10224,9 @@ ipcMain.handle("voice-stream:open", async (e, id, kind, options) => {
   const opened = await sarvamStreams.whenOpen(streamId);
   return opened.ok ? { ...started, opened: true } : { ok: false, error: opened.error };
 });
-ipcMain.handle("voice-stream:send", (_e, id, message) =>
-  sarvamStreams.send(String(id || ""), message),
-);
+// Every clause is classified here, in the main process, before it reaches the socket (a sensitive one stays local).
+const sendStream = voiceCloud.guardedStreamSend(voiceCloudApi, sarvamStreams);
+ipcMain.handle("voice-stream:send", (_e, id, message) => sendStream(String(id || ""), message));
 ipcMain.handle("voice-stream:close", (_e, id) => sarvamStreams.close(String(id || "")));
 ipcMain.handle("voice-cloud:key-status", () => {
   const credentials = require("./credentials.cjs");
