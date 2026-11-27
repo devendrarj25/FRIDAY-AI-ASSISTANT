@@ -15,7 +15,9 @@ could not be installed; it only degrades in quality.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
+import logging
 import math
 import os
 import re
@@ -30,6 +32,8 @@ from pathlib import Path
 
 import file_tools
 import privacy
+
+log = logging.getLogger("friday.memory")
 
 TEXT_SUFFIXES = {".md", ".txt", ".py", ".ts", ".tsx", ".js", ".json", ".yaml", ".yml", ".toml", ".sql"}
 
@@ -90,6 +94,18 @@ def embed(text: str) -> list[float]:
     return [v / norm for v in vec]
 
 
+def _synchronized(method):
+    """Run a NumpyIndex method under its lock: add_many and remove run in a worker thread while search runs on the
+    event loop."""
+
+    @functools.wraps(method)
+    def run(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return run
+
+
 class NumpyIndex:
     """Exact cosine search over hashed embeddings.
 
@@ -103,6 +119,8 @@ class NumpyIndex:
         self.records_file = self.path / "records.jsonl"
         self.matrix_file = self.path / "vectors.npy"
         self.version_file = self.path / "vectors.version"
+        # A worker thread writes while the event loop searches: one lock keeps records and vectors in step.
+        self._lock = threading.RLock()
         self.records: list[dict] = []
         self.vectors: list[list[float]] = []
         self._matrix = None
@@ -115,6 +133,7 @@ class NumpyIndex:
         except ImportError:
             self._np = None
 
+    @_synchronized
     def load(self) -> None:
         self.records = []
         self.vectors = []
@@ -206,26 +225,47 @@ class NumpyIndex:
         self._persist_matrix()
 
     def add(self, text: str, kind: str, title: str, record_id: str | None = None) -> None:
-        rid = (record_id or "").strip() or uuid.uuid4().hex
-        record = {"id": rid, "text": text, "kind": kind, "title": title}
-        vector = embed(text)
-        for index, rec in enumerate(self.records):
-            if rec.get("id") == rid:
-                self.records[index] = record
-                if index < len(self.vectors):
-                    self.vectors[index] = vector
+        self.add_many([{"id": record_id, "text": text, "kind": kind, "title": title}])
+
+    def add_many(self, items: list[dict]) -> None:
+        """Upsert many records with at most one rewrite of the log: new ids are appended together, and a changed
+        existing id replaces its row in memory and costs one rewrite for the whole call, never one per record. A
+        record that is already stored exactly as given touches nothing."""
+        with self._lock:
+            positions = {rec.get("id"): n for n, rec in enumerate(self.records)}
+            appended: list[dict] = []
+            rewrite = False
+            for item in items:
+                rid = (item.get("id") or "").strip() or uuid.uuid4().hex
+                record = {"id": rid, "text": item["text"], "kind": item["kind"], "title": item["title"]}
+                at = positions.get(rid)
+                if at is not None and self.records[at] == record:
+                    continue
+                vector = embed(record["text"])
+                if at is None:
+                    positions[rid] = len(self.records)
+                    self.records.append(record)
+                    self.vectors.append(vector)
+                    appended.append(record)
+                    continue
+                self.records[at] = record
+                if at < len(self.vectors):
+                    self.vectors[at] = vector
                 else:
                     self.vectors.append(vector)
-                self._matrix = None
+                rewrite = True
+            if not rewrite and not appended:
+                return
+            self._matrix = None
+            if rewrite:
                 self._rewrite_records()
                 return
-        self.records.append(record)
-        self.vectors.append(vector)
-        self._matrix = None
-        with self.records_file.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        self._persist_matrix(defer=True)
+            with self.records_file.open("a", encoding="utf-8") as fh:
+                for record in appended:
+                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            self._persist_matrix(defer=True)
 
+    @_synchronized
     def remove(self, record_ids: list[str]) -> int:
         """Drop records by id. Returns how many were removed. The log is authoritative; the matrix follows."""
         wanted = {str(rid).strip() for rid in record_ids if str(rid).strip()}
@@ -260,6 +300,7 @@ class NumpyIndex:
             self._matrix = self._np.array(self.vectors, dtype="float32")
         return self._matrix
 
+    @_synchronized
     def search(self, query: str, k: int = 8) -> list[dict]:
         if not self.records:
             return []
@@ -289,6 +330,7 @@ class NumpyIndex:
             out.append(row)
         return out
 
+    @_synchronized
     def reindex(self) -> dict:
         """Rebuild every vector from the authoritative record log."""
         self.load()
@@ -306,6 +348,12 @@ RECALL_TIMEOUT_VOICE = 0.4
 # A row below the floor is a nearest neighbour of nothing in particular and is not worth a place in the prompt.
 RECALL_FLOOR_CHROMA = -0.25
 RECALL_FLOOR_NUMPY = 0.08
+# A Chroma call that has not come back after this long is wedged (an offline model download, a locked store):
+# recall stops waiting for it and memory moves to the local index.
+PENDING_MAX_SECONDS = 120.0
+# Changed chunks are written in batches of this size, so a big folder costs a handful of log rewrites.
+INDEX_BATCH = 200
+_monotonic = time.monotonic
 
 MAX_LESSONS = 200
 LESSON_TITLE_CAP = 160
@@ -356,6 +404,7 @@ class VectorMemory:
         self._lock = asyncio.Lock()
         self._thread_lock = threading.Lock()
         self._pending: asyncio.Future | None = None
+        self._pending_since = 0.0
         self._copy_task: asyncio.Future | None = None
         self._merge_task: asyncio.Future | None = None
         self._merge_needed = False
@@ -363,6 +412,10 @@ class VectorMemory:
         # forgotten while a fold is pending or running is deleted again after the last upsert so it is never recalled.
         self._merge_lock = asyncio.Lock()
         self._forgotten: set[str] = set()
+        # Records written to Chroma while a fold of the local log runs: the fold would otherwise upsert an older
+        # local copy of the same id after them.
+        self._fresh: dict[str, tuple[str, dict]] = {}
+        self._lessons_lock = asyncio.Lock()
 
     def _locked(self, fn, /, *args, **kwargs):
         with self._thread_lock:
@@ -381,7 +434,7 @@ class VectorMemory:
     def _degrade(self, exc: Exception) -> None:
         if self.collection is None:
             return
-        print(f"[memory] vector store call failed ({exc}) - using local vector index")
+        log.warning("vector store call failed (%s) - using local vector index", exc)
         broken = self.collection
         self.collection = None
         if self.fallback is None:
@@ -419,7 +472,7 @@ class VectorMemory:
         try:
             rows = await asyncio.wait_for(asyncio.to_thread(self._locked, pull), 30)
         except Exception as exc:
-            print(f"[memory] could not copy the vector store into the local index ({exc})")
+            log.warning("could not copy the vector store into the local index (%s)", exc)
             return 0
         index = self.fallback
         if index is None:
@@ -447,7 +500,7 @@ class VectorMemory:
         try:
             import chromadb
         except ImportError:
-            print("[memory] chromadb not installed - using local vector index")
+            log.info("chromadb not installed - using local vector index")
             self._open_fallback()
             return
         _point_chroma_model_cache()
@@ -455,7 +508,7 @@ class VectorMemory:
             client = chromadb.PersistentClient(path=str(self.path))
             self.collection = client.get_or_create_collection("friday")
         except Exception as exc:  # corrupt store, locked file, ...
-            print(f"[memory] vector store unavailable ({exc}) - using local vector index")
+            log.warning("vector store unavailable (%s) - using local vector index", exc)
             self._open_fallback()
             return
         # Records written to the local index while Chroma was down go back into Chroma on the first live turn.
@@ -487,7 +540,7 @@ class VectorMemory:
             try:
                 return await self._merge_records(self.collection)
             except Exception as exc:
-                print(f"[memory] local records could not be folded into the vector store ({exc})")
+                log.warning("local records could not be folded into the vector store (%s)", exc)
                 return 0
 
     async def _merge_records(self, col) -> int:
@@ -497,7 +550,9 @@ class VectorMemory:
         records = [r for r in index.records if r.get("id") and r.get("text")]
         try:
             for i in range(0, len(records), 100):
-                batch = [r for r in records[i : i + 100] if r["id"] not in self._forgotten]
+                batch = [
+                    r for r in records[i : i + 100] if r["id"] not in self._forgotten and r["id"] not in self._fresh
+                ]
                 if not batch:
                     continue
                 await self._chroma(
@@ -508,11 +563,22 @@ class VectorMemory:
                         {"kind": r.get("kind", "document"), "title": r.get("title", ""), "id": r["id"]} for r in batch
                     ],
                 )
+            local_ids = {r["id"] for r in records}
+            newer = {rid: row for rid, row in self._fresh.items() if rid in local_ids}
+            if newer:
+                # Written while the fold ran: the newer copy wins over the local one an in-flight batch carried.
+                await self._chroma(
+                    col.upsert,
+                    ids=list(newer),
+                    documents=[text for text, _meta in newer.values()],
+                    metadatas=[meta for _text, meta in newer.values()],
+                )
             if self._forgotten:
                 # A remove() that ran while a batch was in flight lost the race to that upsert: delete it again.
+                # An id added again after its remove() left this set in add(), so the new record is not deleted.
                 await self._chroma(col.delete, ids=sorted(self._forgotten))
         except Exception as exc:
-            print(f"[memory] could not move local records into the vector store yet ({exc})")
+            log.warning("could not move local records into the vector store yet (%s)", exc)
             return 0
         if index.records_file.exists():
             os.replace(index.records_file, index.records_file.with_name("records.jsonl.merged"))
@@ -525,6 +591,7 @@ class VectorMemory:
         moved = len([r for r in records if r["id"] not in self._forgotten])
         self._merge_needed = False
         self._forgotten.clear()
+        self._fresh.clear()
         return moved
 
     def _open_fallback(self) -> None:
@@ -533,7 +600,7 @@ class VectorMemory:
             index.load()
             self.fallback = index
         except Exception as exc:
-            print(f"[memory] local vector index unavailable ({exc}) - recall disabled")
+            log.warning("local vector index unavailable (%s) - recall disabled", exc)
             self.fallback = None
 
     @property
@@ -552,6 +619,14 @@ class VectorMemory:
     def warming(self) -> bool:
         """True while an earlier recall that overran its budget is still running."""
         return self._pending is not None and not self._pending.done()
+
+    def _expire_pending(self) -> None:
+        """A recall that never came back wedged the vector store: stop waiting for it and use the local index, so
+        every later turn gets its memory instead of an empty list until the next restart."""
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            pending.cancel()
+        self._degrade(TimeoutError(f"a vector store call did not finish in {PENDING_MAX_SECONDS:.0f}s"))
 
     def count(self) -> int | None:
         """How many records the open backend holds, or None when it cannot say."""
@@ -599,7 +674,9 @@ class VectorMemory:
         """Context injected before planning or answering. It never holds a turn: past the budget it returns no
         rows, the search finishes in the background, and later turns skip recall until it has."""
         if self.warming:
-            return []
+            if _monotonic() - self._pending_since < PENDING_MAX_SECONDS:
+                return []
+            self._expire_pending()
         self._pending = None
         self.start_merge()
         budget = timeout if timeout is not None else (RECALL_TIMEOUT_VOICE if voice else RECALL_TIMEOUT_CHAT)
@@ -608,6 +685,7 @@ class VectorMemory:
             rows = await asyncio.wait_for(asyncio.shield(task), budget)
         except TimeoutError:
             self._pending = task
+            self._pending_since = _monotonic()
             task.add_done_callback(lambda t: t.cancelled() or t.exception())
             return []
         except Exception:
@@ -615,26 +693,53 @@ class VectorMemory:
         floor = RECALL_FLOOR_CHROMA if self.collection is not None else RECALL_FLOOR_NUMPY
         return [row for row in rows if float(row.get("score", 0.0)) >= floor]
 
+    def _folding(self) -> bool:
+        return self._merge_lock.locked() or (self._merge_task is not None and not self._merge_task.done())
+
     async def add(self, text: str, kind: str, title: str, record_id: str | None = None) -> None:
-        rid = (record_id or "").strip() or uuid.uuid4().hex
-        meta = {"kind": kind, "title": title, "id": rid}
+        await self.add_many([{"id": record_id, "text": text, "kind": kind, "title": title}])
+
+    async def add_many(self, items: list[dict]) -> None:
+        """Store several records with one call to the open backend (one log rewrite on the local index)."""
+        rows = [
+            {
+                "id": (item.get("id") or "").strip() or uuid.uuid4().hex,
+                "text": item["text"],
+                "kind": item["kind"],
+                "title": item["title"],
+            }
+            for item in items
+        ]
+        if not rows:
+            return
         self.start_merge()
+        folding = self._folding()
+        for row in rows:
+            # Added again after a remove(): the fold's final delete must not take the new record away.
+            self._forgotten.discard(row["id"])
         if self.collection is None:
-            if self.fallback:
-                self.fallback.add(text, kind=kind, title=title, record_id=rid)
+            await self._add_local(rows)
             return
         col = self._ensure()
+        ids = [row["id"] for row in rows]
+        docs = [row["text"] for row in rows]
+        metas = [{"kind": row["kind"], "title": row["title"], "id": row["id"]} for row in rows]
+        if folding:
+            self._fresh.update({rid: (doc, meta) for rid, doc, meta in zip(ids, docs, metas, strict=True)})
         try:
             try:
-                await self._chroma(col.upsert, ids=[rid], documents=[text], metadatas=[meta])
+                await self._chroma(col.upsert, ids=ids, documents=docs, metadatas=metas)
             except Exception:
                 if self.collection is None:
                     raise
-                await self._chroma(col.add, ids=[rid], documents=[text], metadatas=[meta])
+                await self._chroma(col.add, ids=ids, documents=docs, metadatas=metas)
         except Exception:
-            # The store moved to the local index (see _degrade): the record is kept there.
-            if self.fallback is not None:
-                self.fallback.add(text, kind=kind, title=title, record_id=rid)
+            # The store moved to the local index (see _degrade): the records are kept there.
+            await self._add_local(rows)
+
+    async def _add_local(self, rows: list[dict]) -> None:
+        if self.fallback is not None:
+            await asyncio.to_thread(self.fallback.add_many, rows)
 
     async def remove(self, record_ids: list[str]) -> int:
         """Forget records by id in whichever backend is open. A forgotten memory must not be recalled."""
@@ -642,19 +747,26 @@ class VectorMemory:
         if not ids:
             return 0
         if self.collection is None:
-            return self.fallback.remove(ids) if self.fallback else 0
+            return await self._remove_local(ids)
         if self._merge_needed:
             # Local records still waiting to be folded in would bring this id back: remember it for a running fold,
             # and drop it from the local log when no fold is running.
             self._forgotten.update(ids)
+            for rid in ids:
+                self._fresh.pop(rid, None)
             if not self._merge_lock.locked():
                 async with self._merge_lock:
                     await asyncio.to_thread(self._forget_local, ids)
         try:
             await self._chroma(self._ensure().delete, ids=ids)
         except Exception:
-            return self.fallback.remove(ids) if self.fallback else 0
+            return await self._remove_local(ids)
         return len(ids)
+
+    async def _remove_local(self, ids: list[str]) -> int:
+        if self.fallback is None:
+            return 0
+        return await asyncio.to_thread(self.fallback.remove, ids)
 
     def _forget_local(self, ids: list[str]) -> None:
         if not self._fallback_file().exists():
@@ -671,16 +783,19 @@ class VectorMemory:
             return
         rid = "lesson-" + sha1(rule.lower().encode("utf-8")).hexdigest()[:20]
         manifest = self.path / "lessons.json"
-        order = [x for x in _read_json(manifest, []) if isinstance(x, str) and x != rid]
-        order.append(rid)
-        evicted = order[:-MAX_LESSONS]
-        order = order[-MAX_LESSONS:]
-        await self.add(
-            f"{rule}\n\nLearned from: {context}", kind="lesson", title=rule[:LESSON_TITLE_CAP], record_id=rid
-        )
-        if evicted:
-            await self.remove(evicted)
-        await asyncio.to_thread(_atomic_write_json, manifest, order)
+        # Read, add, evict and write happen as one step: two lessons learned at once must not both start from the
+        # same list and lose one of the evictions.
+        async with self._lessons_lock:
+            order = [x for x in await asyncio.to_thread(_read_json, manifest, []) if isinstance(x, str) and x != rid]
+            order.append(rid)
+            evicted = order[:-MAX_LESSONS]
+            order = order[-MAX_LESSONS:]
+            await self.add(
+                f"{rule}\n\nLearned from: {context}", kind="lesson", title=rule[:LESSON_TITLE_CAP], record_id=rid
+            )
+            if evicted:
+                await self.remove(evicted)
+            await asyncio.to_thread(_atomic_write_json, manifest, order)
 
     async def reindex(self) -> dict:
         """Rebuild the disposable index. Chroma maintains its own index, so
@@ -751,33 +866,70 @@ class VectorMemory:
             slots += 1
         return slots, keep
 
+    @staticmethod
+    def _manifest_key(path: Path) -> str:
+        """One key per file however the folder was spelled: the resolved path, case-folded where the OS folds it."""
+        return os.path.normcase(os.path.realpath(path))
+
+    @staticmethod
+    def _chunk_hash(chunk: str) -> str:
+        return blake2b(chunk.encode("utf-8"), digest_size=12).hexdigest()
+
+    @staticmethod
+    def _read_manifest(manifest_file: Path) -> dict[str, dict]:
+        """Per file: the slot count and a content hash per stored chunk. The first release stored a bare slot count
+        per file; that shape still loads (no hashes, so every chunk of it is written once and then hashed)."""
+        out: dict[str, dict] = {}
+        for key, value in _read_json(manifest_file, {}).items():
+            if not isinstance(key, str):
+                continue
+            if isinstance(value, int) and not isinstance(value, bool):
+                out[key] = {"slots": value, "hashes": {}}
+            elif isinstance(value, dict) and isinstance(value.get("slots"), int):
+                hashes = value.get("hashes")
+                clean = {str(k): v for k, v in hashes.items() if isinstance(v, str)} if isinstance(hashes, dict) else {}
+                out[key] = {"slots": value["slots"], "hashes": clean}
+        return out
+
     async def index_path(self, root: str) -> dict:
         if not self.available:
             return {"ok": False, "reason": "vector memory unavailable", "files": 0, "chunks": 0}
         base = Path(root)
         manifest_file = self.path / "index-manifest.json"
-        manifest: dict[str, int] = {
-            k: v for k, v in _read_json(manifest_file, {}).items() if isinstance(k, str) and isinstance(v, int)
-        }
+        manifest = await asyncio.to_thread(self._read_manifest, manifest_file)
+        # A wiped or rebuilt store holds none of what the manifest remembers: then every chunk is written again.
+        trust_hashes = bool(self.count())
         # Walking a folder and reading its files is disk work: off the event loop, so a large folder does not
         # stall every other request while it is indexed.
         files, skipped = await asyncio.to_thread(self._walk, base)
         seen: set[str] = set()
         chunks = 0
+        batch: list[dict] = []
         for file in files:
-            key = str(file)
+            title = str(file)
+            key = self._manifest_key(file)
             seen.add(key)
             slots, keep = await asyncio.to_thread(self._public_chunks, file)
+            old = manifest.get(key, {"slots": 0, "hashes": {}})
+            hashes: dict[str, str] = {}
             for i, chunk in keep.items():
-                await self.add(chunk, kind="document", title=key, record_id=self._chunk_id(key, i))
+                digest = self._chunk_hash(chunk)
+                hashes[str(i)] = digest
                 chunks += 1
-            old = manifest.get(key, 0)
-            stale = [self._chunk_id(key, i) for i in range(old) if i not in keep]
+                if trust_hashes and old["hashes"].get(str(i)) == digest:
+                    continue  # stored as it is: nothing to write
+                batch.append({"id": self._chunk_id(key, i), "text": chunk, "kind": "document", "title": title})
+            if len(batch) >= INDEX_BATCH:
+                await self.add_many(batch)
+                batch = []
+            stale = [self._chunk_id(key, i) for i in range(old["slots"]) if i not in keep]
             if stale:
                 await self.remove(stale)
-            manifest[key] = slots
-        prefix = str(base).rstrip(os.sep) + os.sep
+            manifest[key] = {"slots": slots, "hashes": hashes}
+        if batch:
+            await self.add_many(batch)
+        prefix = os.path.normcase(os.path.realpath(base)).rstrip(os.sep) + os.sep
         for key in [k for k in manifest if k not in seen and k.startswith(prefix)]:
-            await self.remove([self._chunk_id(key, i) for i in range(manifest.pop(key))])
+            await self.remove([self._chunk_id(key, i) for i in range(manifest.pop(key)["slots"])])
         await asyncio.to_thread(_atomic_write_json, manifest_file, manifest)
         return {"ok": True, "files": len(files), "chunks": chunks, "skipped": skipped, "backend": self.backend}

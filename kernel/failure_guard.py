@@ -154,5 +154,8 @@ def restore_database_file(path: Path) -> bool:
     bak = _backup(path)
     if not bak.is_file():
         return False
-    shutil.copyfile(bak, path)
+    try:
+        shutil.copyfile(bak, path)
+    except OSError:
+        return False  # a scanner holds the file or the disk is full: no usable backup, the caller starts fresh
     return True

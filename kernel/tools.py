@@ -132,6 +132,39 @@ RISK = {
 # fs.write keeps a before-copy of the file it replaces up to this size (bytes).
 WRITE_BACKUP_MAX_BYTES = 50 * 1024 * 1024
 WRITE_BACKUP_DIR = "before-write"
+# The before-write folder keeps the newest copies only: this many files, and this many bytes in all.
+WRITE_BACKUP_KEEP = 20
+WRITE_BACKUP_MAX_TOTAL_BYTES = 500 * 1024 * 1024
+
+
+def _prune_write_backups(folder: Path, keep: Path) -> None:
+    """Drop the oldest before-write copies beyond the file and size caps. The copy just made (`keep`) always stays:
+    the undo handle of the write in hand points at it. Only plain files directly in this folder are touched."""
+    rows: list[tuple[int, str, Path, int]] = []
+    try:
+        for entry in folder.iterdir():
+            if entry == keep or not entry.is_file() or entry.is_symlink():
+                continue
+            info = entry.stat()
+            # ctime is when the copy was made (copy2 keeps the source's mtime, which says nothing about age).
+            rows.append((info.st_ctime_ns, entry.name, entry, info.st_size))
+    except OSError:
+        return
+    rows.sort(reverse=True)
+    try:
+        kept_bytes = keep.stat().st_size
+    except OSError:
+        kept_bytes = 0
+    kept = 1
+    for _ctime, _name, entry, size in rows:
+        if kept < WRITE_BACKUP_KEEP and kept_bytes + size <= WRITE_BACKUP_MAX_TOTAL_BYTES:
+            kept += 1
+            kept_bytes += size
+            continue
+        try:
+            entry.unlink()
+        except OSError:  # noqa: S112 - a copy another program holds open stays; the next write prunes again
+            continue
 
 
 def _write_with_backup(path: Path, content: str, workspace: Path, asked: str) -> dict:
@@ -152,6 +185,7 @@ def _write_with_backup(path: Path, content: str, workspace: Path, asked: str) ->
                 counter += 1
                 target = folder / f"{stamp}-{counter}-{path.name}"
             shutil.copy2(path, target)
+            _prune_write_backups(folder, target)
             kept = target.relative_to(workspace).as_posix()
             result["backup"] = kept
             result["undo"] = {"tool": "fs.copy", "from": kept, "to": asked, "overwrite": True}
