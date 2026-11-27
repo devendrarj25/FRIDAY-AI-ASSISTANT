@@ -6932,38 +6932,71 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
   return result;
 });
 /**
- * Draw a picture with a connected cloud provider. The same two gates as a chat
- * turn run first (privacy, then billing), so a picture request cannot leave this
+ * Draw a picture with a connected cloud provider. The kernel router picks the
+ * model after its billing and privacy checks, then the same two gates as a chat
+ * turn run (privacy, then billing), so a picture request cannot leave this
  * PC or spend money any more easily than a message can.
  */
-ipcMain.handle("image:generate", async (_e, payload) => {
+async function generateImageRouted(payload) {
   const prompt = String(payload?.prompt || "").trim();
   if (!prompt) return { ok: false, error: "describe the picture you want" };
-  const wanted = payload?.modelId ? String(payload.modelId) : null;
   const images = require("./image-generation.cjs");
   const { models } = await refreshRoutable(false);
   const policy = modelUsagePolicy();
   const now = Date.now();
-  let list = images.candidates(
+  const list = images.candidates(
     models,
     (model) => modelRouter.modelAvailability(model, policy, now, "image").visibility === "show",
   );
-  if (wanted) {
-    list = list.filter((model) => model.id === wanted || model.providerModelId === wanted);
-  }
   if (!list.length) {
     return {
       ok: false,
-      error: wanted
-        ? "that model cannot draw right now (not connected, hidden by the cost setting, or not an image model)"
-        : "no connected provider has an image model I may use. Connect OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face in Models, or turn paid access on.",
+      error:
+        "no connected provider has an image model I may use. Connect OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face in Models, or turn paid access on.",
     };
   }
+  // The router alone chooses the model, after the billing and privacy guards. A kernel that cannot answer
+  // draws nothing. The model id a caller supplies is never used to choose; it can only confirm the pick.
+  let route = null;
+  try {
+    await syncKernelModels();
+    route = await kernelRequest(
+      "model.route_generation",
+      {
+        kind: "image",
+        content: prompt,
+        explicitPaid: false,
+        privacyMode: voicePrivacyOn() || modelRouteMode() === "local-only" ? "private" : "",
+      },
+      15000,
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: `the router could not choose a drawing model: ${String(error?.message || error)}`,
+    };
+  }
+  if (!route?.ok || !route.modelId) {
+    return { ok: false, error: String(route?.reason || "the router allowed no drawing model") };
+  }
+  // Only ids the router named, in its order (up to three); a model the caller supplies is never added.
+  const picked = (
+    Array.isArray(route.candidates) && route.candidates.length ? route.candidates : [route.modelId]
+  )
+    .slice(0, 3)
+    .map((id) => list.find((entry) => entry.id === id))
+    .filter(Boolean);
+  if (!picked.length)
+    return { ok: false, error: "the router picked a model that cannot draw from here" };
+  const asked = payload?.modelId ? String(payload.modelId) : "";
+  if (asked && !picked.some((m) => asked === m.id || asked === m.providerModelId)) {
+    return { ok: false, error: "the router chooses the drawing model; that one was not picked" };
+  }
   const problems = [];
-  for (const model of list.slice(0, 3)) {
+  for (const model of picked) {
     const auth = await authoriseProviderRequest({
       model,
-      explicitPaid: Boolean(wanted),
+      explicitPaid: false,
       label: "image",
       content: prompt,
     });
@@ -6992,7 +7025,8 @@ ipcMain.handle("image:generate", async (_e, payload) => {
     };
   }
   return { ok: false, error: problems.join(" · ") || "no picture was made" };
-});
+}
+ipcMain.handle("image:generate", (_e, payload) => generateImageRouted(payload));
 ipcMain.handle("comfyui:status", () => require("./comfyui-client.cjs").status());
 ipcMain.handle("comfyui:run", (_e, workflow) =>
   require("./comfyui-client.cjs").run(workflow, {

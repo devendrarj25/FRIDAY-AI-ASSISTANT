@@ -270,3 +270,19 @@ def test_seed_entry_is_a_local_brain_with_no_endpoint_or_key():
     router.register(router.seed_row(dict(entry)))
     assert router._models[CORE_MODEL_ID].status == "unavailable"
     assert router.pick_escalated({}) is None
+
+
+def test_generation_offers_up_to_three_gated_candidates_best_first():
+    router = build(
+        gen_spec("img-unknown", "unknown"),
+        gen_spec("img-paid", "paid"),
+        gen_spec("img-free", "free"),
+        gen_spec("img-free2", "free"),
+        gen_spec("img-free3", "free"),
+    )
+    choice = router.route_generation("image", "a red apple")
+    assert choice["ok"] is True
+    assert choice["candidates"][0] == choice["modelId"]
+    assert len(choice["candidates"]) == 3
+    assert "img-unknown" not in choice["candidates"]
+    assert "img-paid" not in choice["candidates"]

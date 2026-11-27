@@ -752,6 +752,14 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return router.sync(params.get("models", []))
     if method == "model.remove":
         return {"removed": router.unregister(params["id"])}
+    if method == "model.route_generation":
+        # The desktop asks which model may draw, speak or film this job; it only chooses, never spends.
+        return router.route_generation(
+            str(params.get("kind") or ""),
+            str(params.get("content") or ""),
+            explicit_paid=params.get("explicitPaid") is True,
+            privacy_mode=str(params.get("privacyMode") or ""),
+        )
 
     if method == "chat.stream":
         # Fans out to one or many models; streams partial deltas back.

@@ -1206,6 +1206,8 @@ class ModelRouter:
             "ok": True,
             "target": "local_heavy" if is_local_model(pick) else "cloud",
             "modelId": pick.id,
+            # Best first, at most three: the caller tries them in this order, as a failed draw falls through.
+            "candidates": [m.id for m in found[:3]],
             "reason": "chosen after the billing and privacy checks",
         }
 
