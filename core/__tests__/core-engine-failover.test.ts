@@ -79,7 +79,7 @@ function procs(behave: (bin: string) => Behave = () => "healthy") {
   const children: EventEmitter[] = [];
   const spawn = (bin: string, args: string[], opts: { env: Record<string, string> }) => {
     const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
-    child["pid"] = 700 + spawned.length;
+    // No pid on purpose: with a pid, a Windows stop goes to taskkill and never reaches this fake's kill.
     child["kill"] = () => {
       kills.push(path.basename(bin));
       return true;

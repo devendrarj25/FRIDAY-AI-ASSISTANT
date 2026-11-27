@@ -85,7 +85,12 @@ function callerOf(skip: Skip): string {
   if (!frame) return "an unknown caller";
   const match = /^\s*at (?:(.*?) \()?(.*?):(\d+):\d+\)?\s*$/.exec(frame);
   if (!match) return frame.trim();
-  const where = (match[2] ?? "").replace(/^file:\/\//, "").replace(`${ROOT}/`, "");
+  // Windows frames use backslashes and may be file:///D:/ URLs: compare in one shape.
+  const posix = (text: string) => text.replace(/\\/g, "/");
+  const where = posix(match[2] ?? "")
+    .replace(/^file:\/\/\/?(?=[A-Za-z]:)/, "")
+    .replace(/^file:\/\//, "")
+    .replace(`${posix(ROOT)}/`, "");
   return `${match[1] ?? "<anonymous>"} (${where}:${match[3]})`;
 }
 

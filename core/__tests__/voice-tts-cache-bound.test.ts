@@ -104,7 +104,8 @@ describe("the spoken-reply cache is bounded", () => {
       seed("notes.txt", 5000, 0),
       seed("aaaa.wav", 5000, 0),
       seed(`${hex40(5)}.txt`, 5000, 0),
-      seed("0123456789ABCDEF.wav", 5000, 0),
+      // Upper-case 16 hex is not a FRIDAY name; a different digit run so a case-insensitive disk cannot make it the same file as a real one.
+      seed("0123456789ABCDEE.wav", 5000, 0),
     ];
     const out = privacy.boundTtsCache({ maxBytes: 20, maxFiles: 100 });
     expect(out).toMatchObject({ removed: 2, kept: 2, keptBytes: 20 });
