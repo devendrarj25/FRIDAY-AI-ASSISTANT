@@ -38,6 +38,8 @@ calls has a handler in the main process. Chat and tools go through the
 main process. Exec-tier kernel tools (`kernel/tools.py`) wait for desktop
 approval. `config/kernel.yaml` sets `automation.auto_approve_exec: false`.
 
+Stop everything and the shell gate: the agent shell classifier treats `(`, `{`, a backtick, a bare CR and code-running options as exec. Main learns the halt synchronously over `autonomy:halt-sync`; unreadable autonomy state with nothing known reads halted; restart and shutdown asks refuse while halted, before and after the ask; the Brain stops with Stop everything and Approve while halted denies. Boot memory merge runs once under a lock, and ids forgotten during a merge stay forgotten. Detail: [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md). UNVERIFIED on Windows.
+
 Each FRIDAY window sets `contextIsolation`, turns `nodeIntegration` off, and
 sets `sandbox`. `no-sandbox` is only the boot self-test switch. The window
 may navigate to `friday://app` or the dev-server origin

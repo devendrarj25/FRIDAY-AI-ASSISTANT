@@ -387,6 +387,16 @@ Follow-up fixes of the same day, each with a test that fails without it:
 - **Auto started under Stop everything or the owner's pause opened the microphone anyway.** `enterAuto` acquired the shared capture on its own, before any check, so Stop everything (it persists across a restart) or a pause left the microphone open. Now `openAutoMic` is skipped in both cases, the status says why, and the first Resume opens it.
 - **The owner's voice recordings are never read by a tool.** `voice-enrollment`, `voiceprint.json` and `profile.enc` are in the kernel's sensitive list (`kernel/file_tools.py`), so the read tools refuse them like a key file.
 
+Voice wiring (Linux unit tests only; nothing run on a microphone, speaker or Windows):
+
+- **Stop everything.** The spoken command, the conduct path and the command-lane stop-all all go through `autonomy.stopEverything` and the stop line says what stopped. The stop lines are played directly after the switch closes, not queued behind the halt.
+- **Confirmations.** A lapsed confirmation is dropped, said once, and the line that followed is then heard. "Still waiting for yes or no" is said at most every 12 s, and a wake command cancels the pending one. A spoken yes to a staged settings change goes through the same digest checks as any approval (bound yes, approval window, TV and room check, speaker check). Staging lasts 30 s for hands-free, wake word and paid policy; turning hands-free ON or changing paid policy needs a yes on screen. One on/off table (including Hindi) reads the direction; an unclear direction asks.
+- **Mic and privacy.** Pause releases the mic track. Each queued spoken line carries its privacy mark, and `turnSensitive` is passed to the Brain. Held finished-task lines are kept for the digest while paused.
+- **Wake.** With no wake model the status reads "Wake word: listening by transcript"; there is no heal and no pip install.
+- **Readiness.** One local-voice readiness reading carries its failure reason to the Doctor rows, the status line and the TTS `lastError`. The output check uses the cached sink id.
+- **Speech.** The system-voice rung follows the script of the line, and a Hindi pin counts as a Hindi turn. Reply pieces are queued per sentence. `resetPcmPlayback` runs on Auto start. With no Hindi voice a Devanagari "no Hindi voice installed" line is said.
+- Tests: `voice-stop-everything-wiring`, `voice-pending-expiry`, `voice-busy-approval-line`, `voice-settings-intent-gate`, `voice-pause-releases-mic`, `voice-speak-privacy-queue`, `auto-start-no-wake-model`, `voice-offline-ready-reason`, `voice-tts-failed-hindi`, `voice-speak-reply-uncapped` in `core/__tests__/`. UNVERIFIED: the real microphone, the kill switch by voice, wake heal behaviour, a Hindi voice and the sink id on the owner's PC.
+
 Still true of the voice stack, and not changed: Chat dictation (the microphone button in Chat, the owner's own press) does not follow Stop everything; the owner's own Record and Stop in Settings → Voice → My voice is the one other use of the microphone outside Auto. In `AGENTS.md`, "Mute stops the mic" does not match the code: Mute is the output switch, and the microphone is closed by pause, Stop everything or leaving Auto.
 
 ## Script policy and latency budget (2026-11-22)
