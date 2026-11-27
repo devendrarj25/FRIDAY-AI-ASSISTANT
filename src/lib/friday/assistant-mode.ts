@@ -53,6 +53,7 @@ import { LiveWords, livePassDeps } from "./voice-engine/live-words";
 import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
 import {
   buildTurnRecord,
+  languageMix,
   ScriptPolicyTally,
   shapeHeardText,
   streamLocale,
@@ -112,7 +113,7 @@ import {
   stripDeliveryTags,
   type TagAnchor,
 } from "./voice-engine/delivery-tags";
-import { StageClock, voiceLatency } from "./voice-engine/latency-monitor";
+import { StageClock, voiceLatency, type LatencyMonitor } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
 import { SoakRecorder } from "./voice-engine/soak-recorder";
@@ -142,6 +143,7 @@ import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
   beginPlayedReply,
+  cloudFallbackVoice,
   duckSpeech,
   lastClipUsedPcm,
   lastSpeechRoute,
@@ -160,6 +162,7 @@ import { formatVoiceProbeReport, noteVoiceCheck } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
   approvalFresh,
+  approvalTtlMs,
   backchannel,
   bindVoiceSurface,
   clarifyPrompt,
@@ -205,10 +208,33 @@ import {
   InterruptGate,
   interruptedPlayedMs,
   sanitizeInterruptGate,
+  bargeFromController,
+  classifyInterruption,
   type GateInput,
   type GateVerdict,
+  type InterruptionDecision,
+  type InterruptionInput,
   type LadderVerdict,
 } from "./voice-engine/interruption-controller";
+import { acousticFeatures } from "./voice-engine/interrupt-acoustic";
+import { StreamSincResampler } from "./voice-engine/audio-format";
+import {
+  FRAME_MS as TURN_FRAME_MS,
+  createTurnEngine,
+  step,
+  type BargeVerdict,
+  type TurnCommand,
+  type TurnEngineState,
+  type TurnExpect,
+  type TurnInput,
+} from "./voice-engine/turn-engine";
+import { CalibrationBook, type EotLang } from "./voice-engine/endpoint-calibration";
+import {
+  createTurnMetricsRecorder,
+  type ControlEv,
+  type TraceEvent,
+  type TurnMetrics,
+} from "./voice-engine/turn-metrics";
 import { speechRms } from "./character/speech-audio";
 import { firstClauseCut } from "./voice-engine/clause-chunker";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
@@ -817,6 +843,390 @@ function recordGapsOnly(clock: StageClock, monitor = voiceLatency): Record<strin
   return out;
 }
 
+// ---------- the turn engine in shadow ----------
+
+/** Events the shadow keeps for its metrics: about three minutes of 80 ms voice frames and the turn events. */
+const TURN_SHADOW_EVENTS = 2400;
+/** Rows of the shadow's own log: what the engine asked for, and what the classifier said. */
+const TURN_SHADOW_LOG = 40;
+/** The longest text the shadow keeps of any line, after scrubbing. */
+const TURN_SHADOW_TEXT = 80;
+/** Capture kept from the start of one barge-in candidate for its acoustic features, and its rate. */
+const TURN_SHADOW_AUDIO_MS = 1500;
+const TURN_SHADOW_RATE = 16_000;
+/** The engine's own base end-of-turn wait (6 x 80 ms), the start for a calibrated base. */
+const TURN_SHADOW_BASE_FRAMES = 6;
+/** The shadow ran nothing: a deferred verdict with nothing to do. */
+const NO_SHADOW = (): void => undefined;
+
+export type TurnShadowOptions = {
+  /** Read at each new turn: hands-free on means no wake word is needed. */
+  handsFree: () => boolean;
+  /** `voice.turn.maxWaitMs`: the longest quiet wait any hold may add. */
+  maxWaitMs: number;
+  /** `voice.turn.calibrate`: the engine's base wait follows this PC's own measured waits per language. */
+  calibrate: boolean;
+  /** Time zero of the shadow's own clock (a wall-clock reading). */
+  startAt: number;
+  /** What the open question expects (a dictation, a yes or no), read when a turn opens. */
+  expectNow?: () => TurnExpect | undefined;
+  /** Where the last turn's numbers go. Default: the app's latency monitor. */
+  monitor?: LatencyMonitor;
+};
+export type TurnShadowCounters = {
+  /** The engine and the live path did the same thing. */
+  agree: number;
+  /** Where they differed, by kind (commit-missing, commit-extra, barge:<live>/<classifier>). */
+  disagree: Record<string, number>;
+  steps: number;
+  verdicts: number;
+};
+export type TurnShadowRow = { t: number; k: string; detail: string };
+export type TurnShadowLastTurn = Pick<
+  TurnMetrics,
+  "turnId" | "ttfaMs" | "eotWaitMs" | "bargeToSilenceMs" | "falseCut" | "prematureEnd"
+>;
+export type TurnShadowReport = {
+  /** Always "shadow" in this build: `voice.turn.classifier: "live"` is accepted and still only shadows. */
+  mode: "shadow";
+  counters: TurnShadowCounters;
+  log: TurnShadowRow[];
+  lastTurn: TurnShadowLastTurn | null;
+  /** Samples in the end-of-turn calibration book, per language. */
+  calibration: Record<EotLang, number>;
+};
+
+/** What the shadow keeps of a line: nothing of a private one, no digits, at most 80 characters. */
+function shadowText(text: string): string {
+  const line = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return "";
+  if (looksSensitive(line)) return "[private]";
+  return line.replace(/\d/g, "#").slice(0, TURN_SHADOW_TEXT);
+}
+
+function eotLangOf(text: string): EotLang {
+  const read = languageMix(text).lang;
+  return read === "hi" ? "hi" : read === "hi-en" ? "hinglish" : "en";
+}
+
+/**
+ * The pure turn engine (`voice-engine/turn-engine.ts`) run beside the live controller, in shadow. It is fed the
+ * events the live path sees (the ear's turn events, the desktop partials, the voice gate's beat as its 80 ms frame,
+ * the final transcript, the hand-over to the Brain, the voice starting and ending, mute, pause, stop and wake), and
+ * it asks the interruption classifier next to the live barge-in gate. It never acts: the engine's commands are only
+ * written to a short log and compared with what the live path did, as counts. It holds no audio past one barge-in
+ * candidate and no transcript text past 80 scrubbed characters.
+ */
+export class TurnEngineAdapter {
+  private engine: TurnEngineState;
+  private readonly opts: TurnShadowOptions;
+  private readonly monitor: LatencyMonitor;
+  private readonly metrics = createTurnMetricsRecorder({ maxEvents: TURN_SHADOW_EVENTS });
+  private readonly book = new CalibrationBook();
+  private readonly counters: TurnShadowCounters = { agree: 0, disagree: {}, steps: 0, verdicts: 0 };
+  private readonly log: TurnShadowRow[] = [];
+  private lastT = 0;
+  private lastVadFrame = -1;
+  private turnId = "";
+  private streamOpen = false;
+  private partialTurn = "";
+  private partialSeq = 0;
+  /** Engine commits since the last live final transcript. */
+  private commits = 0;
+  private finalLang: EotLang = "en";
+  private reportedTurn = "";
+  private bargeAt: number | null = null;
+  /** Capture is collected only while the candidate is open; its frames stay until the next one begins. */
+  private bargeOpen = false;
+  private resampler: StreamSincResampler | null = null;
+  private audioFrames: Float32Array[] = [];
+  private audioSamples = 0;
+  private bargeCtx: Partial<InterruptionInput> = {};
+
+  constructor(opts: TurnShadowOptions) {
+    this.opts = opts;
+    this.monitor = opts.monitor ?? voiceLatency;
+    this.engine = createTurnEngine({
+      handsFree: opts.handsFree(),
+      lang: "auto",
+      onsetFrames: 3,
+      maxWaitFrames: Math.round(opts.maxWaitMs / TURN_FRAME_MS),
+      barge: bargeFromController(() => this.bargeCtx),
+    });
+  }
+
+  /** The shadow's clock: milliseconds since `startAt`, never backwards (a wall clock may step back). */
+  private at(now: number): number {
+    const t = Number.isFinite(now) ? Math.max(this.lastT, now - this.opts.startAt) : this.lastT;
+    this.lastT = t;
+    return t;
+  }
+
+  private feed(input: TurnInput): void {
+    const out = step(this.engine, input);
+    this.engine = out.state;
+    this.counters.steps += 1;
+    for (const cmd of out.commands) this.noteCommand(input.t, cmd);
+  }
+
+  private noteCommand(t: number, cmd: TurnCommand): void {
+    switch (cmd.k) {
+      case "commit":
+        this.commits += 1;
+        this.row(t, "commit", `wait ${cmd.record.eotWaitMs ?? "-"} ms`);
+        return;
+      case "draft-start":
+      case "draft-cancel":
+      case "draft-adopt":
+        this.row(t, cmd.k, shadowText(cmd.text));
+        return;
+      case "duck":
+        this.row(t, "duck", `${cmd.db} dB`);
+        return;
+      case "stop-speech":
+        this.row(t, "stop-speech", cmd.reason);
+        return;
+      case "resume-speech":
+        this.row(t, "resume-speech", "");
+        return;
+      case "ack":
+        this.row(t, "ack", cmd.key);
+        return;
+      case "require-wake":
+        this.row(t, "require-wake", cmd.why);
+        return;
+    }
+  }
+
+  private row(t: number, k: string, detail: string): void {
+    this.log.push({ t, k, detail: detail.slice(0, TURN_SHADOW_TEXT) });
+    if (this.log.length > TURN_SHADOW_LOG) this.log.shift();
+  }
+
+  private disagree(kind: string): void {
+    this.counters.disagree[kind] = (this.counters.disagree[kind] ?? 0) + 1;
+  }
+
+  private record(event: TraceEvent): void {
+    this.metrics.record(event);
+  }
+
+  /** A new turn: the old one is settled, and the engine learns the expectation and this PC's measured wait. */
+  private openTurn(t: number): void {
+    if (this.commits > 0) this.disagree("commit-extra");
+    this.commits = 0;
+    const handsFree = this.opts.handsFree() === true;
+    let cfg = this.engine.cfg;
+    if (cfg.handsFree !== handsFree) cfg = { ...cfg, handsFree };
+    if (this.opts.calibrate) {
+      const base = this.book.suggestedBaseFrames(this.finalLang, TURN_SHADOW_BASE_FRAMES);
+      if (base !== cfg.eotBaseFrames) cfg = { ...cfg, eotBaseFrames: base };
+    }
+    if (cfg !== this.engine.cfg) {
+      this.engine = { ...this.engine, cfg, needWake: handsFree ? false : this.engine.needWake };
+    }
+    const expect = this.opts.expectNow?.();
+    if (expect) this.feed({ t, k: "control", ev: "asked", expect });
+  }
+
+  ear(turn: StreamTurn, now: number): void {
+    const t = this.at(now);
+    if (turn.event === "start" && turn.turnId !== this.turnId) this.openTurn(t);
+    this.turnId = turn.turnId;
+    this.streamOpen = true;
+    this.record({
+      t,
+      k: "ear",
+      event: turn.event,
+      turnId: turn.turnId,
+      text: shadowText(turn.text),
+    });
+    this.feed({ t, k: "ear", turn });
+  }
+
+  /** A desktop partial: on the ear's open turn, or on a turn of its own when no ear turn is open. */
+  partial(text: string, now: number): void {
+    const t = this.at(now);
+    let turnId = this.streamOpen ? this.turnId : this.partialTurn;
+    if (!turnId) {
+      this.partialSeq += 1;
+      turnId = `p${this.partialSeq}`;
+      this.partialTurn = turnId;
+      this.openTurn(t);
+      this.record({ t, k: "ear", event: "start", turnId, text: "" });
+    }
+    this.feed({
+      t,
+      k: "ear",
+      turn: { turnId, event: "partial", text, vadP: null, speechMs: null },
+    });
+  }
+
+  /** The voice gate's beat, at most once per 80 ms frame: the engine's voice frame and its clock. */
+  vad(voiced: boolean, echoClean: boolean, now: number): void {
+    const t = this.at(now);
+    const frame = Math.floor(t / TURN_FRAME_MS);
+    if (frame === this.lastVadFrame) return;
+    this.lastVadFrame = frame;
+    const p = voiced ? 0.9 : 0.05;
+    this.record({ t: frame * TURN_FRAME_MS, k: "vad", p });
+    this.feed({ t, k: "vad", p, echoClean });
+  }
+
+  control(ev: ControlEv, now: number, expect?: TurnExpect): void {
+    const t = this.at(now);
+    this.record({ t, k: "control", ev });
+    this.feed({ t, k: "control", ev, ...(expect ? { expect } : {}) });
+  }
+
+  brain(ev: "lane" | "refused", runId: string, now: number): void {
+    const t = this.at(now);
+    this.record({ t, k: "brain", ev, runId });
+    this.feed({ t, k: "brain", ev, runId });
+  }
+
+  dispatch(text: string, now: number): void {
+    this.record({ t: this.at(now), k: "dispatch", text: shadowText(text) });
+  }
+
+  /** Her voice at the output: started, a clause ended, all played, or failed. */
+  tts(
+    ev: "first-audio" | "clause-end" | "drained" | "failed",
+    utteranceId: string,
+    playedMs: number,
+    now: number,
+  ): void {
+    const t = this.at(now);
+    const played = Number.isFinite(playedMs) && playedMs >= 0 ? playedMs : 0;
+    this.record({ t, k: "tts", ev, utteranceId, playedMs: played });
+    this.feed({ t, k: "tts", ev, utteranceId, playedMs: played });
+    if (ev === "drained" || ev === "failed") this.settleTurn();
+  }
+
+  /** The live path stopped her voice. */
+  stopped(now: number): void {
+    this.record({ t: this.at(now), k: "stop" });
+  }
+
+  /** The live path's final transcript: the engine should have committed this turn by now. */
+  liveFinal(text: string, now: number): void {
+    const t = this.at(now);
+    this.feed({ t, k: "tick" });
+    const kept = shadowText(text);
+    this.record({ t, k: "final", text: kept });
+    this.row(t, "final", kept);
+    this.finalLang = eotLangOf(text);
+    if (this.commits > 0) this.counters.agree += 1;
+    else this.disagree("commit-missing");
+    this.commits = 0;
+    this.streamOpen = false;
+    this.partialTurn = "";
+  }
+
+  /** The turn's numbers, once, after her reply: to the latency monitor and the calibration book. */
+  private settleTurn(): void {
+    const last = this.metrics.summary().score.turns.at(-1);
+    if (!last || last.turnId === this.reportedTurn) return;
+    this.reportedTurn = last.turnId;
+    if (last.ttfaMs !== null) this.monitor.record("turn.ttfaMs", last.ttfaMs);
+    if (last.bargeToSilenceMs !== null)
+      this.monitor.record("turn.bargeToSilenceMs", last.bargeToSilenceMs);
+    if (last.eotWaitMs !== null) {
+      this.monitor.record("turn.eotWaitMs", last.eotWaitMs);
+      this.book.push(this.finalLang, { eotWaitMs: last.eotWaitMs, falseCut: last.falseCut });
+    }
+  }
+
+  bargeBegin(now: number): void {
+    this.bargeAt = this.at(now);
+    this.bargeOpen = true;
+    this.audioFrames = [];
+    this.audioSamples = 0;
+    this.resampler = null;
+  }
+
+  /** The candidate is over: collection stops; what was kept is still read by a verdict taken at its end. */
+  bargeEnd(): void {
+    this.bargeOpen = false;
+  }
+
+  /**
+   * Capture frames of the open candidate, from its start, up to 1.5 s, at 16 kHz through the one band-limited
+   * resampler (so the features cost the same on any device rate). Kept in memory only, for the features.
+   */
+  audio(samples: ArrayLike<number>, rate: number): void {
+    if (!this.bargeOpen || !(rate > 0)) return;
+    if (this.audioSamples >= (TURN_SHADOW_RATE * TURN_SHADOW_AUDIO_MS) / 1000) return;
+    if (rate !== TURN_SHADOW_RATE && this.resampler === null)
+      this.resampler = new StreamSincResampler(rate, TURN_SHADOW_RATE);
+    const frame =
+      rate === TURN_SHADOW_RATE ? Float32Array.from(samples) : this.resampler?.push(samples);
+    if (!frame || frame.length === 0) return;
+    this.audioFrames.push(frame);
+    this.audioSamples += frame.length;
+  }
+
+  /** The classifier's verdict next to the live one (null: the live path has not decided yet). Only counted. */
+  barge(live: BargeVerdict | null, input: InterruptionInput, now: number): InterruptionDecision {
+    const t = this.at(now);
+    const voiceMs =
+      this.bargeAt === null ? input.voiceMs : Math.max(input.voiceMs, t - this.bargeAt);
+    const acoustic = this.audioFrames.length
+      ? acousticFeatures(this.audioFrames, TURN_SHADOW_RATE)
+      : null;
+    const full: InterruptionInput = { ...input, voiceMs, ...(acoustic ? { acoustic } : {}) };
+    this.bargeCtx = {
+      words: full.words,
+      voiceMs,
+      ttsPlaying: full.ttsPlaying,
+      echoClean: full.echoClean,
+      scene: full.scene,
+      speaker: full.speaker,
+      sinceTtsStartMs: full.sinceTtsStartMs,
+    };
+    const decision = classifyInterruption(full);
+    this.counters.verdicts += 1;
+    if (live !== null) {
+      const same =
+        live === "takeover" ? decision.decision === "takeover" : decision.decision !== "takeover";
+      if (same) this.counters.agree += 1;
+      else this.disagree(`barge:${live}/${decision.decision}`);
+    }
+    this.row(t, "verdict", `${live ?? "-"}/${decision.decision} ${decision.reason}`);
+    return decision;
+  }
+
+  engineState(): TurnEngineState {
+    return this.engine;
+  }
+
+  report(): TurnShadowReport {
+    const last = this.metrics.summary().score.turns.at(-1);
+    return {
+      mode: "shadow",
+      counters: { ...this.counters, disagree: { ...this.counters.disagree } },
+      log: this.log.map((row) => ({ ...row })),
+      lastTurn: last
+        ? {
+            turnId: last.turnId,
+            ttfaMs: last.ttfaMs,
+            eotWaitMs: last.eotWaitMs,
+            bargeToSilenceMs: last.bargeToSilenceMs,
+            falseCut: last.falseCut,
+            prematureEnd: last.prematureEnd,
+          }
+        : null,
+      calibration: {
+        en: this.book.size("en"),
+        hi: this.book.size("hi"),
+        hinglish: this.book.size("hinglish"),
+      },
+    };
+  }
+}
+
 /** What a draft must still match when the final transcript arrives: nothing material may change in between. */
 /** How a spoken line takes its turn in the speech queue (see speech-arbiter). A line with no meta is a direct answer. */
 type SpeakMeta = {
@@ -1198,6 +1608,7 @@ class AssistantModeStore {
   private followKillSwitch() {
     if (this.stopped()) {
       cancelPrewarm();
+      this.shadowTurn((a) => a.control("stop-all", Date.now()));
       this.discardEager();
       clearEchoReference("stop");
       this.forgetOpenQuestions();
@@ -1241,6 +1652,7 @@ class AssistantModeStore {
     if (paused) {
       cancelPrewarm();
       this.stopRecognition();
+      this.shadowTurn((a) => a.control("pause", Date.now()));
       this.gateSleep(this.pausedByStop || this.stopped() ? "stopped" : "paused");
       this.discardEager();
       this.cancelSpeech();
@@ -1366,6 +1778,11 @@ class AssistantModeStore {
     });
     voiceGate.subscribe(() => {
       this.superviseTick();
+      // The gate's own beat is the shadow's 80 ms frame: no timer of its own.
+      if (!this.state.paused && !this.state.muted)
+        this.shadowTurn((a) =>
+          a.vad(voiceGate.getSnapshot().speech, this.echoCleanedSpeech(), Date.now()),
+        );
       if (this.state.mode !== "auto" || this.quietHealSent) return;
       if (!voiceGate.quietNotice()) return;
       this.quietHealSent = true;
@@ -1429,6 +1846,7 @@ class AssistantModeStore {
           this.startDraftRun(command);
         }
       }
+      this.shadowTurn((a) => a.partial(text, now));
       this.emit();
     });
     // A headset being plugged/unplugged kills the audio track: rebuild it.
@@ -1453,6 +1871,8 @@ class AssistantModeStore {
         }
         lastWhisper = now;
       });
+      // FRIDAY Voice is the default speaking voice: its readiness is read once subscribed, not only on a later event.
+      if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
     });
   }
 
@@ -1659,6 +2079,7 @@ class AssistantModeStore {
       resumed: this.turnTracker.resumes,
       scene: this.turnTracker.lastEnv,
     });
+    this.shadowTurn((a) => a.ear(turn, now));
   }
 
   /**
@@ -2005,6 +2426,7 @@ class AssistantModeStore {
    */
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
+    if (muted) this.shadowTurn((a) => a.control("mute", Date.now()));
     this.state.muted = muted;
     // The talk key, the toggle and the wake gates follow the microphone's permission at once.
     if (muted) this.gateSleep("muted");
@@ -3797,6 +4219,7 @@ class AssistantModeStore {
   }
 
   private setAwake() {
+    this.shadowTurn((a) => a.control("wake", Date.now()));
     this.awakeUntil = Date.now() + AWAKE_MS();
     this.state.awake = true;
     if (this.awakeTimer) window.clearTimeout(this.awakeTimer);
@@ -3822,6 +4245,7 @@ class AssistantModeStore {
       return;
     }
     this.lastOwnerAt = Date.now();
+    this.shadowTurn((a) => a.liveFinal(text, this.lastOwnerAt));
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
     // VAD never classified as speech is dropped instead of acted on.
@@ -3977,7 +4401,7 @@ class AssistantModeStore {
 
     // 1. A consequential command is waiting for a yes/no.
     if (this.state.pending) {
-      if (!approvalFresh(this.state.pending.at, Date.now())) {
+      if (!approvalFresh(this.state.pending.at, Date.now(), this.approvalTtl())) {
         this.state.pending = null;
         this.supersedeOnConfirm = null;
         this.remember("approval-expired", text, "dropped");
@@ -4389,7 +4813,7 @@ class AssistantModeStore {
     this.ackTurnKind = "confirm-turn";
     const sup = this.supersedeOnConfirm;
     this.supersedeOnConfirm = null;
-    if (sup && sup.command === command && approvalFresh(sup.at, Date.now())) {
+    if (sup && sup.command === command && approvalFresh(sup.at, Date.now(), this.approvalTtl())) {
       voiceTaskActions.cancel(sup.id);
     }
     const background = this.state.mode === "auto" ? parseBackgroundRequest(command) : null;
@@ -4781,6 +5205,7 @@ class AssistantModeStore {
       : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
+    this.shadowTurn((a) => a.dispatch(command, Date.now()));
     let result = brain.send(command, payload);
     if (side && !result.accepted && result.refused && result.foregroundUntouched) {
       if (result.reason === "lane-refused" || result.reason === "busy") {
@@ -4844,6 +5269,9 @@ class AssistantModeStore {
       result.accepted,
       result.message || result.reason || "the brain did not accept the turn",
       modelIds.length ? `${modelIds.length} model(s) preferred` : "auto",
+    );
+    this.shadowTurn((a) =>
+      a.brain(result.accepted ? "lane" : "refused", result.runId ?? "", Date.now()),
     );
     if (!result.accepted) {
       this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
@@ -4966,7 +5394,7 @@ class AssistantModeStore {
       this.state.pending ||
       this.pendingHeard ||
       brain.getSnapshot().approval ||
-      (this.approvalAsked && approvalFresh(this.approvalAsked.askedAt, now)),
+      (this.approvalAsked && approvalFresh(this.approvalAsked.askedAt, now, this.approvalTtl())),
     );
   }
 
@@ -5122,7 +5550,7 @@ class AssistantModeStore {
   confirmPending(ok: boolean) {
     const pending = this.state.pending;
     if (!pending) return;
-    if (!approvalFresh(pending.at, Date.now())) {
+    if (!approvalFresh(pending.at, Date.now(), this.approvalTtl())) {
       this.state.pending = null;
       this.supersedeOnConfirm = null;
       this.remember("approval-expired", pending.command, "dropped");
@@ -5212,6 +5640,11 @@ class AssistantModeStore {
   }
 
   /** An answer is awaited from the owner: a read-back, an approval, a question. A bare "yes" then is the answer. */
+  /** The owner's window for a spoken yes (`voice.approvalTtlSec`, 10 to 60 s, 30 s by default). */
+  private approvalTtl(): number {
+    return approvalTtlMs(preferences.getSnapshot().voice.approvalTtlSec);
+  }
+
   private waitingForOwner(): boolean {
     return Boolean(this.state.pending || this.pendingHeard || brain.getSnapshot().approval);
   }
@@ -5225,6 +5658,7 @@ class AssistantModeStore {
     const fresh = !this.interruptGate.active;
     this.interruptGate.begin(Date.now());
     if (!fresh) return;
+    this.shadowTurn((a) => a.bargeBegin(Date.now()));
     this.gateText = "";
     this.gatePlayed = this.heardOfReply();
     // The ladder rules only with an echo-clean source; with none (the shipped defaults) the plain gate decides,
@@ -5262,6 +5696,7 @@ class AssistantModeStore {
     this.gateTimer = null;
     this.interruptGate.end();
     this.bargeLadder.end();
+    this.shadowTurn((a) => a.bargeEnd());
     this.gateLadder = false;
     this.gateText = "";
     this.gatePlayed = null;
@@ -5289,7 +5724,15 @@ class AssistantModeStore {
       waitingForAnswer: this.waitingForOwner(),
       selfEcho: heard ? this.isSelfEcho(heard) : false,
     };
-    this.applyGateVerdict(this.judgeCandidate(input));
+    const verdict = this.judgeCandidate(input);
+    const shadow = this.shadowBarge(
+      verdict,
+      input.text,
+      input.speechActive,
+      input.selfEcho === true,
+    );
+    this.applyGateVerdict(verdict);
+    shadow();
   }
 
   /** The barge-in ladder is on (`voice.interruptGate.ladder`, off unless the owner chose it). */
@@ -5515,6 +5958,12 @@ class AssistantModeStore {
         waitingForAnswer: this.waitingForOwner(),
         selfEcho: heard ? this.isSelfEcho(heard) : false,
       });
+      const shadow = this.shadowBarge(
+        verdict,
+        heard,
+        false,
+        heard ? this.isSelfEcho(heard) : false,
+      );
       if (verdict.kind === "restore") {
         this.trace(
           "speech",
@@ -5524,6 +5973,7 @@ class AssistantModeStore {
         this.endInterruptCandidate(true);
         // Paused on voice: the nod lets her carry on from where the pause held her.
         if (this.interruptHold) this.resumeAfterInterruption();
+        shadow();
         return true;
       }
       this.trace(
@@ -5531,19 +5981,23 @@ class AssistantModeStore {
         `interruption (${verdict.kind === "interrupt" ? verdict.why : "words"}) — stopping her voice`,
       );
       this.holdForInterruption();
+      shadow();
     }
     if (!this.interruptHold) return false;
     const verdict = judgeInterruption(text, {
       waitingForAnswer: this.waitingForOwner(),
       selfEcho: this.isSelfEcho(text),
     });
+    const shadow = this.shadowJudge(verdict, text);
     if (verdict === "resume") {
       this.trace("speech", `"${text.trim().slice(0, 40)}" is not an interruption — carrying on`);
       this.remember("following-along", text, "resumed");
       this.resumeAfterInterruption();
+      shadow();
       return true;
     }
     this.confirmInterruption();
+    shadow();
     return false;
   }
 
@@ -5562,6 +6016,7 @@ class AssistantModeStore {
     }
     this.speechGen += 1;
     this.echoCapAt = 0;
+    this.shadowTurn((a) => a.stopped(Date.now()));
     stopAckClip();
     // A real interruption drops what was queued to say, but an approval prompt still has to be asked.
     this.arbiter.bargeIn();
@@ -5782,7 +6237,8 @@ class AssistantModeStore {
   }
 
   /**
-   * The line being played is an approval prompt: it sounded now, so a short yes may answer it for the next 120 s.
+   * The line being played is an approval prompt: it sounded now, so a short yes may answer it inside the owner's
+   * approval window (`voice.approvalTtlSec`, 30 s by default).
    * Called when the voice starts and again when it ends (the window counts from the end of the prompt).
    */
   private noteApprovalSpoken() {
@@ -5814,18 +6270,21 @@ class AssistantModeStore {
     const voicePrivacy = preferences.getSnapshot().voice.privacyMode === true;
     // A line that looks private (a password, a PIN, a card number) is said by a local voice, whatever the settings.
     const sensitive = this.turnSensitive || looksSensitive(spoken);
+    const tuning = activeVoiceSettings();
+    // The owner's explicit online pick (a Neural voice in the library) is the one way auto keeps a cloud voice first.
+    const ownerPickedCloud =
+      tuning.kind !== "system" && tuning.kind !== "file" && /Neural$/i.test(tuning.voiceName || "");
     const engine = chooseTtsEngine({
       network: online,
       supertonicReady: this.offlineVoiceReady,
       privacy: voicePrivacy || sensitive,
-      prefer: this.ttsPrefer,
+      prefer: this.ttsPrefer === "auto" && ownerPickedCloud ? "neural" : this.ttsPrefer,
     });
     const fallen = switchMidSentence({
       networkDropped: !online,
       current: engine,
       supertonicReady: this.offlineVoiceReady,
     });
-    const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
     const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
     const lastOwner =
@@ -5846,7 +6305,10 @@ class AssistantModeStore {
       whisper: voicePrefs.whisperMode === true,
     });
     const privacy = voicePrivacy || sensitive;
+    // FRIDAY Voice stays the voice of a private line when it is ready: it is on this PC, so only an unready one
+    // sends privacy to the system voice.
     const localVoice = fallen !== "neural" || privacy;
+    const systemVoice = fallen === "sapi" || (privacy && fallen !== "supertonic");
     const cloudClip = privacy || localOnly ? undefined : this.cloudClipFor();
     const argTuning = {
       ...tuning,
@@ -5859,9 +6321,13 @@ class AssistantModeStore {
       ...(localVoice
         ? {
             voiceName: "",
-            kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
+            kind: (systemVoice ? "system" : "neural") as "system" | "neural",
           }
-        : {}),
+        : // The cloud rung (FRIDAY Voice cannot speak): a tuning with no voice of its own gets the owner's online voice,
+          // named here and nowhere else; an explicit pick, a system voice or a file stays as it is.
+          tuning.kind === undefined && !ownerPickedCloud
+          ? { kind: "neural" as const, voiceName: cloudFallbackVoice(spokenLang.lang) }
+          : {}),
       ...(cloudClip ? { cloudClip } : {}),
     };
     return { fallen, tuning, privacy, tone, argTuning };
@@ -6009,9 +6475,123 @@ class AssistantModeStore {
 
   private readonly soak = new SoakRecorder();
 
-  /** The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak). */
+  /**
+   * The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak), with
+   * the turn engine shadow's agree and disagree counts beside it (numbers only: no audio, no transcript).
+   */
   soakReport(): string {
-    return JSON.stringify(this.soak.record(), null, 2);
+    const shadow = this.turnShadow?.report() ?? null;
+    return JSON.stringify(
+      {
+        ...this.soak.record(),
+        turnShadow: shadow
+          ? {
+              counters: shadow.counters,
+              lastTurn: shadow.lastTurn,
+              calibration: shadow.calibration,
+            }
+          : null,
+      },
+      null,
+      2,
+    );
+  }
+
+  /** The turn engine in shadow (`voice.turn.classifier`). Null when off, before its first event, or after a fault. */
+  private turnShadow: TurnEngineAdapter | null = null;
+  /** The shadow threw once: it stays off for this session, and the live turn never saw the error. */
+  private turnShadowBroken = false;
+
+  /**
+   * The shadow, made on first use. "off" makes none. "shadow" (the default) and "live" both run it as a shadow in
+   * this build: nothing the engine or the classifier says is acted on, every action still comes from the live path.
+   */
+  private turnShadowAdapter(): TurnEngineAdapter | null {
+    const turn = preferences.getSnapshot().voice.turn;
+    if (this.turnShadowBroken || turn.classifier === "off") {
+      this.turnShadow = null;
+      return null;
+    }
+    this.turnShadow ??= new TurnEngineAdapter({
+      handsFree: () => this.state.handsFree,
+      maxWaitMs: turn.maxWaitMs,
+      calibrate: turn.calibrate,
+      startAt: Date.now(),
+      expectNow: () => this.shadowExpect(),
+    });
+    return this.turnShadow;
+  }
+
+  /** What the open turn is expected to be: a dictation while a voice note is open, a yes or no while one waits. */
+  private shadowExpect(): TurnExpect | undefined {
+    return voiceNotes.active() ? "dictation" : this.waitingForOwner() ? "yesno" : undefined;
+  }
+
+  /** Feed the shadow, in Auto mode only. A fault drops it for the session; the live turn goes on untouched. */
+  private shadowTurn(feed: (a: TurnEngineAdapter) => void): void {
+    if (this.state.mode !== "auto") return;
+    try {
+      const a = this.turnShadowAdapter();
+      if (a) feed(a);
+    } catch {
+      this.turnShadowBroken = true;
+      this.turnShadow = null;
+    }
+  }
+
+  /**
+   * The classifier's verdict beside the live gate's. The input is read now, at the live verdict; the classifier runs
+   * in the returned call, which the caller makes after the live verdict was applied, so it never delays a stop.
+   */
+  private shadowBarge(
+    verdict: GateVerdict,
+    text: string | null,
+    voiced: boolean,
+    selfEcho: boolean,
+  ): () => void {
+    if (verdict.kind === "wait") return NO_SHADOW;
+    return this.shadowLater(verdict.kind === "restore" ? "keep" : "takeover", () =>
+      this.shadowBargeInput(text, voiced || Boolean(text), selfEcho),
+    );
+  }
+
+  /** The classifier's verdict beside the final-transcript judge of a paused reply (run after it acted). */
+  private shadowJudge(verdict: ReturnType<typeof judgeInterruption>, text: string): () => void {
+    return this.shadowLater(verdict === "interrupt" ? "takeover" : "keep", () =>
+      this.shadowBargeInput(text, true, this.isSelfEcho(text)),
+    );
+  }
+
+  private shadowLater(live: BargeVerdict, read: () => InterruptionInput): () => void {
+    let later = NO_SHADOW;
+    this.shadowTurn((a) => {
+      const input = read();
+      const at = Date.now();
+      later = () => this.shadowTurn((b) => void (b === a && b.barge(live, input, at)));
+    });
+    return later;
+  }
+
+  /** What the classifier is told: read from the live state, never written back. The speaker is never a pass. */
+  private shadowBargeInput(
+    text: string | null,
+    voiced: boolean,
+    selfEcho: boolean,
+  ): InterruptionInput {
+    const now = Date.now();
+    const since = this.replyStartedAt === null ? 0 : Math.max(0, now - this.replyStartedAt);
+    const env = this.turnTracker.lastEnv?.kind;
+    return {
+      words: text ? text.trim().split(/\s+/).filter(Boolean) : [],
+      voiceMs: 0,
+      vadP: voiced ? 0.9 : 0.1,
+      ttsPlaying: this.state.speaking || Boolean(this.interruptHold),
+      playedMs: since,
+      echoClean: !selfEcho && (this.gateLadder || this.echoCleanSourceNow()),
+      scene: env ?? "quiet",
+      speaker: "unknown",
+      sinceTtsStartMs: since,
+    };
   }
 
   private bargeDetector = new BargeInDetector();
@@ -6061,6 +6641,7 @@ class AssistantModeStore {
           playbackLevel,
         });
         if (fired) this.bargeShadow.detectorFired(performance.now(), { playbackLevel, micLevel });
+        if (this.interruptGate.active) this.shadowTurn((a) => a.audio(samples, rate));
         if (Date.now() - this.bargeSavedAt > 30_000) this.saveBargeLedger();
       });
     } catch {
@@ -6664,6 +7245,7 @@ class AssistantModeStore {
       },
       onStart: () => {
         if (gen !== this.speechGen) return;
+        this.shadowTurn((a) => a.tts("first-audio", `g${gen}`, 0, Date.now()));
         this.turnStages.mark("playbackFirstSample");
         if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
         this.replyStartedAt = Date.now();
@@ -6675,6 +7257,14 @@ class AssistantModeStore {
       },
       onEnd: () => {
         if (gen !== this.speechGen) return;
+        this.shadowTurn((a) =>
+          a.tts(
+            this.arbiter.size() ? "clause-end" : "drained",
+            `g${gen}`,
+            this.replyStartedAt === null ? 0 : Date.now() - this.replyStartedAt,
+            Date.now(),
+          ),
+        );
         this.bargeDetector.playbackEnded();
         this.echoUntil = Date.now() + ECHO_TAIL_MS;
         this.noteApprovalSpoken();
