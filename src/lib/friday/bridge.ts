@@ -79,6 +79,15 @@ declare global {
         routingSurface?: "voice" | "chat";
         /** How hard a steerable model should think; models without a control ignore it. */
         reasoningEffort?: "low" | "medium" | "high";
+        /** Upper bound on the reply length (tokens). Voice sends a short one; chat sends none. */
+        maxTokens?: number;
+        /**
+         * Text the model did not write but that goes into the prompt (attachment text, recalled memory, screen
+         * text). The main process screens it for the cloud gate like the typed line; it is never an instruction.
+         */
+        ownerText?: string;
+        /** The renderer already judged this turn SENSITIVE (the attachment, memory or typed line): keep it off a cloud model. */
+        turnSensitive?: boolean;
         /** The turn's run id, so a local trace can follow it into the kernel. */
         runId?: string;
         /** A speculative text-only draft: no stored line, no phone mirror, no tool. Only `true` counts. */
@@ -236,11 +245,42 @@ export class KernelBridge {
     return () => this.listeners.delete(listener);
   }
 
-  call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  /**
+   * Send one request. There is no timeout unless the caller asks for one (`timeoutMs`): a long call such as a
+   * model pull must not be cut short, while a recall on a spoken turn must not hang the turn. A late answer to
+   * a call that already timed out is ignored.
+   */
+  call<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+    options: { timeoutMs?: number } = {},
+  ): Promise<T> {
     if (!this.socket) return Promise.reject(new Error("bridge not connected"));
     const id = ++this.seq;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      const limit = options.timeoutMs;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const done = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+      this.pending.set(id, {
+        resolve: (value) => {
+          done();
+          resolve(value as T);
+        },
+        reject: (error) => {
+          done();
+          reject(error);
+        },
+      });
+      if (limit !== undefined && Number.isFinite(limit) && limit > 0) {
+        timer = setTimeout(() => {
+          timer = null;
+          if (!this.pending.delete(id)) return;
+          reject(new Error(`${method} timed out after ${limit} ms`));
+        }, limit);
+      }
       this.socket!.send(JSON.stringify({ id, method, params }));
     });
   }

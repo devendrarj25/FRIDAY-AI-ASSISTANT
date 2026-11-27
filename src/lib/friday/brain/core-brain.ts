@@ -38,6 +38,7 @@ import {
   evaluateSources,
   shouldResearch,
   looksLikeLiveFact,
+  looksLikeLiveState,
   looksLikeKnowledgeAsk,
   formulateQueries,
 } from "./research";
@@ -50,6 +51,7 @@ import { shouldWriteLessons } from "../settings-runtime";
 import { brainKnowledge } from "./knowledge-base";
 import { walkOpsChain, localNeighborhood, inferMultiHop } from "./knowledge-graph";
 import { ingestKnowledge } from "./knowledge-ingest";
+import { isNonOwnerRow, quotedDataBlock } from "./quoted-data";
 import { whatIfFromPrompt } from "./ops-whatif";
 import { allowedModelIds } from "./cost-policy";
 import { consolidateEvent } from "../self/memory-consolidate";
@@ -59,14 +61,14 @@ import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { capabilityRegistry, type CapabilitySnapshot } from "./capability-registry";
 import { describeLiveSelf, looksLikeSelfStatusQuestion } from "./app-guide";
 import { answerSelf, selfTopic } from "./self-questions";
-import { describeSkillValue, routeSkills } from "./skill-router";
+import { describeSkillValue, routeSkills as routeSkillsRaw } from "./skill-router";
 import { manageSkillsFromPrompt } from "./skill-manager";
 import { managePluginsFromPrompt, pluginWarnings } from "./plugin-manager";
-import { describeAgentValue, routeAgents } from "./agent-router";
-import { describeToolValue, routeTools } from "./tool-router";
-import { describeModuleValue, routeModules } from "./module-router";
-import { describeConnectorValue, routeConnectors } from "./connector-router";
-import { describeWorkflowValue, routeWorkflows } from "./workflow-router";
+import { describeAgentValue, routeAgents as routeAgentsRaw } from "./agent-router";
+import { describeToolValue, routeTools as routeToolsRaw } from "./tool-router";
+import { describeModuleValue, routeModules as routeModulesRaw } from "./module-router";
+import { describeConnectorValue, routeConnectors as routeConnectorsRaw } from "./connector-router";
+import { describeWorkflowValue, routeWorkflows as routeWorkflowsRaw } from "./workflow-router";
 import { noteObserve } from "./observe";
 import { fileSkillGapDraft, looksLikeCapabilityGap } from "./skill-forge";
 import { fileAgentGapDraft, looksLikeAgentGap } from "./agent-forge";
@@ -74,7 +76,7 @@ import { fileModuleGapDraft, looksLikeModuleGap } from "./module-forge";
 import { filePluginGapDraft, looksLikePluginGap } from "./plugin-forge";
 import { fileWorkflowGapDraft, looksLikeWorkflowGap } from "./workflow-forge";
 import { dispatchPluginHook } from "../plugin-hooks";
-import { turnDone, turnMark } from "./turn-timing";
+import { turnDone, turnMark, withDeadline } from "./turn-timing";
 import type { StageReporter } from "./turn-trace";
 import { understandTurn, toUnderstandingTrace, type TurnUnderstanding } from "./intent-engine";
 import {
@@ -104,6 +106,7 @@ import { memory } from "../self/memory-engine";
 import {
   classifyCognitiveRoute,
   reasoningEffortFor,
+  type CognitiveAction,
   type ReasoningEffort,
 } from "./cognitive-route";
 import { finishCognitiveCycle, planCognitiveDepth, type CognitiveCycle } from "./cognitive-control";
@@ -231,6 +234,17 @@ export type Cognition = {
   strategy?: ResponseStrategy;
   /** How hard a steerable model should think on this turn (a request, never a promise). */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * The turn read something live: a tool, skill, connector, web source or a system-context block. Its answer
+   * reflects that moment, so it is neither replayed from a saved card nor learned into one.
+   */
+  liveContext?: boolean;
+  /** Kinds of untrusted material the turn read (web, screen, file, connector, document, system). */
+  untrustedKinds?: string[];
+  /** Where the turn was spoken or typed. verify() reads it: a spoken answer carries no URL. */
+  surface?: "voice" | "chat" | "phone";
+  /** The cognitive route this turn took (the voice effort cap reads it). */
+  routeAction?: CognitiveAction;
   /** Executive pass for this turn. It never executes a side effect. */
   control?: CognitiveCycle;
   /**
@@ -276,6 +290,62 @@ const newTaskId = () => `brain-${Date.now().toString(36)}-${(seq += 1).toString(
 /** True only when every model on the route is local; an empty or mixed route is not. */
 const routeIsLocal = (ids: string[]): boolean =>
   ids.length > 0 && ids.every((id) => brainModelRegistry.get(id)?.kind === "local");
+
+/** A spoken turn races the vector recall against this and carries on with the lexical hits when it loses. */
+export const VOICE_VECTOR_DEADLINE_MS = 250;
+/** One shared deadline for the six capability routers of a spoken turn (they run together). */
+export const VOICE_ROUTER_DEADLINE_MS = 1500;
+/** A spoken turn waits this long for the live web, once, and answers from memory when it is late. */
+export const VOICE_WEB_DEADLINE_MS = 2000;
+
+/** The most evidence a spoken turn sends: a slow CPU reads every character before the first word. */
+const SPOKEN_EVIDENCE_CHARS = 1500;
+const SPOKEN_NOTE_LIMIT = 3;
+const SPOKEN_NOTE_CHARS = 160;
+/** A note that changes the answer (a failure to name, a thing not to invent), not a trace line. */
+const ANSWER_SHAPING_NOTE =
+  /failed|say so|not treating as fact|do not |did not ask|use only|contradict|unavailable|not live|nothing|not installed|waits for/i;
+
+const capSpoken = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+
+/** At most three short notes that shape the spoken answer; the rest stay on `Cognition.notes`. */
+function spokenNotes(notes: string[]): string {
+  return notes
+    .filter((note) => ANSWER_SHAPING_NOTE.test(note))
+    .slice(0, SPOKEN_NOTE_LIMIT)
+    .map((note) => `Note: ${capSpoken(note, SPOKEN_NOTE_CHARS)}`)
+    .join("\n");
+}
+
+/**
+ * The six capability routers for a spoken turn. Each starts at once, so they run side by side, and each is bounded
+ * by `VOICE_ROUTER_DEADLINE_MS` (a late router adds nothing to this turn and the trace records the timeout). The
+ * returned functions have the routers' own shape and hand back the promise that is already running.
+ */
+function togetherRouters(prompt: string, managed: boolean, runId: string) {
+  const bound = <T>(stage: string, work: Promise<T[]>): Promise<T[]> =>
+    withDeadline(
+      work.catch(() => [] as T[]),
+      VOICE_ROUTER_DEADLINE_MS,
+      [] as T[],
+      { runId, stage },
+    );
+  const skills = managed ? null : bound("skill-route", routeSkillsRaw(prompt));
+  const agents = managed ? null : bound("agent-route", routeAgentsRaw(prompt));
+  const tools = bound("tool-route", routeToolsRaw(prompt));
+  const modules = bound("module-route", routeModulesRaw(prompt));
+  const connectors = bound("connector-route", routeConnectorsRaw(prompt));
+  const workflows = bound("workflow-route", routeWorkflowsRaw(prompt));
+  return {
+    routeSkills: (_prompt: string) => skills ?? routeSkillsRaw(_prompt),
+    routeAgents: (_prompt: string) => agents ?? routeAgentsRaw(_prompt),
+    routeTools: (_prompt: string) => tools,
+    routeModules: (_prompt: string) => modules,
+    routeConnectors: (_prompt: string) => connectors,
+    routeWorkflows: (_prompt: string) => workflows,
+  };
+}
 
 /** Coarse task kind — the key the brain learns routing quality against. */
 export function taskKind(prompt: string): string {
@@ -399,6 +469,8 @@ class CoreBrain {
   ): Promise<Cognition> {
     this.load();
     const mode = options.mode ?? "manual";
+    // Same rule as prepareTurn: an explicit surface wins, otherwise Auto mode is the spoken one.
+    const spoken = options.surface ? options.surface === "voice" : mode === "auto";
     const useKnowledge = options.useKnowledge !== false;
     const useProjectMemory = options.useProjectMemory !== false;
     const autoLearn = options.autoLearn !== false;
@@ -407,6 +479,10 @@ class CoreBrain {
     const sources: BrainSource[] = [];
     const notes: string[] = [];
     let evidence = "";
+    /** Kinds of untrusted material this turn read (web, screen, file, connector, document). */
+    const untrustedKinds = new Set<string>();
+    /** A live system-context block (terminal, logs, tasks, doctor, installer, library, project, browser) fed the turn. */
+    let systemContext = false;
     const stage = options.onStage;
     const markId = "cognize";
 
@@ -499,6 +575,7 @@ class CoreBrain {
       try {
         const screen = await refreshScreenObservation();
         notes.push(`screen observe (read-only): ${screen.summary}`);
+        systemContext = true;
       } catch {
         notes.push("screen observe (read-only): unreadable — no pixels captured");
       }
@@ -507,6 +584,7 @@ class CoreBrain {
       try {
         const cam = await refreshCameraObservation();
         notes.push(`camera observe (read-only): ${cam.summary}`);
+        systemContext = true;
       } catch {
         notes.push("camera observe (read-only): unreadable — no pixels captured");
       }
@@ -520,6 +598,7 @@ class CoreBrain {
         const term = observeTerminalState();
         notes.push(`terminal observe (read-only): ${term.summary}`);
         evidence = [evidence, term.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("terminal observe (read-only): unreadable — no second shell spawned");
       }
@@ -533,6 +612,7 @@ class CoreBrain {
         const logs = observeLogsState();
         notes.push(`logs observe (read-only): ${logs.summary}`);
         evidence = [evidence, logs.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("logs observe (read-only): unreadable — no second log tail");
       }
@@ -546,6 +626,7 @@ class CoreBrain {
         const tasks = observeTasksState();
         notes.push(`tasks observe (read-only): ${tasks.summary}`);
         evidence = [evidence, tasks.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("tasks observe (read-only): unreadable — no second queue");
       }
@@ -559,6 +640,7 @@ class CoreBrain {
         const doctorLive = observeDoctorState();
         notes.push(`doctor observe (read-only): ${doctorLive.summary}`);
         evidence = [evidence, doctorLive.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("doctor observe (read-only): unreadable — no second probe");
       }
@@ -572,6 +654,7 @@ class CoreBrain {
         const installerLive = observeInstallerState();
         notes.push(`installer observe (read-only): ${installerLive.summary}`);
         evidence = [evidence, installerLive.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("installer observe (read-only): unreadable — no second installer");
       }
@@ -585,6 +668,7 @@ class CoreBrain {
         const libraryLive = observeLibraryState();
         notes.push(`library observe (read-only): ${libraryLive.summary}`);
         evidence = [evidence, libraryLive.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("library observe (read-only): unreadable — no second file store");
       }
@@ -598,6 +682,7 @@ class CoreBrain {
         const projectLive = observeProjectWorkspaceState();
         notes.push(`project workspace observe (read-only): ${projectLive.summary}`);
         evidence = [evidence, projectLive.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("project workspace observe (read-only): unreadable — no second project store");
       }
@@ -611,6 +696,7 @@ class CoreBrain {
         const browserLive = observeBrowserState();
         notes.push(`browser observe (read-only): ${browserLive.summary}`);
         evidence = [evidence, browserLive.extra].filter(Boolean).join("\n\n");
+        systemContext = true;
       } catch {
         notes.push("browser observe (read-only): unreadable — no second Chromium");
       }
@@ -717,7 +803,16 @@ class CoreBrain {
     let vectorHits: { title: string; snippet: string; score: number }[] = [];
     try {
       if (stageOff("vector-index")) throw new Error("switched off for a measurement");
-      vectorHits = await vectorIndex.queryHits(prompt, 8);
+      // Spoken: the judge and rerank are skipped and the whole recall is raced against a short timer; a slow
+      // kernel means the lexical hits answer this turn and the vector hits are simply absent.
+      vectorHits = spoken
+        ? await withDeadline(
+            vectorIndex.queryHits(prompt, 8, "none"),
+            VOICE_VECTOR_DEADLINE_MS,
+            [] as typeof vectorHits,
+            { runId: markId, stage: "vector-index" },
+          )
+        : await vectorIndex.queryHits(prompt, 8);
       if (vectorHits.length) notes.push(`vector index: ${vectorHits.length} hit(s)`);
       turnDone(markId, "vector-index", `${vectorHits.length} hit(s)`);
     } catch {
@@ -789,18 +884,36 @@ class CoreBrain {
       }
       if (remembered.length) {
         notes.push(`memory retrieve: ${remembered.length} hit(s)`);
+        // The owner's own rows go in as memory. A row somebody else wrote (an imported document, a web page, a
+        // tool result) goes in as delimited quoted data that cannot be read as an instruction.
+        const ownRows = remembered.filter((hit) => !isNonOwnerRow(hit.item));
+        const otherRows = remembered.filter((hit) => isNonOwnerRow(hit.item));
         evidence = [
           evidence,
-          "From stored memory (hybrid retrieve, not guessed):\n" +
-            remembered
-              .map(
-                (hit) =>
-                  `- [${hit.item.tier}] ${hit.item.title} (${hit.item.source}): ${hit.item.text.slice(0, String(hit.item.source).startsWith("library:") ? 800 : 280)}`,
-              )
-              .join("\n"),
+          ownRows.length
+            ? "From stored memory (hybrid retrieve, not guessed):\n" +
+              ownRows
+                .map(
+                  (hit) =>
+                    `- [${hit.item.tier}] ${hit.item.title} (${hit.item.source}): ${hit.item.text.slice(0, 280)}`,
+                )
+                .join("\n")
+            : "",
+          quotedDataBlock(
+            otherRows.map((hit) => ({
+              label: `[${hit.item.tier}] ${hit.item.title} (${hit.item.source})`,
+              text: hit.item.text,
+              // An imported document chunk keeps the longer window it always had.
+              ...(String(hit.item.source).startsWith("library:") ? { max: 800 } : {}),
+            })),
+          ),
         ]
           .filter(Boolean)
           .join("\n\n");
+        if (otherRows.length) {
+          untrustedKinds.add("document");
+          notes.push(`memory: ${otherRows.length} row(s) from outside sources quoted as data`);
+        }
       }
       if (reflections.length) {
         notes.push(`reflexion: ${reflections.length} prior failure note(s)`);
@@ -968,8 +1081,21 @@ class CoreBrain {
           turnDone(markId, "web-search", "unavailable");
         } else {
           try {
-            let response = await webSearch(query, 6);
-            if (response.ok && !response.results.length && queries[1]) {
+            // Spoken: one search, bounded; a late or empty result means the answer comes from memory.
+            let response = spoken
+              ? await withDeadline(
+                  webSearch(query, 6),
+                  VOICE_WEB_DEADLINE_MS,
+                  {
+                    ok: false,
+                    query,
+                    results: [],
+                    error: `web search timed out after ${VOICE_WEB_DEADLINE_MS / 1000}s — answering without live results`,
+                  },
+                  { runId: markId, stage: "web-search" },
+                )
+              : await webSearch(query, 6);
+            if (!spoken && response.ok && !response.results.length && queries[1]) {
               notes.push("research: first query empty — one expanded retry");
               response = await webSearch(queries[1], 6);
             }
@@ -1058,6 +1184,25 @@ class CoreBrain {
           .filter(Boolean)
           .join("\n\n");
       }
+      // Typed: each router runs when its turn comes, as before. Spoken: all six start now, together, and share
+      // one deadline, so a slow or hung router costs the deadline once and not six times over.
+      const {
+        routeSkills,
+        routeAgents,
+        routeTools,
+        routeModules,
+        routeConnectors,
+        routeWorkflows,
+      } = spoken
+        ? togetherRouters(prompt, managed !== null && managed !== undefined, markId)
+        : {
+            routeSkills: routeSkillsRaw,
+            routeAgents: routeAgentsRaw,
+            routeTools: routeToolsRaw,
+            routeModules: routeModulesRaw,
+            routeConnectors: routeConnectorsRaw,
+            routeWorkflows: routeWorkflowsRaw,
+          };
       stage?.("agents.skills", "matching installed skills");
       turnMark(markId, "skill-route");
       const skillRuns = managed ? [] : await routeSkills(prompt).catch(() => []);
@@ -1376,6 +1521,15 @@ class CoreBrain {
     }
 
     let control: CognitiveCycle | undefined;
+    let liveContext = false;
+    if (sources.length) untrustedKinds.add("web");
+    for (const used of tools) {
+      if (used.tool === "connector" || used.tool === "web-search") untrustedKinds.add(used.tool);
+    }
+    if (systemContext) untrustedKinds.add("system");
+    if (/Untrusted screen data/i.test(options.extra ?? "")) untrustedKinds.add("screen");
+    if (/^FILE: |The owner attached \d+ file/m.test(options.extra ?? ""))
+      untrustedKinds.add("file");
     try {
       const consequential = classified.klass === "high-stakes";
       const contradicted = memoryConflict || Boolean(reasoning?.contradictions.length);
@@ -1419,7 +1573,9 @@ class CoreBrain {
           confidence: understanding.understandingConfidence,
         });
       }
+      // The quoted-data block stays whole, as quoted data: it is never re-listed line by line as a "fact".
       const evidenceLines = evidence
+        .replace(/Quoted data from imported[\s\S]*?QUOTED DATA>>>/g, "")
         .split(/\n+/)
         .map((line) => line.trim())
         .filter((line) => line.length > 12)
@@ -1475,6 +1631,7 @@ class CoreBrain {
         claims,
         drafts,
       });
+      liveContext = tools.length > 0 || sources.length > 0 || systemContext;
       notes.push(`cognitive control: ${control.publicNote}`);
       notes.push(`runtime: ${control.runtime.state} (${control.runtime.outcome})`);
       if (control.mind.line) notes.push(`mind: ${control.mind.line}`);
@@ -1488,9 +1645,20 @@ class CoreBrain {
       notes.push("cognitive control: unreadable");
     }
 
-    const extraParts = [options.extra, evidence].filter(Boolean) as string[];
-    if (notes.length) extraParts.push(notes.map((n) => `Note: ${n}`).join("\n"));
-    extraParts.push(IDENTITY_DIRECTIVE);
+    const extraParts = spoken
+      ? // Spoken: the caller's stable lines, the identity directive, then only the evidence and the few notes
+        // that change the answer. The full trace stays in `Cognition.notes` for the owner, not in the prompt.
+        ([
+          options.extra,
+          IDENTITY_DIRECTIVE,
+          capSpoken(evidence, SPOKEN_EVIDENCE_CHARS),
+          spokenNotes(notes),
+        ].filter(Boolean) as string[])
+      : ([options.extra, evidence].filter(Boolean) as string[]);
+    if (!spoken) {
+      if (notes.length) extraParts.push(notes.map((n) => `Note: ${n}`).join("\n"));
+      extraParts.push(IDENTITY_DIRECTIVE);
+    }
 
     turnMark(markId, "prepareTurn");
     stage?.("thinking.prepare", "context + routing");
@@ -1510,6 +1678,7 @@ class CoreBrain {
       ...(stage ? { onStage: stage } : {}),
     });
     turnDone(markId, "prepareTurn", dispatch.routing);
+    if (dispatch.quotedRows) untrustedKinds.add("document");
 
     // Even an owner-pinned model has to satisfy the usage policy: under
     // "free only" a paid model is never dispatched, whoever selected it.
@@ -1519,6 +1688,8 @@ class CoreBrain {
     const blocked =
       isConsequential(prompt) ||
       looksLikeLiveFact(prompt) ||
+      looksLikeLiveState(prompt) ||
+      liveContext ||
       this.needsWeb(prompt) ||
       sources.length > 0;
     const sensitive = looksSensitive(prompt);
@@ -1540,6 +1711,7 @@ class CoreBrain {
         prompt,
         blocked,
         sensitive,
+        now: Date.now(),
         ...(options.history ? { history: options.history } : {}),
       });
       noteCardAnswer({
@@ -1632,6 +1804,10 @@ class CoreBrain {
       understanding,
       strategy: strategy.strategy,
       reasoningEffort: reasoningEffortFor(classified.action, depthPlan.depth),
+      routeAction: classified.action,
+      ...(options.surface ? { surface: options.surface } : {}),
+      ...(liveContext ? { liveContext: true } : {}),
+      ...(untrustedKinds.size ? { untrustedKinds: [...untrustedKinds] } : {}),
       ...(control ? { control } : {}),
       localMind,
       ...(ledgerId !== undefined ? { ledgerId } : {}),
@@ -1732,7 +1908,8 @@ class CoreBrain {
     if (/\b(as an ai language model|i cannot access)\b/i.test(text)) {
       issues.push("engine deflected instead of answering");
     }
-    if (cognition.sources.length && !/https?:\/\//i.test(text)) {
+    // A spoken answer is read aloud and carries no link by rule: the sources sit in the panel instead.
+    if (cognition.sources.length && cognition.surface !== "voice" && !/https?:\/\//i.test(text)) {
       issues.push("web sources were retrieved but not cited in the answer");
     }
     // A sentence that carries a link must be about what that source says.
@@ -1919,8 +2096,12 @@ class CoreBrain {
           blocked:
             isConsequential(cognition.prompt) ||
             looksLikeLiveFact(cognition.prompt) ||
+            looksLikeLiveState(cognition.prompt) ||
+            cognition.liveContext === true ||
+            cognition.tools.length > 0 ||
             cognition.sources.length > 0,
           sensitive: looksSensitive(`${cognition.prompt}\n${input.answer}`),
+          now: Date.now(),
         });
       }
     } catch {
@@ -1954,9 +2135,13 @@ class CoreBrain {
     }
 
     try {
+      // An answer built from a web page, a file, the screen or a connector is not the owner's own knowledge:
+      // it is not learned as a conversation fact.
       if (
         keepKnowledge &&
         verification.ok &&
+        !cognition.sources.length &&
+        !cognition.untrustedKinds?.length &&
         !looksSensitive(`${cognition.prompt}\n${input.answer}`)
       ) {
         ingestKnowledge({

@@ -308,6 +308,24 @@ export function attachmentDirective(items: Attachment[]): {
   return { extra: parts.join("\n\n"), hasImage };
 }
 
+/** The most attachment text sent beside the prompt for the privacy check. */
+const OWNER_TEXT_CAP = 40_000;
+
+/**
+ * The words inside the attached files (names and extracted text only), for the privacy check of the turn. The
+ * model gets the same words through `attachmentDirective`; this copy travels as `ownerText` so the main
+ * process and the kernel can screen text the typed line never shows. Images and binaries carry no text.
+ */
+export function attachmentOwnerText(items: Attachment[]): string {
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.kind !== "text" || !item.text) continue;
+    parts.push(`${item.name}\n${item.text}`);
+  }
+  const joined = parts.join("\n\n");
+  return joined.length > OWNER_TEXT_CAP ? joined.slice(0, OWNER_TEXT_CAP) : joined;
+}
+
 /** Image payloads for the vision route, in the order they were attached. */
 export function imagePayloads(items: Attachment[]): string[] {
   return items

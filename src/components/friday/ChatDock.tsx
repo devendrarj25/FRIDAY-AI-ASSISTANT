@@ -91,6 +91,7 @@ import {
 } from "@/lib/friday/capabilities";
 import {
   attachmentDirective,
+  attachmentOwnerText,
   formatBytes,
   readAttachments,
   type Attachment,
@@ -488,8 +489,11 @@ export function ChatDock() {
       teachNotes.join("\n"),
       turnAwarenessExtra(text, { kind: "typed", forceLibrary: libraryIds.length > 0 }),
     );
+    const fileWords = attachmentOwnerText(files);
     const sent = brain.send(text, {
       ...(combined ? { extra: combined } : {}),
+      // The words inside the attachment, so the privacy check sees what the typed line never shows.
+      ...(fileWords ? { ownerText: fileWords } : {}),
       ...(pinned.length ? { modelIds: pinned } : {}),
       routeMode: registry.routeMode,
       routingSurface: "chat",

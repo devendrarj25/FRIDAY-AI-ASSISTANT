@@ -56,6 +56,8 @@ export type LocalGrowth = {
 };
 
 const STORAGE_KEY = "friday.local-mind.v1";
+/** A saved answer is reused for this long after it was learned or last reinforced. */
+export const LOCAL_CARD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CARDS = 64;
 const MIN_COVERAGE = 0.8;
 const MIN_JACCARD = 0.55;
@@ -124,12 +126,20 @@ function clip(text: string, max: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+/**
+ * The words a card is matched on. Letters, marks and digits of any script count, so a Devanagari ask has terms
+ * too (a vowel sign is a mark, not a letter, and stays attached to its word). Latin words need three letters,
+ * other scripts two.
+ */
 function terms(text: string): string[] {
   return text
+    .normalize("NFC")
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((word) => word.length > 2 && !STOP.has(word));
+    .filter(
+      (word) => (/^\p{ASCII}+$/u.test(word) ? word.length > 2 : word.length > 1) && !STOP.has(word),
+    );
 }
 
 function keyOf(text: string): string {
@@ -315,6 +325,8 @@ export function consultLocalMind(input: {
   blocked?: boolean;
   sensitive?: boolean;
   history?: { role: string; text: string }[];
+  /** The clock for the card time to live. Missing means no card is expired (a caller with no clock). */
+  now?: number;
 }): LocalMindDecision {
   hydrate();
   const history = packHistory(input.history ?? []);
@@ -343,7 +355,16 @@ export function consultLocalMind(input: {
   if (input.blocked) return stay("this turn stays with the model");
   const asked = terms(input.prompt);
   let best: { card: LocalCard; coverage: number; jaccard: number; shared: number } | null = null;
+  let expired = 0;
   for (const card of cards) {
+    if (input.now !== undefined) {
+      // A card from before the clock was kept starts its time to live now (forward-only migration).
+      if (!card.learnedAt) card.learnedAt = input.now;
+      else if (input.now - card.learnedAt > LOCAL_CARD_TTL_MS) {
+        expired += 1;
+        continue;
+      }
+    }
     const score = overlap(asked, terms(card.question));
     if (!best || score.jaccard > best.jaccard) best = { card, ...score };
   }
@@ -354,6 +375,7 @@ export function consultLocalMind(input: {
     best.shared < MIN_SHARED ||
     best.card.confidence < MIN_CARD_CONFIDENCE
   ) {
+    if (!best && expired) return stay("the saved answers for this ask are old (expired)");
     return best ? stay("saved answers do not cover this ask", best.jaccard) : empty;
   }
   return {

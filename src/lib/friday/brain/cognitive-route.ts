@@ -147,3 +147,21 @@ export function reasoningEffortFor(
   if (depth === "fast") return "low";
   return "medium";
 }
+
+/** The longest spoken reply a model is asked to produce (tokens). The caption and the panel keep the detail. */
+export const VOICE_MAX_TOKENS = 180;
+
+/**
+ * A spoken turn does not pay for a hidden thinking trace: the first word waits for it on a CPU model. The effort
+ * is lowered to `low` on the voice surface unless the route itself is deep-reasoning or multi-verify. Typed chat
+ * keeps what the route chose.
+ */
+export function capReasoningEffort(
+  effort: ReasoningEffort | undefined,
+  action: CognitiveAction | undefined,
+  surface: "voice" | "chat" | "phone" | undefined,
+): ReasoningEffort | undefined {
+  if (surface !== "voice") return effort;
+  if (action === "deep-reasoning" || action === "multi-verify") return effort ?? "high";
+  return "low";
+}

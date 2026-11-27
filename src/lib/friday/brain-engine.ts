@@ -32,6 +32,7 @@ import {
   routeRefs,
   type RoutingTask,
 } from "./model-catalog";
+import { capReasoningEffort, VOICE_MAX_TOKENS } from "./brain/cognitive-route";
 import { checkAnswer, feedbackFor, type CheckFailure } from "./brain/answer-checks";
 import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks";
 import { sandboxToolPort } from "./sandbox-agent";
@@ -261,6 +262,40 @@ function turnVoiceParts(
   };
 }
 
+/** The most prompt-borne text sent beside a turn for the privacy check. */
+const OWNER_TEXT_CAP = 40_000;
+
+/**
+ * The words in this turn's prompt that FRIDAY did not write: attachment text, the caller's extra block (screen
+ * text, turn facts) and the memories recalled for it. FRIDAY's own persona and tool text is left out, so it
+ * cannot cause a false positive. The same text is what the main process and the kernel screen as `ownerText`.
+ */
+export function promptBorneText(input: {
+  ownerText?: string | undefined;
+  extra?: string | undefined;
+  recalled?: readonly string[] | undefined;
+}): string {
+  const joined = [input.ownerText, input.extra, ...(input.recalled ?? [])]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join("\n");
+  return joined.length > OWNER_TEXT_CAP ? joined.slice(0, OWNER_TEXT_CAP) : joined;
+}
+
+/** The owner's contract with the private route forced on: local models only, nothing leaves this PC. */
+export function privateRoutingContract(base?: ModelRoutingContract): ModelRoutingContract {
+  return createRoutingContract({
+    ...(base ?? {}),
+    routeMode: "local-only",
+    requirements: {
+      ...(base?.requirements ?? {}),
+      privacy: "private",
+      locality: "local",
+    },
+    qualityTarget: "private",
+  });
+}
+
 export function withRoutingDefaults(options: {
   extra?: string;
   modelIds?: string[];
@@ -346,6 +381,7 @@ import { connectorTools, invokeApprovedConnectorAction } from "./connectors";
 import { isWorkspaceShellTool, runWorkspaceShell } from "./terminal-awareness";
 import { isSandboxLabTool, runSandboxPlan } from "./sandbox-awareness";
 import { preferences } from "./preferences";
+import { approvalTtlMs } from "./voice-session";
 import { collectLiveUpdateRows, honestLastRun, type LiveUpdateRow } from "./brain/section-sync";
 import { listCapabilities, setCapabilityEnabled } from "./capability-trees";
 
@@ -689,28 +725,77 @@ const VOICE_RUNS_KEPT = 16;
 let seq = 0;
 const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
 
+/** One plain line for a failure the owner will hear: no IPC prefix, no stack, known causes in plain words. */
+function spokenFailure(error: unknown): string {
+  const raw = String(error ?? "").trim();
+  const lines = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/i, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^(?:Uncaught\s+)?(?:\w*Error):\s*/i, "").trim())
+    .filter((line) => line && !/^at\s|^Traceback|^File "|^\^+$/.test(line));
+  const first = lines[0] ?? "";
+  if (/denied|not allowed|EACCES|EPERM|blocked by|forbidden|refused/i.test(raw))
+    return "it was denied";
+  if (/timed? ?out|ETIMEDOUT/i.test(raw)) return "it took too long";
+  if (
+    /kernel (?:is )?(?:not running|down|offline)|ECONNREFUSED|bridge (?:not connected|closed|unavailable)|not connected/i.test(
+      raw,
+    )
+  )
+    return "my local tool service is not running";
+  if (!first) return "the tool reported a failure";
+  return (first.length > 120 ? `${first.slice(0, 119).trimEnd()}…` : first).replace(/[.\s]+$/, "");
+}
+
+/** The first sentence of a tool's own words, capped, on one line. */
+function firstSentence(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const end = flat.search(/[.!?।](\s|$)/);
+  const sentence = end >= 0 ? flat.slice(0, end + 1) : flat;
+  return sentence.length > max ? `${sentence.slice(0, max - 1).trimEnd()}…` : sentence;
+}
+
 /**
  * Turns a real tool result into FRIDAY's own sentence. A failure is reported
  * as a failure — an action is never described as done unless the tool said so.
+ * `voice` gives the one short line a speaker can read: the full text stays in chat and Tasks.
  */
-function describeToolResult(label: string, result: Record<string, unknown> | null): string {
+export function describeToolResult(
+  label: string,
+  result: Record<string, unknown> | null,
+  options: { voice?: boolean } = {},
+): string {
   if (!result) return `I couldn't ${label} — my local tool service didn't answer.`;
   if (result["ok"] === false) {
-    return `I couldn't ${label} — ${String(result["error"] ?? "the tool reported a failure")}.`;
+    return options.voice
+      ? `I couldn't ${label} — ${spokenFailure(result["error"])}.`
+      : `I couldn't ${label} — ${String(result["error"] ?? "the tool reported a failure")}.`;
   }
   const list = (result["windows"] ?? result["devices"] ?? result["entries"]) as unknown;
   if (Array.isArray(list)) {
     if (!list.length) return `Nothing to show for ${label} — the list came back empty.`;
-    const lines = list
-      .slice(0, 12)
-      .map((item) =>
-        typeof item === "string"
-          ? `• ${item}`
-          : `• ${String((item as Record<string, unknown>)["title"] ?? (item as Record<string, unknown>)["name"] ?? (item as Record<string, unknown>)["id"] ?? JSON.stringify(item))}`,
-      );
+    const names = list.map((item) =>
+      typeof item === "string"
+        ? item
+        : String(
+            (item as Record<string, unknown>)["title"] ??
+              (item as Record<string, unknown>)["name"] ??
+              (item as Record<string, unknown>)["id"] ??
+              JSON.stringify(item),
+          ),
+    );
+    if (options.voice) {
+      const head = names.slice(0, 3).join(", ");
+      return `Done — ${label}: ${names.length} found, starting with ${head}.`;
+    }
+    const lines = names.slice(0, 12).map((name) => `• ${name}`);
     return [`Done — ${label}:`, ...lines].join("\n");
   }
   const detail = result["detail"] ?? result["output"] ?? result["result"];
+  if (options.voice) {
+    const said = detail ? firstSentence(String(detail), 100) : "";
+    return said ? `Done — ${label}. ${said}` : `Done — ${label}.`;
+  }
   return detail ? `Done — ${label}. ${String(detail).trim()}` : `Done — ${label}.`;
 }
 
@@ -922,6 +1007,51 @@ export function resolveRoutingTask(run: Run, extra?: string): RoutingTask {
 }
 
 /**
+ * How long the renderer waits for silence before it gives up on a request. A spoken turn is capped at a few
+ * attempts of about 20 s to a first word, so it waits a little longer than that; typed chat waits longer than the
+ * main process's own 150 s idle deadline, so the main process fails over first and this is only the last net.
+ * `turn-start` covers the Core Brain pass, which sends nothing yet.
+ */
+export function watchdogMs(surface: "voice" | "chat", phase: "turn-start" | "stream"): number {
+  if (surface === "voice") return phase === "turn-start" ? 30_000 : 75_000;
+  return 170_000;
+}
+
+/**
+ * A short stable fingerprint of a spoken command (case, spacing and end punctuation do not change it), so a
+ * spoken yes is bound to exactly what was read back. Not a secret: it only has to tell two commands apart.
+ */
+export function commandDigest(command: string): string {
+  const text = String(command ?? "")
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[\s]+/g, " ")
+    .replace(/[.!?।,\s]+$/u, "")
+    .trim();
+  let h1 = 0xdeadbeef ^ text.length;
+  let h2 = 0x41c6ce57 ^ text.length;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(16).padStart(8, "0")}${(h1 >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+const engineKey = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** True when two model ids name one engine: equal, or equal once spelled the way the router spells them. */
+function sameEngineId(a: string, b: string | null | undefined): boolean {
+  if (!b) return false;
+  if (a === b) return true;
+  const keys = (id: string) => new Set([id, ...routeRefs([id])].map(engineKey).filter(Boolean));
+  const left = keys(a);
+  return [...keys(b)].some((key) => left.has(key));
+}
+
+/**
  * The repair decision, kept pure so it can be reasoned about and tested on its
  * own: a finished turn is repaired only when FRIDAY's verification rejected the
  * answer, this run has not already been repaired, and a genuinely different
@@ -934,9 +1064,12 @@ export function planRepair(input: {
   answeredBy?: string | null;
   /** The answer broke a rule the ask stated and that was checked by counting or parsing, not by opinion. */
   deterministic?: boolean;
+  /** A spoken answer the owner already started hearing: it cannot be unsaid, so it is never repaired. */
+  spokeAlready?: boolean;
 }): { repair: boolean; alternatives: string[]; sameEngine: boolean } {
-  const alternatives = input.candidates.filter((id) => id && id !== input.answeredBy);
-  if (input.verified || input.alreadyRepaired)
+  // The catalog id (cognition.modelIds) and the registry id the router reports are two spellings of one engine.
+  const alternatives = input.candidates.filter((id) => id && !sameEngineId(id, input.answeredBy));
+  if (input.verified || input.alreadyRepaired || input.spokeAlready)
     return { repair: false, alternatives, sameEngine: false };
   if (alternatives.length > 0) return { repair: true, alternatives, sameEngine: false };
   // Only one engine is eligible. A miss that was counted or parsed is named exactly and the same
@@ -955,6 +1088,12 @@ class BrainStore {
   private activeRequestId: string | null = null;
   /** Resolver for an action paused by the Manual/Auto approval gate. */
   private pendingAction: ((allow: boolean) => void) | null = null;
+  /** Expires a spoken run's pending approval (voice.approvalTtlSec). */
+  private approvalTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Single-use spoken yes tokens: token -> the confirmed command's digest and expiry. */
+  private preApprovals = new Map<string, { digest: string; expiresAt: number }>();
+  /** The token a run carries, by run id. */
+  private preApprovalOf = new Map<string, string>();
   /** Set by Auto Mode so replies are shaped for speech. */
   private autoMode = false;
   /** Models the last dispatch actually asked for, per run. */
@@ -971,6 +1110,8 @@ class BrainStore {
   private streamBuffers = new Map<string, { text: string; at: number }>();
   /** Runs that already used their single verification-repair retry. */
   private repairedRuns = new Set<string>();
+  /** Runs whose prompt carried SENSITIVE text: a repair pass keeps their private route and `ownerText`. */
+  private privateRuns = new Map<string, string>();
   /** The one live draft (a text-only guess made before the owner finished). It never owns the run lane. */
   private draft: {
     id: string;
@@ -1167,8 +1308,12 @@ class BrainStore {
   }
 
   /** (Re)arms the stuck-request guard; every stream event pushes it back. */
-  private armWatchdog(ms = 140_000) {
+  private armWatchdog(ms?: number) {
     this.clearWatchdog();
+    if (ms === undefined) {
+      const active = this.state.activeRunId;
+      ms = watchdogMs(active && this.voiceRuns.has(active) ? "voice" : "chat", "stream");
+    }
     if (typeof window === "undefined") return;
     this.desktopWatchdog = setTimeout(() => {
       this.desktopWatchdog = null;
@@ -1549,6 +1694,8 @@ class BrainStore {
       candidates: entry.cognition.modelIds,
       answeredBy,
       deterministic: broken.length > 0,
+      // A voice reply streams to the speaker from its first sentence: once any text arrived, it was heard.
+      spokeAlready: entry.cognition.surface === "voice" && run.answer.trim().length > 0,
     });
     if (!repair) return false;
 
@@ -1585,6 +1732,14 @@ class BrainStore {
         prompt: entry.cognition.prompt,
         modelIds: routeRefs(alternatives),
         task: resolveRoutingTask(run),
+        ...(this.privateRuns.has(run.id)
+          ? {
+              routeMode: "local-only",
+              routingContract: privateRoutingContract(),
+              turnSensitive: true,
+              ...(this.privateRuns.get(run.id) ? { ownerText: this.privateRuns.get(run.id)! } : {}),
+            }
+          : {}),
         ...(entry.cognition.reasoningEffort
           ? { reasoningEffort: entry.cognition.reasoningEffort }
           : {}),
@@ -1923,6 +2078,18 @@ class BrainStore {
        * Missing means unknown: only these two let the finished turn count as the owner's words in the task ledger.
        */
       promptOrigin?: PromptOrigin;
+      /**
+       * Words the model reads but did not write (the text inside attachments). Screened for SENSITIVE like the
+       * typed line and sent to the main process as `ownerText`; it is data, never an instruction.
+       */
+      ownerText?: string;
+      /** The caller already judged this turn SENSITIVE: it takes the private route (local only). */
+      turnSensitive?: boolean;
+      /**
+       * A single-use token from `preApprove(command)`: the owner confirmed this exact command out loud, so the
+       * run's own approval is not asked a second time on screen.
+       */
+      preApproval?: string;
     } = {},
   ): SendResult {
     // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
@@ -2016,6 +2183,9 @@ class BrainStore {
       lane: "full" as const,
       ...(context || rawOptions.extra?.trim() ? { untrusted: true } : {}),
       ...(rawOptions.promptOrigin ? { promptOrigin: rawOptions.promptOrigin } : {}),
+      ...(rawOptions.ownerText ? { ownerText: rawOptions.ownerText } : {}),
+      ...(rawOptions.turnSensitive ? { turnSensitive: true } : {}),
+      ...(rawOptions.preApproval ? { preApproval: rawOptions.preApproval } : {}),
       ...carry,
     };
     this.startRun(
@@ -2156,6 +2326,9 @@ class BrainStore {
       untrusted?: boolean;
       /** Where the prompt text came from (see `send`). Missing = unknown. */
       promptOrigin?: PromptOrigin;
+      ownerText?: string;
+      turnSensitive?: boolean;
+      preApproval?: string;
     } = {},
     owner?: RunOwner,
   ) {
@@ -2164,7 +2337,7 @@ class BrainStore {
     const surface = resolveSurface(options.routingSurface);
     const budget = thinkBudget(surface);
     const traces = tracePlan(["understand", "evidence", "answer"], surface);
-    withinBudget(0, surface);
+    const turnStartedAt = Date.now();
     const sight = conversationSight({
       asked: /\b(screen|camera|dekho|looking at)\b/i.test(text),
       handoff: looksSensitive(text),
@@ -2223,6 +2396,7 @@ class BrainStore {
 
     const run = this.newRun(text, surface, { rule, score, matched }, multi, owner);
     if (options.turnId) run.turnId = options.turnId;
+    if (options.preApproval) this.preApprovalOf.set(run.id, options.preApproval);
     if (options.lane) run.lane = options.lane;
     if (options.untrusted || sight.text) this.noteUntrusted(run.id);
     turnProvenance.begin(run.id, {
@@ -2267,7 +2441,7 @@ class BrainStore {
     this.state.activeRunId = runId;
     this.state.stats.requests += 1;
     const traced = tracePlan(["hear", "decide", "answer", "check"], surface);
-    const paced = withinBudget(budget.ms, surface);
+    const paced = withinBudget(Date.now() - turnStartedAt, surface);
     this.push(
       "info",
       `run ${runId} — intent ${rule.label} (${Math.round(score * 100)}%), ${multi.length} agent(s)` +
@@ -2451,6 +2625,8 @@ class BrainStore {
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
         routingSurface: resolveSurface(options.routingSurface),
+        ...(options.ownerText ? { ownerText: options.ownerText } : {}),
+        ...(options.turnSensitive ? { turnSensitive: true } : {}),
       });
       this.emit(false);
       return;
@@ -2477,6 +2653,8 @@ class BrainStore {
       routeMode?: string;
       routingContract?: ModelRoutingContract;
       routingSurface?: "voice" | "chat";
+      ownerText?: string;
+      turnSensitive?: boolean;
     },
   ) {
     const memoryStage = run.stages.find((stage) => stage.id === "memory");
@@ -2502,12 +2680,15 @@ class BrainStore {
       });
       return;
     }
+    const surface = resolveSurface(options.routingSurface);
+    // The Core Brain pass sends nothing yet, so nothing else would notice if it hung.
+    this.armWatchdog(watchdogMs(surface, "turn-start"));
     this.noteTurn(run, "thinking.cognition", "preparing the turn");
     applyDesktopPhase(run, "prepare", "preparing the turn");
     try {
       cognition = await coreBrain.cognize(text, {
         mode: this.autoMode ? "auto" : "manual",
-        surface: resolveSurface(options.routingSurface),
+        surface,
         observe: false,
         multiModel: this.state.settings.multiModel,
         useKnowledge: this.state.settings.useKnowledge,
@@ -2523,6 +2704,22 @@ class BrainStore {
       return;
     }
     if (this.activeRequestId !== requestId) return; // superseded by a newer run
+
+    // SENSITIVE is a hard stop for a cloud model, also when the words sit in an attachment, the screen or a
+    // recalled memory and the typed line is innocent. A hit (or the caller's flag) takes the private route.
+    const ownerText = promptBorneText({
+      ownerText: options.ownerText,
+      extra: options.extra,
+      recalled: cognition.context,
+    });
+    const turnSensitive = options.turnSensitive === true || looksSensitive(ownerText);
+    if (turnSensitive) {
+      this.privateRuns.set(run.id, ownerText);
+      if (this.privateRuns.size > 16)
+        this.privateRuns.delete(this.privateRuns.keys().next().value!);
+      this.noteTurn(run, "thinking.cognition", "sensitive text in the prompt — private route");
+      this.push("info", "sensitive text found in the turn — local models only");
+    }
 
     if (cognition.localMind?.skipModel && cognition.localMind.reply) {
       this.lastCognition = { runId: run.id, cognition };
@@ -2576,8 +2773,8 @@ class BrainStore {
     ) {
       const route = this.routeModel(
         task,
-        resolveSurface(options.routingSurface),
-        this.privateTurn(text),
+        surface,
+        turnSensitive ? "private" : this.privateTurn(text),
       );
       if (route.outcome === NO_LIVE_MODEL) {
         this.failDesktopRun(
@@ -2605,8 +2802,12 @@ class BrainStore {
         : collaboration.reason,
     );
     this.finishTurnStep(run, "done");
-    const surface = resolveSurface(options.routingSurface);
-    if (collaboration.warranted && hedgeAllowed(surface) && desktop.parallelChat) {
+    if (
+      collaboration.warranted &&
+      hedgeAllowed(surface) &&
+      desktop.parallelChat &&
+      !turnSensitive
+    ) {
       if (this.phoneCognizeSession) this.phoneCognizeStreamed = true;
       const handled = await this.collaborate(run, text, requestId, desktop, collaboration, {
         task,
@@ -2617,6 +2818,9 @@ class BrainStore {
       if (handled) return;
     }
 
+    // A spoken turn never waits for a hidden thinking trace: low effort and a short reply, unless the route
+    // itself is deep-reasoning or multi-verify.
+    const effort = capReasoningEffort(cognition.reasoningEffort, cognition.routeAction, surface);
     try {
       this.noteTurn(
         run,
@@ -2641,11 +2845,23 @@ class BrainStore {
         // provider/registry reference first and the catalog id as a fallback.
         modelIds: routeRefs(modelIds),
         task,
-        // The owner's local/cloud/auto/manual/multi choice for this turn.
-        ...(options.routeMode ? { routeMode: options.routeMode } : {}),
-        ...(options.routingContract ? { routingContract: options.routingContract } : {}),
+        // The owner's local/cloud/auto/manual/multi choice for this turn. SENSITIVE text anywhere in the
+        // prompt overrides it with the private route, and travels as `ownerText` for the main-process gate.
+        ...(turnSensitive
+          ? {
+              routeMode: "local-only",
+              routingContract: privateRoutingContract(options.routingContract),
+              turnSensitive: true,
+              ...(ownerText ? { ownerText } : {}),
+            }
+          : {
+              ...(options.routeMode ? { routeMode: options.routeMode } : {}),
+              ...(options.routingContract ? { routingContract: options.routingContract } : {}),
+              ...(ownerText ? { ownerText } : {}),
+            }),
         ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
-        ...(cognition.reasoningEffort ? { reasoningEffort: cognition.reasoningEffort } : {}),
+        ...(effort ? { reasoningEffort: effort } : {}),
+        ...(surface === "voice" ? { maxTokens: VOICE_MAX_TOKENS } : {}),
         runId: run.id,
         system: cognition.system,
         history: this.historyForModel(run.id),
@@ -2948,7 +3164,7 @@ class BrainStore {
         dispatchPluginHook("on-skill-run", { runId: run.id, skillId, label });
         const result = await (window.friday?.invokeSkill?.(skillId, args) ??
           Promise.resolve({ ok: false, error: "skills are only available in the desktop app" }));
-        text = describeToolResult(label, result as Record<string, unknown>);
+        text = this.toolSentence(run, label, result as Record<string, unknown>);
         this.state.stats.toolCalls += 1;
       }
     } else if (reply.action && reply.action.kind === "connector") {
@@ -2966,7 +3182,8 @@ class BrainStore {
         const result = entry
           ? await invokeApprovedConnectorAction(entry, args)
           : { ok: false, error: "That service is no longer connected." };
-        text = describeToolResult(
+        text = this.toolSentence(
+          run,
           label,
           (result.ok
             ? { ok: true, entries: result.lines ?? [] }
@@ -3047,7 +3264,7 @@ class BrainStore {
             error: "Kernel is not running — start it from Setup.",
           };
         }
-        text = describeToolResult(label, result);
+        text = this.toolSentence(run, label, result);
         presentToolArtifacts(label, result);
         this.state.stats.toolCalls += 1;
       }
@@ -3086,6 +3303,11 @@ class BrainStore {
     ) {
       return Promise.resolve(true);
     }
+    // The owner already said yes to this exact command (the read-back): that yes is spent once, here.
+    if (this.consumePreApproval(run)) {
+      this.push("ok", `approved by your spoken yes: ${label} (${risk})`);
+      return Promise.resolve(true);
+    }
     const agent = run.agents[0]?.id ?? ("developer" as AgentId);
     this.state.approval = {
       runId: run.id,
@@ -3099,8 +3321,76 @@ class BrainStore {
     this.push("warn", `waiting for your approval: ${label} (${risk})`);
     this.emit();
     return new Promise<boolean>((resolve) => {
-      this.pendingAction = resolve;
+      this.clearApprovalTimer();
+      this.pendingAction = (allow) => {
+        this.clearApprovalTimer();
+        resolve(allow);
+      };
+      // A spoken run does not wait for ever: the approval window is the owner's `voice.approvalTtlSec`.
+      if (this.voiceRuns.has(run.id)) {
+        this.approvalTimer = setTimeout(() => {
+          this.approvalTimer = null;
+          if (!this.pendingAction || this.state.approval?.runId !== run.id) return;
+          const expire = this.pendingAction;
+          this.pendingAction = null;
+          this.state.approval = null;
+          run.state = "running";
+          this.push("warn", `no answer to the approval in time — ${label} was not run`);
+          this.emit();
+          expire(false);
+        }, approvalTtlMs(preferences.getSnapshot().voice.approvalTtlSec));
+      }
     });
+  }
+
+  private clearApprovalTimer() {
+    if (!this.approvalTimer) return;
+    clearTimeout(this.approvalTimer);
+    this.approvalTimer = null;
+  }
+
+  /**
+   * Mint a single-use token for a command the owner just confirmed out loud (the read-back and his yes). It is
+   * bound to the digest of that command and expires with `voice.approvalTtlSec`; `send(command, { preApproval })`
+   * carries it to the run, and `gateAction` spends it for that run's own approval. It never approves a different
+   * command, never outlives its window and never works while everything is stopped. Returns null for no command.
+   */
+  preApprove(command: string, now = Date.now()): string | null {
+    const text = String(command ?? "").trim();
+    if (!text) return null;
+    for (const [id, grant] of this.preApprovals)
+      if (grant.expiresAt <= now) this.preApprovals.delete(id);
+    const token = `${nextId("yes")}-${Math.random().toString(36).slice(2, 10)}`;
+    this.preApprovals.set(token, {
+      digest: commandDigest(text),
+      expiresAt: now + approvalTtlMs(preferences.getSnapshot().voice.approvalTtlSec),
+    });
+    return token;
+  }
+
+  /** Spend the run's pre-approval token if it is valid for this run's command. True means it approved. */
+  private consumePreApproval(run: Run): boolean {
+    const token = this.preApprovalOf.get(run.id);
+    if (!token) return false;
+    this.preApprovalOf.delete(run.id);
+    const grant = this.preApprovals.get(token);
+    this.preApprovals.delete(token);
+    if (!grant || autonomy.getSnapshot().halted) return false;
+    return grant.expiresAt > Date.now() && grant.digest === commandDigest(run.prompt);
+  }
+
+  /** True while a run waits for the owner's approval (the busy reply says so instead of "still working"). */
+  isAwaitingApproval(): boolean {
+    const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
+    return run?.state === "awaiting-approval";
+  }
+
+  /** The sentence for a tool result: one short line when the answer is spoken, the full text otherwise. */
+  private toolSentence(run: Run, label: string, result: Record<string, unknown> | null): string {
+    const voice = this.voiceRuns.has(run.id);
+    const text = describeToolResult(label, result, { voice });
+    if (voice) this.push("info", describeToolResult(label, result).slice(0, 2000));
+    return text;
   }
 
   approve(allow: boolean) {

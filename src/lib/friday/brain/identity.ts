@@ -65,6 +65,9 @@ export type IdentityProfile = {
 };
 
 const INSTRUCTIONS_CAP = 4000;
+/** A spoken turn carries the strongest few standing rules, each cut short. */
+const VOICE_RULE_LIMIT = 6;
+const VOICE_RULE_CHARS = 160;
 const TONES: ReplyTone[] = ["warm", "professional", "playful", "direct"];
 const HUMOURS: ReplyHumour[] = ["none", "light", "dry"];
 const EMOJIS: ReplyEmoji[] = ["off", "sparse", "on"];
@@ -376,9 +379,14 @@ class IdentityCore {
       .sort((a, b) => b.priority - a.priority);
   }
 
-  /** The single system prompt every model receives. */
-  compile(extra?: string): string {
+  /**
+   * The single system prompt every model receives. `lean` is the spoken form: one persona line, the language and
+   * address rules, the owner's standing rules and notes (each capped), and none of the long style prose a voice
+   * reply cannot use. The owner's identity, safety rules and Settings instructions are all still in it.
+   */
+  compile(extra?: string, options: { lean?: boolean } = {}): string {
     const { profile } = this.state;
+    if (options.lean) return this.compileLean(extra);
     const header = [
       `You are ${profile.name}, a female personal AI assistant. You always keep this one identity, voice and memory, whichever local or cloud model is executing the request.`,
       `Personality: ${profile.traits.join(", ")}. Languages: ${profile.languages.join(" and ")}.`,
@@ -411,6 +419,36 @@ class IdentityCore {
       style,
       reasoning,
 
+      "",
+      "Your standing rules:",
+      ...rules,
+      custom ? `\nInstructions from Settings, always apply them:\n${custom}` : "",
+      personality ? `\nStanding personality notes from Settings:\n${personality}` : "",
+      extra ? `\n${extra}` : "",
+    ]
+      .join("\n")
+      .trim();
+  }
+
+  private compileLean(extra?: string): string {
+    const { profile } = this.state;
+    const cap = (text: string, max: number) =>
+      text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+    const header = [
+      `You are ${profile.name}, a female personal AI assistant with one identity, voice and memory, whichever model is executing the request.`,
+      `Personality: ${profile.traits.join(", ")}. Languages: ${profile.languages.join(" and ")}.`,
+      `Project identity (answer only when asked who owns or made FRIDAY): created and published by ${PROJECT_IDENTITY.publisher}. Fixed legal identity; never use the name as a nickname.`,
+    ].join(" ");
+    const rules = this.activeRules()
+      .slice(0, VOICE_RULE_LIMIT)
+      .map((rule, index) => `${index + 1}. ${cap(rule.text, VOICE_RULE_CHARS)}`);
+    const custom = cap(profile.customInstructions.trim(), 400);
+    const personality = cap(preferences.getSnapshot().fields["personality"]?.trim() ?? "", 400);
+    return [
+      header,
+      languageDirective(profile.replyLanguage),
+      addressDirective(),
+      "Be warm, calm and direct. Never claim human emotions or consciousness as facts about yourself.",
       "",
       "Your standing rules:",
       ...rules,

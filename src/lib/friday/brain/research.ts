@@ -70,8 +70,34 @@ const CREATIVE_ASK = /\b(haiku|poem|joke|hello|hi\b|thanks|write a)\b/i;
 const KNOWLEDGE_ASK =
   /\b(who|what|when|where|which|how many|how much|capital of|meaning of|definition of)\b/i;
 
+/**
+ * Hinglish and Devanagari live facts (weather, news, prices). `\b` only knows ASCII letters, so the Devanagari
+ * words are matched without it.
+ */
+const LIVE_FACT_HINGLISH =
+  /\b(mausam|mausum|taapman|tapman|khabar|khabrein|samachar|bhaav|bhav|daam|kimat|keemat|taaza|taza)\b/i;
+const LIVE_FACT_DEVANAGARI = /(मौसम|तापमान|ख़बर|खबर|समाचार|भाव|दाम|कीमत|ताज़ा|ताजा)/;
+
 export function looksLikeLiveFact(text: string): boolean {
-  return LIVE_FACT.test(String(text || ""));
+  const value = String(text || "");
+  return (
+    LIVE_FACT.test(value) || LIVE_FACT_HINGLISH.test(value) || LIVE_FACT_DEVANAGARI.test(value)
+  );
+}
+
+/**
+ * A question about now, about this machine, or about the owner's own state (battery, apps, calendar, schedule,
+ * time, storage). The right answer changes by the minute, so a saved answer is never replayed for it and the
+ * turn is never learned from. English, Hinglish (Roman) and Devanagari.
+ */
+const LIVE_STATE_LATIN =
+  /\b(battery|charging|charge level|storage|disk space|free space|ram|cpu|gpu|temperature|running apps?|open apps?|apps?\s+(?:open|running|khuli|khule)|which apps|calendar|schedule|agenda|meetings?|appointments?|reminders?|alarms?|timers?|inbox|unread|e-?mails?|notifications?|volume|brightness|wi-?fi|bluetooth|network|clipboard|what time|what'?s the time|what day|what date|today|tonight|tomorrow|yesterday|right now|currently|at the moment|just now|this (?:morning|evening|afternoon)|aaj|abhi|filhal|kal|parso|aajkal|abhi tak|bachi|bacha|bachha|khuli|khule|khula|mera schedule|meri meeting|mera calendar|meri meetings|samay|kitne baje|kya time|time kya|tarikh|kaun kaun si|kitni battery|kitna storage|chal rahi|chal raha|chalu)\b/i;
+const LIVE_STATE_DEVANAGARI =
+  /(आज|अभी|कल|परसों|फिलहाल|बैटरी|कैलेंडर|शेड्यूल|मीटिंग|रिमाइंडर|अलार्म|समय|कितने बजे|तारीख|स्टोरेज|ऐप्स|खुली|खुले|बची|बचा)/;
+
+export function looksLikeLiveState(text: string): boolean {
+  const value = String(text || "");
+  return LIVE_STATE_LATIN.test(value) || LIVE_STATE_DEVANAGARI.test(value);
 }
 
 /**

@@ -11,6 +11,8 @@ export type SystemContext = {
   iso: string;
   date: string;
   time: string;
+  /** The clock rounded down to the minute: stable for a whole minute, so a prompt prefix can be reused. */
+  timeMinute: string;
   weekday: string;
   timeZone: string;
   utcOffset: string;
@@ -41,6 +43,11 @@ export function readSystemContext(): SystemContext {
     iso: now.toISOString(),
     date: now.toLocaleDateString(locale, { day: "2-digit", month: "long", year: "numeric" }),
     time: now.toLocaleTimeString(locale, { hour12: false }),
+    timeMinute: now.toLocaleTimeString(locale, {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
     weekday: now.toLocaleDateString(locale, { weekday: "long" }),
     timeZone,
     utcOffset: utcOffset(now),
@@ -53,8 +60,21 @@ export function readSystemContext(): SystemContext {
   };
 }
 
-/** The block injected into every system prompt. */
-export function systemContextPrompt(ctx: SystemContext = readSystemContext()): string {
+/** The block injected into every system prompt. A spoken turn gets the short form. */
+export function systemContextPrompt(
+  ctx: SystemContext = readSystemContext(),
+  options: { surface?: "voice" | "chat" | "phone" } = {},
+): string {
+  if (options.surface === "voice") {
+    // Spoken turns need the date, the minute and the connectivity, nothing the voice cannot say. No seconds and
+    // no ISO line: the text stays the same for a whole minute and costs fewer tokens on a slow CPU.
+    return [
+      `Live system context (read from this machine's OS right now — trust it over anything you remember): ${ctx.weekday}, ${ctx.date}, ${ctx.timeMinute} (${ctx.timeZone}); network ${ctx.online ? "online" : "offline"}.`,
+      ctx.online
+        ? "Live web results, if this turn needs them, are attached before you answer; you have no web or browser tool here. If none are attached, say what you know and that it was not live-verified."
+        : "Offline: answer from local memory and models, and say live verification was not possible.",
+    ].join("\n");
+  }
   return [
     "Live system context (read from this machine's OS right now — trust it over anything you remember):",
     `- Current date: ${ctx.weekday}, ${ctx.date}`,
