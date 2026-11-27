@@ -63,7 +63,8 @@ describe("Plugins page customization", () => {
   it("is arranged like the Skills page: refresh with retry, install panel, source filter, states, paging", () => {
     expect(source).toContain("Install a plugin");
     expect(source).toContain("Any source");
-    expect(source).toContain('p.origin === "app" ? "Built-in" : "Installed"');
+    expect(source).toContain("<CapabilityBadge status={p.layer} origin={p.origin} />");
+    expect(source).toContain('from "@/components/friday/CapabilityBadge"');
     expect(source).toContain("LoadingState");
     expect(source).toContain("No plugin matches these filters");
     expect(source).toContain("Plugins are listed by the FRIDAY desktop app");

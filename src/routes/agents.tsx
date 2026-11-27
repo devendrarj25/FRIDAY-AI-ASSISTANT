@@ -15,7 +15,12 @@ import {
   toneForStatus,
   EmptyState,
 } from "@/components/friday/ui";
-import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
+import {
+  useCapabilities,
+  type CapabilityItem,
+  type CapabilityStatus,
+} from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
 import { useLedger } from "@/lib/friday/self/use-self";
 import { lastUsedLabel, statsFor, tasksFor } from "@/lib/friday/self/mastery";
 import { hub } from "@/lib/friday/hub-engine";
@@ -65,6 +70,7 @@ type AgentRow = {
   lastRunLabel: string;
   lastRunPreview: string;
   origin: "app" | "workspace" | "";
+  layer?: CapabilityStatus | undefined;
 };
 
 const DESKTOP_ONLY = "This change needs the FRIDAY desktop app.";
@@ -135,6 +141,7 @@ function AgentsPage() {
         lastRunLabel: last.label,
         lastRunPreview: last.preview,
         origin: item.origin,
+        layer: item.status,
       };
     });
   }, [supported, items, tasks]);
@@ -359,9 +366,10 @@ function AgentsPage() {
                   "Actions",
                 ]}
                 rows={rows.map((a) => [
-                  <span key="n" className="flex items-center gap-2 text-foreground">
+                  <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Users className="size-3.5 text-primary" />
                     {a.name}
+                    <CapabilityBadge status={a.layer} origin={a.origin} />
                   </span>,
                   <span key="c" className="text-muted-foreground">
                     {a.category || "—"}
@@ -390,6 +398,13 @@ function AgentsPage() {
                       onCheckedChange={(next) => void onToggle(a, next)}
                       disabled={!a.id || Boolean(busyId)}
                       aria-label={`Enable ${a.name}`}
+                    />
+                    <ResetBuiltinButton
+                      id={a.id}
+                      name={a.name}
+                      status={a.layer}
+                      refresh={refresh}
+                      disabled={Boolean(busyId)}
                     />
                     <Button
                       size="sm"

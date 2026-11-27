@@ -25,6 +25,8 @@ import { toast } from "sonner";
 import { desktopApi } from "@/lib/friday/desktop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContentUpdateReport } from "@/components/friday/CapabilityBadge";
+import type { AlreadyInRelease, KeptYours } from "@/lib/friday/capability-trees";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { ReleaseFiles, UpdateGuide } from "@/components/friday/settings/UpdateGuide";
 import {
@@ -110,6 +112,10 @@ export function GithubUpdates() {
   const [connection, setConnection] = useState<GithubTest | null>(null);
   const [session, setSession] = useState<GithubConnection>({ state: "unknown" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [contentReport, setContentReport] = useState<{
+    alreadyInRelease: AlreadyInRelease[];
+    keptYours: KeptYours[];
+  } | null>(null);
   // The portable EXE updates by replacing itself with the new Portable file; it never runs the Setup installer.
   const [portable, setPortable] = useState(false);
   useEffect(() => {
@@ -646,11 +652,16 @@ export function GithubUpdates() {
               title="Merge the new skills, agents, plugins, modules, workflows and docs of this release into your FRIDAY folder. The program itself updates through the installer."
               onClick={() =>
                 run("content", async () => {
+                  setContentReport(null);
                   const result = await githubUpdateNow(check?.ref, { contentOnly: true });
                   if (!result.ok) {
                     toast.error(result.error || "Update failed — nothing was changed.");
                     return;
                   }
+                  setContentReport({
+                    alreadyInRelease: result.alreadyInRelease ?? [],
+                    keptYours: result.keptYours ?? [],
+                  });
                   setProgress(null);
                   await reload();
                   toast.success(
@@ -721,6 +732,11 @@ export function GithubUpdates() {
                   ? "Install TEST build"
                   : "Install new EXE"}
             </Button>
+          ) : null}
+          {contentReport ? (
+            <div className="basis-full">
+              <ContentUpdateReport {...contentReport} />
+            </div>
           ) : null}
           {check?.staged && check?.updateAvailable ? (
             <p className="basis-full text-xs text-muted-foreground">

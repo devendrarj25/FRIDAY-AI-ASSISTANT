@@ -17,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { runtimes as sampleRuntimes, tools as sampleTools } from "@/lib/friday/mock";
-import { useCapabilities } from "@/lib/friday/capability-trees";
+import { useCapabilities, type CapabilityStatus } from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
 import { useInstaller } from "@/lib/friday/use-installer";
 import { installer } from "@/lib/friday/installer-engine";
 import { toast } from "sonner";
@@ -81,6 +82,8 @@ function ToolsPage() {
         summary: item.description || `${item.segment} tool`,
         risk: item.risk,
         enabled: item.enabled,
+        origin: item.origin as string,
+        layer: item.status as CapabilityStatus | undefined,
         toggleable: true,
         onToggle: (next: boolean) => {
           void toggle(item.id, next);
@@ -89,6 +92,8 @@ function ToolsPage() {
     : sampleTools.map((tool) => ({
         id: "",
         ...tool,
+        origin: "",
+        layer: undefined as CapabilityStatus | undefined,
         toggleable: false,
         onToggle: (_next: boolean) => {},
       }));
@@ -300,15 +305,28 @@ function ToolsPage() {
             <ul className="space-y-3">
               {tools.map((tool) => (
                 <li key={tool.id || tool.name} className="flex items-start justify-between gap-3">
-                  <button
-                    type="button"
-                    className={`min-w-0 text-left ${selectedId === tool.id ? "text-primary" : ""}`}
-                    onClick={() => tool.id && setSelectedId(tool.id)}
-                  >
-                    <p className="font-mono text-sm">{tool.name}</p>
-                    <p className="text-xs text-muted-foreground">{tool.summary}</p>
-                    <span className={`label-xs ${riskTone[tool.risk]}`}>{tool.risk}</span>
-                  </button>
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      className={`min-w-0 text-left ${selectedId === tool.id ? "text-primary" : ""}`}
+                      onClick={() => tool.id && setSelectedId(tool.id)}
+                    >
+                      <p className="font-mono text-sm">{tool.name}</p>
+                      <p className="text-xs text-muted-foreground">{tool.summary}</p>
+                      <span className={`label-xs ${riskTone[tool.risk]}`}>{tool.risk}</span>
+                    </button>
+                    {tool.id ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <CapabilityBadge status={tool.layer} origin={tool.origin} />
+                        <ResetBuiltinButton
+                          id={tool.id}
+                          name={tool.name}
+                          status={tool.layer}
+                          refresh={refresh}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                   <Switch
                     checked={tool.enabled}
                     onCheckedChange={tool.onToggle}

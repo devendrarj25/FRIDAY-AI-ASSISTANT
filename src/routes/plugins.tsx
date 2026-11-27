@@ -16,7 +16,12 @@ import {
   EmptyState,
   LoadingState,
 } from "@/components/friday/ui";
-import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
+import {
+  useCapabilities,
+  type CapabilityItem,
+  type CapabilityStatus,
+} from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
 import { uninstallPack } from "@/lib/friday/marketplace";
@@ -58,6 +63,7 @@ type PluginRow = {
   latest: string;
   summary: string;
   origin: "app" | "workspace" | "";
+  layer?: CapabilityStatus | undefined;
   permissions: string[];
   hooks: string[];
   entry: string;
@@ -149,6 +155,7 @@ function PluginsPage() {
             latest: pluginLatest[item.id] || "",
             summary: item.summary || item.description || "",
             origin: item.origin,
+            layer: item.status,
             permissions: item.permissions || [],
             hooks: item.hooks || [],
             entry: item.entry || "index.cjs",
@@ -551,9 +558,7 @@ function PluginsPage() {
                   <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Plug className="size-3.5 text-primary" />
                     {p.name}
-                    <Badge variant="outline" className="text-note">
-                      {p.origin === "app" ? "Built-in" : "Installed"}
-                    </Badge>
+                    <CapabilityBadge status={p.layer} origin={p.origin} />
                   </span>,
                   <span key="k" className="text-muted-foreground">
                     {p.kind}
@@ -599,6 +604,13 @@ function PluginsPage() {
                     >
                       {openId === (p.id || p.name) ? "Hide" : "Details"}
                     </Button>
+                    <ResetBuiltinButton
+                      id={p.id}
+                      name={p.name}
+                      status={p.layer}
+                      refresh={refreshPlugins}
+                      disabled={Boolean(busyId)}
+                    />
                     <Button
                       size="sm"
                       variant="outline"
