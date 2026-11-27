@@ -523,9 +523,12 @@ FunctionEnd
   ; "keep" really keeps and a later Setup reuses exactly the same data.
   ${If} $FridayUnMode == "keep"
   ${AndIf} $FridayUnRoot != ""
-    StrLen $2 "$INSTDIR"
+    ; "Inside the program folder" means the program folder itself or a path under "$INSTDIR\": compared with the
+    ; trailing separator, so a sibling such as "App-data" next to "App" is never taken for a folder inside it.
+    StrLen $2 "$INSTDIR\"
     StrCpy $3 "$FridayUnRoot" $2
-    ${If} $3 == "$INSTDIR"
+    ${If} "$FridayUnRoot" == "$INSTDIR"
+    ${OrIf} "$3" == "$INSTDIR\"
       StrCpy $4 "$PROFILE\FRIDAY"
       ${If} ${FileExists} "$4\*.*"
         StrCpy $4 "$PROFILE\FRIDAY-preserved"
@@ -534,8 +537,12 @@ FunctionEnd
       ClearErrors
       Rename "$FridayUnRoot" "$4"
       ${If} ${Errors}
-        ; Different volume or a locked handle — copy it out instead.
-        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Move-Item -LiteralPath $\'$FridayUnRoot$\' -Destination $\'$4$\' -Force -ErrorAction SilentlyContinue"'
+        ; Different volume or a locked handle — copy it out instead. The two folders travel in the environment of
+        ; the helper, not in its command line: an apostrophe in a folder or user name would end the PowerShell
+        ; quote and break the move, or inject a command into it.
+        System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_FROM", t "$FridayUnRoot")'
+        System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_TO", t "$4")'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Move-Item -LiteralPath $$env:FRIDAY_UN_FROM -Destination $$env:FRIDAY_UN_TO -Force -ErrorAction SilentlyContinue"'
         Pop $0
       ${EndIf}
       ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder
@@ -543,8 +550,8 @@ FunctionEnd
       ; both leave data here: stop now, leave the program folder, the data and the pointer exactly as they are, and say
       ; so. /SD IDOK keeps a silent uninstall (the update path) from waiting for a click; it still stops.
       ${If} ${FileExists} "$FridayUnRoot\*.*"
-        DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot"
-        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again." /SD IDOK
+        DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot (any part already moved is in $4)"
+        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\nAny part that was already moved is in: $4$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again." /SD IDOK
         Abort
       ${EndIf}
       ${If} ${FileExists} "$4\*.*"

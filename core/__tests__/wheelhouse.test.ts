@@ -51,6 +51,7 @@ const wheelhouse = require_("../../scripts/wheelhouse.cjs") as {
     options?: { budgetBytes?: number; requirementsText?: string },
   ) => Plan;
   constraintsFor: (lock: unknown, tag: string) => string;
+  requirementsFor: (lock: unknown, tag: string) => string;
   readZipIndex: (
     file: string,
   ) => Array<{ name: string; size: number; crc: number; offset: number }>;
@@ -281,6 +282,41 @@ describe("the lock plan refuses what it cannot trust", () => {
     );
     expect(wheelhouse.constraintsFor(lock, "cp399")).toBe("");
   });
+
+  it("writes a hashed requirements file per Python: every pin carries the SHA-256 of each wheel for that series", () => {
+    const hashOf = (filename: string) => lock.wheels.find((w) => w.filename === filename)!.sha256;
+    expect(wheelhouse.requirementsFor(lock, "cp313")).toBe(
+      `av==18.1.1 --hash=sha256:${hashOf("av-18.1.1-cp311-abi3-win_amd64.whl")}\n` +
+        `fastapi==0.165.0 --hash=sha256:${hashOf("fastapi-0.165.0-py3-none-any.whl")}\n` +
+        `pyyaml==6.0.4 --hash=sha256:${hashOf("pyyaml-6.0.4-cp313-cp313-win_amd64.whl")}\n`,
+    );
+    // The other series never lists a wheel of this one, and an unknown series lists nothing.
+    expect(wheelhouse.requirementsFor(lock, "cp312")).toContain(
+      hashOf("pyyaml-6.0.4-cp312-cp312-win_amd64.whl"),
+    );
+    expect(wheelhouse.requirementsFor(lock, "cp312")).not.toContain(
+      hashOf("pyyaml-6.0.4-cp313-cp313-win_amd64.whl"),
+    );
+    expect(wheelhouse.requirementsFor(lock, "cp399")).toBe("");
+    // Every line is an exact pin with a hash: pip --require-hashes refuses anything else.
+    for (const line of wheelhouse.requirementsFor(lock, "cp312").trim().split("\n")) {
+      expect(line).toMatch(/^[a-z0-9-]+==[^\s]+( --hash=sha256:[0-9a-f]{64})+$/);
+    }
+  });
+
+  it("lists every wheel of one package and version for the series, so pip may take any of them", () => {
+    const twin = structuredClone(lock);
+    const extra = wheel("pyyaml-6.0.4-cp312-abi3-win_amd64.whl", Buffer.from("yaml abi3"), [
+      "cp312",
+    ]);
+    twin.wheels.push(extra);
+    const line = wheelhouse
+      .requirementsFor(twin, "cp312")
+      .split("\n")
+      .find((row) => row.startsWith("pyyaml=="))!;
+    expect(line.match(/--hash=sha256:/g)?.length).toBe(2);
+    expect(line).toContain(extra.sha256);
+  });
 });
 
 describe("staging the wheelhouse at build", () => {
@@ -302,6 +338,8 @@ describe("staging the wheelhouse at build", () => {
       "fastapi-0.165.0-py3-none-any.whl",
       "pyyaml-6.0.4-cp312-cp312-win_amd64.whl",
       "pyyaml-6.0.4-cp313-cp313-win_amd64.whl",
+      "requirements-cp312.txt",
+      "requirements-cp313.txt",
       "wheelhouse.json",
     ]);
     expect(wheelhouse.verifyWheelhouseZip(first.file, lock.wheels)).toEqual([]);
@@ -406,16 +444,18 @@ describe("staging the wheelhouse at build", () => {
       console.warn(
         "[wheelhouse.test] no Python on this machine: the zip was checked by readZipIndex only",
       );
-      expect(wheelhouse.readZipIndex(staged.file).length).toBe(7);
+      expect(wheelhouse.readZipIndex(staged.file).length).toBe(9);
       return;
     }
     const code =
       "import sys,zipfile;z=zipfile.ZipFile(sys.argv[1]);print(z.testzip());" +
-      "print(z.read('constraints-cp312.txt').decode(),end='')";
+      "print(z.read('constraints-cp312.txt').decode(),end='');" +
+      "print(z.read('requirements-cp312.txt').decode(),end='')";
     const run = spawnSync(python, ["-I", "-c", code, staged.file], { encoding: "utf8" });
     expect(run.status).toBe(0);
     expect(run.stdout.replace(/\r\n/g, "\n")).toBe(
-      "None\nav==18.1.1\nfastapi==0.165.0\npyyaml==6.0.4\n",
+      "None\nav==18.1.1\nfastapi==0.165.0\npyyaml==6.0.4\n" +
+        wheelhouse.requirementsFor(lock, "cp312"),
     );
   });
 
@@ -547,6 +587,42 @@ describe("the installed runtime repair installs from the wheelhouse first", () =
     expect(fn).not.toMatch(/\bexit\b/);
     // pip's own output goes to the log, so the function's answer is only $true or $false.
     expect(fn.match(/-m pip install[^\r\n]*\| Out-Host/g)?.length).toBe(2);
+  });
+
+  it("installs only hashed pins: the offline pass and the network fill both use --require-hashes on requirements-<tag>.txt", () => {
+    const fn = between("function Install-FromWheelhouse", "function Install-VoiceCore");
+    expect(fn).toContain('"requirements-$tag.txt"');
+    const calls = [...fn.matchAll(/& \$venvPython -m pip install[^\r\n]*/g)].map((m) => m[0]);
+    expect(calls.length).toBe(2);
+    const [offline, fill] = calls as [string, string];
+    expect(offline).toContain("--no-index");
+    expect(offline).toContain("--find-links $house");
+    expect(offline).toContain("--require-hashes");
+    expect(offline).toContain("-r $hashed");
+    expect(fill).not.toContain("--no-index");
+    expect(fill).toContain("--only-binary=:all:");
+    expect(fill).toContain("--require-hashes");
+    expect(fill).toContain("-r $hashed");
+    // The plain kernel requirements file is never what pip installs from the wheelhouse: it has no hashes.
+    expect(calls.join("\n")).not.toContain("-r $Requirements");
+    // A pack without the hashed file is not trusted: the function answers $false, never installs unhashed.
+    expect(fn).toMatch(/Test-Path -LiteralPath \$hashed -PathType Leaf\)\) \{ return \$false \}/);
+  });
+
+  it("unpacks under a per-run random folder in the install's own temporary folder, never the shared TEMP", () => {
+    const decl = repair.match(/^\$wheelhouseDir = [^\r\n]*/m)?.[0] ?? "";
+    expect(decl).toContain("NewGuid()");
+    expect(decl).toContain("$wheelhouseTemp");
+    expect(repair).toMatch(/^\$wheelhouseTemp = Join-Path \$InstallDir 'temporary'/m);
+    expect(decl).not.toContain("$env:TEMP");
+    expect(decl).not.toContain("$PID");
+    // Leftovers of a run that was killed are removed before a new one unpacks.
+    const fn = between("function Get-Wheelhouse", "# Offline first");
+    expect(fn).toContain("friday-wheelhouse-*");
+    expect(fn.indexOf("friday-wheelhouse-*")).toBeLessThan(fn.indexOf("ExtractToDirectory"));
+    expect(between("function Finish(", "function Test-Runtime")).toContain(
+      "Remove-Item -LiteralPath $wheelhouseDir -Recurse -Force",
+    );
   });
 
   it("runs before the four network methods on a fresh environment and for a missing voice core", () => {

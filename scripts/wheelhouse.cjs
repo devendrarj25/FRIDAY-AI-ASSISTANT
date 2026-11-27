@@ -5,9 +5,10 @@
  * (kernel/requirements.txt and their dependencies; the optional capabilities file stays online), one set per Python
  * series the runtime repair can meet. At build, scripts/stage-toolchain.cjs calls stageWheelhouse(): every wheel is
  * fetched once into the cache, checked against its pinned SHA-256 and size, and packed with one exact-pin
- * constraints file per series into a stored zip at resources/toolchain/wheelhouse/pack.bin. The zip has no
- * timestamps, so the same lock gives the same bytes on every builder. installer/build/repair-runtime.ps1 unpacks it
- * only when something must be installed and runs pip with --no-index first.
+ * constraints file and one hashed requirements file (name==version --hash=sha256:...) per series into a stored zip at
+ * resources/toolchain/wheelhouse/pack.bin. The zip has no timestamps, so the same lock gives the same bytes on every
+ * builder. installer/build/repair-runtime.ps1 unpacks it only when something must be installed and runs pip with
+ * --no-index --require-hashes first, so only a wheel with a pinned hash can be installed.
  *
  *   node scripts/wheelhouse.cjs check   plan the committed lock against kernel/requirements.txt (no network)
  *   node scripts/wheelhouse.cjs lock    resolve the closure for each series on PyPI and rewrite the lock
@@ -215,6 +216,34 @@ function constraintsFor(lock, tag) {
   return [...pins.keys()]
     .sort()
     .map((name) => `${name}==${pins.get(name)}\n`)
+    .join("");
+}
+
+/**
+ * One line per package for one Python series, sorted: name==version plus the SHA-256 of every wheel of that
+ * version the lock lists for the series. pip --require-hashes installs from this file and from nothing else, so an
+ * unpinned or swapped wheel cannot be installed. Empty when the lock does not carry that series.
+ */
+function requirementsFor(lock, tag) {
+  const pins = new Map();
+  for (const wheel of lock?.wheels || []) {
+    if (!(wheel.tags || []).includes(tag)) continue;
+    const parsed = parseWheelFilename(wheel.filename);
+    if (!parsed) continue;
+    const pin = pins.get(parsed.name) || { version: parsed.version, hashes: new Set() };
+    pin.version = parsed.version;
+    pin.hashes.add(String(wheel.sha256));
+    pins.set(parsed.name, pin);
+  }
+  return [...pins.keys()]
+    .sort()
+    .map((name) => {
+      const { version, hashes } = pins.get(name);
+      return `${name}==${version}${[...hashes]
+        .sort()
+        .map((digest) => ` --hash=sha256:${digest}`)
+        .join("")}\n`;
+    })
     .join("");
 }
 
@@ -429,6 +458,10 @@ async function stageWheelhouse({
   }
   for (const tag of plan.tags) {
     entries.push({ name: `constraints-${tag}.txt`, body: Buffer.from(constraintsFor(lock, tag)) });
+    entries.push({
+      name: `requirements-${tag}.txt`,
+      body: Buffer.from(requirementsFor(lock, tag)),
+    });
   }
   const index = {
     schema: 1,
@@ -641,6 +674,7 @@ module.exports = {
   satisfies,
   planWheelhouse,
   constraintsFor,
+  requirementsFor,
   writeStoredZip,
   readZipIndex,
   verifyWheelhouseZip,

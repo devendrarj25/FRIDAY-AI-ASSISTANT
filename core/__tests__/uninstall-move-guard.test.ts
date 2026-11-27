@@ -36,6 +36,8 @@ type World = {
   reg: Record<string, string>;
   boxes: string[];
   ran: string[];
+  /** The process environment the installer sets for the helper it starts (System::Call SetEnvironmentVariable). */
+  env: Record<string, string>;
   renameFails: boolean;
   helper: Move;
   /** A path the partial helper run could not move (a locked file). */
@@ -107,10 +109,19 @@ function runGuard(world: World): void {
       else relocate(world, arg(rename[1]!), arg(rename[2]!));
       continue;
     }
+    const setEnv =
+      /^System::Call\s+'Kernel32::SetEnvironmentVariable\(t "(\w+)",\s*t "(.*)"\)'$/.exec(line);
+    if (setEnv) {
+      world.env[setEnv[1]!] = expand(setEnv[2]!);
+      continue;
+    }
     if (line.startsWith("nsExec::ExecToLog")) {
-      world.ran.push(expand(line));
-      const from = world.vars["FridayUnRoot"]!;
-      const to = world.vars["4"]!;
+      // What the helper process really receives: NSIS turns $$ into $ and $\' into a plain apostrophe.
+      world.ran.push(expand(line).replace(/\$\$/g, "$").replace(/\$\\'/g, "'"));
+      // The helper reads its two folders from its environment, as the shipped command does.
+      const from = world.env["FRIDAY_UN_FROM"] ?? "";
+      const to = world.env["FRIDAY_UN_TO"] ?? "";
+      if (!from || !to) continue;
       if (world.helper === "full") relocate(world, from, to);
       if (world.helper === "partial") relocate(world, from, to, world.locked);
       continue;
@@ -157,6 +168,7 @@ function world(over: Partial<World> = {}): World {
     reg: { [POINTER]: DATA },
     boxes: [],
     ran: [],
+    env: {},
     renameFails: false,
     helper: "full",
     locked: `${DATA}\\database\\friday.db`,
@@ -214,5 +226,75 @@ describe("keep-mode uninstall with the data folder inside the program folder", (
     expect(w.tree.has(`${outside}\\memory`)).toBe(true);
     expect(w.reg[POINTER]).toBe(outside);
     expect(w.boxes).toEqual([]);
+  });
+
+  it("stops with a message that also names where the part that was already moved went", () => {
+    const w = world({ renameFails: true, helper: "partial" });
+    expect(() => runGuard(w)).toThrow(UninstallAborted);
+    expect(w.boxes[0]).toContain(DATA);
+    expect(w.boxes[0]).toContain("C:\\Users\\owner\\FRIDAY");
+    // The log line names it too, and the stop branch still only reports and stops.
+    expect(guardRegion()).toMatch(
+      /DetailPrint "[^"\n]*\$4[^"\n]*"\n\s*MessageBox MB_OK\|MB_ICONSTOP/,
+    );
+  });
+
+  it("does not take a sibling folder whose name starts with the program folder's name for a folder inside it", () => {
+    const sibling = "D:\\Apps\\FRIDAY\\App-data";
+    const w = world({ reg: { [POINTER]: sibling }, renameFails: true, helper: "full" });
+    w.vars["FridayUnRoot"] = sibling;
+    w.tree.add(sibling);
+    w.tree.add(`${sibling}\\memory`);
+    runGuard(w);
+    expect(w.tree.has(`${sibling}\\memory`)).toBe(true);
+    expect(w.reg[POINTER]).toBe(sibling);
+    expect(w.ran).toEqual([]);
+    expect(w.boxes).toEqual([]);
+    expect(w.tree.has("C:\\Users\\owner\\FRIDAY")).toBe(false);
+  });
+
+  it("still takes a folder inside the program folder, however deep, and the program folder itself", () => {
+    const deep = `${INSTDIR}\\a\\b`;
+    const w = world();
+    w.vars["FridayUnRoot"] = deep;
+    w.tree.add(`${INSTDIR}\\a`);
+    w.tree.add(deep);
+    w.tree.add(`${deep}\\memory`);
+    runGuard(w);
+    expect(w.tree.has("C:\\Users\\owner\\FRIDAY\\memory")).toBe(true);
+    const same = world();
+    same.vars["FridayUnRoot"] = INSTDIR;
+    runGuard(same);
+    expect(same.reg[POINTER]).toBe("C:\\Users\\owner\\FRIDAY");
+  });
+
+  it("passes the two folders to the move helper in its environment, never inside its command line", () => {
+    const w = world({ renameFails: true, helper: "full" });
+    runGuard(w);
+    expect(w.env["FRIDAY_UN_FROM"]).toBe(DATA);
+    expect(w.env["FRIDAY_UN_TO"]).toBe("C:\\Users\\owner\\FRIDAY");
+    expect(w.ran).toHaveLength(1);
+    expect(w.ran[0]).toContain("$env:FRIDAY_UN_FROM");
+    expect(w.ran[0]).toContain("$env:FRIDAY_UN_TO");
+    expect(w.ran[0]).not.toContain(DATA);
+    expect(w.ran[0]).not.toMatch(/-(LiteralPath|Destination) '/);
+    expect(under(w.tree, DATA)).toEqual([]);
+  });
+
+  it("moves a folder whose name, or whose owner's profile name, holds an apostrophe, without injection", () => {
+    const quoted = `${INSTDIR}\\O'Brien'; Remove-Item C:\\ -Recurse; '`;
+    const w = world({ renameFails: true, helper: "full" });
+    w.vars["FridayUnRoot"] = quoted;
+    w.vars["PROFILE"] = "C:\\Users\\O'Neil";
+    w.tree.add(quoted);
+    w.tree.add(`${quoted}\\memory`);
+    w.tree.add("C:\\Users\\O'Neil");
+    runGuard(w);
+    // No part of either path is in the command text, so no apostrophe in a name can end a quote.
+    expect(w.ran[0]).not.toContain("O'");
+    expect(w.ran[0]).not.toContain("Remove-Item");
+    expect(w.env["FRIDAY_UN_FROM"]).toBe(quoted);
+    expect(w.env["FRIDAY_UN_TO"]).toBe("C:\\Users\\O'Neil\\FRIDAY");
+    expect(w.tree.has("C:\\Users\\O'Neil\\FRIDAY\\memory")).toBe(true);
   });
 });

@@ -20,10 +20,13 @@ $requirements = Join-Path $InstallDir 'resources\kernel\requirements.txt'
 $pythonHelper = Join-Path $InstallDir 'resources\installer\build\install-python.ps1'
 $pythonPathFile = Join-Path $env:TEMP "friday-python-$PID.txt"
 # The Setup EXE carries the pinned Windows wheels of kernel\requirements.txt for each Python series it supports
-# (scripts/wheelhouse.cjs checks every one against its SHA-256 at build). It is unpacked to a temporary folder only
-# when something has to be installed, and that folder is removed when this script ends.
+# (scripts/wheelhouse.cjs checks every one against its SHA-256 at build and packs a hashed requirements file per
+# series). It is unpacked only when something has to be installed, into a per-run random folder inside the install's
+# own temporary folder (never the shared user TEMP, where another process could swap a file between the unpack and
+# pip), and that folder is removed when this script ends.
 $wheelhousePack = Join-Path $InstallDir 'resources\toolchain\wheelhouse\pack.bin'
-$wheelhouseDir = Join-Path $env:TEMP "friday-wheelhouse-$PID"
+$wheelhouseTemp = Join-Path $InstallDir 'temporary'
+$wheelhouseDir = Join-Path $wheelhouseTemp ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))
 $script:wheelhouse = $null
 
 # The FRIDAY folder's own environment is the one this script repairs, reuses and, when nothing exists, builds:
@@ -87,7 +90,9 @@ function Get-Wheelhouse {
   $script:wheelhouse = ''
   if (-not (Test-Path -LiteralPath $wheelhousePack -PathType Leaf)) { return '' }
   try {
-    Remove-Item -LiteralPath $wheelhouseDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $wheelhouseTemp | Out-Null
+    Get-ChildItem -LiteralPath $wheelhouseTemp -Directory -Filter 'friday-wheelhouse-*' -ErrorAction SilentlyContinue |
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($wheelhousePack, $wheelhouseDir)
     if (Test-Path -LiteralPath (Join-Path $wheelhouseDir 'wheelhouse.json') -PathType Leaf) {
@@ -101,7 +106,9 @@ function Get-Wheelhouse {
 
 # Offline first: every package from the wheelhouse, with no network at all. When that cannot finish (a wheel this
 # EXE does not carry), the wheelhouse is kept and the network fills only what is missing, at the same pinned
-# versions. Returns $true or $false and never ends Setup: on $false the caller's network methods run as before.
+# versions. Both passes install from requirements-<tag>.txt with --require-hashes, so pip refuses a package that is
+# not pinned there and any wheel whose SHA-256 differs from the build's lock. A pack without that file is not used.
+# Returns $true or $false and never ends Setup: on $false the caller's network methods run as before.
 function Install-FromWheelhouse([string]$Requirements) {
   if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
   $tag = & $venvPython -c "import sys;print('cp%d%d' % sys.version_info[:2])" 2>$null | Select-Object -First 1
@@ -110,10 +117,13 @@ function Install-FromWheelhouse([string]$Requirements) {
   $house = Get-Wheelhouse
   if (-not $house) { return $false }
   $constraints = Join-Path $house "constraints-$tag.txt"
+  $hashed = Join-Path $house "requirements-$tag.txt"
+  if (-not (Test-Path -LiteralPath $Requirements -PathType Leaf)) { return $false }
   if (-not (Test-Path -LiteralPath $constraints -PathType Leaf)) { return $false }
-  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house -r $Requirements | Out-Host
+  if (-not (Test-Path -LiteralPath $hashed -PathType Leaf)) { return $false }
+  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house --require-hashes -r $hashed | Out-Host
   if ($LASTEXITCODE -eq 0) { return $true }
-  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints -r $Requirements | Out-Host
+  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints --require-hashes -r $hashed | Out-Host
   return ($LASTEXITCODE -eq 0)
 }
 
