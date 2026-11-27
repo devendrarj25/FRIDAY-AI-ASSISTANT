@@ -24,6 +24,15 @@
  * other kind, a low score or junk raises nothing and nothing here ever lowers it. A speaker tag has no way in:
  * "owner" is a label, never a reason to wake sooner or to skip a gate.
  *
+ * Two gates only ever ADD a requirement (a refusal that was an accept stays a refusal, never the other way for a
+ * gate that existed): while a music or TV scene is on, a wake that came from the transcript alone (`source`
+ * "transcript" or "personal") needs the scorer to agree (`probeScore` within `max(nearBand, 0.1)` of the threshold) or
+ * a leading match with a real lead-in (`leadInMs`), else it is "uncorroborated"; quiet rooms are untouched. The second
+ * chance (`nearBand`, off at 0) lets a LEADING transcript wake through when the wake scorer was just under the bar (a
+ * near-miss frame earlier in the same utterance, or the candidate's own score) and every other gate passes: no scene,
+ * no noise raise, the speaker not marked different, at most one per 10 s. A speaker tag never lowers a gate or
+ * approves anything; it can only refuse.
+ *
  * Hands-free stays what the owner saved: `handsFree` starts false, and while it is false a wake is required in
  * the asleep state. Time is always passed in (`nowMs`), no timers, so every rule is tested on a fake clock.
  * Unverified until the owner's PC: the thresholds against a real room, a real TV and a real speaker.
@@ -59,6 +68,15 @@ export type WakeGuardConfig = {
    * reply whose end was never reported (a failed voice) cannot lock the owner out of waking her.
    */
   speakMaxMs: number;
+  /**
+   * Second chance: a leading transcript wake is taken when the wake scorer read within this much under the threshold
+   * (never under 0.35). 0 turns it off, which is today's behaviour. It also widens the corroboration band (D5).
+   */
+  nearBand: number;
+  /** How long a near-miss frame stays usable for a leading transcript wake of the same utterance. */
+  secondChanceMs: number;
+  /** The quiet before the name that a leading match needs to corroborate a transcript-only wake in a TV or music scene. */
+  leadInMs: number;
 };
 
 export const WAKE_GUARD_DEFAULTS: WakeGuardConfig = {
@@ -74,6 +92,9 @@ export const WAKE_GUARD_DEFAULTS: WakeGuardConfig = {
   longSpeechMs: 20_000,
   speechRecencyMs: 5000,
   speakMaxMs: 20_000,
+  nearBand: 0,
+  secondChanceMs: 1500,
+  leadInMs: 300,
 };
 
 /** Each value is kept inside a sane range; junk or a missing value falls back to the default. */
@@ -90,6 +111,9 @@ const BOUNDS: { [K in keyof WakeGuardConfig]: [number, number] } = {
   longSpeechMs: [8000, 120_000],
   speechRecencyMs: [1000, 20_000],
   speakMaxMs: [5000, 120_000],
+  nearBand: [0, 0.2],
+  secondChanceMs: [500, 3000],
+  leadInMs: [100, 1500],
 };
 
 export function normalizeWakeGuardConfig(
@@ -135,7 +159,20 @@ export type WakeCandidate = {
   echoRefLive?: boolean;
   /** The transcript is her own words (from `isSelfEchoTranscript`). */
   selfEchoText?: boolean;
+  /** Where the wake came from. Absent means today's behaviour (no source rule applies). */
+  source?: "engine" | "transcript" | "personal";
+  /** The transcript match opened the utterance (`matchWakeWord(...).leading`). */
+  leading?: boolean;
+  /** The quiet before the wake word began, in ms. */
+  leadInMs?: number;
+  /** The speaker check on the wake audio. "different" can only refuse; "match" changes nothing. */
+  speaker?: "match" | "different" | "unknown";
+  /** The wake scorer's real reading for this utterance; null or absent means the scorer did not hear it. */
+  probeScore?: number | null;
 };
+
+/** The guard's input is a candidate; the alias keeps the wiring and the tests on one name. */
+export type WakeGuardInput = WakeCandidate;
 
 export type WakeBlock =
   | "locked"
@@ -144,7 +181,10 @@ export type WakeBlock =
   | "no-speech"
   | "below-threshold"
   | "room-noise"
-  | "patience";
+  | "patience"
+  | "uncorroborated"
+  | "second-chance-limit"
+  | "speaker-different";
 
 export type WakeVerdict = { accept: boolean; reason: WakeBlock | "accepted" };
 
@@ -155,6 +195,8 @@ export type WakeCounters = {
   noiseRaises: number;
   /** Turns the ears marked `needsWake` and that had no wake word while the conversation was closed. */
   heldTurns: number;
+  /** Leading transcript wakes taken inside the near band (the second chance). */
+  secondChances: number;
   blocked: Record<WakeBlock, number>;
 };
 
@@ -184,6 +226,12 @@ const STEADY_MIN_LEVEL = 0.02;
 /** A relative level wobble under this is steady (a hum); speech wobbles far more. */
 const STEADY_WOBBLE = 0.25;
 const PLAYBACK_AUDIBLE = 0.02;
+/** The second chance never reaches below this score, whatever `nearBand` says. */
+const SECOND_CHANCE_FLOOR = 0.35;
+/** At most one second chance per this long. */
+const SECOND_CHANCE_SPACING_MS = 10_000;
+/** A transcript-only wake in a scene is corroborated by a scorer reading within at least this much of the threshold. */
+const CORROBORATE_BAND = 0.1;
 /** Lead values (ears.scene): the most a music or TV tag raises the wake threshold, the score it needs, how long it holds. */
 export const SCENE_BOOST_MAX = 0.15;
 export const SCENE_ACT_AT = 0.6;
@@ -206,6 +254,9 @@ const emptyBlocked = (): Record<WakeBlock, number> => ({
   "below-threshold": 0,
   "room-noise": 0,
   patience: 0,
+  uncorroborated: 0,
+  "second-chance-limit": 0,
+  "speaker-different": 0,
 });
 
 export class WakeGuard {
@@ -232,12 +283,17 @@ export class WakeGuard {
   private emaLevel = 0;
   private wobble = 1;
   private deadline = 0;
+  /** Counts utterances (a gap over `UTTERANCE_GAP_MS` starts the next one): a near miss only serves its own. */
+  private utterEpoch = 0;
+  private nearMiss: { atMs: number; epoch: number } | null = null;
+  private lastSecondChanceAt = -Infinity;
   private counters: WakeCounters = {
     accepted: 0,
     falseWakes: 0,
     forcedAsleep: 0,
     noiseRaises: 0,
     heldTurns: 0,
+    secondChances: 0,
     blocked: emptyBlocked(),
   };
   private trace: WakeTraceRow[] = [];
@@ -283,7 +339,10 @@ export class WakeGuard {
     }
     if (frame.speech && !frame.speaking) {
       // A run that begins long after the last one ended is a new utterance: the count starts again.
-      if (this.runMs === 0 && frame.nowMs - this.lastRunEndAt > UTTERANCE_GAP_MS) this.utterMs = 0;
+      if (this.runMs === 0 && frame.nowMs - this.lastRunEndAt > UTTERANCE_GAP_MS) {
+        this.utterMs = 0;
+        this.utterEpoch += 1;
+      }
       this.runMs += dt;
       this.gapMs = 0;
       return;
@@ -359,6 +418,11 @@ export class WakeGuard {
     return nowMs <= this.sceneUntil ? this.sceneBoost : 0;
   }
 
+  /** A music or TV tag is in force: the room may be speaking the name itself. */
+  sceneActive(nowMs: number): boolean {
+    return this.sceneRaise(nowMs) > 0;
+  }
+
   /** Speech the VAD heard that can still back a wake: the live run, or a run that ended recently. */
   speechHeardMs(nowMs: number): number {
     const earlier = nowMs - this.lastRunEndAt <= this.cfg.speechRecencyMs ? this.utterMs : 0;
@@ -376,6 +440,16 @@ export class WakeGuard {
   consider(input: WakeCandidate): WakeVerdict {
     this.lastNow = input.nowMs;
     const block = this.blockReason(input);
+    if (block === "second-chance") {
+      this.hits = 0;
+      this.counters.accepted += 1;
+      this.counters.secondChances += 1;
+      this.nearMiss = null;
+      this.state = "listening";
+      this.deadline = input.nowMs + this.cfg.listenTimeoutMs;
+      this.note(input.nowMs, "wake", `second chance, score ${input.score.toFixed(2)}`);
+      return { accept: true, reason: "accepted" };
+    }
     if (block) {
       this.counters.blocked[block] += 1;
       if (block !== "below-threshold" && block !== "patience") {
@@ -392,7 +466,7 @@ export class WakeGuard {
     return { accept: true, reason: "accepted" };
   }
 
-  private blockReason(input: WakeCandidate): WakeBlock | null {
+  private blockReason(input: WakeCandidate): WakeBlock | "second-chance" | null {
     if (this.lockReason) return "locked";
     if (input.nowMs < this.cooldownUntil) return "cooldown";
     if (this.speakingNow(input.nowMs) && this.isSelfVoice(input)) return "self-voice";
@@ -400,13 +474,74 @@ export class WakeGuard {
     const raise = this.boost + this.sceneRaise(input.nowMs);
     const effective = Math.min(0.98, input.threshold + raise);
     if (input.score < effective) {
+      const second = this.secondChance(input, raise);
+      if (second) return second;
+      this.recordNearMiss(input, raise);
       return raise > 0 && input.score >= input.threshold ? "room-noise" : "below-threshold";
     }
+    if (this.needsCorroboration(input) && !this.corroborated(input)) return "uncorroborated";
     if (input.kind === "frame") {
       this.hits += 1;
       if (this.hits < this.cfg.patienceFrames) return "patience";
     }
     return null;
+  }
+
+  /** A wake that came from the transcript alone, while a music or TV scene is on, wants a second witness. */
+  private needsCorroboration(input: WakeCandidate): boolean {
+    return (
+      (input.source === "transcript" || input.source === "personal") &&
+      this.sceneActive(input.nowMs)
+    );
+  }
+
+  /** The scorer read close to the bar, or the name opened the utterance after a real lead-in of quiet. */
+  private corroborated(input: WakeCandidate): boolean {
+    const probe = input.probeScore;
+    const band = Math.max(this.cfg.nearBand, CORROBORATE_BAND);
+    if (typeof probe === "number" && Number.isFinite(probe) && probe >= input.threshold - band)
+      return true;
+    const leadIn = input.leadInMs;
+    return (
+      input.leading === true &&
+      typeof leadIn === "number" &&
+      Number.isFinite(leadIn) &&
+      leadIn >= this.cfg.leadInMs
+    );
+  }
+
+  private nearFloor(input: WakeCandidate): number {
+    return Math.max(SECOND_CHANCE_FLOOR, input.threshold - this.cfg.nearBand);
+  }
+
+  /** A scorer frame just under the bar (no scene, no noise raise) is remembered for the next transcript wake. */
+  private recordNearMiss(input: WakeCandidate, raise: number): void {
+    if (this.cfg.nearBand <= 0 || raise > 0) return;
+    if (input.source === "transcript" || input.source === "personal") return;
+    if (input.score < this.nearFloor(input) || input.score >= input.threshold) return;
+    this.nearMiss = { atMs: input.nowMs, epoch: this.utterEpoch };
+  }
+
+  /**
+   * A leading transcript wake whose scorer reading sat just under the threshold (its own score, or a near-miss frame
+   * of the same utterance inside `secondChanceMs`). Null when it does not apply, so the usual refusal stands.
+   */
+  private secondChance(input: WakeCandidate, raise: number): WakeBlock | "second-chance" | null {
+    if (this.cfg.nearBand <= 0 || raise > 0) return null;
+    if (input.source !== "transcript" || input.leading !== true) return null;
+    const own = input.score >= this.nearFloor(input) && input.score < input.threshold;
+    const miss = this.nearMiss;
+    const recorded =
+      miss !== null &&
+      miss.epoch === this.utterEpoch &&
+      input.nowMs >= miss.atMs &&
+      input.nowMs - miss.atMs <= this.cfg.secondChanceMs;
+    if (!own && !recorded) return null;
+    if (input.speaker === "different") return "speaker-different";
+    if (input.nowMs - this.lastSecondChanceAt < SECOND_CHANCE_SPACING_MS)
+      return "second-chance-limit";
+    this.lastSecondChanceAt = input.nowMs;
+    return "second-chance";
   }
 
   private isSelfVoice(input: WakeCandidate): boolean {
@@ -506,6 +641,7 @@ export class WakeGuard {
   /** The microphone closed or was reopened: what the audio showed so far no longer applies. State stays. */
   resetAudio(): void {
     this.hits = 0;
+    this.nearMiss = null;
     this.boost = 0;
     this.sceneBoost = 0;
     this.sceneUntil = -Infinity;

@@ -73,6 +73,8 @@ export type WakeMatch = {
   token: string;
   /** Everything after the wake word, carriers removed — may be empty. */
   command: string;
+  /** The name opens the utterance (only carriers such as "hey" before it); false mid-sentence or unmatched. */
+  leading: boolean;
   /** Human-readable reason, recorded in the voice trace. */
   detail: string;
 };
@@ -87,11 +89,18 @@ export type WakeMatch = {
 export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
   const raw = String(text || "").trim();
   const tokens = normalizeTranscript(raw).split(" ").filter(Boolean);
-  if (!tokens.length) return { matched: false, token: "", command: "", detail: "empty transcript" };
+  if (!tokens.length)
+    return { matched: false, token: "", command: "", leading: false, detail: "empty transcript" };
 
   const index = tokens.findIndex((t) => isWakeToken(t, wakeWord));
   if (index < 0)
-    return { matched: false, token: "", command: raw, detail: "no wake word in transcript" };
+    return {
+      matched: false,
+      token: "",
+      command: raw,
+      leading: false,
+      detail: "no wake word in transcript",
+    };
 
   // Only carriers ("hey", "okay") may precede the name for a leading match.
   const leading = tokens.slice(0, index).every((t) => CARRIERS.has(t));
@@ -104,6 +113,7 @@ export function matchWakeWord(text: string, wakeWord = "friday"): WakeMatch {
     matched: true,
     token,
     command: leading ? rest : normalizeTranscript(raw),
+    leading,
     detail: leading
       ? `wake word matched "${token}"${rest ? "" : " (name only)"}`
       : `wake word matched "${token}" mid-sentence`,
