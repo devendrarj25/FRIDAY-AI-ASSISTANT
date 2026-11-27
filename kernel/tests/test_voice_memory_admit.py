@@ -378,7 +378,8 @@ def _fake_onnx_asr(monkeypatch, text="आज मौसम अच्छा है
         def recognize(self, audio, sample_rate=16000):
             return text
 
-    def load_model(kind, path=None, quantization=None):
+    def load_model(kind, path=None, quantization=None, sess_options=None):
+        # The Hindi ear now hands the package FRIDAY Runtime's budgeted session options, as the real package takes.
         loads.append(str(path))
         return Model()
 
