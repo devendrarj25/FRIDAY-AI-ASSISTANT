@@ -8,7 +8,7 @@
  * cleanup, then exits once.
  */
 
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, execFile, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -212,6 +212,70 @@ function normalizeImage(name) {
     .replace(/\.exe$/, "");
 }
 
+const READ_TIMEOUT_MS = 4000;
+const WIN_PROBE_FIELDS =
+  "$_.Id.ToString() + '|' + $_.ProcessName + '|' + $(try { $_.StartTime.ToUniversalTime().Ticks } catch { '' })";
+
+/** Parse the "name|ticks" answer of one Get-Process probe. */
+function parseWindowsIdentity(raw) {
+  const out = String(raw).trim();
+  if (!out) return null;
+  const cut = out.lastIndexOf("|");
+  if (cut <= 0 || cut === out.length - 1) return undefined;
+  return { image: out.slice(0, cut), startTime: out.slice(cut + 1) };
+}
+
+/** Parse /proc/<pid>/stat: the image is the "(comm)" field, the start tick is field 22. */
+function parseProcStat(stat) {
+  const open = stat.indexOf("(");
+  const close = stat.lastIndexOf(")");
+  if (open < 0 || close < open) return undefined;
+  const fields = stat
+    .slice(close + 2)
+    .trim()
+    .split(/\s+/);
+  // After the "(comm)" field the state is field 3, so the start time (field 22) sits at index 19.
+  const started = fields[19];
+  if (!started) return undefined;
+  return { image: stat.slice(open + 1, close), startTime: started };
+}
+
+const PS_LINE = /^(\S+\s+\S+\s+\d+\s+[\d:]+\s+\d{4})\s+(.+)$/;
+
+function parsePsIdentity(raw) {
+  const out = String(raw).trim();
+  if (!out) return null;
+  const match = PS_LINE.exec(out);
+  if (!match) return undefined;
+  return { image: path.basename(match[2]), startTime: match[1] };
+}
+
+/** A missing pid is reported by `ps` and Get-Process as exit code 1 or an empty list; anything else is unreadable. */
+function missingOrUnreadable(error) {
+  const code = error && (error.status !== undefined ? error.status : error.code);
+  return code === 1 ? null : undefined;
+}
+
+function windowsProbe(id) {
+  return (
+    `$p = Get-Process -Id ${id} -ErrorAction SilentlyContinue; ` +
+    "if ($p) { $p.ProcessName + '|' + $p.StartTime.ToUniversalTime().Ticks }"
+  );
+}
+
+const WIN_ARGS = (script) => ["-NoProfile", "-NonInteractive", "-Command", script];
+const RUN_OPTIONS = {
+  encoding: "utf8",
+  windowsHide: true,
+  timeout: READ_TIMEOUT_MS,
+  stdio: ["ignore", "pipe", "ignore"],
+};
+const PS_OPTIONS = {
+  encoding: "utf8",
+  timeout: READ_TIMEOUT_MS,
+  stdio: ["ignore", "pipe", "ignore"],
+};
+
 /**
  * Read one process's identity: the program image name and the time it started. A pid alone is not an identity,
  * because the system hands a finished process's pid to the next program that starts.
@@ -226,21 +290,7 @@ function inspectProcess(pid, options = {}) {
   try {
     if (platform === "win32") {
       const run = options.execFile || execFileSync;
-      const script =
-        `$p = Get-Process -Id ${id} -ErrorAction SilentlyContinue; ` +
-        "if ($p) { $p.ProcessName + '|' + $p.StartTime.ToUniversalTime().Ticks }";
-      const out = String(
-        run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-          encoding: "utf8",
-          windowsHide: true,
-          timeout: 4000,
-          stdio: ["ignore", "pipe", "ignore"],
-        }),
-      ).trim();
-      if (!out) return null;
-      const cut = out.lastIndexOf("|");
-      if (cut <= 0 || cut === out.length - 1) return undefined;
-      return { image: out.slice(0, cut), startTime: out.slice(cut + 1) };
+      return parseWindowsIdentity(run("powershell.exe", WIN_ARGS(windowsProbe(id)), RUN_OPTIONS));
     }
     if (platform === "linux") {
       const read = options.readFile || ((file) => fs.readFileSync(file, "utf8"));
@@ -250,34 +300,114 @@ function inspectProcess(pid, options = {}) {
       } catch (error) {
         return error && error.code === "ENOENT" ? null : undefined;
       }
-      const open = stat.indexOf("(");
-      const close = stat.lastIndexOf(")");
-      if (open < 0 || close < open) return undefined;
-      const fields = stat
-        .slice(close + 2)
-        .trim()
-        .split(/\s+/);
-      // After the "(comm)" field the state is field 3, so the start time (field 22) sits at index 19.
-      const started = fields[19];
-      if (!started) return undefined;
-      return { image: stat.slice(open + 1, close), startTime: started };
+      return parseProcStat(stat);
     }
     const run = options.execFile || execFileSync;
-    const out = String(
-      run("ps", ["-o", "lstart=,comm=", "-p", String(id)], {
-        encoding: "utf8",
-        timeout: 4000,
-        stdio: ["ignore", "pipe", "ignore"],
-      }),
-    ).trim();
-    if (!out) return null;
-    const match = /^(\S+\s+\S+\s+\d+\s+[\d:]+\s+\d{4})\s+(.+)$/.exec(out);
-    if (!match) return undefined;
-    return { image: path.basename(match[2]), startTime: match[1] };
+    return parsePsIdentity(run("ps", ["-o", "lstart=,comm=", "-p", String(id)], PS_OPTIONS));
   } catch (error) {
-    // `ps` and Get-Process answer with an empty list or exit code 1 for a missing pid; anything else is unreadable.
-    return error && error.status === 1 ? null : undefined;
+    return missingOrUnreadable(error);
   }
+}
+
+/**
+ * The same read as inspectProcess, but it never blocks the caller: PowerShell and ps run through an asynchronous
+ * execFile with the same timeout (a timeout answers undefined), and /proc is read without waiting on the thread.
+ * track() uses it so a spawn never waits for the process table.
+ */
+async function inspectProcessAsync(pid, options = {}) {
+  const id = Number(pid);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const platform = options.platform || process.platform;
+  const run =
+    options.execFileAsync ||
+    ((cmd, args, opts) =>
+      new Promise((resolve, reject) => {
+        execFile(cmd, args, opts, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+      }));
+  try {
+    if (platform === "win32") {
+      return parseWindowsIdentity(
+        await run("powershell.exe", WIN_ARGS(windowsProbe(id)), RUN_OPTIONS),
+      );
+    }
+    if (platform === "linux") {
+      const read = options.readFileAsync || ((file) => fs.promises.readFile(file, "utf8"));
+      let stat;
+      try {
+        stat = String(await read(`/proc/${id}/stat`));
+      } catch (error) {
+        return error && error.code === "ENOENT" ? null : undefined;
+      }
+      return parseProcStat(stat);
+    }
+    return parsePsIdentity(await run("ps", ["-o", "lstart=,comm=", "-p", String(id)], PS_OPTIONS));
+  } catch (error) {
+    return missingOrUnreadable(error);
+  }
+}
+
+/**
+ * Read the identity of several pids in ONE call (Windows: one Get-Process; others: one ps, or one /proc pass).
+ * Returns a Map pid -> { image, startTime } | null (no such process) | undefined (this pid cannot be read), or
+ * undefined when the whole table cannot be read. Used at stop, so quitting costs one process-table read, not one per row.
+ */
+function inspectProcesses(pids, options = {}) {
+  const ids = [...new Set((Array.isArray(pids) ? pids : []).map(Number))].filter(
+    (id) => Number.isInteger(id) && id > 0,
+  );
+  const result = new Map();
+  if (!ids.length) return result;
+  const platform = options.platform || process.platform;
+  if (platform === "linux") {
+    for (const id of ids) result.set(id, inspectProcess(id, options));
+    return result;
+  }
+  try {
+    const run = options.execFile || execFileSync;
+    if (platform === "win32") {
+      const script = `Get-Process -Id ${ids.join(",")} -ErrorAction SilentlyContinue | ForEach-Object { ${WIN_PROBE_FIELDS} }`;
+      const out = String(run("powershell.exe", WIN_ARGS(script), RUN_OPTIONS));
+      for (const id of ids) result.set(id, null);
+      for (const line of out.split(/\r?\n/)) {
+        const first = line.indexOf("|");
+        const last = line.lastIndexOf("|");
+        const id = Number(line.slice(0, first));
+        if (first <= 0 || !result.has(id)) continue;
+        const image = line.slice(first + 1, last).trim();
+        const startTime = line.slice(last + 1).trim();
+        result.set(id, last > first && image && startTime ? { image, startTime } : undefined);
+      }
+      return result;
+    }
+    let out = "";
+    try {
+      out = String(run("ps", ["-o", "pid=,lstart=,comm=", "-p", ids.join(",")], PS_OPTIONS));
+    } catch (error) {
+      if (missingOrUnreadable(error) !== null) return undefined;
+    }
+    for (const id of ids) result.set(id, null);
+    for (const line of out.split(/\r?\n/)) {
+      const match = /^\s*(\d+)\s+(.+)$/.exec(line);
+      if (!match || !result.has(Number(match[1]))) continue;
+      result.set(Number(match[1]), parsePsIdentity(match[2]));
+    }
+    return result;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The program a recorded command starts: a quoted path, a path ending in .exe (spaces allowed), or its first word. */
+function commandImage(command) {
+  const text = String(command || "").trim();
+  if (!text) return "";
+  const quoted = /^"([^"]+)"|^'([^']+)'/.exec(text);
+  let first = quoted ? quoted[1] || quoted[2] : "";
+  if (!first) {
+    const exe = /^(.+?\.exe)(?:\s|$)/i.exec(text);
+    first = exe ? exe[1] : text.split(/\s+/)[0];
+  }
+  return first.split(/[\\/]/).pop() || "";
 }
 
 /** True only when the live process is the one that was recorded: both image and start time match. */
@@ -289,8 +419,25 @@ function sameIdentity(row, live) {
   );
 }
 
-function createPidRegistry({ file, fsImpl = fs, inspectProcess: inspect = inspectProcess } = {}) {
+/**
+ * The pids FRIDAY started and still owns. Options: `inspectProcess(pid)` is one injected synchronous table (tests);
+ * `inspectProcessAsync(pid)` and `inspectProcesses(pids)` override the asynchronous read at track() and the single
+ * read at stop. With only `inspectProcess` given, the other two are derived from it.
+ */
+function createPidRegistry({
+  file,
+  fsImpl = fs,
+  inspectProcess: inspectOne,
+  inspectProcessAsync: inspectAsyncOption,
+  inspectProcesses: inspectManyOption,
+} = {}) {
   const rows = new Map();
+  const pending = new Set();
+  const inspectAsync =
+    inspectAsyncOption || (inspectOne ? async (pid) => inspectOne(pid) : inspectProcessAsync);
+  const inspectMany =
+    inspectManyOption ||
+    (inspectOne ? (pids) => new Map(pids.map((pid) => [pid, inspectOne(pid)])) : inspectProcesses);
 
   function save() {
     if (!file) return;
@@ -326,13 +473,23 @@ function createPidRegistry({ file, fsImpl = fs, inspectProcess: inspect = inspec
     if (!pid) return false;
     const row = { role: String(role || ""), command: String(command || ""), pid };
     if (isOwnerRuntime(row.command)) return false;
-    const identity = inspect(pid);
-    if (identity && identity.image && identity.startTime) {
-      row.image = String(identity.image);
-      row.startTime = String(identity.startTime);
-    }
     rows.set(pid, row);
     save();
+    // The identity is read in the background: track() never waits on the process table, and the row is
+    // completed (and the file rewritten) when the read returns. A row stopped before that has no identity.
+    const read = Promise.resolve()
+      .then(() => inspectAsync(pid))
+      .then((identity) => {
+        if (rows.get(pid) !== row || !identity || !identity.image || !identity.startTime) return;
+        row.image = String(identity.image);
+        row.startTime = String(identity.startTime);
+        save();
+      })
+      .catch(() => {
+        /* an unreadable table leaves the row without identity; stop treats it as unreadable */
+      })
+      .finally(() => pending.delete(read));
+    pending.add(read);
     if (child && typeof child.once === "function") {
       child.once("exit", () => {
         rows.delete(pid);
@@ -352,22 +509,31 @@ function createPidRegistry({ file, fsImpl = fs, inspectProcess: inspect = inspec
   }
 
   /**
-   * A row is killed only while the process under its pid is the one that was recorded (image and start time both
-   * match). A different process, or none, means the pid was reused or the process ended: the entry is dropped and
-   * nothing is signalled. A row recorded without identity (the table could not be read then) keeps the old
-   * pid-alive check only while the table still cannot be read; an unreadable table never kills a row that has one.
+   * A row is killed only while the process under its pid is the one that was recorded. With an identity, image and
+   * start time must both match. A row with no identity (written by an older version, or its read timed out) is
+   * killed only when the live image is the program named by row.command. A different process, or none, means the
+   * pid was reused or the process ended: the row is dropped and nothing is signalled. A table that cannot be read
+   * never kills anything.
    */
-  function isRecordedProcess(row) {
-    const live = inspect(row.pid);
+  function isRecordedProcess(row, live) {
     if (row.image && row.startTime) return sameIdentity(row, live);
-    if (live === undefined) return pidAlive(row.pid);
-    return false;
+    if (!live || !live.image) return false;
+    const want = normalizeImage(commandImage(row.command));
+    return !!want && normalizeImage(live.image) === want;
   }
 
   function stopMatching(predicate, kill = killProcessTree) {
-    for (const row of list()) {
-      if (!shouldStop(row) || !predicate(row)) continue;
-      if (isRecordedProcess(row)) kill(row.pid, { command: row.command });
+    const targets = list().filter((row) => shouldStop(row) && predicate(row));
+    if (!targets.length) return;
+    let table;
+    try {
+      table = inspectMany(targets.map((row) => row.pid));
+    } catch {
+      table = undefined;
+    }
+    for (const row of targets) {
+      const live = table && typeof table.get === "function" ? table.get(row.pid) : undefined;
+      if (isRecordedProcess(row, live)) kill(row.pid, { command: row.command });
       rows.delete(row.pid);
     }
     save();
@@ -381,7 +547,12 @@ function createPidRegistry({ file, fsImpl = fs, inspectProcess: inspect = inspec
     stopMatching((row) => row.role === role, kill);
   }
 
-  return { track, forget, list, stopAll, stopRole, load, file };
+  /** Resolves when every background identity read started by track() has finished. */
+  async function settled() {
+    while (pending.size) await Promise.all([...pending]);
+  }
+
+  return { track, forget, list, stopAll, stopRole, settled, load, file };
 }
 
 let activeRegistry = null;
@@ -707,6 +878,8 @@ module.exports = {
   waitForProcessGone,
   createPidRegistry,
   inspectProcess,
+  inspectProcessAsync,
+  inspectProcesses,
   usePidRegistry,
   trackOwned,
   writeOwnerPid,

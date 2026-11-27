@@ -44,10 +44,11 @@ function crashingRig(windowsSpeech: boolean, platform: string, said: string | nu
     return { id: msg.id, ok: true };
   };
   const probe = JSON.stringify({ ok: true, dependency: "ready", available: true, model: "small" });
-  const shell = vi.fn(async (exe: string, _args?: string[]) =>
-    exe === "powershell"
-      ? { ok: said !== null, stdout: said ?? "", stderr: "" }
-      : { ok: true, stdout: probe, stderr: "" },
+  const shell = vi.fn(
+    async (exe: string, _args?: string[], _timeout?: number, _env?: Record<string, string>) =>
+      exe === "powershell"
+        ? { ok: said !== null, stdout: said ?? "", stderr: "" }
+        : { ok: true, stdout: probe, stderr: "" },
   );
   stt.useForTests({
     spawn: r.spawn,
@@ -77,7 +78,9 @@ describe("crash-loop fallback through the Windows-speech rung", () => {
     expect(heard[0]).toMatchObject({ ok: true, text: "open the notes", model: "windows-speech" });
     const script = String(powershell()[0]?.[1]?.at(-1));
     expect(script).toContain("System.Speech.Recognition.SpeechRecognitionEngine");
-    expect(script).toContain(".wav'");
+    expect(script).toContain("$env:FRIDAY_STT_WAV");
+    expect(script).not.toMatch(/\.wav/i);
+    expect(String(powershell()[0]?.[3]?.["FRIDAY_STT_WAV"])).toMatch(/\.wav$/);
     const spawned = r.spawn.mock.calls.length;
     await turn();
     expect(r.spawn.mock.calls.length).toBe(spawned);
@@ -102,5 +105,24 @@ describe("crash-loop fallback through the Windows-speech rung", () => {
     const turns = await fiveTurns();
     expect(turns.map((t) => t.reason)).toContain("crash-loop");
     expect(powershell()).toHaveLength(0);
+  });
+
+  it("passes a path with a right single quotation mark and a space through the environment, never the script", async () => {
+    // U+2018 and U+2019 act as quotes in PowerShell, so the path must not be pasted into the -Command text.
+    const odd = join(root, "O\u2019Brien \u2018files\u2019 here");
+    fs.mkdirSync(odd, { recursive: true });
+    paths.setRoot(odd);
+    const { powershell } = crashingRig(true, "win32", "open the notes");
+    await fiveTurns();
+    const call = powershell()[0];
+    expect(call).toBeDefined();
+    const wav = String(call?.[3]?.["FRIDAY_STT_WAV"]);
+    expect(wav).toContain("O\u2019Brien \u2018files\u2019 here");
+    expect(wav).toMatch(/\.wav$/);
+    const script = String(call?.[1]?.at(-1));
+    expect(script).not.toContain("\u2019");
+    expect(script).not.toContain("\u2018");
+    expect(script).not.toContain(wav);
+    expect(script).toContain("SetInputToWaveFile($env:FRIDAY_STT_WAV)");
   });
 });

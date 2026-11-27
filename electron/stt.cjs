@@ -349,17 +349,18 @@ function crashLoopClear() {
 async function windowsSpeechOneShot(file) {
   if ((hooks.platform || process.platform) !== "win32") return null;
   if (!lastLocalLayers.windowsSpeech || !/\.wav$/i.test(String(file))) return null;
-  const safe = String(file).replace(/'/g, "''");
+  // The path travels in an environment variable: pasted into the script, U+2018 and U+2019 would act as quotes.
   const script =
     "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; " +
     "$e = New-Object System.Speech.Recognition.SpeechRecognitionEngine; " +
     "$e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); " +
-    `$e.SetInputToWaveFile('${safe}'); $r = $e.Recognize(); if ($r) { $r.Text }`;
+    "$e.SetInputToWaveFile($env:FRIDAY_STT_WAV); $r = $e.Recognize(); if ($r) { $r.Text }";
   try {
     const result = await run(
       "powershell",
       ["-NoProfile", "-NonInteractive", "-Command", script],
       20_000,
+      { FRIDAY_STT_WAV: String(file) },
     );
     const text = String(result?.stdout || "").trim();
     return result?.ok && text ? text : null;
@@ -451,8 +452,8 @@ function audioDir() {
   return dir;
 }
 
-function run(exe, args, timeout = 120000) {
-  if (hooks.run) return hooks.run(exe, args, timeout);
+function run(exe, args, timeout = 120000, extraEnv = {}) {
+  if (hooks.run) return hooks.run(exe, args, timeout, extraEnv);
   return new Promise((resolve) => {
     execFile(
       exe,
@@ -465,6 +466,7 @@ function run(exe, args, timeout = 120000) {
         cwd: os.tmpdir(),
         env: childEnv(process.env, {
           FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
+          ...extraEnv,
         }),
       },
       (error, stdout, stderr) =>
