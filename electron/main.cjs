@@ -5932,6 +5932,14 @@ async function authorizeToolCall(name, args) {
   if (gated.decision === "ask") {
     const answer = await askOwnerForTool(name, risk, args);
     persistToolDecision(name, risk, answer.granted, answer.remember);
+    // Stop everything may have been pressed while the question was open: a late "allow" no longer runs it.
+    if (answer.granted && ownerAutonomyState().halted === true) {
+      return {
+        allowed: false,
+        risk,
+        reason: `Stop everything is on, so “${name}” was not run. Resume FRIDAY to run it.`,
+      };
+    }
     if (!answer.granted) {
       return {
         allowed: false,
@@ -10831,13 +10839,27 @@ async function terminalPython() {
     return null;
   }
 }
-ipcMain.handle("terminal:exec", async (_e, options) =>
-  terminal.runCommand(
+ipcMain.handle("terminal:exec", async (_e, options) => {
+  const { origin, ...request } = options || {};
+  const command = String(request.command || "");
+  // Stop everything also stops FRIDAY's own shell commands: none starts while it is halted.
+  if (origin === "agent" && ownerAutonomyState().halted === true) {
+    return { ok: false, error: "Stop everything is on, so the command was not run." };
+  }
+  // A command FRIDAY itself chose (agent origin) that is not a plain read/check goes through the same
+  // permission gate as every other write/exec tool. What the owner types on the Terminal page is his own.
+  if (origin === "agent" && terminal.classifyCommand(command) === "exec") {
+    const verdict = await authorizeToolCall("terminal.exec", { command });
+    if (!verdict.allowed) {
+      return { ok: false, error: verdict.reason || "The command was not allowed." };
+    }
+  }
+  return terminal.runCommand(
     getWorkspaceRoot(),
-    { ...(options || {}), python: await terminalPython() },
+    { ...request, python: await terminalPython() },
     (event) => send("terminal:output", event),
-  ),
-);
+  );
+});
 ipcMain.handle("terminal:cancel", (_e, runId) => terminal.cancelRun(String(runId || "")));
 ipcMain.handle("terminal:write", (_e, runId, data) =>
   terminal.writeStdin(String(runId || ""), String(data ?? "")),

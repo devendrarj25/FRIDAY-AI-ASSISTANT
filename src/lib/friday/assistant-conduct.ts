@@ -10,6 +10,7 @@
 import { proactiveNote } from "./brain/baseline-responder";
 import { personalOffer } from "./proactive-line";
 import { redactRunText } from "./self/run-receipt";
+import { autonomy, describeStop } from "./self/autonomy";
 import {
   emptySenseMemory,
   ingestSenses,
@@ -154,6 +155,16 @@ function result(
   return { state, handled: true, spoken, decision, action, halt };
 }
 
+/**
+ * The side effect of a handled "stop everything" (decision "stop-everything"): the real kill switch, the same one
+ * as the Stop everything button. `reduceVoice` stays pure because it also runs as a preview; the live turn calls
+ * this once. `now` is the line for what stopped at once, `settled` the line once the kernel and the terminal answered.
+ */
+export function stopEverythingFromVoice(): { now: string; settled: Promise<string> } {
+  const report = autonomy.stopEverything();
+  return { now: describeStop(report.stopped), settled: report.settled.then(describeStop) };
+}
+
 export function reduceVoice(
   state: ConductState,
   text: string,
@@ -183,6 +194,18 @@ export function reduceVoice(
   }
   if (/^(cancel that|undo that)\b/i.test(line)) {
     const last = [...state.journal].reverse().find((entry) => entry.outcome === "ran");
+    if (!last && /^undo that\b/i.test(line)) {
+      // Nothing on the undo list means no compensation exists for what just happened: say so, never "Undone".
+      return result(
+        state,
+        named(
+          address,
+          "I cannot undo that. Nothing I can reverse is on my undo list, so I will not pretend it was undone.",
+        ),
+        "undo",
+        "cannot-undo",
+      );
+    }
     if (!last) {
       return result(state, named(address, "Nothing to cancel."), "cancel", "none");
     }

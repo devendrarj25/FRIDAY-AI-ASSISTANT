@@ -27,9 +27,8 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT = 200_000;
 
 /**
- * Commands that mutate the machine and therefore need owner approval.
- * KEEP in lockstep with `src/lib/friday/terminal-command.ts`.
- * Checks/tests (`npm test`, `git status`, `winget list`) are not listed.
+ * Lines known to mutate the machine: always exec, even inside a chain that starts with a read.
+ * KEEP `RISKY` and `SAFE_COMMANDS` identical to `src/lib/friday/terminal-command.ts`.
  */
 const RISKY = [
   /^npm\s+(ci|i|install|uninstall|publish|update)\b/i,
@@ -57,13 +56,56 @@ const RISKY = [
   />|>>|\|/,
 ];
 
-/** "exec" means the owner must approve before it runs. */
+/**
+ * Known read and check commands: the only lines that are safe ("write"). Everything else is "exec" and the
+ * owner approves it first. A line matches only when a whole chunk (split on `&&`, `||`, `;`, `&` and new lines)
+ * matches one entry and no RISKY pattern. KEEP identical to SAFE_COMMANDS in `electron/terminal.cjs`
+ * (core/__tests__/terminal-command-allowlist.test.ts compares the two tables).
+ */
+const SAFE_COMMANDS = [
+  /^git\s+(?!.*\s--output\b)(?:status|diff|log|show|rev-parse|blame|ls-files|describe|shortlog|grep|--version|version)(?:\s|$)/i,
+  /^git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--show-current|--all))*\s*$/i,
+  /^git\s+(?:remote\s+-v|stash\s+list)\s*$/i,
+  /^(?:npm|pnpm|yarn|bun)\s+(?:test|t|ls|list|outdated|--version|-v)(?:\s|$)/i,
+  /^npm\s+(?:view|doctor|help)(?:\s|$)/i,
+  /^(?:npm|pnpm|yarn|bun)\s+run\s+(?:test|typecheck|lint|check|docs:check|arrange:check|verify:version|check:provenance|test:fast|test:kernel|typecheck:py|pricing:status)(?:\s|$)/i,
+  /^npx\s+(?!.*\s--(?:fix|write)\b)(?:vitest|tsc\s+--noEmit|eslint|prettier\s+--check)(?:\s|$)/i,
+  /^(?!.*\s--(?:fix|write)\b)(?:vitest|pytest|ruff\s+check|eslint|tsc\s+--noEmit|prettier\s+--check)(?:\s|$)/i,
+  /^(?:python3?|py)\s+-m\s+(?!.*\s--(?:fix|write)\b)(?:pytest|ruff\s+check)(?:\s|$)/i,
+  /^go\s+(?:test|vet|version|env)(?:\s|$)/i,
+  /^cargo\s+(?!.*\s--fix\b)(?:test|check|clippy)(?:\s|$)/i,
+  /^dotnet\s+(?:test|--version|--info|--list-sdks)(?:\s|$)/i,
+  /^(?:node|python3?|py|pip3?|uv|deno|java|javac|rustc|cargo|go|npm|npx|git|ollama|docker|podman|winget|choco|scoop)\s+(?:--version|-v|-V|version)\s*$/i,
+  /^(?:pip3?|uv\s+pip)\s+(?:list|show|freeze|check)(?:\s|$)/i,
+  /^winget\s+(?:list|search|show)(?:\s|$)/i,
+  /^choco\s+(?:list|search|info|outdated)(?:\s|$)/i,
+  /^scoop\s+(?:list|search|info|status)(?:\s|$)/i,
+  /^ollama\s+(?:list|ls|ps|show)(?:\s|$)/i,
+  /^(?:docker|podman)\s+(?:ps|images|info|version)(?:\s|$)/i,
+  /^ipconfig(?:\s+\/all)?\s*$/i,
+  /^(?:date|time)\s+\/t\s*$/i,
+  /^(?:dir|ls|pwd|whoami|hostname|ver|tree|tasklist|systeminfo|netstat|where|which|echo|type|cat|more|findstr|rg|ping)(?:\s|$)/i,
+  /^(?:get-childitem|get-process|get-service|get-date|get-location|get-content|get-item|get-command|get-help|test-path|test-connection|resolve-path|write-output|write-host|gci|gps|gsv)(?:\s|$)/i,
+];
+
+/** Sub-shells and inline expansion can run anything inside a "read" line. */
+const EMBEDDED = /`|\$\(|%\(/;
+
+const CHUNK_SPLIT = /\s*(?:&&|\|\||;|&|\r?\n)\s*/;
+
+/**
+ * "exec" means the owner must approve before it runs. "write" only when every chunk of the line is a known read
+ * or check (an allowlist): an unknown command is never safe.
+ */
 function classifyCommand(command) {
   const line = String(command || "").trim();
   if (!line) return "write";
-  const parts = line.split(/\s*(?:&&|\|\||;)\s*/).filter(Boolean);
+  if (EMBEDDED.test(line)) return "exec";
+  const parts = line.split(CHUNK_SPLIT).filter(Boolean);
   const chunks = parts.length ? parts : [line];
-  return chunks.some((part) => RISKY.some((re) => re.test(part))) ? "exec" : "write";
+  const safe = (part) =>
+    !RISKY.some((re) => re.test(part)) && SAFE_COMMANDS.some((re) => re.test(part));
+  return chunks.every(safe) ? "write" : "exec";
 }
 
 /** Resolve a path inside the root; throws when it would escape. */
@@ -423,6 +465,7 @@ function listRuns() {
 
 module.exports = {
   RISKY,
+  SAFE_COMMANDS,
   SHELLS,
   classifyCommand,
   resolveCd,

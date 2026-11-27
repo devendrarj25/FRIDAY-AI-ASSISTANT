@@ -917,6 +917,79 @@ function perceptionFromTool(result: Record<string, unknown> | null, at: number):
   return seen;
 }
 
+/** A click needs something to click: a name on the screen or a point. A pronoun alone is not a target. */
+const UNRESOLVED_TARGET =
+  /^(?:it|that|this|there|here|them|those|these|one|the one|something|anything)?$/i;
+const POINT = /^\s*(-?\d+)\s*[, ]\s*(-?\d+)\s*$/;
+
+export type KernelArgs =
+  { ok: true; args: Record<string, unknown> } | { ok: false; reason: string };
+
+/**
+ * The argument shape each kernel desktop tool reads (kernel/tools.py): `app` for a launch, `title` for a focus or
+ * close, `keys` for a hotkey, `text` and `target` for typing, `x,y,x2,y2` for a drag. A step that cannot be shaped
+ * is refused here, before anything moves.
+ */
+export function kernelArgsFor(step: DesktopAction): KernelArgs {
+  const target = step.target.trim();
+  switch (step.kind) {
+    case "launch":
+      return target ? { ok: true, args: { app: target } } : { ok: false, reason: "Which app?" };
+    case "focus":
+    case "close":
+      return target
+        ? { ok: true, args: { title: target } }
+        : { ok: false, reason: "Which window?" };
+    case "click": {
+      if (UNRESOLVED_TARGET.test(target)) {
+        return { ok: false, reason: "Tell me what to click: a name on the screen or a point." };
+      }
+      const point = POINT.exec(target);
+      if (point) return { ok: true, args: { x: Number(point[1]), y: Number(point[2]) } };
+      return { ok: true, args: { target } };
+    }
+    case "type":
+      return { ok: true, args: { text: step.payload, ...(target ? { target } : {}) } };
+    case "hotkey": {
+      const keys = (step.payload || target)
+        .split(/\s*\+\s*|\s+/)
+        .map((key) => key.trim().toLowerCase())
+        .filter(Boolean);
+      return keys.length ? { ok: true, args: { keys } } : { ok: false, reason: "Which keys?" };
+    }
+    case "scroll": {
+      const amount = /^-?\d+$/.test(target) ? Number(target) : /\bup\b/i.test(target) ? 3 : -3;
+      return { ok: true, args: { amount } };
+    }
+    case "drag": {
+      const from = POINT.exec(target);
+      const to = POINT.exec(step.payload);
+      if (!from || !to)
+        return { ok: false, reason: "A drag needs a start point and an end point." };
+      return {
+        ok: true,
+        args: { x: Number(from[1]), y: Number(from[2]), x2: Number(to[1]), y2: Number(to[2]) },
+      };
+    }
+    case "clipboard-write":
+      return { ok: true, args: { text: step.payload } };
+    case "clipboard-read":
+      return { ok: true, args: {} };
+    case "file-read":
+      return target ? { ok: true, args: { path: target } } : { ok: false, reason: "Which file?" };
+    case "file-write":
+      return target
+        ? { ok: true, args: { path: target, content: step.payload } }
+        : { ok: false, reason: "Which file?" };
+    default:
+      return { ok: false, reason: "I do not know that desktop step." };
+  }
+}
+
+/** The real wait used between a retry and the next look, unless a test injects one. */
+export const realSleep = (ms: number): Promise<void> =>
+  new Promise((done) => setTimeout(done, Math.max(0, ms)));
+
 function kernelBackedPort(): DesktopPort {
   const state: DeskState = {
     monitors: [],
@@ -939,10 +1012,9 @@ function kernelBackedPort(): DesktopPort {
       return perceptionFromTool(result, at);
     },
     async act(step: DesktopAction): Promise<ActOutcome> {
-      const result = await kernelApi.tools.exec(step.tool, {
-        target: step.target,
-        text: step.payload,
-      });
+      const shaped = kernelArgsFor(step);
+      if (!shaped.ok) return { ok: false, detail: shaped.reason };
+      const result = await kernelApi.tools.exec(step.tool, shaped.args);
       if (!result) return { ok: false, detail: "desktop bridge unavailable" };
       return {
         ok: Boolean(result["ok"]),
@@ -959,8 +1031,8 @@ type StepResult = { acted: ActOutcome; after: Perception };
  * Read-only steps in a row run together. Writes wait for the previous write.
  */
 export async function runComputerUse(input: DesktopRunInput): Promise<DesktopReport> {
-  const now = input.now ?? (() => 0);
-  const sleep = input.sleep ?? (async () => undefined);
+  const now = input.now ?? Date.now;
+  const sleep = input.sleep ?? realSleep;
   const desktop = input.desktop ?? resolveDesktopPort();
   const budget = input.budget ?? DEFAULT_BUDGET;
   const started = now();
@@ -1081,6 +1153,14 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       lines.push(statusLine("ask", lease.reason));
       audit.push({ at: now(), action: step.tool, result: lease.decision });
       return finish(false, true, lines[lines.length - 1] ?? lease.reason, lease.decision);
+    }
+    if (step.kind === "click") {
+      const shaped = kernelArgsFor(step);
+      if (!shaped.ok) {
+        lines.push(statusLine("ask", shaped.reason));
+        audit.push({ at: now(), action: step.tool, result: "unresolved-target" });
+        return finish(false, true, lines[lines.length - 1] ?? shaped.reason, "unresolved-target");
+      }
     }
     const gate = gateAction(input.level, input.halted, step);
     // The yes the owner gave for this one step, bound to its action, target and arguments. It is checked again

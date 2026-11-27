@@ -6,10 +6,10 @@
  * executor. Natural-language lines are classified as asks so `cmd.exe` is not
  * fed English questions.
  *
- * KEEP `RISKY` in lockstep with `electron/terminal.cjs`.
+ * KEEP `RISKY` and `SAFE_COMMANDS` identical to `electron/terminal.cjs`.
  */
 
-/** Mutating / machine-level lines — owner must approve (exec). Checks/tests are not listed. */
+/** Lines known to mutate the machine: always exec, even inside a chain that starts with a read. */
 const RISKY = [
   /^npm\s+(ci|i|install|uninstall|publish|update)\b/i,
   /^npm\s+run\s+(build|rebuild|release|deploy|publish)\b/i,
@@ -36,6 +36,43 @@ const RISKY = [
   />|>>|\|/,
 ];
 
+/**
+ * Known read and check commands: the only lines that are safe ("write"). Everything else is "exec" and the
+ * owner approves it first. A line matches only when a whole chunk (split on `&&`, `||`, `;`, `&` and new lines)
+ * matches one entry and no RISKY pattern. KEEP identical to SAFE_COMMANDS in `electron/terminal.cjs`
+ * (core/__tests__/terminal-command-allowlist.test.ts compares the two tables).
+ */
+export const SAFE_COMMANDS: readonly RegExp[] = [
+  /^git\s+(?!.*\s--output\b)(?:status|diff|log|show|rev-parse|blame|ls-files|describe|shortlog|grep|--version|version)(?:\s|$)/i,
+  /^git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--show-current|--all))*\s*$/i,
+  /^git\s+(?:remote\s+-v|stash\s+list)\s*$/i,
+  /^(?:npm|pnpm|yarn|bun)\s+(?:test|t|ls|list|outdated|--version|-v)(?:\s|$)/i,
+  /^npm\s+(?:view|doctor|help)(?:\s|$)/i,
+  /^(?:npm|pnpm|yarn|bun)\s+run\s+(?:test|typecheck|lint|check|docs:check|arrange:check|verify:version|check:provenance|test:fast|test:kernel|typecheck:py|pricing:status)(?:\s|$)/i,
+  /^npx\s+(?!.*\s--(?:fix|write)\b)(?:vitest|tsc\s+--noEmit|eslint|prettier\s+--check)(?:\s|$)/i,
+  /^(?!.*\s--(?:fix|write)\b)(?:vitest|pytest|ruff\s+check|eslint|tsc\s+--noEmit|prettier\s+--check)(?:\s|$)/i,
+  /^(?:python3?|py)\s+-m\s+(?!.*\s--(?:fix|write)\b)(?:pytest|ruff\s+check)(?:\s|$)/i,
+  /^go\s+(?:test|vet|version|env)(?:\s|$)/i,
+  /^cargo\s+(?!.*\s--fix\b)(?:test|check|clippy)(?:\s|$)/i,
+  /^dotnet\s+(?:test|--version|--info|--list-sdks)(?:\s|$)/i,
+  /^(?:node|python3?|py|pip3?|uv|deno|java|javac|rustc|cargo|go|npm|npx|git|ollama|docker|podman|winget|choco|scoop)\s+(?:--version|-v|-V|version)\s*$/i,
+  /^(?:pip3?|uv\s+pip)\s+(?:list|show|freeze|check)(?:\s|$)/i,
+  /^winget\s+(?:list|search|show)(?:\s|$)/i,
+  /^choco\s+(?:list|search|info|outdated)(?:\s|$)/i,
+  /^scoop\s+(?:list|search|info|status)(?:\s|$)/i,
+  /^ollama\s+(?:list|ls|ps|show)(?:\s|$)/i,
+  /^(?:docker|podman)\s+(?:ps|images|info|version)(?:\s|$)/i,
+  /^ipconfig(?:\s+\/all)?\s*$/i,
+  /^(?:date|time)\s+\/t\s*$/i,
+  /^(?:dir|ls|pwd|whoami|hostname|ver|tree|tasklist|systeminfo|netstat|where|which|echo|type|cat|more|findstr|rg|ping)(?:\s|$)/i,
+  /^(?:get-childitem|get-process|get-service|get-date|get-location|get-content|get-item|get-command|get-help|test-path|test-connection|resolve-path|write-output|write-host|gci|gps|gsv)(?:\s|$)/i,
+];
+
+/** Sub-shells and inline expansion can run anything inside a "read" line. */
+const EMBEDDED = /`|\$\(|%\(/;
+
+const CHUNK_SPLIT = /\s*(?:&&|\|\||;|&|\r?\n)\s*/;
+
 const BUILTINS = new Set([
   "help",
   "pwd",
@@ -55,6 +92,10 @@ const QUESTION =
   /^(what|why|how|who|which|when|where|explain|tell|please (tell|explain)|can you|could you|do you)\b/i;
 
 const ENGLISH_TAIL = /^(that|this|it|them|me|you|please|something|everything|all)$/i;
+
+/** A second word that only an English sentence has after a verb such as go, move, type or copy. */
+const ENGLISH_NEXT =
+  /^(ahead|to|the|a|an|and|back|up|down|my|your|this|that|it|on|in|into|onto|over|there|here|home|left|right|now|me|please|forward|out)$/i;
 
 const REPL_SHELLS = new Set(["python", "node", "termux"]);
 const SYSTEM_SHELLS = new Set(["cmd", "powershell", "pwsh", "wsl", "git-bash", "bash", "sh"]);
@@ -102,12 +143,19 @@ export type TerminalRunPlan = {
   risk: "safe" | "exec";
 };
 
+/**
+ * "write" only when every chunk of the line is a known read or check; anything else is "exec" (the owner
+ * approves it). `electron/terminal.cjs` exports the same function over the same tables.
+ */
 export function classifyCommand(command: string): "write" | "exec" {
   const line = String(command || "").trim();
   if (!line) return "write";
-  const parts = line.split(/\s*(?:&&|\|\||;)\s*/).filter(Boolean);
+  if (EMBEDDED.test(line)) return "exec";
+  const parts = line.split(CHUNK_SPLIT).filter(Boolean);
   const chunks = parts.length ? parts : [line];
-  return chunks.some((part) => RISKY.some((re) => re.test(part))) ? "exec" : "write";
+  const safe = (part: string) =>
+    !RISKY.some((re) => re.test(part)) && SAFE_COMMANDS.some((re) => re.test(part));
+  return chunks.every(safe) ? "write" : "exec";
 }
 
 /** Action-risk tier for a workspace-shell line. Checks/tests are safe; installs are exec. */
@@ -141,6 +189,8 @@ export function looksLikeShellCommand(text: string): boolean {
   if (!SHELL_VERBS.test(line)) return false;
   const tokens = line.split(/\s+/);
   if (tokens.length >= 2 && ENGLISH_TAIL.test(tokens[1] ?? "") && tokens.length <= 3) return false;
+  // "go to youtube.com", "move the window left", "go ahead and open notepad" are English, not a shell line.
+  if (tokens.length >= 3 && ENGLISH_NEXT.test(tokens[1] ?? "")) return false;
   return true;
 }
 
