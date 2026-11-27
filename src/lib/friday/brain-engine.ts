@@ -262,24 +262,52 @@ function turnVoiceParts(
   };
 }
 
-/** The most prompt-borne text sent beside a turn for the privacy check. */
-const OWNER_TEXT_CAP = 40_000;
+/**
+ * The most prompt-borne text sent beside a turn for the privacy check. Below the kernel's own ceiling for
+ * `ownerText`, so what the main process screens reaches the kernel whole. Twelve capped attachments fit.
+ */
+export const OWNER_TEXT_CAP = 400_000;
+
+type PromptBorneInput = {
+  ownerText?: string | undefined;
+  extra?: string | undefined;
+  recalled?: readonly string[] | undefined;
+};
+
+function promptBorneParts(input: PromptBorneInput): string[] {
+  return [input.ownerText, input.extra, ...(input.recalled ?? [])]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean);
+}
 
 /**
  * The words in this turn's prompt that FRIDAY did not write: attachment text, the caller's extra block (screen
  * text, turn facts) and the memories recalled for it. FRIDAY's own persona and tool text is left out, so it
  * cannot cause a false positive. The same text is what the main process and the kernel screen as `ownerText`.
  */
-export function promptBorneText(input: {
-  ownerText?: string | undefined;
-  extra?: string | undefined;
-  recalled?: readonly string[] | undefined;
-}): string {
-  const joined = [input.ownerText, input.extra, ...(input.recalled ?? [])]
-    .map((part) => String(part ?? "").trim())
-    .filter(Boolean)
-    .join("\n");
+export function promptBorneText(input: PromptBorneInput): string {
+  const joined = promptBorneParts(input).join("\n");
   return joined.length > OWNER_TEXT_CAP ? joined.slice(0, OWNER_TEXT_CAP) : joined;
+}
+
+/**
+ * The privacy verdict for everything this turn hands the model. Each part (attachment text, the extra block with
+ * screen text and turn awareness, every recalled memory line, the typed line) is screened whole, on its own, so no
+ * cut and no long neighbour can hide a secret. When the copy sent for the downstream check had to be cut, the
+ * main process and the kernel would screen only part of it, so the turn is private.
+ */
+export function screenPromptBorne(input: PromptBorneInput & { prompt?: string | undefined }): {
+  ownerText: string;
+  sensitive: boolean;
+} {
+  const parts = promptBorneParts(input);
+  const joinedLength =
+    parts.reduce((sum, part) => sum + part.length, 0) + Math.max(0, parts.length - 1);
+  const sensitive =
+    joinedLength > OWNER_TEXT_CAP ||
+    looksSensitive(String(input.prompt ?? "")) ||
+    parts.some((part) => looksSensitive(part));
+  return { ownerText: promptBorneText(input), sensitive };
 }
 
 /** The owner's contract with the private route forced on: local models only, nothing leaves this PC. */
@@ -1040,6 +1068,33 @@ export function commandDigest(command: string): string {
   return `${(h2 >>> 0).toString(16).padStart(8, "0")}${(h1 >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+/**
+ * The exact arguments of a gated action in one canonical form (object keys sorted at every depth), so a spoken
+ * yes is bound to precisely the action it confirmed. Kept whole, not hashed: two different actions never match.
+ */
+export function canonicalArgs(args: unknown): string {
+  const order = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(order);
+    if (value && typeof value === "object") {
+      const source = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(source)
+          .sort()
+          .map((key) => [key, order(source[key])]),
+      );
+    }
+    return value;
+  };
+  try {
+    return JSON.stringify(order(args ?? {})) ?? "{}";
+  } catch {
+    return "\u0000unserialisable";
+  }
+}
+
+/** An action the owner confirmed in the read-back: the tool and its exact arguments. */
+export type PreApprovedAction = { tool: string; args?: Record<string, unknown> | undefined };
+
 const engineKey = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** True when two model ids name one engine: equal, or equal once spelled the way the router spells them. */
@@ -1091,7 +1146,10 @@ class BrainStore {
   /** Expires a spoken run's pending approval (voice.approvalTtlSec). */
   private approvalTimer: ReturnType<typeof setTimeout> | null = null;
   /** Single-use spoken yes tokens: token -> the confirmed command's digest and expiry. */
-  private preApprovals = new Map<string, { digest: string; expiresAt: number }>();
+  private preApprovals = new Map<
+    string,
+    { digest: string; tool: string; args: string; expiresAt: number }
+  >();
   /** The token a run carries, by run id. */
   private preApprovalOf = new Map<string, string>();
   /** Set by Auto Mode so replies are shaped for speech. */
@@ -2707,12 +2765,14 @@ class BrainStore {
 
     // SENSITIVE is a hard stop for a cloud model, also when the words sit in an attachment, the screen or a
     // recalled memory and the typed line is innocent. A hit (or the caller's flag) takes the private route.
-    const ownerText = promptBorneText({
+    const screened = screenPromptBorne({
       ownerText: options.ownerText,
       extra: options.extra,
       recalled: cognition.context,
+      prompt: text,
     });
-    const turnSensitive = options.turnSensitive === true || looksSensitive(ownerText);
+    const ownerText = screened.ownerText;
+    const turnSensitive = options.turnSensitive === true || screened.sensitive;
     if (turnSensitive) {
       this.privateRuns.set(run.id, ownerText);
       if (this.privateRuns.size > 16)
@@ -3154,7 +3214,13 @@ class BrainStore {
     }
     if (reply.action && reply.action.kind === "skill") {
       const { tool: skillId, args, label, risk } = reply.action;
-      const allowed = await this.gateAction(run, skillId, (risk ?? "exec") as ActionRisk, label);
+      const allowed = await this.gateAction(
+        run,
+        skillId,
+        (risk ?? "exec") as ActionRisk,
+        label,
+        args,
+      );
       if (!allowed) {
         text = `Cancelled — I did not run ${label}.`;
       } else {
@@ -3171,7 +3237,7 @@ class BrainStore {
       // A connector action is an ordinary tool call: same approval gate, same
       // run log, same result formatting — only the transport differs.
       const { tool, args, label, risk } = reply.action;
-      const allowed = await this.gateAction(run, tool, (risk ?? "exec") as ActionRisk, label);
+      const allowed = await this.gateAction(run, tool, (risk ?? "exec") as ActionRisk, label, args);
       if (!allowed) {
         text = `Cancelled — I did not run ${label}.`;
       } else {
@@ -3195,7 +3261,7 @@ class BrainStore {
       const { tool, args, label, risk } = reply.action;
       // Manual mode gates every action; auto mode gates anything that is not
       // read-only. The approval decision itself lives in brain/action-risk.ts.
-      const allowed = await this.gateAction(run, tool, (risk ?? "exec") as ActionRisk, label);
+      const allowed = await this.gateAction(run, tool, (risk ?? "exec") as ActionRisk, label, args);
       if (!allowed) {
         text = `Cancelled — I did not run ${label}.`;
       } else {
@@ -3292,7 +3358,13 @@ class BrainStore {
    * Reuses the single existing approval slot (state.approval) and the same
    * approve() button the agent tool-calls already use — no second system.
    */
-  private gateAction(run: Run, tool: string, risk: ActionRisk, label: string): Promise<boolean> {
+  private gateAction(
+    run: Run,
+    tool: string,
+    risk: ActionRisk,
+    label: string,
+    args?: Record<string, unknown>,
+  ): Promise<boolean> {
     const mode = actionMode();
     if (
       !appControlNeedsApproval(tool) &&
@@ -3303,8 +3375,8 @@ class BrainStore {
     ) {
       return Promise.resolve(true);
     }
-    // The owner already said yes to this exact command (the read-back): that yes is spent once, here.
-    if (this.consumePreApproval(run)) {
+    // The owner already said yes to this exact command and action (the read-back): that yes is spent once, here.
+    if (this.consumePreApproval(run, tool, args)) {
       this.push("ok", `approved by your spoken yes: ${label} (${risk})`);
       return Promise.resolve(true);
     }
@@ -3351,32 +3423,51 @@ class BrainStore {
 
   /**
    * Mint a single-use token for a command the owner just confirmed out loud (the read-back and his yes). It is
-   * bound to the digest of that command and expires with `voice.approvalTtlSec`; `send(command, { preApproval })`
-   * carries it to the run, and `gateAction` spends it for that run's own approval. It never approves a different
-   * command, never outlives its window and never works while everything is stopped. Returns null for no command.
+   * bound to the digest of that command and to the read-back action (its tool and exact arguments), and expires
+   * with `voice.approvalTtlSec`; `send(command, { preApproval })` carries it to the run, and `gateAction` spends
+   * it on the run's first gated action. Only that action is approved: a different tool or different arguments
+   * spend the token and still ask on screen. It never outlives its window and never works while everything is
+   * stopped. Returns null without a command or a tool. The token is random from the platform's secure source.
    */
-  preApprove(command: string, now = Date.now()): string | null {
+  preApprove(command: string, action: PreApprovedAction, now = Date.now()): string | null {
     const text = String(command ?? "").trim();
-    if (!text) return null;
+    const tool = String(action?.tool ?? "").trim();
+    if (!text || !tool) return null;
     for (const [id, grant] of this.preApprovals)
       if (grant.expiresAt <= now) this.preApprovals.delete(id);
-    const token = `${nextId("yes")}-${Math.random().toString(36).slice(2, 10)}`;
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const token = `yes-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
     this.preApprovals.set(token, {
       digest: commandDigest(text),
+      tool,
+      args: canonicalArgs(action.args),
       expiresAt: now + approvalTtlMs(preferences.getSnapshot().voice.approvalTtlSec),
     });
     return token;
   }
 
-  /** Spend the run's pre-approval token if it is valid for this run's command. True means it approved. */
-  private consumePreApproval(run: Run): boolean {
+  /**
+   * Spend the run's pre-approval token on this gated action. True only when it is valid for this run's command
+   * and for exactly this tool and these arguments; either way the token is gone.
+   */
+  private consumePreApproval(
+    run: Run,
+    tool: string,
+    args: Record<string, unknown> | undefined,
+  ): boolean {
     const token = this.preApprovalOf.get(run.id);
     if (!token) return false;
     this.preApprovalOf.delete(run.id);
     const grant = this.preApprovals.get(token);
     this.preApprovals.delete(token);
     if (!grant || autonomy.getSnapshot().halted) return false;
-    return grant.expiresAt > Date.now() && grant.digest === commandDigest(run.prompt);
+    return (
+      grant.expiresAt > Date.now() &&
+      grant.digest === commandDigest(run.prompt) &&
+      grant.tool === tool &&
+      grant.args === canonicalArgs(args)
+    );
   }
 
   /** True while a run waits for the owner's approval (the busy reply says so instead of "still working"). */

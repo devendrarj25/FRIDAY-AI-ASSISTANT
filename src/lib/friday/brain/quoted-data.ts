@@ -10,15 +10,33 @@
 /** Where a row came from, as far as the writer said. Missing means FRIDAY wrote it from the owner's turn. */
 export type RowOrigin = { provenance?: string | undefined; source?: string | undefined };
 
-/** Sources that are somebody else's words: documents, web pages, files, tools, mail, MCP, the screen. */
-const NON_OWNER =
-  /^(?:library:|web|import|document|doc:|file|tool|mcp|connector|email|mail|screen|clipboard|plugin|skill|untrusted|external|research)|imported|scraped/i;
+/**
+ * The sources and provenance values that are the owner's own words: what he typed, said or taught, and the rows
+ * FRIDAY wrote from his turns (`friday` is the memory engine's default, `conversation-state` and
+ * `cognitive-baseline` keep facts he stated). An allowlist, so it fails closed: a task, a page, the screen, a URL,
+ * a tool or any source nobody listed here is quoted data.
+ */
+const OWNER_ORIGINS: ReadonlySet<string> = new Set([
+  "user",
+  "owner",
+  "chat",
+  "voice",
+  "teach",
+  "friday",
+  "conversation-state",
+  "cognitive-baseline",
+]);
 
-/** True when the row's words came from outside the owner's own turns. */
+/**
+ * True when the row's words came from outside the owner's own turns. Every origin the row names (source and
+ * provenance) must be on the owner's allowlist; a row that names none is quoted.
+ */
 export function isNonOwnerRow(row: RowOrigin): boolean {
-  const provenance = String(row.provenance ?? "").trim();
-  const source = String(row.source ?? "").trim();
-  return NON_OWNER.test(provenance) || NON_OWNER.test(source);
+  const named = [row.provenance, row.source]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (!named.length) return true;
+  return named.some((value) => !OWNER_ORIGINS.has(value.toLowerCase()));
 }
 
 const INSTRUCTION_LINE =

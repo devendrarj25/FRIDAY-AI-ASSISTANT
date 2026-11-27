@@ -24,6 +24,34 @@ describe("quoted data helpers", () => {
     expect(isNonOwnerRow({ source: "tool/fs_read" })).toBe(true);
   });
 
+  it("quotes every source that is not on the owner's allowlist (fails closed)", () => {
+    for (const source of ["user", "owner", "chat", "voice", "teach", "friday"]) {
+      expect(isNonOwnerRow({ source })).toBe(false);
+      expect(isNonOwnerRow({ source, provenance: source })).toBe(false);
+    }
+    expect(isNonOwnerRow({ source: "cognitive-baseline", provenance: "user" })).toBe(false);
+    for (const source of [
+      "task/t-42",
+      "dom",
+      "uia",
+      "url",
+      "https://example.org/page",
+      "forge/run-1",
+      "growth/p1",
+      "stream",
+      "something-new",
+      "USER/../web",
+    ]) {
+      expect(isNonOwnerRow({ source })).toBe(true);
+    }
+    // An owner source does not launder an outside provenance, and the reverse.
+    expect(isNonOwnerRow({ source: "user", provenance: "verified" })).toBe(true);
+    expect(isNonOwnerRow({ source: "task/t-1", provenance: "user" })).toBe(true);
+    // No provenance at all is quoted.
+    expect(isNonOwnerRow({})).toBe(true);
+    expect(isNonOwnerRow({ source: "  ", provenance: "" })).toBe(true);
+  });
+
   it("strips instruction lines and delimiter look-alikes and caps the text", () => {
     const text = [
       "The warranty lasts two years.",
