@@ -16,7 +16,7 @@ import {
 } from "../../src/lib/friday/terminal-command";
 
 const terminal = createRequire(import.meta.url)("../../electron/terminal.cjs") as {
-  SAFE_COMMANDS: RegExp[];
+  SAFE_COMMANDS: Array<{ cmd: string }>;
   classifyCommand: (command: string) => "write" | "exec";
 };
 
@@ -116,9 +116,11 @@ describe("terminal commands: allowlist of reads and checks, everything else is e
 
   it("is one table: the renderer and the main process hold the same allowlist", () => {
     expect(SAFE_COMMANDS.length).toBeGreaterThan(10);
-    expect(terminal.SAFE_COMMANDS.map((re) => `${re.source}/${re.flags}`)).toEqual(
-      SAFE_COMMANDS.map((re) => `${re.source}/${re.flags}`),
-    );
+    expect(JSON.stringify(terminal.SAFE_COMMANDS)).toBe(JSON.stringify(SAFE_COMMANDS));
+    // Every rule names a command and the names do not repeat, so the first match is the only match.
+    const names = SAFE_COMMANDS.map((rule) => rule.cmd);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.every((name) => name === name.toLowerCase() && name.trim() === name)).toBe(true);
   });
 
   it("an empty line is never exec (nothing runs)", () => {

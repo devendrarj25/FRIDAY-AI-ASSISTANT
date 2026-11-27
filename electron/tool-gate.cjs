@@ -14,6 +14,8 @@
  * A prompt that nobody answers must end: the question carries a deadline and an abort signal, and no answer is no.
  */
 
+const fs = require("fs");
+
 /** How long the owner has to answer a permission question before it counts as "no". */
 const ASK_TIMEOUT_MS = 120_000;
 
@@ -68,32 +70,43 @@ async function askWithTimeout(
 /**
  * The owner's autonomy state as the main process knows it. Stop everything is written to disk on a short delay, so the
  * renderer also sends a synchronous signal (`signalHalted`) the moment the state changes; `read` takes that signal
- * before the file. When the file cannot be read the last known state stands, and when nothing is known at all FRIDAY
- * counts as halted (the dial "ask"): an unreadable state never opens the gate.
- * @param {() => unknown} readStored returns the stored autonomy record, or null when nothing is stored; may throw.
+ * before the file. When a read throws (a busy file) the last known state stands, and when nothing is known at all
+ * FRIDAY counts as halted (the dial "ask"). A file that exists but is corrupt or unreadable (`UNREADABLE`) is halted
+ * at once, and stays halted while the file is missing afterwards (the store set it aside), until a real state is read:
+ * an unreadable state never opens the gate.
+ * @param {() => unknown} readStored returns the stored autonomy record, null when nothing is stored, or UNREADABLE;
+ *   may throw.
  * @returns {{read: () => {dial: "ask"|"balanced"|"full", halted: boolean}, signalHalted: (value: unknown) => boolean}}
  */
 function createAutonomyReader(readStored) {
   let signal = null;
   let known = null;
+  let damaged = false;
   return {
     read() {
       let state;
       try {
         const stored = readStored();
-        // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
-        if (!stored || typeof stored !== "object") {
+        const record = Boolean(stored) && typeof stored === "object";
+        if (stored === UNREADABLE || (damaged && !record)) {
+          damaged = true;
+          state = { dial: known ? known.dial : "ask", halted: true };
+        } else if (!record) {
+          // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
           state = { dial: "balanced", halted: false };
+          known = state;
         } else {
           const halted = stored.halted === true;
           if (stored.approvalLevel === "full") state = { dial: "full", halted };
           else if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
             state = { dial: "balanced", halted };
           else state = { dial: "ask", halted };
+          damaged = false;
+          known = state;
         }
-        known = state;
       } catch {
-        state = known ? { ...known } : { dial: "ask", halted: true };
+        if (damaged || !known) state = { dial: known ? known.dial : "ask", halted: true };
+        else state = { ...known };
       }
       return signal === null ? state : { ...state, halted: signal };
     },
@@ -104,4 +117,40 @@ function createAutonomyReader(readStored) {
   };
 }
 
-module.exports = { ASK_TIMEOUT_MS, gateDecision, askWithTimeout, createAutonomyReader };
+/** What `readAutonomyFile` returns for a file that exists but gives no state: never a value a stored file can hold. */
+const UNREADABLE = Symbol("autonomy-state-unreadable");
+
+/**
+ * Read the stored autonomy record through the state store. A missing file is null (the shipped default); a file that
+ * is there but corrupt with no good backup, or cannot be read at all, is UNREADABLE (halted), never the default.
+ * @param {{readState: (file: string) => unknown}} store the state store (`electron/state-store.cjs`).
+ */
+function readAutonomyFile(store, file, exists = (p) => fs.existsSync(p)) {
+  const present = exists(file);
+  const stored = store.readState(file);
+  if (stored !== null && stored !== undefined) return stored;
+  return present ? UNREADABLE : null;
+}
+
+/**
+ * True only for a message from the main window's own top frame: not a sub-frame, another window or a frame that is
+ * gone. `contents` is the main window's webContents (null when there is no window).
+ */
+function fromMainFrame(event, contents) {
+  if (!event || !contents || event.sender !== contents) return false;
+  if (typeof contents.isDestroyed === "function" && contents.isDestroyed()) return false;
+  const frame = event.senderFrame;
+  const main = contents.mainFrame;
+  if (!frame || !main) return false;
+  return frame.processId === main.processId && frame.routingId === main.routingId;
+}
+
+module.exports = {
+  ASK_TIMEOUT_MS,
+  UNREADABLE,
+  gateDecision,
+  askWithTimeout,
+  createAutonomyReader,
+  readAutonomyFile,
+  fromMainFrame,
+};

@@ -28,7 +28,7 @@ const MAX_OUTPUT = 200_000;
 
 /**
  * Lines known to mutate the machine: always exec, even inside a chain that starts with a read.
- * KEEP `RISKY` and `SAFE_COMMANDS` identical to `src/lib/friday/terminal-command.ts`.
+ * KEEP `RISKY`, `SAFE_COMMANDS` and the classifier identical to `src/lib/friday/terminal-command.ts`.
  */
 const RISKY = [
   /^npm\s+(ci|i|install|uninstall|publish|update)\b/i,
@@ -57,58 +57,620 @@ const RISKY = [
 ];
 
 /**
- * Known read and check commands: the only lines that are safe ("write"). Everything else is "exec" and the
- * owner approves it first. A line matches only when a whole chunk (split on `&&`, `||`, `;`, `&` and new lines)
- * matches one entry and no RISKY pattern. KEEP identical to SAFE_COMMANDS in `electron/terminal.cjs`
- * (core/__tests__/terminal-command-allowlist.test.ts compares the two tables).
+ * One read or check command and the arguments it may take. A line is safe ("write") only when its leading words
+ * name a rule here and every later token is on that rule: a known flag, a flag with a plain value, or a plain
+ * positional. Everything else is "exec" and the owner approves it first. KEEP identical to SAFE_COMMANDS in
+ * `electron/terminal.cjs` (core/__tests__/terminal-argv-classifier.test.ts compares the two tables).
+ *
+ * cmd      the leading words, lower case.
+ * flags    flags that take no value. values: flags that take one (`-n 5`, `--max-count=5`).
+ * cluster  single-dash letters that may be combined (`-la`). numeric: `-5` is allowed.
+ * pos      positionals: "any" plain value, "name" an identifier, "none".
+ * ci       flags compare case-insensitively (PowerShell, tsc). go: `--flag` is read as `-flag`, as Go does.
+ * slash    Windows `/x` flags (a `/` token is then a flag, never a path). slashv: `/x:value` forms.
+ * need     at least one of these flags must be present. dd: `--` (end of flags) is allowed.
+ * any      every token is a plain value (echo). internal: built into cmd, so a planted program cannot shadow it.
  */
-const SAFE_COMMANDS = [
-  /^git\s+(?!.*\s(?:--out|--open|-O))(?:status|diff|log|show|rev-parse|blame|ls-files|describe|shortlog|grep|--version|version)(?:\s|$)/i,
-  /^git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--show-current|--all))*\s*$/i,
-  /^git\s+(?:remote\s+-v|stash\s+list)\s*$/i,
-  /^(?:npm|pnpm|yarn|bun)\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:test|t|ls|list|outdated|--version|-v)(?:\s|$)/i,
-  /^npm\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:view|doctor|help)(?:\s|$)/i,
-  /^(?:npm|pnpm|yarn|bun)\s+run\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:test|typecheck|lint|check|docs:check|arrange:check|verify:version|check:provenance|test:fast|test:kernel|typecheck:py|pricing:status)(?:\s|$)/i,
-  /^npx\s+(?!.*\s(?:--(?:fix|write)|-w)\b)(?:vitest|tsc\s+--noEmit|eslint|prettier\s+--check)(?:\s|$)/i,
-  /^(?!.*\s(?:--(?:fix|write)|-w)\b)(?:vitest|pytest|ruff\s+check|eslint|tsc\s+--noEmit|prettier\s+--check)(?:\s|$)/i,
-  /^(?:python3?|py)\s+-m\s+(?!.*\s(?:--(?:fix|write)|-w)\b)(?:pytest|ruff\s+check)(?:\s|$)/i,
-  /^go\s+(?:(?:test|vet)(?!.*\s-(?:exec|vettool|toolexec|o|c)\b)|version|env(?!.*\s-[wu]\b))(?:\s|$)/i,
-  /^cargo\s+(?!.*\s--fix\b)(?:test|check|clippy)(?:\s|$)/i,
-  /^dotnet\s+(?:test|--version|--info|--list-sdks)(?:\s|$)/i,
-  /^(?:node|python3?|py|pip3?|uv|deno|java|javac|rustc|cargo|go|npm|npx|git|ollama|docker|podman|winget|choco|scoop)\s+(?:--version|-v|-V|version)\s*$/i,
-  /^(?:pip3?|uv\s+pip)\s+(?:list|show|freeze|check)(?:\s|$)/i,
-  /^winget\s+(?:list|search|show)(?:\s|$)/i,
-  /^choco\s+(?:list|search|info|outdated)(?:\s|$)/i,
-  /^scoop\s+(?:list|search|info|status)(?:\s|$)/i,
-  /^ollama\s+(?:list|ls|ps|show)(?:\s|$)/i,
-  /^(?:docker|podman)\s+(?:ps|images|info|version)(?:\s|$)/i,
-  /^ipconfig(?:\s+\/all)?\s*$/i,
-  /^(?:date|time)\s+\/t\s*$/i,
-  /^(?:dir|ls|pwd|whoami|hostname|ver|tree|tasklist|systeminfo|netstat|which|echo|type|cat|more|findstr|ping)(?:\s|$)/i,
-  /^rg(?!.*\s--(?:pre|hostname-bin)\b)(?:\s|$)/i,
-  /^(?:get-childitem|get-process|get-service|get-date|get-location|get-content|get-item|get-command|get-help|test-path|test-connection|resolve-path|write-output|write-host|gci|gps|gsv)(?:\s|$)/i,
+const GIT_DIFF = ["--stat", "--name-only", "--name-status", "--shortstat", "--numstat"];
+const GIT_SAFE = ["--no-color", "--no-ext-diff", "--no-textconv"];
+const PYTEST = {
+  flags: [
+    "-q",
+    "-v",
+    "-x",
+    "-s",
+    "-l",
+    "-vv",
+    "-qq",
+    "--quiet",
+    "--verbose",
+    "--exitfirst",
+    "--lf",
+    "--ff",
+  ],
+  values: ["-k", "-m", "--maxfail", "--tb", "--durations"],
+  cluster: "qvxsl",
+  pos: "any",
+};
+const RUFF = {
+  flags: ["-q", "--quiet", "--statistics", "--no-fix", "--exit-zero"],
+  values: ["--select", "--ignore", "--extend-select", "--output-format", "--target-version"],
+  pos: "any",
+};
+const VITEST = {
+  flags: ["--run", "--silent", "--passWithNoTests", "--no-color"],
+  values: ["-t", "--testNamePattern"],
+  pos: "any",
+};
+const ESLINT = {
+  flags: ["--quiet", "--no-color"],
+  values: ["--max-warnings", "--ext"],
+  pos: "any",
+};
+const PRETTIER = {
+  flags: ["--check", "-c", "--list-different", "-l", "--ignore-unknown"],
+  need: ["--check", "-c", "--list-different", "-l"],
+  pos: "any",
+};
+const TSC = {
+  flags: ["--noemit", "--pretty", "--skiplibcheck"],
+  values: ["-p", "--project"],
+  need: ["--noemit"],
+  ci: true,
+  pos: "any",
+};
+const CARGO = {
+  flags: ["--workspace", "--all", "-q", "--quiet", "--lib", "--tests", "--all-targets"],
+  values: ["-p", "--package"],
+  pos: "any",
+};
+const PS_LIST = {
+  flags: ["-recurse", "-force", "-name", "-file", "-directory", "-hidden"],
+  values: ["-path", "-filter", "-include", "-exclude", "-depth"],
+  ci: true,
+  pos: "any",
+};
+const SCRIPTS = [
+  "test",
+  "typecheck",
+  "lint",
+  "check",
+  "docs:check",
+  "arrange:check",
+  "verify:version",
 ];
-
+const MORE_SCRIPTS = [
+  "check:provenance",
+  "test:fast",
+  "test:kernel",
+  "typecheck:py",
+  "pricing:status",
+];
+const VERSION_TOOLS = [
+  "node",
+  "python",
+  "python3",
+  "py",
+  "pip",
+  "pip3",
+  "uv",
+  "deno",
+  "java",
+  "javac",
+  "rustc",
+];
+const MORE_VERSION_TOOLS = [
+  "cargo",
+  "go",
+  "npm",
+  "npx",
+  "git",
+  "ollama",
+  "docker",
+  "podman",
+  "winget",
+  "choco",
+  "scoop",
+];
+const SAFE_COMMANDS = [
+  {
+    cmd: "git status",
+    flags: ["-s", "--short", "-b", "--branch", "--porcelain", "--ignored", "--long", "-v"],
+    cluster: "sbv",
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git diff",
+    flags: [...GIT_DIFF, ...GIT_SAFE, "--cached", "--staged", "--check", "-w"],
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git log",
+    flags: [
+      ...GIT_DIFF,
+      ...GIT_SAFE,
+      "--oneline",
+      "--graph",
+      "--decorate",
+      "--all",
+      "-p",
+      "--patch",
+      "--no-merges",
+      "--first-parent",
+      "--reverse",
+    ],
+    values: ["-n", "--max-count", "--since", "--until", "--author", "--grep", "--skip"],
+    numeric: true,
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git show",
+    flags: [...GIT_DIFF, ...GIT_SAFE, "--oneline", "--no-patch", "-s"],
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git rev-parse",
+    flags: [
+      "--abbrev-ref",
+      "--short",
+      "--show-toplevel",
+      "--git-dir",
+      "--is-inside-work-tree",
+      "--verify",
+    ],
+    pos: "any",
+  },
+  {
+    cmd: "git blame",
+    flags: ["-w", "-s", "-e", "-l", "--porcelain"],
+    values: ["-L"],
+    cluster: "wsel",
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git ls-files",
+    flags: [
+      "-m",
+      "-o",
+      "-c",
+      "-d",
+      "-s",
+      "--others",
+      "--cached",
+      "--deleted",
+      "--modified",
+      "--exclude-standard",
+      "--stage",
+    ],
+    cluster: "mocds",
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git describe",
+    flags: ["--tags", "--always", "--long"],
+    values: ["--abbrev"],
+    pos: "any",
+  },
+  {
+    cmd: "git shortlog",
+    flags: ["-s", "-n", "-e", "--summary", "--numbered", "--email"],
+    cluster: "sne",
+    pos: "any",
+  },
+  {
+    cmd: "git grep",
+    flags: [
+      "-n",
+      "-i",
+      "-l",
+      "-w",
+      "-c",
+      "-v",
+      "-E",
+      "-F",
+      "-I",
+      "--count",
+      "--line-number",
+      "--ignore-case",
+      "--files-with-matches",
+      "--word-regexp",
+      "--cached",
+    ],
+    values: ["-e"],
+    cluster: "nilwcvEFI",
+    pos: "any",
+    dd: true,
+  },
+  {
+    cmd: "git branch",
+    flags: ["-a", "-r", "-v", "-vv", "--list", "--show-current", "--all", "--remotes", "--verbose"],
+    cluster: "arv",
+    pos: "none",
+  },
+  { cmd: "git remote", flags: ["-v", "--verbose"], pos: "none" },
+  { cmd: "git stash list", pos: "none" },
+  ...["npm", "pnpm", "yarn", "bun"].flatMap((pm) => [
+    { cmd: `${pm} test`, pos: "none" },
+    ...[...SCRIPTS, ...MORE_SCRIPTS].map((script) => ({
+      cmd: `${pm} run ${script}`,
+      pos: "none",
+    })),
+  ]),
+  { cmd: "npm t", pos: "none" },
+  ...["npm ls", "npm list", "pnpm ls", "pnpm list", "yarn list"].map((cmd) => ({
+    cmd,
+    flags: ["--all"],
+    values: ["--depth"],
+    pos: "any",
+  })),
+  { cmd: "npm help", pos: "any" },
+  ...["", "npx "].flatMap((pre) => [
+    { cmd: `${pre}vitest`, ...VITEST },
+    { cmd: `${pre}eslint`, ...ESLINT },
+    { cmd: `${pre}prettier`, ...PRETTIER },
+    { cmd: `${pre}tsc`, ...TSC },
+  ]),
+  { cmd: "pytest", ...PYTEST },
+  { cmd: "ruff check", ...RUFF },
+  ...["python", "python3", "py"].flatMap((py) => [
+    { cmd: `${py} -m pytest`, ...PYTEST },
+    { cmd: `${py} -m ruff check`, ...RUFF },
+  ]),
+  {
+    cmd: "go test",
+    go: true,
+    flags: ["-v", "-short", "-race", "-cover", "-failfast", "-json"],
+    values: ["-run", "-skip", "-count", "-timeout", "-bench", "-benchtime", "-parallel", "-cpu"],
+    pos: "any",
+  },
+  { cmd: "go vet", go: true, flags: ["-json"], pos: "any" },
+  { cmd: "go env", go: true, flags: ["-json"], pos: "name" },
+  ...["cargo test", "cargo check", "cargo clippy"].map((cmd) => ({ cmd, ...CARGO })),
+  { cmd: "dotnet test", pos: "any" },
+  ...["dotnet --version", "dotnet --info", "dotnet --list-sdks"].map((cmd) => ({
+    cmd,
+    pos: "none",
+  })),
+  ...[...VERSION_TOOLS, ...MORE_VERSION_TOOLS].flatMap((tool) =>
+    ["--version", "-v", "version"].map((form) => ({
+      cmd: `${tool} ${form}`,
+      pos: "none",
+    })),
+  ),
+  ...["pip", "pip3", "uv pip"].flatMap((pip) =>
+    ["list", "show", "freeze", "check"].map((verb) => ({
+      cmd: `${pip} ${verb}`,
+      pos: "any",
+    })),
+  ),
+  { cmd: "winget list", pos: "any" },
+  { cmd: "choco list", pos: "any" },
+  ...["scoop list", "scoop info"].map((cmd) => ({ cmd, pos: "any" })),
+  ...["ollama list", "ollama ls", "ollama ps"].map((cmd) => ({ cmd, pos: "none" })),
+  {
+    cmd: "ollama show",
+    flags: ["--modelfile", "--license", "--parameters", "--template", "--system"],
+    pos: "any",
+  },
+  ...["docker", "podman"].flatMap((tool) =>
+    ["ps", "images", "info"].map((verb) => ({
+      cmd: `${tool} ${verb}`,
+      flags: ["-a", "--all", "-q", "--quiet"],
+      cluster: "aq",
+      pos: "none",
+    })),
+  ),
+  { cmd: "ipconfig", slash: ["/all", "/displaydns"], ci: true, pos: "none" },
+  ...["date", "time"].map((cmd) => ({
+    cmd,
+    slash: ["/t"],
+    need: ["/t"],
+    ci: true,
+    pos: "none",
+    internal: true,
+  })),
+  {
+    cmd: "dir",
+    ...PS_LIST,
+    slash: ["/s", "/b", "/w", "/p", "/q", "/d", "/l", "/n", "/x", "/4", "/a", "/o"],
+    slashv: ["/a", "/o", "/t"],
+    internal: true,
+  },
+  { cmd: "ls", ...PS_LIST, cluster: "alhrtsdfgin1" },
+  ...["gci", "get-childitem"].map((cmd) => ({ cmd, ...PS_LIST })),
+  ...["pwd", "hostname", "systeminfo", "get-location"].map((cmd) => ({
+    cmd,
+    pos: "none",
+  })),
+  { cmd: "ver", pos: "none", internal: true },
+  {
+    cmd: "whoami",
+    slash: ["/user", "/groups", "/priv", "/all", "/upn", "/fqdn"],
+    ci: true,
+    pos: "none",
+  },
+  { cmd: "tasklist", slash: ["/v", "/svc"], ci: true, pos: "none" },
+  { cmd: "tree", slash: ["/f", "/a"], ci: true, pos: "any" },
+  {
+    cmd: "netstat",
+    flags: ["-a", "-n", "-o", "-b", "-r", "-s", "-e", "-f", "-q", "-x", "-y"],
+    values: ["-p"],
+    cluster: "anobrsefqxy",
+    pos: "none",
+  },
+  { cmd: "which", flags: ["-a"], pos: "any" },
+  ...["echo", "write-output", "write-host"].map((cmd) => ({
+    cmd,
+    any: true,
+    pos: "any",
+    internal: cmd === "echo",
+  })),
+  { cmd: "type", pos: "any", internal: true },
+  { cmd: "cat", flags: ["-n", "-A", "-b", "-s", "-E", "-T", "-v"], cluster: "nAbsETv", pos: "any" },
+  { cmd: "more", pos: "any" },
+  {
+    cmd: "findstr",
+    slash: ["/s", "/i", "/n", "/r", "/l", "/x", "/v", "/m", "/b", "/e"],
+    slashv: ["/c"],
+    ci: true,
+    pos: "any",
+  },
+  {
+    cmd: "rg",
+    flags: [
+      "-n",
+      "-i",
+      "-S",
+      "-w",
+      "-l",
+      "-c",
+      "-F",
+      "-v",
+      "-u",
+      "-uu",
+      "-L",
+      "-x",
+      "--hidden",
+      "--no-ignore",
+      "--files",
+      "--line-number",
+      "--ignore-case",
+      "--smart-case",
+      "--fixed-strings",
+      "--count",
+      "--files-with-matches",
+      "--word-regexp",
+      "--json",
+    ],
+    values: [
+      "-g",
+      "--glob",
+      "-t",
+      "--type",
+      "-T",
+      "--type-not",
+      "-e",
+      "--regexp",
+      "-A",
+      "-B",
+      "-C",
+      "-m",
+      "--max-count",
+      "--max-depth",
+    ],
+    cluster: "niSwlcFvuLx",
+    pos: "any",
+  },
+  { cmd: "get-date", values: ["-format", "-uformat"], ci: true, pos: "none" },
+  ...["get-process", "gps"].map((cmd) => ({
+    cmd,
+    values: ["-name", "-id"],
+    ci: true,
+    pos: "any",
+  })),
+  ...["get-service", "gsv"].map((cmd) => ({
+    cmd,
+    values: ["-name"],
+    ci: true,
+    pos: "any",
+  })),
+  {
+    cmd: "get-content",
+    flags: ["-raw"],
+    values: ["-path", "-totalcount", "-tail", "-head", "-encoding"],
+    ci: true,
+    pos: "any",
+  },
+  { cmd: "get-item", flags: ["-force"], values: ["-path"], ci: true, pos: "any" },
+  { cmd: "get-command", values: ["-name"], ci: true, pos: "any" },
+  {
+    cmd: "get-help",
+    flags: ["-full", "-examples", "-detailed"],
+    values: ["-name"],
+    ci: true,
+    pos: "any",
+  },
+  { cmd: "test-path", values: ["-path", "-pathtype"], ci: true, pos: "any" },
+  { cmd: "resolve-path", flags: ["-relative"], values: ["-path"], ci: true, pos: "any" },
+];
 /**
- * Sub-shells, sub-expressions, script blocks and process substitution can run anything inside a "read" line:
- * a backtick, `(` (covers `$(`, `@(`, `<(` and `%(`) and `{`.
+ * Shell syntax that runs or redirects something else, in any of cmd, PowerShell and sh: sub-shells, script blocks,
+ * variables (`$x`, `%x%`, `!x!`), redirection, pipes, a lone `&` or `;`, a backtick, an escaped or doubled quote
+ * (older C runtimes and PowerShell 5.1 split or drop those), and the typographic quotes and dashes PowerShell reads as plain ones. Control characters (a bare carriage return is a new
+ * line to PowerShell) and a caret or backslash that joins the next line are refused too.
  */
-const EMBEDDED = /[`({]/;
-
-const CHUNK_SPLIT = /\s*(?:&&|\|\||;|&|\r|\n)\s*/;
-
+const SHELL_SYNTAX = /[`$(){}<>|;&%!\u2013-\u2015\u2018-\u201f]|\\["']|\^["']|["']\^|""|''/;
+const CONTROL = /\p{Cc}/u;
+const JOINS_NEXT_LINE = /[\^\\]\r?\n/;
+/** Split one chunk into argv tokens. `posix` reads single quotes, backslash escapes and PowerShell array commas; the
+ * cmd reading knows only double quotes and caret escapes. Null when a quote is left open or a token is empty. */
+function tokenize(chunk, posix) {
+  const out = [];
+  let text = "";
+  let escaped = false;
+  let raw0 = "";
+  let started = false;
+  let quote = "";
+  const push = () => {
+    if (started) out.push({ text, escaped, raw0 });
+    text = "";
+    escaped = false;
+    raw0 = "";
+    started = false;
+  };
+  for (let i = 0; i < chunk.length; i += 1) {
+    const ch = chunk.charAt(i);
+    if (!started && !/\s/.test(ch)) {
+      started = true;
+      raw0 = ch;
+    }
+    if (quote) {
+      if (ch === quote) quote = "";
+      else if (quote === "'" && ch === '"') return null;
+      else text += ch;
+      continue;
+    }
+    if (/\s/.test(ch) || (posix && ch === ",")) {
+      push();
+      continue;
+    }
+    if (ch === '"' || (posix && ch === "'")) {
+      quote = ch;
+      escaped = true;
+    } else if ((posix && ch === "\\") || (!posix && ch === "^")) {
+      escaped = true;
+      const next = chunk.charAt(i + 1);
+      if (!next) text += posix ? ch : "";
+      else {
+        text += next;
+        i += 1;
+      }
+    } else text += ch;
+  }
+  if (quote) return null;
+  push();
+  return out.every((token) => token.text.length > 0) ? out : null;
+}
+/** A plain value: not a URL, not a UNC or remote path, not a glob the shell could expand into a flag, not a splat. */
+function plainValue(token) {
+  const text = token.text;
+  if (!text || text.includes("://") || /^[\\/]{2}/.test(text)) return false;
+  if (/^(?:file|https?|ftps?|ssh|smb|git):/i.test(text)) return false;
+  return !/^[*?[@]/.test(token.raw0);
+}
+function ruleFor(tokens) {
+  let best = null;
+  for (const rule of SAFE_COMMANDS) {
+    const words = rule.cmd.split(" ");
+    if (words.length > tokens.length || (best && words.length <= best.used)) continue;
+    const match = words.every((word, i) => {
+      const token = tokens[i];
+      return Boolean(token) && !token?.escaped && token?.text.toLowerCase() === word;
+    });
+    if (match) best = { rule, used: words.length };
+  }
+  return best;
+}
+function argsAllowed(rule, args) {
+  const flags = rule.flags || [];
+  const values = rule.values || [];
+  const seen = [];
+  let ended = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i];
+    const slashFlag = Boolean(rule.slash) && token.text.startsWith("/");
+    if (rule.any || ended || !(token.text.startsWith("-") || slashFlag)) {
+      if (rule.pos === "none" && !rule.any) return false;
+      if (rule.pos === "name" && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(token.text)) return false;
+      if (!plainValue(token)) return false;
+      continue;
+    }
+    if (token.escaped) return false;
+    let flag = rule.ci ? token.text.toLowerCase() : token.text;
+    if (rule.go && flag.startsWith("--")) flag = flag.slice(1);
+    if (flag === "--") {
+      if (!rule.dd) return false;
+      ended = true;
+      continue;
+    }
+    if (slashFlag) {
+      const [name = "", value] = flag.split(/:(.*)/s);
+      if (
+        value === undefined
+          ? !(rule.slash || []).includes(name)
+          : !(rule.slashv || []).includes(name) || !/^[a-z0-9-]+$/i.test(value)
+      )
+        return false;
+      seen.push(name);
+      continue;
+    }
+    const eq = flag.indexOf("=");
+    if (eq > 0) {
+      const name = flag.slice(0, eq);
+      const value = token.text.slice(token.text.indexOf("=") + 1);
+      if (
+        !values.includes(name) ||
+        !plainValue({ text: value, escaped: false, raw0: value.charAt(0) })
+      )
+        return false;
+      seen.push(name);
+      continue;
+    }
+    if (flags.includes(flag)) seen.push(flag);
+    else if (values.includes(flag)) {
+      const value = args[i + 1];
+      if (!value || value.text.startsWith("-") || !plainValue(value)) return false;
+      seen.push(flag);
+      i += 1;
+    } else if (rule.numeric && /^-\d+$/.test(flag)) seen.push(flag);
+    else if (
+      !rule.cluster ||
+      !/^-[A-Za-z0-9]+$/.test(flag) ||
+      ![...flag.slice(1)].every((c) => rule.cluster.includes(c))
+    )
+      return false;
+    else seen.push(flag);
+  }
+  return !rule.need || rule.need.some((flag) => seen.includes(flag));
+}
+/** One chunk under both readings (sh or PowerShell, and cmd): safe only when both find a rule that takes every token. */
+function chunkAllowed(chunk, untrusted) {
+  for (const posix of [true, false]) {
+    const tokens = tokenize(chunk, posix);
+    if (!tokens || !tokens.length) return false;
+    const found = ruleFor(tokens);
+    if (!found || (untrusted && !found.rule.internal)) return false;
+    if (!argsAllowed(found.rule, tokens.slice(found.used))) return false;
+  }
+  return true;
+}
 /**
- * "exec" means the owner must approve before it runs. "write" only when every chunk of the line is a known read
- * or check (an allowlist): an unknown command is never safe.
+ * "exec" means the owner must approve before it runs. "write" only when every chunk of the line (split on `&&` and
+ * new lines) is a known read or check whose every argument is on its rule (an allowlist): an unknown command, flag or
+ * shell construct is never safe. `untrusted` (a folder with its own repository or project) also counts every command
+ * that is not built into cmd as exec, since it can run that folder's hooks, scripts, config or a planted program.
  */
-function classifyCommand(command) {
+function classifyCommand(command, options = {}) {
   const line = String(command || "").trim();
   if (!line) return "write";
-  if (EMBEDDED.test(line)) return "exec";
-  const parts = line.split(CHUNK_SPLIT).filter(Boolean);
-  const chunks = parts.length ? parts : [line];
+  if (JOINS_NEXT_LINE.test(line)) return "exec";
+  const chunks = line
+    .split(/&&|\r?\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!chunks.length) return "write";
+  const untrusted = options.untrusted === true;
   const safe = (part) =>
-    !RISKY.some((re) => re.test(part)) && SAFE_COMMANDS.some((re) => re.test(part));
+    !SHELL_SYNTAX.test(part) &&
+    !CONTROL.test(part.replace(/\t/g, " ")) &&
+    !RISKY.some((re) => re.test(part)) &&
+    chunkAllowed(part, untrusted);
   return chunks.every(safe) ? "write" : "exec";
 }
 
@@ -121,6 +683,39 @@ function safeResolve(root, target) {
     throw new Error("path is outside the FRIDAY workspace");
   }
   return next;
+}
+
+/** Files that make a folder its own repository or project, with hooks, scripts or config that a tool runs. */
+const PROJECT_MARKERS = [
+  ".git",
+  "package.json",
+  "pyproject.toml",
+  "setup.py",
+  "go.mod",
+  "Cargo.toml",
+];
+
+/**
+ * True when a command run in `cwd` could run code that is not the owner's: the folder, or a folder between it and
+ * the workspace root, holds its own repository or project (a clone, a downloaded package). The root itself is the
+ * owner's workspace. A folder that cannot be resolved inside the root is never called trusted.
+ */
+function isUntrustedFolder(root, cwd, exists = (p) => fs.existsSync(p)) {
+  let dir;
+  try {
+    dir = safeResolve(root, String(cwd || "") || ".");
+  } catch {
+    return true;
+  }
+  const base = path.resolve(root);
+  while (dir !== base) {
+    const here = dir;
+    if (PROJECT_MARKERS.some((name) => exists(path.join(here, name)))) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return true;
+    dir = parent;
+  }
+  return false;
 }
 
 /**
@@ -472,6 +1067,7 @@ module.exports = {
   SAFE_COMMANDS,
   SHELLS,
   classifyCommand,
+  isUntrustedFolder,
   resolveCd,
   runCommand,
   cancelRun,

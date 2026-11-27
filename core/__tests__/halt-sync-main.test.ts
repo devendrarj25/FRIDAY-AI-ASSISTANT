@@ -4,17 +4,26 @@
  * through one synchronous message the moment the autonomy state is written; main reads that signal before the file,
  * keeps the last known state when the file cannot be read, and refuses a write or exec when it knows nothing at all.
  */
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
-const gate = createRequire(import.meta.url)("../../electron/tool-gate.cjs") as {
+const load = createRequire(import.meta.url);
+const gate = load("../../electron/tool-gate.cjs") as {
+  UNREADABLE: symbol;
   createAutonomyReader: (readStored: () => unknown) => {
     read: () => { dial: string; halted: boolean };
     signalHalted: (value: unknown) => boolean;
   };
+  readAutonomyFile: (store: unknown, file: string) => unknown;
+  fromMainFrame: (event: unknown, contents: unknown) => boolean;
+};
+const stateStore = load("../../electron/state-store.cjs") as {
+  commitState: (file: string, body: unknown) => unknown;
 };
 
 describe("the autonomy reader in the main process", () => {
@@ -80,6 +89,110 @@ describe("the autonomy reader in the main process", () => {
   });
 });
 
+describe("a corrupt or unreadable autonomy file stops FRIDAY", () => {
+  let dir = "";
+  const file = () => join(dir, "friday.autonomy.v1.json");
+  const reader = () => gate.createAutonomyReader(() => gate.readAutonomyFile(stateStore, file()));
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "friday-autonomy-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a missing file is still the shipped default", () => {
+    expect(gate.readAutonomyFile(stateStore, file())).toBeNull();
+    expect(reader().read()).toEqual({ dial: "balanced", halted: false });
+  });
+
+  it("a stored state reads as itself", () => {
+    stateStore.commitState(file(), { approvalLevel: "full", halted: false });
+    expect(reader().read()).toEqual({ dial: "full", halted: false });
+  });
+
+  it("a corrupt file with no backup is halted, and stays halted after the store sets it aside", () => {
+    writeFileSync(file(), "{ not json");
+    expect(gate.readAutonomyFile(stateStore, file())).toBe(gate.UNREADABLE);
+    writeFileSync(file(), "{ not json");
+    const autonomy = reader();
+    expect(autonomy.read()).toEqual({ dial: "ask", halted: true });
+    // The damaged file was moved aside, so the next read finds nothing: that is not the shipped default.
+    expect(autonomy.read()).toEqual({ dial: "ask", halted: true });
+    // A real state written again by the owner is read as itself.
+    stateStore.commitState(file(), { approvalLevel: "balanced", halted: false });
+    expect(autonomy.read()).toEqual({ dial: "balanced", halted: false });
+  });
+
+  it("a corrupt file after a known open state is still halted, keeping the known dial", () => {
+    stateStore.commitState(file(), { approvalLevel: "full", halted: false });
+    const autonomy = gate.createAutonomyReader(() => gate.readAutonomyFile(stateStore, file()));
+    expect(autonomy.read()).toEqual({ dial: "full", halted: false });
+    rmSync(`${file()}.bak`, { force: true });
+    writeFileSync(file(), "\u0000\u0000");
+    expect(autonomy.read()).toEqual({ dial: "full", halted: true });
+  });
+
+  it("a corrupt file with a good backup reads the backup", () => {
+    stateStore.commitState(file(), { approvalLevel: "full", halted: true });
+    stateStore.commitState(file(), { approvalLevel: "full", halted: true, note: 1 });
+    writeFileSync(file(), "{ broken");
+    const state = gate.readAutonomyFile(stateStore, file());
+    expect(state).toMatchObject({ approvalLevel: "full", halted: true });
+  });
+
+  it("a path that exists but cannot be read as a file is halted", () => {
+    mkdirSync(file());
+    expect(gate.readAutonomyFile(stateStore, file())).toBe(gate.UNREADABLE);
+    expect(reader().read()).toEqual({ dial: "ask", halted: true });
+  });
+
+  it("a busy read after a damaged file stays halted", () => {
+    let mode: "good" | "damaged" | "busy" = "good";
+    const autonomy = gate.createAutonomyReader(() => {
+      if (mode === "busy") throw new Error("EBUSY");
+      return mode === "good" ? { approvalLevel: "full", halted: false } : gate.UNREADABLE;
+    });
+    expect(autonomy.read()).toEqual({ dial: "full", halted: false });
+    mode = "damaged";
+    expect(autonomy.read()).toEqual({ dial: "full", halted: true });
+    mode = "busy";
+    expect(autonomy.read()).toEqual({ dial: "full", halted: true });
+    mode = "good";
+    expect(autonomy.read()).toEqual({ dial: "full", halted: false });
+  });
+
+  it("the sentinel is only honoured from the reader, never from a stored value", () => {
+    const fake = gate.createAutonomyReader(() => ({ halted: "UNREADABLE" }));
+    expect(fake.read().halted).toBe(false);
+  });
+});
+
+describe("only the FRIDAY window's own page moves the stop flag", () => {
+  const frame = (processId: number, routingId: number) => ({ processId, routingId });
+  const contents = { mainFrame: frame(4, 1), isDestroyed: () => false };
+
+  it("accepts the main window's main frame", () => {
+    expect(gate.fromMainFrame({ sender: contents, senderFrame: frame(4, 1) }, contents)).toBe(true);
+  });
+
+  it("refuses a sub-frame, another window, a gone frame or no window", () => {
+    expect(gate.fromMainFrame({ sender: contents, senderFrame: frame(4, 7) }, contents)).toBe(
+      false,
+    );
+    expect(gate.fromMainFrame({ sender: contents, senderFrame: frame(5, 1) }, contents)).toBe(
+      false,
+    );
+    expect(gate.fromMainFrame({ sender: contents, senderFrame: null }, contents)).toBe(false);
+    const other = { mainFrame: frame(4, 1), isDestroyed: () => false };
+    expect(gate.fromMainFrame({ sender: other, senderFrame: frame(4, 1) }, contents)).toBe(false);
+    expect(gate.fromMainFrame({ sender: contents, senderFrame: frame(4, 1) }, null)).toBe(false);
+    const gone = { mainFrame: frame(4, 1), isDestroyed: () => true };
+    expect(gate.fromMainFrame({ sender: gone, senderFrame: frame(4, 1) }, gone)).toBe(false);
+    expect(gate.fromMainFrame(null, contents)).toBe(false);
+  });
+});
+
 describe("the synchronous halt message is wired end to end", () => {
   const main = read("../../electron/main.cjs");
   const preload = read("../../electron/preload.cjs");
@@ -87,12 +200,20 @@ describe("the synchronous halt message is wired end to end", () => {
   it("main sets the flag when the message arrives and reads it before the file", () => {
     expect(main).toMatch(/ipcMain\.on\("autonomy:halt-sync", \(event, halted\) => \{/);
     const at = main.indexOf('ipcMain.on("autonomy:halt-sync"');
-    expect(main.slice(at, at + 400)).toContain("autonomyReader.signalHalted(halted)");
-    expect(main.slice(at, at + 400)).toContain("event.returnValue");
+    const handler = main.slice(at, at + 500);
+    expect(handler).toContain("autonomyReader.signalHalted(halted)");
+    expect(handler).toContain("event.returnValue");
+    // A message from anything but the main window's main frame is answered, and ignored.
+    const guard = handler.indexOf("toolGate.fromMainFrame(event, win");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(handler.indexOf("autonomyReader.signalHalted(halted)"));
+    expect(handler.slice(guard, handler.indexOf("autonomyReader.signalHalted(halted)"))).toMatch(
+      /event\.returnValue = false;\s*return;/,
+    );
     const fn = main.slice(main.indexOf("function ownerAutonomyState()"));
     expect(fn.slice(0, 200)).toContain("autonomyReader.read()");
     expect(main).toMatch(
-      /toolGate\.createAutonomyReader\(\(\) =>\s*stateStore\.readState\(stateFile\("friday\.autonomy\.v1"\)\),?\s*\)/,
+      /toolGate\.createAutonomyReader\(\(\) =>\s*toolGate\.readAutonomyFile\(stateStore, stateFile\("friday\.autonomy\.v1"\)\),?\s*\)/,
     );
   });
 

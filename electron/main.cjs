@@ -8277,11 +8277,16 @@ toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
 ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
 const autonomyReader = toolGate.createAutonomyReader(() =>
-  stateStore.readState(stateFile("friday.autonomy.v1")),
+  toolGate.readAutonomyFile(stateStore, stateFile("friday.autonomy.v1")),
 );
 // "Stop everything" reaches main here, synchronously, before the renderer's own fan-out finishes. The stored copy is
 // written on a 400 ms delay; in that window this flag is what a shell command, a tool call or a late Allow sees.
 ipcMain.on("autonomy:halt-sync", (event, halted) => {
+  // Only the FRIDAY window's own page may move the flag; a sub-frame or another window is answered and ignored.
+  if (!toolGate.fromMainFrame(event, win && !win.isDestroyed() ? win.webContents : null)) {
+    event.returnValue = false;
+    return;
+  }
   event.returnValue = autonomyReader.signalHalted(halted);
 });
 // ---- install and update gate (main-side) ---------------------------------------------------------------------------
@@ -10853,16 +10858,21 @@ ipcMain.handle("terminal:exec", async (_e, options) => {
   }
   // A command FRIDAY itself chose (agent origin) that is not a plain read/check goes through the same
   // permission gate as every other write/exec tool. What the owner types on the Terminal page is his own.
-  if (origin === "agent" && terminal.classifyCommand(command) === "exec") {
+  // A folder with its own repository or project can run its own hooks and scripts: there only cmd built-ins pass.
+  const root = getWorkspaceRoot();
+  if (
+    origin === "agent" &&
+    terminal.classifyCommand(command, {
+      untrusted: terminal.isUntrustedFolder(root, request.cwd),
+    }) === "exec"
+  ) {
     const verdict = await authorizeToolCall("terminal.exec", { command });
     if (!verdict.allowed) {
       return { ok: false, error: verdict.reason || "The command was not allowed." };
     }
   }
-  return terminal.runCommand(
-    getWorkspaceRoot(),
-    { ...request, python: await terminalPython() },
-    (event) => send("terminal:output", event),
+  return terminal.runCommand(root, { ...request, python: await terminalPython() }, (event) =>
+    send("terminal:output", event),
   );
 });
 ipcMain.handle("terminal:cancel", (_e, runId) => terminal.cancelRun(String(runId || "")));
