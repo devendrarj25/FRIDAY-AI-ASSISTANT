@@ -264,3 +264,43 @@ def test_session_options_for_a_package_that_opens_its_own_session():
     assert options.intra_op_num_threads == 2
     with pytest.raises(fr.FridayRuntimeError):
         fr.session_options("toaster")
+
+
+def test_the_config_key_turns_the_cache_on_and_the_variable_wins(monkeypatch, tmp_path):
+    (tmp_path / "kernel.yaml").write_text("voice_runtime:\n  optimized_cache: true\n", encoding="utf-8")
+    monkeypatch.setenv("FRIDAY_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv(fr.CACHE_ENV, raising=False)
+    assert fr._cache_enabled(None) is True
+    monkeypatch.setenv(fr.CACHE_ENV, "0")
+    assert fr._cache_enabled(None) is False
+    (tmp_path / "kernel.yaml").write_text("voice_runtime:\n  optimized_cache: false\n", encoding="utf-8")
+    monkeypatch.setenv(fr.CACHE_ENV, "1")
+    assert fr._cache_enabled(None) is True
+
+
+def test_the_shipped_config_keeps_the_cache_off(monkeypatch):
+    monkeypatch.delenv("FRIDAY_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("FRIDAY_ROOT", raising=False)
+    monkeypatch.delenv(fr.CACHE_ENV, raising=False)
+    assert fr._config_cache_flag() is False
+    text = (Path(__file__).resolve().parents[2] / "config" / "kernel.yaml").read_text(encoding="utf-8")
+    assert "optimized_cache: false" in text
+    assert "auto_approve_exec: false" in text
+
+
+def test_the_doctor_row_names_the_layer_the_engine_and_the_providers():
+    import voice_pin_selftest as pins
+
+    row = pins.runtime_row(
+        {
+            "name": "FRIDAY Runtime",
+            "engine": "onnxruntime",
+            "engineVersion": "1.2.3",
+            "providers": [CPU],
+            "optimizedCache": False,
+        }
+    )
+    assert row["id"] == "friday-runtime" and row["label"] == "FRIDAY Runtime" and row["ok"] is True
+    assert "1.2.3" in row["detail"] and CPU in row["detail"]
+    assert pins.runtime_row({"engineVersion": None, "providers": []})["ok"] is False
+    assert pins.runtime_row()["label"] == "FRIDAY Runtime"

@@ -29,3 +29,6 @@ roles:
   researcher: research-online
   fast: fast-llama
   embed: embed-bge
+
+voice_runtime:
+  optimized_cache: false # FRIDAY Runtime graph cache; FRIDAY_RUNTIME_OPTIMIZED_CACHE overrides it

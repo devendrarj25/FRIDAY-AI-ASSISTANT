@@ -323,9 +323,12 @@ def _load(folder: Path):
 
             model = nemo_ear.NemoEar.load(folder, kind=nemo_ear.kind_of(MODEL_TYPE), quantization="int8")
         except Exception:  # noqa: BLE001 — the own runner could not open the folder: the pip package may still
+            import friday_runtime
             import onnx_asr  # type: ignore
 
-            model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8")
+            options = friday_runtime.session_options("asr_final")
+            extra = {} if options is None else {"sess_options": options}
+            model = onnx_asr.load_model(MODEL_TYPE, path=str(folder), quantization="int8", **extra)
     except Exception as exc:  # noqa: BLE001 — neither runner opens it: remembered, so faster-whisper answers at once
         _broken[key] = _error_text(exc)
         _last_skip = "broken"

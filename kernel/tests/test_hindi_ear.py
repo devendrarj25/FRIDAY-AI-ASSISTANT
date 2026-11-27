@@ -39,8 +39,13 @@ def _fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(hindi_ear, "admit_hook", lambda _kind, _mb: True)
 
 
+_option_log: list = []
+
+
 def _fake_onnx_asr(monkeypatch, text="आज मौसम अच्छा है", fail=False):
     loads: list[dict] = []
+    option_log = _option_log
+    option_log.clear()
 
     class Model:
         def recognize(self, audio, sample_rate=16000):
@@ -49,12 +54,23 @@ def _fake_onnx_asr(monkeypatch, text="आज मौसम अच्छा है
             self.seen = (len(audio), sample_rate)
             return text
 
-    def load_model(kind, path=None, quantization=None):
+    def load_model(kind, path=None, quantization=None, sess_options=None):
         loads.append({"kind": kind, "path": path, "quantization": quantization})
+        option_log.append(sess_options)
         return Model()
 
     monkeypatch.setitem(sys.modules, "onnx_asr", types.SimpleNamespace(load_model=load_model))
     return loads
+
+
+def test_the_pip_loader_gets_the_asr_final_thread_budget(monkeypatch, tmp_path):
+    _stage(tmp_path)
+    ort = pytest.importorskip("onnxruntime")
+    _fake_onnx_asr(monkeypatch)
+    hindi_ear.transcribe([0.01] * 16000)
+    (options,) = _option_log
+    assert isinstance(options, ort.SessionOptions)
+    assert options.intra_op_num_threads >= 1
 
 
 def test_it_is_ready_only_with_all_three_files_and_a_whole_model(tmp_path):

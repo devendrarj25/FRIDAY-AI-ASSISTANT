@@ -9,7 +9,8 @@ a graph. The door gives it, in one place:
   hashed again on a cold load, and a changed size or modified time makes the next check a full hash again;
 * a CPU fallback when a GPU provider cannot open the graph;
 * an optional optimised-graph cache, keyed by the file hash, the onnxruntime version and the CPU flags. It is off
-  unless ``FRIDAY_RUNTIME_OPTIMIZED_CACHE=1`` and it needs the file hash;
+  unless ``voice_runtime.optimized_cache`` is true in ``config/kernel.yaml`` or ``FRIDAY_RUNTIME_OPTIMIZED_CACHE`` is
+  set (the variable wins, ``0`` turns it off) and it needs the file hash;
 * one error type, ``FridayRuntimeError``, with the original error chained.
 
 Outside the door, by design (named so nobody believes the door is the only way in): the ``supertonic`` package that
@@ -91,10 +92,41 @@ def verify(path: str | os.PathLike[str], sha256: str, force: bool = False) -> bo
 # ---- the optimised-graph cache (off by default) ----------------------------------------------------------------------
 
 
+_TRUE = ("1", "true", "yes", "on")
+_FALSE = ("0", "false", "no", "off")
+
+
+def _config_cache_flag() -> bool:
+    """``voice_runtime.optimized_cache`` of ``kernel.yaml``; false when the file, key or YAML reader is absent."""
+    names = [os.environ.get("FRIDAY_CONFIG_DIR", "").strip()]
+    root = os.environ.get("FRIDAY_ROOT", "").strip()
+    if root:
+        names.append(str(Path(root) / "config"))
+    names.append(str(Path(__file__).resolve().parent.parent / "config"))
+    for base in names:
+        candidate = Path(base) / "kernel.yaml" if base else None
+        if candidate is None or not candidate.is_file():
+            continue
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            section = data.get("voice_runtime") if isinstance(data, dict) else None
+            return isinstance(section, dict) and section.get("optimized_cache") is True
+        except Exception:  # noqa: BLE001 — an unreadable config leaves the cache off
+            return False
+    return False
+
+
 def _cache_enabled(flag: bool | None) -> bool:
     if flag is not None:
         return flag
-    return os.environ.get(CACHE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+    env = os.environ.get(CACHE_ENV, "").strip().lower()
+    if env in _TRUE:
+        return True
+    if env in _FALSE:
+        return False
+    return _config_cache_flag()
 
 
 def _cpu_signature() -> str:
@@ -243,9 +275,19 @@ def _open_cached(
     return session
 
 
+def cache_enabled() -> bool:
+    """Whether the optimised-graph cache is on right now (the variable, else ``kernel.yaml``)."""
+    return _cache_enabled(None)
+
+
 def runtime_info() -> dict[str, Any]:
     """The facts for a Doctor row: the layer's name, the engine under it, its version and the providers it has."""
-    info: dict[str, Any] = {"name": NAME, "engine": "onnxruntime", "engineVersion": None, "providers": []}
+    info: dict[str, Any] = {
+        "name": NAME,
+        "engine": "onnxruntime",
+        "engineVersion": None,
+        "providers": [],
+    }
     try:
         import onnxruntime as ort  # type: ignore
 
