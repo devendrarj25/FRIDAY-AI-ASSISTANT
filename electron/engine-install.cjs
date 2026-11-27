@@ -160,9 +160,25 @@ const ENGINES = Object.freeze({
     depth: 2,
     chain: (facts, options) => llama.backendChain(facts, options),
     plan: (entry, assets) => llama.planAssets(entry, assets),
+    // Upstream's "latest" is a source-only semver release; the Windows zips are in the bNNNN releases. The list reader
+    // takes the newest bNNNN with the CPU zip and its digest (adopted at most weekly); the atom feed names a tag only
+    // and is usable only where the pin holds a digest for it; the pin ends the chain.
     sources: [
-      { kind: "github-api", repo: llama.LLAMA_REPO, strip: "^b" },
-      { kind: "github-atom", repo: llama.LLAMA_REPO, strip: "^b" },
+      {
+        kind: "github-list",
+        repo: llama.LLAMA_REPO,
+        strip: "^b",
+        tagPattern: "^b\\d+$",
+        assetPattern: "^llama-.*-bin-win-cpu-x64\\.zip$",
+        cadenceDays: 7,
+      },
+      {
+        kind: "github-atom",
+        repo: llama.LLAMA_REPO,
+        strip: "^b",
+        tagPattern: "^b\\d+$",
+        requireDigest: true,
+      },
     ],
     // The pinned CPU zip the setup path verifies (config/local-runners.json): the last source.
     get pinned() {
@@ -256,6 +272,7 @@ function detectEngine(root, spec, fsApi = nodeFs) {
       version: marker?.version || name.replace(/^(?:b|master-)/i, "").replace(/-.*$/, ""),
       backend: marker?.backend || null,
       variant: marker?.variant || null,
+      healthy: marker?.healthy,
       tag: marker?.tag || name,
       fellBack: Array.isArray(marker?.fellBack) ? marker.fellBack : [],
     };
@@ -283,6 +300,39 @@ function pruneOld(root, spec, keep = 2, fsApi = nodeFs, protect = []) {
   return gone;
 }
 
+const NUMERIC_VERSION = /^\d[\d.]*$/;
+
+/**
+ * The installed copy when it already is the release asked for (or newer) and still starts: nothing is downloaded.
+ * Only the first chain step counts (a CUDA build is not "current" for a CPU request), a marker flagged unhealthy
+ * never does, and non-numeric versions must match exactly. Returns the install result, or null to install.
+ */
+async function reusable(root, spec, release, first, deps, fsApi) {
+  const found = detectEngine(root, spec, fsApi);
+  if (!found.installed || found.backend !== first.backend || found.healthy === false) return null;
+  const have = String(found.version || "");
+  const want = String(release.version || "");
+  const current =
+    NUMERIC_VERSION.test(have) && NUMERIC_VERSION.test(want)
+      ? vendor.compareVersions(have, want) >= 0
+      : have === want;
+  if (!current || typeof deps.health !== "function") return null;
+  const health = await deps.health(found.path, spec.healthArgs);
+  if (!health?.ok) return null;
+  return {
+    ok: true,
+    id: spec.id,
+    reused: true,
+    tag: found.tag,
+    version: have,
+    backend: found.backend,
+    variant: found.variant,
+    fellBack: [],
+    bin: found.path,
+    attempts: [{ backend: found.backend, ok: true, stage: "reused" }],
+  };
+}
+
 /**
  * Install the best build of a release-zip engine, falling back one step at a time. Never throws. The old install is
  * only ever replaced by a copy that started.
@@ -304,6 +354,10 @@ async function installEngine(root, spec, input, deps = {}) {
   const tag = safeName(release.tag || release.version);
   const base = engineBase(root, spec);
   const { chain, skipped } = spec.chain(input.facts, input);
+  if (input.reuse !== false && chain.length) {
+    const kept = await reusable(root, spec, release, chain[0], deps, fsApi);
+    if (kept) return kept;
+  }
   const attempts = skipped.map((s) => ({
     backend: s.backend,
     ok: false,

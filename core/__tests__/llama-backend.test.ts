@@ -947,7 +947,7 @@ describe("pinned wheels: pip verifies the SHA-256 before anything installed is t
   it("the engine source chains end in the pin only where one exists", () => {
     expect(
       engines.engineSources(engines.ENGINES["llama.cpp"]).map((s: { kind: string }) => s.kind),
-    ).toEqual(["github-api", "github-atom", "pinned"]);
+    ).toEqual(["github-list", "github-atom", "pinned"]);
     expect(
       engines
         .engineSources(engines.ENGINES["stable-diffusion.cpp"])

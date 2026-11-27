@@ -523,7 +523,10 @@ function parseWingetUpgrade(text) {
  * short timeout and the first that answers wins, so a rate limit, an outage or a slow host never blocks the catalogue.
  *
  *   github-api    api.github.com releases/latest      version, assets and their `digest`
- *   github-atom   github.com releases.atom            version only (no API quota, no digest)
+ *   github-list   api.github.com releases?per_page=15  newest tag matching `tagPattern` whose `assetPattern` file has a
+ *                 digest (a release whose file has none is skipped); for repos whose "latest" is not the build tag
+ *   github-atom   github.com releases.atom            version only (no API quota, no digest); `tagPattern` filters
+ *                 the entries and `requireDigest` makes the answer usable only with the pinned digest of that tag
  *   pypi-json     pypi.org/pypi/<pkg>/json            newest release with a wheel for the platform, sha256 per file
  *   pypi-simple   pypi.org/simple/<pkg>/ (PEP 691)    the same answer from the index itself
  *   npm, npm-mirror   registry.npmjs.org, registry.npmmirror.com
@@ -540,7 +543,8 @@ const nodeFs = require("node:fs");
 const nodePath = require("node:path");
 const nodeCrypto = require("node:crypto");
 
-const FEED_FRESH_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FEED_FRESH_MS = DAY_MS;
 const MANUAL_MIN_MS = 60 * 1000;
 const SOURCE_TIMEOUT_MS = 6000;
 const STORE_SCHEMA = 1;
@@ -647,11 +651,36 @@ function parseGithubRelease(json, strip) {
   };
 }
 
-function parseAtomTag(xml, strip) {
-  const m = /<entry>[\s\S]*?href="[^"]*\/releases\/tag\/([^"]+)"/.exec(String(xml || ""));
-  if (!m) throw new Error("the feed lists no release");
-  const tag = decodeURIComponent(m[1]);
-  return { version: stripTag(tag, strip), tag, assets: [] };
+/** The newest atom entry (optionally the newest whose tag matches `tagPattern`). */
+function parseAtomTag(xml, strip, tagPattern) {
+  const want = tagPattern ? new RegExp(tagPattern) : null;
+  const tags = [
+    ...String(xml || "").matchAll(/<entry>[\s\S]*?href="[^"]*\/releases\/tag\/([^"]+)"/g),
+  ]
+    .map((m) => decodeURIComponent(m[1]))
+    .filter((tag) => !want || want.test(tag));
+  if (!tags.length) throw new Error("the feed lists no release");
+  return { version: stripTag(tags[0], strip), tag: tags[0], assets: [] };
+}
+
+/**
+ * The newest release of a `releases` list whose tag fits `tagPattern` and whose `assetPattern` file carries a digest.
+ * Drafts and pre-releases are never taken; a release whose matching file has no digest is skipped for an older one.
+ * The answer lists every file of that release (each with its own digest or none), so the caller plans CUDA or Vulkan
+ * builds from it too and refuses a zip that has no digest.
+ */
+function parseGithubList(json, { tagPattern, assetPattern, strip } = {}) {
+  if (!Array.isArray(json)) throw new Error("the release list is not a list");
+  const tagRe = tagPattern ? new RegExp(tagPattern) : null;
+  const fileRe = assetPattern ? new RegExp(assetPattern, "i") : null;
+  for (const rel of json) {
+    const tag = String(rel?.tag_name || "");
+    if (!tag || rel.draft || rel.prerelease || (tagRe && !tagRe.test(tag))) continue;
+    const parsed = parseGithubRelease(rel, strip);
+    const gate = parsed.assets.find((a) => a.url && (!fileRe || fileRe.test(a.name)));
+    if (gate && isSha(gate.sha256)) return parsed;
+  }
+  throw new Error("no recent release has the build file with a published digest");
 }
 
 const wheelVersion = (filename) => {
@@ -743,7 +772,15 @@ const SOURCE_READERS = {
       headers: { accept: "application/atom+xml, application/xml;q=0.9, */*;q=0.5" },
     });
     if (got.notModified) return got;
-    return { ...got, value: parseAtomTag(got.text, s.strip) };
+    return { ...got, value: parseAtomTag(got.text, s.strip, s.tagPattern) };
+  },
+  "github-list": async (s, ctx) => {
+    const got = await httpGet(`https://api.github.com/repos/${s.repo}/releases?per_page=15`, {
+      ...ctx,
+      headers: { accept: "application/vnd.github+json" },
+    });
+    if (got.notModified) return got;
+    return { ...got, value: parseGithubList(parseJson(got.text, "api.github.com"), s) };
   },
   "pypi-json": async (s, ctx) => {
     const got = await httpGet(`https://pypi.org/pypi/${s.pkg}/json`, ctx);
@@ -914,11 +951,36 @@ async function resolveLatest(rowId, sources, options = {}) {
       }
       if (!value?.version) throw new Error("answered without a version");
       const at = now();
+      if (spec.requireDigest && !(value.assets || []).some((a) => isSha(a.sha256))) {
+        // A version with no digest is usable only where the pin holds a digest for that exact tag.
+        const pin = list.find((s2) => s2.kind === "pinned");
+        if (pin?.tag && pin.tag === value.tag && pin.assets?.some((a) => isSha(a.sha256)))
+          value = { ...value, assets: pin.assets };
+        else throw new Error(`no SHA-256 is published for ${value.tag || value.version}`);
+      }
+      // Weekly cadence: a newer version is adopted at most once per `cadenceDays`; until then the adopted one stays.
+      const cadenceMs = Number(spec.cadenceDays) > 0 ? Number(spec.cadenceDays) * DAY_MS : 0;
+      const keptSince = Number(prior?.adoptedAt ?? prior?.at);
+      let adoptedAt = at;
+      let held = null;
+      if (prior?.value?.version && Number.isFinite(keptSince)) {
+        if (prior.value.version === value.version) adoptedAt = keptSince;
+        else if (
+          cadenceMs &&
+          compareVersions(value.version, prior.value.version) > 0 &&
+          at - keptSince < cadenceMs
+        ) {
+          held = value.tag || value.version;
+          value = prior.value;
+          adoptedAt = keptSince;
+        }
+      }
       store?.putSource(rowId, spec.kind, {
         etag: got.etag || (notModified ? prior?.etag : null) || null,
         lastModified: got.lastModified || (notModified ? prior?.lastModified : null) || null,
         value,
         at,
+        adoptedAt,
       });
       store?.putRow(rowId, { value, source: spec.kind, checkedAt: at });
       store?.flush();
@@ -930,6 +992,7 @@ async function resolveLatest(rowId, sources, options = {}) {
         stale: false,
         pinned: false,
         notModified,
+        ...(held ? { held } : {}),
         checkedAt: at,
         attempts: [...attempts, { source: spec.kind, ok: true, status: got.status ?? 200 }],
       };
@@ -1163,5 +1226,6 @@ module.exports = {
   parsePypiSimple,
   parseGithubRelease,
   parseAtomTag,
+  parseGithubList,
   parseHfModel,
 };
