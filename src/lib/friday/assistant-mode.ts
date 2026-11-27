@@ -576,6 +576,8 @@ const DRAFT_TURN_GAP_MS = 4_000;
 /** The echo window after her sound: the room's tail, the estimated speech per word, and the hard cap per clause. */
 const ECHO_TAIL_MS = 1_500;
 const ECHO_WORD_MS = 400;
+/** The recogniser's delay from the end of speech to the final, when the engine did not report it. */
+const STT_DELAY_GUESS_MS = 1_000;
 const ECHO_CAP_MS = 30_000;
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
@@ -1362,6 +1364,9 @@ type EagerSnapshot = {
 };
 
 /** The ear's room and voice tags of one final, read only by the addressedness gate. */
+/** Why a spoken yes was not taken (see yesRefusal). */
+type YesRefusal = "mixed" | "room" | "older yes";
+
 type AddressFacts = {
   scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number };
   speaker?: "owner" | "other" | "unknown";
@@ -1488,7 +1493,24 @@ class AssistantModeStore {
    * A spoken yes is bound to this, never to the moment an approval was created or queued: a prompt held back by a
    * call, quiet hours or Do not disturb, or one that has not played yet, can be answered on the screen only.
    */
-  private approvalSpoken: { at: number; taskId?: string } | null = null;
+  private approvalSpoken: { at: number; taskId?: string; ended?: boolean } | null = null;
+  /**
+   * When the read-back of the open digest finishes sounding: a yes to it counts only if it BEGAN after that. The
+   * end is the player's end hook when it came, else the start (or the moment it was asked) plus about 400 ms a word.
+   * `owed` counts the reads still to finish, so an older read ending does not close a re-read still queued.
+   */
+  private askSound: {
+    digestId: string;
+    estimateEnd: number;
+    estimateMs: number;
+    startedAt: number | null;
+    endedAt: number | null;
+    owed: number;
+  } | null = null;
+  /** The words of this final as heard, before any rewrite (code-mix canonical, learned corrections, self-repair). */
+  private heardRawLines: string[] = [];
+  /** The recogniser's own words of the final being handled, copied at the intake and cleared after it. */
+  private heardRaw = "";
   /** The line the speech queue is playing now, for the approval stamp. */
   private playingItem: { priority: SpeechPriority; taskId?: string } | null = null;
   /** "I was working on A and B when I closed. Redo them?": asked once per app session. */
@@ -1791,6 +1813,9 @@ class AssistantModeStore {
       this.cancelSpeech();
       clearEchoReference("paused");
       this.forgetOpenQuestions();
+      // A confirmation that was waiting is dropped too: a yes after resume binds to nothing.
+      this.state.pending = null;
+      this.pendingHeard = null;
       // The tray pause is the kill switch: it ends every voice task and the Brain's turn too, whoever owns it
       // (only the stop word and a barge-in are foreground-only).
       cancelAllVoiceTasks();
@@ -3398,13 +3423,20 @@ class AssistantModeStore {
   }
 
   /** The bound yes or no to the restart question. A yes redoes the tasks, a no drops them. False when it is not that. */
-  private answerRestartAsk(text: string, route: Route): boolean {
+  private answerRestartAsk(text: string, route: Route, room: AddressFacts | null = null): boolean {
     const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
     if (id !== RESTART_ASK) return false;
     const ask = this.restartAsk;
     if (!ask || !route.verdict) {
       this.approvalAsked = null;
       return false;
+    }
+    if (route.verdict === "yes") {
+      const refusal = this.yesRefusal(this.promptEndsAt(RESTART_ASK), room);
+      if (refusal) {
+        this.refuseYes(text, refusal, RESTART_ASK);
+        return true;
+      }
     }
     if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
     this.approvalAsked = null;
@@ -4459,6 +4491,9 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // The words as heard, before any rewrite: a yes is refused when they say no (yesRefusal).
+    const raw = this.heardRaw;
+    this.heardRawLines = raw && raw !== text ? [text, raw] : [text];
     // The room tags of this final are spent here, so a later line never reads another turn's scene.
     const room = this.addressFacts;
     this.addressFacts = null;
@@ -4534,7 +4569,10 @@ class AssistantModeStore {
     const readBack = this.pendingHeard;
     this.pendingHeard = null;
     if (readBack && Date.now() - readBack.at <= (readBack.ttlMs ?? HEARD_CONFIRM_MS)) {
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+      if (
+        isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes") &&
+        this.yesRefusal(null, room) === null
+      ) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
         // A yes confirms what was HEARD. A consequential command still has to be approved as an action. The command
@@ -4580,7 +4618,8 @@ class AssistantModeStore {
         spoken !== null &&
         taskId !== undefined &&
         spoken.at >= waiting.at &&
-        spoken.taskId === taskId;
+        spoken.taskId === taskId &&
+        spoken.ended !== false;
       const answer = this.routeHeard(text, {
         askedAt: heardPrompt && spoken ? spoken.at : waiting.at,
         ...(taskId ? { taskId } : {}),
@@ -4595,6 +4634,14 @@ class AssistantModeStore {
       }
       if (answer.kind === "approval-answer") {
         if (answer.verdict === "yes" && !this.approvalVoiceAllows(text)) return;
+        const refusal =
+          answer.verdict === "yes" && heardPrompt && spoken
+            ? this.yesRefusal(spoken.at, room)
+            : null;
+        if (refusal) {
+          this.refuseYes(text, refusal, taskId);
+          return;
+        }
         const stillWaiting =
           run !== undefined && live.activeRunId === run.id && run.state === "awaiting-approval";
         // A no is always safe to take; a yes needs the prompt to have sounded and the run to still wait.
@@ -4619,7 +4666,10 @@ class AssistantModeStore {
 
     // 1. A consequential command is waiting for a yes/no.
     if (this.state.pending) {
-      if (!approvalFresh(this.state.pending.at, Date.now(), this.approvalTtl())) {
+      // The window counts from the end of the read-back, not from the moment the digest was built.
+      const open = this.state.pending;
+      const asked = this.soundedDigest(open.digest ?? this.confirmDigestFor(open.command, open.at));
+      if (!approvalFresh(asked.askedAt, Date.now(), this.approvalTtl())) {
         this.state.pending = null;
         this.supersedeOnConfirm = null;
         this.remember("approval-expired", text, "dropped");
@@ -4633,10 +4683,10 @@ class AssistantModeStore {
       // The answer is judged against the digest she read: her own played-back words, a claim of authority, a yes
       // that names another amount or person, or a doubtful yes to a full read-back never approve. Who said it is
       // not an input here; the saved voice can only refuse a yes afterwards (approvalVoiceAllows).
-      const pending = this.state.pending;
-      const digest = pending.digest ?? this.confirmDigestFor(pending.command, pending.at);
+      const pending = open;
+      const digest = pending.digest ?? asked;
       const band = this.heardEar?.asrBand ?? null;
-      const ruling = explainDigestAnswer(digest, text, Date.now(), {
+      const ruling = explainDigestAnswer(this.soundedDigest(digest), text, Date.now(), {
         ownPlayback: this.ownPlaybackHeard(text),
         ...(band ? { asrBand: band } : {}),
       });
@@ -4662,6 +4712,12 @@ class AssistantModeStore {
       ) {
         if (this.answeredBefore(digest)) {
           this.reaskDigest(digest, text, "older yes");
+          return;
+        }
+        // A no in the words as heard, or a TV, music or other voice in the room: never a yes to this digest.
+        const refusal = this.yesRefusal(null, room);
+        if (refusal) {
+          this.reaskDigest(digest, text, refusal);
           return;
         }
         if (!this.approvalVoiceAllows(text)) return;
@@ -4838,8 +4894,8 @@ class AssistantModeStore {
       this.speak(line);
       return;
     }
-    if (route.kind === "approval-answer" && this.answerRestartAsk(text, route)) return;
-    if (route.kind === "approval-answer" && this.answerTaskApprovalAloud(text, route)) return;
+    if (route.kind === "approval-answer" && this.answerRestartAsk(text, route, room)) return;
+    if (route.kind === "approval-answer" && this.answerTaskApprovalAloud(text, route, room)) return;
     if (route.kind === "task-control" || (route.kind === "status" && this.liveTasks() > 0)) {
       this.trace("wake", `task control — ${route.action ?? route.kind} (${route.reason})`);
       markTurnStage("routed", true, "", "task control");
@@ -5057,6 +5113,8 @@ class AssistantModeStore {
    */
   private selfRepairOf(command: string, heard: string): string | "asked" | null {
     if (!preferences.getSnapshot().voice.understanding.selfRepair) return null;
+    // A question she asked is open: "no, I mean yes" is an answer as heard, never repaired into a yes or a no.
+    if (this.turnExpect() === "yesno") return null;
     const lang = this.turnHints()?.lang;
     // The wake split folds case; the same words as heard keep a name a name ("Rahul I mean Rohan").
     const words = heard.trim().split(/\s+/);
@@ -5064,6 +5122,8 @@ class AssistantModeStore {
     const cased = normalizeTranscript(tail) === command ? tail : command;
     const repair = detectSelfRepair(cased, lang ? { lang } : {});
     if (!repair || !repair.repaired.trim()) return null;
+    // A repair that leaves a yes or a no is not a repair: the line is judged as said.
+    if (confirmationVerdict(repair.repaired) !== "unclear") return null;
     const audit = repairAuditLine(repair);
     this.trace("segment", audit);
     this.remember("self-repair", repair.raw, audit);
@@ -5204,7 +5264,11 @@ class AssistantModeStore {
   }
 
   /** A bound yes or no to a desk task that asked for approval. The speaker check still applies to a yes. */
-  private answerTaskApprovalAloud(text: string, route: Route): boolean {
+  private answerTaskApprovalAloud(
+    text: string,
+    route: Route,
+    room: AddressFacts | null = null,
+  ): boolean {
     const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
     const waiting = id
       ? routerTasks().find((t) => t.id === id && t.state === "WAITING_FOR_APPROVAL")
@@ -5212,6 +5276,13 @@ class AssistantModeStore {
     if (!waiting || !route.verdict) {
       this.approvalAsked = null;
       return false;
+    }
+    if (route.verdict === "yes" && this.approvalAsked) {
+      const refusal = this.yesRefusal(this.promptEndsAt(waiting.id), room);
+      if (refusal) {
+        this.refuseYes(text, refusal, waiting.id);
+        return true;
+      }
     }
     if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
     this.approvalAsked = null;
@@ -5238,6 +5309,7 @@ class AssistantModeStore {
       digest,
     };
     const ask = this.digestAsk(digest, command);
+    this.noteAskSounding(digest, ask);
     this.caption("friday", ask);
     this.to("confirm-required");
     this.state.status = this.line("waiting-confirm");
@@ -5271,8 +5343,10 @@ class AssistantModeStore {
    * this one. Known only for a turn the ear framed; a turn without that timing is judged on its words alone.
    */
   private answeredBefore(digest: ConfirmDigest): boolean {
-    const began = this.heardEar?.beganAt ?? null;
-    return began !== null && began < digest.askedAt;
+    // Against a full read-back whose end is known, an unknown start is put early (the safe side).
+    const began = this.yesBeganAt(this.askSound?.digestId === digest.id);
+    const end = this.askEndsAt(digest);
+    return end === Number.POSITIVE_INFINITY || (began !== null && began < end);
   }
 
   /**
@@ -5334,6 +5408,7 @@ class AssistantModeStore {
     this.digestReasked = digest.id;
     // The same words as the first ask; a corrected digest is always explicit, so it is read in full again.
     const ask = this.digestAsk(digest, this.state.pending?.command ?? digest.command);
+    this.noteAskSounding(digest, ask);
     this.caption("friday", ask);
     this.emit();
     this.speak(ask, { priority: "approval" });
@@ -5366,6 +5441,7 @@ class AssistantModeStore {
     this.state.pending = { ...pending, command, at: next.askedAt, digest: next };
     this.remember("confirm-corrected", heard, command);
     const ask = confirmDigestLine(next);
+    this.noteAskSounding(next, ask);
     this.caption("friday", ask);
     this.state.status = this.line("waiting-confirm");
     this.emit();
@@ -6824,12 +6900,124 @@ class AssistantModeStore {
    * approval window (`voice.approvalTtlSec`, 30 s by default).
    * Called when the voice starts and again when it ends (the window counts from the end of the prompt).
    */
-  private noteApprovalSpoken() {
+  private noteApprovalSpoken(phase: "start" | "end" = "end") {
     const item = this.playingItem;
     if (!item || item.priority !== "approval") return;
     const at = Date.now();
-    this.approvalSpoken = { at, ...(item.taskId ? { taskId: item.taskId } : {}) };
+    this.approvalSpoken = {
+      at,
+      ...(item.taskId ? { taskId: item.taskId } : {}),
+      ended: phase === "end",
+    };
     if (item.taskId) this.approvalAsked = { askedAt: at, taskId: item.taskId };
+    const sound = this.askSound;
+    if (item.taskId || !sound) return;
+    if (phase === "start") {
+      sound.startedAt = at;
+      sound.endedAt = null;
+    } else {
+      sound.owed = Math.max(0, sound.owed - 1);
+      if (sound.owed === 0) sound.endedAt = at;
+    }
+  }
+
+  /** When a task or restart prompt finished sounding: Infinity while it still plays, its stamp once it ended. */
+  private promptEndsAt(taskId: string): number | null {
+    const spoken = this.approvalSpoken;
+    if (spoken?.taskId === taskId && spoken.ended === false) return Number.POSITIVE_INFINITY;
+    return this.approvalAsked?.taskId === taskId ? this.approvalAsked.askedAt : null;
+  }
+
+  /** A digest read-back was handed to the voice: a yes to it waits for the end of this read. */
+  private noteAskSounding(digest: ConfirmDigest, ask: string) {
+    // Only a full read names where or how much; the short question restates the owner's own words, and a yes over
+    // it may still barge in and run (the window then counts from the ask, as before).
+    if (!(digest.mode === "explicit" && Boolean(digest.amount || digest.target))) return;
+    const now = Date.now();
+    const estimateMs = ask.split(/\s+/).filter(Boolean).length * ECHO_WORD_MS;
+    const same = this.askSound?.digestId === digest.id ? this.askSound : null;
+    this.askSound = {
+      digestId: digest.id,
+      estimateEnd: Math.max(same?.estimateEnd ?? 0, now + estimateMs),
+      estimateMs,
+      startedAt: null,
+      endedAt: null,
+      owed: (same?.owed ?? 0) + 1,
+    };
+  }
+
+  /**
+   * When this digest's read-back finished sounding (Infinity while it is still playing). A digest she has no read
+   * for (built outside the ask paths) keeps the moment it was built.
+   */
+  private askEndsAt(digest: ConfirmDigest): number {
+    const sound = this.askSound;
+    if (!sound || sound.digestId !== digest.id) return digest.askedAt;
+    if (sound.endedAt !== null) return sound.endedAt;
+    const playing = this.playingItem?.priority === "approval" && !this.playingItem.taskId;
+    if (playing && sound.startedAt !== null) return Number.POSITIVE_INFINITY;
+    const started = sound.startedAt === null ? 0 : sound.startedAt + sound.estimateMs;
+    return Math.max(digest.askedAt, sound.estimateEnd, started);
+  }
+
+  /** The digest with its window counted from the end of its read-back (never from a moment still ahead). */
+  private soundedDigest(digest: ConfirmDigest): ConfirmDigest {
+    const ttl = digest.expiresAt - digest.askedAt;
+    const askedAt = Math.min(this.askEndsAt(digest), Date.now());
+    if (askedAt <= digest.askedAt) return digest;
+    return { ...digest, askedAt, expiresAt: askedAt + ttl };
+  }
+
+  /**
+   * When the voice of this final began. The ear's stream start when it framed this turn. Without it the start is
+   * unknown: the final's time less the heard length, and, against a full read-back (`early`), put earlier still on
+   * purpose (about 400 ms a word plus the recogniser's delay), so an unknown start never passes the older-yes rule by
+   * default. Null only for a line that is no heard turn at all (a direct call, not the intake).
+   */
+  private yesBeganAt(early = false): number | null {
+    const ear = this.heardEar;
+    if (!ear) return null;
+    if (ear.beganAt !== null) return ear.beganAt;
+    if (!early) return Date.now() - (this.lastSpeechMs ?? 0);
+    const words = (this.heardRawLines[0] ?? "").split(/\s+/).filter(Boolean).length;
+    const spokeMs = Math.max(this.lastSpeechMs ?? 0, words * ECHO_WORD_MS);
+    return Date.now() - spokeMs - (this.state.stt.lastLatencyMs ?? STT_DELAY_GUESS_MS);
+  }
+
+  /**
+   * Why a spoken yes may not approve, or null. The words as heard say no ("no, I mean yes" rewritten to "yes"); the
+   * room is a TV or music scene, or the ear tagged another voice (these tags only ever refuse; a speaker match never
+   * approves); or the yes began before the prompt finished sounding.
+   */
+  private yesRefusal(askEnd: number | null, room: AddressFacts | null): YesRefusal | null {
+    if (this.heardRawLines.some((line) => confirmationVerdict(line) === "no")) return "mixed";
+    const scene = room?.scene?.kind;
+    if (scene === "tv" || scene === "music" || room?.speaker === "other") return "room";
+    if (askEnd === null) return null;
+    const began = this.yesBeganAt();
+    if (askEnd === Number.POSITIVE_INFINITY || (began !== null && began < askEnd))
+      return "older yes";
+    return null;
+  }
+
+  /** A yes to a task, restart or Brain prompt that was not taken: the prompt stays open and she says why, once. */
+  private refuseYes(text: string, why: YesRefusal, taskId?: string) {
+    this.remember("confirm-unclear", text, why);
+    this.trace("dropped", `yes not taken (${why}): the question stays open`);
+    this.caption("user", text);
+    const hi = this.narrationLang() === "hi";
+    const line =
+      why === "older yes"
+        ? hi
+          ? "Main abhi pooch rahi thi. Sawaal ke baad haan boliye."
+          : "I was still asking. Say yes after the question."
+        : hi
+          ? "Sirf haan ya na boliye."
+          : "Just yes or no, please.";
+    this.caption("friday", line);
+    this.emit();
+    // Said as the same prompt again: a yes binds once this line has sounded.
+    this.speak(line, { priority: "approval", ...(taskId ? { taskId } : {}) });
   }
 
   /** Lines wait while the owner talks and for a moment after: look again once, when that moment is over. */
@@ -7552,10 +7740,12 @@ class AssistantModeStore {
     // The canonical code-mixed line (script policy) is what the turn acts on; the raw words stay in the record.
     const line = this.turnRecord.canonical || text;
     const stoppedAtFinal = this.stopped();
+    this.heardRaw = text;
     try {
       this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
     } finally {
       this.heardEar = null;
+      this.heardRaw = "";
       // The shadow hears of the final after the live path has handled it (a final dropped for Stop everything is no turn).
       if (!stoppedAtFinal) this.shadowTurn((a) => a.liveFinal(line, this.lastOwnerAt));
     }
@@ -7895,7 +8085,7 @@ class AssistantModeStore {
         this.turnStages.mark("playbackFirstSample");
         if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
         this.replyStartedAt = Date.now();
-        this.noteApprovalSpoken();
+        this.noteApprovalSpoken("start");
         this.bargeDetector.playbackStarted(performance.now());
         this.openEchoWindow(spoken);
         if (this.to("tts-start")) this.pauseForSpeech();
@@ -7913,7 +8103,7 @@ class AssistantModeStore {
         );
         this.bargeDetector.playbackEnded();
         this.echoUntil = Date.now() + ECHO_TAIL_MS;
-        this.noteApprovalSpoken();
+        this.noteApprovalSpoken("end");
         // The follow-up window counts from the end of her reply, not its start,
         // so a long answer does not use up the owner's turn.
         this.openFollowUp();

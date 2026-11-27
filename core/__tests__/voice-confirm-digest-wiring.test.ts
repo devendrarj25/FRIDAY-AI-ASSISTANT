@@ -145,7 +145,8 @@ describe("step 6: a consequential order reads the digest and waits for a short, 
       name: "yes in time",
       script: script(
         said({ id: "t1", at: 0, text: SEND }),
-        said({ id: "t2", at: 4000, text: "yes" }),
+        // After the read-back (built at 1920 ms, about 3.6 s long): a yes counts once it has finished sounding.
+        said({ id: "t2", at: 6000, text: "yes" }),
       ),
     });
     expect(ok.sent).toEqual(["send 5000 rupees to rahul"]);
@@ -154,7 +155,8 @@ describe("step 6: a consequential order reads the digest and waits for a short, 
       setup: (h) => h.preferences.setVoice({ approvalTtlSec: 10 }),
       script: script(
         said({ id: "t1", at: 0, text: SEND }),
-        said({ id: "t2", at: 12_000, text: "yes" }),
+        // The 10 s window counts from the end of the read-back (about 5520 ms): 16 s is after it.
+        said({ id: "t2", at: 16_000, text: "yes" }),
       ),
     });
     expect(late.sent).toEqual([]);
@@ -214,8 +216,9 @@ describe("step 7: only a short, fresh yes to this digest that is not her own voi
       name: "low asr",
       script: script(
         said({ id: "t1", at: 0, text: SEND }),
-        said({ id: "t2", at: 4000, text: "yes", quality: doubtful }),
-        said({ id: "t3", at: 8000, text: "haan" }),
+        // Each yes begins after the read it answers has finished sounding (about 3.6 s from its final).
+        said({ id: "t2", at: 6000, text: "yes", quality: doubtful }),
+        said({ id: "t3", at: 12_000, text: "haan" }),
       ),
     });
     expect(r.spoken).toEqual([DIGEST_RAHUL, DIGEST_RAHUL]);
@@ -228,7 +231,8 @@ describe("step 7: only a short, fresh yes to this digest that is not her own voi
       script: script(
         said({ id: "t1", at: 0, text: SEND }),
         said({ id: "t2", at: 4000, text: "no, to Rohan" }),
-        said({ id: "t3", at: 8000, text: "yes" }),
+        // The Rohan read starts at 5200 ms and sounds for about 3.6 s: the yes begins after it.
+        said({ id: "t3", at: 9600, text: "yes" }),
       ),
     });
     expect(r.spoken).toEqual([DIGEST_RAHUL, DIGEST_ROHAN]);
@@ -241,7 +245,7 @@ describe("step 7: only a short, fresh yes to this digest that is not her own voi
       script: script(
         said({ id: "t1", at: 0, text: SEND }),
         said({ id: "t2", at: 4000, text: "make it 500" }),
-        said({ id: "t3", at: 8000, text: "yes" }),
+        said({ id: "t3", at: 9600, text: "yes" }),
       ),
     });
     expect(r.spoken).toEqual([DIGEST_RAHUL, "Send 500 rupees to rahul. Say yes to confirm."]);
@@ -273,7 +277,8 @@ describe("step 7: only a short, fresh yes to this digest that is not her own voi
         // The correction's final reaches her at 5600 ms, after the owner's next voice began at 5200 ms.
         said({ id: "t2", at: 3600, text: "no, to Rohan", endAt: 4720, finalAt: 5600 }),
         said({ id: "t3", at: 5200, text: "yes", endAt: 5760, finalAt: 5840 }),
-        said({ id: "t4", at: 8960, text: "haan" }),
+        // After the Rohan read (from 5600 ms, about 3.6 s) has finished sounding.
+        said({ id: "t4", at: 9600, text: "haan" }),
       ),
     });
     expect(r.spoken).toEqual([DIGEST_RAHUL, DIGEST_ROHAN, DIGEST_ROHAN]);
@@ -517,19 +522,25 @@ describe("source pins of the wiring", () => {
     const block = SOURCE.slice(
       SOURCE.indexOf("// 1. A consequential command is waiting for a yes/no."),
     );
-    const ruling = block.indexOf("explainDigestAnswer(digest, text, Date.now(), {");
+    // The digest is judged with its window counted from the end of its read-back.
+    const ruling = block.indexOf(
+      "explainDigestAnswer(this.soundedDigest(digest), text, Date.now(), {",
+    );
     const own = block.indexOf("ownPlayback: this.ownPlaybackHeard(text),");
     const bound = block.indexOf(
       'isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")',
     );
     const older = block.indexOf("if (this.answeredBefore(digest)) {");
+    // A no in the words as heard, or a TV, music or other voice in the room, refuses before the saved voice.
+    const refusal = block.indexOf("const refusal = this.yesRefusal(null, room);");
     const voice = block.indexOf("if (!this.approvalVoiceAllows(text)) return;");
     const run = block.indexOf("this.runApproved(cmd, cmdHints);");
     expect(ruling).toBeGreaterThan(-1);
     expect(own).toBeGreaterThan(ruling);
     expect(bound).toBeGreaterThan(own);
     expect(older).toBeGreaterThan(bound);
-    expect(voice).toBeGreaterThan(older);
+    expect(refusal).toBeGreaterThan(older);
+    expect(voice).toBeGreaterThan(refusal);
     expect(run).toBeGreaterThan(voice);
     // The digest answer has no identity input: the speaker is not passed in.
     expect(block.slice(ruling, own + 200)).not.toMatch(/speaker|voiceprint/i);
