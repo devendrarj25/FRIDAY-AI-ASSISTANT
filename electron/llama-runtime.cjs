@@ -567,12 +567,20 @@ function coreEnv(key, base = process.env) {
 async function coreLaunch(root, deps = {}) {
   const plan = corePlan(root, deps);
   if (!plan.ok) return plan;
-  const bin = deps.bin !== undefined ? deps.bin : findServer(root);
+  // The engine is chosen from the ordered folders (own build, official build; see `chooseEngine`); a PC with
+  // neither marker layout falls back to the old lookup.
+  const choice = deps.bin !== undefined ? null : chooseEngine(root, deps);
+  const bin = deps.bin !== undefined ? deps.bin : choice?.bin || findServer(root);
   if (!bin)
     return { ok: false, reason: "the FRIDAY Runtime LLM is not installed (Install Manager)" };
   const port = deps.port ?? (await freeLoopbackPort());
   const key = deps.key ?? newLaunchKey();
-  const backend = deps.backend !== undefined ? deps.backend : readBackend(root)?.backend;
+  const backend =
+    deps.backend !== undefined
+      ? deps.backend
+      : choice?.entry
+        ? choice.entry.backend
+        : readBackend(root)?.backend;
   const args = coreArgs({
     model: plan.model,
     mmproj: plan.mmproj || "",
@@ -594,6 +602,522 @@ async function coreLaunch(root, deps = {}) {
     vision: Boolean(plan.mmproj),
     capabilities: coreCapabilities(plan),
     gpu: isGpuBackend(backend),
+    model: plan.model,
+    engine: choice?.engine ?? null,
+    entry: choice?.entry ?? null,
+    standby: choice?.standby ?? null,
+    standbyPlan: choice?.standby ? standbyFor(plan.model, deps) : null,
+    outdated: Boolean(choice?.outdated),
+  };
+}
+
+/* ------------------------------------------------- dual engine (own + official) */
+
+const OWN_NAME = exeName("friday-runtime-llm");
+const OWN_DIR_NAME = "friday-runtime-llm";
+const GB = 1024 ** 3;
+
+const ownEngineDir = (root) => path.join(root, "runtime", "engines", OWN_DIR_NAME);
+/** Where the owner puts a local own build (`<work>/out/friday-runtime-llm`) so the Install Manager can adopt it. */
+const ownLocalDir = (root) => path.join(root, "runtime", "own-build", OWN_DIR_NAME);
+const select = () => require("./llm-engine-select.cjs");
+
+const binIn = (dir, names) => {
+  for (const wanted of names) {
+    const hit = walk(dir, 2, (name) => name.toLowerCase() === wanted.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+};
+
+/**
+ * Every engine folder with a binary, official and own, each in `orderedFolders` order. `origin` is "own" only for a
+ * marker that says `friday-own` (a missing origin is official; old markers are never rewritten), `trusted` and `at`
+ * come from the ordering, `tag` and `backend` from the marker (the folder name when there is none).
+ */
+function engineEntries(root, fsApi = fs) {
+  if (!root) return [];
+  const out = [];
+  for (const e of orderedFolders(engineDir(root), fsApi)) {
+    const bin = binIn(e.dir, SERVER_NAMES);
+    if (bin)
+      out.push({ ...e, bin, origin: e.marker?.origin === "friday-own" ? "own" : "official" });
+  }
+  for (const e of orderedFolders(ownEngineDir(root), fsApi)) {
+    const bin = binIn(e.dir, [OWN_NAME]);
+    if (!bin) continue;
+    const marker = e.marker ? { ...e.marker, origin: "friday-own" } : null;
+    out.push({ ...e, marker, bin, origin: "own" });
+  }
+  return out.map((e) => ({
+    ...e,
+    tag: String(e.marker?.tag || e.name.split("-")[0] || ""),
+    backend: e.marker?.backend || null,
+  }));
+}
+
+/** The PC facts a bench depends on (see `select().fingerprint`); `deps.gpu` is the measured card name, if any. */
+function machineFacts(deps = {}) {
+  const os = deps.os || require("node:os");
+  const cpus = os.cpus() || [];
+  return {
+    ramGb: os.totalmem() / GB,
+    cores: cpus.length,
+    cpuModel: cpus[0]?.model ?? null,
+    gpu: deps.gpu ?? null,
+  };
+}
+
+/**
+ * Which engine runs: the pure rule of `llm-engine-select.pickEngine` over the ordered folders (a demoted folder is
+ * `trusted:false` and never chosen). `deps`: `prefer` (auto|own|official), `bench` (a stored bench; else the file is
+ * read and checked against `machineFacts`), `isHealthy`, `exclude` (folders to skip), `facts`, `fs`.
+ * Returns `{ engine, bin, entry, standby, standbyBin, outdated, reason, ownTag, officialTag, prefer }`.
+ */
+function chooseEngine(root, deps = {}) {
+  const sel = select();
+  const exclude = new Set(deps.exclude || []);
+  const usable = engineEntries(root, deps.fs).filter(
+    (e) => !exclude.has(e.dir) && (typeof deps.isHealthy !== "function" || deps.isHealthy(e)),
+  );
+  const live = usable.filter((e) => e.trusted);
+  const ownTag = live.find((e) => e.origin === "own")?.tag || null;
+  const officialTag = live.find((e) => e.origin === "official")?.tag || null;
+  const prefer = ["auto", "own", "official"].includes(deps.prefer) ? deps.prefer : "auto";
+  const bench =
+    deps.bench !== undefined
+      ? deps.bench
+      : sel.readBench(root, {
+          fingerprint: sel.fingerprint({
+            ...(deps.facts || machineFacts(deps)),
+            ownTag,
+            officialTag,
+          }),
+          fs: deps.fs,
+        });
+  const pick = sel.pickEngine({
+    markers: usable,
+    bench,
+    prefer,
+    tagsEqual: !(ownTag && officialTag) || ownTag === officialTag,
+  });
+  return {
+    engine: pick.engine,
+    bin: pick.entry?.bin || null,
+    entry: pick.entry,
+    standby: pick.standby,
+    standbyBin: pick.standby?.bin || null,
+    outdated: pick.outdated || Boolean(ownTag && officialTag && ownTag !== officialTag),
+    reason: pick.reason,
+    ownTag,
+    officialTag,
+    prefer,
+  };
+}
+
+const modelBytesOf = (file, deps = {}) => {
+  try {
+    const stat = (deps.stat || deps.statSync || fs.statSync)(file);
+    return Number(stat?.size) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+/** The idle engine's plan (see `standbyPlan`): cold unless the PC has the memory, always `-c 2048 -np 1`. */
+function standbyFor(model, deps = {}) {
+  const os = deps.os || require("node:os");
+  return select().standbyPlan({
+    totalRamGb: os.totalmem() / GB,
+    freeRamGb: os.freemem() / GB,
+    modelBytes: model ? modelBytesOf(model, deps) : 0,
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultProbe = async (url, init) => {
+  const res = await fetch(url, { ...(init || {}), signal: AbortSignal.timeout(2000) });
+  return { ok: res.ok, status: res.status };
+};
+const stopOf = (deps) => (child) => {
+  try {
+    (deps.stop || require("./app-lifecycle.cjs").stopChild)(child, "SIGTERM");
+  } catch {
+    /* already gone */
+  }
+};
+
+/** Spawn an engine as a child the one lifecycle owner tracks (quit and crash stop it). */
+function spawnEngine(bin, args, env, deps = {}) {
+  const spawn = deps.spawn || require("node:child_process").spawn;
+  const child = spawn(bin, args, {
+    stdio: "ignore",
+    windowsHide: true,
+    cwd: (deps.os || require("node:os")).tmpdir(),
+    env,
+  });
+  (deps.track || require("./app-lifecycle.cjs").trackOwned)("runner", child, bin);
+  return child;
+}
+
+/** Wait until `/health` answers ok, the child exits, `signal` aborts, or the time is up. Returns `{ ok, reason }`. */
+async function waitHealthy(child, port, deps = {}) {
+  const probe = deps.probe || defaultProbe;
+  const nap = deps.sleep || sleep;
+  let exited = null;
+  child.once?.("exit", (code) => {
+    exited = code ?? -1;
+  });
+  child.once?.("error", (err) => {
+    exited = String(err?.message || err);
+  });
+  const until = (deps.now || Date.now)() + (deps.timeoutMs || 120000);
+  for (;;) {
+    if (deps.signal?.aborted) return { ok: false, reason: "stopped" };
+    if (exited !== null)
+      return { ok: false, reason: `the runtime stopped while loading (${exited})` };
+    if (
+      await Promise.resolve(probe(`http://${LOOPBACK}:${port}/health`)).then(
+        (r) => r?.ok,
+        () => false,
+      )
+    )
+      return { ok: true };
+    if ((deps.now || Date.now)() > until) return { ok: false, reason: "never became healthy" };
+    await nap(deps.stepMs || 500);
+  }
+}
+
+/**
+ * Start the chosen engine for FRIDAY Core and wait for `/health`. An engine that does not come up is recorded
+ * (`engine-install.noteHealth`; the second failure in a row demotes its folder), skipped, and the other engine is tried, so the
+ * official build takes over a broken own build. Returns `{ ok, engine, child, ...launch }` or `{ ok:false, tried }`.
+ */
+async function startEngine(root, deps = {}) {
+  // The marker writer is the installer's (`engine-install.noteHealth`); required late, the two files need each other.
+  const note = deps.noteHealth || require("./engine-install.cjs").noteHealth;
+  const tried = [];
+  const skip = [];
+  for (let round = 0; round < 2; round += 1) {
+    const launch = await coreLaunch(root, { ...deps, exclude: skip });
+    if (!launch.ok) return { ok: false, reason: launch.reason, tried };
+    const entry = launch.entry;
+    const child = spawnEngine(launch.bin, launch.args, launch.env, deps);
+    const state = await waitHealthy(child, launch.port, deps);
+    if (state.ok) {
+      if (entry) note(entry, true, deps);
+      return { ok: true, child, tried, ...launch };
+    }
+    stopOf(deps)(child);
+    if (entry) {
+      note(entry, false, deps);
+      skip.push(entry.dir);
+    }
+    tried.push({ engine: launch.engine, bin: launch.bin, reason: state.reason });
+    if (!entry || state.reason === "stopped") break;
+  }
+  return { ok: false, reason: "no engine came up", tried };
+}
+
+/**
+ * Start the idle engine after the active one crashed (or at once when the PC can keep it hot). It takes a governor
+ * lease first (`deps.governor.acquire`), runs text-only with `-c 2048 -np 1`, is tracked by the lifecycle owner, and
+ * gives the lease back when it exits. `launch` is a `coreLaunch` result. Returns `{ ok, child, port, key, baseUrl }`.
+ */
+async function startStandby(root, launch, deps = {}) {
+  const bin = launch?.standby?.bin;
+  if (!launch?.ok || !bin || !launch.model)
+    return { ok: false, reason: "there is no standby engine installed" };
+  const plan = launch.standbyPlan || standbyFor(launch.model, deps);
+  const need = Math.max(0.1, modelBytesOf(launch.model, deps) / GB);
+  let lease = null;
+  if (deps.governor?.acquire) {
+    const got = await deps.governor.acquire({
+      owner: "llm-standby",
+      kind: "llm",
+      priority: "chat",
+      label: "FRIDAY Runtime LLM standby",
+      ttlMs: 6 * 60 * 60 * 1000,
+      queue: false,
+      options: [{ ramGb: need + 0.5 }],
+    });
+    if (got?.state !== "granted")
+      return {
+        ok: false,
+        reason: `the resource governor did not grant memory (${got?.reason || got?.state})`,
+      };
+    lease = got.lease;
+  }
+  const port = deps.port ?? (await freeLoopbackPort());
+  const key = deps.key ?? newLaunchKey();
+  const args = coreArgs({
+    model: launch.model,
+    port,
+    ctx: Number(plan.args[plan.args.indexOf("-c") + 1]) || 2048,
+    threads: threadBudget(deps.cpus ?? require("node:os").cpus().length),
+    gpu: isGpuBackend(launch.standby.backend),
+  });
+  let child;
+  try {
+    child = spawnEngine(bin, args, coreEnv(key, deps.env), deps);
+  } catch (err) {
+    lease?.release?.();
+    return { ok: false, reason: `could not be started: ${String(err?.message || err)}` };
+  }
+  child.once?.("exit", () => lease?.release?.());
+  const state = await waitHealthy(child, port, deps);
+  if (!state.ok) {
+    stopOf(deps)(child);
+    lease?.release?.();
+    return { ok: false, reason: state.reason };
+  }
+  lease?.loaded?.();
+  return { ok: true, child, port, key, baseUrl: `http://${LOOPBACK}:${port}/v1`, mode: plan.mode };
+}
+
+/**
+ * One engine's bench run: start it alone on a free port with a small context, wait for health, ask for 32 greedy
+ * tokens, stop it. Returns `{ smokePassed, tps, tokens }` (nothing measured: `tps` null), or `{ stopped:true }`.
+ */
+async function benchOne(entry, plan, deps) {
+  const port = deps.port ?? (await freeLoopbackPort());
+  const key = newLaunchKey();
+  const args = coreArgs({
+    model: plan.model,
+    port,
+    ctx: 2048,
+    threads: threadBudget(deps.cpus ?? require("node:os").cpus().length),
+    gpu: isGpuBackend(entry.backend),
+  });
+  const child = spawnEngine(entry.bin, args, coreEnv(key, deps.env), deps);
+  const done = new Promise((resolve) => child.once?.("exit", resolve));
+  const stop = () => stopOf(deps)(child);
+  deps.signal?.addEventListener?.("abort", stop, { once: true });
+  try {
+    const state = await waitHealthy(child, port, deps);
+    if (deps.signal?.aborted) return { stopped: true };
+    if (!state.ok) return { smokePassed: false, tps: null, tokens: [] };
+    const ask = deps.request || defaultRequest;
+    const out = await ask(`http://${LOOPBACK}:${port}/completion`, key, {
+      prompt: deps.prompt || "Count from one to thirty-two in words:",
+      n_predict: 32,
+      temperature: 0,
+      top_k: 1,
+      seed: 0,
+      cache_prompt: false,
+      return_tokens: true,
+    }).catch(() => null);
+    if (deps.signal?.aborted) return { stopped: true };
+    const tokens = Array.isArray(out?.tokens) ? out.tokens : [];
+    const tps = Number(out?.timings?.predicted_per_second);
+    return {
+      smokePassed: tokens.length > 0,
+      tps: Number.isFinite(tps) && tps > 0 ? tps : null,
+      tokens,
+    };
+  } finally {
+    deps.signal?.removeEventListener?.("abort", stop);
+    stop();
+    await Promise.race([done, sleep(deps.stopWaitMs ?? 3000)]);
+  }
+}
+
+async function defaultRequest(url, key, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * The bench of the two engines, one after the other. It runs only when the owner started it (`ownerStarted`) or the
+ * PC is idle under a governor lease (`idle()` and `governor`), and never while a voice turn runs (`voiceBusy()`).
+ * The two builds must carry the same tag; otherwise nothing runs and the official engine stays (own build outdated).
+ * `deps.signal` stops it at once: the running engine is stopped and the next one is never started. The result is
+ * stored (`llm-engine-select.writeBench`) only when something was measured. Returns a plain object.
+ */
+async function runBench(root, deps = {}) {
+  const sel = select();
+  const refuse = (reason, extra = {}) => ({
+    ok: false,
+    ran: false,
+    stored: false,
+    reason,
+    ...extra,
+  });
+  if (deps.voiceBusy?.()) return refuse("voice-turn");
+  if (deps.signal?.aborted) return refuse("stopped", { stopped: true });
+  const live = engineEntries(root, deps.fs).filter((e) => e.trusted);
+  const own = live.find((e) => e.origin === "own");
+  const official = live.find((e) => e.origin === "official");
+  if (!own || !official) return refuse("needs-both-engines");
+  if (own.tag !== official.tag)
+    return refuse("own-outdated", {
+      outdated: true,
+      winner: "official",
+      ownTag: own.tag,
+      officialTag: official.tag,
+    });
+  const plan = deps.plan || corePlan(root, deps);
+  if (!plan.ok) return refuse("no-model", { error: plan.reason });
+  let lease = null;
+  if (!deps.ownerStarted) {
+    if (deps.idle?.() !== true || !deps.governor?.acquire) return refuse("not-idle");
+    const got = await deps.governor.acquire({
+      owner: "llm-bench",
+      kind: "llm",
+      priority: "background",
+      label: "FRIDAY Runtime LLM bench",
+      ttlMs: 20 * 60 * 1000,
+      queue: false,
+      options: [{ ramGb: Math.max(0.1, modelBytesOf(plan.model, deps) / GB) + 0.5 }],
+    });
+    if (got?.state !== "granted")
+      return refuse("governor-refused", { detail: got?.reason || got?.state });
+    lease = got.lease;
+  }
+  try {
+    const one = deps.measure || ((entry) => benchOne(entry, plan, deps));
+    const ownRun = await one(own);
+    if (ownRun?.stopped || deps.signal?.aborted) return refuse("stopped", { stopped: true });
+    const officialRun = await one(official);
+    if (officialRun?.stopped || deps.signal?.aborted) return refuse("stopped", { stopped: true });
+    const verdict = sel.decideWinner(ownRun, officialRun);
+    const stored = verdict.measured
+      ? sel.writeBench(
+          root,
+          {
+            ...verdict,
+            fingerprint: {
+              ...(deps.facts || machineFacts(deps)),
+              ownTag: own.tag,
+              officialTag: official.tag,
+            },
+            spec: deps.spec || "off",
+          },
+          { fs: deps.fs, now: deps.clock },
+        )
+      : false;
+    return {
+      ok: verdict.measured,
+      ran: true,
+      stored,
+      winner: verdict.winner,
+      reason: verdict.reason,
+      ownTps: verdict.ownTps,
+      officialTps: verdict.officialTps,
+      sameTokens: verdict.sameTokens,
+      speedup: verdict.speedup,
+      ownTag: own.tag,
+      officialTag: official.tag,
+    };
+  } finally {
+    lease?.release?.();
+  }
+}
+
+const modelOf = (root, deps) => {
+  const plan = deps.plan || corePlan(root, deps);
+  return plan.ok ? plan.model : null;
+};
+
+const rowOf = (entry) =>
+  entry
+    ? {
+        installed: true,
+        tag: entry.tag,
+        backend: entry.backend,
+        healthy: entry.trusted,
+        name: entry.name,
+      }
+    : { installed: false, tag: null, backend: null, healthy: false, name: null };
+
+/**
+ * What the Doctor and the Install Manager show, as plain data (no handles, no paths of a key): both engines, the
+ * active one, the standby plan, the stored bench and the row strings of `llm-engine-select.rowNames`.
+ * `deps.prefer` is the owner's `brain.engine.prefer`.
+ */
+function engineState(root, deps = {}) {
+  const sel = select();
+  const choice = chooseEngine(root, deps);
+  const entries = engineEntries(root, deps.fs);
+  const liveOf = (origin) =>
+    entries.find((e) => e.origin === origin && e.trusted) ||
+    entries.find((e) => e.origin === origin);
+  const own = liveOf("own");
+  const official = liveOf("official");
+  const bench = sel.readBench(root, {
+    fingerprint: sel.fingerprint({
+      ...(deps.facts || machineFacts(deps)),
+      ownTag: choice.ownTag,
+      officialTag: choice.officialTag,
+    }),
+    fs: deps.fs,
+  });
+  const rows = sel.rowNames({
+    ownTag: own?.tag,
+    officialTag: official?.tag,
+    officialBackend: official?.backend,
+    active: choice.engine,
+    ownTps: bench?.ownTps,
+    officialTps: bench?.officialTps,
+  });
+  const doctor = [
+    {
+      id: "own",
+      name: rows.own,
+      ok: Boolean(own && own.trusted),
+      detail: own
+        ? own.trusted
+          ? "ready"
+          : "demoted after failed health checks"
+        : "not installed",
+    },
+    {
+      id: "official",
+      name: rows.official,
+      ok: Boolean(official && official.trusted),
+      detail: official
+        ? official.trusted
+          ? "ready"
+          : "demoted after failed health checks"
+        : "not installed",
+    },
+  ];
+  if (rows.status)
+    doctor.push({ id: "status", name: rows.status, ok: true, detail: choice.reason });
+  if (rows.outdated)
+    doctor.push({
+      id: "outdated",
+      name: rows.outdated,
+      ok: false,
+      detail: `own ${own?.tag}, official ${official?.tag}`,
+    });
+  return {
+    prefer: choice.prefer,
+    active: choice.engine,
+    reason: choice.reason,
+    outdated: choice.outdated,
+    own: rowOf(own),
+    official: rowOf(official),
+    standby: choice.standby ? { engine: choice.standby.origin, tag: choice.standby.tag } : null,
+    standbyMode: choice.standby ? standbyFor(modelOf(root, deps), deps).mode : null,
+    bench: bench
+      ? {
+          winner: bench.winner,
+          ownTps: bench.ownTps,
+          officialTps: bench.officialTps,
+          sameTokens: bench.sameTokens,
+          at: bench.at,
+        }
+      : null,
+    thresholdsUnverified: sel.THRESHOLDS_UNVERIFIED,
+    rows,
+    doctor,
   };
 }
 
@@ -635,4 +1159,16 @@ module.exports = {
   coreCapabilities,
   coreEnv,
   coreLaunch,
+  OWN_NAME,
+  OWN_DIR_NAME,
+  ownEngineDir,
+  ownLocalDir,
+  engineEntries,
+  machineFacts,
+  chooseEngine,
+  standbyFor,
+  startEngine,
+  startStandby,
+  runBench,
+  engineState,
 };
