@@ -48,7 +48,7 @@ const launch = {
 
 function child(onKill: () => void = () => undefined, exitOnKill = true) {
   const c = new EventEmitter() as EventEmitter & Record<string, unknown>;
-  c["pid"] = 5151;
+  // No pid on purpose: with a pid, a Windows stop goes to taskkill (a real process tree kill) and never reaches this fake's kill.
   c["kill"] = () => {
     onKill();
     if (exitOnKill) c.emit("exit", 0);
