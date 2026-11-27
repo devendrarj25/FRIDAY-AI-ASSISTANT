@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "id": "tts-mixed-script-baseline",
- "note": "Pinned reading baseline for the default FRIDAY voice on core/fixtures/voice-eval/tts-mixed-script.json: mean of two runs on a loaded 4-core CPU box (load 4 to 7), seed not fixed, so a run moves by about 0.02 CER per stratum. kernel/tts_eval.py reading fails only when a stratum's CER rises more than the margin above these numbers. Numbers are the recogniser's read-back, not listening: the owner's ears decide the rest.",
+ "note": "Pinned reading baseline for the default FRIDAY voice on core/fixtures/voice-eval/tts-mixed-script.json: mean of two runs on a loaded 4-core CPU box (load 4 to 7), seed not fixed, so a run moves by about 0.02 CER per stratum. kernel/tts_eval.py reading fails only when a stratum's CER rises more than the margin above these numbers. Strata that improved in both of two later runs (loanword spellings folded in the scorer, shared Hindi word table) were re-pinned from the mean of those runs; the rest keep their first measurement. Numbers are the recogniser's read-back, not listening: the owner's ears decide the rest.",
  "measuredOn": "2026-11-26",
  "recipe": "friday",
  "margin": 0.06,
@@ -11,22 +11,22 @@
  },
  "strata": {
   "hindi": {
-   "cer": 0.01,
-   "wer": 0.029,
+   "cer": 0.004,
+   "wer": 0.019,
    "n": 6
   },
   "hinglish-roman": {
-   "cer": 0.226,
-   "wer": 0.575,
+   "cer": 0.174,
+   "wer": 0.442,
    "n": 6
   },
   "mixed-script": {
-   "cer": 0.137,
-   "wer": 0.255,
+   "cer": 0.058,
+   "wer": 0.118,
    "n": 6
   },
   "numbers": {
-   "cer": 0.057,
+   "cer": 0.038,
    "wer": 0.139,
    "n": 6
   },
@@ -51,8 +51,8 @@
    "n": 8
   },
   "all": {
-   "cer": 0.083,
-   "wer": 0.188,
+   "cer": 0.07,
+   "wer": 0.17,
    "n": 50
   }
  }

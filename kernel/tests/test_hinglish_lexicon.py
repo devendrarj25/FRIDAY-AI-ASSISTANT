@@ -56,8 +56,8 @@ SAMPLES = [
     ("wait one moment", "hi-en", "hi-en", False),
 ]
 
-PINNED_LINES = 308
-PINNED_HASH = "739c3b0fb4d9ce2660ccc89111eff59014cddcc2e2faf4a94059cc899448fba2"
+PINNED_LINES = 463
+PINNED_HASH = "cbfa1f67b66f01bc77d1aecd4dc3fd77c7d03e0ad3d183dc121638f0e4c5846b"
 
 
 def test_forty_sample_lines_read_the_same_as_the_renderer():
@@ -78,6 +78,29 @@ def test_stop_look_and_answer_words_are_hindi():
         assert lex.label_languages([w]) == ["hi"], w
 
 
+def test_every_hindi_spelling_the_speech_front_end_knows_is_in_the_shared_table():
+    import tts_frontend
+
+    # Words English also uses read as Hindi only beside a Hindi word: they are ambiguous, not sure.
+    beside_only = {"mat"}
+    for w in sorted(tts_frontend._HINDI_EXTRA - beside_only):  # pyright: ignore[reportPrivateUsage]
+        assert lex.label_languages([w]) == ["hi"], w
+    for w in beside_only:
+        assert lex.label_languages([w]) == ["en"], w
+        assert lex.label_languages([w, "kijiye"]) == ["hi", "hi"], w
+    # The front end writes the same Devanagari the table holds.
+    lines = set(lex.table_lines())
+    for roman, deva in [("nayi", "नई"), ("naya", "नया"), ("aapke", "आपके"), ("paas", "पास"), ("kabhi", "कभी")]:
+        assert f"sure|{roman}|{deva}" in lines, roman
+    assert "ambiguous|mat|मत" in lines
+
+
+def test_the_loanwords_the_voice_reading_check_says_come_back_to_latin():
+    lines = set(lex.table_lines())
+    for deva, latin in [("बॉस", "boss"), ("जिम", "gym"), ("चार्जर", "charger"), ("बुक", "book"), ("वेट", "wait")]:
+        assert f"loan|{lex.lexicon_key(deva)}|{latin}" in lines, deva
+
+
 def test_tail_and_backchannel_tables_are_shared_data():
     for w in ["aur", "ki", "ke", "ko", "toh", "matlab", "ya", "jaise", "kyunki", "lekin", "और", "and"]:
         assert w in lex.DANGLING_TAIL_WORDS, w
@@ -89,7 +112,7 @@ def test_tail_and_backchannel_tables_are_shared_data():
 def test_table_hash_is_pinned_and_matches_the_renderer():
     root = Path(__file__).resolve().parents[2]
     data = json.loads((root / "config" / "hinglish-lexicon.json").read_text(encoding="utf-8"))
-    assert data["version"] == lex.LEXICON_VERSION == "hinglish-lex-2"
+    assert data["version"] == lex.LEXICON_VERSION == "hinglish-lex-3"
     lines = lex.table_lines()
     assert lines == sorted(lines)
     assert len(lines) == PINNED_LINES

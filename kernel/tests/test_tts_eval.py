@@ -632,3 +632,44 @@ def test_the_sweep_records_the_gate_numbers_when_a_recogniser_ran():
     assert gate["kinds"] == ["en", "hi", "hing-deva"]
     assert gate["wer"] == 0.0
     assert set(report["candidates"][0]["stt_alt"]["hindi-ear"]) == {"hi", "hing-deva", "all"}
+
+
+# ---- the script an ear writes English words in is not the voice's fault -------------------------------------------
+
+SPOKEN_ROMAN = "Haan boss, main abhi aapka message bhej deti hoon."
+EAR_DEVANAGARI = "हाँ boss, मैं अभी आपका मैसेज भेज देती हूँ।"  # the Hindi-hinted ear writes the loanword in Devanagari
+EAR_LATIN = "हाँ boss, मैं अभी आपका message भेज देती हूँ।"
+
+
+@pytest.mark.parametrize("kind", ["hing-roman", "hing-deva"])
+def test_a_devanagari_loanword_from_the_ear_scores_as_the_english_word_it_is(kind):
+    wer, cer = tts_eval.error_rates(kind, SPOKEN_ROMAN, EAR_DEVANAGARI)
+    assert (wer, cer) == tts_eval.error_rates(kind, SPOKEN_ROMAN, EAR_LATIN)
+    assert cer < 0.05 and wer < 0.15  # only the Roman spelling of the Hindi words is left as a difference
+
+
+def test_the_loanword_fold_does_not_hide_a_word_the_voice_got_wrong():
+    wrong = EAR_DEVANAGARI.replace("मैसेज", "मेसेंजर")  # a different word, not a spelling of "message"
+    assert (
+        tts_eval.error_rates("hing-roman", SPOKEN_ROMAN, wrong)[1]
+        > tts_eval.error_rates("hing-roman", SPOKEN_ROMAN, EAR_DEVANAGARI)[1]
+    )
+    dropped = "हाँ boss, मैं अभी आपका भेज देती हूँ।"
+    assert tts_eval.error_rates("hing-roman", SPOKEN_ROMAN, dropped)[0] > 0.1
+
+
+def test_the_loanword_fold_is_for_the_mixed_kinds_only():
+    # Hindi and English lines keep the strict normalisers: a Devanagari "message" is not English there.
+    assert tts_eval.error_rates("en", "Send the message.", "Send the मैसेज.")[0] > 0.0
+    assert tts_eval.error_rates("hi", "मैसेज भेजो", "message भेजो")[0] > 0.0
+
+
+def test_each_fixture_loanword_has_the_spellings_the_ears_write():
+    import stt_bench
+
+    for word, spelling in [
+        ("boss", "बॉस"), ("gym", "जिम"), ("please", "प्लीज़"), ("charger", "चार्जर"), ("dinner", "डिनर"),
+        ("restaurant", "रेस्टोरेंट"), ("book", "बुक"), ("wait", "वेट"), ("file", "फाइल"), ("search", "सर्च"),
+        ("alarm", "अलार्म"), ("message", "मैसेज"), ("email", "ईमेल"), ("battery", "बैटरी"),
+    ]:  # fmt: skip
+        assert stt_bench.fix_script(spelling, "english") == word, word

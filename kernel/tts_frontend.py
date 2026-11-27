@@ -114,6 +114,13 @@ _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*/?>")
 _MARKUP_CHARS = str.maketrans({"*": " ", "~": " ", "_": " ", "#": " ", "[": " ", "]": " ", "|": " ", "\\": " "})
 _SAFE_ASCII = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n.,;:!?'\"-()%$&+/₹।॥")
 _LAST_WS = re.compile(r"\s(?=\S*\Z)")
+# A degree sign is spoken, not dropped: "32°C" is "32 degrees Celsius" (the number step then reads it as a unit), a bare
+# "°" is "degrees". No space is allowed inside "°C", so the result does not depend on where a chunk ends.
+_DEGREE_SCALE = re.compile(r"°([CcFf])(?![A-Za-z])|([℃℉])")
+_DEGREE_UNIT = re.compile(r"degrees?\s(?:celsius|fahrenheit)", re.IGNORECASE)
+_DEGREE_NAMES = {
+    "c": " degrees Celsius ", "f": " degrees Fahrenheit ", "℃": " degrees Celsius ", "℉": " degrees Fahrenheit ",
+}  # fmt: skip
 
 
 def _readable(ch: str, indexer: list[int] | None) -> bool:
@@ -190,6 +197,8 @@ class _Sanitizer:
         body = _TAG.sub(" ", body)
         body = _EMOJI.sub(" ", body)
         body = body.replace("`", "")
+        body = _DEGREE_SCALE.sub(lambda m: _DEGREE_NAMES[(m.group(1) or m.group(2)).lower()], body)
+        body = body.replace("°", " degrees ")
         body = _RULE.sub(" ", body).translate(_MARKUP_CHARS)
         return _char_policy(body, self.indexer)
 
@@ -215,7 +224,7 @@ _EN_ONES = (
 _EN_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
 NUMBER_LIMIT = 10**9  # beyond this the digits are read one by one
 
-_UNITS = r"km/h|kmph|kph|km|kg|cm|mm|ms|gb|mb|kb|tb|hz|per\s?cent|percent"
+_UNITS = r"km/h|kmph|kph|km|kg|cm|mm|ms|gb|mb|kb|tb|hz|per\s?cent|percent|degrees?\s(?:celsius|fahrenheit)"
 _NUMBER = re.compile(
     r"(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!\d)"
     r"|(?P<pre>₹|\$|\bRs\.?\s?|\bINR\s?)?"
@@ -234,14 +243,19 @@ _UNIT_WORDS = {
         "mm": ("millimetre", "millimetres"), "ms": ("millisecond", "milliseconds"), "gb": ("gigabyte", "gigabytes"),
         "mb": ("megabyte", "megabytes"), "kb": ("kilobyte", "kilobytes"), "tb": ("terabyte", "terabytes"),
         "hz": ("hertz", "hertz"), "km/h": ("kilometre per hour", "kilometres per hour"),
+        "celsius": ("degree Celsius", "degrees Celsius"), "fahrenheit": ("degree Fahrenheit", "degrees Fahrenheit"),
     },
     "hi": {
         "km": "किलोमीटर", "kg": "किलोग्राम", "cm": "सेंटीमीटर", "mm": "मिलीमीटर", "ms": "मिलीसेकंड",
         "gb": "गीगाबाइट", "mb": "मेगाबाइट", "kb": "किलोबाइट", "tb": "टेराबाइट", "hz": "हर्ट्ज़",
-        "km/h": "किलोमीटर प्रति घंटा",
+        "km/h": "किलोमीटर प्रति घंटा", "celsius": "डिग्री सेल्सियस", "fahrenheit": "डिग्री फ़ारेनहाइट",
     },
 }  # fmt: skip
-_UNIT_ALIASES = {"kmph": "km/h", "kph": "km/h"}
+_UNIT_ALIASES = {
+    "kmph": "km/h", "kph": "km/h",
+    "degreecelsius": "celsius", "degreescelsius": "celsius", "degreefahrenheit": "fahrenheit",
+    "degreesfahrenheit": "fahrenheit",
+}  # fmt: skip
 
 
 def _en_below_100(n: int) -> str:
@@ -422,9 +436,10 @@ _ENGLISH_KEEP = (
     _ENGLISH_LOAN
     | frozenset(
         """
-        gym wait charger book set temperature degree degrees balance boss april june july august september october
-        november december january february march may check checks banana arena antenna lakh crore rupees dollars percent
-        point hundred thousand million kilometre kilometres kilogram kilograms centimetres millimetres gigabytes
+        gym wait charger book set temperature degree degrees celsius fahrenheit balance boss april june july august
+        september october november december january february march may check checks banana arena antenna lakh crore
+        rupees dollars percent point hundred thousand million kilometre kilometres kilogram kilograms centimetres
+        millimetres gigabytes
         megabytes kilobytes terabytes hertz milliseconds
         """.split()
     )
@@ -460,7 +475,9 @@ _ANY_WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?|[ऀ-ॿ]+")
 def _word_langs(text: str) -> list[tuple[int, int, str]]:
     """Every word of ``text`` (Latin or Devanagari) as ``(start, end, "hi" | "en")``, read as the renderer's lexicon
     reads a turn: a word the lists know is Hindi, an ambiguous one (``hai``, ``hum``) follows a Hindi neighbour."""
-    found = list(_ANY_WORD.finditer(text))
+    # The degree unit is part of the number, not a neighbour that sets its language.
+    masked = _DEGREE_UNIT.sub(lambda m: " " * len(m.group(0)), text)
+    found = list(_ANY_WORD.finditer(masked))
     cores = ["kya" if m.group(0).isascii() and _hindi_roman(m.group(0)) else m.group(0) for m in found]
     labels = lexicon.label_languages(cores)
     # A Devanagari word is Hindi even when it is a loanword (the renderer's segmenter reads it so).

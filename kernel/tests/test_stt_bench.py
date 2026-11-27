@@ -606,7 +606,7 @@ def test_the_two_lexicon_copies_are_one_table():
 def test_the_scorer_reads_the_shared_word_table_added_words_included():
     shared = [line for line in hinglish_lexicon.table_lines() if line.split("|")[0] in {"sure", "ambiguous", "loan"}]
     assert stt_bench.lexicon_lines() == sorted(shared)
-    assert stt_bench.LEXICON_VERSION == hinglish_lexicon.LEXICON_VERSION == "hinglish-lex-2"
+    assert stt_bench.LEXICON_VERSION == hinglish_lexicon.LEXICON_VERSION == "hinglish-lex-3"
     for word in ("ruko", "rukiye", "dekh", "ji"):
         assert stt_bench.label_languages([word]) == ["hi"], word
 

@@ -3,7 +3,7 @@
  "id": "tts-mixed-script",
  "title": "FRIDAY Voice reading fixture: 50 reply lines, written for this repository, no audio",
  "createdOn": "2026-11-26",
- "note": "text is what FRIDAY says; spoken is the same line as a listener should hear it (digits, times, rupees and units as words). A line with a digit also lists numberLangs: the language each number is read in, by the neighbouring word (script-policy spanTreatments). kernelReads names the lines where the kernel front end reads a number in the other language today.",
+ "note": "text is what FRIDAY says; spoken is the same line as a listener should hear it (digits, times, rupees and units as words). A line with a digit also lists numbers: the language each number is read in, by the neighbouring word (script-policy spanTreatments).",
  "strata": [
   "hindi",
   "hinglish-roman",
@@ -172,11 +172,11 @@
    "stratum": "numbers",
    "kind": "hing-roman",
    "text": "Aapke paas 12 nayi emails hain.",
-   "spoken": "Aapke paas twelve nayi emails hain.",
+   "spoken": "Aapke paas barah nayi emails hain.",
    "numbers": [
     {
      "text": "12",
-     "lang": "en"
+     "lang": "hi"
     }
    ]
   },
@@ -334,8 +334,7 @@
      "text": "3",
      "lang": "en"
     }
-   ],
-   "kernelReads": "hi"
+   ]
   },
   {
    "id": "t34",
@@ -413,8 +412,7 @@
      "text": "Rs. 750",
      "lang": "en"
     }
-   ],
-   "kernelReads": "none"
+   ]
   },
   {
    "id": "t40",
@@ -492,8 +490,7 @@
      "text": "32",
      "lang": "en"
     }
-   ],
-   "kernelReads": "hi"
+   ]
   },
   {
    "id": "t46",

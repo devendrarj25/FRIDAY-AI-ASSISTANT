@@ -114,7 +114,7 @@ describe("the Hinglish lexicon data", () => {
     const json = JSON.parse(
       readFileSync(resolve(__dirname, "../../config/hinglish-lexicon.json"), "utf8"),
     ) as { version: string; sureHindiAdded: Array<[string, string]> };
-    expect(json.version).toBe("hinglish-lex-2");
+    expect(json.version).toBe("hinglish-lex-3");
     const lines = lexiconDataLines();
     expect(lines).toEqual([...lines].sort());
     const hash = createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
@@ -128,5 +128,5 @@ describe("the Hinglish lexicon data", () => {
   });
 });
 
-const PINNED_LINES = 308;
-const PINNED_HASH = "739c3b0fb4d9ce2660ccc89111eff59014cddcc2e2faf4a94059cc899448fba2";
+const PINNED_LINES = 463;
+const PINNED_HASH = "cbfa1f67b66f01bc77d1aecd4dc3fd77c7d03e0ad3d183dc121638f0e4c5846b";

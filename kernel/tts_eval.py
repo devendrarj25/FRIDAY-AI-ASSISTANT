@@ -354,11 +354,15 @@ _first_clause_text = first_clause
 
 
 def error_rates(kind: str, reference: str, heard: str) -> tuple[float, float]:
-    """(WER, CER) of what was heard against what was spoken, with the normaliser that fits the kind."""
+    """(WER, CER) of what was heard against what was spoken, with the normaliser that fits the kind (the mixed kinds
+    also read a Devanagari loanword as the Latin word it spells)."""
     if kind == "en":
         return stt_bench.wer(reference, heard, english=True), stt_bench.cer(reference, heard, english=True)
     if kind == "hi":
         return stt_bench.wer(reference, heard), stt_bench.cer(reference, heard)
+    # An ear told the language is Hindi writes English words in Devanagari ("मैसेज"): that is its script, not the
+    # voice saying a wrong word. The mixed kinds are scored with every table loanword back in Latin on both sides.
+    reference, heard = stt_bench.fix_script(reference, "english"), stt_bench.fix_script(heard, "english")
     return stt_bench.folded_wer(reference, heard), stt_bench.folded_cer(reference, heard)
 
 

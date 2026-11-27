@@ -263,15 +263,12 @@ def _kernel_number_lang(line) -> str:
 
 
 # The language comes from the neighbouring word (``script-policy.ts`` spanTreatments, pinned in the vitest of the same
-# fixture) and the kernel follows it: the word after the number, else the word before it. The fixture still lists
-# t33, t39 and t45 as ``kernelReads`` gaps (the kernel used to read the clause language); they are fixed here. The one
-# line where the kernel differs on purpose is t21: it knows ``nayi`` is Hindi (the renderer's lexicon does not yet),
-# so it says the number in Hindi.
-KERNEL_READS_BETTER = {"t21": "hi"}
-FIXED_GAPS = ("t33", "t39", "t45")
+# fixture) and the kernel follows it: the word after the number, else the word before it. The renderer's and the
+# kernel's word tables are one file now (config/hinglish-lexicon.json), so ``nayi`` is Hindi in both and no line is a
+# declared gap any more.
 
 
-def test_the_kernel_reads_each_number_in_the_language_the_policy_names_except_the_declared_gaps():
+def test_the_kernel_reads_each_number_in_the_language_the_policy_names():
     gaps = {}
     for line in LINES:
         if not line.get("numbers"):
@@ -279,11 +276,42 @@ def test_the_kernel_reads_each_number_in_the_language_the_policy_names_except_th
         found = _kernel_number_lang(line)
         if found != line["numbers"][0]["lang"]:
             gaps[line["id"]] = found
-    assert gaps == KERNEL_READS_BETTER, gaps
-    by_id = {line["id"]: line for line in LINES}
-    for line_id in FIXED_GAPS:  # the pins of the first measurement, flipped to what the policy says
-        assert by_id[line_id].get("kernelReads"), line_id
-        assert _kernel_number_lang(by_id[line_id]) == by_id[line_id]["numbers"][0]["lang"], line_id
+    assert gaps == {}, gaps
+    assert not [line["id"] for line in LINES if "kernelReads" in line]
+    assert "kernelReads" not in FIXTURE["note"]
+
+
+def _said(text: str, hint: str = "") -> str:
+    return " ".join(clause.text for clause in tts_frontend.prepare(text, hint))
+
+
+def test_a_degree_sign_is_spoken_as_degrees_celsius_or_fahrenheit_not_dropped():
+    assert _said("It is 32°C today.", "en") == "It is thirty two degrees Celsius today."
+    assert _said("It is 98.6°F today.", "en") == "It is ninety eight point six degrees Fahrenheit today."
+    assert _said("It is 1°C today.", "en") == "It is one degree Celsius today."
+    assert _said("It is 32 °C today.", "en") == "It is thirty two degrees Celsius today."
+    assert _said("It is 32 \u2103 today.", "en") == "It is thirty two degrees Celsius today."
+    assert _said("It is 90 \u2109 today.", "en") == "It is ninety degrees Fahrenheit today."
+    assert _said("Turn 90° left.", "en") == "Turn ninety degrees left."
+
+
+def test_the_degree_unit_follows_the_number_language_like_any_other_unit():
+    assert "बत्तीस डिग्री सेल्सियस" in _said("आज तापमान 32°C है।", "hi")
+    assert "डिग्री फ़ारेनहाइट" in _said("आज तापमान 90°F है।", "hi")
+    roman = _said("Aaj 32°C hai.", "hi")
+    assert "बत्तीस डिग्री सेल्सियस" in roman and "क है" not in roman, roman  # the letter C was read as a Hindi letter
+    assert _said("Aaj temperature 32 degree hai.", "hi") == "आज temperature thirty two degree है."  # typed words stay
+
+
+def test_the_degree_sign_reads_the_same_however_the_reply_arrives_in_pieces():
+    whole = [c.text for c in tts_frontend.prepare("It is 32°C in Delhi and 90°F in Austin. Stay cool.", "en")]
+    pieces = ["It is 3", "2°C in D", "elhi and 9", "0°F in ", "Austin. St", "ay cool."]
+    assert [c.text for c in tts_frontend.clauses(pieces, "en")] == whole
+    assert "thirty two degrees Celsius" in " ".join(whole) and "ninety degrees Fahrenheit" in " ".join(whole)
+
+
+def test_a_reply_without_a_degree_sign_is_untouched_by_the_degree_rule():
+    assert _said("Version C is ready, option F too.", "en") == "Version C is ready, option F too."
 
 
 def test_the_kernel_says_each_plain_hindi_or_english_numeric_line_as_its_spoken_form():

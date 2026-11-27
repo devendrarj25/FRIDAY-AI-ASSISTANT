@@ -46,10 +46,10 @@ type Line = {
   text: string;
   spoken: string;
   numbers?: Array<{ text: string; lang: "hi" | "en" }>;
-  kernelReads?: string;
 };
 const fixture = JSON.parse(read("core/fixtures/voice-eval/tts-mixed-script.json")) as {
-  lines: Line[];
+  note: string;
+  lines: Array<Line & Record<string, unknown>>;
 };
 const recipes = JSON.parse(read("kernel/friday_voice_recipes.json")) as {
   default: string;
@@ -291,8 +291,16 @@ describe("the mixed-script reading fixture and the script policy", () => {
     }
   });
 
-  it("lists the lines where the kernel front end reads a number in the other language", () => {
-    const gaps = fixture.lines.filter((line) => line.kernelReads).map((line) => line.id);
-    expect(gaps).toEqual(["t33", "t39", "t45"]);
+  it("declares no line where the kernel front end reads a number in the other language", () => {
+    expect(fixture.lines.filter((line) => "kernelReads" in line).map((line) => line.id)).toEqual(
+      [],
+    );
+    expect(fixture.note).not.toMatch(/kernelReads/);
+  });
+
+  it("reads the number of the 'nayi emails' line in Hindi, as the kernel front end does", () => {
+    const line = fixture.lines.find((row) => row.id === "t21");
+    expect(line?.numbers?.map((n) => n.lang)).toEqual(["hi"]);
+    expect(line?.spoken).toMatch(/barah nayi/);
   });
 });

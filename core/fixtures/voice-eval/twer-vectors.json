@@ -1,9 +1,9 @@
 {
   "note": "Synthetic vectors for T-WER, the switch-point error rate, the script policy and the Wilson ranges, shared by kernel/stt_bench.py and src/lib/friday/voice-engine/transcript-scorer.ts (and hinglish-lexicon.ts). Text is invented, no audio exists. The fixScript, label, fold and count expectations were worked out by hand; the Wilson ranges were checked against the textbook values (0 of 10 is 0 to 0.2775, 5 of 10 is 0.2366 to 0.7634). The lexicon digest pins the two copies of the word tables together: when you change a table in one language, change the other and the digest. They test the scorer, not any model.",
-  "lexiconVersion": "hinglish-lex-2",
+  "lexiconVersion": "hinglish-lex-3",
   "lexiconDigest": {
-    "entries": 258,
-    "sha256": "42244b624bad4023a308a7c6649cca4e84270316e2ae2da1aad9700a7451484d",
+    "entries": 413,
+    "sha256": "5e126d752f43471110b6dd00e7ad0e4a39f08d757b3be435b967d21a7dec539b",
     "how": "sha256 of the lexicon lines joined with a newline, UTF-8"
   },
   "fix": [
