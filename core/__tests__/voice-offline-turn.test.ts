@@ -180,6 +180,7 @@ afterEach(() => {
 /** The controller's own methods this proof reads (private in the product, the simulator drives the same object). */
 type Controller = SimHarness["d"] & {
   offlineVoiceReady: boolean;
+  offlineVoicePackage: boolean;
   speakPlan: (
     text: string,
     localOnly?: boolean,
@@ -221,6 +222,8 @@ function play(
       base.setup?.(h);
       // The simulator installs its own bridge object just before setup runs: put the cloud tripwires on it.
       Object.assign(globals["friday"] as object, ipcTripwires());
+      // TEST_REWRITE_OK: readiness is recomputed from the package row and the worker status, so the row is set too.
+      controller(h).offlineVoicePackage = true;
       controller(h).offlineVoiceReady = true;
       extra(h);
     },
@@ -363,6 +366,7 @@ describe.each([true, false])("a whole Auto turn, network reported up: %s", (onli
   it("the speech engine is never a cloud one, ready or not, once the network is reported down", async () => {
     installTripwires(online);
     const turn = await play(SCENARIOS["clean"]!, (h) => {
+      controller(h).offlineVoicePackage = false;
       controller(h).offlineVoiceReady = false;
     });
     const plan = controller(turn.h).speakPlan("It is ten past three.");

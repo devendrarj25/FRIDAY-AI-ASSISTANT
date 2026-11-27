@@ -33,6 +33,8 @@ import {
 import { echoLive } from "./voice-engine/echo-live";
 import { LOCAL_VOICE_STYLES, preferences, type VoiceModel } from "./preferences";
 import { listAudioDevices } from "./voice-audio";
+import { readFridayVoiceStatus } from "./voice-diagnostics-rows";
+import { dominantScript, fallbackUtterLang, noteOutputDevices } from "./tts-ladder";
 import { routeToSpeaker, type SinkTarget } from "./voice-engine/audio-devices";
 import { ttsEnginePlan } from "./voice-engine/voice-choices";
 import { models } from "./models-engine";
@@ -320,6 +322,23 @@ export async function neuralVoiceStatus(): Promise<{
   } catch (error) {
     return { available: false, reason: (error as Error)?.message ?? "unavailable" };
   }
+}
+
+/**
+ * One reading of "can FRIDAY Voice speak on this PC", the same one prewarm and Doctor use: the own engine reports
+ * ready, or the worker's older flag says available, or the package row of the Install Manager says installed. The
+ * reason is the local failure the worker gave (empty when its own engine is ready), so a status line can carry it.
+ */
+export function localVoiceReadiness(
+  status: { available?: boolean; reason?: string; fridayVoice?: unknown } | null | undefined,
+  packageInstalled: boolean,
+): { ready: boolean; reason: string } {
+  const own = readFridayVoiceStatus(status?.fridayVoice);
+  const ownReady = Boolean(own && own.ready);
+  const ready = ownReady || status?.available === true || packageInstalled;
+  if (ownReady) return { ready, reason: "" };
+  const reason = (own?.reason || status?.reason || "").trim().slice(0, 120);
+  return { ready, reason };
 }
 
 /** Install edge-tts through the shared Python toolchain (free, no API key). */
@@ -788,7 +807,9 @@ export const speakerFallbackNote = (): string => (savedSpeaker() ? speakerNoteTe
 /** Send one playback target (an audio element or the PCM player's context) to the saved speaker. Never throws. */
 async function routeSpeaker(target: SinkTarget): Promise<void> {
   try {
-    const { outputs } = await listAudioDevices();
+    const listed = await listAudioDevices();
+    noteOutputDevices(listed);
+    const { outputs } = listed;
     const result = await routeToSpeaker(
       target,
       savedSpeaker(),
@@ -800,6 +821,15 @@ async function routeSpeaker(target: SinkTarget): Promise<void> {
   }
 }
 
+/** Read the output list once and remember it, so the output check names the real sink. Never throws. */
+export async function refreshOutputDevices(): Promise<void> {
+  try {
+    noteOutputDevices(await listAudioDevices());
+  } catch {
+    noteOutputDevices(null);
+  }
+}
+
 /**
  * The owner changed the speaker (or plugged one in or out): the speech that is playing and the PCM player move to
  * it now, and what plays next follows. A browser that cannot choose a speaker keeps the default and says so.
@@ -808,7 +838,9 @@ export async function applySpeakerChoice(): Promise<void> {
   if (currentAudio) await routeSpeaker(currentAudio as unknown as SinkTarget);
   if (pcmContext) await routeSpeaker(pcmContext as unknown as SinkTarget);
   if (!currentAudio && !pcmContext && savedSpeaker()) {
-    const { outputs } = await listAudioDevices();
+    const listed = await listAudioDevices();
+    noteOutputDevices(listed);
+    const { outputs } = listed;
     const result = await routeToSpeaker(
       {},
       savedSpeaker(),
@@ -1793,9 +1825,7 @@ export function systemVoiceTimeoutMs(chars: number, rate: number): number {
 
 /** Text that is mostly Devanagari needs a Hindi voice: without one the system voice would only mispronounce it. */
 function needsHindiVoice(text: string): boolean {
-  const devanagari = (text.match(/[\u0900-\u097F]/g) ?? []).length;
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
-  return devanagari > 0 && devanagari >= latin;
+  return dominantScript(text) === "devanagari";
 }
 
 function speakWithSystemVoice(
@@ -1815,7 +1845,9 @@ function speakWithSystemVoice(
     return Promise.resolve(false);
   }
   const utter = new SpeechSynthesisUtterance(spoken);
-  utter.lang = tuning.lang || "hi-IN";
+  // The rung's own language follows what the line is written in (the en-in to hi-IN mapping is unchanged).
+  const wantedLang = fallbackUtterLang(spoken, tuning.lang);
+  utter.lang = wantedLang;
   utter.rate = tuning.rate;
   utter.pitch = tuning.pitch;
   utter.volume = tuning.volume;
@@ -1830,7 +1862,7 @@ function speakWithSystemVoice(
   rememberSpeechRoute({
     engine: "speechSynthesis",
     voiceId: match?.name || "",
-    lang: tuning.lang || "hi-IN",
+    lang: wantedLang,
     cloud: false,
     note: picked.note,
   });

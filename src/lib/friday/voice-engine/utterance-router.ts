@@ -95,6 +95,8 @@ export type RouterInput = {
   hasExtra?: boolean | undefined;
   /** How often she asks first (the autonomy dial, adjusted by the owner's confirm level). Balanced when absent. */
   approvalLevel?: ApprovalLevel | undefined;
+  /** How long a spoken yes stays valid, in ms (the owner's `voice.approvalTtlSec`); the 30 s default when absent. */
+  approvalTtlMs?: number | undefined;
 };
 
 /* ---------- text ---------- */
@@ -540,7 +542,7 @@ export function routeUtterance(input: RouterInput): Route {
     !names() &&
     !(verdict === "no" && isPureStop(value))
   ) {
-    if (!approvalFresh(input.pendingApproval.askedAt, input.now)) {
+    if (!approvalFresh(input.pendingApproval.askedAt, input.now, input.approvalTtlMs)) {
       return { kind: "chitchat", reason: "approval-expired" };
     }
     const id = input.pendingApproval.taskId;

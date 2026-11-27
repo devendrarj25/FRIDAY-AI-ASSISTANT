@@ -5,7 +5,7 @@ import { voiceBudgets } from "./failure-guard";
 import { trackWatch } from "./mic-session";
 import { personalOffer } from "./proactive-line";
 import { thinkBudget } from "./think-budget";
-import { outputReachable } from "./tts-ladder";
+import { cachedOutputSinkId, outputReachable } from "./tts-ladder";
 import { roomWakeDecision } from "./wake-engine";
 import { CLEAN_PC_SCRIPT, freshMachine, walkVoiceFlow } from "./voice-flow";
 import { voicePackReport } from "./voice-pack";
@@ -13,7 +13,7 @@ import { voiceGate } from "./voice-audio";
 import { lastSpeechRoute } from "./voice-library";
 import { currentVoiceHealth } from "./voice-health";
 import { prewarmDoctorRows } from "./voice-engine/prewarm";
-import type { VoiceEarsPrefs } from "./preferences";
+import { preferences, type VoiceEarsPrefs } from "./preferences";
 import {
   bargeInRow,
   earsRows,
@@ -161,6 +161,8 @@ const CHECK_LAYER: Array<[RegExp, VoiceLayer]> = [
 ];
 
 let lastCheckMarks: Partial<Record<VoiceLayer, LayerMark>> = {};
+/** Why each failed layer failed, from the same check (one short line each). */
+let lastCheckReasons: Partial<Record<VoiceLayer, string>> = {};
 
 /**
  * Remember the last real voice check (Voice diagnostics → voice check) as
@@ -170,6 +172,7 @@ export function noteVoiceCheck(
   checks: ReadonlyArray<{ id: string; ok: boolean; required?: boolean; detail?: string }>,
 ): Partial<Record<VoiceLayer, LayerMark>> {
   const marks: Partial<Record<VoiceLayer, LayerMark>> = {};
+  const reasons: Partial<Record<VoiceLayer, string>> = {};
   for (const check of checks) {
     const layer = CHECK_LAYER.find(([pattern]) => pattern.test(check.id))?.[1];
     if (!layer) continue;
@@ -177,10 +180,12 @@ export function noteVoiceCheck(
     if (check.ok && /^skipped/i.test(String(check.detail || ""))) continue;
     if (!check.ok && check.required === false) continue;
     marks[layer] = check.ok && marks[layer] !== "fail" ? "pass" : "fail";
+    if (!check.ok && !reasons[layer]) reasons[layer] = shortFailure(check.detail);
   }
   if (marks.package === "pass") marks.pip = "pass";
   if (marks.model === "pass") marks.worker = "pass";
   lastCheckMarks = marks;
+  lastCheckReasons = reasons;
   return marks;
 }
 
@@ -251,7 +256,7 @@ export function voiceLayerChecks(
       detail:
         mark === "pass"
           ? `${id} passed the last local check.`
-          : `${id} failed. Use Fix voice or Install Manager, then retry.`,
+          : `${id} failed${lastCheckReasons[id] ? ` (${lastCheckReasons[id]})` : ""}. Use Fix voice or Install Manager, then retry.`,
       fixable: false,
     });
   }
@@ -452,7 +457,10 @@ export function voiceReadinessNote(root: string): string {
     handles: voiceGate.liveTracks(),
     crashes: voiceGate.lastCaptureFailure() ? 1 : 0,
   });
-  const output = outputReachable({ deviceId: "default", volume: 1 });
+  const output = outputReachable({
+    deviceId: cachedOutputSinkId(preferences.getSnapshot().voice.outputDeviceId),
+    volume: 1,
+  });
   const memory = arcSnapshot().length;
   return `${ids}. Offline cases: ${corpus.length}. Voice steps ${steps}. Flow ${flow.phase}. Scenarios ${scenarios.length - failed}/${scenarios.length}. Budgets ${budgets.filter((row) => row.ok).length}. Sample ${sample}. Grade ${graded}. Wake ${wake.mark}. Watch ${watch.restart ? "restart" : "steady"}. Output ${output.ok ? "ready" : "silent"}. Notes ${memory}.${quiet}${sight.text}`;
 }

@@ -1692,10 +1692,26 @@ const SMALL_ACK_DEVA = /^(?:ठीक है|अच्छा|हाँ|हां
  * real request returns "" and takes the normal path, so nothing is lost or
  * answered with a guess.
  */
-export function busyReply(text: string, work: { task: string; elapsedMs: number }): string {
+export function busyReply(
+  text: string,
+  work: { task: string; elapsedMs: number; awaitingApproval?: boolean },
+): string {
   const heard = text.trim();
   if (!heard) return "";
   const form = replyForm(heard);
+  const asked =
+    STATUS_ASK.test(heard) ||
+    STATUS_ASK_DEVA.test(heard) ||
+    SMALL_ACK.test(heard) ||
+    SMALL_ACK_DEVA.test(heard);
+  if (work.awaitingApproval === true && asked) {
+    // The run is stopped at its approval: "still working" would be false. Say what it waits for, and where.
+    return {
+      en: "I'm waiting on your approval. It needs your tap on screen.",
+      hi: "आपकी मंज़ूरी का इंतज़ार है। स्क्रीन पर टैप करना होगा।",
+      hinglish: "Aapki approval ka intezaar hai. Screen par tap karna hoga.",
+    }[form];
+  }
   if (STATUS_ASK.test(heard) || STATUS_ASK_DEVA.test(heard)) {
     const task = work.task.replace(/\s+/g, " ").trim().slice(0, 60);
     const seconds = Math.max(1, Math.round(work.elapsedMs / 1000));
@@ -1735,7 +1751,7 @@ const BUSY_QUEUE_AFTER_MS = 4000;
 
 export function whileBusy(
   text: string,
-  work: { task: string; elapsedMs: number },
+  work: { task: string; elapsedMs: number; awaitingApproval?: boolean },
   limits: { queued: number; maxQueued?: number } = { queued: 0 },
 ): BusyDecision {
   const heard = text.trim();
