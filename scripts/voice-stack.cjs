@@ -371,7 +371,7 @@ function languageRows({
   add("hinglish ears (STT)", ["hinglish-ear"], ["faster_whisper"]);
   add("hinglish speaking (TTS)", ["supertonic-3"], ["supertonic"]);
   add("hinglish punctuation", ["hindi-punct"], ["sentencepiece"]);
-  add("noise suppression (all languages)", [], ["pyrnnoise"]);
+  add("noise suppression (all languages)", [], [], ["pyrnnoise"]);
   add("echo canceller (all languages)", [], ["pyaec"]);
   return rows;
 }

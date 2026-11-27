@@ -17,13 +17,14 @@
 #   * Speech-to-text stays the faster-whisper worker in kernel/requirements.txt.
 #     moonshine-voice is that worker's English streaming model (MIT).
 #     Non-English Moonshine weights are a non-commercial license and are
-#     not downloaded. onnx-asr (MIT; numpy and onnxruntime only) runs FRIDAY's
-#     Hindi ear (the IndicConformer Hindi int8 ONNX, MIT) when Hindi is
-#     chosen; Hinglish and auto stay on faster-whisper, which also answers
-#     whenever the Hindi ear is missing or fails.
+#     not downloaded. FRIDAY's own runner (kernel/nemo_ear.py, numpy and
+#     onnxruntime only) runs the Hindi ear (the IndicConformer Hindi int8 ONNX,
+#     MIT) when Hindi is chosen; Hinglish and auto stay on faster-whisper,
+#     which also answers whenever the Hindi ear is missing or fails.
 #   * supertonic is the local neural speaker (code MIT, weights OpenRAIL-M).
 #     The ONNX files are downloaded on demand, not bundled in the EXE.
-#   * pyrnnoise is noise suppression on the PCM before that same worker.
+#   * Noise suppression on the PCM before that same worker is FRIDAY Denoise
+#     (its pinned weights, on demand); no pip package is needed for it.
 #   * Silero VAD and Smart Turn are ONNX files scored by onnxruntime.
 #     Do not add the silero-vad package; it requires torch.
 #   * Still not added: kokoro-onnx (phonemizer GPL-3), piper-tts
@@ -39,12 +40,10 @@ zeroconf>=0.154.0
 onnxruntime>=1.31.1
 supertonic>=1.3.1
 moonshine-voice>=0.1.6
-onnx-asr>=0.12.0
 # Hindi punctuation (kernel/hindi_punct.py): the SentencePiece tokeniser of the optional punctuation model, Apache-2.0,
 # a 1.7 MB wheel for Windows (cp312 to cp314) and Linux. It does not need torch. Optional at runtime: without it the
 # Hindi ear writes words without marks, as before.
 sentencepiece>=0.2.3
-pyrnnoise>=0.4.5
 # FRIDAY Echo (kernel/echo_canceller.py): SpeexDSP echo canceller, MIT, 83 KB win_amd64 wheel. Optional at runtime.
 pyaec>=1.0.1
 soundfile>=0.14.0

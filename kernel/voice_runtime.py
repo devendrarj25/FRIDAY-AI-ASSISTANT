@@ -375,7 +375,11 @@ def noise_status() -> dict:
 
         return {"ready": True, "engine": "pyrnnoise", "reason": ""}
     except Exception:
-        return {"ready": False, "engine": "none", "reason": "pyrnnoise is not installed"}
+        return {
+            "ready": False,
+            "engine": "none",
+            "reason": "optional - FRIDAY Denoise weights and the pyrnnoise fallback are both absent",
+        }
 
 
 def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> dict:
@@ -1560,7 +1564,7 @@ def check_lines() -> list[str]:
     if noise["ready"]:
         lines.append("PASS rnnoise")
     else:
-        lines.append(f"FAIL rnnoise {noise['reason']}")
+        lines.append(f"OPTIONAL rnnoise {noise['reason']}")
     echo = echo_canceller.echo_status()
     if echo["ready"]:
         lines.append(

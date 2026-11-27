@@ -105,7 +105,8 @@ describe("the voice smoke test reads what the voice runtime says", () => {
   it("keeps a real fault and a missing offline voice, and shows every other OPTIONAL row as a note", () => {
     const lines = [
       "PASS boot",
-      "FAIL rnnoise pyrnnoise is not installed",
+      "FAIL kernel-probe the voice probe crashed",
+      "OPTIONAL rnnoise optional - FRIDAY Denoise weights and the pyrnnoise fallback are both absent",
       "FAIL disk unmeasured",
       "OPTIONAL local-tts optional - not installed",
       "OPTIONAL vad-silero optional - not installed",
@@ -115,10 +116,11 @@ describe("the voice smoke test reads what the voice runtime says", () => {
       "PASS vad-energy desktop energy VAD remains the fallback",
     ];
     expect(smoke.problemsIn(lines)).toEqual([
-      "voice runtime: rnnoise pyrnnoise is not installed",
+      "voice runtime: kernel-probe the voice probe crashed",
       "voice runtime: local-tts optional - not installed",
     ]);
     expect(smoke.notesIn(lines)).toEqual([
+      "rnnoise optional - FRIDAY Denoise weights and the pyrnnoise fallback are both absent",
       "vad-silero optional - not installed",
       "smart-turn optional - not installed",
       "speaker optional - not installed",

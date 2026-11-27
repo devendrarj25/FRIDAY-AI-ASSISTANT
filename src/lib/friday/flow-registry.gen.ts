@@ -4687,6 +4687,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "hinglish-ear-pro",
+      kind: "model",
+      name: "FRIDAY Ear Hinglish Pro",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "hinglish-ear-trelis",
       kind: "model",
       name: "FRIDAY Ear Hinglish Large (candidate, mixed script)",
@@ -9757,8 +9763,8 @@ export const FLOW_REGISTRY = {
       total: 170,
     },
     capabilities: {
-      mapped: 1118,
-      total: 1118,
+      mapped: 1119,
+      total: 1119,
     },
     ipc: {
       mapped: 521,
