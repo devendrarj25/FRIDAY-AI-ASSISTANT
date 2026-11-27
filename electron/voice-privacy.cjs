@@ -164,6 +164,8 @@ function setRetention({ keep, days } = {}) {
 const TEMP_CLIP = /^[0-9a-f]{16}\.(?:webm|ogg|wav)$/;
 /** The same for the bootstrap cache used before a folder is chosen: a raw clip, or a cloud reply named by its sha1. */
 const BOOT_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.mp3)$/;
+/** What "delete voice data" removes from the spoken-reply cache: the names above plus a local reply (sha1 wav). */
+const REPLY_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.(?:mp3|wav))$/;
 
 /** Every audio cache location with the group it is counted under. A `names` filter limits a shared folder. */
 function cacheTargets() {
@@ -320,7 +322,7 @@ function removeClip(file) {
 
 /**
  * "Delete voice data" in one call: the voiceprint and every audio cache the speech paths leave behind. Strict: only a
- * file named the way FRIDAY names it (16 hex and an audio extension, or 40 hex and mp3) goes, a link is never followed
+ * file named the way FRIDAY names it (16 hex and an audio extension, or 40 hex and mp3, or 40 hex and wav in the reply cache) goes, a link is never followed
  * or removed, and a cache folder that links out of its root is skipped. Safe to call twice.
  * Answers how many files went (the voiceprint counts as one), their size, and how many stayed.
  */
@@ -357,8 +359,10 @@ function clearVoiceData() {
     } catch {
       continue;
     }
+    // Local replies (40 hex and wav) are written only into the spoken-reply cache, so only that group matches them.
+    const named = target.group === "replies" ? REPLY_CLIP : BOOT_CLIP;
     for (const entry of names) {
-      if (!entry.isFile() || !BOOT_CLIP.test(entry.name)) continue;
+      if (!entry.isFile() || !named.test(entry.name)) continue;
       const size = removeClip(path.join(target.dir, entry.name));
       if (size < 0) failed += 1;
       else {

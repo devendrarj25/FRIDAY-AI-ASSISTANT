@@ -1,7 +1,7 @@
 /**
  * "Delete voice data" (the voiceprint clear handler): the voiceprint and every audio cache FRIDAY keeps under the
  * FRIDAY folder, plus FRIDAY's own temp clips, go in one call that says how many files went. Only files FRIDAY
- * names that way (16 hex and an audio extension, or 40 hex and mp3) are removed; a stranger's file, a link and a
+ * names that way (16 hex and an audio extension, or 40 hex and mp3 or wav in the reply cache) are removed; a stranger's file, a link and a
  * folder that links out of the root are left alone; a second call removes nothing. A temp folder stands in for the
  * PC; no microphone.
  */
@@ -91,12 +91,44 @@ describe("delete voice data clears the voiceprint and the audio caches", () => {
       seed(path.join(sys, "wake-in"), "short.wav"),
       seed(path.join(sys, "friday-sapi"), "someone-elses.wav"),
       seed(sys, `${HEX16}.wav`),
-      seed(path.join(root, "cache", "tts"), `${HEX40}.wav`),
+      seed(path.join(root, "cache", "tts"), `${"a".repeat(39)}.wav`),
+      seed(path.join(root, "cache", "tts"), `${"a".repeat(41)}.wav`),
+      seed(path.join(root, "cache", "tts"), `${"AB".repeat(20)}.wav`),
+      seed(path.join(root, "cache", "stt-in"), `${HEX40}.wav`),
+      seed(path.join(root, "cache", "tts", "sub"), `${HEX40}.wav`),
     ];
     seed(path.join(root, "cache", "tts"), `${HEX40}.mp3`);
     const out = privacy.clearVoiceData();
     expect(out.removed).toBe(1);
     for (const file of strangers) expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it("removes a local reply clip (40 lowercase hex and wav) from the reply cache and counts it", () => {
+    const clip = seed(path.join(root, "cache", "tts"), `${HEX40}.wav`, "RIFFlocal-reply");
+    const out = privacy.clearVoiceData();
+    expect(out).toMatchObject({ ok: true, removed: 1, failed: 0 });
+    expect(out.bytes).toBe("RIFFlocal-reply".length);
+    expect(fs.existsSync(clip)).toBe(false);
+    expect(privacy.clearVoiceData().removed).toBe(0);
+  });
+
+  it("leaves the target of a link named like a local reply clip intact and the link in place", () => {
+    const outside = seed(path.join(tmp, "outside"), "precious.wav");
+    const link = path.join(root, "cache", "tts", `${HEX40}.wav`);
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    try {
+      fs.symlinkSync(outside, link);
+    } catch {
+      return;
+    }
+    const out = privacy.clearVoiceData();
+    expect(out.removed).toBe(0);
+    expect(fs.existsSync(outside)).toBe(true);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+
+  it("does not throw and removes nothing when the reply cache folder is missing", () => {
+    expect(privacy.clearVoiceData()).toMatchObject({ ok: true, removed: 0, failed: 0 });
   });
 
   it("never follows or removes a link, even one named like a FRIDAY clip", () => {
