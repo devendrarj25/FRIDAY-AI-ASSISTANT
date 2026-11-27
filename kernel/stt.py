@@ -46,6 +46,7 @@ _KERNEL_DIR = str(Path(__file__).resolve().parent)
 if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
+import glossary_learn  # noqa: E402
 import hindi_ear  # noqa: E402
 import speech_segments  # noqa: E402
 import stream_ear  # noqa: E402
@@ -572,6 +573,24 @@ def snap_text(text: str, hotwords: list[str]) -> str:
     return " ".join(w.text for w in snap_hotwords(words_from_text(text), hotwords))
 
 
+def _learn_on(extras: dict | None) -> bool:
+    """The owner's ``learnGlossary`` setting (extras); on unless it is explicitly false."""
+    return (extras or {}).get("learnGlossary") is not False
+
+
+def ears_hotwords(extras: dict | None) -> str:
+    """The owner's words first, then the words learned from his corrections; one line under the same cap."""
+    owner = clean_hotwords((extras or {}).get("hotwords"))
+    learned = glossary_learn.glossary_terms(_learn_on(extras))
+    return clean_hotwords([owner, *learned]) if learned else owner
+
+
+def with_glossary_hint(hint: str, extras: dict | None) -> str:
+    """``initial_prompt`` text with the learned words appended (unchanged when off or nothing is learned)."""
+    learned = glossary_learn.prompt_hint(_learn_on(extras))
+    return f"{hint} {learned}".strip() if learned else hint
+
+
 def decode_options(extras: dict | None, language_locked: bool) -> dict:
     """Extra faster-whisper 1.2.1 options from the owner's settings. Everything is off unless it is asked for.
 
@@ -582,7 +601,7 @@ def decode_options(extras: dict | None, language_locked: bool) -> dict:
     """
     extras = extras or {}
     out: dict = {}
-    hot = clean_hotwords(extras.get("hotwords"))
+    hot = ears_hotwords(extras)
     if hot:
         out["hotwords"] = hot
     if extras.get("multilingual") is True and not language_locked:
@@ -3018,6 +3037,8 @@ def _transcribe_prepared(
     hint = "" if trelis else (initial_prompt or "").strip()  # (the Trelis prompt has no text part)
     if lang is None and not hint:
         hint = DEFAULT_HINT
+    if not trelis:
+        hint = with_glossary_hint(hint, extras)
     if samples is not None:  # a clip under 600 ms is decoded without a prompt (it would be repeated back)
         lang, hint = short_clip_decode(len(samples) / RATE, lang, hint)
     kwargs: dict = {

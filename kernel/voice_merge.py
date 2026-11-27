@@ -200,25 +200,25 @@ def merge_tensor(name: str, base: np.ndarray, others: Sequence[np.ndarray], reci
     """Merge one tensor in float32. ``others`` follow ``recipe['models']``; integer tensors keep the base value."""
     if not np.issubdtype(base.dtype, np.floating):
         return np.asarray(base)
-    method = recipe["method"]
+    how = recipe["method"]
     weights = [float(m.get("weight", 1.0)) for m in recipe["models"]]
     b = np.asarray(base, dtype=np.float32)
-    if method == "linear":
+    if how == "linear":
         parts = [float(recipe.get("base_weight", 1.0)), *weights]
         acc = b * parts[0]
         for w, t in zip(parts[1:], others, strict=True):
             acc = acc + w * np.asarray(t, dtype=np.float32)
         return acc / sum(parts)
     deltas = [np.asarray(t, dtype=np.float32) - b for t in others]
-    if method == "task_arithmetic":
+    if how == "task_arithmetic":
         return b + sum((w * d for w, d in zip(weights, deltas, strict=True)), np.zeros_like(b))
-    if method in ("dare_linear", "dare_ties"):
+    if how in ("dare_linear", "dare_ties"):
         rng = np.random.default_rng(_seed_for(name, int(recipe.get("seed", 0))))
         deltas = [dare_drop(d, float(recipe.get("drop", 0.9)), rng) for d in deltas]
     else:
         deltas = [trim_top(d, float(recipe.get("density", 0.2))) for d in deltas]
     scaled = [w * d for w, d in zip(weights, deltas, strict=True)]
-    if method == "dare_linear":
+    if how == "dare_linear":
         merged = sum(scaled, np.zeros_like(b))
     else:
         merged = elect_and_mean(scaled)

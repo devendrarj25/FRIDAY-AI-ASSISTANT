@@ -581,13 +581,18 @@ describe("one row per language and role, by this PC's plan", () => {
     ).toBe("FAIL");
   });
 
-  it("noise and echo rows are tied to pyrnnoise and pyaec", () => {
-    const list = rowsOf({ mods: mods({ pyrnnoise: false }) });
-    expect(get(list, "noise suppression (all languages)")?.state).toBe("FAIL");
-    expect(get(list, "noise suppression (all languages)")?.detail).toContain(
-      "package pyrnnoise NOT installed",
+  it("noise suppression runs on FRIDAY's own denoiser, pyrnnoise is only an optional fallback", () => {
+    const missing = rowsOf({ mods: mods({ pyrnnoise: false }) });
+    expect(get(missing, "noise suppression (all languages)")?.state).toBe("PASS");
+    expect(get(missing, "noise suppression (all languages)")?.detail).toContain(
+      "own runner (optional fallback pyrnnoise not installed)",
     );
-    expect(get(list, "echo canceller (all languages)")?.state).toBe("PASS");
+    const present = rowsOf({ mods: mods({ pyrnnoise: true }) });
+    expect(get(present, "noise suppression (all languages)")?.state).toBe("PASS");
+    expect(get(present, "noise suppression (all languages)")?.detail).toContain(
+      "package pyrnnoise present (fallback)",
+    );
+    expect(get(missing, "echo canceller (all languages)")?.state).toBe("PASS");
   });
 
   it("without the plan data the voice plan decides, and with neither it says the plan could not be read", () => {

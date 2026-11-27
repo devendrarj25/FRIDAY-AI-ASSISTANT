@@ -565,6 +565,11 @@ const KERNEL_CLASS = Object.freeze({
   "companion.status": "quick",
   "companion.pair": "quick",
   "companion.revoke": "quick",
+  "model.route_generation": "quick",
+  "glossary.learn": "quick",
+  "glossary.list": "quick",
+  "glossary.forget": "quick",
+  "privacy.classify": "quick",
 });
 
 function budgetFor(channel, args) {

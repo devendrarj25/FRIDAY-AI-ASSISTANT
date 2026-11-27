@@ -70,6 +70,11 @@ export const KERNEL_METHODS = [
   "companion.status",
   "companion.pair",
   "companion.revoke",
+  "model.route_generation",
+  "glossary.learn",
+  "glossary.list",
+  "glossary.forget",
+  "privacy.classify",
 ] as const;
 
 export type KernelMethod = (typeof KERNEL_METHODS)[number];
@@ -121,6 +126,20 @@ export const kernelApi = {
     sync: (models: Record<string, unknown>[]) =>
       call<{ synced?: number; models?: KernelModel[] }>("model.sync", { models }),
     remove: (id: string) => call<{ removed: boolean }>("model.remove", { id }),
+  },
+
+  /** Words the owner corrected become local hotwords for the ears; every call is local and reversible. */
+  glossary: {
+    learn: (rows: Record<string, unknown>[], on: boolean) =>
+      call<{ terms: string[] }>("glossary.learn", { rows, on }),
+    list: (on: boolean) => call<{ terms: string[] }>("glossary.list", { on }),
+    forget: (term: string) => call<{ removed: number }>("glossary.forget", { term }),
+    forgetAll: () => call<{ removed: number }>("glossary.forget", { all: true }),
+  },
+
+  /** The one privacy classifier (kernel/privacy.py); no second classifier lives in the app. */
+  privacy: {
+    classify: (text: string) => call<{ level: string }>("privacy.classify", { text }),
   },
 
   chat: {
