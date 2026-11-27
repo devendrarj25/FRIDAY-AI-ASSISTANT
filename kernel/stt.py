@@ -3290,6 +3290,8 @@ stream_ear.register_engine(
     )
 )
 stream_ear.HOST.hardware = stream_hardware_tier
+# The stream ear's GPU choice uses the same CUDA verdict as faster-whisper (cuBLAS 12 and cuDNN 9 found).
+stream_ear.HOST.cuda_ok = cuda_runtime_ready
 hindi_ear.admit_hook = admit
 stream_ear.admit_hook = admit
 

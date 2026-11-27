@@ -1299,6 +1299,54 @@ function budgetForProbe(probe, options = {}) {
   });
 }
 
+/**
+ * The live streaming ear under `voice.streamEngine` "auto" (the shipped default): on only when this PC has at least
+ * 12 GB of RAM and 4 cores AND a first-run self-bench of the ear (10 synthetic chunks of 320 ms, kernel/stream_ear.py
+ * `self_bench`) computes a chunk in 160 ms or less at the 95th percentile, half of real time. A named engine is the
+ * owner's choice and is never gated; "off" is always off. electron/stt.cjs stores the bench and re-runs it when the
+ * hardware facts change.
+ */
+const STREAM_AUTO = Object.freeze({
+  minRamGb: 12,
+  minCores: 4,
+  benchChunks: 10,
+  chunkMs: 320,
+  p95LimitMs: 160,
+});
+
+/** The hardware half of the "auto" rule: `{ eligible, reason, detail }`, reason `ok`, `low-ram` or `few-cores`. */
+function streamAutoHardware(facts = {}) {
+  const ram = Number(facts.totalRamGb);
+  const cores = Math.floor(Number(facts.cores));
+  if (!(ram >= STREAM_AUTO.minRamGb)) {
+    const known = ram > 0 ? `${round1(ram)} GB` : "an unknown amount of";
+    return {
+      eligible: false,
+      reason: "low-ram",
+      detail: `the live streaming ear stays off: this PC has ${known} RAM, it needs ${STREAM_AUTO.minRamGb} GB`,
+    };
+  }
+  if (!(cores >= STREAM_AUTO.minCores)) {
+    const known = cores > 0 ? String(cores) : "an unknown number of";
+    return {
+      eligible: false,
+      reason: "few-cores",
+      detail: `the live streaming ear stays off: this PC has ${known} processor cores, it needs ${STREAM_AUTO.minCores}`,
+    };
+  }
+  return { eligible: true, reason: "ok", detail: "" };
+}
+
+/** The bench half: a measured 95th-percentile chunk time within the limit. Anything unmeasured is not a pass. */
+function streamAutoBenchPassed(p95Ms) {
+  return (
+    typeof p95Ms === "number" &&
+    Number.isFinite(p95Ms) &&
+    p95Ms >= 0 &&
+    p95Ms <= STREAM_AUTO.p95LimitMs
+  );
+}
+
 const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
 
 /** An upper bound for the English streaming speech download, used only to check the disk (its real size is the publisher's). */
@@ -1643,6 +1691,9 @@ module.exports = {
   planFallback,
   pinnedFailureLine,
   streamEarDecision,
+  STREAM_AUTO,
+  streamAutoHardware,
+  streamAutoBenchPassed,
   EAR_MODELS,
   EXTRA_MODELS,
 };

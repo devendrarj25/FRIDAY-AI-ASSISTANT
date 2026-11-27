@@ -1078,6 +1078,182 @@ function cleanStreamEars(value) {
 
 const refused = (reason) => ({ ok: false, fallback: true, reason });
 
+/** An "auto" ear this PC is too small or too slow for reads `auto-<reason>`; any other reason is the worker's own. */
+const autoRefusal = (reason) =>
+  reason === "low-ram" || reason === "few-cores" || reason === "slow" ? `auto-${reason}` : reason;
+
+/** The stored bench of the "auto" streaming ear, `<FRIDAY_ROOT>/cache/stream-ear-auto.json`; a wiped cache re-benches once. */
+const STREAM_AUTO_FILE = "stream-ear-auto.json";
+const STREAM_AUTO_VERSION = 1;
+
+/** What this PC is, for the "auto" rule: RAM, processor count and model, and whether the speech kernel verified CUDA. */
+function streamAutoFacts() {
+  const cpus = os.cpus() || [];
+  return {
+    totalRamGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+    cores: cpus.length,
+    cpu: String(cpus[0]?.model || "").slice(0, 80),
+    gpu: Boolean(lastLocalLayers.cudaRuntimeReady),
+  };
+}
+
+/** The facts that decide whether a stored bench still describes this PC: any change re-runs it. */
+function streamAutoFingerprint(facts) {
+  return [
+    Math.round(Number(facts?.totalRamGb) || 0),
+    Math.floor(Number(facts?.cores) || 0),
+    String(facts?.cpu || ""),
+    facts?.gpu ? "gpu" : "cpu",
+  ].join("|");
+}
+
+function readStreamAutoFile() {
+  try {
+    // A read never creates the folder; only a measured bench writes.
+    return JSON.parse(fs.readFileSync(path.join(paths.dir("cache"), STREAM_AUTO_FILE), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeStreamAutoFile(record) {
+  try {
+    const file = path.join(paths.ensureDir("cache"), STREAM_AUTO_FILE);
+    fs.writeFileSync(`${file}.tmp`, JSON.stringify(record));
+    fs.renameSync(`${file}.tmp`, file);
+  } catch {
+    /* an unwritable cache costs one more bench on the next start, never the stream */
+  }
+}
+
+/**
+ * The "auto" verdict of the streaming ear (rule and numbers: electron/voice-weights.cjs STREAM_AUTO). `decide(bench)`
+ * answers `{ on, reason }`: the hardware check first (no worker call), then the stored bench when its fingerprint is
+ * this PC's, else `bench()` once (the kernel's stream-warm with `bench`, which also loads the model) and the measured
+ * p95 is stored. A bench that measured nothing is not stored, so the next turn tries again. `view()` is the status and
+ * Doctor line. Every dependency is injectable, so tests use fake facts, a fake store and a fake bench.
+ */
+function createStreamAuto({
+  facts = streamAutoFacts,
+  readStore = readStreamAutoFile,
+  writeStore = writeStreamAutoFile,
+} = {}) {
+  // Looked up on use: the weights table is not loaded with this module.
+  const weights = {
+    get rule() {
+      return require("./voice-weights.cjs").STREAM_AUTO;
+    },
+    streamAutoHardware: (f) => require("./voice-weights.cjs").streamAutoHardware(f),
+    streamAutoBenchPassed: (ms) => require("./voice-weights.cjs").streamAutoBenchPassed(ms),
+  };
+  let last = { on: null, reason: "not-checked", p95Ms: null };
+
+  const note = (verdict) => {
+    last = verdict;
+    return verdict;
+  };
+
+  function stored(fingerprint) {
+    let record = null;
+    try {
+      record = readStore();
+    } catch {
+      record = null;
+    }
+    if (!record || record.v !== STREAM_AUTO_VERSION || record.fingerprint !== fingerprint)
+      return null;
+    const p95 = record.p95Ms;
+    return typeof p95 === "number" && Number.isFinite(p95) && p95 >= 0 ? p95 : null;
+  }
+
+  /** The stored p95 for this PC, or null when the bench must (re)run. */
+  function known() {
+    let current;
+    try {
+      current = facts();
+    } catch {
+      return false;
+    }
+    return (
+      !weights.streamAutoHardware(current).eligible ||
+      stored(streamAutoFingerprint(current)) !== null
+    );
+  }
+
+  async function decide(bench) {
+    let current;
+    try {
+      current = facts();
+    } catch {
+      current = {};
+    }
+    const hardware = weights.streamAutoHardware(current);
+    if (!hardware.eligible) return { ...note({ on: false, reason: hardware.reason, p95Ms: null }) };
+    const fingerprint = streamAutoFingerprint(current);
+    const kept = stored(fingerprint);
+    if (kept !== null) {
+      return note({
+        on: weights.streamAutoBenchPassed(kept),
+        reason: weights.streamAutoBenchPassed(kept) ? "ok" : "slow",
+        p95Ms: kept,
+      });
+    }
+    let reply = null;
+    try {
+      const rule = weights.rule;
+      reply = await bench({ chunks: rule.benchChunks, chunkMs: rule.chunkMs });
+    } catch {
+      reply = null;
+    }
+    const p95 = reply?.bench?.p95Ms;
+    if (!reply?.ok || typeof p95 !== "number" || !Number.isFinite(p95) || p95 < 0) {
+      // Nothing measured (no pin yet, a load that failed, a slow first load): the same fallback, and no verdict kept.
+      const reason = String(reply?.reason || "bench-failed").slice(0, 48);
+      return { ...note({ on: false, reason, p95Ms: null }), reply };
+    }
+    const providers = Array.isArray(reply.bench.providers)
+      ? reply.bench.providers.filter((p) => typeof p === "string").slice(0, 4)
+      : [];
+    try {
+      writeStore({
+        v: STREAM_AUTO_VERSION,
+        fingerprint,
+        p95Ms: Math.round(p95 * 10) / 10,
+        providers,
+      });
+    } catch {
+      /* not stored: the next start benches again */
+    }
+    const passed = weights.streamAutoBenchPassed(p95);
+    return { ...note({ on: passed, reason: passed ? "ok" : "slow", p95Ms: p95 }), reply };
+  }
+
+  /** The status and Doctor line: `{ state, reason, p95Ms, limitMs, detail }`. */
+  function view() {
+    const rule = weights.rule;
+    const state = last.on === null ? "unknown" : last.on ? "on" : "off";
+    let detail = "the live streaming ear decides on its first use (a quick speed check)";
+    if (last.on === true) {
+      detail = `the live streaming ear is on: a 320 ms chunk took ${last.p95Ms} ms (limit ${rule.p95LimitMs} ms)`;
+    } else if (last.reason === "slow") {
+      detail = `the live streaming ear stays off: a 320 ms chunk took ${last.p95Ms} ms, over the ${rule.p95LimitMs} ms limit; choose an engine in Settings to use it anyway`;
+    } else if (last.on === false && last.reason !== "low-ram" && last.reason !== "few-cores") {
+      detail = `the live streaming ear could not be measured yet (${last.reason}); the ordinary listening path runs`;
+    } else if (last.on === false) {
+      let current = {};
+      try {
+        current = facts();
+      } catch {
+        current = {};
+      }
+      detail = weights.streamAutoHardware(current).detail || detail;
+    }
+    return { state, reason: last.reason, p95Ms: last.p95Ms, limitMs: rule.p95LimitMs, detail };
+  }
+
+  return { decide, known, view };
+}
+
 /**
  * FRIDAY's own streaming ear, the Electron side: stream-open, stream-feed and stream-close ride the one speech worker
  * (kernel/stream_ear.py StreamHost). One stream at a time. It holds the one turn gate from open to close, so a final
@@ -1096,6 +1272,7 @@ function createStreamEar({
   guard = (run) => run(),
   ownerEmbedding = async () => null,
   warmFirst = false,
+  auto = null,
   warmMs = STREAM_WARM_MS,
   idleMs = STREAM_IDLE_MS,
   setTimer = setTimeout,
@@ -1141,8 +1318,8 @@ function createStreamEar({
         timer = setTimer(() => resolve(MISS), warmMs);
         if (timer && typeof timer.unref === "function") timer.unref();
       });
-      try {
-        const reply = await Promise.race([
+      const ask = (extra = {}) =>
+        Promise.race([
           guard(() =>
             request(
               session,
@@ -1151,12 +1328,24 @@ function createStreamEar({
                 streamEngine: checked.engine,
                 locale: cleanStreamLocale(payload.locale),
                 ...(providers.length ? { providers } : {}),
+                ...extra,
               },
               {},
             ),
           ),
           missed,
         ]);
+      try {
+        let reply = null;
+        if (checked.engine === "auto" && auto) {
+          // "auto": the hardware rule, then the stored bench or one bench now (the bench is a warm that also measures).
+          const verdict = await auto.decide(async (bench) => {
+            reply = await ask({ bench });
+            return reply === MISS ? { ok: false, reason: "warming" } : reply;
+          });
+          if (!verdict.on) return refused(autoRefusal(verdict.reason));
+        }
+        if (reply === null) reply = await ask();
         if (reply === MISS) return refused("warming");
         if (!reply?.ok) return refused(String(reply?.reason || "engine-failed").slice(0, 64));
         const { op: _op, id: _id, ...rest } = reply;
@@ -1234,9 +1423,16 @@ function createStreamEar({
     if (checked.refusal) return checked.refusal;
     const { engine } = checked;
     const providers = cleanStreamProviders(payload.providers);
+    const gated = engine === "auto" && auto;
+    if (gated && !warmFirst && auto.known()) {
+      // A verdict this PC already has: no bench, no worker call.
+      const verdict = await auto.decide(async () => null);
+      if (!verdict.on) return refused(autoRefusal(verdict.reason));
+    }
     // A cold model load is minutes on a slow PC and would outlast the open's 25 s limit, which kills the worker: the
-    // warm-up takes the load first (its own limit, no gate held), and the open only reuses the loaded model.
-    if (warmFirst) {
+    // warm-up takes the load first (its own limit, no gate held), and the open only reuses the loaded model. An "auto"
+    // ear with no verdict yet warms first too: the warm runs its bench.
+    if (warmFirst || (gated && !auto.known())) {
       const warmed = await warm({ ...payload, streamEngine: engine });
       if (!warmed.ok) return warmed;
     }
@@ -1398,6 +1594,8 @@ function createStreamEar({
   return { open, warm, feed, close, abort, drop, active: () => current?.id ?? "" };
 }
 
+/** The "auto" verdict of this PC (status and Doctor read `streamAuto.view()`). */
+const streamAuto = createStreamAuto();
 /** The live worker, or nothing: the stream ear never starts one (the ordinary transcribe path does that). */
 const streamEar = createStreamEar({
   gate: turnGate,
@@ -1407,6 +1605,7 @@ const streamEar = createStreamEar({
   guard: guardedLoad,
   ownerEmbedding: () => require("./voiceprint.cjs").loadOwnerEmbedding(),
   warmFirst: true,
+  auto: streamAuto,
   // Looked up at call time, so a test's fake timers and the real ones both work.
   setTimer: (fn, ms) => setTimeout(fn, ms),
   clearTimer: (timer) => clearTimeout(timer),
@@ -1462,6 +1661,7 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
   value.moonshineReady = Boolean(layers.moonshineReady);
   value.windowsSpeech = Boolean(layers.windowsSpeech);
   value.cudaRuntimeReady = Boolean(layers.cudaRuntimeReady);
+  value.streamAuto = streamAuto.view();
   if (typeof lastHinglishEar.ready === "boolean")
     value.hinglishEarTrelisReady = lastHinglishEar.ready;
   if (lastHinglishEar.skipped) value.hinglishEarSkipped = lastHinglishEar.skipped;
@@ -2480,6 +2680,8 @@ module.exports = {
   liveModel,
   createTurnGate,
   createStreamEar,
+  createStreamAuto,
+  streamAutoFingerprint,
   streamOpen,
   streamWarm,
   setSpeechProfile,

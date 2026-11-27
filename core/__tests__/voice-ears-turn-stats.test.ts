@@ -120,11 +120,16 @@ describe("the barge-in row says when the ladder has no echo-clean signal", () =>
 
   it("the live stats carry the source only while the ladder is on", () => {
     expect(earsStatsNow()?.bargeSource).toBeUndefined();
+    // The ear switched off by the owner (auto is the shipped default now): no streaming source.
+    preferences.setVoice({ streamEngine: "off" });
     preferences.setVoice({ interruptGate: { enabled: true, ladder: true } as never });
     expect(earsStatsNow()?.bargeSource).toEqual({ streaming: false, echoReference: false });
     preferences.setVoice({ streamEngine: "auto" });
     expect(earsStatsNow()?.bargeSource?.streaming).toBe(true);
+    preferences.setVoice({ streamEngine: "nemotron" });
+    expect(earsStatsNow()?.bargeSource?.streaming).toBe(true);
     preferences.setVoice({ streamEngine: "off" });
+    expect(earsStatsNow()?.bargeSource?.streaming).toBe(false);
   });
 
   it("the source rule: the streaming ear or a reference that really cancelled frames", () => {

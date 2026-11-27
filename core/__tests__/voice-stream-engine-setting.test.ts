@@ -1,5 +1,6 @@
 /**
- * voice.streamEngine ("off" | "auto" | "nemotron" | "stream-ear-nemotron", default "off") and voice.itn (default on):
+ * voice.streamEngine ("off" | "auto" | "nemotron" | "stream-ear-nemotron", default "auto": the PC decides, see
+ * voice-hardware-adaptive.test.ts) and voice.itn (default on):
  * stored and normalised like the other voice settings, shown in Voice settings, and migrated from an old stored shape.
  */
 import { readFileSync } from "node:fs";
@@ -16,8 +17,9 @@ const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta
 const stt = createRequire(import.meta.url)("../../electron/stt.cjs");
 
 describe("voice.streamEngine and voice.itn defaults", () => {
-  it("the streaming ear is off and spoken-number writing is on, out of the box", () => {
-    expect(DEFAULT_PREFERENCES.voice.streamEngine).toBe("off");
+  it("the streaming ear is auto (this PC decides) and spoken-number writing is on, out of the box", () => {
+    expect(DEFAULT_PREFERENCES.voice.streamEngine).toBe("auto");
+    expect(DEFAULT_PREFERENCES.voice.streamEngine).not.toBe("nemotron");
     expect(DEFAULT_PREFERENCES.voice.itn).toBe(true);
   });
 
@@ -47,9 +49,9 @@ describe("storing and migrating the two settings", () => {
   }
   afterEach(() => vi.unstubAllGlobals());
 
-  it("an old stored shape without them migrates to off and on, and keeps what it had", async () => {
+  it("an old stored shape without them migrates to auto and on, and keeps what it had", async () => {
     const merged = await hydrateFrom({ voice: { liveWords: true } });
-    expect(merged.voice.streamEngine).toBe("off");
+    expect(merged.voice.streamEngine).toBe("auto");
     expect(merged.voice.itn).toBe(true);
     expect(merged.voice.liveWords).toBe(true);
   });
@@ -58,6 +60,8 @@ describe("storing and migrating the two settings", () => {
     const kept = await hydrateFrom({ voice: { streamEngine: "nemotron", itn: false } });
     expect(kept.voice.streamEngine).toBe("nemotron");
     expect(kept.voice.itn).toBe(false);
+    // A stored off is the owner's (the old default cannot be told apart from a choice): it stays off.
+    expect((await hydrateFrom({ voice: { streamEngine: "off" } })).voice.streamEngine).toBe("off");
     const bad = await hydrateFrom({ voice: { streamEngine: "bogus", itn: "no" } });
     expect(bad.voice.streamEngine).toBe("off");
     expect(bad.voice.itn).toBe(true);

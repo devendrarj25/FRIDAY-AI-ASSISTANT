@@ -36,7 +36,10 @@ Interface contract
 * Under ``auto`` the chooser also gates on speed: ``hardware_tier`` names the PC (``small-cpu``, ``mid``, ``gpu``),
   ``RtfLedger`` keeps the real-time factor each engine measured on this PC per tier (``<models>/stream-ear-rtf.json``,
   written after every stream of a second or more), and an engine measured slower than ``RTF_LIMIT`` is skipped for
-  the next one. An engine not measured yet is tried; an engine asked for by name is not gated.
+  the next one. An engine not measured yet is tried; an engine asked for by name is not gated. Electron gates "auto"
+  before this (12 GB, 4 cores and a ``self_bench`` p95 of 160 ms per 320 ms chunk, asked as ``stream-warm`` with
+  ``bench``). With no providers asked, ``choose_providers`` puts DirectML (Windows, optional runtime) or a verified
+  CUDA first and the CPU last; with no GPU the session is the CPU one, exactly as before.
 * ``La2Engine`` is the same protocol over ``la2_partials.La2Partials`` for ears that re-decode a rolling window
   (LocalAgreement-2): the worker (``stt.py``) registers the Hindi ear (``stream-ear-hindi``, Hindi only) and the
   resident faster-whisper model (``stream-ear-whisper``, English, Hindi and Hinglish) behind ``locate`` pin checks.
@@ -57,12 +60,15 @@ numpy and onnxruntime are imported only when an engine is built, so a missing on
 
 from __future__ import annotations
 
+import array
 import base64
 import binascii
 import importlib.util
 import json
 import math
 import os
+import random
+import sys
 import threading
 import time
 from collections import deque
@@ -81,6 +87,8 @@ from vad_onnx import build_gate, clamp_config
 
 ENGINE_NAME = "stream-ear-nemotron"
 SETTING_KEY = "voice.streamEngine"
+# The words the setting offers (renderer STREAM_ENGINE_PICKS and electron/stt.cjs STREAM_ENGINES hold the same list).
+SETTING_WORDS = ("off", "auto", "nemotron", ENGINE_NAME)
 STREAM_OPS = frozenset({"stream-open", "stream-feed", "stream-close"})
 # Load the streaming model ahead of the first turn, with no stream opened. Not a stream op: the worker runs it on its
 # own thread so a long first load never holds up a transcribe or a status.
@@ -262,6 +270,109 @@ class RtfLedger:
             except OSError:
                 pass  # a read-only folder costs the memory of the speed, never the stream
         return row[tier]
+
+
+# ---- the "auto" self-bench and the execution providers ----------------------------------------------------------
+# Under ``voice.streamEngine`` "auto" Electron (electron/stt.cjs createStreamAuto, rule in electron/voice-weights.cjs
+# STREAM_AUTO) asks ``stream-warm`` with ``bench {chunks, chunkMs}``: after the load the engine reads synthetic speech
+# in chunks and the reply carries ``bench {chunks, chunkMs, p95Ms, maxMs, meanMs, providers}``. Electron judges and
+# stores it; this module only measures. The words ``off``, ``auto`` and the engine names are the same three lists in
+# src/lib/friday/preferences.ts, electron/stt.cjs and ``SETTING_WORDS`` (kernel/tests/test_stream_auto.py).
+
+BENCH_CHUNKS = 10
+BENCH_CHUNK_MS = 320
+BENCH_SEED = 7
+CPU_PROVIDER = "CPUExecutionProvider"
+CUDA_PROVIDER = "CUDAExecutionProvider"
+DML_PROVIDER = "DmlExecutionProvider"
+
+
+def bench_audio(chunks: int = BENCH_CHUNKS, chunk_ms: int = BENCH_CHUNK_MS, seed: int = BENCH_SEED) -> list[bytes]:
+    """``chunks`` slices of voiced pseudo-speech (a gliding pitch with five harmonics, a 4 Hz syllable envelope and a
+    little noise), 16 kHz int16 little-endian. A fixed seed: the same bytes on every PC and every run."""
+    rng = random.Random(seed)  # noqa: S311 - test audio, not a secret
+    per = RATE * max(1, int(chunk_ms)) // 1000
+    total = per * max(1, int(chunks))
+    samples = array.array("h")
+    phase = 0.0
+    for n in range(total):
+        t = n / RATE
+        f0 = 150.0 + 40.0 * math.sin(2 * math.pi * 0.7 * t)
+        phase += 2 * math.pi * f0 / RATE
+        voiced = sum(math.sin(k * phase) / k for k in range(1, 6))
+        envelope = 0.55 + 0.45 * math.sin(2 * math.pi * 4.0 * t)
+        value = 0.18 * envelope * voiced + rng.gauss(0.0, 0.004)
+        samples.append(max(-32768, min(32767, int(value * 32767))))
+    if sys.byteorder == "big":
+        samples.byteswap()
+    raw = samples.tobytes()
+    step = per * 2
+    return [raw[i : i + step] for i in range(0, len(raw), step)]
+
+
+def p95(values: list[float]) -> float:
+    """The nearest-rank 95th percentile (of 10 values: the slowest)."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
+
+
+def self_bench(
+    engine: Any,
+    *,
+    chunks: int = BENCH_CHUNKS,
+    chunk_ms: int = BENCH_CHUNK_MS,
+    clock: Callable[[], float] = time.perf_counter,
+) -> dict[str, Any]:
+    """Feed a loaded engine ``chunks`` synthetic chunks and time each feed (compute only, no waiting for audio). One
+    untimed chunk goes first, so a first-call allocation is not counted as this PC's speed. The engine is reset before
+    and after: no stream state survives the bench."""
+    chunks = max(1, min(20, int(chunks)))
+    chunk_ms = max(80, min(320, int(chunk_ms)))
+    audio = bench_audio(chunks + 1, chunk_ms)
+    times: list[float] = []
+    engine.reset()
+    try:
+        engine.feed(audio[0])
+        for piece in audio[1:]:
+            started = clock()
+            engine.feed(piece)
+            times.append(max(0.0, (clock() - started) * 1000.0))
+    finally:
+        engine.reset()
+    return {
+        "chunks": len(times),
+        "chunkMs": chunk_ms,
+        "p95Ms": round(p95(times), 1),
+        "maxMs": round(max(times), 1),
+        "meanMs": round(sum(times) / len(times), 1),
+    }
+
+
+def onnx_providers() -> list[str]:
+    """The execution providers this onnxruntime build has; none when it is missing (the open reports that)."""
+    try:
+        import onnxruntime as ort  # type: ignore[import-not-found]
+
+        return [str(name) for name in ort.get_available_providers()]
+    except Exception:  # noqa: BLE001 - no runtime: the CPU request stands
+        return []
+
+
+def choose_providers(requested: Any, *, available: list[str], cuda_ok: bool, windows: bool) -> list[str] | None:
+    """The provider wish list of a stream session. A caller's own list is kept. Otherwise a GPU goes first when this PC
+    really has one: DirectML on Windows when the optional onnxruntime-directml runtime is installed, CUDA when the
+    kernel verified the CUDA 12 libraries (``stt.cuda_runtime_ready``), each followed by the CPU (friday_runtime opens
+    the CPU when a GPU cannot open the graph). With no GPU the answer is None: the CPU path, exactly as before."""
+    if isinstance(requested, (list, tuple)) and requested:
+        return [str(name) for name in requested]
+    gpu: list[str] = []
+    if windows and DML_PROVIDER in available:
+        gpu.append(DML_PROVIDER)
+    if cuda_ok and CUDA_PROVIDER in available:
+        gpu.append(CUDA_PROVIDER)
+    return [*gpu, CPU_PROVIDER] if gpu else None
 
 
 def _wants(setting: Any, spec: EngineSpec) -> bool:
@@ -1231,6 +1342,12 @@ class StreamHost:
         self._tier: str | None = None
         self._tier_read = False
         self._ledger: RtfLedger | None = None
+        # The worker sets ``cuda_ok`` (stt.cuda_runtime_ready); ``available`` lists the runtime's providers. Read once.
+        self.cuda_ok: Callable[[], bool] = lambda: False
+        self.available: Callable[[], list[str]] = onnx_providers
+        self.windows = os.name == "nt"
+        self._gpu_list: list[str] | None = None
+        self._gpu_read = False
         # One writer of the slot at a time: a warm runs on the worker's warm thread, the stream ops on its main one.
         self._lock = threading.Lock()
 
@@ -1244,6 +1361,44 @@ class StreamHost:
                 found = None
             self._tier = found if found in TIERS else None
         return self._tier
+
+    def providers_for(self, req: dict[str, Any]) -> list[str] | None:
+        """The providers of this request's session (see ``choose_providers``); the PC's own answer is read once."""
+        requested = req.get("providers")
+        if isinstance(requested, (list, tuple)) and requested:
+            return [str(name) for name in requested]
+        if not self._gpu_read:
+            self._gpu_read = True
+            try:
+                cuda = bool(self.cuda_ok())
+            except Exception:  # noqa: BLE001 - an unreadable verdict is no GPU
+                cuda = False
+            try:
+                have = list(self.available())
+            except Exception:  # noqa: BLE001
+                have = []
+            self._gpu_list = choose_providers(None, available=have, cuda_ok=cuda, windows=self.windows)
+        return list(self._gpu_list) if self._gpu_list else None
+
+    def _with_bench(self, reply: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:
+        """A warm asked for ``bench`` measures the loaded engine (never while a stream is live)."""
+        wanted = req.get("bench")
+        if not wanted or self._engine is None or self.active is not None:
+            return reply
+        ask = wanted if isinstance(wanted, Mapping) else {}
+        try:
+            result = self_bench(
+                self._engine,
+                chunks=int(ask.get("chunks") or BENCH_CHUNKS),
+                chunk_ms=int(ask.get("chunkMs") or BENCH_CHUNK_MS),
+                clock=self._clock,
+            )
+            stream = getattr(self._engine, "_stream", None)
+            result["providers"] = [str(p) for p in (getattr(stream, "active_providers", None) or [CPU_PROVIDER])]
+            reply["bench"] = result
+        except Exception as exc:  # noqa: BLE001 - a failed bench is no verdict, never a failed warm
+            reply["bench"] = {"error": _error_text(exc)}
+        return reply
 
     def ledger(self) -> RtfLedger:
         path = model_root() / RTF_FILE
@@ -1322,7 +1477,8 @@ class StreamHost:
         if spec is None:
             return {"ok": False, "op": WARM_OP, "reason": "unknown-engine", "fallback": True}
         if self._engine is not None and self._spec is spec and self.loaded_name():
-            return {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": 0, "already": True}
+            already = {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": 0, "already": True}
+            return self._with_bench(already, req)
         if self.active is not None:
             return {"ok": False, "op": WARM_OP, "reason": "stream-active", "fallback": True}
         if not self._admitted(spec):
@@ -1330,10 +1486,11 @@ class StreamHost:
         if self._engine is not None:
             self._engine.close()
         self._engine, self._spec = spec.factory(), spec
-        self._engine.open(choice.model_dir, locale=locale or "en-US", providers=req.get("providers"))
+        self._engine.open(choice.model_dir, locale=locale or "en-US", providers=self.providers_for(req))
         self._engine.reset()
         loaded_ms = int((self._clock() - started) * 1000)
-        return {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": loaded_ms, "already": False}
+        loaded = {"ok": True, "op": WARM_OP, "engine": spec.name, "loadedMs": loaded_ms, "already": False}
+        return self._with_bench(loaded, req)
 
     def status(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -1342,6 +1499,9 @@ class StreamHost:
             "loaded": bool(self.loaded_name()),
             "active": self.active,
         }
+        active = getattr(getattr(self._engine, "_stream", None), "active_providers", None)
+        if out["loaded"] and active:
+            out["providers"] = [str(p) for p in active]  # the Doctor row: where the ear runs
         lane = getattr(self._engine, "_lane", None)
         if out["loaded"] and isinstance(lane, AsrLane):
             out["denoise"] = lane.status()  # the Doctor row: the engine, whether it runs, its speed and why not
@@ -1400,7 +1560,7 @@ class StreamHost:
         replaced = self.active
         options: dict[str, Any] = {
             "locale": locale or "en-US",
-            "providers": req.get("providers"),
+            "providers": self.providers_for(req),
             "hotwords": req.get("hotwords"),
             "endpoint": req.get("endpoint"),
             "ears": req.get("ears"),

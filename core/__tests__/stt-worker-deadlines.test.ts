@@ -153,7 +153,7 @@ describe("voice:stt-stream-warm: one warm-up, its own 120 s limit, a miss is onl
       msg.op === "stream-warm"
         ? { id: msg.id, ok: false, op: "stream-warm", reason: "warming", fallback: true }
         : healthy(msg);
-    expect(await stt.streamWarm({ streamEngine: "auto" })).toMatchObject({
+    expect(await stt.streamWarm({ streamEngine: "nemotron" })).toMatchObject({
       ok: false,
       fallback: true,
       reason: "warming",
@@ -172,7 +172,7 @@ describe("voice:stt-stream-warm: one warm-up, its own 120 s limit, a miss is onl
       }
       return healthy(msg);
     };
-    const warming = stt.streamWarm({ streamEngine: "auto", locale: "en" });
+    const warming = stt.streamWarm({ streamEngine: "nemotron", locale: "en" });
     await settle();
     await vi.advanceTimersByTimeAsync(119_000);
     expect(r.killTree).not.toHaveBeenCalled();
@@ -198,8 +198,8 @@ describe("voice:stt-stream-warm: one warm-up, its own 120 s limit, a miss is onl
       }
       return healthy(msg);
     };
-    const a = stt.streamWarm({ streamEngine: "auto" });
-    const b = stt.streamWarm({ streamEngine: "auto" });
+    const a = stt.streamWarm({ streamEngine: "nemotron" });
+    const b = stt.streamWarm({ streamEngine: "nemotron" });
     await settle();
     expect(r.sent("stream-warm")).toHaveLength(1);
     r.children[0]!.emitLine({ id: held!.id, ok: true, op: "stream-warm", loadedMs: 5 });

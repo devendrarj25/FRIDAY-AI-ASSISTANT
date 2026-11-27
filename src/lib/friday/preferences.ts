@@ -127,11 +127,24 @@ export function sanitizeSttSize(value: unknown): SttSizePick {
   return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
 }
 
-/** FRIDAY's own streaming ear: `off` (the shipped default) keeps the ordinary listening path. */
+/**
+ * FRIDAY's own streaming ear. `auto` (the shipped default) lets this PC decide: on only with at least 12 GB of RAM,
+ * 4 cores and a first-run speed check that passes (electron/stt.cjs createStreamAuto, rule in
+ * electron/voice-weights.cjs STREAM_AUTO), otherwise the ordinary listening path with the reason in the status. A
+ * named engine is the owner's "on" and `off` is the owner's "off": both always win over the hardware check. The
+ * same words are electron/stt.cjs STREAM_ENGINES and kernel/stream_ear.py SETTING_WORDS.
+ */
 export const STREAM_ENGINE_PICKS = ["off", "auto", "nemotron", "stream-ear-nemotron"] as const;
 export type StreamEnginePick = (typeof STREAM_ENGINE_PICKS)[number];
 
-/** An unknown or missing word (an old stored shape) reads `off`. */
+/** The shipped default of `voice.streamEngine`. */
+export const STREAM_ENGINE_DEFAULT: StreamEnginePick = "auto";
+
+/**
+ * An unknown word reads `off` (never a guess that turns listening on). A missing one never reaches here: the merge
+ * fills it with the default, so a stored shape from before the setting existed reads `auto`. A stored `off` stays
+ * `off`: the old default and an owner's own choice look the same on disk, so it is kept as the owner's.
+ */
 export function sanitizeStreamEngine(value: unknown): StreamEnginePick {
   return (STREAM_ENGINE_PICKS as readonly unknown[]).includes(value)
     ? (value as StreamEnginePick)
@@ -451,7 +464,7 @@ export type VoicePreferences = {
   tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
-  /** The streaming ear (partial words while she listens): off, auto, or a named engine. Local only; off by default. */
+  /** The streaming ear (partial words while she listens): off, auto (the default: this PC decides), or a named engine. Local only. */
   streamEngine: StreamEnginePick;
   /** FRIDAY's own listening front end: filters, speech detector, turn timing, optional clean-up and scoring. */
   ears: VoiceEarsPrefs;
@@ -663,7 +676,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     tidyDictation: true,
     liveWords: false,
-    streamEngine: "off",
+    streamEngine: STREAM_ENGINE_DEFAULT,
     ears: { ...DEFAULT_VOICE_EARS },
     itn: true,
     liveWake: false,
