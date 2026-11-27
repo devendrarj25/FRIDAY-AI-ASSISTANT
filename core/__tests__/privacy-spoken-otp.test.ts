@@ -48,6 +48,13 @@ const SPOKEN_SENSITIVE = [
   `मेरा कोड ${joined} है`,
   "पासकोड 1 2 3 4",
   "पासकोड एक दो तीन चार",
+  `Your verification code for login is ${joined}`,
+  `the OTP that I got is ${joined}`,
+  `OTP aaya tha ${joined} use karo`,
+  `ओटीपी आया था ${joined} इस्तेमाल करो`,
+  `${joined} is your OTP for transaction of INR 5,000 at AMAZON. Do not share it`,
+  `Use ${joined} as your OTP`,
+  `OTP for txn of Rs 5,000 at Amazon is ${joined}. Valid for 10 minutes`,
 ];
 
 const ORDINARY = [
@@ -69,6 +76,11 @@ const ORDINARY = [
   "मेरा कोड ठीक चल रहा है",
   "ओटीपी कब आएगा",
   "pin number bhej do",
+  "the verification code field is empty and the form shows an error today",
+  "otp kab aayega mujhe batao jaldi",
+  "what is an otp and how does it work in banking",
+  "OTP support is open from 9 to 5",
+  "the verification code expires after 10 minutes",
 ];
 
 describe("spoken and spelled codes are SENSITIVE", () => {

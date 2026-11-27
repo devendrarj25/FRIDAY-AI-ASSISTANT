@@ -193,3 +193,47 @@ class SystemMessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_CODE = "".join(["4", "8", "2", "9", "1", "3"])
+_GAP_SENSITIVE = (
+    "Your verification code for login is {c}",
+    "the OTP that I got is {c}",
+    "OTP aaya tha {c} use karo",
+    "ओटीपी आया था {c} इस्तेमाल करो",
+    "{c} is your OTP for transaction of INR 5,000 at AMAZON. Do not share it",
+    "Use {c} as your OTP",
+    "OTP for txn of Rs 5,000 at Amazon is {c}. Valid for 10 minutes",
+    "Dear customer, your one time password for the login to your account is {c}",
+    "Your security code for the bank app has been sent and it is {c}",
+    "Your login code was sent to your phone earlier today and it is {c}",
+)
+_GAP_ORDINARY = (
+    "the verification code field is empty and the form shows an error today",
+    "otp kab aayega mujhe batao jaldi",
+    "what is an otp and how does it work in banking",
+    "my pin code is 110001",
+    "the postal code is 110001",
+    "OTP support is open from 9 to 5",
+    "the verification code expires after 10 minutes",
+)
+
+
+class CodeWithWordsBetweenTests(unittest.TestCase):
+    def test_a_code_named_with_words_before_its_value_is_sensitive(self):
+        for template in _GAP_SENSITIVE:
+            line = template.format(c=_CODE)
+            self.assertEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_ordinary_talk_about_codes_stays_ordinary(self):
+        for line in _GAP_ORDINARY:
+            self.assertNotEqual(privacy.classify(line)["level"], "sensitive", line)
+
+    def test_long_inputs_do_not_blow_up(self):
+        import time
+
+        for unit in ("otp ", "verification code ", "ओटीपी ", "a-", "1 ", "otp for the x, " + "w " * 4):
+            text = (unit * (32000 // len(unit) + 1))[:32000]
+            start = time.perf_counter()
+            privacy.classify(text)
+            self.assertLess(time.perf_counter() - start, 0.5, unit)

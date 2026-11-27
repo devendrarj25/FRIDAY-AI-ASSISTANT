@@ -86,6 +86,7 @@ class Storage:
         self.path = path
         self._lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
+        self._memory_only = False
         self._health: dict = {"state": "ok", "corruptPath": None, "storedVersion": None}
         self._open()
 
@@ -95,27 +96,45 @@ class Storage:
         conn.row_factory = sqlite3.Row
         return conn
 
-    @staticmethod
-    def _passes_quick_check(conn: sqlite3.Connection) -> bool:
+    # Only these mean the file itself is damaged. "locked", "busy" or "disk I/O error" is another process
+    # (an antivirus scan, a second kernel) or a flaky drive: the file is fine and must never be set aside.
+    _CORRUPTION_MARKERS = ("malformed", "not a database")
+
+    @classmethod
+    def _is_corruption(cls, error: sqlite3.Error) -> bool:
+        text = str(error).lower()
+        return any(marker in text for marker in cls._CORRUPTION_MARKERS)
+
+    @classmethod
+    def _passes_quick_check(cls, conn: sqlite3.Connection) -> bool:
+        """False only for real damage. A transient error counts as healthy so a busy file is never discarded."""
         try:
             rows = conn.execute("PRAGMA quick_check").fetchall()
-        except sqlite3.DatabaseError:
-            return False
+        except sqlite3.Error as error:
+            return not cls._is_corruption(error)
         return len(rows) == 1 and str(rows[0][0]).lower() == "ok"
 
-    def _set_aside(self) -> Path:
-        """Rename the damaged file (and its journal files) to `<name>.corrupt-<stamp>`; the bytes are kept."""
+    def _set_aside(self) -> Path | None:
+        """Rename the damaged file (and its journal files) to `<name>.corrupt-<stamp>`; the bytes are kept.
+
+        Returns None when Windows refuses (file in use): the caller degrades instead of raising at import."""
         stamp = time.strftime("%Y%m%d-%H%M%S")
         aside = Path(f"{self.path}.corrupt-{stamp}")
         count = 1
         while aside.exists():
             count += 1
             aside = Path(f"{self.path}.corrupt-{stamp}-{count}")
-        self.path.replace(aside)
+        try:
+            self.path.replace(aside)
+        except OSError:
+            return None
         for suffix in ("-wal", "-shm"):
             leftover = Path(str(self.path) + suffix)
-            if leftover.exists():
-                leftover.replace(Path(str(aside) + suffix))
+            try:
+                if leftover.exists():
+                    leftover.replace(Path(str(aside) + suffix))
+            except OSError:  # noqa: S112 — a journal file still in use is harmless once the main file moved
+                continue
         return aside
 
     def _open(self) -> None:
@@ -124,6 +143,14 @@ class Storage:
             # Never stop the kernel at import for a damaged file: keep it, then restore the backup or start fresh.
             conn.close()
             aside = self._set_aside()
+            if aside is None:
+                # The file cannot be moved: keep it untouched and run on a throw-away in-memory database.
+                self._memory_only = True
+                conn = sqlite3.connect(":memory:", check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                self._health = {"state": "unavailable", "corruptPath": None, "storedVersion": None}
+                self._conn = conn
+                return
             state = "recreated"
             if restore_database_file(self.path):
                 conn = self._connect()
@@ -188,6 +215,8 @@ class Storage:
         conn = self._conn
         if conn is None:
             raise RuntimeError("database is closed")
+        if self._memory_only:
+            return ""  # never write a throw-away database over the last good backup
         dest = Path(str(self.path) + ".bak")
         # Written beside, then swapped in: a cut-off backup never replaces the last good one, and a damaged
         # old backup cannot make the new one fail.

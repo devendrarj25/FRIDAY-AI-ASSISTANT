@@ -118,20 +118,17 @@ class NumpyIndex:
     def load(self) -> None:
         self.records = []
         self.vectors = []
+        backup = self.records_file.with_name(self.records_file.name + ".bak")
         source = self.records_file
         if not source.exists():
-            # A rewrite that was interrupted between the backup and the swap leaves only the backup.
-            source = self.records_file.with_name(self.records_file.name + ".bak")
+            # A rewrite that was interrupted between the backup and the swap leaves only the backup. The backup is
+            # kept in step with the log (remove() rewrites it, a merge deletes it), so it never replays a gone id.
+            source = backup
             if not source.exists():
                 return
-        for line in source.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                self.records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # a truncated tail never invalidates the whole store
+        self.records = self._parse(source)
+        if source is self.records_file and not self.records and backup.exists() and self._unreadable(source):
+            self.records = self._parse(backup)  # the main file exists but holds nothing readable
         matrix = None
         if self._np is not None and self.matrix_file.exists() and self._version_current():
             try:
@@ -145,6 +142,29 @@ class NumpyIndex:
             self._persist_matrix()
         else:
             self.vectors = [list(map(float, row)) for row in matrix]
+
+    @staticmethod
+    def _parse(source: Path) -> list[dict]:
+        records: list[dict] = []
+        for line in source.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a truncated tail never invalidates the whole store
+            if isinstance(value, dict):
+                records.append(value)
+        return records
+
+    @staticmethod
+    def _unreadable(source: Path) -> bool:
+        """True when the file has content but not one line of it is a record (an empty log is a valid empty log)."""
+        try:
+            return bool(source.read_text(encoding="utf-8", errors="replace").strip())
+        except OSError:
+            return True
 
     def _version_current(self) -> bool:
         try:
@@ -167,7 +187,7 @@ class NumpyIndex:
         except Exception:  # noqa: S110 — the index is disposable; records.jsonl stays authoritative
             pass
 
-    def _rewrite_records(self) -> None:
+    def _rewrite_records(self, keep_previous: bool = True) -> None:
         """Write the whole log to a temp file, flush it to disk, keep one backup of the old log, then swap it in. A
         crash at any point leaves the previous records.jsonl (or its .bak) loadable, never a half-written file."""
         tmp = self.records_file.with_name(self.records_file.name + ".tmp")
@@ -177,7 +197,7 @@ class NumpyIndex:
                     fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 fh.flush()
                 os.fsync(fh.fileno())
-            if self.records_file.exists():
+            if keep_previous and self.records_file.exists():
                 shutil.copy2(self.records_file, self.records_file.with_name(self.records_file.name + ".bak"))
             os.replace(tmp, self.records_file)
         except BaseException:
@@ -218,7 +238,15 @@ class NumpyIndex:
         self.records = [self.records[i] for i in keep]
         self.vectors = [self.vectors[i] for i in keep if i < len(self.vectors)]
         self._matrix = None
-        self._rewrite_records()
+        # The backup holds the log as it was before this call, i.e. the removed ids. Replace it with the new log.
+        self._rewrite_records(keep_previous=False)
+        backup = self.records_file.with_name(self.records_file.name + ".bak")
+        try:
+            fresh = backup.with_name(backup.name + ".tmp")
+            shutil.copy2(self.records_file, fresh)
+            os.replace(fresh, backup)
+        except OSError:
+            backup.unlink(missing_ok=True)  # no backup is safer than one that brings a removed record back
         if not self.vectors and self._np is not None and self.matrix_file.exists():
             try:
                 self.matrix_file.unlink()
@@ -284,6 +312,7 @@ LESSON_TITLE_CAP = 160
 MAX_INDEX_FILES = 2000
 MAX_INDEX_FILE_BYTES = 512 * 1024
 INDEX_CHUNK = 2000
+CHUNK_CONTEXT = 200
 # Folders a user-chosen index root never descends into: vendor trees, hidden folders and FRIDAY's own data.
 FRIDAY_DATA_DIRS = frozenset(
     {"config", "security", "database", "memory", "brain-data", "conversations", "backup", "cache"}
@@ -469,7 +498,11 @@ class VectorMemory:
             return 0
         archive = index.records_file.with_name("records.jsonl.merged")
         os.replace(index.records_file, archive)
-        for leftover in (index.matrix_file, index.version_file):
+        for leftover in (
+            index.matrix_file,
+            index.version_file,
+            index.records_file.with_name(index.records_file.name + ".bak"),
+        ):
             leftover.unlink(missing_ok=True)
         self._merge_needed = False
         return len(records)
@@ -676,7 +709,10 @@ class VectorMemory:
         keep: dict[int, str] = {}
         for i in range(0, len(text), INDEX_CHUNK):
             chunk = text[i : i + INDEX_CHUNK]
-            if chunk.strip() and privacy.classify(chunk).get("level") == "public":
+            # Judge the chunk with 200 characters of its neighbours: a label at the end of one chunk and its value
+            # at the start of the next must not slip through as two public halves.
+            window = text[max(0, i - CHUNK_CONTEXT) : i + INDEX_CHUNK + CHUNK_CONTEXT]
+            if chunk.strip() and privacy.classify(window).get("level") == "public":
                 keep[slots] = chunk
             slots += 1
         return slots, keep

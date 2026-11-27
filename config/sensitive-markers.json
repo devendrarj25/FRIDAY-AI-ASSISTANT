@@ -491,7 +491,10 @@
     "plain": "{{lead}}{{valueOld}}",
     "snum": "(?:{{words.digits}}|{{words.numbers}}|[0-9])(?![{{wc}}])",
     "spokenRun": "(?:{{snum}}[ \\t,\\-]*){3,}",
-    "codeval": "(?:{{plain}}|{{lead}}{{spokenRun}})"
+    "codeval": "(?:{{plain}}|{{lead}}{{spokenRun}})",
+    "gap": "(?:[ \\t:=,\\-]+[^\\s:=,\\-.]{1,15}){0,10}[ \\t:=,\\-]+",
+    "digits48": "(?<![0-9a-z])[0-9]{4,8}(?![0-9a-z])",
+    "codeKw": "(?:otp|one[ -]?time[ -]?(?:code|password|passcode|pin)|(?:verification|verify|security|confirmation|authentication|auth|login|log[ -]?in|sign[ -]?in|2fa)\\s+(?:code|pin)|passcode|cvv|cvc)"
   },
   "markers": [
     {
@@ -589,6 +592,22 @@
       "label": "verification or login code with its value, named in Hindi",
       "flags": "i",
       "pattern": "(?<![ऀ-ॿ])(?:(?:सत्यापन|वेरिफिकेशन|वेरीफिकेशन|सिक्योरिटी|सिक्यूरिटी|कन्फर्मेशन|लॉगिन)\\s*(?:कोड|पिन)(?![ऀ-ॿ]){{codeval}}|(?:मेरा|मेरी|आपका|तुम्हारा|यह|ये)\\s*कोड(?![ऀ-ॿ]){{lead}}[0-9]{6}(?![0-9a-z]))"
+    },
+    {
+      "id": "code-phrase-gap",
+      "kind": "code-phrase",
+      "lang": "hinglish",
+      "label": "one-time or verification code named a few words before its value",
+      "flags": "i",
+      "pattern": "\\b{{codeKw}}\\b{{gap}}{{digits48}}|(?<![0-9a-z]){{digits48}}[ \\t]+(?:is|as)[ \\t]+(?:your|the|my|ur)[ \\t]+{{codeKw}}\\b"
+    },
+    {
+      "id": "code-phrase-gap-hi",
+      "kind": "code-phrase",
+      "lang": "hi",
+      "label": "one-time or verification code named a few words before its value, in Hindi",
+      "flags": "i",
+      "pattern": "(?<![ऀ-ॿ])(?:ओटीपी|पासकोड|वन\\s*टाइम\\s*(?:पासवर्ड|कोड)|(?:सत्यापन|वेरिफिकेशन|वेरीफिकेशन|सिक्योरिटी|सिक्यूरिटी|कन्फर्मेशन|लॉगिन)\\s*(?:कोड|पिन))(?![ऀ-ॿ]){{gap}}{{digits48}}"
     }
   ]
 }

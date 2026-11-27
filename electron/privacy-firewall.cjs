@@ -242,7 +242,7 @@ const OTHER_SIGNALS = [
   {
     level: "private",
     label: "a personal contact detail",
-    re: /\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b/,
+    re: /\b[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{2,255}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b/,
   },
   {
     level: "private",

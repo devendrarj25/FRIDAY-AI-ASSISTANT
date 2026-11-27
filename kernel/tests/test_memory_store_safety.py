@@ -345,3 +345,78 @@ def test_a_root_that_is_a_friday_data_folder_indexes_nothing(tmp_path):
 
     out = asyncio.run(scenario())
     assert out["files"] == 0 and out["chunks"] == 0
+
+
+def _ids(path: Path) -> list[str]:
+    idx = NumpyIndex(path)
+    idx.load()
+    return sorted(r["id"] for r in idx.records)
+
+
+def test_a_removed_record_does_not_come_back_from_the_backup(tmp_path):
+    idx = NumpyIndex(tmp_path)
+    idx.add("keep me", kind="note", title="k", record_id="keep")
+    idx.add("forget me", kind="note", title="f", record_id="gone")
+    idx.add("keep me v2", kind="note", title="k", record_id="keep")  # a rewrite leaves a backup
+    assert idx.remove(["gone"]) == 1
+    bak = tmp_path / "records.jsonl.bak"
+    assert all(r["id"] != "gone" for r in _records(bak))
+    idx.records_file.unlink()  # the main file is lost: the backup must not resurrect the removed record
+    assert _ids(tmp_path) == ["keep"]
+
+
+def test_the_backup_is_read_when_the_main_file_is_unreadable_and_never_resurrects_a_removed_id(tmp_path):
+    idx = NumpyIndex(tmp_path)
+    for rid in ("a", "b", "c"):
+        idx.add(f"text {rid}", kind="note", title=rid, record_id=rid)
+    idx.add("text b2", kind="note", title="b", record_id="b")
+    idx.remove(["c"])
+    idx.records_file.write_bytes(b"\x00\x01 not json at all\n{broken\n")
+    assert _ids(tmp_path) == ["a", "b"]
+
+
+def test_a_damaged_tail_still_loads_the_main_file_not_the_backup(tmp_path):
+    idx = NumpyIndex(tmp_path)
+    idx.add("one", kind="note", title="a", record_id="a")
+    idx.add("two", kind="note", title="b", record_id="b")
+    idx.add("two again", kind="note", title="b", record_id="b")
+    with idx.records_file.open("a", encoding="utf-8") as fh:
+        fh.write('{"id": "c", "text": "tru')
+    assert _ids(tmp_path) == ["a", "b"]
+
+
+def test_a_merge_archives_the_log_and_drops_its_backup_so_nothing_is_replayed(tmp_path):
+    local = NumpyIndex(tmp_path / "local")
+    local.add("first", kind="note", title="d", record_id="d1")
+    local.add("first edited", kind="note", title="d", record_id="d1")
+    assert (tmp_path / "local" / "records.jsonl.bak").exists()
+    collection = FakeCollection()
+
+    async def scenario():
+        store = VectorMemory(tmp_path)
+        store.collection = collection
+        store._merge_needed = True
+        return await store.merge_fallback()
+
+    assert asyncio.run(scenario()) == 1
+    assert not (tmp_path / "local" / "records.jsonl.bak").exists()
+    assert _ids(tmp_path / "local") == []
+
+
+def test_a_secret_split_across_a_chunk_boundary_is_not_embedded(tmp_path):
+    root = tmp_path / "docs"
+    root.mkdir()
+    label = "pass" + "word: "
+    value = "hunter" + "2x9Q"
+    pad = "plain words about tea. " * 200
+    body = pad[: memory.INDEX_CHUNK - len(label)] + label + value + " and more plain notes after it"
+    (root / "split.txt").write_text(body, encoding="utf-8")
+
+    async def scenario():
+        store = VectorMemory(tmp_path / "store")
+        store.fallback = NumpyIndex(tmp_path / "store" / "local")
+        out = await store.index_path(str(root))
+        return store, out
+
+    store, out = asyncio.run(scenario())
+    assert all(value not in r["text"] for r in store.fallback.records)

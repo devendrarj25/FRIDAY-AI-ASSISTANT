@@ -256,7 +256,7 @@ SIGNALS: tuple[dict[str, Any], ...] = (
     {
         "level": "private",
         "label": "a personal contact detail",
-        "re": re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b"),
+        "re": re.compile(r"\b[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{2,255}\b|\b\+?\d{1,3}[ -]?\d{5}[ -]?\d{5}\b"),
     },
     {
         "level": "private",
