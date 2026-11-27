@@ -621,6 +621,116 @@ const PINS = {
       },
     },
   },
+  // Optional English final-pass ear (FRIDAY Ear English), a candidate that becomes a default only after its own evaluation.
+  // Four files at one revision: the int8 encoder, the fused decoder and joint graph, the vocabulary and the config.
+  // `kernel/nemo_ear.py` runs them unchanged (TDT greedy, onnxruntime and numpy, no torch). Each large file carries the
+  // SHA-256 the Hugging Face API lists at this revision; the two small files were fetched at it and hashed (2026-11-27).
+  "istupakov/parakeet-tdt-0.6b-v2-onnx": {
+    revision: "0bbb45a3365852604aef28b538a8f066f4ccaa85",
+    license: "CC-BY-4.0",
+    licenseRecord: licence("CC-BY-4.0"),
+    files: {
+      "config.json": {
+        sha256: "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
+        bytes: 97,
+      },
+      "decoder_joint-model.int8.onnx": {
+        sha256: "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
+        bytes: 8998286,
+      },
+      "encoder-model.int8.onnx": {
+        sha256: "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
+        bytes: 652184014,
+      },
+      "vocab.txt": {
+        sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+        bytes: 9384,
+      },
+    },
+  },
+  // Optional small Hindi, Hinglish and Indian-English final-pass ear (FRIDAY Ear Swift), a candidate, never a default.
+  // Only the Hindi folders are pinned: `hi/onnx` (4-bit weights) and `hi/onnx-int8` (the low-memory set), each with its
+  // frontend, encoder, decoder and `shruti.json`, plus the licence and notice files that travel with the weights. The
+  // other languages in the repository are not used. `kernel/shruti_ear.py` runs the graphs (onnxruntime and numpy).
+  // Digests as for the other pins: LFS SHA-256 from the API at this revision, small files fetched and hashed (2026-11-27).
+  "udgamlabs/Shruti-ONNX": {
+    revision: "a464a502cc732e4335313869e1ccf393ff8ba56b",
+    license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
+    files: {
+      LICENSE: {
+        sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        bytes: 11358,
+      },
+      NOTICE: {
+        sha256: "4e2e035dfd9a58c597cb81e5d644635ce8fd2ebbd51e44cc22b8bc5bf4da8110",
+        bytes: 1031,
+      },
+      "hi/onnx-int8/decoder.onnx": {
+        sha256: "777870e340af2c5a9513f8bef14ecf0c2d57ba7dbfe8682a99674ec58dbd6f70",
+        bytes: 32293075,
+      },
+      "hi/onnx-int8/encoder.onnx": {
+        sha256: "b26a33cedf74ce11f13ad3854f3c0a34e7272c4e2dfd0d5cd2818185b029b996",
+        bytes: 19633861,
+      },
+      "hi/onnx-int8/frontend.onnx": {
+        sha256: "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+        bytes: 911143,
+      },
+      "hi/onnx-int8/shruti.json": {
+        sha256: "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+        bytes: 94153,
+      },
+      "hi/onnx/decoder.onnx": {
+        sha256: "d6ad12693b4289fe5d8f23af5c87dffae9597aa5a585fffaea82fe54a3f27cc3",
+        bytes: 20480122,
+      },
+      "hi/onnx/encoder.onnx": {
+        sha256: "8935017652b2fec8932d9eb220a4ae1d5287b8b05904820eadabdc64c0de63d0",
+        bytes: 10604825,
+      },
+      "hi/onnx/frontend.onnx": {
+        sha256: "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+        bytes: 911143,
+      },
+      "hi/onnx/shruti.json": {
+        sha256: "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+        bytes: 94153,
+      },
+    },
+  },
+  // Optional fast English final-pass ear (FRIDAY Ear Quick), a candidate, never a default: the tiny merged-cache int8
+  // encoder and decoder. The repository was renamed (the old organisation name answers with a redirect), so the new name
+  // is pinned. Its vocabulary is a separate repository, pinned next. `kernel/ear_quick.py` runs it (onnxruntime and numpy).
+  "moonshine-ai/moonshine": {
+    revision: "48b4e427b587bcf67797a5be706d6ddc4a298149",
+    license: "MIT",
+    licenseRecord: licence("MIT"),
+    files: {
+      "onnx/merged/tiny/quantized/decoder_model_merged.onnx": {
+        sha256: "eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367",
+        bytes: 20243286,
+      },
+      "onnx/merged/tiny/quantized/encoder_model.onnx": {
+        sha256: "c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a",
+        bytes: 7937661,
+      },
+    },
+  },
+  // The vocabulary of FRIDAY Ear Quick: one 2 MB file from its own repository, kept as a second pin because a pin holds
+  // one repository. It is a helper row of the same ear, not a model of its own.
+  "moonshine-ai/moonshine-tiny": {
+    revision: "390624ed33d594443aa4aa221f5b9f283b545b5a",
+    license: "MIT",
+    licenseRecord: licence("MIT"),
+    files: {
+      "tokenizer.json": {
+        sha256: "6579793438bc4fbafffacf699169ff53e3769c5a0a0f5e71cdee8853e8130deb",
+        bytes: 1985530,
+      },
+    },
+  },
 };
 
 /** The turbo repository was renamed; the old name redirects to the same revision and files. */
@@ -865,6 +975,51 @@ const FACTS = {
     fallbackPriority: "experimental",
     basis: "measured",
     peakRssMb: 1161,
+  },
+  // Peak resident memory 1,163 MB (int8, 4 threads, 2026-11-27); a clip decodes at about 0.12 of its length on a Linux CPU.
+  "istupakov/parakeet-tdt-0.6b-v2-onnx": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 1163,
+  },
+  // Peak resident memory 728 MB for the 4-bit set and 348 MB for the int8 set (5-beam search, 2026-11-27).
+  "udgamlabs/Shruti-ONNX": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "4-bit weights (ONNX), int8 set optional",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 728,
+  },
+  // Not measured for memory: the pair is 28 MB on disk and the working set is estimated from its size.
+  "moonshine-ai/moonshine": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "moonshine-ai/moonshine-tiny": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "vocabulary (text)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
   },
 };
 

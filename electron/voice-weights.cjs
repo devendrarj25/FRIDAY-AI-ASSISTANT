@@ -78,6 +78,19 @@ const HINGLISH_TRELIS_REPO = "nikh360pro/capsbro-hinglish-ct2";
  * (kernel/transducer_loop.py) runs it.
  */
 const STREAM_EAR_REPO = "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8";
+
+/**
+ * The three optional final-pass ears (candidates, never defaults, on demand only; setup never fetches them) in
+ * `<root>/models/<catalogId>`. FRIDAY Ear English (`parakeet-ear`, int8 ONNX, English) is run by `kernel/nemo_ear.py`;
+ * FRIDAY Ear Swift (`shruti-ear`, ONNX, Hindi, Hinglish and Indian English; the model folder is its pinned `hi/onnx`
+ * or `hi/onnx-int8` subfolder) by `kernel/shruti_ear.py`; FRIDAY Ear Quick (`moonshine-ear`, int8 ONNX, English) by
+ * `kernel/ear_quick.py`. The Quick vocabulary is a second repository, so it is a second row (`moonshine-ear-vocab`)
+ * that the Quick ear reads beside its graphs. Each falls back to the ear that works today when it is absent.
+ */
+const ENGLISH_EAR_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx";
+const SWIFT_EAR_REPO = "udgamlabs/Shruti-ONNX";
+const QUICK_EAR_REPO = "moonshine-ai/moonshine";
+const QUICK_VOCAB_REPO = "moonshine-ai/moonshine-tiny";
 /** The catalog id of the streaming ear (FRIDAY Ears' own streaming recogniser). */
 const STREAM_EAR_ID = "stream-ear-nemotron";
 
@@ -184,6 +197,34 @@ const EXTRA_MODELS = [
     repo: HINGLISH_TRELIS_REPO,
     rowId: "hinglish-ear-trelis-pin",
     label: "FRIDAY Ear Hinglish Large (candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "parakeet-ear",
+    repo: ENGLISH_EAR_REPO,
+    rowId: "parakeet-ear-pin",
+    label: "FRIDAY Ear English",
+    kind: "stt",
+  },
+  {
+    catalogId: "shruti-ear",
+    repo: SWIFT_EAR_REPO,
+    rowId: "shruti-ear-pin",
+    label: "FRIDAY Ear Swift",
+    kind: "stt",
+  },
+  {
+    catalogId: "moonshine-ear",
+    repo: QUICK_EAR_REPO,
+    rowId: "moonshine-ear-pin",
+    label: "FRIDAY Ear Quick",
+    kind: "stt",
+  },
+  {
+    catalogId: "moonshine-ear-vocab",
+    repo: QUICK_VOCAB_REPO,
+    rowId: "moonshine-ear-vocab-pin",
+    label: "FRIDAY Ear Quick Vocabulary",
     kind: "stt",
   },
 ];
@@ -1833,6 +1874,10 @@ module.exports = {
   HINDI_VAANI_REPO,
   HINGLISH_TRELIS_REPO,
   STREAM_EAR_REPO,
+  ENGLISH_EAR_REPO,
+  SWIFT_EAR_REPO,
+  QUICK_EAR_REPO,
+  QUICK_VOCAB_REPO,
   STREAM_EAR_ID,
   STREAM_EAR_FALLBACK,
   isPlanOptional,

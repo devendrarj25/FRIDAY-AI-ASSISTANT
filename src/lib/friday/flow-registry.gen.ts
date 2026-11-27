@@ -252,6 +252,7 @@ export const FLOW_REGISTRY = {
     "toggles.biometric",
     "toggles.blockUnknownHosts",
     "toggles.blur",
+    "toggles.brainCoreEnabled",
     "toggles.chatTimestamps",
     "toggles.circuit",
     "toggles.clearWorkingOnQuit",
@@ -5240,6 +5241,18 @@ export const FLOW_REGISTRY = {
       file: "modules/ui/svg-title-list/manifest.json",
     },
     {
+      id: "moonshine-ear",
+      kind: "model",
+      name: "FRIDAY Ear Quick",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "moonshine-ear-vocab",
+      kind: "model",
+      name: "FRIDAY Ear Quick Vocabulary",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "moonshot-kimi-k2",
       kind: "model",
       name: "Kimi K2",
@@ -5351,6 +5364,12 @@ export const FLOW_REGISTRY = {
       id: "openrouter-auto",
       kind: "model",
       name: "OpenRouter Auto Router",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "parakeet-ear",
+      kind: "model",
+      name: "FRIDAY Ear English",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -6233,6 +6252,12 @@ export const FLOW_REGISTRY = {
       id: "sdxl",
       kind: "model",
       name: "Stable Diffusion XL 1.0",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "shruti-ear",
+      kind: "model",
+      name: "FRIDAY Ear Swift",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9724,12 +9749,12 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 169,
-      total: 169,
+      mapped: 170,
+      total: 170,
     },
     capabilities: {
-      mapped: 1114,
-      total: 1114,
+      mapped: 1118,
+      total: 1118,
     },
     ipc: {
       mapped: 520,

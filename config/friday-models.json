@@ -30,7 +30,11 @@
         "friday-voice-lite",
         "friday-denoise",
         "friday-denoise-lite",
-        "friday-speaker"
+        "friday-speaker",
+        "friday-ear-english",
+        "friday-ear-swift",
+        "friday-ear-quick",
+        "friday-ear-quick-vocab"
       ],
       "helpers": ["silero-vad", "wake-embed", "smart-turn"]
     },
@@ -1368,6 +1372,261 @@
       "from": {
         "pin": "onnx-community/wespeaker-voxceleb-resnet34-LM",
         "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-english",
+      "fridayName": "FRIDAY Ear English",
+      "path": "config.json",
+      "file": "friday-ear-english--config.json",
+      "sha256": "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
+      "bytes": 97,
+      "parts": 1,
+      "from": {
+        "pin": "istupakov/parakeet-tdt-0.6b-v2-onnx",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-english",
+      "fridayName": "FRIDAY Ear English",
+      "path": "decoder_joint-model.int8.onnx",
+      "file": "friday-ear-english--decoder_joint-model.int8.onnx",
+      "sha256": "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
+      "bytes": 8998286,
+      "parts": 1,
+      "from": {
+        "pin": "istupakov/parakeet-tdt-0.6b-v2-onnx",
+        "file": "decoder_joint-model.int8.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-english",
+      "fridayName": "FRIDAY Ear English",
+      "path": "encoder-model.int8.onnx",
+      "file": "friday-ear-english--encoder-model.int8.onnx",
+      "sha256": "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
+      "bytes": 652184014,
+      "parts": 1,
+      "from": {
+        "pin": "istupakov/parakeet-tdt-0.6b-v2-onnx",
+        "file": "encoder-model.int8.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-english",
+      "fridayName": "FRIDAY Ear English",
+      "path": "vocab.txt",
+      "file": "friday-ear-english--vocab.txt",
+      "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+      "bytes": 9384,
+      "parts": 1,
+      "from": {
+        "pin": "istupakov/parakeet-tdt-0.6b-v2-onnx",
+        "file": "vocab.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "LICENSE",
+      "file": "friday-ear-swift--LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "LICENSE",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "NOTICE",
+      "file": "friday-ear-swift--NOTICE",
+      "sha256": "4e2e035dfd9a58c597cb81e5d644635ce8fd2ebbd51e44cc22b8bc5bf4da8110",
+      "bytes": 1031,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "NOTICE",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx-int8/decoder.onnx",
+      "file": "friday-ear-swift--hi--onnx-int8--decoder.onnx",
+      "sha256": "777870e340af2c5a9513f8bef14ecf0c2d57ba7dbfe8682a99674ec58dbd6f70",
+      "bytes": 32293075,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx-int8/decoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx-int8/encoder.onnx",
+      "file": "friday-ear-swift--hi--onnx-int8--encoder.onnx",
+      "sha256": "b26a33cedf74ce11f13ad3854f3c0a34e7272c4e2dfd0d5cd2818185b029b996",
+      "bytes": 19633861,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx-int8/encoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx-int8/frontend.onnx",
+      "file": "friday-ear-swift--hi--onnx-int8--frontend.onnx",
+      "sha256": "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+      "bytes": 911143,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx-int8/frontend.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx-int8/shruti.json",
+      "file": "friday-ear-swift--hi--onnx-int8--shruti.json",
+      "sha256": "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+      "bytes": 94153,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx-int8/shruti.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx/decoder.onnx",
+      "file": "friday-ear-swift--hi--onnx--decoder.onnx",
+      "sha256": "d6ad12693b4289fe5d8f23af5c87dffae9597aa5a585fffaea82fe54a3f27cc3",
+      "bytes": 20480122,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx/decoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx/encoder.onnx",
+      "file": "friday-ear-swift--hi--onnx--encoder.onnx",
+      "sha256": "8935017652b2fec8932d9eb220a4ae1d5287b8b05904820eadabdc64c0de63d0",
+      "bytes": 10604825,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx/encoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx/frontend.onnx",
+      "file": "friday-ear-swift--hi--onnx--frontend.onnx",
+      "sha256": "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+      "bytes": 911143,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx/frontend.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-swift",
+      "fridayName": "FRIDAY Ear Swift",
+      "path": "hi/onnx/shruti.json",
+      "file": "friday-ear-swift--hi--onnx--shruti.json",
+      "sha256": "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+      "bytes": 94153,
+      "parts": 1,
+      "from": {
+        "pin": "udgamlabs/Shruti-ONNX",
+        "file": "hi/onnx/shruti.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-quick",
+      "fridayName": "FRIDAY Ear Quick",
+      "path": "onnx/merged/tiny/quantized/decoder_model_merged.onnx",
+      "file": "friday-ear-quick--onnx--merged--tiny--quantized--decoder_model_merged.onnx",
+      "sha256": "eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367",
+      "bytes": 20243286,
+      "parts": 1,
+      "from": {
+        "pin": "moonshine-ai/moonshine",
+        "file": "onnx/merged/tiny/quantized/decoder_model_merged.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-quick",
+      "fridayName": "FRIDAY Ear Quick",
+      "path": "onnx/merged/tiny/quantized/encoder_model.onnx",
+      "file": "friday-ear-quick--onnx--merged--tiny--quantized--encoder_model.onnx",
+      "sha256": "c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a",
+      "bytes": 7937661,
+      "parts": 1,
+      "from": {
+        "pin": "moonshine-ai/moonshine",
+        "file": "onnx/merged/tiny/quantized/encoder_model.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-quick-vocab",
+      "fridayName": "FRIDAY Ear Quick Vocabulary",
+      "path": "tokenizer.json",
+      "file": "friday-ear-quick-vocab--tokenizer.json",
+      "sha256": "6579793438bc4fbafffacf699169ff53e3769c5a0a0f5e71cdee8853e8130deb",
+      "bytes": 1985530,
+      "parts": 1,
+      "from": {
+        "pin": "moonshine-ai/moonshine-tiny",
+        "file": "tokenizer.json",
         "recipe": "copy",
         "recipeVersion": 1
       }
