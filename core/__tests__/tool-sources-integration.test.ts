@@ -238,6 +238,7 @@ describe("community registries are a second opinion, never the install gate", ()
     const zip = row({ download: dl("zip") });
     const exe = row({
       download: { ...dl("exe"), urlTemplate: "https://v.example/t/{version}/tool.zip" },
+      signer: "Example Publisher Ltd",
     });
     const a = await vendor.planRowDownload("A", {
       toolSources: sourcesOf({ A: zip }),
@@ -248,7 +249,12 @@ describe("community registries are a second opinion, never the install gate", ()
       toolSources: sourcesOf({ B: exe }),
       fetchImpl: net.fetchImpl,
     });
-    expect(b).toMatchObject({ ok: true, community: true, needsSignature: true });
+    expect(b).toMatchObject({
+      ok: true,
+      community: true,
+      needsSignature: true,
+      signer: "Example Publisher Ltd",
+    });
   });
 
   it("a Scoop page sent on to another project's path is refused", async () => {
@@ -473,6 +479,8 @@ describe("security: patterns, pages and stored answers", () => {
     const newer = network({ [VERSION_PAGE]: "v5.0.0" });
     const spec = { kind: "html-regex", url: VERSION_PAGE, pattern: "v([0-9.]+)" };
     await vendor.resolveLatest("x", [spec], { fetchImpl: newer.fetchImpl, store });
+    // Only a version whose digest was once verified is a floor (see install-signature-gate.test.ts).
+    store.markVerified("x", "5.0.0");
     const older = network({ [VERSION_PAGE]: "v4.0.0" });
     const got = await vendor.resolveLatest("x", [spec], { fetchImpl: older.fetchImpl, store });
     expect(got.version).toBe("5.0.0");

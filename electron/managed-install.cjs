@@ -9,6 +9,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const MARKER = ".friday-install.json";
 
@@ -32,18 +33,47 @@ function readMarker(root, tool) {
   }
 }
 
-/** Record a finished unpack. `bin` is relative to the tool folder, with forward slashes. */
+/** SHA-256 of a file, read in chunks (a program can be large), or "" when it cannot be read. */
+function hashFile(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, "r");
+    const hash = crypto.createHash("sha256");
+    const chunk = Buffer.alloc(1024 * 1024);
+    for (;;) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (n <= 0) break;
+      hash.update(chunk.subarray(0, n));
+    }
+    return hash.digest("hex");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* already closed */
+      }
+    }
+  }
+}
+
+/** Record a finished unpack. `binSha256` is the program's own hash at that moment, for `verifyBin`. `bin` is relative to the tool folder, with forward slashes. */
 function writeMarker(root, tool, info = {}) {
   if (!root) return false;
   try {
     const dir = toolRoot(root, tool);
     fs.mkdirSync(dir, { recursive: true });
+    const bin = String(info.bin || tool.archiveBin || "").replace(/\\/g, "/");
+    const binSha256 = bin ? hashFile(path.join(dir, ...bin.split("/"))) : "";
     fs.writeFileSync(
       path.join(dir, MARKER),
       JSON.stringify({
         id: tool.id,
         version: info.version || tool.pinVersion || null,
-        bin: String(info.bin || tool.archiveBin || "").replace(/\\/g, "/"),
+        bin,
+        ...(binSha256 ? { binSha256 } : {}),
         url: info.url || tool.installerUrl || null,
         sha256: info.sha256 || tool.sha256 || null,
         at: Date.now(),
@@ -74,4 +104,30 @@ function installedBin(root, tool, exists = fs.existsSync) {
   return null;
 }
 
-module.exports = { MARKER, toolDir, toolRoot, readMarker, writeMarker, installedBin };
+/**
+ * Whether the program in a FRIDAY-managed folder is still the one the marker recorded. The marker's version is only
+ * believed when the program's SHA-256 equals the one stored at install time; a program that was swapped, damaged or
+ * installed before hashes were recorded is `ok: false` (so it is installed again, never "reused").
+ * `{ ok: true, managed: false }` when FRIDAY has no marked copy of the tool.
+ */
+function verifyBin(root, tool, hash = hashFile) {
+  const found = installedBin(root, tool);
+  if (!found?.marker) return { ok: true, managed: false };
+  const recorded = String(found.marker.binSha256 || "").toLowerCase();
+  if (!recorded) return { ok: false, managed: true, reason: "no program hash was recorded" };
+  const actual = String(hash(found.bin) || "").toLowerCase();
+  if (actual !== recorded)
+    return { ok: false, managed: true, reason: "the program differs from what was installed" };
+  return { ok: true, managed: true };
+}
+
+module.exports = {
+  MARKER,
+  toolDir,
+  toolRoot,
+  readMarker,
+  writeMarker,
+  installedBin,
+  hashFile,
+  verifyBin,
+};

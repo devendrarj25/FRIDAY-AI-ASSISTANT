@@ -83,6 +83,14 @@
       ]
     }
   ],
+  "pathPrefixes": {
+    "aka.ms": ["/vs/", "/dotnet/"],
+    "downloads.sourceforge.net": ["/project/nsis/", "/project/luabinaries/"],
+    "gitlab.com": ["/api/v4/projects/4207231/", "/api/v4/projects/graphviz%2Fgraphviz/"],
+    "go.microsoft.com": ["/fwlink/"],
+    "jb.gg": ["/android-studio-releases-list.json"],
+    "sourceforge.net": ["/projects/nsis/", "/projects/luabinaries/"]
+  },
   "optInHosts": ["hf-mirror.com"],
   "loopbackHttp": ["127.0.0.1", "localhost", "::1"]
 }

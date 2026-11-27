@@ -2592,10 +2592,25 @@ function archiveInstallCommand(file, root, tool) {
   };
 }
 
-/** Unpack a zip into dest. Entries that leave dest are skipped. */
-function extractZip(file, dest) {
+/** Most one unpacked file may hold, and most a whole archive may unpack to (generous, but finite). */
+const ZIP_ENTRY_MAX_BYTES = 2 * 1024 ** 3;
+const ZIP_TOTAL_MAX_BYTES = 8 * 1024 ** 3;
+const ZIP_MAX_ENTRIES = 200_000;
+
+/**
+ * Unpack a zip into dest. Entries that leave dest are skipped. A zip that would unpack to more than `maxEntryBytes`
+ * in one file or `maxTotalBytes` in all (a zip bomb) is refused: the sizes the archive declares are checked before
+ * anything is written, and the real output of each entry is capped while it inflates (a declared size can lie).
+ */
+function extractZip(file, dest, limits = {}) {
+  const maxEntry =
+    Number(limits.maxEntryBytes) > 0 ? Number(limits.maxEntryBytes) : ZIP_ENTRY_MAX_BYTES;
+  const maxTotal =
+    Number(limits.maxTotalBytes) > 0 ? Number(limits.maxTotalBytes) : ZIP_TOTAL_MAX_BYTES;
   const buf = fs.readFileSync(file);
   const base = path.resolve(dest);
+  let written = 0;
+  const tooBig = (what) => new Error(`the zip is refused: ${what}`);
   const place = (name, method, data) => {
     if (!name || name.endsWith("/")) return;
     const rel = name.replace(/\\/g, "/");
@@ -2603,10 +2618,24 @@ function extractZip(file, dest) {
     const target = path.resolve(dest, rel);
     const fromRoot = path.relative(base, target);
     if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return;
+    let bytes;
+    if (method === 0) bytes = data;
+    else if (method === 8) {
+      try {
+        bytes = zlib.inflateRawSync(data, {
+          maxOutputLength: Math.max(1, Math.min(maxEntry, maxTotal - written)),
+        });
+      } catch (error) {
+        if (error && error.code === "ERR_BUFFER_TOO_LARGE")
+          throw tooBig(`${rel} unpacks to more than the limit`);
+        throw error;
+      }
+    } else throw new Error(`unsupported zip method ${method}`);
+    if (bytes.length > maxEntry) throw tooBig(`${rel} is larger than ${maxEntry} bytes`);
+    written += bytes.length;
+    if (written > maxTotal) throw tooBig(`it unpacks to more than ${maxTotal} bytes`);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    if (method === 0) fs.writeFileSync(target, data);
-    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
-    else throw new Error(`unsupported zip method ${method}`);
+    fs.writeFileSync(target, bytes);
   };
   // The central directory at the end of the file always carries the real sizes;
   // a local header may say 0 and put them in a data descriptor after the data
@@ -2620,11 +2649,15 @@ function extractZip(file, dest) {
   }
   if (eocd >= 0) {
     const count = buf.readUInt16LE(eocd + 10);
+    if (count > ZIP_MAX_ENTRIES) throw tooBig(`it has ${count} entries`);
     let at = buf.readUInt32LE(eocd + 16);
+    const entries = [];
+    let declared = 0;
     for (let n = 0; n < count; n += 1) {
       if (buf.readUInt32LE(at) !== 0x02014b50) break;
       const method = buf.readUInt16LE(at + 10);
       const compSize = buf.readUInt32LE(at + 20);
+      const rawSize = buf.readUInt32LE(at + 24);
       const nameLen = buf.readUInt16LE(at + 28);
       const extraLen = buf.readUInt16LE(at + 30);
       const commentLen = buf.readUInt16LE(at + 32);
@@ -2633,9 +2666,14 @@ function extractZip(file, dest) {
       at += 46 + nameLen + extraLen + commentLen;
       if (compSize === 0xffffffff || localAt === 0xffffffff)
         throw new Error("zip64 is not supported");
+      if (rawSize > maxEntry) throw tooBig(`${name} declares ${rawSize} bytes`);
+      declared += rawSize;
+      if (declared > maxTotal) throw tooBig(`it declares more than ${maxTotal} bytes in all`);
       const dataAt = localAt + 30 + buf.readUInt16LE(localAt + 26) + buf.readUInt16LE(localAt + 28);
-      place(name, method, buf.slice(dataAt, dataAt + compSize));
+      entries.push([name, method, dataAt, compSize]);
     }
+    for (const [name, method, dataAt, compSize] of entries)
+      place(name, method, buf.slice(dataAt, dataAt + compSize));
     return;
   }
   // No directory: walk the local headers (archives FRIDAY writes itself).
@@ -3453,15 +3491,78 @@ function acceptPinnedFile(file, tool, options = {}) {
   return { ok: true, reason: "" };
 }
 
-function cachedInstaller(url, root) {
-  const name = decodeURIComponent(
-    String(url || "")
-      .split("?")[0]
-      .split("/")
-      .pop() || "",
-  );
+function cachedInstaller(url, root, fileName = "") {
+  const name =
+    fileName ||
+    decodeURIComponent(
+      String(url || "")
+        .split("?")[0]
+        .split("/")
+        .pop() || "",
+    );
   if (!name) return "";
   return path.join(installerDir(root), name);
+}
+
+/** Archives whose Windows signature is always checked before they run (an installer program). */
+const SIGNED_ARCHIVES = new Set(["exe", "msi", "msix"]);
+
+/**
+ * The file a data-file download is saved as: `<id>-<version>.<archive>`, from the row's own data, never from the URL
+ * (an address such as `.../stable` has no extension, so the signature check and the installer command would never
+ * recognise the file). Plain letters, digits and `._+-` only.
+ */
+function dataFileInstallerName(tool, alt) {
+  const part = (v) => String(v ?? "").replace(/[^\w.+-]+/g, "_");
+  const archive = part(alt?.archive).replace(/^\.+/, "");
+  return `${part(safeToolDir(tool?.id))}-${part(alt?.version)}${archive ? `.${archive}` : ""}`;
+}
+
+/**
+ * The Windows signature gate of a downloaded file. A data-file installer (exe, msi, msix) is ALWAYS checked: its digest
+ * comes from the same host as the file, so the signature is the second witness. A row may name its `signer`, and a
+ * row whose digest only a community registry holds must. Only a row marked `allowUnsigned` (a vendor that really ships
+ * no signature, with its reason in the data file) may pass as NotSigned. Where the signature cannot be read (not
+ * Windows) the file is refused. Returns `{ checked, ok, line, reason }`; `line` is the console text.
+ * deps: { win, authenticodeStatus }
+ */
+function signatureGate(file, tool, alt, deps = {}) {
+  const win = deps.win ?? WIN;
+  const status = deps.authenticodeStatus || require("./download-safety.cjs").authenticodeStatus;
+  const required = alt
+    ? SIGNED_ARCHIVES.has(String(alt.archive || ""))
+    : Boolean(win && (tool.release || tool.verifySignature) && /\.(exe|msi|msix)$/i.test(file));
+  if (!required) return { checked: false, ok: true };
+  if (alt?.needsSignature && !alt.signer)
+    return {
+      checked: true,
+      ok: false,
+      reason: "signature (no signer is named for a community-listed digest)",
+      line: "only a community registry lists this digest and the row names no signer; nothing was run",
+    };
+  if (!win)
+    return {
+      checked: true,
+      ok: false,
+      reason: "signature (cannot be checked here)",
+      line: "the Windows signature cannot be checked on this system; nothing was run",
+    };
+  const signed = status(file, { signer: alt?.signer || "" });
+  // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
+  // the vendor's own HTTPS site; a signature that is present but not valid never is.
+  const unsignedOk = Boolean(
+    tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned",
+  );
+  return {
+    checked: true,
+    ok: Boolean(signed.ok || unsignedOk),
+    reason: "signature (failed)",
+    line: signed.ok
+      ? "Windows signature is valid"
+      : unsignedOk
+        ? "the vendor does not sign this installer; its SHA-256 from the vendor's own site matched"
+        : `Windows signature check: ${signed.reason}`,
+  };
 }
 
 /**
@@ -3471,8 +3572,14 @@ function cachedInstaller(url, root) {
  * partial file, and the SHA-256 check when the tool pins one. `report` gets
  * the downloader's progress events (percent, speed, ETA).
  */
-async function downloadInstaller(url, root, report, { sha256, needBytes, label, signal } = {}) {
-  const name = decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
+async function downloadInstaller(
+  url,
+  root,
+  report,
+  { sha256, needBytes, label, signal, fileName } = {},
+) {
+  const name =
+    fileName || decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
   const target = path.join(installerDir(root), name);
   await require("./model-download.cjs").downloadUrl(url, target, {
     onEvent: report,
@@ -4350,8 +4457,8 @@ function runJob({ id, action, root }, emit) {
           installerMirrors: [],
           needBytes: 0,
           releaseTag: alt.version,
-          allowUnsigned: false,
-          verifySignature: alt.needsSignature === true || tool.verifySignature,
+          allowUnsigned: alt.allowUnsigned === true,
+          verifySignature: SIGNED_ARCHIVES.has(String(alt.archive || "")) || tool.verifySignature,
           ...(alt.args ? { installerArgs: alt.args } : {}),
         };
       }
@@ -4409,13 +4516,15 @@ function runJob({ id, action, root }, emit) {
       });
       let file = null;
       let usedUrl = direct.url;
+      // A data-file download is named from its row, not from the address.
+      const savedAs = alt ? dataFileInstallerName(tool, alt) : "";
       // Cancel must stop a download too, not only a running installer (the download has no child process).
       const abort = new AbortController();
       downloadAborts.set(key, abort);
       for (const url of sources) {
         if (abort.signal.aborted) break;
         usedUrl = url;
-        const cached = cachedInstaller(url, root);
+        const cached = cachedInstaller(url, root, savedAs);
         if (tool.sha256 && cached && fs.existsSync(cached)) {
           const ready = acceptPinnedFile(cached, tool, { checkDisk: false });
           if (ready.ok) {
@@ -4466,6 +4575,7 @@ function runJob({ id, action, root }, emit) {
               needBytes: tool.needBytes,
               label: `Downloading ${tool.name || id}`,
               signal: abort.signal,
+              ...(savedAs ? { fileName: savedAs } : {}),
             },
           );
           break;
@@ -4527,32 +4637,20 @@ function runJob({ id, action, root }, emit) {
           file = null;
         }
       }
-      // A digest that only a community registry holds is not enough: the installer's own Windows signature is
-      // the gate, and where it cannot be read nothing is run.
-      if (file && alt?.needsSignature && !WIN) {
-        tried.push("signature (cannot be checked here)");
-        file = null;
-      }
-      if (file && WIN && (tool.release || tool.verifySignature) && /\.(exe|msi)$/i.test(file)) {
-        const signed = require("./download-safety.cjs").authenticodeStatus(file);
-        // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
-        // the vendor's own HTTPS site; a signature that is present but not valid never is.
-        const unsignedOk = Boolean(
-          tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned",
-        );
-        emit({
-          id,
-          action,
-          phase: "Verifying",
-          line: signed.ok
-            ? "Windows signature is valid"
-            : unsignedOk
-              ? "the vendor does not sign this installer; its SHA-256 from the vendor's own site matched"
-              : `Windows signature check: ${signed.reason}`,
-        });
-        if (!signed.ok && !unsignedOk) {
-          tried.push("signature (failed)");
-          file = null;
+      // The installer's own Windows signature is the second witness (see signatureGate).
+      if (file) {
+        const gate = signatureGate(file, tool, alt);
+        if (gate.checked) {
+          emit({ id, action, phase: "Verifying", line: gate.line });
+          if (!gate.ok) {
+            tried.push(gate.reason);
+            try {
+              fs.unlinkSync(file);
+            } catch {
+              /* already gone */
+            }
+            file = null;
+          }
         }
       }
       if (file && tool.storeOnly) {
@@ -4622,6 +4720,19 @@ function runJob({ id, action, root }, emit) {
         if (now.installed && now.status !== "Error") installedVersion = now.version;
       } catch {
         installedVersion = null;
+      }
+      // The marker's version is believed only while the program still has the hash recorded at install time.
+      if (installedVersion && tool.archiveBin && root) {
+        const intact = require("./managed-install.cjs").verifyBin(root, tool);
+        if (!intact.ok) {
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `the installed ${tool.name || id} cannot be trusted (${intact.reason}); installing it again`,
+          });
+          installedVersion = null;
+        }
       }
       const plan = await dataFileDownload(tool, {
         root,
@@ -4955,6 +5066,8 @@ module.exports = {
   fileSha256,
   archiveInstallCommand,
   extractZip,
+  signatureGate,
+  dataFileInstallerName,
   rustupInitCandidates,
   exitCodeText,
 };

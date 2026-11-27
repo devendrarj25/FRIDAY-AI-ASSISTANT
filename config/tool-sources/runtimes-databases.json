@@ -188,6 +188,8 @@
         "digestUrl": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe.sha256"
       },
       "silentInstall": "rustup-init.exe -y --default-toolchain stable --profile minimal",
+      "allowUnsigned": true,
+      "allowUnsignedReason": "rustup-init.exe is published without an Authenticode signature; its SHA-256 comes from the vendor's own host, static.rust-lang.org.",
       "checked": "2026-11-27"
     },
     "Ruby": {

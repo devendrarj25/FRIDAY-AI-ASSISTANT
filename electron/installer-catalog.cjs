@@ -377,6 +377,13 @@ function createInstallerCatalog(deps = {}) {
             checkedAt: null,
           };
       }
+      // How the newest version was reached: this session's answer, else what the stored row recorded, else the pin.
+      const via =
+        row.chain && latest?.ok !== false && latest
+          ? latest.pinned || latest.source === "pinned"
+            ? "pinned"
+            : reached.get(row.chain.key) || cached?.via || "cache"
+          : null;
       const installed = row.installed;
       const fit = fitApi.classify(
         {
@@ -410,8 +417,9 @@ function createInstallerCatalog(deps = {}) {
         ...(row.home ? { home: row.home } : {}),
         notifyOnly: row.notifyOnly === true,
         ...(row.id && row.kind === "tool" && typeof row.downloadReady === "boolean"
-          ? { downloadReady: row.downloadReady }
+          ? { downloadReady: row.downloadReady, installable: row.downloadReady }
           : {}),
+        ...(via ? { via } : {}),
         ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
         ...(row.needsRelease ? { needsRelease: true, note: row.note } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),
@@ -458,6 +466,8 @@ function createInstallerCatalog(deps = {}) {
   }
 
   const failures = new Map();
+  /** How each key's newest version was last reached this session (primary, fallback, cache, pinned). */
+  const reached = new Map();
   const manualWait = () => {
     const plan = vendor.planFeedRefresh({
       trigger: "manual",
@@ -525,6 +535,7 @@ function createInstallerCatalog(deps = {}) {
         const answer = await run("download", () =>
           vendor.resolveLatest(chain.key, sources, { store, fetchImpl: deps.fetchImpl, now }),
         ).catch((error) => ({ ok: false, error: String(error?.message || error) }));
+        if (answer.ok && answer.via) reached.set(chain.key, answer.via);
         if (answer.ok && !answer.stale && !answer.pinned) {
           ok += 1;
           failures.delete(chain.key);

@@ -635,6 +635,8 @@ async function httpGet(
           } catch {
             /* the body was never wanted */
           }
+          // The address a redirect probe led to is the answer: it must be a place downloads may come from.
+          checkFinalUrl(url, meta.url, pathPrefix);
           return { ...meta, notModified: false, text: "" };
         }
         // A page the request was sent on to must still be a place downloads may come from, and for the
@@ -1228,6 +1230,23 @@ function createFeedStore({ file, fs: fsApi = nodeFs } = {}) {
       slot(id).row = row;
       dirty = true;
     },
+    /**
+     * A version counts as "known good" once a digest for it was read from a source other than the version feed
+     * (the data file's digest source, agreeing with the pin). Only such a version may become a floor.
+     */
+    markVerified(id, version) {
+      const v = String(version ?? "");
+      if (!v) return;
+      const list = (slot(id).verified ||= []);
+      if (!list.includes(v)) {
+        list.push(v);
+        if (list.length > 8) list.shift();
+        dirty = true;
+      }
+    },
+    isVerified: (id, version) =>
+      Array.isArray(load().rows[id]?.verified) &&
+      load().rows[id].verified.includes(String(version)),
     getSource: (id, key) => load().rows[id]?.sources?.[key] ?? null,
     putSource(id, key, entry) {
       slot(id).sources[key] = entry;
@@ -1342,7 +1361,12 @@ async function resolveLatest(rowId, sources, options = {}) {
       }
       if (!value?.version) throw new Error("answered without a version");
       // A source never takes the version back below what is stored or pinned (a stale mirror, a swapped page).
-      const floor = [trustStored(prior?.value, list)?.version, pinOf(list)?.version]
+      // A stored version is a floor only when a digest for it was once verified: an inflated number from a page
+      // (999) must not freeze the real updates.
+      const priorValue = trustStored(prior?.value, list);
+      const priorFloor =
+        priorValue && store?.isVerified?.(rowId, priorValue.version) ? priorValue.version : null;
+      const floor = [priorFloor, pinOf(list)?.version]
         .filter(Boolean)
         .sort((a, b) => compareVersions(b, a))[0];
       if (!notModified && floor && compareVersions(value.version, floor) < 0)
@@ -1380,7 +1404,12 @@ async function resolveLatest(rowId, sources, options = {}) {
         at,
         adoptedAt,
       });
-      store?.putRow(rowId, { value, source: spec.kind, checkedAt: at });
+      store?.putRow(rowId, {
+        value,
+        source: spec.kind,
+        checkedAt: at,
+        via: attempts.length ? "fallback" : "primary",
+      });
       store?.flush();
       return {
         ok: true,
@@ -1468,6 +1497,9 @@ const KNOWN_ROW_FIELDS = new Set([
   "notifyOnly",
   "checked",
   "singleSourceReason",
+  "signer",
+  "allowUnsigned",
+  "allowUnsignedReason",
 ]);
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -1563,6 +1595,13 @@ function rowProblem(row) {
   }
   if (row.notifyOnly !== undefined && typeof row.notifyOnly !== "boolean")
     return `"notifyOnly" must be true or false`;
+  if (row.signer !== undefined && !(isText(row.signer) && row.signer.length <= 200))
+    return `"signer" must be the publisher's certificate name or a 40-hex thumbprint`;
+  if (row.allowUnsigned !== undefined) {
+    if (row.allowUnsigned !== true) return `"allowUnsigned" can only be true`;
+    if (!isText(row.allowUnsignedReason))
+      return `"allowUnsigned" needs "allowUnsignedReason": why this vendor ships it unsigned`;
+  }
   if (row.checked !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(row.checked))
     return `"checked" must be a date like 2026-11-27`;
   return "";
@@ -1667,6 +1706,9 @@ function rowSpec(id, options = {}) {
     notifyOnly: row.notifyOnly === true,
     checked: row.checked || "",
     singleSourceReason: row.singleSourceReason || "",
+    signer: row.signer || "",
+    allowUnsigned: row.allowUnsigned === true,
+    allowUnsignedReason: row.allowUnsignedReason || "",
     sources: row.sources,
   };
 }
@@ -1871,6 +1913,13 @@ function downloadReadiness(spec) {
   if (!d.digestUrl) return { installable: false, reason: "no digest source is listed" };
   if (isCommunityUrl(d.digestUrl) && !SIGNED_ARCHIVES.has(d.archive))
     return { installable: false, reason: "only a community registry lists a digest" };
+  // A digest only a community registry holds is backed by the publisher's signature, and the row must name that
+  // publisher: any valid signature from anybody would pass otherwise.
+  if (isCommunityUrl(d.digestUrl) && !spec.signer)
+    return {
+      installable: false,
+      reason: "only a community registry lists a digest and the row names no signer",
+    };
   if (d.archive === "exe" && !silentArgv(spec.silentInstall, "1.0"))
     return { installable: false, reason: "no plain silent-install switches" };
   return { installable: true, reason: "" };
@@ -1919,6 +1968,8 @@ async function planRowDownload(rowId, options = {}) {
     };
   const agreed = agreeOnDigest(options.pin, { version, sha256: got.sha256 });
   if (!agreed.ok) return { ok: false, version, error: agreed.error };
+  // A digest read from the data file's own digest source, agreeing with the pin: this version is known good.
+  if (!got.community) options.store?.markVerified?.(rowId, version);
   const archive = spec.download.archive || "";
   let args = null;
   if (archive === "exe") {
@@ -1937,6 +1988,8 @@ async function planRowDownload(rowId, options = {}) {
     source: hostOf(got.url),
     ...(args ? { args } : {}),
     ...(got.community ? { community: true, needsSignature: true } : {}),
+    ...(spec.signer ? { signer: String(spec.signer) } : {}),
+    ...(spec.allowUnsigned === true ? { allowUnsigned: true } : {}),
   };
 }
 

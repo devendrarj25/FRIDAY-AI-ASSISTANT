@@ -170,7 +170,7 @@ describe("new readers", () => {
     let bodyRead = false;
     const net = network({
       "https://aka.example/latest": (_url: string, init: Record<string, unknown>) => ({
-        ...reply("", { url: "https://cdn.example/dl/tool-5.6.7-x64.msi" }),
+        ...reply("", { url: "https://github.com/o/r/dl/tool-5.6.7-x64.msi" }),
         text: async () => {
           bodyRead = true;
           return "x".repeat(10);
@@ -192,7 +192,7 @@ describe("new readers", () => {
       "https://aka.example/latest": (_url: string, init: Record<string, unknown>) =>
         init["method"] === "HEAD"
           ? reply("", { status: 405 })
-          : reply("", { url: "https://cdn.example/tool-1.2.3.exe" }),
+          : reply("", { url: "https://github.com/o/r/tool-1.2.3.exe" }),
     });
     const got = await read(
       {
@@ -412,7 +412,7 @@ describe("digest handling: a version alone never authorises an install", () => {
     [
       "redirect-regex",
       { kind: "redirect-regex", url: "https://v.example/a", pattern: "-([0-9.]+)\\." },
-      { "https://v.example/a": reply("", { url: "https://c.example/t-1.2.3.exe" }) },
+      { "https://v.example/a": reply("", { url: "https://github.com/o/r/t-1.2.3.exe" }) },
     ],
     [
       "endoflife",
