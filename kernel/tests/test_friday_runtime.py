@@ -304,3 +304,63 @@ def test_the_doctor_row_names_the_layer_the_engine_and_the_providers():
     assert "1.2.3" in row["detail"] and CPU in row["detail"]
     assert pins.runtime_row({"engineVersion": None, "providers": []})["ok"] is False
     assert pins.runtime_row()["label"] == "FRIDAY Runtime"
+
+
+# ---- own_engine: the engine is FRIDAY's only when the installed wheel hash is the pinned one ----------------------
+
+
+class _Dist:
+    def __init__(self, text):
+        self.text = text
+
+    def read_text(self, name):
+        return self.text if name == "direct_url.json" else None
+
+
+def _cfg(tmp_path, wheels):
+    import json
+
+    path = tmp_path / "friday-runtime.json"
+    path.write_text(json.dumps({"wheels": wheels}), encoding="utf-8")
+    return path
+
+
+def _direct(sha):
+    import json
+
+    return json.dumps({"url": "file:///w.whl", "archive_info": {"hashes": {"sha256": sha}}})
+
+
+def test_own_engine_matches_the_pinned_wheel(tmp_path):
+    sha = "ab" * 32
+    cfg = _cfg(tmp_path, {fr._platform_key(): {"file": "w.whl", "sha256": sha}})
+    assert fr.own_engine(cfg, _Dist(_direct(sha.upper()))) is True
+
+
+def test_own_engine_mismatch_is_official(tmp_path):
+    cfg = _cfg(tmp_path, {fr._platform_key(): {"file": "w.whl", "sha256": "ab" * 32}})
+    assert fr.own_engine(cfg, _Dist(_direct("cd" * 32))) is False
+
+
+def test_own_engine_without_direct_url_is_official(tmp_path):
+    cfg = _cfg(tmp_path, {fr._platform_key(): {"file": "w.whl", "sha256": "ab" * 32}})
+    assert fr.own_engine(cfg, _Dist(None)) is False
+
+
+def test_own_engine_with_empty_wheels_is_official(tmp_path):
+    assert fr.own_engine(_cfg(tmp_path, {}), _Dist(_direct("ab" * 32))) is False
+
+
+def test_own_engine_bad_json_never_throws(tmp_path):
+    cfg = _cfg(tmp_path, {fr._platform_key(): {"sha256": "ab" * 32}})
+    assert fr.own_engine(cfg, _Dist("{not json")) is False
+    cfg.write_text("{broken", encoding="utf-8")
+    assert fr.own_engine(cfg, _Dist(_direct("ab" * 32))) is False
+    assert fr.own_engine(tmp_path / "missing.json", _Dist(_direct("ab" * 32))) is False
+
+
+def test_runtime_info_names_the_own_build_only_on_a_match(monkeypatch):
+    monkeypatch.setattr(fr, "own_engine", lambda *a, **k: True)
+    assert fr.runtime_info()["name"] == "FRIDAY Runtime (own build)"
+    monkeypatch.setattr(fr, "own_engine", lambda *a, **k: False)
+    assert fr.runtime_info()["name"] == "FRIDAY Runtime"

@@ -23,8 +23,10 @@ such argument.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
+import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -33,6 +35,7 @@ from typing import Any
 import voice_budget
 
 NAME = "FRIDAY Runtime"
+OWN_NAME = "FRIDAY Runtime (own build)"
 CPU = "CPUExecutionProvider"
 CACHE_ENV = "FRIDAY_RUNTIME_OPTIMIZED_CACHE"
 _CHUNK = 1 << 20
@@ -280,6 +283,53 @@ def cache_enabled() -> bool:
     return _cache_enabled(None)
 
 
+_ARCH = {
+    "amd64": "x64",
+    "x86_64": "x64",
+    "x64": "x64",
+    "arm64": "arm64",
+    "aarch64": "arm64",
+    "i386": "ia32",
+    "x86": "ia32",
+}
+
+
+def _platform_key() -> str:
+    machine = platform.machine().lower()
+    return f"{sys.platform}-{_ARCH.get(machine, machine)}"
+
+
+def own_engine(config_path: str | os.PathLike[str] | None = None, dist: Any = None) -> bool:
+    """True only when the installed onnxruntime wheel is FRIDAY's own build: the SHA-256 in its ``direct_url.json``
+    equals the wheel pinned in ``config/friday-runtime.json`` for this platform. Any read error, a missing record or
+    an empty ``wheels`` table means the official engine; it never raises."""
+    try:
+        path = (
+            Path(config_path)
+            if config_path
+            else Path(__file__).resolve().parent.parent / "config" / "friday-runtime.json"
+        )
+        wheels = json.loads(path.read_text(encoding="utf-8")).get("wheels") or {}
+        pinned = str((wheels.get(_platform_key()) or {}).get("sha256") or "").strip().lower()
+        if not pinned:
+            return False
+        if dist is None:
+            from importlib import metadata
+
+            dist = metadata.distribution("onnxruntime")
+        raw = dist.read_text("direct_url.json")
+        if not raw:
+            return False
+        archive = json.loads(raw).get("archive_info") or {}
+        found = str((archive.get("hashes") or {}).get("sha256") or "").strip().lower()
+        if not found:
+            algo, _, value = str(archive.get("hash") or "").partition("=")
+            found = value.strip().lower() if algo.strip().lower() == "sha256" else ""
+        return bool(found) and found == pinned
+    except Exception:  # noqa: BLE001 — unknown means the official engine
+        return False
+
+
 def runtime_info() -> dict[str, Any]:
     """The facts for a Doctor row: the layer's name, the engine under it, its version and the providers it has."""
     info: dict[str, Any] = {
@@ -295,4 +345,6 @@ def runtime_info() -> dict[str, Any]:
         info["providers"] = [str(name) for name in ort.get_available_providers()]
     except Exception:  # noqa: BLE001 — no runtime is the answer, not a crash
         return info
+    if own_engine():
+        info["name"] = OWN_NAME
     return info
