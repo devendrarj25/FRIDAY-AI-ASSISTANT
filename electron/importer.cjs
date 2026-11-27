@@ -521,11 +521,171 @@ function ensureLayout(root) {
   for (const dir of CANONICAL) fs.mkdirSync(path.join(root, dir), { recursive: true });
 }
 
+/** Provenance a manifest carries once Update content placed it. */
+const RELEASE_CONTENT = "release-content";
+const ALREADY_IN_RELEASE = "already in this release";
+const OWNER_PROVENANCE = new Set(["user", "import", "marketplace", "forge"]);
+
+/**
+ * The record of what this installer ships (resources/builtins.json), or null
+ * when this is not a packaged install or the file is missing or foreign. Null
+ * keeps every import exactly as it was before the record existed.
+ */
+function readBuiltinsManifest(resourcesDir = process.resourcesPath) {
+  if (!resourcesDir) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(resourcesDir, "builtins.json"), "utf8"));
+    const ok = data && data.schema === 1 && data.trees && typeof data.trees === "object";
+    return ok ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+const parseVersion = (value) => {
+  const match = /^v?(\d+(?:\.\d+){0,3})/.exec(String(value ?? "").trim());
+  return match ? match[1].split(".").map(Number) : null;
+};
+
+/** `incoming` is strictly newer than `shipped`; an unreadable shipped version counts as older. */
+function versionNewer(incoming, shipped) {
+  const left = parseVersion(incoming);
+  if (!left) return false;
+  const right = parseVersion(shipped);
+  if (!right) return true;
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+const readJsonFile = (file) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return data && typeof data === "object" && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Same bytes, or the same manifest apart from the provenance mark Update
+ * content wrote, so applying one release twice changes nothing the second time.
+ */
+function sameFile(current, incoming) {
+  if (hashFile(current) === hashFile(incoming)) return true;
+  if (!current.endsWith(".json") || !incoming.endsWith(".json")) return false;
+  const mine = readJsonFile(current);
+  const theirs = readJsonFile(incoming);
+  if (!mine || !theirs || mine.provenance !== RELEASE_CONTENT) return false;
+  delete mine.provenance;
+  delete theirs.provenance;
+  return JSON.stringify(mine) === JSON.stringify(theirs);
+}
+
+/**
+ * Decide, item by item, what a release's content merge may place.
+ *   * the installer already ships the item at an equal or higher version:
+ *     skipped, reported as "already in this release" (no drifting copy);
+ *   * a workspace item the owner made (no release-content mark): never replaced;
+ *   * everything else lands and gets the release-content mark.
+ * Nothing here deletes a file.
+ */
+function planContentUpdate({ root, contentRoot, files, builtins }) {
+  const capabilities = require("./capabilities.cjs");
+  const shipped = new Map();
+  for (const list of Object.values(builtins.trees || {})) {
+    for (const item of Array.isArray(list) ? list : []) {
+      if (item && typeof item.id === "string") shipped.set(item.id.toLowerCase(), item);
+    }
+  }
+  const items = capabilities
+    .scanRoot(contentRoot, "app", [contentRoot])
+    .map((item) => ({
+      item,
+      rel: path.relative(contentRoot, item.path).replace(/\\/g, "/"),
+    }))
+    .sort((a, b) => b.rel.length - a.rel.length);
+
+  const decided = new Map();
+  const alreadyInRelease = [];
+  const keptYours = [];
+  const landing = [];
+  const kept = [];
+  for (const file of files) {
+    const hit = items.find(({ rel }) => file.path.startsWith(`${rel}/`));
+    if (!hit) {
+      kept.push(file);
+      continue;
+    }
+    if (!decided.has(hit.rel)) {
+      const { item, rel } = hit;
+      const built = shipped.get(String(item.id).toLowerCase());
+      const names = capabilities.TREES[item.tree]?.names || [];
+      const workspaceDir = path.join(root, ...rel.split("/"));
+      let verdict = "land";
+      if (built && !versionNewer(item.version, built.version)) {
+        verdict = "shipped";
+        alreadyInRelease.push({
+          id: item.id,
+          tree: item.tree,
+          version: item.version,
+          builtinVersion: built.version ?? null,
+          reason: ALREADY_IN_RELEASE,
+        });
+      } else if (inside(root, workspaceDir)) {
+        const name = names.find((candidate) => fs.existsSync(path.join(workspaceDir, candidate)));
+        const mine = name ? readJsonFile(path.join(workspaceDir, name)) : null;
+        const provenance = OWNER_PROVENANCE.has(mine?.provenance) ? mine.provenance : "user";
+        if (mine && mine.provenance !== RELEASE_CONTENT) {
+          verdict = "yours";
+          keptYours.push({
+            id: item.id,
+            tree: item.tree,
+            version: mine.version == null ? null : String(mine.version),
+            incomingVersion: item.version,
+            provenance,
+          });
+        }
+      }
+      if (verdict === "land") {
+        landing.push({
+          dir: workspaceDir,
+          manifest: item.manifestFile ? path.basename(item.manifestFile) : null,
+        });
+      }
+      decided.set(hit.rel, verdict);
+    }
+    if (decided.get(hit.rel) === "land") kept.push(file);
+  }
+  return { files: kept, alreadyInRelease, keptYours, landing };
+}
+
+/** Mark a placed item as content that came with a release (never the owner's own work). */
+function markReleaseContent({ dir, manifest }) {
+  if (!manifest) return;
+  const file = path.join(dir, manifest);
+  const data = readJsonFile(file);
+  if (!data || data.provenance === RELEASE_CONTENT) return;
+  const temp = `${file}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify({ ...data, provenance: RELEASE_CONTENT }, null, 2)}\n`);
+  fs.renameSync(temp, file);
+}
+
 /**
  * Copy a scanned import into the workspace after backing up every top-level
  * folder it touches. Returns { ok, backup, applied, restartRequired, areas }.
  */
-async function applyImport({ root, scan, onProgress = () => {}, keepBackup = true, areas = null }) {
+async function applyImport({
+  root,
+  scan,
+  onProgress = () => {},
+  keepBackup = true,
+  areas = null,
+  builtins,
+  resourcesPath,
+}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   const contentRoot = scan?.contentRoot;
   if (!contentRoot || !fs.existsSync(contentRoot)) {
@@ -547,7 +707,17 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
 
   const allowed = Array.isArray(areas) && areas.length ? new Set(areas.map(String)) : null;
   let preserved = 0;
-  const files = walk(contentRoot)
+  // A release's content merge into an installed app: what the installer already
+  // ships is not copied again (see planContentUpdate). Outside a packaged
+  // install there is no built-ins record and nothing here applies.
+  const shipped =
+    scan.githubRef && scan.layout === "repo"
+      ? builtins !== undefined
+        ? builtins
+        : readBuiltinsManifest(resourcesPath)
+      : null;
+  let plan = null;
+  const candidates = walk(contentRoot)
     .map((file) => {
       const verdict = classify(file.path, { ...info, full: file.full });
       return {
@@ -561,20 +731,30 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
     .filter((f) => (allowed ? allowed.has(f.area) : true))
     .filter((f) => {
       const current = path.join(root, f.dest);
-      return !fs.existsSync(current) || hashFile(current) !== hashFile(f.full);
-    })
-    .filter((f) => {
-      // A GitHub source update never replaces the owner's own data.
-      if (
-        (scan.githubRef || scan.layout === "repo") &&
-        isUserData(f.dest) &&
-        fs.existsSync(path.join(root, f.dest))
-      ) {
-        preserved += 1;
-        return false;
-      }
-      return true;
+      return (
+        !fs.existsSync(current) ||
+        !(shipped ? sameFile(current, f.full) : hashFile(current) === hashFile(f.full))
+      );
     });
+  if (shipped) {
+    plan = planContentUpdate({ root, contentRoot, files: candidates, builtins: shipped });
+  }
+  const contentReport = {
+    alreadyInRelease: plan ? plan.alreadyInRelease : [],
+    keptYours: plan ? plan.keptYours : [],
+  };
+  const files = (plan ? plan.files : candidates).filter((f) => {
+    // A GitHub source update never replaces the owner's own data.
+    if (
+      (scan.githubRef || scan.layout === "repo") &&
+      isUserData(f.dest) &&
+      fs.existsSync(path.join(root, f.dest))
+    ) {
+      preserved += 1;
+      return false;
+    }
+    return true;
+  });
   if (!files.length) {
     return {
       ok: true,
@@ -585,6 +765,7 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
       placed: [],
       preserved,
       dependencyChanges: [],
+      ...contentReport,
     };
   }
 
@@ -612,6 +793,9 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
       placed.set(home, (placed.get(home) || 0) + 1);
       applied += 1;
     }
+    // Content that came with a release is marked, so it is never mistaken for
+    // something the owner made (and a rollback of this apply removes the mark).
+    for (const item of plan ? plan.landing : []) markReleaseContent(item);
   } catch (error) {
     // Put everything back exactly as it was before this import started.
     transaction.restoreBackup({ root, backup });
@@ -634,6 +818,7 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
     placed: [...placed.entries()].map(([dir, count]) => ({ dir, files: count })),
     restartRequired,
     preserved,
+    ...contentReport,
     dependencyChanges: files
       .map((f) => {
         const hit = DEPENDENCY_FILES.find(([pattern]) => pattern.test(f.dest));
@@ -742,6 +927,7 @@ module.exports = {
   ensureLayout,
   scanImport,
   applyImport,
+  readBuiltinsManifest,
   rollbackImport,
   verifyStagedPacks,
   filenameFromDownload,
