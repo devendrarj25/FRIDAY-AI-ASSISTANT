@@ -33,7 +33,12 @@ Rules
   words, its first ``first_words`` words (three to six, at a comma when there is one, one or two more when the cut
   would fall on an article or a preposition) are a clause of their own.
 * Digits that survive are read in the clause language (Hindi 0 to 99 from a table, then sau, hazaar, lakh and crore).
-* Roman Hindi (Latin letters, mostly common Hindi words) is handled by ``ROMAN_HINDI_STRATEGY``.
+* Roman Hindi (Latin letters, mostly common Hindi words) is handled by ``ROMAN_HINDI_STRATEGY``. With the default
+  strategy only the Hindi words of such a clause are written in Devanagari; English words (``alarm``, ``set``,
+  ``temperature``) stay in Latin letters, and the clause is read by the Hindi voice.
+* A number is read in the language of the word after it, else the word before it (the renderer's script policy), and
+  only a number with no word beside it takes the clause language. ``Rs.`` and ``₹`` are rupees, ``km``, ``kg``, ``GB``
+  and the like are spoken as words, in the language of the number.
 
 A sentence is yielded when it is closed (the next sentence has started, or the text ended); only a long first
 sentence is cut early, because speech should not wait for it.
@@ -48,6 +53,7 @@ import unicodedata
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 
+import hinglish_lexicon as lexicon
 import text_norm
 from language_segmenter import _ROMAN_HINDI, Span, ends_in_open_dot, segment
 
@@ -209,16 +215,33 @@ _EN_ONES = (
 _EN_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
 NUMBER_LIMIT = 10**9  # beyond this the digits are read one by one
 
+_UNITS = r"km/h|kmph|kph|km|kg|cm|mm|ms|gb|mb|kb|tb|hz|per\s?cent|percent"
 _NUMBER = re.compile(
     r"(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!\d)"
     r"|(?P<pre>₹|\$|\bRs\.?\s?|\bINR\s?)?"
-    r"(?P<num>\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?P<post>\s?%)?",
+    r"(?P<num>\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?P<post>\s?%)?"
+    rf"(?:\s?(?P<unit>{_UNITS})(?![A-Za-z]))?",
     re.IGNORECASE,
 )
 _WORDS = {
     "en": {"rupee": "rupees", "dollar": "dollars", "percent": "percent", "point": "point", "oclock": "o'clock"},
     "hi": {"rupee": "रुपये", "dollar": "डॉलर", "percent": "प्रतिशत", "point": "दशमलव", "oclock": "बजे"},
 }
+# A unit written short, as words: English (singular, plural) and Hindi (one form).
+_UNIT_WORDS = {
+    "en": {
+        "km": ("kilometre", "kilometres"), "kg": ("kilogram", "kilograms"), "cm": ("centimetre", "centimetres"),
+        "mm": ("millimetre", "millimetres"), "ms": ("millisecond", "milliseconds"), "gb": ("gigabyte", "gigabytes"),
+        "mb": ("megabyte", "megabytes"), "kb": ("kilobyte", "kilobytes"), "tb": ("terabyte", "terabytes"),
+        "hz": ("hertz", "hertz"), "km/h": ("kilometre per hour", "kilometres per hour"),
+    },
+    "hi": {
+        "km": "किलोमीटर", "kg": "किलोग्राम", "cm": "सेंटीमीटर", "mm": "मिलीमीटर", "ms": "मिलीसेकंड",
+        "gb": "गीगाबाइट", "mb": "मेगाबाइट", "kb": "किलोबाइट", "tb": "टेराबाइट", "hz": "हर्ट्ज़",
+        "km/h": "किलोमीटर प्रति घंटा",
+    },
+}  # fmt: skip
+_UNIT_ALIASES = {"kmph": "km/h", "kph": "km/h"}
 
 
 def _en_below_100(n: int) -> str:
@@ -274,26 +297,37 @@ def _number_words(raw: str, lang: str) -> str:
     return spoken
 
 
-def expand_numbers(text: str, lang: str) -> str:
-    """Digits, currency, percent and clock times left in ``text``, as words in ``lang`` (``hi`` or English)."""
+def _spoken_number(match: re.Match[str], lang: str) -> str:
+    """One ``_NUMBER`` match in words in ``lang`` (``hi`` or English), with its currency, percent or unit."""
     words = _WORDS["hi" if lang == "hi" else "en"]
+    if match.group("hour") is not None:
+        hour, minute = int(match.group("hour")), int(match.group("minute"))
+        if hour > 24 or minute > 59:
+            return match.group(0)
+        at = say_number(hour, lang)
+        return f" {at} {words['oclock']} " if minute == 0 else f" {at} {say_number(minute, lang)} "
+    spoken = _number_words(match.group("num"), lang)
+    pre = (match.group("pre") or "").strip().rstrip(".").lower()
+    if pre:
+        spoken += " " + (words["dollar"] if pre == "$" else words["rupee"])
+    if match.group("post"):
+        spoken += " " + words["percent"]
+    unit = re.sub(r"\s", "", (match.group("unit") or "").lower())
+    if unit == "percent":
+        spoken += " " + words["percent"]
+    elif unit:
+        unit = _UNIT_ALIASES.get(unit, unit)
+        if lang == "hi":
+            spoken += " " + _UNIT_WORDS["hi"][unit]
+        else:
+            single, plural = _UNIT_WORDS["en"][unit]
+            spoken += " " + (single if match.group("num") == "1" else plural)
+    return f" {spoken} "
 
-    def one(match: re.Match[str]) -> str:
-        if match.group("hour") is not None:
-            hour, minute = int(match.group("hour")), int(match.group("minute"))
-            if hour > 24 or minute > 59:
-                return match.group(0)
-            at = say_number(hour, lang)
-            return f" {at} {words['oclock']} " if minute == 0 else f" {at} {say_number(minute, lang)} "
-        spoken = _number_words(match.group("num"), lang)
-        pre = (match.group("pre") or "").strip().rstrip(".").lower()
-        if pre:
-            spoken += " " + (words["dollar"] if pre == "$" else words["rupee"])
-        if match.group("post"):
-            spoken += " " + words["percent"]
-        return f" {spoken} "
 
-    return _NUMBER.sub(one, text)
+def expand_numbers(text: str, lang: str) -> str:
+    """Digits, currency, percent, units and clock times left in ``text``, as words in ``lang`` (``hi`` or English)."""
+    return _NUMBER.sub(lambda match: _spoken_number(match, lang), text)
 
 
 # ---- Roman Hindi -----------------------------------------------------------------------------------------------
@@ -314,7 +348,21 @@ _ROMAN_PAIRS = (
         "mera=मेरा meri=मेरी mere=मेरे tera=तेरा tumhara=तुम्हारा uska=उसका usne=उसने ne=ने ko=को se=से "
         "par=पर aur=और ya=या ki=की ka=का ke=के ek=एक do=दो"
 )  # fmt: skip
-_ROMAN_OVERRIDES = {key: value for key, _, value in (pair.partition("=") for pair in _ROMAN_PAIRS.split())}
+# More words (the rules in text_norm write a virama in the middle of ``lagta`` or ``karte``, which the engine reads as a
+# cluster), and the spellings of the words people leave without a long vowel.
+_ROMAN_MORE = (
+        "haan=हाँ han=हाँ aapke=आपके apna=अपना apne=अपने apni=अपनी nayi=नई naya=नया naye=नए purana=पुराना "
+        "purani=पुरानी puraane=पुराने lagta=लगता lagti=लगती lagte=लगते karta=करता karti=करती karte=करते "
+        "lijiye=लीजिए liye=लिए kafi=काफ़ी jana=जाना jaana=जाना jaane=जाने jaata=जाता jaati=जाती uthna=उठना uthne=उठने "
+        "hamara=हमारा humara=हमारा chahta=चाहता chahti=चाहती chahte=चाहते bhejna=भेजना bhejne=भेजने milta=मिलता "
+        "milti=मिलती milte=मिलते rakhna=रखना padhna=पढ़ना padho=पढ़ो khelna=खेलना sochna=सोचना bataiye=बताइए "
+        "boliye=बोलिए aaiye=आइए jaiye=जाइए baithiye=बैठिए rukiye=रुकिए kitni=कितनी kyunki=क्योंकि uski=उसकी "
+        "unka=उनका unki=उनकी wala=वाला wali=वाली wale=वाले yahan=यहाँ wahan=वहाँ jyada=ज़्यादा zyada=ज़्यादा "
+        "shuru=शुरू chalu=चालू isliye=इसलिए karein=करें namaste=नमस्ते paas=पास"
+)  # fmt: skip
+_ROMAN_OVERRIDES = {
+    key: value for key, _, value in (pair.partition("=") for pair in (_ROMAN_PAIRS + " " + _ROMAN_MORE).split())
+}
 _LATIN_WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 
 
@@ -322,14 +370,15 @@ def roman_to_devanagari(text: str) -> str:
     """Every Latin word of ``text`` written in Devanagari: a table for frequent words, the ``text_norm`` rules for
     the rest. Numbers, punctuation and Devanagari text are left as they are."""
 
-    def one(match: re.Match[str]) -> str:
-        word = match.group(0).lower().replace("'", "")
-        if word in _ROMAN_OVERRIDES:
-            return _ROMAN_OVERRIDES[word]
-        found = text_norm.hinglish_to_devanagari_candidates(word, limit=1)
-        return found[0] if found else match.group(0)
+    return _LATIN_WORD.sub(lambda match: _devanagari_word(match.group(0)), text)
 
-    return _LATIN_WORD.sub(one, text)
+
+def _devanagari_word(raw: str) -> str:
+    word = raw.lower().replace("'", "")
+    if word in _ROMAN_OVERRIDES:
+        return _ROMAN_OVERRIDES[word]
+    found = text_norm.hinglish_to_devanagari_candidates(word, limit=1)
+    return found[0] if found else raw
 
 
 # Hindi words with no English reading, beyond the short list the segmenter keeps: they make "theek hai" Roman Hindi.
@@ -349,6 +398,108 @@ def is_roman_hindi(text: str) -> bool:
     latin = [w.lower().replace("'", "") for w in _LATIN_WORD.findall(text)]
     hits = sum(1 for w in latin if w in _ROMAN_EVIDENCE)
     return hits >= 2 and hits * 2 >= len(latin)
+
+
+# ---- Roman Hinglish: Hindi words in Devanagari, English words left alone ------------------------------------------
+
+# Hindi words people type in Latin letters that the shared lexicon does not list (nothing English reads like them).
+_HINDI_EXTRA = frozenset(
+    """
+    nayi naya naye purani purana puraane aapke aapke paas jaana jana jaane jaata jaati dena dene lena lene lagta lagti
+    lagte karte karti karta karein kijiye lijiye liye kaafi kafi uthna uthne hota hoti hote hoga hogi honge milta milti
+    milte milega milegi bhejna bhejne bhej deti deta dete denge wala wali wale isliye isi uski unka unki hamara humara
+    apna apni apne kisi kyunki tak mat sirf sakta sakti sakte chahta chahti chahte rakhna rakho likho padhna padho
+    khelna sochna bataiye boliye dikhaiye aaiye jaiye baithiye rukiye kam zyada jyada hamesha kabhi yahan wahan idhar
+    udhar kitni kaisa kaisi aisa aisi waisa jaisa jaisi tabhi jabhi abhi
+    """.split()
+)
+# Words of the shared lists that English also uses: not evidence of Hindi.
+_HINDI_SHARED = frozenset("ho kar lo bana khol ruk do main mai to me mein hi hai sun chal band hum par ab".split())
+_HINDI_STRICT = (frozenset(k for k in lexicon._SURE if k.isascii()) | _HINDI_EXTRA | _ROMAN_EVIDENCE) - _HINDI_SHARED  # pyright: ignore[reportPrivateUsage]
+_ENGLISH_LOAN = frozenset(lexicon._LOAN.values())  # pyright: ignore[reportPrivateUsage]
+# English words that look or sound like Hindi ones, and the number and unit words this module writes in English.
+_ENGLISH_KEEP = (
+    _ENGLISH_LOAN
+    | frozenset(
+        """
+        gym wait charger book set temperature degree degrees balance boss april june july august september october
+        november december january february march may check checks banana arena antenna lakh crore rupees dollars percent
+        point hundred thousand million kilometre kilometres kilogram kilograms centimetres millimetres gigabytes
+        megabytes kilobytes terabytes hertz milliseconds
+        """.split()
+    )
+    | frozenset(_EN_ONES)
+    | frozenset(_EN_TENS[2:])
+)
+_HINDI_SHAPE = re.compile(r"(?:iye|ega|egi|ogi|unga|ungi|chh|kh|bh|jh|aa)|(?<=.{3})na\Z")
+_ROMAN_HINGLISH_SHARE = lexicon.ROMAN_HINGLISH_SHARE
+
+
+def _english_word(key: str) -> bool:
+    return key in _ENGLISH_KEEP or (key.endswith("s") and key[:-1] in _ENGLISH_KEEP)
+
+
+def _hindi_roman(raw: str) -> bool:
+    """A Latin word that is Hindi: a word of the lists above, or one with a Hindi-only shape (``jaana``, ``lijiye``)."""
+    key = raw.lower().replace("'", "")
+    if _english_word(key):
+        return False
+    return key in _HINDI_STRICT or bool(_HINDI_SHAPE.search(key))
+
+
+def is_roman_hinglish(text: str) -> bool:
+    """Latin text with English words in it and at least two sure Hindi words, a third of all words or more."""
+    latin = [w.lower().replace("'", "") for w in _LATIN_WORD.findall(text)]
+    hits = sum(1 for w in latin if w in _HINDI_STRICT and not _english_word(w))
+    return hits >= 2 and hits >= _ROMAN_HINGLISH_SHARE * len(latin)
+
+
+_ANY_WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?|[ऀ-ॿ]+")
+
+
+def _word_langs(text: str) -> list[tuple[int, int, str]]:
+    """Every word of ``text`` (Latin or Devanagari) as ``(start, end, "hi" | "en")``, read as the renderer's lexicon
+    reads a turn: a word the lists know is Hindi, an ambiguous one (``hai``, ``hum``) follows a Hindi neighbour."""
+    found = list(_ANY_WORD.finditer(text))
+    cores = ["kya" if m.group(0).isascii() and _hindi_roman(m.group(0)) else m.group(0) for m in found]
+    labels = lexicon.label_languages(cores)
+    # A Devanagari word is Hindi even when it is a loanword (the renderer's segmenter reads it so).
+    return [(m.start(), m.end(), lang if m.group(0).isascii() else "hi") for m, lang in zip(found, labels, strict=True)]
+
+
+def _neighbour_lang(words: list[tuple[int, int, str]], start: int, end: int, default: str) -> str:
+    """The language of the word after ``end``, else the one before ``start``, else ``default``."""
+    for first, _, lang in words:
+        if first >= end:
+            return lang if lang in ("hi", "en") else default
+    for _, last, lang in reversed(words):
+        if last <= start:
+            return lang if lang in ("hi", "en") else default
+    return default
+
+
+_SPOKEN_TOKEN = re.compile(_NUMBER.pattern + "|(?P<word>" + _ANY_WORD.pattern + ")", re.IGNORECASE)
+
+
+def _read_clause(text: str, default_lang: str, *, hinglish: bool, unknown_hindi: bool = False) -> str:
+    """Numbers in words, each in the language of its neighbour word; with ``hinglish`` the Hindi words of Latin text
+    are also written in Devanagari (the table first, then the rules) and the English words are left as they are. A
+    word no list knows is Hindi only when ``unknown_hindi`` (most of the sentence is Hindi), else it is left."""
+    words = _word_langs(text)
+    langs = {start: lang for start, _, lang in words}
+
+    def one(match: re.Match[str]) -> str:
+        word = match.group("word")
+        if word is None:
+            return _spoken_number(match, _neighbour_lang(words, match.start(), match.end(), default_lang))
+        if not hinglish or not word.isascii():
+            return word
+        key = word.lower().replace("'", "")
+        if key in _ROMAN_OVERRIDES or (not _english_word(key) and (unknown_hindi or langs.get(match.start()) == "hi")):
+            return _devanagari_word(word)
+        return word
+
+    return _SPOKEN_TOKEN.sub(one, text)
 
 
 # ---- language of a clause ----------------------------------------------------------------------------------------
@@ -646,32 +797,32 @@ class _Planner:
         text = _tidy(text)
         if not _ALNUM.search(text):
             return []
-        text = self._final_text(text)
+        text, hinglish = self._final_text(text)
         chunks = _balanced_cuts(text, CLAUSE_SOFT_CHARS) if len(text) > CLAUSE_HARD_CHARS else [text]
         made: list[Clause] = []
         for index, chunk in enumerate(chunks):
             last = index == len(chunks) - 1
-            made.append(self._clause(chunk, pause_class if last else "cut"))
+            made.append(self._clause(chunk, pause_class if last else "cut", hinglish))
         return made
 
-    def _final_text(self, text: str) -> str:
-        """Roman Hindi, then the digits, each in the language of the clause."""
+    def _final_text(self, text: str) -> tuple[str, bool]:
+        """Roman Hinglish in Devanagari where it is Hindi, then the digits: ``(text, read by the Hindi voice)``."""
         lang, _ = _clause_language(text, self.lang_hint)
-        if lang == "en" and is_roman_hindi(text):
-            if self.strategy == "devanagari":
-                text = roman_to_devanagari(text)
-                lang = "hi"
-        if _NUMBER.search(text):
+        hinglish = lang == "en" and self.strategy == "devanagari" and (is_roman_hindi(text) or is_roman_hinglish(text))
+        if hinglish or _NUMBER.search(text):
             letters_lang, _ = _clause_language(_NUMBER.sub(" ", text), self.lang_hint)
-            text = _tidy(expand_numbers(text, "hi" if letters_lang == "hi" else "en"))
-        return text
+            default = "hi" if letters_lang == "hi" or hinglish else "en"
+            text = _tidy(_read_clause(text, default, hinglish=hinglish, unknown_hindi=is_roman_hindi(text)))
+        return text, hinglish
 
-    def _clause(self, text: str, pause_class: str) -> Clause:
+    def _clause(self, text: str, pause_class: str, hinglish: bool = False) -> Clause:
         text = text.replace("।", ".").replace("॥", ".")
         if text[-1] not in ".?!,;:\"')":
             text += "," if pause_class == "cut" else "."
         lang, spans = _clause_language(text, self.lang_hint)
-        if lang == "en" and is_roman_hindi(text):
+        if hinglish:
+            lang = "hi"  # Hindi words in Devanagari with English words beside them: the Hindi voice reads all of it
+        elif lang == "en" and is_roman_hindi(text):
             lang = {"latin-na": "na", "latin-hi": "hi"}.get(self.strategy, "en")
         first = self._emitted == 0
         self._emitted += 1

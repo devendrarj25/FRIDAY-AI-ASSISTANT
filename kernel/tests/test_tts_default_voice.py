@@ -262,10 +262,16 @@ def _kernel_number_lang(line) -> str:
     return "none"
 
 
+# The language comes from the neighbouring word (``script-policy.ts`` spanTreatments, pinned in the vitest of the same
+# fixture) and the kernel follows it: the word after the number, else the word before it. The fixture still lists
+# t33, t39 and t45 as ``kernelReads`` gaps (the kernel used to read the clause language); they are fixed here. The one
+# line where the kernel differs on purpose is t21: it knows ``nayi`` is Hindi (the renderer's lexicon does not yet),
+# so it says the number in Hindi.
+KERNEL_READS_BETTER = {"t21": "hi"}
+FIXED_GAPS = ("t33", "t39", "t45")
+
+
 def test_the_kernel_reads_each_number_in_the_language_the_policy_names_except_the_declared_gaps():
-    # The language comes from the neighbouring word (``script-policy.ts`` spanTreatments, pinned in the vitest of the
-    # same fixture). The kernel decides per clause instead; where the two differ the line says so in ``kernelReads``.
-    # A gap fixed in the kernel, or a new one, fails here until the fixture is told.
     gaps = {}
     for line in LINES:
         if not line.get("numbers"):
@@ -273,25 +279,33 @@ def test_the_kernel_reads_each_number_in_the_language_the_policy_names_except_th
         found = _kernel_number_lang(line)
         if found != line["numbers"][0]["lang"]:
             gaps[line["id"]] = found
-    declared = {line["id"]: line["kernelReads"] for line in LINES if "kernelReads" in line}
-    assert gaps == declared, (gaps, declared)
-
-
-# The kernel front end leaves a unit abbreviation as written (the engine then reads letters or guesses); the fixture's
-# spoken form has the word. Declared here so the day the front end expands them this test says so.
-UNITS_NOT_EXPANDED = {"km": "kilometres", "GB": "gigabytes"}
+    assert gaps == KERNEL_READS_BETTER, gaps
+    by_id = {line["id"]: line for line in LINES}
+    for line_id in FIXED_GAPS:  # the pins of the first measurement, flipped to what the policy says
+        assert by_id[line_id].get("kernelReads"), line_id
+        assert _kernel_number_lang(by_id[line_id]) == by_id[line_id]["numbers"][0]["lang"], line_id
 
 
 def test_the_kernel_says_each_plain_hindi_or_english_numeric_line_as_its_spoken_form():
     words = re.compile(r"[\s.,।!?]+")
     for line in LINES:
-        if not line.get("numbers") or line["kind"] not in ("hi", "en") or "kernelReads" in line:
+        if not line.get("numbers") or line["kind"] not in ("hi", "en"):
             continue
         said = _kernel_text(line)
-        for short, full in UNITS_NOT_EXPANDED.items():
-            assert full not in said, f"{line['id']}: the front end now expands {short}; drop it from UNITS_NOT_EXPANDED"
-            said = re.sub(rf"\b{short}\b", full, said)
+        # the units (km, GB) are words too
         assert words.sub(" ", said).strip() == words.sub(" ", line["spoken"]).strip(), line["id"]
+
+
+def test_a_roman_hinglish_line_keeps_its_english_words_and_reads_the_number_by_its_neighbour():
+    said = {line["id"]: _kernel_text(line) for line in LINES if line["kind"] == "hing-roman"}
+    # t39: Rs. keeps its rupees
+    assert "seven hundred fifty rupees" in said["t39"] and "balance" in said["t39"], said["t39"]
+    assert "three April" in said["t33"], said["t33"]  # t33: the next word is English
+    assert "thirty two degree" in said["t45"] and "temperature" in said["t45"], said["t45"]  # t45
+    assert "बारह नई emails" in said["t21"], said["t21"]  # t21: nayi is Hindi, so the number and the clause are
+    assert "alarm" in said["t08"].lower() and "alarm" in said["t27"].lower() and "set" in said["t27"].split(), said
+    for text in said.values():
+        assert not re.search("अलर्म|सेत|तेंपेरतुरे", text), text
 
 
 # ---------------------------------------------------------------- the scoring and the baseline (no models)
