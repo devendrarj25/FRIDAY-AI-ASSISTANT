@@ -202,6 +202,7 @@ function RowCard({
       {view.servedLine ? (
         <p className="text-meta text-muted-foreground">{view.servedLine}</p>
       ) : null}
+      {view.noteLine ? <p className="text-meta text-muted-foreground">{view.noteLine}</p> : null}
       {view.reasons.length > 0 ? (
         <ul className="list-disc space-y-0.5 pl-4 text-xs">
           {view.reasons.map((line) => (

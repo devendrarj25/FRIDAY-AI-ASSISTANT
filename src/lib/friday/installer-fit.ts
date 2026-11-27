@@ -228,7 +228,7 @@ export function rowActions(
   const verb = row.kind === "voice-model" || row.kind === "model" ? "Download" : "Install";
   let install: RowAction | null = null;
   let note: string | null = null;
-  if (runnable && row.installed === false) {
+  if (runnable && row.installed === false && row.needsRelease !== true) {
     if (ctx.target) {
       const limited = row.fit.state === "limited";
       install = {
@@ -395,6 +395,8 @@ export type RowView = {
   engineLine: string | null;
   /** Voice rows only: "from the FRIDAY release" or "from the official source"; null when unknown. */
   servedLine: string | null;
+  /** The catalogue's note for a row whose release asset is not published yet; null otherwise. */
+  noteLine: string | null;
   upstreamVersion: string | null;
   row: InstallerCatalogRow;
 };
@@ -434,6 +436,7 @@ export function rowView(
     hint: cudaHint(row),
     engineLine: chain ? `Builds for this PC, best first: ${chain}${active}` : null,
     servedLine: servedLine(row),
+    noteLine: row.needsRelease === true && row.note ? row.note : null,
     upstreamVersion: row.upstreamVersion ?? null,
     row,
   };
