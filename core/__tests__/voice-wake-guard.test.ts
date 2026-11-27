@@ -269,6 +269,32 @@ describe("wake guard: cooldown after a false wake", () => {
     expect(guard.snapshot(11_000).cooldownLeftMs).toBe(3000);
     expect(guard.snapshot(20_000).cooldownLeftMs).toBe(0);
   });
+
+  it("hands-free changes the need for a wake, never the refusal: a cooldown refuses either way", () => {
+    for (const handsFree of [false, true]) {
+      const room = new Room();
+      room.guard.setHandsFree(handsFree);
+      room.quiet(300);
+      room.talk(800);
+      room.guard.reportFalseWake(room.now);
+      room.talk(800);
+      expect(wakeAt(room)).toEqual({ accept: false, reason: "cooldown" });
+      expect(room.guard.current).toBe("asleep");
+      expect(room.guard.wakeRequired(room.now)).toBe(!handsFree);
+    }
+  });
+
+  it("a hands-free switch after the refusal does not lift it", () => {
+    const room = new Room();
+    room.quiet(300);
+    room.talk(800);
+    room.guard.reportFalseWake(room.now);
+    room.talk(800);
+    room.guard.setHandsFree(true);
+    expect(wakeAt(room).reason).toBe("cooldown");
+    room.guard.setHandsFree(false);
+    expect(wakeAt(room).reason).toBe("cooldown");
+  });
 });
 
 describe("wake guard: TV and room noise raise the threshold instead of waking", () => {
