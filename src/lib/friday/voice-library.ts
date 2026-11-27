@@ -379,10 +379,18 @@ export function neuralVoiceFor(lang: string, preferred?: string): string {
 }
 
 /**
- * Cloud id for this clause. A fresh install (no Neural id saved) uses Swara
- * or Neerja. An explicit Neural pick is kept. Supertonic passes kind neural
- * with an empty name and must not be sent to the cloud. Privacy and the
- * system path pass allowCloud false.
+ * The online Neural voice for a language when FRIDAY Voice cannot speak and the cloud is allowed: the owner's own
+ * Hindi or English pick (Swara and Neerja by default). Only the conductor's cloud rung asks for it; it is never
+ * what a clause with no explicit voice gets.
+ */
+export function cloudFallbackVoice(lang: string): string {
+  return neuralVoiceFor(lang);
+}
+
+/**
+ * Cloud id for this clause. Only an explicit Neural voice (the owner's pick, or the cloud rung's fallback named by
+ * the conductor) reaches the cloud: a tuning with no Neural name is FRIDAY Voice, never a silent online default.
+ * Supertonic passes kind neural with an empty name. Privacy and the system path pass allowCloud false.
  */
 export function cloudVoiceFor(
   tuning: { kind?: string | undefined; voiceName?: string | undefined },
@@ -392,9 +400,7 @@ export function cloudVoiceFor(
   if (!allowCloud) return "";
   if (tuning.kind === "file" || tuning.kind === "system") return "";
   const name = tuning.voiceName || "";
-  if (tuning.kind === "neural" && !/Neural$/i.test(name)) return "";
-  if (/Neural$/i.test(name)) return neuralVoiceFor(lang, name);
-  return neuralVoiceFor(lang);
+  return /Neural$/i.test(name) ? neuralVoiceFor(lang, name) : "";
 }
 
 const HINGLISH_WORDS: Record<string, string> = {
@@ -1509,6 +1515,8 @@ async function makeClip(
       privacyMode: preferences.getSnapshot().voice.privacyMode === true,
       sensitive: looksSensitive(plan.plain),
       billingAllowsPaid: false,
+      // A private line may be spoken by any voice on this PC (FRIDAY Voice first); a cloud voice stays refused.
+      privateVoice: "local",
     },
     order,
     { generation: speechGeneration },

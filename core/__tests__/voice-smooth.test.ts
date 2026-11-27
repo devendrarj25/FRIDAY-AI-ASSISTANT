@@ -89,15 +89,19 @@ describe("spoken Hinglish", () => {
 });
 
 describe("default female Indian voice", () => {
-  it("asks for Swara on a fresh install and keeps an explicit Neural pick", () => {
+  it("asks for no cloud voice on a fresh install and keeps an explicit Neural pick", () => {
+    // The online voice is never the silent default: FRIDAY Voice speaks a clause with no explicit Neural voice.
     expect(
       cloudVoiceFor(
         { voiceName: "Microsoft Swara Online (Natural) - Hindi (India)" },
         "hi-IN",
         true,
       ),
-    ).toBe("hi-IN-SwaraNeural");
-    expect(cloudVoiceFor({}, "en-IN", true)).toBe("en-IN-NeerjaNeural");
+    ).toBe("");
+    expect(cloudVoiceFor({}, "en-IN", true)).toBe("");
+    expect(cloudVoiceFor({ voiceName: "en-IN-NeerjaNeural" }, "en-IN", true)).toBe(
+      "en-IN-NeerjaNeural",
+    );
     expect(cloudVoiceFor({ kind: "neural", voiceName: "" }, "hi-IN", true)).toBe("");
     expect(cloudVoiceFor({ kind: "neural", voiceName: "hi-IN-MadhurNeural" }, "hi-IN", true)).toBe(
       "hi-IN-MadhurNeural",

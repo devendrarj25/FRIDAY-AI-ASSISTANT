@@ -23,11 +23,13 @@ import {
   profileFromPreferences,
   profileVoiceStyle,
 } from "../../src/lib/friday/voice-engine/friday-voice-profile";
+import { ttsChoices } from "../../src/lib/friday/voice-engine/voice-choices";
 import { segmentCodemix } from "../../src/lib/friday/voice-engine/language-segmenter";
 import { spanTreatments } from "../../src/lib/friday/voice-engine/script-policy";
 import {
   NO_INDIAN_VOICE,
   activeLocalStyle,
+  cloudFallbackVoice,
   cloudVoiceFor,
   pickSpokenVoice,
   previewStyleToken,
@@ -184,20 +186,78 @@ describe("the engine and the cloud", () => {
     expect(cloudVoiceFor({}, "hi-IN", false)).toBe("");
   });
 
-  it("KNOWN GAP (owner decision): with the engine on auto and a network, the online neural voice is asked first", () => {
-    // The owner's goal is her own voice by default. Today `auto` ranks the Microsoft online voice (Swara, Neerja)
-    // above FRIDAY Voice when online and privacy is off, and a tuning with no explicit kind asks it for every clause.
-    // Changing that is a default-engine change in tts-ladder.ts, voice-choices.ts and preferences.ts, not a test
-    // change: when it is made this test flips to "supertonic" and "".
-    expect(chooseTtsEngine({ network: true, supertonicReady: true, privacy: false })).toBe(
+  it("never silently makes a cloud voice the default: no explicit Neural pick means no cloud id", () => {
+    expect(cloudVoiceFor({}, "hi-IN", true)).toBe("");
+    expect(cloudVoiceFor({}, "en-IN", true)).toBe("");
+    expect(cloudVoiceFor({ voiceName: "Microsoft Swara Online (Natural)" }, "hi-IN", true)).toBe(
+      "",
+    );
+    // An explicit Neural pick is kept, in its own language; the other language uses the owner's own pick.
+    expect(cloudVoiceFor({ kind: "neural", voiceName: "hi-IN-MadhurNeural" }, "hi-IN", true)).toBe(
+      "hi-IN-MadhurNeural",
+    );
+    expect(cloudVoiceFor({ voiceName: "hi-IN-MadhurNeural" }, "hi-IN", true)).toBe(
+      "hi-IN-MadhurNeural",
+    );
+    expect(DEFAULT_PREFERENCES.voice.ttsEngine).toBe("auto");
+  });
+
+  it("auto speaks with FRIDAY Voice whenever it is ready: online, offline and under privacy mode", () => {
+    for (const network of [true, false])
+      for (const privacy of [true, false]) {
+        expect(
+          chooseTtsEngine({ network, supertonicReady: true, privacy }),
+          `${network}/${privacy}`,
+        ).toBe("supertonic");
+        expect(chooseTtsEngine({ network, supertonicReady: true, privacy, prefer: "auto" })).toBe(
+          "supertonic",
+        );
+      }
+  });
+
+  it("falls to the old rungs when FRIDAY Voice is not ready or its breaker is open", () => {
+    expect(chooseTtsEngine({ network: true, supertonicReady: false, privacy: false })).toBe(
       "neural",
     );
-    expect(cloudVoiceFor({}, "hi-IN", true)).toBe("hi-IN-SwaraNeural");
-    expect(DEFAULT_PREFERENCES.voice.ttsEngine).toBe("auto");
-    // Offline, FRIDAY Voice is the engine.
-    expect(chooseTtsEngine({ network: false, supertonicReady: true, privacy: false })).toBe(
-      "supertonic",
+    expect(chooseTtsEngine({ network: false, supertonicReady: false, privacy: false })).toBe(
+      "sapi",
     );
+    // Privacy mode never selects a cloud voice, ready or not.
+    expect(chooseTtsEngine({ network: true, supertonicReady: false, privacy: true })).toBe("sapi");
+    const open = {
+      network: true,
+      supertonicReady: true,
+      privacy: false,
+      supertonicBreakerOpen: true,
+    };
+    expect(chooseTtsEngine(open)).toBe("neural");
+    expect(chooseTtsEngine({ ...open, privacy: true })).toBe("sapi");
+    expect(chooseTtsEngine({ ...open, network: false })).toBe("sapi");
+  });
+
+  it("honours an explicit owner choice, and an explicit cloud choice never reaches privacy mode", () => {
+    const base = { network: true, supertonicReady: true, privacy: false };
+    expect(chooseTtsEngine({ ...base, prefer: "neural" })).toBe("neural");
+    expect(chooseTtsEngine({ ...base, prefer: "sapi" })).toBe("sapi");
+    expect(chooseTtsEngine({ ...base, prefer: "supertonic" })).toBe("supertonic");
+    expect(chooseTtsEngine({ ...base, prefer: "neural", privacy: true })).toBe("supertonic");
+    expect(chooseTtsEngine({ ...base, prefer: "neural", network: false })).toBe("supertonic");
+    expect(
+      chooseTtsEngine({ ...base, prefer: "neural", privacy: true, supertonicReady: false }),
+    ).toBe("sapi");
+  });
+
+  it("fills the cloud rung with the owner's own Hindi or English Neural voice only when asked", () => {
+    expect(cloudFallbackVoice("hi-IN")).toBe("hi-IN-SwaraNeural");
+    expect(cloudFallbackVoice("en-IN")).toBe("en-IN-NeerjaNeural");
+  });
+
+  it("labels the Settings picker's default row FRIDAY voice (default) and keeps cloud out of it", () => {
+    const rows = ttsChoices({ localReady: true, systemVoices: 2 });
+    expect(rows[0]).toMatchObject({ value: "auto" });
+    expect(rows[0]?.label).toMatch(/^FRIDAY voice \(default\)/);
+    expect(rows[0]?.label).not.toMatch(/online voice when allowed/);
+    expect(rows.map((row) => row.value)).toEqual(["auto", "supertonic", "sapi"]);
   });
 });
 

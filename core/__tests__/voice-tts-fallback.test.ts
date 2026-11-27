@@ -96,18 +96,21 @@ function build(scripts: Partial<Record<string, Script>> = {}, extra: TtsProvider
   return { manager, rigs, cloud };
 }
 
-describe("the older ladders still pick exactly what they picked", () => {
-  // The reference is the rule as it was written before the single ranking: copied here as the oracle.
+describe("the ladders pick FRIDAY Voice first, and the cloud only when it is allowed", () => {
+  // The oracle: the owner's explicit choice, then FRIDAY Voice when ready (online, offline, private), then the cloud
+  // voice (only online, privacy off), then the system voice. An explicit `neural` pick is the owner's cloud choice.
   const refLadder = (i: {
     network: boolean;
     supertonicReady: boolean;
     privacy: boolean;
     prefer?: "auto" | "neural" | "supertonic" | "sapi";
   }) => {
-    if (i.privacy || i.prefer === "sapi") return "sapi";
-    if (i.prefer === "supertonic") return i.supertonicReady ? "supertonic" : "sapi";
-    if (!i.network) return i.supertonicReady ? "supertonic" : "sapi";
-    return "neural";
+    if (i.prefer === "sapi") return "sapi";
+    if (i.prefer === "neural" && i.network && !i.privacy) return "neural";
+    if (i.supertonicReady) return "supertonic";
+    if (i.prefer === "supertonic") return "sapi";
+    if (i.network && !i.privacy) return "neural";
+    return "sapi";
   };
   const refChoose = (i: {
     network: boolean;
@@ -115,12 +118,8 @@ describe("the older ladders still pick exactly what they picked", () => {
     supertonicReady: boolean;
     windows: boolean;
   }) => {
-    if (i.privacy) return "sapi";
-    if (i.supertonicReady && !i.network) return "supertonic";
-    if (i.network && !i.privacy) return "neural";
-    if (i.supertonicReady) return "supertonic";
-    if (i.windows) return "sapi";
-    return "formant";
+    const ladder = refLadder(i);
+    return ladder === "sapi" && !i.windows ? "formant" : ladder;
   };
   const bools = [true, false];
 
@@ -181,8 +180,10 @@ describe("the older ladders still pick exactly what they picked", () => {
   it("the two older files no longer carry a ladder of their own", () => {
     for (const file of ["src/lib/friday/tts-ladder.ts", "src/lib/friday/speech-tts.ts"]) {
       const source = read(file);
-      expect(source).toContain("legacyEngineChoice");
-      expect(source).toContain("voice-engine/tts-provider");
+      expect(source).toContain(
+        file.endsWith("tts-ladder.ts") ? "legacyEngineChoice" : 'from "./tts-ladder"',
+      );
+      if (file.endsWith("tts-ladder.ts")) expect(source).toContain("voice-engine/tts-provider");
       expect(source).not.toMatch(/input\.privacy \|\|/);
     }
   });

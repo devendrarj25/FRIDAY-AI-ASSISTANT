@@ -93,7 +93,7 @@ export type TtsChoice = {
 };
 
 /**
- * Automatic, then the voices a person can pin, in the ranking's own words. `localReady` is whether the standard
+ * FRIDAY voice (the automatic row), then the voices a person can pin, in the ranking's own words. `localReady` is whether the standard
  * local voice is downloaded; `systemVoices` is how many Windows voices the system lists. Pinning a voice means the
  * other kinds are not tried for a line, so the rows say which stay on this PC.
  */
@@ -108,7 +108,7 @@ export function ttsChoices(input: {
   return [
     {
       value: "auto",
-      label: "Automatic (the online voice when allowed, then the voices on this PC)",
+      label: `FRIDAY voice (default)${state(input.localReady)}; an allowed online voice only if it is missing, then the system voice`,
       installed: null,
       privacy: "mixed",
     },

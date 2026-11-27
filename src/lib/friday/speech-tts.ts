@@ -1,5 +1,5 @@
 import { voiceForLanguage } from "./speech-normalize";
-import { legacyEngineChoice } from "./voice-engine/tts-provider";
+import { chooseTtsEngine, switchMidSentence as ladderSwitch } from "./tts-ladder";
 
 export type TtsEngine = "sapi" | "supertonic" | "neural" | "formant";
 
@@ -57,7 +57,11 @@ export function formantSynth(text: string, rate = 16000): Float32Array {
   return out;
 }
 
-/** The voice for a line, from the one ranking in `voice-engine/tts-provider.ts` (the fallback manager's order). */
+/** The rule-based voice stands in for the system voice only on a machine that has none. */
+const withFormant = (engine: "neural" | "supertonic" | "sapi", windows: boolean): TtsEngine =>
+  engine === "sapi" && !windows ? "formant" : engine;
+
+/** The voice for a line, from the one ladder in `tts-ladder.ts`: FRIDAY Voice first, the online voice only when it cannot speak. */
 export function chooseTts(input: {
   network: boolean;
   privacy: boolean;
@@ -65,13 +69,14 @@ export function chooseTts(input: {
   windows: boolean;
 }): TtsChoice {
   const voice = "hi-IN";
-  const engine = legacyEngineChoice({
-    network: input.network,
-    privacy: input.privacy,
-    supertonicReady: input.supertonicReady,
-    systemVoice: input.windows,
-    formantLast: true,
-  });
+  const engine = withFormant(
+    chooseTtsEngine({
+      network: input.network,
+      privacy: input.privacy,
+      supertonicReady: input.supertonicReady,
+    }),
+    input.windows,
+  );
   const quality: TtsChoice["quality"] =
     engine === "sapi"
       ? "system"
@@ -90,13 +95,10 @@ export function switchMidSentence(
   windows: boolean,
 ): TtsEngine {
   if (engine !== "neural" || network) return engine;
-  return legacyEngineChoice({
-    network: false,
-    privacy: false,
-    supertonicReady,
-    systemVoice: windows,
-    formantLast: true,
-  });
+  return withFormant(
+    ladderSwitch({ networkDropped: true, current: "neural", supertonicReady }),
+    windows,
+  );
 }
 
 export function firstAudioLatency(
