@@ -2167,16 +2167,10 @@ async function startCore(options = {}) {
   }
 }
 
+/** Stops a child FRIDAY started through the one lifecycle owner (a process tree on Windows). Never throws. */
 function killChild(child) {
   try {
-    if (process.platform === "win32" && child.pid)
-      execFile(
-        "taskkill",
-        ["/PID", String(child.pid), "/T", "/F"],
-        { windowsHide: true },
-        () => {},
-      );
-    else child.kill("SIGTERM");
+    require("./app-lifecycle.cjs").stopChild(child, "SIGTERM");
   } catch {
     /* already gone */
   }
