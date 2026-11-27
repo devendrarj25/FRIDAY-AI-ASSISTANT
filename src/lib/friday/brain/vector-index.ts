@@ -16,6 +16,9 @@ import { readLocalState, writeState } from "../persist";
 import { memory, validityState, type MemoryItem } from "../self/memory-engine";
 import { expandQuery } from "./retrieval";
 
+/** A recall asks the kernel for at most this long; a late answer means the lexical hits stand. */
+const QUERY_TIMEOUT_MS = 4000;
+
 export type VectorHit = {
   kind: string;
   title: string;
@@ -203,12 +206,18 @@ class VectorIndex {
     return this.connecting;
   }
 
-  private async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T | null> {
+  private async call<T>(
+    method: string,
+    params: Record<string, unknown> = {},
+    options: { timeoutMs?: number } = {},
+  ): Promise<T | null> {
     const bridge = await this.connect();
     if (!bridge) return null;
     try {
-      return await bridge.call<T>(method, params);
+      return await bridge.call<T>(method, params, options);
     } catch (error) {
+      // A slow answer is not a dead socket: keep the client and let the caller carry on without hits.
+      if (options.timeoutMs && /timed out after/.test(String(error))) return null;
       // A dropped socket must not leave a dead client cached.
       this.bridge = null;
       this.state.connected = false;
@@ -274,18 +283,20 @@ class VectorIndex {
     const trimmed = query.trim();
     if (!trimmed) return [];
     const variants = expandQuery(trimmed);
-    const first = await this.call<{ results: VectorHit[] }>("memory.search", {
-      query: variants[0] ?? trimmed,
-      k,
-    });
+    const first = await this.call<{ results: VectorHit[] }>(
+      "memory.search",
+      { query: variants[0] ?? trimmed, k },
+      { timeoutMs: QUERY_TIMEOUT_MS },
+    );
     if (!first) return [];
     const hits = first.results ?? [];
     if (hits.length) return this.reorder(trimmed, hits, rerank, judgeOverride);
     if (variants.length < 2) return hits;
-    const second = await this.call<{ results: VectorHit[] }>("memory.search", {
-      query: variants[1]!,
-      k,
-    });
+    const second = await this.call<{ results: VectorHit[] }>(
+      "memory.search",
+      { query: variants[1]!, k },
+      { timeoutMs: QUERY_TIMEOUT_MS },
+    );
     return this.reorder(trimmed, second?.results ?? [], rerank, judgeOverride);
   }
 

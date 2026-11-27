@@ -295,8 +295,8 @@ const routeIsLocal = (ids: string[]): boolean =>
 export const VOICE_VECTOR_DEADLINE_MS = 250;
 /** One shared deadline for the six capability routers of a spoken turn (they run together). */
 export const VOICE_ROUTER_DEADLINE_MS = 1500;
-/** A spoken turn waits this long for the live web, once, and answers from memory when it is late. */
-export const VOICE_WEB_DEADLINE_MS = 2000;
+/** A spoken turn waits this long for the live web, once, and answers from memory when it is late. The search starts together with the routers, so both share this one deadline. */
+export const VOICE_WEB_DEADLINE_MS = VOICE_ROUTER_DEADLINE_MS;
 
 /** The most evidence a spoken turn sends: a slow CPU reads every character before the first word. */
 const SPOKEN_EVIDENCE_CHARS = 1500;
@@ -1049,6 +1049,7 @@ class CoreBrain {
       }
     }
 
+    let webPending: Promise<void> | null = null;
     if (
       (options.allowTools ?? true) &&
       (this.needsWeb(prompt) || meta?.action === "research" || classified.action === "research")
@@ -1080,82 +1081,90 @@ class CoreBrain {
           notes.push("web search unavailable in this build — answering from memory only");
           turnDone(markId, "web-search", "unavailable");
         } else {
-          try {
-            // Spoken: one search, bounded; a late or empty result means the answer comes from memory.
-            let response = spoken
-              ? await withDeadline(
-                  webSearch(query, 6),
-                  VOICE_WEB_DEADLINE_MS,
-                  {
-                    ok: false,
-                    query,
-                    results: [],
-                    error: `web search timed out after ${VOICE_WEB_DEADLINE_MS / 1000}s — answering without live results`,
-                  },
-                  { runId: markId, stage: "web-search" },
-                )
-              : await webSearch(query, 6);
-            if (!spoken && response.ok && !response.results.length && queries[1]) {
-              notes.push("research: first query empty — one expanded retry");
-              response = await webSearch(queries[1], 6);
-            }
-            turnDone(
-              markId,
-              "web-search",
-              response.ok ? `${response.results.length} result(s)` : (response.error ?? "failed"),
-            );
-            if (response.ok && response.results.length) {
-              const ranked = rankSources(response.results);
-              const judged = evaluateSources(ranked, prompt);
-              notes.push(`web grade: ${judged.grade} (${judged.reason})`);
-              if (judged.grade === "incorrect" || !judged.usable.length) {
-                notes.push("CRAG: web hits too weak — not treating as fact");
-                tools.push({
-                  tool: "web-search",
-                  query,
-                  ok: true,
-                  detail: "results discarded as too weak",
-                });
-              } else {
-                judged.usable.slice(0, 6).forEach((result) => {
-                  sources.push({
-                    title: result.title,
-                    url: result.url,
-                    ...(result.snippet ? { snippet: result.snippet } : {}),
-                  });
-                });
-                evidence = researchNote(judged.usable);
-                tools.push({
-                  tool: "web-search",
-                  query,
-                  ok: true,
-                  detail: `${judged.usable.length} usable result(s)`,
-                });
-                this.state.searches += 1;
-                try {
-                  ingestKnowledge({
-                    text: judged.usable.map((row) => `${row.title} ${row.snippet}`).join("\n"),
-                    source: "web-search",
-                    kind: "web",
-                  });
-                } catch {
-                  /* ingest is best-effort */
-                }
+          const processWeb = async (): Promise<void> => {
+            try {
+              // Spoken: one search, bounded; a late or empty result means the answer comes from memory.
+              let response = spoken
+                ? await withDeadline(
+                    webSearch(query, 6),
+                    VOICE_WEB_DEADLINE_MS,
+                    {
+                      ok: false,
+                      query,
+                      results: [],
+                      error: `web search timed out after ${VOICE_WEB_DEADLINE_MS / 1000}s — answering without live results`,
+                    },
+                    { runId: markId, stage: "web-search" },
+                  )
+                : await webSearch(query, 6);
+              if (!spoken && response.ok && !response.results.length && queries[1]) {
+                notes.push("research: first query empty — one expanded retry");
+                response = await webSearch(queries[1], 6);
               }
-            } else {
-              tools.push({
-                tool: "web-search",
-                query,
-                ok: false,
-                detail: response.error ?? "no results",
-              });
-              notes.push("web search returned nothing — say so instead of guessing");
+              turnDone(
+                markId,
+                "web-search",
+                response.ok ? `${response.results.length} result(s)` : (response.error ?? "failed"),
+              );
+              if (response.ok && response.results.length) {
+                const ranked = rankSources(response.results);
+                const judged = evaluateSources(ranked, prompt);
+                notes.push(`web grade: ${judged.grade} (${judged.reason})`);
+                if (judged.grade === "incorrect" || !judged.usable.length) {
+                  notes.push("CRAG: web hits too weak — not treating as fact");
+                  tools.push({
+                    tool: "web-search",
+                    query,
+                    ok: true,
+                    detail: "results discarded as too weak",
+                  });
+                } else {
+                  judged.usable.slice(0, 6).forEach((result) => {
+                    sources.push({
+                      title: result.title,
+                      url: result.url,
+                      ...(result.snippet ? { snippet: result.snippet } : {}),
+                    });
+                  });
+                  evidence =
+                    spoken && evidence
+                      ? `${researchNote(judged.usable)}\n\n${evidence}`
+                      : researchNote(judged.usable);
+                  tools.push({
+                    tool: "web-search",
+                    query,
+                    ok: true,
+                    detail: `${judged.usable.length} usable result(s)`,
+                  });
+                  this.state.searches += 1;
+                  try {
+                    ingestKnowledge({
+                      text: judged.usable.map((row) => `${row.title} ${row.snippet}`).join("\n"),
+                      source: "web-search",
+                      kind: "web",
+                    });
+                  } catch {
+                    /* ingest is best-effort */
+                  }
+                }
+              } else {
+                tools.push({
+                  tool: "web-search",
+                  query,
+                  ok: false,
+                  detail: response.error ?? "no results",
+                });
+                notes.push("web search returned nothing — say so instead of guessing");
+              }
+            } catch (error) {
+              turnDone(markId, "web-search", String(error));
+              tools.push({ tool: "web-search", query, ok: false, detail: String(error) });
+              notes.push("web search failed — answer from what is known and say the search failed");
             }
-          } catch (error) {
-            turnDone(markId, "web-search", String(error));
-            tools.push({ tool: "web-search", query, ok: false, detail: String(error) });
-            notes.push("web search failed — answer from what is known and say the search failed");
-          }
+          };
+          // Spoken: the search starts now and runs beside the routers below; typed: it finishes first, as before.
+          if (spoken) webPending = processWeb();
+          else await processWeb();
         }
       }
     }
@@ -1203,6 +1212,8 @@ class CoreBrain {
             routeConnectors: routeConnectorsRaw,
             routeWorkflows: routeWorkflowsRaw,
           };
+      // The spoken web search was started above; it carries its own deadline, so this wait is at most one deadline.
+      if (webPending) await webPending;
       stage?.("agents.skills", "matching installed skills");
       turnMark(markId, "skill-route");
       const skillRuns = managed ? [] : await routeSkills(prompt).catch(() => []);
