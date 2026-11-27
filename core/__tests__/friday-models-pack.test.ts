@@ -92,7 +92,9 @@ const pack = require_("../../scripts/build-friday-models.cjs") as {
   uploadCommand: (manifest: Manifest, files: string[]) => string;
   hfUrl: (repo: string, revision: string, file: string) => string;
   buildPack: (options: Record<string, unknown>) => Promise<BuildResult>;
+  manifestFileName: (manifest: { pack: string }) => string;
   parseArgs: (argv: string[]) => {
+    pack: string;
     out: string;
     maxGb: number;
     only: string[] | null;
@@ -440,6 +442,42 @@ describe("a build with an injected downloader", () => {
     }
   });
 
+  it("builds a named pack: its own tag in the command, its own manifest file, a pin that brings its own URL", async () => {
+    const t = tiny();
+    const named = clone(t.m) as Manifest & { fridayName: string };
+    named.pack = "voice-weights";
+    named.fridayName = "FRIDAY Voice Weights";
+    named.tag = "friday-voice-weights-2026.1.1";
+    named.title = "FRIDAY Voice Weights 2026.1.1";
+    named.assets = named.assets.slice(0, 1);
+    const pins = clone(t.pins);
+    (pins["pub/tiny"] as Record<string, unknown>).urlFor = () =>
+      "https://example.com/own/config.json";
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pack-"));
+    try {
+      const out = await pack.buildPack({
+        manifest: named,
+        pins,
+        gate: voicePins.bundleAllowed,
+        outDir: dir,
+        download: t.download,
+      });
+      expect(out.files).toContain("friday-voice-weights.json");
+      expect(fs.existsSync(path.join(dir, "friday-models.json"))).toBe(false);
+      expect(out.command.startsWith("gh release create friday-voice-weights-2026.1.1 ")).toBe(true);
+      expect(out.command).toContain('--title "FRIDAY Voice Weights 2026.1.1"');
+      const notice = fs.readFileSync(path.join(dir, "NOTICE.md"), "utf8");
+      expect(notice).toContain("as the FRIDAY Voice Weights pack");
+      expect(notice).toContain("the file named in friday-voice-weights.json");
+      expect(t.urls).toEqual(["https://example.com/own/config.json"]);
+      expect(sha(fs.readFileSync(path.join(dir, named.assets[0]!.file)))).toBe(
+        sha(t.data["config.json"]),
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("a second run keeps the checked files and fetches nothing", async () => {
     const t = tiny();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pack-"));
@@ -547,6 +585,13 @@ describe("the command line and the upload command", () => {
     const parsed = pack.parseArgs(["--out", "/x", "--max-gb", "3", "--only", "a,b", "--dry-run"]);
     expect(parsed).toMatchObject({ out: "/x", maxGb: 3, only: ["a", "b"], dryRun: true });
     expect(() => pack.parseArgs(["--upload"])).toThrow(/unknown argument/);
+  });
+
+  it("takes the pack to build with --pack and names its filled manifest after it", () => {
+    expect(pack.parseArgs(["--pack", "voice-weights", "--out", "/x"]).pack).toBe("voice-weights");
+    expect(pack.parseArgs(["--out", "/x"]).pack).toBe("");
+    expect(pack.manifestFileName({ pack: "friday-models" })).toBe("friday-models.json");
+    expect(pack.manifestFileName({ pack: "voice-weights" })).toBe("friday-voice-weights.json");
   });
 
   it("builds a download URL at the pinned revision, never a branch", () => {

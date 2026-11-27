@@ -17,9 +17,16 @@
  * owner passes in with `--derived <folder>` (made by kernel/voice_derive.py after its gate passed). Otherwise the
  * unchanged copy is used.
  *
+ * The weights are published as three packs, one per capability, each with its own FRIDAY name, revision, tag, SHA256SUMS,
+ * NOTICE.md and upload command (`packs` in the manifest): FRIDAY Voice Weights (every ear, the speech voices and the
+ * sense models), FRIDAY Brain Weights (FRIDAY Core, Core Lite and Core Q, read from `config/friday-core.json`) and
+ * FRIDAY Recall Weights (the embedder, from the same file). One pack is built per run with `--pack`; the tag is
+ * `friday-<pack>-<revision>`. The top-level `assets` list of the manifest stays the voice list of the first release, so
+ * the reader that shipped before the packs keeps working.
+ *
  * Usage:
- *   node scripts/build-friday-models.cjs --out <folder outside the repository> [--max-gb 3] [--only id,id]
- *     [--part-bytes N] [--derived <folder>] [--dry-run]
+ *   node scripts/build-friday-models.cjs --pack voice-weights|brain-weights|recall-weights
+ *     --out <folder outside the repository> [--max-gb 3] [--only id,id] [--part-bytes N] [--derived <folder>] [--dry-run]
  */
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -27,6 +34,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const MANIFEST_FILE = path.join(root, "config", "friday-models.json");
+const CORE_FILE = path.join(root, "config", "friday-core.json");
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const REVISION = /^\d{4}\.\d{1,2}\.\d{1,3}$/;
@@ -36,6 +44,14 @@ const ASSET_LIMIT = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PART_BYTES = 1_900_000_000;
 const ASSET_COUNT_LIMIT = 1000;
 const TAG_PREFIX = "friday-models-";
+/** The pack name of the first, single-pack manifest layout; its tag is `friday-models-<revision>`. */
+const LEGACY_PACK = "friday-models";
+/** What each single-file helper pin is called in FRIDAY; the pin id is the key of `electron/voice-weights.cjs`. */
+const HELPER_NAMES = {
+  "silero-vad": { fridayId: "friday-listen-gate", fridayName: "FRIDAY Listen Gate" },
+  "smart-turn": { fridayId: "friday-turn", fridayName: "FRIDAY Turn" },
+  "wake-embed": { fridayId: "friday-wake", fridayName: "FRIDAY Wake" },
+};
 
 const CLASS_TEXT = {
   permissive: "keep the copyright and permission notice",
@@ -54,6 +70,10 @@ function sha256File(file) {
 }
 
 function readManifest(file = MANIFEST_FILE) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readCore(file = CORE_FILE) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
@@ -156,6 +176,172 @@ function modelsOf(manifest) {
   return [...byId.values()];
 }
 
+// -------------------------------------------------------------------------------------------------------- packs
+
+/**
+ * The pin table of the three sources a pack can draw from, keyed by the `from.pin` of an asset: the voice repositories
+ * (`voicePins`), the single-file helpers (`helperJobs`, the rows of `pinnedJobs()` in `electron/voice-weights.cjs`) and
+ * the upstream repositories of `config/friday-core.json`. Pure. A helper or Core pin carries the same shape as a voice
+ * pin (`revision`, `files`, `licenseRecord`) so the one gate and the one notice code read all three.
+ */
+function pinTable({ voicePins, helperJobs = [], core = null, licences = {} }) {
+  const table = { ...(voicePins || {}) };
+  // A record exists only for an id the allowlist knows, so the bundle gate refuses every other one.
+  const recordFor = (id, url) =>
+    licences[id] ? { licenseRecord: { id, url, redistribution: licences[id].redistribution } } : {};
+  for (const job of helperJobs) {
+    const first = job.sources?.[0];
+    table[job.id] = {
+      revision: "",
+      license: job.license,
+      ...recordFor(job.license, licences[job.license]?.url),
+      files: { [job.file]: { sha256: job.sha256, bytes: job.bytes } },
+      urlFor: () => first?.url,
+    };
+  }
+  for (const variant of core?.variants || []) {
+    for (const file of variant.files || []) {
+      const up = file.upstream;
+      if (!up?.repo) continue;
+      const known = table[up.repo] || {
+        revision: up.revision,
+        license: variant.licence?.id,
+        ...recordFor(variant.licence?.id, variant.licence?.source),
+        files: {},
+      };
+      if (known.revision !== up.revision)
+        throw new Error(`${up.repo} is pinned at two revisions in the Core manifest`);
+      known.files[up.file] = { sha256: file.sha256, bytes: file.bytes };
+      table[up.repo] = known;
+    }
+  }
+  return table;
+}
+
+/** One asset of the manifest shape for a pinned file. The file name is `<fridayId>--<path with each / as two dashes>`. */
+function derivedAsset(names, filePath, row, pin, partBytes, extra = {}) {
+  return {
+    fridayId: names.fridayId,
+    fridayName: names.fridayName,
+    path: filePath,
+    file: `${names.fridayId}--${filePath.split("/").join("--")}`,
+    ...(extra.disk ? { disk: extra.disk } : {}),
+    sha256: row.sha256,
+    bytes: row.bytes,
+    parts: Number.isInteger(row.bytes) && row.bytes >= 0 ? partCount(row.bytes, partBytes) : 0,
+    from: { pin, file: filePath, recipe: "copy", recipeVersion: 1 },
+  };
+}
+
+/** The packs of a manifest, in order; a manifest of the first layout has none. */
+function packsOf(manifest) {
+  return Array.isArray(manifest?.packs) ? manifest.packs : [];
+}
+
+/**
+ * Every asset of one pack: the voice models it names from the manifest list (keeping every field), then its single-file
+ * helpers from `helperJobs`, then its Core variants from `core`. Nothing is copied into the manifest twice.
+ */
+function packAssets(manifest, packId, { helperJobs = [], core = null } = {}) {
+  const pack = packsOf(manifest).find((row) => row.id === packId);
+  if (!pack) throw new Error(`unknown pack: ${packId}`);
+  const partBytes = manifest.partBytes;
+  const assets = (manifest.assets || []).filter((asset) =>
+    (pack.models || []).includes(asset.fridayId),
+  );
+  for (const id of pack.helpers || []) {
+    const job = helperJobs.find((row) => row.id === id);
+    const names = HELPER_NAMES[id];
+    if (!job || !names) throw new Error(`${pack.id}: no helper pin ${id}`);
+    assets.push(derivedAsset(names, job.file, job, id, partBytes));
+  }
+  for (const id of pack.core || []) {
+    const variant = (core?.variants || []).find((row) => row.id === id);
+    if (!variant) throw new Error(`${pack.id}: no Core variant ${id}`);
+    for (const file of variant.files || []) {
+      const up = file.upstream || {};
+      assets.push(
+        derivedAsset(variant, up.file || "", file, up.repo, partBytes, { disk: file.disk }),
+      );
+    }
+  }
+  return assets;
+}
+
+/** The manifest of one pack, in the shape `buildPack` builds: its own name, revision, tag and title, and its assets. */
+function packManifest(manifest, packId, sources = {}) {
+  const pack = packsOf(manifest).find((row) => row.id === packId);
+  if (!pack)
+    throw new Error(
+      `unknown pack: ${packId} (the packs are ${packsOf(manifest)
+        .map((row) => row.id)
+        .join(", ")})`,
+    );
+  return {
+    pack: pack.id,
+    fridayName: pack.fridayName,
+    revision: pack.revision,
+    repository: manifest.repository,
+    tag: pack.tag,
+    title: pack.title,
+    partBytes: manifest.partBytes,
+    assets: packAssets(manifest, packId, sources),
+  };
+}
+
+/**
+ * Problems in the pack layer of a manifest, pure: names, tags, and that every asset belongs to exactly one pack (the
+ * voice list through `models`, every helper and Core variant by its id). An empty list means the layout is sound.
+ */
+function packsProblems(manifest, { helperJobs = [], core = null } = {}) {
+  const problems = [];
+  const packs = packsOf(manifest);
+  if (!packs.length) return ["the manifest lists no packs"];
+  const ids = new Set();
+  const owner = new Map();
+  const claim = (key, id) => {
+    if (owner.has(key)) problems.push(`${key} is in both ${owner.get(key)} and ${id}`);
+    owner.set(key, id);
+  };
+  for (const pack of packs) {
+    if (!/^[a-z]+(-[a-z]+)*-weights$/.test(String(pack.id || "")))
+      problems.push(`bad pack id ${pack.id}`);
+    if (ids.has(pack.id)) problems.push(`duplicate pack ${pack.id}`);
+    ids.add(pack.id);
+    if (!String(pack.fridayName || "").startsWith("FRIDAY "))
+      problems.push(`${pack.id}: fridayName must start with FRIDAY`);
+    if (!REVISION.test(String(pack.revision || ""))) problems.push(`${pack.id}: bad revision`);
+    if (pack.tag !== `friday-${pack.id}-${pack.revision}`)
+      problems.push(`${pack.id}: tag must be friday-${pack.id}-<revision>`);
+    if (pack.title !== `${pack.fridayName} ${pack.revision}`)
+      problems.push(`${pack.id}: title must be <fridayName> <revision>`);
+    for (const id of pack.models || []) claim(`model ${id}`, pack.id);
+    for (const id of pack.helpers || []) {
+      claim(`helper ${id}`, pack.id);
+      if (!helperJobs.some((row) => row.id === id) || !HELPER_NAMES[id])
+        problems.push(`${pack.id}: no helper pin ${id}`);
+    }
+    for (const id of pack.core || []) {
+      claim(`core ${id}`, pack.id);
+      if (!(core?.variants || []).some((row) => row.id === id))
+        problems.push(`${pack.id}: no Core variant ${id}`);
+    }
+  }
+  const listed = new Set((manifest.assets || []).map((asset) => asset.fridayId));
+  for (const id of listed)
+    if (!owner.has(`model ${id}`)) problems.push(`model ${id} is in no pack`);
+  for (const [key] of owner)
+    if (key.startsWith("model ") && !listed.has(key.slice(6))) problems.push(`${key} has no asset`);
+  for (const job of helperJobs) {
+    const held = owner.has(`helper ${job.id}`);
+    const waiting = packs.some((pack) => (pack.pending || []).some((row) => row.id === job.id));
+    if (held === waiting) problems.push(`helper ${job.id} must be in exactly one pack or pending`);
+  }
+  for (const variant of core?.variants || [])
+    if (!owner.has(`core ${variant.id}`)) problems.push(`Core variant ${variant.id} is in no pack`);
+  return problems;
+}
+
 /**
  * Every problem in a manifest, against the pin table. Pure: an empty list means the plan is sound. A `copy` asset must
  * carry exactly the size and SHA-256 its pin carries; a derived recipe must pin the derived hash.
@@ -164,15 +350,22 @@ function manifestProblems(manifest, pins) {
   const problems = [];
   const add = (text) => problems.push(text);
   if (!manifest || typeof manifest !== "object") return ["the manifest is not an object"];
-  if (manifest.pack !== "friday-models") add("pack must be friday-models");
+  const legacy = manifest.pack === LEGACY_PACK;
+  if (!legacy && !/^[a-z]+(-[a-z]+)*-weights$/.test(String(manifest.pack || "")))
+    add("pack must be friday-models or a <name>-weights pack");
   if (!REVISION.test(String(manifest.revision || "")))
     add("revision must look like 2026.11.1 (year.month.number)");
-  if (manifest.tag !== `${TAG_PREFIX}${manifest.revision}`)
-    add(`tag must be ${TAG_PREFIX}<revision>`);
+  const wantTag = legacy
+    ? `${TAG_PREFIX}${manifest.revision}`
+    : `friday-${manifest.pack}-${manifest.revision}`;
+  if (manifest.tag !== wantTag)
+    add(`tag must be ${wantTag.replace(manifest.revision, "<revision>")}`);
   if (!/^[\w.-]+\/[\w.-]+$/.test(String(manifest.repository || "")))
     add("repository must be owner/name");
-  if (!String(manifest.title || "").startsWith("FRIDAY Models"))
+  if (legacy && !String(manifest.title || "").startsWith("FRIDAY Models"))
     add("title must start with FRIDAY Models");
+  if (!legacy && manifest.title !== `${manifest.fridayName} ${manifest.revision}`)
+    add("title must be <fridayName> <revision>");
   const partBytes = manifest.partBytes;
   if (!Number.isInteger(partBytes) || partBytes <= 0 || partBytes >= ASSET_LIMIT)
     add("partBytes must be a whole number under 2 GiB");
@@ -252,14 +445,19 @@ function noticeLine(model, pin) {
   return `- ${model.fridayName}: ${rec.id} (${rec.url}); origin ${model.pin}; unmodified copy; ${duty}${upstream}.`;
 }
 
+/** The name of the filled manifest in the release: `friday-models.json` for the first layout, else `friday-<pack>.json`. */
+function manifestFileName(manifest) {
+  return manifest.pack === LEGACY_PACK ? "friday-models.json" : `friday-${manifest.pack}.json`;
+}
+
 /** The whole NOTICE.md for the models in `built`. The only file that names an upstream licence. */
 function buildNotice(manifest, built, pins) {
   const lines = [
     `# ${manifest.title}`,
     "",
-    "Published by devendrarj25 as the FRIDAY Models pack, revision " + manifest.revision + ".",
+    `Published by devendrarj25 as the ${manifest.fridayName || "FRIDAY Models"} pack, revision ${manifest.revision}.`,
     "FRIDAY downloads these files during setup and install, checks every SHA-256 in SHA256SUMS, and keeps them on the owner's PC.",
-    "A file larger than one release asset is split into .part001, .part002 and so on; joined in order they give the file named in friday-models.json.",
+    `A file larger than one release asset is split into .part001, .part002 and so on; joined in order they give the file named in ${manifestFileName(manifest)}.`,
     "",
     "## Licences of the included models",
     "",
@@ -340,11 +538,15 @@ async function makeAsset(asset, pins, outDir, options) {
         `${asset.file}: the derived file is missing or does not match its pinned SHA-256`,
       );
     const pin = pins[from.pin];
-    await download(hfUrl(from.pin, pin.revision, from.file), source, {
-      sha256: asset.sha256,
-      needBytes: asset.bytes,
-      label: asset.file,
-    });
+    await download(
+      pin.urlFor ? pin.urlFor(from.file) : hfUrl(from.pin, pin.revision, from.file),
+      source,
+      {
+        sha256: asset.sha256,
+        needBytes: asset.bytes,
+        label: asset.file,
+      },
+    );
     log(`  fetched ${asset.file} (${asset.bytes} bytes)`);
   }
   if (count > 1) {
@@ -402,7 +604,9 @@ async function buildPack(options) {
   for (const row of skipped) log(`skipped ${row.fridayName}: ${row.reason}`);
   if (dryRun) {
     for (const model of selected)
-      log(`would build ${model.fridayName} (${model.assets.length} files)`);
+      log(
+        `would build ${model.fridayName} (${model.assets.length} files, ${model.assets.reduce((n, a) => n + a.bytes, 0)} bytes)`,
+      );
     return { built: selected, skipped, files: [], rows: [], manifest, command: "" };
   }
 
@@ -442,12 +646,15 @@ async function buildPack(options) {
   };
   fs.writeFileSync(path.join(outDir, "SHA256SUMS"), sha256sumsText(finalRows));
   fs.writeFileSync(path.join(outDir, "NOTICE.md"), buildNotice(manifest, selected, pins));
-  fs.writeFileSync(path.join(outDir, "friday-models.json"), `${JSON.stringify(filled, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(outDir, manifestFileName(manifest)),
+    `${JSON.stringify(filled, null, 2)}\n`,
+  );
   const files = [
     ...finalRows.map((row) => row.file),
     "SHA256SUMS",
     "NOTICE.md",
-    "friday-models.json",
+    manifestFileName(manifest),
   ];
   const command = uploadCommand(manifest, files);
   fs.writeFileSync(path.join(outDir, "upload-command.txt"), `${command}\n`);
@@ -456,6 +663,7 @@ async function buildPack(options) {
 
 function parseArgs(argv) {
   const out = {
+    pack: "",
     out: "",
     maxGb: Infinity,
     only: null,
@@ -466,7 +674,8 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--out") out.out = argv[++i] || "";
+    if (arg === "--pack") out.pack = argv[++i] || "";
+    else if (arg === "--out") out.out = argv[++i] || "";
     else if (arg === "--max-gb") out.maxGb = Number(argv[++i]);
     else if (arg === "--only")
       out.only = String(argv[++i] || "")
@@ -483,6 +692,13 @@ function parseArgs(argv) {
 
 async function main(argv) {
   const opts = parseArgs(argv);
+  const whole = readManifest(opts.manifest);
+  if (!opts.pack)
+    throw new Error(
+      `--pack <${packsOf(whole)
+        .map((row) => row.id)
+        .join("|")}> is required: one pack is built per run`,
+    );
   if (!opts.out) throw new Error("--out <folder outside the repository> is required");
   const outDir = path.resolve(opts.out);
   if (outDir === root || outDir.startsWith(root + path.sep))
@@ -491,11 +707,17 @@ async function main(argv) {
   if (opts.partBytes && !(opts.partBytes > 0 && opts.partBytes < ASSET_LIMIT))
     throw new Error("--part-bytes must be a whole number under 2 GiB");
   const voicePins = require("../electron/voice-pins.cjs");
-  const manifest = readManifest(opts.manifest);
+  const helperJobs = require("../electron/voice-weights.cjs").pinnedJobs();
+  const core = readCore();
+  const sources = { helperJobs, core };
+  const problems = packsProblems(whole, sources);
+  if (problems.length)
+    throw new Error(`the packs are not sound:\n  ${problems.slice(0, 8).join("\n  ")}`);
+  const manifest = packManifest(whole, opts.pack, sources);
   const { downloadUrl } = require("../electron/model-download.cjs");
   const result = await buildPack({
     manifest,
-    pins: voicePins.PINS,
+    pins: pinTable({ voicePins: voicePins.PINS, helperJobs, core, licences: voicePins.LICENCES }),
     gate: voicePins.bundleAllowed,
     outDir,
     only: opts.only,
@@ -506,11 +728,20 @@ async function main(argv) {
     dryRun: opts.dryRun,
     log: (line) => console.log(line),
   });
-  const total = result.rows.reduce((sum, row) => sum + row.bytes, 0);
+  const total = result.built
+    .flatMap((model) => model.assets)
+    .reduce((sum, asset) => sum + asset.bytes, 0);
   console.log(
-    `FRIDAY Models ${manifest.revision}: ${result.built.length} models, ${result.rows.length} files, ${total} bytes; ${result.skipped.length} skipped`,
+    `${manifest.title} (${manifest.tag}): ${result.built.length} models, ${result.built.reduce((n, m) => n + m.assets.length, 0)} files, ${total} bytes; ${result.skipped.length} skipped`,
   );
-  if (!opts.dryRun) {
+  if (opts.dryRun) {
+    const parts = result.built.flatMap((model) => model.assets).reduce((n, a) => n + a.parts, 0);
+    console.log(
+      `Release ${manifest.tag}: ${parts} model files plus SHA256SUMS, NOTICE.md and ${manifestFileName(manifest)}`,
+    );
+    console.log("Upload (printed with every file name after a real build; not run here):");
+    console.log(`  ${uploadCommand(manifest, ["<every file in the output folder>"])}`);
+  } else {
     console.log(`Output: ${outDir}`);
     console.log("Upload (not run here; run it inside the output folder, as the owner):");
     console.log(`  ${result.command}`);
@@ -536,6 +767,16 @@ module.exports = {
   ASSET_LIMIT,
   RECIPES,
   readManifest,
+  readCore,
+  CORE_FILE,
+  LEGACY_PACK,
+  HELPER_NAMES,
+  pinTable,
+  packsOf,
+  packAssets,
+  packManifest,
+  packsProblems,
+  manifestFileName,
   partCount,
   partName,
   splitPlan,

@@ -5,6 +5,59 @@
   "tag": "friday-models-2026.11.1",
   "title": "FRIDAY Models 2026.11.1",
   "partBytes": 1900000000,
+  "packs": [
+    {
+      "id": "voice-weights",
+      "fridayName": "FRIDAY Voice Weights",
+      "revision": "2026.11.1",
+      "tag": "friday-voice-weights-2026.11.1",
+      "title": "FRIDAY Voice Weights 2026.11.1",
+      "models": [
+        "friday-ear-tiny",
+        "friday-ear-base",
+        "friday-ear-small",
+        "friday-ear-medium",
+        "friday-ear-large-v3",
+        "friday-ear-large-v3-turbo",
+        "friday-ear-hindi",
+        "friday-ear-hinglish",
+        "friday-ear-hindi-backup",
+        "friday-ear-hindi-large",
+        "friday-ear-hinglish-large",
+        "friday-ear-live",
+        "friday-punctuate-hindi",
+        "friday-voice",
+        "friday-voice-lite",
+        "friday-denoise",
+        "friday-denoise-lite",
+        "friday-speaker"
+      ],
+      "helpers": ["silero-vad", "wake-embed"],
+      "pending": [
+        {
+          "id": "smart-turn",
+          "fridayId": "friday-turn",
+          "reason": "its terms are not on the bundle allowlist of electron/voice-pins.cjs yet, so the gate refuses it"
+        }
+      ]
+    },
+    {
+      "id": "brain-weights",
+      "fridayName": "FRIDAY Brain Weights",
+      "revision": "2026.11.1",
+      "tag": "friday-brain-weights-2026.11.1",
+      "title": "FRIDAY Brain Weights 2026.11.1",
+      "core": ["e4b", "e2b", "q4b"]
+    },
+    {
+      "id": "recall-weights",
+      "fridayName": "FRIDAY Recall Weights",
+      "revision": "2026.11.1",
+      "tag": "friday-recall-weights-2026.11.1",
+      "title": "FRIDAY Recall Weights 2026.11.1",
+      "core": ["recall"]
+    }
+  ],
   "assets": [
     {
       "fridayId": "friday-ear-tiny",
