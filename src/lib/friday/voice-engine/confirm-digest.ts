@@ -16,7 +16,9 @@ import {
   approvalFresh,
   approvalTtlMs,
   confirmQuestion,
+  confirmAnswerKey,
   confirmationVerdict,
+  wordsAfterYes,
   isBoundConfirmation,
   voiceClaimsAuthority,
   type VoiceConfirmKind,
@@ -402,6 +404,30 @@ function namesSomethingElse(d: ConfirmDigest, heard: string): boolean {
   return false;
 }
 
+/** Words a yes may carry while it only repeats the order: a pointer or a joiner, in Latin and Hindi. */
+const ECHO_JOINERS = new Set(
+  ["it", "this", "that", "them", "him", "her", "to", "the", "now", "ko", "abhi", "को", "अभी"].map(
+    confirmAnswerKey,
+  ),
+);
+
+/**
+ * A yes to this digest: the allowlisted yes on its own, or a leading yes whose other words name only this digest's
+ * own verb, object, target and amount ("yes send it to Rahul", "yes 5000"). A different name or number is caught by
+ * `namesSomethingElse`; any other word, and any no word, keeps it from being a yes.
+ */
+function yesToThisDigest(d: ConfirmDigest, heard: string): boolean {
+  if (confirmationVerdict(heard) === "yes") return true;
+  const rest = wordsAfterYes(heard);
+  if (!rest?.length) return false;
+  const own = new Set(
+    confirmAnswerKey([d.verb, d.object, d.target ?? "", d.amount ?? ""].join(" "))
+      .split(" ")
+      .filter(Boolean),
+  );
+  return rest.every((w) => own.has(w) || ECHO_JOINERS.has(w) || /^\d+$/.test(w));
+}
+
 /** The answer to a digest, with the reason. Only a short, fresh, bound yes that is not her own voice approves. */
 export function explainDigestAnswer(
   d: ConfirmDigest,
@@ -419,8 +445,10 @@ export function explainDigestAnswer(
   const correction = applyCorrection(d, text, now);
   if (correction?.kind === "cancel") return { answer: "no", reason: "second-correction" };
   if (correction) return { answer: correction, reason: "correction" };
-  if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
-    if (namesSomethingElse(d, text)) return { answer: "unclear", reason: "mismatch" };
+  // A yes that goes on to name another person or number asks again; a yes with any other extra word is no answer.
+  const leadsWithYes = isBoundConfirmation(text, (value) => wordsAfterYes(value) !== null);
+  if (leadsWithYes && namesSomethingElse(d, text)) return { answer: "unclear", reason: "mismatch" };
+  if (leadsWithYes && yesToThisDigest(d, text)) {
     if (d.mode === "explicit" && options.asrBand === "low")
       return { answer: "unclear", reason: "low-asr" };
     return { answer: "yes", reason: "bound-yes" };

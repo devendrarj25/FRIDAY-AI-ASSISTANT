@@ -14,7 +14,7 @@
  *    when it would add nothing (the first clause is ready, the answer is quick, a stop or a confirmation).
  *  - Local pre-rendered clips only: a line with no clip ready is not said, and nothing here calls a cloud voice.
  */
-import { confirmationVerdict } from "../voice-session";
+import { confirmationVerdict, mentionsConfirmWord } from "../voice-session";
 import { ackWanted, type LadderLane } from "./brain-bridge";
 import type { RouteKind } from "./utterance-router";
 import type { VoiceStage } from "./latency-monitor";
@@ -89,7 +89,7 @@ const DEVANAGARI_ANSWER_WORDS =
 export function isYesLike(line: string): boolean {
   const text = String(line ?? "");
   if (!text.trim()) return true;
-  if (confirmationVerdict(text) !== "unclear") return true;
+  if (confirmationVerdict(text) !== "unclear" || mentionsConfirmWord(text)) return true;
   return DEVANAGARI_ANSWER_WORDS.test(text.normalize("NFC"));
 }
 

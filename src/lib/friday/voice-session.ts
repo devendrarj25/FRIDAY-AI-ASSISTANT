@@ -10,6 +10,7 @@
  */
 
 import { endsInOpenDot } from "./voice-engine/language-segmenter";
+import { canonicalise } from "./voice-engine/script-policy";
 import { isBackchannel } from "./voice-engine/interruption-controller";
 import {
   SHORT_TURN_WORDS,
@@ -221,37 +222,317 @@ export function wakeOnCooldown(
 }
 
 /**
- * A spoken answer to "should I go ahead?": yes, no, or neither. A no always beats a yes, so "okay cancel that",
- * "haan nahi" and "ok mat karo" stop the action instead of approving it. Hindi and Hinglish count: "ha kar do",
- * "theek hai kar do", "kar do" are yes; "mat karo", "ruko", "rehne do", "nahi" are no. The particle "na"
- * ("kar do na", please do it) is a no only when it is the whole answer. A stop or a later is a no too, in Latin and
- * in Devanagari: "band karo", "bas karo", "baad mein karo", "kal karo", "abhi nahi", "not now", "later", "not yet",
- * "नहीं", "मत", "रुको", "बंद", "बस", "बाद में", "कल" (the "karo" in them never makes a yes). Laughter ("ha ha ha") is
- * no answer.
+ * The one table of spoken answers to "should I go ahead?", in Latin, Hinglish and Devanagari. A yes is an allowlist:
+ * the whole answer, once the fillers are gone, is one or more `yes` phrases and at most four words. Anything else is
+ * never a yes. A no is any `no` phrase anywhere in the answer, so a no always beats a yes ("okay cancel that",
+ * "haan nahi", "no, I mean yes"). An `unclear` phrase is the whole answer only ("no problem", "why not"): it re-asks.
+ * Every other line is unclear: a later or a maybe that names no stop word, laughter, a question, a name, a number.
  */
-const NO_WORDS =
-  /\b(no|not|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|ruk jao|rehne do|rahne do|chhod do|chod do|wait|hold on|hold off|never ?mind|leave it|forget it|later|tomorrow|band|bandh|bas|baad|baad mein|baad me|kal)\b/i;
-/** The Devanagari no, stop and later words; a letter or a vowel sign on either side makes it another word. */
-const DEVANAGARI_NO_WORDS =
-  /(?<![\p{L}\p{M}])(?:नहीं|नही|नहि|मत|रुको|रुकिए|रुक|बंद|बन्द|बस|बाद|कल|रहने दो|छोड़ दो|छोड़ो|कैंसल|रद्द|स्टॉप)(?![\p{L}\p{M}])/u;
-const YES_WORDS =
-  /\b(yes|yeah|yep|yup|sure|confirm(?:ed)?|do it|go ahead|proceed|haan|haa|han|ha|ji|jee|bilkul|theek hai|thik hai|ok|okay|kar do|kar de|karo|chalao|chala do)\b/i;
-/** Two or more bare "ha" (or "haha") and nothing else: laughter, not an answer. */
-const LAUGHTER = /^(?:ha\s*){2,}$/;
+export const CONFIRM_WORDS = {
+  yes: [
+    "yes",
+    "yeah",
+    "yea",
+    "yep",
+    "yup",
+    "ok",
+    "okay",
+    "okey",
+    "sure",
+    "go ahead",
+    "do it",
+    "confirm",
+    "confirmed",
+    "proceed",
+    "of course",
+    "absolutely",
+    "haan",
+    "han",
+    "haa",
+    "ha",
+    "haanji",
+    "hanji",
+    "ji haan",
+    "ji han",
+    "theek hai",
+    "thik hai",
+    "theek he",
+    "thik he",
+    "kar do",
+    "kar de",
+    "kar dijiye",
+    "haan karo",
+    "bilkul",
+    "zaroor",
+    "zarur",
+    "jaroor",
+    "jarur",
+    "हाँ",
+    "हां",
+    "जी हाँ",
+    "हाँ जी",
+    "हाँ करो",
+    "ठीक है",
+    "कर दो",
+    "कर दें",
+    "कर दीजिए",
+    "बिल्कुल",
+    "बिलकुल",
+    "ज़रूर",
+    "ओके",
+    "यस",
+  ],
+  no: [
+    "no",
+    "not",
+    "nope",
+    "nah",
+    "never",
+    "cancel",
+    "stop",
+    "abort",
+    "reject",
+    "don't",
+    "dont",
+    "do not",
+    "nahi",
+    "nahin",
+    "nhi",
+    "nai",
+    "nako",
+    "na karo",
+    "na kar",
+    "naa karo",
+    "naa kar",
+    "mat",
+    "matt",
+    "mana",
+    "ruk",
+    "ruko",
+    "rukiye",
+    "rukk",
+    "ruk jao",
+    "rok",
+    "roko",
+    "rok do",
+    "tham",
+    "thamo",
+    "thehro",
+    "thahro",
+    "theher",
+    "rehne do",
+    "rahne do",
+    "rehne de",
+    "rahne de",
+    "chhod do",
+    "chod do",
+    "chhodo",
+    "chodo",
+    "chhod",
+    "jane do",
+    "jaane do",
+    "wait",
+    "hold",
+    "hold on",
+    "hold off",
+    "pause",
+    "skip",
+    "enough",
+    "nevermind",
+    "never mind",
+    "leave it",
+    "forget it",
+    "later",
+    "tomorrow",
+    "band",
+    "bandh",
+    "bas",
+    "baad",
+    "baadme",
+    "badme",
+    "baad mein",
+    "baad me",
+    "kal",
+    "नहीं",
+    "नही",
+    "नहि",
+    "ना करो",
+    "ना कर",
+    "मत",
+    "मना",
+    "रुको",
+    "रुकिए",
+    "रुक",
+    "रोको",
+    "रोक",
+    "ठहरो",
+    "ठहरिए",
+    "थमो",
+    "थम",
+    "बंद",
+    "बन्द",
+    "बस",
+    "बाद",
+    "कल",
+    "रहने दो",
+    "रहने दे",
+    "रहने दें",
+    "छोड़",
+    "छोड़ो",
+    "छोड़िए",
+    "छोड़ दो",
+    "जाने दो",
+    "कैंसल",
+    "रद्द",
+    "स्टॉप",
+    "पॉज़",
+    "स्किप",
+    "होल्ड",
+  ],
+  /** Whole answers that hold a no or a yes word but are neither: they re-ask. */
+  unclear: ["no problem", "no worries", "why not", "not bad", "no doubt", "koi baat nahi"],
+  /** Words that carry no answer: politeness, address, hesitation and a pointer to the thing asked about. */
+  fillers: [
+    "please",
+    "pls",
+    "plz",
+    "kripya",
+    "ji",
+    "jee",
+    "bhai",
+    "bhaiya",
+    "yaar",
+    "sir",
+    "friday",
+    "so",
+    "well",
+    "um",
+    "umm",
+    "uh",
+    "uhh",
+    "hmm",
+    "hm",
+    "mm",
+    "mmm",
+    "er",
+    "erm",
+    "isko",
+    "ise",
+    "ye",
+    "yeh",
+    "जी",
+    "भाई",
+    "यार",
+    "प्लीज़",
+    "कृपया",
+    "फ्राइडे",
+    "इसको",
+    "इसे",
+    "ये",
+    "यह",
+  ],
+} as const;
 
-export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
-  // Vowel signs (\p{M}) are kept: dropping them would turn "नहीं" into "न ह" and the no would be missed.
-  const value = String(text || "")
-    .normalize("NFC")
-    .toLowerCase()
+/** A yes answer is at most this many words once the fillers are gone. */
+export const CONFIRM_YES_MAX_WORDS = 4;
+
+/**
+ * One spelling for matching: the code-mix canonical form, lower case, no punctuation, and the Devanagari marks that
+ * speech recognisers write either way folded (chandrabindu to anusvara, no nukta), so "हाँ" and "हां" are one word.
+ * Vowel signs stay: dropping them would turn "नहीं" into "न ह".
+ */
+export function confirmAnswerKey(text: string): string {
+  return canonicalise(String(text ?? ""))
+    .text.toLowerCase()
+    .replace(/ँ/g, "ं")
+    .replace(/़/g, "")
     .replace(/[^\p{L}\p{M}\p{N}'\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const keyList = (list: readonly string[]) =>
+  [...new Set(list.map(confirmAnswerKey))].filter(Boolean);
+const YES_PHRASES = keyList(CONFIRM_WORDS.yes).map((p) => p.split(" "));
+const UNCLEAR_PHRASES = new Set(keyList(CONFIRM_WORDS.unclear));
+const FILLERS = new Set(keyList(CONFIRM_WORDS.fillers));
+/** A no phrase anywhere; a letter, a vowel sign, a digit or an apostrophe on either side makes it another word. */
+const NO_PHRASE = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}'])(?:${keyList(CONFIRM_WORDS.no)
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/ /g, "\\s+"))
+    .join("|")})(?![\\p{L}\\p{M}\\p{N}'])`,
+  "u",
+);
+const YES_ANYWHERE = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}'])(?:${keyList(CONFIRM_WORDS.yes)
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/ /g, "\\s+"))
+    .join("|")})(?![\\p{L}\\p{M}\\p{N}'])`,
+  "u",
+);
+
+/**
+ * True when a yes or a no word from the table appears anywhere in the line. For lines FRIDAY says herself (an
+ * acknowledgement, a name after it): such a line could be heard back as an answer, so it is kept out.
+ */
+export function mentionsConfirmWord(text: string): boolean {
+  const value = confirmAnswerKey(text);
+  return !!value && (YES_ANYWHERE.test(value) || NO_PHRASE.test(value));
+}
+/** Two or more "ha" (or "haha", "hehe", "lol") and nothing else: laughter, not an answer. */
+const LAUGH_TOKEN = /^(?:(?:ha|हा){2,}|(?:he){2,}|lol)$/u;
+
+/** The words left in a yes candidate are one yes phrase after another, and nothing else. */
+function allYesPhrases(words: readonly string[]): boolean {
+  const ok: boolean[] = [true];
+  for (let i = 1; i <= words.length; i += 1) {
+    ok[i] = YES_PHRASES.some((p) => {
+      const start = i - p.length;
+      return start >= 0 && ok[start] === true && p.every((w, k) => words[start + k] === w);
+    });
+  }
+  return ok[words.length] === true;
+}
+
+/** The answer as words with the fillers gone, or the verdict it already has: a no, or unclear. */
+function readAnswer(text: string): "no" | "unclear" | string[] {
+  const raw = String(text ?? "");
+  const value = confirmAnswerKey(raw);
   if (!value) return "unclear";
-  if (value === "na" || NO_WORDS.test(value) || DEVANAGARI_NO_WORDS.test(value)) return "no";
-  if (LAUGHTER.test(value)) return "unclear";
-  if (YES_WORDS.test(value)) return "yes";
-  return "unclear";
+  if (UNCLEAR_PHRASES.has(value)) return "unclear";
+  // The particle "na" is a refusal only on its own; "kar do na" is a request.
+  if (/^(?:na+|ना)$/u.test(value) || NO_PHRASE.test(value)) return "no";
+  // A question back ("yes?", "haan?") asks; it does not answer.
+  if (/[?\u061F\uFF1F]/u.test(raw)) return "unclear";
+  const all = value.split(" ");
+  if (
+    all.some((w) => LAUGH_TOKEN.test(w)) ||
+    (all.length > 1 && all.every((w) => w === "ha" || w === "हा"))
+  )
+    return "unclear";
+  const words = all.filter((w) => !FILLERS.has(w));
+  if (words.length > 1 && /^(?:na+|ना)$/u.test(words[words.length - 1] ?? "")) words.pop();
+  return words.length ? words : "unclear";
+}
+
+export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
+  const words = readAnswer(text);
+  if (typeof words === "string") return words;
+  return words.length <= CONFIRM_YES_MAX_WORDS && allYesPhrases(words) ? "yes" : "unclear";
+}
+
+/**
+ * The words after a leading yes ("yes send it to Rahul" gives "send it to rahul"), in the matching spelling of
+ * `confirmAnswerKey`, or null when the answer does not start with a yes or says no anywhere. An empty list is a plain
+ * yes. The caller decides whether the rest only repeats what was asked; this never makes a yes on its own.
+ */
+export function wordsAfterYes(text: string): string[] | null {
+  const words = readAnswer(text);
+  if (typeof words === "string") return null;
+  for (let k = Math.min(words.length, CONFIRM_YES_MAX_WORDS); k > 0; k -= 1)
+    if (allYesPhrases(words.slice(0, k))) return words.slice(k);
+  return null;
 }
 
 /** Spoken yes/no must be short. A long line that merely contains "yes" is not a confirmation. */

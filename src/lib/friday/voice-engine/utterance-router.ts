@@ -123,16 +123,10 @@ const stripAddress = (text: string): string =>
 
 /* ---------- (a) answers to the prompt she last spoke ---------- */
 
-const DEV_NO = w("नहीं|नही|मत|रहने दो|रहने दें|छोड़ दो|ना");
-const DEV_YES = w("हाँ|हां|हा|जी|ठीक है|बिल्कुल|करो|कर दो|चलाओ|ओके");
-
+/** The one yes/no table lives in voice-session (`CONFIRM_WORDS`); the router adds no word of its own. */
 function verdictOf(text: string): "yes" | "no" | "unclear" {
   const base = confirmationVerdict(text);
-  if (base !== "unclear") return base;
-  const value = norm(text);
-  if (DEV_NO.test(value)) return "no";
-  if (DEV_YES.test(value)) return "yes";
-  return "unclear";
+  return base;
 }
 
 /** Words that mean "be quiet", not "no": they silence her and leave the prompt open. */
