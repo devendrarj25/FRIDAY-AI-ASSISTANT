@@ -1,0 +1,1330 @@
+{
+  "pack": "friday-models",
+  "revision": "2026.11.1",
+  "repository": "devendrarj25/FRIDAY-AI-ASSISTANT",
+  "tag": "friday-models-2026.11.1",
+  "title": "FRIDAY Models 2026.11.1",
+  "partBytes": 1900000000,
+  "assets": [
+    {
+      "fridayId": "friday-ear-tiny",
+      "fridayName": "FRIDAY Ear Tiny",
+      "path": "config.json",
+      "file": "friday-ear-tiny--config.json",
+      "sha256": "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8",
+      "bytes": 2249,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-tiny",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-tiny",
+      "fridayName": "FRIDAY Ear Tiny",
+      "path": "model.bin",
+      "file": "friday-ear-tiny--model.bin",
+      "sha256": "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1",
+      "bytes": 75538270,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-tiny",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-tiny",
+      "fridayName": "FRIDAY Ear Tiny",
+      "path": "tokenizer.json",
+      "file": "friday-ear-tiny--tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "bytes": 2203239,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-tiny",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-tiny",
+      "fridayName": "FRIDAY Ear Tiny",
+      "path": "vocabulary.txt",
+      "file": "friday-ear-tiny--vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "bytes": 459861,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-tiny",
+        "file": "vocabulary.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-base",
+      "fridayName": "FRIDAY Ear Base",
+      "path": "config.json",
+      "file": "friday-ear-base--config.json",
+      "sha256": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+      "bytes": 2309,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-base",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-base",
+      "fridayName": "FRIDAY Ear Base",
+      "path": "model.bin",
+      "file": "friday-ear-base--model.bin",
+      "sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+      "bytes": 145217532,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-base",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-base",
+      "fridayName": "FRIDAY Ear Base",
+      "path": "tokenizer.json",
+      "file": "friday-ear-base--tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "bytes": 2203239,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-base",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-base",
+      "fridayName": "FRIDAY Ear Base",
+      "path": "vocabulary.txt",
+      "file": "friday-ear-base--vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "bytes": 459861,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-base",
+        "file": "vocabulary.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-small",
+      "fridayName": "FRIDAY Ear Small",
+      "path": "config.json",
+      "file": "friday-ear-small--config.json",
+      "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+      "bytes": 2370,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-small",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-small",
+      "fridayName": "FRIDAY Ear Small",
+      "path": "model.bin",
+      "file": "friday-ear-small--model.bin",
+      "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+      "bytes": 483546902,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-small",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-small",
+      "fridayName": "FRIDAY Ear Small",
+      "path": "tokenizer.json",
+      "file": "friday-ear-small--tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "bytes": 2203239,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-small",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-small",
+      "fridayName": "FRIDAY Ear Small",
+      "path": "vocabulary.txt",
+      "file": "friday-ear-small--vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "bytes": 459861,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-small",
+        "file": "vocabulary.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-medium",
+      "fridayName": "FRIDAY Ear Medium",
+      "path": "config.json",
+      "file": "friday-ear-medium--config.json",
+      "sha256": "3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807",
+      "bytes": 2257,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-medium",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-medium",
+      "fridayName": "FRIDAY Ear Medium",
+      "path": "model.bin",
+      "file": "friday-ear-medium--model.bin",
+      "sha256": "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae",
+      "bytes": 1527906378,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-medium",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-medium",
+      "fridayName": "FRIDAY Ear Medium",
+      "path": "tokenizer.json",
+      "file": "friday-ear-medium--tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "bytes": 2203239,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-medium",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-medium",
+      "fridayName": "FRIDAY Ear Medium",
+      "path": "vocabulary.txt",
+      "file": "friday-ear-medium--vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "bytes": 459861,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-medium",
+        "file": "vocabulary.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3",
+      "fridayName": "FRIDAY Ear Large v3",
+      "path": "config.json",
+      "file": "friday-ear-large-v3--config.json",
+      "sha256": "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
+      "bytes": 2394,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-large-v3",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3",
+      "fridayName": "FRIDAY Ear Large v3",
+      "path": "model.bin",
+      "file": "friday-ear-large-v3--model.bin",
+      "sha256": "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1",
+      "bytes": 3087284237,
+      "parts": 2,
+      "from": {
+        "pin": "Systran/faster-whisper-large-v3",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3",
+      "fridayName": "FRIDAY Ear Large v3",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-large-v3--preprocessor_config.json",
+      "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+      "bytes": 340,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-large-v3",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3",
+      "fridayName": "FRIDAY Ear Large v3",
+      "path": "tokenizer.json",
+      "file": "friday-ear-large-v3--tokenizer.json",
+      "sha256": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
+      "bytes": 2480617,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-large-v3",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3",
+      "fridayName": "FRIDAY Ear Large v3",
+      "path": "vocabulary.json",
+      "file": "friday-ear-large-v3--vocabulary.json",
+      "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+      "bytes": 1068114,
+      "parts": 1,
+      "from": {
+        "pin": "Systran/faster-whisper-large-v3",
+        "file": "vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3-turbo",
+      "fridayName": "FRIDAY Ear Large v3 Turbo",
+      "path": "config.json",
+      "file": "friday-ear-large-v3-turbo--config.json",
+      "sha256": "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e",
+      "bytes": 2263,
+      "parts": 1,
+      "from": {
+        "pin": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3-turbo",
+      "fridayName": "FRIDAY Ear Large v3 Turbo",
+      "path": "model.bin",
+      "file": "friday-ear-large-v3-turbo--model.bin",
+      "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+      "bytes": 1617884929,
+      "parts": 1,
+      "from": {
+        "pin": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3-turbo",
+      "fridayName": "FRIDAY Ear Large v3 Turbo",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-large-v3-turbo--preprocessor_config.json",
+      "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+      "bytes": 340,
+      "parts": 1,
+      "from": {
+        "pin": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3-turbo",
+      "fridayName": "FRIDAY Ear Large v3 Turbo",
+      "path": "tokenizer.json",
+      "file": "friday-ear-large-v3-turbo--tokenizer.json",
+      "sha256": "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd",
+      "bytes": 2710337,
+      "parts": 1,
+      "from": {
+        "pin": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-large-v3-turbo",
+      "fridayName": "FRIDAY Ear Large v3 Turbo",
+      "path": "vocabulary.json",
+      "file": "friday-ear-large-v3-turbo--vocabulary.json",
+      "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+      "bytes": 1068114,
+      "parts": 1,
+      "from": {
+        "pin": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "file": "vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi",
+      "fridayName": "FRIDAY Ear Hindi",
+      "path": "config.json",
+      "file": "friday-ear-hindi--config.json",
+      "sha256": "4bfb1d53736f8b675b784d6ece61f5b8e7ae73ca2c0ed4c232e9135ac44ab909",
+      "bytes": 119,
+      "parts": 1,
+      "from": {
+        "pin": "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi",
+      "fridayName": "FRIDAY Ear Hindi",
+      "path": "model.int8.onnx",
+      "file": "friday-ear-hindi--model.int8.onnx",
+      "sha256": "c2044177b6d44494fe40be755466845a4c7bd1b5a5d1f6a15b33b2b4ba6011cd",
+      "bytes": 137677313,
+      "parts": 1,
+      "from": {
+        "pin": "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
+        "file": "model.int8.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi",
+      "fridayName": "FRIDAY Ear Hindi",
+      "path": "vocab.txt",
+      "file": "friday-ear-hindi--vocab.txt",
+      "sha256": "152e58dc9469feb8f74fb006245616ad7cd91b3f7a5ace72ec53f970db10c981",
+      "bytes": 2700,
+      "parts": 1,
+      "from": {
+        "pin": "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
+        "file": "vocab.txt",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish",
+      "fridayName": "FRIDAY Ear Hinglish",
+      "path": "config.json",
+      "file": "friday-ear-hinglish--config.json",
+      "sha256": "7dcc85f06f98312a1146df7f28959c358c87ab3d01c369eacd4b22f1ec2c43e4",
+      "bytes": 2789,
+      "parts": 1,
+      "from": {
+        "pin": "MSpider3/whisper-hindi2hinglish-swift-ct2",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish",
+      "fridayName": "FRIDAY Ear Hinglish",
+      "path": "model.bin",
+      "file": "friday-ear-hinglish--model.bin",
+      "sha256": "223a6e80ea056a01a7bf748a44e7a1c11ab79601ce5f84720365aac38565b87f",
+      "bytes": 76396677,
+      "parts": 1,
+      "from": {
+        "pin": "MSpider3/whisper-hindi2hinglish-swift-ct2",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish",
+      "fridayName": "FRIDAY Ear Hinglish",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-hinglish--preprocessor_config.json",
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "parts": 1,
+      "from": {
+        "pin": "MSpider3/whisper-hindi2hinglish-swift-ct2",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish",
+      "fridayName": "FRIDAY Ear Hinglish",
+      "path": "tokenizer.json",
+      "file": "friday-ear-hinglish--tokenizer.json",
+      "sha256": "7e146198186d5e3b9ce7d9d7f131b69b44569eaed9ad64a5516629a6c6a865c4",
+      "bytes": 3930462,
+      "parts": 1,
+      "from": {
+        "pin": "MSpider3/whisper-hindi2hinglish-swift-ct2",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish",
+      "fridayName": "FRIDAY Ear Hinglish",
+      "path": "vocabulary.json",
+      "file": "friday-ear-hinglish--vocabulary.json",
+      "sha256": "22f3cb2fc2be1545b9a7db8e993ddd59aeccadfbc7d7b00ca517ca8960864766",
+      "bytes": 1068101,
+      "parts": 1,
+      "from": {
+        "pin": "MSpider3/whisper-hindi2hinglish-swift-ct2",
+        "file": "vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-backup",
+      "fridayName": "FRIDAY Ear Hindi Backup",
+      "path": "config.json",
+      "file": "friday-ear-hindi-backup--config.json",
+      "sha256": "a009751ea519c21514a766f08b33784c0ce0aef4f3fafdc3687f56e33ef35b1a",
+      "bytes": 1512,
+      "parts": 1,
+      "from": {
+        "pin": "collabora/faster-whisper-small-hindi",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-backup",
+      "fridayName": "FRIDAY Ear Hindi Backup",
+      "path": "model.bin",
+      "file": "friday-ear-hindi-backup--model.bin",
+      "sha256": "0ad00358a5dd71fc8e094a768caa1f67dad9dbb107641cc6323502a0bf7c2ef7",
+      "bytes": 483546977,
+      "parts": 1,
+      "from": {
+        "pin": "collabora/faster-whisper-small-hindi",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-backup",
+      "fridayName": "FRIDAY Ear Hindi Backup",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-hindi-backup--preprocessor_config.json",
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "parts": 1,
+      "from": {
+        "pin": "collabora/faster-whisper-small-hindi",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-backup",
+      "fridayName": "FRIDAY Ear Hindi Backup",
+      "path": "tokenizer.json",
+      "file": "friday-ear-hindi-backup--tokenizer.json",
+      "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+      "bytes": 2480466,
+      "parts": 1,
+      "from": {
+        "pin": "collabora/faster-whisper-small-hindi",
+        "file": "tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-backup",
+      "fridayName": "FRIDAY Ear Hindi Backup",
+      "path": "vocabulary.json",
+      "file": "friday-ear-hindi-backup--vocabulary.json",
+      "sha256": "5ad28279db5e546349708b9a74736e2c018737ac5a600f1048f1f26c99b85b47",
+      "bytes": 1068103,
+      "parts": 1,
+      "from": {
+        "pin": "collabora/faster-whisper-small-hindi",
+        "file": "vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-large",
+      "fridayName": "FRIDAY Ear Hindi Large",
+      "path": "config.json",
+      "file": "friday-ear-hindi-large--config.json",
+      "sha256": "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
+      "bytes": 2394,
+      "parts": 1,
+      "from": {
+        "pin": "bjollans/whisper-large-v3-vaani-hindi-ct2",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-large",
+      "fridayName": "FRIDAY Ear Hindi Large",
+      "path": "model.bin",
+      "file": "friday-ear-hindi-large--model.bin",
+      "sha256": "34c0d6c1c80fabd91af9d8c91c5089c2f3f314bda9ee3169b3e844c7ad2d011b",
+      "bytes": 3087284237,
+      "parts": 2,
+      "from": {
+        "pin": "bjollans/whisper-large-v3-vaani-hindi-ct2",
+        "file": "model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-large",
+      "fridayName": "FRIDAY Ear Hindi Large",
+      "path": "preprocessor_config.json",
+      "file": "friday-ear-hindi-large--preprocessor_config.json",
+      "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+      "bytes": 340,
+      "parts": 1,
+      "from": {
+        "pin": "bjollans/whisper-large-v3-vaani-hindi-ct2",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hindi-large",
+      "fridayName": "FRIDAY Ear Hindi Large",
+      "path": "vocabulary.json",
+      "file": "friday-ear-hindi-large--vocabulary.json",
+      "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+      "bytes": 1068114,
+      "parts": 1,
+      "from": {
+        "pin": "bjollans/whisper-large-v3-vaani-hindi-ct2",
+        "file": "vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "LICENSE",
+      "file": "friday-ear-hinglish-large--LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "LICENSE",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "int8/config.json",
+      "file": "friday-ear-hinglish-large--int8--config.json",
+      "sha256": "f277d9390e65adc1630b349151eca38aaf7420c41c814271928854edcfd6ffbe",
+      "bytes": 2634,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "int8/config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "int8/model.bin",
+      "file": "friday-ear-hinglish-large--int8--model.bin",
+      "sha256": "624bae081b85f4ac433edb73bf64bd5277bb7a4c03fe305d572fe2fd1a89a7d3",
+      "bytes": 1556723863,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "int8/model.bin",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "int8/preprocessor_config.json",
+      "file": "friday-ear-hinglish-large--int8--preprocessor_config.json",
+      "sha256": "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+      "bytes": 357,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "int8/preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "int8/tokenizer.json",
+      "file": "friday-ear-hinglish-large--int8--tokenizer.json",
+      "sha256": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
+      "bytes": 2480617,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "int8/tokenizer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-hinglish-large",
+      "fridayName": "FRIDAY Ear Hinglish Large",
+      "path": "int8/vocabulary.json",
+      "file": "friday-ear-hinglish-large--int8--vocabulary.json",
+      "sha256": "e2125783966ea6f3aad20a065a9b2ae5c9c8532438aa80e62e84f7e635adbbda",
+      "bytes": 1120001,
+      "parts": 1,
+      "from": {
+        "pin": "nikh360pro/capsbro-hinglish-ct2",
+        "file": "int8/vocabulary.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "config.json",
+      "file": "friday-ear-live--config.json",
+      "sha256": "0592a224f30670e00f5e0f1f106f0171428b0abde0fd4cbc64237b02c2241502",
+      "bytes": 602,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "decoder.onnx",
+      "file": "friday-ear-live--decoder.onnx",
+      "sha256": "68e7c40e673e94b364476303d687478ed7726bfb984e3496d0234d8e368b0894",
+      "bytes": 4345,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "decoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "decoder.onnx.data",
+      "file": "friday-ear-live--decoder.onnx.data",
+      "sha256": "4f2ced2289e1a62f7576ae9b42a97b972bdbc001eca8b41c4cc4c2421c0982eb",
+      "bytes": 59760640,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "decoder.onnx.data",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "encoder.onnx",
+      "file": "friday-ear-live--encoder.onnx",
+      "sha256": "faba6d952270255f1f9c4c22a44fbc60439638d808cb9feee51bba6a8daf0f87",
+      "bytes": 657558932,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "encoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "joint.onnx",
+      "file": "friday-ear-live--joint.onnx",
+      "sha256": "c2839f49ac23e353c60b82ad325afcabee38e5ee6f8238fe575799908f877fc4",
+      "bytes": 2023,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "joint.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "joint.onnx.data",
+      "file": "friday-ear-live--joint.onnx.data",
+      "sha256": "5e96c9d54ee68a924f58fd734cd64ddf6fa0dd0f81c981ceb1a5bac5e860d74c",
+      "bytes": 37822592,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "joint.onnx.data",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "languages.json",
+      "file": "friday-ear-live--languages.json",
+      "sha256": "a1efe863e1057d4658bce8175c978020ac35a63a3c9a65ae899f324a32c8e4f6",
+      "bytes": 2020,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "languages.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-ear-live",
+      "fridayName": "FRIDAY Ear Live",
+      "path": "vocab.json",
+      "file": "friday-ear-live--vocab.json",
+      "sha256": "fd726dc25cc0c0b46403675127e831bab56ca56b8c7ae3ee7781f5c6d7692f4f",
+      "bytes": 236127,
+      "parts": 1,
+      "from": {
+        "pin": "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8",
+        "file": "vocab.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-punctuate-hindi",
+      "fridayName": "FRIDAY Punctuate Hindi",
+      "path": "config.yaml",
+      "file": "friday-punctuate-hindi--config.yaml",
+      "sha256": "30eb8e05fcea3865828ab73f41fbba21dd7faf127a61950a706af9156f5b84f2",
+      "bytes": 516,
+      "parts": 1,
+      "from": {
+        "pin": "1-800-BAD-CODE/punct_cap_seg_47_language",
+        "file": "config.yaml",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-punctuate-hindi",
+      "fridayName": "FRIDAY Punctuate Hindi",
+      "path": "punct_cap_seg_47lang.onnx",
+      "file": "friday-punctuate-hindi--punct_cap_seg_47lang.onnx",
+      "sha256": "640d91c06b7cc5b3e065c12a7097188378aad3bc11568ff1d72c4c0a2acb0df4",
+      "bytes": 232986305,
+      "parts": 1,
+      "from": {
+        "pin": "1-800-BAD-CODE/punct_cap_seg_47_language",
+        "file": "punct_cap_seg_47lang.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-punctuate-hindi",
+      "fridayName": "FRIDAY Punctuate Hindi",
+      "path": "spe_unigram_64k_lowercase_47lang.model",
+      "file": "friday-punctuate-hindi--spe_unigram_64k_lowercase_47lang.model",
+      "sha256": "1bc15b6e5fd80dfac9999582ce3efcad2ac1f7cf4e0e9769b329f5de9ca5af47",
+      "bytes": 1186519,
+      "parts": 1,
+      "from": {
+        "pin": "1-800-BAD-CODE/punct_cap_seg_47_language",
+        "file": "spe_unigram_64k_lowercase_47lang.model",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "config.json",
+      "file": "friday-voice--config.json",
+      "sha256": "4099082b107a9d4029849ac76b89eca65e03732660969c2babe5bf308c7357f2",
+      "bytes": 174,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/duration_predictor.onnx",
+      "file": "friday-voice--onnx--duration_predictor.onnx",
+      "sha256": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db",
+      "bytes": 3700147,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/duration_predictor.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/text_encoder.onnx",
+      "file": "friday-voice--onnx--text_encoder.onnx",
+      "sha256": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff",
+      "bytes": 36416150,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/text_encoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/tts.json",
+      "file": "friday-voice--onnx--tts.json",
+      "sha256": "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09",
+      "bytes": 8253,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/tts.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/unicode_indexer.json",
+      "file": "friday-voice--onnx--unicode_indexer.json",
+      "sha256": "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f",
+      "bytes": 277676,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/unicode_indexer.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/vector_estimator.onnx",
+      "file": "friday-voice--onnx--vector_estimator.onnx",
+      "sha256": "883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c",
+      "bytes": 256534781,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/vector_estimator.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "onnx/vocoder.onnx",
+      "file": "friday-voice--onnx--vocoder.onnx",
+      "sha256": "085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba",
+      "bytes": 101424195,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "onnx/vocoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/F1.json",
+      "file": "friday-voice--voice_styles--F1.json",
+      "sha256": "bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2",
+      "bytes": 292046,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/F1.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/F2.json",
+      "file": "friday-voice--voice_styles--F2.json",
+      "sha256": "7c722c6a72707b1a77f035d67f0d1351ba187738e06f7683e8c72b1df3477fc6",
+      "bytes": 292423,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/F2.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/F3.json",
+      "file": "friday-voice--voice_styles--F3.json",
+      "sha256": "12f6ef2573baa2defa1128069cb59f203e3ab67c92af77b42df8a0e3a2f7c6ab",
+      "bytes": 290794,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/F3.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/F4.json",
+      "file": "friday-voice--voice_styles--F4.json",
+      "sha256": "c2fa764c1225a76dfc3e2c73e8aa4f70d9ee48793860eb34c295fff01c2e032b",
+      "bytes": 291808,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/F4.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/F5.json",
+      "file": "friday-voice--voice_styles--F5.json",
+      "sha256": "45966e73316415626cf41a7d1c6f3b4c70dbc1ba2bee5c1978ef0ce33244fc8d",
+      "bytes": 291479,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/F5.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/M1.json",
+      "file": "friday-voice--voice_styles--M1.json",
+      "sha256": "e35604687f5d23694b8e91593a93eec0e4eca6c0b02bb8ed69139ab2ea6b0a5b",
+      "bytes": 291748,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/M1.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/M2.json",
+      "file": "friday-voice--voice_styles--M2.json",
+      "sha256": "b76cbf62bac707c710cf0ae5aba5e31eea1a6339a9734bfae33ab98499534a50",
+      "bytes": 292055,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/M2.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/M3.json",
+      "file": "friday-voice--voice_styles--M3.json",
+      "sha256": "ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b",
+      "bytes": 290198,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/M3.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/M4.json",
+      "file": "friday-voice--voice_styles--M4.json",
+      "sha256": "ca8eefad4fcd989c9379032ff3e50738adc547eeb5e221b82593a6d7b3bac303",
+      "bytes": 291522,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/M4.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice",
+      "fridayName": "FRIDAY Voice",
+      "path": "voice_styles/M5.json",
+      "file": "friday-voice--voice_styles--M5.json",
+      "sha256": "dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2",
+      "bytes": 291469,
+      "parts": 1,
+      "from": {
+        "pin": "Supertone/supertonic-3",
+        "file": "voice_styles/M5.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "LICENSE.md",
+      "file": "friday-voice-lite--LICENSE.md",
+      "sha256": "64fa648284b590c9e62a0d40521ba8c40728ec16cfb485245ef620436f0579ed",
+      "bytes": 2976,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "LICENSE.md",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "config.json",
+      "file": "friday-voice-lite--config.json",
+      "sha256": "4078fd217dc171808b58f05b5ed78f85d78126bf7bf46351186fcf039411f66d",
+      "bytes": 3443,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "onnx/flow_decoder.onnx",
+      "file": "friday-voice-lite--onnx--flow_decoder.onnx",
+      "sha256": "923a0472ec4d4c05c43bfc8ea512f8f762cf447b9f6ce1f01043144e1f6d1252",
+      "bytes": 19169253,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "onnx/flow_decoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "onnx/onnx_manifest.json",
+      "file": "friday-voice-lite--onnx--onnx_manifest.json",
+      "sha256": "30ce6bb339f2d27b0aada791c57f4197b2dd9ddd7d710dbcb36eb095bd5f762f",
+      "bytes": 3117,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "onnx/onnx_manifest.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "onnx/text_encoder.onnx",
+      "file": "friday-voice-lite--onnx--text_encoder.onnx",
+      "sha256": "38df505ea822800d91a13bdc4a670f81ee964e9e0fe24a705590859fe7cfd08f",
+      "bytes": 17695838,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "onnx/text_encoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-voice-lite",
+      "fridayName": "FRIDAY Voice Lite",
+      "path": "onnx/vocoder.onnx",
+      "file": "friday-voice-lite--onnx--vocoder.onnx",
+      "sha256": "44d36238a761750447038895ab194e2378f6f4ba2c2d089a4766fa52810ef353",
+      "bytes": 54150036,
+      "parts": 1,
+      "from": {
+        "pin": "sulabhkatiyar/indic-tiny-tts-hindi",
+        "file": "onnx/vocoder.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-denoise",
+      "fridayName": "FRIDAY Denoise",
+      "path": "onnx/dpdfnet2.onnx",
+      "file": "friday-denoise--onnx--dpdfnet2.onnx",
+      "sha256": "4f0ee28935b4a32abecc717d745416976565834d839601acf43031094b4dc94c",
+      "bytes": 10178747,
+      "parts": 1,
+      "from": {
+        "pin": "Ceva-IP/DPDFNet",
+        "file": "onnx/dpdfnet2.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-denoise-lite",
+      "fridayName": "FRIDAY Denoise Lite",
+      "path": "gtcrn_simple.onnx",
+      "file": "friday-denoise-lite--gtcrn_simple.onnx",
+      "sha256": "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+      "bytes": 535638,
+      "parts": 1,
+      "from": {
+        "pin": "TigreGotico/audiosronnx-gtcrn",
+        "file": "gtcrn_simple.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-speaker",
+      "fridayName": "FRIDAY Speaker",
+      "path": "config.json",
+      "file": "friday-speaker--config.json",
+      "sha256": "4a65a1544d2085d7819632f130583d83f6815f49ef6c8ba6c8eb460bd4085041",
+      "bytes": 38,
+      "parts": 1,
+      "from": {
+        "pin": "onnx-community/wespeaker-voxceleb-resnet34-LM",
+        "file": "config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-speaker",
+      "fridayName": "FRIDAY Speaker",
+      "path": "onnx/model_int8.onnx",
+      "file": "friday-speaker--onnx--model_int8.onnx",
+      "sha256": "6416fae0599c33bdaf7188e99695edc5fafde190a102c511c881245a109de4c3",
+      "bytes": 6685123,
+      "parts": 1,
+      "from": {
+        "pin": "onnx-community/wespeaker-voxceleb-resnet34-LM",
+        "file": "onnx/model_int8.onnx",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    },
+    {
+      "fridayId": "friday-speaker",
+      "fridayName": "FRIDAY Speaker",
+      "path": "preprocessor_config.json",
+      "file": "friday-speaker--preprocessor_config.json",
+      "sha256": "a81bbded0530b1bf5c3d395d2c5c7c266686e348be5989171290ace960f24ec2",
+      "bytes": 371,
+      "parts": 1,
+      "from": {
+        "pin": "onnx-community/wespeaker-voxceleb-resnet34-LM",
+        "file": "preprocessor_config.json",
+        "recipe": "copy",
+        "recipeVersion": 1
+      }
+    }
+  ]
+}
