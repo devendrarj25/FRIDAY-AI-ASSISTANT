@@ -63,16 +63,16 @@ const RISKY = [
  * (core/__tests__/terminal-command-allowlist.test.ts compares the two tables).
  */
 const SAFE_COMMANDS = [
-  /^git\s+(?!.*\s--output\b)(?:status|diff|log|show|rev-parse|blame|ls-files|describe|shortlog|grep|--version|version)(?:\s|$)/i,
+  /^git\s+(?!.*\s(?:--out|--open|-O))(?:status|diff|log|show|rev-parse|blame|ls-files|describe|shortlog|grep|--version|version)(?:\s|$)/i,
   /^git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--show-current|--all))*\s*$/i,
   /^git\s+(?:remote\s+-v|stash\s+list)\s*$/i,
-  /^(?:npm|pnpm|yarn|bun)\s+(?:test|t|ls|list|outdated|--version|-v)(?:\s|$)/i,
-  /^npm\s+(?:view|doctor|help)(?:\s|$)/i,
-  /^(?:npm|pnpm|yarn|bun)\s+run\s+(?:test|typecheck|lint|check|docs:check|arrange:check|verify:version|check:provenance|test:fast|test:kernel|typecheck:py|pricing:status)(?:\s|$)/i,
-  /^npx\s+(?!.*\s--(?:fix|write)\b)(?:vitest|tsc\s+--noEmit|eslint|prettier\s+--check)(?:\s|$)/i,
-  /^(?!.*\s--(?:fix|write)\b)(?:vitest|pytest|ruff\s+check|eslint|tsc\s+--noEmit|prettier\s+--check)(?:\s|$)/i,
-  /^(?:python3?|py)\s+-m\s+(?!.*\s--(?:fix|write)\b)(?:pytest|ruff\s+check)(?:\s|$)/i,
-  /^go\s+(?:test|vet|version|env)(?:\s|$)/i,
+  /^(?:npm|pnpm|yarn|bun)\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:test|t|ls|list|outdated|--version|-v)(?:\s|$)/i,
+  /^npm\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:view|doctor|help)(?:\s|$)/i,
+  /^(?:npm|pnpm|yarn|bun)\s+run\s+(?!.*\s--(?:script-shell|shell|userconfig|globalconfig)\b)(?:test|typecheck|lint|check|docs:check|arrange:check|verify:version|check:provenance|test:fast|test:kernel|typecheck:py|pricing:status)(?:\s|$)/i,
+  /^npx\s+(?!.*\s(?:--(?:fix|write)|-w)\b)(?:vitest|tsc\s+--noEmit|eslint|prettier\s+--check)(?:\s|$)/i,
+  /^(?!.*\s(?:--(?:fix|write)|-w)\b)(?:vitest|pytest|ruff\s+check|eslint|tsc\s+--noEmit|prettier\s+--check)(?:\s|$)/i,
+  /^(?:python3?|py)\s+-m\s+(?!.*\s(?:--(?:fix|write)|-w)\b)(?:pytest|ruff\s+check)(?:\s|$)/i,
+  /^go\s+(?:(?:test|vet)(?!.*\s-(?:exec|vettool|toolexec|o|c)\b)|version|env(?!.*\s-[wu]\b))(?:\s|$)/i,
   /^cargo\s+(?!.*\s--fix\b)(?:test|check|clippy)(?:\s|$)/i,
   /^dotnet\s+(?:test|--version|--info|--list-sdks)(?:\s|$)/i,
   /^(?:node|python3?|py|pip3?|uv|deno|java|javac|rustc|cargo|go|npm|npx|git|ollama|docker|podman|winget|choco|scoop)\s+(?:--version|-v|-V|version)\s*$/i,
@@ -84,14 +84,18 @@ const SAFE_COMMANDS = [
   /^(?:docker|podman)\s+(?:ps|images|info|version)(?:\s|$)/i,
   /^ipconfig(?:\s+\/all)?\s*$/i,
   /^(?:date|time)\s+\/t\s*$/i,
-  /^(?:dir|ls|pwd|whoami|hostname|ver|tree|tasklist|systeminfo|netstat|where|which|echo|type|cat|more|findstr|rg|ping)(?:\s|$)/i,
+  /^(?:dir|ls|pwd|whoami|hostname|ver|tree|tasklist|systeminfo|netstat|which|echo|type|cat|more|findstr|ping)(?:\s|$)/i,
+  /^rg(?!.*\s--(?:pre|hostname-bin)\b)(?:\s|$)/i,
   /^(?:get-childitem|get-process|get-service|get-date|get-location|get-content|get-item|get-command|get-help|test-path|test-connection|resolve-path|write-output|write-host|gci|gps|gsv)(?:\s|$)/i,
 ];
 
-/** Sub-shells and inline expansion can run anything inside a "read" line. */
-const EMBEDDED = /`|\$\(|%\(/;
+/**
+ * Sub-shells, sub-expressions, script blocks and process substitution can run anything inside a "read" line:
+ * a backtick, `(` (covers `$(`, `@(`, `<(` and `%(`) and `{`.
+ */
+const EMBEDDED = /[`({]/;
 
-const CHUNK_SPLIT = /\s*(?:&&|\|\||;|&|\r?\n)\s*/;
+const CHUNK_SPLIT = /\s*(?:&&|\|\||;|&|\r|\n)\s*/;
 
 /**
  * "exec" means the owner must approve before it runs. "write" only when every chunk of the line is a known read

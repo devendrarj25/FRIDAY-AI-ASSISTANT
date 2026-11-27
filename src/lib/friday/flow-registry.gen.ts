@@ -415,6 +415,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "autonomy:halt-sync",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "billing:get",
       file: "electron/main.cjs",
     },
@@ -9780,8 +9784,8 @@ export const FLOW_REGISTRY = {
       total: 1119,
     },
     ipc: {
-      mapped: 523,
-      total: 523,
+      mapped: 524,
+      total: 524,
     },
     kernel: {
       mapped: 14,

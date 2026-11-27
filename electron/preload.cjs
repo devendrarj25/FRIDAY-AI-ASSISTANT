@@ -152,6 +152,14 @@ contextBridge.exposeInMainWorld("friday", {
   // integrity and boot records.
   rebuildRootRegistry: () => ipcRenderer.invoke("root:registry"),
   setState: (namespace, value) => ipcRenderer.invoke("state:set", namespace, value),
+  // Stop everything reaches the main process at once (the saved copy follows on a delay).
+  signalHalted: (halted) => {
+    try {
+      return ipcRenderer.sendSync("autonomy:halt-sync", halted === true) === true;
+    } catch {
+      return false;
+    }
+  },
 
   // Workspace lifecycle.
   verifyWorkspace: (path) => ipcRenderer.invoke("workspace:verify", path),

@@ -5897,10 +5897,18 @@ async function askOwnerForTool(name, risk, args) {
  */
 async function authorizeToolCall(name, args) {
   if (appLifecycle.alwaysAsk(name)) {
+    // Stop everything holds here too, before the question and after it (a late Allow no longer runs it).
+    const halted = {
+      allowed: false,
+      risk: "exec",
+      reason: `Stop everything is on, so “${name}” was not run. Resume FRIDAY to run it.`,
+    };
+    if (ownerAutonomyState().halted === true) return halted;
     const answer = await askOwnerForTool(name, "exec", args || {});
     if (!answer.granted) {
       return { allowed: false, risk: "exec", reason: `You denied “${name}”.` };
     }
+    if (ownerAutonomyState().halted === true) return halted;
     return { allowed: true, risk: "exec", authorization: null, desktop: true };
   }
   const risk = await toolRisk(name);
@@ -8268,23 +8276,20 @@ toolchain.setFactsProvider(() => routingHardwareFacts());
 toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
 ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
+const autonomyReader = toolGate.createAutonomyReader(() =>
+  stateStore.readState(stateFile("friday.autonomy.v1")),
+);
+// "Stop everything" reaches main here, synchronously, before the renderer's own fan-out finishes. The stored copy is
+// written on a 400 ms delay; in that window this flag is what a shell command, a tool call or a late Allow sees.
+ipcMain.on("autonomy:halt-sync", (event, halted) => {
+  event.returnValue = autonomyReader.signalHalted(halted);
+});
 // ---- install and update gate (main-side) ---------------------------------------------------------------------------
 // The renderer's word is never the authority: the autonomy dial is read here from the owner's stored state, the data
 // root is the paths module's one root, and every update passes `planUpdate` first. Windows' own permission prompt
 // (UAC) is never answered by FRIDAY. A bundled runtime (notify-only row) is refused under every dial.
 function ownerAutonomyState() {
-  try {
-    const stored = stateStore.readState(stateFile("friday.autonomy.v1"));
-    // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
-    if (!stored || typeof stored !== "object") return { dial: "balanced", halted: false };
-    const halted = stored.halted === true;
-    if (stored.approvalLevel === "full") return { dial: "full", halted };
-    if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
-      return { dial: "balanced", halted };
-    return { dial: "ask", halted };
-  } catch {
-    return { dial: "ask", halted: false };
-  }
+  return autonomyReader.read();
 }
 function ownerAutonomyDial() {
   const { dial, halted } = ownerAutonomyState();

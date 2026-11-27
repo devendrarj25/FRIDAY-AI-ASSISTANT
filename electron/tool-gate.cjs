@@ -65,4 +65,43 @@ async function askWithTimeout(
   }
 }
 
-module.exports = { ASK_TIMEOUT_MS, gateDecision, askWithTimeout };
+/**
+ * The owner's autonomy state as the main process knows it. Stop everything is written to disk on a short delay, so the
+ * renderer also sends a synchronous signal (`signalHalted`) the moment the state changes; `read` takes that signal
+ * before the file. When the file cannot be read the last known state stands, and when nothing is known at all FRIDAY
+ * counts as halted (the dial "ask"): an unreadable state never opens the gate.
+ * @param {() => unknown} readStored returns the stored autonomy record, or null when nothing is stored; may throw.
+ * @returns {{read: () => {dial: "ask"|"balanced"|"full", halted: boolean}, signalHalted: (value: unknown) => boolean}}
+ */
+function createAutonomyReader(readStored) {
+  let signal = null;
+  let known = null;
+  return {
+    read() {
+      let state;
+      try {
+        const stored = readStored();
+        // Nothing stored is the shipped default (Balanced, still asks). "Stop everything" persists `halted`.
+        if (!stored || typeof stored !== "object") {
+          state = { dial: "balanced", halted: false };
+        } else {
+          const halted = stored.halted === true;
+          if (stored.approvalLevel === "full") state = { dial: "full", halted };
+          else if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
+            state = { dial: "balanced", halted };
+          else state = { dial: "ask", halted };
+        }
+        known = state;
+      } catch {
+        state = known ? { ...known } : { dial: "ask", halted: true };
+      }
+      return signal === null ? state : { ...state, halted: signal };
+    },
+    signalHalted(value) {
+      signal = value === true;
+      return signal;
+    },
+  };
+}
+
+module.exports = { ASK_TIMEOUT_MS, gateDecision, askWithTimeout, createAutonomyReader };

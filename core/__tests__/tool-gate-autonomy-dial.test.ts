@@ -25,6 +25,10 @@ const gate = require_("../../electron/tool-gate.cjs") as {
     ask: (signal: AbortSignal) => Promise<unknown>,
     options?: { ms?: number },
   ) => Promise<{ granted: boolean; remember: boolean; timedOut?: boolean }>;
+  createAutonomyReader: (readStored: () => unknown) => {
+    read: () => { dial: string; halted: boolean };
+    signalHalted: (value: unknown) => boolean;
+  };
 };
 const toolAuthority = require_("../../electron/tool-authority.cjs") as {
   decide: (name: string, risk: string, policy: Record<string, string>) => string;
@@ -253,8 +257,7 @@ describe("the owner's dial and the stop flag, as the main process reads them", (
   const dial = extract("function ownerAutonomyDial() {");
   const make = (read: () => unknown) => {
     const deps: Deps = {
-      stateStore: { readState: read },
-      stateFile: (name: string) => name,
+      autonomyReader: gate.createAutonomyReader(read),
     };
     return {
       state: build<() => { dial: string; halted: boolean }>(source, "ownerAutonomyState", deps),
@@ -276,7 +279,8 @@ describe("the owner's dial and the stop flag, as the main process reads them", (
     const broken = make(() => {
       throw new Error("disk");
     });
-    expect(broken.state()).toEqual({ dial: "ask", halted: false });
+    // Nothing readable and nothing known: FRIDAY counts as stopped (fails closed), never as open.
+    expect(broken.state()).toEqual({ dial: "ask", halted: true });
     expect(broken.dial()).toBe("ask");
     expect(make(() => ({ approvalLevel: "full", halted: true })).dial()).toBe("ask");
     expect(make(() => ({ approvalLevel: "full" })).dial()).toBe("full");

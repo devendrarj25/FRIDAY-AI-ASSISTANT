@@ -12,6 +12,7 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
 const main = readFileSync(path.join(root, "electron/main.cjs"), "utf8");
 const catalog = require_(path.join(root, "electron/installer-catalog.cjs"));
+const toolGate = require_(path.join(root, "electron/tool-gate.cjs"));
 
 const gateBlock = main.slice(
   main.indexOf("// ---- install and update gate"),
@@ -26,15 +27,13 @@ type Row = Record<string, unknown>;
 function harness(opts: { rows: Row[]; stored?: unknown; throwRead?: boolean }) {
   const handlers: Record<string, (e: unknown, a: unknown) => Promise<Record<string, unknown>>> = {};
   const runJob = vi.fn(async () => ({ ok: true }));
+  const readStored = () => {
+    if (opts.throwRead) throw new Error("disk");
+    return opts.stored ?? null;
+  };
   const fakes = {
     ipcMain: { handle: (name: string, fn: never) => void (handlers[name] = fn) },
-    stateStore: {
-      readState: () => {
-        if (opts.throwRead) throw new Error("disk");
-        return opts.stored ?? null;
-      },
-    },
-    stateFile: (ns: string) => ns,
+    autonomyReader: toolGate.createAutonomyReader(readStored),
     getInstallerCatalog: () => ({
       snapshot: () => ({ rows: opts.rows }),
       planUpdate: catalog.planUpdate,
