@@ -123,15 +123,26 @@ function releaseAssetFor(file, pack) {
   return pack.assets.find((a) => a && a.sha256 === file.sha256 && a.file) || null;
 }
 
+/**
+ * The release tag that carries one Core variant: the tag of the `packs[]` entry (brain-weights, recall-weights) that
+ * lists the variant in its `core`, or the old `<tagPrefix><revision>` tag when the pack names no such entry.
+ */
+function packTagFor(mirror, pack, variantId) {
+  const entry = (Array.isArray(pack.packs) ? pack.packs : []).find(
+    (item) => item && Array.isArray(item.core) && item.core.includes(variantId) && item.tag,
+  );
+  return entry ? entry.tag : `${mirror.tagPrefix}${pack.revision}`;
+}
+
 /** Every road to one file, in manifest order. A release road exists only when the pack really holds the file. */
-function sourcesFor(manifest, file, pack) {
+function sourcesFor(manifest, file, pack, variantId = "") {
   const out = [];
   for (const mirror of manifest.mirrors || []) {
     if (mirror.kind === "release") {
       const asset = releaseAssetFor(file, pack);
       if (!asset) continue;
       const parts = Number.isInteger(asset.parts) && asset.parts > 0 ? asset.parts : 1;
-      const base = `https://github.com/${mirror.repository}/releases/download/${mirror.tagPrefix}${pack.revision}/`;
+      const base = `https://github.com/${mirror.repository}/releases/download/${packTagFor(mirror, pack, variantId)}/`;
       out.push({
         id: mirror.id,
         parts,
@@ -180,7 +191,7 @@ function planAssets(root, variantId, deps = {}) {
       bytes: file.bytes,
       sha256: file.sha256,
       licence: variant.licence?.id || "",
-      sources: sourcesFor(manifest, file, pack),
+      sources: sourcesFor(manifest, file, pack, variant.id),
       present: !!found && found.size === file.bytes,
     });
   }

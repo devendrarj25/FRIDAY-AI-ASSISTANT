@@ -110,6 +110,7 @@ describe("the stream ear licence conflict is resolved and recorded", () => {
 describe("bundleAllowed", () => {
   it.each([
     "GPL-3.0-only",
+    "BSD-2-Clause-NC",
     "GPL-2.0-or-later",
     "LGPL-2.1",
     "LGPL-3.0-only",
@@ -129,6 +130,7 @@ describe("bundleAllowed", () => {
   it.each([
     "MIT",
     "Apache-2.0",
+    "BSD-2-Clause",
     "CC-BY-4.0",
     "OpenRAIL-M",
     "NVIDIA-Open-Model-License",

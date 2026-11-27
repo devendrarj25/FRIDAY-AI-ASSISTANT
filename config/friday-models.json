@@ -32,14 +32,7 @@
         "friday-denoise-lite",
         "friday-speaker"
       ],
-      "helpers": ["silero-vad", "wake-embed"],
-      "pending": [
-        {
-          "id": "smart-turn",
-          "fridayId": "friday-turn",
-          "reason": "its terms are not on the bundle allowlist of electron/voice-pins.cjs yet, so the gate refuses it"
-        }
-      ]
+      "helpers": ["silero-vad", "wake-embed", "smart-turn"]
     },
     {
       "id": "brain-weights",

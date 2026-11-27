@@ -79,7 +79,7 @@ const voicePins = require_("../../electron/voice-pins.cjs") as {
 };
 const weights = require_("../../electron/voice-weights.cjs") as {
   pinnedJobs: () => Job[];
-  readFridayModels: () => Manifest | null;
+  readFridayModels: (deps?: Record<string, unknown>) => Manifest | null;
   fridayReleasePlan: (repo: string, deps?: Record<string, unknown>) => { tag: string } | null;
 };
 const releaseEngine = require_("../../scripts/release-engine.cjs") as {
@@ -180,15 +180,17 @@ describe("every asset is in exactly one pack", () => {
     for (const a of all[1]!.concat(all[2]!)) expect(ids(0)).not.toContain(a.fridayId);
   });
 
-  it("leaves Turn pending while the bundle gate refuses its terms, and says so", () => {
-    const pending = packOf("voice-weights").pending!;
-    expect(pending.map((p) => p.id)).toEqual(["smart-turn"]);
-    expect(builder.HELPER_NAMES["smart-turn"]!.fridayId).toBe(pending[0]!.fridayId);
-    expect(packOf("voice-weights").helpers).toEqual(["silero-vad", "wake-embed"]);
-    // When the allowlist learns the terms of Turn the gate lets it through and it belongs in `helpers`.
-    expect(voicePins.bundleAllowed(pins["smart-turn"])).toBe(false);
-    for (const id of packOf("voice-weights").helpers!)
-      expect(voicePins.bundleAllowed(pins[id]), id).toBe(true);
+  it("ships Turn in the voice pack helpers now that the bundle gate accepts its terms", () => {
+    const voice = packOf("voice-weights");
+    expect(voice.pending ?? []).toEqual([]);
+    expect(voice.helpers).toEqual(["silero-vad", "wake-embed", "smart-turn"]);
+    expect(builder.HELPER_NAMES["smart-turn"]).toBeTruthy();
+    expect(voicePins.bundleAllowed(pins["smart-turn"])).toBe(true);
+    expect(
+      (pins["smart-turn"] as { licenseRecord?: unknown }).licenseRecord,
+      "smart-turn licenseRecord",
+    ).toBeTruthy();
+    for (const id of voice.helpers!) expect(voicePins.bundleAllowed(pins[id]), id).toBe(true);
   });
 });
 
@@ -275,9 +277,14 @@ describe("the reader that shipped before the packs still works", () => {
   it("reads the manifest as a friday-models pack with the first release tag and the whole voice list", () => {
     const old = weights.readFridayModels()!;
     expect(old.pack).toBe("friday-models");
-    expect(old.tag).toBe("friday-models-2026.11.1");
+    expect(old.tag).toBe("friday-voice-weights-2026.11.1");
+    expect(old.tag).toBe(packOf("voice-weights").tag);
     expect(old.assets.length).toBe(manifest.assets.length);
-    expect(builder.manifestProblems(old, voicePins.PINS)).toEqual([]);
+    const stripped = clone(manifest) as Partial<Manifest>;
+    delete stripped.packs;
+    const legacy = weights.readFridayModels({ fridayModels: stripped })!;
+    expect(legacy.tag).toBe("friday-models-2026.11.1");
+    expect(builder.manifestProblems(legacy, voicePins.PINS)).toEqual([]);
   });
 
   it("still plans a release road for every pinned voice repository, from the same tag", () => {
@@ -286,7 +293,7 @@ describe("the reader that shipped before the packs still works", () => {
     for (const repo of repos) {
       const plan = weights.fridayReleasePlan(repo, { env: {} });
       expect(plan, repo).not.toBeNull();
-      expect(plan!.tag).toBe(manifest.tag);
+      expect(plan!.tag).toBe(packOf("voice-weights").tag);
     }
   });
 
@@ -294,9 +301,17 @@ describe("the reader that shipped before the packs still works", () => {
     const without = clone(manifest) as Partial<Manifest>;
     delete without.packs;
     const repo = manifest.assets[0]!.from.pin;
-    expect(weights.fridayReleasePlan(repo, { env: {}, fridayModels: without })).toEqual(
-      weights.fridayReleasePlan(repo, { env: {} }),
-    );
+    const legacy = weights.fridayReleasePlan(repo, { env: {}, fridayModels: without })!;
+    const current = weights.fridayReleasePlan(repo, { env: {} })!;
+    expect(legacy.tag).toBe("friday-models-2026.11.1");
+    expect(current.tag).toBe("friday-voice-weights-2026.11.1");
+    const retag = (plan: typeof current) =>
+      JSON.parse(
+        JSON.stringify({ ...plan, tag: "" })
+          .split(`/releases/download/${plan.tag}/`)
+          .join("/T/"),
+      );
+    expect(retag(legacy)).toEqual(retag(current));
     expect(weights.fridayReleasePlan("silero-vad", { env: {} })).toBeNull();
   });
 });

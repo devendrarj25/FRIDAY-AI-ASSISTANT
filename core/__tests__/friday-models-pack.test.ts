@@ -451,7 +451,7 @@ describe("a build with an injected downloader", () => {
     named.title = "FRIDAY Voice Weights 2026.1.1";
     named.assets = named.assets.slice(0, 1);
     const pins = clone(t.pins);
-    (pins["pub/tiny"] as Record<string, unknown>).urlFor = () =>
+    (pins["pub/tiny"] as Record<string, unknown>)["urlFor"] = () =>
       "https://example.com/own/config.json";
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pack-"));
     try {

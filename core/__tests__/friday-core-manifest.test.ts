@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -215,6 +215,34 @@ describe("planAssets", () => {
       stat: () => null,
     });
     expect(other.assets[0].sources.map((s: { id: string }) => s.id)).toEqual(["upstream"]);
+  });
+
+  it("builds the release url from the pack tag of the variant, and the old tag without packs[]", () => {
+    const packs = [
+      { id: "brain-weights", tag: "friday-brain-weights-2026.12.1", core: ["t1"] },
+      { id: "recall-weights", tag: "friday-recall-weights-2026.12.1", core: ["r1"] },
+    ];
+    const asset = {
+      revision: "2026.12.1",
+      assets: [{ file: "x.gguf", sha256: sha("hello"), parts: 1 }],
+    };
+    const brain = core.planAssets("/r", "t1", {
+      manifest: small,
+      pack: { ...asset, packs },
+      stat: () => null,
+    });
+    expect(brain.assets[0].sources[0].urls).toEqual([
+      "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/download/friday-brain-weights-2026.12.1/x.gguf",
+    ]);
+    const old = core.planAssets("/r", "t1", { manifest: small, pack: asset, stat: () => null });
+    expect(old.assets[0].sources[0].urls[0]).toContain("/download/friday-models-2026.12.1/");
+    const real = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../../config/friday-models.json"), "utf8"),
+    );
+    const tagOf = (v: string) =>
+      real.packs.find((p: { core?: string[] }) => p.core?.includes(v))?.tag;
+    expect(tagOf("e4b")).toMatch(/^friday-brain-weights-/);
+    expect(tagOf("recall")).toMatch(/^friday-recall-weights-/);
   });
 
   it("lists the release mirror before the upstream in the shipped manifest", () => {

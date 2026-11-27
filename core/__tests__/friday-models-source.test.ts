@@ -216,8 +216,34 @@ describe("the release plan", () => {
     expect(weights.withFridayRelease(url, deps({ fridayModels: manifest() }))).toEqual(url);
   });
 
+  it("keeps the old friday-models tag working and takes the voice pack tag and revision when packs[] names them", () => {
+    const old = weights.fridayReleasePlan(REPO, deps({ fridayModels: manifest() }));
+    expect(old.tag).toBe(TAG);
+    const withPacks = {
+      ...manifest(),
+      packs: [
+        { id: "brain-weights", tag: "friday-brain-weights-2026.2.1", revision: "2026.2.1" },
+        { id: "voice-weights", tag: "friday-voice-weights-2026.2.1", revision: "2026.2.1" },
+      ],
+    };
+    const plan = weights.fridayReleasePlan(REPO, deps({ fridayModels: withPacks }));
+    expect(plan.tag).toBe("friday-voice-weights-2026.2.1");
+    expect(plan.revision).toBe("2026.2.1");
+    expect(plan.files[0].parts[0].url).toBe(
+      `https://github.com/o/r/releases/download/friday-voice-weights-2026.2.1/${plan.files[0].parts[0].file}`,
+    );
+    const bad = { ...withPacks, tag: "nonsense", packs: [{ id: "voice-weights", tag: "x-1" }] };
+    expect(weights.readFridayModels(deps({ fridayModels: bad }))).toBeNull();
+  });
+
   it("holds every pinned model of the real manifest, with real pins and the real tag", () => {
     const real = weights.readFridayModels();
+    const voiceTag = (
+      JSON.parse(fs.readFileSync(path.join(repoRoot, "config/friday-models.json"), "utf8")) as {
+        packs: { id: string; tag: string }[];
+      }
+    ).packs.find((p) => p.id === "voice-weights")!.tag;
+    expect(real.tag).toBe(voiceTag);
     expect(real?.pack).toBe("friday-models");
     const repos = [
       ...new Set((real.assets as Asset[]).map((a) => (a.from as { pin: string }).pin)),
@@ -520,7 +546,7 @@ describe("the models release is never an app update", () => {
 
   it("the release tag is not an app version, so no updater rule can read it as one", () => {
     const real = weights.readFridayModels();
-    expect(real.tag).toMatch(/^friday-models-\d{4}\.\d{1,2}\.\d{1,3}$/);
+    expect(real.tag).toMatch(/^friday-(?:voice-weights|models)-\d{4}\.\d{1,2}\.\d{1,3}$/);
     expect(/^v?\d+\.\d+\.\d+(?:\.\d+)?$/.test(real.tag)).toBe(false);
     const source = fs.readFileSync(path.join(repoRoot, "scripts/build-friday-models.cjs"), "utf8");
     expect(source).toContain("--latest=false");

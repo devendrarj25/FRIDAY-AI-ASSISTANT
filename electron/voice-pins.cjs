@@ -27,6 +27,12 @@ const LICENCES = {
     url: "https://www.apache.org/licenses/LICENSE-2.0",
     redistribution: "permissive",
   },
+  // Smart Turn (pipecat-ai/smart-turn-v3): the pinned revision f766f81d's README front matter reads `license: bsd-2-clause`
+  // and the upstream LICENSE reads "BSD 2-Clause License"; both re-read on 2026-11-27.
+  "BSD-2-Clause": {
+    url: "https://opensource.org/license/bsd-2-clause",
+    redistribution: "permissive",
+  },
   "CC-BY-4.0": {
     url: "https://creativecommons.org/licenses/by/4.0/",
     redistribution: "attribution",

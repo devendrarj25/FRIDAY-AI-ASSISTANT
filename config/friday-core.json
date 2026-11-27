@@ -17,7 +17,7 @@
       "kind": "release",
       "repository": "devendrarj25/FRIDAY-AI-ASSISTANT",
       "tagPrefix": "friday-models-",
-      "urlPattern": "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/download/friday-models-<revision>/<file>",
+      "urlPattern": "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/download/<pack tag>/<file>",
       "match": "sha256",
       "partBytes": 1900000000
     },

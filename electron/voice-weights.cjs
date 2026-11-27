@@ -364,7 +364,7 @@ const RELEASE_LABEL = "FRIDAY release";
 const OFFICIAL_LABEL = "official source";
 const RELEASE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
 const RELEASE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const RELEASE_TAG = /^friday-models-\d{4}\.\d{1,2}\.\d{1,3}$/;
+const RELEASE_TAG = /^friday-(?:voice-weights|models)-\d{4}\.\d{1,2}\.\d{1,3}$/;
 const DEFAULT_PART_BYTES = 1_900_000_000;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SOURCE_NOTE = ".source.json";
@@ -382,10 +382,18 @@ function readFridayModels(deps = {}) {
   const sound =
     pack &&
     pack.pack === "friday-models" &&
-    RELEASE_TAG.test(String(pack.tag || "")) &&
     RELEASE_REPOSITORY.test(String(pack.repository || "")) &&
     Array.isArray(pack.assets);
-  return sound ? pack : null;
+  if (!sound) return null;
+  // The voice pack (`packs[]` id voice-weights) names the tag and revision this reader uses; the top-level fields
+  // (the old friday-models-<rev> tag) are the fallback, so an older manifest keeps working.
+  const voice = (Array.isArray(pack.packs) ? pack.packs : []).find(
+    (item) => item?.id === "voice-weights",
+  );
+  const own = voice && RELEASE_TAG.test(String(voice.tag || ""));
+  const tag = own ? voice.tag : pack.tag;
+  if (!RELEASE_TAG.test(String(tag || ""))) return null;
+  return own ? { ...pack, tag, revision: voice.revision || pack.revision } : pack;
 }
 
 /** `<file>.part001` when a file is split, the plain name when it is not (the same names the builder writes). */
