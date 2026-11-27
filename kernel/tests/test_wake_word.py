@@ -94,6 +94,9 @@ class WakeWordProbeTests(unittest.TestCase):
         import shutil
         import tempfile
 
+        # The module imports its siblings (friday_runtime): the kernel folder must be importable on its own.
+        if str(KERNEL) not in sys.path:
+            sys.path.insert(0, str(KERNEL))
         spec = importlib.util.spec_from_file_location("wake_word", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -637,6 +640,29 @@ class FridayEmbedEngineTests(unittest.TestCase):
         model = self.dir / "other.onnx"
         model.write_bytes(b"\0" * 20000)
         self.assertEqual(self.wake.engine_for_path(str(model)), "openwakeword")
+
+
+class MissingModelHintTests(unittest.TestCase):
+    """FRIDAY ships no wake model, so the hint must not promise a bundled one."""
+
+    def setUp(self):
+        import importlib
+
+        sys.path.insert(0, str(KERNEL))
+        import wake_word
+
+        self.wake = importlib.reload(wake_word)
+
+    def test_the_default_word_hint_does_not_offer_a_bundled_model(self):
+        for word in ("friday", "Friday", ""):
+            message = self.wake.missing_model_error(word)
+            self.assertNotIn("bundled", message)
+            self.assertIn("friday.onnx", message)
+
+    def test_a_custom_word_hint_names_its_own_file(self):
+        message = self.wake.missing_model_error("jarvis")
+        self.assertIn("jarvis.onnx", message)
+        self.assertNotIn("bundled", message)
 
 
 if __name__ == "__main__":

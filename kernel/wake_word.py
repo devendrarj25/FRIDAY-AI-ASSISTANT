@@ -768,8 +768,8 @@ def evaluate_directories(pos_dir: str, neg_dir: str, wake_word: str, explicit: s
 
 def missing_model_error(wake_word: str) -> str:
     wanted = normalise(wake_word or "friday")
-    extra = " or let FRIDAY copy the bundled friday.onnx there" if wanted == "friday" else ""
-    return f"No wake model for “{wake_word}”. Drop a trained {wanted}.onnx into {wake_model_dir()}{extra}."
+    # FRIDAY ships no wake model: the transcript matcher answers until one is trained and placed here.
+    return f"No wake model for “{wake_word}”. Drop a trained {wanted}.onnx into {wake_model_dir()}."
 
 
 def probe_payload(wake_word: str, explicit: str | None = None) -> dict:

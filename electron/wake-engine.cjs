@@ -336,19 +336,34 @@ async function status(wakeWord = "friday", force = false) {
   return value;
 }
 
-/** Install openWakeWord through the Install Manager row, into the interpreter FRIDAY itself runs. */
-async function install() {
-  const py = await python();
+/**
+ * Install openWakeWord through the Install Manager row, into the interpreter FRIDAY itself runs. With no model for
+ * the configured word (the word last probed unless one is given) there is nothing for the package to score, so it
+ * returns early without running pip: the transcript matcher answers and that is not a fault.
+ * `io` lets a test replace the interpreter, the probe and the command runner.
+ */
+async function install(wakeWord, io = {}) {
+  const findPython = io.python || python;
+  const probe = io.status || status;
+  const exec = io.run || run;
+  const py = await findPython();
   if (!py) return { ok: false, error: "No supported Python interpreter found." };
-  const toolchain = require("./toolchain.cjs");
+  const word = String(wakeWord || (cached && cached.key) || "friday").toLowerCase();
+  const before = await probe(word, true);
+  if (!before.model) {
+    return { ok: true, ready: false, skipped: "no-model", reason: before.reason || null };
+  }
+  const toolchain = io.commandFor
+    ? { toolById: () => ({}), commandFor: io.commandFor }
+    : require("./toolchain.cjs");
   const tool = toolchain.toolById("openWakeWord");
   const command = tool
     ? await toolchain.commandFor(tool, "install", { python: { exe: py[0], prefix: py[1] } })
     : null;
   if (!command) return { ok: false, error: "The Install Manager has no wake-word install row." };
-  const result = await run(command[0], command[1], 600000);
+  const result = await exec(command[0], command[1], 600000);
   cached = null;
-  const now = await status("friday", true);
+  const now = await probe(word, true);
   return now.installed
     ? { ok: true, ready: now.ready, reason: now.reason }
     : { ok: false, error: (result.stderr || "pip install openwakeword failed").slice(-600) };
