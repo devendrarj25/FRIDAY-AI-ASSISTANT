@@ -14,10 +14,12 @@ KERNEL = Path(__file__).resolve().parents[1]
 CALL = re.compile(r"\bInferenceSession\s*\(")
 DOOR_USERS = (
     "denoise_onnx",
+    "ear_quick",
     "ear_scene",
     "friday_voice",
     "hindi_punct",
     "nemo_ear",
+    "shruti_ear",
     "transducer_loop",
     "tts_hindi_light",
     "vad_onnx",
