@@ -61,6 +61,7 @@ function run(exe, args, timeout = 120000, env) {
           ok: !error,
           stdout: stdout || "",
           stderr: stderr || String(error?.message || ""),
+          timedOut: Boolean(error && error.killed),
         }),
     );
   });
@@ -96,6 +97,40 @@ function runPinSelfTest(exe, prefix) {
       }
     );
   };
+}
+
+/**
+ * The FRIDAY Runtime row: `voice_pin_selftest.py --runtime-info` through the same runner and timeout as the
+ * `selftest-<id>` rows. A crash, a timeout, or bad JSON gives a visible not-ready row with a plain reason; it never throws.
+ */
+async function runtimeRow(exe, prefix, runner = run) {
+  const label = "FRIDAY Runtime";
+  const notReady = (detail) => ({
+    id: "friday-runtime",
+    label,
+    ok: false,
+    required: false,
+    detail,
+  });
+  try {
+    const out = await runner(exe, [...prefix, pinSelfTestScript(), "--runtime-info"], 120000);
+    if (out && out.timedOut) return notReady("the runtime check timed out");
+    const row = parseJsonLine((out && out.stdout) || "");
+    if (!row || typeof row !== "object" || typeof row.ok !== "boolean") {
+      return notReady(tail(out && out.stderr, "the runtime check printed no readable answer"));
+    }
+    return {
+      id: "friday-runtime",
+      label: String(row.label || label),
+      ok: row.ok,
+      required: false,
+      detail: String(row.detail || (row.ok ? "ready" : "not ready")).slice(0, 400),
+    };
+  } catch (error) {
+    return notReady(
+      `the runtime check could not run: ${String(error?.message || error).slice(0, 200)}`,
+    );
+  }
 }
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
@@ -515,6 +550,8 @@ async function verifyVoiceRuntime({
     })),
   );
 
+  checks.push(await runtimeRow(exe, prefix));
+
   const speech = await speechSelfTest(sttEnv(size, prepared));
   checks.push({
     id: "stt-transcribe",
@@ -560,6 +597,7 @@ function restoreVoiceModel(catalogId) {
 
 module.exports = {
   verifyVoiceRuntime,
+  runtimeRow,
   restoreVoiceModel,
   speechSelfTest,
   hearingSelfTest,
