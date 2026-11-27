@@ -272,6 +272,7 @@ import { autonomy } from "./self/autonomy";
 import { taskGraph } from "./self/task-graph";
 import {
   clearPendingChange,
+  noteSpokenLine,
   pendingChange,
   spokenYesNeedsScreen,
   setHandsFreeReader,
@@ -403,6 +404,7 @@ import {
   offersShowHow,
   partialPlan,
   reduceVoice,
+  isStopEverything,
   saveConduct,
   stopEverythingFromVoice,
   toolNarration,
@@ -1852,6 +1854,8 @@ class AssistantModeStore {
       this.stopQueueTimer();
       this.state.pending = null;
       this.pendingHeard = null;
+      // A settings change a reply staged is dropped too: a yes after Resume binds to nothing.
+      clearPendingChange();
       if (this.state.mode === "auto" && !this.state.paused) {
         this.pausedByStop = true;
         this.setPaused(true);
@@ -1894,6 +1898,7 @@ class AssistantModeStore {
       // A confirmation that was waiting is dropped too: a yes after resume binds to nothing.
       this.state.pending = null;
       this.pendingHeard = null;
+      clearPendingChange();
       // The tray pause is the kill switch: it ends every voice task and the Brain's turn too, whoever owns it
       // (only the stop word and a barge-in are foreground-only).
       cancelAllVoiceTasks();
@@ -2731,6 +2736,7 @@ class AssistantModeStore {
       this.approvalSpoken = null;
       this.approvalPrompt = null;
       this.askSound = null;
+      clearPendingChange();
     }
     if (muted && this.state.mode === "auto") {
       this.stopRecognition();
@@ -4698,6 +4704,9 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // "Stop everything" is the kill switch before it is an answer: the no-words hold stop, roko and band, so an open
+    // read-back, approval or confirmation below would otherwise take it as a "no" and the switch would never be thrown.
+    if (this.stopAllHeard(text)) return;
     if (this.settleInterruption(text)) {
       this.state.interim = "";
       this.emit();
@@ -5072,6 +5081,9 @@ class AssistantModeStore {
       return;
     }
     if (wake.matched) this.lastWakeAt = Date.now();
+    // A yes after the wake word ("hey Friday yes") is a spoken yes all the same: the staged-settings gate rules on the
+    // command left after the split, so a change that needs the screen never reaches the Brain by voice.
+    if (wake.matched && command && this.stagedSettingsGate(command, room)) return;
     this.turnClock = { ...this.turnClock, finalAt: Date.now() };
     this.turnStages.mark("sttFinalReceived");
     this.turnStages.mark("brainRequestStarted");
@@ -6091,6 +6103,8 @@ class AssistantModeStore {
       : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
+    // The settings reader learns this line came by voice (a spoken yes never applies a change that needs the screen).
+    noteSpokenLine(command);
     let result = brain.send(command, payload);
     this.shadowTurn((a) => a.dispatch(command, Date.now()));
     if (side && !result.accepted && result.refused && result.foregroundUntouched) {
@@ -6118,6 +6132,7 @@ class AssistantModeStore {
       this.dropPlayback();
       this.trimReplyToHeard(heard);
       brain.stop("foreground");
+      noteSpokenLine(command);
       result = brain.send(command, fullPayload());
     }
     // A new spoken command (not a side question, which took the lane above) is an interrupt: stop the in-flight
@@ -6125,6 +6140,7 @@ class AssistantModeStore {
     // waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
       brain.stop("foreground");
+      noteSpokenLine(command);
       result = brain.send(command, payload);
       if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
         this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
@@ -7485,6 +7501,31 @@ class AssistantModeStore {
     if (isPlainStop(text)) return true;
     if (!isStopCommand(text)) return false;
     return named || this.state.speaking || this.recentlySpeaking() || Date.now() < this.awakeUntil;
+  }
+
+  /**
+   * A heard "stop everything" (with or without the wake word, English, Roman Hindi or Devanagari) throws the same
+   * kill switch as the button and says what stopped; the kill switch drops every open question with it. Only in a
+   * live microphone session. True when it was taken.
+   */
+  private stopAllHeard(text: string): boolean {
+    if (!this.micAllowed()) return false;
+    const wake = matchWakeWord(text, wakeWord());
+    const line = (wake.matched ? wake.command : text).trim();
+    if (!line || !isStopEverything(line)) return false;
+    this.trace("wake", "stop everything — the kill switch, before any open question");
+    markTurnStage("routed", true, "", "stop everything");
+    this.caption("user", text);
+    this.conduct = { ...this.conduct, stopped: true };
+    this.persistConduct();
+    this.remember("stop-everything", line, "halted");
+    this.cancelSpeech();
+    this.state.pending = null;
+    this.pendingHeard = null;
+    clearPendingChange();
+    this.state.interim = "";
+    this.sayStopLine(stopEverythingFromVoice());
+    return true;
   }
 
   private handleNoteSpeech(heard: string, named = false): boolean {

@@ -193,3 +193,27 @@ describe("a spoken yes to a staged change", () => {
     expect(sent).toEqual(["yes"]);
   });
 });
+
+describe("a staged change does not survive pause, mute or Stop everything", () => {
+  it("the tray pause drops it, so a yes after resume binds to nothing", () => {
+    d.stopRecognition = () => undefined;
+    readSettingsIntent("turn hands-free off");
+    assistantMode.setPaused(true);
+    expect(pendingChange()).toBeNull();
+    assistantMode.setPaused(false);
+  });
+
+  it("mute drops it", () => {
+    readSettingsIntent("turn hands-free off");
+    assistantMode.setMuted(true);
+    expect(pendingChange()).toBeNull();
+    assistantMode.setMuted(false);
+  });
+
+  it("Stop everything drops it", () => {
+    readSettingsIntent("turn hands-free off");
+    autonomy.stopEverything();
+    expect(pendingChange()).toBeNull();
+    autonomy.resume();
+  });
+});

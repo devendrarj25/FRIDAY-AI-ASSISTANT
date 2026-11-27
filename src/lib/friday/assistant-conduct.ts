@@ -165,6 +165,18 @@ export function stopEverythingFromVoice(): { now: string; settled: Promise<strin
   return { now: describeStop(report.stopped), settled: report.settled.then(describeStop) };
 }
 
+/**
+ * The whole line is a "stop everything": the English, Roman Hindi and Devanagari forms, with an optional polite tail
+ * (please, now, her name). A longer request ("stop all the music") or a negation ("don't stop everything") is not.
+ * The wake word is split off by the caller.
+ */
+const STOP_EVERYTHING =
+  /^(?:stop (?:everything|all(?: tasks)?)|halt everything|ruk jao sab|band karo sab|sab (?:kuch )?(?:roko|ruko|band karo)|सब (?:कुछ )?(?:रोको|रुको|बंद करो))(?:[\s,]+(?:please|right now|now|friday|abhi|turant|अभी|तुरंत))*[\s.!,।]*$/iu;
+
+export function isStopEverything(text: string): boolean {
+  return STOP_EVERYTHING.test(text.trim().replace(/\s+/g, " "));
+}
+
 export function reduceVoice(
   state: ConductState,
   text: string,
@@ -175,7 +187,7 @@ export function reduceVoice(
   const address = ctx.address ?? "";
   const lower = line.toLowerCase();
 
-  if (/^(stop everything|stop all|ruk jao sab|band karo sab)\b/i.test(line)) {
+  if (isStopEverything(line)) {
     return result(
       { ...state, stopped: true },
       named(address, "Stopped. I will not continue that work."),

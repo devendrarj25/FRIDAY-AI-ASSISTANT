@@ -145,6 +145,27 @@ export function spokenYesNeedsScreen(change: Pick<StagedChange, "key" | "to">): 
   return false;
 }
 
+let spokenLine: { text: string; at: number } | null = null;
+const foldLine = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+    .trim();
+
+/**
+ * The voice session notes each line it hands to the Brain, so the reader here knows a yes came by voice (the Brain
+ * call carries no origin to this module). A note is used once and lasts only as long as a staged change can.
+ */
+export function noteSpokenLine(text: string, at = Date.now()): void {
+  spokenLine = { text: foldLine(text), at };
+}
+
+function takeSpokenLine(text: string): boolean {
+  const note = spokenLine;
+  spokenLine = null;
+  return note !== null && note.text === foldLine(text) && Date.now() - note.at <= STAGE_TTL_MS;
+}
+
 /**
  * User-profile and FRIDAY-behaviour keys. Wake word, billing, hands-free and
  * similar stay stage-then-yes even after a correction (no silent policy drift).
@@ -480,11 +501,21 @@ export function readSettingsIntent(prompt: string): SettingsIntent {
   const text = String(prompt || "").trim();
   if (!text) return null;
   if (!forceLearn) learnNow = false;
+  // Every line spends the voice note, so it never outlives the turn it was made for.
+  const byVoice = takeSpokenLine(text);
 
   // 1. answer to a change FRIDAY already repeated back ----------------------
   const waiting = pendingChange();
   if (waiting) {
     if (confirmationVerdict(text) === "yes") {
+      // A yes that came by voice never applies a change that opens the microphone or spends money: the change
+      // stays staged for a yes typed on the screen.
+      if (byVoice && spokenYesNeedsScreen(waiting)) {
+        return {
+          kind: "refused",
+          message: "That one needs your tap on screen. Type yes in the chat to confirm it.",
+        };
+      }
       const change = waiting;
       staged = null;
       void change.apply().catch(() => undefined);
