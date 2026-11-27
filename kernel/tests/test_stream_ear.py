@@ -994,8 +994,10 @@ def test_a_slow_scorer_never_stalls_the_feed_call_and_the_verdict_is_applied_onc
             times.append(time.perf_counter() - began)
             if len(times) == 12:
                 assert started.wait(2)  # the score has begun and is still running
-        assert len(times) == 20 and max(times) < 0.005, times
-        assert engine._turn_p is None and not done.is_set()
+        # all 20 feeds came back while the scorer was still blocked on the gate: none waited for it
+        assert len(times) == 20 and started.is_set() and not gate.is_set() and not done.is_set()
+        assert max(times) < 0.5, times  # generous secondary guard, not the claim
+        assert engine._turn_p is None
         gate.set()
         assert done.wait(2)
         for _ in range(200):
