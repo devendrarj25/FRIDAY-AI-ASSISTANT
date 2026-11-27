@@ -4,27 +4,18 @@
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { installFakeWorker, settle } from "./helpers/fake-stt-worker";
 
 const stt = createRequire(import.meta.url)("../../electron/stt.cjs");
 
-function fakeSession() {
-  const writes: string[] = [];
-  const kill = vi.fn();
-  return {
-    writes,
-    kill,
-    session: {
-      alive: true,
-      loaded: true,
-      pending: new Map(),
-      child: {
-        pid: 4242,
-        kill,
-        stdin: { destroyed: false, write: (line: string) => writes.push(line) },
-      },
-    },
-  };
+afterEach(() => stt.useForTests());
+
+/** A loaded, idle speech worker behind the fake child: the bridge's own handle is the session. */
+async function loadedWorker() {
+  const rig = installFakeWorker(stt);
+  await stt.transcribe({ audioBytes: new Uint8Array(64), localOnly: true });
+  return { ...rig, cancels: () => rig.sent("cancel") };
 }
 
 function deferred<T>() {
@@ -85,18 +76,20 @@ describe("running a provisional decode", () => {
 
   it("a cancel while it runs signals the worker once, keeps the worker alive, and the answer is cancelled", async () => {
     const gate = stt.createTurnGate();
-    const { session, writes, kill } = fakeSession();
+    const { cancels, killTree } = await loadedWorker();
     const slow = deferred<Record<string, unknown>>();
     const decoding = stt.runProvisional(
       { provisional: true, utteranceId: "p-3" },
       () => slow.promise,
       gate,
     );
-    const answer = stt.cancelTranscribe({ utteranceId: "p-3" }, session);
+    const answer = stt.cancelTranscribe({ utteranceId: "p-3" });
     expect(answer).toMatchObject({ ok: true, cancelled: true, signalled: true });
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(writes[0] as string)).toEqual({ op: "cancel", utteranceId: "p-3" });
-    expect(session.pending.size).toBe(0);
+    await settle();
+    expect(cancels()).toHaveLength(1);
+    // The cancel carries an id, so the kernel's answer is matched and nothing is left pending.
+    expect(cancels()[0]).toMatchObject({ op: "cancel", utteranceId: "p-3" });
+    expect(typeof cancels()[0]?.id).toBe("number");
     // the decode finished just before the cancel landed: the text is still thrown away
     slow.resolve({ ok: true, text: "open chrome" });
     const out = await decoding;
@@ -108,7 +101,7 @@ describe("running a provisional decode", () => {
       utteranceId: "p-3",
     });
     expect(out).not.toHaveProperty("text");
-    expect(kill).not.toHaveBeenCalled();
+    expect(killTree).not.toHaveBeenCalled();
     expect(gate.busy()).toBe(false);
   });
 
@@ -123,7 +116,7 @@ describe("running a provisional decode", () => {
 
   it("the cancel does not wait for the gate: a final queued behind the provisional goes next", async () => {
     const gate = stt.createTurnGate();
-    const { session } = fakeSession();
+    await loadedWorker();
     const slow = deferred<Record<string, unknown>>();
     const decoding = stt.runProvisional(
       { provisional: true, utteranceId: "p-5" },
@@ -131,21 +124,22 @@ describe("running a provisional decode", () => {
       gate,
     );
     const finalWait = gate.enter();
-    stt.cancelTranscribe({ utteranceId: "p-5" }, session);
+    stt.cancelTranscribe({ utteranceId: "p-5" });
     slow.resolve({ ok: false, reason: "cancelled" });
     await decoding;
     expect(typeof (await finalWait)).toBe("function");
   });
 
-  it("a cancel with nothing in flight (or for another utterance) writes nothing", () => {
-    const { session, writes } = fakeSession();
-    expect(stt.cancelTranscribe({ utteranceId: "gone" }, session)).toMatchObject({
+  it("a cancel with nothing in flight (or for another utterance) writes nothing", async () => {
+    const { cancels } = await loadedWorker();
+    expect(stt.cancelTranscribe({ utteranceId: "gone" })).toMatchObject({
       ok: true,
       cancelled: false,
       signalled: false,
     });
-    expect(stt.cancelTranscribe({}, session)).toMatchObject({ cancelled: false });
-    expect(writes).toHaveLength(0);
+    expect(stt.cancelTranscribe({})).toMatchObject({ cancelled: false });
+    await settle();
+    expect(cancels()).toHaveLength(0);
   });
 
   it("a cancel with no worker or a dead one still flags the decode and never throws", async () => {
@@ -156,7 +150,7 @@ describe("running a provisional decode", () => {
       () => slow.promise,
       gate,
     );
-    const dead = { alive: false, child: null, pending: new Map() };
+    const dead = { alive: false, pending: new Map() };
     expect(stt.cancelTranscribe({ utteranceId: "p-6" }, dead)).toMatchObject({
       cancelled: true,
       signalled: false,
@@ -167,17 +161,18 @@ describe("running a provisional decode", () => {
 
   it("an utterance id that is not a plain token is dropped, and an empty cancel flags every provisional", async () => {
     const gate = stt.createTurnGate();
-    const { session, writes } = fakeSession();
+    const { cancels } = await loadedWorker();
     const slow = deferred<Record<string, unknown>>();
     const decoding = stt.runProvisional(
       { provisional: true, utteranceId: "bad id\n{" },
       () => slow.promise,
       gate,
     );
-    expect(stt.cancelTranscribe({ utteranceId: "bad id\n{" }, session)).toMatchObject({
+    expect(stt.cancelTranscribe({ utteranceId: "bad id\n{" })).toMatchObject({
       cancelled: true,
     });
-    expect(JSON.parse(writes[0] as string)).toEqual({ op: "cancel", utteranceId: "" });
+    await settle();
+    expect(cancels()[0]).toMatchObject({ op: "cancel", utteranceId: "" });
     slow.resolve({ ok: true, text: "x" });
     expect(await decoding).toMatchObject({ reason: "cancelled" });
   });
@@ -194,9 +189,10 @@ describe("running a provisional decode", () => {
       ),
     ).rejects.toThrow("boom");
     expect(gate.busy()).toBe(false);
-    const { session, writes } = fakeSession();
-    expect(stt.cancelTranscribe({ utteranceId: "p-7" }, session).cancelled).toBe(false);
-    expect(writes).toHaveLength(0);
+    const { cancels } = await loadedWorker();
+    expect(stt.cancelTranscribe({ utteranceId: "p-7" }).cancelled).toBe(false);
+    await settle();
+    expect(cancels()).toHaveLength(0);
   });
 });
 

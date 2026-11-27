@@ -1,7 +1,7 @@
 /**
  * FRIDAY · which wake engine is really running.
  *
- * Two detectors exist, and the UI must never have to guess which one answered:
+ * Native detectors and the transcript fallback exist, and the UI must never have to guess which one answered:
  *
  *   friday-linear / openwakeword — native detector. It scores a captured clip
  *                  BEFORE whisper runs, on a persistent worker that keeps the
@@ -18,7 +18,7 @@
 import { desktopApi as desktop } from "./desktop";
 import { falseWake, noiseFloor, scoreWake, wakeSelfTest, wakeThreshold } from "./wake-room";
 
-export type WakeEngineId = "openwakeword" | "friday-linear" | "transcript";
+export type WakeEngineId = "openwakeword" | "friday-linear" | "friday-embed" | "transcript";
 
 export type WakeEngineStatus = {
   engine: WakeEngineId;
@@ -26,6 +26,8 @@ export type WakeEngineStatus = {
   ready: boolean;
   model: string | null;
   modelDir: string | null;
+  /** Embedding model file of a friday-embed head (null for the other engines). */
+  embedModel?: string | null;
   wakeWord: string;
   reason: string | null;
 };
@@ -42,9 +44,23 @@ export const TRANSCRIPT_ONLY: WakeEngineStatus = {
 
 let cached: { at: number; word: string; value: WakeEngineStatus } | null = null;
 
+/** Doctor row for the wake engine: what runs, or why the transcript matcher answers (embedding model named). */
+export function wakeEngineDoctorRow(status: WakeEngineStatus): { value: string; bad: boolean } {
+  if (status.ready) return { value: `${status.engine} · ${status.model ?? "model"}`, bad: false };
+  const reason = status.reason ?? "native wake model not ready";
+  const embedMissing = /embedding model/i.test(reason) && /not installed/i.test(reason);
+  return {
+    value: embedMissing
+      ? `transcript fallback — embedding model not installed (${reason})`
+      : `transcript fallback — ${reason}`,
+    bad: true,
+  };
+}
+
 function nativeEngine(raw: { engine?: string; ready?: boolean } | null): WakeEngineId {
   if (raw?.engine === "transcript") return "transcript";
   if (raw?.engine === "friday-linear") return "friday-linear";
+  if (raw?.engine === "friday-embed") return "friday-embed";
   if (raw?.engine === "openwakeword") return "openwakeword";
   if (raw?.ready) return "openwakeword";
   return "transcript";
@@ -72,6 +88,7 @@ export async function wakeEngineStatus(
       ready: Boolean(raw?.ready),
       model: raw?.model ?? null,
       modelDir: raw?.modelDir ?? null,
+      ...(raw?.embedModel ? { embedModel: raw.embedModel } : {}),
       wakeWord: raw?.wakeWord || key,
       reason: raw?.reason ?? null,
     };

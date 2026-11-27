@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode, voiceBudgetLine } from "@/lib/friday/assistant-mode";
 import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
+import { wakeEngineDoctorRow } from "@/lib/friday/wake-engine";
 import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
@@ -181,10 +182,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     },
     {
       label: "wake engine",
-      value: voice.wakeEngine.ready
-        ? `${voice.wakeEngine.engine} · ${voice.wakeEngine.model ?? "model"}`
-        : `transcript fallback — ${voice.wakeEngine.reason ?? "native wake model not ready"}`,
-      bad: !voice.wakeEngine.ready,
+      ...wakeEngineDoctorRow(voice.wakeEngine),
     },
     {
       label: "last wake",
@@ -250,6 +248,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     { label: "acknowledgement (armed to audible)", value: figureLine("ackArmedToAudible") },
     ...earlyStartRows(preferences.getSnapshot().voice),
     ...echoReferenceRows(echoDiagnostics()),
+    ...voiceGate.trackProcessingRows(),
     ...wakeGuardRows(voiceGate.wake.snapshot()),
     { label: "voice stages nothing stamps yet", value: unstampedStagesLine() },
     { label: "live wake word", value: assistantMode.liveWakeLine() },

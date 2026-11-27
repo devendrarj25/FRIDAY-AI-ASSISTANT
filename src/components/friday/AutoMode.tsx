@@ -22,7 +22,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
 import { ageOf, type LiveComponent } from "@/lib/friday/use-friday-live";
@@ -32,6 +32,9 @@ import { useBrain } from "@/lib/friday/use-brain";
 import { useFridayLive } from "@/lib/friday/use-friday-live";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { cn } from "@/lib/utils";
+import { faultLanguage, plainFaultLine } from "@/lib/friday/mic-session";
+import type { MicState } from "@/lib/friday/voice-audio";
+import { pttActive, subscribePtt } from "@/lib/friday/push-to-talk";
 import { AutonomyDial } from "@/components/friday/AutonomyDial";
 import { rememberRun, voiceAutoGraph } from "@/lib/friday/flow-modes";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
@@ -58,7 +61,14 @@ import {
   VoiceLevelSwitch,
   VoiceTools,
   type VoiceTool,
+  MicFaultPanel,
+  PhaseChip,
+  ModeChips,
+  LatencyChip,
 } from "@/components/friday/VoiceControlBar";
+import { interimPlaceholder, plainStateLabel } from "@/components/friday/voice-live-status-model";
+import { VoiceLevelMeter } from "@/components/friday/VoiceLevelMeter";
+import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
 import { ConfirmationCard, VoiceTranscript } from "@/components/friday/VoiceTranscript";
 
 /**
@@ -98,6 +108,7 @@ function StripButton({
   label,
   title,
   pressed,
+  stableLabel,
   tone,
   onClick,
 }: {
@@ -105,6 +116,8 @@ function StripButton({
   label: string;
   title: string;
   pressed?: boolean;
+  /** A fixed accessible name for a toggle whose visible label flips; it goes with aria-pressed. */
+  stableLabel?: string;
   tone?: "warning" | undefined;
   onClick: () => void;
 }) {
@@ -114,8 +127,9 @@ function StripButton({
       onClick={onClick}
       title={title}
       aria-pressed={pressed}
+      {...(stableLabel ? { "aria-label": stableLabel } : {})}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-ctl px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
+        "relative inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-ctl px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15 before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']",
         pressed && "bg-primary/10 text-primary",
         tone === "warning" && "text-warning",
       )}
@@ -166,19 +180,55 @@ function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
 
 type CaptionPanel = "diagnostics" | "pipeline" | null;
 
+/**
+ * The microphone class and whether FRIDAY is already retrying by herself, so a fault line names the real cause
+ * (the same retry rule as the mic fault panel in VoiceControlBar).
+ */
+function faultContext(voice: AssistantModeState): { micState?: MicState; healing: boolean } {
+  const state = voice.mic.state;
+  return {
+    ...(state !== "available" ? { micState: state } : {}),
+    healing: state === "device-offline" || state === "no-microphone",
+  };
+}
+
 /** Words for the mic chip's accessible name: what the microphone is doing. */
 function micState(voice: AssistantModeState): string {
   if (voice.error) return "error";
+  if (voice.muted) return "muted";
   if (voice.paused) return "paused";
   if (voice.listening) return "listening";
   return "off";
 }
 
+/**
+ * Whether the talk key is held or toggled on. It follows the push-to-talk store, and while it is on it looks again
+ * every second, so a hold that timed out (nothing emits then) stops saying "listening". No timer while it is off.
+ */
+function usePttActive(): boolean {
+  const on = useSyncExternalStore(
+    subscribePtt,
+    () => pttActive(),
+    () => false,
+  );
+  const [beat, tick] = useState(0);
+  useEffect(() => {
+    if (!on) return undefined;
+    const id = setTimeout(() => tick((n) => n + 1), 1000);
+    return () => clearTimeout(id);
+  }, [on, beat]);
+  return on && pttActive();
+}
+
 export function AutoMode() {
   const voice = useAssistantMode();
+  const talkHeld = usePttActive();
   const brainState = useBrain();
   const live = useFridayLive();
   const prefs = usePreferences();
+  const faultLang = faultLanguage(prefs.voice);
+  const wakeWord = prefs.voice.wakeWord.trim();
+  const sayWake = `say “${wakeWord} …”`;
   // No router in a static render; Voice settings then simply does nothing.
   const router = useRouter({ warn: false });
   const saved = useVoiceLevel();
@@ -205,6 +255,15 @@ export function AutoMode() {
   const working = live.components.some((c) => c.active);
   // No layout animation while speech streams in or out.
   const streaming = Boolean(voice.interim) || voice.speaking;
+  // One plain-words fault line for the bar and the empty transcript.
+  const errorLine = voice.error
+    ? plainFaultLine(voice.error, faultLang, faultContext(voice))
+    : null;
+  // The live "you" line, with a placeholder while speech is picked up; nothing is invented once it ends.
+  const interimShown = interimPlaceholder(voice.interim, voice.voiceState);
+  // The last finished turn's time to first sound, read from the one latency record (null until a turn ran).
+  // The monitor has no subscribe, so this refreshes on the voice-state re-render that follows each turn.
+  const lastTurn = voiceLatency.summary("budget.firstSound");
 
   useEffect(() => {
     if (!follow) return;
@@ -339,6 +398,8 @@ export function AutoMode() {
   ];
   const shownTools = voiceBarFit(barWidth, tools.length);
 
+  const micPanel = <MicFaultPanel onRetry={() => assistantMode.fixVoice()} />;
+
   // The microphone state and Stop everything are on this bar at every level.
   const bar = (
     <div
@@ -354,7 +415,7 @@ export function AutoMode() {
         <span
           role="status"
           aria-live="polite"
-          aria-label={`Microphone ${micState(voice)}: ${voice.status}`}
+          aria-label={`Microphone ${micState(voice)}: ${plainFaultLine(voice.status, faultLang, faultContext(voice))}`}
           data-mic={micState(voice)}
           className={cn(
             "voice-mic-chip inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",
@@ -366,19 +427,29 @@ export function AutoMode() {
           )}
         >
           {voice.listening ? <Mic className="size-3 pulse-dot" /> : <MicOff className="size-3" />}
-          {voice.status}
+          {voice.muted ? "muted · " : ""}
+          {plainFaultLine(voice.status, faultLang, faultContext(voice))}
         </span>
+        <VoiceLevelMeter active={voice.listening && !voice.muted && !voice.paused} />
+        <PhaseChip
+          phase={voice.phase}
+          voiceState={voice.voiceState}
+          pending={voice.pending !== null}
+        />
         <HudButton
           icon={Ear}
           onClick={() => assistantMode.toggleHandsFree()}
           title="Hands-free: speak without repeating the wake word"
           active={voice.handsFree || voice.awake}
+          flips
           label={
             voice.handsFree && !voice.error
               ? "hands-free · just talk"
               : voice.awake && !voice.error
                 ? "awake · go ahead"
-                : "say “FRIDAY …”"
+                : wakeWord
+                  ? sayWake
+                  : "say your wake word …"
           }
         />
         {assistantMode.listenStyle() === "push-to-talk" ? (
@@ -392,16 +463,16 @@ export function AutoMode() {
             onPointerUp={() => assistantMode.holdToTalk(false)}
             onPointerLeave={() => assistantMode.holdToTalk(false)}
             title="Hold to talk. Ctrl+Space in this window, Ctrl+Alt+Space toggles from anywhere."
-            active={assistantMode.pushToTalkActive()}
-            label={
-              assistantMode.pushToTalkActive() ? "listening · release to send" : "hold to talk"
-            }
+            active={talkHeld}
+            flips
+            label={talkHeld ? "listening · release to send" : "hold to talk"}
           />
         ) : null}
         <HudButton
           icon={voice.paused ? Play : Pause}
           onClick={() => assistantMode.setPaused(!voice.paused)}
           active={voice.paused}
+          flips
           label={voice.paused ? "Resume listening" : "Pause listening"}
         />
         <HudButton
@@ -426,7 +497,12 @@ export function AutoMode() {
                 icon={voice.muted ? VolumeX : Volume2}
                 onClick={() => assistantMode.toggleMuted()}
                 active={voice.muted}
-                title={voice.muted ? "Unmute FRIDAY" : "Mute FRIDAY"}
+                flips
+                title={
+                  voice.muted
+                    ? "Unmute: brings her voice and the microphone back"
+                    : "Mute: stops her voice and the microphone"
+                }
                 label={voice.muted ? "Unmute voice" : "Mute voice"}
               />
             ) : null}
@@ -445,6 +521,9 @@ export function AutoMode() {
         <VoiceTools tools={tools} shown={shownTools} />
       </HudGroup>
 
+      <ModeChips handsFree={voice.handsFree} dictating={voice.dictating} />
+      <LatencyChip summary={lastTurn} />
+
       {run ? (
         <span className="inline-flex h-6 items-center gap-1.5 rounded-ctl border border-primary/30 bg-primary/5 px-2 text-primary">
           <Loader2 className="size-3 animate-spin" />
@@ -454,7 +533,7 @@ export function AutoMode() {
       <VoiceDownloadBar download={voice.download} />
       {voice.error ? (
         <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-ctl border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
-          <span className="min-w-0 break-words">{voice.error}</span>
+          <span className="min-w-0 break-words">{errorLine}</span>
           <button
             type="button"
             title="Fix voice"
@@ -566,12 +645,14 @@ export function AutoMode() {
           // Transcript: the control bar alone, no graphic and no circuit.
           <div className="hud-panel voice-glass relative flex shrink-0 flex-col rounded-lg">
             {bar}
+            {micPanel}
           </div>
         ) : (
           /* Stage: the real live graphic, bigger. HUD and stats are flex rows
              (same tokens as the old overlays) so they never sit on the boxes. */
           <div className="hud-panel relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
             {bar}
+            {micPanel}
 
             <div className="relative min-h-0 flex-1 overflow-hidden">
               <NeuralCircuit large onSelectNode={selectCircuitNode} />
@@ -583,7 +664,7 @@ export function AutoMode() {
               <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
                 {sessionNumbers}
                 <p className="shrink-0 text-right font-display text-xs font-bold uppercase tracking-[0.22em] text-primary glow-text">
-                  {voice.status}
+                  {plainFaultLine(voice.status, faultLang, faultContext(voice))}
                 </p>
               </div>
             </div>
@@ -608,7 +689,7 @@ export function AutoMode() {
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 text-meta-sm text-muted-foreground">
                 <StripButton
                   icon={Activity}
-                  label={`diagnostics · ${voice.voiceState.toLowerCase()}`}
+                  label={`diagnostics · ${plainStateLabel(voice.voiceState).toLowerCase()}`}
                   title={
                     panel === "diagnostics" ? "Close voice diagnostics" : "Open voice diagnostics"
                   }
@@ -628,7 +709,13 @@ export function AutoMode() {
                 <StripButton
                   icon={voice.muted ? VolumeX : Volume2}
                   label={voice.muted ? "muted" : "voice"}
-                  title={voice.muted ? "Unmute FRIDAY" : "Mute FRIDAY"}
+                  title={
+                    voice.muted
+                      ? "Unmute: brings her voice and the microphone back"
+                      : "Mute: stops her voice and the microphone"
+                  }
+                  stableLabel="Mute voice and microphone"
+                  pressed={voice.muted}
                   tone={voice.muted ? "warning" : undefined}
                   onClick={() => assistantMode.toggleMuted()}
                 />
@@ -645,7 +732,7 @@ export function AutoMode() {
                 role="log"
                 aria-label="Live captions"
                 aria-live="polite"
-                aria-busy={Boolean(voice.interim)}
+                aria-busy={Boolean(interimShown)}
                 onScroll={(event) => {
                   // Scrolling up to read stops following, as the follow button does.
                   if (!tall || !follow) return;
@@ -661,11 +748,16 @@ export function AutoMode() {
                 <VoiceTaskPanel />
                 <VoiceTranscript
                   captions={visible}
-                  interim={voice.interim}
+                  interim={interimShown}
                   display={voice.display}
                   pending={full ? voice.pending : null}
                   layout={full ? "bubble" : "line"}
                   showTime={full && prefs.toggles["chatTimestamps"] === true}
+                  wakeWord={wakeWord}
+                  handsFree={voice.handsFree}
+                  muted={voice.muted}
+                  paused={voice.paused}
+                  error={errorLine}
                 />
               </div>
               {tall && !follow ? (

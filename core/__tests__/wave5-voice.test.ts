@@ -252,7 +252,11 @@ describe("speech and reply", () => {
 
 describe("tts ladder and budgets", () => {
   it("steps from neural to an offline voice and checks the output", () => {
+    // FRIDAY Voice is first whenever it is ready; the online voice is the rung below it.
     expect(chooseTtsEngine({ network: true, supertonicReady: true, privacy: false })).toBe(
+      "supertonic",
+    );
+    expect(chooseTtsEngine({ network: true, supertonicReady: false, privacy: false })).toBe(
       "neural",
     );
     expect(chooseTtsEngine({ network: false, supertonicReady: true, privacy: false })).toBe(
@@ -261,7 +265,10 @@ describe("tts ladder and budgets", () => {
     expect(chooseTtsEngine({ network: false, supertonicReady: false, privacy: false })).toBe(
       "sapi",
     );
-    expect(chooseTtsEngine({ network: true, supertonicReady: true, privacy: true })).toBe("sapi");
+    expect(chooseTtsEngine({ network: true, supertonicReady: true, privacy: true })).toBe(
+      "supertonic",
+    );
+    expect(chooseTtsEngine({ network: true, supertonicReady: false, privacy: true })).toBe("sapi");
     expect(
       switchMidSentence({ networkDropped: true, current: "neural", supertonicReady: false }),
     ).toBe("sapi");

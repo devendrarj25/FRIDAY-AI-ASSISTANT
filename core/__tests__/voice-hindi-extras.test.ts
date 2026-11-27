@@ -124,17 +124,16 @@ describe("the light Hindi voice is pinned and credited", () => {
     expect(pins.pinnedBytes(pin())).toBeLessThan(100_000_000); // about 91 MB: small, never the default
   });
 
-  it("shows the credit and the licence in the Models page text", () => {
+  it("shows the FRIDAY name and no credit in the Models page text, with the licence as a field", () => {
     const row = modelById.get("hindi-light-tts")!;
     expect(row.license).toBe("CC-BY-4.0");
-    expect(row.name).toMatch(/Sulabh Katiyar/);
-    expect(row.name).toMatch(/CC-BY-4\.0/);
+    expect(row.name).toBe("FRIDAY Voice Lite");
     expect(row.url).toBe("https://huggingface.co/sulabhkatiyar/indic-tiny-tts-hindi");
   });
 });
 
 describe("both have a Models row, a disk check, a Doctor pin row and a repair", () => {
-  it("keeps the three ears as they were and adds these five beside them (two Hindi extras, three optional pins)", () => {
+  it("keeps the three ears as they were and adds these twelve beside them (two Hindi extras, six optional pins, four acquired-ear pins)", () => {
     expect(weights.EAR_MODELS.map((ear) => ear.catalogId)).toEqual([
       "hindi-ear",
       "hinglish-ear",
@@ -144,8 +143,15 @@ describe("both have a Models row, a disk check, a Doctor pin row and a repair", 
       ["hindi-punct", "hindi-punct-pin"],
       ["hindi-light-tts", "hindi-light-tts-pin"],
       ["denoise-dpdfnet", "denoise-dpdfnet-pin"],
+      ["denoise-gtcrn", "denoise-gtcrn-pin"],
       ["speaker-wespeaker", "speaker-wespeaker-pin"],
       ["hindi-vaani-ear", "hindi-vaani-ear-pin"],
+      ["stream-ear-nemotron", "stream-ear-nemotron-pin"],
+      ["hinglish-ear-trelis", "hinglish-ear-trelis-pin"],
+      ["parakeet-ear", "parakeet-ear-pin"],
+      ["shruti-ear", "shruti-ear-pin"],
+      ["moonshine-ear", "moonshine-ear-pin"],
+      ["moonshine-ear-vocab", "moonshine-ear-vocab-pin"],
     ]);
   });
 

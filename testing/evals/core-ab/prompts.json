@@ -1,0 +1,1166 @@
+{
+  "schemaVersion": 1,
+  "note": "Synthetic prompts written for FRIDAY; no third-party text. Vision images are generated at run time.",
+  "items": [
+    {
+      "id": "hi-01",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "आज मौसम कैसा रहता है जब बारिश के बाद धूप निकलती है? एक वाक्य में बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-02",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "मुझे अपनी सुबह की दिनचर्या के लिए तीन छोटे सुझाव दो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-03",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "चाय और कॉफी में मुख्य अंतर क्या है? संक्षेप में बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-04",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "पाँच मिनट में ध्यान लगाने का आसान तरीका समझाओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-05",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "अगर लैपटॉप की बैटरी जल्दी खत्म हो रही हो तो क्या करना चाहिए?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-06",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "मेरे दोस्त का जन्मदिन है, उसे बधाई देने के लिए एक छोटा संदेश लिखो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-07",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "इंटरनेट धीमा चल रहा है, पहले कौन सी दो चीज़ें जाँचनी चाहिए?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-08",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "एक कप चावल पकाने के लिए कितना पानी चाहिए?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-09",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "कल की बैठक के लिए तीन मुख्य बिंदु सुझाओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-10",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "पासवर्ड मज़बूत बनाने के दो नियम बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-11",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "दिल्ली से जयपुर जाने के लिए ट्रेन और बस में से क्या बेहतर रहेगा?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-12",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "मुझे नींद नहीं आ रही, कोई सरल उपाय बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-13",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "फ़ोन की स्टोरेज भर गई है, जगह बनाने के तीन तरीके बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-14",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "समय पर काम पूरा करने के लिए एक आसान आदत सुझाओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-15",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "एक छोटी सी कविता लिखो जो सुबह की धूप के बारे में हो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-16",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "पानी कम पीने से शरीर पर क्या असर पड़ता है? दो वाक्यों में बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-17",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "मेरा नाम फ्राइडे है, तुम मुझे अपना परिचय एक वाक्य में दो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-18",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "रोज़ पंद्रह मिनट पढ़ने से क्या फ़ायदा होता है?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-19",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "परीक्षा से पहले घबराहट कम करने का कोई तरीका बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-20",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "ईमेल में विनम्रता से देरी के लिए माफ़ी कैसे माँगें?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-21",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "दो सौ में से बीस प्रतिशत कितना होता है? हल के साथ बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-22",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "त्योहार की तैयारी के लिए घर की सफ़ाई कहाँ से शुरू करूँ?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-23",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "सप्ताह भर का सरल शाकाहारी भोजन-क्रम सुझाओ, बस सोमवार और मंगलवार का।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-24",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "अच्छी तस्वीर खींचने के लिए रोशनी के बारे में एक सुझाव दो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-25",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "मुझे पाँच शब्दों में बताओ कि कृत्रिम बुद्धिमत्ता क्या है।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-26",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "बच्चों को कहानी सुनाने के लिए एक छोटा आरंभ लिखो।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-27",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "अगर किसी बैठक में देर हो जाए तो क्या कहना ठीक रहेगा?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-28",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "एक सप्ताह का बजट बनाने का पहला कदम क्या है?",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-29",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "ठंड के मौसम में त्वचा को नम रखने के दो उपाय बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hi-30",
+      "group": "hi",
+      "lang": "hi",
+      "prompt": "आज शाम को टहलने जाने के तीन कारण बताओ।",
+      "expect": {
+        "script": "devanagari"
+      }
+    },
+    {
+      "id": "hg-01",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Aaj subah ki routine ke liye teen chhote tips do, short mein.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-02",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Mera laptop bahut garam ho raha hai, kya karun? Do line mein batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-03",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Chai aur coffee mein kya fark hai? Simple Hinglish mein samjhao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-04",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Kal ki meeting ke liye teen main points suggest karo.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-05",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Mujhe neend nahi aa rahi, koi easy upay batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-06",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Phone ki storage full ho gayi hai, jagah banane ke teen tareeke batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-07",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Dost ke birthday ke liye ek chhota sa message likho.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-08",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Internet slow chal raha hai, sabse pehle kya check karun?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-09",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Ek cup chawal ke liye kitna paani lagta hai?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-10",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Strong password banane ke do rules batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-11",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Delhi se Jaipur jaane ke liye train better hai ya bus? Ek line mein batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-12",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Time par kaam khatam karne ki ek aasan aadat batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-13",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Subah ki dhoop par ek chhoti si shayari likho, Roman script mein.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-14",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Paani kam peene se body par kya asar padta hai? Do line mein batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-15",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Apna parichay ek line mein do, jaise tum koi assistant ho.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-16",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Roz pandrah minute padhne ka kya fayda hai?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-17",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Exam se pehle ghabrahat kaise kam karein?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-18",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Email mein late reply ke liye politely sorry kaise bolein?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-19",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Do sau ka bees percent kitna hota hai? Steps ke saath batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-20",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Tyohar se pehle ghar ki safai kahan se shuru karun?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-21",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Somvar aur mangalvar ke liye simple veg khana suggest karo.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-22",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Achhi photo khichne ke liye light ke baare mein ek tip do.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-23",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "AI kya hai, paanch words mein batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-24",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Bachchon ko kahani sunane ke liye ek chhota intro likho.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-25",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Meeting mein late ho jao toh kya bolna theek rahega?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-26",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Weekly budget banane ka pehla step kya hota hai?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-27",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Sardi mein skin ko moist rakhne ke do tareeke batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-28",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Aaj shaam ko walk par jaane ke teen reasons do.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-29",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Kal subah paanch baje uthne ke liye kya karun? Chhote steps batao.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "hg-30",
+      "group": "hinglish",
+      "lang": "hinglish",
+      "prompt": "Mere kaam ki list mein sabse pehle kya rakhna chahiye, jab sab urgent lage?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-01",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Give me three short tips for a calm morning routine.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-02",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What is the main difference between tea and coffee? Answer in two sentences.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-03",
+      "group": "en",
+      "lang": "en",
+      "prompt": "My laptop battery drains quickly. What should I check first?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-04",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Write a short birthday message for a friend.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-05",
+      "group": "en",
+      "lang": "en",
+      "prompt": "My internet is slow. Name the first two things to check.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-06",
+      "group": "en",
+      "lang": "en",
+      "prompt": "How much water does one cup of rice need?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-07",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Suggest three talking points for tomorrow's team meeting.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-08",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Give two rules for a strong password.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-09",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Is the train or the bus better for a short city trip? Answer in one line.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-10",
+      "group": "en",
+      "lang": "en",
+      "prompt": "I cannot sleep. Suggest one simple remedy.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-11",
+      "group": "en",
+      "lang": "en",
+      "prompt": "My phone storage is full. Give three ways to free space.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-12",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Suggest one easy habit for finishing work on time.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-13",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Write a four-line poem about morning sunlight.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-14",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What happens if I drink too little water? Two sentences please.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-15",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Introduce yourself in one sentence as a desktop assistant.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-16",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What is the benefit of reading fifteen minutes every day?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-17",
+      "group": "en",
+      "lang": "en",
+      "prompt": "How can I reduce nervousness before an exam?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-18",
+      "group": "en",
+      "lang": "en",
+      "prompt": "How do I apologise politely for a late email reply?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-19",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What is twenty percent of two hundred? Show the working.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-20",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Where should I start when cleaning the house before a festival?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-21",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Suggest a simple vegetarian menu for Monday and Tuesday.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-22",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Give one tip about light for taking a better photo.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-23",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Explain artificial intelligence in five words.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-24",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Write a short opening line for a bedtime story.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-25",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What should I say when I arrive late to a meeting?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-26",
+      "group": "en",
+      "lang": "en",
+      "prompt": "What is the first step in making a weekly budget?",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-27",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Give two ways to keep skin moisturised in winter.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-28",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Give three reasons to take an evening walk.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-29",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Summarise in one sentence why backups matter.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "en-30",
+      "group": "en",
+      "lang": "en",
+      "prompt": "Which is easier to learn first, a drum or a guitar? One sentence, please.",
+      "expect": {
+        "script": "latin"
+      }
+    },
+    {
+      "id": "tl-01",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Set a timer for 10 minutes.",
+      "expect": {
+        "tool": "set_timer",
+        "args": {
+          "minutes": 10
+        }
+      }
+    },
+    {
+      "id": "tl-02",
+      "group": "tool",
+      "lang": "hi",
+      "prompt": "पंद्रह मिनट का टाइमर लगा दो।",
+      "expect": {
+        "tool": "set_timer",
+        "args": {
+          "minutes": 15
+        }
+      }
+    },
+    {
+      "id": "tl-03",
+      "group": "tool",
+      "lang": "hinglish",
+      "prompt": "Bees minute ka timer laga do.",
+      "expect": {
+        "tool": "set_timer",
+        "args": {
+          "minutes": 20
+        }
+      }
+    },
+    {
+      "id": "tl-04",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Open the calculator.",
+      "expect": {
+        "tool": "open_app",
+        "args": {
+          "name": "calculator"
+        }
+      }
+    },
+    {
+      "id": "tl-05",
+      "group": "tool",
+      "lang": "hi",
+      "prompt": "नोटपैड खोल दो।",
+      "expect": {
+        "tool": "open_app",
+        "args": {}
+      }
+    },
+    {
+      "id": "tl-06",
+      "group": "tool",
+      "lang": "hinglish",
+      "prompt": "Chrome khol do.",
+      "expect": {
+        "tool": "open_app",
+        "args": {
+          "name": "chrome"
+        }
+      }
+    },
+    {
+      "id": "tl-07",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Remind me to call Asha at 6 pm.",
+      "expect": {
+        "tool": "create_reminder",
+        "args": {
+          "time": "18:00"
+        }
+      }
+    },
+    {
+      "id": "tl-08",
+      "group": "tool",
+      "lang": "hi",
+      "prompt": "मुझे शाम सात बजे दवा लेने की याद दिलाओ।",
+      "expect": {
+        "tool": "create_reminder",
+        "args": {
+          "time": "19:00"
+        }
+      }
+    },
+    {
+      "id": "tl-09",
+      "group": "tool",
+      "lang": "hinglish",
+      "prompt": "Volume 30 percent kar do.",
+      "expect": {
+        "tool": "set_volume",
+        "args": {
+          "level": 30
+        }
+      }
+    },
+    {
+      "id": "tl-10",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Set the volume to 80.",
+      "expect": {
+        "tool": "set_volume",
+        "args": {
+          "level": 80
+        }
+      }
+    },
+    {
+      "id": "tl-11",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Search my notes for the invoice from March.",
+      "expect": {
+        "tool": "search_notes",
+        "args": {}
+      }
+    },
+    {
+      "id": "tl-12",
+      "group": "tool",
+      "lang": "hinglish",
+      "prompt": "Mere notes mein trip plan dhundo.",
+      "expect": {
+        "tool": "search_notes",
+        "args": {}
+      }
+    },
+    {
+      "id": "tl-13",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "What is the capital of France? Just answer, no tools needed.",
+      "expect": {
+        "tool": null
+      }
+    },
+    {
+      "id": "tl-14",
+      "group": "tool",
+      "lang": "hi",
+      "prompt": "नमस्ते, आप कैसी हैं? बस बातचीत करो।",
+      "expect": {
+        "tool": null
+      }
+    },
+    {
+      "id": "tl-15",
+      "group": "tool",
+      "lang": "en",
+      "prompt": "Thanks, that is all for now.",
+      "expect": {
+        "tool": null
+      }
+    },
+    {
+      "id": "vi-01",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [220, 30, 30],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["red"]
+      }
+    },
+    {
+      "id": "vi-02",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [30, 170, 60],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["green"]
+      }
+    },
+    {
+      "id": "vi-03",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [30, 60, 220],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["blue"]
+      }
+    },
+    {
+      "id": "vi-04",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [240, 220, 40],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["yellow"]
+      }
+    },
+    {
+      "id": "vi-05",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [10, 10, 10],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["black"]
+      }
+    },
+    {
+      "id": "vi-06",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [250, 250, 250],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["white"]
+      }
+    },
+    {
+      "id": "vi-07",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [240, 130, 20],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["orange"]
+      }
+    },
+    {
+      "id": "vi-08",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [130, 40, 180],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["purple"]
+      }
+    },
+    {
+      "id": "vi-09",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [245, 150, 190],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["pink"]
+      }
+    },
+    {
+      "id": "vi-10",
+      "group": "vision",
+      "lang": "en",
+      "prompt": "What single colour fills this picture? Answer with one word.",
+      "image": {
+        "kind": "solid",
+        "rgb": [128, 128, 128],
+        "size": 8
+      },
+      "expect": {
+        "contains": ["grey"]
+      }
+    },
+    {
+      "id": "cd-01",
+      "group": "code",
+      "lang": "en",
+      "prompt": "Write a Python one-liner that reverses a string s. Code only.",
+      "expect": {
+        "contains": ["[::-1]"]
+      }
+    },
+    {
+      "id": "cd-02",
+      "group": "code",
+      "lang": "en",
+      "prompt": "Write a JavaScript function isEven(n) that returns true for even n. Code only.",
+      "expect": {
+        "contains": ["isEven", "%"]
+      }
+    },
+    {
+      "id": "cd-03",
+      "group": "code",
+      "lang": "en",
+      "prompt": "Give the SQL to count rows in a table called notes. Code only.",
+      "expect": {
+        "contains": ["count", "notes"]
+      }
+    },
+    {
+      "id": "cd-04",
+      "group": "code",
+      "lang": "en",
+      "prompt": "Write a Python function that returns the sum of a list nums. Code only.",
+      "expect": {
+        "contains": ["def", "sum"]
+      }
+    },
+    {
+      "id": "cd-05",
+      "group": "code",
+      "lang": "en",
+      "prompt": "What does the shell command ls -a show? One sentence.",
+      "expect": {
+        "contains": ["hidden"]
+      }
+    }
+  ]
+}

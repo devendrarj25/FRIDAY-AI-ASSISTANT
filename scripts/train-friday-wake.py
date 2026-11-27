@@ -3,7 +3,8 @@
     python scripts/train-friday-wake.py validate  --dataset DIR
     python scripts/train-friday-wake.py record    --dataset DIR --speaker NAME [--takes 30]
     python scripts/train-friday-wake.py train     --dataset DIR --out DIR
-    python scripts/train-friday-wake.py evaluate  --dataset DIR --model DIR
+    python scripts/train-friday-wake.py train-embed --dataset DIR --out DIR --embedding wake-embed.onnx
+    python scripts/train-friday-wake.py evaluate  --dataset DIR --model DIR [--embedding wake-embed.onnx]
     python scripts/train-friday-wake.py fixture   --out DIR          (plumbing tests only, never production)
 
 Dataset layout (16 kHz mono WAV is best; other WAV rates are resampled):
@@ -19,6 +20,18 @@ threshold is chosen here) and test (the numbers that are reported). A model is m
 held-out numbers meet the targets on enough real audio from enough different speakers; otherwise it is written
 as a candidate (`production: false`) and the app ignores it. Nothing here synthesises speech: a synthetic tone
 detector is not a wake word, and `fixture` writes one only into a test folder, labelled as such.
+
+`train-embed` trains the head of the friday-embed engine instead: every clip goes through the same streaming
+front end the app uses (kernel/wake_features.py: numpy mel stream, then the embedding model run by onnxruntime), a
+small numpy head (one ReLU layer, or plain logistic with --hidden 0) learns to tell the last 16 embeddings of the
+wake word from everything else, and the same three-way speaker/source split, gates and manifest follow. Install
+onnxruntime and the embedding model first; the head itself needs numpy only.
+
+How false accepts per hour are measured: each held-out negative clip is padded to the minimum stream length, run
+through the stream in 80 ms steps, and the head's score series is passed through the live trigger rule (two
+consecutive scores at or above the threshold, then a latch with a 1.5 s cooldown, wake_features.count_triggers).
+Every trigger counts once; the total is divided by the clip hours. A positive take counts as a miss when the same
+rule never triggers on it.
 
 Targets: false rejection <= 5 %, false accepts <= 0.5 per hour, measured on held-out real audio.
 """
@@ -231,14 +244,8 @@ def pick_threshold(positives: list, negatives: list, model: dict) -> float:
     return best
 
 
-def train(dataset: Path, out: Path, seed: int = 7) -> int:
-    rng = np.random.default_rng(seed)
-    stats = summary(dataset)
-    positives = load_group(dataset, "positives")
-    negatives = load_group(dataset, "negatives")
-    if not positives or not negatives:
-        print("need both positives/ and negatives/ with readable WAV files; run `validate` first", file=sys.stderr)
-        return 1
+def split_plan(positives: dict, negatives: dict) -> tuple[dict[str, str], dict[str, str], bool]:
+    """The train/validation/test plan of speakers and sources, and whether anything could be held apart."""
     pos_plan = split_groups(list(positives))
     neg_plan = split_groups(list(negatives))
     independent = (
@@ -249,9 +256,79 @@ def train(dataset: Path, out: Path, seed: int = 7) -> int:
         and "validation" in neg_plan.values()
         and "test" in neg_plan.values()
     )
+    return pos_plan, neg_plan, independent
 
-    def clips(groups: dict, plan: dict, part: str) -> list[np.ndarray]:
-        return [pcm for name, rows in groups.items() if plan[name] == part for _, pcm in rows]
+
+def clips(groups: dict, plan: dict, part: str) -> list[np.ndarray]:
+    return [pcm for name, rows in groups.items() if plan[name] == part for _, pcm in rows]
+
+
+def production_reasons(dataset: Path, stats: dict, positives: dict, independent: bool, evaluation: dict) -> list[str]:
+    """Everything that keeps a model from being production: data too small or unattested, targets missed."""
+    reasons: list[str] = []
+    attested, why_not = attested_real_speech(dataset)
+    if not attested:
+        reasons.append(why_not)
+    tonal = tonal_fraction([pcm for rows in positives.values() for _, pcm in rows])
+    if tonal > 0.3:
+        reasons.append(f"{tonal:.0%} of the positive takes are pure tones, not speech")
+    if not independent:
+        reasons.append(f"fewer than {MIN_SPEAKERS} speakers or negative sources: nothing could be held apart")
+    if stats["positives"] < MIN_POSITIVES:
+        reasons.append(f"{stats['positives']} positive takes, need {MIN_POSITIVES}")
+    if stats["speakers"] < MIN_SPEAKERS:
+        reasons.append(f"{stats['speakers']} speakers, need {MIN_SPEAKERS}")
+    if stats["negativeMinutes"] < MIN_NEGATIVE_MINUTES:
+        reasons.append(f"{stats['negativeMinutes']} min of negatives, need {MIN_NEGATIVE_MINUTES}")
+    if stats["nearMissClips"] < MIN_NEAR_MISS:
+        reasons.append(f"{stats['nearMissClips']} near-miss clips, need {MIN_NEAR_MISS}")
+    if (evaluation["negativeHours"] or 0) < MIN_HELD_OUT_NEGATIVE_HOURS:
+        reasons.append(f"{evaluation['negativeHours']} h of held-out negatives, need {MIN_HELD_OUT_NEGATIVE_HOURS}")
+    frr, fa = evaluation["falseRejectionRate"], evaluation["falseAcceptsPerHour"]
+    if frr is None or frr > TARGET_FRR:
+        reasons.append(f"false rejection {frr} is above {TARGET_FRR}")
+    if fa is None or fa > TARGET_FA_PER_HOUR:
+        reasons.append(f"false accepts {fa} per hour is above {TARGET_FA_PER_HOUR}")
+    return reasons
+
+
+def refuses_candidate(out: Path, production: bool, reasons: list[str]) -> bool:
+    """A model that is not production never goes into resources/wake (the folder the installer ships)."""
+    if out.resolve() == PRODUCTION_DIR.resolve() and not production:
+        print(
+            "refusing to write a candidate into resources/wake: it ships only a model that meets the targets",
+            file=sys.stderr,
+        )
+        for reason in reasons:
+            print(f"  - {reason}", file=sys.stderr)
+        return True
+    return False
+
+
+def write_manifest(out: Path, manifest: dict) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "friday-wake.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (out / "friday-wake.report.json").write_text(
+        json.dumps(
+            {
+                k: manifest[k]
+                for k in ("trainedAt", "dataset", "evaluation", "notProductionBecause", "threshold", "production")
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def train(dataset: Path, out: Path, seed: int = 7) -> int:
+    rng = np.random.default_rng(seed)
+    stats = summary(dataset)
+    positives = load_group(dataset, "positives")
+    negatives = load_group(dataset, "negatives")
+    if not positives or not negatives:
+        print("need both positives/ and negatives/ with readable WAV files; run `validate` first", file=sys.stderr)
+        return 1
+    pos_plan, neg_plan, independent = split_plan(positives, negatives)
 
     train_pos = clips(positives, pos_plan, "train")
     train_neg = clips(negatives, neg_plan, "train")
@@ -291,40 +368,11 @@ def train(dataset: Path, out: Path, seed: int = 7) -> int:
     evaluation["heldOutSpeakers"] = sum(1 for v in pos_plan.values() if v == "test") if independent else 0
     evaluation["heldOutSources"] = sum(1 for v in neg_plan.values() if v == "test") if independent else 0
 
-    reasons: list[str] = []
-    attested, why_not = attested_real_speech(dataset)
-    if not attested:
-        reasons.append(why_not)
-    tonal = tonal_fraction([pcm for rows in positives.values() for _, pcm in rows])
-    if tonal > 0.3:
-        reasons.append(f"{tonal:.0%} of the positive takes are pure tones, not speech")
-    if not independent:
-        reasons.append(f"fewer than {MIN_SPEAKERS} speakers or negative sources: nothing could be held apart")
-    if stats["positives"] < MIN_POSITIVES:
-        reasons.append(f"{stats['positives']} positive takes, need {MIN_POSITIVES}")
-    if stats["speakers"] < MIN_SPEAKERS:
-        reasons.append(f"{stats['speakers']} speakers, need {MIN_SPEAKERS}")
-    if stats["negativeMinutes"] < MIN_NEGATIVE_MINUTES:
-        reasons.append(f"{stats['negativeMinutes']} min of negatives, need {MIN_NEGATIVE_MINUTES}")
-    if stats["nearMissClips"] < MIN_NEAR_MISS:
-        reasons.append(f"{stats['nearMissClips']} near-miss clips, need {MIN_NEAR_MISS}")
-    if (evaluation["negativeHours"] or 0) < MIN_HELD_OUT_NEGATIVE_HOURS:
-        reasons.append(f"{evaluation['negativeHours']} h of held-out negatives, need {MIN_HELD_OUT_NEGATIVE_HOURS}")
-    frr, fa = evaluation["falseRejectionRate"], evaluation["falseAcceptsPerHour"]
-    if frr is None or frr > TARGET_FRR:
-        reasons.append(f"false rejection {frr} is above {TARGET_FRR}")
-    if fa is None or fa > TARGET_FA_PER_HOUR:
-        reasons.append(f"false accepts {fa} per hour is above {TARGET_FA_PER_HOUR}")
+    reasons = production_reasons(dataset, stats, positives, independent, evaluation)
     production = not reasons
     evaluation["meetsTargets"] = production
 
-    if out.resolve() == PRODUCTION_DIR.resolve() and not production:
-        print(
-            "refusing to write a candidate into resources/wake: it ships only a model that meets the targets",
-            file=sys.stderr,
-        )
-        for reason in reasons:
-            print(f"  - {reason}", file=sys.stderr)
+    if refuses_candidate(out, production, reasons):
         return 3
     manifest = {
         "kind": "friday-linear-v2",
@@ -349,18 +397,7 @@ def train(dataset: Path, out: Path, seed: int = 7) -> int:
         "evaluation": evaluation,
         "notProductionBecause": reasons,
     }
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "friday-wake.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (out / "friday-wake.report.json").write_text(
-        json.dumps(
-            {
-                k: manifest[k]
-                for k in ("trainedAt", "dataset", "evaluation", "notProductionBecause", "threshold", "production")
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    write_manifest(out, manifest)
     export_onnx(out / "friday.onnx", weights, bias, mean, std)
     print(f"model written to {out} (production: {production})")
     print(json.dumps(evaluation))
@@ -390,6 +427,217 @@ def export_onnx(path: Path, weights: np.ndarray, bias: float, mean: np.ndarray, 
         [numpy_helper.from_array(folded_w, "W"), numpy_helper.from_array(folded_b, "B")],
     )
     save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8), str(path))
+
+
+# ---------------------------------------------------------------------------------------------- friday-embed head
+
+EMBED_KIND = "friday-embed-v1"
+EMBED_FILE = "wake-embed.onnx"  # the name the installed embedding model must have beside the head
+HEAD_HIDDEN = 24
+MAX_NEGATIVE_WINDOWS = 24000
+POSITIVE_SPAN_SECONDS = 1.2
+POSITIVE_GAINS = (1.0, 0.6, 1.5)
+POSITIVE_TAILS = (2, 5)  # chunks of room noise after the word: the word ends 2 and 5 steps before the window does
+POSITIVE_ENDS = 3  # windows kept per padded take, the last ones, which end just after the word
+MEASURED_AS = "streaming 80 ms steps; two scores in a row at the threshold trigger; 1.5 s cooldown"
+
+
+def positive_span(pcm: np.ndarray) -> np.ndarray:
+    """About 1.2 s of a take centred on its loudest quarter second (where the word was said), 16-bit scale."""
+    x = wf.as_pcm_scale(pcm)
+    length = int(POSITIVE_SPAN_SECONDS * wf.RATE)
+    if x.size <= length:
+        return x
+    energy = np.convolve(x * x, np.ones(wf.RATE // 4), mode="valid")
+    centre = int(np.argmax(energy)) + wf.RATE // 8
+    start = int(np.clip(centre - length // 2, 0, x.size - length))
+    return x[start : start + length]
+
+
+def positive_embed_windows(pcm: np.ndarray, embed: wf.Embedder) -> np.ndarray:
+    """Head windows that end just after the word: three loudnesses, two offsets (the word said a bit differently)."""
+    span = positive_span(pcm)
+    rows = []
+    for gain in POSITIVE_GAINS:
+        for tail in POSITIVE_TAILS:
+            padded = wf.pad_clip(span * gain, tail_chunks=tail)
+            rows.append(wf.sliding_windows(wf.embed_clip(padded, embed))[-POSITIVE_ENDS:])
+    return np.concatenate(rows) if rows else np.zeros((0, wf.HEAD_WINDOW, wf.EMBED_DIM), dtype=np.float32)
+
+
+def negative_embed_windows(pcm: np.ndarray, embed: wf.Embedder, stride: int = 2) -> np.ndarray:
+    """Every `stride`-th head window of a clip with no wake word in it (short clips are padded to stream length)."""
+    return wf.sliding_windows(wf.embed_clip(wf.pad_clip(pcm, tail_chunks=0), embed), stride=stride)
+
+
+def fit_head(
+    x: np.ndarray,
+    y: np.ndarray,
+    hidden: int = HEAD_HIDDEN,
+    epochs: int = 30,
+    lr: float = 2e-3,
+    l2: float = 1e-3,
+    batch: int = 256,
+    seed: int = 7,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Class-balanced logistic (hidden=0) or one-hidden-layer ReLU head by Adam on mini-batches (numpy only).
+
+    Returns the dense layers [(weight, bias), ...], the last one a single output.
+    """
+    rng = np.random.default_rng(seed)
+    n, d = x.shape
+    sizes = [d, *([hidden] if hidden > 0 else []), 1]
+    weights = [rng.normal(0.0, math.sqrt(2.0 / sizes[i]), (sizes[i], sizes[i + 1])) for i in range(len(sizes) - 1)]
+    biases = [np.zeros(sizes[i + 1]) for i in range(len(sizes) - 1)]
+    moment = [
+        (np.zeros_like(w), np.zeros_like(b), np.zeros_like(w), np.zeros_like(b))
+        for w, b in zip(weights, biases, strict=True)
+    ]
+    pos = max(1.0, float(y.sum()))
+    neg = max(1.0, float(n - y.sum()))
+    sample_weight = np.where(y > 0.5, 0.5 * n / pos, 0.5 * n / neg)
+    step = 0
+    for _ in range(epochs):
+        order = rng.permutation(n)
+        for begin in range(0, n, batch):
+            idx = order[begin : begin + batch]
+            activations = [x[idx].astype(np.float64)]
+            for i in range(len(weights) - 1):
+                activations.append(np.maximum(activations[-1] @ weights[i] + biases[i], 0.0))
+            logit = (activations[-1] @ weights[-1] + biases[-1]).reshape(-1)
+            prob = 1.0 / (1.0 + np.exp(-np.clip(logit, -60, 60)))
+            grad = ((prob - y[idx]) * sample_weight[idx] / len(idx)).reshape(-1, 1)
+            step += 1
+            for i in range(len(weights) - 1, -1, -1):
+                g_w = activations[i].T @ grad + l2 * weights[i]
+                g_b = grad.sum(axis=0)
+                if i > 0:
+                    grad = (grad @ weights[i].T) * (activations[i] > 0)
+                m_w, m_b, v_w, v_b = moment[i]
+                m_w = 0.9 * m_w + 0.1 * g_w
+                m_b = 0.9 * m_b + 0.1 * g_b
+                v_w = 0.999 * v_w + 0.001 * g_w * g_w
+                v_b = 0.999 * v_b + 0.001 * g_b * g_b
+                moment[i] = (m_w, m_b, v_w, v_b)
+                c1, c2 = 1 - 0.9**step, 1 - 0.999**step
+                weights[i] = weights[i] - lr * (m_w / c1) / (np.sqrt(v_w / c2) + 1e-8)
+                biases[i] = biases[i] - lr * (m_b / c1) / (np.sqrt(v_b / c2) + 1e-8)
+    return [(w.astype(np.float32), b.astype(np.float32)) for w, b in zip(weights, biases, strict=True)]
+
+
+def head_dict(mean: np.ndarray, std: np.ndarray, layers: list[tuple[np.ndarray, np.ndarray]]) -> dict:
+    return {"mean": mean.astype(np.float32), "std": std.astype(np.float32), "layers": layers, "window": wf.HEAD_WINDOW}
+
+
+def pick_threshold_embed(positive_series: list, negative_series: list, negative_seconds: float) -> float:
+    """The lowest threshold whose false accepts per hour on the validation audio stay at half the target."""
+    best = 0.9
+    for threshold in np.linspace(0.5, 0.995, 100):
+        fa = wf.embed_report(positive_series, negative_series, negative_seconds, float(threshold))[
+            "falseAcceptsPerHour"
+        ]
+        if fa is not None and fa <= TARGET_FA_PER_HOUR * 0.5:
+            return float(threshold)
+        best = float(threshold)
+    return best
+
+
+def train_embed(
+    dataset: Path, out: Path, embed: wf.Embedder, embedding_sha256: str = "", seed: int = 7, hidden: int = HEAD_HIDDEN
+) -> int:
+    rng = np.random.default_rng(seed)
+    stats = summary(dataset)
+    positives = load_group(dataset, "positives")
+    negatives = load_group(dataset, "negatives")
+    if not positives or not negatives:
+        print("need both positives/ and negatives/ with readable WAV files; run `validate` first", file=sys.stderr)
+        return 1
+    pos_plan, neg_plan, independent = split_plan(positives, negatives)
+    if independent:
+        train_pos, train_neg = clips(positives, pos_plan, "train"), clips(negatives, neg_plan, "train")
+    else:
+        train_pos = [pcm for rows in positives.values() for _, pcm in rows]
+        train_neg = [pcm for rows in negatives.values() for _, pcm in rows]
+    xp_parts = [positive_embed_windows(pcm, embed) for pcm in train_pos]
+    xn_parts = [negative_embed_windows(pcm, embed) for pcm in train_neg]
+    xp = np.concatenate(xp_parts) if xp_parts else np.zeros((0, wf.HEAD_WINDOW, wf.EMBED_DIM), np.float32)
+    xn = np.concatenate(xn_parts) if xn_parts else np.zeros((0, wf.HEAD_WINDOW, wf.EMBED_DIM), np.float32)
+    if len(xp) < 10 or len(xn) < 10:
+        print("not enough usable audio to train (silent or too-short clips)", file=sys.stderr)
+        return 1
+    if len(xn) > MAX_NEGATIVE_WINDOWS:
+        xn = xn[np.sort(rng.choice(len(xn), MAX_NEGATIVE_WINDOWS, replace=False))]
+    both = np.concatenate([xp, xn])
+    mean = both.reshape(-1, both.shape[-1]).mean(axis=0)
+    std = np.maximum(both.reshape(-1, both.shape[-1]).std(axis=0), 1e-3)
+    y = np.concatenate([np.ones(len(xp)), np.zeros(len(xn))])
+    z = ((both - mean) / std).reshape(len(both), -1)
+    head = head_dict(mean, std, fit_head(z, y, hidden=hidden, seed=seed))
+
+    threshold = 0.9
+    if independent:
+        val_pos, val_neg = clips(positives, pos_plan, "validation"), clips(negatives, neg_plan, "validation")
+        threshold = pick_threshold_embed(
+            [wf.clip_scores(c, embed, head) for c in val_pos],
+            [wf.clip_scores(c, embed, head) for c in val_neg],
+            sum(len(c) for c in val_neg) / wf.RATE,
+        )
+        evaluation = wf.evaluate_embed_clips(
+            clips(positives, pos_plan, "test"), clips(negatives, neg_plan, "test"), embed, head, threshold
+        )
+    else:
+        evaluation = wf.evaluate_embed_clips(
+            [pcm for rows in positives.values() for _, pcm in rows],
+            [pcm for rows in negatives.values() for _, pcm in rows],
+            embed,
+            head,
+            threshold,
+        )
+    evaluation["independent"] = independent
+    evaluation["heldOutSpeakers"] = sum(1 for v in pos_plan.values() if v == "test") if independent else 0
+    evaluation["heldOutSources"] = sum(1 for v in neg_plan.values() if v == "test") if independent else 0
+    evaluation["measuredAs"] = MEASURED_AS
+
+    reasons = production_reasons(dataset, stats, positives, independent, evaluation)
+    production = not reasons
+    evaluation["meetsTargets"] = production
+    if refuses_candidate(out, production, reasons):
+        return 3
+    manifest = {
+        "kind": EMBED_KIND,
+        "provenance": "real-speech",
+        "production": production,
+        "trainedAt": datetime.now(UTC).isoformat(timespec="seconds"),
+        "embedding": {"file": EMBED_FILE, "sha256": embedding_sha256, "frames": wf.EMBED_FRAMES, "dim": wf.EMBED_DIM},
+        "front": {
+            "rate": wf.RATE,
+            "chunk": wf.CHUNK,
+            "bands": wf.EMBED_BANDS,
+            "fmin": wf.EMBED_FMIN,
+            "fmax": wf.EMBED_FMAX,
+        },
+        "head": {
+            "window": wf.HEAD_WINDOW,
+            "mean": wf.encode_tensor(head["mean"]),
+            "std": wf.encode_tensor(head["std"]),
+            "layers": [{"w": wf.encode_tensor(w), "b": wf.encode_tensor(b)} for w, b in head["layers"]],
+        },
+        "threshold": threshold,
+        "dataset": stats,
+        "evaluation": evaluation,
+        "notProductionBecause": reasons,
+    }
+    write_manifest(out, manifest)
+    print(f"embed head written to {out} (production: {production}); install the embedding model there as {EMBED_FILE}")
+    print(json.dumps(evaluation))
+    for reason in reasons:
+        print(f"  not production: {reason}")
+    return 0 if production else 2
+
+
+def load_embedding(path: Path) -> tuple[wf.Embedder, str]:
+    """The embedding model run by onnxruntime, and its SHA-256 (recorded so the app can tell it is the same one)."""
+    return wf.load_embedder(str(path)), hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # ---------------------------------------------------------------------------------------------- commands
@@ -436,15 +684,21 @@ def record(dataset: Path, speaker: str, takes: int) -> int:
     return 0
 
 
-def evaluate(dataset: Path, model_dir: Path, threshold: float | None) -> int:
+def evaluate(dataset: Path, model_dir: Path, threshold: float | None, embedding: Path | None = None) -> int:
     """Score a trained model on audio it never saw: every file in the dataset counts as held out."""
     manifest = json.loads((model_dir / "friday-wake.json").read_text(encoding="utf-8"))
-    if manifest.get("kind") != "friday-linear-v2":
-        print("only a friday-linear-v2 model can be evaluated here", file=sys.stderr)
+    if manifest.get("kind") not in {"friday-linear-v2", EMBED_KIND}:
+        print("only a friday-linear-v2 or friday-embed-v1 model can be evaluated here", file=sys.stderr)
         return 1
     positives = [pcm for rows in load_group(dataset, "positives").values() for _, pcm in rows]
     negatives = [pcm for rows in load_group(dataset, "negatives").values() for _, pcm in rows]
-    report = wf.evaluate_clips(positives, negatives, manifest, threshold or float(manifest["threshold"]))
+    level = threshold or float(manifest["threshold"])
+    if manifest["kind"] == EMBED_KIND:
+        embed, _ = load_embedding(embedding or model_dir / EMBED_FILE)
+        report = wf.evaluate_embed_clips(positives, negatives, embed, wf.load_head(manifest), level)
+        report["measuredAs"] = MEASURED_AS
+    else:
+        report = wf.evaluate_clips(positives, negatives, manifest, level)
     report["meetsTargets"] = bool(
         report["falseRejectionRate"] is not None
         and report["falseRejectionRate"] <= TARGET_FRR
@@ -525,6 +779,12 @@ def main() -> int:
         if name == "evaluate":
             p.add_argument("--model", type=Path, required=True)
             p.add_argument("--threshold", type=float)
+            p.add_argument("--embedding", type=Path, help="the embedding model, for a friday-embed model")
+    embed_cmd = sub.add_parser("train-embed")
+    embed_cmd.add_argument("--dataset", type=Path, required=True)
+    embed_cmd.add_argument("--out", type=Path, default=ROOT / "temporary" / "wake-train")
+    embed_cmd.add_argument("--embedding", type=Path, required=True, help="the embedding model (onnx)")
+    embed_cmd.add_argument("--hidden", type=int, default=HEAD_HIDDEN, help="hidden units; 0 is plain logistic")
     sub.add_parser("fixture").add_argument("--out", type=Path, default=FIXTURE_DIR)
     args = parser.parse_args()
     if args.command == "validate":
@@ -534,7 +794,13 @@ def main() -> int:
     if args.command == "train":
         return train(args.dataset, args.out)
     if args.command == "evaluate":
-        return evaluate(args.dataset, args.model, args.threshold)
+        return evaluate(args.dataset, args.model, args.threshold, args.embedding)
+    if args.command == "train-embed":
+        if not args.embedding.is_file():
+            print(f"the embedding model {args.embedding} is not there; install it first", file=sys.stderr)
+            return 1
+        embed, digest = load_embedding(args.embedding)
+        return train_embed(args.dataset, args.out, embed, digest, hidden=args.hidden)
     return fixture(args.out)
 
 

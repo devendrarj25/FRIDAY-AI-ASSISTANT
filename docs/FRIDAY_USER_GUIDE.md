@@ -39,6 +39,10 @@ An error shows Fix voice, followed by the running task and WORKING or IDLE. Ever
 
 The shipped voice is a female Indian voice for both languages: **Swara** for Hindi and **Neerja** for English, with the **Natural** delivery. She picks the voice sentence by sentence, so a Hinglish reply sounds right. Change the Hindi or English voice, pick a delivery (Natural, Warm and soft, Bright and quick, Calm and low), move Speaking rate, Pitch (shown with the Hz it sends) and Volume, and press **Hear Hindi**, **Hear English** or **Hear Hinglish** to listen (she speaks only in Auto mode). **Reset to the best voice** brings Swara, Neerja and Natural back and keeps your voice library. The online voices need the network and Privacy mode off; offline she uses the on-device voice.
 
+### The FRIDAY voice (Settings → Voice)
+
+When the local voice model is installed, FRIDAY speaks with her own voice: a synthetic, warm young woman's tone that reads Hindi, English and Hinglish and needs no setting. In Settings → Voice pick **FRIDAY** (the default), **FRIDAY Bright** or **FRIDAY Calm**, or one of the plain voices F1 to F5, M1 and M2; an unknown saved value falls back to FRIDAY. She may add small cues such as a pause or a soft tone while she speaks; these delivery tags are invisible, never shown on screen and never read aloud. This voice has not been listened to by the builders: tell her if the tone is off. She speaks only in Auto mode.
+
 ### Teach FRIDAY your voice (Settings → Voice → My voice)
 
 Press **Record** next to each line, say it, then **Stop** (a recording also stops by itself after 12 seconds). Record the wake word eight times in different manners (normal, softer, louder, farther away, quick, slow, from across the room) and six or more sentences in English, Hindi and Hinglish, in a quiet room close to the microphone. Then **Build my voice profile**.
@@ -51,6 +55,30 @@ Press **Record** next to each line, say it, then **Stop** (a recording also stop
 - **Test** listens for 4 seconds and shows how close the sentence is to you. Ask someone else to say a sentence too, to see how far off they score.
 
 The recordings stay on this PC in your FRIDAY folder and the voiceprint is encrypted. Nothing is uploaded. **Forget my voice** deletes the recordings and the profile; **Delete recordings, keep profile** keeps only the profile. This is a convenience, not a lock, and it was only measured on your own recordings.
+
+### How FRIDAY listens: the listening settings (Settings → Voice)
+
+FRIDAY cleans the sound from your microphone, finds where you start and stop, and decides when your turn is over. The defaults are safe; none of this is tried on your microphone yet, so treat every number as a starting point and change one thing at a time.
+
+- **Cut rumble and hum** (on): removes fan hum and desk thumps below about 85 Hz.
+- **Warn when the microphone is clipping** (on): a meter in Voice diagnostics (`ears-clip`). If it warns, lower the microphone level in Windows. It changes no sound.
+- **Volume levelling**: the browser (default), FRIDAY's own slow leveller (moves only while you speak and never boosts silence), or none. Picking FRIDAY's own turns the browser's off so they never fight.
+- **Speech detector**: Automatic uses the small speech model when it is installed (Models page), else loudness only. Start, end, shortest sound and the sound kept from before you speak are under it; the defaults are 0.5, 0.35, 120 ms and 500 ms.
+- **How long she waits after a pause**: Quick, Normal (default, the same pauses as before) or Patient (waits through long pauses; good if you think aloud). A turn that sounds unfinished ("matlab...", "umm...", a number half said) waits longer.
+- **Start the answer at a likely end of turn** (off): she prepares a reply on this PC early and drops it if you keep talking. Streaming ear only.
+- **Noise clean-up copy** (off): when on, the speech engine hears a cleaned copy; the speech detector and turn checks still use your untouched sound. If the cleaner is missing it falls back to the plain sound and says why. Not yet measured on your recordings.
+- **Room and other voices**: she scores whether the room sounds like speech, music or a TV, and whether a voice is yours. With music or a TV playing she needs a clearer phrase of at least two words before she takes it as you. These are scores only: a voice match never approves anything.
+- **Duck, then stop, when you talk over her** (off, experimental): she gets quieter after a moment of your voice, stops after half a second or one real word, and carries on if you said nothing. A nod such as "haan" or "hmm" does not stop her. It works only when her own voice can be cleaned out of the microphone (the streaming ear is on, or the echo reference is live); otherwise the normal interrupt rule decides, the setting shows a note, and Voice diagnostics says "on, but not active".
+- **Use the PC's own playback as the echo reference** (off): reserved; it does nothing yet.
+- **Noise clean-up** (off): two small optional cleaners are prepared; keep them off unless a test on your own recordings shows fewer wrong words.
+- **Hinglish ear for a strong graphics card** (optional, off by default; the choice is in Settings > Voice, Hinglish ear): an on-demand model that writes Hindi in Devanagari and English in Latin letters. It is used only when asked for and only with a graphics card of at least 4 GB; otherwise the normal ear answers.
+- **Your voice and the speaker tag**: the voice profile now also keeps a speaker fingerprint, stored encrypted and read only by the desktop's main process. If you made your profile earlier, press "build profile" again to get it. A voice match never approves anything.
+- **FRIDAY's own streaming ear** (off): words appear while you speak, in Hindi, English and Hinglish, on this PC only. Setup downloads it (about 755 MB) only when this PC can carry it; otherwise install it from the Models page. If it is missing or fails, the normal listening path carries on and nothing is lost.
+- **Write spoken numbers, times and money as digits** (on): "paanch sau rupaye" is shown as ₹500, only where the reading is sure.
+- When she is not sure what she heard, she asks one short question instead of acting, and she does not repeat a number or a secret back to you.
+- A long dictation (up to about five minutes) is read in pieces cut at your pauses.
+
+The button "Put every listening front end setting back" restores the defaults. Voice diagnostics shows seven rows (`ears-vad`, `ears-turn`, `ears-clip`, `ears-agc`, `ears-denoise`, `ears-scene`, `ears-bargein`); a row says "absent" when its part is not running, never a made-up number. Technical detail: [FRIDAY_VOICE_ENGINE.md](FRIDAY_VOICE_ENGINE.md).
 
 ### Voice window sizes
 
@@ -207,7 +235,7 @@ Run these on the Windows PC after `npm run setup` and `npm run build:win`. They 
 9. Open Teams or Zoom: listening pauses and FRIDAY does not talk over the call; close it and Auto listens again.
 10. Say "remember to check the build", then "why did you do that", then "stop everything": the order is kept, the reason is spoken, and the work stops. Reopen FRIDAY: the order is still listed.
 11. Leave the voice screen open for 10 minutes: no flicker or stutter. In Chat mode confirm the microphone is not used.
-12. In a checkout, `npm run voice:check` exits 0 with one PASS, FAIL, or OPTIONAL line per stage; `npm run voice:install` downloads Supertonic, Smart Turn, and the English Moonshine weights into the FRIDAY folder. For Hindi, install **Hindi ear (IndicConformer, int8)** from the Models page: when Hindi is your speech language it hears first and faster-whisper answers if it cannot. Two more optional downloads: **Hindi fallback ear** (Whisper small Hindi by Collabora, CC-BY-4.0), used for Hindi only when the Hindi ear is not installed, and **Hinglish ear** (Hinglish in Roman letters, Apache-2.0), used only when you pick "Hinglish in Roman letters" under Recognition language. Neither is on by default. The voice check lists a pin row for each installed voice model.
+12. In a checkout, `npm run voice:check` exits 0 with one PASS, FAIL, or OPTIONAL line per stage; `npm run voice:install` downloads Supertonic, Smart Turn, and the English Moonshine weights into the FRIDAY folder. For Hindi, install **Hindi ear (IndicConformer, int8)** from the Models page: when Hindi is your speech language it hears first and faster-whisper answers if it cannot. Two more optional downloads: **Hindi fallback ear** (Whisper small Hindi fine-tune, CC-BY-4.0), used for Hindi only when the Hindi ear is not installed, and **Hinglish ear** (Hinglish in Roman letters, Apache-2.0), used only when you pick "Hinglish in Roman letters" under Recognition language. Neither is on by default. The voice check lists a pin row for each installed voice model.
 
 **Models** (real keys)
 

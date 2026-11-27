@@ -42,16 +42,41 @@ function classify(pinned, newest) {
   return order < 0 ? "behind" : "current";
 }
 
-/** The newest published (not draft, not pre-release) release tag of a repository, or null. */
-async function newestTag(repo, { fetchImpl = fetch, timeoutMs = 8000 } = {}) {
+/** A Response-like for the chain from a fetch answer that only offers `json()`. */
+function chainResponse(response) {
+  if (typeof response?.text === "function") return response;
+  return {
+    status: Number(response?.status) || (response?.ok ? 200 : 0),
+    ok: response?.ok !== false && Boolean(response),
+    headers: response?.headers || { get: () => null },
+    text: async () => JSON.stringify(await response.json()),
+  };
+}
+
+/**
+ * The newest release tag of a repository, or null. It asks the one source chain (the API, then the public feed, then
+ * the last stored answer under FRIDAY_ROOT), so a rate limit or a blocked host does not hide it.
+ */
+async function newestTag(repo, { fetchImpl = fetch, timeoutMs = 8000, store = null, root } = {}) {
   try {
-    const response = await fetchImpl(`https://api.github.com/repos/${repo}/releases/latest`, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "friday-runners-status" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) return null;
-    const body = await response.json();
-    return typeof body?.tag_name === "string" ? body.tag_name : null;
+    const vendor = require("../electron/vendor-sources.cjs");
+    const dir = root || process.env.FRIDAY_ROOT;
+    const got = await vendor.resolveLatest(
+      `release:${repo}`,
+      vendor.chainFor({ latest: { kind: "github", ref: repo } }),
+      {
+        fetchImpl: async (url, init) =>
+          chainResponse(
+            await fetchImpl(url, {
+              ...init,
+              headers: { ...init?.headers, "user-agent": "friday-runners-status" },
+            }),
+          ),
+        store: store || (dir ? vendor.storeFor(dir) : null),
+        timeoutMs,
+      },
+    );
+    return got.ok && typeof got.tag === "string" && got.tag ? got.tag : null;
   } catch {
     return null;
   }

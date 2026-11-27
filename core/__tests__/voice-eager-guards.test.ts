@@ -289,7 +289,11 @@ describe("eager guards, live: the speculative start that ships", () => {
     expect(handler).toMatch(/this\.startDraftRun\(command\)/);
     expect(handler).not.toMatch(/this\.dispatch\(/);
     const start = method(modeSource, /\n {2}private startDraftRun\([^{]*\{/);
-    expect(start).toMatch(/brain\.startDraft\(command\)/);
+    // The one call: a plain draft for the transcript path, and a local-only one when the ear's turn started it.
+    // The draft is written under the heard turn's own hints (reply language, confidence), as the final turn will be.
+    expect(start).toMatch(
+      /brain\.startDraft\(command, \{\s*\.\.\.\(viaTurn \? \{ onlyLocal: true \} : \{\}\),\s*\.\.\.this\.turnHintsOption\(\),\s*\}\)/,
+    );
     expect(start).not.toMatch(/this\.dispatch\(|brain\.send\(|pendingUserEcho/);
     expect(modeSource).not.toMatch(/dispatch\(command, true\)|draftEchoBase|draftRunId/);
     settle("remind me to call the bank.");
@@ -874,5 +878,42 @@ describe("EAGER guards, the Brain draft mode", () => {
       expect(sent.length).toBeLessThanOrEqual(1);
       expect(sent.every((s) => s.options.draft === true)).toBe(true);
     });
+  });
+});
+
+describe("EAGER guards, the draft keeps the final turn's reply language and voice block (F3)", () => {
+  it("startDraft takes the heard turn as an option and hands it to the same draft path", () => {
+    const start = method(brainSource, /\n {2}startDraft\([\s\S]*?\): DraftStart \{/);
+    expect(brainSource).toMatch(
+      /startDraft\(\s*prompt: string,\s*options: \{ onlyLocal\?: boolean; turn\?: Partial<TurnHints> \}/,
+    );
+    expect(start).toMatch(/draft: true/);
+    expect(start).toMatch(/turn: options\.turn/);
+    expect(start).not.toMatch(/startRun\(|dispatch\(/);
+  });
+
+  it("the draft request is built from DRAFT_SYSTEM plus the voice parts, and stays a tool-less, session-less guess", () => {
+    const begin = method(brainSource, /\n {2}private beginDraft\([\s\S]*?\): DraftStart \{/);
+    expect(begin).toMatch(/system: withVoiceParts\(DRAFT_SYSTEM, voice\)/);
+    expect(begin).toMatch(/tools: false/);
+    expect(begin).toMatch(/draft: true/);
+    expect(begin).not.toMatch(/cleanTurnHints|\.turn\b|startRun\(/);
+  });
+
+  it("adoptDraft still compares the words and now also the reply-language line, before it makes a run", () => {
+    const adopt = method(brainSource, /\n {2}adoptDraft\([\s\S]*?\): boolean \{/);
+    const guardAt = adopt.indexOf("sameTranscript(");
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(adopt).toMatch(/draft\.languageLine !==/);
+    expect(adopt.indexOf("draft.languageLine")).toBeLessThan(adopt.indexOf("this.newRun("));
+    expect(adopt.indexOf("needsClarification(finalHints)")).toBeLessThan(
+      adopt.indexOf("this.newRun("),
+    );
+  });
+
+  it("the voice parts of every plain call come from the one turnVoiceParts helper (one replyLanguageLine call)", () => {
+    expect(brainSource.match(/replyLanguageLine\(/g)).toHaveLength(1);
+    expect(brainSource.match(/voiceModeBlock\(/g)).toHaveLength(1);
+    expect(brainSource.match(/turnVoiceParts\(/g)!.length).toBeGreaterThanOrEqual(4);
   });
 });

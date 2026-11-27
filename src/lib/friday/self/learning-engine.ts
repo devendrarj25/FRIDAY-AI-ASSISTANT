@@ -9,7 +9,12 @@
 
 import { memory } from "./memory-engine";
 import { pastEvidence } from "../brain/memory-asof";
-import { experiences, STRATEGY_SAMPLE_MIN, type ExperienceModel } from "./task-ledger";
+import {
+  experiences,
+  STRATEGY_SAMPLE_MIN,
+  type ExperienceModel,
+  type PromptAuthor,
+} from "./task-ledger";
 import { ownerContextDigest } from "../brain/identity";
 import { userProfileDigest } from "../brain/user-profile";
 import { applyVerifiedCorrection } from "../brain/settings-intents";
@@ -27,6 +32,9 @@ export type Outcome = {
   /** Which models and tools actually did the work (experience evidence). */
   models?: (string | ExperienceModel)[];
   tools?: string[];
+  /** Who wrote the prompt ("owner" only for text the owner typed or spoke this turn) and what untrusted content sat in the context. */
+  promptAuthor?: PromptAuthor;
+  contextKinds?: string[];
   strategy?: string;
   cause?: string;
   lesson?: string;
@@ -56,6 +64,8 @@ class LearningEngine {
       ...(outcome.tools ? { tools: outcome.tools } : {}),
       ...(outcome.detail ? { detail: outcome.detail } : {}),
       ...(outcome.correction ? { feedback: outcome.correction } : {}),
+      ...(outcome.promptAuthor ? { promptAuthor: outcome.promptAuthor } : {}),
+      ...(outcome.contextKinds ? { contextKinds: outcome.contextKinds } : {}),
     });
 
     // 1. Every finished task becomes an episode — that is history, not knowledge.

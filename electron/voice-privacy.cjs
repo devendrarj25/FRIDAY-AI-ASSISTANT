@@ -9,8 +9,13 @@
  *   3. the consent record: the time the owner agreed that FRIDAY may store a voice sample. It holds that time and a
  *      notice number, nothing else (no name, no address, no device id).
  *
+ *   4. the audio caches the speech paths leave in the cache folder: the spoken replies (`cache/tts`), raw clips a
+ *      crash left behind (`cache/stt-in`), wake-word temp clips (`cache/wake-in`, and the temp folder when no
+ *      folder was chosen) and the system-voice clips in the temp folder (`friday-sapi`). Only FRIDAY's own
+ *      folders and, in the shared temp folder, only files FRIDAY names that way are touched.
+ *
  * Saving an enrolment sample or building a voiceprint needs the consent record. "Delete my voice data" removes all
- * three and says what it removed and what is left. Nothing here leaves the PC.
+ * of them and says what it removed and what is left. Nothing here leaves the PC.
  */
 "use strict";
 
@@ -33,6 +38,8 @@ function useForTests(deps = {}) {
 
 const now = () => (injected.now ? injected.now() : Date.now());
 const enroll = () => injected.enroll || require("./voice-enroll.cjs");
+const tmpRoot = () => (injected.tmpdir ? injected.tmpdir() : require("node:os").tmpdir());
+const voiceprint = () => injected.voiceprint || require("./voiceprint.cjs");
 
 function privacyDir() {
   return paths.file("preferences", "voice-privacy");
@@ -152,6 +159,235 @@ function setRetention({ keep, days } = {}) {
   return { ...pruneWavs(next), retention: next };
 }
 
+// ----------------------------------------------------------------------------- audio caches
+/** Files FRIDAY writes into the shared temp folder: a random hex name, an audio extension (wake-engine.cjs). */
+const TEMP_CLIP = /^[0-9a-f]{16}\.(?:webm|ogg|wav)$/;
+/** The same for the bootstrap cache used before a folder is chosen: a raw clip, or a cloud reply named by its sha1. */
+const BOOT_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.mp3)$/;
+/** What "delete voice data" removes from the spoken-reply cache: the names above plus a local reply (sha1 wav). */
+const REPLY_CLIP = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav)|[0-9a-f]{40}\.(?:mp3|wav))$/;
+
+/** Every audio cache location with the group it is counted under. A `names` filter limits a shared folder. */
+function cacheTargets() {
+  const targets = [];
+  const cache = paths.dir("cache");
+  if (paths.root()) {
+    const base = paths.root();
+    targets.push(
+      { group: "replies", dir: path.join(cache, "tts"), base, own: true },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), base, own: true },
+      { group: "wakeClips", dir: path.join(cache, "wake-in"), base, own: true },
+    );
+  } else {
+    // No folder chosen: the speech paths write into the bootstrap cache, so their clips live there.
+    const base = path.dirname(cache);
+    targets.push(
+      { group: "replies", dir: path.join(cache, "tts"), base, own: false, names: BOOT_CLIP },
+      { group: "rawClips", dir: path.join(cache, "stt-in"), base, own: false, names: BOOT_CLIP },
+    );
+  }
+  const tmp = tmpRoot();
+  targets.push(
+    { group: "wakeClips", dir: path.join(tmp, "wake-in"), base: tmp, own: false },
+    { group: "systemClips", dir: path.join(tmp, "friday-sapi"), base: tmp, own: true },
+  );
+  return targets;
+}
+
+function cacheFiles(target) {
+  try {
+    return fs
+      .readdirSync(target.dir, { withFileTypes: true })
+      .filter(
+        (entry) => entry.isFile() && (target.own || (target.names || TEMP_CLIP).test(entry.name)),
+      )
+      .map((entry) => path.join(target.dir, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function cacheSummary() {
+  let count = 0;
+  let bytes = 0;
+  for (const target of cacheTargets()) {
+    for (const file of cacheFiles(target)) {
+      count += 1;
+      try {
+        bytes += fs.statSync(file).size;
+      } catch {
+        /* a file that vanished is not counted */
+      }
+    }
+  }
+  return { count, bytes };
+}
+
+/** Remove the spoken-reply, raw-clip, wake and system-voice audio. Returns how many files went, per group. */
+function clearCaches() {
+  const cleared = { replies: 0, rawClips: 0, wakeClips: 0, systemClips: 0 };
+  for (const target of cacheTargets()) {
+    for (const file of cacheFiles(target)) {
+      try {
+        fs.rmSync(file, { force: true });
+        cleared[target.group] += 1;
+      } catch {
+        /* named by the check that follows */
+      }
+    }
+  }
+  return cleared;
+}
+
+/** A folder that is a real folder (not a link) and whose real path stays inside its base (the root or the temp folder). */
+function insideBase(target) {
+  try {
+    if (!fs.lstatSync(target.dir).isDirectory()) return false;
+    const rel = path.relative(fs.realpathSync(target.base), fs.realpathSync(target.dir));
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+// ----------------------------------------------------------------------------- spoken-reply cache bound
+/** The most the spoken-reply cache (`cache/tts`) may hold: total bytes and file count. Oldest files go first. */
+const TTS_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+const TTS_CACHE_MAX_FILES = 2000;
+/** What FRIDAY writes there: a random clip (16 hex), a cloud reply (sha1 mp3) or a local reply (sha1 wav). */
+const TTS_CACHE_NAME = /^(?:[0-9a-f]{16}\.(?:webm|ogg|wav|mp3)|[0-9a-f]{40}\.(?:mp3|wav))$/;
+
+/**
+ * Keep the spoken-reply cache inside its limits: the oldest FRIDAY-named regular files go first until both the size
+ * and the count fit. A link, a stranger's file and a folder that links out of the FRIDAY folder are never touched.
+ * `keep` lists paths that stay whatever the limits say (the file just written). Called at the first speech and after
+ * each write; safe to call twice.
+ * @param {{ maxBytes?: number, maxFiles?: number, keep?: string[] }} [options]
+ * @returns {{ removed: number, freed: number, kept: number, keptBytes: number }}
+ */
+function boundTtsCache({
+  maxBytes = TTS_CACHE_MAX_BYTES,
+  maxFiles = TTS_CACHE_MAX_FILES,
+  keep = [],
+} = {}) {
+  const none = { removed: 0, freed: 0, kept: 0, keptBytes: 0 };
+  const target = cacheTargets().find((entry) => entry.group === "replies");
+  if (!target || !insideBase(target)) return none;
+  const protectedNames = new Set(keep.map((file) => path.basename(String(file))));
+  let entries = [];
+  try {
+    entries = fs.readdirSync(target.dir, { withFileTypes: true });
+  } catch {
+    return none;
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !TTS_CACHE_NAME.test(entry.name)) continue;
+    const file = path.join(target.dir, entry.name);
+    try {
+      const stat = fs.lstatSync(file);
+      if (stat.isFile()) files.push({ file, name: entry.name, size: stat.size, at: stat.mtimeMs });
+    } catch {
+      /* a file that vanished is not counted */
+    }
+  }
+  files.sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
+  let count = files.length;
+  let bytes = files.reduce((sum, item) => sum + item.size, 0);
+  let removed = 0;
+  let freed = 0;
+  for (const item of files) {
+    if (count <= maxFiles && bytes <= maxBytes) break;
+    if (protectedNames.has(item.name)) continue;
+    if (removeClip(item.file) < 0) continue;
+    count -= 1;
+    bytes -= item.size;
+    removed += 1;
+    freed += item.size;
+  }
+  return { removed, freed, kept: count, keptBytes: bytes };
+}
+
+/** Remove one FRIDAY-named regular file (never a link). Returns its size, or -1 when it stayed. */
+function removeClip(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) return -1;
+    fs.rmSync(file, { force: true });
+    return stat.size;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * "Delete voice data" in one call: the voiceprint and every audio cache the speech paths leave behind. Strict: only a
+ * file named the way FRIDAY names it (16 hex and an audio extension, or 40 hex and mp3, or 40 hex and wav in the reply cache) goes, a link is never followed
+ * or removed, and a cache folder that links out of its root is skipped. Safe to call twice.
+ * Answers how many files went (the voiceprint counts as one), their size, and how many stayed.
+ */
+function clearVoiceData() {
+  let removed = 0;
+  let bytes = 0;
+  let failed = 0;
+  const print = voiceprint();
+  try {
+    if (print.status().enrolled) {
+      print.clear();
+      removed += 1;
+    }
+  } catch {
+    failed += 1;
+  }
+  if (paths.root()) {
+    // The voiceprint file the root holds, when the store above did not reach it.
+    const own = path.join(paths.root(), "voiceprint.json");
+    if (isFile(own)) {
+      const size = removeClip(own);
+      if (size < 0) failed += 1;
+      else {
+        removed += 1;
+        bytes += size;
+      }
+    }
+  }
+  for (const target of cacheTargets()) {
+    if (!insideBase(target)) continue;
+    let names = [];
+    try {
+      names = fs.readdirSync(target.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    // Local replies (40 hex and wav) are written only into the spoken-reply cache, so only that group matches them.
+    const named = target.group === "replies" ? REPLY_CLIP : BOOT_CLIP;
+    for (const entry of names) {
+      if (!entry.isFile() || !named.test(entry.name)) continue;
+      const size = removeClip(path.join(target.dir, entry.name));
+      if (size < 0) failed += 1;
+      else {
+        removed += 1;
+        bytes += size;
+      }
+    }
+  }
+  let enrolled = false;
+  try {
+    enrolled = print.status().enrolled === true;
+  } catch {
+    /* an unreadable store is reported through `failed` above */
+  }
+  return { ok: failed === 0 && !enrolled, removed, bytes, failed, enrolled };
+}
+
+function isFile(file) {
+  try {
+    return fs.lstatSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 // ----------------------------------------------------------------------------- status and delete
 function status() {
   const consent = readConsent();
@@ -167,6 +403,7 @@ function status() {
     consent: { given: consent !== null, givenAt: consent ? consent.givenAt : 0 },
     enrolment,
     wavs: wavSummary(),
+    caches: cacheSummary(),
     retention: readRetention(),
     limits: { minDays: MIN_DAYS, maxDays: MAX_DAYS, defaultDays: DEFAULT_DAYS },
   };
@@ -179,17 +416,26 @@ function leftovers() {
   const enrolment = paths.file("preferences", "voice-enrollment");
   if (fs.existsSync(enrolment)) left.push("voice enrolment");
   if (listWavs().length) left.push("kept utterance clips");
+  if (cacheSummary().count) left.push("spoken-reply and clip caches");
   if (fs.existsSync(consentFile())) left.push("consent record");
   return left;
 }
 
 /**
- * Delete every piece of voice data FRIDAY holds: enrolment samples and voiceprint, kept utterance WAVs and the
- * consent record. The answer says how much went and whether anything is left.
+ * Delete every piece of voice data FRIDAY holds: enrolment samples and voiceprint, kept utterance WAVs, the audio caches
+ * and the consent record. The answer says how much went and whether anything is left.
  */
 async function deleteAll() {
-  if (!paths.root())
-    return { ok: false, reason: "no-root", detail: "choose a FRIDAY folder first", left: [] };
+  if (!paths.root()) {
+    // Wake clips and clips of an unchosen folder sit in temp folders: they go even though nothing else can be reached.
+    return {
+      ok: false,
+      reason: "no-root",
+      detail: "choose a FRIDAY folder first",
+      cleared: clearCaches(),
+      left: [],
+    };
+  }
   const before = status();
   try {
     await enroll().forget();
@@ -202,6 +448,7 @@ async function deleteAll() {
   } catch {
     /* named by the check below */
   }
+  const cleared = clearCaches();
   try {
     fs.rmSync(consentFile(), { force: true });
   } catch {
@@ -216,6 +463,7 @@ async function deleteAll() {
       wavs: before.wavs.count,
       consent: before.consent.given,
     },
+    cleared,
     left,
     status: status(),
   };
@@ -235,5 +483,9 @@ module.exports = {
   readRetention,
   status,
   deleteAll,
+  clearVoiceData,
+  boundTtsCache,
+  TTS_CACHE_MAX_BYTES,
+  TTS_CACHE_MAX_FILES,
   useForTests,
 };

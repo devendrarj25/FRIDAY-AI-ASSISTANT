@@ -219,3 +219,29 @@ def test_the_wake_worker_builds_no_voiceprint_without_the_owners_consent(tmp_pat
         assert "profile" not in refused
     # nothing was kept in the worker either
     assert wake_word.handle_request({"op": "enroll_summary"})["summary"]["built"] is False
+
+
+def test_the_owner_embedding_is_the_unit_mean_of_speech_clips_and_absent_without_a_model():
+    rng = np.random.default_rng(21)
+    clips = owner_clips(rng)
+    seen = []
+
+    def embed(pcm):
+        seen.append(len(pcm))
+        out = np.zeros(256)
+        out[3] = 2.0
+        out[7] = 0.5
+        return out
+
+    vec = ve.owner_embedding(clips, embed=embed)
+    assert vec is not None and len(vec) == 256
+    assert abs(float(np.linalg.norm(vec)) - 1.0) < 1e-9
+    # wake takes are not used: only the speech clips were embedded
+    assert len(seen) == sum(1 for c in clips if c["kind"] != "wake")
+    # too few speech clips, or an embedder that fails, leave the speaker unknown
+    assert ve.owner_embedding(clips[:2], embed=embed) is None
+
+    def broken(_pcm):
+        raise RuntimeError("no runtime")
+
+    assert ve.owner_embedding(clips, embed=broken) is None

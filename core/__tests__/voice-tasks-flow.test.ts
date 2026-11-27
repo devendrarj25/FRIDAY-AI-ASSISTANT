@@ -334,7 +334,10 @@ describe("a short harmless question is answered at once, whatever the age of the
       const quick = vi.spyOn(inner, "answerQuick");
       d.dispatch(QUESTION);
       expect(quick).toHaveBeenCalledTimes(1);
-      expect(quick).toHaveBeenCalledWith(QUESTION, "voice");
+      // the question and its surface, then the turn's facts and hints as one metadata object
+      const call = quick.mock.calls[0] as unknown[] | undefined;
+      expect(call?.slice(0, 2)).toEqual([QUESTION, "voice"]);
+      expect(call?.[2]).toMatchObject({ context: expect.any(String) });
       expect(d.queuedCommands).toEqual([]);
       expect(asked).toEqual(["summarise the quarterly report"]); // the task's own run is the only run
     },

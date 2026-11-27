@@ -361,6 +361,16 @@ async function build() {
   } catch {
     return { ok: false, reason: "save-failed", error: "the profile could not be saved encrypted" };
   }
+  // The speaker-model centroid for the streaming ear's speaker tag: stored in the safe store, never returned.
+  try {
+    const voiceprint = require("./voiceprint.cjs");
+    const saved = Array.isArray(result.ownerEmbedding)
+      ? await voiceprint.save(result.ownerEmbedding)
+      : { ok: false };
+    if (!saved.ok) voiceprint.clear();
+  } catch {
+    /* no centroid: the speaker stays unknown */
+  }
   loadedGeneration = answer.generation;
   return { ok: true, summary: result.summary, skipped: result.skipped || [] };
 }

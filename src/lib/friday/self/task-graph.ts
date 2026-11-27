@@ -21,6 +21,7 @@
 import { quarantine } from "../brain/quarantined-reader";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure } from "./learning-engine";
+import { promptAuthorOf, type PromptOrigin } from "./turn-provenance";
 import { findSkill, reflectOnUse, writeSkill } from "./skill-loop";
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
 import { autonomy, type ApprovalLevel } from "./autonomy";
@@ -147,6 +148,8 @@ export type TaskGraph = {
   budget?: TaskBudget;
   /** After a restart: ask, or resume because the owner set Full. */
   resumeOffer?: "ask" | "resume";
+  /** Set only by a caller that knows the request is the owner's own typed or spoken words. Missing = unknown. */
+  promptOrigin?: PromptOrigin;
 };
 
 export type TaskGraphState = {
@@ -611,6 +614,8 @@ export class TaskGraphEngine {
       maxAttempts?: number;
       horizon?: { goal: string; deadline?: string; outcome?: string };
       budget?: TaskBudget;
+      /** "typed" or "owner-voice" only for the owner's own words; anything else leaves the request unknown. */
+      promptOrigin?: PromptOrigin;
     } = {},
   ): { id: string; position: number; queued: boolean } {
     const priority = options.priority ?? "owner";
@@ -666,6 +671,9 @@ export class TaskGraphEngine {
       logs: [],
       runId: `${graphId}-run`,
       ...(options.budget ? { budget: options.budget } : {}),
+      ...(promptAuthorOf(options.promptOrigin) === "owner" && options.promptOrigin
+        ? { promptOrigin: options.promptOrigin }
+        : {}),
       ...(options.horizon
         ? {
             horizon: {
@@ -1358,6 +1366,7 @@ export class TaskGraphEngine {
             ? graph.nodes.map((node) => node.title).join(" → ")
             : (graph.error ?? "task failed"),
         tools: [...new Set(graph.nodes.flatMap((node) => node.checkpoint?.tools ?? []))],
+        ...graphProvenance(graph),
       });
       // Read -> act -> reflect -> write: a skill that was used earns or loses credit from this
       // outcome; a verified run with no skill behind it may teach one, through the same write gate.
@@ -1387,6 +1396,25 @@ export class TaskGraphEngine {
     this.emit();
     return true;
   }
+}
+
+/**
+ * What the ledger may know about a finished graph. The author is "owner" only when the caller said the request
+ * was the owner's own words. A later step reads the output of the steps before it, and a desktop step reads the
+ * screen, so both count as outside content: the graph is then never a clean owner turn.
+ */
+export function graphProvenance(graph: TaskGraph): {
+  promptAuthor?: "owner";
+  contextKinds?: string[];
+} {
+  const kinds = new Set<string>();
+  if (graph.nodes.length > 1) kinds.add("tool");
+  for (const node of graph.nodes) if (node.kind === "desktop") kinds.add("screen");
+  const owner = promptAuthorOf(graph.promptOrigin) === "owner";
+  return {
+    ...(owner ? { promptAuthor: "owner" as const } : {}),
+    ...(owner || kinds.size ? { contextKinds: [...kinds] } : {}),
+  };
 }
 
 /** Drops the persisted graph list so a test starts from an empty queue. */

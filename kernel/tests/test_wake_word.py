@@ -302,6 +302,81 @@ class WakeFrameScorerTests(unittest.TestCase):
                 self.wake._frame_scorers.clear()
 
 
+class WakeManifestThresholdTests(unittest.TestCase):
+    """Live frames run at the threshold the evaluation reported, never below today's 0.5."""
+
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import wake_word
+
+        self.wake = wake_word
+        self.wake._frame_scorers.clear()
+
+    def tearDown(self):
+        self.wake._frame_scorers.clear()
+
+    def run_frames(self, manifest, score, threshold=None, session="t"):
+        import base64
+        import os
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                directory = Path(tmp) / "models" / "wake"
+                directory.mkdir(parents=True)
+                (directory / "friday.onnx").write_bytes(b"\0" * 100_000)
+                predictor = lambda _path: lambda _frame: score  # noqa: E731
+                chunk = base64.b64encode(b"\0\0" * 1280 * 2).decode()
+                req = {"op": "frame", "session": session, "pcm": chunk, "minFrames": 1}
+                with mock.patch.object(self.wake, "manifest_for", return_value=manifest):
+                    return self.wake.frame_op(req, "friday", None, threshold, make_predictor=predictor)
+            finally:
+                os.environ.pop("FRIDAY_ROOT", None)
+
+    def test_a_manifest_threshold_of_0_9_blocks_a_0_7_score(self):
+        out = self.run_frames({"threshold": 0.9}, 0.7)
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["detected"])
+        self.assertEqual(out["threshold"], 0.9)
+
+    def test_a_manifest_threshold_of_0_9_still_accepts_a_0_95_score(self):
+        out = self.run_frames({"threshold": 0.9}, 0.95)
+        self.assertTrue(out["detected"])
+
+    def test_no_manifest_threshold_keeps_0_5(self):
+        for manifest in (None, {}, {"threshold": None}, {"threshold": "high"}, {"threshold": True}):
+            self.wake._frame_scorers.clear()
+            out = self.run_frames(manifest, 0.6)
+            self.assertEqual(out["threshold"], 0.5, manifest)
+            self.assertTrue(out["detected"], manifest)
+
+    def test_a_manifest_below_0_5_is_raised_to_0_5_never_lowered(self):
+        out = self.run_frames({"threshold": 0.2}, 0.4)
+        self.assertEqual(out["threshold"], 0.5)
+        self.assertFalse(out["detected"])
+
+    def test_a_manifest_above_the_ceiling_is_clamped_to_0_995(self):
+        out = self.run_frames({"threshold": 1.7}, 0.99)
+        self.assertEqual(out["threshold"], 0.995)
+        self.assertFalse(out["detected"])
+
+    def test_the_requests_own_threshold_still_wins(self):
+        out = self.run_frames({"threshold": 0.9}, 0.7, threshold=0.6)
+        self.assertEqual(out["threshold"], 0.6)
+        self.assertTrue(out["detected"])
+
+    def test_handle_request_leaves_the_threshold_to_the_manifest_when_none_is_sent(self):
+        from unittest import mock
+
+        with mock.patch.object(self.wake, "frame_op", return_value={"ok": True}) as op:
+            self.wake.handle_request({"op": "frame", "pcm": "AAAA"})
+            self.assertIsNone(op.call_args.args[3])
+            self.wake.handle_request({"op": "frame", "pcm": "AAAA", "threshold": 0.7})
+            self.assertEqual(op.call_args.args[3], 0.7)
+
+
 class WakeEvaluationTests(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, str(KERNEL))
@@ -359,6 +434,209 @@ class WakeEvaluationTests(unittest.TestCase):
                 self.assertEqual(out["reason"], "no-model")
             finally:
                 os.environ.pop("FRIDAY_ROOT", None)
+
+
+class FridayEmbedEngineTests(unittest.TestCase):
+    """The friday-embed engine: chosen by its manifest, never faked when its embedding model is missing."""
+
+    def setUp(self):
+        import hashlib
+        import importlib
+        import os
+        import tempfile
+        from unittest import mock
+
+        import numpy as np
+
+        sys.path.insert(0, str(KERNEL))
+        import wake_features
+        import wake_word
+
+        self.np = np
+        self.wf = wake_features
+        self.wake = importlib.reload(wake_word)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"FRIDAY_ROOT": tmp.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("FRIDAY_WAKE_ALLOW_FIXTURE", None)
+        os.environ.pop("FRIDAY_WAKE_EMBED_MODEL", None)
+        self.dir = Path(tmp.name) / "models" / "wake"
+        self.dir.mkdir(parents=True)
+        self.embedding_bytes = b"embedding-model-stand-in"
+        self.embedding_sha = hashlib.sha256(self.embedding_bytes).hexdigest()
+        self.manifest_path = self.dir / "friday-wake.json"
+
+    def use_fake_embed(self):
+        from unittest import mock
+
+        patcher = mock.patch.object(self.wake, "embed_fn", lambda _manifest: self.fake_embed)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fake_embed(self, windows):
+        return self.np.asarray(windows, dtype=self.np.float32).mean(axis=1)
+
+    def write_manifest(self, production=True, sha=None, **extra):
+        np = self.np
+        dim = 32
+        manifest = {
+            "kind": "friday-embed-v1",
+            "provenance": "real-speech",
+            "production": production,
+            "embedding": {"file": "wake-embed.onnx", "sha256": self.embedding_sha if sha is None else sha},
+            "head": {
+                "window": 16,
+                "mean": self.wf.encode_tensor(np.zeros(dim)),
+                "std": self.wf.encode_tensor(np.ones(dim)),
+                # loud audio has high mel values, silence very low ones: this head answers 1 for sound, 0 for quiet
+                "layers": [
+                    {"w": self.wf.encode_tensor(np.full((dim * 16, 1), 0.01)), "b": self.wf.encode_tensor([0.0])}
+                ],
+            },
+            "threshold": 0.5,
+            "evaluation": {"meetsTargets": production, "independent": True},
+            **extra,
+        }
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def install_embedding(self):
+        (self.dir / "wake-embed.onnx").write_bytes(self.embedding_bytes)
+
+    def loud(self, seconds):
+        rng = self.np.random.default_rng(4)
+        return [int(v) for v in rng.normal(0, 4000, int(seconds * 16000))]
+
+    def test_the_manifest_names_the_engine_and_a_sidecar_can_too(self):
+        self.write_manifest()
+        self.assertEqual(self.wake.engine_for_path(str(self.manifest_path)), "friday-embed")
+        (self.dir / "hey.wake.json").write_text(json.dumps({"engine": "friday-embed"}), encoding="utf-8")
+        self.assertEqual(self.wake.engine_for_path(str(self.dir / "hey.onnx")), "friday-embed")
+
+    def test_without_the_embedding_model_it_is_not_ready_and_says_why(self):
+        import os
+
+        self.write_manifest()
+        os.environ["FRIDAY_WAKE_ALLOW_FIXTURE"] = "1"  # the fixture switch never waives a missing model
+        allowed, why = self.wake.production_status(str(self.manifest_path))
+        self.assertFalse(allowed)
+        self.assertIn("not installed", why)
+        probe = self.wake.probe_payload("friday")
+        self.assertFalse(probe["ready"])
+        self.assertEqual(probe["engine"], "transcript")
+        self.assertIn("not installed", probe["error"])
+        detected = self.wake.detect_audio(str(self.dir / "none.wav"), "friday", None, 0.5)
+        self.assertEqual((detected["ok"], detected["reason"]), (False, "not-production"))
+        frames = self.wake.frame_op({"pcm": "AAAA", "session": "s1"}, "friday", None, 0.5)
+        self.assertEqual((frames["ok"], frames["reason"]), (False, "missing-embedding-model"))
+        self.assertEqual(
+            self.wake.score_embed([0] * 100, str(self.manifest_path), 0.5)["reason"], "missing-embedding-model"
+        )
+
+    def test_an_embedding_model_that_is_not_the_trained_one_is_refused(self):
+        self.write_manifest(sha="0" * 64)
+        self.install_embedding()
+        allowed, why = self.wake.production_status(str(self.manifest_path))
+        self.assertFalse(allowed)
+        self.assertIn("not the one", why)
+
+    def test_the_embed_head_is_preferred_only_when_its_model_is_installed(self):
+        self.write_manifest()
+        oww = self.dir / "friday.onnx"
+        oww.write_bytes(b"\0" * 20000)
+        self.assertEqual(self.wake.pick_model("friday", None), str(oww))  # fallback while the embedding is missing
+        self.install_embedding()
+        self.assertEqual(self.wake.pick_model("friday", None), str(self.manifest_path))
+
+    def test_the_real_speech_gate_still_applies_to_the_embed_head(self):
+        self.install_embedding()
+        self.write_manifest(production=False, notProductionBecause=["3 speakers needed"])
+        allowed, why = self.wake.production_status(str(self.manifest_path))
+        self.assertFalse(allowed)
+        self.assertIn("3 speakers", why)
+        self.write_manifest(provenance="synthetic-fixture")
+        self.assertFalse(self.wake.production_status(str(self.manifest_path))[0])
+        self.write_manifest()
+        self.assertEqual(self.wake.production_status(str(self.manifest_path)), (True, ""))
+        self.assertTrue(self.wake.probe_payload("friday")["ready"])
+        self.assertEqual(self.wake.probe_payload("friday")["engine"], "friday-embed")
+
+    def test_live_frames_are_scored_by_the_stream_after_it_primes(self):
+        import base64
+
+        self.write_manifest()
+        self.install_embedding()
+        self.use_fake_embed()
+        audio = self.np.asarray(self.loud(4.0), dtype="<i2")
+        results = []
+        for index in range(40):
+            chunk = audio[index * 1280 : (index + 1) * 1280]
+            results.append(
+                self.wake.frame_op(
+                    {"pcm": base64.b64encode(chunk.tobytes()).decode(), "session": "live", "minFrames": 2},
+                    "friday",
+                    None,
+                    0.5,
+                )
+            )
+        self.assertTrue(all(r["ok"] and r["engine"] == "friday-embed" for r in results))
+        self.assertTrue(all(r["score"] == 0.0 for r in results[:24]))  # 10 steps to the first embedding, 16 to a window
+        self.assertGreater(results[24]["score"], 0.9)
+        self.assertEqual(sum(1 for r in results if r["detected"]), 1)
+        self.wake._frame_scorers.clear()
+
+    def test_a_clip_is_scored_and_quiet_audio_is_not_a_wake_word(self):
+        import wave
+
+        self.write_manifest()
+        self.install_embedding()
+        self.use_fake_embed()
+
+        def wav(name, samples):
+            path = self.dir.parent / name
+            with wave.open(str(path), "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(16000)
+                handle.writeframes(self.np.asarray(samples, dtype="<i2").tobytes())
+            return str(path)
+
+        hit = self.wake.detect_audio(wav("loud.wav", self.loud(1.5)), "friday", None, 0.5)
+        miss = self.wake.detect_audio(wav("quiet.wav", [0] * 24000), "friday", None, 0.5)
+        self.assertTrue(hit["ok"], hit)
+        self.assertEqual((hit["engine"], hit["detected"]), ("friday-embed", True))
+        self.assertEqual((miss["ok"], miss["detected"]), (True, False))
+        self.assertGreater(hit["score"], miss["score"])
+
+    def test_the_folder_evaluation_runs_on_the_embed_engine(self):
+        import wave
+
+        self.write_manifest()
+        self.install_embedding()
+        self.use_fake_embed()
+        for kind, samples in (("pos", self.loud(1.5)), ("neg", [0] * 24000)):
+            folder = self.dir.parent / kind
+            folder.mkdir()
+            with wave.open(str(folder / "a.wav"), "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(16000)
+                handle.writeframes(self.np.asarray(samples, dtype="<i2").tobytes())
+        report = self.wake.evaluate_directories(
+            str(self.dir.parent / "pos"), str(self.dir.parent / "neg"), "friday", None, 0.5
+        )
+        self.assertTrue(report["ok"], report)
+        self.assertEqual((report["positives"], report["negatives"]), (1, 1))
+        self.assertEqual(report["falseRejectionRate"], 0.0)
+        self.assertEqual(report["falseAcceptsPerHour"], 0.0)
+
+    def test_the_old_engines_still_answer_beside_it(self):
+        bundled = KERNEL.parent / "testing" / "wake-fixture" / "friday-wake.json"
+        self.assertEqual(self.wake.engine_for_path(str(bundled)), "friday-linear")
+        model = self.dir / "other.onnx"
+        model.write_bytes(b"\0" * 20000)
+        self.assertEqual(self.wake.engine_for_path(str(model)), "openwakeword")
 
 
 if __name__ == "__main__":

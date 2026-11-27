@@ -16,11 +16,7 @@
  * Partial audio never leaves this PC (the request is local-only and provisional). Opt-in (`voice.liveWords`), off by
  * default, because every pass is a real recognition on this PC.
  */
-import {
-  LocalAgreementStabilizer,
-  TranscriptStabilizer,
-  type TimedWord,
-} from "./transcript-stabilizer";
+import { TranscriptStabilizer, WordStateStabilizer, type TimedWord } from "./transcript-stabilizer";
 
 export type LivePassWord = { text: string; start: number; end: number };
 
@@ -48,6 +44,11 @@ export type LiveWordsUpdate = {
   shown: string;
   /** The words after the settled ones, still liable to change (show them dim). */
   unstable: string;
+  /** Timed-word mode: the unsettled words two passes in a row agree on, and the ones that just changed. */
+  stable?: string;
+  volatile?: string;
+  /** Timed-word mode: counts revisions of settled words (settled text only ever grows while it stays the same). */
+  revision?: number;
   passes: number;
   /** The language the last confident pass heard ("" until one was). */
   language: string;
@@ -140,7 +141,7 @@ export class LiveWords {
   private lastPassMs = 0;
   private utteranceId = "";
   private language = "";
-  private agree = new LocalAgreementStabilizer();
+  private agree = new WordStateStabilizer();
   private stabilizer = new TranscriptStabilizer({ minActionWords: 9_999 });
   private readonly now: () => number;
 
@@ -163,7 +164,7 @@ export class LiveWords {
     this.language = "";
     utteranceSeq += 1;
     this.utteranceId = `live-${utteranceSeq}`;
-    this.agree = new LocalAgreementStabilizer();
+    this.agree = new WordStateStabilizer();
     this.stabilizer = new TranscriptStabilizer({ minActionWords: 9_999 });
   }
 
@@ -174,6 +175,14 @@ export class LiveWords {
 
   isActive(): boolean {
     return this.active;
+  }
+
+  /**
+   * A partial from the streaming ear, already settled there (committed words never change): it takes the same path
+   * as a pass of this follower, so the caption and the barge-in gate read one shape. Display data only.
+   */
+  show(update: LiveWordsUpdate): void {
+    this.deps.onUpdate(update);
   }
 
   private cancelRunning(): void {
@@ -265,7 +274,10 @@ export class LiveWords {
     out: LivePassReply,
     bufferAt: number,
     audioMs: number,
-  ): Pick<LiveWordsUpdate, "settled" | "shown" | "unstable"> | null {
+  ): Pick<
+    LiveWordsUpdate,
+    "settled" | "shown" | "unstable" | "stable" | "volatile" | "revision"
+  > | null {
     const heard = (out.words ?? []).flatMap((w) =>
       Number.isFinite(w.start) && Number.isFinite(w.end) && typeof w.text === "string"
         ? splitMixedScript({ text: w.text, start: w.start, end: w.end })
@@ -276,8 +288,17 @@ export class LiveWords {
     const result = this.agree.push(heard, offsetS);
     this.trim(out, offsetS, audioMs, result.lastCommittedTime);
     const settled = joinWords(result.committed);
-    const unstable = joinWords(result.unstable);
-    return { settled, unstable, shown: `${settled} ${unstable}`.trim() };
+    const stable = joinWords(result.stable);
+    const volatile = joinWords(result.volatile);
+    const unstable = [stable, volatile].filter(Boolean).join(" ");
+    return {
+      settled,
+      unstable,
+      stable,
+      volatile,
+      revision: result.revision,
+      shown: `${settled} ${unstable}`.trim(),
+    };
   }
 
   /** Cut the front of the buffer at settled audio so a long utterance stays cheap to read. */
@@ -290,7 +311,10 @@ export class LiveWords {
     if (cut === null && audioMs > FORCE_TRIM_MS) cut = committedS;
     if (cut === null) return;
     const next = this.origin + cut * 1000;
-    if (next > this.bufferStart) this.bufferStart = next;
+    if (next > this.bufferStart) {
+      this.bufferStart = next;
+      this.agree.trimAt((next - this.origin) / 1000);
+    }
   }
 
   private noteLanguage(out: LivePassReply): void {

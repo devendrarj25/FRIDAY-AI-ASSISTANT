@@ -198,6 +198,7 @@ const VOICE_MODULES = [
     ...Object.values(ENGINE_MODULES),
     "pyaec",
     "supertonic",
+    "numpy",
     "onnx_asr",
     "sentencepiece",
     "faster_whisper",
@@ -335,10 +336,18 @@ function languageRows({
       ? { state: "ok", text: `package ${name} present` }
       : { state: "absent", text: `package ${name} NOT installed in the venv` };
   };
-  const add = (name, models, modules) => {
+  const optionalPart = (mod) => {
+    const name = PIP_NAME[mod] || mod;
+    if (!mods) return { state: "unchecked", text: `package ${name} not checked (no venv python)` };
+    return mods[mod] === true
+      ? { state: "ok", text: `package ${name} present (fallback)` }
+      : { state: "ok", text: `own runner (optional fallback ${name} not installed)` };
+  };
+  const add = (name, models, modules, optional = []) => {
     const parts = [...models.map((m) => (m === "moonshine-en" ? moonshinePart() : modelPart(m)))];
     const needed = !parts.length || parts.some((p) => p.state === "ok" || p.state === "missing");
     const pkgs = modules.map(packagePart);
+    const extras = optional.map(optionalPart);
     let state = "INFO";
     if (parts.some((p) => p.state === "missing")) state = "FAIL";
     else if (needed && pkgs.some((p) => p.state === "absent"))
@@ -349,10 +358,10 @@ function languageRows({
       layer: "language",
       name,
       state,
-      detail: [...parts, ...pkgs].map((p) => p.text).join("; "),
+      detail: [...parts, ...pkgs, ...extras].map((p) => p.text).join("; "),
     });
   };
-  add("hindi ears (STT)", ["hindi-ear"], ["onnx_asr"]);
+  add("hindi ears (STT)", ["hindi-ear"], ["numpy", "onnxruntime"], ["onnx_asr"]);
   add("hindi fallback ear", ["hindi-fallback-ear"], ["faster_whisper"]);
   add("hindi speaking (TTS)", ["supertonic-3"], ["supertonic"]);
   add("hindi light TTS", ["hindi-light-tts"], []);
@@ -362,7 +371,7 @@ function languageRows({
   add("hinglish ears (STT)", ["hinglish-ear"], ["faster_whisper"]);
   add("hinglish speaking (TTS)", ["supertonic-3"], ["supertonic"]);
   add("hinglish punctuation", ["hindi-punct"], ["sentencepiece"]);
-  add("noise suppression (all languages)", [], ["pyrnnoise"]);
+  add("noise suppression (all languages)", [], [], ["pyrnnoise"]);
   add("echo canceller (all languages)", [], ["pyaec"]);
   return rows;
 }

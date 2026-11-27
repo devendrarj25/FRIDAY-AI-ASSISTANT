@@ -1142,6 +1142,21 @@ const TOOLS = [
     detect: engineDetector("llama.cpp", { pathFallback: true }),
     requirements: { diskBytes: 25_000_000 },
   }),
+  T("friday-runtime-llm", "AI Runtimes", {
+    // Where it lives (the install index reads this): FRIDAY's own engine folder under the FRIDAY folder.
+    home: "friday-root",
+    cmd: "friday-runtime-llm",
+    args: ["--version"],
+    url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+    source: "github.com/devendrarj25",
+    manual:
+      "FRIDAY's own build of the llama.cpp server for this PC. Sources in order: the release asset (only once its SHA-256 is recorded), a local build in runtime/own-build/friday-runtime-llm, then the official llama.cpp, which stays installed as the fallback and runs when this build does not.",
+    // Installs through electron/engine-install.cjs `installOwnEngine`; it is used only when it is the same tag as the
+    // official engine and starts, otherwise the official engine keeps running.
+    engine: "friday-runtime-llm",
+    detect: engineDetector("friday-runtime-llm"),
+    requirements: { diskBytes: 25_000_000, recommended: false },
+  }),
 
   T("LM Studio", "AI Runtimes", {
     cmd: "lms",
@@ -1289,6 +1304,8 @@ const TOOLS = [
     source: "ffmpeg.org",
   }),
   T("FFmpeg (LGPL, portable)", "Media Tools", {
+    // Where it lives (the install index reads this): a portable zip unpacked under the FRIDAY folder.
+    home: "friday-root",
     url: "https://github.com/BtbN/FFmpeg-Builds",
     source: "github.com/BtbN",
     latest: { kind: "github", ref: "BtbN/FFmpeg-Builds" },
@@ -1299,6 +1316,8 @@ const TOOLS = [
     requirements: { diskBytes: 150_000_000, recommended: false },
   }),
   T("stable-diffusion.cpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): a zip engine unpacked under the FRIDAY folder.
+    home: "friday-root",
     url: "https://github.com/leejet/stable-diffusion.cpp",
     source: "github.com/leejet",
     latest: { kind: "github", ref: "leejet/stable-diffusion.cpp", strip: "^master-" },
@@ -1359,6 +1378,8 @@ const TOOLS = [
     source: "qemu.org",
   }),
   T("Docker Compose", "Developer Tools", {
+    // Where it lives (the install index reads this): ships inside Docker Desktop, which installs system-wide.
+    home: "machine",
     cmd: "docker",
     args: ["compose", "version"],
     url: "https://docs.docker.com/compose/",
@@ -1418,6 +1439,8 @@ const TOOLS = [
     latest: { kind: "npm", ref: "n8n" },
   }),
   T("WSL 2", "Developer Tools", {
+    // Where it lives (the install index reads this): a Windows optional feature, installed by Windows itself.
+    home: "machine",
     cmd: "wsl",
     args: ["--version"],
     url: "https://learn.microsoft.com/windows/wsl/install",
@@ -1531,6 +1554,8 @@ const TOOLS = [
       "Maven 3.9.16. Apache-2.0. Needs a JDK. SHA-512 from archive.apache.org checked on 2026-11-21.",
   }),
   T("Composer", "Languages & Runtimes", {
+    // Where it lives (the install index reads this): a .phar kept next to a launcher under the FRIDAY folder.
+    home: "friday-root",
     cmd: "composer",
     args: ["--version"],
     url: "https://getcomposer.org/download/",
@@ -1549,6 +1574,8 @@ const TOOLS = [
     manual: "Composer 2.11.2. MIT. Needs PHP. SHA-256 from getcomposer.org checked on 2026-11-19.",
   }),
   T("dotnet-script", "Languages & Runtimes", {
+    // Where it lives (the install index reads this): a dotnet global tool in the user's profile.
+    home: "machine",
     cmd: "dotnet-script",
     args: ["--version"],
     url: "https://github.com/dotnet-script/dotnet-script",
@@ -1600,6 +1627,8 @@ const TOOLS = [
     latest: { kind: "pypi", ref: "soundfile" },
   }),
   T("KoboldCpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): a single program kept under the FRIDAY folder.
+    home: "friday-root",
     // One self-contained executable; it still needs a model file to start, so it
     // is stored under runtime\\ and run from there, never registered as a service.
     url: "https://github.com/LostRuins/koboldcpp",
@@ -1613,6 +1642,8 @@ const TOOLS = [
     manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
   }),
   T("Hugging Face runner", "AI Runtimes", {
+    // Where it lives (the install index reads this): its own environment is built under the FRIDAY folder.
+    home: "friday-root",
     // `transformers serve` in its own virtual environment under runtime\\ (PyTorch
     // is too large for the kernel's environment). The folder is the proof.
     url: "https://huggingface.co/docs/transformers/serve-cli/serving",
@@ -1843,6 +1874,8 @@ const TOOLS = [
       "Windows only. Installing onnxruntime-directml replaces the CPU onnxruntime wheel, so FRIDAY does not install it from requirements. CPUExecutionProvider stays the fallback.",
   }),
   T("Playwright browsers", "Web Automation", {
+    // Where it lives (the install index reads this): Playwright keeps the browsers in the user's cache folder.
+    home: "machine",
     url: "https://playwright.dev/python/",
     source: "pypi.org",
     latest: { kind: "pypi", ref: "playwright" },
@@ -2324,6 +2357,8 @@ const TOOLS = [
     source: "mariadb.org",
   }),
   T("Whisper.cpp", "AI Runtimes", {
+    // Where it lives (the install index reads this): comes with FRIDAY's own whisper.cpp under the FRIDAY folder.
+    home: "friday-root",
     cmd: "whisper-cli",
     url: "https://github.com/ggml-org/whisper.cpp",
     source: "github.com/ggml-org",
@@ -2427,6 +2462,18 @@ try {
 } catch {
   /* a missing manifest leaves the pins written on the tools themselves */
 }
+
+/**
+ * The installer addresses written in this file (and the pack manifest) when it loaded. Only these may bring their own
+ * host past `config/download-hosts.json`; an address that came from a feed, a data file or a release answer never
+ * does, so a remote answer cannot widen the allowlist.
+ */
+const PINNED_INSTALLER_URLS = new Set(
+  TOOLS.flatMap((tool) => [directInstaller(tool)?.url, ...(tool.installerMirrors || [])]).filter(
+    (url) => typeof url === "string" && /^https:\/\//i.test(url),
+  ),
+);
+const installerExtraHosts = (url) => (PINNED_INSTALLER_URLS.has(String(url)) ? [String(url)] : []);
 
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 const BUILT_IN_COUNT = TOOLS.length;
@@ -2545,10 +2592,25 @@ function archiveInstallCommand(file, root, tool) {
   };
 }
 
-/** Unpack a zip into dest. Entries that leave dest are skipped. */
-function extractZip(file, dest) {
+/** Most one unpacked file may hold, and most a whole archive may unpack to (generous, but finite). */
+const ZIP_ENTRY_MAX_BYTES = 2 * 1024 ** 3;
+const ZIP_TOTAL_MAX_BYTES = 8 * 1024 ** 3;
+const ZIP_MAX_ENTRIES = 200_000;
+
+/**
+ * Unpack a zip into dest. Entries that leave dest are skipped. A zip that would unpack to more than `maxEntryBytes`
+ * in one file or `maxTotalBytes` in all (a zip bomb) is refused: the sizes the archive declares are checked before
+ * anything is written, and the real output of each entry is capped while it inflates (a declared size can lie).
+ */
+function extractZip(file, dest, limits = {}) {
+  const maxEntry =
+    Number(limits.maxEntryBytes) > 0 ? Number(limits.maxEntryBytes) : ZIP_ENTRY_MAX_BYTES;
+  const maxTotal =
+    Number(limits.maxTotalBytes) > 0 ? Number(limits.maxTotalBytes) : ZIP_TOTAL_MAX_BYTES;
   const buf = fs.readFileSync(file);
   const base = path.resolve(dest);
+  let written = 0;
+  const tooBig = (what) => new Error(`the zip is refused: ${what}`);
   const place = (name, method, data) => {
     if (!name || name.endsWith("/")) return;
     const rel = name.replace(/\\/g, "/");
@@ -2556,10 +2618,24 @@ function extractZip(file, dest) {
     const target = path.resolve(dest, rel);
     const fromRoot = path.relative(base, target);
     if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return;
+    let bytes;
+    if (method === 0) bytes = data;
+    else if (method === 8) {
+      try {
+        bytes = zlib.inflateRawSync(data, {
+          maxOutputLength: Math.max(1, Math.min(maxEntry, maxTotal - written)),
+        });
+      } catch (error) {
+        if (error && error.code === "ERR_BUFFER_TOO_LARGE")
+          throw tooBig(`${rel} unpacks to more than the limit`);
+        throw error;
+      }
+    } else throw new Error(`unsupported zip method ${method}`);
+    if (bytes.length > maxEntry) throw tooBig(`${rel} is larger than ${maxEntry} bytes`);
+    written += bytes.length;
+    if (written > maxTotal) throw tooBig(`it unpacks to more than ${maxTotal} bytes`);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    if (method === 0) fs.writeFileSync(target, data);
-    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
-    else throw new Error(`unsupported zip method ${method}`);
+    fs.writeFileSync(target, bytes);
   };
   // The central directory at the end of the file always carries the real sizes;
   // a local header may say 0 and put them in a data descriptor after the data
@@ -2573,11 +2649,15 @@ function extractZip(file, dest) {
   }
   if (eocd >= 0) {
     const count = buf.readUInt16LE(eocd + 10);
+    if (count > ZIP_MAX_ENTRIES) throw tooBig(`it has ${count} entries`);
     let at = buf.readUInt32LE(eocd + 16);
+    const entries = [];
+    let declared = 0;
     for (let n = 0; n < count; n += 1) {
       if (buf.readUInt32LE(at) !== 0x02014b50) break;
       const method = buf.readUInt16LE(at + 10);
       const compSize = buf.readUInt32LE(at + 20);
+      const rawSize = buf.readUInt32LE(at + 24);
       const nameLen = buf.readUInt16LE(at + 28);
       const extraLen = buf.readUInt16LE(at + 30);
       const commentLen = buf.readUInt16LE(at + 32);
@@ -2586,9 +2666,14 @@ function extractZip(file, dest) {
       at += 46 + nameLen + extraLen + commentLen;
       if (compSize === 0xffffffff || localAt === 0xffffffff)
         throw new Error("zip64 is not supported");
+      if (rawSize > maxEntry) throw tooBig(`${name} declares ${rawSize} bytes`);
+      declared += rawSize;
+      if (declared > maxTotal) throw tooBig(`it declares more than ${maxTotal} bytes in all`);
       const dataAt = localAt + 30 + buf.readUInt16LE(localAt + 26) + buf.readUInt16LE(localAt + 28);
-      place(name, method, buf.slice(dataAt, dataAt + compSize));
+      entries.push([name, method, dataAt, compSize]);
     }
+    for (const [name, method, dataAt, compSize] of entries)
+      place(name, method, buf.slice(dataAt, dataAt + compSize));
     return;
   }
   // No directory: walk the local headers (archives FRIDAY writes itself).
@@ -2810,6 +2895,15 @@ let detectInflight = null;
 let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
+/** The home a row declares itself or in its data file (the install index reads it), else null. */
+const declaredHomeOf = (tool) => vendorSources.declaredHome(tool);
+
+/** A scan result with the home of its row, when the row declares one. */
+function withHome(tool, probe) {
+  const home = declaredHomeOf(tool);
+  return home ? { ...probe, home } : probe;
+}
+
 async function detectTools({ force = false, root: rootArg, only = null } = {}) {
   syncExtensions(rootArg ?? fridayPaths.root() ?? "");
   // A caller that needs a handful of tools (the build-time toolkit step) probes
@@ -2824,7 +2918,7 @@ async function detectTools({ force = false, root: rootArg, only = null } = {}) {
     const probed = await pool(
       TOOLS.filter((t) => want.has(t.id)),
       6,
-      (t) => probeTool(t, freeze, installedPackages, root),
+      async (t) => withHome(t, await probeTool(t, freeze, installedPackages, root)),
     );
     try {
       require("./managed-path.cjs").applyManagedPath(root, TOOLS);
@@ -2851,7 +2945,9 @@ async function detectTools({ force = false, root: rootArg, only = null } = {}) {
       loadPipFreeze(force),
       loadWingetList(force),
     ]);
-    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages, root));
+    const probed = await pool(TOOLS, 6, async (t) =>
+      withHome(t, await probeTool(t, freeze, installedPackages, root)),
+    );
     // A component that several catalog rows share is reported once per row, so
     // every row carries the same real machine state instead of "Unknown".
     const tools = probed.flatMap((p) => {
@@ -3395,15 +3491,78 @@ function acceptPinnedFile(file, tool, options = {}) {
   return { ok: true, reason: "" };
 }
 
-function cachedInstaller(url, root) {
-  const name = decodeURIComponent(
-    String(url || "")
-      .split("?")[0]
-      .split("/")
-      .pop() || "",
-  );
+function cachedInstaller(url, root, fileName = "") {
+  const name =
+    fileName ||
+    decodeURIComponent(
+      String(url || "")
+        .split("?")[0]
+        .split("/")
+        .pop() || "",
+    );
   if (!name) return "";
   return path.join(installerDir(root), name);
+}
+
+/** Archives whose Windows signature is always checked before they run (an installer program). */
+const SIGNED_ARCHIVES = new Set(["exe", "msi", "msix"]);
+
+/**
+ * The file a data-file download is saved as: `<id>-<version>.<archive>`, from the row's own data, never from the URL
+ * (an address such as `.../stable` has no extension, so the signature check and the installer command would never
+ * recognise the file). Plain letters, digits and `._+-` only.
+ */
+function dataFileInstallerName(tool, alt) {
+  const part = (v) => String(v ?? "").replace(/[^\w.+-]+/g, "_");
+  const archive = part(alt?.archive).replace(/^\.+/, "");
+  return `${part(safeToolDir(tool?.id))}-${part(alt?.version)}${archive ? `.${archive}` : ""}`;
+}
+
+/**
+ * The Windows signature gate of a downloaded file. A data-file installer (exe, msi, msix) is ALWAYS checked: its digest
+ * comes from the same host as the file, so the signature is the second witness. A row may name its `signer`, and a
+ * row whose digest only a community registry holds must. Only a row marked `allowUnsigned` (a vendor that really ships
+ * no signature, with its reason in the data file) may pass as NotSigned. Where the signature cannot be read (not
+ * Windows) the file is refused. Returns `{ checked, ok, line, reason }`; `line` is the console text.
+ * deps: { win, authenticodeStatus }
+ */
+function signatureGate(file, tool, alt, deps = {}) {
+  const win = deps.win ?? WIN;
+  const status = deps.authenticodeStatus || require("./download-safety.cjs").authenticodeStatus;
+  const required = alt
+    ? SIGNED_ARCHIVES.has(String(alt.archive || ""))
+    : Boolean(win && (tool.release || tool.verifySignature) && /\.(exe|msi|msix)$/i.test(file));
+  if (!required) return { checked: false, ok: true };
+  if (alt?.needsSignature && !alt.signer)
+    return {
+      checked: true,
+      ok: false,
+      reason: "signature (no signer is named for a community-listed digest)",
+      line: "only a community registry lists this digest and the row names no signer; nothing was run",
+    };
+  if (!win)
+    return {
+      checked: true,
+      ok: false,
+      reason: "signature (cannot be checked here)",
+      line: "the Windows signature cannot be checked on this system; nothing was run",
+    };
+  const signed = status(file, { signer: alt?.signer || "" });
+  // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
+  // the vendor's own HTTPS site; a signature that is present but not valid never is.
+  const unsignedOk = Boolean(
+    tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned",
+  );
+  return {
+    checked: true,
+    ok: Boolean(signed.ok || unsignedOk),
+    reason: "signature (failed)",
+    line: signed.ok
+      ? "Windows signature is valid"
+      : unsignedOk
+        ? "the vendor does not sign this installer; its SHA-256 from the vendor's own site matched"
+        : `Windows signature check: ${signed.reason}`,
+  };
 }
 
 /**
@@ -3413,8 +3572,14 @@ function cachedInstaller(url, root) {
  * partial file, and the SHA-256 check when the tool pins one. `report` gets
  * the downloader's progress events (percent, speed, ETA).
  */
-async function downloadInstaller(url, root, report, { sha256, needBytes, label, signal } = {}) {
-  const name = decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
+async function downloadInstaller(
+  url,
+  root,
+  report,
+  { sha256, needBytes, label, signal, fileName } = {},
+) {
+  const name =
+    fileName || decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
   const target = path.join(installerDir(root), name);
   await require("./model-download.cjs").downloadUrl(url, target, {
     onEvent: report,
@@ -3422,10 +3587,9 @@ async function downloadInstaller(url, root, report, { sha256, needBytes, label, 
     sha256,
     needBytes,
     label: label || name,
-    // The URL is one FRIDAY's own tool table or an official release feed named;
-    // without this only GitHub and Hugging Face downloads were accepted and
-    // every other vendor's installer was refused as "off allowlist".
-    extraHosts: [url],
+    // Only an address written in FRIDAY's own tool table brings its host along; a feed's, a data file's or a
+    // release answer's address must already be on config/download-hosts.json.
+    extraHosts: installerExtraHosts(url),
   });
   return target;
 }
@@ -3477,6 +3641,48 @@ async function withLatestRelease(tool) {
     needBytes: latest.bytes || tool.needBytes,
     releaseTag: latest.tag,
   };
+}
+
+/** What FRIDAY can put in place from a data-file download: run an installer, or unpack into its own folder. */
+const DATA_FILE_ARCHIVES = new Set(["exe", "msi", "zip", "tar.gz"]);
+
+/** A row bundled in the app (data file `notifyOnly`) reports a newer version and never changes at run time. */
+const isNotifyOnly = (tool) =>
+  tool?.notifyOnly === true || vendorSources.rowSpec(tool?.id)?.notifyOnly === true;
+
+/**
+ * The row's own download from its data file, as a checked plan: the newest version from the row's source chain, the
+ * address from `download.urlTemplate`, the digest read again from its digest source, the pin and the digest in
+ * agreement, plain silent switches. `{ ok: false }` says why; `reused: true` means the installed copy is already the
+ * newest (nothing to download). Nothing is downloaded here.
+ * deps: { root, toolSources, fetchImpl, store, now, installedVersion }
+ */
+async function dataFileDownload(tool, deps = {}) {
+  const spec = vendorSources.rowSpec(tool?.id, { toolSources: deps.toolSources });
+  if (!spec?.download?.urlTemplate)
+    return { ok: false, error: "the row has no download address in its data file" };
+  if (spec.notifyOnly)
+    return { ok: false, notifyOnly: true, error: "bundled: shows a newer version only" };
+  const archive = spec.download.archive || "";
+  if (!DATA_FILE_ARCHIVES.has(archive))
+    return { ok: false, error: `FRIDAY cannot unpack a ${archive || "plain"} download yet` };
+  if ((archive === "zip" || archive === "tar.gz") && !tool.archiveBin)
+    return { ok: false, error: "the row names no program path inside the archive" };
+  const plan = await vendorSources.planRowDownload(tool.id, {
+    toolSources: deps.toolSources,
+    sources: vendorSources.chainFor(tool, { toolSources: deps.toolSources }),
+    fetchImpl: deps.fetchImpl,
+    store: deps.store,
+    now: deps.now,
+    ...(tool.pinVersion && tool.sha256
+      ? { pin: { version: tool.pinVersion, sha256: tool.sha256 } }
+      : {}),
+  });
+  if (!plan.ok) return plan;
+  const have = String(deps.installedVersion || "");
+  if (/\d/.test(have) && vendorSources.compareVersions(have, plan.version) >= 0)
+    return { ok: false, reused: true, version: plan.version, installed: have };
+  return plan;
 }
 
 /** Silent-run command for a downloaded installer. A zip is unpacked, not executed. */
@@ -3551,7 +3757,7 @@ function execCapture(exe, args, { timeoutMs = 60_000 } = {}) {
  * (`tool.pipBundle`: the CUDA runtime pair, the ONNX Runtime variants). The new copy is built next to the old one
  * and swapped in only after it was checked; any failure leaves the old install as it was.
  */
-async function runEngineJob({ tool, action, root }, emit) {
+async function runEngineJob({ tool, action, root }, emit, hooks = {}) {
   const id = tool.id;
   const key = `${id}:${action}`;
   const say = (line, extra = {}) => emit({ id, action, phase: "Running", line, ...extra });
@@ -3585,17 +3791,23 @@ async function runEngineJob({ tool, action, root }, emit) {
         emit({ id, action, ok: true, phase: "Done", line: gone ? "removed" : "nothing to remove" });
         return { ok: true };
       }
-      const answer = await vendorSources.resolveLatest(spec.id, engineInstall.engineSources(spec), {
-        store: feeds,
-        force: true,
-      });
-      const release = engineInstall.releaseForInstall(spec, answer);
-      if (!release.ok) return fail(release.error);
-      say(
-        release.usedPin
-          ? `the release list could not be read; using the pinned release ${release.tag}`
-          : `newest official release is ${release.tag} (${release.source})`,
-      );
+      // FRIDAY's own build has no vendor feed: owner release asset, local build folder, then the official engine.
+      const own = spec.origin === "friday-own";
+      let release = null;
+      if (!own) {
+        const answer = await vendorSources.resolveLatest(
+          spec.id,
+          engineInstall.engineSources(spec),
+          { store: feeds, force: true },
+        );
+        release = engineInstall.releaseForInstall(spec, answer);
+        if (!release.ok) return fail(release.error);
+        say(
+          release.usedPin
+            ? `the release list could not be read; using the pinned release ${release.tag}`
+            : `newest official release is ${release.tag} (${release.source})`,
+        );
+      }
       const python = await resolvePython(path.join(__dirname, ".."));
       const pyRun = python
         ? (cmd, args) =>
@@ -3607,36 +3819,62 @@ async function runEngineJob({ tool, action, root }, emit) {
               }),
             )
         : null;
-      const out = await engineInstall.installEngine(
-        root,
-        spec,
-        { release, facts: readFacts(), computeCap: await readComputeCap() },
-        {
-          download: (url, dest, o) =>
-            require("./model-download.cjs").downloadUrl(url, dest, {
-              onEvent: progress(new URL(url).hostname),
-              signal: abort.signal,
-              sha256: o.sha256,
-              label: `Downloading ${path.basename(dest)}`,
-              extraHosts: [url],
-            }),
-          extract: (zip, dest) =>
-            pyRun
-              ? llamaRuntime.extractZip(zip, dest, { python: python.exe, run: pyRun })
-              : Promise.resolve({
-                  ok: false,
-                  error: "a Python runtime is needed to unpack the zip safely",
-                }),
-          health: (bin, args) => llamaRuntime.healthCheck(bin, args),
-          fetchText: async (url) => {
-            const { fetchCompat } = require("./net-fetch.cjs");
-            return (await fetchCompat(url, { signal: AbortSignal.timeout(8000) })).text();
-          },
-          diskFree: (dir) => diskRoom(dir),
-          run: (kind, fn) => inLane(kind, fn, abort.signal),
-          emit: (line) => say(line),
+      const engineDeps = {
+        download: (url, dest, o) =>
+          require("./model-download.cjs").downloadUrl(url, dest, {
+            onEvent: progress(new URL(url).hostname),
+            signal: abort.signal,
+            sha256: o.sha256,
+            label: `Downloading ${path.basename(dest)}`,
+            // Engine files come from release answers: their host must be on config/download-hosts.json (GitHub is).
+          }),
+        extract: (zip, dest) =>
+          pyRun
+            ? llamaRuntime.extractZip(zip, dest, { python: python.exe, run: pyRun })
+            : Promise.resolve({
+                ok: false,
+                error: "a Python runtime is needed to unpack the zip safely",
+              }),
+        health: (bin, args) => llamaRuntime.healthCheck(bin, args),
+        fetchText: async (url) => {
+          const { fetchCompat } = require("./net-fetch.cjs");
+          return (await fetchCompat(url, { signal: AbortSignal.timeout(8000) })).text();
         },
-      );
+        diskFree: (dir) => diskRoom(dir),
+        run: (kind, fn) => inLane(kind, fn, abort.signal),
+        emit: (line) => say(line),
+      };
+      const facts = { facts: readFacts(), computeCap: await readComputeCap() };
+      if (own) {
+        const done = await engineInstall.installOwnEngine(
+          root,
+          { ...facts, ...(hooks.own || {}) },
+          { ...engineDeps, ...(hooks.deps || {}) },
+        );
+        for (const a of done.attempts.filter((x) => !x.ok)) say(`${a.source}: ${a.reason}`);
+        if (!done.ok) return fail(done.error, { fellBack: done.fellBack });
+        const note = done.reused
+          ? "already the recorded build and healthy, nothing was downloaded"
+          : `from the ${done.source === "release" ? "release asset" : "local build folder"}`;
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          version: done.tag,
+          line: `installed ${spec.label} ${done.tag} (${note})${
+            done.outdated ? "; own build outdated, the official engine stays active" : ""
+          } at ${done.bin || root}`,
+        });
+        return {
+          ok: true,
+          version: done.tag,
+          source: done.source,
+          reused: Boolean(done.reused),
+          outdated: Boolean(done.outdated),
+        };
+      }
+      const out = await engineInstall.installEngine(root, spec, { release, ...facts }, engineDeps);
       if (!out.ok) {
         for (const a of out.attempts.filter((x) => !x.ok)) say(`${a.backend}: ${a.reason}`);
         return fail(out.error);
@@ -3733,6 +3971,13 @@ function runJob({ id, action, root }, emit) {
   if (jobs.has(key)) {
     emit({ id, action, phase: "Running", line: "job already running — reusing it" });
     return Promise.resolve({ ok: true, reused: true });
+  }
+
+  // A bundled runtime (Electron, FRIDAY Node, the pip bootstrap) only reports a newer version; it is never swapped here.
+  if (action === "update" && isNotifyOnly(tool)) {
+    const line = `a newer version of ${tool.name || id} may be available; it is bundled with FRIDAY and changes only with a FRIDAY update`;
+    emit({ id, action, ok: false, notifyOnly: true, manual: true, phase: "Manual", line });
+    return Promise.resolve({ ok: false, notifyOnly: true, error: line });
   }
 
   // A component that is part of another tool (Compose in Docker Desktop, the
@@ -4201,8 +4446,22 @@ function runJob({ id, action, root }, emit) {
       return finished;
     };
 
-    const tryVendorInstaller = async () => {
-      let direct = fallback;
+    // `alt` is a checked plan from the row's data file (`dataFileDownload`): its address and digest replace the pin.
+    const tryVendorInstaller = async (alt = null) => {
+      let direct = alt ? { url: alt.url } : fallback;
+      if (alt) {
+        tool = {
+          ...tool,
+          installerUrl: alt.url,
+          sha256: alt.sha256 || "",
+          installerMirrors: [],
+          needBytes: 0,
+          releaseTag: alt.version,
+          allowUnsigned: alt.allowUnsigned === true,
+          verifySignature: SIGNED_ARCHIVES.has(String(alt.archive || "")) || tool.verifySignature,
+          ...(alt.args ? { installerArgs: alt.args } : {}),
+        };
+      }
       // No pinned installer: ask the vendor's own feed, which gives the newest
       // installer and its SHA-256. Without a digest nothing is downloaded.
       if (!direct && vendorFeeds.hasFeed(tool.id)) {
@@ -4257,13 +4516,15 @@ function runJob({ id, action, root }, emit) {
       });
       let file = null;
       let usedUrl = direct.url;
+      // A data-file download is named from its row, not from the address.
+      const savedAs = alt ? dataFileInstallerName(tool, alt) : "";
       // Cancel must stop a download too, not only a running installer (the download has no child process).
       const abort = new AbortController();
       downloadAborts.set(key, abort);
       for (const url of sources) {
         if (abort.signal.aborted) break;
         usedUrl = url;
-        const cached = cachedInstaller(url, root);
+        const cached = cachedInstaller(url, root, savedAs);
         if (tool.sha256 && cached && fs.existsSync(cached)) {
           const ready = acceptPinnedFile(cached, tool, { checkDisk: false });
           if (ready.ok) {
@@ -4314,6 +4575,7 @@ function runJob({ id, action, root }, emit) {
               needBytes: tool.needBytes,
               label: `Downloading ${tool.name || id}`,
               signal: abort.signal,
+              ...(savedAs ? { fileName: savedAs } : {}),
             },
           );
           break;
@@ -4356,26 +4618,39 @@ function runJob({ id, action, root }, emit) {
           file = null;
         }
       }
-      if (file && WIN && (tool.release || tool.verifySignature) && /\.(exe|msi)$/i.test(file)) {
-        const signed = require("./download-safety.cjs").authenticodeStatus(file);
-        // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
-        // the vendor's own HTTPS site; a signature that is present but not valid never is.
-        const unsignedOk = Boolean(
-          tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned",
-        );
+      if (file && alt?.algo === "sha512") {
         emit({
           id,
           action,
           phase: "Verifying",
-          line: signed.ok
-            ? "Windows signature is valid"
-            : unsignedOk
-              ? "the vendor does not sign this installer; its SHA-256 from the vendor's own site matched"
-              : `Windows signature check: ${signed.reason}`,
+          line: "checking the SHA-512 against the official release",
         });
-        if (!signed.ok && !unsignedOk) {
-          tried.push("signature (failed)");
+        const checked = await vendorSources.verifyFile(file, alt.digest);
+        if (!checked.ok) {
+          emit({ id, action, phase: "Running", line: checked.error });
+          tried.push("sha512 (failed)");
+          try {
+            fs.unlinkSync(file);
+          } catch {
+            /* already gone */
+          }
           file = null;
+        }
+      }
+      // The installer's own Windows signature is the second witness (see signatureGate).
+      if (file) {
+        const gate = signatureGate(file, tool, alt);
+        if (gate.checked) {
+          emit({ id, action, phase: "Verifying", line: gate.line });
+          if (!gate.ok) {
+            tried.push(gate.reason);
+            try {
+              fs.unlinkSync(file);
+            } catch {
+              /* already gone */
+            }
+            file = null;
+          }
         }
       }
       if (file && tool.storeOnly) {
@@ -4427,6 +4702,67 @@ function runJob({ id, action, root }, emit) {
         line: `installed from ${usedUrl} · health check: ${last.probe.status}`,
       });
       return { ok: true, code: last.code, version: last.probe.version, via: "url" };
+    };
+
+    // The row's own address from its data file: only after the primary installer had no address or failed, and only
+    // with a digest read again from its source. An installed copy that is already the newest is left alone.
+    const tryDataFileInstaller = async () => {
+      if (action === "uninstall" || keptCurrent || !vendorSources.rowSpec(tool.id)?.download)
+        return null;
+      let installedVersion = null;
+      try {
+        const now = await probeTool(
+          tool,
+          await loadPipFreeze(false),
+          await loadWingetList(false),
+          root,
+        );
+        if (now.installed && now.status !== "Error") installedVersion = now.version;
+      } catch {
+        installedVersion = null;
+      }
+      // The marker's version is believed only while the program still has the hash recorded at install time.
+      if (installedVersion && tool.archiveBin && root) {
+        const intact = require("./managed-install.cjs").verifyBin(root, tool);
+        if (!intact.ok) {
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `the installed ${tool.name || id} cannot be trusted (${intact.reason}); installing it again`,
+          });
+          installedVersion = null;
+        }
+      }
+      const plan = await dataFileDownload(tool, {
+        root,
+        installedVersion,
+        store: root ? vendorSources.storeFor(root) : undefined,
+      });
+      if (plan.reused) {
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          version: plan.installed,
+          line: `already the newest official version (${plan.installed}); nothing was downloaded`,
+        });
+        return { ok: true, reused: true, version: plan.installed };
+      }
+      if (!plan.ok) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the official address of ${tool.name || id} cannot be used (${plan.error || "no digest"}); trying the next source`,
+        });
+        return null;
+      }
+      const before = tool;
+      const done = await tryVendorInstaller(plan);
+      if (!done?.ok) tool = before;
+      return done;
     };
 
     // Chocolatey and Scoop are last resorts, used only when already on this PC.
@@ -4515,8 +4851,8 @@ function runJob({ id, action, root }, emit) {
     for (const step of [
       tryExisting,
       ...(vendorFirst
-        ? [tryVendorInstaller, tryPackageManager, tryAlternateManagers]
-        : [tryPackageManager, tryVendorInstaller, tryAlternateManagers]),
+        ? [tryVendorInstaller, tryDataFileInstaller, tryPackageManager, tryAlternateManagers]
+        : [tryPackageManager, tryVendorInstaller, tryDataFileInstaller, tryAlternateManagers]),
     ]) {
       const done = await step();
       if (done) return done;
@@ -4722,10 +5058,16 @@ module.exports = {
   useBundledEmbedDirect,
   managedRuntimeChoice,
   acceptPinnedFile,
+  dataFileDownload,
+  installerExtraHosts,
+  declaredHomeOf,
+  isNotifyOnly,
   diskRoom,
   fileSha256,
   archiveInstallCommand,
   extractZip,
+  signatureGate,
+  dataFileInstallerName,
   rustupInitCandidates,
   exitCodeText,
 };

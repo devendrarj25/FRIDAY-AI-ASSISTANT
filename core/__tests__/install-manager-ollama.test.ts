@@ -151,7 +151,8 @@ describe("Ollama install job", () => {
     expect(source).toContain('require("./model-download.cjs").downloadUrl');
     expect(source).not.toContain('require("https")');
     expect(source).toContain("tool.release && fallback");
-    expect(source).toContain("authenticodeStatus(file)");
+    expect(source).toContain('require("./download-safety.cjs").authenticodeStatus');
+    expect(source).toContain("signatureGate(file, tool, alt)");
   });
 
   it("reports real transfer numbers and a restart of the service it stopped", () => {

@@ -50,8 +50,10 @@ class ModelLoadTests(unittest.TestCase):
             def __init__(self, *_args, **kwargs):
                 seen.append(kwargs)
 
-        cpu = stt.model_load_kwargs("base", "/models/base")
-        stt.open_whisper(Spy, "base", cpu)
+        # A typical 8-core PC, so the result does not depend on the machine the test runs on.
+        with mock.patch("voice_budget.cpu_count", return_value=8):
+            cpu = stt.model_load_kwargs("base", "/models/base")
+            stt.open_whisper(Spy, "base", cpu)
         self.assertGreaterEqual(seen[-1]["cpu_threads"], 4)
         self.assertLessEqual(seen[-1]["cpu_threads"], 8)
         with mock.patch.object(stt, "cuda_runtime_ready", return_value=True):

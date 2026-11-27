@@ -20,6 +20,9 @@ import os
 import re
 import unicodedata
 from pathlib import Path
+from typing import Any
+
+import friday_runtime
 
 MODEL_DIR = "hindi-light-tts"
 GRAPHS = ("text_encoder", "flow_decoder", "vocoder")
@@ -178,7 +181,6 @@ class _OnnxEngine:
 
     def __init__(self, folder: Path):
         import numpy as np  # type: ignore
-        import onnxruntime as ort  # type: ignore
 
         config = json.loads((folder / "config.json").read_text(encoding="utf-8"))
         manifest = json.loads((folder / "onnx" / "onnx_manifest.json").read_text(encoding="utf-8"))
@@ -201,14 +203,12 @@ class _OnnxEngine:
         self.n_fft, self.hop, self.padding = int(head["n_fft"]), int(head["hop_length"]), head.get("padding", "center")
         self.frame_multiple = int(manifest["frame_multiple"])
         self.max_tokens = int(manifest["max_tokens"])
-        options = ort.SessionOptions()
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        options.inter_op_num_threads = 1
-        options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
+
+        def configure(options: Any, runtime: Any, _used: list[str]) -> None:
+            options.graph_optimization_level = runtime.GraphOptimizationLevel.ORT_ENABLE_ALL
+
         self.sessions = {
-            name: ort.InferenceSession(
-                str(folder / "onnx" / f"{name}.onnx"), options, providers=["CPUExecutionProvider"]
-            )
+            name: friday_runtime.open_session(folder / "onnx" / f"{name}.onnx", "tts_light", configure=configure)
             for name in GRAPHS
         }
 

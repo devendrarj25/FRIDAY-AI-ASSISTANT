@@ -63,6 +63,33 @@ export function sanitizeConfirmLevel(value: unknown): VoiceConfirmLevel {
     : "rare";
 }
 
+/**
+ * The local voice styles the speech worker understands: "" and "friday" are FRIDAY's own default voice (sweet and
+ * warm), "friday-bright" and "friday-calm" are its two variants, F1 to F5 and M1, M2 are the bundled presets.
+ * An id outside this list (an old, odd or hand-edited stored value) is never sent to the engine.
+ */
+export const LOCAL_VOICE_STYLES = [
+  "",
+  "friday",
+  "friday-bright",
+  "friday-calm",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "M1",
+  "M2",
+] as const;
+export type LocalVoiceStyle = (typeof LOCAL_VOICE_STYLES)[number];
+
+/** A stored value that is not on the list reads "" (the FRIDAY voice); an explicit old F1 to F5 stays as chosen. */
+export function sanitizeLocalVoiceStyle(value: unknown): LocalVoiceStyle {
+  return (LOCAL_VOICE_STYLES as readonly unknown[]).includes(value)
+    ? (value as LocalVoiceStyle)
+    : "";
+}
+
 /** The engines the owner may pin; the names are the ones `rankTtsProviders` takes as `prefer`. */
 export const TTS_ENGINE_PICKS = ["auto", "supertonic", "sapi"] as const;
 export type TtsEnginePick = (typeof TTS_ENGINE_PICKS)[number];
@@ -86,8 +113,42 @@ export const STT_SIZE_PICKS = [
 export type SttSizePick = (typeof STT_SIZE_PICKS)[number];
 
 /** An unknown or missing size reads `auto`, the size measured for this PC. */
+export const HINGLISH_EAR_PICKS = ["off", "trelis"] as const;
+export type HinglishEarPick = (typeof HINGLISH_EAR_PICKS)[number];
+
+/** An unknown or missing word reads "off": the large Hinglish ear never runs unless the owner chose it. */
+export function sanitizeHinglishEar(value: unknown): HinglishEarPick {
+  return (HINGLISH_EAR_PICKS as readonly unknown[]).includes(value)
+    ? (value as HinglishEarPick)
+    : "off";
+}
+
 export function sanitizeSttSize(value: unknown): SttSizePick {
   return (STT_SIZE_PICKS as readonly unknown[]).includes(value) ? (value as SttSizePick) : "auto";
+}
+
+/**
+ * FRIDAY's own streaming ear. `auto` (the shipped default) lets this PC decide: on only with at least 12 GB of RAM,
+ * 4 cores and a first-run speed check that passes (electron/stt.cjs createStreamAuto, rule in
+ * electron/voice-weights.cjs STREAM_AUTO), otherwise the ordinary listening path with the reason in the status. A
+ * named engine is the owner's "on" and `off` is the owner's "off": both always win over the hardware check. The
+ * same words are electron/stt.cjs STREAM_ENGINES and kernel/stream_ear.py SETTING_WORDS.
+ */
+export const STREAM_ENGINE_PICKS = ["off", "auto", "nemotron", "stream-ear-nemotron"] as const;
+export type StreamEnginePick = (typeof STREAM_ENGINE_PICKS)[number];
+
+/** The shipped default of `voice.streamEngine`. */
+export const STREAM_ENGINE_DEFAULT: StreamEnginePick = "auto";
+
+/**
+ * An unknown word reads `off` (never a guess that turns listening on). A missing one never reaches here: the merge
+ * fills it with the default, so a stored shape from before the setting existed reads `auto`. A stored `off` stays
+ * `off`: the old default and an owner's own choice look the same on disk, so it is kept as the owner's.
+ */
+export function sanitizeStreamEngine(value: unknown): StreamEnginePick {
+  return (STREAM_ENGINE_PICKS as readonly unknown[]).includes(value)
+    ? (value as StreamEnginePick)
+    : "off";
 }
 
 /** A device id is a short string; anything else (an old or hand-edited shape) reads the system default. */
@@ -99,6 +160,182 @@ export function sanitizeDeviceId(value: unknown): string {
 export function sanitizeWavDays(value: unknown): number {
   const n = typeof value === "number" ? Math.round(value) : Number.NaN;
   return Number.isFinite(n) ? Math.min(90, Math.max(1, n)) : 7;
+}
+
+export const VOICE_TURN_CLASSIFIER_PICKS = ["off", "shadow", "live"] as const;
+
+/** Turn-taking tuning (version 1). The end-of-turn classifier starts in shadow: it scores, it never acts. */
+export type VoiceTurnPrefs = {
+  v: 1;
+  /** Learn the owner's own pause length from past turns. Off until tried on this PC. */
+  calibrate: boolean;
+  /** Use the sentence-final prior when deciding a turn has ended. */
+  eotPrior: boolean;
+  /** off: not run; shadow: scored and logged only; live: stored, but it still acts as shadow until its gates are met on this PC. */
+  classifier: (typeof VOICE_TURN_CLASSIFIER_PICKS)[number];
+  /** The longest wait for more speech before a turn is closed (1200 to 4000 ms). */
+  maxWaitMs: number;
+};
+
+export const DEFAULT_VOICE_TURN: VoiceTurnPrefs = {
+  v: 1,
+  calibrate: false,
+  eotPrior: true,
+  classifier: "shadow",
+  maxWaitMs: 2400,
+};
+
+/** A missing, partial or hand-edited `voice.turn` reads the defaults key by key; unknown words fall back, numbers clamp. */
+export function sanitizeVoiceTurn(input: unknown): VoiceTurnPrefs {
+  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as {
+    [K in keyof VoiceTurnPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_TURN;
+  return {
+    v: 1,
+    calibrate: src.calibrate === true,
+    eotPrior: typeof src.eotPrior === "boolean" ? src.eotPrior : d.eotPrior,
+    classifier: pick(VOICE_TURN_CLASSIFIER_PICKS, src.classifier, d.classifier),
+    maxWaitMs: wholeIn(src.maxWaitMs, 1200, 4000, d.maxWaitMs),
+  };
+}
+
+export const VOICE_LEXICON_FIX_PICKS = ["off", "hints", "apply"] as const;
+
+/** How well she understands (version 1): self-repair of a restarted phrase, the short command lane, the lexicon fix. */
+export type VoiceUnderstandingPrefs = {
+  v: 1;
+  /** "no, I mean ..." and a restarted phrase keep only the last version. */
+  selfRepair: boolean;
+  /** A short known command skips the full brain turn. */
+  commandLane: boolean;
+  /** Lexicon corrections of heard words: off, hints (a hint to the brain) or apply (the words are rewritten). */
+  lexiconFix: (typeof VOICE_LEXICON_FIX_PICKS)[number];
+};
+
+export const DEFAULT_VOICE_UNDERSTANDING: VoiceUnderstandingPrefs = {
+  v: 1,
+  selfRepair: true,
+  commandLane: true,
+  lexiconFix: "hints",
+};
+
+/** A missing, partial or hand-edited `voice.understanding` reads the defaults key by key. */
+export function sanitizeVoiceUnderstanding(input: unknown): VoiceUnderstandingPrefs {
+  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as {
+    [K in keyof VoiceUnderstandingPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_UNDERSTANDING;
+  return {
+    v: 1,
+    selfRepair: typeof src.selfRepair === "boolean" ? src.selfRepair : d.selfRepair,
+    commandLane: typeof src.commandLane === "boolean" ? src.commandLane : d.commandLane,
+    lexiconFix: pick(VOICE_LEXICON_FIX_PICKS, src.lexiconFix, d.lexiconFix),
+  };
+}
+
+/** Seconds a spoken yes stays valid: a whole number from 10 to 60; anything else reads 30. */
+export function sanitizeApprovalTtlSec(value: unknown): number {
+  return wholeIn(value, 10, 60, 30);
+}
+
+export const EARS_AGC_PICKS = ["browser", "own", "off"] as const;
+export const EARS_VAD_PICKS = ["auto", "silero", "energy"] as const;
+export const EARS_EAGERNESS_PICKS = ["eager", "normal", "patient"] as const;
+export const EARS_DENOISE_PICKS = ["off", "rnnoise", "gtcrn", "dpdfnet2"] as const;
+export const EARS_SCENE_PICKS = ["off", "score"] as const;
+export const EARS_OTHER_VOICE_PICKS = ["off", "score", "hold"] as const;
+
+/**
+ * How FRIDAY's own listening front end behaves, stored as `voice.ears` (shape version 1). The ordinary browser
+ * microphone filter stays `voice.noiseSuppression`; nothing here replaces it.
+ */
+export type VoiceEarsPrefs = {
+  v: 1;
+  /** Cut rumble, hum and handling thumps below 85 Hz before the sound is used. */
+  hpf: boolean;
+  /** Who levels the volume: the browser (today), FRIDAY's own slow leveller, or nobody. */
+  agc: (typeof EARS_AGC_PICKS)[number];
+  /** Warn in the diagnostics when the microphone is clipping. A meter only. */
+  clipWarn: boolean;
+  /** The speech detector: automatic, the small model, or the loudness-only one. */
+  vad: (typeof EARS_VAD_PICKS)[number];
+  /** Speech probability that starts a phrase (0.2 to 0.9). */
+  vadStart: number;
+  /** Probability below which the phrase is over (0.05 up to vadStart minus 0.05). */
+  vadEnd: number;
+  /** Shortest sound that counts as speech, in milliseconds (60 to 400). */
+  minSpeechMs: number;
+  /** Sound kept from just before speech starts, in milliseconds (200 to 1000). */
+  preRollMs: number;
+  /** How long she waits after a pause before taking the turn. */
+  eagerness: (typeof EARS_EAGERNESS_PICKS)[number];
+  /** Start preparing an answer at a likely end of turn; dropped if you keep talking. */
+  eagerTurn: boolean;
+  /** An optional clean-up copy for the speech model only. */
+  denoise: (typeof EARS_DENOISE_PICKS)[number];
+  /** Score what the room sounds like (speech, music, TV, noise). A score only. */
+  scene: (typeof EARS_SCENE_PICKS)[number];
+  /** Score whether a voice is the owner's. It never approves anything. */
+  otherVoice: (typeof EARS_OTHER_VOICE_PICKS)[number];
+  /** Use the PC's own playback as the echo reference. Off until tried on this PC. */
+  pcAudioRef: boolean;
+};
+
+export const DEFAULT_VOICE_EARS: VoiceEarsPrefs = {
+  v: 1,
+  hpf: true,
+  agc: "browser",
+  clipWarn: true,
+  vad: "auto",
+  vadStart: 0.5,
+  vadEnd: 0.35,
+  minSpeechMs: 120,
+  preRollMs: 500,
+  eagerness: "normal",
+  eagerTurn: false,
+  denoise: "off",
+  scene: "score",
+  otherVoice: "score",
+  pcAudioRef: false,
+};
+
+const pick = <T extends string>(list: readonly T[], value: unknown, fallback: T): T =>
+  (list as readonly unknown[]).includes(value) ? (value as T) : fallback;
+
+const rounded = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(max, Math.max(min, value)) * 100) / 100
+    : fallback;
+
+/**
+ * A missing, partial or hand-edited `voice.ears` (an install from before it existed has none) reads the defaults
+ * key by key; unknown words fall back and numbers clamp. The end threshold always sits at least 0.05 below the start.
+ */
+export function sanitizeVoiceEars(input: unknown): VoiceEarsPrefs {
+  const src = (input && typeof input === "object" ? input : {}) as {
+    [K in keyof VoiceEarsPrefs]?: unknown;
+  };
+  const d = DEFAULT_VOICE_EARS;
+  const vadStart = rounded(src.vadStart, 0.2, 0.9, d.vadStart);
+  const endCeiling = Math.round((vadStart - 0.05) * 100) / 100;
+  return {
+    v: 1,
+    hpf: src.hpf === undefined ? d.hpf : src.hpf !== false,
+    agc: pick(EARS_AGC_PICKS, src.agc, d.agc),
+    clipWarn: src.clipWarn === undefined ? d.clipWarn : src.clipWarn !== false,
+    vad: pick(EARS_VAD_PICKS, src.vad, d.vad),
+    vadStart,
+    vadEnd: rounded(src.vadEnd, 0.05, endCeiling, Math.min(d.vadEnd, endCeiling)),
+    minSpeechMs: wholeIn(src.minSpeechMs, 60, 400, d.minSpeechMs),
+    preRollMs: wholeIn(src.preRollMs, 200, 1000, d.preRollMs),
+    eagerness: pick(EARS_EAGERNESS_PICKS, src.eagerness, d.eagerness),
+    eagerTurn: src.eagerTurn === true,
+    denoise: pick(EARS_DENOISE_PICKS, src.denoise, d.denoise),
+    scene: pick(EARS_SCENE_PICKS, src.scene, d.scene),
+    otherVoice: pick(EARS_OTHER_VOICE_PICKS, src.otherVoice, d.otherVoice),
+    pcAudioRef: src.pcAudioRef === true,
+  };
 }
 
 /** A stored or edited value is always made safe: unknown words fall back, numbers clamp, an old shape reads the defaults. */
@@ -151,7 +388,7 @@ export type VoicePreferences = {
   outputDeviceId: string;
   /** The browser's own noise suppression on the microphone. On is how FRIDAY has always opened it. */
   noiseSuppression: boolean;
-  /** Which engine speaks: auto keeps today's order; supertonic is the local voice only; sapi is the system voice only. */
+  /** Which engine speaks: auto keeps today's order; supertonic (FRIDAY Voice) is the local voice only; sapi is the system voice only. */
   ttsEngine: TtsEnginePick;
   /** Spoken reply language. */
   speechLang: string;
@@ -173,9 +410,15 @@ export type VoicePreferences = {
   pauseDuringCalls: boolean;
   /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
   realtimeExperiment: boolean;
-  /** Opt-in: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
+  /** Turn-taking tuning: calibration, end-of-turn prior, classifier mode, longest wait. */
+  turn: VoiceTurnPrefs;
+  /** Self-repair, the command lane and the lexicon fix. */
+  understanding: VoiceUnderstandingPrefs;
+  /** Seconds a spoken yes stays valid (10 to 60). */
+  approvalTtlSec: number;
+  /** On by default: the first spoken clause is cut small (4 to 8 words, at a comma or a dash) so the first sound comes sooner. */
   fastFirstClause: boolean;
-  /** Opt-in: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file. */
+  /** On by default: the local voice's clauses are played as raw samples through the gapless scheduler, not as a WAV file; the first failure turns it off for the session and speech goes on through the file path. */
   pcmPlayback: boolean;
   /** Warm the speech, voice, turn and brain engines once when Auto mode opens the microphone. Changes no audio. */
   prewarm: boolean;
@@ -203,8 +446,8 @@ export type VoicePreferences = {
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
    */
   cloudVoice: VoiceCloudPrefs;
-  /** The local voice style (F1 to F5, female styles of the local voice). Empty keeps the default, F2. */
-  localVoiceStyle: "" | "F1" | "F2" | "F3" | "F4" | "F5";
+  /** The local voice style (see `LOCAL_VOICE_STYLES`). Empty means the FRIDAY voice, her own default. */
+  localVoiceStyle: LocalVoiceStyle;
   /** Small changes of pace, pitch and volume per clause (a question rises, an apology softens). */
   expressiveSpeech: boolean;
   /** Speech Prep: English words and Roman Hindi in Hindi replies are written in Devanagari before the voice reads them. */
@@ -221,7 +464,13 @@ export type VoicePreferences = {
   tidyDictation: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
-  /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
+  /** The streaming ear (partial words while she listens): off, auto (the default: this PC decides), or a named engine. Local only. */
+  streamEngine: StreamEnginePick;
+  /** FRIDAY's own listening front end: filters, speech detector, turn timing, optional clean-up and scoring. */
+  ears: VoiceEarsPrefs;
+  /** Read spoken numbers, times and money in Hinglish as digits in the words shown (runs after the tidy step). */
+  itn: boolean;
+  /** Score the shared microphone for the wake word as it arrives (needs a wake word model; local only). */
   liveWake: boolean;
   /** A saved voice may block a sensitive command from a voice that does not match it. It never approves anything. */
   recogniseMyVoice: boolean;
@@ -243,10 +492,12 @@ export type VoicePreferences = {
   notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
-  /** faster-whisper size. auto keeps the measured tier. */
+  /** FRIDAY Ear size. auto keeps the measured tier. */
   sttSize: SttSizePick;
-  /** Listen for the language again on every phrase (faster-whisper multilingual). Off by default; auto language only. */
+  /** Listen for the language again on every phrase (FRIDAY Ear multilingual). Off by default; auto language only. */
   sttMultilingual: boolean;
+  /** The optional large Hinglish ear for mixed Hindi-English phrases: off (default) or on (stored word trelis). GPU only, opt-in. */
+  hinglishEar: HinglishEarPick;
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */
@@ -266,6 +517,37 @@ export type VoicePreferences = {
   /** Id of the active entry in `models` ("" = use the plain fields above). */
   activeId: string;
 };
+
+/** Which chat engine runs the local brain: her own build, the official one, or the one the bench found faster. */
+export const ENGINE_PREFER_CHOICES = ["auto", "own", "official"] as const;
+export type EnginePrefer = (typeof ENGINE_PREFER_CHOICES)[number];
+
+/** An unknown or missing word (an old stored shape) reads `auto`. */
+export function enginePreferOf(value: unknown): EnginePrefer {
+  return ENGINE_PREFER_CHOICES.find((choice) => choice === value) ?? "auto";
+}
+
+/** What the owner may allow FRIDAY to learn from, one class at a time. Nothing is allowed until he ticks it. */
+export const LEARN_DATA_CLASSES = [
+  {
+    id: "verified-runs",
+    label: "Tasks I asked for that finished and were checked",
+    hint: "Only my own request and her checked answer, from a task that used no tool, web page or screen.",
+  },
+  {
+    id: "corrected-lines",
+    label: "Lines I corrected myself",
+    hint: "Only text I wrote when I fixed what she heard or said.",
+  },
+] as const;
+
+/** The stored list (`brain.learn.classes`, comma separated) as known class ids, each once. */
+export function acceptedLearnClasses(stored: unknown): string[] {
+  if (typeof stored !== "string") return [];
+  const known: string[] = LEARN_DATA_CLASSES.map((entry) => entry.id);
+  const picked = stored.split(",").map((part) => part.trim());
+  return known.filter((id) => picked.includes(id));
+}
 
 export type FridayPreferences = {
   theme: string;
@@ -289,6 +571,12 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     autoIndex: true,
     repoWatch: true,
     autoBuild: false,
+    /** FRIDAY Core (the local llama.cpp brain) starts only when the owner turns it on; off until the A/B gate on this PC. */
+    brainCoreEnabled: false,
+    /** On-device learning (an adapter on top of the base model) is opt-in. Nothing trains until this is on. */
+    brainLearnAdapters: false,
+    /** Words from lines the owner corrected become hints for the ears. Local and reversible. */
+    brainLearnGlossary: true,
     circuit: true,
     glow: true,
     scanlines: true,
@@ -375,6 +663,12 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     buttonLabels: "hover",
     personality:
       "Be direct and short. State the risk before running any exec tool. Prefer local models; use an online model only for research or when local models disagree. After a failure, write one lesson to memory.",
+    /** Chat engine: auto (the bench decides), own (FRIDAY Runtime LLM) or official (llama.cpp). */
+    brainEnginePrefer: "auto",
+    /** Speculative decoding: auto lets the engine decide. */
+    brainSpeculative: "auto",
+    /** Data classes the owner allowed learning from (comma separated ids of LEARN_DATA_CLASSES). Empty = none. */
+    brainLearnClasses: "",
     cpuBudget: "50",
     modelIdleMinutes: "10",
     sampleSeconds: "2",
@@ -407,8 +701,11 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     privacyMode: false,
     pauseDuringCalls: true,
     realtimeExperiment: false,
-    fastFirstClause: false,
-    pcmPlayback: false,
+    turn: { ...DEFAULT_VOICE_TURN },
+    understanding: { ...DEFAULT_VOICE_UNDERSTANDING },
+    approvalTtlSec: 30,
+    fastFirstClause: true,
+    pcmPlayback: true,
     prewarm: true,
     trimHistoryToPlayed: true,
     tasks: { ...DEFAULT_VOICE_TASK_PREFS },
@@ -422,6 +719,9 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     tidyDictation: true,
     liveWords: false,
+    streamEngine: STREAM_ENGINE_DEFAULT,
+    ears: { ...DEFAULT_VOICE_EARS },
+    itn: true,
     liveWake: false,
     recogniseMyVoice: true,
     ownerVoiceOnly: false,
@@ -441,6 +741,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     localVoiceStyle: "",
     sttSize: "auto",
     sttMultilingual: false,
+    hinglishEar: "off",
     addressName: "",
     addressMode: "conversation",
     listenStyle: "always",
@@ -465,6 +766,22 @@ const bridge = (): Bridge | null =>
     ? null
     : ((window as unknown as { friday?: Bridge }).friday ?? null);
 
+/** Only a plain object can patch `ears`; anything else (null, a string, an array) patches nothing. */
+const earsPatch = (value: unknown): Partial<VoiceEarsPrefs> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Partial<VoiceEarsPrefs>)
+    : {};
+
+/** A text setting must be a string; a stored null or a number reads the value already held. */
+const textOr = (value: unknown, fallback: string): string =>
+  typeof value === "string" ? value : fallback;
+
+/** Only a plain object can patch a nested setting. */
+const objectPatch = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
 function merge(
   base: FridayPreferences,
   patch: Partial<FridayPreferences> | null,
@@ -485,12 +802,28 @@ function merge(
         ...base.voice.interruptGate,
         ...(patch.voice?.interruptGate ?? {}),
       }),
+      wakeWord: textOr(patch.voice?.wakeWord, base.voice.wakeWord),
+      recognitionLang: textOr(patch.voice?.recognitionLang, base.voice.recognitionLang),
+      speechLang: textOr(patch.voice?.speechLang, base.voice.speechLang),
+      voiceName: textOr(patch.voice?.voiceName, base.voice.voiceName),
+      addressName: textOr(patch.voice?.addressName, base.voice.addressName),
+      turn: sanitizeVoiceTurn({ ...base.voice.turn, ...objectPatch(patch.voice?.turn) }),
+      understanding: sanitizeVoiceUnderstanding({
+        ...base.voice.understanding,
+        ...objectPatch(patch.voice?.understanding),
+      }),
+      approvalTtlSec: sanitizeApprovalTtlSec(
+        patch.voice?.approvalTtlSec ?? base.voice.approvalTtlSec,
+      ),
       pttTailMs: normalizePttTailMs(patch.voice?.pttTailMs ?? base.voice.pttTailMs),
       wake: normalizeWakeGuardConfig({ ...base.voice.wake, ...(patch.voice?.wake ?? {}) }),
       instantAck: (patch.voice?.instantAck ?? base.voice.instantAck) === true,
       eagerTurn: (patch.voice?.eagerTurn ?? base.voice.eagerTurn) === true,
       echoReference: (patch.voice?.echoReference ?? base.voice.echoReference) === true,
       hindiLightVoice: (patch.voice?.hindiLightVoice ?? base.voice.hindiLightVoice) === true,
+      localVoiceStyle: sanitizeLocalVoiceStyle(
+        patch.voice?.localVoiceStyle ?? base.voice.localVoiceStyle,
+      ),
       confirmLevel: sanitizeConfirmLevel(patch.voice?.confirmLevel ?? base.voice.confirmLevel),
       // Device, engine and size choices: an old or odd stored shape reads the shipped default.
       inputDeviceId: sanitizeDeviceId(patch.voice?.inputDeviceId ?? base.voice.inputDeviceId),
@@ -498,6 +831,11 @@ function merge(
       noiseSuppression: (patch.voice?.noiseSuppression ?? base.voice.noiseSuppression) !== false,
       ttsEngine: sanitizeTtsEngine(patch.voice?.ttsEngine ?? base.voice.ttsEngine),
       sttSize: sanitizeSttSize(patch.voice?.sttSize ?? base.voice.sttSize),
+      hinglishEar: sanitizeHinglishEar(patch.voice?.hinglishEar ?? base.voice.hinglishEar),
+      streamEngine: sanitizeStreamEngine(patch.voice?.streamEngine ?? base.voice.streamEngine),
+      // A missing or partial `ears` object (an older install) fills from the defaults and clamps.
+      ears: sanitizeVoiceEars({ ...base.voice.ears, ...earsPatch(patch.voice?.ears) }),
+      itn: (patch.voice?.itn ?? base.voice.itn) !== false,
       keepUtteranceWavs: (patch.voice?.keepUtteranceWavs ?? base.voice.keepUtteranceWavs) === true,
       utteranceWavDays: sanitizeWavDays(
         patch.voice?.utteranceWavDays ?? base.voice.utteranceWavDays,
@@ -595,6 +933,7 @@ class PreferencesStore {
       voice: {
         ...DEFAULT_PREFERENCES.voice,
         tasks: { ...DEFAULT_VOICE_TASK_PREFS },
+        ears: { ...DEFAULT_VOICE_EARS },
         models: [],
         activeId: "",
       },

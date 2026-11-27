@@ -98,7 +98,7 @@ function scanIpc(root) {
 
 const KERNEL_METHOD = /method\s*==\s*["']([\w.]+)["']/g;
 const KERNEL_CALL =
-  /(?:kernelCall|callKernel|bridgeCall|call)\s*(?:<[^()]*>)?\(\s*["']([\w]+\.[\w]+)["']/g;
+  /(?:kernelCall|kernelRequest|callKernel|bridgeCall|call)\s*(?:<[^()]*>)?\(\s*["']([\w]+\.[\w]+)["']/g;
 const HTTP_ROUTE = /@(?:app|router)\.(get|post|put|delete|websocket)\(\s*["']([^"']+)["']/g;
 
 function scanKernel(root) {

@@ -429,6 +429,7 @@ describe("one row per language and role, by this PC's plan", () => {
     pyrnnoise: true,
     pyaec: true,
     supertonic: true,
+    numpy: true,
     onnx_asr: true,
     sentencepiece: true,
     moonshine_voice: true,
@@ -498,7 +499,7 @@ describe("one row per language and role, by this PC's plan", () => {
     ])
       expect(get(fine, name)?.state, name).toBe("PASS");
     expect(get(fine, "hindi ears (STT)")?.detail).toBe(
-      "hindi-ear on disk; package onnx-asr present",
+      "hindi-ear on disk; package numpy present; package onnxruntime present; package onnx-asr present (fallback)",
     );
   });
 
@@ -525,26 +526,40 @@ describe("one row per language and role, by this PC's plan", () => {
   it("a missing package is FAIL where the PC must have it and INFO where it need not; unknown stays 'not checked'", () => {
     const view = stack.planView(plan(["hindi-ear"]), null);
     const onDisk = new Set(["hindi-ear"]);
-    const strict = rowsOf({ view, onDisk, mods: mods({ onnx_asr: false }) });
+    const strict = rowsOf({ view, onDisk, mods: mods({ onnxruntime: false }) });
     expect(get(strict, "hindi ears (STT)")?.state).toBe("FAIL");
     expect(get(strict, "hindi ears (STT)")?.detail).toContain(
-      "package onnx-asr NOT installed in the venv",
+      "package onnxruntime NOT installed in the venv",
     );
+    const noNumpy = rowsOf({ view, onDisk, mods: mods({ numpy: false }) });
+    expect(get(noNumpy, "hindi ears (STT)")?.state).toBe("FAIL");
     const relaxed = rowsOf({
       view,
       onDisk,
-      mods: mods({ onnx_asr: false }),
+      mods: mods({ onnxruntime: false }),
       packagesRequired: false,
     });
     expect(get(relaxed, "hindi ears (STT)")?.state).toBe("INFO");
     const unknown = rowsOf({ view, onDisk, mods: null });
     expect(get(unknown, "hindi ears (STT)")?.state).toBe("INFO");
     expect(get(unknown, "hindi ears (STT)")?.detail).toContain(
-      "package onnx-asr not checked (no venv python)",
+      "package onnxruntime not checked (no venv python)",
     );
     // A package of an engine this PC does not carry is not a gap.
     const none = rowsOf({ view, mods: mods({ faster_whisper: false }) });
     expect(get(none, "hinglish ears (STT)")?.state).toBe("INFO");
+  });
+
+  it("the Hindi ear needs only the own runner (numpy + onnxruntime); onnx-asr is an optional fallback", () => {
+    const view = stack.planView(plan(["hindi-ear"]), null);
+    const onDisk = new Set(["hindi-ear"]);
+    const own = rowsOf({ view, onDisk, mods: mods({ onnx_asr: false }) });
+    expect(get(own, "hindi ears (STT)")?.state).toBe("PASS");
+    expect(get(own, "hindi ears (STT)")?.detail).toContain("own runner");
+    const both = rowsOf({ view, onDisk });
+    expect(get(both, "hindi ears (STT)")?.state).toBe("PASS");
+    expect(get(both, "hindi ears (STT)")?.detail).toContain("package onnx-asr present (fallback)");
+    expect(stack.VOICE_MODULES).toContain("numpy");
   });
 
   it("Moonshine is planned on every PC: missing is MISSING, switched off or no Python is skipped on this PC", () => {
@@ -566,13 +581,18 @@ describe("one row per language and role, by this PC's plan", () => {
     ).toBe("FAIL");
   });
 
-  it("noise and echo rows are tied to pyrnnoise and pyaec", () => {
-    const list = rowsOf({ mods: mods({ pyrnnoise: false }) });
-    expect(get(list, "noise suppression (all languages)")?.state).toBe("FAIL");
-    expect(get(list, "noise suppression (all languages)")?.detail).toContain(
-      "package pyrnnoise NOT installed",
+  it("noise suppression runs on FRIDAY's own denoiser, pyrnnoise is only an optional fallback", () => {
+    const missing = rowsOf({ mods: mods({ pyrnnoise: false }) });
+    expect(get(missing, "noise suppression (all languages)")?.state).toBe("PASS");
+    expect(get(missing, "noise suppression (all languages)")?.detail).toContain(
+      "own runner (optional fallback pyrnnoise not installed)",
     );
-    expect(get(list, "echo canceller (all languages)")?.state).toBe("PASS");
+    const present = rowsOf({ mods: mods({ pyrnnoise: true }) });
+    expect(get(present, "noise suppression (all languages)")?.state).toBe("PASS");
+    expect(get(present, "noise suppression (all languages)")?.detail).toContain(
+      "package pyrnnoise present (fallback)",
+    );
+    expect(get(missing, "echo canceller (all languages)")?.state).toBe("PASS");
   });
 
   it("without the plan data the voice plan decides, and with neither it says the plan could not be read", () => {

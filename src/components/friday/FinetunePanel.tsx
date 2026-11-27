@@ -10,6 +10,12 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, HudPanel, StatusPill } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
 import { modelRegistry } from "@/lib/friday/brain/model-registry";
+import { desktopApi } from "@/lib/friday/desktop";
+import { kernelApi } from "@/lib/friday/kernel-api";
+import { gateFromGovernor, rowsFromExperiences } from "@/lib/friday/learn-from-me";
+import { acceptedLearnClasses } from "@/lib/friday/preferences";
+import { usePreferences } from "@/lib/friday/use-preferences";
+import { experiences } from "@/lib/friday/self/task-ledger";
 import {
   MIN_EXAMPLES,
   activateAdapter,
@@ -36,6 +42,9 @@ type View = {
 };
 
 export function FinetunePanel() {
+  const prefs = usePreferences();
+  const adaptersEnabled = prefs.toggles["brainLearnAdapters"] === true;
+  const classesAccepted = acceptedLearnClasses(prefs.fields["brainLearnClasses"]);
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -79,7 +88,23 @@ export function FinetunePanel() {
     if (!base) return;
     setBusy(true);
     try {
-      const out = await proposeFinetune({ base });
+      // The rails: the owner's opt-in and data classes, rows tagged with their provenance, the kernel's one privacy
+      // classifier, and what the resource governor says about this PC right now.
+      const status = await desktopApi()
+        ?.governorStatus?.()
+        .catch(() => null);
+      const out = await proposeFinetune({
+        base,
+        adaptersEnabled,
+        gate: gateFromGovernor(status),
+        rows: rowsFromExperiences(experiences.successes(300)),
+        classesAccepted,
+        classify: async (text) => {
+          const verdict = await kernelApi.privacy.classify(text);
+          if (!verdict) throw new Error("the privacy classifier is offline");
+          return verdict;
+        },
+      });
       if (out.started) toast.success("Training started on this PC");
       else toast.message(out.reason ?? "Training did not start");
     } finally {
@@ -117,9 +142,15 @@ export function FinetunePanel() {
             <span className="text-meta-sm text-muted-foreground">{view.readiness.detail}</span>
           </div>
           <p className="text-data text-foreground">
-            {examples} verified example(s) of {MIN_EXAMPLES} needed. Owner corrections and unchecked
-            runs are never used.
+            {examples} verified run(s) recorded; {MIN_EXAMPLES} safe ones are needed. Corrections,
+            unchecked runs, anything with tool or web content and anything SENSITIVE are never used.
           </p>
+          {adaptersEnabled && classesAccepted.length ? null : (
+            <p className="text-meta-sm text-muted-foreground">
+              Training is off. Turn on learning and allow a data class under Settings, Brain, Learn
+              from me.
+            </p>
+          )}
           <label className="flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground">
             Base model
             <select
@@ -137,7 +168,14 @@ export function FinetunePanel() {
             </select>
             <Button
               size="sm"
-              disabled={!base || busy || !view.readiness.ready || examples < MIN_EXAMPLES}
+              disabled={
+                !base ||
+                busy ||
+                !view.readiness.ready ||
+                !adaptersEnabled ||
+                classesAccepted.length === 0 ||
+                examples < MIN_EXAMPLES
+              }
               onClick={() => propose()}
             >
               Propose training

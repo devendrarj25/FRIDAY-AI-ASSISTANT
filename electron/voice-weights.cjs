@@ -3,6 +3,7 @@
  * The worker does not download. Every speech size and the neural voice are pinned by revision and
  * SHA-256 in `voice-pins.cjs`; the downloader enforces the pin and a repair removes only a bad file.
  */
+const fs = require("fs");
 const path = require("path");
 const pins = require("./voice-pins.cjs");
 
@@ -12,15 +13,14 @@ const STT_REPOS = {
   small: "Systran/faster-whisper-small",
   medium: "Systran/faster-whisper-medium",
   "large-v3": "Systran/faster-whisper-large-v3",
-  // The MIT conversion of openai/whisper-large-v3-turbo that faster-whisper itself names `large-v3-turbo`
-  // (its model table, read 2026-11-08). Close to large-v3 in size of vocabulary with far less decoding work.
+  // The turbo size, named `large-v3-turbo` by the speech engine. Close to large-v3 in size of vocabulary with far less decoding work.
   "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 };
 
 /**
  * Where a size is fetched from if its first repository stops answering. The turbo repository was renamed
  * from `mobiuslabsgmbh` to `dropbox-dash` (Hugging Face redirects the old name today, checked 2026-11-09), so the
- * new name is the second source: the same files, the same MIT licence, used only when the first fails.
+ * new name is the second source: the same files, used only when the first fails.
  */
 const STT_FALLBACK_REPOS = {
   "large-v3-turbo": ["dropbox-dash/faster-whisper-large-v3-turbo"],
@@ -30,52 +30,108 @@ const STT_FALLBACK_REPOS = {
 const TTS_REPO = "Supertone/supertonic-3";
 
 /**
- * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the Supertonic
+ * The publisher's own archive of the same model (a one-commit duplicate on Hugging Face, linked from the voice
  * code repository): the second source for the neural voice. Same files, same SHA-256 (`voice-pins.cjs` MIRROR_REPOS).
  */
 const TTS_ARCHIVE_REPO = "supertone-oss-archive/supertonic-3";
 
-/** FRIDAY's Hindi ear: the Hindi IndicConformer int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
+/** FRIDAY's Hindi ear: the Hindi int8 ONNX, in `<root>/models/hindi-ear` (see kernel/hindi_ear.py). */
 const HINDI_EAR_REPO = "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx";
 
 /** The optional Hinglish ear (Roman letters, faster-whisper CT2) in `<root>/models/hinglish-ear` (see kernel/whisper_ears.py). */
 const HINGLISH_EAR_REPO = "MSpider3/whisper-hindi2hinglish-swift-ct2";
 
-/** The optional Hindi fallback (CC-BY-4.0, faster-whisper CT2) in `<root>/models/hindi-fallback-ear`. */
+/** The optional Hindi fallback (CT2) in `<root>/models/hindi-fallback-ear`. */
 const HINDI_FALLBACK_REPO = "collabora/faster-whisper-small-hindi";
 
 /** The optional Hindi punctuation model in `<root>/models/hindi-punct` (see kernel/hindi_punct.py). */
 const HINDI_PUNCT_REPO = "1-800-BAD-CODE/punct_cap_seg_47_language";
 
-/** The optional light Hindi voice (CC-BY-4.0, credit in the Models row) in `<root>/models/hindi-light-tts`. */
+/** The optional light Hindi voice in `<root>/models/hindi-light-tts`. */
 const HINDI_LIGHT_REPO = "sulabhkatiyar/indic-tiny-tts-hindi";
 
-/** The optional streaming denoiser (Apache-2.0) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
+/** The optional streaming denoiser (FRIDAY Denoise) in `<root>/models/denoise-dpdfnet`; off by default, never fetched on its own. */
 const DENOISE_REPO = "Ceva-IP/DPDFNet";
 
-/** The optional speaker-verification candidate (CC-BY-4.0, credit in the Models row) in `<root>/models/speaker-wespeaker`. */
+/** The optional tiny streaming denoiser (FRIDAY Denoise Lite) in `<root>/models/denoise-gtcrn`; off by default, never fetched on its own. */
+const GTCRN_REPO = "TigreGotico/audiosronnx-gtcrn";
+
+/** The optional speaker-verification candidate in `<root>/models/speaker-wespeaker`. */
 const SPEAKER_REPO = "onnx-community/wespeaker-voxceleb-resnet34-LM";
 
-/** The optional Hindi Whisper large-v3 fine-tune (Apache-2.0, a candidate, never a default) in `<root>/models/hindi-vaani-ear`. */
+/** The optional Hindi large-v3 fine-tune (a candidate, never a default) in `<root>/models/hindi-vaani-ear`. */
 const HINDI_VAANI_REPO = "bjollans/whisper-large-v3-vaani-hindi-ct2";
+
+/**
+ * The optional Hinglish mixed-script ear (a large-v3 fine-tune, int8; a candidate, never a default, on demand only) in `<root>/models/hinglish-ear-trelis`. The model folder
+ * is its `int8/` subfolder; it writes Hindi in Devanagari and English words in Latin letters, unlike `hinglish-ear`
+ * (Roman letters only), which stays as it is.
+ */
+const HINGLISH_TRELIS_REPO = "nikh360pro/capsbro-hinglish-ct2";
+
+/**
+ * The optional streaming ear (FRIDAY Ear Live, ONNX int8, a candidate, never a default) in
+ * `<root>/models/stream-ear-nemotron`. Setup and prefetch fetch it only when this PC's voice plan says so
+ * (`streamEarDecision`: not the lite profile, not a low-end processor, its RAM inside the speech budget, the disk with
+ * headroom, and never on a metered line, on battery or under heavy load); an installed verified copy is reused. The
+ * Models page and the Install Manager fetch it on demand on any PC. FRIDAY's own onnxruntime loop
+ * (kernel/transducer_loop.py) runs it.
+ */
+const STREAM_EAR_REPO = "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8";
+
+/**
+ * The three optional final-pass ears (candidates, never defaults, on demand only; setup never fetches them) in
+ * `<root>/models/<catalogId>`. FRIDAY Ear English (`parakeet-ear`, int8 ONNX, English) is run by `kernel/nemo_ear.py`;
+ * FRIDAY Ear Swift (`shruti-ear`, ONNX, Hindi, Hinglish and Indian English; the model folder is its pinned `hi/onnx`
+ * or `hi/onnx-int8` subfolder) by `kernel/shruti_ear.py`; FRIDAY Ear Quick (`moonshine-ear`, int8 ONNX, English) by
+ * `kernel/ear_quick.py`. The Quick vocabulary is a second repository, so it is a second row (`moonshine-ear-vocab`)
+ * that the Quick ear reads beside its graphs. Each falls back to the ear that works today when it is absent.
+ */
+const ENGLISH_EAR_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx";
+const SWIFT_EAR_REPO = "udgamlabs/Shruti-ONNX";
+const QUICK_EAR_REPO = "moonshine-ai/moonshine";
+const QUICK_VOCAB_REPO = "moonshine-ai/moonshine-tiny";
+/** The catalog id of the streaming ear (FRIDAY Ears' own streaming recogniser). */
+const STREAM_EAR_ID = "stream-ear-nemotron";
+
+/** What FRIDAY listens with while the streaming ear is absent: the ears it already has, turn by turn. */
+const STREAM_EAR_FALLBACK = "the turn-by-turn ears (the speech model and the Hindi ear)";
+
+/**
+ * Catalog ids a setup plan carries that stay optional: a failed fetch is a NOTE that names the fallback, never a FAIL,
+ * and the Doctor shows the absent model as missing but not required. Today only the streaming ear (off by default).
+ */
+function isPlanOptional(catalogId) {
+  return catalogId === STREAM_EAR_ID;
+}
+
+/** The fallback named for an optional plan model, or "". */
+function planFallback(catalogId) {
+  return isPlanOptional(catalogId) ? STREAM_EAR_FALLBACK : "";
+}
 
 /**
  * The optional ears that live in `<root>/models/<catalogId>`. Each is installed only when every pinned file is on
  * disk, and each gets one Doctor pin row. The Hindi ear is run by onnx-asr; the other two are faster-whisper folders.
  */
 const EAR_MODELS = [
-  { catalogId: "hindi-ear", repo: HINDI_EAR_REPO, rowId: "hindi-ear-pin", label: "Hindi ear" },
+  {
+    catalogId: "hindi-ear",
+    repo: HINDI_EAR_REPO,
+    rowId: "hindi-ear-pin",
+    label: "FRIDAY Ear Hindi",
+  },
   {
     catalogId: "hinglish-ear",
     repo: HINGLISH_EAR_REPO,
     rowId: "hinglish-ear-pin",
-    label: "Hinglish ear",
+    label: "FRIDAY Ear Hinglish",
   },
   {
     catalogId: "hindi-fallback-ear",
     repo: HINDI_FALLBACK_REPO,
     rowId: "hindi-fallback-ear-pin",
-    label: "Hindi fallback ear",
+    label: "FRIDAY Ear Hindi Backup",
   },
 ];
 
@@ -89,40 +145,119 @@ const EXTRA_MODELS = [
     catalogId: "hindi-punct",
     repo: HINDI_PUNCT_REPO,
     rowId: "hindi-punct-pin",
-    label: "Hindi punctuation model",
+    label: "FRIDAY Punctuate Hindi",
     kind: "stt",
   },
   {
     catalogId: "hindi-light-tts",
     repo: HINDI_LIGHT_REPO,
     rowId: "hindi-light-tts-pin",
-    label: "Light Hindi voice",
+    label: "FRIDAY Voice Lite",
     kind: "tts",
   },
-  // The three below are optional pins with no live wrapper yet: they download and verify, and each has a self-test
-  // (`voice-pins.cjs` SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
+  // The optional pins below with no live wrapper yet download and verify, and each has a self-test (`voice-pins.cjs`
+  // SELF_TESTS), but the registry (`voice-engine-registry.ts`) keeps them "not usable" until a wrapper lands.
   {
     catalogId: "denoise-dpdfnet",
     repo: DENOISE_REPO,
     rowId: "denoise-dpdfnet-pin",
-    label: "DPDFNet denoiser",
+    label: "FRIDAY Denoise",
+    kind: "voice",
+  },
+  {
+    catalogId: "denoise-gtcrn",
+    repo: GTCRN_REPO,
+    rowId: "denoise-gtcrn-pin",
+    label: "FRIDAY Denoise Lite",
     kind: "voice",
   },
   {
     catalogId: "speaker-wespeaker",
     repo: SPEAKER_REPO,
     rowId: "speaker-wespeaker-pin",
-    label: "WeSpeaker speaker model",
+    label: "FRIDAY Speaker",
     kind: "voice",
   },
   {
     catalogId: "hindi-vaani-ear",
     repo: HINDI_VAANI_REPO,
     rowId: "hindi-vaani-ear-pin",
-    label: "Hindi Vaani ear (candidate)",
+    label: "FRIDAY Ear Hindi Large (candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "stream-ear-nemotron",
+    repo: STREAM_EAR_REPO,
+    rowId: "stream-ear-nemotron-pin",
+    label: "FRIDAY Ear Live (candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "hinglish-ear-trelis",
+    repo: HINGLISH_TRELIS_REPO,
+    rowId: "hinglish-ear-trelis-pin",
+    label: "FRIDAY Ear Hinglish Large (candidate)",
+    kind: "stt",
+  },
+  {
+    catalogId: "parakeet-ear",
+    repo: ENGLISH_EAR_REPO,
+    rowId: "parakeet-ear-pin",
+    label: "FRIDAY Ear English",
+    kind: "stt",
+  },
+  {
+    catalogId: "shruti-ear",
+    repo: SWIFT_EAR_REPO,
+    rowId: "shruti-ear-pin",
+    label: "FRIDAY Ear Swift",
+    kind: "stt",
+  },
+  {
+    catalogId: "moonshine-ear",
+    repo: QUICK_EAR_REPO,
+    rowId: "moonshine-ear-pin",
+    label: "FRIDAY Ear Quick",
+    kind: "stt",
+  },
+  {
+    catalogId: "moonshine-ear-vocab",
+    repo: QUICK_VOCAB_REPO,
+    rowId: "moonshine-ear-vocab-pin",
+    label: "FRIDAY Ear Quick Vocabulary",
     kind: "stt",
   },
 ];
+
+/**
+ * FRIDAY Ear Hinglish Pro (`hinglish-ear-pro`): the pin is Oriserve's BF16 SOURCE checkpoint (1.6 GB), not a runnable
+ * folder. The folder that runs (`<root>/models/hinglish-ear-pro`) is FRIDAY's own CTranslate2 int8 conversion of it
+ * (820 MB; `scripts/build-friday-models.cjs`, recipe `ct2-int8`), held in the FRIDAY release as the assets of
+ * `config/friday-models.json` with their hashes pinned. So this ear is NOT in EXTRA_MODELS (every row there is installed
+ * from its pinned Hugging Face files): its registry row has `repo: null`, nothing in the setup, the prefetch or the
+ * Install Manager can fetch the source, and its install state, plan and pin check below all read the release assets.
+ * `needs` is what faster-whisper opens; `kernel/stt.py` HINGLISH_PRO routes it for Roman Hinglish turns.
+ */
+const HINGLISH_PRO_REPO = "Oriserve/Whisper-Hindi2Hinglish-Apex";
+const DERIVED_EARS = [
+  {
+    catalogId: "hinglish-ear-pro",
+    fridayId: "friday-ear-hinglish-pro",
+    repo: HINGLISH_PRO_REPO,
+    rowId: "hinglish-ear-pro-pin",
+    label: "FRIDAY Ear Hinglish Pro",
+    kind: "stt",
+    needs: [
+      "model.bin",
+      "config.json",
+      "tokenizer.json",
+      "vocabulary.json",
+      "preprocessor_config.json",
+    ],
+    fallback: "the Hinglish ear and the speech model of today",
+  },
+];
+const NEEDS_RELEASE = "needs the FRIDAY release (not published yet)";
 
 /** True when every file the pin lists is in the ear's folder. */
 function earOnDisk(root, ear, exists) {
@@ -146,6 +281,10 @@ const SILERO_BYTES = 2327524;
 const SMART_TURN_SHA256 = "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f";
 const SMART_TURN_BYTES = 8679182;
 
+const WAKE_EMBED_FILE = "wake-embed.onnx";
+const WAKE_EMBED_SHA256 = "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f";
+const WAKE_EMBED_BYTES = 1326578;
+
 const PINNED = [
   {
     id: "smart-turn",
@@ -153,6 +292,8 @@ const PINNED = [
     sha256: SMART_TURN_SHA256,
     bytes: SMART_TURN_BYTES,
     dir: ["models", "smart-turn"],
+    license: "BSD-2-Clause",
+    firewallClass: "local",
     optional: true,
     fallback: "the pause timer alone (Smart Turn can only lengthen a pause)",
     sources: [
@@ -172,6 +313,8 @@ const PINNED = [
     sha256: SILERO_SHA256,
     bytes: SILERO_BYTES,
     dir: ["models", "silero-vad"],
+    license: "MIT",
+    firewallClass: "local",
     optional: true,
     fallback: "the energy VAD",
     sources: [
@@ -193,7 +336,56 @@ const PINNED = [
       },
     ],
   },
+  {
+    id: "wake-embed",
+    file: WAKE_EMBED_FILE,
+    sha256: WAKE_EMBED_SHA256,
+    bytes: WAKE_EMBED_BYTES,
+    dir: ["models", "wake"],
+    license: "Apache-2.0",
+    firewallClass: "local",
+    optional: true,
+    fallback: "the bundled wake scorer",
+    sources: [
+      {
+        kind: "url",
+        // The speech embedding model of the wake head, from the v0.5.1 release assets; `fileName` is the
+        // name FRIDAY's wake engine opens it by (`kernel/wake_word.py` EMBED_MODEL_NAME), not the release's own.
+        url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
+        fileName: WAKE_EMBED_FILE,
+        sha256: WAKE_EMBED_SHA256,
+        bytes: WAKE_EMBED_BYTES,
+        label: "GitHub release v0.5.1 (fixed tag)",
+      },
+    ],
+  },
 ].map((row) => ({ ...row, url: row.sources[0].url }));
+
+/** Models-page label of each single-file helper. */
+const HELPER_LABELS = {
+  "silero-vad": "FRIDAY Listen Gate",
+  "smart-turn": "FRIDAY Turn",
+  "wake-embed": "Wake word embedding",
+};
+
+/**
+ * Internal catalog metadata on every registered voice model (`modelRegistry`, `manifestOf`, the installer catalog):
+ * `license` is the pinned source's licence id and `firewallClass` says where the weights run. "local" means the model
+ * runs inside the kernel on this PC, so microphone audio never leaves it. The manifest test fails on an empty value.
+ */
+const FIREWALL_CLASSES = ["local"];
+
+/**
+ * What the Smart Turn helper must do before the Doctor may call it loaded: the same onnx-signature self-test the other
+ * optional pins use (`kernel/voice_pin_selftest.py`). Read from the pinned file with onnxruntime 1.29 on 2026-11-26: one
+ * float input `input_features` [B, 80, 800] (eight seconds of 80 mel bins) and one output `logits` [B, 1].
+ */
+const SMART_TURN_SELF_TEST = {
+  kind: "onnx-signature",
+  file: "smart-turn-v3.2-cpu.onnx",
+  inputs: [{ name: "input_features", shape: ["B", 80, 800], type: "float32", run: [1, 80, 800] }],
+  outputs: [{ name: "logits", shape: ["B", 1] }],
+};
 
 /** True for a helper FRIDAY can run without (its `fallback` engine takes over); a failed fetch is then a note, not a failure. */
 function isOptionalHelper(id) {
@@ -233,6 +425,271 @@ function withOptInMirrors(sources, env) {
 }
 
 /**
+ * The FRIDAY Models release (`config/friday-models.json`, built by `scripts/build-friday-models.cjs`): the same pinned
+ * files, hosted as release assets of the official repository. A pinned model that the manifest holds in full is fetched
+ * from there FIRST (a file over `partBytes` as several parts that are joined), every file is checked against the
+ * manifest SHA-256 and size, and the official upstream pin source is the fallback on a 404, a network error or a wrong
+ * hash. A model with no complete manifest entry has no release source, so its chain is exactly what it was.
+ */
+const RELEASE_LABEL = "FRIDAY release";
+const OFFICIAL_LABEL = "official source";
+const RELEASE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
+const RELEASE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const RELEASE_TAG = /^friday-(?:voice-weights|models)-\d{4}\.\d{1,2}\.\d{1,3}$/;
+const DEFAULT_PART_BYTES = 1_900_000_000;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SOURCE_NOTE = ".source.json";
+
+/** The parsed pack manifest, or null when it is missing or not a friday-models pack. `deps.fridayModels` is injected by tests. */
+function readFridayModels(deps = {}) {
+  let pack = deps.fridayModels;
+  if (pack === undefined) {
+    try {
+      pack = require("./resource-paths.cjs").readConfigJson("friday-models.json", null).value;
+    } catch {
+      pack = null;
+    }
+  }
+  const sound =
+    pack &&
+    pack.pack === "friday-models" &&
+    RELEASE_REPOSITORY.test(String(pack.repository || "")) &&
+    Array.isArray(pack.assets);
+  if (!sound) return null;
+  // The voice pack (`packs[]` id voice-weights) names the tag and revision this reader uses; the top-level fields
+  // (the old friday-models-<rev> tag) are the fallback, so an older manifest keeps working.
+  const voice = (Array.isArray(pack.packs) ? pack.packs : []).find(
+    (item) => item?.id === "voice-weights",
+  );
+  const own = voice && RELEASE_TAG.test(String(voice.tag || ""));
+  const tag = own ? voice.tag : pack.tag;
+  if (!RELEASE_TAG.test(String(tag || ""))) return null;
+  return own ? { ...pack, tag, revision: voice.revision || pack.revision } : pack;
+}
+
+/** `<file>.part001` when a file is split, the plain name when it is not (the same names the builder writes). */
+function releasePartName(file, index, count) {
+  return count <= 1 ? file : `${file}.part${String(index + 1).padStart(3, "0")}`;
+}
+
+/**
+ * The release plan of one pinned repository, or null. It exists only when the manifest holds EVERY pinned file of the
+ * repository as a `copy` asset with the pin's own SHA-256 and size and a part count that follows from its bytes; one
+ * missing or different file means no release source at all. `FRIDAY_MODELS_RELEASE=0` switches the release road off.
+ * Returns `{ repo, tag, revision, files: [{ name, file, sha256, bytes, parts: [{ file, url, bytes }] }] }`.
+ */
+function fridayReleasePlan(repo, deps = {}) {
+  const env = deps.env || process.env;
+  if (String(env?.FRIDAY_MODELS_RELEASE || "") === "0") return null;
+  const pack = readFridayModels(deps);
+  const pin = (deps.pinForRepo || pins.pinForRepo)(repo);
+  if (!pack || !pin) return null;
+  const partBytes =
+    Number.isInteger(pack.partBytes) && pack.partBytes > 0 ? pack.partBytes : DEFAULT_PART_BYTES;
+  const base = `https://github.com/${pack.repository}/releases/download/${pack.tag}/`;
+  const sameModel = (asset) =>
+    asset?.from?.pin === repo || (deps.pinForRepo || pins.pinForRepo)(asset?.from?.pin) === pin;
+  const files = [];
+  for (const [name, row] of Object.entries(pin.files)) {
+    const asset = (pack.assets || []).find(
+      (item) => sameModel(item) && item.path === name && item.from?.recipe === "copy",
+    );
+    if (
+      !asset ||
+      !RELEASE_FILE.test(String(asset.file || "")) ||
+      !SHA256_HEX.test(String(asset.sha256 || "")) ||
+      asset.sha256 !== String(row.sha256 || "").toLowerCase() ||
+      asset.bytes !== row.bytes ||
+      !Number.isInteger(asset.bytes) ||
+      asset.bytes < 0
+    ) {
+      return null;
+    }
+    const count = Math.max(1, Math.ceil(asset.bytes / partBytes));
+    if (asset.parts !== count) return null;
+    const parts = [];
+    for (let index = 0; index < count; index += 1) {
+      const file = releasePartName(asset.file, index, count);
+      parts.push({
+        file,
+        url: base + encodeURIComponent(file),
+        bytes: Math.min(partBytes, asset.bytes - index * partBytes),
+      });
+    }
+    files.push({ name, file: asset.file, sha256: asset.sha256, bytes: asset.bytes, parts });
+  }
+  return files.length ? { repo, tag: pack.tag, revision: pack.revision, files } : null;
+}
+
+/** The derived ear of a catalog id, or undefined. */
+function derivedEar(catalogId) {
+  return DERIVED_EARS.find((row) => row.catalogId === catalogId);
+}
+
+/**
+ * The release plan of a derived ear (see DERIVED_EARS): every asset of the pack that FRIDAY built from the ear's source
+ * pin, under the file name the folder holds, with the hash and size the manifest pins. A copied file must equal the
+ * source pin's own SHA-256 and size; a converted file must carry its derived hash as its own. One missing, malformed or
+ * different file, or a folder without a file the runtime opens, means no plan at all (the source is never the road).
+ * Returns `{ catalogId, repo, tag, revision, bytes, files: [{ name, file, sha256, bytes, parts: [...] }] }` or null.
+ */
+function derivedEarPlan(catalogId, deps = {}) {
+  const ear = derivedEar(catalogId);
+  if (!ear) return null;
+  const env = deps.env || process.env;
+  if (String(env?.FRIDAY_MODELS_RELEASE || "") === "0") return null;
+  const pack = readFridayModels(deps);
+  const pin = (deps.pinForRepo || pins.pinForRepo)(ear.repo);
+  if (!pack || !pin) return null;
+  const partBytes =
+    Number.isInteger(pack.partBytes) && pack.partBytes > 0 ? pack.partBytes : DEFAULT_PART_BYTES;
+  const base = `https://github.com/${pack.repository}/releases/download/${pack.tag}/`;
+  const files = [];
+  const seen = new Set();
+  for (const asset of pack.assets) {
+    if (asset?.fridayId !== ear.fridayId || asset?.from?.pin !== ear.repo) continue;
+    const name = String(asset.path || "");
+    const source = Object.prototype.hasOwnProperty.call(pin.files, String(asset.from.file || ""))
+      ? pin.files[asset.from.file]
+      : null;
+    const sound =
+      RELEASE_FILE.test(name) &&
+      !seen.has(name) &&
+      RELEASE_FILE.test(String(asset.file || "")) &&
+      SHA256_HEX.test(String(asset.sha256 || "")) &&
+      Number.isInteger(asset.bytes) &&
+      asset.bytes > 0 &&
+      Boolean(source) &&
+      (asset.from.recipe === "copy"
+        ? asset.sha256 === String(source.sha256 || "").toLowerCase() && asset.bytes === source.bytes
+        : asset.from.recipe === "ct2-int8" && asset.from.derivedSha256 === asset.sha256);
+    if (!sound) return null;
+    const count = Math.max(1, Math.ceil(asset.bytes / partBytes));
+    if (asset.parts !== count) return null;
+    seen.add(name);
+    const parts = [];
+    for (let index = 0; index < count; index += 1) {
+      const file = releasePartName(asset.file, index, count);
+      parts.push({
+        file,
+        url: base + encodeURIComponent(file),
+        bytes: Math.min(partBytes, asset.bytes - index * partBytes),
+      });
+    }
+    files.push({ name, file: asset.file, sha256: asset.sha256, bytes: asset.bytes, parts });
+  }
+  if (!ear.needs.every((name) => seen.has(name))) return null;
+  const bytes = files.reduce((total, file) => total + file.bytes, 0);
+  return { catalogId, repo: ear.repo, tag: pack.tag, revision: pin.revision, bytes, files };
+}
+
+/** A pin-shaped record of the folder a derived ear installs (its files, not the source's): what the audit and the marker read. */
+function derivedEarPin(catalogId, deps = {}) {
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan) return null;
+  const source = (deps.pinForRepo || pins.pinForRepo)(plan.repo);
+  return {
+    revision: plan.revision,
+    license: source?.license || "",
+    files: Object.fromEntries(
+      plan.files.map((file) => [file.name, { sha256: file.sha256, bytes: file.bytes }]),
+    ),
+  };
+}
+
+/** True when every file of the derived ear's plan is in its folder (a cheap look; the audit checks sizes and hashes). */
+function derivedOnDisk(root, ear, exists, deps = {}) {
+  const plan = derivedEarPlan(ear.catalogId, deps);
+  const dir = path.join(root, "models", ear.catalogId);
+  return Boolean(plan) && plan.files.every((file) => exists(path.join(dir, file.name)));
+}
+
+/**
+ * The install state of a derived ear, for the Install Manager and the Doctor: `installed` (every file on disk),
+ * `release` (not on disk; the FRIDAY release holds the converted files, so that is the only source) or `needs-release`
+ * (the pack does not hold them yet: nothing is fetched, and the text says so instead of reaching for the source).
+ */
+function derivedEarState(root, catalogId, deps = {}) {
+  const ear = derivedEar(catalogId);
+  if (!ear) return null;
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan)
+    return { catalogId, state: "needs-release", plan: null, sources: [], text: NEEDS_RELEASE };
+  const installed = Boolean(root) && derivedOnDisk(root, ear, deps.exists || (() => false), deps);
+  return {
+    catalogId,
+    state: installed ? "installed" : "release",
+    plan,
+    sources: installed ? [] : derivedEarSources(catalogId, deps),
+    text: installed
+      ? "installed from the FRIDAY release files"
+      : "installs from the FRIDAY release only; the 1.6 GB source checkpoint is never fetched",
+  };
+}
+
+/** The ordered download sources of a derived ear: the FRIDAY release alone, or none while the release has no files. */
+function derivedEarSources(catalogId, deps = {}) {
+  const plan = derivedEarPlan(catalogId, deps);
+  if (!plan) return [];
+  return [
+    {
+      kind: "friday-release",
+      repo: plan.repo,
+      label: RELEASE_LABEL,
+      derived: true,
+      catalogId,
+      plan,
+    },
+  ];
+}
+
+/**
+ * `sources` with, before every pinned Hugging Face repository the pack holds in full, the FRIDAY release source. Any
+ * other source, and a repository the pack does not hold, is returned as it was, in the same order.
+ */
+function withFridayRelease(sources, deps = {}) {
+  const list = Array.isArray(sources) ? sources : [];
+  const out = [];
+  for (const source of list) {
+    // The source checkpoint of a derived ear is 1.6 GB of BF16 weights FRIDAY never installs: its release files are the road.
+    if (source?.kind === "hf-repo" && DERIVED_EARS.some((ear) => ear.repo === source.repo))
+      continue;
+    if (
+      source?.kind === "hf-repo" &&
+      source.repo &&
+      !list.some((s) => s?.kind === "friday-release" && s.repo === source.repo)
+    ) {
+      const plan = fridayReleasePlan(source.repo, deps);
+      if (plan) out.push({ kind: "friday-release", repo: source.repo, label: RELEASE_LABEL, plan });
+    }
+    out.push(source);
+  }
+  return out;
+}
+
+/** The file that says which source served a model folder (`<folder>.source.json`, beside the folder, so the pin never sees it). */
+function sourceNotePath(dir) {
+  return `${dir}${SOURCE_NOTE}`;
+}
+
+/** "FRIDAY release" or "official source" for the pinned revision on disk; "" when unknown (an older install, another revision). */
+function servedSource(dir, pin) {
+  try {
+    const note = JSON.parse(fs.readFileSync(sourceNotePath(dir), "utf8"));
+    const known = note?.source === RELEASE_LABEL || note?.source === OFFICIAL_LABEL;
+    return known && (!pin || note.pinRevision === pin.revision) ? note.source : "";
+  } catch {
+    return "";
+  }
+}
+
+/** ", installed from <source>" for a Doctor detail, or "" when the source is not known. */
+function servedNote(dir, pin) {
+  const source = servedSource(dir, pin);
+  return source ? `; installed from ${source}` : "";
+}
+
+/**
  * One line for a failed helper download: every source that was tried and why it failed, so a moved file on the first
  * source and a second failure are both visible. `result` is what `model-download.cjs` `downloadModel` returned.
  */
@@ -242,7 +699,9 @@ function pinnedFailureLine(id, result = {}) {
   const why = tried || String(result?.error || "no source answered");
   const tail = isOptionalHelper(id)
     ? `; optional, ${helperFallback(id) || "a built-in engine"} stays in use`
-    : "";
+    : isPlanOptional(id)
+      ? `; optional, setup goes on and ${planFallback(id)} stay in use`
+      : "";
   return `${id} did not download (${why})${tail}`;
 }
 
@@ -392,6 +851,15 @@ function voiceModelsOnDisk(root, exists) {
       });
     }
   }
+  for (const ear of DERIVED_EARS) {
+    if (derivedOnDisk(root, ear, check)) {
+      found.push({
+        catalogId: ear.catalogId,
+        path: path.join(root, "models", ear.catalogId),
+        kind: ear.kind,
+      });
+    }
+  }
   return found;
 }
 
@@ -443,19 +911,33 @@ async function pinChecks(root, deps = {}) {
     const audit = await auditStt(size, root, deps);
     rows.push({
       id: `stt-pin-${size}`,
-      label: `speech ${size} matches its pin`,
+      label: `FRIDAY Ear ${size} matches its pin`,
       ok: audit.ok,
-      detail: describe(audit),
+      detail:
+        describe(audit) +
+        (audit.ok
+          ? servedNote(path.join(root, "cache", "stt", size), pins.pinForRepo(STT_REPOS[size]))
+          : ""),
     });
   }
   for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
     // A row appears only when the ear is installed (every pinned file present). A short or tampered file is red.
     if (!earOnDisk(root, ear, exists)) continue;
-    const audit = await pins.auditDir(
-      path.join(root, "models", ear.catalogId),
-      pins.pinForRepo(ear.repo),
-      deps,
-    );
+    const earDir = path.join(root, "models", ear.catalogId);
+    const earPin = pins.pinForRepo(ear.repo);
+    const audit = await pins.auditDir(earDir, earPin, deps);
+    rows.push({
+      id: ear.rowId,
+      label: `${ear.label} matches its pin`,
+      ok: audit.ok,
+      detail: describe(audit) + (audit.ok ? servedNote(earDir, earPin) : ""),
+    });
+  }
+  for (const ear of DERIVED_EARS) {
+    // The derived ear is checked against its release files, never against the source pin it was converted from.
+    if (!derivedOnDisk(root, ear, exists, deps)) continue;
+    const earDir = path.join(root, "models", ear.catalogId);
+    const audit = await pins.auditDir(earDir, derivedEarPin(ear.catalogId, deps), deps);
     rows.push({
       id: ear.rowId,
       label: `${ear.label} matches its pin`,
@@ -467,12 +949,81 @@ async function pinChecks(root, deps = {}) {
   if (tts) {
     rows.push({
       id: "tts-pin",
-      label: "neural voice matches its pin",
+      label: "FRIDAY Voice matches its pin",
       ok: tts.ok,
-      detail: describe(tts),
+      detail: describe(tts) + (tts.ok ? servedNote(tts.dir, pins.pinForRepo(TTS_REPO)) : ""),
+    });
+  }
+  rows.push(...helperPinChecks(root, { ...deps, exists }));
+  return rows;
+}
+
+/**
+ * One `<id>-pin` row per installed single-file helper (Silero VAD, Smart Turn, the wake embedding): the file is the
+ * pinned size, and with `hash` its SHA-256 matches too. The helpers are optional, so a row is never required and a
+ * red one carries the helper's own install id, which fetches the pinned file again. `fileSize` and `hashFile` are
+ * injectable for a test.
+ */
+function helperPinChecks(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const sizeOf = deps.fileSize || ((file) => fs.statSync(file).size);
+  const hashOf = deps.hashFile || pins.sha256FileSync;
+  const rows = [];
+  for (const row of PINNED) {
+    const file = path.join(root || "", ...row.dir, row.file);
+    if (!root || !exists(file)) continue;
+    let problem = "";
+    try {
+      if (sizeOf(file) !== row.bytes) problem = `${row.file} wrong size`;
+      else if (deps.hash && hashOf(file) !== row.sha256) problem = `${row.file} fails SHA-256`;
+    } catch (error) {
+      problem = `${row.file} cannot be read (${String(error?.message || error).slice(0, 80)})`;
+    }
+    const label = HELPER_LABELS[row.id] || row.id;
+    rows.push({
+      id: `${row.id}-pin`,
+      label: `${label} matches its pin`,
+      ok: !problem,
+      optional: true,
+      required: false,
+      ...(problem ? { installId: row.id } : {}),
+      detail: problem || `${row.file} matches the pinned size${deps.hash ? " and SHA-256" : ""}`,
     });
   }
   return rows;
+}
+
+/**
+ * The Smart Turn Doctor row that opens the file. The kernel check only says "file present"; this runs the pinned
+ * signature self-test (`runSelfTest({ dir, spec })`, the same runner the optional pins use) so a truncated, wrong or
+ * unreadable file is red. Null when the file is not in its registered folder (the kernel's own row stays). A thrown
+ * or missing runner is red, never a silent pass.
+ */
+async function smartTurnLoadCheck(root, deps = {}) {
+  const exists = deps.exists || (() => false);
+  const row = PINNED.find((item) => item.id === "smart-turn");
+  const dir = path.join(root || "", ...row.dir);
+  if (!root || !exists(path.join(dir, row.file))) return null;
+  let result;
+  try {
+    result = deps.runSelfTest
+      ? await deps.runSelfTest({ catalogId: row.id, dir, spec: SMART_TURN_SELF_TEST })
+      : { ok: false, reason: "no-runner", detail: "the self-test runner is not available" };
+  } catch (error) {
+    result = { ok: false, reason: "run-failed", detail: String(error?.message || error) };
+  }
+  const ok = Boolean(result?.ok);
+  return {
+    id: row.id,
+    label: ok ? "FRIDAY Turn loads and runs" : "FRIDAY Turn does not load",
+    ok,
+    optional: true,
+    required: false,
+    ...(ok ? {} : { installId: row.id }),
+    detail: ok
+      ? String(result.detail || "opens and ran one pass")
+      : [result?.reason, result?.detail].filter(Boolean).join(": ") || "the file did not open",
+  };
 }
 
 /**
@@ -537,12 +1088,55 @@ async function pinSelfTests(root, deps = {}) {
         : `${String(result?.reason || "failed")}: ${String(result?.detail || "").slice(0, 200)}`,
     });
   }
+  for (const ear of DERIVED_EARS) {
+    const state = derivedEarState(root, ear.catalogId, { ...deps, exists });
+    if (state.state !== "installed") {
+      // No button: the Install Manager reaches a model through its pinned repository, and this ear's only source is
+      // the converted files of the FRIDAY release; the text says which of the two is missing.
+      const waiting = state.state === "needs-release";
+      rows.push({
+        id: `optional-${ear.catalogId}`,
+        label: `${ear.label} (optional, not installed)`,
+        ok: true,
+        optional: true,
+        required: false,
+        installId: "",
+        detail: waiting
+          ? `${state.text}; optional, ${ear.fallback} keep hearing Roman Hinglish`
+          : `not installed; optional, voice works without it (${state.text})`,
+      });
+      continue;
+    }
+    let result;
+    try {
+      result = deps.runSelfTest
+        ? await deps.runSelfTest({
+            catalogId: ear.catalogId,
+            dir: path.join(root, "models", ear.catalogId),
+            spec: { kind: "ct2-folder", wrapper: "kernel/stt.py", needs: [...ear.needs] },
+          })
+        : { ok: false, reason: "no-runner", detail: "the self-test runner is not available" };
+    } catch (error) {
+      result = { ok: false, reason: "run-failed", detail: String(error?.message || error) };
+    }
+    const ok = Boolean(result?.ok);
+    rows.push({
+      id: `selftest-${ear.catalogId}`,
+      label: `${ear.label} self-test`,
+      ok,
+      required: false,
+      installId: "",
+      detail: ok
+        ? String(result.detail || "passed")
+        : `${String(result?.reason || "failed")}: ${String(result?.detail || "").slice(0, 200)}`,
+    });
+  }
   return rows;
 }
 
 /**
  * The voice language packs: named bundles of models that are already pinned above. Each pack installs in one action
- * from the Models page (`src/lib/friday/model-catalog.ts` `voicePacks` holds the labels, sizes and credits; a test
+ * from the Models page (`src/lib/friday/model-catalog.ts` `voicePacks` holds the labels, and sizes; a test
  * keeps the two member lists equal). The English ear is the one swappable member: `faster-whisper-small` on Auto,
  * the owner's locked size otherwise. Members are listed in the order they install.
  */
@@ -596,7 +1190,7 @@ function packMemberIds(pack, sttSize) {
 /** The catalog id a failed pin row belongs to, or "" for a row that is not a pack member. */
 function catalogIdOfPinRow(rowId) {
   if (rowId === "tts-pin") return "supertonic-3";
-  const ear = [...EAR_MODELS, ...EXTRA_MODELS].find((row) => row.rowId === rowId);
+  const ear = [...EAR_MODELS, ...EXTRA_MODELS, ...DERIVED_EARS].find((row) => row.rowId === rowId);
   if (ear) return ear.catalogId;
   const size = String(rowId).startsWith("stt-pin-") ? String(rowId).slice("stt-pin-".length) : "";
   return STT_CATALOG[size] || "";
@@ -648,6 +1242,10 @@ async function packChecks(root, deps = {}) {
  * One list of every pinned voice model with the folder it lives in, so the manifest, the Doctor rows, the rollback and
  * the install plan all read the same table. `kind` is the Models-page kind: stt, tts or voice (a helper).
  */
+function licenceOf(repo) {
+  return String(pins.pinForRepo(repo)?.license || "");
+}
+
 function modelRegistry() {
   const rows = [];
   for (const size of SIZE_ORDER) {
@@ -656,7 +1254,9 @@ function modelRegistry() {
       kind: "stt",
       repo: STT_REPOS[size],
       dir: ["cache", "stt", size],
-      label: `Speech ${size}`,
+      label: `FRIDAY Ear ${size}`,
+      license: licenceOf(STT_REPOS[size]),
+      firewallClass: "local",
     });
   }
   for (const ear of [...EAR_MODELS, ...EXTRA_MODELS]) {
@@ -666,6 +1266,22 @@ function modelRegistry() {
       repo: ear.repo,
       dir: ["models", ear.catalogId],
       label: ear.label,
+      license: licenceOf(ear.repo),
+      firewallClass: "local",
+    });
+  }
+  for (const ear of DERIVED_EARS) {
+    // `repo` stays null on purpose: every consumer that fetches by `repo` (the prefetch, the Install Manager chain)
+    // would otherwise reach for the 1.6 GB source checkpoint. `derivedFrom` names it for the facts.
+    rows.push({
+      catalogId: ear.catalogId,
+      kind: ear.kind,
+      repo: null,
+      derivedFrom: ear.repo,
+      dir: ["models", ear.catalogId],
+      label: ear.label,
+      license: licenceOf(ear.repo),
+      firewallClass: "local",
     });
   }
   rows.push({
@@ -673,7 +1289,9 @@ function modelRegistry() {
     kind: "tts",
     repo: TTS_REPO,
     dir: ["models", "supertonic-3"],
-    label: "Neural voice",
+    label: "FRIDAY Voice",
+    license: licenceOf(TTS_REPO),
+    firewallClass: "local",
   });
   for (const row of PINNED) {
     rows.push({
@@ -683,8 +1301,10 @@ function modelRegistry() {
       file: row.file,
       bytes: row.bytes,
       dir: [...row.dir],
-      label: row.id === "silero-vad" ? "Silero VAD" : "Smart Turn",
+      label: HELPER_LABELS[row.id] || row.id,
       optional: row.optional === true,
+      license: row.license,
+      firewallClass: row.firewallClass,
     });
   }
   return rows;
@@ -694,12 +1314,47 @@ function modelRegistry() {
 function manifestOf(catalogId) {
   const row = modelRegistry().find((item) => item.catalogId === catalogId);
   if (!row) return null;
+  if (row.derivedFrom) {
+    // The memory and speed facts are the source pin's; the disk is what the release files weigh (the converted copy).
+    const facts = pins.manifestFor(row.derivedFrom);
+    const plan = derivedEarPlan(catalogId);
+    return facts
+      ? {
+          catalogId,
+          kind: row.kind,
+          ...facts,
+          repo: null,
+          sourceRepo: row.derivedFrom,
+          diskBytes: plan ? plan.bytes : facts.diskBytes,
+          license: row.license,
+          firewallClass: row.firewallClass,
+        }
+      : null;
+  }
   if (row.repo) {
     const facts = pins.manifestFor(row.repo);
-    return facts ? { catalogId, kind: row.kind, ...facts } : null;
+    return facts
+      ? {
+          catalogId,
+          kind: row.kind,
+          ...facts,
+          license: row.license,
+          firewallClass: row.firewallClass,
+        }
+      : null;
   }
   const facts = pins.FILE_FACTS[catalogId];
-  return facts ? { catalogId, kind: row.kind, repo: null, diskBytes: row.bytes, ...facts } : null;
+  return facts
+    ? {
+        catalogId,
+        kind: row.kind,
+        repo: null,
+        diskBytes: row.bytes,
+        ...facts,
+        license: row.license,
+        firewallClass: row.firewallClass,
+      }
+    : null;
 }
 
 /** Where a model lives under a FRIDAY root (the folder, or the single file for a helper). */
@@ -788,6 +1443,13 @@ async function folderChecks(root, deps = {}) {
           ? `the pinned revision fails verification or load; restore revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB kept)`
           : `revision ${at} (${Math.round(prev.bytes / 1024 ** 2)} MB) is kept beside the current one; it can be discarded to free disk`,
       });
+    }
+  }
+  for (const ear of DERIVED_EARS) {
+    // A derived ear whose hashed pin row passed gets the marker the kernel reads; without it the ear stays unused.
+    const dir = path.join(root, "models", ear.catalogId);
+    if (deps.adopt && passing.has(ear.catalogId) && !pins.readMarker(dir)) {
+      pins.writeMarker(dir, ear.repo, derivedEarPin(ear.catalogId, deps));
     }
   }
   return rows;
@@ -1075,6 +1737,54 @@ function budgetForProbe(probe, options = {}) {
   });
 }
 
+/**
+ * The live streaming ear under `voice.streamEngine` "auto" (the shipped default): on only when this PC has at least
+ * 12 GB of RAM and 4 cores AND a first-run self-bench of the ear (10 synthetic chunks of 320 ms, kernel/stream_ear.py
+ * `self_bench`) computes a chunk in 160 ms or less at the 95th percentile, half of real time. A named engine is the
+ * owner's choice and is never gated; "off" is always off. electron/stt.cjs stores the bench and re-runs it when the
+ * hardware facts change.
+ */
+const STREAM_AUTO = Object.freeze({
+  minRamGb: 12,
+  minCores: 4,
+  benchChunks: 10,
+  chunkMs: 320,
+  p95LimitMs: 160,
+});
+
+/** The hardware half of the "auto" rule: `{ eligible, reason, detail }`, reason `ok`, `low-ram` or `few-cores`. */
+function streamAutoHardware(facts = {}) {
+  const ram = Number(facts.totalRamGb);
+  const cores = Math.floor(Number(facts.cores));
+  if (!(ram >= STREAM_AUTO.minRamGb)) {
+    const known = ram > 0 ? `${round1(ram)} GB` : "an unknown amount of";
+    return {
+      eligible: false,
+      reason: "low-ram",
+      detail: `the live streaming ear stays off: this PC has ${known} RAM, it needs ${STREAM_AUTO.minRamGb} GB`,
+    };
+  }
+  if (!(cores >= STREAM_AUTO.minCores)) {
+    const known = cores > 0 ? String(cores) : "an unknown number of";
+    return {
+      eligible: false,
+      reason: "few-cores",
+      detail: `the live streaming ear stays off: this PC has ${known} processor cores, it needs ${STREAM_AUTO.minCores}`,
+    };
+  }
+  return { eligible: true, reason: "ok", detail: "" };
+}
+
+/** The bench half: a measured 95th-percentile chunk time within the limit. Anything unmeasured is not a pass. */
+function streamAutoBenchPassed(p95Ms) {
+  return (
+    typeof p95Ms === "number" &&
+    Number.isFinite(p95Ms) &&
+    p95Ms >= 0 &&
+    p95Ms <= STREAM_AUTO.p95LimitMs
+  );
+}
+
 const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
 
 /** An upper bound for the English streaming speech download, used only to check the disk (its real size is the publisher's). */
@@ -1087,11 +1797,43 @@ function extraSizesFor(primary) {
 }
 
 /**
+ * Whether a setup on this PC fetches the streaming ear, from the same budget: `{ state, reason }` with state `on-disk`
+ * (a verified copy is reused, never fetched again), `download`, or `skipped` with the reason. Never on the lite profile,
+ * a low-end processor or a speech budget (which already counts free RAM) below the ear's recommended RAM, and never while the line
+ * waits (`waitReason`: metered, on battery, heavy load, from electron/setup-plan.cjs). The disk is checked by the caller.
+ */
+function streamEarDecision(budget, probe, options = {}) {
+  const facts = manifestOf(STREAM_EAR_ID);
+  if (!facts) return null;
+  if (options.onDisk === true) return { state: "on-disk", reason: "" };
+  const skip = (reason) => ({ state: "skipped", reason });
+  if (budget.profile === "lite")
+    return skip(
+      "the lite voice profile keeps the streaming ear off; install it from the Models page if you want it",
+    );
+  if (probe?.cpuClass === "low")
+    return skip(
+      "a low-end processor keeps the streaming ear off; install it from the Models page if you want it",
+    );
+  if (facts.recommendedRamGb > budget.speechBudgetGb)
+    return skip(
+      `not enough RAM: the streaming ear wants ${facts.recommendedRamGb} GB, the speech budget here is ${budget.speechBudgetGb} GB`,
+    );
+  const wait = typeof options.waitReason === "string" ? options.waitReason.trim() : "";
+  if (wait)
+    return skip(
+      `a ${mb(facts.diskBytes)} download waits: ${wait}; install it from the Models page later`,
+    );
+  return { state: "download", reason: "" };
+}
+
+/**
  * What a fresh setup does about the voice on THIS PC, from the probe: which pinned models are fetched, which are already
  * on disk, which are skipped and why, and what stays optional on demand. Pure: `deps.exists` and `deps.statfs` stand in
  * for the disk, so a test needs no hardware. The essentials (the two helpers, the primary ear, the voice) are always
  * planned; the optional ones (the Hindi ear and punctuation) are skipped, with the reason, when the RAM budget or the
- * disk (1.3 times the bytes) cannot carry them. `lines` is the text setup and `--dry-run` print.
+ * disk (1.3 times the bytes) cannot carry them. The streaming ear is decided apart (`streamEarDecision`, `streamEar`);
+ * `deps.waitReason` says why a big download must wait here. `lines` is the text setup and `--dry-run` print.
  */
 function voiceInstallPlan(root, probe, deps = {}) {
   const exists = deps.exists || (() => false);
@@ -1167,6 +1909,40 @@ function voiceInstallPlan(root, probe, deps = {}) {
     );
   }
   extras.push(extraItem("moonshine-en", "engine", MOONSHINE_DISK_BYTES, false));
+  // The streaming ear: planned only on a PC that can carry it (see streamEarDecision), reused when already verified on
+  // disk. Planned, it stays optional: a failed fetch is a note naming the fallback, and the Doctor shows it missing but
+  // not required; a plan that skips it says why, and the Doctor shows that as skipped, never missing.
+  const stream = streamEarDecision(budget, probe, {
+    onDisk: onDisk.has(STREAM_EAR_ID),
+    waitReason: deps.waitReason,
+  });
+  // It is kept apart from `items` (the models every voice plan lists) as `streamEar`, and its bytes stay out of
+  // `downloadBytes` (`streamEarBytes`): prefetch and setup-plan read both. It goes last, after the extras, on the disk.
+  let streamEar = null;
+  if (stream) {
+    const facts = manifestOf(STREAM_EAR_ID);
+    const item = {
+      id: STREAM_EAR_ID,
+      kind: facts.kind,
+      bytes: facts.diskBytes,
+      state: stream.state,
+      reason: stream.reason,
+      optional: true,
+      fallback: STREAM_EAR_FALLBACK,
+    };
+    if (item.state === "download") {
+      const room = pins.diskPreflight(
+        root,
+        planned + extraBytes + facts.diskBytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (!room.ok) {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    streamEar = item;
+  }
   const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
     id: size,
     size,
@@ -1194,6 +1970,13 @@ function voiceInstallPlan(root, probe, deps = {}) {
       lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
     else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
   }
+  for (const item of streamEar ? [streamEar] : []) {
+    if (item.state === "on-disk")
+      lines.push(`[friday] ok       ${item.id} already on disk (${mb(item.bytes)}), reused`);
+    else if (item.state === "download")
+      lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
+    else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
+  }
   for (const row of blocked) {
     row.line = `[friday] INFO     ${row.id} skipped: ${row.reason}`;
     lines.push(row.line);
@@ -1210,6 +1993,8 @@ function voiceInstallPlan(root, probe, deps = {}) {
     extras,
     blocked,
     optional,
+    streamEar,
+    streamEarBytes: streamEar?.state === "download" ? streamEar.bytes : 0,
     downloadBytes: planned,
     lines,
   };
@@ -1308,6 +2093,9 @@ module.exports = {
   auditStt,
   auditTts,
   pinChecks,
+  helperPinChecks,
+  smartTurnLoadCheck,
+  FIREWALL_CLASSES,
   pinSelfTests,
   packChecks,
   VOICE_PACKS,
@@ -1324,14 +2112,45 @@ module.exports = {
   TTS_ARCHIVE_REPO,
   HF_MIRROR_HOST,
   withOptInMirrors,
+  RELEASE_LABEL,
+  OFFICIAL_LABEL,
+  readFridayModels,
+  fridayReleasePlan,
+  withFridayRelease,
+  sourceNotePath,
+  servedSource,
+  servedNote,
   HINDI_EAR_REPO,
   HINGLISH_EAR_REPO,
   HINDI_FALLBACK_REPO,
   HINDI_PUNCT_REPO,
   HINDI_LIGHT_REPO,
   DENOISE_REPO,
+  GTCRN_REPO,
   SPEAKER_REPO,
   HINDI_VAANI_REPO,
+  HINGLISH_TRELIS_REPO,
+  STREAM_EAR_REPO,
+  ENGLISH_EAR_REPO,
+  SWIFT_EAR_REPO,
+  QUICK_EAR_REPO,
+  QUICK_VOCAB_REPO,
+  STREAM_EAR_ID,
+  STREAM_EAR_FALLBACK,
+  isPlanOptional,
+  planFallback,
+  pinnedFailureLine,
+  streamEarDecision,
+  STREAM_AUTO,
+  streamAutoHardware,
+  streamAutoBenchPassed,
   EAR_MODELS,
   EXTRA_MODELS,
+  HINGLISH_PRO_REPO,
+  DERIVED_EARS,
+  NEEDS_RELEASE,
+  derivedEarPlan,
+  derivedEarPin,
+  derivedEarState,
+  derivedEarSources,
 };

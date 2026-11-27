@@ -29,11 +29,13 @@ const privacy = require("../../electron/voice-privacy.cjs") as {
     consent: { given: boolean; givenAt: number };
     enrolment: { samples: number; profile: boolean };
     wavs: { count: number };
+    caches: { count: number; bytes: number };
     retention: { keep: boolean; days: number };
   };
   deleteAll: () => Promise<{
     ok: boolean;
     removed: { samples: number; profile: boolean; wavs: number; consent: boolean };
+    cleared: { replies: number; rawClips: number; wakeClips: number; systemClips: number };
     left: string[];
   }>;
   wavsDir: () => string;
@@ -264,6 +266,48 @@ describe("Delete my voice data", () => {
     expect(empty.removed).toEqual({ samples: 0, profile: false, wavs: 0, consent: false });
     paths.setRoot(null);
     expect(await privacy.deleteAll()).toMatchObject({ ok: false, reason: "no-root" });
+  });
+
+  it("also removes the spoken-reply caches, raw clips and temp clips, and nothing that is not FRIDAY's", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "friday-privacy-tmp-"));
+    try {
+      privacy.useForTests({ now: () => FIXED_NOW, enroll, tmpdir: () => tmp });
+      const seed = (dir: string, name: string) => {
+        fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, name);
+        fs.writeFileSync(file, Buffer.from("RIFFxxxx"));
+        return file;
+      };
+      const mine = [
+        seed(path.join(root, "cache", "tts"), "aaaa.wav"),
+        seed(path.join(root, "cache", "tts"), "bbbb.mp3"),
+        seed(path.join(root, "cache", "stt-in"), "cccc.webm"),
+        seed(path.join(root, "cache", "wake-in"), "dddd.wav"),
+        seed(path.join(tmp, "friday-sapi"), "eeee.wav"),
+        seed(path.join(tmp, "wake-in"), "0123456789abcdef.webm"),
+      ];
+      const other = [
+        seed(path.join(root, "cache", "models"), "keep.bin"),
+        seed(tmp, "someone-elses.wav"),
+        seed(path.join(tmp, "wake-in"), "notes.txt"),
+      ];
+      const out = await privacy.deleteAll();
+      expect(out.left).toEqual([]);
+      expect(out.ok).toBe(true);
+      for (const file of mine) expect(fs.existsSync(file)).toBe(false);
+      for (const file of other) expect(fs.existsSync(file)).toBe(true);
+      expect(out.cleared).toMatchObject({ replies: 2, rawClips: 1, wakeClips: 2, systemClips: 1 });
+    } finally {
+      privacy.useForTests({});
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("counts the spoken-reply cache in the status", () => {
+    const dir = path.join(root, "cache", "tts");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "aaaa.wav"), "x");
+    expect(privacy.status().caches.count).toBe(1);
   });
 
   it("leaves other debug reports alone", async () => {

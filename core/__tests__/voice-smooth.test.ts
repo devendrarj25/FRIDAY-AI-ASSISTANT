@@ -89,15 +89,19 @@ describe("spoken Hinglish", () => {
 });
 
 describe("default female Indian voice", () => {
-  it("asks for Swara on a fresh install and keeps an explicit Neural pick", () => {
+  it("asks for no cloud voice on a fresh install and keeps an explicit Neural pick", () => {
+    // The online voice is never the silent default: FRIDAY Voice speaks a clause with no explicit Neural voice.
     expect(
       cloudVoiceFor(
         { voiceName: "Microsoft Swara Online (Natural) - Hindi (India)" },
         "hi-IN",
         true,
       ),
-    ).toBe("hi-IN-SwaraNeural");
-    expect(cloudVoiceFor({}, "en-IN", true)).toBe("en-IN-NeerjaNeural");
+    ).toBe("");
+    expect(cloudVoiceFor({}, "en-IN", true)).toBe("");
+    expect(cloudVoiceFor({ voiceName: "en-IN-NeerjaNeural" }, "en-IN", true)).toBe(
+      "en-IN-NeerjaNeural",
+    );
     expect(cloudVoiceFor({ kind: "neural", voiceName: "" }, "hi-IN", true)).toBe("");
     expect(cloudVoiceFor({ kind: "neural", voiceName: "hi-IN-MadhurNeural" }, "hi-IN", true)).toBe(
       "hi-IN-MadhurNeural",
@@ -291,8 +295,9 @@ describe("voice screen render budget", () => {
     const stt = readFileSync("electron/stt.cjs", "utf8");
     expect(stt).toContain("Downloading speech model, first time only");
     const neural = readFileSync("electron/neural-voice.cjs", "utf8");
-    // F2 stays the default local voice; a chosen style (F1 to F5) replaces it only when it is valid.
-    expect(neural).toContain('voice: voiceStyle || "F2"');
+    // FRIDAY's own voice is the default local voice; a chosen style replaces it only when it is on the list.
+    expect(neural).toContain("voice: voiceStyle || LOCAL_STYLE_DEFAULT");
+    expect(neural).toContain('const LOCAL_STYLE_DEFAULT = "friday"');
     expect(neural).toContain("LOCAL_STYLE");
     expect(neural).not.toContain('audioBase64: ""');
   });
@@ -393,21 +398,26 @@ describe("voice frame clock", () => {
 });
 
 describe("microphone reopen", () => {
-  it("drops a saved device that is no longer present", () => {
+  it("keeps a saved device that is no longer present and uses the default for this open", () => {
     expect(savedInputPlan("usb-mic", [{ id: "usb-mic" }])).toEqual({
       deviceId: "usb-mic",
       cleared: false,
       message: "Microphone reopened.",
+      restore: null,
     });
+    // A missing id opens the default for this open only; the saved choice is kept and comes back (S3).
     expect(savedInputPlan("usb-mic", [{ id: "built-in" }])).toEqual({
       deviceId: null,
-      cleared: true,
-      message: "The saved microphone is gone. Using the default device.",
+      cleared: false,
+      message: "The saved microphone is not connected. Using the default device until it returns.",
+      restore: "usb-mic",
     });
+    expect(savedInputPlan("usb-mic", [{ id: "built-in" }], { remove: true }).cleared).toBe(true);
     expect(savedInputPlan("", [])).toEqual({
       deviceId: null,
       cleared: false,
       message: "Microphone changed. Using the default device.",
+      restore: null,
     });
   });
 });

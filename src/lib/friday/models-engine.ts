@@ -254,8 +254,16 @@ export const VOICE_MODEL_IDS = [
   "hindi-punct",
   "hindi-light-tts",
   "denoise-dpdfnet",
+  "denoise-gtcrn",
   "speaker-wespeaker",
   "hindi-vaani-ear",
+  "stream-ear-nemotron",
+  "hinglish-ear-trelis",
+  "parakeet-ear",
+  "shruti-ear",
+  "moonshine-ear",
+  "moonshine-ear-vocab",
+  "hinglish-ear-pro",
 ] as const;
 
 /* ------------------------------------------------------------ voice language packs */

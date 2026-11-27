@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { assistantMode } from "../../src/lib/friday/assistant-mode";
+import { preferences } from "../../src/lib/friday/preferences";
 import { autonomy } from "../../src/lib/friday/self/autonomy";
 import { brain } from "../../src/lib/friday/brain-engine";
 import { voiceGate } from "../../src/lib/friday/voice-audio";
@@ -54,7 +55,9 @@ let stops = 0;
 let starts = 0;
 let opens = 0;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await preferences.hydrate();
+  preferences.setVoice({ hinglish: false, speechLang: "en-US" });
   autonomy.reset();
   Object.assign(d.state, {
     mode: "auto",

@@ -622,6 +622,6 @@ describe("Doctor rows and bundles", () => {
     });
     const mixed = bundleFit(noGpu, ["voice:hindi-ear", "voice:faster-whisper-medium"]);
     expect(mixed?.state).toBe("unsupported");
-    expect(mixed?.lines[0]).toMatch(/^Speech medium: Too heavy for a CPU/);
+    expect(mixed?.lines[0]).toMatch(/^FRIDAY Ear medium: Too heavy for a CPU/);
   });
 });

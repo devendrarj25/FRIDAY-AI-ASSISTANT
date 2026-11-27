@@ -25,8 +25,10 @@ import {
   type SuggestionKind,
 } from "./brain-catalog";
 import {
+  apiIdFor,
   modelById,
   providers as catalogProviders,
+  registryTag,
   routeRefs,
   type RoutingTask,
 } from "./model-catalog";
@@ -34,7 +36,12 @@ import { checkAnswer, feedbackFor, type CheckFailure } from "./brain/answer-chec
 import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks";
 import { sandboxToolPort } from "./sandbox-agent";
 import { compactHistory } from "./brain/history-compact";
-import { QUICK_SYSTEM, quickLaneEligible } from "./brain/quick-lane";
+import {
+  quickLaneEligible,
+  quickSystem,
+  withVoiceParts,
+  type QuickVoiceParts,
+} from "./brain/quick-lane";
 import { looksLikeLiveFact } from "./brain/research";
 import {
   DRAFT_SYSTEM,
@@ -48,6 +55,7 @@ import {
   type StopScope,
 } from "./self/brain-draft";
 import { askFriday, canAsk } from "./ask";
+import { scrubSecrets } from "./self/run-receipt";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { taskPreference } from "./brain/task-routing";
 import { modelRegistry as usageRegistry } from "./model-registry";
@@ -67,6 +75,18 @@ import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { shouldWriteLessons } from "./settings-runtime";
 import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
+import {
+  kindOfTool,
+  kindOfRecalled,
+  kindsOfCognition,
+  kindsOfRecalled,
+  modelKindOf,
+  turnProvenance,
+  type ContextKind,
+  type PromptOrigin,
+  type RoutedModel,
+} from "./self/turn-provenance";
+import { brainKnowledge } from "./brain/knowledge-base";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
 import { forgetEverywhere } from "./brain/memory-fabric";
@@ -95,7 +115,8 @@ import { brainError } from "./brain/errors";
 import { appendTraceStep, completeRunningStep, type TurnTraceStep } from "./brain/turn-trace";
 import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
-import { openingLine, type SocialContext } from "./conversation-style";
+import { openingLine, type SocialContext, voiceModeBlock } from "./conversation-style";
+import { stripDeliveryTags, stripDeliveryTagsLive } from "./voice-engine/delivery-tags";
 import { recallArc } from "./conversation-arc";
 import { userProfileDigest, vocative } from "./brain/user-profile";
 import { conversationSight } from "./conversation-sight";
@@ -199,6 +220,47 @@ export function taskRoutingFor(
   }
 }
 
+/** Where a send came from. A missing value is chat: only a caller that says "voice" gets the voice treatment. */
+export type RoutingSurface = "voice" | "chat";
+
+/** Spread this into the options of every spoken send: `brain.send(text, { ...VOICE_SEND })`. */
+export const VOICE_SEND = { routingSurface: "voice" } as const;
+
+/** Fails safe: anything that is not exactly "voice" is chat (Auto mode alone never makes a send spoken). */
+export function resolveSurface(raw: unknown): RoutingSurface {
+  return raw === "voice" ? "voice" : "chat";
+}
+
+export const SEND_CONTEXT_MAX = 800;
+
+/** Turn facts for the model: metadata, never an attachment. No control characters, no secrets, at most 800 characters. */
+export function scrubSendContext(raw: unknown): string {
+  const text = scrubSecrets(typeof raw === "string" ? raw : "");
+  let clean = "";
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (code < 32 && code !== 9 && code !== 10) continue;
+    clean += char;
+  }
+  return clean.trim().slice(0, SEND_CONTEXT_MAX);
+}
+
+/**
+ * The two spoken-turn lines every plain model call and every full turn shares: the reply language the ear heard
+ * (empty when Settings pins one) and the voice-mode block. One place, so a draft, a quick-lane answer and the
+ * final turn can never describe the same line differently. Text only: it carries no authority.
+ */
+function turnVoiceParts(
+  hints: TurnHints | null,
+  options: { voice: boolean; deliveryTags: boolean },
+): { languageLine: string; voiceBlock: string } {
+  const pinned = replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user";
+  return {
+    languageLine: replyLanguageLine(hints, pinned),
+    voiceBlock: options.voice ? voiceModeBlock({ deliveryTags: options.deliveryTags }) : "",
+  };
+}
+
 export function withRoutingDefaults(options: {
   extra?: string;
   modelIds?: string[];
@@ -258,6 +320,7 @@ import { handleInstallerCommand } from "./installer-engine";
 import { handleModelsCommand } from "./models-command";
 import { parseImageRequest, runImageRequest } from "./image-command";
 import {
+  desktopApi,
   kernelCall,
   checkForUpdates,
   applyUpdate as applyDesktopUpdate,
@@ -268,6 +331,16 @@ import { appControlNeedsApproval, APP_RESTART_TOOL, APP_SHUTDOWN_TOOL } from "./
 import { kernelApi } from "./kernel-api";
 import { composer } from "./composer";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
+import { identity as replyIdentity } from "./brain/identity";
+import {
+  CLARIFY_WINDOW_MS,
+  cleanTurnHints,
+  clarificationLine,
+  needsClarification,
+  replyLanguageLine,
+  type TurnHints,
+} from "./brain/turn-hints";
+export type { TurnHints };
 import { showRealChart, showRealImage } from "./stage";
 import { connectorTools, invokeApprovedConnectorAction } from "./connectors";
 import { isWorkspaceShellTool, runWorkspaceShell } from "./terminal-awareness";
@@ -411,6 +484,10 @@ export type Run = {
   answeredBy?: AnsweredBy;
   /** Set when a task owns this run: a foreground stop leaves it running. Absent for the foreground turn. */
   owner?: RunOwner;
+  /** The caller's id for the turn that started this run, when it sent one. */
+  turnId?: string;
+  /** The lane this run took. */
+  lane?: "quick" | "full";
 };
 
 export function accessBadge(entry: { access?: string; type?: string | null }): string {
@@ -516,12 +593,28 @@ export type ScheduledJob = {
  */
 export type SendResult = {
   accepted: boolean;
-  reason: "accepted" | "empty" | "busy" | "quick-lane" | "draft" | "draft-refused";
+  reason:
+    | "accepted"
+    | "empty"
+    | "busy"
+    | "quick-lane"
+    | "lane-refused"
+    | "draft"
+    | "draft-refused"
+    | "clarify";
   message: string | null;
   /** The run this send started. Absent for a quick-lane answer, a draft and a refused turn. */
   runId?: string;
   /** Set for a draft send: the handle, or why no draft was started. */
   draft?: DraftStart;
+  /** True when the Brain did not take the turn (empty, busy, lane-refused, clarify). The reason says why; it is not a voice fault. */
+  refused?: true;
+  /** True on every refusal: `send` never stops the running foreground turn, so a refused lane must not cause a stop. */
+  foregroundUntouched?: true;
+  /** The lane that took (or would have taken) the turn, when the caller named one. */
+  lane?: "quick" | "full";
+  /** The caller's turn id, echoed back. */
+  turnId?: string;
 };
 
 export type { DraftHandle, DraftStart, RunOwner, StopScope };
@@ -534,6 +627,8 @@ export type QuickAnswer = {
   /** False when the line is the plain "I could not answer that" one. */
   ok: boolean;
   messageId: string;
+  /** The turn id the caller sent with the question, when it sent one. */
+  turnId?: string;
 };
 
 type ChatBridge = NonNullable<typeof window.friday>;
@@ -586,6 +681,10 @@ const UPDATE_POLL_MS = 30 * 60_000;
 const UPDATE_STALE_MS = 120_000;
 const MAX_LOG = 160;
 const MAX_RUNS = 12;
+/** How many runs keep the text the model wrote with its delivery tags (the speech path reads it after the run ends). */
+const RAW_ANSWERS_KEPT = 16;
+/** Spoken run ids kept for the speech path; a run that never produced text must not leak its id. */
+const VOICE_RUNS_KEPT = 16;
 
 let seq = 0;
 const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
@@ -867,6 +966,8 @@ class BrainStore {
   private updateWatch: ReturnType<typeof setInterval> | null = null;
   /** Per-engine stream buffers for the active run, used to reconcile answers. */
   private servedModelIds = new Map<string, string>();
+  /** The router's live model list, kept to name the kind of the engine that served a turn. */
+  private routedModels: RoutedModel[] = [];
   private streamBuffers = new Map<string, { text: string; at: number }>();
   /** Runs that already used their single verification-repair retry. */
   private repairedRuns = new Set<string>();
@@ -876,14 +977,25 @@ class BrainStore {
     requestId: string;
     handle: DraftHandle;
     startedAt: number;
-    /** Kept on this PC: privacy mode was on when it started. */
+    /** Kept on this PC: privacy mode was on, or the caller asked for a local-only draft. */
     onlyLocal: boolean;
+    /** The reply-language line this draft was written under; "hinted" is false when the caller passed no turn. */
+    languageLine: string;
+    hinted: boolean;
     timer: ReturnType<typeof setTimeout>;
     /** Stream events seen before adoption, replayed into the real run in order. */
     events: DraftEvent[];
     done: boolean;
   } | null = null;
+  /** When the owner was last asked to repeat a low-confidence line; the next turn within the window is taken as heard. */
+  private clarifiedAt: number | null = null;
   private quickListeners = new Set<(answer: QuickAnswer) => void>();
+  /** Runs of a spoken turn: only their text may carry delivery tags, and only for the speech path. */
+  private voiceRuns = new Set<string>();
+  /** Spoken runs that read a tool, web, file or connector result: that text is data, so nothing in them steers the voice. */
+  private untrustedRuns = new Set<string>();
+  /** What the model wrote for the latest runs, tags and all. The screen, memory and history only ever get the stripped text. */
+  private rawAnswers = new Map<string, string>();
   /** The four chat stream handlers, so a draft that is adopted can replay what it already heard. */
   private chatHandlers: Partial<{
     [K in DraftEvent["kind"]]: (event: Extract<DraftEvent, { kind: K }>["event"]) => void;
@@ -1083,14 +1195,15 @@ class BrainStore {
     window.friday.onSessionMessage?.((event) => {
       if (!event?.text?.trim() || event.origin !== "phone") return;
       const from: Message["role"] = event.role === "user" ? "user" : "friday";
+      const line = from === "friday" ? stripDeliveryTags(event.text) : event.text;
       const last = this.state.messages[this.state.messages.length - 1];
-      if (last && last.role === from && last.text === event.text) return; // already shown
+      if (last && last.role === from && last.text === line) return; // already shown
       this.state.messages = [
         ...this.state.messages,
         {
           id: nextId("msg"),
           role: from,
-          text: event.text,
+          text: line,
           at: Date.now(),
           ...(event.role === "user" ? { via: "phone" as const } : {}),
         },
@@ -1107,21 +1220,27 @@ class BrainStore {
       this.armWatchdog();
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (!run) return;
+      // The whole reply so far, tags and all: a tag split across two chunks is whole once it is read, and an
+      // unfinished `[...` waits off screen until it closes. What is shown, kept and remembered has no tags.
+      const raw = this.noteRaw(
+        run,
+        event.replace ? String(event.text || "") : (this.rawAnswers.get(run.id) ?? "") + event.text,
+      );
+      const shown = stripDeliveryTagsLive(raw);
       const current = this.state.messages.find(
         (message) => message.runId === run.id && message.role === "friday",
       );
       if (current) {
-        const nextText = event.replace ? String(event.text || "") : current.text + event.text;
         this.state.messages = this.state.messages.map((message) =>
-          message.id === current.id ? { ...message, text: nextText } : message,
+          message.id === current.id ? { ...message, text: shown } : message,
         );
       } else {
         this.state.messages = [
           ...this.state.messages,
-          { id: nextId("msg"), role: "friday", text: event.text, at: Date.now(), runId: run.id },
+          { id: nextId("msg"), role: "friday", text: shown, at: Date.now(), runId: run.id },
         ];
       }
-      run.answer = event.replace ? String(event.text || "") : run.answer + event.text;
+      run.answer = shown;
       if (event.modelId) {
         const buffer = this.streamBuffers.get(event.modelId) ?? { text: "", at: Date.now() };
         buffer.text += event.text;
@@ -1141,7 +1260,10 @@ class BrainStore {
       const waiting = run.trace?.some(
         (step) => step.nodeId === "router.select" && step.state === "running",
       );
-      if (event.modelId) this.servedModelIds.set(run.id, event.modelId);
+      if (event.modelId) {
+        this.servedModelIds.set(run.id, event.modelId);
+        turnProvenance.noteServed(run.id, event.modelId);
+      }
       if (waiting) {
         this.finishTurnStep(run, "done", `first token from ${event.modelId ?? "selected model"}`);
       }
@@ -1154,6 +1276,9 @@ class BrainStore {
       if (event.requestId !== this.activeRequestId) return;
       const run = this.state.runs.find((item) => item.id === this.state.activeRunId);
       if (!run) return;
+      // A tool ran in this run: whatever it returned is untrusted, so the model's tags are no longer the model's own.
+      if (this.voiceRuns.has(run.id)) this.untrustedRuns.add(run.id);
+      turnProvenance.add(run.id, kindOfTool(event.name));
       const execute = run.stages.find((stage) => stage.id === "execute");
       if (execute) {
         execute.state = "running";
@@ -1178,6 +1303,7 @@ class BrainStore {
         return;
       }
       applyDesktopPhase(run, "finish", "conversation saved");
+      this.flushAnswer(run);
       run.stages.forEach((stage) => {
         if (stage.state !== "skipped") stage.state = "done";
       });
@@ -1293,8 +1419,20 @@ class BrainStore {
     for (const conflict of result.conflicts.slice(0, 3)) this.push("warn", conflict);
   }
 
+  /** Keep only the latest spoken run ids (a Set keeps insertion order, so the oldest go first). */
+  private capVoiceRuns() {
+    for (const id of [...this.voiceRuns].slice(0, -VOICE_RUNS_KEPT)) this.dropVoiceRun(id);
+  }
+
+  private dropVoiceRun(id: string) {
+    this.voiceRuns.delete(id);
+    this.untrustedRuns.delete(id);
+    this.rawAnswers.delete(id);
+  }
+
   /** Rewrites the reply already shown for this run, in place. */
-  private replaceAnswer(run: Run, text: string) {
+  private replaceAnswer(run: Run, written: string) {
+    const text = stripDeliveryTags(written);
     run.answer = text;
     const index = [...this.state.messages]
       .reverse()
@@ -1304,6 +1442,47 @@ class BrainStore {
     this.state.messages = this.state.messages.map((message, i) =>
       i === target ? { ...message, text } : message,
     );
+  }
+
+  /**
+   * Keep what the model wrote for this run, tags and all (latest runs only), and say which runs are spoken ones.
+   * Returns the text unchanged.
+   */
+  private noteRaw(run: Run, raw: string): string {
+    this.rawAnswers.delete(run.id);
+    this.rawAnswers.set(run.id, raw);
+    for (const id of [...this.rawAnswers.keys()].slice(0, -RAW_ANSWERS_KEPT)) {
+      this.rawAnswers.delete(id);
+      this.voiceRuns.delete(id);
+      this.untrustedRuns.delete(id);
+    }
+    return raw;
+  }
+
+  /** The reply has ended: show the whole of it (an unfinished `[...` that never closed is text, not a tag). */
+  private flushAnswer(run: Run) {
+    const raw = this.rawAnswers.get(run.id);
+    if (raw === undefined) return;
+    const text = stripDeliveryTags(raw);
+    if (text !== run.answer) this.replaceAnswer(run, text);
+  }
+
+  /**
+   * Text the model did not write entered this spoken run (a tool result, the awareness snapshot, an attachment,
+   * screen text or recalled memory): a tag it quotes is no longer the model's own, so the run keeps no script.
+   */
+  private noteUntrusted(runId: string) {
+    if (this.voiceRuns.has(runId)) this.untrustedRuns.add(runId);
+  }
+
+  /**
+   * What the model wrote for a spoken run, tags included, for the speech path only (the screen never gets it).
+   * Empty for a typed run, for a run that read a tool, web, file or connector result (untrusted text must never steer
+   * the voice), and for a run whose shown text was rewritten after the model wrote it.
+   */
+  deliveryScript(runId: string): string {
+    if (this.untrustedRuns.has(runId)) return "";
+    return this.voiceRuns.has(runId) ? (this.rawAnswers.get(runId) ?? "") : "";
   }
 
   /**
@@ -1459,12 +1638,16 @@ class BrainStore {
     run.agents.forEach((agent) => {
       if (agent.state === "queued" || agent.state === "running") agent.state = "failed";
     });
+    this.flushAnswer(run);
+    // A failed run is spoken plain: its id and script are no use to the speech path.
+    this.dropVoiceRun(run.id);
     const settled = settleInterrupted(run.answer, error);
     if (!(settled.keep && settled.text == null)) {
-      const text =
+      const text = stripDeliveryTags(
         shown ??
-        settled.text ??
-        failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 });
+          settled.text ??
+          failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 }),
+      );
       if (settled.keep) {
         this.replaceAnswer(run, text);
         const shown = this.state.messages.some(
@@ -1717,17 +1900,48 @@ class BrainStore {
       routingSurface?: "voice" | "chat";
       /** A text-only guess made before the owner finished (see `adoptDraft`). Never a run. */
       draft?: boolean;
+      /** A draft only: reach a local model alone, never a cloud one (a turn draft asks for this). */
+      onlyLocal?: boolean;
       /** The task this run belongs to: a foreground stop leaves it running. */
       owner?: RunOwner;
+      /**
+       * What the ear knew about the heard line (language, mix, confidence, eager, clipped). Optional metadata:
+       * it picks the reply language and can turn a low-confidence line into a question. It carries no authority.
+       */
+      turn?: Partial<TurnHints>;
+      /**
+       * Turn facts for the model (voice digest, noise, language). Metadata, never an attachment: it is scrubbed,
+       * capped at 800 characters, and does not stop a short question from taking the quick lane.
+       */
+      context?: string;
+      /** Ask for a lane: "quick" is a plain side answer beside the running turn (refused, never queued, when it cannot be); "full" is a whole turn. */
+      lane?: "quick" | "full";
+      /** The caller's id for this turn. Carried to the run and echoed in the result. */
+      turnId?: string;
+      /**
+       * "typed" for text the owner typed in a chat box, "owner-voice" for a line his own microphone path heard.
+       * Missing means unknown: only these two let the finished turn count as the owner's words in the task ledger.
+       */
+      promptOrigin?: PromptOrigin;
     } = {},
   ): SendResult {
+    // What the ear knew about the line. It can only make FRIDAY ask once or answer in the owner's mix; it is
+    // never read by an approval, authority or permission check.
+    const hints = cleanTurnHints(rawOptions.turn);
     if (rawOptions.draft) {
       // A guess, not a turn: no tools, no approval, no memory, no history. Only a local or proven-free
-      // model, and never a cloud model when privacy mode is on or the line looks sensitive.
-      const onlyLocal = preferences.getSnapshot().voice.privacyMode === true;
+      // model, and never a cloud model when privacy mode is on, the caller asked for local only, or the line
+      // looks sensitive.
+      const onlyLocal =
+        rawOptions.onlyLocal === true || preferences.getSnapshot().voice.privacyMode === true;
       const started: DraftStart = looksSensitive(prompt)
         ? { started: false, reason: "sensitive" }
-        : this.beginDraft(prompt, onlyLocal);
+        : this.beginDraft(
+            prompt,
+            onlyLocal,
+            turnVoiceParts(hints, { voice: true, deliveryTags: true }),
+            hints !== null,
+          );
       return {
         accepted: started.started,
         reason: started.started ? "draft" : "draft-refused",
@@ -1741,30 +1955,85 @@ class BrainStore {
     // The registry is the single source of truth, filled in here for callers
     // that do not carry it.
     const named = promptRouting(prompt, rawOptions);
-    const surface = rawOptions.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(rawOptions.routingSurface);
     const withTask = named ?? taskRoutingFor(prompt, rawOptions, surface);
     const options = withRoutingDefaults(withTask ? { ...rawOptions, ...withTask } : rawOptions);
     const text = prompt.trim();
-    if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
+    const carry = {
+      ...(rawOptions.turnId ? { turnId: rawOptions.turnId } : {}),
+    };
+    // Every refusal says so, and says the running turn was not touched: `send` never stops anything.
+    const refusal = {
+      refused: true as const,
+      foregroundUntouched: true as const,
+      ...(rawOptions.lane ? { lane: rawOptions.lane } : {}),
+      ...carry,
+    };
+    if (!text)
+      return { accepted: false, reason: "empty", message: "I didn't catch anything.", ...refusal };
+    if (needsClarification(hints)) {
+      const now = Date.now();
+      if (this.clarifiedAt === null || now - this.clarifiedAt >= CLARIFY_WINDOW_MS) {
+        this.clarifiedAt = now;
+        return {
+          accepted: false,
+          reason: "clarify",
+          message: clarificationLine(hints, text, { echo: !looksSensitive(text) }),
+          ...refusal,
+        };
+      }
+    }
+    this.clarifiedAt = null;
+    // The context is metadata: only a real attachment (`extra`) can keep a question out of the quick lane.
+    const context = scrubSendContext(rawOptions.context);
     if (this.state.activeRunId) {
-      if (
-        quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra) }).ok &&
-        canAsk()
-      ) {
-        void this.answerQuick(text, surface);
-        return { accepted: true, reason: "quick-lane", message: null };
+      const laneOk =
+        rawOptions.lane !== "full" &&
+        quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra?.trim()) }).ok &&
+        canAsk();
+      if (laneOk) {
+        void this.answerQuick(text, surface, { context, turn: hints, ...carry });
+        return { accepted: true, reason: "quick-lane", message: null, lane: "quick", ...carry };
+      }
+      if (rawOptions.lane === "quick") {
+        return { accepted: false, reason: "lane-refused", message: null, ...refusal };
       }
       return {
         accepted: false,
         reason: "busy",
         message: "I'm still working on the last request — one moment.",
+        ...refusal,
       };
     }
-    this.startRun(text, options, rawOptions.owner);
+    // A spoken turn also gets the voice-mode block (tone, pacing, pronunciation, variety).
+    const { languageLine, voiceBlock } = turnVoiceParts(hints, {
+      voice: surface === "voice",
+      deliveryTags: true,
+    });
+    const startOptions = {
+      ...options,
+      routingSurface: surface,
+      lane: "full" as const,
+      ...(context || rawOptions.extra?.trim() ? { untrusted: true } : {}),
+      ...(rawOptions.promptOrigin ? { promptOrigin: rawOptions.promptOrigin } : {}),
+      ...carry,
+    };
+    this.startRun(
+      text,
+      languageLine || voiceBlock || context
+        ? {
+            ...startOptions,
+            extra: mergeTurnExtra(options.extra, context, languageLine, voiceBlock),
+          }
+        : startOptions,
+      rawOptions.owner,
+    );
     return {
       accepted: true,
       reason: "accepted",
       message: null,
+      lane: "full",
+      ...carry,
       ...(this.state.activeRunId ? { runId: this.state.activeRunId } : {}),
     };
   }
@@ -1831,8 +2100,11 @@ class BrainStore {
     agentIds: AgentId[],
     owner?: RunOwner,
   ): Run {
+    const runId = nextId("run");
+    if (surface === "voice") this.voiceRuns.add(runId);
+    this.capVoiceRuns();
     return {
-      id: nextId("run"),
+      id: runId,
       prompt: text,
       intent: found.rule.id,
       intentLabel: found.rule.label,
@@ -1878,12 +2150,18 @@ class BrainStore {
       routeMode?: string;
       routingContract?: ModelRoutingContract;
       routingSurface?: "voice" | "chat";
+      lane?: "quick" | "full";
+      turnId?: string;
+      /** The turn carries text the model did not write (awareness snapshot, attachment): no delivery tags. */
+      untrusted?: boolean;
+      /** Where the prompt text came from (see `send`). Missing = unknown. */
+      promptOrigin?: PromptOrigin;
     } = {},
     owner?: RunOwner,
   ) {
     // A real turn takes the lane: a guess made before it can no longer be adopted.
     this.dropDraft();
-    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(options.routingSurface);
     const budget = thinkBudget(surface);
     const traces = tracePlan(["understand", "evidence", "answer"], surface);
     withinBudget(0, surface);
@@ -1895,7 +2173,9 @@ class BrainStore {
     if (sight.text) {
       options = {
         ...options,
-        extra: `${options.extra || ""}\nUntrusted screen data: ${sight.text}`.trim(),
+        // Tags in what was seen on screen are text, never delivery: the model must not meet one it could copy.
+        extra:
+          `${options.extra || ""}\nUntrusted screen data: ${stripDeliveryTags(sight.text)}`.trim(),
       };
     }
     const history = this.state.messages.map((m) => ({ role: m.role, text: m.text }));
@@ -1942,6 +2222,15 @@ class BrainStore {
     const multi = this.state.settings.multiModel ? chosen : chosen.slice(0, 1);
 
     const run = this.newRun(text, surface, { rule, score, matched }, multi, owner);
+    if (options.turnId) run.turnId = options.turnId;
+    if (options.lane) run.lane = options.lane;
+    if (options.untrusted || sight.text) this.noteUntrusted(run.id);
+    turnProvenance.begin(run.id, {
+      origin: options.promptOrigin,
+      extra: Boolean(options.untrusted),
+      screen: Boolean(sight.text),
+    });
+    this.refreshRoutedModels();
     const runId = run.id;
     this.recordDoneTurn(
       run,
@@ -2146,6 +2435,7 @@ class BrainStore {
       applyDesktopPhase(run, "wait", "waiting for selected model");
       const memoryStage = run.stages.find((stage) => stage.id === "memory");
       run.recalled = this.recall(run.prompt);
+      if (run.recalled.length) this.noteUntrusted(run.id);
       if (memoryStage) {
         memoryStage.detail = `${run.recalled.length} local context records selected`;
       }
@@ -2160,7 +2450,7 @@ class BrainStore {
         ...(options.modelIds ? { modelIds: options.modelIds } : {}),
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
-        routingSurface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        routingSurface: resolveSurface(options.routingSurface),
       });
       this.emit(false);
       return;
@@ -2217,7 +2507,7 @@ class BrainStore {
     try {
       cognition = await coreBrain.cognize(text, {
         mode: this.autoMode ? "auto" : "manual",
-        surface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        surface: resolveSurface(options.routingSurface),
         observe: false,
         multiModel: this.state.settings.multiModel,
         useKnowledge: this.state.settings.useKnowledge,
@@ -2286,7 +2576,7 @@ class BrainStore {
     ) {
       const route = this.routeModel(
         task,
-        options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        resolveSurface(options.routingSurface),
         this.privateTurn(text),
       );
       if (route.outcome === NO_LIVE_MODEL) {
@@ -2315,7 +2605,7 @@ class BrainStore {
         : collaboration.reason,
     );
     this.finishTurnStep(run, "done");
-    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
+    const surface = resolveSurface(options.routingSurface);
     if (collaboration.warranted && hedgeAllowed(surface) && desktop.parallelChat) {
       if (this.phoneCognizeSession) this.phoneCognizeStreamed = true;
       const handled = await this.collaborate(run, text, requestId, desktop, collaboration, {
@@ -2408,7 +2698,11 @@ class BrainStore {
    * A short question asked while a long run is going: one plain model call, shown in the thread beside the
    * running work. It never touches the run, its tools or memory; a failure says so in one line.
    */
-  private async answerQuick(text: string, surface: "voice" | "chat"): Promise<void> {
+  private async answerQuick(
+    text: string,
+    surface: "voice" | "chat",
+    meta: { context?: string; turnId?: string; turn?: TurnHints | null } = {},
+  ): Promise<void> {
     this.state.messages = [
       ...this.state.messages,
       { id: nextId("msg"), role: "user", text, at: Date.now(), source: surface },
@@ -2418,14 +2712,18 @@ class BrainStore {
     let failed = false;
     try {
       reply = (
-        await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000, ephemeral: true })
+        await askFriday(text, {
+          system: quickSystem(meta.context, this.quickVoiceParts(meta, surface), text),
+          timeoutMs: 45_000,
+          ephemeral: true,
+        })
       ).trim();
     } catch {
       failed = true;
       reply = "I couldn't answer that right now; I'm still on the last task.";
     }
     const messageId = nextId("msg");
-    const spoken = reply || "I don't know that one.";
+    const spoken = stripDeliveryTags(reply) || "I don't know that one.";
     this.state.messages = [
       ...this.state.messages,
       { id: messageId, role: "friday", text: spoken, at: Date.now(), source: surface },
@@ -2439,11 +2737,32 @@ class BrainStore {
           surface,
           ok: Boolean(reply) && !failed,
           messageId,
+          ...(meta.turnId ? { turnId: meta.turnId } : {}),
         });
       } catch {
         /* a listener that throws must not break the thread */
       }
     }
+  }
+
+  /**
+   * The language line and the voice block of a quick-lane answer, outside the turn-facts cap. The reply is spoken
+   * as plain text, so no delivery tag is asked for; the line is left out when the caller's facts already hold it.
+   */
+  private quickVoiceParts(
+    meta: { context?: string; turn?: TurnHints | null },
+    surface: "voice" | "chat",
+  ): QuickVoiceParts {
+    const parts = turnVoiceParts(meta.turn ?? null, {
+      voice: surface === "voice",
+      deliveryTags: false,
+    });
+    return {
+      ...(parts.languageLine && !String(meta.context || "").includes(parts.languageLine)
+        ? { languageLine: parts.languageLine }
+        : {}),
+      ...(parts.voiceBlock ? { voiceBlock: parts.voiceBlock } : {}),
+    };
   }
 
   private historyForModel(runId: string): {
@@ -2532,7 +2851,7 @@ class BrainStore {
       dispatch.cognition,
       usable.map((entry) => ({ modelId: entry.modelId, text: entry.text, ok: true, ms: entry.ms })),
     );
-    const answer = result.answer || usable[0]!.text;
+    const answer = stripDeliveryTags(result.answer || usable[0]!.text);
 
     try {
       recordCollaboration({
@@ -2734,6 +3053,7 @@ class BrainStore {
       }
     }
 
+    text = stripDeliveryTags(text);
     this.state.messages = [
       ...this.state.messages,
       { id: nextId("msg"), role: "friday", text, at: Date.now(), runId: run.id },
@@ -2896,9 +3216,23 @@ class BrainStore {
     };
   }
 
-  /** Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not. */
-  startDraft(prompt: string): DraftStart {
-    return this.send(prompt, { draft: true }).draft ?? { started: false, reason: "empty" };
+  /**
+   * Start a draft: the same path as `send(prompt, { draft: true })`, returning the handle or why not.
+   * `onlyLocal` is what a turn draft (the guess made on an eager end of turn) passes: the draft then reaches a
+   * local model alone, never a cloud one, whatever the registry holds; privacy mode forces the same. `turn` is what
+   * the ear knew so far: the draft is written under the same reply-language line and voice block as the final turn.
+   */
+  startDraft(
+    prompt: string,
+    options: { onlyLocal?: boolean; turn?: Partial<TurnHints> } = {},
+  ): DraftStart {
+    return (
+      this.send(prompt, {
+        draft: true,
+        ...(options.onlyLocal ? { onlyLocal: true } : {}),
+        ...(options.turn ? { turn: options.turn } : {}),
+      }).draft ?? { started: false, reason: "empty" }
+    );
   }
 
   /**
@@ -2907,14 +3241,22 @@ class BrainStore {
    * away without a trace and returns false. What the draft already streamed is replayed into the new run, and
    * the rest of the stream reaches it through the ordinary handlers: one model call, no second one.
    */
-  adoptDraft(draftId: string, finalText: string): boolean {
+  adoptDraft(draftId: string, finalText: string, turn?: Partial<TurnHints>): boolean {
     const draft = this.draft;
     if (!draft || draft.id !== draftId) return false;
+    const finalHints = cleanTurnHints(turn);
     const expired = Date.now() - draft.startedAt >= DRAFT_TTL_MS;
     const privacyNow = preferences.getSnapshot().voice.privacyMode === true;
     if (
       expired ||
+      // A line the ear was unsure of is asked about, not answered from a guess: the real turn decides.
+      needsClarification(finalHints) ||
       !sameTranscript(finalText, draft.handle.prompt) ||
+      // The draft was written for one reply language; a final turn that would answer in another throws it away.
+      (draft.hinted &&
+        turn !== undefined &&
+        draft.languageLine !==
+          turnVoiceParts(finalHints, { voice: true, deliveryTags: true }).languageLine) ||
       autonomy.getSnapshot().halted ||
       this.state.activeRunId ||
       this.state.approval ||
@@ -2987,7 +3329,12 @@ class BrainStore {
     }
   }
 
-  private beginDraft(prompt: string, onlyLocal: boolean): DraftStart {
+  private beginDraft(
+    prompt: string,
+    onlyLocal: boolean,
+    voice: QuickVoiceParts,
+    hinted: boolean,
+  ): DraftStart {
     const text = prompt.trim();
     const no = (reason: Extract<DraftStart, { started: false }>["reason"]): DraftStart => ({
       started: false,
@@ -3032,6 +3379,8 @@ class BrainStore {
       handle,
       startedAt: Date.now(),
       onlyLocal,
+      languageLine: voice.languageLine ?? "",
+      hinted,
       timer: setTimeout(() => this.discardDraft(id), DRAFT_TTL_MS),
       events: [],
       done: false,
@@ -3042,7 +3391,7 @@ class BrainStore {
         requestId: id,
         sessionId: id,
         prompt: text,
-        system: DRAFT_SYSTEM,
+        system: withVoiceParts(DRAFT_SYSTEM, voice),
         task: "chat",
         routeMode: contract.routeMode,
         routingContract: contract,
@@ -3528,10 +3877,73 @@ class BrainStore {
     this.autoMode = on;
   }
 
+  /** Re-read the router's live model list (a cached answer on the main side); a failure keeps the last list. */
+  private refreshRoutedModels() {
+    const read = desktopApi()?.routableModels;
+    if (!read) return;
+    void read().then(
+      (result) => {
+        this.routedModels = (result?.models ?? []).map((row) => ({
+          id: row.id,
+          providerModelId: row.options?.model ?? "",
+          kind: row.meta?.kind ?? "",
+          endpoint: row.endpoint ?? "",
+        }));
+      },
+      () => undefined,
+    );
+  }
+
+  /** The kind of one engine that answered: the router's list first, the catalog second, else unknown. */
+  private kindOfServed(modelId: string) {
+    return modelKindOf(modelId, this.routedModels, (id) => {
+      for (const spec of modelById.values()) {
+        if (spec.id === id || apiIdFor(spec) === id || registryTag(spec) === id) return spec.kind;
+      }
+      return undefined;
+    });
+  }
+
+  /**
+   * Outside content that came in through recall: memory records used since this run began and not written by the
+   * owner, and the knowledge entries this prompt recalls. A record names its kind when its source does; otherwise
+   * it is the conservative kind "memory". The knowledge look-up replays the retrieval (it leaves no trace).
+   */
+  private recalledKinds(run: Run): ContextKind[] {
+    const kinds = new Set<ContextKind>();
+    try {
+      for (const kind of kindsOfRecalled(memoryStore.getSnapshot().items, run.startedAt)) {
+        kinds.add(kind);
+      }
+      const cognition = this.lastCognition?.runId === run.id ? this.lastCognition.cognition : null;
+      if (cognition?.useKnowledge) {
+        for (const entry of brainKnowledge.recall(run.prompt, { k: 3 })) {
+          const kind = kindOfRecalled(entry);
+          if (kind) kinds.add(kind);
+        }
+      }
+    } catch {
+      /* provenance is best effort: a failed look-up must not break a finished turn */
+    }
+    return [...kinds];
+  }
+
   private recordTurn(run: Run, ok: boolean, error?: string) {
     const ms = run.ms || Date.now() - run.startedAt;
     // Core Brain closes its own loop: verify the result, learn what is useful
     // and record which engine actually earned the routing for this task kind.
+    // The ledger row of this turn: who wrote the prompt and what outside content sat in its context.
+    turnProvenance.flush(
+      run.id,
+      this.lastCognition?.runId === run.id ? this.lastCognition.cognition.taskId : run.id,
+      [
+        ...(this.lastCognition?.runId === run.id
+          ? kindsOfCognition(this.lastCognition.cognition)
+          : []),
+        ...this.recalledKinds(run),
+      ],
+      (modelId) => this.kindOfServed(modelId),
+    );
     if (this.lastCognition?.runId === run.id) {
       const tVerify = Date.now();
       const servedModelId = this.servedModelIds.get(run.id);
@@ -3572,6 +3984,8 @@ class BrainStore {
     run.ms = Date.now() - run.startedAt;
     noteObserve({ latencyMs: run.ms });
     this.recordTurn(run, true);
+    // A turn that ended with no text at all has nothing for the speech path to keep.
+    if (!this.rawAnswers.has(run.id)) this.dropVoiceRun(run.id);
     this.state.activeRunId = null;
     const n = this.state.stats.requests || 1;
     this.state.stats.avgMs = Math.round((this.state.stats.avgMs * (n - 1) + run.ms) / n);

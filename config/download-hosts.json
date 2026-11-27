@@ -1,12 +1,16 @@
 {
-  "checked": "2026-10-18",
+  "checked": "2026-11-27",
   "hosts": [
     "ollama.com",
     "registry.ollama.ai",
     "github.com",
     "api.github.com",
     "lmstudio.ai",
-    "huggingface.co"
+    "huggingface.co",
+    "archive.apache.org",
+    "getcomposer.org",
+    "cmake.org",
+    "downloads.gradle.org"
   ],
   "families": [
     {
@@ -25,8 +29,68 @@
     {
       "id": "lmstudio",
       "suffixes": ["lmstudio.ai"]
+    },
+    {
+      "id": "toolvendors",
+      "hosts": [
+        "aka.ms",
+        "api.adoptium.net",
+        "archive.mariadb.org",
+        "awscli.amazonaws.com",
+        "azuresearch-usnc.nuget.org",
+        "builds.dotnet.microsoft.com",
+        "cdn.mysql.com",
+        "community.chocolatey.org",
+        "desktop.docker.com",
+        "developer.download.nvidia.com",
+        "dl.google.com",
+        "docs.docker.com",
+        "download.memurai.com",
+        "downloads.mariadb.org",
+        "downloads.mongodb.org",
+        "downloads.sourceforge.net",
+        "edgeupdates.microsoft.com",
+        "endoflife.date",
+        "fastdl.mongodb.org",
+        "formulae.brew.sh",
+        "get.enterprisedb.com",
+        "gitlab.com",
+        "go.dev",
+        "go.microsoft.com",
+        "jb.gg",
+        "learn.microsoft.com",
+        "maven.apache.org",
+        "nodejs.org",
+        "pip.pypa.io",
+        "qemu.weilnetz.de",
+        "repo.maven.apache.org",
+        "repo.msys2.org",
+        "rubyinstaller.org",
+        "services.gradle.org",
+        "sourceforge.net",
+        "sqlite.org",
+        "static.rust-lang.org",
+        "strawberryperl.com",
+        "update.code.visualstudio.com",
+        "windows.php.net",
+        "www.7-zip.org",
+        "www.enterprisedb.com",
+        "www.gyan.dev",
+        "www.lua.org",
+        "www.memurai.com",
+        "www.python.org",
+        "www.sqlite.org"
+      ]
     }
   ],
+  "pathPrefixes": {
+    "aka.ms": ["/vs/", "/dotnet/"],
+    "downloads.sourceforge.net": ["/project/nsis/", "/project/luabinaries/"],
+    "gitlab.com": ["/api/v4/projects/4207231/", "/api/v4/projects/graphviz%2Fgraphviz/"],
+    "go.microsoft.com": ["/fwlink/"],
+    "jb.gg": ["/android-studio-releases-list.json"],
+    "sourceforge.net": ["/projects/nsis/", "/projects/luabinaries/"]
+  },
   "optInHosts": ["hf-mirror.com"],
   "loopbackHttp": ["127.0.0.1", "localhost", "::1"]
 }

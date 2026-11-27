@@ -11,6 +11,7 @@
  *
  * Cost: one pass over the text, the lexicon is parsed once and kept. No regex with nested repetition.
  */
+import { isDeliveryTag } from "./delivery-tags";
 import { scriptPolicy } from "./language-segmenter";
 import { ENGLISH_IN_HINDI, ROMAN_HINDI_STRONG, ROMAN_HINDI_WEAK } from "./speech-prep-lexicon";
 
@@ -19,6 +20,11 @@ export type SpeechPrepOptions = {
   enabled?: boolean;
   /** The owner's speaking voice is the Hindi voice: only then is Roman Hindi turned into Devanagari. */
   hindiVoice?: boolean;
+  /**
+   * The text is the assistant's own voice-mode reply, so allow-listed delivery tags ([warm], [pause:300]) stay in
+   * it for the speech worker. Anything else loses its tags (see `delivery-tags.ts`).
+   */
+  deliveryTags?: boolean;
 };
 
 /** English words in a Hindi sentence run: at most this many in a row are converted (a longer run is real English). */
@@ -66,6 +72,8 @@ const PURE_WORD = /^[A-Za-z]+(?:-[A-Za-z]+)*$/;
 const HARD_PROTECTED = /[\\/@_#=<>~|^*]|[A-Za-z]\.[A-Za-z]|[A-Za-z]\d|\d[A-Za-z]|:\/\//;
 const LEAD = /^[("'“‘«[{<]+/;
 const TRAIL = /[.,;:!?)\]}"'”’»>…।॥]+$/;
+const TAG_TRAIL = /[.,;:!?…।॥]+$/;
+const TAG_TOKEN = /\[[a-z-]+(?::\d{1,4})?\]/g;
 
 type Chunk = { pre: string; core: string; post: string; word: boolean };
 
@@ -74,7 +82,11 @@ function splitChunk(raw: string): Chunk {
   const rest = raw.slice(pre.length);
   const post = TRAIL.exec(rest)?.[0] ?? "";
   const core = rest.slice(0, rest.length - post.length);
-  const word = core.length > 0 && PURE_WORD.test(core) && !HARD_PROTECTED.test(raw);
+  const word =
+    core.length > 0 &&
+    PURE_WORD.test(core) &&
+    !HARD_PROTECTED.test(raw) &&
+    !isDeliveryTag(raw.replace(TAG_TRAIL, ""));
   return { pre, core, post, word };
 }
 
@@ -239,7 +251,8 @@ export function prepareSpeechText(text: string, options: SpeechPrepOptions = {})
       const unquoted = parts
         .filter((p) => !p.quoted)
         .map((p) => p.text)
-        .join(" ");
+        .join(" ")
+        .replace(TAG_TOKEN, (tag) => (isDeliveryTag(tag) ? " " : tag));
       const mode = unquoted.trim()
         ? sentenceMode(unquoted, toChunks(unquoted).chunks, hindiVoice)
         : "none";

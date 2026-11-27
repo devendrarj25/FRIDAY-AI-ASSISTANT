@@ -1,6 +1,8 @@
 import type { GovernorStatus, HardwareFacts, SttWorkerCache, VoiceBudget } from "./desktop";
 import type { EchoLiveDiagnostics } from "./voice-engine/echo-live";
+import type { VoiceEarsPrefs } from "./preferences";
 import { figureLine, LatencyMonitor, voiceLatency } from "./voice-engine/latency-monitor";
+import { echoCleanSourceLive, type EchoCleanSource } from "./voice-engine/interruption-controller";
 import type { WakeGuardSnapshot } from "./wake-guard";
 
 /** One read-only diagnostics row in the shape the Voice diagnostics list already uses. */
@@ -38,6 +40,7 @@ export function wakeGuardRows(snapshot: WakeGuardSnapshot): DiagnosticsRow[] {
       bad: counters.falseWakes > 0,
     },
     { label: "wakes blocked", value: blocked || "none" },
+    { label: "turns held (other voice or TV, no wake word)", value: String(counters.heldTurns) },
     {
       label: "wake threshold raise (room noise) · cooldown",
       value: `+${snapshot.thresholdBoost.toFixed(2)} · ${Math.round(snapshot.cooldownLeftMs / 1000)} s`,
@@ -370,4 +373,371 @@ export function resourceRows(view: ResourceView): DiagnosticsRow[] {
       ...(s.notice ? { bad: true } : {}),
     },
   ];
+}
+
+/**
+ * What the listening front end measured, injected by whatever runs it (the capture path and the streaming ear).
+ * Every part may be missing: a part that is `null` or absent was not measured, and its row says so.
+ */
+export type EarsStats = {
+  vad?: { engine: "silero" | "energy"; p: number | null; speechMs: number | null } | null;
+  turn?: { lastEndMs: number | null; eager: number; resumed: number } | null;
+  frontEnd?: {
+    clipRate: number;
+    peakDbfs: number;
+    rmsDbfs: number;
+    agcGainDb: number;
+    hpf: boolean;
+    decimator: "fir" | "boxcar";
+  } | null;
+  denoise?: {
+    engine: string;
+    keepRatio: number | null;
+    /** The stream ear's own report: is the copy really in use, its real-time factor and added delay, and why not. */
+    active?: boolean;
+    rtf?: number | null;
+    latencyMs?: number | null;
+    reason?: string;
+  } | null;
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
+  /** Whether an echo-clean voice signal exists for the barge-in ladder; filled only while the ladder is on. */
+  bargeSource?: EchoCleanSource | null;
+};
+
+/** `ok` and `off` are fine, `absent` was not measured, `bad` is a measured problem. */
+export type EarsRowState = "ok" | "off" | "absent" | "bad";
+export type EarsRow = DiagnosticsRow & { id: string; state: EarsRowState };
+
+const finite = (value: number | null | undefined): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const absent = (why: string): string => `absent: ${why}`;
+
+/** A clip rate at or above this share of samples in a second counts as clipping (a lead value, not measured on this PC). */
+export const CLIP_WARN_RATE = 0.001;
+
+/**
+ * The six "ears" Doctor rows: the stored setting, then what was really measured. A setting that is on but has no
+ * measurement says "absent" and why; nothing is made up. A row never claims the sound was improved.
+ */
+export function earsRows(prefs: VoiceEarsPrefs, stats: EarsStats | null | undefined): EarsRow[] {
+  const s = stats ?? {};
+  const row = (id: string, label: string, state: EarsRowState, value: string): EarsRow => ({
+    id,
+    label,
+    value,
+    state,
+    ...(state === "bad" ? { bad: true } : {}),
+  });
+
+  const vad = s.vad;
+  const vadSetting = `${prefs.vad} · start ${prefs.vadStart} · end ${prefs.vadEnd} · min ${prefs.minSpeechMs} ms`;
+  const vadRow = vad
+    ? row(
+        "ears-vad",
+        "ears: speech detector",
+        "ok",
+        `${vadSetting} · running ${vad.engine}${finite(vad.p) ? ` · speech chance ${vad.p.toFixed(2)}` : ""}`,
+      )
+    : row(
+        "ears-vad",
+        "ears: speech detector",
+        "absent",
+        `${vadSetting} · ${absent("no detector has reported yet (it runs while the streaming ear listens)")}`,
+      );
+
+  const turn = s.turn;
+  const turnSetting = `${prefs.eagerness} patience · early start ${onOff(prefs.eagerTurn)}`;
+  const turnRow = turn
+    ? row(
+        "ears-turn",
+        "ears: turn taking",
+        "ok",
+        `${turnSetting} · last end after ${finite(turn.lastEndMs) ? `${Math.round(turn.lastEndMs)} ms` : "not timed"} · ${turn.eager} early, ${turn.resumed} resumed`,
+      )
+    : row(
+        "ears-turn",
+        "ears: turn taking",
+        "absent",
+        `${turnSetting} · ${absent("no turn has been timed yet")}`,
+      );
+
+  const fe = s.frontEnd;
+  const clipSetting = `warning ${onOff(prefs.clipWarn)}`;
+  let clipRow: EarsRow;
+  if (!fe) {
+    clipRow = row(
+      "ears-clip",
+      "ears: clipping",
+      prefs.clipWarn ? "absent" : "off",
+      prefs.clipWarn
+        ? `${clipSetting} · ${absent("the microphone level has not been measured yet")}`
+        : `${clipSetting} · not measured`,
+    );
+  } else {
+    const clipping = prefs.clipWarn && fe.clipRate >= CLIP_WARN_RATE;
+    clipRow = row(
+      "ears-clip",
+      "ears: clipping",
+      clipping ? "bad" : "ok",
+      `${clipSetting} · ${(fe.clipRate * 100).toFixed(2)}% of samples at the top · peak ${fe.peakDbfs.toFixed(1)} dBFS${clipping ? " · too loud: lower the microphone volume in Windows" : ""}`,
+    );
+  }
+
+  const agcSetting = `${prefs.agc === "browser" ? "browser leveller" : prefs.agc === "own" ? "FRIDAY leveller" : "no leveller"} · high-pass ${onOff(prefs.hpf)}`;
+  let agcRow: EarsRow;
+  if (prefs.agc === "off") {
+    agcRow = row("ears-agc", "ears: volume leveller", "off", `${agcSetting} · nothing to measure`);
+  } else if (prefs.agc === "browser") {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "ok",
+      `${agcSetting} · done by the browser; its gain is not measured by FRIDAY`,
+    );
+  } else if (fe) {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "ok",
+      `${agcSetting} · gain ${fe.agcGainDb.toFixed(1)} dB · level ${fe.rmsDbfs.toFixed(1)} dBFS · resampler ${fe.decimator}`,
+    );
+  } else {
+    agcRow = row(
+      "ears-agc",
+      "ears: volume leveller",
+      "absent",
+      `${agcSetting} · ${absent("the leveller has not reported a gain yet")}`,
+    );
+  }
+
+  const dn = s.denoise;
+  let denoiseRow: EarsRow;
+  if (prefs.denoise === "off") {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "off",
+      "off · speech is heard from the plain sound",
+    );
+  } else if (dn && dn.active === false) {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "absent",
+      `${prefs.denoise} · ${absent(`${dn.engine} is not running${dn.reason ? ` (${dn.reason})` : ""}`)}`,
+    );
+  } else if (dn) {
+    const cost = [
+      finite(dn.rtf) ? `real-time factor ${dn.rtf.toFixed(2)}` : "",
+      finite(dn.latencyMs) ? `${dn.latencyMs.toFixed(0)} ms delay` : "",
+    ].filter(Boolean);
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "ok",
+      `${prefs.denoise} · running ${dn.engine}${cost.length ? ` · ${cost.join(" · ")}` : ""}${finite(dn.keepRatio) ? ` · kept ${(dn.keepRatio * 100).toFixed(0)}% of the sound` : ""} · whether it helps on your voice is not measured`,
+    );
+  } else {
+    denoiseRow = row(
+      "ears-denoise",
+      "ears: noise clean-up copy",
+      "absent",
+      `${prefs.denoise} · ${absent("the clean-up model has not reported (it may not be downloaded)")}`,
+    );
+  }
+
+  const sc = s.scene;
+  const sceneSetting = `room ${prefs.scene} · other voices ${prefs.otherVoice}`;
+  let sceneRow: EarsRow;
+  if (prefs.scene === "off") {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "off",
+      `${sceneSetting} · not scored`,
+    );
+  } else if (sc) {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "ok",
+      `${sceneSetting} · sounds like ${sc.kind} (score ${sc.score.toFixed(2)}); a score only, it never approves anything`,
+    );
+  } else {
+    sceneRow = row(
+      "ears-scene",
+      "ears: room and voice score",
+      "absent",
+      `${sceneSetting} · ${absent("no room score has been made yet")}`,
+    );
+  }
+
+  return [vadRow, turnRow, clipRow, agcRow, denoiseRow, sceneRow];
+}
+
+/**
+ * The `ears-bargein` row: whether the barge-in ladder (duck, then stop) is on, and the early-to-resumed ratio when
+ * the turn tracker has counted turns. Off is fine; on with no count says "absent" and why. A count is a count of what
+ * the ear did, never a claim that interruptions work better.
+ */
+export function bargeInRow(
+  gate: { ladder?: boolean } | null | undefined,
+  stats: EarsStats | null | undefined,
+): EarsRow {
+  const id = "ears-bargein";
+  const label = "ears: barge-in ladder";
+  if (gate?.ladder !== true) {
+    return { id, label, state: "off", value: "off · plain interrupt gate (the default)" };
+  }
+  const turn = stats?.turn;
+  const counted = turn && finite(turn.eager) && turn.eager > 0 ? turn : null;
+  const counts = counted
+    ? `${counted.eager} early, ${counted.resumed} resumed (${Math.round((Math.max(0, counted.resumed) / counted.eager) * 100)}% resumed)`
+    : "";
+  if (stats?.bargeSource && !echoCleanSourceLive(stats.bargeSource)) {
+    // The ladder needs a voice signal with FRIDAY's own sound taken out; without one the plain gate decides.
+    return {
+      id,
+      label,
+      state: "absent",
+      value: `on, but not active · ${absent("it needs the streaming ear or the echo reference, and neither is running")} · for now the plain interrupt gate decides when you talk over her${counts ? ` · ${counts}` : ""}`,
+    };
+  }
+  if (!counted) {
+    return {
+      id,
+      label,
+      state: "absent",
+      value: `on · duck, then stop · ${absent("no early turn has been counted yet")}`,
+    };
+  }
+  return {
+    id,
+    label,
+    state: "ok",
+    value: `on · duck, then stop · ${counts}`,
+  };
+}
+
+/** What the speech worker says about the own voice engine ("FRIDAY Voice"); every field is checked when it is read. */
+export type FridayVoiceStatus = {
+  /** The own runner, the old package it falls back to, or none installed. */
+  engine: "friday-voice" | "supertonic-3" | "none";
+  /** True only when the own runner (not the package) is the one speaking. */
+  own: boolean;
+  ready: boolean;
+  voiceId: string;
+  sampleRate: number;
+  recipeVersion: number;
+  reason: string;
+  /** True when the running speech worker answered; false when only a cold read of the files did; null when unknown. */
+  live: boolean | null;
+  /** The worker's own short state word ("ready", "failed", ...), or "" when it gave none. */
+  state: string;
+  /** How many syntheses failed in the running worker (0 when unknown). */
+  failures: number;
+};
+
+/** A worker status of any shape as a safe `FridayVoiceStatus`, or null when nothing was reported at all. */
+export function readFridayVoiceStatus(raw: unknown): FridayVoiceStatus | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const engine =
+    row["engine"] === "friday-voice" || row["engine"] === "supertonic-3" ? row["engine"] : "none";
+  const rate = Number(row["sampleRate"]);
+  const recipe = Number(row["recipeVersion"]);
+  const text = (value: unknown, max: number): string =>
+    typeof value === "string"
+      ? value
+          .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+          .trim()
+          .slice(0, max)
+      : "";
+  return {
+    engine,
+    own: engine === "friday-voice" && row["own"] === true,
+    ready: engine !== "none" && row["ready"] !== false,
+    voiceId: text(row["voiceId"], 32),
+    sampleRate: Number.isFinite(rate) && rate > 0 ? Math.round(rate) : 0,
+    recipeVersion: Number.isFinite(recipe) && recipe >= 0 ? Math.floor(recipe) : 0,
+    reason: text(row["reason"], 200),
+    live: typeof row["live"] === "boolean" ? row["live"] : null,
+    state: /^[a-z0-9-]{1,32}$/.test(text(row["state"], 32)) ? text(row["state"], 32) : "",
+    failures:
+      Number.isFinite(Number(row["failures"])) && Number(row["failures"]) > 0
+        ? Math.floor(Number(row["failures"]))
+        : 0,
+  };
+}
+
+/**
+ * The two "FRIDAY Voice" Doctor rows: which engine speaks (own runner ready, the package fallback, or not installed,
+ * with the reason), then the active voice id, sample rate and recipe version. No status yet is a Warning that says
+ * so; a number or a name is never invented.
+ */
+export function fridayVoiceRows(status: FridayVoiceStatus | null, failure = ""): EarsRow[] {
+  const engineId = "friday-voice-engine";
+  const activeId = "friday-voice-active";
+  const engineLabel = "FRIDAY Voice engine";
+  const activeLabel = "FRIDAY Voice active voice";
+  if (!status) {
+    const value = failure
+      ? absent(`status call failed: ${failure}`)
+      : absent("the speech worker has not reported yet (needs the desktop app)");
+    return [
+      { id: engineId, label: engineLabel, state: "absent", value },
+      { id: activeId, label: activeLabel, state: "absent", value },
+    ];
+  }
+  const why = status.reason ? ` (${status.reason})` : "";
+  // A cold read only knows what is installed; it cannot say what the running worker is doing.
+  const cold = status.live === false ? " · cold view: the speech worker is not running yet" : "";
+  const engine: EarsRow =
+    status.engine === "friday-voice" && status.own && status.ready
+      ? {
+          id: engineId,
+          label: engineLabel,
+          state: "ok",
+          value: `own runner ready · on this PC · not heard on a real speaker yet${status.failures > 0 ? ` · ${status.failures} failed this run` : ""}${cold}`,
+        }
+      : status.engine === "none"
+        ? {
+            id: engineId,
+            label: engineLabel,
+            state: "absent",
+            value: `not installed${why || ": the local voice model is not on this PC"}. The system voice speaks until it is.${cold}`,
+          }
+        : !status.ready
+          ? {
+              id: engineId,
+              label: engineLabel,
+              state: "absent",
+              value: `installed but not ready${why || ": the engine did not report why"}. The system voice speaks until it is.${cold}`,
+            }
+          : {
+              id: engineId,
+              label: engineLabel,
+              state: "absent",
+              value: `package fallback: the older package speaks, not the own runner${why}${cold}`,
+            };
+  const active: EarsRow =
+    status.engine === "none" || !status.ready
+      ? {
+          id: activeId,
+          label: activeLabel,
+          state: "absent",
+          value: absent(
+            status.engine === "none"
+              ? "no local voice is installed, so no voice is active"
+              : "the local voice is installed but not ready, so no voice is active",
+          ),
+        }
+      : {
+          id: activeId,
+          label: activeLabel,
+          state: "ok",
+          value: `${status.voiceId || "friday"} · ${status.sampleRate ? `${Number((status.sampleRate / 1000).toFixed(2))} kHz` : "sample rate not reported"} · recipe ${status.recipeVersion ? `v${status.recipeVersion}` : "not reported"}`,
+        };
+  return [engine, active];
 }

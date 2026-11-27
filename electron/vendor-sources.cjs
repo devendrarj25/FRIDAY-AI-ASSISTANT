@@ -523,7 +523,10 @@ function parseWingetUpgrade(text) {
  * short timeout and the first that answers wins, so a rate limit, an outage or a slow host never blocks the catalogue.
  *
  *   github-api    api.github.com releases/latest      version, assets and their `digest`
- *   github-atom   github.com releases.atom            version only (no API quota, no digest)
+ *   github-list   api.github.com releases?per_page=15  newest tag matching `tagPattern` whose `assetPattern` file has a
+ *                 digest (a release whose file has none is skipped); for repos whose "latest" is not the build tag
+ *   github-atom   github.com releases.atom            version only (no API quota, no digest); `tagPattern` filters
+ *                 the entries and `requireDigest` makes the answer usable only with the pinned digest of that tag
  *   pypi-json     pypi.org/pypi/<pkg>/json            newest release with a wheel for the platform, sha256 per file
  *   pypi-simple   pypi.org/simple/<pkg>/ (PEP 691)    the same answer from the index itself
  *   npm, npm-mirror   registry.npmjs.org, registry.npmmirror.com
@@ -540,10 +543,13 @@ const nodeFs = require("node:fs");
 const nodePath = require("node:path");
 const nodeCrypto = require("node:crypto");
 
-const FEED_FRESH_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FEED_FRESH_MS = DAY_MS;
 const MANUAL_MIN_MS = 60 * 1000;
 const SOURCE_TIMEOUT_MS = 6000;
 const STORE_SCHEMA = 1;
+/** The largest vendor page a reader accepts. A version page is a few kilobytes; anything near this is not one. */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 const shortError = (error) =>
   String(error?.message || error || "failed")
@@ -570,10 +576,23 @@ function compareVersions(a, b) {
 }
 const isPrerelease = (version) => /\d[-._]?(a|b|c|rc|alpha|beta|dev|pre)\d*/i.test(String(version));
 
-/** One GET with a hard deadline (abort signal AND a race, for a fetch that ignores the signal). */
+/**
+ * One request with a hard deadline (abort signal AND a race, for a fetch that ignores the signal) and a size cap
+ * (`maxBytes`, from the length header and again on the text). `bodyless` reads status and headers only and drops the
+ * body unread (a redirect probe); `method` may be HEAD for that.
+ */
 async function httpGet(
   url,
-  { fetchImpl = fetchCompat, timeout = SOURCE_TIMEOUT_MS, headers = {}, cond = null } = {},
+  {
+    fetchImpl = fetchCompat,
+    timeout = SOURCE_TIMEOUT_MS,
+    headers = {},
+    cond = null,
+    method = "GET",
+    bodyless = false,
+    maxBytes = MAX_BODY_BYTES,
+    pathPrefix = "",
+  } = {},
 ) {
   const host = new URL(url).hostname;
   const controller = new AbortController();
@@ -597,6 +616,7 @@ async function httpGet(
           headers: send,
           signal: controller.signal,
           redirect: "follow",
+          ...(method === "GET" ? {} : { method }),
         });
         const status = Number(res.status) || 0;
         const header = (name) =>
@@ -609,13 +629,89 @@ async function httpGet(
         };
         if (status === 304) return { ...meta, notModified: true, text: "" };
         if (!res.ok) throw new Error(`${host} answered ${status}`);
-        return { ...meta, notModified: false, text: await res.text() };
+        if (bodyless) {
+          try {
+            await res.body?.cancel?.();
+          } catch {
+            /* the body was never wanted */
+          }
+          // The address a redirect probe led to is the answer: it must be a place downloads may come from.
+          checkFinalUrl(url, meta.url, pathPrefix);
+          return { ...meta, notModified: false, text: "" };
+        }
+        // A page the request was sent on to must still be a place downloads may come from, and for the
+        // community registries the path stays inside its own project.
+        checkFinalUrl(url, meta.url, pathPrefix);
+        if (Number(header("content-length")) > maxBytes)
+          throw new Error(`${host} sent a page that is too large (over ${maxBytes} bytes)`);
+        const text = await readCapped(res, maxBytes, host, () => controller.abort());
+        return { ...meta, notModified: false, text };
       })(),
       deadline,
     ]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The body as text, counted while it streams: more than `maxBytes` aborts the request at once. */
+async function readCapped(res, maxBytes, host, abort) {
+  const tooLarge = () =>
+    new Error(`${host} sent a page that is too large (over ${maxBytes} bytes)`);
+  const reader = typeof res.body?.getReader === "function" ? res.body.getReader() : null;
+  if (!reader) {
+    const text = await res.text();
+    if (text.length > maxBytes) throw tooLarge();
+    return text;
+  }
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      abort();
+      try {
+        await reader.cancel();
+      } catch {
+        /* already closed */
+      }
+      throw tooLarge();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+/**
+ * A version page that the network sent on to another host is read only when that host is on the download
+ * allowlist (`config/download-hosts.json`); `pathPrefix` pins the path of a registry page (Scoop) so a redirect
+ * cannot swap in another project's manifest.
+ */
+function checkFinalUrl(requested, finalUrl, pathPrefix = "") {
+  if (!finalUrl || finalUrl === requested) return;
+  const from = new URL(requested);
+  let to;
+  try {
+    to = new URL(finalUrl);
+  } catch {
+    throw new Error("the page was sent on to an address that is not a URL");
+  }
+  if (to.protocol !== "https:")
+    throw new Error(`${from.hostname} sent the request on to a non-https address`);
+  if (to.hostname !== from.hostname) {
+    try {
+      require("./download-safety.cjs").assertAllowedUrl(finalUrl, []);
+    } catch {
+      throw new Error(
+        `${from.hostname} sent the request on to ${to.hostname}, which is not an allowed host`,
+      );
+    }
+  }
+  if (pathPrefix && !to.pathname.startsWith(pathPrefix))
+    throw new Error(`${to.hostname} sent the request on to another project`);
 }
 
 const parseJson = (text, what) => {
@@ -628,7 +724,7 @@ const parseJson = (text, what) => {
 
 function stripTag(tag, strip) {
   const text = String(tag || "");
-  if (strip) return text.replace(new RegExp(strip), "");
+  if (strip) return text.replace(new RegExp(strip, "g"), "");
   return text.replace(/^v(?=\d)/, "");
 }
 
@@ -638,6 +734,7 @@ function parseGithubRelease(json, strip) {
   return {
     version: stripTag(tag, strip),
     tag,
+    ...(json.published_at ? { publishedAt: String(json.published_at) } : {}),
     assets: (Array.isArray(json.assets) ? json.assets : []).map((a) => ({
       name: String(a.name || ""),
       url: String(a.browser_download_url || ""),
@@ -647,11 +744,36 @@ function parseGithubRelease(json, strip) {
   };
 }
 
-function parseAtomTag(xml, strip) {
-  const m = /<entry>[\s\S]*?href="[^"]*\/releases\/tag\/([^"]+)"/.exec(String(xml || ""));
-  if (!m) throw new Error("the feed lists no release");
-  const tag = decodeURIComponent(m[1]);
-  return { version: stripTag(tag, strip), tag, assets: [] };
+/** The newest atom entry (optionally the newest whose tag matches `tagPattern`). */
+function parseAtomTag(xml, strip, tagPattern) {
+  const want = tagPattern ? new RegExp(tagPattern) : null;
+  const tags = [
+    ...String(xml || "").matchAll(/<entry>[\s\S]*?href="[^"]*\/releases\/tag\/([^"]+)"/g),
+  ]
+    .map((m) => decodeURIComponent(m[1]))
+    .filter((tag) => !want || want.test(tag));
+  if (!tags.length) throw new Error("the feed lists no release");
+  return { version: stripTag(tags[0], strip), tag: tags[0], assets: [] };
+}
+
+/**
+ * The newest release of a `releases` list whose tag fits `tagPattern` and whose `assetPattern` file carries a digest.
+ * Drafts and pre-releases are never taken; a release whose matching file has no digest is skipped for an older one.
+ * The answer lists every file of that release (each with its own digest or none), so the caller plans CUDA or Vulkan
+ * builds from it too and refuses a zip that has no digest.
+ */
+function parseGithubList(json, { tagPattern, assetPattern, strip } = {}) {
+  if (!Array.isArray(json)) throw new Error("the release list is not a list");
+  const tagRe = tagPattern ? new RegExp(tagPattern) : null;
+  const fileRe = assetPattern ? new RegExp(assetPattern, "i") : null;
+  for (const rel of json) {
+    const tag = String(rel?.tag_name || "");
+    if (!tag || rel.draft || rel.prerelease || (tagRe && !tagRe.test(tag))) continue;
+    const parsed = parseGithubRelease(rel, strip);
+    const gate = parsed.assets.find((a) => a.url && (!fileRe || fileRe.test(a.name)));
+    if (gate && isSha(gate.sha256)) return parsed;
+  }
+  throw new Error("no recent release has the build file with a published digest");
 }
 
 const wheelVersion = (filename) => {
@@ -727,8 +849,269 @@ const pepName = (pkg) =>
     .toLowerCase()
     .replace(/[-_.]+/g, "-");
 
+/* ------------------------------------------- data-driven readers (config/tool-sources) */
+
+/**
+ * A version string a reader may hand on: 1 to 64 characters of letters, digits and `. _ + -`, starting with a digit
+ * (an optional `v` is removed) or with one to four letters and digits (`b12230`). A page, a word such as "latest",
+ * or anything with a space, a slash or markup is not a version. `strip` is a regex removed first.
+ */
+function sanitizeVersion(raw, strip) {
+  if (raw === null || raw === undefined || typeof raw === "object")
+    throw new Error("the source gave no version");
+  let text = String(raw).trim();
+  if (strip) text = text.replace(new RegExp(strip, "g"), "").trim();
+  else text = text.replace(/^v(?=\d)/, "");
+  if (!/^(?:\d[0-9A-Za-z._+-]{0,63}|[A-Za-z]{1,4}\d[0-9A-Za-z._+-]{0,59})$/.test(text))
+    throw new Error(`"${text.slice(0, 30)}" is not a version number`);
+  return text;
+}
+
+/** An https URL without credentials; anything else is refused before a request is made. */
+function httpsUrl(raw) {
+  let url;
+  try {
+    url = new URL(String(raw));
+  } catch {
+    throw new Error("the source URL is not a URL");
+  }
+  if (url.protocol !== "https:" || url.username || url.password)
+    throw new Error("the source URL must be a plain https address");
+  return url.href;
+}
+
+const versionOnly = (version) => ({ version, assets: [] });
+const hostOf = (url) => new URL(url).hostname;
+
+/** `$.a.b[0].c`, `[0].version`, `$['a-b']`, or one filter `$[?(@.cycle=='3.14')].latest`, as a list of steps. */
+function jsonPathSteps(path) {
+  const src = String(path ?? "").trim();
+  if (!src) throw new Error("the json path is empty");
+  let i = src.startsWith("$") ? 1 : 0;
+  const steps = [];
+  while (i < src.length) {
+    const rest = src.slice(i);
+    let m;
+    if ((m = /^\.([A-Za-z0-9_-]+)/.exec(rest))) steps.push({ key: m[1] });
+    else if ((m = /^\[(\d+)\]/.exec(rest))) steps.push({ index: Number(m[1]) });
+    else if ((m = /^\[(['"])([^'"\]]+)\1\]/.exec(rest))) steps.push({ key: m[2] });
+    else if ((m = /^\[\?\(@\.([A-Za-z0-9_-]+)\s*==\s*(['"])([^'"]*)\2\)\]/.exec(rest)))
+      steps.push({ filterKey: m[1], filterValue: m[3] });
+    else throw new Error(`the json path "${src.slice(0, 60)}" is not understood at position ${i}`);
+    i += m[0].length;
+    if (steps.length > 16) throw new Error("the json path is too long");
+  }
+  return steps;
+}
+
+const ownKey = (obj, key) =>
+  key !== "__proto__" && obj !== null && typeof obj === "object" && Object.hasOwn(obj, key);
+
+/** The one scalar a json path leads to, as text. A path that finds nothing, or finds a list or object, is an error. */
+function queryJsonPath(doc, path) {
+  let node = doc;
+  for (const step of jsonPathSteps(path)) {
+    if ("index" in step) {
+      node = Array.isArray(node) ? node[step.index] : undefined;
+    } else if ("filterKey" in step) {
+      node = Array.isArray(node)
+        ? node.find(
+            (e) => ownKey(e, step.filterKey) && String(e[step.filterKey]) === step.filterValue,
+          )
+        : undefined;
+    } else {
+      node = ownKey(node, step.key) ? node[step.key] : undefined;
+    }
+    if (node === undefined || node === null)
+      throw new Error(`the json path "${path}" found nothing`);
+  }
+  if (typeof node === "object")
+    throw new Error(`the json path "${path}" leads to a list, not a version`);
+  return node;
+}
+
+/** The most text a version pattern is run over; a version page is far smaller. */
+const REGEX_TEXT_CAP = 512 * 1024;
+
+/** A pattern that opens with `[\s\S]*`, `[^]*` or `.*` rescans the page from every start: quadratic, so refused. */
+function assertLinearStart(text) {
+  if (/^(?:\^)?(?:\[\\s\\S\]|\[\^\]|\.)[*+]/.test(text))
+    throw new Error(
+      "the pattern starts with an open-ended wildcard (it would scan the page quadratically)",
+    );
+}
+
+/** The pattern of a text-line source: valid, not too long, no open-ended start. Never silently shortened. */
+function textLineRegex(pattern) {
+  const text = String(pattern ?? "");
+  if (!text || text.length > 400) throw new Error("the pattern is empty or too long");
+  assertLinearStart(text);
+  try {
+    return new RegExp(text);
+  } catch {
+    throw new Error(`the pattern "${text.slice(0, 40)}" is not a valid regular expression`);
+  }
+}
+
+/** A regex with exactly one capture group (the version). Flags are limited to i, m, s, u and g. */
+function oneGroupRegex(pattern, flags = "", forceGlobal = false) {
+  const text = String(pattern ?? "");
+  if (!text || text.length > 400) throw new Error("the pattern is empty or too long");
+  assertLinearStart(text);
+  if (!/^[gimsu]*$/.test(String(flags))) throw new Error("the pattern flags are not allowed");
+  let probe;
+  try {
+    probe = new RegExp(`${text}|`, "");
+  } catch {
+    throw new Error(`the pattern "${text.slice(0, 40)}" is not a valid regular expression`);
+  }
+  if (probe.exec("").length !== 2)
+    throw new Error(`the pattern "${text.slice(0, 40)}" must have exactly one capture group`);
+  const all = new Set(String(flags));
+  if (forceGlobal) all.add("g");
+  return new RegExp(text, [...all].join(""));
+}
+
+/** The newest version of `matches` (first by default); text with no match is an error. */
+function pickMatch(text, re, pick, strip) {
+  const found = [];
+  if (re.global) for (const m of text.matchAll(re)) found.push(m[1]);
+  else {
+    const m = re.exec(text);
+    if (m) found.push(m[1]);
+  }
+  const versions = [];
+  for (const raw of found) {
+    try {
+      versions.push(sanitizeVersion(raw, strip));
+    } catch {
+      /* a match that is not a version is skipped */
+    }
+  }
+  if (!versions.length) throw new Error("the page has no version that fits the pattern");
+  return pick === "highest" ? versions.sort((a, b) => compareVersions(b, a))[0] : versions[0];
+}
+
+/** Request headers of the readers that take whatever a vendor page answers. */
+const PAGE_HEADERS = { accept: "text/html, application/json, text/plain;q=0.9, */*;q=0.5" };
+
+/**
+ * `ctx` is { fetchImpl, timeout, cond }. Each of these returns the same shape as the older readers (`{ value }`, or
+ * `{ notModified }`) and the value is a version with NO files and NO digest: an answer like this may say "an update is
+ * available" and may never authorise an install (see `authorisesInstall`).
+ */
+const DATA_READERS = {
+  "json-path": async (s, ctx) => {
+    const url = httpsUrl(s.url);
+    const got = await httpGet(url, ctx);
+    if (got.notModified) return got;
+    const doc = parseJson(got.text, hostOf(url));
+    return { ...got, value: versionOnly(sanitizeVersion(queryJsonPath(doc, s.path), s.strip)) };
+  },
+  "html-regex": async (s, ctx) => {
+    const url = httpsUrl(s.url);
+    const re = oneGroupRegex(s.pattern, s.flags, s.pick === "highest");
+    const got = await httpGet(url, { ...ctx, headers: PAGE_HEADERS });
+    if (got.notModified) return got;
+    return {
+      ...got,
+      value: versionOnly(pickMatch(got.text.slice(0, REGEX_TEXT_CAP), re, s.pick, s.strip)),
+    };
+  },
+  "text-line": async (s, ctx) => {
+    const url = httpsUrl(s.url);
+    const re = s.pattern ? textLineRegex(s.pattern) : null;
+    const got = await httpGet(url, { ...ctx, headers: PAGE_HEADERS });
+    if (got.notModified) return got;
+    const lines = got.text
+      .slice(0, REGEX_TEXT_CAP)
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    let raw;
+    if (re) {
+      for (const line of lines) {
+        const m = re.exec(line);
+        if (m) {
+          raw = m[1] ?? m[0];
+          break;
+        }
+      }
+    } else raw = lines[Number(s.line) || 0];
+    if (raw === undefined) throw new Error("the text has no line that fits");
+    return { ...got, value: versionOnly(sanitizeVersion(raw, s.strip)) };
+  },
+  "redirect-regex": async (s, ctx) => {
+    const url = httpsUrl(s.url);
+    const re = oneGroupRegex(s.pattern, s.flags);
+    const probe = { ...ctx, cond: null, bodyless: true };
+    let got;
+    try {
+      got = await httpGet(url, { ...probe, method: "HEAD" });
+    } catch (error) {
+      if (!/answered (403|405|501)\b/.test(String(error?.message))) throw error;
+      got = await httpGet(url, probe);
+    }
+    if (!got.url || got.url === url) throw new Error(`${hostOf(url)} did not redirect`);
+    const m = re.exec(got.url);
+    if (!m) throw new Error("the address it led to has no version that fits the pattern");
+    return { ...got, value: versionOnly(sanitizeVersion(m[1], s.strip)) };
+  },
+  endoflife: async (s, ctx) => {
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(String(s.product ?? "")))
+      throw new Error("the endoflife product is not a plain name");
+    const url = `https://endoflife.date/api/${s.product}.json`;
+    const got = await httpGet(url, ctx);
+    if (got.notModified) return got;
+    const list = parseJson(got.text, "endoflife.date");
+    if (!Array.isArray(list)) throw new Error("endoflife.date sent a document that is not a list");
+    const entry =
+      s.cycle !== undefined && s.cycle !== null
+        ? list.find((e) => String(e?.cycle) === String(s.cycle))
+        : list.find((e) => e && typeof e === "object" && e.latest);
+    if (!entry?.latest)
+      throw new Error(`endoflife.date has no release for ${s.cycle ?? s.product}`);
+    return { ...got, value: versionOnly(sanitizeVersion(entry.latest, s.strip)) };
+  },
+  "scoop-manifest": async (s, ctx) => {
+    const bucket = String(s.bucket || "Main");
+    if (!/^[A-Za-z0-9._-]+$/.test(bucket) || !/^[A-Za-z0-9._@+-]+$/.test(String(s.name ?? "")))
+      throw new Error("the scoop bucket or name is not a plain name");
+    const url = `https://raw.githubusercontent.com/ScoopInstaller/${bucket}/master/bucket/${s.name}.json`;
+    const got = await httpGet(url, { ...ctx, pathPrefix: "/ScoopInstaller/" });
+    if (got.notModified) return got;
+    const doc = parseJson(got.text, "raw.githubusercontent.com");
+    return { ...got, value: versionOnly(sanitizeVersion(doc?.version, s.strip)) };
+  },
+};
+
+/** Kinds that can appear twice in one row, so their stored validators are keyed by what they read. */
+const storeKey = (spec) => {
+  if (!DATA_READERS[spec.kind]) return spec.kind;
+  const what = JSON.stringify([
+    spec.url,
+    spec.path,
+    spec.pattern,
+    spec.line,
+    spec.product,
+    spec.cycle,
+    spec.name,
+    spec.bucket,
+  ]);
+  return `${spec.kind}:${nodeCrypto.createHash("sha256").update(what).digest("hex").slice(0, 12)}`;
+};
+
+/** Only an answer that lists a file with a SHA-256 may start an install; a bare version may only notify. */
+const authorisesInstall = (answer) =>
+  Array.isArray(answer?.assets) && answer.assets.some((a) => a?.url && isSha(stripSha(a.sha256)));
+
 /** Readers return `{ value }` (a fresh answer) or `{ notModified: true }`, plus the validators to send next time. */
 const SOURCE_READERS = {
+  ...DATA_READERS,
+  // The pin is a kind of the table so every chain names only known kinds; `resolveLatest` reads it last, never live.
+  pinned: async () => {
+    throw new Error("the pinned version is not a live source");
+  },
   "github-api": async (s, ctx) => {
     const got = await httpGet(`https://api.github.com/repos/${s.repo}/releases/latest`, {
       ...ctx,
@@ -743,7 +1126,15 @@ const SOURCE_READERS = {
       headers: { accept: "application/atom+xml, application/xml;q=0.9, */*;q=0.5" },
     });
     if (got.notModified) return got;
-    return { ...got, value: parseAtomTag(got.text, s.strip) };
+    return { ...got, value: parseAtomTag(got.text, s.strip, s.tagPattern) };
+  },
+  "github-list": async (s, ctx) => {
+    const got = await httpGet(`https://api.github.com/repos/${s.repo}/releases?per_page=15`, {
+      ...ctx,
+      headers: { accept: "application/vnd.github+json" },
+    });
+    if (got.notModified) return got;
+    return { ...got, value: parseGithubList(parseJson(got.text, "api.github.com"), s) };
   },
   "pypi-json": async (s, ctx) => {
     const got = await httpGet(`https://pypi.org/pypi/${s.pkg}/json`, ctx);
@@ -839,6 +1230,23 @@ function createFeedStore({ file, fs: fsApi = nodeFs } = {}) {
       slot(id).row = row;
       dirty = true;
     },
+    /**
+     * A version counts as "known good" once a digest for it was read from a source other than the version feed
+     * (the data file's digest source, agreeing with the pin). Only such a version may become a floor.
+     */
+    markVerified(id, version) {
+      const v = String(version ?? "");
+      if (!v) return;
+      const list = (slot(id).verified ||= []);
+      if (!list.includes(v)) {
+        list.push(v);
+        if (list.length > 8) list.shift();
+        dirty = true;
+      }
+    },
+    isVerified: (id, version) =>
+      Array.isArray(load().rows[id]?.verified) &&
+      load().rows[id].verified.includes(String(version)),
     getSource: (id, key) => load().rows[id]?.sources?.[key] ?? null,
     putSource(id, key, entry) {
       slot(id).sources[key] = entry;
@@ -868,6 +1276,8 @@ function createFeedStore({ file, fs: fsApi = nodeFs } = {}) {
   };
 }
 
+const pinOf = (list) => list.find((s) => s?.kind === "pinned" && s.version) || null;
+
 const stores = new Map();
 /** The one feed store of a data root (`<root>/cache/vendor-feeds.json`), shared by the catalogue and the installers. */
 function storeFor(root, options = {}) {
@@ -878,8 +1288,42 @@ function storeFor(root, options = {}) {
 }
 
 /**
+ * A value read back from the store (a 304, a held version, the last answer when every source failed) is only trusted
+ * again after a check: a plain version, https files, digests of the right shape, and, when the pin names the same
+ * file for the same release, the same digest. A disagreement drops the files (the version may still be shown) and
+ * a value that is not a version at all is dropped. Never throws.
+ */
+function trustStored(value, list = []) {
+  if (!value || typeof value !== "object") return null;
+  if (!/^[\w.+~:-]{1,128}$/.test(String(value.version ?? ""))) return null;
+  const pin = list.find((s) => s?.kind === "pinned");
+  const pinned = Array.isArray(pin?.assets) ? pin.assets : [];
+  const sameRelease =
+    Boolean(pin) &&
+    (String(pin.version) === String(value.version) || Boolean(pin.tag && pin.tag === value.tag));
+  const assets = [];
+  let clash = false;
+  for (const a of Array.isArray(value.assets) ? value.assets : []) {
+    try {
+      httpsUrl(a?.url);
+    } catch {
+      continue;
+    }
+    const digest = stripSha(a.sha256);
+    if (digest && !isSha(digest)) continue;
+    const mate = sameRelease ? pinned.find((p) => p?.name && p.name === a.name) : null;
+    if (mate && isSha(stripSha(mate.sha256)) && stripSha(mate.sha256) !== digest) clash = true;
+    assets.push({ ...a, sha256: digest });
+  }
+  return clash
+    ? { ...value, assets: [], distrusted: "the stored digest differs from the pinned one" }
+    : { ...value, assets };
+}
+
+/**
  * The newest version of one row, from the first source in `sources` that answers.
  * Order of fallbacks: each listed source; the last stored answer (marked `stale`); the `pinned` entry; an error.
+ * `offline: true` skips the listed sources (cache, then pin only).
  */
 async function resolveLatest(rowId, sources, options = {}) {
   const {
@@ -887,18 +1331,21 @@ async function resolveLatest(rowId, sources, options = {}) {
     store = null,
     now = Date.now,
     timeoutMs = SOURCE_TIMEOUT_MS,
+    offline = false,
   } = options;
   const list = (Array.isArray(sources) ? sources : []).filter((s) => s && typeof s === "object");
   const attempts = [];
   const record = (entry) => attempts.push(entry);
-  for (const spec of list) {
+  // Offline asks nobody: the stored answer, then the pin.
+  for (const spec of offline ? [] : list) {
     if (spec.kind === "pinned") continue;
     const reader = SOURCE_READERS[spec.kind];
     if (!reader) {
       record({ source: spec.kind, ok: false, error: "unknown source kind" });
       continue;
     }
-    const prior = store?.getSource(rowId, spec.kind) || null;
+    const slot = storeKey(spec);
+    const prior = store?.getSource(rowId, slot) || null;
     try {
       const got = await reader(spec, {
         fetchImpl,
@@ -909,18 +1356,60 @@ async function resolveLatest(rowId, sources, options = {}) {
       let value = got.value;
       const notModified = Boolean(got.notModified);
       if (notModified) {
-        if (!prior?.value) throw new Error("answered 304 but nothing is stored");
-        value = prior.value;
+        value = trustStored(prior?.value, list);
+        if (!value) throw new Error("answered 304 but nothing trustworthy is stored");
       }
       if (!value?.version) throw new Error("answered without a version");
+      // A source never takes the version back below what is stored or pinned (a stale mirror, a swapped page).
+      // A stored version is a floor only when a digest for it was once verified: an inflated number from a page
+      // (999) must not freeze the real updates.
+      const priorValue = trustStored(prior?.value, list);
+      const priorFloor =
+        priorValue && store?.isVerified?.(rowId, priorValue.version) ? priorValue.version : null;
+      const floor = [priorFloor, pinOf(list)?.version]
+        .filter(Boolean)
+        .sort((a, b) => compareVersions(b, a))[0];
+      if (!notModified && floor && compareVersions(value.version, floor) < 0)
+        throw new Error(`answered ${value.version}, older than the known ${floor}`);
       const at = now();
-      store?.putSource(rowId, spec.kind, {
+      if (spec.requireDigest && !(value.assets || []).some((a) => isSha(a.sha256))) {
+        // A version with no digest is usable only where the pin holds a digest for that exact tag.
+        const pin = list.find((s2) => s2.kind === "pinned");
+        if (pin?.tag && pin.tag === value.tag && pin.assets?.some((a) => isSha(a.sha256)))
+          value = { ...value, assets: pin.assets };
+        else throw new Error(`no SHA-256 is published for ${value.tag || value.version}`);
+      }
+      // Weekly cadence: a newer version is adopted at most once per `cadenceDays`; until then the adopted one stays.
+      const cadenceMs = Number(spec.cadenceDays) > 0 ? Number(spec.cadenceDays) * DAY_MS : 0;
+      const keptSince = Number(prior?.adoptedAt ?? prior?.at);
+      let adoptedAt = at;
+      let held = null;
+      const kept = trustStored(prior?.value, list);
+      if (kept && Number.isFinite(keptSince)) {
+        if (kept.version === value.version) adoptedAt = keptSince;
+        else if (
+          cadenceMs &&
+          compareVersions(value.version, kept.version) > 0 &&
+          at - keptSince < cadenceMs
+        ) {
+          held = value.tag || value.version;
+          value = kept;
+          adoptedAt = keptSince;
+        }
+      }
+      store?.putSource(rowId, slot, {
         etag: got.etag || (notModified ? prior?.etag : null) || null,
         lastModified: got.lastModified || (notModified ? prior?.lastModified : null) || null,
         value,
         at,
+        adoptedAt,
       });
-      store?.putRow(rowId, { value, source: spec.kind, checkedAt: at });
+      store?.putRow(rowId, {
+        value,
+        source: spec.kind,
+        checkedAt: at,
+        via: attempts.length ? "fallback" : "primary",
+      });
       store?.flush();
       return {
         ok: true,
@@ -930,6 +1419,7 @@ async function resolveLatest(rowId, sources, options = {}) {
         stale: false,
         pinned: false,
         notModified,
+        ...(held ? { held } : {}),
         checkedAt: at,
         attempts: [...attempts, { source: spec.kind, ok: true, status: got.status ?? 200 }],
       };
@@ -938,10 +1428,11 @@ async function resolveLatest(rowId, sources, options = {}) {
     }
   }
   const cached = store?.getRow(rowId);
-  if (cached?.value?.version) {
+  const cachedValue = trustStored(cached?.value, list);
+  if (cachedValue) {
     return {
       ok: true,
-      ...cached.value,
+      ...cachedValue,
       source: cached.source,
       via: "cache",
       stale: true,
@@ -973,17 +1464,397 @@ async function resolveLatest(rowId, sources, options = {}) {
   return { ok: false, error: `no official source answered (${why || "none listed"})`, attempts };
 }
 
+/* ------------------------------------------------ the data files: config/tool-sources/*.json */
+
+/** Hex length of each digest a data file may name. Only sha256 can start a download (`downloadVerified`). */
+const DIGEST_LENGTH = { sha256: 64, sha512: 128 };
+const TOOL_HOMES = ["friday-root", "machine", "npm-global"];
+const TOOL_ARCHIVES = ["msi", "exe", "zip", "7z", "msix", "tar.gz", "tgz", "tar.xz"];
+/** The fields a source of each reader kind must carry. */
+const SOURCE_FIELDS = {
+  "json-path": ["url", "path"],
+  "html-regex": ["url", "pattern"],
+  "text-line": ["url"],
+  "redirect-regex": ["url", "pattern"],
+  endoflife: ["product"],
+  "scoop-manifest": ["name"],
+  "github-api": ["repo"],
+  "github-atom": ["repo"],
+  "github-list": ["repo"],
+  "pypi-json": ["pkg"],
+  "pypi-simple": ["pkg"],
+  npm: ["pkg"],
+  "npm-mirror": ["pkg"],
+  "hf-api": ["repo"],
+  feed: ["id"],
+};
+const KNOWN_ROW_FIELDS = new Set([
+  "home",
+  "homeReason",
+  "sources",
+  "download",
+  "silentInstall",
+  "notifyOnly",
+  "checked",
+  "singleSourceReason",
+  "signer",
+  "allowUnsigned",
+  "allowUnsignedReason",
+]);
+
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isText = (v) => typeof v === "string" && v.trim() !== "" && v.length <= 2000;
+
+/** Why a source of a data file is not usable, or "" when it is. */
+function sourceProblem(spec) {
+  if (!isPlainObject(spec)) return "is not an object";
+  const needs = SOURCE_FIELDS[spec.kind];
+  if (!needs) {
+    return `has an unknown reader kind "${String(spec.kind).slice(0, 40)}" (known: ${Object.keys(SOURCE_FIELDS).join(", ")})`;
+  }
+  for (const field of needs) if (!isText(spec[field])) return `(${spec.kind}) needs "${field}"`;
+  if (spec.url !== undefined) {
+    try {
+      httpsUrl(spec.url);
+    } catch (error) {
+      return `(${spec.kind}) ${shortError(error)}`;
+    }
+  }
+  if (spec.kind === "html-regex" || spec.kind === "redirect-regex") {
+    try {
+      oneGroupRegex(spec.pattern, spec.flags);
+    } catch (error) {
+      return `(${spec.kind}) ${shortError(error)}`;
+    }
+  }
+  if (spec.kind === "text-line" && spec.pattern !== undefined) {
+    try {
+      textLineRegex(spec.pattern);
+    } catch (error) {
+      return `(text-line) ${shortError(error)}`;
+    }
+  }
+  for (const field of ["strip", "tagPattern", "assetPattern"]) {
+    if (spec[field] === undefined) continue;
+    try {
+      new RegExp(String(spec[field]));
+    } catch {
+      return `(${spec.kind}) "${field}" is not a valid regular expression`;
+    }
+  }
+  if (spec.kind === "json-path") {
+    try {
+      jsonPathSteps(spec.path);
+    } catch (error) {
+      return `(json-path) ${shortError(error)}`;
+    }
+  }
+  if (spec.kind === "feed" && !hasFeed(spec.id)) return `(feed) names no vendor feed "${spec.id}"`;
+  return "";
+}
+
+/** Why a row of a data file is not usable, or "" when it is. */
+function rowProblem(row) {
+  if (!isPlainObject(row)) return "is not an object";
+  if (!TOOL_HOMES.includes(row.home)) return `"home" must be one of ${TOOL_HOMES.join(", ")}`;
+  if (!Array.isArray(row.sources) || !row.sources.length)
+    return `"sources" must list at least one source`;
+  for (const [i, spec] of row.sources.entries()) {
+    const why = sourceProblem(spec);
+    if (why) return `source ${i + 1} ${why}`;
+  }
+  if (row.download !== undefined) {
+    const d = row.download;
+    if (!isPlainObject(d)) return `"download" is not an object`;
+    // A row may carry only how it is unpacked (the installer address comes from a vendor feed).
+    if (d.urlTemplate !== undefined) {
+      try {
+        httpsUrl(String(d.urlTemplate).replace(/\{\w+\}/g, "x"));
+      } catch {
+        return `"download.urlTemplate" must be a plain https address`;
+      }
+    }
+    if (d.digestAlgo !== undefined && !Object.hasOwn(DIGEST_LENGTH, d.digestAlgo))
+      return `"download.digestAlgo" must be one of ${Object.keys(DIGEST_LENGTH).join(", ")}`;
+    // `archive` is absent for a plain file (a model weight); when present it names how the file is unpacked.
+    if (d.archive !== undefined && !TOOL_ARCHIVES.includes(d.archive))
+      return `"download.archive" must be one of ${TOOL_ARCHIVES.join(", ")}`;
+    if (d.digestUrl !== undefined) {
+      try {
+        httpsUrl(String(d.digestUrl).replace(/\{\w+\}/g, "x"));
+      } catch {
+        return `"download.digestUrl" must be a plain https address`;
+      }
+    }
+    if (d.digestPath !== undefined && !isText(d.digestPath))
+      return `"download.digestPath" must be text`;
+  }
+  for (const field of ["homeReason", "silentInstall", "checked", "singleSourceReason"]) {
+    if (row[field] !== undefined && typeof row[field] !== "string")
+      return `"${field}" must be text`;
+  }
+  if (row.notifyOnly !== undefined && typeof row.notifyOnly !== "boolean")
+    return `"notifyOnly" must be true or false`;
+  if (row.signer !== undefined && !(isText(row.signer) && row.signer.length <= 200))
+    return `"signer" must be the publisher's certificate name or a 40-hex thumbprint`;
+  if (row.allowUnsigned !== undefined) {
+    if (row.allowUnsigned !== true) return `"allowUnsigned" can only be true`;
+    if (!isText(row.allowUnsignedReason))
+      return `"allowUnsigned" needs "allowUnsignedReason": why this vendor ships it unsigned`;
+  }
+  if (row.checked !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(row.checked))
+    return `"checked" must be a date like 2026-11-27`;
+  return "";
+}
+
 /**
- * The source list for a catalogue row: its own `sources` when it names them, else built from the registry it already
- * records (`latest: { kind, ref }`), then a vendor feed when there is one, then its pin.
+ * One data file as plain rows. Never throws: a bad file or row becomes a plain message in `errors` and that row is
+ * left out; the rest of the file still loads. `warnings` lists fields nobody reads (a likely typo).
  */
-function chainFor(row, { platform } = {}) {
+function validateToolSourceFile(doc, file = "file") {
+  const rows = {};
+  const errors = [];
+  const warnings = [];
+  if (!isPlainObject(doc) || doc.version !== 1 || !isPlainObject(doc.rows)) {
+    errors.push(`${file}: must be {"version": 1, "rows": {...}}`);
+    return { rows, errors, warnings };
+  }
+  for (const [id, row] of Object.entries(doc.rows)) {
+    const why = rowProblem(row);
+    if (why) {
+      errors.push(`${file}: row "${id}" ${why}`);
+      continue;
+    }
+    for (const field of Object.keys(row))
+      if (!KNOWN_ROW_FIELDS.has(field))
+        warnings.push(`${file}: row "${id}" has an unused field "${field}"`);
+    // Without a digest source the file may be announced ("update available"), never installed from this row.
+    if (row.download?.urlTemplate && !row.download.digestUrl && row.notifyOnly !== true)
+      warnings.push(
+        `${file}: row "${id}" has no digest source: it is not installable, only a notice`,
+      );
+    rows[id] = row;
+  }
+  return { rows, errors, warnings };
+}
+
+/** The folder of data files: next to the app when packaged, in the checkout in development. */
+function defaultToolSourcesDir() {
+  try {
+    return require("./resource-paths.cjs").resolveResourceDir("config/tool-sources");
+  } catch {
+    return null;
+  }
+}
+
+const toolSourcesCache = new Map();
+const clearToolSources = () => toolSourcesCache.clear();
+
+/**
+ * Every row of `config/tool-sources/*.json`: `{ rows: { id: row }, errors, warnings, files }`. A missing folder is an
+ * empty set; a file that cannot be read or parsed is one error. Rows with the same id in two files: the file that
+ * sorts first wins and the second is reported. Read once per folder (`clearToolSources` forgets).
+ */
+function loadToolSources({ dir = defaultToolSourcesDir(), fs: fsApi = nodeFs } = {}) {
+  const key = String(dir || "");
+  if (toolSourcesCache.has(key)) return toolSourcesCache.get(key);
+  const out = { rows: {}, errors: [], warnings: [], files: [] };
+  let names = [];
+  try {
+    names = dir
+      ? fsApi
+          .readdirSync(dir)
+          .filter((n) => n.endsWith(".json"))
+          .sort()
+      : [];
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
+    out.files.push(name);
+    let doc;
+    try {
+      doc = JSON.parse(fsApi.readFileSync(nodePath.join(dir, name), "utf8"));
+    } catch (error) {
+      out.errors.push(`${name}: cannot be read as JSON (${shortError(error)})`);
+      continue;
+    }
+    const got = validateToolSourceFile(doc, name);
+    out.errors.push(...got.errors);
+    out.warnings.push(...got.warnings);
+    for (const [id, row] of Object.entries(got.rows)) {
+      if (Object.hasOwn(out.rows, id))
+        out.errors.push(`${name}: row "${id}" is already defined in an earlier file`);
+      else out.rows[id] = row;
+    }
+  }
+  toolSourcesCache.set(key, out);
+  return out;
+}
+
+const sourcesOf = (options) => options?.toolSources || loadToolSources();
+
+/** What a data file says about one row (home, download, silentInstall, notifyOnly, ...), or null when it has none. */
+function rowSpec(id, options = {}) {
+  const row = sourcesOf(options).rows[id];
+  if (!row) return null;
+  return {
+    home: row.home,
+    homeReason: row.homeReason || "",
+    download: row.download || null,
+    silentInstall: row.silentInstall || "",
+    notifyOnly: row.notifyOnly === true,
+    checked: row.checked || "",
+    singleSourceReason: row.singleSourceReason || "",
+    signer: row.signer || "",
+    allowUnsigned: row.allowUnsigned === true,
+    allowUnsignedReason: row.allowUnsignedReason || "",
+    sources: row.sources,
+  };
+}
+
+/** The home a tool row declares itself, else its data file does (`friday-root`, `machine`, `npm-global`), else null. */
+function declaredHome(tool, options = {}) {
+  if (!tool) return null;
+  if (TOOL_HOMES.includes(tool.home)) return tool.home;
+  return tool.id ? (rowSpec(tool.id, options)?.home ?? null) : null;
+}
+
+/** `{v}`, `{version}`, `{versionNoDots}`, `{major}`, `{minor}`, `{majorMinor}`, `{patch}` and any `extra` filled into a template. */
+function expandTemplate(template, version, extra = {}) {
+  const parts = String(version).split(".");
+  const vars = {
+    v: version,
+    version,
+    major: parts[0] ?? "",
+    minor: parts[1] ?? "",
+    majorMinor: parts.slice(0, 2).join("."),
+    patch: parts[2] ?? "",
+    versionNoDots: String(version).replace(/\./g, ""),
+    ...extra,
+  };
+  return String(template).replace(/\{(\w+)\}/g, (m, k) =>
+    Object.hasOwn(vars, k) ? String(vars[k]) : m,
+  );
+}
+
+/** The digest in a document: `sha256:` / `sha512:` prefixes and case ignored. */
+const bareDigest = (value) =>
+  String(value ?? "")
+    .replace(/^sha\d+:/i, "")
+    .trim()
+    .toLowerCase();
+
+/** The hash of `file` in a `hash  filename` list, else the first hex token of the right length in a plain text. */
+function digestFromText(text, file, length) {
+  const token = new RegExp(`^([a-f0-9]{${length}})(?:\\s+\\*?(.+?))?\\s*$`, "i");
+  let first = "";
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const m = token.exec(line.trim());
+    if (m && file && m[2] === file) return m[1].toLowerCase();
+    const loose = new RegExp(`(?:^|[^a-f0-9])([a-f0-9]{${length}})(?![a-f0-9])`, "i").exec(line);
+    if (!first && loose && !m?.[2]) first = loose[1].toLowerCase();
+  }
+  return first;
+}
+
+/** Registries run by volunteers: their digests are a cross-check, never the only gate of an install. */
+const isScoopUrl = (raw) => {
+  try {
+    const u = new URL(String(raw).replace(/\{\w+\}/g, "x"));
+    return u.hostname === "raw.githubusercontent.com" && u.pathname.startsWith("/ScoopInstaller/");
+  } catch {
+    return false;
+  }
+};
+const COMMUNITY_HOSTS = new Set(["community.chocolatey.org", "formulae.brew.sh", "endoflife.date"]);
+const isCommunityUrl = (raw) => {
+  if (isScoopUrl(raw)) return true;
+  try {
+    return COMMUNITY_HOSTS.has(new URL(String(raw).replace(/\{\w+\}/g, "x")).hostname);
+  } catch {
+    return false;
+  }
+};
+
+/** A Scoop manifest only counts when its `version` and its 64-bit (or only) file are the ones being downloaded. */
+function assertScoopManifest(doc, version, url) {
+  const bare = (u) => String(u).split("#")[0].trim().toLowerCase();
+  if (String(doc?.version ?? "").replace(/^v(?=\d)/, "") !== String(version))
+    throw new Error(
+      `the Scoop manifest is for ${String(doc?.version).slice(0, 30)}, not ${version}`,
+    );
+  const listed = [doc?.architecture?.["64bit"]?.url ?? doc?.url].flat().filter(Boolean);
+  if (!listed.some((u) => bare(u) === bare(url)))
+    throw new Error("the Scoop manifest names another file than the one being downloaded");
+}
+
+/**
+ * The file URL and its digest for one version of a row's `download`. The digest comes from `digestUrl`: a JSON
+ * document read with `digestPath` (an API, a scoop manifest), a `hash  filename` list, or a plain text whose first hex
+ * token of the right length is the digest. `digestAlgo` is sha256 (default) or sha512. With no digest source, or no
+ * digest found, the answer is `{ ok: false }` and nothing may be installed from it. `sha256` is set only for sha256.
+ * A digest that only a community registry (Scoop, Chocolatey, Homebrew) holds carries `community: true`: a Scoop
+ * manifest must name this version and this file, and the caller needs a signature check, not the digest, to install.
+ */
+async function resolveDownloadDigest(download, version, options = {}) {
+  const { fetchImpl = fetchCompat, timeout = SOURCE_TIMEOUT_MS } = options;
+  try {
+    const v = sanitizeVersion(version);
+    if (!download?.urlTemplate) throw new Error("the row has no download address");
+    const url = httpsUrl(expandTemplate(download.urlTemplate, v));
+    if (/\{\w+\}/.test(url)) throw new Error("the download address still has an unfilled field");
+    const base = { url };
+    if (!download.digestUrl)
+      return {
+        ok: false,
+        ...base,
+        error: "no digest source is listed for this file; it may only notify",
+      };
+    const algo = download.digestAlgo || "sha256";
+    const length = DIGEST_LENGTH[algo];
+    if (!length) throw new Error(`the digest kind "${algo}" is not supported`);
+    const file = decodeURIComponent(url.split("?")[0].split("/").pop() || "");
+    const digestUrl = httpsUrl(expandTemplate(download.digestUrl, v, { file }));
+    const got = await httpGet(digestUrl, { fetchImpl, timeout, headers: PAGE_HEADERS });
+    const community = isCommunityUrl(digestUrl);
+    let doc = null;
+    if (download.digestPath || isScoopUrl(digestUrl)) doc = parseJson(got.text, hostOf(digestUrl));
+    // A registry kept by volunteers is a second opinion: its manifest must describe this very version and file.
+    if (isScoopUrl(digestUrl)) assertScoopManifest(doc, v, url);
+    const digest = download.digestPath
+      ? bareDigest(queryJsonPath(doc, expandTemplate(download.digestPath, v, { file })))
+      : digestFromText(got.text, file, length);
+    if (!new RegExp(`^[a-f0-9]{${length}}$`).test(digest))
+      throw new Error("the digest source has no digest of the right kind for this file");
+    return {
+      ok: true,
+      ...base,
+      algo,
+      digest,
+      ...(algo === "sha256" ? { sha256: digest } : {}),
+      ...(community ? { community: true } : {}),
+    };
+  } catch (error) {
+    return { ok: false, error: shortError(error) };
+  }
+}
+
+/**
+ * The source list for a catalogue row: its own `sources` when it names them; else the sources of its data file
+ * (`config/tool-sources`); else built from the registry it already records (`latest: { kind, ref }`). Then a vendor
+ * feed when there is one (unless the file already lists it), then its pin.
+ */
+function chainFor(row, { platform, toolSources } = {}) {
   if (Array.isArray(row?.sources) && row.sources.length) return row.sources;
   const out = [];
   const latest = row?.latest;
   const plat = platform || row?.platform || null;
   const plain = (extra = {}) => ({ ...(plat ? { platform: plat } : {}), ...extra });
-  if (latest?.kind === "pypi") {
+  const filed = row?.id ? sourcesOf({ toolSources }).rows[row.id] : null;
+  if (filed) {
+    out.push(...filed.sources.map((s) => ({ ...s })));
+  } else if (latest?.kind === "pypi") {
     out.push(
       { kind: "pypi-json", pkg: latest.ref, ...plain() },
       { kind: "pypi-simple", pkg: latest.ref, ...plain() },
@@ -999,9 +1870,127 @@ function chainFor(row, { platform } = {}) {
   } else if (latest?.kind === "hf") {
     out.push({ kind: "hf-api", repo: latest.ref });
   }
-  if (row?.id && hasFeed(row.id)) out.push({ kind: "feed", id: row.id });
+  if (row?.id && hasFeed(row.id) && !out.some((x) => x.kind === "feed" && x.id === row.id))
+    out.push({ kind: "feed", id: row.id });
   if (row?.pinnedLatest?.version) out.push({ kind: "pinned", ...row.pinnedLatest });
   return out;
+}
+
+/** Archives whose Windows signature can be checked after the download (Authenticode). */
+const SIGNED_ARCHIVES = new Set(["exe", "msi", "msix"]);
+/** One silent-install argument: letters, digits and `_ . : = + , / \\ -` only; no quote, redirect, pipe or variable. */
+const SILENT_ARG = /^[A-Za-z0-9_.:=+,!/\\-]+$/;
+
+/**
+ * The silent-install switches of a row as an argument list (never one command line): the words after the program
+ * name, each limited to `SILENT_ARG` after `{version}` and friends are filled. `null` when the text is empty or any
+ * word is not plain (a `<dir>` placeholder, a `&`, a quote): then nothing is composed and nothing runs.
+ */
+function silentArgv(text, version) {
+  // The program name may be quoted (it holds spaces); it is dropped, only the words after it are kept.
+  const rest = String(text ?? "")
+    .trim()
+    .replace(/^"[^"]*"\s*/, "x ");
+  const words = rest
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => expandTemplate(w, version));
+  if (!words.length) return null;
+  const args = /^[/-]/.test(words[0]) ? words : words.slice(1);
+  if (!args.length || args.length > 16) return null;
+  return args.every((a) => SILENT_ARG.test(a)) ? args : null;
+}
+
+/**
+ * Whether a row's own download can start an install, without any network: `{ installable, reason }`. It needs an
+ * address, a digest source (not only a community registry, unless the archive is signed), and for an `.exe` or
+ * `.msix` plain silent switches. A row that is not installable may still say "update available".
+ */
+function downloadReadiness(spec) {
+  const d = spec?.download;
+  if (!d?.urlTemplate) return { installable: false, reason: "no download address" };
+  if (spec.notifyOnly) return { installable: false, reason: "bundled: shows a newer version only" };
+  if (!d.digestUrl) return { installable: false, reason: "no digest source is listed" };
+  if (isCommunityUrl(d.digestUrl) && !SIGNED_ARCHIVES.has(d.archive))
+    return { installable: false, reason: "only a community registry lists a digest" };
+  // A digest only a community registry holds is backed by the publisher's signature, and the row must name that
+  // publisher: any valid signature from anybody would pass otherwise.
+  if (isCommunityUrl(d.digestUrl) && !spec.signer)
+    return {
+      installable: false,
+      reason: "only a community registry lists a digest and the row names no signer",
+    };
+  if (d.archive === "exe" && !silentArgv(spec.silentInstall, "1.0"))
+    return { installable: false, reason: "no plain silent-install switches" };
+  return { installable: true, reason: "" };
+}
+
+/**
+ * The verified download of one row's newest version from its data file: the version from the row's source chain
+ * (stored answer when offline), the address from `download.urlTemplate`, the digest from `digestUrl` (read again, never
+ * the cache), and the catalogue's pin must agree for the same version. Never installs anything; the caller downloads
+ * the candidate with `downloadVerified`. `{ ok: false }` always says why, and `notifyOnly` rows never plan.
+ *
+ * options: { toolSources, sources (the chain; default chainFor), store, fetchImpl, now, pin: { version, sha256 } }
+ */
+async function planRowDownload(rowId, options = {}) {
+  const spec = rowSpec(rowId, options);
+  if (!spec?.download?.urlTemplate)
+    return { ok: false, error: "the row has no download address in its data file" };
+  if (spec.notifyOnly)
+    return { ok: false, notifyOnly: true, error: "bundled: shows a newer version only" };
+  const ready = downloadReadiness(spec);
+  if (!ready.installable) return { ok: false, notifyOnly: true, error: ready.reason };
+  const sources = options.sources || chainFor({ id: rowId }, { toolSources: options.toolSources });
+  const answer = await resolveLatest(rowId, sources, {
+    store: options.store,
+    fetchImpl: options.fetchImpl,
+    now: options.now,
+    offline: options.offline,
+  });
+  if (!answer.ok) return { ok: false, error: answer.error };
+  let version;
+  try {
+    version = sanitizeVersion(answer.version);
+  } catch (error) {
+    return { ok: false, error: shortError(error) };
+  }
+  const got = await resolveDownloadDigest(spec.download, version, {
+    fetchImpl: options.fetchImpl,
+  });
+  if (!got.ok) return { ok: false, version, notifyOnly: true, error: got.error };
+  if (got.community && !SIGNED_ARCHIVES.has(spec.download.archive))
+    return {
+      ok: false,
+      version,
+      notifyOnly: true,
+      error: "only a community registry lists this file's digest; it may only notify",
+    };
+  const agreed = agreeOnDigest(options.pin, { version, sha256: got.sha256 });
+  if (!agreed.ok) return { ok: false, version, error: agreed.error };
+  // A digest read from the data file's own digest source, agreeing with the pin: this version is known good.
+  if (!got.community) options.store?.markVerified?.(rowId, version);
+  const archive = spec.download.archive || "";
+  let args = null;
+  if (archive === "exe") {
+    args = silentArgv(spec.silentInstall, version);
+    if (!args) return { ok: false, version, error: "the row has no plain silent-install switches" };
+  }
+  return {
+    ok: true,
+    version,
+    url: got.url,
+    algo: got.algo,
+    digest: got.digest,
+    ...(got.sha256 ? { sha256: got.sha256 } : {}),
+    archive,
+    home: spec.home,
+    source: hostOf(got.url),
+    ...(args ? { args } : {}),
+    ...(got.community ? { community: true, needsSignature: true } : {}),
+    ...(spec.signer ? { signer: String(spec.signer) } : {}),
+    ...(spec.allowUnsigned === true ? { allowUnsigned: true } : {}),
+  };
 }
 
 /**
@@ -1051,13 +2040,25 @@ function planFeedRefresh({
 
 /* ------------------------------------------------------- digest checks */
 
-/** SHA-256 of a file against the digest the vendor published ("sha256:" prefix and case ignored). */
+/** A digest the vendor published, as `{ algo, hex }`: 64 hex is SHA-256, 128 hex is SHA-512, anything else is none. */
+function digestParts(value) {
+  const hex = String(value ?? "")
+    .replace(/^sha(?:256|512):/i, "")
+    .trim()
+    .toLowerCase();
+  if (/^[a-f0-9]{64}$/.test(hex)) return { algo: "sha256", hex };
+  if (/^[a-f0-9]{128}$/.test(hex)) return { algo: "sha512", hex };
+  return null;
+}
+
+/** SHA-256 or SHA-512 of a file against the digest the vendor published (prefix and case ignored; the length says which). */
 function verifyFile(file, expected, { fs: fsApi = nodeFs } = {}) {
-  const want = stripSha(expected);
-  if (!isSha(want))
-    return Promise.resolve({ ok: false, error: "no SHA-256 digest to check against" });
+  const want = digestParts(expected);
+  if (!want)
+    return Promise.resolve({ ok: false, error: "no SHA-256 or SHA-512 digest to check against" });
+  const label = want.algo === "sha256" ? "SHA-256" : "SHA-512";
   return new Promise((resolve) => {
-    const hash = nodeCrypto.createHash("sha256");
+    const hash = nodeCrypto.createHash(want.algo);
     const stream = fsApi.createReadStream(file);
     stream.on("data", (chunk) => hash.update(chunk));
     stream.on("error", () =>
@@ -1066,9 +2067,9 @@ function verifyFile(file, expected, { fs: fsApi = nodeFs } = {}) {
     stream.on("end", () => {
       const actual = hash.digest("hex");
       resolve(
-        actual === want
-          ? { ok: true, actual }
-          : { ok: false, actual, error: "SHA-256 digest mismatch" },
+        actual === want.hex
+          ? { ok: true, actual, algo: want.algo }
+          : { ok: false, actual, algo: want.algo, error: `${label} digest mismatch` },
       );
     });
   });
@@ -1076,8 +2077,9 @@ function verifyFile(file, expected, { fs: fsApi = nodeFs } = {}) {
 
 /**
  * Download one file from the first candidate that delivers exactly the published digest. A candidate is
- * `{ url, sha256, source }`; one without a digest is never fetched, a failed fetch moves to the next candidate, and
- * a file that hashes differently is deleted. Nothing is left in place unless the digest matched.
+ * `{ url, sha256 | sha512, source }`; one without a digest is never fetched, a failed fetch moves to the next
+ * candidate, and a file that hashes differently is deleted. Nothing is left in place unless the digest matched.
+ * The downloader is told the SHA-256 when there is one; a SHA-512 is checked here, after the file arrived.
  */
 async function downloadVerified(
   candidates,
@@ -1093,7 +2095,8 @@ async function downloadVerified(
   };
   for (const c of Array.isArray(candidates) ? candidates : []) {
     const source = c?.source || "unknown";
-    if (!c?.url || !isSha(stripSha(c.sha256))) {
+    const want = digestParts(c?.sha256) || digestParts(c?.sha512);
+    if (!c?.url || !want) {
       failures.push({
         source,
         error: "no SHA-256 digest was published for this file; nothing was downloaded",
@@ -1101,18 +2104,30 @@ async function downloadVerified(
       continue;
     }
     try {
-      await download(c.url, dest, { sha256: stripSha(c.sha256), source });
+      await download(c.url, dest, {
+        ...(want.algo === "sha256" ? { sha256: want.hex } : { sha512: want.hex }),
+        source,
+      });
     } catch (error) {
       drop();
       failures.push({ source, error: shortError(error) });
       continue;
     }
-    const checked = await verify(dest, c.sha256);
-    if (checked.ok) return { ok: true, file: dest, source, sha256: stripSha(c.sha256), failures };
+    const checked = await verify(dest, want.hex);
+    if (checked.ok)
+      return {
+        ok: true,
+        file: dest,
+        source,
+        algo: want.algo,
+        digest: want.hex,
+        sha256: want.algo === "sha256" ? want.hex : "",
+        failures,
+      };
     drop();
     failures.push({
       source,
-      error: `SHA-256 digest mismatch${checked.actual ? ` (got ${checked.actual.slice(0, 12)}...)` : ""}; the file was discarded`,
+      error: `${want.algo === "sha256" ? "SHA-256" : "SHA-512"} digest mismatch${checked.actual ? ` (got ${checked.actual.slice(0, 12)}...)` : ""}; the file was discarded`,
     });
   }
   const why = failures.map((f) => `${f.source}: ${f.error}`).join("; ");
@@ -1153,8 +2168,25 @@ module.exports = {
   compareVersions,
   createFeedStore,
   storeFor,
+  MAX_BODY_BYTES,
+  SOURCE_READERS,
   resolveLatest,
   chainFor,
+  rowSpec,
+  declaredHome,
+  loadToolSources,
+  clearToolSources,
+  validateToolSourceFile,
+  authorisesInstall,
+  resolveDownloadDigest,
+  planRowDownload,
+  downloadReadiness,
+  silentArgv,
+  digestParts,
+  isCommunityUrl,
+  trustStored,
+  sanitizeVersion,
+  queryJsonPath,
   planFeedRefresh,
   verifyFile,
   downloadVerified,
@@ -1163,5 +2195,6 @@ module.exports = {
   parsePypiSimple,
   parseGithubRelease,
   parseAtomTag,
+  parseGithubList,
   parseHfModel,
 };

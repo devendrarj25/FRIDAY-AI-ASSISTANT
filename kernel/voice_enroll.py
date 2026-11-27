@@ -34,6 +34,7 @@ MAX_CLIP_S = 15.0
 MIN_WAKE_TAKES = 5
 GOOD_WAKE_TAKES = 8
 MIN_SPEECH_CLIPS = 6
+MIN_OWNER_EMBED_CLIPS = 3
 MIN_SPEECH_SECONDS = 20.0
 
 TARGET_WAKE_LOO_FRR = 0.15  # held-out takes the template would have refused
@@ -238,6 +239,35 @@ def build_profile(clips: list[dict]) -> dict:
         "baseline": owner_baseline([pcm for _cid, pcm in other_audio]),
     }
     return profile
+
+
+def owner_embedding(clips: list[dict], embed=None) -> list[float] | None:
+    """The owner's WeSpeaker centroid (unit vector, speech clips only) for the streaming ear's speaker tag, or None.
+
+    ``embed`` is ``kernel/ear_scene.py`` ``onnx_embedder`` over the pinned int8 file by default. No model, no
+    onnxruntime or too few usable clips give None (the speaker then stays unknown). It never approves anything.
+    """
+    try:
+        import ear_scene
+
+        if embed is None:
+            path = ear_scene.speaker_model_path()
+            if path is None:
+                return None
+            embed = ear_scene.onnx_embedder(path)
+        vecs = []
+        for clip in clips:
+            pcm = trim_voiced(_to_pcm(clip["pcm"]))
+            if str(clip.get("kind") or "speech") == "wake" or len(pcm) < RATE // 2:
+                continue
+            unit = ear_scene.clean_embedding(list(embed(pcm)))
+            if unit is not None:
+                vecs.append(unit)
+        if len(vecs) < MIN_OWNER_EMBED_CLIPS:
+            return None
+        return ear_scene.clean_embedding(list(np.mean(vecs, axis=0))).tolist()  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001 — a missing model or runtime means no owner embedding, never a failed enrolment
+        return None
 
 
 def owner_baseline(clips: list[np.ndarray]) -> dict | None:

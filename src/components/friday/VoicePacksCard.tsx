@@ -226,11 +226,6 @@ export function VoicePacksCardView({
                       </li>
                     ))}
                   </ul>
-                  <ul className="space-y-0.5 text-meta-sm text-muted-foreground">
-                    {pack.credits.map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
                 </article>
               );
             })

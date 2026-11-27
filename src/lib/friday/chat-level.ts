@@ -306,8 +306,8 @@ export function largeCircuitFitScale(stageW: number, stageH: number, viewportH: 
    font-mono 10px, h-6, px-2. Below VOICE_LABELS_MIN_WIDTH the buttons show
    icons only (styles.css, the same width as a 48rem container). */
 export const VOICE_LABELS_MIN_WIDTH = 768;
-/** Never moves into More: mic chip, listen and speak buttons, the dial, Stop everything, the level switch. */
-export const VOICE_FIXED_WIDTH = { labelled: 900, iconOnly: 420 };
+/** Never moves into More: mic chip, meter (~46), phase chip (~90), listen and speak buttons, the dial, Stop everything, the level switch. */
+export const VOICE_FIXED_WIDTH = { labelled: 900, iconOnly: 560 };
 /** Secondary tools in order: Voice flow, Voice settings, Diagnostics, Pipeline. */
 export const VOICE_SECONDARY_WIDTHS = {
   labelled: [86, 104, 98, 82],

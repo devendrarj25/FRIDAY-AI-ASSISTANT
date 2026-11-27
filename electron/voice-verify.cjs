@@ -61,6 +61,7 @@ function run(exe, args, timeout = 120000, env) {
           ok: !error,
           stdout: stdout || "",
           stderr: stderr || String(error?.message || ""),
+          timedOut: Boolean(error && error.killed),
         }),
     );
   });
@@ -72,12 +73,172 @@ const OPTIONAL_INSTALL = {
   "local-tts": "supertonic-3",
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
+  "wake-embed": "wake-embed",
   "hindi-ear": "hindi-ear",
   "hinglish-ear": "hinglish-ear",
   "hindi-fallback-ear": "hindi-fallback-ear",
   "hindi-punct": "hindi-punct",
   "hindi-light-tts": "hindi-light-tts",
 };
+
+/** The runner behind every `selftest-<id>` row and the Smart Turn load row: `voice_pin_selftest.py` in the kernel Python. */
+function runPinSelfTest(exe, prefix) {
+  return async ({ dir, spec }) => {
+    const out = await run(
+      exe,
+      [...prefix, pinSelfTestScript(), "--dir", dir, "--spec", JSON.stringify(spec)],
+      120000,
+    );
+    return (
+      parseJsonLine(out.stdout) || {
+        ok: false,
+        reason: "no-answer",
+        detail: tail(out.stderr, "the self-test printed nothing"),
+      }
+    );
+  };
+}
+
+/**
+ * The FRIDAY Runtime row: `voice_pin_selftest.py --runtime-info` through the same runner and timeout as the
+ * `selftest-<id>` rows. A crash, a timeout, or bad JSON gives a visible not-ready row with a plain reason; it never throws.
+ */
+/** One Doctor row per own ear (`kernel/stt.py --ears-self-test`). The three ears are never required. */
+const OWN_EARS = [
+  ["friday-ear-swift", "FRIDAY Ear Swift"],
+  ["friday-ear-quick", "FRIDAY Ear Quick"],
+  ["friday-ear-english", "FRIDAY Ear English"],
+];
+
+const HINGLISH_PRO_EAR = ["friday-ear-hinglish-pro", "FRIDAY Ear Hinglish Pro"];
+
+/** The one line of an own-ear answer: ok, missing, refused or could not open. */
+function earDetail(row) {
+  const reason = String(row.reason || "").slice(0, 200);
+  const ms = Number.isFinite(Number(row.ms)) ? Number(row.ms) : 0;
+  const status = String(row.status || "");
+  return status === "ok"
+    ? `heard the probe clip in ${ms}ms`
+    : status === "missing"
+      ? "not installed; the speech engine of today answers"
+      : status === "refused"
+        ? `declined to open: ${reason || "low memory"}`
+        : `could not open: ${reason || "unknown reason"}`;
+}
+
+/**
+ * The Hinglish Pro row. It is a derived ear: it installs only from the FRIDAY release files, so a PC whose release has
+ * none says `needs the FRIDAY release (not published yet)` and offers no install button, never the 1.6 GB source.
+ */
+function hinglishProRow(parsed, deps = {}) {
+  const [id, label] = HINGLISH_PRO_EAR;
+  const weights = deps.weights || require("./voice-weights.cjs");
+  const row = parsed && typeof parsed.hinglishPro === "object" ? parsed.hinglishPro : null;
+  if (!row) {
+    return { id, label, ok: false, required: false, detail: "the kernel did not list this ear" };
+  }
+  const status = String(row.status || "");
+  const base = {
+    id,
+    label: String(row.label || label).slice(0, 80),
+    ok: status === "ok",
+    required: false,
+    detail: earDetail(row),
+  };
+  if (status !== "missing") return base;
+  let state = null;
+  try {
+    state = weights.derivedEarState(deps.root || "", "hinglish-ear-pro", {
+      exists: deps.exists || ((file) => fs.existsSync(file)),
+      ...deps.releaseDeps,
+    });
+  } catch {
+    /* the release state could not be read: the row stays a plain missing ear */
+  }
+  if (state?.state === "needs-release") return { ...base, detail: state.text, installId: "" };
+  if (state?.state === "release") {
+    return {
+      ...base,
+      detail:
+        "not installed; installs from the FRIDAY release (the Models page), the speech engine of today answers",
+      installId: "hinglish-ear-pro",
+    };
+  }
+  return base;
+}
+
+async function ownEarsRows(exe, prefix, runner = run, options = {}) {
+  const withPro = options.hinglishPro === true;
+  const notReady = (detail) =>
+    [...OWN_EARS, ...(withPro ? [HINGLISH_PRO_EAR] : [])].map(([id, label]) => ({
+      id,
+      label,
+      ok: false,
+      required: false,
+      detail,
+    }));
+  try {
+    const out = await runner(exe, [...prefix, sttScript(), "--ears-self-test"], 120000);
+    if (out && out.timedOut) return notReady("the ear check timed out");
+    const parsed = parseJsonLine((out && out.stdout) || "");
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.ears)) {
+      return notReady(tail(out && out.stderr, "the ear check printed no readable answer"));
+    }
+    const rows = OWN_EARS.map(([id, label]) => {
+      const row = parsed.ears.find((ear) => ear && ear.catalogId === id);
+      if (!row)
+        return {
+          id,
+          label,
+          ok: false,
+          required: false,
+          detail: "the kernel did not list this ear",
+        };
+      return {
+        id,
+        label: String(row.label || label).slice(0, 80),
+        ok: String(row.status || "") === "ok",
+        required: false,
+        detail: earDetail(row),
+      };
+    });
+    return withPro ? [...rows, hinglishProRow(parsed, options)] : rows;
+  } catch (error) {
+    return notReady(
+      `the ear check could not run: ${String(error?.message || error).slice(0, 200)}`,
+    );
+  }
+}
+
+async function runtimeRow(exe, prefix, runner = run) {
+  const label = "FRIDAY Runtime";
+  const notReady = (detail) => ({
+    id: "friday-runtime",
+    label,
+    ok: false,
+    required: false,
+    detail,
+  });
+  try {
+    const out = await runner(exe, [...prefix, pinSelfTestScript(), "--runtime-info"], 120000);
+    if (out && out.timedOut) return notReady("the runtime check timed out");
+    const row = parseJsonLine((out && out.stdout) || "");
+    if (!row || typeof row !== "object" || typeof row.ok !== "boolean") {
+      return notReady(tail(out && out.stderr, "the runtime check printed no readable answer"));
+    }
+    return {
+      id: "friday-runtime",
+      label: String(row.label || label),
+      ok: row.ok,
+      required: false,
+      detail: String(row.detail || (row.ok ? "ready" : "not ready")).slice(0, 400),
+    };
+  } catch (error) {
+    return notReady(
+      `the runtime check could not run: ${String(error?.message || error).slice(0, 200)}`,
+    );
+  }
+}
 
 const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 
@@ -474,26 +635,31 @@ async function verifyVoiceRuntime({
     }
   }
 
+  // Smart Turn: the kernel line only says the file is present. Open it with the pinned signature self-test, and
+  // replace that row with the answer (red when the file does not load).
+  const turnAt = checks.findIndex(
+    (check) => check.id === "smart-turn" && check.ok && !check.optional,
+  );
+  if (turnAt >= 0) {
+    const loaded = await require("./voice-weights.cjs").smartTurnLoadCheck(paths.root() || "", {
+      exists: (file) => fs.existsSync(file),
+      runSelfTest: runPinSelfTest(exe, prefix),
+    });
+    if (loaded) checks[turnAt] = loaded;
+  }
+
   // The optional pins (denoiser, speaker model, Hindi Vaani ear): installed ones open and run one pass, the rest offer
   // their install button. Never required, and a green row does not mean the engine is used (see voice-pins.cjs SELF_TESTS).
   checks.push(
     ...(await require("./voice-weights.cjs").pinSelfTests(paths.root() || "", {
       exists: (file) => fs.existsSync(file),
-      runSelfTest: async ({ dir, spec }) => {
-        const out = await run(
-          exe,
-          [...prefix, pinSelfTestScript(), "--dir", dir, "--spec", JSON.stringify(spec)],
-          120000,
-        );
-        return (
-          parseJsonLine(out.stdout) || {
-            ok: false,
-            reason: "no-answer",
-            detail: tail(out.stderr, "the self-test printed nothing"),
-          }
-        );
-      },
+      runSelfTest: runPinSelfTest(exe, prefix),
     })),
+  );
+
+  checks.push(await runtimeRow(exe, prefix));
+  checks.push(
+    ...(await ownEarsRows(exe, prefix, run, { hinglishPro: true, root: paths.root() || "" })),
   );
 
   const speech = await speechSelfTest(sttEnv(size, prepared));
@@ -541,6 +707,9 @@ function restoreVoiceModel(catalogId) {
 
 module.exports = {
   verifyVoiceRuntime,
+  runtimeRow,
+  ownEarsRows,
+  hinglishProRow,
   restoreVoiceModel,
   speechSelfTest,
   hearingSelfTest,

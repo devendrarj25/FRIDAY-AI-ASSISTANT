@@ -47,7 +47,7 @@ export type HindiLightChoice = { use: boolean; note: string };
  * Whether one clause asks for the light Hindi voice. It does when the setting is on, the clause is a local one
  * (no cloud voice picked for it), it is Hindi in Devanagari only, and the voice is not known to be missing.
  * `installed` is true or false when the Models page knows, null before its first look; null still asks, because
- * the kernel falls back to the standard local voice by itself and says so. Privacy mode does not matter here:
+ * the kernel falls back to FRIDAY's own local voice by itself and says so. Privacy mode does not matter here:
  * the engine runs on this PC and the cloud rules (`allowCloud`) are decided before this point and unchanged.
  */
 export function chooseHindiLightVoice(input: {
@@ -121,6 +121,8 @@ export type TtsProviderInfo = {
   lastResort?: boolean;
   /** A cloud voice that only the provider router may allow (Sarvam, Azure), never the plain online switch. */
   viaRouter?: boolean;
+  /** FRIDAY's own speaking engine (FRIDAY Voice): the default local voice. The id keeps its old slot name. */
+  own?: boolean;
 };
 
 export interface TtsProvider extends TtsProviderInfo {
@@ -148,11 +150,12 @@ export const TTS_INFO = {
   },
   supertonic: {
     id: "supertonic",
-    label: "the standard local voice",
+    label: "FRIDAY's own voice",
     kind: "local",
     languages: ["hi", "en"],
     cost: "free",
     privacy: "on-device",
+    own: true,
   },
   sapi: {
     id: "sapi",
@@ -174,6 +177,16 @@ export const TTS_INFO = {
   },
 } as const satisfies Record<string, TtsProviderInfo>;
 
+/**
+ * A cloud voice counts as free-quota only with proof of a free allowance (the lane's cost proof is official or a
+ * cached copy of it). No proof, only a one-time trial credit, or no lane at all is paid: the billing firewall
+ * decides, never a guess from the plan name.
+ */
+function hasFreeProof(p: ProviderCaps): boolean {
+  if (PAID_BY_DEFAULT.has(p.id) || p.freeTier === "none") return false;
+  return p.lane?.costProof === "official" || p.lane?.costProof === "cached";
+}
+
 /** The cloud voices the existing provider router knows (Sarvam, Azure, ...), as ranking rows. */
 export function cloudTtsInfos(table: ProviderCaps[] = PROVIDERS): TtsProviderInfo[] {
   return table
@@ -183,11 +196,7 @@ export function cloudTtsInfos(table: ProviderCaps[] = PROVIDERS): TtsProviderInf
       label: p.label,
       kind: "cloud" as const,
       languages: p.hindi ? ["hi", "en"] : ["en"],
-      cost: PAID_BY_DEFAULT.has(p.id)
-        ? ("paid" as const)
-        : p.freeTier === "none"
-          ? ("paid" as const)
-          : ("free-quota" as const),
+      cost: hasFreeProof(p) ? ("free-quota" as const) : ("paid" as const),
       privacy: "cloud" as const,
       viaRouter: true,
     }));
@@ -245,7 +254,7 @@ const LADDER_ORDER = ttsLadderOrder();
 
 /**
  * Rank the voices for one clause. The order is the ladder FRIDAY always had: a cloud voice the router allows,
- * then the online voice, the light Hindi voice for Devanagari-only Hindi, the standard local voice, the system
+ * then the online voice, the light Hindi voice for Devanagari-only Hindi, FRIDAY's own local voice, the system
  * voice, the rule-based voice. A private line (privacy mode or a sensitive line) goes to the system voice only
  * (`privateVoice: "system"`, the default) or to any voice on this PC (`"local"`), never to a cloud one.
  */
@@ -629,7 +638,7 @@ const healthFor =
 
 /**
  * The engine the older ladders picked, from the same ranking: the online voice when the network and the rules
- * allow it, the standard local voice when it is ready, then the system voice (and the rule-based voice only when
+ * allow it, FRIDAY's own local voice when it is ready, then the system voice (and the rule-based voice only when
  * there is no system voice). A private line is the system voice.
  */
 export function legacyEngineChoice(input: {
@@ -654,6 +663,7 @@ export function legacyEngineChoice(input: {
       privacyMode: input.privacy,
       sensitive: false,
       allowCloud: true,
+      // Every voice ranked here is free (online voice, this PC's voices): no paid lane can enter this ranking.
       billingAllowsPaid: false,
       ...(input.prefer ? { prefer: input.prefer } : {}),
       systemVoice: input.systemVoice !== false,

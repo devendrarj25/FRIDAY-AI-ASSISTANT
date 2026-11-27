@@ -459,6 +459,42 @@ def test_real_model_pcm_matches_wav_and_costs_no_more():
     assert int(np.max(np.abs(mine.astype(np.int32) - theirs.astype(np.int32)))) <= 1
 
 
+def test_the_new_speak_fields_never_break_the_package_path(fake_engine, monkeypatch):
+    voice_runtime.reset_speech_state()
+    replies = _serve(
+        monkeypatch,
+        [
+            {
+                "id": 1,
+                "op": "speak-pcm",
+                "text": "[warm] Good morning sir",
+                "trusted": True,
+                "first": True,
+                "pauseMs": 300,
+            },
+            {"id": 2, "op": "speak-pcm", "text": "Good morning sir", "pauseMs": "soon", "trusted": "yes"},
+            {"id": 3, "op": "warm-up"},
+            {"id": 4, "op": "shutdown"},
+        ],
+    )
+    assert (
+        replies[0]["ok"] is True and replies[0]["sampleRate"] == RATE and len(base64.b64decode(replies[0]["pcm16"])) > 0
+    )
+    assert replies[1]["ok"] is True
+    assert replies[2]["ok"] is True and replies[2]["engine"] == "supertonic-3"
+    assert FakeTTS.seen[0] == "Good morning sir"  # the package reads the words only, never a tag name
+    assert replies[0]["engine"] == "supertonic-3" and replies[0]["own"] is False
+    assert replies[0]["fallback"] == "friday-voice-unavailable"
+
+
+def test_the_status_op_carries_the_own_engine_fields(fake_engine, monkeypatch):
+    replies = _serve(monkeypatch, [{"id": 1, "op": "status"}, {"id": 2, "op": "shutdown"}])
+    tts = replies[0]["tts"]
+    for field in ("engine", "own", "ready", "voiceId", "sampleRate", "recipeVersion", "reason"):
+        assert field in tts
+    assert tts["engine"] in ("friday-voice", "supertonic-3", "none") and isinstance(tts["own"], bool)
+
+
 # ---------------------------------------------------------------- STT provisional
 
 

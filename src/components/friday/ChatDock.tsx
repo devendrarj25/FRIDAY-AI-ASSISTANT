@@ -493,6 +493,8 @@ export function ChatDock() {
       ...(pinned.length ? { modelIds: pinned } : {}),
       routeMode: registry.routeMode,
       routingSurface: "chat",
+      // Only words the owner really typed count as his; the stand-in line for a bare attachment does not.
+      ...(typed ? { promptOrigin: "typed" as const } : {}),
     });
     if (!sent.accepted) {
       clearDiagramExplanation();

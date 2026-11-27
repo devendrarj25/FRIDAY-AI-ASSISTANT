@@ -292,9 +292,7 @@ describe("speakText builds the engine request only for Hindi-script clauses", ()
 describe("the settings row and the docs", () => {
   it("has one honest switch row wired to the stored key", () => {
     const source = read("src/components/friday/settings/VoiceSettings.tsx");
-    expect(source).toContain(
-      "Use the light Hindi voice for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)",
-    );
+    expect(source).toContain("Use FRIDAY Voice Lite for Hindi (optional download)");
     expect(source).toContain("on={prefs.voice.hindiLightVoice === true}");
     expect(source).toContain(
       "preferences.setVoice({ hindiLightVoice: prefs.voice.hindiLightVoice !== true })",

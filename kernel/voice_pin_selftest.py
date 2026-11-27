@@ -25,6 +25,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import friday_runtime
+
 _TYPES = {"float32": "tensor(float)", "float16": "tensor(float16)", "int64": "tensor(int64)", "int32": "tensor(int32)"}
 
 
@@ -64,7 +66,7 @@ def selftest_onnx(
     if ort is None or np is None:
         return {"ok": False, "reason": "runtime-missing", "detail": "onnxruntime or numpy is not available"}
     try:
-        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        session = friday_runtime.open_session(path, "turn", ort_module=ort)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": "cannot-open", "detail": f"{type(exc).__name__}: {str(exc)[:160]}"}
 
@@ -134,11 +136,35 @@ def run(folder: Path, spec: dict[str, Any]) -> dict:
     return {"ok": False, "reason": "no-self-test", "detail": f"unknown self-test kind {kind!r}"}
 
 
+def runtime_row(info: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The Doctor row of the FRIDAY Runtime layer: its name, the engine version and the providers it has."""
+    facts = {
+        "optimizedCache": friday_runtime.cache_enabled(),
+        **(friday_runtime.runtime_info() if info is None else info),
+    }
+    version = facts.get("engineVersion")
+    providers = ", ".join(str(name) for name in facts.get("providers") or [])
+    ok = bool(version)
+    cache = "on" if facts.get("optimizedCache") else "off"
+    detail = (
+        f"{facts.get('engine', 'onnxruntime')} {version}; providers: {providers or 'none'}; graph cache {cache}"
+        if ok
+        else f"{facts.get('engine', 'onnxruntime')} is not installed"
+    )
+    return {"id": "friday-runtime", "label": str(facts.get("name") or friday_runtime.NAME), "ok": ok, "detail": detail}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", required=True)
-    parser.add_argument("--spec", required=True)
+    parser.add_argument("--runtime-info", action="store_true")
+    parser.add_argument("--dir")
+    parser.add_argument("--spec")
     args = parser.parse_args()
+    if args.runtime_info:
+        print(json.dumps(runtime_row()))
+        return 0
+    if not args.dir or not args.spec:
+        parser.error("--dir and --spec are required")
     try:
         spec = json.loads(args.spec)
         if not isinstance(spec, dict):

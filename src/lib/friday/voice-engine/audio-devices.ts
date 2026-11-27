@@ -24,15 +24,29 @@ const ALIASES = new Set(["default", "communications"]);
 
 const noun = (kind: DeviceKind) => (kind === "microphone" ? "microphone" : "speaker");
 
-/** The device to use for a saved choice and the list that is plugged in now. */
+/** How far the list can be trusted: a failed or not-yet-permitted read makes an empty list "unknown". */
+export type ListTrust = { enumerated?: boolean; permitted?: boolean };
+
+/**
+ * The device to use for a saved choice and the list that is plugged in now. A missing device opens the default for
+ * this open only; the saved id is never dropped here (the caller keeps it and selects it again when it returns).
+ */
 export function planSavedDevice(
   kind: DeviceKind,
   saved: string | null | undefined,
   list: readonly DeviceRow[],
+  trust: ListTrust = {},
 ): DevicePlan {
   const id = String(saved ?? "").trim();
   if (!id || ALIASES.has(id)) return { deviceId: "", found: true, note: "" };
   if (list.some((row) => row.id === id)) return { deviceId: id, found: true, note: "" };
+  if (trust.enumerated === false || (kind === "microphone" && trust.permitted === false)) {
+    return {
+      deviceId: "",
+      found: false,
+      note: `The ${noun(kind)} list is not available yet. Using the system default; your saved choice is kept.`,
+    };
+  }
   return {
     deviceId: "",
     found: false,
@@ -71,6 +85,29 @@ export function deviceOptions(
     });
   }
   return rows;
+}
+
+/**
+ * The line under the microphone picker when the list itself is the problem: the microphone was never allowed
+ * ("Permission needed", with a Retry) or no microphone is plugged in. Empty when the list is fine.
+ */
+export function micListIssue(
+  inputs: readonly DeviceRow[],
+  trust: ListTrust,
+): { kind: "permission" | "none" | null; text: string } {
+  if (trust.permitted === false) {
+    return {
+      kind: "permission",
+      text: "Permission needed: allow the microphone in Windows Settings, Privacy, Microphone, then press Retry.",
+    };
+  }
+  if (!inputs.length) {
+    return {
+      kind: "none",
+      text: "No microphone was found. Plug one in; the list refreshes by itself.",
+    };
+  }
+  return { kind: null, text: "" };
 }
 
 export type SinkTarget = { setSinkId?: (id: string) => Promise<void> };

@@ -30,6 +30,7 @@ describe("build-time model prefetch", () => {
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
       "smart-turn",
       "silero-vad",
+      "wake-embed", // the wake word's embedding model, optional
       "stt-base",
       "stt-small",
       "stt-tiny", // the lite fallback for a weak or busy PC
@@ -39,13 +40,24 @@ describe("build-time model prefetch", () => {
       "stt-large-v3", // the most accurate size, optional
     ]);
     // No memory threshold lives in setup: the voice plan (voice-weights budgetFor) says whether this PC carries a size.
-    expect(jobs[7]).toMatchObject({ id: "stt-medium" });
-    expect(jobs[7].minRamGb).toBeUndefined();
-    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", optional: true });
+    expect(jobs[8]).toMatchObject({ id: "stt-medium" });
     expect(jobs[8].minRamGb).toBeUndefined();
+    expect(jobs[9]).toMatchObject({ id: "stt-large-v3", optional: true });
+    expect(jobs[9].minRamGb).toBeUndefined();
     // Both pinned helpers carry every source of their pin and the line that names a failed fetch; both are optional.
     expect(jobs[0]).toMatchObject({ id: "smart-turn", optional: true });
     expect(jobs[1]).toMatchObject({ id: "silero-vad", optional: true });
+    expect(jobs[2]).toMatchObject({
+      id: "wake-embed",
+      optional: true,
+      ready: path.join("/friday", "models", "wake", "wake-embed.onnx"),
+    });
+    expect(jobs[2].job).toMatchObject({ modelId: "wake", dir: path.join("/friday", "models") });
+    expect(jobs[2].job.sources[0]).toMatchObject({
+      fileName: "wake-embed.onnx",
+      sha256: "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+      bytes: 1326578,
+    });
     expect(jobs[1].job.sources.length).toBeGreaterThanOrEqual(2);
     expect(
       jobs[1].job.sources.every((s: { sha256: string }) => /^[0-9a-f]{64}$/.test(s.sha256)),
@@ -64,7 +76,7 @@ describe("build-time model prefetch", () => {
       kind: "hf-repo",
       repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     });
-    const small = jobs[3];
+    const small = jobs[4];
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
@@ -73,12 +85,12 @@ describe("build-time model prefetch", () => {
     const vad = jobs[1];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
-    expect(jobs[5].job.sources[0]).toMatchObject({
+    expect(jobs[6].job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "Supertone/supertonic-3",
     });
-    expect(jobs[5].job.dir).toBe(path.join("/friday", "models"));
-    expect(jobs[6].job.sources[0].repo).toBe("Qwen/Qwen3-4B-GGUF");
+    expect(jobs[6].job.dir).toBe(path.join("/friday", "models"));
+    expect(jobs[7].job.sources[0].repo).toBe("Qwen/Qwen3-4B-GGUF");
   });
 
   it("honours the opt-outs and stays off on hosted CI unless asked", () => {
@@ -91,7 +103,7 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(9);
+    ).toBe(10);
     // the big size can be left out on its own, and by the switch that leaves out every larger size
     const ids = (env: Record<string, string>) =>
       prefetch
@@ -868,8 +880,9 @@ describe("one local chat model, and nothing downloaded twice", () => {
           return { ok: true };
         },
       });
-      // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
-      expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
+      // Only the pinned voice files (their digests do not match this stand-in) are fetched; the wake embedding
+      // model is the third, in its own folder.
+      expect(fetched.sort()).toEqual(["silero-vad", "smart-turn", "wake"]);
       // tiny, base, small, the voice and the chat model are on disk; medium and large-v3 are skipped for memory.
       expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(7);
       expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
@@ -899,6 +912,19 @@ describe("the offline voice", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("a planned pinned voice model (the streaming ear) is one hf-repo job sized by its pin for the board", () => {
+    const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+    const job = prefetch.voiceModelJob("/friday", weights.STREAM_EAR_ID);
+    expect(job).toMatchObject({ id: weights.STREAM_EAR_ID, kind: "voice-model" });
+    expect(job.approxBytes).toBe(weights.manifestOf(weights.STREAM_EAR_ID).diskBytes);
+    expect(job.job.sources).toEqual([
+      expect.objectContaining({ kind: "hf-repo", repo: weights.STREAM_EAR_REPO }),
+    ]);
+    const src = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    expect(src).toMatch(/approxBytes: APPROX_BYTES\[row\.id\] \|\| row\.approxBytes \|\| 0/);
+    expect(src).toMatch(/for \(const item of planRows\(have\.plan\)\)/);
   });
 });
 

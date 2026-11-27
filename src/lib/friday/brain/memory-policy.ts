@@ -8,22 +8,85 @@
 import type { MemoryItem, MemoryTier } from "../self/memory-engine";
 import { meaningsDisagree, memoryContentTokens, tokenJaccard } from "../self/memory-engine";
 import { shouldRememberChats } from "../settings-runtime";
+import markerTable from "../../../../config/sensitive-markers.json";
 
 export { meaningsDisagree };
 
 const CHATTER = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|hmm+|lol)\b/i;
 
 /**
- * Same SENSITIVE signals as `electron/privacy-firewall.cjs` / `kernel/privacy.py`.
- * Kept here so the renderer never stores credential-like text as memory even
- * when it cannot load the main-process module. Tests lock the two together.
+ * A row pattern may hold {{name}} placeholders: {{words.list}} is a word list of the table joined
+ * with |, any other name a piece from its `fragments`; the other readers expand them the same way.
  */
-const SENSITIVE_MARKERS = [
-  /\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
-  /\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+/i,
-  /\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+/i,
-  /\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|\b(account (number|no\.?)|a\/c)\s*[:#]?\s*\d{8,}/i,
-];
+function expandPattern(pattern: string): string {
+  const parts: Record<string, string> = { ...markerTable.fragments };
+  for (const [name, list] of Object.entries(markerTable.words)) {
+    parts[`words.${name}`] = list.join("|");
+  }
+  let text = pattern;
+  for (let depth = 0; depth < 8 && text.includes("{{"); depth += 1) {
+    text = text.replace(/\{\{([\w.]+)\}\}/g, (_match, name: string) => {
+      const part = parts[name];
+      if (part === undefined) throw new Error(`unknown sensitive-marker fragment: ${name}`);
+      return part;
+    });
+  }
+  return text;
+}
+
+/**
+ * The SENSITIVE text markers (English, Hindi, Hinglish) are ONE table,
+ * `config/sensitive-markers.json`, read here, by `electron/privacy-firewall.cjs` and by
+ * `kernel/privacy.py`. The renderer keeps no copy, so it never stores credential-like
+ * text as memory even when it cannot load the main-process module.
+ */
+const SENSITIVE_MARKERS = markerTable.markers.map(
+  (row) => new RegExp(expandPattern(row.pattern), row.flags),
+);
+
+/**
+ * Speech-to-text writes a secret as people say it ("O T P", a Devanagari digit, "pass word").
+ * The `normalise` section of the same table says how to fold that; the three readers run the
+ * same steps in the same order (electron/privacy-firewall.cjs, kernel/privacy.py). The character
+ * classes live in the table only.
+ */
+function buildNormaliser(spec: typeof markerTable.normalise): (text: string) => string {
+  const dropped = new Set(spec.dropChars.map((hex) => Number.parseInt(hex, 16)));
+  const digits = spec.digitRanges.map(
+    ([lo, hi]) => [Number.parseInt(lo ?? "0", 16), Number.parseInt(hi ?? "0", 16)] as const,
+  );
+  const separators = new RegExp(`[${spec.separators}]+`, "g");
+  const runs = spec.units.map((unit) => {
+    const one = `[${unit.letter}]${unit.marks ? `[${unit.marks}]*` : ""}`;
+    return new RegExp(
+      `(?<![${unit.guard}])${one}(?:[${spec.separators}]+${one}(?![${unit.guard}])){${spec.minRun - 1},}`,
+      "g",
+    );
+  });
+  const pairs = spec.joinPairs.map((pair) => ({
+    re: new RegExp(
+      `(?<![${pair.guard}])${pair.parts.join(`[${spec.separators}]+`)}(?![${pair.guard}])`,
+      "g",
+    ),
+    joined: pair.parts.join(""),
+  }));
+  return (text) => {
+    let out = String(text ?? "").normalize(spec.form as "NFKC");
+    out = Array.from(out, (ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      if (dropped.has(code)) return "";
+      const range = digits.find(([lo, hi]) => code >= lo && code <= hi);
+      return range ? String(code - range[0]) : ch;
+    }).join("");
+    if (spec.lowercase) out = out.toLowerCase();
+    for (const run of runs) out = out.replace(run, (match) => match.replace(separators, ""));
+    for (const pair of pairs) out = out.replace(pair.re, pair.joined);
+    return out;
+  };
+}
+
+/** The text the markers are matched against, besides the raw text. */
+export const normaliseSensitiveText = buildNormaliser(markerTable.normalise);
 
 /** Same financial rule as electron/privacy-firewall.cjs. Bare words do not match. */
 export function financialIdentityHit(text: string): boolean {
@@ -84,7 +147,11 @@ function luhnOk(digits: string): boolean {
 /** True when the text would be classified SENSITIVE by the privacy firewall. */
 export function looksSensitive(text: string): boolean {
   const value = String(text || "");
-  return financialIdentityHit(value) || SENSITIVE_MARKERS.some((re) => re.test(value));
+  const folded = normaliseSensitiveText(value);
+  const seen = [value, ...(folded === value ? [] : [folded])];
+  return seen.some(
+    (form) => financialIdentityHit(form) || SENSITIVE_MARKERS.some((re) => re.test(form)),
+  );
 }
 
 export type MemoryVerdict = {

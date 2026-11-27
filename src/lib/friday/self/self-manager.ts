@@ -16,6 +16,7 @@ import { isDesktopApp } from "../desktop";
 import { learning } from "./learning-engine";
 import { memory } from "./memory-engine";
 import { ledger, type TaskContext } from "./task-ledger";
+import { systemTurnProvenance } from "./turn-provenance";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import {
   explainVerdict,
@@ -613,6 +614,7 @@ class SelfManager {
           this.finishLifecycle(lc, "done", `${check.label} repaired and verified.`);
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "repair",
             title: check.label,
             success: true,
@@ -624,6 +626,7 @@ class SelfManager {
         } catch (error) {
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "repair",
             title: check.label,
             success: false,
@@ -715,6 +718,7 @@ class SelfManager {
           this.finishLifecycle(lc, "done", `${component.label} upgraded to ${component.latest}.`);
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "upgrade",
             title: component.label,
             success: true,
@@ -728,6 +732,7 @@ class SelfManager {
           if (lc.state === "running") this.finishLifecycle(lc, "failed", message);
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "upgrade",
             title: component.label,
             success: false,
@@ -817,6 +822,7 @@ class SelfManager {
 
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "growth",
             title: proposal.title,
             success: true,
@@ -904,6 +910,7 @@ class SelfManager {
             );
             learning.evaluate({
               taskId: ctx.id,
+              ...systemTurnProvenance(),
               kind: "maintenance",
               title: proposal.title,
               success: false,
@@ -941,6 +948,7 @@ class SelfManager {
 
           learning.evaluate({
             taskId: ctx.id,
+            ...systemTurnProvenance(),
             kind: "maintenance",
             title: proposal.title,
             success: true,

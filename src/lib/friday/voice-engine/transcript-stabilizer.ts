@@ -84,6 +84,7 @@ export class LocalAgreementStabilizer {
   private committed: TimedWord[] = [];
   private pending: TimedWord[] = [];
   private lastCommitted = 0;
+  private trimmed = 0;
   private readonly maxOverlap: number;
   private readonly dropMargin: number;
   private readonly overlapWindow: number;
@@ -98,6 +99,35 @@ export class LocalAgreementStabilizer {
 
   get lastCommittedTime(): number {
     return this.lastCommitted;
+  }
+
+  /** Seconds before which the audio buffer has been cut; never beyond the last committed word. */
+  get trimmedAt(): number {
+    return this.trimmed;
+  }
+
+  /**
+   * The audio buffer is cut at `seconds` (the `trim_at` of the streaming committer). Only settled audio may be cut, so
+   * the point is clamped to the last committed time and never moves back. Unsettled words that ended before the cut are
+   * gone from the next pass, so they are dropped here instead of holding the next agreement back. Returns the applied
+   * point.
+   */
+  trimAt(seconds: number): number {
+    if (!Number.isFinite(seconds)) return this.trimmed;
+    const point = Math.min(seconds, this.lastCommitted);
+    if (point > this.trimmed) {
+      this.trimmed = point;
+      this.pending = this.pending.filter((w) => w.end > point);
+    }
+    return this.trimmed;
+  }
+
+  /** Replace the committed words from a corrected list (a revision; callers announce it). Pending words are cleared. */
+  replaceCommitted(words: TimedWord[]): void {
+    this.committed = words.map((w) => ({ ...w }));
+    this.pending = [];
+    this.lastCommitted = this.committed[this.committed.length - 1]?.end ?? 0;
+    this.trimmed = Math.min(this.trimmed, this.lastCommitted);
   }
 
   push(pass: TimedWord[], bufferOffsetS = 0): AgreementResult {
@@ -155,7 +185,150 @@ export class LocalAgreementStabilizer {
     this.committed = [];
     this.pending = [];
     this.lastCommitted = 0;
+    this.trimmed = 0;
   }
+}
+
+/** A word is `committed` (two passes agreed; fixed), `stable` (the same word at the same place in two passes in a row, but not agreed as a prefix yet) or `volatile` (new or changed in this pass). */
+export type WordState = "committed" | "stable" | "volatile";
+export type StatedWord = TimedWord & { state: WordState };
+
+/** The only way committed words ever change: announced, counted and carrying what went and what came. */
+export type RevisionEvent = {
+  revision: number;
+  reason: string;
+  fromIndex: number;
+  removed: TimedWord[];
+  added: TimedWord[];
+};
+
+export type WordStreamSnapshot = {
+  /** Counts revisions of committed words. While it is unchanged, committed words only ever grow at the end. */
+  revision: number;
+  /** committed, then stable, then volatile. */
+  words: StatedWord[];
+  committed: TimedWord[];
+  stable: TimedWord[];
+  volatile: TimedWord[];
+  newlyCommitted: TimedWord[];
+  lastCommittedTime: number;
+  trimmedAt: number;
+  /** Set only on the snapshot a revision happened in. */
+  revised: RevisionEvent | null;
+};
+
+const sameWord = (a: TimedWord | undefined, b: TimedWord | undefined): boolean =>
+  !!a && !!b && wordKey(a.text) === wordKey(b.text);
+
+/**
+ * LocalAgreement-2 plus the guarantees a screen needs: every word carries a state (committed, stable, volatile), and
+ * committed words are append-only unless an explicit revision (`revise` or `finalize`) changes them, which bumps
+ * `revision` and reports the change once. `trimAt` mirrors the streaming committer's trim point in seconds. Pure.
+ */
+export class WordStateStabilizer {
+  private readonly agree: LocalAgreementStabilizer;
+  private revision = 0;
+  private lastUnstable: TimedWord[] = [];
+
+  constructor(options: AgreementOptions = {}) {
+    this.agree = new LocalAgreementStabilizer(options);
+  }
+
+  push(pass: TimedWord[], bufferOffsetS = 0): WordStreamSnapshot {
+    const result = this.agree.push(pass, bufferOffsetS);
+    const shift = result.newlyCommitted.length;
+    const stable: TimedWord[] = [];
+    const volatile: TimedWord[] = [];
+    result.unstable.forEach((word, at) => {
+      (sameWord(word, this.lastUnstable[shift + at]) ? stable : volatile).push(word);
+    });
+    this.lastUnstable = result.unstable;
+    return this.snapshot(result.newlyCommitted, null, stable, volatile);
+  }
+
+  /** The audio buffer is cut at `seconds`; clamped to settled audio. Returns the applied point. */
+  trimAt(seconds: number): number {
+    const applied = this.agree.trimAt(seconds);
+    this.lastUnstable = this.lastUnstable.filter((w) => w.end > applied);
+    return applied;
+  }
+
+  /** Change committed words from `fromIndex` on. A no-op (no revision) when the words are already those. */
+  revise(fromIndex: number, replacement: TimedWord[], reason = "revised"): WordStreamSnapshot {
+    const current = this.agree.push([], 0).committed;
+    const at = Math.max(0, Math.min(Math.trunc(fromIndex) || 0, current.length));
+    const removed = current.slice(at);
+    const same =
+      removed.length === replacement.length &&
+      removed.every((w, i) => w.text === replacement[i]?.text);
+    if (same) return this.snapshot([], null, [], []);
+    const next = [...current.slice(0, at), ...replacement];
+    this.agree.replaceCommitted(next);
+    this.lastUnstable = [];
+    this.revision += 1;
+    return this.snapshot(
+      [],
+      { revision: this.revision, reason, fromIndex: at, removed, added: replacement },
+      [],
+      [],
+    );
+  }
+
+  /**
+   * The final reading is authoritative. When it only extends the committed words they are appended (no revision);
+   * when it disagrees with a committed word, that is a revision from the first difference on. Afterwards every word is
+   * committed.
+   */
+  finalize(final: TimedWord[]): WordStreamSnapshot {
+    const current = this.agree.push([], 0).committed;
+    let at = 0;
+    while (at < current.length && at < final.length && sameWord(current[at], final[at])) at += 1;
+    if (at < current.length) return this.revise(at, final.slice(at), "final");
+    const tail = final.slice(at);
+    if (!tail.length) return this.snapshot([], null, [], []);
+    this.agree.replaceCommitted([...current, ...tail]);
+    this.lastUnstable = [];
+    return this.snapshot(tail, null, [], []);
+  }
+
+  reset(): void {
+    this.agree.reset();
+    this.revision = 0;
+    this.lastUnstable = [];
+  }
+
+  private snapshot(
+    newly: TimedWord[],
+    revised: RevisionEvent | null,
+    stable: TimedWord[],
+    volatile: TimedWord[],
+  ): WordStreamSnapshot {
+    const committed = this.agree.push([], 0).committed;
+    const state = (words: TimedWord[], kind: WordState): StatedWord[] =>
+      words.map((w) => ({ ...w, state: kind }));
+    return {
+      revision: this.revision,
+      words: [
+        ...state(committed, "committed"),
+        ...state(stable, "stable"),
+        ...state(volatile, "volatile"),
+      ],
+      committed,
+      stable,
+      volatile,
+      newlyCommitted: newly,
+      lastCommittedTime: this.agree.lastCommittedTime,
+      trimmedAt: this.agree.trimmedAt,
+      revised,
+    };
+  }
+}
+
+/** The flicker guarantee: between two snapshots, committed words only grew at the end unless the revision moved. */
+export function isAppendOnly(before: WordStreamSnapshot, after: WordStreamSnapshot): boolean {
+  if (after.revision !== before.revision) return after.revision > before.revision;
+  if (after.committed.length < before.committed.length) return false;
+  return before.committed.every((w, i) => w.text === after.committed[i]?.text);
 }
 
 export type StabilizerOptions = {

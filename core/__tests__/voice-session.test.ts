@@ -12,9 +12,17 @@ import {
   duplicateFinalUtterance,
   endpointSilenceMs,
   holdLines,
+  createNarrator,
   microphoneAllowed,
+  NARRATION_POOLS,
   nextSpokenCursor,
+  replyForm,
   replyLanguage,
+  spokenFailure,
+  whileBusy,
+  type NarrationKind,
+  type ReplyForm,
+  type VoiceFault,
   spokenReplyAllowed,
   spokenRouteError,
   clarifyPrompt,
@@ -185,7 +193,7 @@ describe("the existing voice owners enforce that policy", () => {
 
   it("keeps the settings microphone control on the real pause path", () => {
     const settings = source("src/components/friday/settings/VoiceSettings.tsx");
-    expect(settings).toContain('label="Mute microphone"');
+    expect(settings).toContain('label="Pause listening"');
     expect(settings).toContain("assistantMode.setPaused(!voice.paused)");
     expect(settings).toContain("FRIDAY speaks only in Auto mode");
   });
@@ -308,5 +316,197 @@ describe("a larger speech size, suggested only on repeated doubt", () => {
     );
     expect(suggestLargerSpeech({ recent: three("small"), battery: true }).suggest).toBeNull();
     expect(suggestLargerSpeech({ recent: three("tiny") }).suggest).toBe("base");
+  });
+});
+
+describe("one language detector for her own fixed lines", () => {
+  const DEVA = /\p{Script=Devanagari}/u;
+  const FORMS: ReplyForm[] = ["en", "hi", "hinglish"];
+  const work = { task: "report", elapsedMs: 12_400 };
+  const said: Record<ReplyForm, string> = {
+    en: "open the report please",
+    hi: "यह रिपोर्ट खोलो",
+    hinglish: "kya kar rahi ho abhi",
+  };
+  const FAULTS: VoiceFault[] = [
+    "tts-crash",
+    "asr-timeout",
+    "barge-in",
+    "device-ended",
+    "permission-denied",
+    "engine-down",
+    "approval-expired",
+    "injection",
+    "model-missing",
+    "disk-full",
+    "bluetooth-switch",
+    "sleep-resume",
+    "echo-loop",
+  ];
+
+  it("reads the form from the shared lexicon: Devanagari, Roman Hinglish, mixed script, English", () => {
+    expect(replyForm("यह क्या है")).toBe("hi");
+    expect(replyForm("kya kar rahi ho abhi")).toBe("hinglish");
+    expect(replyForm("mujhe ek reminder set karo")).toBe("hinglish");
+    expect(replyForm("क्या कर रही हो ho gaya")).toBe("hinglish");
+    expect(replyForm("what are you doing")).toBe("en");
+    expect(replyForm("")).toBe("en");
+  });
+
+  it("follows one sure Hindi word in a very short line, and leaves a short English line English", () => {
+    expect(replyForm("theek hai")).toBe("hinglish");
+    expect(replyForm("abhi")).toBe("hinglish");
+    expect(replyForm("ok")).toBe("en");
+    expect(replyForm("thanks")).toBe("en");
+  });
+
+  it("keeps a Hindi or Hinglish ear's declared language when the words alone cannot tell", () => {
+    expect(replyForm("open the report", "hi")).toBe("hinglish");
+    expect(replyForm("open the report", "hi-en")).toBe("hinglish");
+    expect(replyForm("open the report", "en")).toBe("en");
+    expect(replyLanguage("open the report", "hi")).toBe("hi");
+  });
+
+  it("an English line with a few Hindi names is not Hinglish, a romanised Hindi line is", () => {
+    expect(replyForm("please send the quarterly report to Rahul before kal")).toBe("en");
+    expect(replyForm("subah ki meeting cancel karo please")).toBe("hinglish");
+  });
+
+  it("replyLanguage is the two-way view of replyForm, and the old regex is gone", () => {
+    for (const text of Object.values(said)) {
+      expect(replyLanguage(text) === "hi").toBe(replyForm(text) !== "en");
+    }
+    const src = source("src/lib/friday/voice-session.ts");
+    expect(src).not.toContain("HINGLISH_WORDS");
+    expect(src).toContain("detectTurnLanguage(");
+    expect(src).toContain('from "./voice-engine/hinglish-lexicon"');
+  });
+
+  it("every narration pool has English, Hindi (Devanagari) and Hinglish (Roman) lines", () => {
+    const kinds: NarrationKind[] = ["first", "later", "tool"];
+    for (const kind of kinds) {
+      const en = NARRATION_POOLS.en[kind];
+      const hi = NARRATION_POOLS.hi[kind];
+      const hinglish = NARRATION_POOLS.hinglish[kind];
+      expect(en.length).toBeGreaterThanOrEqual(4);
+      expect(hi.length).toBe(en.length);
+      expect(hinglish.length).toBe(en.length);
+      for (const line of hi) expect(line).toMatch(DEVA);
+      for (const line of [...en, ...hinglish]) expect(line).not.toMatch(DEVA);
+      expect(new Set([...en, ...hi, ...hinglish]).size).toBe(en.length * 3);
+    }
+  });
+
+  it("the narrator says each form in the language of the owner's last line", () => {
+    const narrator = createNarrator(() => 0);
+    expect(narrator.say("first", { text: said.hi, elapsedMs: 0 })).toMatch(DEVA);
+    const roman = createNarrator(() => 0).say("first", { text: said.hinglish, elapsedMs: 0 });
+    expect(roman).toBe(NARRATION_POOLS.hinglish.first[0]);
+    const english = createNarrator(() => 0).say("first", { text: said.en, elapsedMs: 0 });
+    expect(english).toBe(NARRATION_POOLS.en.first[0]);
+  });
+
+  it("a tool step names the real thing only in English, never as a guessed Hindi subject", () => {
+    const hindi = createNarrator(() => 0).say("tool", {
+      text: said.hi,
+      detail: "opening Chrome",
+      elapsedMs: 5000,
+    });
+    expect(hindi).toMatch(DEVA);
+    expect(hindi).not.toContain("Chrome");
+  });
+
+  it("holdLines has all three forms", () => {
+    const lines = FORMS.map((form) => holdLines(said[form]));
+    expect(lines[0]?.first).toBe("One moment, I'm on it.");
+    expect(lines[1]?.first).toMatch(DEVA);
+    expect(lines[1]?.later).toMatch(DEVA);
+    expect(lines[2]?.first).toBe("Ek second, dekh rahi hu.");
+    expect(new Set(lines.flatMap((l) => [l.first, l.later])).size).toBe(6);
+  });
+
+  it("a status question or a thank-you is answered in all three forms", () => {
+    const hindi = busyReply("क्या कर रही हो अभी तक", work);
+    expect(hindi).toMatch(DEVA);
+    expect(hindi).toContain("12");
+    expect(busyReply("ठीक है", work)).toMatch(DEVA);
+    expect(busyReply("ठीक है", work)).not.toBe(busyReply("theek hai", work));
+    expect(busyReply("theek hai", work)).toBe("Haan, kaam chal raha hai.");
+    expect(busyReply("thanks", work)).toBe("Still on it.");
+  });
+
+  it("queue, full-queue and social replies while busy come in three forms", () => {
+    const late = { task: "report", elapsedMs: 9000 };
+    const queued = FORMS.map((form) => {
+      const request = {
+        en: "write the email",
+        hi: "ईमेल लिख दो",
+        hinglish: "mujhe kal email bhejo",
+      }[form];
+      const d = whileBusy(request, late, { queued: 0 });
+      expect(d.kind).toBe("queue");
+      return d.kind === "queue" ? d.line : "";
+    });
+    expect(queued[1]).toMatch(DEVA);
+    expect(queued[2]).not.toMatch(DEVA);
+    expect(new Set(queued).size).toBe(3);
+    const full = FORMS.map((form) => {
+      const request = {
+        en: "write the email",
+        hi: "ईमेल लिख दो",
+        hinglish: "mujhe kal email bhejo",
+      }[form];
+      const d = whileBusy(request, late, { queued: 3 });
+      return d.kind === "reply" ? d.line : "";
+    });
+    expect(full[1]).toMatch(DEVA);
+    expect(full[0]).toContain("lined up");
+    expect(new Set(full).size).toBe(3);
+    const social = whileBusy("धन्यवाद", late);
+    expect(social.kind === "reply" && social.line).toMatch(DEVA);
+  });
+
+  it("a Devanagari stop word still interrupts the work", () => {
+    expect(whileBusy("रुको", { task: "x", elapsedMs: 9000 }).kind).toBe("interrupt");
+    expect(whileBusy("रुकिए", { task: "x", elapsedMs: 9000 }).kind).toBe("interrupt");
+  });
+
+  it("the clarifying question is asked in the language the owner used", () => {
+    expect(clarifyPrompt("open it")).toBe("Which one do you mean?");
+    const hindi = clarifyPrompt("वो खोलो");
+    expect(hindi).toMatch(DEVA);
+    const hinglish = clarifyPrompt("woh kholo");
+    expect(hinglish).not.toMatch(DEVA);
+    expect(hinglish).not.toBe("Which one do you mean?");
+    expect(hinglish.length).toBeGreaterThan(5);
+    expect(clarifyPrompt("वो खोलो", true)).toBe("");
+    expect(clarifyPrompt("क्या है वो")).toBe("");
+  });
+
+  it("every spoken failure line has English, Hindi and Hinglish forms", () => {
+    for (const fault of FAULTS) {
+      const [en, hi, hinglish] = FORMS.map((form) => spokenFailure(fault, form)) as [
+        string,
+        string,
+        string,
+      ];
+      if (fault === "barge-in" || fault === "echo-loop") {
+        expect([en, hi, hinglish]).toEqual(["", "", ""]);
+        continue;
+      }
+      expect(en.length).toBeGreaterThan(5);
+      expect(hi).toMatch(DEVA);
+      expect(hinglish).not.toMatch(DEVA);
+      expect(hinglish.length).toBeGreaterThan(5);
+      expect(new Set([en, hi, hinglish]).size).toBe(3);
+      expect(spokenFailure(fault)).toBe(en);
+    }
+  });
+
+  it("the failure lines never promise an action, and keep the safe facts in every form", () => {
+    for (const form of FORMS) {
+      expect(spokenFailure("injection", form)).not.toMatch(/\b(approved|executed|running now)\b/i);
+    }
+    expect(spokenFailure("approval-expired", "hi")).toMatch(DEVA);
   });
 });

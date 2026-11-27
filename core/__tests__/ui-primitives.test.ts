@@ -464,6 +464,21 @@ describe("iOS segmented control, switch and chips", () => {
     expect(row).toContain("friday-switch-thumb");
   });
 
+  it("ToggleRow keeps a 24 px hit area and a three-line hint linked to the switch", () => {
+    const row = html(
+      createElement(ToggleRow, {
+        label: "Auto-sync",
+        hint: "Keeps in sync",
+        on: false,
+        onToggle: () => undefined,
+      }),
+    );
+    expect(row).toContain("after:-inset-y-0.5");
+    expect(row).toContain("h-5 w-9");
+    expect(row).toContain("line-clamp-3");
+    expect(row).toMatch(/aria-describedby="[^"]+"/);
+  });
+
   it("status pills are capsules in glass and the button carries its variant", () => {
     expect(html(createElement(StatusPill, { label: "ready" }))).toContain("friday-chip");
     const button = read("src/components/ui/button.tsx");

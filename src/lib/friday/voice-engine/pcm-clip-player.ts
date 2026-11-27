@@ -9,8 +9,16 @@
  *
  * The context and the timers are injected, so the logic is tested without a speaker.
  */
-import { floatToPcm16, pcm16ToFloat, samplesToMs, StreamResampler } from "./audio-format";
 import {
+  floatToPcm16,
+  pcm16ToFloat,
+  REALTIME_RATE,
+  samplesToMs,
+  StreamResampler,
+} from "./audio-format";
+import {
+  DEFAULT_EDGE_FADE_MS,
+  DEFAULT_JOIN_MS,
   PcmPlayback,
   type ContextLike,
   type PlaybackStats,
@@ -40,6 +48,19 @@ const realTimers: PcmTimers = {
   clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
 };
 
+/**
+ * The one place a playback rate is assumed. Every clip is resampled to the audio context's own rate, whatever rate
+ * the voice engine made it at (22.05, 24, 44.1 or 48 kHz); only a context that reports no usable rate falls back to
+ * this one, so nothing downstream ever divides by zero.
+ */
+export const PCM_FALLBACK_RATE = REALTIME_RATE;
+
+/** The rate the player runs at: the context's own, or `PCM_FALLBACK_RATE` when it reports none. */
+export const playRate = (context: { sampleRate?: number }): number =>
+  Number.isFinite(context.sampleRate) && (context.sampleRate ?? 0) > 0
+    ? (context.sampleRate as number)
+    : PCM_FALLBACK_RATE;
+
 /** A clause is at most about 35 seconds of speech (500 characters); a queue longer than this is a runaway. */
 export const PCM_MAX_QUEUED_MS = 60_000;
 /** The loudness of the clause is published this often, for the companion's mouth. */
@@ -50,6 +71,8 @@ export type PcmClip = {
   ended: Promise<void>;
   /** Length of the clip after resampling. */
   durationMs: number;
+  /** Milliseconds the clip starts before the end of the clip before it (an equal-power join); 0 when butt-joined. */
+  overlapMs: number;
   /** Stop everything this player is playing now. Returns the milliseconds that were really played. */
   stop: () => number;
   /** Milliseconds of this clip that the speaker has played so far (0 before it starts, its length at the end). */
@@ -71,17 +94,38 @@ export class PcmClipPlayer {
       timers?: PcmTimers;
       /** The measured loudness (RMS, 0 to 1) of the part of the clip that is playing now. */
       onLevel?: (rms: number) => void;
+      /**
+       * Click-free seams: clips of one answer with no gap overlap by `DEFAULT_JOIN_MS` with an equal-power fade, and
+       * an answer starts and stops with a `DEFAULT_EDGE_FADE_MS` fade. Off (the plain butt joint) when absent.
+       */
+      join?: boolean;
+      /** `underrunRisk` turns true below this backlog (ms). */
+      underrunFloorMs?: number;
     } = {},
   ) {
     this.timers = options.timers ?? realTimers;
     this.playback = new PcmPlayback(context, {
-      rate: context.sampleRate,
+      rate: playRate(context),
       maxQueuedMs: options.maxQueuedMs ?? PCM_MAX_QUEUED_MS,
+      ...(options.join ? { joinMs: DEFAULT_JOIN_MS, edgeFadeMs: DEFAULT_EDGE_FADE_MS } : {}),
+      ...(options.underrunFloorMs !== undefined
+        ? { underrunFloorMs: options.underrunFloorMs }
+        : {}),
     });
   }
 
   get rate(): number {
-    return this.context.sampleRate;
+    return playRate(this.context);
+  }
+
+  /** Scheduled audio not yet played (ms): what the speaker still has before it runs dry. */
+  backlogMs(): number {
+    return this.playback.backlogMs();
+  }
+
+  /** True when the backlog is below the floor: the next clause should be a short one. Audio is never stretched. */
+  get underrunRisk(): boolean {
+    return this.playback.underrunRisk();
   }
 
   stats(): PlaybackStats {
@@ -154,26 +198,36 @@ export class PcmClipPlayer {
       throw new Error(`the audio context is ${this.context.state}`);
   }
 
-  /** Schedule one clause. Throws when the clip cannot be scheduled (the caller falls back to another path). */
-  start(pcm: Int16Array, sourceRate: number, volume = 1): PcmClip {
+  /**
+   * Schedule one clause. Throws when the clip cannot be scheduled (the caller falls back to another path).
+   * `gapMs` is the pause wanted before the clause: kept as silence, never crossfaded.
+   */
+  start(
+    pcm: Int16Array,
+    sourceRate: number,
+    volume = 1,
+    options: { gapMs?: number } = {},
+  ): PcmClip {
     if (!(sourceRate > 0)) throw new Error("the clip has no sample rate");
     if (pcm.length === 0) throw new Error("the clip is empty");
     const gain = Math.min(1, Math.max(0, Number.isFinite(volume) ? volume : 1));
     let samples = pcm16ToFloat(pcm);
-    if (sourceRate !== this.context.sampleRate) {
-      samples = new StreamResampler(sourceRate, this.context.sampleRate).push(samples);
-    }
+    const rate = this.rate;
+    if (sourceRate !== rate) samples = new StreamResampler(sourceRate, rate).push(samples);
     if (gain !== 1)
       for (let i = 0; i < samples.length; i += 1) samples[i] = (samples[i] ?? 0) * gain;
     const out = floatToPcm16(samples);
     if (out.length === 0) throw new Error("the clip is empty after resampling");
     const waitMs = this.playback.queuedMs();
-    const startsAt = this.context.currentTime + waitMs / 1000;
-    if (!this.playback.enqueue(out, this.playback.currentGeneration)) {
+    if (!this.playback.enqueue(out, this.playback.currentGeneration, options)) {
       throw new Error("the playback queue refused the clip");
     }
-    const durationMs = samplesToMs(out.length, this.context.sampleRate);
+    const overlapMs = this.playback.lastOverlapMs();
+    const durationMs = samplesToMs(out.length, rate);
     const endsInMs = this.playback.queuedMs();
+    // A pause before the clause or an overlap with the one before moves its start off the old queue end.
+    const startWaitMs = overlapMs > 0 || Number(options.gapMs) > 0 ? endsInMs - durationMs : waitMs;
+    const startsAt = this.context.currentTime + startWaitMs / 1000;
     let done = false;
     let endTimer: unknown = null;
     let levelTimer: unknown = null;
@@ -193,8 +247,8 @@ export class PcmClipPlayer {
     this.settle.add(finish);
     endTimer = this.timers.setTimeout(finish, Math.max(0, endsInMs));
     if (this.options.onLevel) {
-      const rms = windowLevels(out, this.context.sampleRate, PCM_LEVEL_EVERY_MS);
-      let tick = -Math.round(waitMs / PCM_LEVEL_EVERY_MS);
+      const rms = windowLevels(out, rate, PCM_LEVEL_EVERY_MS);
+      let tick = -Math.round(startWaitMs / PCM_LEVEL_EVERY_MS);
       levelTimer = this.timers.setInterval(() => {
         const level = tick >= 0 ? rms[tick] : undefined;
         tick += 1;
@@ -213,6 +267,7 @@ export class PcmClipPlayer {
     return {
       ended,
       durationMs,
+      overlapMs,
       stop: () => this.stop(),
       playedMs,
       span: span ? { startMs: span.startMs, endMs: span.endMs } : null,

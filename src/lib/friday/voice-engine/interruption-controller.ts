@@ -13,6 +13,10 @@
  *      that name it (`classifyVoiceControl`).
  */
 
+import { BACKCHANNEL_WORDS as LEXICON_BACKCHANNEL } from "./hinglish-lexicon";
+import type { AcousticFeatures } from "./interrupt-acoustic";
+import type { BargeVerdict } from "./turn-engine";
+
 export type Frame = {
   /** Milliseconds, from any monotonic clock. */
   t: number;
@@ -384,6 +388,11 @@ export type InterruptGatePrefs = {
   finalWaitMs: number;
   /** How loud her voice is while the owner may be talking over her (0.05 to 0.8 of its own level). */
   duckLevel: number;
+  /**
+   * Opt-in (`BargeLadder`): duck at 150 ms of echo-cleaned speech, stop at 500 ms or one real word, resume with no
+   * words by 2 s. Absent (the shipped default) the gate above rules exactly as before.
+   */
+  ladder?: boolean;
 };
 
 export const DEFAULT_INTERRUPT_GATE: InterruptGatePrefs = {
@@ -423,7 +432,177 @@ export function sanitizeInterruptGate(raw: unknown): InterruptGatePrefs {
     noWordsEscalateMs: clampInt(row.noWordsEscalateMs, 1000, 10_000, d.noWordsEscalateMs),
     finalWaitMs: clampInt(row.finalWaitMs, 1000, 15_000, d.finalWaitMs),
     duckLevel: clampNum(row.duckLevel, 0.05, 0.8, d.duckLevel),
+    ...(row.ladder === true ? { ladder: true } : {}),
   };
+}
+
+/** The numbers of the barge-in ladder (LiveKit and Unmute practice, starting values to be tuned on the owner's PC). */
+export const BARGE_LADDER = {
+  /** Echo-cleaned speech this long ducks her. */
+  duckAtMs: 150,
+  duckDb: -12,
+  /** Echo-cleaned speech this long stops her (resumable), words or not. */
+  stopAtMs: 500,
+  /** No real word by now since the voice began: she carries on. */
+  resumeAtMs: 2000,
+  /** Around the start and the end of her turn a short overlap is a nod or a turn-taking blip, not a barge-in. */
+  backchannelWindowMs: 1000,
+} as const;
+
+/** A level in dB as the gain the player applies (-12 dB is about 0.25). */
+export const dbToGain = (db: number): number => Math.round(10 ** (db / 20) * 1000) / 1000;
+
+/**
+ * True when `t` is inside a window around her turn start or end, where duration alone never stops her. The end is
+ * `null` while the reply is still being written (its length is not known yet), so only the start window applies.
+ */
+export function inBackchannelWindow(
+  t: number,
+  turn: { startedAt: number | null; endsAt: number | null },
+  windowMs: number = BARGE_LADDER.backchannelWindowMs,
+): boolean {
+  if (turn.startedAt !== null && t >= turn.startedAt && t - turn.startedAt < windowMs) return true;
+  return turn.endsAt !== null && Math.abs(t - turn.endsAt) < windowMs;
+}
+
+/** The milliseconds of her reply that were audible when the owner cut in, for the turn record. Null when unknown. */
+export function interruptedPlayedMs(
+  heard: { playedMs?: unknown } | null | undefined,
+): number | null {
+  const ms = heard?.playedMs;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null;
+}
+
+/**
+ * Where an echo-clean voice signal can come from: the streaming ear (its turn events are on the cleaned signal) or
+ * the echo canceller running with its reference. With neither, the ladder has nothing to listen to.
+ */
+export type EchoCleanSource = { streaming: boolean; echoReference: boolean };
+
+/** The ladder is effective only when an echo-clean source exists; otherwise the plain interrupt gate rules. */
+export const echoCleanSourceLive = (source: EchoCleanSource | null | undefined): boolean =>
+  source ? source.streaming || source.echoReference : false;
+
+/** The reference canceller counts only while it is on, attached to the player and has really cancelled frames. */
+export const echoReferenceRunning = (
+  echo: { enabled: boolean; attached: boolean; cancelledFrames: number } | null | undefined,
+): boolean => Boolean(echo && echo.enabled && echo.attached && echo.cancelledFrames > 0);
+
+export type LadderInput = {
+  /** Milliseconds from any monotonic clock. */
+  t: number;
+  /**
+   * The owner's voice is heard on the echo-cleaned signal (the kernel's turn events, or the echo canceller running
+   * with its reference). The reference-gated level test alone (mic louder than the speaker) is NOT this: pass false.
+   */
+  echoCleanedSpeech: boolean;
+  /** The recogniser's words so far, or the final; null when none. */
+  text: string | null;
+  final?: boolean;
+  waitingForAnswer?: boolean;
+  /** `text` is her own voice coming back. */
+  selfEcho?: boolean;
+  /** When her reply began to sound, and when it is expected to end (null while unknown). */
+  replyStartedAt: number | null;
+  replyEndsAt: number | null;
+};
+
+export type LadderVerdict =
+  | { kind: "wait" }
+  | { kind: "duck"; gain: number }
+  | { kind: "stop"; why: "duration" | "word" | "stop-word" | "approval-answer" }
+  | { kind: "resume"; why: "no-words" | "backchannel" | "echo" };
+
+/**
+ * The barge-in ladder for one candidate (the owner's voice while she speaks): wait, duck, stop, or resume. It acts
+ * only on echo-cleaned speech, so her own voice in the microphone, which the reference-gated level test cannot tell
+ * from the owner, never ducks or stops her; words from the recogniser are the other way in. A nod ("haan", "hmm",
+ * "ok", "acha") never stops her, and neither does duration alone inside the backchannel windows. It hears nothing
+ * about who is speaking: a speaker match cannot duck, stop, resume or approve here.
+ */
+export class BargeLadder {
+  private startedAt: number | null = null;
+  private lastTick = 0;
+  private speechMs = 0;
+  private ducked = false;
+  private stopped = false;
+  private echoSeen = false;
+  private nodSeen = false;
+
+  constructor(private readonly config: typeof BARGE_LADDER = BARGE_LADDER) {}
+
+  get active(): boolean {
+    return this.startedAt !== null;
+  }
+
+  get duckedNow(): boolean {
+    return this.ducked;
+  }
+
+  begin(t: number): void {
+    if (this.startedAt !== null) return;
+    this.startedAt = t;
+    this.lastTick = t;
+    this.speechMs = 0;
+    this.ducked = false;
+    this.stopped = false;
+    this.echoSeen = false;
+    this.nodSeen = false;
+  }
+
+  end(): void {
+    this.startedAt = null;
+    this.ducked = false;
+    this.stopped = false;
+  }
+
+  /** Echo-cleaned speech heard so far in this candidate (ms). */
+  heardMs(): number {
+    return this.speechMs;
+  }
+
+  evaluate(input: LadderInput): LadderVerdict {
+    if (this.startedAt === null) return { kind: "wait" };
+    const cfg = this.config;
+    if (input.echoCleanedSpeech) {
+      // Never more than one poll's worth per look, so a stalled page cannot fake a long voice.
+      this.speechMs += Math.min(250, Math.max(0, input.t - this.lastTick));
+    }
+    this.lastTick = Math.max(this.lastTick, input.t);
+    const heard = input.text?.trim() ? input.text : null;
+    if (heard && input.selfEcho) {
+      this.echoSeen = true;
+      if (input.final) return { kind: "resume", why: "echo" };
+    } else if (heard) {
+      if (isImmediateStop(heard)) return { kind: "stop", why: "stop-word" };
+      if (input.waitingForAnswer) return { kind: "stop", why: "approval-answer" };
+      if (isBackchannel(heard)) {
+        this.nodSeen = true;
+        if (input.final) return { kind: "resume", why: "backchannel" };
+      } else if (this.speechMs > 0 || input.final) {
+        // One real word is enough, but only from a voice the cleaned signal confirmed (or a final transcript).
+        return { kind: "stop", why: "word" };
+      }
+    }
+    const waited = input.t - this.startedAt;
+    const speaking = input.echoCleanedSpeech;
+    if (waited >= cfg.resumeAtMs && !speaking) return { kind: "resume", why: "no-words" };
+    if (this.echoSeen || this.nodSeen) return { kind: "wait" };
+    const windowed = inBackchannelWindow(input.t, {
+      startedAt: input.replyStartedAt,
+      endsAt: input.replyEndsAt,
+    });
+    if (windowed) return { kind: "wait" };
+    if (!this.stopped && this.speechMs >= cfg.stopAtMs) {
+      this.stopped = true;
+      return { kind: "stop", why: "duration" };
+    }
+    if (!this.stopped && !this.ducked && this.speechMs >= cfg.duckAtMs) {
+      this.ducked = true;
+      return { kind: "duck", gain: dbToGain(cfg.duckDb) };
+    }
+    return { kind: "wait" };
+  }
 }
 
 export type GateWhy =
@@ -562,4 +741,171 @@ export class InterruptGate {
       ? { kind: "restore", why: "silence" }
       : { kind: "wait" };
   }
+}
+
+/**
+ * The interruption classifier (the false-interruption ladder of the turn engine). While FRIDAY speaks, each
+ * echo-clean voice frame gets one of three answers: `keep` talks on, ducked; `takeover` gives the owner the
+ * floor; `ignore` does nothing. A stop word wins at once; a short nod keeps her talking and never stops her;
+ * three words or a second of speech take over; a TV, music or another voice never takes over without a stop
+ * word. FRIDAY never makes a backchannel of her own: this module only listens. A speaker verdict can only
+ * block a takeover; nothing here approves, confirms or allows an action.
+ */
+export const INTERRUPT_STOP_PHRASES: readonly string[] = Object.freeze([
+  "ruko",
+  "rukiye",
+  "stop",
+  "nahi nahi",
+  "wait",
+  "ek minute",
+  "ek second",
+  "sunna",
+  "suno",
+  "bas",
+  "chup",
+  "hold on",
+  "रुको",
+  "बस",
+  "चुप",
+  "सुनो",
+]);
+/** Voice shorter than this with no words is a click, a cough or a breath. */
+export const MIN_INTERRUPT_VOICE_MS = 500;
+/** Echo-clean voice this long with no words yet is a real start whose words are still pending. */
+export const NO_WORDS_TAKEOVER_MS = 2000;
+/** This many words that are not only nods take over. */
+export const TAKEOVER_WORDS = 3;
+/** This much voice with words takes over. */
+export const TAKEOVER_VOICE_MS = 1000;
+/** A run of nods ("haan haan theek hai") stays a nod up to this many words and below this length. */
+export const BACKCHANNEL_RUN_MAX_WORDS = 4;
+export const BACKCHANNEL_RUN_MAX_MS = 1500;
+/** The first part of a reply in which a voice that is not echo-clean is her own voice coming back. */
+export const OWN_ECHO_GUARD_MS = 300;
+/** Below this voice probability nothing is judged. */
+const MIN_VOICE_P = 0.5;
+
+export type InterruptionScene = "quiet" | "tv" | "music" | "noise" | "speech";
+export type InterruptionSpeaker = "owner" | "other" | "unknown" | "none";
+export type InterruptionInput = {
+  words: string[];
+  voiceMs: number;
+  vadP: number;
+  ttsPlaying: boolean;
+  playedMs: number;
+  echoClean: boolean;
+  scene: InterruptionScene;
+  speaker: InterruptionSpeaker;
+  sinceTtsStartMs: number;
+  /** Shadow only: acoustic features of the candidate. Copied into the trace, never used by the decision. */
+  acoustic?: AcousticFeatures;
+};
+export type InterruptionDecision = {
+  decision: BargeVerdict;
+  reason: string;
+  confidence: number;
+  /** Present only when the input carried `acoustic`. */
+  trace?: { acoustic: AcousticFeatures };
+};
+
+const SCENES: ReadonlySet<string> = new Set(["quiet", "tv", "music", "noise", "speech"]);
+const STOP_WORDS: ReadonlySet<string> = new Set(
+  INTERRUPT_STOP_PHRASES.filter((p) => !p.includes(" ")),
+);
+const STOP_PAIRS: readonly string[] = INTERRUPT_STOP_PHRASES.filter((p) => p.includes(" "));
+/** "hai" joins nods ("theek hai") but is not a nod alone. */
+const NOD_JOINERS: ReadonlySet<string> = new Set(["hai", "है"]);
+
+const finite = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+const isNod = (w: string): boolean =>
+  LEXICON_BACKCHANNEL.has(w) || BACKCHANNEL.has(w) || FILLED_SOUND.test(w);
+const verdict = (
+  decision: BargeVerdict,
+  reason: string,
+  confidence: number,
+): InterruptionDecision => ({
+  decision,
+  reason,
+  confidence,
+});
+
+function tokens(words: unknown): string[] {
+  if (!Array.isArray(words)) return [];
+  const out: string[] = [];
+  for (const w of words) if (typeof w === "string") out.push(...norm(w).split(" ").filter(Boolean));
+  return out;
+}
+
+function hasStop(ws: readonly string[]): boolean {
+  if (ws.some((w) => STOP_WORDS.has(w))) return true;
+  const line = ` ${ws.join(" ")} `;
+  return STOP_PAIRS.some((p) => line.includes(` ${p} `));
+}
+
+function judgeMoment(input: InterruptionInput): InterruptionDecision {
+  const ws = tokens(input.words);
+  const voiceMs = finite(input.voiceMs);
+  const scene = SCENES.has(input.scene) ? input.scene : "quiet";
+  const speaker: InterruptionSpeaker =
+    input.speaker === "owner" || input.speaker === "other" || input.speaker === "none"
+      ? input.speaker
+      : "unknown";
+  const echoClean = input.echoClean === true;
+  if (input.ttsPlaying !== true) return verdict("ignore", "not-speaking", 1);
+  if (!(finite(input.vadP) >= MIN_VOICE_P)) return verdict("ignore", "weak-voice", 0.9);
+  const sinceStart = Math.min(finite(input.playedMs), finite(input.sinceTtsStartMs));
+  if (!echoClean && sinceStart < OWN_ECHO_GUARD_MS) return verdict("ignore", "own-echo", 0.8);
+  if (hasStop(ws)) return verdict("takeover", "stop-word", 0.95);
+  if ((scene === "tv" || scene === "music") && speaker !== "owner")
+    return verdict("ignore", "background-media", 0.8);
+  if (ws.length === 0) {
+    if (voiceMs < MIN_INTERRUPT_VOICE_MS) return verdict("ignore", "too-short", 0.85);
+    if (speaker === "other") return verdict("keep", "other-voice", 0.6);
+    if (voiceMs >= NO_WORDS_TAKEOVER_MS && echoClean) return verdict("takeover", "long-voice", 0.6);
+    return verdict("keep", "words-pending", 0.5);
+  }
+  // A speaker verdict only blocks: another voice is ducked under, never handed the floor.
+  if (speaker === "other") return verdict("keep", "other-voice", 0.7);
+  const nods =
+    ws.length <= BACKCHANNEL_RUN_MAX_WORDS &&
+    voiceMs < BACKCHANNEL_RUN_MAX_MS &&
+    ws.every((w) => isNod(w) || NOD_JOINERS.has(w)) &&
+    ws.some(isNod);
+  if (nods) return verdict("keep", "backchannel", 0.85);
+  if (ws.length >= TAKEOVER_WORDS) return verdict("takeover", "enough-words", 0.85);
+  if (voiceMs >= TAKEOVER_VOICE_MS) return verdict("takeover", "long-words", 0.75);
+  return verdict("keep", "few-words", 0.55);
+}
+
+/**
+ * Judges one moment of the owner's voice over FRIDAY's speech. Pure: no clock, no timer, no side effect. Optional
+ * `acoustic` features are copied into `trace` for later study; they never change the decision.
+ */
+export function classifyInterruption(input: InterruptionInput): InterruptionDecision {
+  const out = judgeMoment(input);
+  const a = input.acoustic;
+  return a && typeof a === "object" ? { ...out, trace: { acoustic: { ...a } } } : out;
+}
+
+/**
+ * The classifier as the turn engine's `barge` hook. The engine's voice probability and played milliseconds win
+ * over the context; the rest comes from `getCtx` (the words heard so far, voice length, scene, speaker).
+ */
+export function bargeFromController(
+  getCtx: () => Partial<InterruptionInput>,
+): (p: number, playedMs: number) => BargeVerdict {
+  return (p, playedMs) => {
+    const ctx = getCtx();
+    return classifyInterruption({
+      words: ctx.words ?? [],
+      voiceMs: ctx.voiceMs ?? 0,
+      ttsPlaying: ctx.ttsPlaying ?? true,
+      echoClean: ctx.echoClean ?? true,
+      scene: ctx.scene ?? "quiet",
+      speaker: ctx.speaker ?? "unknown",
+      sinceTtsStartMs: ctx.sinceTtsStartMs ?? playedMs,
+      vadP: p,
+      playedMs,
+    }).decision;
+  };
 }

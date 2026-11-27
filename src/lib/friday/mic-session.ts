@@ -1,4 +1,5 @@
 /** Capture decisions for real Windows audio events. The events are injected. */
+import type { MicState } from "./voice-audio";
 
 export function negotiateRate(offered: readonly number[], want = 16000): number {
   const rates = offered.filter((rate) => Number.isFinite(rate) && rate > 0);
@@ -64,28 +65,159 @@ export function captureRate(): number {
   return negotiateRate(offered);
 }
 
+/** What the capture graph was opened with. A null rate means the browser did not say. */
+export type CaptureRates = { ctx: number | null; track: number | null };
+
 /**
- * A saved input that is no longer plugged in must not stay selected.
- * An empty saved id, or a missing one, reopens the system default and says so.
+ * A headset that switches between its call and media profiles changes the track rate (or the context rate) under
+ * a running graph. True when either known rate moved, so the graph is rebuilt once. Unknown rates never count.
+ */
+export function captureRateChanged(opened: CaptureRates, now: CaptureRates): boolean {
+  const moved = (a: number | null, b: number | null) =>
+    typeof a === "number" && typeof b === "number" && a > 0 && b > 0 && Math.abs(a - b) > 1;
+  return moved(opened.ctx, now.ctx) || moved(opened.track, now.track);
+}
+
+export type InputListState = {
+  /** False when `enumerateDevices` failed or is missing: the empty list then means "unknown". */
+  enumerated?: boolean;
+  /** False until the owner has granted the microphone (labels and ids are blank before that). */
+  permitted?: boolean;
+  /** True only when the owner explicitly removed the saved choice. */
+  remove?: boolean;
+};
+
+export type SavedInputPlan = {
+  deviceId: string | null;
+  cleared: boolean;
+  message: string;
+  /** The saved id to select again once it returns; null when nothing is saved. */
+  restore: string | null;
+};
+
+/**
+ * Which microphone to open. A saved input that is missing, or a list that is empty because the enumerate failed or
+ * the microphone was never allowed, opens the system default for this open only. The saved choice is kept and
+ * selected again when it returns (an unplugged or sleeping Bluetooth headset must not lose the owner's pick).
+ * `cleared` is true only for an explicit removal against a real, permitted, non-empty list.
  */
 export function savedInputPlan(
   savedId: string | null,
   inputs: ReadonlyArray<{ id: string }>,
-): { deviceId: string | null; cleared: boolean; message: string } {
+  state: InputListState = {},
+): SavedInputPlan {
   const saved = String(savedId || "").trim();
   if (!saved) {
     return {
       deviceId: null,
       cleared: false,
       message: "Microphone changed. Using the default device.",
+      restore: null,
     };
   }
   if (inputs.some((row) => row.id === saved)) {
-    return { deviceId: saved, cleared: false, message: "Microphone reopened." };
+    return { deviceId: saved, cleared: false, message: "Microphone reopened.", restore: null };
+  }
+  const known = state.enumerated !== false && state.permitted !== false && inputs.length > 0;
+  if (known && state.remove === true) {
+    return {
+      deviceId: null,
+      cleared: true,
+      message: "The saved microphone was removed. Using the default device.",
+      restore: null,
+    };
   }
   return {
     deviceId: null,
-    cleared: true,
-    message: "The saved microphone is gone. Using the default device.",
+    cleared: false,
+    message: known
+      ? "The saved microphone is not connected. Using the default device until it returns."
+      : "The microphone list is not available yet. Using the default device; your choice is kept.",
+    restore: saved,
   };
+}
+
+const HI = /[\u0900-\u097F]/;
+
+type FaultRule = {
+  test: RegExp;
+  en: string;
+  hi: string;
+  hinglish: string;
+  /** Said after the line only while a heal is running. */
+  heal?: { en: string; hi: string; hinglish: string };
+};
+
+/** What the capture gate and the heal loop know when a fault line is shown. */
+export type FaultContext = { micState?: MicState; healing?: boolean };
+
+const NO_MIC = /no-microphone|no microphone|NotFoundError|no audio input/i;
+
+const FAULTS: FaultRule[] = [
+  {
+    test: /permission (required|denied)|NotAllowed|permission-denied/i,
+    en: "The microphone is blocked. Allow it in Windows Settings, then try again.",
+    hi: "माइक्रोफ़ोन बंद है। Windows सेटिंग में अनुमति दें, फिर दोबारा कोशिश करें।",
+    hinglish: "Microphone blocked hai. Windows Settings me allow karo, phir dobara try karo.",
+  },
+  {
+    test: /dependency-incompatible|incompatible|faster-whisper|PyPI|\bav\s*>=/i,
+    en: "A voice part needs a repair. Open Doctor and press Repair.",
+    hi: "आवाज़ का एक हिस्सा ठीक करना है। Doctor खोलकर Repair दबाएँ।",
+    hinglish: "Voice ka ek part repair maangta hai. Doctor kholo aur Repair dabao.",
+  },
+  {
+    test: /no audio frames|no-frames|not reachable|device-offline|NotReadable|(microphone|device|input)[^.]*in use by|in use by (another|other) (app|program)/i,
+    en: "The microphone is quiet or busy.",
+    hi: "माइक्रोफ़ोन शांत या व्यस्त है।",
+    hinglish: "Microphone chup ya busy hai.",
+    heal: {
+      en: " Reopening now.",
+      hi: " उसे दोबारा खोल रही हूँ।",
+      hinglish: " Dobara khol rahi hoon.",
+    },
+  },
+  {
+    test: NO_MIC,
+    en: "No microphone found. Plug one in.",
+    hi: "कोई माइक्रोफ़ोन नहीं मिला। एक लगाइए।",
+    hinglish: "Koi microphone nahi mila. Ek laga do.",
+  },
+];
+
+/**
+ * One short plain sentence for a known voice or microphone fault. Raw engine text (package names, ids, versions)
+ * stays in the Doctor detail; an unknown line is returned unchanged so nothing is hidden. The language follows the
+ * owner's reply language ("hi" Devanagari, "hinglish" Latin Hindi, anything else English).
+ */
+export function plainFaultLine(
+  raw: string | null | undefined,
+  language = "en",
+  context: FaultContext = {},
+): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  if (HI.test(text)) return text;
+  const rule = ruleFor(text, context.micState);
+  if (!rule) return text;
+  const pool =
+    /^hi/i.test(language) && !/hinglish/i.test(language)
+      ? "hi"
+      : /hinglish|hi-en|hi-latn/i.test(language)
+        ? "hinglish"
+        : "en";
+  return rule[pool] + (context.healing === true && rule.heal ? rule.heal[pool] : "");
+}
+
+/** The mic state (`voice.mic.state`) names the class first; the raw text only decides when the state is silent. */
+function ruleFor(text: string, micState: MicState | undefined): FaultRule | undefined {
+  if (micState === "no-microphone") return FAULTS.find((row) => row.test === NO_MIC);
+  if (micState === "permission-denied" || micState === "permission-required") return FAULTS[0];
+  return FAULTS.find((row) => row.test.test(text));
+}
+
+/** The language pool for plain fault lines, from the owner's reply-language settings. */
+export function faultLanguage(voice: { speechLang?: string; hinglish?: boolean }): string {
+  if (voice.hinglish) return "hinglish";
+  return /^hi\b|^hi-|hindi/i.test(String(voice.speechLang || "")) ? "hi" : "en";
 }

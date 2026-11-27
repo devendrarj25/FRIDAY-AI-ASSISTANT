@@ -98,6 +98,24 @@ function allowedHostSet(extraHosts = []) {
   return set;
 }
 
+/**
+ * A host that serves anyone's files (a user-content site) or redirects anywhere (a link shortener) may list
+ * `pathPrefixes[host]` in config/download-hosts.json: only those paths are accepted on it. A prefix that ends in "/"
+ * covers its folder; any other entry names exactly one path. A host with no entry accepts every path.
+ */
+function pathAllowed(host, pathname) {
+  const table = hostPolicy().pathPrefixes;
+  const list = table && typeof table === "object" ? table[String(host).toLowerCase()] : undefined;
+  if (list === undefined) return true;
+  if (!Array.isArray(list) || !list.length) return false;
+  const path = String(pathname || "/");
+  return list.some((entry) => {
+    const prefix = String(entry || "");
+    if (!prefix.startsWith("/")) return false;
+    return prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix;
+  });
+}
+
 function assertAllowedUrl(raw, extraHosts = [], originFamily = "") {
   let parsed;
   try {
@@ -126,6 +144,11 @@ function assertAllowedUrl(raw, extraHosts = [], originFamily = "") {
   const family = familyFor(host, extraHosts);
   if (!family) {
     const error = new Error(`host is not allowlisted: ${host}`);
+    error.code = "OFF_ALLOWLIST";
+    throw error;
+  }
+  if (!pathAllowed(host, parsed.pathname)) {
+    const error = new Error(`path is not allowed on ${host}: ${parsed.pathname.slice(0, 80)}`);
     error.code = "OFF_ALLOWLIST";
     throw error;
   }
@@ -285,20 +308,62 @@ function admitJobs(jobs, concurrency = 1) {
   return { running: active.length, starting: next.map((job) => job.id) };
 }
 
-/** Windows Authenticode must read Valid before a downloaded installer runs. */
-function authenticodeStatus(file) {
-  const { execFileSync } = require("node:child_process");
+/** The common name of a certificate subject (`CN=Name, O=...`, quoted values allowed), or "". */
+function subjectCommonName(subject) {
+  const m = /(?:^|,\s*)CN=(?:"((?:[^"]|"")*)"|([^,]*))/i.exec(String(subject || ""));
+  return m ? String(m[1] !== undefined ? m[1].replace(/""/g, '"') : m[2]).trim() : "";
+}
+
+/**
+ * Whether the signing certificate is the publisher a row names: `signer` is a subject common name (exact, any case)
+ * or a 40-hex SHA-1 thumbprint. An empty `signer` accepts any publisher whose signature is valid.
+ */
+function signerMatches(signer, { subject = "", thumbprint = "" } = {}) {
+  const want = String(signer || "").trim();
+  if (!want) return true;
+  if (/^[a-f0-9]{40}$/i.test(want))
+    return String(thumbprint || "").toLowerCase() === want.toLowerCase();
+  const cn = subjectCommonName(subject);
+  return Boolean(cn) && cn.toLowerCase() === want.toLowerCase();
+}
+
+/** `Status|Subject|Thumbprint` as the PowerShell line prints it. */
+function parseSignatureLine(out) {
+  const [status = "", subject = "", thumbprint = ""] = String(out || "")
+    .trim()
+    .split("|");
+  return { status: status.trim(), subject: subject.trim(), thumbprint: thumbprint.trim() };
+}
+
+/**
+ * Windows Authenticode must read Valid before a downloaded installer runs, and, when `signer` is given, the
+ * certificate must be that publisher's: a valid signature from anybody else is refused.
+ * `exec` is the one place PowerShell is started (replaceable in tests).
+ */
+function authenticodeStatus(file, { signer = "", exec } = {}) {
+  const run =
+    exec ||
+    ((script) =>
+      require("node:child_process").execFileSync("powershell", ["-NoProfile", "-Command", script], {
+        encoding: "utf8",
+        timeout: 60_000,
+        windowsHide: true,
+      }));
   try {
-    const out = execFileSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-Command",
-        `(Get-AuthenticodeSignature -LiteralPath '${String(file).replace(/'/g, "''")}').Status`,
-      ],
-      { encoding: "utf8", timeout: 60_000, windowsHide: true },
-    ).trim();
-    return { ok: out === "Valid", reason: out };
+    const sig = parseSignatureLine(
+      run(
+        `$s = Get-AuthenticodeSignature -LiteralPath '${String(file).replace(/'/g, "''")}'; ` +
+          `"$($s.Status)|$($s.SignerCertificate.Subject)|$($s.SignerCertificate.Thumbprint)"`,
+      ),
+    );
+    if (sig.status !== "Valid") return { ok: false, reason: sig.status };
+    if (!signerMatches(signer, sig))
+      return {
+        ok: false,
+        reason: `WrongSigner: signed by ${subjectCommonName(sig.subject) || "another publisher"}, expected ${signer}`,
+        subject: sig.subject,
+      };
+    return { ok: true, reason: "Valid", subject: sig.subject, thumbprint: sig.thumbprint };
   } catch (err) {
     return { ok: false, reason: String((err && err.message) || err) };
   }
@@ -307,6 +372,9 @@ function authenticodeStatus(file) {
 module.exports = {
   VERIFIED_REDIRECTS,
   authenticodeStatus,
+  signerMatches,
+  subjectCommonName,
+  pathAllowed,
   get HOSTS() {
     return hostPolicy();
   },

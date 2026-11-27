@@ -25,6 +25,7 @@ const path = require("node:path");
 const contract = require("./friday-contract.cjs");
 const voiceInstall = require("./voice-install.cjs");
 const voicePins = require("./voice-pins.cjs");
+const voiceWeights = require("./voice-weights.cjs");
 const safety = require("./download-safety.cjs");
 const library = require("./local-library.cjs");
 const localEngines = require("./local-engines.cjs");
@@ -937,6 +938,179 @@ function remember(root, job, fields) {
   safety.saveTransfers(file, [...jobs, row]);
 }
 
+// ------------------------------------------------------- pinned model folders
+/**
+ * A pinned revision that changed over a complete, verified folder keeps that folder whole as `<id>.prev` and starts
+ * the new revision beside it, so the working model is never overwritten part way. `keepPrevious(error)` puts the
+ * previous revision back when the new one did not verify, and returns the error for the caller to throw.
+ */
+function beginPinnedSwap(dest, repo, pin, onEvent) {
+  const swap = pin ? voicePins.beginRevisionSwap(dest, repo, pin) : { swapped: false, seeded: [] };
+  if (swap.swapped) {
+    onEvent?.({
+      status: `kept the previous verified revision as ${path.basename(swap.prev)}; fetching the pinned revision ${pin.revision.slice(0, 8)}`,
+    });
+  }
+  const keepPrevious = (error) => {
+    if (!swap.swapped) return error;
+    const back = voicePins.rollbackToPrevious(dest);
+    if (back.ok) {
+      onEvent?.({
+        status: `the pinned revision did not verify; restored the previous verified revision ${back.revision.slice(0, 8)}`,
+      });
+    } else {
+      // The old verified copy is still beside the folder; say where, so it is never a silent loss.
+      const note = `the pinned revision did not verify and the previous revision could not restore (${back.error || "unknown reason"}); it is kept as ${path.basename(swap.prev)}`;
+      onEvent?.({ status: note });
+      console.warn(`[model-download] ${note}`);
+    }
+    return error;
+  };
+  return { swap, keepPrevious };
+}
+
+/**
+ * Everything fetched was checked against its pinned SHA-256 as it arrived. Files that were already on disk (not
+ * fetched this run) are hashed once, before a folder is certified; then the sizes of all of them. A pinned model
+ * folder holds the pinned files and nothing else: the rest is moved out, kept, not deleted. Throws on a mismatch.
+ */
+async function certifyPinnedFolder(ctx) {
+  const { dest, pin, repo, todo, modelId, root, canonical, deps, onEvent } = ctx;
+  const fetched = new Set(todo);
+  const kept = Object.fromEntries(Object.entries(pin.files).filter(([name]) => !fetched.has(name)));
+  const marker = voicePins.readMarker(dest);
+  const certified = marker && marker.revision === pin.revision;
+  const final = await voicePins.auditDir(dest, pin);
+  const recheck = certified
+    ? { ok: true, wrongDigest: [] }
+    : await voicePins.auditDir(dest, { ...pin, files: kept }, { hash: true });
+  if (!final.ok || !recheck.ok) {
+    const bad = [...final.missing, ...final.wrongSize, ...recheck.wrongDigest];
+    voicePins.removeBad(dest, { wrongSize: [], wrongDigest: recheck.wrongDigest });
+    throw new Error(`checksum mismatch: ${bad.join(", ")} do not match the pinned revision`);
+  }
+  const extras = voicePins.unexpectedFiles(dest, pin);
+  if (extras.length) {
+    const stamp = (deps.now ? deps.now() : new Date()).toISOString().replace(/[:.]/g, "-");
+    const where =
+      deps.quarantineRoot ||
+      path.join(canonical ? path.join(canonical, "cache") : path.dirname(root), "quarantine");
+    const out = voicePins.quarantineFiles(dest, extras, path.join(where, `${modelId}-${stamp}`));
+    onEvent?.({
+      status: `moved ${out.moved.length} unexpected file(s) out of ${modelId} to ${out.to}${out.failed.length ? `; ${out.failed.length} could not be moved` : ""}`,
+    });
+  }
+  voicePins.writeMarker(dest, repo, pin);
+}
+
+/** Which source served a pinned model folder, written beside it (`<folder>.source.json`) for the Doctor and the Install Manager. */
+function writeServedSource(dest, source, pin, deps = {}) {
+  try {
+    const at = (deps.now ? deps.now() : new Date()).toISOString();
+    fs.writeFileSync(
+      voiceWeights.sourceNotePath(dest),
+      JSON.stringify({ schema: 1, source, pinRevision: pin?.revision || "", at }, null, 2),
+    );
+  } catch {
+    /* the note is a display aid; a folder that cannot take it is still installed */
+  }
+}
+
+/**
+ * Hash and size of the parts of one release file, in order, joined into `target`; the bytes are written only after
+ * they are whole. `target` is created exclusively (`wx`): a file or a link someone left there is never written through.
+ */
+function joinParts(partFiles, target) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const out = fs.createWriteStream(target, { flags: "wx" });
+    let bytes = 0;
+    let index = 0;
+    out.on("error", reject);
+    const next = () => {
+      if (index >= partFiles.length) {
+        out.end(() => resolve({ sha256: hash.digest("hex"), bytes }));
+        return;
+      }
+      const input = fs.createReadStream(partFiles[index]);
+      index += 1;
+      input.on("data", (chunk) => {
+        hash.update(chunk);
+        bytes += chunk.length;
+        if (!out.write(chunk)) {
+          input.pause();
+          out.once("drain", () => input.resume());
+        }
+      });
+      input.on("error", reject);
+      input.on("end", next);
+    };
+    next();
+  });
+}
+
+/**
+ * Fetch one FRIDAY release file to `finalPath`. A file of one asset is fetched with its SHA-256 and size. A split file
+ * is fetched part by part into `<folder>/.cache/friday-release` (a part that is already whole is kept, so a stopped
+ * download goes on), joined, and the joined file must have the manifest SHA-256 and byte count before it is put in place;
+ * a wrong join removes the parts, so the next try starts clean. Returns the bytes written.
+ */
+async function fetchReleaseFile(asset, finalPath, ctx) {
+  const common = {
+    onEvent: ctx.onEvent,
+    signal: ctx.signal,
+    label: `downloading ${path.basename(finalPath)} from the FRIDAY release`,
+    control: ctx.control,
+  };
+  if (asset.parts.length === 1) {
+    const bytes = await downloadUrl(asset.parts[0].url, finalPath, {
+      ...common,
+      sha256: asset.sha256,
+      needBytes: asset.bytes,
+    });
+    if (bytes !== asset.bytes) {
+      fs.rmSync(finalPath, { force: true });
+      throw new Error(`incomplete download (${bytes}/${asset.bytes} bytes)`);
+    }
+    return bytes;
+  }
+  const stage = path.join(ctx.dest, ".cache", "friday-release");
+  fs.mkdirSync(stage, { recursive: true });
+  const staged = [];
+  for (const part of asset.parts) {
+    const where = path.join(stage, part.file);
+    staged.push(where);
+    const have = fs.statSync(where, { throwIfNoEntry: false });
+    if (have && have.size === part.bytes) continue;
+    fs.rmSync(where, { force: true });
+    const got = await downloadUrl(part.url, where, { ...common, needBytes: part.bytes });
+    if (got !== part.bytes) {
+      fs.rmSync(where, { force: true });
+      throw new Error(`incomplete download (${got}/${part.bytes} bytes of ${part.file})`);
+    }
+  }
+  const joining = `${finalPath}.join.part`;
+  fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+  // Remove what is there (a link included, never its target), then create the file exclusively.
+  fs.rmSync(joining, { force: true });
+  try {
+    const joined = await joinParts(staged, joining);
+    if (joined.bytes !== asset.bytes || joined.sha256 !== asset.sha256) {
+      const error = new Error(`checksum mismatch for ${path.basename(finalPath)}`);
+      error.code = "SHA_MISMATCH";
+      for (const where of staged) fs.rmSync(where, { force: true });
+      throw error;
+    }
+    const moved = voicePins.moveVerified(joining, finalPath);
+    if (!moved.ok)
+      throw new Error(`could not put ${path.basename(finalPath)} in place: ${moved.error}`);
+  } finally {
+    fs.rmSync(joining, { force: true });
+  }
+  for (const where of staged) fs.rmSync(where, { force: true });
+  return asset.bytes;
+}
+
 // ------------------------------------------------------------------- driver
 /**
  * Try every source in order until one really succeeds.
@@ -948,7 +1122,26 @@ function remember(root, job, fields) {
  * @param {object} deps                 { ollamaPull } injected from models.cjs
  */
 async function downloadModelInner(job, onEvent, signal, deps = {}) {
-  const { modelId, sources = [], dir } = job;
+  const { modelId, dir } = job;
+  // A pinned repository the FRIDAY Models pack holds in full gets the FRIDAY release as the source before it; the
+  // official source stays in the chain behind it, so a missing release or a wrong hash only costs the first try.
+  const chainDeps = { ...deps, env: deps.env || process.env };
+  // A derived ear (the converted copy of a 1.6 GB source checkpoint) installs from the FRIDAY release alone: the sources
+  // a caller sent are never used for it, and with no release plan nothing is fetched at all.
+  const derived = voiceWeights.DERIVED_EARS.find((ear) => ear.catalogId === modelId);
+  const sources = derived
+    ? voiceWeights.derivedEarSources(modelId, chainDeps)
+    : voiceWeights.withFridayRelease(job.sources, chainDeps);
+  if (derived && !sources.length) {
+    return {
+      ok: false,
+      error: voiceWeights.NEEDS_RELEASE,
+      cause: "needs-release",
+      needsRelease: true,
+      attempts: [],
+    };
+  }
+  const releaseInChain = sources.some((source) => source?.kind === "friday-release");
   // Every downloaded byte is persistent FRIDAY data, so it must land inside
   // the selected FRIDAY folder. There is no temp-folder fallback: a caller
   // without a canonical destination is a bug, not something to work around.
@@ -983,7 +1176,12 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
       if (source.kind === "github" || source.kind === "url") {
         const fileUrl = source.url;
         if (!fileUrl) throw new Error("source has no url");
-        const name = path.basename(new URL(fileUrl).pathname) || `${modelId}.bin`;
+        // A pin may name the file it must land as (the kernel looks it up by that name); a bare file name only.
+        const pinned = typeof source.fileName === "string" ? source.fileName : "";
+        const name =
+          pinned && pinned === path.basename(pinned) && /^[\w.-]+\.onnx$/.test(pinned)
+            ? pinned
+            : path.basename(new URL(fileUrl).pathname) || `${modelId}.bin`;
         const dest = path.join(root, modelId, name);
         if (
           fs.existsSync(dest) &&
@@ -1096,6 +1294,115 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         };
       }
 
+      if (source.kind === "friday-release") {
+        // The FRIDAY Models release: the same pinned files as release assets of the official repository, tried before
+        // the upstream source. Every file is held to the manifest SHA-256 and size (which are the pin's own), then the
+        // folder is certified exactly like a pinned Hugging Face folder. Any failure here only moves on to the upstream
+        // source behind it; what already arrived whole is kept, so the upstream source fetches only the rest.
+        // A derived ear is held to its own release files: the pin and the plan are read again here from the pinned
+        // manifest, never from what the source object says, and its folder is the ear's catalog id.
+        const isDerived = source.derived === true;
+        if (isDerived && source.catalogId !== modelId)
+          throw new Error(`${modelId} is not the ear this release source is for`);
+        const pin = isDerived
+          ? voiceWeights.derivedEarPin(modelId, chainDeps)
+          : (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
+        const plan = isDerived ? voiceWeights.derivedEarPlan(modelId, chainDeps) : source.plan;
+        if (!pin || !plan?.files?.length)
+          throw new Error(`no FRIDAY release plan for ${source.repo}`);
+        const dest = path.join(root, modelId);
+        const present = (name) => fs.existsSync(path.join(dest, ...name.split("/")));
+        // Nothing to fetch: the upstream source below audits and certifies the folder exactly as before.
+        const names = plan.files.map((file) => file.name);
+        const audit0 = await voicePins.auditDir(dest, pin);
+        // A derived ear has no upstream source behind this one, so it is certified here and never skipped.
+        if (!isDerived && audit0.ok && names.every(present)) continue;
+        const { keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
+        try {
+          const audit = await voicePins.auditDir(dest, pin);
+          const removed = voicePins.removeBad(dest, audit);
+          if (removed.length) onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });
+          const todo = plan.files.filter((file) => !present(file.name));
+          if (todo.length) {
+            // Room for the download, its split parts before they are joined, and the part files: 1.3 times the bytes.
+            const need = todo.reduce(
+              (sum, file) => sum + file.bytes * (file.parts.length > 1 ? 2 : 1),
+              0,
+            );
+            const room = voicePins.diskPreflight(
+              dest,
+              need,
+              deps.statfs ? { statfs: deps.statfs } : {},
+            );
+            if (!room.ok) {
+              onEvent?.({ status: room.error });
+              const error = new Error(`disk full: ${room.error}`);
+              error.code = "ENOSPC";
+              throw error;
+            }
+          }
+          // One cheap look first: a release that is not published (or a host that does not answer) ends this source at
+          // once, instead of after the retries of every file, and the official source takes over.
+          if (todo.length) {
+            const head = await headInfo(todo[0].parts[0].url, signal);
+            if (signal?.aborted) throw abortError(signal);
+            if (!head.ok) {
+              const error = new Error(`not available in the FRIDAY release (${head.error})`);
+              // The release of a derived ear is its only road: say it needs the release, never fetch the source.
+              if (isDerived) error.needsRelease = true;
+              throw error;
+            }
+          }
+          const progress = combinedProgress(
+            todo.length,
+            onEvent,
+            todo.map((file) => file.bytes),
+          );
+          const sizes = await mapPool(todo, PARALLEL_FILES, (file, index) =>
+            fetchReleaseFile(file, path.join(dest, ...file.name.split("/")), {
+              dest,
+              onEvent: progress.forFile(index, path.basename(file.name)),
+              signal,
+              control: job.control,
+            }),
+          );
+          await certifyPinnedFolder({
+            dest,
+            pin,
+            repo: source.repo,
+            todo: todo.map((file) => file.name),
+            modelId,
+            root,
+            canonical,
+            deps,
+            onEvent,
+          });
+          fs.rmSync(path.join(dest, ".cache", "friday-release"), { recursive: true, force: true });
+          if (todo.length) writeServedSource(dest, voiceWeights.RELEASE_LABEL, pin, deps);
+          const bytes = sizes.reduce((sum, size) => sum + size, 0);
+          remember(root, job, {
+            status: "installed",
+            dest,
+            sourceUrl: plan.files[0].parts[0].url,
+            bytes,
+          });
+          return {
+            ok: true,
+            via: "friday-release",
+            path: dest,
+            bytes,
+            source: label,
+            servedFrom: voiceWeights.RELEASE_LABEL,
+            engine: "own",
+            attempts,
+          };
+        } catch (err) {
+          // A pause keeps the part files so the download carries on; anything else puts the working revision back.
+          if (signal?.aborted && signal.reason === "pause") throw err;
+          throw keepPrevious(err);
+        }
+      }
+
       if (source.kind === "hf-repo") {
         // A repository FRIDAY pins (electron/voice-pins.cjs) is fetched at its pinned revision, only the
         // pinned files, each checked against the pinned SHA-256 and size. Any other repository is unchanged.
@@ -1113,34 +1420,10 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         }
         if (!wanted.length) throw new Error(`no weight files in ${source.repo}`);
         const dest = path.join(root, modelId);
-        // A pinned revision that changed over a complete, verified folder keeps that folder whole as `<id>.prev`
-        // and starts the new revision beside it, so the working model is never overwritten part way.
-        const swap = pin
-          ? voicePins.beginRevisionSwap(dest, source.repo, pin)
-          : { swapped: false, seeded: [] };
-        if (swap.swapped) {
-          onEvent?.({
-            status: `kept the previous verified revision as ${path.basename(swap.prev)}; fetching the pinned revision ${pin.revision.slice(0, 8)}`,
-          });
-        }
-        // Until the new revision is whole and verified, a failure puts the previous one back.
-        const keepPrevious = (error) => {
-          if (!swap.swapped) return error;
-          const back = voicePins.rollbackToPrevious(dest);
-          if (back.ok) {
-            onEvent?.({
-              status: `the pinned revision did not verify; restored the previous verified revision ${back.revision.slice(0, 8)}`,
-            });
-          } else {
-            // The old verified copy is still beside the folder; say where, so it is never a silent loss.
-            const note = `the pinned revision did not verify and the previous revision could not restore (${back.error || "unknown reason"}); it is kept as ${path.basename(swap.prev)}`;
-            onEvent?.({ status: note });
-            console.warn(`[model-download] ${note}`);
-          }
-          return error;
-        };
+        const { keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
         let bytes = 0;
         let engine = "own";
+        let fetchedCount = 0;
         try {
           if (pin) {
             // Repair: a file with the wrong size is removed here so the loop below fetches it again.
@@ -1150,6 +1433,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
               onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });
           }
           const todo = wanted.filter((file) => !fs.existsSync(path.join(dest, file)));
+          fetchedCount = todo.length;
           const sizeOf = (file) => Number(listing.meta?.[file]?.size) || 0;
           if (pin && todo.length) {
             // Room for the whole download and its part files before the first byte: 1.3 times the bytes still to fetch.
@@ -1256,47 +1540,17 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
             bytes = sizes.reduce((sum, size) => sum + size, 0);
           }
           if (pin) {
-            // Everything downloaded was checked against its pinned SHA-256 as it arrived. Files that were already on
-            // disk (not fetched this run) are hashed once, before a folder is certified; then the sizes of all of them.
-            const fetched = new Set(todo);
-            const kept = Object.fromEntries(
-              Object.entries(pin.files).filter(([name]) => !fetched.has(name)),
-            );
-            const marker = voicePins.readMarker(dest);
-            const certified = marker && marker.revision === pin.revision;
-            const final = await voicePins.auditDir(dest, pin);
-            const recheck = certified
-              ? { ok: true, wrongDigest: [] }
-              : await voicePins.auditDir(dest, { ...pin, files: kept }, { hash: true });
-            if (!final.ok || !recheck.ok) {
-              const bad = [...final.missing, ...final.wrongSize, ...recheck.wrongDigest];
-              voicePins.removeBad(dest, { wrongSize: [], wrongDigest: recheck.wrongDigest });
-              throw new Error(
-                `checksum mismatch: ${bad.join(", ")} do not match the pinned revision`,
-              );
-            }
-            // A pinned model folder holds the pinned files and nothing else: the rest is moved out, kept, not deleted.
-            const extras = voicePins.unexpectedFiles(dest, pin);
-            if (extras.length) {
-              const stamp = (deps.now ? deps.now() : new Date())
-                .toISOString()
-                .replace(/[:.]/g, "-");
-              const where =
-                deps.quarantineRoot ||
-                path.join(
-                  canonical ? path.join(canonical, "cache") : path.dirname(root),
-                  "quarantine",
-                );
-              const out = voicePins.quarantineFiles(
-                dest,
-                extras,
-                path.join(where, `${modelId}-${stamp}`),
-              );
-              onEvent?.({
-                status: `moved ${out.moved.length} unexpected file(s) out of ${modelId} to ${out.to}${out.failed.length ? `; ${out.failed.length} could not be moved` : ""}`,
-              });
-            }
-            voicePins.writeMarker(dest, source.repo, pin);
+            await certifyPinnedFolder({
+              dest,
+              pin,
+              repo: source.repo,
+              todo,
+              modelId,
+              root,
+              canonical,
+              deps,
+              onEvent,
+            });
           }
         } catch (err) {
           // A pause keeps the part files so the download carries on; anything else puts the working revision back.
@@ -1309,7 +1563,20 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
           sourceUrl: `https://huggingface.co/${source.repo}`,
           bytes,
         });
-        return { ok: true, via: "hf-repo", path: dest, bytes, source: label, engine, attempts };
+        // When the FRIDAY release was in the chain, say which source served this folder (the release failed or has no file).
+        if (releaseInChain && pin && fetchedCount > 0)
+          writeServedSource(dest, voiceWeights.OFFICIAL_LABEL, pin, deps);
+        const servedFrom = releaseInChain && pin ? voiceWeights.servedSource(dest, pin) : "";
+        return {
+          ok: true,
+          via: "hf-repo",
+          path: dest,
+          bytes,
+          source: label,
+          engine,
+          ...(servedFrom ? { servedFrom } : {}),
+          attempts,
+        };
       }
 
       throw new Error(`unsupported source kind: ${source.kind}`);
@@ -1330,7 +1597,9 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         const cancelled = voiceInstall.classifyDownloadError("cancelled");
         return { ok: false, error: cancelled.line, cause: cancelled.cause, attempts };
       }
-      const classified = voiceInstall.classifyDownloadError(String(err.message || err));
+      const classified = err?.needsRelease
+        ? { line: voiceWeights.NEEDS_RELEASE, cause: "needs-release" }
+        : voiceInstall.classifyDownloadError(String(err.message || err));
       attempts.push({ source: label, error: classified.line, cause: classified.cause });
       onEvent?.({
         status: `source failed (${label}): ${classified.line}`,
@@ -1344,6 +1613,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
     ok: false,
     error: last?.error || `all ${sources.length} source(s) failed`,
     cause: last?.cause || "network",
+    ...(last?.cause === "needs-release" ? { needsRelease: true } : {}),
     attempts,
   };
 }
@@ -1433,6 +1703,8 @@ module.exports = {
   assertDiskRoom,
   assertSha256,
   downloadUrl,
+  joinParts,
+  fetchReleaseFile,
   mapPool,
   combinedProgress,
   planSegments,

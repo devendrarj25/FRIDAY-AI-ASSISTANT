@@ -31,7 +31,7 @@ import {
   workletCapturing,
   type CaptureProcessor,
 } from "../pcm-capture";
-import { EchoCanceller, type EchoStats } from "./audio-aec";
+import { EchoCanceller, MAX_AEC_FAILURES, type EchoStats } from "./audio-aec";
 import { floatToPcm16, pcm16ToBase64, StreamSincResampler } from "./audio-format";
 import {
   cancelMicFrame,
@@ -75,12 +75,17 @@ export type EchoLiveDeps = {
   shadow?: () => EchoShadowSend | null;
   captureLatency?: () => number;
   capturing?: () => boolean;
+  /** Lower the echo a converged filter leaves (the residual suppressor). Read when the session attaches; default off. */
+  suppressor?: () => boolean;
 };
 
 export type EchoLiveDiagnostics = {
   enabled: boolean;
   attached: boolean;
-  /** Frames the canceller cleaned, frames passed through unchanged, and failures (which also pass through). */
+  /**
+   * Frames the canceller cleaned and the filter is trusted for, and frames passed through unchanged or not yet
+   * trusted (warm-up, settling), and failures (which also pass through).
+   */
   cancelledFrames: number;
   passedFrames: number;
   errors: number;
@@ -93,6 +98,8 @@ export type EchoLiveDiagnostics = {
   shadowReady: boolean | null;
   shadowReason: string;
   shadowSent: number;
+  /** The canceller failed five frames in a row (or switched itself to passthrough): every frame passes untouched. */
+  fellBack?: boolean;
   reference: EchoReferenceStats | null;
   canceller: EchoStats | null;
 };
@@ -108,6 +115,16 @@ export const SHADOW_GAP_MS = 170;
 const DRIFT_PER_S = 150e-6;
 /** A candidate this much above the estimate is a real jump (a suspended context), not a late delivery. */
 const JUMP_S = 0.25;
+
+/**
+ * A frame counts as cleaned only once the filter has really been removing her voice for this long. The canceller
+ * flags itself converged before the residual falls, and the VAD holds a voice for 250 ms, so the barge-in ladder
+ * (which reads a cleaned-frame count as "the echo is gone") would take her own echo for the owner at the end of
+ * her first second. The signal itself is cleaned from the first frame the canceller changes; only the count waits.
+ */
+export const SETTLE_MS = 250;
+/** The least dB the canceller must report removing before the settling clock runs. */
+export const TRUST_ERLE_DB = 3;
 
 /**
  * The offset between a source clock and the common timeline. Every observation is "the source clock reads t, the
@@ -172,6 +189,10 @@ export class EchoLive {
   private mic: MicState | null = null;
   private clock: MicClock | null = null;
   private clearAt: number | null = null;
+  private failStreak = 0;
+  private fellBack = false;
+  private trusted = false;
+  private settledSamples = 0;
   private counts = { cancelled: 0, passed: 0, errors: 0, clears: 0, shadowSent: 0 };
   private lastClear = "";
   private shadow = {
@@ -199,6 +220,7 @@ export class EchoLive {
       shadow: deps.shadow ?? realShadow,
       captureLatency: deps.captureLatency ?? captureLatencySeconds,
       capturing: deps.capturing ?? workletCapturing,
+      suppressor: deps.suppressor ?? (() => false),
     };
   }
 
@@ -215,7 +237,14 @@ export class EchoLive {
         latencySeconds: () => contextLatencySeconds(clock),
         marginMs: LIVE_MARGIN_MS,
       });
-      this.canceller = new EchoCanceller({ rate: ECHO_RATE });
+      this.canceller = new EchoCanceller({
+        rate: ECHO_RATE,
+        suppressor: this.deps.suppressor() === true,
+      });
+      this.failStreak = 0;
+      this.fellBack = false;
+      this.trusted = false;
+      this.settledSamples = 0;
       this.unsubscribe = [
         player.addScheduledListener((when, pcm) => this.onScheduled(when, pcm)),
         player.addStopListener((at) => this.onStop(at)),
@@ -246,6 +275,8 @@ export class EchoLive {
     this.mic = null;
     if (closed) this.clock = null;
     this.clearAt = null;
+    this.trusted = false;
+    this.settledSamples = 0;
     this.shadow.fill = 0;
     this.shadow.first = true;
     this.counts.clears += 1;
@@ -309,6 +340,7 @@ export class EchoLive {
     try {
       const reference = this.reference;
       const canceller = this.canceller;
+      if (this.fellBack) return null;
       if (!reference || !canceller || !(fromRate > 0) || !this.deps.capturing()) return null;
       if (!this.deps.enabled()) {
         if (reference.stats().chunks > 0 || this.mic) this.clear("setting off");
@@ -357,14 +389,37 @@ export class EchoLive {
         inputLatencySeconds: latency,
       });
       this.measure(raw, startTime - latency);
+      this.failStreak = 0;
+      if (canceller.isPassthrough()) {
+        // the canceller gave up on its own (five failed frames): the frame goes on exactly as it came in
+        this.fellBack = true;
+        this.counts.passed += 1;
+        return null;
+      }
       if (cleaned === raw) {
         this.counts.passed += 1;
         return null;
+      }
+      if (!this.trusted) {
+        // searching, warming up or settling: the frame went through the filter but is not counted as cleaned yet
+        const st = canceller.stats();
+        const removing = st.converged && st.erleDb !== null && st.erleDb >= TRUST_ERLE_DB;
+        this.settledSamples = removing ? this.settledSamples + raw.length : 0;
+        if (this.settledSamples >= (SETTLE_MS / 1000) * ECHO_RATE) this.trusted = true;
+        else {
+          this.counts.passed += 1;
+          return cleaned;
+        }
       }
       this.counts.cancelled += 1;
       return cleaned;
     } catch {
       this.counts.errors += 1;
+      this.failStreak += 1;
+      if (this.failStreak >= MAX_AEC_FAILURES) {
+        this.fellBack = true;
+        this.clear("failed");
+      }
       return null;
     }
   }
@@ -457,6 +512,7 @@ export class EchoLive {
       shadowReady: shadow.ready,
       shadowReason: shadow.reason,
       shadowSent: this.counts.shadowSent,
+      fellBack: this.fellBack,
       reference: this.reference?.stats() ?? null,
       canceller: this.canceller?.stats() ?? null,
     };

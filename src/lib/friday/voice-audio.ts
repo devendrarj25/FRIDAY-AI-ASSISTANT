@@ -12,8 +12,11 @@
  * this renderer graph. A second kernel capture path is not added.
  */
 
-import { captureRate } from "./mic-session";
+import { captureRate, captureRateChanged, type CaptureRates } from "./mic-session";
 import { preferences } from "./preferences";
+import { echoDiagnostics } from "./voice-engine/echo-live";
+import { echoReferenceRunning } from "./voice-engine/interruption-controller";
+import { streamWanted } from "./voice-engine/stream-session";
 import {
   cleanedLevel,
   markWorklet,
@@ -21,6 +24,9 @@ import {
   setCaptureLatency,
   workletCapturing,
 } from "./pcm-capture";
+import { CAPTURE_BATCH_MS, configureFrontEnd, frontEndStats } from "./voice-engine/front-end-dsp";
+import type { DiagnosticsRow, EarsStats } from "./voice-diagnostics-rows";
+import { bluetoothNotice, reacquireDelay } from "./mic-faults";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 import { WakeGuard } from "./wake-guard";
@@ -104,15 +110,22 @@ function classify(
 export async function listAudioDevices(): Promise<{
   inputs: AudioDeviceInfo[];
   outputs: AudioDeviceInfo[];
+  /** False when the list could not be read: an empty list then means "unknown", never "unplugged". */
+  enumerated: boolean;
+  /** False until the owner has allowed the microphone (labels stay blank before that). */
+  permitted: boolean;
 }> {
   const md = media();
-  if (!md?.enumerateDevices) return { inputs: [], outputs: [] };
+  if (!md?.enumerateDevices) {
+    return { inputs: [], outputs: [], enumerated: false, permitted: false };
+  }
   let devices: MediaDeviceInfo[] = [];
   try {
     devices = await md.enumerateDevices();
   } catch {
-    return { inputs: [], outputs: [] };
+    return { inputs: [], outputs: [], enumerated: false, permitted: false };
   }
+  const permitted = devices.some((d) => d.kind === "audioinput" && Boolean(d.label));
   const map = (kind: "audioinput" | "audiooutput") =>
     devices
       .filter((d) => d.kind === kind)
@@ -123,7 +136,7 @@ export async function listAudioDevices(): Promise<{
         kind,
         isDefault: d.deviceId === "default" || (index === 0 && d.deviceId !== "communications"),
       }));
-  return { inputs: map("audioinput"), outputs: map("audiooutput") };
+  return { inputs: map("audioinput"), outputs: map("audiooutput"), enumerated: true, permitted };
 }
 
 /**
@@ -292,6 +305,135 @@ export function noiseSuppressionWanted(): boolean {
   }
 }
 
+/** The owner's listening front-end choices (Settings > Voice), always the sanitized stored shape. */
+function earsPrefs() {
+  return preferences.getSnapshot().voice.ears;
+}
+
+let appliedEars = "";
+let earsWatching = false;
+
+/** Hand the stored hpf, agc and clipWarn to the front end. A no-op when nothing changed since the last call. */
+export function applyEarsToFrontEnd(): void {
+  const { hpf, agc, clipWarn } = earsPrefs();
+  const key = `${hpf}|${agc}|${clipWarn}`;
+  if (key === appliedEars) return;
+  appliedEars = key;
+  configureFrontEnd({ hpf, agc, clipWarn });
+}
+
+/** Apply at capture start and again on every later change of the stored setting. */
+function watchEars(): void {
+  applyEarsToFrontEnd();
+  if (earsWatching) return;
+  earsWatching = true;
+  preferences.subscribe(applyEarsToFrontEnd);
+}
+
+let streamVad: "silero" | "energy" | null = null;
+
+/** The voice gate engine the stream ear reported on its last open; anything else reads as not measured. */
+export function noteStreamVad(engine: unknown): void {
+  streamVad = engine === "silero" || engine === "energy" ? engine : null;
+}
+
+let streamDenoise: NonNullable<EarsStats["denoise"]> | null = null;
+
+/** The clean-up copy the stream ear reported on its last open; anything that is not a named engine reads as not measured. */
+export function noteStreamDenoise(report: unknown): void {
+  const r =
+    report && typeof report === "object"
+      ? (report as {
+          engine?: unknown;
+          active?: unknown;
+          rtf?: unknown;
+          latencyMs?: unknown;
+          reason?: unknown;
+        })
+      : null;
+  const engine = typeof r?.engine === "string" ? r.engine.slice(0, 32) : "";
+  if (!r || !engine) {
+    streamDenoise = null;
+    return;
+  }
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const reason = typeof r.reason === "string" ? r.reason.slice(0, 120) : "";
+  streamDenoise = {
+    engine,
+    keepRatio: null,
+    active: r.active === true,
+    rtf: num(r.rtf),
+    latencyMs: num(r.latencyMs),
+    ...(reason ? { reason } : {}),
+  };
+}
+
+let earsTurn: NonNullable<EarsStats["turn"]> | null = null;
+let earsScene: NonNullable<EarsStats["scene"]> | null = null;
+
+/**
+ * What the stream turn path has counted so far, from the conductor's turn tracker: the early endpoints and how many
+ * the owner spoke past, the speech length at the last end, and the newest room tag. Counts and a tag only.
+ */
+export function noteEarsTurn(report: {
+  lastEndMs: number | null;
+  eager: number;
+  resumed: number;
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number } | null;
+}): void {
+  const count = (v: number): number => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  earsTurn = {
+    lastEndMs:
+      typeof report.lastEndMs === "number" && Number.isFinite(report.lastEndMs)
+        ? report.lastEndMs
+        : null,
+    eager: count(report.eager),
+    resumed: count(report.resumed),
+  };
+  earsScene =
+    report.scene && Number.isFinite(report.scene.score)
+      ? { kind: report.scene.kind, score: report.scene.score }
+      : earsScene;
+}
+
+/** What the Doctor and Settings can show as measured: the live front end while the microphone runs, the last stream gate. */
+export function earsStatsNow(): EarsStats | null {
+  const live = workletCapturing();
+  // Only while the barge-in ladder is on: whether it has an echo-clean voice signal to act on (see BargeLadder).
+  const bargeSource = preferences.getSnapshot().voice.interruptGate.ladder === true;
+  if (!live && !streamVad && !streamDenoise && !earsTurn && !earsScene && !bargeSource) return null;
+  const fe = frontEndStats();
+  return {
+    ...(bargeSource
+      ? {
+          bargeSource: {
+            streaming: streamWanted(preferences.getSnapshot().voice.streamEngine),
+            echoReference: echoReferenceRunning(echoDiagnostics()),
+          },
+        }
+      : {}),
+    ...(earsTurn ? { turn: earsTurn } : {}),
+    ...(earsScene ? { scene: earsScene } : {}),
+    ...(streamVad ? { vad: { engine: streamVad, p: null, speechMs: null } } : {}),
+    ...(streamDenoise ? { denoise: streamDenoise } : {}),
+    ...(live
+      ? {
+          frontEnd: {
+            clipRate: fe.clipRate,
+            peakDbfs: fe.peakDbfs,
+            rmsDbfs: fe.rmsDbfs,
+            agcGainDb: fe.agcGainDb,
+            hpf: fe.hpf,
+            decimator: fe.decimator,
+          },
+        }
+      : {}),
+  };
+}
+
+export const readEarsStats = async (): Promise<EarsStats | null> => earsStatsNow();
+
 /**
  * One step of opening the microphone: strict constraints first, then the relaxed ones. The owner's noise-suppression
  * choice applies to every step that names processing; the bare last step asks the browser for nothing.
@@ -303,6 +445,7 @@ export function capturePlan(
 ): { deviceId?: string; audio: true | MediaTrackConstraints } | null {
   const id = deviceId ?? undefined;
   if (step === 0) {
+    watchEars();
     return {
       ...(id && id !== "default" ? { deviceId: id } : {}),
       audio: audioConstraints(id, noiseSuppression),
@@ -323,10 +466,58 @@ export function audioConstraints(
     ...(deviceId && deviceId !== "default" ? { deviceId: { exact: deviceId } } : {}),
     echoCancellation: true,
     noiseSuppression,
-    autoGainControl: true,
+    // "browser" keeps the browser's own gain control; "own" and "off" leave the level to FRIDAY's front end.
+    autoGainControl: earsPrefs().agc === "browser",
     channelCount: 1,
     sampleRate: captureRate(),
   };
+}
+
+/** The three processing flags a live track reports through `getSettings()`; `null` is "the browser did not say". */
+export type TrackProcessing = {
+  echoCancellation: boolean | null;
+  noiseSuppression: boolean | null;
+  autoGainControl: boolean | null;
+};
+
+const flag = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
+
+/** What the browser really applied to a track, or null when there is no track settings object at all. */
+export function trackProcessing(settings: object | null | undefined): TrackProcessing | null {
+  if (!settings) return null;
+  const got = settings as Partial<Record<keyof TrackProcessing, unknown>>;
+  return {
+    echoCancellation: flag(got.echoCancellation),
+    noiseSuppression: flag(got.noiseSuppression),
+    autoGainControl: flag(got.autoGainControl),
+  };
+}
+
+/**
+ * The diagnostics rows for the live track: what the capture asked for, next to what the track reports. A flag the
+ * track dropped (asked on, live off) is marked bad, because a Bluetooth headset or a driver can refuse it and then
+ * the browser's own echo defence is not there. A missing report is "not reported", never a guess.
+ */
+export function trackProcessingRows(
+  live: TrackProcessing | null,
+  asked: { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean },
+): DiagnosticsRow[] {
+  const names: Array<[keyof TrackProcessing, string]> = [
+    ["echoCancellation", "microphone echo cancellation"],
+    ["noiseSuppression", "microphone noise suppression"],
+    ["autoGainControl", "microphone auto gain"],
+  ];
+  return names.map(([key, label]) => {
+    const wanted = asked[key];
+    const side = `${wanted ? "on" : "off"} · live `;
+    const got = live ? live[key] : undefined;
+    const text = !live ? "no live microphone" : got === null ? "not reported" : got ? "on" : "off";
+    return {
+      label: `${label} (asked · live track)`,
+      value: `${side}${text}`,
+      ...(live && got === false && wanted ? { bad: true } : {}),
+    };
+  });
 }
 
 /* ----------------------------------------------------------------- the VAD */
@@ -484,6 +675,16 @@ export class VoiceGate {
   private deviceId: string | null = null;
   private lastFailure: { state: MicState; reason: string } | null = null;
   private reopening = false;
+  /**
+   * The one open in flight, with the generation it started under. A second start joins it while it is current, so
+   * two getUserMedia calls never race for the device; one that a stop or teardown made stale is waited for, never joined.
+   */
+  private opening: { run: Promise<boolean>; generation: number } | null = null;
+  /** Raised by every teardown: an open that finishes after one is stale and lets its stream go. */
+  private generation = 0;
+  private openedRates: CaptureRates = { ctx: null, track: null };
+  private lastRateCheck = 0;
+  private rateTimer: ReturnType<typeof setTimeout> | null = null;
   private deviceWatch: (() => void) | null = null;
   /** Last time UI subscribers were notified (speech edges always emit). */
   private lastEmitAt = 0;
@@ -494,6 +695,9 @@ export class VoiceGate {
   private quietSince = 0;
   private quietTold = false;
   private quietLine = "";
+  /** The Bluetooth call-profile warning for the open microphone, and the label it was already told for. */
+  private btLine = "";
+  private btTold = "";
 
   /**
    * The single live microphone stream. Dictation and any other consumer share
@@ -506,6 +710,11 @@ export class VoiceGate {
 
   quietNotice(): string {
     return this.quietLine;
+  }
+
+  /** Non-empty while the open microphone is a Bluetooth headset in its call profile. */
+  bluetoothNotice(): string {
+    return this.btLine;
   }
 
   setSoftwareGain(value: number): void {
@@ -536,15 +745,37 @@ export class VoiceGate {
     return true;
   }
 
+  /** The live track's own report of the three processing flags (rows for the Voice diagnostics list). */
+  trackProcessingRows(): DiagnosticsRow[] {
+    const track = this.stream?.getAudioTracks()[0];
+    const live = track ? trackProcessing(track.getSettings?.()) : null;
+    const asked = audioConstraints();
+    return trackProcessingRows(live, {
+      echoCancellation: asked.echoCancellation === true,
+      noiseSuppression: asked.noiseSuppression === true,
+      autoGainControl: asked.autoGainControl === true,
+    });
+  }
+
   /**
    * Close the graph and open again. Holders stay, so dictation is not dropped
    * on the floor while the default device is selected.
    */
   async restart(deviceId?: string | null): Promise<boolean> {
+    const same = (deviceId ?? null) === this.deviceId;
+    // The same open already in flight is joined; a different one waits for it, then replaces it.
+    if (this.opening && same && this.opening.generation === this.generation)
+      return this.opening.run;
+    if (this.opening) await this.opening.run.catch(() => false);
     const holders = new Set(this.holders);
     this.teardown();
     this.holders = holders;
     return this.start(deviceId);
+  }
+
+  /** Live capture tracks held right now (0 or 1 when the gate is healthy). */
+  liveTracks(): number {
+    return this.stream?.getAudioTracks().filter((t) => t.readyState === "live").length ?? 0;
   }
 
   micStream(): MediaStream | null {
@@ -619,10 +850,27 @@ export class VoiceGate {
   }
 
   async start(deviceId?: string | null): Promise<boolean> {
-    if (this.ctx) {
-      await this.ensureRunning();
-      return this.ctx.state !== "closed";
+    // An open that a stop or teardown made stale releases its own stream and answers false; it is waited for, then
+    // this call opens fresh, so a quick mute and unmute (or Auto, Chat, Auto) never reports a fault that did not happen.
+    while (this.opening && this.opening.generation !== this.generation) {
+      await this.opening.run.catch(() => false);
     }
+    if (this.opening) return this.opening.run;
+    if (this.ctx) {
+      return this.ensureRunning().then(() => this.ctx?.state !== "closed" && Boolean(this.ctx));
+    }
+    const slot: { run: Promise<boolean>; generation: number } = {
+      generation: this.generation,
+      run: this.open(deviceId).finally(() => {
+        if (this.opening === slot) this.opening = null;
+      }),
+    };
+    this.opening = slot;
+    return slot.run;
+  }
+
+  private async open(deviceId?: string | null): Promise<boolean> {
+    const generation = this.generation;
     const md = media();
     const Ctx =
       typeof window !== "undefined"
@@ -639,6 +887,12 @@ export class VoiceGate {
       ctx = new Ctx();
       await this.resumeContext(ctx);
       const stream = await this.openStream(md, deviceId);
+      if (generation !== this.generation) {
+        // Stopped or torn down while the device was opening: nobody is waiting for this stream.
+        stream.getTracks().forEach((t) => t.stop());
+        void ctx.close().catch(() => undefined);
+        return false;
+      }
       await this.resumeContext(ctx);
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
@@ -646,6 +900,8 @@ export class VoiceGate {
       analyser.smoothingTimeConstant = 0.2;
       source.connect(analyser);
       void this.attachWorklet(ctx, source);
+      // Never leave an earlier stream live under the new one (the device would stay held).
+      if (this.stream && this.stream !== stream) this.stream.getTracks().forEach((t) => t.stop());
       this.stream = stream;
       this.ctx = ctx;
       this.source = source;
@@ -657,6 +913,8 @@ export class VoiceGate {
       // whole voice pipeline waited for speech that could never arrive.
       const track = stream.getAudioTracks()[0];
       if (track) track.addEventListener("ended", this.onTrackEnded);
+      this.openedRates = this.readRates();
+      this.noteBluetooth(track?.label ?? "");
       this.watchDevices();
       this.loop();
       this.lastFailure = null;
@@ -664,6 +922,11 @@ export class VoiceGate {
     } catch (err) {
       const own =
         this.stream?.getAudioTracks().filter((track) => track.readyState === "live").length ?? 0;
+      if (generation !== this.generation) {
+        // A stale open that fails must not tear down, or clear the holders of, the open that replaced it.
+        if (!this.ctx) void ctx?.close().catch(() => undefined);
+        return false;
+      }
       this.lastFailure = classify(err, own, namedHolders);
       this.rememberError(this.lastFailure.reason);
       if (!this.ctx) void ctx?.close().catch(() => undefined);
@@ -712,6 +975,9 @@ export class VoiceGate {
 
   /** Closes the audio graph but keeps the holders, so it can be reopened. */
   private teardown() {
+    this.generation += 1;
+    if (this.rateTimer) clearTimeout(this.rateTimer);
+    this.rateTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.worklet?.port.close();
@@ -726,6 +992,7 @@ export class VoiceGate {
     this.source = null;
     this.analyser = null;
     this.stream = null;
+    this.btLine = "";
     this.voiceFrames = 0;
     this.speakingGuard = false;
     this.ducked = false;
@@ -751,12 +1018,21 @@ export class VoiceGate {
     try {
       const ok = await this.start(this.deviceId);
       if (!ok && captureMayRetry(attempt) && this.holders.size) {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** attempt, 8000)));
+        await new Promise((resolve) => setTimeout(resolve, reacquireDelay(attempt)));
         this.reopening = false;
         return this.reopen(attempt + 1);
       }
     } finally {
       this.reopening = false;
+    }
+  }
+
+  /** One warning per headset: a Bluetooth microphone in call mode thins every sound that plays through it. */
+  private noteBluetooth(label: string) {
+    this.btLine = bluetoothNotice(label, this.readRates().track ?? this.readRates().ctx);
+    if (this.btLine && this.btTold !== label) {
+      this.btTold = label;
+      this.rememberError(this.btLine);
     }
   }
 
@@ -766,9 +1042,39 @@ export class VoiceGate {
     if (this.deviceWatch || !md?.addEventListener) return;
     const handler = () => {
       if (this.holders.size && !this.ctx) void this.reopen();
+      else this.watchRates(true);
     };
     md.addEventListener("devicechange", handler);
     this.deviceWatch = () => md.removeEventListener?.("devicechange", handler);
+  }
+
+  private readRates(): CaptureRates {
+    const track = this.stream?.getAudioTracks()[0];
+    const trackRate = (track?.getSettings?.() as { sampleRate?: number } | undefined)?.sampleRate;
+    return {
+      ctx: typeof this.ctx?.sampleRate === "number" ? this.ctx.sampleRate : null,
+      track: typeof trackRate === "number" ? trackRate : null,
+    };
+  }
+
+  /**
+   * A headset that moves between its call and media profiles changes the sample rate under a running graph.
+   * Checked on devicechange and about once a second from the frame loop (no timer of its own); one change
+   * rebuilds the graph once, after a short debounce.
+   */
+  private watchRates(force = false) {
+    if (!this.ctx || !this.holders.size || this.rateTimer) return;
+    const now = Date.now();
+    if (!force && now - this.lastRateCheck < 1000) return;
+    this.lastRateCheck = now;
+    if (!captureRateChanged(this.openedRates, this.readRates())) return;
+    this.rateTimer = setTimeout(() => {
+      this.rateTimer = null;
+      if (this.holders.size && this.ctx && captureRateChanged(this.openedRates, this.readRates())) {
+        this.rememberError("The microphone changed its sample rate. Reopening it once.");
+        void this.restart(this.deviceId);
+      }
+    }, 400);
   }
 
   private async resumeContext(ctx: AudioContext | null = this.ctx): Promise<void> {
@@ -790,9 +1096,13 @@ export class VoiceGate {
    */
   private async attachWorklet(ctx: AudioContext, source: MediaStreamAudioSourceNode) {
     if (!ctx.audioWorklet) return;
+    // Batch CAPTURE_BATCH_MS of audio per message (one every 20 ms, not one per 128-sample quantum).
     const code = [
       "class FridayCapture extends AudioWorkletProcessor {",
-      "process(inputs){ const ch=inputs[0]&&inputs[0][0]; if(ch) this.port.postMessage(ch); return true; }",
+      `constructor(){ super(); this.n=Math.max(128,Math.round(sampleRate*${CAPTURE_BATCH_MS}/1000)); this.b=new Float32Array(this.n); this.i=0; }`,
+      "process(inputs){ const ch=inputs[0]&&inputs[0][0]; if(!ch) return true; let o=0;",
+      "while(o<ch.length){ const t=Math.min(ch.length-o,this.n-this.i); this.b.set(ch.subarray(o,o+t),this.i); this.i+=t; o+=t;",
+      "if(this.i>=this.n){ this.port.postMessage(this.b); this.i=0; } } return true; }",
       "}",
       "registerProcessor('friday-capture', FridayCapture);",
     ].join("");
@@ -825,6 +1135,7 @@ export class VoiceGate {
     const analyser = this.analyser;
     if (!analyser) return;
     if (this.ctx?.state === "suspended") void this.resumeContext();
+    this.watchRates();
     try {
       analyser.getFloatTimeDomainData(this.buffer as Float32Array<ArrayBuffer>);
     } catch {

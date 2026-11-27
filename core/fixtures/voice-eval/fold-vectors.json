@@ -1,0 +1,296 @@
+{
+  "note": "Synthetic vectors for the folded scorer, shared by kernel/stt_bench.py and src/lib/friday/voice-engine/transcript-scorer.ts. Text and timelines are invented; no audio exists. The counts, timings and flicker numbers were worked out by hand; the bootstrap ranges were produced by one implementation and reproduced by the other. They test the scorer, not any model.",
+  "fold": [
+    { "text": "Kaam", "tokens": ["kam"] },
+    { "text": "काम", "tokens": ["kam"] },
+    { "text": "मौसम mausam", "tokens": ["mosam", "mosam"] },
+    { "text": "फोन phone", "tokens": ["fon", "fone"] },
+    { "text": "है hai हैं", "tokens": ["he", "he", "hen"] },
+    { "text": "meeting मीटिंग", "tokens": ["miting", "miting"] },
+    { "text": "कल सुबह अलार्म लगा दो", "tokens": ["kal", "subah", "alarm", "laga", "do"] },
+    { "text": "two 2 २ Two", "tokens": ["2", "2", "2", "2"] },
+    { "text": "एक ek one", "tokens": ["1", "1", "1"] },
+    { "text": "दस ten 10 १०", "tokens": ["10", "10", "10", "10"] },
+    { "text": "सात saat", "tokens": ["7", "7"] },
+    { "text": "do दो", "tokens": ["do", "do"] },
+    { "text": "no nau", "tokens": ["no", "9"] },
+    { "text": "  Hello,  WORLD! ।", "tokens": ["helo", "vorld"] },
+    { "text": "", "tokens": [] }
+  ],
+  "counts": [
+    {
+      "id": "roman-vs-devanagari",
+      "reference": "kal subah alarm laga do",
+      "hypothesis": "कल सुबह अलार्म लगा दो",
+      "words": 5, "edits": 0, "hits": 5, "subs": 0, "dels": 0, "ins": 0,
+      "chars": 19, "charEdits": 0, "strictEdits": 5,
+      "devanagariToLatin": 0, "latinToDevanagari": 5, "violations": 5
+    },
+    {
+      "id": "devanagari-vs-roman",
+      "reference": "कल सुबह अलार्म",
+      "hypothesis": "kal subah alarm",
+      "words": 3, "edits": 0, "hits": 3, "subs": 0, "dels": 0, "ins": 0,
+      "chars": 13, "charEdits": 0, "strictEdits": 3,
+      "devanagariToLatin": 3, "latinToDevanagari": 0, "violations": 3
+    },
+    {
+      "id": "one-substitution",
+      "reference": "send the report to rahul",
+      "hypothesis": "Send the report to Rohan",
+      "words": 5, "edits": 1, "hits": 4, "subs": 1, "dels": 0, "ins": 0,
+      "chars": 20, "charEdits": 3, "strictEdits": 1,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    },
+    {
+      "id": "one-deletion",
+      "reference": "turn the volume down a little",
+      "hypothesis": "turn the volume down little",
+      "words": 6, "edits": 1, "hits": 5, "subs": 0, "dels": 1, "ins": 0,
+      "chars": 23, "charEdits": 1, "strictEdits": 1,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    },
+    {
+      "id": "one-insertion",
+      "reference": "open chrome",
+      "hypothesis": "open the chrome",
+      "words": 2, "edits": 1, "hits": 2, "subs": 0, "dels": 0, "ins": 1,
+      "chars": 10, "charEdits": 3, "strictEdits": 1,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    },
+    {
+      "id": "digits-and-number-words",
+      "reference": "मेरे २ दोस्त हैं",
+      "hypothesis": "mere two dost hain",
+      "words": 4, "edits": 0, "hits": 4, "subs": 0, "dels": 0, "ins": 0,
+      "chars": 12, "charEdits": 0, "strictEdits": 4,
+      "devanagariToLatin": 3, "latinToDevanagari": 0, "violations": 3
+    },
+    {
+      "id": "empty-reference",
+      "reference": "",
+      "hypothesis": "hello",
+      "words": 0, "edits": 1, "hits": 0, "subs": 0, "dels": 0, "ins": 1,
+      "chars": 0, "charEdits": 4, "strictEdits": 1,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    },
+    {
+      "id": "both-empty",
+      "reference": "",
+      "hypothesis": "",
+      "words": 0, "edits": 0, "hits": 0, "subs": 0, "dels": 0, "ins": 0,
+      "chars": 0, "charEdits": 0, "strictEdits": 0,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    },
+    {
+      "id": "swap-ties-go-to-substitution",
+      "reference": "a b",
+      "hypothesis": "b a",
+      "words": 2, "edits": 2, "hits": 0, "subs": 2, "dels": 0, "ins": 0,
+      "chars": 2, "charEdits": 2, "strictEdits": 2,
+      "devanagariToLatin": 0, "latinToDevanagari": 0, "violations": 0
+    }
+  ],
+  "mer": [
+    { "id": "one-insertion", "mer": 0.3333333333333333 },
+    { "id": "one-substitution", "mer": 0.2 },
+    { "id": "swap-ties-go-to-substitution", "mer": 1 },
+    { "id": "both-empty", "mer": 0 },
+    { "id": "empty-reference", "mer": 1 }
+  ],
+  "latency": [
+    {
+      "id": "normal-streaming",
+      "timeline": {
+        "audioMs": 2000,
+        "computeMs": 500,
+        "events": [
+          { "t": 0, "kind": "speech_start" },
+          { "t": 300, "kind": "partial", "text": "kal" },
+          { "t": 900, "kind": "partial", "text": "kal subah" },
+          { "t": 2000, "kind": "speech_end" },
+          { "t": 2200, "kind": "endpoint" },
+          { "t": 2400, "kind": "final", "text": "kal subah alarm" }
+        ]
+      },
+      "expected": {
+        "timeToFirstPartialMs": 300,
+        "endpointLatencyMs": 200,
+        "finalisationLagMs": 400,
+        "rtf": 0.25,
+        "prematureEndpoint": false,
+        "complete": true
+      }
+    },
+    {
+      "id": "endpoint-cut-the-speaker-off",
+      "timeline": {
+        "audioMs": 2000,
+        "events": [
+          { "t": 0, "kind": "speech_start" },
+          { "t": 250, "kind": "partial", "text": "open" },
+          { "t": 1800, "kind": "endpoint" },
+          { "t": 2000, "kind": "speech_end" },
+          { "t": 2100, "kind": "final", "text": "open the" }
+        ]
+      },
+      "expected": {
+        "timeToFirstPartialMs": 250,
+        "endpointLatencyMs": -200,
+        "finalisationLagMs": 100,
+        "rtf": null,
+        "prematureEndpoint": true,
+        "complete": true
+      }
+    },
+    {
+      "id": "batch-engine-no-partials-no-endpoint",
+      "timeline": {
+        "audioMs": 1000,
+        "computeMs": 1500,
+        "events": [
+          { "t": 100, "kind": "speech_start" },
+          { "t": 1100, "kind": "speech_end" },
+          { "t": 2600, "kind": "final", "text": "ok" }
+        ]
+      },
+      "expected": {
+        "timeToFirstPartialMs": null,
+        "endpointLatencyMs": null,
+        "finalisationLagMs": 1500,
+        "rtf": 1.5,
+        "prematureEndpoint": false,
+        "complete": true
+      }
+    },
+    {
+      "id": "never-finalised",
+      "timeline": {
+        "audioMs": 1000,
+        "events": [
+          { "t": 0, "kind": "speech_start" },
+          { "t": 400, "kind": "partial", "text": "hi" },
+          { "t": 1000, "kind": "speech_end" }
+        ]
+      },
+      "expected": {
+        "timeToFirstPartialMs": 400,
+        "endpointLatencyMs": null,
+        "finalisationLagMs": null,
+        "rtf": null,
+        "prematureEndpoint": false,
+        "complete": false
+      }
+    }
+  ],
+  "latencyBackwards": {
+    "audioMs": 1000,
+    "events": [
+      { "t": 500, "kind": "speech_start" },
+      { "t": 100, "kind": "final", "text": "x" }
+    ]
+  },
+  "latencySummary": [
+    {
+      "values": [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+      "expected": { "n": 10, "p50": 500, "p90": 900, "p99": 1000, "mean": 550 }
+    },
+    {
+      "values": [null, 100, 200],
+      "expected": { "n": 2, "p50": 100, "p90": 200, "p99": 200, "mean": 150 }
+    },
+    {
+      "values": [],
+      "expected": { "n": 0, "p50": null, "p90": null, "p99": null, "mean": null }
+    }
+  ],
+  "flicker": [
+    {
+      "id": "stable-growth",
+      "partials": ["kal", "kal subah", "kal subah alarm"],
+      "final": "kal subah alarm",
+      "expected": { "shownWords": 3, "revisedWords": 0, "revisions": 0, "rate": 0 }
+    },
+    {
+      "id": "one-word-rewritten",
+      "partials": ["kal", "call subah", "call subah alarm"],
+      "final": "call subah alarm",
+      "expected": { "shownWords": 4, "revisedWords": 1, "revisions": 1, "rate": 0.25 }
+    },
+    {
+      "id": "retraction",
+      "partials": ["open the", "open"],
+      "final": "open chrome",
+      "expected": { "shownWords": 3, "revisedWords": 1, "revisions": 1, "rate": 0.3333333333333333 }
+    },
+    {
+      "id": "final-corrects-a-shown-word",
+      "partials": ["turn on the lite"],
+      "final": "turn on the light",
+      "expected": { "shownWords": 5, "revisedWords": 1, "revisions": 1, "rate": 0.2 }
+    },
+    {
+      "id": "case-and-punctuation-are-not-flicker",
+      "partials": ["hello", "Hello,", "Hello, world"],
+      "final": "Hello, world.",
+      "expected": { "shownWords": 2, "revisedWords": 0, "revisions": 0, "rate": 0 }
+    },
+    {
+      "id": "nothing-shown",
+      "partials": [],
+      "final": "",
+      "expected": { "shownWords": 0, "revisedWords": 0, "revisions": 0, "rate": 0 }
+    }
+  ],
+  "seeded": { "note": "the first three draws for seed 12345, to 10 places, from the generator of transcript-scorer.ts", "12345": [0.9797282678, 0.3067522645, 0.4842054215] },
+  "bootstrap": {
+    "rows": [
+      { "edits": 1, "total": 10 },
+      { "edits": 0, "total": 8 },
+      { "edits": 3, "total": 12 },
+      { "edits": 2, "total": 9 },
+      { "edits": 0, "total": 6 },
+      { "edits": 1, "total": 7 }
+    ],
+    "seed": 7919,
+    "draws": 1000,
+    "expected": { "estimate": 0.1346153846153846, "low": 0.047619047619047616, "high": 0.19642857142857142 }
+  },
+  "gate": [
+    {
+      "id": "clear-regression-fails",
+      "baseline": { "lang": "en", "words": [10, 10, 10, 10, 10, 10, 10, 10, 10, 10], "edits": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+      "candidate": { "lang": "en", "words": [10, 10, 10, 10, 10, 10, 10, 10, 10, 10], "edits": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] },
+      "pass": false,
+      "reasonIncludes": ["en: folded WER"]
+    },
+    {
+      "id": "small-rise-passes",
+      "baseline": { "lang": "en", "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100], "edits": [10, 10, 10, 10, 10, 10, 10, 10, 10, 10] },
+      "candidate": { "lang": "en", "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100], "edits": [11, 11, 11, 11, 11, 11, 11, 11, 11, 11] },
+      "pass": true,
+      "reasonIncludes": []
+    },
+    {
+      "id": "noisy-rise-does-not-prove-a-regression",
+      "baseline": { "lang": "en", "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100], "edits": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20] },
+      "candidate": { "lang": "en", "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100], "edits": [34, 12, 33, 13, 32, 14, 31, 15, 30, 16] },
+      "pass": true,
+      "reasonIncludes": []
+    },
+    {
+      "id": "script-violations-rising-fails",
+      "baseline": { "lang": "hi", "words": [10, 10, 10, 10], "edits": [1, 1, 1, 1], "violations": [0, 0, 0, 0] },
+      "candidate": { "lang": "hi", "words": [10, 10, 10, 10], "edits": [1, 1, 1, 1], "violations": [0, 1, 0, 0] },
+      "pass": false,
+      "reasonIncludes": ["hi: script-policy violations"]
+    },
+    {
+      "id": "one-language-cannot-hide-in-the-total",
+      "baseline": { "lang": ["en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi"], "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], "edits": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+      "candidate": { "lang": ["en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi", "hi"], "words": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], "edits": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4] },
+      "pass": false,
+      "reasonIncludes": ["hi: folded WER"]
+    }
+  ]
+}

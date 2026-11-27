@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 import local_engines
+import privacy
 
 GRANT_SCOPES = ("off", "request", "session", "always")
 
@@ -150,7 +151,10 @@ def billing_class(model: Any) -> str:
     options, record = _as_record(model)
     kind = str(options.get("type") or getattr(model, "kind", "") or "").lower()
     provider = str(options.get("provider") or getattr(model, "provider", "") or "").lower()
-    if kind == "local" or local_engines.is_local_kind(kind) or local_engines.is_local_kind(provider):
+    # A name never makes a remote host free: the endpoint must also be local (privacy.endpoint_allows_local).
+    if (
+        kind == "local" or local_engines.is_local_kind(kind) or local_engines.is_local_kind(provider)
+    ) and privacy.endpoint_allows_local(model):
         return "free"
     if isinstance(record, dict):
         mode = str(record.get("billingMode") or "").upper()

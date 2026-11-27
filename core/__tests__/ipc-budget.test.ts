@@ -66,6 +66,20 @@ describe("ipc budget table", () => {
     expect(table.CHANNEL_CLASS["voice:verify"]).toBe("long-job");
     expect(ipc.budgetFor("voice:verify").class).toBe("long-job");
     expect(table.CHANNEL_CLASS["voice:transcribe"]).toBe("stream");
+    // FRIDAY's own streaming ear: three short calls, no push channel; handler, preload name and class agree.
+    const preload = fs.readFileSync(path.join(root, "electron/preload.cjs"), "utf8");
+    for (const [name, channel] of [
+      ["openSttStream", "voice:stt-stream-open"],
+      ["feedSttStream", "voice:stt-stream-feed"],
+      ["closeSttStream", "voice:stt-stream-close"],
+    ] as const) {
+      expect(table.CHANNEL_CLASS[channel]).toBe("quick");
+      expect(handles).toContain(channel);
+      expect(preload).toContain(
+        `${name}: (payload) => ipcRenderer.invoke("${channel}", payload || {})`,
+      );
+      expect(ipc.timeoutMs(channel)).toBe(ipc.QUICK_MS);
+    }
     expect(table.CHANNEL_CLASS["chat:parallel"]).toBe("stream");
     expect(table.CHANNEL_CLASS["agents:run"]).toBe("stream");
     expect(table.CHANNEL_CLASS["doctor:run"]).toBe("long-job");

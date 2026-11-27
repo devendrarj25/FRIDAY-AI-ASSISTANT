@@ -273,7 +273,7 @@ describe("a changed microphone is honoured: the input reopens with the saved dev
     vi.restoreAllMocks();
   });
 
-  it("in Auto it restarts the gate; the saved device that is not plugged in is cleared and the default opens", async () => {
+  it("in Auto it restarts the gate; the saved device that is not plugged in is kept and the default opens for this open only", async () => {
     d.state.mode = "auto";
     d.state.muted = false;
     d.state.paused = false;
@@ -282,7 +282,7 @@ describe("a changed microphone is honoured: the input reopens with the saved dev
     await assistantMode.applyInputChoice();
     expect(restart).toHaveBeenCalledTimes(1);
     expect(restart).toHaveBeenCalledWith(null);
-    expect(preferences.getSnapshot().voice.inputDeviceId).toBe("");
+    expect(preferences.getSnapshot().voice.inputDeviceId).toBe("mic-unplugged");
   });
 
   it("outside Auto, or muted, or paused, nothing is opened", async () => {
@@ -443,7 +443,7 @@ describe("the screen: every row is wired to a real handler and a real state", ()
     expect(pickers).toContain("Noise suppression on the microphone");
     expect(pickers).toContain("Refresh devices");
     // The row the owner already had is still on the tray-pause path.
-    expect(settings).toContain('label="Mute microphone"');
+    expect(settings).toContain('label="Pause listening"');
     expect(settings).toContain("assistantMode.setPaused(!voice.paused)");
   });
 
@@ -473,7 +473,10 @@ describe("the screen: every row is wired to a real handler and a real state", ()
   });
 
   it("looks the same: only the shared panel and token classes the neighbours use", () => {
-    expect(pickers).toContain("hud-tile");
+    expect(pickers).toContain("SELECT_CLASS");
+    expect(
+      readFileSync(resolve(process.cwd(), "src/components/friday/settings/fields.tsx"), "utf8"),
+    ).toContain("hud-tile");
     expect(pickers).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgb\(|text-\[\d+px\]/);
   });
 });

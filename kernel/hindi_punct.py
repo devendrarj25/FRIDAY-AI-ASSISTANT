@@ -19,6 +19,8 @@ import os
 import re
 from pathlib import Path
 
+import friday_runtime
+
 MODEL_DIR = "hindi-punct"
 MODEL_FILE = "punct_cap_seg_47lang.onnx"
 SPM_FILE = "spe_unigram_64k_lowercase_47lang.model"
@@ -107,15 +109,12 @@ class _Runtime:
 
 
 def _load_runtime(folder: Path) -> _Runtime:
-    import onnxruntime as ort  # type: ignore
     import sentencepiece  # type: ignore
 
     sp = sentencepiece.SentencePieceProcessor()
     # Loaded from bytes so a folder name with non-ASCII letters opens on Windows too.
     sp.LoadFromSerializedProto((folder / SPM_FILE).read_bytes())
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
-    session = ort.InferenceSession(str(folder / MODEL_FILE), options, providers=["CPUExecutionProvider"])
+    session = friday_runtime.open_session(folder / MODEL_FILE, "punct")
     labels, max_length = read_config(folder)
     return _Runtime(sp, session, labels, max_length)
 

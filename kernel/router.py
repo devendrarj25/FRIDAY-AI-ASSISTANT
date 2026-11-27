@@ -453,7 +453,6 @@ class Model:
 
 #: Host names that mean "this model runs on this PC" — an offline route.
 # These names classify a local endpoint. They are not a listen address.
-_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "host.docker.internal")  # noqa: S104
 
 #: Substrings that identify a *transport* failure (the request never reached a
 #: model) as opposed to a model/inference failure.
@@ -483,10 +482,68 @@ _BRAIN_CAPABLE_ROLES = ("brain", "fast")
 
 def is_local_model(model: Model) -> bool:
     """True when the model answers from this machine (Ollama, llama.cpp, ...)."""
-    endpoint = (model.endpoint or "").lower()
-    if model.provider and local_engines.is_local_kind(model.provider):
-        return True
-    return any(host in endpoint for host in _LOCAL_HOSTS)
+    endpoint = (model.endpoint or "").strip()
+    if endpoint:
+        # The endpoint decides. A provider name alone never makes a remote host local.
+        return privacy.is_loopback_endpoint(endpoint)
+    return bool(model.provider and local_engines.is_local_kind(model.provider))
+
+
+#: The registry id the desktop gives the bundled local model. Endpoint and key arrive at run time.
+CORE_MODEL_ID = "friday-core"
+#: The only endpoint shape Core is ever started on (electron/llama-runtime.cjs): plain http on loopback.
+_CORE_ENDPOINT = re.compile(r"^http://(?:127\.0\.0\.1|\[::1\]):[0-9]{1,5}/v1/?$")
+
+
+def core_endpoint_ok(endpoint: object, status: object = "ready") -> bool:
+    """Core is this PC's own model: loopback http with a port, or no endpoint while it is unavailable."""
+    text = str(endpoint or "").strip()
+    if not text:
+        return str(status or "").lower() == "unavailable"
+    return bool(_CORE_ENDPOINT.match(text))
+
+
+#: What Core handles itself. Anything above goes up (see escalate).
+CORE_MAX_CONTEXT_TOKENS = 32768
+CORE_MAX_AUDIO_SECONDS = 30
+CORE_MAX_VIDEO_SECONDS = 60
+#: A generation job names its kind; the capability flag a model must declare to take it.
+GENERATION_CAPS = {"image": "imageGeneration", "audio": "audioGeneration", "video": "videoGeneration"}
+
+
+def _meta_number(meta: dict, key: str) -> float:
+    try:
+        return max(0.0, float(meta.get(key) or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def escalate(meta: dict | None) -> str:
+    """Pure rule: stay on Core, or go up to ``local_heavy`` or ``cloud``. Never picks a model.
+
+    Goes up for a generation job, hard reasoning, code beyond Core, a context over 32K tokens, audio over
+    30 s or video over 60 s. Cloud needs every gate: not SENSITIVE, privacy mode not private, and a cloud
+    model of known cost (free, or paid with paid access on). Unknown cost is never taken. When the way up
+    is closed, the answer is ``core``; the caller then still goes through the billing and privacy guards.
+    """
+    meta = meta if isinstance(meta, dict) else {}
+    up = (
+        str(meta.get("generation") or "").lower() in GENERATION_CAPS
+        or bool(meta.get("hard_reasoning"))
+        or bool(meta.get("code_beyond_core"))
+        or _meta_number(meta, "context_tokens") > CORE_MAX_CONTEXT_TOKENS
+        or _meta_number(meta, "audio_seconds") > CORE_MAX_AUDIO_SECONDS
+        or _meta_number(meta, "video_seconds") > CORE_MAX_VIDEO_SECONDS
+    )
+    if not up:
+        return "core"
+    if meta.get("local_heavy"):
+        return "local_heavy"
+    barred = bool(meta.get("sensitive")) or str(meta.get("privacy_mode") or "").strip().lower() == "private"
+    cost = str(meta.get("cloud_cost") or "unknown").lower()
+    if not barred and (cost == "free" or (cost == "paid" and bool(meta.get("paid_unlocked")))):
+        return "cloud"
+    return "core"
 
 
 def _header_get(headers, name: str):
@@ -865,7 +922,11 @@ class ModelRouter:
         # turn can call FRIDAY's read-only tools itself instead of guessing.
         self.tools = None
         for row in storage.models():
-            self._models[row["id"]] = Model(**row)
+            model = Model(**row)
+            if model.id == CORE_MODEL_ID:
+                # Core is live only while the desktop runs it; a stored row never makes it ready.
+                model.status, model.endpoint = "unavailable", ""
+            self._models[row["id"]] = model
 
     def note_response_headers(self, headers) -> None:
         """Keep the quota line from this response. A bad header map is ignored."""
@@ -961,6 +1022,9 @@ class ModelRouter:
 
     def register(self, spec: dict) -> Model:
         model = Model(**self._coerce(spec))
+        if model.id == CORE_MODEL_ID and not core_endpoint_ok(model.endpoint, model.status):
+            # The desktop only ever starts Core on loopback. Anything else is a forged row, never a local model.
+            raise ValueError("FRIDAY Core must run on this PC: its endpoint must be http://127.0.0.1:<port>/v1")
         self._models[model.id] = model
         # Registry sync visibility: every model the desktop pushes is logged with
         # the three fields a live request depends on. No key material is printed —
@@ -976,7 +1040,11 @@ class ModelRouter:
         # SECURITY: the API key stays in memory for the lifetime of this
         # process only. It is never written to the database, so a copied
         # friday.db can never leak a provider credential.
-        self.storage.upsert_model(model.public())
+        row = model.public()
+        if model.id == CORE_MODEL_ID:
+            # The Core endpoint exists only for this run: the stored row says "not running".
+            row = {**row, "endpoint": "", "status": "unavailable"}
+        self.storage.upsert_model(row)
         return model
 
     def unregister(self, model_id: str) -> bool:
@@ -994,7 +1062,10 @@ class ModelRouter:
             data = self._coerce(spec)
             data.setdefault("options", {})
             data["options"] = {**data["options"], "auto": True}
-            self.register(data)
+            try:
+                self.register(data)
+            except ValueError:
+                continue
             seen.add(data["id"])
         removed = [mid for mid, m in list(self._models.items()) if m.options.get("auto") and mid not in seen]
         for mid in removed:
@@ -1073,6 +1144,91 @@ class ModelRouter:
         ready.sort(key=lambda m: self.rank_key(m, role, surface), reverse=True)
         return ready[0]
 
+    def _routable(self, model: Model, explicit_paid: bool = False) -> bool:
+        return model.status == "ready" and self.can_chat(model) and self.spendable(model, explicit_paid)
+
+    def escalation_meta(self, meta: dict | None = None) -> dict:
+        """The caller's meta plus what only the router knows: which way up is open, and at what cost.
+
+        The caller can add a reason to go up or tighten privacy; it cannot clear ``sensitive`` or a private mode.
+        """
+        out = dict(meta) if isinstance(meta, dict) else {}
+        pool = [m for m in self._models.values() if m.id != CORE_MODEL_ID and self._routable(m)]
+        out["local_heavy"] = any(is_local_model(m) and m.options.get("tier") == "heavy" for m in pool)
+        classes = {billing.billing_class(m) for m in pool if not is_local_model(m)}
+        out["cloud_cost"] = "free" if "free" in classes else ("paid" if "paid" in classes else "unknown")
+        out["paid_unlocked"] = billing.paid_unlocked(self._billing)[0]
+        return out
+
+    def pick_escalated(self, meta: dict | None = None, *, surface: str | None = None) -> Model | None:
+        """Runs before best_available: the model escalate() points at, or None to fall through.
+
+        Every pick is already ready and spendable; the stream still runs the privacy and billing guards on it.
+        """
+        full = self.escalation_meta(meta)
+        where = escalate(full)
+        core = self._models.get(CORE_MODEL_ID)
+        if where == "core":
+            return core if core is not None and self._routable(core) and is_local_model(core) else None
+        want_local = where == "local_heavy"
+        pool = [
+            m
+            for m in self._models.values()
+            if m.id != CORE_MODEL_ID
+            and self._routable(m)
+            and is_local_model(m) == want_local
+            and (not want_local or m.options.get("tier") == "heavy")
+            and (want_local or billing.billing_class(m) in ("free", "paid"))
+        ]
+        if not pool:
+            return None
+        pool.sort(key=lambda m: (billing.billing_class(m) == "free", self.rank_key(m, "brain", surface)), reverse=True)
+        return pool[0]
+
+    def route_generation(
+        self, kind: str, content: str = "", *, explicit_paid: bool = False, privacy_mode: str = ""
+    ) -> dict:
+        """Choose the model for an image, audio or video job. The router only chooses.
+
+        The caller that runs it (``image:generate`` in the desktop, which hands the choice to
+        electron/image-generation.cjs) still runs its own billing and privacy gates and spends nothing here.
+        A model is offered only when both guards already allow it: unknown cost is never offered, SENSITIVE
+        content never reaches a cloud model, and a private mode keeps the job on this PC.
+        """
+        cap = GENERATION_CAPS.get(str(kind or "").lower())
+        if cap is None:
+            return {"ok": False, "target": "core", "modelId": None, "reason": f"unknown generation kind: {kind}"}
+        sensitive = privacy.classify(content).get("level") == privacy.SENSITIVE
+        private = str(privacy_mode or "").strip().lower() == "private"
+        found: list[Model] = []
+        for model in self._models.values():
+            declared = model.options.get("capabilities") if isinstance(model.options, dict) else None
+            if not (isinstance(declared, dict) and declared.get(cap)):
+                continue
+            if not self._routable(model, explicit_paid):
+                continue
+            if not is_local_model(model):
+                if sensitive or private or billing.billing_class(model) not in ("free", "paid"):
+                    continue
+                decision = privacy.guard_egress(model, content, connected=True)
+                if decision.get("hardStop") or decision.get("requiresConfirmation"):
+                    continue
+            found.append(model)
+        if not found:
+            return {"ok": False, "target": "core", "modelId": None, "reason": f"no {kind} model is allowed right now"}
+        found.sort(
+            key=lambda m: (is_local_model(m), billing.billing_class(m) == "free", self.rank_key(m)), reverse=True
+        )
+        pick = found[0]
+        return {
+            "ok": True,
+            "target": "local_heavy" if is_local_model(pick) else "cloud",
+            "modelId": pick.id,
+            # Best first, at most three: the caller tries them in this order, as a failed draw falls through.
+            "candidates": [m.id for m in found[:3]],
+            "reason": "chosen after the billing and privacy checks",
+        }
+
     @staticmethod
     def rank_key(model: Model, role: str = "brain", surface: str | None = None) -> tuple:
         """The one surface score: voice is latency-first, chat is quality-first (higher is better)."""
@@ -1148,6 +1304,8 @@ class ModelRouter:
     def _kind(self, model: Model) -> str:
         options = model.options if isinstance(model.options, dict) else {}
         kind = str(options.get("type") or "").lower()
+        if not privacy.endpoint_allows_local(model):
+            return "cloud"
         if kind == "local" or local_engines.is_local_kind(model.provider):
             return "local"
         return "cloud"
@@ -1237,6 +1395,24 @@ class ModelRouter:
             out.append(model.id)
         return out
 
+    @staticmethod
+    def _turn_meta(
+        escalation: dict | None, prompt: str, history: list | None, context: list[dict] | None, privacy_mode: str
+    ) -> dict:
+        """Escalation meta for this turn. SENSITIVE and a private mode can only be added, never cleared."""
+        meta = dict(escalation) if isinstance(escalation, dict) else {}
+        texts = [str(prompt or "")]
+        for item in history or []:
+            if isinstance(item, dict):
+                texts.append(str(item.get("text") or item.get("content") or ""))
+        texts.extend(f"{c.get('title', '')} {c.get('snippet', '')}" for c in context or [] if isinstance(c, dict))
+        joined = "\n".join(texts)
+        meta["context_tokens"] = max(_meta_number(meta, "context_tokens"), len(joined) / 4)
+        meta["sensitive"] = bool(meta.get("sensitive")) or privacy.classify(joined).get("level") == privacy.SENSITIVE
+        if privacy_mode == "private":
+            meta["privacy_mode"] = "private"
+        return meta
+
     async def complete(
         self,
         model: Model,
@@ -1268,6 +1444,7 @@ class ModelRouter:
         history: list | None = None,
         reasoning_effort: str | None = None,
         hardware_hints: dict | None = None,
+        escalation: dict | None = None,
     ) -> AsyncIterator[dict]:
         """Fan out to the chosen models, or auto-select with ordered fallback."""
         # Passed down only when asked for, so a caller that never sets it sees the old call shape.
@@ -1293,7 +1470,11 @@ class ModelRouter:
 
         auto = not targets
         if auto:
-            best = self.best_available("brain", surface=surface)
+            # Escalation first (Core, or up to a heavy local or cloud model); best_available is the fallthrough.
+            # Both then go through _stream_one, which runs the privacy and billing guards on whatever is picked.
+            best = self.pick_escalated(
+                self._turn_meta(escalation, prompt, history, context, privacy_mode), surface=surface
+            ) or self.best_available("brain", surface=surface)
             if best:
                 if norm_mode == "local-only" and not is_local_model(best):
                     best = next(

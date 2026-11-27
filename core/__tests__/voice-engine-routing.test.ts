@@ -137,6 +137,29 @@ describe("voice provider router", () => {
     expect(ledger.usage("gemini")).toMatchObject({ day: 0, month: 0, audioMinutes: 0 });
   });
 
+  it("treats Sarvam as unproven-cost: refused with paid access off, allowed with it on, and never on a sensitive line", () => {
+    const sarvam = cloud({
+      allowedProviders: ["sarvam"],
+      keyPresent: { sarvam: true },
+    });
+    const paid = { paidAllowed: true, paidApproved: true, spendLimitUsd: 5 };
+    const off = routeVoice(request({ need: "tts" }), sarvam, new UsageLedger());
+    expect(off.active).toBe("local");
+    expect(off.refused.find((r) => r.id === "sarvam")?.why).toMatch(/trial credit/);
+    const on = routeVoice(
+      request({ need: "tts", billingAllowsPaid: true }),
+      { ...sarvam, ...paid },
+      new UsageLedger(),
+    );
+    expect(on.provider?.id).toBe("sarvam");
+    const sensitive = routeVoice(
+      request({ need: "tts", billingAllowsPaid: true, sensitive: true }),
+      { ...sarvam, ...paid },
+      new UsageLedger(),
+    );
+    expect(sensitive.active).toBe("local");
+  });
+
   it("marks only the providers whose speech pages were read, and says what was not", () => {
     expect(PROVIDERS.filter((p) => p.verified).map((p) => p.id)).toEqual([
       "sarvam",

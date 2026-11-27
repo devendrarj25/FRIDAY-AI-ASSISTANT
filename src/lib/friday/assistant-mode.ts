@@ -22,7 +22,13 @@
  */
 
 import { describeDownload, type SttProgressPayload, type VoiceDownload } from "./voice-download";
-import { brain, type QuickAnswer } from "./brain-engine";
+import {
+  brain,
+  scrubSendContext,
+  VOICE_SEND,
+  type QuickAnswer,
+  type TurnHints,
+} from "./brain-engine";
 import { billing } from "./billing";
 import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
@@ -38,6 +44,7 @@ import {
 } from "./heard-log";
 import {
   allowRestart,
+  cleanedLevel,
   encodeWav,
   preRollFrom,
   subscribeCaptureFrames,
@@ -45,6 +52,25 @@ import {
 } from "./pcm-capture";
 import { LiveWords, livePassDeps } from "./voice-engine/live-words";
 import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy";
+import {
+  buildTurnRecord,
+  languageMix,
+  preferStreamLang,
+  ScriptPolicyTally,
+  shapeHeardText,
+  STREAM_LANG_MIN_CONF,
+  streamLocale,
+  streamWanted,
+  subscribeStreamTurns,
+  TurnTracker,
+  type StreamPlan,
+  type StreamTurn,
+  type TurnRecord,
+} from "./voice-engine/stream-session";
+import { commandHints, streamHotwords } from "./voice-engine/hotwords";
+import type { CommandHit, CommandRegistryEntry } from "./voice-engine/command-lane";
+import { judgeAddressedness } from "./voice-engine/addressedness";
+import { detectSelfRepair, repairAuditLine } from "./voice-engine/self-repair";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
@@ -86,8 +112,14 @@ import {
 import { registerVoiceHealth, registerVoiceRepair } from "./voice-health";
 import { preferences } from "./preferences";
 import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
-import { createStreamingSpeak } from "./voice-engine/streaming-speak";
-import { StageClock, voiceLatency } from "./voice-engine/latency-monitor";
+import { createStreamingSpeak, pickClauseRule } from "./voice-engine/streaming-speak";
+import {
+  alignedAnchors,
+  reinsertParts,
+  stripDeliveryTags,
+  type TagAnchor,
+} from "./voice-engine/delivery-tags";
+import { StageClock, voiceLatency, type LatencyMonitor } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { ShadowLedger, shadowVerdict, verdictLine } from "./voice-engine/shadow-evaluation";
 import { SoakRecorder } from "./voice-engine/soak-recorder";
@@ -102,6 +134,8 @@ import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice
 import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
+import { identity as replyIdentity } from "./brain/identity";
+import { replyLanguageLine } from "./brain/turn-hints";
 import { attentionWindowMs } from "./attention-window";
 import { preferSpoken, socialRegister } from "./conversation-style";
 import { chooseFresh, vary, type RepeatBucket } from "./brain/anti-repeat";
@@ -115,11 +149,15 @@ import type { PlayedReply } from "./voice-engine/played-text";
 import {
   activeVoiceSettings,
   beginPlayedReply,
+  billingAllowsPaidNow,
+  cloudFallbackVoice,
   duckSpeech,
   lastClipUsedPcm,
   lastSpeechRoute,
   pcmPlaybackNote,
+  playbackEndsAt,
   playedReplyCut,
+  playbackPressure,
   playedReplySnapshot,
   prefetchSpeech,
   speakText,
@@ -131,6 +169,7 @@ import { formatVoiceProbeReport, noteVoiceCheck } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
   approvalFresh,
+  approvalTtlMs,
   backchannel,
   bindVoiceSurface,
   clarifyPrompt,
@@ -160,20 +199,64 @@ import {
   effectiveConfirmLevel,
   heardNeedsReadBack,
   heardQuestion,
+  voiceConfirmKind,
   voiceNeedsConfirmation,
   wakeOnCooldown,
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import {
+  buildConfirmDigest,
+  digestLine as confirmDigestLine,
+  explainDigestAnswer,
+  onBargeIn,
+  ownerSaidCancelTask,
+  strictest,
+  type AsrBand as ConfirmAsrBand,
+  type BargeInPlan,
+  type ConfirmDigest,
+  type TaskRiskClass,
+} from "./voice-engine/confirm-digest";
+import { TaskSpeechRouter, toVoiceTaskEvent } from "./voice-engine/task-announcer";
+import { renderVoiceContext, type VoiceContextMeta } from "./brain/voice-context";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
 import {
+  BARGE_LADDER,
   BargeInDetector,
+  BargeLadder,
   BargeShadow,
+  echoCleanSourceLive,
+  echoReferenceRunning,
   InterruptGate,
+  interruptedPlayedMs,
   sanitizeInterruptGate,
+  bargeFromController,
+  classifyInterruption,
   type GateInput,
   type GateVerdict,
+  type InterruptionDecision,
+  type InterruptionInput,
+  type LadderVerdict,
 } from "./voice-engine/interruption-controller";
+import { acousticFeatures } from "./voice-engine/interrupt-acoustic";
+import { StreamSincResampler } from "./voice-engine/audio-format";
+import {
+  FRAME_MS as TURN_FRAME_MS,
+  createTurnEngine,
+  step,
+  type BargeVerdict,
+  type TurnCommand,
+  type TurnEngineState,
+  type TurnExpect,
+  type TurnInput,
+} from "./voice-engine/turn-engine";
+import { CalibrationBook, type EotLang } from "./voice-engine/endpoint-calibration";
+import {
+  createTurnMetricsRecorder,
+  type ControlEv,
+  type TraceEvent,
+  type TurnMetrics,
+} from "./voice-engine/turn-metrics";
 import { speechRms } from "./character/speech-audio";
 import { firstClauseCut } from "./voice-engine/clause-chunker";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
@@ -181,6 +264,7 @@ import { usesHindiVoice } from "./voice-engine/speech-prep";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
 import { autonomy } from "./self/autonomy";
+import { ownerVoiceOrigin } from "./self/turn-provenance";
 import {
   applyTaskRoute,
   attachVoiceTaskNarrator,
@@ -219,17 +303,27 @@ import {
   holdDigest,
   narrate,
   sanitizeForSpeech,
+  STATUS_LINES,
+  statusLine,
   type NarrateEvent,
   type NarrationLang,
+  type StatusKey,
 } from "./voice-engine/narration-policy";
 import { createFinalDeduper } from "./voice-engine/final-dedupe";
-import { routeUtterance, type Route } from "./voice-engine/utterance-router";
+import { routeCommandLane, routeUtterance, type Route } from "./voice-engine/utterance-router";
 import {
   ackStillDue,
   shouldAck,
   type AckDecision,
   type AckTurnKind,
 } from "./voice-engine/instant-ack";
+import {
+  ackLane,
+  expectedAnswerMs,
+  recordFirstClause,
+  type FirstClauseHistory,
+} from "./voice-engine/expected-answer";
+import type { LadderLane } from "./voice-engine/brain-bridge";
 import { notifications } from "./notifications";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
@@ -241,7 +335,8 @@ import {
 } from "./asr-bias";
 import { noteArc } from "./conversation-arc";
 import { voiceBudgets } from "./failure-guard";
-import { applySession, savedInputPlan } from "./mic-session";
+import { applySession, faultLanguage, plainFaultLine, savedInputPlan } from "./mic-session";
+import { MIC_PRIVACY_LINK } from "./mic-faults";
 import { noteStyleCorrection } from "./response-policy";
 import {
   outputReachable,
@@ -253,6 +348,7 @@ import {
 import {
   EMPTY_MIC_STATUS,
   listAudioDevices,
+  noteEarsTurn,
   noteMicHolders,
   probeMicrophone,
   voiceGate,
@@ -266,6 +362,7 @@ import {
   sttHotwords,
   sttInitialPrompt,
   sttStatus,
+  type ListeningPause,
 } from "./voice-stt";
 import {
   isPlainStop,
@@ -330,7 +427,9 @@ import {
   stateIsListening,
   stateIsSpeaking,
   stateLabel,
+  voicePhaseFromState,
   type VoiceEvent,
+  type VoicePhase,
   type VoiceState,
 } from "./voice-state";
 
@@ -356,6 +455,13 @@ export type PendingConfirm = {
   command: string;
   reason: string;
   at: number;
+  /** What the ear knew when the command was heard: the approved command replays with these, never the "yes" turn's. */
+  hints?: TurnHints;
+  /**
+   * What she read back (verb, object, where, how much) and its expiry. Only a short, fresh yes to this digest that is
+   * not her own voice approves; a corrected digest has a new id and a new ask time. It holds words and times only.
+   */
+  digest?: ConfirmDigest;
 };
 
 /**
@@ -430,6 +536,10 @@ export type AssistantModeState = {
    * doing — every transition comes from a real pipeline event.
    */
   voiceState: VoiceState;
+  /** The one phase chip, derived from `voiceState` on every emit (never set by hand). */
+  phase: VoicePhase;
+  /** A spoken note or meeting note is being written down right now (the Dictating chip). */
+  dictating: boolean;
   /** Which wake detector is really active right now (and why). */
   wakeEngine: WakeEngineStatus;
   /** The last wake verdict, whichever engine produced it. */
@@ -454,6 +564,9 @@ export type AssistantModeState = {
 
 /** How many pipeline steps the Auto Mode screen keeps. */
 const MAX_VOICE_LOG = 30;
+/** How long the ear's needs-a-wake-word tag stays valid for its turn (ms). */
+const HOLD_TURN_MS = 15_000;
+
 /** After the live wake scorer hears the name, the next line is addressed to her for this long (ms). */
 const LIVE_WAKE_MS = 8_000;
 /** Live captions send audio only while speech was heard this recently (ms). */
@@ -461,9 +574,20 @@ const CAPTION_TAIL_MS = 1_500;
 /** A quiet gap this long between provisional transcripts is a new utterance, so one more draft is allowed (ms). */
 const DRAFT_TURN_GAP_MS = 4_000;
 
+/** The echo window after her sound: the room's tail, the estimated speech per word, and the hard cap per clause. */
+const ECHO_TAIL_MS = 1_500;
+const ECHO_WORD_MS = 400;
+/** The leads of a refused yes (refuseYes); stripped when the re-ask is stamped as the prompt's own words. */
+const REFUSAL_LEAD =
+  /^(?:Main abhi pooch rahi thi\. Sawaal ke baad haan boliye\.|I was still asking\. Say yes after the question\.|Sirf haan ya na boliye\.|Just yes or no, please\.)\s*/;
+/** The recogniser's delay from the end of speech to the final, when the engine did not report it. */
+const STT_DELAY_GUESS_MS = 1_000;
+const ECHO_CAP_MS = 30_000;
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
 const HANDS_FREE_KEY = "friday.assistant.handsfree";
+/** How long the same microphone fault message is treated as one report. */
+const MIC_FAULT_REPEAT_MS = 10_000;
 const MAX_CAPTIONS = 40;
 /**
  * How long follow-ups are accepted without repeating the wake word. Owned by
@@ -522,6 +646,8 @@ type VoiceDesktop = {
   }>;
   installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
   restartKernel?: () => Promise<{ ok: boolean }>;
+  openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  restartTts?: () => Promise<{ ok: boolean; state: string; error?: string }>;
 };
 const desktop = (): VoiceDesktop | null =>
   typeof window === "undefined"
@@ -534,7 +660,7 @@ const desktop = (): VoiceDesktop | null =>
  */
 function ownedBrain(taskId: string): Parameters<typeof askBrain>[1]["brain"] {
   return {
-    send: (prompt) => brain.send(prompt, { owner: { kind: "task", taskId } }),
+    send: (prompt) => brain.send(prompt, { ...VOICE_SEND, owner: { kind: "task", taskId } }),
     subscribe: (listener) => brain.subscribe(listener),
     getSnapshot: () => brain.getSnapshot(),
   };
@@ -562,6 +688,151 @@ type LocalFinalMeta = Parameters<ConstructorParameters<typeof DesktopDictation>[
 
 /** The bound-answer id of the restart question ("Redo them?"): it is not a desk task. */
 const RESTART_ASK = "restart-redo";
+
+/** A closed table of the secrets a spoken question can ask FRIDAY to say aloud (Latin and Devanagari). */
+const SECRET_ASK_WORDS = [
+  "password",
+  "passcode",
+  "pass code",
+  "pin",
+  "otp",
+  "cvv",
+  "cvc",
+  "card number",
+  "account number",
+  "aadhaar",
+  "aadhar",
+  "adhar",
+  "pan number",
+  "pan card",
+  "wifi key",
+  "wi-fi key",
+  "token",
+  "api key",
+  "seed phrase",
+  "recovery phrase",
+  "पासवर्ड",
+  "पिन",
+  "ओटीपी",
+  "कार्ड नंबर",
+  "आधार",
+  "खाता नंबर",
+  "पैन नंबर",
+  "चाबी",
+];
+/** The verbs and question words that make a line a request to say the secret. */
+const SECRET_ASK_VERBS = [
+  "what",
+  "whats",
+  "what's",
+  "which",
+  "tell",
+  "read",
+  "show",
+  "say",
+  "give",
+  "repeat",
+  "batao",
+  "bata",
+  "bolo",
+  "bol",
+  "dikhao",
+  "padho",
+  "kya",
+  "kaun sa",
+  "kaunsa",
+  "kitna",
+  "बताओ",
+  "बताइए",
+  "बता",
+  "बोलो",
+  "दिखाओ",
+  "पढ़ो",
+  "क्या",
+  "कौन सा",
+  "कितना",
+];
+/** Next to the secret word these make it a different thing (a manager, a reset, a definition), not a value to say. */
+const SECRET_NOT_A_VALUE = [
+  "how to",
+  "how do",
+  "how can",
+  "kaise",
+  "tarika",
+  "tareeka",
+  "reset",
+  "change",
+  "manager",
+  "generator",
+  "policy",
+  "strength",
+  "meaning",
+  "define",
+  "hota hai",
+  "कैसे",
+  "तरीका",
+  "रीसेट",
+  "बदल",
+  "मैनेजर",
+  "होता है",
+];
+/** A possessive next to the word means the speaker's own secret: it overrides the "not a value" cues. */
+const SECRET_OWNED = [
+  "my",
+  "mine",
+  "your",
+  "mera",
+  "meri",
+  "mere",
+  "tumhara",
+  "tera",
+  "मेरा",
+  "मेरी",
+  "मेरे",
+  "तुम्हारा",
+];
+
+const NOT_LETTER = String.raw`(?<![\p{L}\p{M}])`;
+const NOT_LETTER_AFTER = String.raw`(?![\p{L}\p{M}])`;
+function wordRe(words: readonly string[], flags = "iu"): RegExp {
+  const body = words.map((w) =>
+    w
+      .normalize("NFC")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/ /g, String.raw`\s+`),
+  );
+  return new RegExp(`${NOT_LETTER}(?:${body.join("|")})${NOT_LETTER_AFTER}`, flags);
+}
+const SECRET_WORD_RE = wordRe(SECRET_ASK_WORDS, "giu");
+const SECRET_VERB_RE = wordRe(SECRET_ASK_VERBS);
+const SECRET_NOT_VALUE_RE = wordRe(SECRET_NOT_A_VALUE);
+const SECRET_OWNED_RE = wordRe(SECRET_OWNED);
+const SECRET_ARTICLE_BEFORE_RE = /(?<![\p{L}])(?:a|an)\s+$/iu;
+const SECRET_NEAR_CHARS = 40;
+
+/**
+ * True when the line asks FRIDAY to say a secret aloud ("what is my wifi password", "mera otp batao", "कार्ड नंबर
+ * क्या है"): a secret word with an ask verb or question word near it, in either order. The reply to such a question
+ * looks plain ("It's hunter2"), so the turn is marked sensitive from the question itself. A secret word that is only
+ * mentioned (a password manager, a reset, "a PIN") does not count unless it is owned ("my").
+ */
+export function asksForSecret(text: string): boolean {
+  const line = String(text ?? "").normalize("NFC");
+  if (!line.trim()) return false;
+  for (const hit of line.matchAll(SECRET_WORD_RE)) {
+    const start = hit.index ?? 0;
+    const end = start + hit[0].length;
+    const before = line.slice(Math.max(0, start - SECRET_NEAR_CHARS), start);
+    const after = line.slice(end, end + SECRET_NEAR_CHARS);
+    const around = `${before} ${after}`;
+    if (!SECRET_VERB_RE.test(around)) continue;
+    if (SECRET_OWNED_RE.test(around)) return true;
+    if (SECRET_ARTICLE_BEFORE_RE.test(before)) continue;
+    if (SECRET_NOT_VALUE_RE.test(around)) continue;
+    return true;
+  }
+  return false;
+}
 
 /**
  * The mic reports end of speech only once the endpoint hold has run out, so the speech end is the confirm time minus
@@ -606,6 +877,474 @@ function recordGapsOnly(clock: StageClock, monitor = voiceLatency): Record<strin
   return out;
 }
 
+// ---------- the turn engine in shadow ----------
+
+/** Events the shadow keeps for its metrics: about three minutes of 80 ms voice frames and the turn events. */
+const TURN_SHADOW_EVENTS = 2400;
+/** Rows of the shadow's own log: what the engine asked for, and what the classifier said. */
+const TURN_SHADOW_LOG = 40;
+/** The longest text the shadow keeps of any line, after scrubbing. */
+const TURN_SHADOW_TEXT = 80;
+/** The speech worker's breaker stays open for five minutes, then lets one probe through (`electron/voice-worker.cjs`). */
+const SPEAKER_BREAKER_COOL_MS = 300_000;
+/** Capture kept from the start of one barge-in candidate for its acoustic features, and its rate. */
+const TURN_SHADOW_AUDIO_MS = 1500;
+const TURN_SHADOW_RATE = 16_000;
+/** The engine's own base end-of-turn wait (6 x 80 ms), the start for a calibrated base. */
+const TURN_SHADOW_BASE_FRAMES = 6;
+/** The shadow ran nothing: a deferred verdict with nothing to do. */
+const NO_SHADOW = (): void => undefined;
+
+export type TurnShadowOptions = {
+  /** Read at each new turn: hands-free on means no wake word is needed. */
+  handsFree: () => boolean;
+  /** `voice.turn.maxWaitMs`: the longest quiet wait any hold may add. */
+  maxWaitMs: number;
+  /** `voice.turn.calibrate`: the engine's base wait follows this PC's own measured waits per language. */
+  calibrate: boolean;
+  /** Time zero of the shadow's own clock (a wall-clock reading). */
+  startAt: number;
+  /** What the open question expects (a dictation, a yes or no), read when a turn opens. */
+  expectNow?: () => TurnExpect | undefined;
+  /** Where the last turn's numbers go. Default: the app's latency monitor. */
+  monitor?: LatencyMonitor;
+};
+export type TurnShadowCounters = {
+  /** The engine and the live path did the same thing. */
+  agree: number;
+  /** Where they differed, by kind (commit-missing, commit-extra, barge:<live>/<classifier>). */
+  disagree: Record<string, number>;
+  steps: number;
+  verdicts: number;
+};
+export type TurnShadowRow = { t: number; k: string; detail: string };
+export type TurnShadowLastTurn = Pick<
+  TurnMetrics,
+  "turnId" | "ttfaMs" | "eotWaitMs" | "bargeToSilenceMs" | "falseCut" | "prematureEnd"
+>;
+export type TurnShadowReport = {
+  /** Always "shadow" in this build: `voice.turn.classifier: "live"` is accepted and still only shadows. */
+  mode: "shadow";
+  counters: TurnShadowCounters;
+  log: TurnShadowRow[];
+  lastTurn: TurnShadowLastTurn | null;
+  /** Samples in the end-of-turn calibration book, per language. */
+  calibration: Record<EotLang, number>;
+};
+
+/** What the voice turn context block is built from: the heard turn, the mode, the open digest, the running tasks. */
+export type VoiceTurnContextInput = {
+  record: TurnRecord | null;
+  handsFree: boolean;
+  digest: ConfirmDigest | null;
+  tasks: readonly Pick<VoiceTask, "label" | "state">[];
+  now: number;
+};
+
+const CONTEXT_NOISE = { speech: "crowd", music: "music", tv: "tv", noise: "noise" } as const;
+
+/**
+ * The voice turn context block (brain/voice-context.ts) for one heard turn: language, the ear's sureness band, the
+ * room, the mode, the open digest and the running tasks, as data. Pure, for the dispatch that will carry it; nothing
+ * sends it yet. The speaker is always "unknown" here, and the renderer drops any sensitive words.
+ */
+export function voiceTurnContext(input: VoiceTurnContextInput): string {
+  const { record, digest } = input;
+  const meta: VoiceContextMeta = {
+    modality: record ? "spoken" : "typed",
+    lang: record?.lang === "hi" ? "hi" : record?.lang === "hi-en" ? "hinglish" : "en",
+    langConfidence: record?.confidence ?? 0,
+    romanised: record?.romanised === true,
+    asrBand: record?.asrBand === "mid" ? "medium" : (record?.asrBand ?? "low"),
+    noise: record?.env ? CONTEXT_NOISE[record.env.kind] : "quiet",
+    speaker: "unknown",
+    handsFree: input.handsFree,
+    bargeIn: typeof record?.interruptedPlayedMs === "number",
+    approval: digest
+      ? {
+          verb: digest.verb,
+          object: digest.object,
+          expiresInS: Math.max(0, Math.round((digest.expiresAt - input.now) / 1000)),
+        }
+      : null,
+    tasks: input.tasks
+      .filter((t) => !TERMINAL.includes(t.state))
+      .map((t) => ({
+        title: t.label,
+        state: t.state === "WAITING_FOR_APPROVAL" ? ("waiting" as const) : ("running" as const),
+      })),
+  };
+  return renderVoiceContext(meta, { isSensitive: looksSensitive });
+}
+
+/** What the shadow keeps of a line: nothing of a private one, no digits, at most 80 characters. */
+function shadowText(text: string): string {
+  const line = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return "";
+  if (looksSensitive(line)) return "[private]";
+  return line.replace(/\d/g, "#").slice(0, TURN_SHADOW_TEXT);
+}
+
+/**
+ * What the engine itself is shown of a line (its state holds it between steps): the scrubbed tail, at most 80
+ * characters, which is what its end-of-turn rules read; a private line is a bare placeholder, never its words.
+ */
+function engineText(text: string): string {
+  const line = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return "";
+  if (looksSensitive(line)) return "[private]";
+  return line.replace(/\d/g, "#").slice(-TURN_SHADOW_TEXT);
+}
+
+function eotLangOf(text: string): EotLang {
+  const read = languageMix(text).lang;
+  return read === "hi" ? "hi" : read === "hi-en" ? "hinglish" : "en";
+}
+
+/**
+ * The pure turn engine (`voice-engine/turn-engine.ts`) run beside the live controller, in shadow. It is fed the
+ * events the live path sees (the ear's turn events, the desktop partials, the voice gate's beat as its 80 ms frame,
+ * the final transcript, the hand-over to the Brain, the voice starting and ending, mute, pause, stop and wake), and
+ * it asks the interruption classifier next to the live barge-in gate. It never acts: the engine's commands are only
+ * written to a short log and compared with what the live path did, as counts. It holds no audio past one barge-in
+ * candidate and no transcript text past 80 scrubbed characters.
+ */
+export class TurnEngineAdapter {
+  private engine: TurnEngineState;
+  private readonly opts: TurnShadowOptions;
+  private readonly monitor: LatencyMonitor;
+  private readonly metrics = createTurnMetricsRecorder({ maxEvents: TURN_SHADOW_EVENTS });
+  private readonly book = new CalibrationBook();
+  private readonly counters: TurnShadowCounters = { agree: 0, disagree: {}, steps: 0, verdicts: 0 };
+  private readonly log: TurnShadowRow[] = [];
+  private lastT = 0;
+  private lastVadFrame = -1;
+  private turnId = "";
+  private streamOpen = false;
+  private partialTurn = "";
+  private partialSeq = 0;
+  /** Engine commits since the last live final transcript. */
+  private commits = 0;
+  private finalLang: EotLang = "en";
+  private reportedTurn = "";
+  private bargeAt: number | null = null;
+  /** Capture is collected only while the candidate is open; its frames are dropped once its verdict was taken. */
+  private bargeOpen = false;
+  private resampler: StreamSincResampler | null = null;
+  private audioFrames: Float32Array[] = [];
+  private audioSamples = 0;
+  /** A verdict is due for the candidate: `bargeEnd` keeps the frames until `barge` has read them. */
+  private verdictHeld = false;
+  private bargeCtx: Partial<InterruptionInput> = {};
+
+  constructor(opts: TurnShadowOptions) {
+    this.opts = opts;
+    this.monitor = opts.monitor ?? voiceLatency;
+    this.engine = createTurnEngine({
+      handsFree: opts.handsFree(),
+      lang: "auto",
+      onsetFrames: 3,
+      maxWaitFrames: Math.round(opts.maxWaitMs / TURN_FRAME_MS),
+      barge: bargeFromController(() => this.bargeCtx),
+    });
+  }
+
+  /** The shadow's clock: milliseconds since `startAt`, never backwards (a wall clock may step back). */
+  private at(now: number): number {
+    const t = Number.isFinite(now) ? Math.max(this.lastT, now - this.opts.startAt) : this.lastT;
+    this.lastT = t;
+    return t;
+  }
+
+  private feed(input: TurnInput): void {
+    const out = step(this.engine, input);
+    this.engine = out.state;
+    this.counters.steps += 1;
+    for (const cmd of out.commands) this.noteCommand(input.t, cmd);
+  }
+
+  private noteCommand(t: number, cmd: TurnCommand): void {
+    switch (cmd.k) {
+      case "commit":
+        this.commits += 1;
+        this.row(t, "commit", `wait ${cmd.record.eotWaitMs ?? "-"} ms`);
+        return;
+      case "draft-start":
+      case "draft-cancel":
+      case "draft-adopt":
+        this.row(t, cmd.k, shadowText(cmd.text));
+        return;
+      case "duck":
+        this.row(t, "duck", `${cmd.db} dB`);
+        return;
+      case "stop-speech":
+        this.row(t, "stop-speech", cmd.reason);
+        return;
+      case "resume-speech":
+        this.row(t, "resume-speech", "");
+        return;
+      case "ack":
+        this.row(t, "ack", cmd.key);
+        return;
+      case "require-wake":
+        this.row(t, "require-wake", cmd.why);
+        return;
+    }
+  }
+
+  private row(t: number, k: string, detail: string): void {
+    this.log.push({ t, k, detail: detail.slice(0, TURN_SHADOW_TEXT) });
+    if (this.log.length > TURN_SHADOW_LOG) this.log.shift();
+  }
+
+  private disagree(kind: string): void {
+    this.counters.disagree[kind] = (this.counters.disagree[kind] ?? 0) + 1;
+  }
+
+  private record(event: TraceEvent): void {
+    this.metrics.record(event);
+  }
+
+  /** A new turn: the old one is settled, and the engine learns the expectation and this PC's measured wait. */
+  private openTurn(t: number): void {
+    if (this.commits > 0) this.disagree("commit-extra");
+    this.commits = 0;
+    const handsFree = this.opts.handsFree() === true;
+    let cfg = this.engine.cfg;
+    if (cfg.handsFree !== handsFree) cfg = { ...cfg, handsFree };
+    if (this.opts.calibrate) {
+      const base = this.book.suggestedBaseFrames(this.finalLang, TURN_SHADOW_BASE_FRAMES);
+      if (base !== cfg.eotBaseFrames) cfg = { ...cfg, eotBaseFrames: base };
+    }
+    if (cfg !== this.engine.cfg) {
+      this.engine = { ...this.engine, cfg, needWake: handsFree ? false : this.engine.needWake };
+    }
+    const expect = this.opts.expectNow?.();
+    if (expect) this.feed({ t, k: "control", ev: "asked", expect });
+  }
+
+  ear(turn: StreamTurn, now: number): void {
+    const t = this.at(now);
+    if (turn.event === "start" && turn.turnId !== this.turnId) this.openTurn(t);
+    this.turnId = turn.turnId;
+    this.streamOpen = true;
+    this.record({
+      t,
+      k: "ear",
+      event: turn.event,
+      turnId: turn.turnId,
+      text: shadowText(turn.text),
+    });
+    this.feed({ t, k: "ear", turn: { ...turn, text: engineText(turn.text) } });
+  }
+
+  /** A desktop partial: on the ear's open turn, or on a turn of its own when no ear turn is open. */
+  partial(text: string, now: number): void {
+    const t = this.at(now);
+    let turnId = this.streamOpen ? this.turnId : this.partialTurn;
+    if (!turnId) {
+      this.partialSeq += 1;
+      turnId = `p${this.partialSeq}`;
+      this.partialTurn = turnId;
+      this.openTurn(t);
+      this.record({ t, k: "ear", event: "start", turnId, text: "" });
+    }
+    this.feed({
+      t,
+      k: "ear",
+      turn: { turnId, event: "partial", text: engineText(text), vadP: null, speechMs: null },
+    });
+  }
+
+  /** The voice gate's beat, at most once per 80 ms frame: the engine's voice frame and its clock. */
+  vad(voiced: boolean, echoClean: boolean, now: number): void {
+    const t = this.at(now);
+    const frame = Math.floor(t / TURN_FRAME_MS);
+    if (frame === this.lastVadFrame) return;
+    this.lastVadFrame = frame;
+    const p = voiced ? 0.9 : 0.05;
+    this.record({ t: frame * TURN_FRAME_MS, k: "vad", p });
+    this.feed({ t, k: "vad", p, echoClean });
+  }
+
+  control(ev: ControlEv, now: number, expect?: TurnExpect): void {
+    const t = this.at(now);
+    this.record({ t, k: "control", ev });
+    this.feed({ t, k: "control", ev, ...(expect ? { expect } : {}) });
+  }
+
+  brain(ev: "lane" | "refused", runId: string, now: number): void {
+    const t = this.at(now);
+    this.record({ t, k: "brain", ev, runId });
+    this.feed({ t, k: "brain", ev, runId });
+  }
+
+  dispatch(text: string, now: number): void {
+    this.record({ t: this.at(now), k: "dispatch", text: shadowText(text) });
+  }
+
+  /** Her voice at the output: started, a clause ended, all played, or failed. */
+  tts(
+    ev: "first-audio" | "clause-end" | "drained" | "failed",
+    utteranceId: string,
+    playedMs: number,
+    now: number,
+  ): void {
+    const t = this.at(now);
+    const played = Number.isFinite(playedMs) && playedMs >= 0 ? playedMs : 0;
+    this.record({ t, k: "tts", ev, utteranceId, playedMs: played });
+    this.feed({ t, k: "tts", ev, utteranceId, playedMs: played });
+    if (ev === "drained" || ev === "failed") this.settleTurn();
+  }
+
+  /** The live path stopped her voice. */
+  stopped(now: number): void {
+    this.record({ t: this.at(now), k: "stop" });
+  }
+
+  /** The live path's final transcript: the engine should have committed this turn by now. */
+  liveFinal(text: string, now: number): void {
+    const t = this.at(now);
+    this.feed({ t, k: "tick" });
+    const kept = shadowText(text);
+    this.record({ t, k: "final", text: kept });
+    this.row(t, "final", kept);
+    this.finalLang = eotLangOf(text);
+    if (this.commits > 0) this.counters.agree += 1;
+    else this.disagree("commit-missing");
+    this.commits = 0;
+    this.streamOpen = false;
+    this.partialTurn = "";
+  }
+
+  /** The turn's numbers, once, after her reply: to the latency monitor and the calibration book. */
+  private settleTurn(): void {
+    const last = this.metrics.summary().score.turns.at(-1);
+    if (!last || last.turnId === this.reportedTurn) return;
+    this.reportedTurn = last.turnId;
+    if (last.ttfaMs !== null) this.monitor.record("turn.ttfaMs", last.ttfaMs);
+    if (last.bargeToSilenceMs !== null)
+      this.monitor.record("turn.bargeToSilenceMs", last.bargeToSilenceMs);
+    if (last.eotWaitMs !== null) {
+      this.monitor.record("turn.eotWaitMs", last.eotWaitMs);
+      this.book.push(this.finalLang, { eotWaitMs: last.eotWaitMs, falseCut: last.falseCut });
+    }
+  }
+
+  bargeBegin(now: number): void {
+    this.bargeAt = this.at(now);
+    this.bargeOpen = true;
+    this.verdictHeld = false;
+    this.dropAudio();
+  }
+
+  private dropAudio(): void {
+    this.audioFrames = [];
+    this.audioSamples = 0;
+    this.resampler = null;
+  }
+
+  /** A verdict is about to be asked for this candidate (the live verdict was read): its frames outlive `bargeEnd`. */
+  holdAudioForVerdict(): void {
+    this.verdictHeld = true;
+  }
+
+  /**
+   * The candidate is over: collection stops. The frames stay only for the verdict that was announced
+   * (`holdAudioForVerdict`), which lets them go once it is taken; otherwise they go now.
+   */
+  bargeEnd(): void {
+    this.bargeOpen = false;
+    if (!this.verdictHeld) this.dropAudio();
+  }
+
+  /**
+   * Capture frames of the open candidate, from its start, up to 1.5 s, at 16 kHz through the one band-limited
+   * resampler (so the features cost the same on any device rate). Kept in memory only, for the features.
+   */
+  audio(samples: ArrayLike<number>, rate: number): void {
+    if (!this.bargeOpen || !(rate > 0)) return;
+    if (this.audioSamples >= (TURN_SHADOW_RATE * TURN_SHADOW_AUDIO_MS) / 1000) return;
+    if (rate !== TURN_SHADOW_RATE && this.resampler === null)
+      this.resampler = new StreamSincResampler(rate, TURN_SHADOW_RATE);
+    const frame =
+      rate === TURN_SHADOW_RATE ? Float32Array.from(samples) : this.resampler?.push(samples);
+    if (!frame || frame.length === 0) return;
+    this.audioFrames.push(frame);
+    this.audioSamples += frame.length;
+  }
+
+  /** The classifier's verdict next to the live one (null: the live path has not decided yet). Only counted. */
+  barge(live: BargeVerdict | null, input: InterruptionInput, now: number): InterruptionDecision {
+    const t = this.at(now);
+    const voiceMs =
+      this.bargeAt === null ? input.voiceMs : Math.max(input.voiceMs, t - this.bargeAt);
+    const acoustic = this.audioFrames.length
+      ? acousticFeatures(this.audioFrames, TURN_SHADOW_RATE)
+      : null;
+    const full: InterruptionInput = { ...input, voiceMs, ...(acoustic ? { acoustic } : {}) };
+    this.bargeCtx = {
+      words: full.words,
+      voiceMs,
+      ttsPlaying: full.ttsPlaying,
+      echoClean: full.echoClean,
+      scene: full.scene,
+      speaker: full.speaker,
+      sinceTtsStartMs: full.sinceTtsStartMs,
+    };
+    const decision = classifyInterruption(full);
+    this.verdictHeld = false;
+    if (!this.bargeOpen) this.dropAudio();
+    this.counters.verdicts += 1;
+    if (live !== null) {
+      const same =
+        live === "takeover" ? decision.decision === "takeover" : decision.decision !== "takeover";
+      if (same) this.counters.agree += 1;
+      else this.disagree(`barge:${live}/${decision.decision}`);
+    }
+    this.row(t, "verdict", `${live ?? "-"}/${decision.decision} ${decision.reason}`);
+    return decision;
+  }
+
+  /** The barge-in contract the running tasks would follow (confirm-digest onBargeIn): written to the log only. */
+  bargePlan(risk: TaskRiskClass, plan: BargeInPlan, now: number): void {
+    const detail = `${risk} cancel:${plan.cancelTask} checkpoint:${plan.runToCheckpoint} undo:${plan.undoJournal}`;
+    this.row(this.at(now), "barge-plan", detail);
+  }
+
+  engineState(): TurnEngineState {
+    return this.engine;
+  }
+
+  report(): TurnShadowReport {
+    const last = this.metrics.summary().score.turns.at(-1);
+    return {
+      mode: "shadow",
+      counters: { ...this.counters, disagree: { ...this.counters.disagree } },
+      log: this.log.map((row) => ({ ...row })),
+      lastTurn: last
+        ? {
+            turnId: last.turnId,
+            ttfaMs: last.ttfaMs,
+            eotWaitMs: last.eotWaitMs,
+            bargeToSilenceMs: last.bargeToSilenceMs,
+            falseCut: last.falseCut,
+            prematureEnd: last.prematureEnd,
+          }
+        : null,
+      calibration: {
+        en: this.book.size("en"),
+        hi: this.book.size("hi"),
+        hinglish: this.book.size("hinglish"),
+      },
+    };
+  }
+}
+
 /** What a draft must still match when the final transcript arrives: nothing material may change in between. */
 /** How a spoken line takes its turn in the speech queue (see speech-arbiter). A line with no meta is a direct answer. */
 type SpeakMeta = {
@@ -615,6 +1354,10 @@ type SpeakMeta = {
   sensitive?: boolean;
   done?: boolean;
   whisper?: boolean;
+  /** A reply the model wrote for this spoken turn: the only line whose delivery tags may reach the voice. */
+  reply?: boolean;
+  /** The first clause of that reply. */
+  first?: boolean;
 };
 
 type EagerSnapshot = {
@@ -622,6 +1365,15 @@ type EagerSnapshot = {
   paidAccess: boolean;
   approvalLevel: string;
   halted: boolean;
+};
+
+/** The ear's room and voice tags of one final, read only by the addressedness gate. */
+/** Why a spoken yes was not taken (see yesRefusal). */
+type YesRefusal = "mixed" | "room" | "older yes";
+
+type AddressFacts = {
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number };
+  speaker?: "owner" | "other" | "unknown";
 };
 
 class AssistantModeStore {
@@ -667,6 +1419,48 @@ class AssistantModeStore {
     sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate),
   );
   private gateTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * The barge-in ladder (opt-in, `voice.interruptGate.ladder`): duck at 150 ms of echo-cleaned speech, stop at 500 ms
+   * or one real word, resume when no words come by 2 s. It runs beside `interruptGate` (which keeps the candidate
+   * open) and only replaces who rules on it.
+   */
+  private bargeLadder = new BargeLadder();
+  /** The current interrupt candidate is ruled by the ladder (it is on and an echo-clean source exists). */
+  private gateLadder = false;
+  /**
+   * The turn protocol of the streaming ear: eager endpoints start (and resumes cancel) the Brain's text-only draft,
+   * and the facts of the ended turn travel with its final text as a `TurnRecord`. Nothing here approves anything.
+   */
+  private turnTracker = new TurnTracker(
+    () => preferences.getSnapshot().voice.ears.eagerTurn === true,
+  );
+  private turnRecord: TurnRecord | null = null;
+  /** `turnRecord` belongs to the turn being routed now (cleared when the next voice begins). */
+  private turnRecordLive = false;
+  /** The id of the heard turn, kept apart from the record so only the intake reads the record to make it. */
+  private heardTurnId = "";
+  /** The stream turn the ear is framing and when its voice began (a time only; never a speaker or a room tag). */
+  private streamTurnBegan: { turnId: string; at: number } | null = null;
+  /** The digest she already read a second time, so a repeated doubtful yes is not answered every time. */
+  private digestReasked = "";
+  /** Set by the intake for the one turn it hands on: the ear's sureness band (null: not measured) and voice start. */
+  private heardEar: { asrBand: ConfirmAsrBand | null; beganAt: number | null } | null = null;
+  /**
+   * The ear's room and voice tags of the final being handled, for the addressedness gate only (spent by it). A tag
+   * can only ADD a wake requirement there; no approval, confirmation or authority check reads it.
+   */
+  private addressFacts: AddressFacts | null = null;
+  /**
+   * The final's speaker tag, kept for the send only so the turn's origin can be noted for learning: "owner" marks the
+   * owner's own voice. It is never read by an approval, a confirmation or an authority check (a match never approves).
+   */
+  private heardSpeaker: "owner" | "other" | "unknown" | null = null;
+  private streamTurnId = "";
+  private holdTurnId = "";
+  private holdSeenAt = 0;
+  private turnStreamOff: (() => void) | null = null;
+  /** The milliseconds of her last reply that were audible when the owner cut in, for the next turn record. */
+  private lastInterruptedPlayedMs: number | null = null;
   private gateText = "";
   private gatePlayed: PlayedReply | null = null;
   /** The live-words follower was started for the candidate (and is stopped with it). */
@@ -675,11 +1469,8 @@ class AssistantModeStore {
   private gateKeep = false;
   /** The warm-up pass of this Auto session has run to the end once. */
   private prewarmDone = false;
-  /**
-   * True only when the owner saved Hands-free off. A missing key leaves Auto
-   * mode as the hands-free conversation and does not write the key.
-   */
-  private wakeWordRequired = false;
+  /** Hands-free starts off, so the wake word is required until the stored choice says otherwise. */
+  private wakeWordRequired = true;
   /** Barge-in and a mode change drop every queued clip from an older turn. */
   private speechGen = 0;
   private unfinished = "";
@@ -700,6 +1491,8 @@ class AssistantModeStore {
   private speechPoll: ReturnType<typeof setTimeout> | null = null;
   /** What the narration policy remembers between task updates (this session only). */
   private narration = createNarrationMemory();
+  /** Settles a cancelled task so a late result of it is never said (task-announcer.ts). */
+  private taskSpeech = new TaskSpeechRouter();
   /** Her approval prompt, while it is the last thing she said and the owner has not answered it. */
   private approvalAsked: { askedAt: number; taskId?: string } | null = null;
   /** The last approval prompt that was voiced for the Brain's slot, so it is asked once. */
@@ -709,9 +1502,30 @@ class AssistantModeStore {
    * A spoken yes is bound to this, never to the moment an approval was created or queued: a prompt held back by a
    * call, quiet hours or Do not disturb, or one that has not played yet, can be answered on the screen only.
    */
-  private approvalSpoken: { at: number; taskId?: string } | null = null;
+  private approvalSpoken: { at: number; taskId?: string; ended?: boolean } | null = null;
+  /**
+   * When the read-back of the open digest finishes sounding: a yes to it counts only if it BEGAN after that. The
+   * end is the player's end hook when it came, else the start (or the moment it was asked) plus about 400 ms a word.
+   * `owed` counts the reads still to finish, so an older read ending does not close a re-read still queued.
+   */
+  private askSound: {
+    digestId: string;
+    estimateEnd: number;
+    estimateMs: number;
+    startedAt: number | null;
+    endedAt: number | null;
+    owed: number;
+    /** It started sounding and was stopped before its end hook (a new speech generation). */
+    cut: boolean;
+  } | null = null;
+  /** The words of this final as heard, before any rewrite (code-mix canonical, learned corrections, self-repair). */
+  private heardRawLines: string[] = [];
+  /** The recogniser's own words of the final being handled, copied at the intake and cleared after it. */
+  private heardRaw = "";
   /** The line the speech queue is playing now, for the approval stamp. */
-  private playingItem: { priority: SpeechPriority; taskId?: string } | null = null;
+  private playingItem: { priority: SpeechPriority; taskId?: string; text?: string } | null = null;
+  /** The words of the last task, restart or Brain prompt that sounded, so a refused yes re-asks that same question. */
+  private approvalPrompt: { taskId: string; text: string } | null = null;
   /** "I was working on A and B when I closed. Redo them?": asked once per app session. */
   private restartAsked = false;
   private restartAsk: { ids: string[] } | null = null;
@@ -727,6 +1541,12 @@ class AssistantModeStore {
   private voicedChars = 0;
   /** The start of the answer that has been spoken, to tell a rewrite from more text. */
   private voicedPrefix = "";
+  /** The first clause of the reply being voiced has not been handed to the voice yet. */
+  private firstClauseDue = false;
+  /** The spoken line that is the first clause of its reply (for the voice's quickest route), until it plays. */
+  private firstLine = "";
+  /** Spoken lines that still carry delivery tags: FRIDAY's own words in a spoken reply, until each is played. */
+  private taggedLines = new Set<string>();
   /** A failed turn speaks its short line once. The partial answer is not restarted. */
   private voicedFaultFor = "";
   /** User lines already shown before the brain echoes them into captions. */
@@ -741,6 +1561,8 @@ class AssistantModeStore {
   private chartOfferedFor = "";
   /** Hangover so echo STT that arrives after tts-end is still rejected. */
   private echoUntil = 0;
+  /** The latest moment the echo window may stay open for the clause now playing (a hard cap of 30 s from its start). */
+  private echoCapAt = 0;
   private hydrated = false;
   private spokenUpTo = 0;
   private unBrain: (() => void) | null = null;
@@ -749,7 +1571,9 @@ class AssistantModeStore {
   private awakeUntil = 0;
   private followUpUntil = 0;
   private readonly micRestarts: number[] = [];
+  private micErrorLine = "";
   private shownMicFault = "";
+  private shownMicFaultAt = 0;
   private awakeTimer: number | null = null;
   /** Last accepted wake, so a second copy of the name inside the cooldown is ignored. */
   private lastWakeAt = 0;
@@ -788,10 +1612,19 @@ class AssistantModeStore {
   private ackSeed = Date.now() % 2_147_483_647;
   /** What the router called the line that is going to the Brain; read once by the acknowledgement. */
   private ackTurnKind: AckTurnKind = "control";
+  /** The lane the turn on its way to the Brain is on, and whether its first-clause time was already learned. */
+  private ackLane: LadderLane = "full";
+  private ackLearned = false;
+  /** This session's measured endpoint-to-first-clause times per lane: what the acknowledgement expects next. */
+  private ackHistory: FirstClauseHistory = {};
   /** The line just sounded, for the echo filter only (it is never `spokenText`, so "continue" never repeats it). */
   private ackEcho = { text: "", until: 0 };
   /** Requests heard while a turn ran; each runs once the one before has finished and been spoken. */
   private queuedCommands: string[] = [];
+  /** The language hints captured with a queued request, so it replays with its own and not the latest turn's. */
+  private readonly queuedHints = new Map<string, TurnHints>();
+  /** While a stored command is replayed, the hints captured WITH it; the replaying utterance's own never apply. */
+  private replayTurn: { hints: TurnHints | undefined } | null = null;
   private queueTimer: ReturnType<typeof setInterval> | null = null;
   private partialText = "";
   private partialAt = 0;
@@ -837,6 +1670,8 @@ class AssistantModeStore {
 
     voiceLog: [],
     voiceState: "OFF",
+    phase: "off",
+    dictating: false,
     wakeEngine: TRANSCRIPT_ONLY,
     lastWake: null,
     stt: {
@@ -862,9 +1697,42 @@ class AssistantModeStore {
   getSnapshot = () => this.snapshot;
 
   private emit() {
+    this.state.phase = voicePhaseFromState(this.state.mode, this.state.voiceState);
+    this.state.dictating = Boolean(voiceNotes.active());
     this.snapshot = { ...this.state };
     this.listeners.forEach((l) => l());
     this.reportToTray();
+  }
+
+  /** The language pool for status and fault lines: the owner's reply language. */
+  private lineLang(): "en" | "hi" | "hinglish" {
+    return faultLanguage(preferences.getSnapshot().voice) as "en" | "hi" | "hinglish";
+  }
+
+  /** One status line in the owner's language, with the wake word they chose. */
+  private line(key: StatusKey): string {
+    return statusLine(key, this.lineLang(), wakeWord());
+  }
+
+  /**
+   * The status while nothing is happening: it asks for the wake word only when the microphone really listens.
+   * A muted, paused, stopped or failed state shows that state instead, never "Say FRIDAY".
+   */
+  private idleLine(): string {
+    if (this.state.muted) return this.line("muted");
+    if (this.stopped()) return this.line("stopped");
+    if (this.state.paused) return this.line("paused");
+    if (this.state.voiceState === "ERROR") return this.line("voice-error");
+    return this.line("wake-needed");
+  }
+
+  /** A fault as one plain sentence in the owner's language (the raw text stays in the trace and the Doctor). */
+  private plainFault(raw: string, micClass = false, healing = false): string {
+    const state = this.state.mic.state;
+    return plainFaultLine(raw, this.lineLang(), {
+      ...(micClass && state !== "available" ? { micState: state } : {}),
+      healing,
+    });
   }
 
   /** The tray tooltip must always show the REAL microphone state. */
@@ -915,16 +1783,20 @@ class AssistantModeStore {
       brain.stop();
       this.gateSleep("stopped");
       this.queuedCommands = [];
+      this.queuedHints.clear();
       this.stopQueueTimer();
       this.state.pending = null;
       this.pendingHeard = null;
       if (this.state.mode === "auto" && !this.state.paused) {
         this.pausedByStop = true;
         this.setPaused(true);
-        this.state.status = "Stopped. Stop everything is on";
+        this.state.status = this.line("stopped");
       } else if (this.state.speaking || this.arbiter.size()) {
         this.cancelSpeech();
       }
+      // The shadow hears of it after the live stop, then the session's numbers and audio are let go.
+      this.shadowTurn((a) => a.control("stop-all", Date.now()));
+      this.dropTurnShadow();
       this.emit();
       return;
     }
@@ -938,7 +1810,7 @@ class AssistantModeStore {
   setPaused(paused: boolean) {
     if (!paused && this.stopped()) {
       // The microphone does not reopen under the kill switch, whoever asks.
-      this.state.status = "Stop everything is on";
+      this.state.status = this.line("stop-on");
       this.emit();
       return;
     }
@@ -948,17 +1820,21 @@ class AssistantModeStore {
     if (paused) {
       cancelPrewarm();
       this.stopRecognition();
+      this.shadowTurn((a) => a.control("pause", Date.now()));
       this.gateSleep(this.pausedByStop || this.stopped() ? "stopped" : "paused");
       this.discardEager();
       this.cancelSpeech();
       clearEchoReference("paused");
       this.forgetOpenQuestions();
+      // A confirmation that was waiting is dropped too: a yes after resume binds to nothing.
+      this.state.pending = null;
+      this.pendingHeard = null;
       // The tray pause is the kill switch: it ends every voice task and the Brain's turn too, whoever owns it
       // (only the stop word and a barge-in are foreground-only).
       cancelAllVoiceTasks();
       brain.stop();
       this.to("pause");
-      this.state.status = "Microphone paused";
+      this.state.status = this.line("paused");
     } else if (this.state.mode === "auto") {
       // An explicit resume is the owner asking again: retry immediately.
       this.gateRelease();
@@ -992,9 +1868,11 @@ class AssistantModeStore {
       if (saved === "auto" || saved === "manual") this.state.mode = saved;
       setActionMode(this.state.mode);
       const savedHands = readLocalState<boolean>(HANDS_FREE_KEY);
-      if (savedHands === true) this.state.handsFree = true;
-      else if (savedHands === false) this.wakeWordRequired = true;
-      else if (this.state.mode === "auto") this.state.handsFree = true;
+      // Only a stored `true` opens hands-free; nothing saved keeps the wake word required.
+      if (savedHands === true) {
+        this.state.handsFree = true;
+        this.wakeWordRequired = false;
+      }
     } catch {
       /* storage blocked — keep the auto default */
     }
@@ -1002,7 +1880,7 @@ class AssistantModeStore {
     restoreFromDisk<AssistantMode>(STORAGE_KEY, (mode) => {
       if ((mode === "auto" || mode === "manual") && mode !== this.state.mode) this.setMode(mode);
     });
-    restoreFromDisk<boolean>(HANDS_FREE_KEY, (on) => this.setHandsFree(Boolean(on)));
+    restoreFromDisk<unknown>(HANDS_FREE_KEY, (on) => this.setHandsFree(on === true));
     const savedConduct = readLocalState<unknown>(CONDUCT_KEY);
     if (savedConduct) this.conduct = loadConduct(savedConduct);
     restoreFromDisk<unknown>(CONDUCT_KEY, (value) => {
@@ -1071,17 +1949,17 @@ class AssistantModeStore {
     });
     voiceGate.subscribe(() => {
       this.superviseTick();
+      // The gate's own beat is the shadow's 80 ms frame: no timer of its own.
+      if (!this.state.paused && !this.state.muted)
+        this.shadowTurn((a) =>
+          a.vad(voiceGate.getSnapshot().speech, this.echoCleanedSpeech(), Date.now()),
+        );
       if (this.state.mode !== "auto" || this.quietHealSent) return;
       if (!voiceGate.quietNotice()) return;
       this.quietHealSent = true;
       this.applyVoiceHeal("vad-too-quiet", false);
     });
-    desktop()?.onVoicePartial?.((payload) => {
-      const text = String(payload?.text || "").trim();
-      if (!text || this.state.mode !== "auto") return;
-      this.state.interim = text;
-      this.emit();
-    });
+    this.turnStreamOff ??= subscribeStreamTurns((turn) => this.noteStreamTurn(turn));
     desktop()?.onSttProgress?.((payload) => {
       const next = describeDownload(payload);
       if (!next) return;
@@ -1091,16 +1969,14 @@ class AssistantModeStore {
       if (this.state.mode === "auto") {
         this.state.status = next.percent == null ? next.label : `${next.label} ${next.percent}%`;
       }
-      // A finished or failed row stays long enough to be read, then goes.
-      if (next.stage === "ready" || next.stage === "failed" || next.stage === "check") {
-        this.downloadTimer = setTimeout(
-          () => {
-            this.state.download = null;
-            this.downloadTimer = null;
-            this.emit();
-          },
-          next.stage === "failed" ? 20000 : 4000,
-        );
+      // A finished row stays long enough to be read, then goes. A failed row stays until the owner acts or a new
+      // progress event replaces it: a failure is never cleared by a timer.
+      if (next.stage === "ready" || next.stage === "check") {
+        this.downloadTimer = setTimeout(() => {
+          this.state.download = null;
+          this.downloadTimer = null;
+          this.emit();
+        }, 4000);
       }
       this.emit();
     });
@@ -1131,24 +2007,7 @@ class AssistantModeStore {
       if (plan === "cancel" && this.speculative) {
         this.discardEager();
       } else if (plan === "start" && !this.speculative) {
-        const wake = matchWakeWord(text, wakeWord());
-        const words = text.split(/\s+/).filter(Boolean).length;
-        const accepted = acceptsVoiceTurn({
-          mode: this.state.mode,
-          paused: this.state.paused,
-          wakeMatched: wake.matched,
-          awake: Date.now() < this.awakeUntil,
-          handsFree: this.state.handsFree,
-          wakeWordRequired: this.wakeWordRequired,
-          words,
-          stop: false,
-        });
-        const command = (wake.matched ? wake.command : text).trim();
-        const preview = reduceVoice(this.conduct, command, now, {
-          quiet: !alertsAudible(),
-          meeting: this.callHold,
-          address: preferences.getSnapshot().voice.addressName,
-        });
+        const { wake, accepted, command, preview } = this.eagerCandidate(text, now);
         if (!command || !this.eagerAllowed(command)) {
           // The same gates as the final transcript: nothing starts, nothing is cut.
         } else if (preview.handled) {
@@ -1158,6 +2017,7 @@ class AssistantModeStore {
           this.startDraftRun(command);
         }
       }
+      this.shadowTurn((a) => a.partial(text, now));
       this.emit();
     });
     // A headset being plugged/unplugged kills the audio track: rebuild it.
@@ -1174,7 +2034,8 @@ class AssistantModeStore {
       let lastWhisper = Boolean(installer.getSnapshot().installed["faster-whisper"]);
       installer.subscribe(() => {
         const now = Boolean(installer.getSnapshot().installed["faster-whisper"]);
-        if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
+        // Readiness follows the install both ways on every event (an uninstall or a failed repair turns it off).
+        this.offlineVoiceReady = Boolean(installer.getSnapshot().installed["supertonic"]);
         if (now && (!lastWhisper || this.sttGaveUp)) {
           this.resetVoiceRecovery();
           this.noteVoiceTrigger("install-finished");
@@ -1182,6 +2043,8 @@ class AssistantModeStore {
         }
         lastWhisper = now;
       });
+      // FRIDAY Voice is the default speaking voice: its readiness is read once subscribed, not only on a later event.
+      this.offlineVoiceReady = Boolean(installer.getSnapshot().installed["supertonic"]);
     });
   }
 
@@ -1217,7 +2080,7 @@ class AssistantModeStore {
       this.enterAuto();
       return;
     }
-    this.state.status = "Waiting for FRIDAY to finish starting";
+    this.state.status = this.line("booting");
     this.bootWait = whenBootDone(() => {
       this.bootWait = null;
       if (this.state.mode !== "auto") return;
@@ -1239,12 +2102,37 @@ class AssistantModeStore {
   private tidyShown(heard: string): { text: string; tidy?: Caption["tidy"] } {
     const voice = preferences.getSnapshot().voice;
     if (voice.tidyDictation === false) return { text: heard };
-    const done = tidyTranscript(heard, {
+    // FRIDAY Tidy first, then spoken numbers, dates and amounts written as digits (`voice.itn`, default on).
+    return shapeHeardText(heard, {
+      tidy: true,
+      itn: voice.itn !== false,
       requested: voice.recognitionLang,
       dictionary: parseVocabulary(voice.vocabulary).map((term) => ({ heard: term, write: term })),
     });
-    if (!done.changed || !done.text.trim()) return { text: heard };
-    return { text: done.text, tidy: { raw: done.raw, changes: done.changes } };
+  }
+
+  /** How heard lines keep the script policy (Hindi in Devanagari, English in Latin): counts only, last 50 lines. */
+  private readonly scriptTally = new ScriptPolicyTally();
+
+  /**
+   * The streaming ear for the next utterance, or null when `voice.streamEngine` is off (the default). Only Auto
+   * mode's dictation asks, inside a turn it already listens to; it never opens the microphone itself.
+   */
+  private streamPlan(): StreamPlan | null {
+    const voice = preferences.getSnapshot().voice;
+    if (!streamWanted(voice.streamEngine) || this.state.mode !== "auto") return null;
+    return {
+      streamEngine: voice.streamEngine,
+      locale: streamLocale(voice.recognitionLang),
+      hotwords: streamHotwords({
+        names: [voice.addressName, voice.wakeWord],
+        // The command lane's names bias the decode (one per phonetic key), so "open Spotify" is heard as said.
+        ...(voice.understanding.commandLane
+          ? { apps: commandHints(this.commandRegistry().flatMap((entry) => entry.names)) }
+          : {}),
+        vocabulary: parseVocabulary(voice.vocabulary),
+      }),
+    };
   }
 
   /** Who a line is for: her (by name, or inside the open conversation), another assistant, or the room. */
@@ -1264,6 +2152,113 @@ class AssistantModeStore {
       speaking: this.state.speaking,
       recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
     });
+  }
+
+  /** What a provisional line would be as a turn: the wake match, whether she takes it, the command and its conduct preview. */
+  private eagerCandidate(text: string, now: number) {
+    const wake = matchWakeWord(text, wakeWord());
+    const words = text.split(/\s+/).filter(Boolean).length;
+    const accepted = acceptsVoiceTurn({
+      mode: this.state.mode,
+      paused: this.state.paused,
+      wakeMatched: wake.matched,
+      awake: Date.now() < this.awakeUntil,
+      handsFree: this.state.handsFree,
+      wakeWordRequired: this.wakeWordRequired,
+      words,
+      stop: false,
+    });
+    const command = (wake.matched ? wake.command : text).trim();
+    const preview = reduceVoice(this.conduct, command, now, {
+      quiet: !alertsAudible(),
+      meeting: this.callHold,
+      address: preferences.getSnapshot().voice.addressName,
+    });
+    return { wake, accepted, command, preview };
+  }
+
+  /**
+   * The ear's eager endpoint may start the Brain's text-only draft, through the same gates as a stable partial. It
+   * never starts the conduct preview, a tool or a run.
+   */
+  private planTurnDraft(text: string, now: number) {
+    const { wake, accepted, command, preview } = this.eagerCandidate(text, now);
+    if (!command || preview.handled || !this.eagerAllowed(command)) return;
+    if (this.holdPending(wake.matched)) return;
+    if (accepted && this.eagerAddressed(text, wake.matched)) this.startDraftRun(command, true);
+  }
+
+  /**
+   * The ear's "needs a wake word" tag (an other voice or a TV, only with `voice.ears.otherVoice` = hold). It is
+   * remembered for that turn id and read by `heldForWake` alone, which can only REFUSE a no-wake-word line.
+   */
+  private noteHold(turn: StreamTurn, now: number) {
+    const hold = preferences.getSnapshot().voice.ears.otherVoice === "hold";
+    if (hold && turn.needsWake === true) {
+      this.holdTurnId = turn.turnId;
+      this.holdSeenAt = now;
+    } else if (this.holdTurnId === turn.turnId) this.holdTurnId = "";
+  }
+
+  /**
+   * True when this final line is held to ambient: the ear tagged the turn, no wake word was heard, the conversation
+   * is closed and the owner did not push to talk. It only ADDS a requirement; it never accepts, confirms or approves.
+   */
+  private heldForWake(wakeMatched: boolean): boolean {
+    const held = this.holdPending(wakeMatched);
+    this.holdTurnId = "";
+    return held;
+  }
+
+  /** The same verdict without spending the tag, so an eager draft is not started for a turn that will be held. */
+  private holdPending(wakeMatched: boolean): boolean {
+    const tagged =
+      this.holdTurnId !== "" &&
+      this.holdTurnId === this.streamTurnId &&
+      Date.now() - this.holdSeenAt < HOLD_TURN_MS;
+    if (!tagged || wakeMatched || this.listenStyle() === "push-to-talk") return false;
+    const open =
+      Date.now() < this.followUpUntil ||
+      Date.now() < this.awakeUntil ||
+      Date.now() - this.liveWakeAt < LIVE_WAKE_MS;
+    return !open;
+  }
+
+  /**
+   * One event of the ear's turn protocol. An eager endpoint may start the draft (only with `voice.ears.eagerTurn`),
+   * a resume or a changed text throws it away. Nothing else changes: the turn itself still ends through the final
+   * transcript and every gate after it.
+   */
+  private noteStreamTurn(turn: StreamTurn) {
+    if (this.state.mode !== "auto" || this.state.paused || this.state.muted || this.callHold)
+      return;
+    const now = Date.now();
+    // The room tag can only RAISE the wake threshold (wake-guard.ts); it never lowers a gate or approves anything.
+    if (turn.env) voiceGate.wake.observeScene(turn.env, performance.now());
+    this.noteHold(turn, now);
+    // A new turn id is a new turn: its first draft is allowed again.
+    if (turn.turnId !== this.streamTurnId || now - this.partialSeenAt > DRAFT_TURN_GAP_MS)
+      this.draftsThisTurn = 0;
+    // When this turn's voice began: a yes is bound to the digest that was asked before it (answeredBefore).
+    if (turn.turnId !== this.streamTurnBegan?.turnId)
+      this.streamTurnBegan = { turnId: turn.turnId, at: now };
+    this.streamTurnId = turn.turnId;
+    for (const action of this.turnTracker.ingest(turn, now)) {
+      if (action.kind === "cancel-draft") {
+        if (this.speculativeKind === "brain") this.discardEager();
+        this.draftsThisTurn = 0;
+      } else if (!this.speculative) {
+        this.planTurnDraft(action.text, now);
+      }
+    }
+    // The Doctor's turn-taking and room rows read these counts; they are tags and numbers, never a gate.
+    noteEarsTurn({
+      lastEndMs: this.turnTracker.lastEndMs,
+      eager: this.turnTracker.eagers,
+      resumed: this.turnTracker.resumes,
+      scene: this.turnTracker.lastEnv,
+    });
+    this.shadowTurn((a) => a.ear(turn, now));
   }
 
   /**
@@ -1336,11 +2331,16 @@ class AssistantModeStore {
    * never shown or spoken). One draft per turn, and none while a turn runs. A refusal means nothing starts, and
    * the final transcript runs as an ordinary turn. A draft never counts as a spoken user line (no pendingUserEcho).
    */
-  private startDraftRun(command: string) {
-    // The owner's switch (Settings > Voice, off by default): without it no guess is ever made.
-    if (preferences.getSnapshot().voice.eagerTurn !== true) return;
+  private startDraftRun(command: string, viaTurn = false) {
+    // The owner's switch (Settings > Voice, off by default): without it no guess is ever made. An eager endpoint of
+    // the streaming ear has its own, `voice.ears.eagerTurn`, also off by default.
+    const earsEager = viaTurn && preferences.getSnapshot().voice.ears.eagerTurn === true;
+    if (!earsEager && preferences.getSnapshot().voice.eagerTurn !== true) return;
     if (this.draftsThisTurn >= 1 || brain.getSnapshot().activeRunId) return;
-    const started = brain.startDraft(command);
+    const started = brain.startDraft(command, {
+      ...(viaTurn ? { onlyLocal: true } : {}),
+      ...this.turnHintsOption(),
+    });
     if (!started.started) return;
     this.draftsThisTurn += 1;
     this.speculative = command;
@@ -1567,8 +2567,8 @@ class AssistantModeStore {
 
   /**
    * Hands-free conversation on/off. The owner’s choice is remembered.
-   * Auto mode turns it on in memory when nothing was saved, without writing
-   * the key, so a fresh profile is not persisted as an explicit opt-in.
+   * Hands-free starts off; only a stored `true` opens it, and a fresh profile
+   * writes nothing, so it is never saved as an explicit opt-in.
    */
   setHandsFree(on: boolean, persist = true) {
     this.wakeWordRequired = !on;
@@ -1612,12 +2612,22 @@ class AssistantModeStore {
     if (muted) this.discardEager();
     if (whisperMutePlan(muted).stop) this.cancelSpeech();
     if (muted) clearEchoReference("muted");
+    if (muted) {
+      // Like the tray pause: a waiting order, a waiting read-back and a voiced prompt are dropped, so a yes after
+      // unmute binds to nothing (a task still waiting is answered on the screen).
+      this.state.pending = null;
+      this.pendingHeard = null;
+      this.approvalAsked = null;
+      this.approvalSpoken = null;
+      this.approvalPrompt = null;
+      this.askSound = null;
+    }
     if (muted && this.state.mode === "auto") {
       this.stopRecognition();
       voiceGate.release("auto-mode");
       this.autoMicDeferred = true;
       this.state.micReady = false;
-      this.state.status = "Muted. Microphone is off";
+      this.state.status = this.line("muted");
     } else if (!muted && this.state.mode === "auto" && !this.state.paused && !this.stopped()) {
       this.gateRelease();
       this.resetVoiceRecovery();
@@ -1626,6 +2636,11 @@ class AssistantModeStore {
         this.openAutoMic();
       }
       this.startRecognition();
+    }
+    if (muted) {
+      // After the live mute took effect; the shadow's numbers and audio go with the closed microphone.
+      this.shadowTurn((a) => a.control("mute", Date.now()));
+      this.dropTurnShadow();
     }
     this.emit();
   }
@@ -1655,14 +2670,28 @@ class AssistantModeStore {
     this.state.mic = status;
     this.state.micReady = status.available;
     if (status.available) {
-      if (this.state.error?.startsWith("microphone")) this.state.error = null;
+      this.clearMicError();
     } else if (status.state === "permission-required") {
-      this.state.error = "microphone: permission required";
+      this.setMicError("microphone: permission required", status.state);
     } else if (status.reason) {
-      this.state.error = `microphone: ${status.reason}`;
+      this.setMicError(`microphone: ${status.reason}`, status.state);
     }
     this.emit();
     return status;
+  }
+
+  /** The microphone fault on screen is one plain sentence; the raw reason stays in the trace. */
+  private setMicError(raw: string, state: MicStatus["state"]) {
+    this.trace("error", raw);
+    this.micErrorLine = plainFaultLine(raw, this.lineLang(), {
+      ...(state !== "available" ? { micState: state } : {}),
+    });
+    this.state.error = this.micErrorLine;
+  }
+
+  private clearMicError() {
+    if (this.micErrorLine && this.state.error === this.micErrorLine) this.state.error = null;
+    this.micErrorLine = "";
   }
 
   /**
@@ -1717,7 +2746,13 @@ class AssistantModeStore {
   /** What the speech model said about the last utterance: how sure it was of the words and the language. */
   private lastHeardQuality: HeardQuality | null = null;
   /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
-  private pendingHeard: { command: string; at: number } | null = null;
+  /** A read-back waiting for a yes; `ttlMs` (the approval window) when a snap or a repair asked, else 25 s. */
+  private pendingHeard: {
+    command: string;
+    at: number;
+    turn?: TurnHints | undefined;
+    ttlMs?: number;
+  } | null = null;
   /** When she last read words back: she does not do it twice in a row. */
   private lastReadBackAt = 0;
 
@@ -1773,9 +2808,13 @@ class AssistantModeStore {
     }
     if (phase === this.pttShown) return;
     this.pttShown = phase;
-    if (phase === "listening") this.state.status = "Listening";
-    else if (phase === "finishing") this.state.status = "Finishing";
-    else if (this.state.status === "Listening" || this.state.status === "Finishing")
+    if (phase === "listening") this.state.status = this.line("listening");
+    else if (phase === "finishing") this.state.status = this.line("finishing");
+    else if (
+      [STATUS_LINES.listening, STATUS_LINES.finishing].some((row) =>
+        (Object.values(row) as string[]).includes(this.state.status),
+      )
+    )
       this.state.status = stateLabel(this.state.voiceState);
     this.emit();
   }
@@ -1808,8 +2847,7 @@ class AssistantModeStore {
 
   /** The echo reference is cleaning the microphone frames right now (it is on, attached and has cleaned some). */
   private echoReferenceLive(): boolean {
-    const echo = echoDiagnostics();
-    return echo.enabled && echo.attached && echo.cancelledFrames > 0;
+    return echoReferenceRunning(echoDiagnostics());
   }
 
   /** The wake turned out wrong (her own voice, or nothing followed): she sleeps and stays quiet for a while. */
@@ -1960,6 +2998,7 @@ class AssistantModeStore {
               ? `I can't hear you — ${failed.reason}.`
               : "I can't hear you — no working microphone was found.",
             "Microphone unavailable",
+            true,
           );
           this.scheduleSttRecovery(failed.reason || "microphone did not open");
           this.emit();
@@ -1984,6 +3023,7 @@ class AssistantModeStore {
               ? `I can't hear you — ${status.reason}.`
               : "I can't hear you — no working microphone was found.",
             "Microphone unavailable",
+            true,
           );
           this.scheduleSttRecovery(
             status.reason
@@ -2012,7 +3052,7 @@ class AssistantModeStore {
       const previous = preferences.getSnapshot().voice.inputDeviceId || null;
       const next = rememberDevice(worked, previous);
       if (next && next !== previous) preferences.setVoice({ inputDeviceId: next });
-      if (this.state.error?.startsWith("microphone")) this.state.error = null;
+      this.clearMicError();
       this.emit();
     });
   }
@@ -2030,14 +3070,13 @@ class AssistantModeStore {
     this.soak.start(Date.now());
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
-    if (!this.wakeWordRequired) this.state.handsFree = true;
     voiceGate.wake.setHandsFree(this.state.handsFree);
     this.gateRelease();
     this.state.error = null;
     // Turning Auto Mode on is an explicit request — retry the engine now.
     this.resetVoiceRecovery();
     this.to("session-start");
-    this.state.status = "Starting microphone…";
+    this.state.status = this.line("starting-mic");
     void this.refreshWakeEngine(true);
     this.spokenUpTo = brain.getSnapshot().messages.length;
     this.unBrain = brain.subscribe(() => this.speakNewReplies());
@@ -2048,7 +3087,7 @@ class AssistantModeStore {
       this.autoMicDeferred = true;
       if (this.stopped()) this.followKillSwitch();
       this.to("pause");
-      this.state.status = this.stopped() ? "Stopped. Stop everything is on" : "Microphone paused";
+      this.state.status = this.line(this.stopped() ? "stopped" : "paused");
     } else {
       this.openAutoMic();
     }
@@ -2110,7 +3149,7 @@ class AssistantModeStore {
     this.callHold = meeting;
     if (meeting) {
       this.stopRecognition();
-      this.state.status = "Paused — a call is open";
+      this.state.status = this.line("call-open");
     } else if (this.state.mode === "auto" && !this.state.paused) {
       this.startRecognition();
       this.afterQuiet(); // what the call held back, as text
@@ -2157,6 +3196,7 @@ class AssistantModeStore {
     this.soak.stop(Date.now());
     // Nothing from this Auto session may survive into the next one: queued requests, a paused reply, a spent wake.
     this.queuedCommands = [];
+    this.queuedHints.clear();
     this.stopQueueTimer();
     this.liveWakeAt = 0;
     this.translateTo = null;
@@ -2165,6 +3205,9 @@ class AssistantModeStore {
     if (this.interruptHold?.timer) clearTimeout(this.interruptHold.timer);
     this.interruptHold = null;
     this.endInterruptCandidate(true);
+    // The shadow's numbers and audio belong to this Auto session; a fault flag is cleared for the next one.
+    this.dropTurnShadow();
+    this.turnShadowBroken = false;
     // A note that was running stops with the microphone: the banner must never show a recording that is not heard.
     voiceNotes.stop();
     this.cancelVoiceRecoveryTimer();
@@ -2189,7 +3232,7 @@ class AssistantModeStore {
     this.state.pending = null;
     this.to("stopped");
     this.state.speaking = false;
-    this.state.status = "Manual mode";
+    this.state.status = this.line("manual");
     try {
       window.speechSynthesis?.cancel();
     } catch {
@@ -2222,7 +3265,7 @@ class AssistantModeStore {
       this.recognitionPending = false;
       return;
     }
-    this.state.status = "Preparing speech model…";
+    this.state.status = this.line("preparing-model");
     this.emit();
     const ladder = chooseStt({
       whisperCpp: false,
@@ -2403,13 +3446,20 @@ class AssistantModeStore {
   }
 
   /** The bound yes or no to the restart question. A yes redoes the tasks, a no drops them. False when it is not that. */
-  private answerRestartAsk(text: string, route: Route): boolean {
+  private answerRestartAsk(text: string, route: Route, room: AddressFacts | null = null): boolean {
     const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
     if (id !== RESTART_ASK) return false;
     const ask = this.restartAsk;
     if (!ask || !route.verdict) {
       this.approvalAsked = null;
       return false;
+    }
+    if (route.verdict === "yes") {
+      const refusal = this.yesRefusal(this.promptEndsAt(RESTART_ASK), room);
+      if (refusal) {
+        this.refuseYes(text, refusal, RESTART_ASK);
+        return true;
+      }
     }
     if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
     this.approvalAsked = null;
@@ -2423,7 +3473,7 @@ class AssistantModeStore {
         { priority: "direct" },
       );
     }
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
     return true;
   }
@@ -2492,6 +3542,7 @@ class AssistantModeStore {
     if (verdict.remedy === "reopen-mic" || verdict.remedy === "restart-speech") {
       this.applyVoiceHeal(verdict.fault, false);
     }
+    if (verdict.remedy === "restart-tts") this.requestTtsRestart();
     this.forceListening(verdict.reason);
     // Never fail silently: the first few are mended quietly, a run of them is said once.
     if (this.interventions >= 3 && !this.reportedStuck) {
@@ -2510,6 +3561,53 @@ class AssistantModeStore {
       );
       this.caption("friday", line);
       this.emit();
+    }
+  }
+
+  private ttsFailStreak = 0;
+  private ttsRestartAsked = false;
+  /** Until when the local speaker's breaker counts as open (set from the restart answer, never from a guess). */
+  private supertonicBreakerUntil = 0;
+
+  private supertonicBreakerOpen(): boolean {
+    return Date.now() < this.supertonicBreakerUntil;
+  }
+
+  /**
+   * Speech output succeeded or failed. The second failure in a row asks the main process to drop the local speaker
+   * (a hung one holds every later clause), once per failure streak: a success starts a new streak, and the restart
+   * says nothing itself, because a still-failing voice already shows "voice output failed".
+   */
+  private noteTtsOutcome(ok: boolean) {
+    if (ok) {
+      this.ttsFailStreak = 0;
+      this.ttsRestartAsked = false;
+      return;
+    }
+    this.ttsFailStreak += 1;
+    if (this.ttsFailStreak >= 2 && !this.ttsRestartAsked) {
+      this.ttsRestartAsked = true;
+      this.requestTtsRestart();
+    }
+  }
+
+  /** Ask for the speaker restart. A bridge without it, a refusal and a throw are all quiet. */
+  private requestTtsRestart() {
+    const ask = desktop()?.restartTts;
+    if (typeof ask !== "function") return;
+    this.trace("heal", "speaker restart requested");
+    try {
+      void ask()
+        .then((answer) => {
+          // The main process says the local speaker keeps crashing and is paused: FRIDAY Voice leaves the ladder for the
+          // length of the worker's own cool-down (it opens one probe after that), so no line waits on a paused voice.
+          if (answer?.state === "breaker-open")
+            this.supertonicBreakerUntil = Date.now() + SPEAKER_BREAKER_COOL_MS;
+          this.trace("heal", `speaker restart: ${answer?.state ?? "no answer"}`);
+        })
+        .catch(() => this.trace("heal", "speaker restart: failed"));
+    } catch {
+      this.trace("heal", "speaker restart: failed");
     }
   }
 
@@ -2685,7 +3783,16 @@ class AssistantModeStore {
       return;
     }
     if (action === "show-mic-privacy") {
-      this.state.status = "Settings > Privacy > Microphone, allow desktop apps.";
+      // Windows owns the privacy switch: open its page, and say where it is when the page cannot open.
+      this.state.status = this.line("mic-privacy");
+      void desktop()
+        ?.openExternalUrl?.(MIC_PRIVACY_LINK)
+        .then((result) => {
+          if (!result?.ok) return;
+          this.state.status = this.line("mic-privacy-opened");
+          this.emit();
+        })
+        .catch(() => undefined);
       return;
     }
     if (action === "resume-audio-context") {
@@ -2793,6 +3900,33 @@ class AssistantModeStore {
     );
   }
 
+  /** What answer she waits for: a yes or no while a read-back, a confirmation or an approval is open, else dictation. */
+  private turnExpect(): TurnExpect | undefined {
+    if (this.state.pending || this.pendingHeard || this.approvalAsked || this.restartAsk)
+      return "yesno";
+    if (brain.getSnapshot().approval) return "yesno";
+    if (voiceNotes.active() || this.translateTo) return "dictation";
+    return undefined;
+  }
+
+  /** The language of the conversation for the unfinished-sentence wait: the last turn's, else the chosen one. */
+  private turnEotLang(): EotLang | undefined {
+    const lang =
+      this.turnHints()?.lang || streamLocale(preferences.getSnapshot().voice.recognitionLang);
+    return lang === "hi" ? "hi" : lang === "en" ? "en" : lang === "hi-en" ? "hinglish" : undefined;
+  }
+
+  /** The speech worker is in a crash loop: the status says so in the owner's language, with the retry time. */
+  private showListeningPaused(pause: ListeningPause) {
+    const lang = this.turnHints()?.lang;
+    const line =
+      lang === "hi" ? pause.lines.hi : lang === "hi-en" ? pause.lines.hinglish : pause.lines.en;
+    const seconds = Math.max(1, Math.ceil(pause.retryAfterMs / 1000));
+    this.trace("error", `speech worker paused after repeated crashes, retry in ${seconds} s`);
+    this.state.status = `${line} (${seconds} s)`;
+    this.emit();
+  }
+
   private startDesktopDictation() {
     void refreshVoiceProfile();
     this.stopWakeOnly();
@@ -2827,6 +3961,18 @@ class AssistantModeStore {
       },
       // How the utterance scores against the owner's saved voice. Null and instant when no voice is saved.
       voiceProbe: ({ audioBytes, mime }) => scoreUtterance({ audioBytes, mime }),
+      // The streaming ear (`voice.streamEngine`, off by default): its partials take the live-words path, its final
+      // stands in for the decode, and any refusal leaves the ordinary decode to read the same audio.
+      streamPlan: () => this.streamPlan(),
+      onStreamPartial: (update) => {
+        this.startLiveWords();
+        this.liveWords?.show(update);
+      },
+      // The end-of-turn wait reads what she expects (a yes, dictation), the owner's language and the words so far.
+      turnExpect: () => this.turnExpect(),
+      turnLang: () => this.turnEotLang(),
+      turnTail: () => this.state.interim,
+      onListeningPaused: (pause) => this.showListeningPaused(pause),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         // A turn whose budget was already recorded at its first sound adds only its stage gaps here.
@@ -2847,6 +3993,8 @@ class AssistantModeStore {
         // Barge-in: FRIDAY stops talking the moment the owner starts.
         // Speech from the owner while she speaks: with the gate on it only lowers her volume until words decide
         // (`beginInterruptCandidate`); with it off, voice activity pauses her at once as before.
+        this.turnRecordLive = false;
+        this.heardSpeaker = null;
         // A draft started in a pause of this sentence is stale the moment the voice resumes.
         if (this.speculativeKind === "brain") this.discardEager();
         if (this.state.speaking) {
@@ -2925,6 +4073,19 @@ class AssistantModeStore {
       },
       onFinal: (text, meta) => {
         const trimmed = text.trim();
+        if (trimmed) {
+          const check = this.scriptTally.note(
+            trimmed,
+            meta?.quality?.language || preferences.getSnapshot().voice.recognitionLang,
+          );
+          if (!check.clean) {
+            const total = this.scriptTally.summary();
+            this.trace(
+              "segment",
+              `script: ${check.violations.length} word(s) off the script policy · ${total.violating}/${total.samples} recent lines`,
+            );
+          }
+        }
         // Which recogniser may make the turn is decided in one place (stt-authority.ts). By default the local text goes
         // straight through; when the owner made Sarvam the authority it waits briefly for the cloud sentence.
         if (trimmed) this.rememberLocalMeta(trimmed, meta);
@@ -2937,6 +4098,7 @@ class AssistantModeStore {
         if (listening === "thinking") stampEndpoint(this.turnStages, this.endpointHoldMs());
         if (listening === "listening") {
           this.soak.recovered();
+          this.shownMicFault = "";
           this.to("mic-opened");
           this.announceReady();
         } else if (listening === "thinking") this.to("transcribe-start");
@@ -2952,10 +4114,10 @@ class AssistantModeStore {
       },
       onError: (message) => {
         const current = this.dictation;
-        this.state.error = `voice: ${message}`;
+        this.state.error = this.plainFault(`voice: ${message}`);
         this.state.stt = { ...this.state.stt, lastError: message };
         this.to("error");
-        this.state.status = "Voice error";
+        this.state.status = this.line("voice-error");
         this.trace("error", message);
         this.emit();
         if (current?.active) return;
@@ -3165,6 +4327,23 @@ class AssistantModeStore {
    * becomes a notification. Raw tool output never reaches the speaker; a SENSITIVE task gets a neutral line.
    */
   narrateTask(update: TaskUpdate, task: VoiceTask) {
+    // A task the owner cancelled is settled: a late result, failure or step of it is dropped, never said.
+    if (this.taskSpeech.isSettled(task.id)) {
+      this.taskSpeech.dropped += 1;
+      this.trace("dropped", "a late update of a cancelled task");
+      return;
+    }
+    if (update.kind === "cancelled") {
+      const event = toVoiceTaskEvent(update, {
+        seq: 0,
+        now: Date.now(),
+        turnSeqAtStart: 0,
+        risk: this.taskRiskClass(task),
+        verified: false,
+        foreground: false,
+      });
+      this.taskSpeech.route(event, 0, this.narrationLang());
+    }
     // What is said about a task is judged by its label AND by what it answered or failed with: a harmless label can
     // end with a private answer.
     const base = this.narrationCtx(this.taskIsSensitive(task));
@@ -3311,6 +4490,7 @@ class AssistantModeStore {
   }
 
   private setAwake() {
+    this.shadowTurn((a) => a.control("wake", Date.now()));
     this.awakeUntil = Date.now() + AWAKE_MS();
     this.state.awake = true;
     if (this.awakeTimer) window.clearTimeout(this.awakeTimer);
@@ -3318,7 +4498,7 @@ class AssistantModeStore {
       if (Date.now() >= this.awakeUntil) {
         this.state.awake = false;
         this.state.status = this.state.pending
-          ? "Waiting for confirmation"
+          ? this.line("waiting-confirm")
           : stateLabel(this.state.voiceState);
         this.emit();
       }
@@ -3335,6 +4515,13 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // The words as heard, before any rewrite: a yes is refused when they say no (yesRefusal).
+    const raw = this.heardRaw;
+    this.heardRawLines = raw && raw !== text ? [text, raw] : [text];
+    // The room tags of this final are spent here, so a later line never reads another turn's scene.
+    const room = this.addressFacts;
+    this.addressFacts = null;
+    const sinceLastTurnMs = this.lastOwnerAt > 0 ? Date.now() - this.lastOwnerAt : null;
     this.lastOwnerAt = Date.now();
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
     // into a one or two word "command". Anything short that the signal-level
@@ -3405,12 +4592,26 @@ class AssistantModeStore {
     // She read the words back and is waiting: a yes goes ahead with them, a no drops them, anything else is a new request.
     const readBack = this.pendingHeard;
     this.pendingHeard = null;
-    if (readBack && Date.now() - readBack.at <= HEARD_CONFIRM_MS) {
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+    if (readBack && Date.now() - readBack.at <= (readBack.ttlMs ?? HEARD_CONFIRM_MS)) {
+      if (
+        isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes") &&
+        this.yesRefusal(null, room) === null
+      ) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
-        // A yes confirms what was HEARD. A consequential command still has to be approved as an action.
-        this.routeCommand(readBack.command);
+        // A yes confirms what was HEARD. A consequential command still has to be approved as an action. The command
+        // replays with the hints it was heard with, minus the doubt the read-back already settled; the yes's own
+        // language and score never speak for it.
+        const heardWith = readBack.turn
+          ? { ...readBack.turn, confidence: null, clipped: false }
+          : undefined;
+        const priorReplay = this.replayTurn;
+        this.replayTurn = { hints: heardWith };
+        try {
+          this.routeCommand(readBack.command);
+        } finally {
+          this.replayTurn = priorReplay;
+        }
         return;
       }
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "no")) {
@@ -3418,7 +4619,7 @@ class AssistantModeStore {
           languageId(readBack.command) === "en" ? "Okay, say it again." : "Theek hai, dobara bolo.";
         this.caption("user", text);
         this.caption("friday", again);
-        this.state.status = "Listening";
+        this.state.status = this.line("listening");
         this.emit();
         this.speak(again);
         return;
@@ -3441,7 +4642,8 @@ class AssistantModeStore {
         spoken !== null &&
         taskId !== undefined &&
         spoken.at >= waiting.at &&
-        spoken.taskId === taskId;
+        spoken.taskId === taskId &&
+        spoken.ended !== false;
       const answer = this.routeHeard(text, {
         askedAt: heardPrompt && spoken ? spoken.at : waiting.at,
         ...(taskId ? { taskId } : {}),
@@ -3456,6 +4658,14 @@ class AssistantModeStore {
       }
       if (answer.kind === "approval-answer") {
         if (answer.verdict === "yes" && !this.approvalVoiceAllows(text)) return;
+        const refusal =
+          answer.verdict === "yes" && heardPrompt && spoken
+            ? this.yesRefusal(spoken.at, room)
+            : null;
+        if (refusal) {
+          this.refuseYes(text, refusal, taskId);
+          return;
+        }
         const stillWaiting =
           run !== undefined && live.activeRunId === run.id && run.state === "awaiting-approval";
         // A no is always safe to take; a yes needs the prompt to have sounded and the run to still wait.
@@ -3480,36 +4690,80 @@ class AssistantModeStore {
 
     // 1. A consequential command is waiting for a yes/no.
     if (this.state.pending) {
-      if (!approvalFresh(this.state.pending.at, Date.now())) {
+      // The window counts from the end of the read-back, not from the moment the digest was built.
+      const open = this.state.pending;
+      const asked = this.soundedDigest(open.digest ?? this.confirmDigestFor(open.command, open.at));
+      if (!approvalFresh(asked.askedAt, Date.now(), this.approvalTtl())) {
         this.state.pending = null;
         this.supersedeOnConfirm = null;
         this.remember("approval-expired", text, "dropped");
         const expired = this.variedLine("expired", text);
         this.caption("friday", expired);
-        this.state.status = "Confirmation expired";
+        this.state.status = this.line("confirm-expired");
         this.emit();
         this.speak(expired);
         return;
       }
-      if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
+      // The answer is judged against the digest she read: her own played-back words, a claim of authority, a yes
+      // that names another amount or person, or a doubtful yes to a full read-back never approve. Who said it is
+      // not an input here; the saved voice can only refuse a yes afterwards (approvalVoiceAllows).
+      const pending = open;
+      const digest = pending.digest ?? asked;
+      const band = this.heardEar?.asrBand ?? null;
+      const ruling = explainDigestAnswer(this.soundedDigest(digest), text, Date.now(), {
+        ownPlayback: this.ownPlaybackHeard(text),
+        ...(band ? { asrBand: band } : {}),
+      });
+      if (ruling.reason === "self-echo") {
+        this.trace("dropped", "her own read-back is not an answer");
+        this.emit();
+        return;
+      }
+      if (typeof ruling.answer === "object") {
+        this.correctPending(pending, ruling.answer.digest, text);
+        return;
+      }
+      if (
+        ruling.answer === "unclear" &&
+        (ruling.reason === "mismatch" || ruling.reason === "low-asr")
+      ) {
+        this.reaskDigest(digest, text, ruling.reason);
+        return;
+      }
+      if (
+        ruling.answer === "yes" &&
+        isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")
+      ) {
+        if (this.answeredBefore(digest)) {
+          this.reaskDigest(digest, text, "older yes");
+          return;
+        }
+        // A no in the words as heard, or a TV, music or other voice in the room: never a yes to this digest.
+        const refusal = this.yesRefusal(null, room);
+        if (refusal) {
+          this.reaskDigest(digest, text, refusal);
+          return;
+        }
         if (!this.approvalVoiceAllows(text)) return;
         const cmd = this.state.pending.command;
+        const cmdHints = this.state.pending.hints;
         this.state.pending = null;
         this.to("confirm-resolved");
         this.remember("confirmed", text, cmd);
         this.caption("user", text);
-        this.state.status = "Confirmed — running";
+        this.state.status = this.line("confirmed");
         this.emit();
-        this.runApproved(cmd);
+        this.runApproved(cmd, cmdHints);
         return;
       }
-      if (confirmationVerdict(text) === "no") {
+      // A no is always safe to take, bound or not; a second correction is a no too.
+      if (ruling.answer === "no" || confirmationVerdict(text) === "no") {
         this.state.pending = null;
         this.supersedeOnConfirm = null;
         this.caption("user", text);
         const dropped = this.variedLine("cancelled", text);
         this.caption("friday", dropped);
-        this.state.status = "Cancelled";
+        this.state.status = this.line("cancelled");
         this.emit();
         this.speak(dropped);
         return;
@@ -3593,7 +4847,13 @@ class AssistantModeStore {
     }
     const awake = Date.now() < this.awakeUntil;
     const stop = this.isStopHeard(text, wake.matched);
-    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools));
+    const held =
+      !stop &&
+      decision.answer &&
+      (this.heldForWake(wake.matched) ||
+        this.addressednessAddsWake(text, wake.matched, room, sinceLastTurnMs));
+    if (held) voiceGate.wake.noteHeldTurn(performance.now());
+    const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools && !held));
     this.trace(
       "wake",
       wake.matched
@@ -3602,9 +4862,16 @@ class AssistantModeStore {
           ? awake
             ? "already awake — no wake word needed"
             : "hands-free — treated as a request"
-          : "no wake word, not awake, not a hands-free turn",
+          : held
+            ? "other voice or TV tagged, no wake word: held as ambient"
+            : "no wake word, not awake, not a hands-free turn",
     );
     if (accepted) this.liveWakeAt = 0; // a live wake covers one line, then it is spent
+    // While she speaks, a quietening verb (stop, mute, pause, quieter) needs no wake word; a held line, or one heard
+    // over a TV or music scene, never acts.
+    const roomPlays = room?.scene?.kind === "tv" || room?.scene?.kind === "music";
+    if (!accepted && !held && !roomPlays && this.micAllowed() && this.commandLaneTakes(text, false))
+      return;
     if (!accepted) {
       markTurnStage(
         "routed",
@@ -3614,11 +4881,12 @@ class AssistantModeStore {
           : "listening is paused or not in Auto mode",
       );
       this.to("wake-missed");
-      this.state.status = "Say “FRIDAY …” to start";
+      this.state.status = this.idleLine();
       this.emit();
       return;
     }
-    const command = (wake.matched ? wake.command : text).trim();
+    const heardCommand = (wake.matched ? wake.command : text).trim();
+    let command = heardCommand;
     if (wake.matched && !command && wakeOnCooldown(Date.now(), this.lastWakeAt)) {
       this.trace("dropped", "wake word repeated inside the cooldown");
       markTurnStage("routed", false, "wake word repeated inside the cooldown");
@@ -3631,6 +4899,13 @@ class AssistantModeStore {
     this.turnStages.mark("sttFinalReceived");
     this.turnStages.mark("brainRequestStarted");
     this.to("wake-matched");
+    // A spoken self-repair ("do nahi nahi teen") acts on the repaired line; the raw words stay in the transcript and
+    // the audit. A repair that changes a number, a name, a target or a consequential order is read back first.
+    if (command) {
+      const repair = this.selfRepairOf(command, text);
+      if (repair === "asked") return;
+      if (repair) command = repair;
+    }
     // One router names what this line is for (see utterance-router). It reads, it never acts: a yes it finds is
     // only an answer, and the approval paths below decide. Task words act on tasks, a plain stop never does.
     const route = this.routeHeard(command || text, this.approvalAsked);
@@ -3638,20 +4913,20 @@ class AssistantModeStore {
       this.approvalAsked = null;
       const line = "That approval timed out. Ask me again if you still want it.";
       this.caption("friday", line);
-      this.state.status = "Approval expired";
+      this.state.status = this.line("approval-expired");
       this.emit();
       this.speak(line);
       return;
     }
-    if (route.kind === "approval-answer" && this.answerRestartAsk(text, route)) return;
-    if (route.kind === "approval-answer" && this.answerTaskApprovalAloud(text, route)) return;
+    if (route.kind === "approval-answer" && this.answerRestartAsk(text, route, room)) return;
+    if (route.kind === "approval-answer" && this.answerTaskApprovalAloud(text, route, room)) return;
     if (route.kind === "task-control" || (route.kind === "status" && this.liveTasks() > 0)) {
       this.trace("wake", `task control — ${route.action ?? route.kind} (${route.reason})`);
       markTurnStage("routed", true, "", "task control");
       this.approvalAsked = null;
       const said = this.runTaskRoute(route);
       if (said) this.speak(said);
-      this.state.status = "Listening";
+      this.state.status = this.line("listening");
       this.emit();
       return;
     }
@@ -3687,6 +4962,7 @@ class AssistantModeStore {
     if (this.isStopHeard(text, wake.matched)) {
       this.trace("wake", "stop word — cancelling speech and the in-flight turn");
       this.queuedCommands = [];
+      this.queuedHints.clear();
       this.stopQueueTimer();
       markTurnStage("routed", true, "", "stop word");
       this.cancelSpeech();
@@ -3696,7 +4972,7 @@ class AssistantModeStore {
         this.followUpUntil = 0;
         this.state.awake = false;
       }
-      this.state.status = "Stopped — listening";
+      this.state.status = this.line("stopped-listening");
       this.emit();
       return;
     }
@@ -3716,7 +4992,7 @@ class AssistantModeStore {
       this.expectCommandAfterWake();
       const ready = this.variedLine("wake", text);
       this.caption("friday", ready);
-      this.state.status = "Awake — go ahead";
+      this.state.status = this.line("awake");
       this.emit();
       this.speak(ready);
       return;
@@ -3729,10 +5005,11 @@ class AssistantModeStore {
     if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
     this.wakeFalseTimer = null;
     const lastCaption = this.state.captions[this.state.captions.length - 1];
-    const shown = this.tidyShown(command);
+    // The transcript keeps what was said: a self-repair shows the raw line, the repaired one goes on.
+    const shown = this.tidyShown(heardCommand);
     if (!(
       lastCaption?.who === "user" &&
-      (lastCaption.text.includes(command) || lastCaption.text.includes(shown.text))
+      (lastCaption.text.includes(heardCommand) || lastCaption.text.includes(shown.text))
     )) {
       this.caption("user", shown.text, false, {
         tag: "addressed",
@@ -3772,16 +5049,22 @@ class AssistantModeStore {
     if (doubtful && !sensitive && !askedLately) {
       const ask = heardQuestion(command);
       this.pendingHeard = { command, at: Date.now() };
+      // The hints this command was heard with go with it, so a later yes cannot speak for it (see replayWith).
+      const heardTurn = this.turnHints();
+      if (heardTurn) this.pendingHeard.turn = heardTurn;
       this.lastReadBackAt = Date.now();
       markTurnStage("routed", false, "read back — waiting for a yes");
       this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
       this.caption("friday", ask);
-      this.state.status = "Waiting for yes or no";
+      this.state.status = this.line("waiting-yesno");
       this.emit();
       this.speak(ask);
       return;
     }
 
+    // The closed-vocabulary command lane (stop, mute, open a known name) answers without the Brain; a miss falls
+    // through. A doubtful line was read back above with the words as heard, before any snap.
+    if (this.commandLaneTakes(command, true)) return;
     this.ackTurnKind = route.kind;
     this.routeCommand(command, route.kind === "new-task" && route.needsConfirm === true);
   }
@@ -3809,6 +5092,172 @@ class AssistantModeStore {
       busy:
         Boolean(brain.getSnapshot().activeRunId) || tasks.some((t) => !TERMINAL.includes(t.state)),
     });
+  }
+
+  /**
+   * The addressedness gate on a final with no wake word: a TV or music scene, another voice, narration, a doubtful
+   * decode, a long run of speech or a stale conversation may ADD a wake requirement (see addressedness.ts). It never
+   * lowers one, never accepts and never approves: the base rule here is "no wake needed", so only an added one holds.
+   */
+  private addressednessAddsWake(
+    text: string,
+    wakeMatched: boolean,
+    room: AddressFacts | null,
+    sinceLastTurnMs: number | null,
+  ): boolean {
+    if (wakeMatched || this.listenStyle() === "push-to-talk") return false;
+    const now = Date.now();
+    const verdict = judgeAddressedness({
+      text,
+      lang: this.turnHints()?.lang ?? "",
+      baseRequireWake: false,
+      wakeHeard: false,
+      // A follow-up is her own open question or a live wake; the hands-free attention window is not one.
+      followUp: now < this.followUpUntil || now - this.liveWakeAt < LIVE_WAKE_MS,
+      expectingAnswer: Boolean(this.state.pending || this.approvalAsked || this.restartAsk),
+      handsFree: this.state.handsFree,
+      ...(room?.scene ? { scene: room.scene } : {}),
+      ...(room?.speaker ? { speaker: room.speaker } : {}),
+      asrLogProb: this.lastHeardQuality?.avgLogprob ?? null,
+      sinceLastTurnMs,
+      speechMs: this.lastSpeechMs,
+    });
+    if (verdict.requireWake)
+      this.trace(
+        "wake",
+        `addressedness ${verdict.addressed} (${verdict.reasons.join(", ")}): wake word required`,
+      );
+    return verdict.requireWake;
+  }
+
+  /**
+   * A mid-sentence self-repair (`voice.understanding.selfRepair`, on by default): the repaired line, or "asked" when
+   * the repair is consequential and was read back (a fresh yes then routes the repaired line through every check),
+   * or null when there is none. The raw words go to the audit with one repair line.
+   */
+  private selfRepairOf(command: string, heard: string): string | "asked" | null {
+    if (!preferences.getSnapshot().voice.understanding.selfRepair) return null;
+    // A question she asked is open: "no, I mean yes" is an answer as heard, never repaired into a yes or a no.
+    if (this.turnExpect() === "yesno") return null;
+    const lang = this.turnHints()?.lang;
+    // The wake split folds case; the same words as heard keep a name a name ("Rahul I mean Rohan").
+    const words = heard.trim().split(/\s+/);
+    const tail = words.slice(-command.split(/\s+/).length).join(" ");
+    const cased = normalizeTranscript(tail) === command ? tail : command;
+    const repair = detectSelfRepair(cased, lang ? { lang } : {});
+    if (!repair || !repair.repaired.trim()) return null;
+    // A repair that leaves a yes or a no is not a repair: the line is judged as said.
+    if (confirmationVerdict(repair.repaired) !== "unclear") return null;
+    const audit = repairAuditLine(repair);
+    this.trace("segment", audit);
+    this.remember("self-repair", repair.raw, audit);
+    if (!repair.consequential || !repair.readBack) return repair.repaired;
+    const heardTurn = this.turnHints();
+    this.pendingHeard = {
+      command: repair.repaired,
+      at: Date.now(),
+      ttlMs: this.approvalTtl(),
+      ...(heardTurn ? { turn: heardTurn } : {}),
+    };
+    this.lastReadBackAt = Date.now();
+    markTurnStage("routed", false, "self-repair read back — waiting for a yes");
+    this.caption("user", repair.raw);
+    this.caption("friday", repair.readBack);
+    this.state.status = this.line("waiting-yesno");
+    this.emit();
+    this.speak(repair.readBack);
+    return "asked";
+  }
+
+  /**
+   * The names the command lane may open, and the ear's hint list. The owner's dictionary (Settings > Voice) is the
+   * one list of names kept on this side; each entry is its own name.
+   */
+  private commandRegistry(): CommandRegistryEntry[] {
+    return parseVocabulary(preferences.getSnapshot().voice.vocabulary).map((name) => ({
+      id: `vocabulary:${name.toLocaleLowerCase()}`,
+      names: [name],
+    }));
+  }
+
+  /**
+   * The closed-vocabulary command lane (`voice.understanding.commandLane`, on by default), before the Brain. True
+   * when it answered the line. An `addressed` line (wake word, attention window, hands-free) may take any lane verb;
+   * an unaddressed one only a quietening verb while she speaks. A miss, or a verb the conduct path owns (pause,
+   * volume), falls through. An open is never run here: a snapped name goes through the same risk and approval path,
+   * and a snap to a consequential name is read back and waits for a fresh yes inside the approval window.
+   */
+  private commandLaneTakes(line: string, addressed: boolean): boolean {
+    if (!preferences.getSnapshot().voice.understanding.commandLane) return false;
+    const started = performance.now();
+    const lang = this.turnHints()?.lang;
+    const lane = routeCommandLane({
+      text: line,
+      partial: false,
+      ctx: {
+        registry: this.commandRegistry(),
+        ...(lang ? { lang: lang === "hi-en" ? ("hinglish" as const) : lang } : {}),
+      },
+      speakingNow: this.state.speaking,
+      handsFree: addressed && this.state.handsFree,
+      wakeHeard: addressed,
+    });
+    if (lane.route !== "command" || !lane.command) return false;
+    const took = this.runLaneCommand(lane.command);
+    if (took)
+      this.trace(
+        "wake",
+        `command lane — ${lane.command.command} (${lane.reason}, ${Math.round(performance.now() - started)} ms)`,
+      );
+    return took;
+  }
+
+  private runLaneCommand(hit: CommandHit): boolean {
+    const en = this.narrationLang() !== "hi";
+    switch (hit.command) {
+      case "stop":
+      case "stop-all":
+        this.queuedCommands = [];
+        this.queuedHints.clear();
+        this.stopQueueTimer();
+        markTurnStage("routed", true, "", "command lane stop");
+        this.cancelSpeech();
+        this.state.status = this.line("stopped-listening");
+        this.emit();
+        return true;
+      case "mute":
+      case "unmute":
+        markTurnStage("routed", true, "", `command lane ${hit.command}`);
+        this.setMuted(hit.command === "mute");
+        return true;
+      case "open": {
+        const target = hit.args?.target?.trim();
+        if (!target) return false;
+        const command = `open ${target}`;
+        if (hit.readBack) {
+          const ask = en ? `Open ${target}? Yes or no.` : `${target} kholun? Haan ya na.`;
+          const heardTurn = this.turnHints();
+          this.pendingHeard = {
+            command,
+            at: Date.now(),
+            ttlMs: this.approvalTtl(),
+            ...(heardTurn ? { turn: heardTurn } : {}),
+          };
+          this.lastReadBackAt = Date.now();
+          markTurnStage("routed", false, "command lane read back — waiting for a yes");
+          this.caption("friday", ask);
+          this.state.status = this.line("waiting-yesno");
+          this.emit();
+          this.speak(ask);
+          return true;
+        }
+        this.ackTurnKind = "control";
+        this.routeCommand(command);
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   /** How often she asks first: the autonomy dial, adjusted by the owner's own `voice.confirmLevel` (rare when absent). */
@@ -3839,7 +5288,11 @@ class AssistantModeStore {
   }
 
   /** A bound yes or no to a desk task that asked for approval. The speaker check still applies to a yes. */
-  private answerTaskApprovalAloud(text: string, route: Route): boolean {
+  private answerTaskApprovalAloud(
+    text: string,
+    route: Route,
+    room: AddressFacts | null = null,
+  ): boolean {
     const id = route.ref && "taskId" in route.ref ? route.ref.taskId : "";
     const waiting = id
       ? routerTasks().find((t) => t.id === id && t.state === "WAITING_FOR_APPROVAL")
@@ -3848,11 +5301,18 @@ class AssistantModeStore {
       this.approvalAsked = null;
       return false;
     }
+    if (route.verdict === "yes" && this.approvalAsked) {
+      const refusal = this.yesRefusal(this.promptEndsAt(waiting.id), room);
+      if (refusal) {
+        this.refuseYes(text, refusal, waiting.id);
+        return true;
+      }
+    }
     if (route.verdict === "yes" && !this.approvalVoiceAllows(text)) return true;
     this.approvalAsked = null;
     voiceTaskActions.approve(waiting.id, route.verdict === "yes");
     this.caption("user", text);
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
     return true;
   }
@@ -3862,31 +5322,172 @@ class AssistantModeStore {
     this.ackTurnKind = "control";
     this.supersedeOnConfirm = null;
     this.discardEager();
+    const hints = this.turnHints();
+    const at = Date.now();
+    const digest = this.confirmDigestFor(command, at);
     this.state.pending = {
       command,
       reason: approvalReason("exec", this.state.mode),
-      at: Date.now(),
+      at,
+      ...(hints ? { hints } : {}),
+      digest,
     };
-    const ask = confirmQuestion(command);
+    const ask = this.digestAsk(digest, command);
+    this.noteAskSounding(digest, ask);
     this.caption("friday", ask);
     this.to("confirm-required");
-    this.state.status = "Waiting for confirmation";
+    this.state.status = this.line("waiting-confirm");
     this.emit();
     this.speak(ask, { priority: "approval" });
     this.remember("needs-approval", command, "paused");
   }
 
+  /** The digest of an order she asks about, with the owner's yes window (`voice.approvalTtlSec`, 10-60 s). */
+  private confirmDigestFor(command: string, at: number): ConfirmDigest {
+    return buildConfirmDigest({
+      command,
+      turnId: this.heardTurnId,
+      now: at,
+      ttlSec: preferences.getSnapshot().voice.approvalTtlSec,
+      kind: voiceConfirmKind(command),
+    });
+  }
+
+  /**
+   * What she asks. A digest that names where or how much (an amount, a person, a place) is read in full; any other
+   * order keeps the short question, which already says what will be done.
+   */
+  private digestAsk(digest: ConfirmDigest, command: string): string {
+    const full = digest.mode === "explicit" && Boolean(digest.amount || digest.target);
+    return full ? confirmDigestLine(digest) : confirmQuestion(command);
+  }
+
+  /**
+   * A yes that began before this digest was asked answers an older question (one she has since corrected), never
+   * this one. Known only for a turn the ear framed; a turn without that timing is judged on its words alone.
+   */
+  private answeredBefore(digest: ConfirmDigest): boolean {
+    // Against a full read-back whose end is known, an unknown start is put early (the safe side).
+    const began = this.yesBeganAt(this.askSound?.digestId === digest.id);
+    const end = this.askEndsAt(digest);
+    return end === Number.POSITIVE_INFINITY || (began !== null && began < end);
+  }
+
+  /**
+   * Her own words coming back while her voice or its room tail can still be heard (the same window as the intake's
+   * echo drop), or the acknowledgement that just sounded: never an answer. Words that repeat her prompt's own tail
+   * ("say yes to confirm") are refused by the digest itself at any time.
+   */
+  private ownPlaybackHeard(heard: string): boolean {
+    return (this.recentlySpeaking() && this.isSelfEcho(heard)) || this.ackEchoHeard(heard);
+  }
+
+  /** The command with the one field the owner corrected; null when that field is not in the words as said. */
+  private correctedCommand(
+    command: string,
+    was: ConfirmDigest,
+    next: ConfirmDigest,
+  ): string | null {
+    const swap = (pattern: RegExp, value: string): string | null => {
+      let last: RegExpExecArray | null = null;
+      for (const hit of command.matchAll(pattern)) last = hit;
+      if (!last || last.index === undefined) return null;
+      return `${command.slice(0, last.index)}${value}${command.slice(last.index + last[0].length)}`;
+    };
+    const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (next.target !== was.target && was.target && next.target) {
+      const word = new RegExp(
+        `(?<![\\p{L}\\p{M}\\p{N}])${escape(was.target)}(?![\\p{L}\\p{M}\\p{N}])`,
+        "giu",
+      );
+      return swap(word, next.target);
+    }
+    if (next.amount !== was.amount && was.amount && next.amount) {
+      const value = was.amount.split(" ")[0] ?? "";
+      const nextValue = next.amount.split(" ")[0] ?? "";
+      if (!value || !nextValue) return null;
+      const number = /[\d०-९][\d०-९,]*(?:\.[\d०-९]+)?/gu;
+      const same = (raw: string) =>
+        raw.replace(/[०-९]/gu, (d) => String(d.charCodeAt(0) - 0x0966)).replace(/,/g, "") === value;
+      let found: { index: number; length: number } | null = null;
+      for (const hit of command.matchAll(number)) {
+        if (hit.index !== undefined && same(hit[0]))
+          found = { index: hit.index, length: hit[0].length };
+      }
+      if (!found) return null;
+      return `${command.slice(0, found.index)}${nextValue}${command.slice(found.index + found.length)}`;
+    }
+    return null;
+  }
+
+  /** Read the digest again (a yes that named something else, a doubtful yes, an older yes); the window does not grow. */
+  private reaskDigest(digest: ConfirmDigest, heard: string, why: string) {
+    this.remember("confirm-unclear", heard, why);
+    this.trace("dropped", `yes not taken (${why}): asking again`);
+    this.caption("user", heard);
+    if (this.digestReasked === digest.id) {
+      this.emit();
+      return;
+    }
+    this.digestReasked = digest.id;
+    // The same words as the first ask; a corrected digest is always explicit, so it is read in full again.
+    const ask = this.digestAsk(digest, this.state.pending?.command ?? digest.command);
+    this.noteAskSounding(digest, ask);
+    this.caption("friday", ask);
+    this.emit();
+    this.speak(ask, { priority: "approval" });
+  }
+
+  /**
+   * One field of the order corrected ("no, to Rohan", "make it 500"): the command takes the new value, the new digest
+   * is read in full with a fresh window, and nothing runs until a yes to it. A field that cannot be found in the
+   * words as said drops the order instead of guessing.
+   */
+  private correctPending(pending: PendingConfirm, next: ConfirmDigest, heard: string) {
+    const was = pending.digest ?? this.confirmDigestFor(pending.command, pending.at);
+    const command = this.correctedCommand(pending.command, was, next);
+    this.caption("user", heard);
+    if (!command) {
+      this.state.pending = null;
+      this.supersedeOnConfirm = null;
+      this.remember("confirm-corrected", heard, "dropped: the change did not fit the order");
+      const dropped = {
+        en: "I could not fit that change in. Say the whole order again.",
+        hinglish: "Ye badlav fit nahi hua. Poora order phir se boliye.",
+        hi: "यह बदलाव जुड़ नहीं पाया। पूरा आदेश फिर से बोलिए।",
+      }[next.lang];
+      this.caption("friday", dropped);
+      this.state.status = this.line("cancelled");
+      this.emit();
+      this.speak(dropped);
+      return;
+    }
+    this.state.pending = { ...pending, command, at: next.askedAt, digest: next };
+    this.remember("confirm-corrected", heard, command);
+    const ask = confirmDigestLine(next);
+    this.noteAskSounding(next, ask);
+    this.caption("friday", ask);
+    this.state.status = this.line("waiting-confirm");
+    this.emit();
+    this.speak(ask, { priority: "approval" });
+  }
+
   /** A confirmed command: a background one starts its task, anything else goes to the Brain. */
-  private runApproved(command: string) {
+  private runApproved(command: string, hints?: TurnHints) {
     this.ackTurnKind = "confirm-turn";
     const sup = this.supersedeOnConfirm;
     this.supersedeOnConfirm = null;
-    if (sup && sup.command === command && approvalFresh(sup.at, Date.now())) {
+    if (sup && sup.command === command && approvalFresh(sup.at, Date.now(), this.approvalTtl())) {
       voiceTaskActions.cancel(sup.id);
     }
     const background = this.state.mode === "auto" ? parseBackgroundRequest(command) : null;
-    if (background) this.beginBackground(background);
-    else this.dispatch(command);
+    // The command goes ahead with the hints it was heard with, minus the doubt the confirmation already settled: the
+    // reply language follows the command, and a doubtful "haan" never makes the Brain ask "did you say ...".
+    const heardWith = hints ? { ...hints, confidence: null, clipped: false } : undefined;
+    this.replayWith(heardWith, () => {
+      if (background) this.beginBackground(background);
+      else this.dispatch(command);
+    });
   }
 
   /** The work of a background task: the real Brain turn for one request. Also how a restored task runs again. */
@@ -3914,7 +5515,7 @@ class AssistantModeStore {
       request: background.request,
     });
     if (!made.ok) this.speak(made.error);
-    this.state.status = "Listening";
+    this.state.status = this.line("listening");
     this.emit();
   }
 
@@ -4020,8 +5621,8 @@ class AssistantModeStore {
       // because the adopted run's caption arrives while adoptDraft replays what the draft already heard.
       this.clearHoldLines();
       this.pendingUserEcho += 1;
-      this.markTurnAccepted();
-      if (brain.adoptDraft(this.draftId, this.speculative)) {
+      this.markTurnAccepted(command);
+      if (brain.adoptDraft(this.draftId, this.speculative, this.turnHints())) {
         this.discardEager(true);
         this.remember("speculative", command, "already-started");
         this.openFollowUp();
@@ -4044,10 +5645,11 @@ class AssistantModeStore {
    * bug in Auto Mode: the owner is not looking at the screen, so every failed
    * stage has to be audible as well as visible.
    */
-  private reportFailure(message: string, status = "Voice error") {
+  private reportFailure(message: string, status = "", micClass = false) {
     this.to("error");
-    this.state.error = `${message}\nFix voice`;
-    this.state.status = status;
+    this.trace("error", message);
+    this.state.error = `${this.plainFault(message, micClass)}\nFix voice`;
+    this.state.status = status || this.line("voice-error");
     const cause = failureCause(message);
     this.lastFailure = cause;
     const spoken = voiceFailureLine(
@@ -4073,6 +5675,11 @@ class AssistantModeStore {
   }
 
   private openFollowUp() {
+    // After a sensitive turn or reply no follow-up window opens: what comes next needs her name again.
+    if (this.turnSensitive || this.replySensitive) {
+      this.followUpUntil = 0;
+      return;
+    }
     if (normalizeAddressMode(preferences.getSnapshot().voice.addressMode) === "name-only") return;
     this.followUpUntil = Date.now() + this.followMs();
   }
@@ -4103,14 +5710,18 @@ class AssistantModeStore {
   }
 
   private noteMicFault(message: string) {
-    if (this.shownMicFault === message) return;
+    const now = Date.now();
+    // The same message again is a new fault once the microphone recovered or the first report is old enough to be
+    // history (a Bluetooth profile switch, another app taking the microphone); a burst of one message heals once.
+    if (this.shownMicFault === message && now - this.shownMicFaultAt < MIC_FAULT_REPEAT_MS) return;
     this.soak.fault();
     this.shownMicFault = message;
-    this.state.error = message;
+    this.shownMicFaultAt = now;
+    const healing = allowRestart(this.micRestarts, now);
+    this.state.error = this.plainFault(message, true, healing);
     this.trace("error", message);
-    const now = Date.now();
-    if (!allowRestart(this.micRestarts, now)) {
-      this.state.status = "Press Reset microphone";
+    if (!healing) {
+      this.state.status = this.line("reset-mic");
       this.emit();
       return;
     }
@@ -4125,13 +5736,44 @@ class AssistantModeStore {
   }
 
   /** A turn is on its way to the Brain: the speech bookkeeping of the last reply restarts, and she is Thinking. */
-  private markTurnAccepted() {
+  private markTurnAccepted(command = "") {
+    this.turnSensitive = looksSensitive(command) || asksForSecret(command);
     this.voicedRunId = "";
     this.voicedChars = 0;
     this.voicedPrefix = "";
+    this.firstClauseDue = false;
     this.to("command-accepted");
-    this.state.status = "Thinking…";
+    this.state.status = this.line("thinking");
     this.emit();
+  }
+
+  /** The owner-voice origin of the heard turn when the ear tagged the owner; none for any other voice or a replay. */
+  private voiceOriginOption() {
+    return this.replayTurn ? {} : ownerVoiceOrigin(this.heardSpeaker);
+  }
+
+  /** The id of the heard turn, for the Brain's records; none while a stored command is replayed. */
+  private turnIdOption() {
+    const id = this.replayTurn ? "" : this.heardTurnId;
+    return id ? { turnId: id } : {};
+  }
+
+  /**
+   * The voice facts of a side question, for the Brain's quick lane: scrubbed `context` (metadata, never an attachment),
+   * the reply language the ear heard first. Only a real attachment ever stays in `extra`.
+   */
+  private sideQuestionContext(): string {
+    const pinned = replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user";
+    const digest = conversationDigest();
+    return scrubSendContext(
+      [
+        replyLanguageLine(this.turnHints() ?? null, pinned),
+        digest ? `VOICE SESSION: ${digest}` : "",
+        this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
   }
 
   /**
@@ -4140,7 +5782,7 @@ class AssistantModeStore {
   private dispatch(command: string): boolean {
     if (this.stopped()) {
       this.remember("stopped", command, "not sent: Stop everything is on");
-      this.state.status = "Stopped. Stop everything is on";
+      this.state.status = this.line("stopped");
       this.emit();
       return false;
     }
@@ -4151,23 +5793,24 @@ class AssistantModeStore {
     const running = live.activeRunId
       ? live.runs.find((run) => run.id === live.activeRunId)
       : undefined;
-    if (running && this.state.mode === "auto") {
-      // A short harmless question is answered by the quick lane whatever the age of the work: the lane is a
-      // plain model call beside the run, so there is no age at which it should wait or cut the work short.
-      const lane =
-        this.taskPrefs().sideQuestionLane && quickLaneEligible({ text: command, busy: true }).ok;
-      const decision = lane
-        ? ({ kind: "interrupt" } as const)
-        : whileBusy(
-            command,
-            { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
-            { queued: this.queuedCommands.length },
-          );
+    // A short harmless question is answered by the quick lane whatever the age of the work: the lane is a plain
+    // model call beside the run, so there is no age at which it should wait or cut the work short.
+    const side =
+      running !== undefined &&
+      this.state.mode === "auto" &&
+      this.taskPrefs().sideQuestionLane &&
+      quickLaneEligible({ text: command, busy: true }).ok;
+    if (running && this.state.mode === "auto" && !side) {
+      const decision = whileBusy(
+        command,
+        { task: running.prompt, elapsedMs: Date.now() - running.startedAt },
+        { queued: this.queuedCommands.length },
+      );
       if (decision.kind === "reply" || decision.kind === "queue") {
         if (decision.kind === "queue") {
           // She keeps working and keeps talking: the new request is heard, answered with a
           // short acknowledgement, and done right after this one.
-          this.queuedCommands.push(command);
+          this.queueCommand(command);
           this.remember("busy-queue", command, "queued behind the running turn");
           this.drainQueuedCommands();
         } else {
@@ -4181,11 +5824,15 @@ class AssistantModeStore {
         return true;
       }
     }
-    this.clearHoldLines();
-    const heard = this.heardOfReply();
-    this.dropPlayback();
-    this.trimReplyToHeard(heard);
-    this.markTurnAccepted();
+    // Only a real new run tears the live reply down. A side question leaves its playback, its reply cursor and its
+    // heard-so-far bookkeeping alone, so the next clause carries on and nothing is marked cut or spoken twice.
+    if (!side) {
+      this.clearHoldLines();
+      const heard = this.heardOfReply();
+      this.dropPlayback();
+      this.trimReplyToHeard(heard);
+      this.markTurnAccepted(command);
+    }
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
     const { extra, modelIds } = composer.directive();
@@ -4195,28 +5842,78 @@ class AssistantModeStore {
       privacy: voiceNow.privacyMode === true,
       allowAmbientCloud: voiceNow.allowAmbientCloud === true,
     });
-    const merged = mergeTurnExtra(
-      extra,
-      turnAwarenessExtra(command, { kind: "voice" }),
-      ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
-      this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
-    );
-    const payload = {
-      ...(merged ? { extra: merged } : {}),
-      ...(modelIds.length ? { modelIds } : {}),
-      routingSurface: "voice" as const,
+    const sideContext = side ? this.sideQuestionContext() : "";
+    // A whole turn carries the pinned models, the awareness text, the heard-nearby text and the tone line.
+    const fullPayload = () => {
+      const merged = mergeTurnExtra(
+        extra,
+        turnAwarenessExtra(command, { kind: "voice" }),
+        ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+        this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
+      );
+      return {
+        ...(merged ? { extra: merged } : {}),
+        ...(modelIds.length ? { modelIds } : {}),
+        ...VOICE_SEND,
+        // A request that is not a side question is a whole turn: the Brain must not take it for one while work runs.
+        ...(running ? { lane: "full" as const } : {}),
+        ...this.turnHintsOption(),
+        ...this.turnIdOption(),
+        ...this.voiceOriginOption(),
+      };
     };
+    const payload = side
+      ? {
+          // The voice facts are scrubbed metadata: only a real attachment stays in `extra` and can keep the lane away.
+          ...(extra ? { extra } : {}),
+          ...VOICE_SEND,
+          lane: "quick" as const,
+          ...(sideContext ? { context: sideContext } : {}),
+          ...this.turnHintsOption(),
+          ...this.turnIdOption(),
+          ...this.voiceOriginOption(),
+        }
+      : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
-    // A new spoken command is an interrupt: stop the in-flight foreground turn, then start. A background
-    // task's run is not the foreground: it keeps going, and the request waits its turn behind it.
+    this.shadowTurn((a) => a.dispatch(command, Date.now()));
+    if (side && !result.accepted && result.refused && result.foregroundUntouched) {
+      if (result.reason === "lane-refused" || result.reason === "busy") {
+        // The lane cannot take it now (an attachment, the model budget, a question that needs the work): it waits
+        // behind the running turn like any other request heard while she works. The running turn is never stopped
+        // for a refusal that left it untouched.
+        this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+        this.queueCommand(command);
+        this.remember("busy-queue", command, "queued: the quick lane could not take it");
+        this.drainQueuedCommands();
+        const line = "Noted. That is next, once this is done.";
+        this.caption("friday", line);
+        this.state.status = "Working — next request queued";
+        this.emit();
+        this.speak(line);
+        return true;
+      }
+    }
+    // The work ended as a side question was asked, so the Brain began a real turn from the side payload: it is a
+    // normal new run. The old reply is torn down as for any new run, and the turn goes again with the full payload.
+    if (side && result.accepted && result.reason !== "quick-lane") {
+      this.clearHoldLines();
+      const heard = this.heardOfReply();
+      this.dropPlayback();
+      this.trimReplyToHeard(heard);
+      brain.stop("foreground");
+      result = brain.send(command, fullPayload());
+    }
+    // A new spoken command (not a side question, which took the lane above) is an interrupt: stop the in-flight
+    // foreground turn, then start. A background task's run is not the foreground: it keeps going, and the request
+    // waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
       brain.stop("foreground");
       result = brain.send(command, payload);
       if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
         this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
-        this.queuedCommands.push(command);
+        this.queueCommand(command);
         this.remember("busy-queue", command, "queued behind the background task");
         this.drainQueuedCommands();
         const line = "Noted. That is next, once the background task is done.";
@@ -4227,11 +5924,25 @@ class AssistantModeStore {
         return true;
       }
     }
+    if (!result.accepted && result.reason === "clarify" && result.message) {
+      // The ear was not sure what it heard: one short question, not a failure and not an error state. The brain
+      // already keeps it to one ask inside 30 s.
+      this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
+      this.remember("clarify", command, "asked: low confidence");
+      markTurnStage("routed", true, "", "clarifying question");
+      this.caption("friday", result.message);
+      this.speak(result.message);
+      this.emit();
+      return true;
+    }
     markTurnStage(
       "routed",
       result.accepted,
       result.message || result.reason || "the brain did not accept the turn",
       modelIds.length ? `${modelIds.length} model(s) preferred` : "auto",
+    );
+    this.shadowTurn((a) =>
+      a.brain(result.accepted ? "lane" : "refused", result.runId ?? "", Date.now()),
     );
     if (!result.accepted) {
       this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
@@ -4246,6 +5957,8 @@ class AssistantModeStore {
       this.remember("side-question", command, "answered by the quick lane while the run continues");
       return true;
     }
+    // The work ended as a side question was asked, so the Brain began a real turn: it is a normal new run.
+    if (side) this.markTurnAccepted(command);
     this.armHoldLines(command);
     return true;
   }
@@ -4301,10 +6014,30 @@ class AssistantModeStore {
       const next = this.queuedCommands.shift();
       if (!this.queuedCommands.length) this.stopQueueTimer();
       if (next) {
+        const queuedWith = this.queuedHints.get(next);
+        this.queuedHints.delete(next);
         this.ackTurnKind = "control"; // a request that waited is not followed by an instant acknowledgement
-        this.dispatch(next);
+        this.replayWith(queuedWith, () => this.dispatch(next));
       }
     }, 700);
+  }
+
+  /** Queue a request together with the hints it was heard with (see replayWith). */
+  private queueCommand(command: string) {
+    this.queuedCommands.push(command);
+    const hints = this.turnHints();
+    if (hints) this.queuedHints.set(command, hints);
+  }
+
+  /** Run a replay of a stored command with the hints captured with it, or none: never the current utterance's. */
+  private replayWith(hints: TurnHints | undefined, run: () => void) {
+    const before = this.replayTurn;
+    this.replayTurn = { hints };
+    try {
+      run();
+    } finally {
+      this.replayTurn = before;
+    }
   }
 
   private stopQueueTimer() {
@@ -4332,7 +6065,7 @@ class AssistantModeStore {
       this.state.pending ||
       this.pendingHeard ||
       brain.getSnapshot().approval ||
-      (this.approvalAsked && approvalFresh(this.approvalAsked.askedAt, now)),
+      (this.approvalAsked && approvalFresh(this.approvalAsked.askedAt, now, this.approvalTtl())),
     );
   }
 
@@ -4368,8 +6101,12 @@ class AssistantModeStore {
     const kind = this.ackTurnKind;
     this.ackTurnKind = "control";
     this.ackSaid = 0;
+    const { lane, toolsLikely } = ackLane({ kind, text: command });
+    this.ackLane = lane;
+    this.ackLearned = false;
     const voice = preferences.getSnapshot().voice;
     if (voice.instantAck !== true) return;
+    const expected = expectedAnswerMs({ kind, lane, toolsLikely, history: this.ackHistory });
     const decision = shouldAck({
       mode: this.state.mode,
       speakReplies: voice.speakReplies !== false,
@@ -4386,6 +6123,8 @@ class AssistantModeStore {
       whisperMode: voice.whisperMode === true,
       narratorLinesLeft: this.narrator.remaining(),
       ackedThisTurn: this.ackSaid,
+      lane,
+      ...(expected === null ? {} : { expectedAnswerMs: expected }),
       endpointAtMs: this.turnStages.at("endpointConfirmed") ?? performance.now(),
       generation: this.ackGen,
       liveGeneration: this.ackGen,
@@ -4403,6 +6142,20 @@ class AssistantModeStore {
       () => void this.fireAck(decision, gen),
       Math.max(0, decision.atMs - performance.now()),
     );
+  }
+
+  /**
+   * The first spoken clause of the reply is ready: stamp it, and learn how long it took from the confirmed end of the
+   * sentence, once per turn and on the turn's own lane (a command is never measured). Nothing is stored on disk.
+   */
+  private stampFirstClause() {
+    this.turnStages.mark("firstClauseReady");
+    if (this.ackLearned || this.ackLane === "command") return;
+    const from = this.turnStages.at("endpointConfirmed");
+    const to = this.turnStages.at("firstClauseReady");
+    if (from === null || to === null) return;
+    this.ackLearned = true;
+    this.ackHistory = recordFirstClause(this.ackHistory, this.ackLane, to - from);
   }
 
   /** The timer fired: put the line in the speech queue as a direct line, unless the moment has passed. */
@@ -4468,26 +6221,26 @@ class AssistantModeStore {
   confirmPending(ok: boolean) {
     const pending = this.state.pending;
     if (!pending) return;
-    if (!approvalFresh(pending.at, Date.now())) {
+    if (!approvalFresh(pending.at, Date.now(), this.approvalTtl())) {
       this.state.pending = null;
       this.supersedeOnConfirm = null;
       this.remember("approval-expired", pending.command, "dropped");
       this.caption("friday", "That confirmation expired. Ask again if you still want it.");
-      this.state.status = "Confirmation expired";
+      this.state.status = this.line("confirm-expired");
       this.emit();
       return;
     }
     this.state.pending = null;
     this.to("confirm-resolved");
     if (ok) {
-      this.state.status = "Confirmed — running";
+      this.state.status = this.line("confirmed");
       this.emit();
-      this.runApproved(pending.command);
+      this.runApproved(pending.command, pending.hints);
     } else {
       this.supersedeOnConfirm = null;
       const dropped = this.variedLine("cancelled", this.lastOwnerLine);
       this.caption("friday", dropped);
-      this.state.status = "Cancelled";
+      this.state.status = this.line("cancelled");
       this.emit();
       this.speak(dropped);
     }
@@ -4535,6 +6288,8 @@ class AssistantModeStore {
         this.emit();
       },
     });
+    // With the streaming ear on, its partials are the live words (`LiveWords.show`); no pass of its own runs.
+    if (streamWanted(preferences.getSnapshot().voice.streamEngine)) return;
     this.liveWords.start(performance.now() - 400);
     if (this.liveWordsTimer) return;
     this.liveWordsTimer = setInterval(() => {
@@ -4556,6 +6311,11 @@ class AssistantModeStore {
   }
 
   /** An answer is awaited from the owner: a read-back, an approval, a question. A bare "yes" then is the answer. */
+  /** The owner's window for a spoken yes (`voice.approvalTtlSec`, 10 to 60 s, 30 s by default). */
+  private approvalTtl(): number {
+    return approvalTtlMs(preferences.getSnapshot().voice.approvalTtlSec);
+  }
+
   private waitingForOwner(): boolean {
     return Boolean(this.state.pending || this.pendingHeard || brain.getSnapshot().approval);
   }
@@ -4569,17 +6329,31 @@ class AssistantModeStore {
     const fresh = !this.interruptGate.active;
     this.interruptGate.begin(Date.now());
     if (!fresh) return;
+    this.shadowTurn((a) => a.bargeBegin(Date.now()));
     this.gateText = "";
     this.gatePlayed = this.heardOfReply();
-    duckSpeech(
-      true,
-      sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).duckLevel,
-    );
-    this.trace(
-      "speech",
-      "voice while she talks — her volume is down, waiting for words before stopping",
-    );
-    this.gateTimer = setInterval(() => this.stepInterruptGate(false), 100);
+    // The ladder rules only with an echo-clean source; with none (the shipped defaults) the plain gate decides,
+    // so talking over her still works. Fixed for this candidate: a source that appears later waits for the next.
+    const ladder = this.ladderOn() && this.echoCleanSourceNow();
+    this.gateLadder = ladder;
+    if (ladder) {
+      // The ladder ducks at 150 ms of echo-cleaned speech, not at the first sound of any voice.
+      this.bargeLadder.begin(Date.now());
+      this.trace(
+        "speech",
+        "voice while she talks — the ladder waits for echo-cleaned speech or words",
+      );
+    } else {
+      duckSpeech(
+        true,
+        sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).duckLevel,
+      );
+      this.trace(
+        "speech",
+        "voice while she talks — her volume is down, waiting for words before stopping",
+      );
+    }
+    this.gateTimer = setInterval(() => this.stepInterruptGate(false), ladder ? 50 : 100);
     // With live words on, the words so far reach the gate while the voice goes on, so a stop word is known early.
     if (preferences.getSnapshot().voice.liveWords === true && !this.liveWords?.isActive()) {
       this.gateLiveWords = true;
@@ -4592,6 +6366,9 @@ class AssistantModeStore {
     if (this.gateTimer) clearInterval(this.gateTimer);
     this.gateTimer = null;
     this.interruptGate.end();
+    this.bargeLadder.end();
+    this.shadowTurn((a) => a.bargeEnd());
+    this.gateLadder = false;
     this.gateText = "";
     this.gatePlayed = null;
     if (this.gateLiveWords) {
@@ -4618,7 +6395,81 @@ class AssistantModeStore {
       waitingForAnswer: this.waitingForOwner(),
       selfEcho: heard ? this.isSelfEcho(heard) : false,
     };
-    this.applyGateVerdict(this.interruptGate.evaluate(input));
+    const verdict = this.judgeCandidate(input);
+    const shadow = this.shadowBarge(
+      verdict,
+      input.text,
+      input.speechActive,
+      input.selfEcho === true,
+    );
+    this.applyGateVerdict(verdict);
+    shadow();
+  }
+
+  /** The barge-in ladder is on (`voice.interruptGate.ladder`, off unless the owner chose it). */
+  private ladderOn(): boolean {
+    return sanitizeInterruptGate(preferences.getSnapshot().voice.interruptGate).ladder === true;
+  }
+
+  /**
+   * An echo-clean voice signal exists: the streaming ear is on (its turn events are on the cleaned signal) or the echo
+   * canceller runs with its reference. Without one the ladder could never hear the owner, so it must not rule.
+   */
+  private echoCleanSourceNow(): boolean {
+    return echoCleanSourceLive({
+      streaming: streamWanted(preferences.getSnapshot().voice.streamEngine),
+      echoReference: this.echoReferenceLive(),
+    });
+  }
+
+  /**
+   * The owner's voice is on the echo-cleaned signal: the ear's turn events say so, or the echo canceller is running
+   * with its reference. The level test against the speaker (`BargeInDetector`) never counts as this.
+   */
+  private echoCleanedSpeech(): boolean {
+    if (!voiceGate.heardSpeechWithin(250)) return false;
+    return this.turnTracker.recentSpeech(Date.now(), 600) || this.echoReferenceLive();
+  }
+
+  /** Who rules on the candidate: the ladder when it is on, the backchannel gate otherwise. */
+  private judgeCandidate(input: GateInput): GateVerdict {
+    if (!this.gateLadder) return this.interruptGate.evaluate(input);
+    const verdict = this.bargeLadder.evaluate({
+      t: input.t,
+      echoCleanedSpeech: input.final === true ? false : this.echoCleanedSpeech(),
+      text: input.text,
+      ...(input.final === true ? { final: true } : {}),
+      ...(input.waitingForAnswer ? { waitingForAnswer: true } : {}),
+      ...(input.selfEcho ? { selfEcho: true } : {}),
+      replyStartedAt: this.replyStartedAt,
+      replyEndsAt: playbackEndsAt(input.t),
+    });
+    return this.gateVerdictOf(verdict);
+  }
+
+  private gateVerdictOf(verdict: LadderVerdict): GateVerdict {
+    switch (verdict.kind) {
+      case "duck":
+        duckSpeech(true, verdict.gain);
+        this.trace(
+          "speech",
+          `echo-cleaned speech for ${BARGE_LADDER.duckAtMs} ms — her volume is down`,
+        );
+        return { kind: "wait" };
+      case "stop":
+        if (verdict.why === "duration") return { kind: "pause" };
+        return {
+          kind: "interrupt",
+          why: verdict.why === "word" ? "words" : verdict.why,
+        };
+      case "resume":
+        return {
+          kind: "restore",
+          why: verdict.why === "no-words" ? "silence" : verdict.why,
+        };
+      default:
+        return { kind: "wait" };
+    }
   }
 
   private applyGateVerdict(verdict: GateVerdict) {
@@ -4750,6 +6601,11 @@ class AssistantModeStore {
     if (!heard) return;
     const playedMs =
       "playedMs" in heard && typeof heard.playedMs === "number" ? heard.playedMs : undefined;
+    // The turn that cut her in carries how much of her reply was audible when it did.
+    const audible = interruptedPlayedMs(heard as { playedMs?: unknown });
+    if (this.turnRecordLive && this.turnRecord)
+      this.turnRecord = { ...this.turnRecord, interruptedPlayedMs: audible };
+    else this.lastInterruptedPlayedMs = audible;
     if (brain.truncateAssistantReply(heard.runId, heard.text, playedMs)) {
       this.trace(
         "speech",
@@ -4765,7 +6621,7 @@ class AssistantModeStore {
     if (this.interruptGate.active) {
       // The final words arrived while she was only ducked: the gate rules on them before anything is stopped.
       const heard = text.trim() ? text : null;
-      const verdict = this.interruptGate.evaluate({
+      const verdict = this.judgeCandidate({
         t: Date.now(),
         speechActive: false,
         text: heard,
@@ -4773,6 +6629,12 @@ class AssistantModeStore {
         waitingForAnswer: this.waitingForOwner(),
         selfEcho: heard ? this.isSelfEcho(heard) : false,
       });
+      const shadow = this.shadowBarge(
+        verdict,
+        heard,
+        false,
+        heard ? this.isSelfEcho(heard) : false,
+      );
       if (verdict.kind === "restore") {
         this.trace(
           "speech",
@@ -4782,6 +6644,7 @@ class AssistantModeStore {
         this.endInterruptCandidate(true);
         // Paused on voice: the nod lets her carry on from where the pause held her.
         if (this.interruptHold) this.resumeAfterInterruption();
+        shadow();
         return true;
       }
       this.trace(
@@ -4789,20 +6652,42 @@ class AssistantModeStore {
         `interruption (${verdict.kind === "interrupt" ? verdict.why : "words"}) — stopping her voice`,
       );
       this.holdForInterruption();
+      shadow();
+      this.shadowBargePlan(text);
     }
     if (!this.interruptHold) return false;
     const verdict = judgeInterruption(text, {
       waitingForAnswer: this.waitingForOwner(),
       selfEcho: this.isSelfEcho(text),
     });
+    const shadow = this.shadowJudge(verdict, text);
     if (verdict === "resume") {
       this.trace("speech", `"${text.trim().slice(0, 40)}" is not an interruption — carrying on`);
       this.remember("following-along", text, "resumed");
       this.resumeAfterInterruption();
+      shadow();
       return true;
     }
     this.confirmInterruption();
+    shadow();
+    this.shadowBargePlan(text);
     return false;
+  }
+
+  /** A desk task's risk in the three classes of the barge-in contract (a task that may ask is treated as hard). */
+  private taskRiskClass(task: VoiceTask): TaskRiskClass {
+    return task.risk === "safe" ? "read-only" : "irreversible";
+  }
+
+  /**
+   * What the barge-in contract says for the running tasks (stop her speech; cancel, or run a hard one to its next
+   * checkpoint), beside the live path: written to the shadow log only, after the live stop, never acted on.
+   */
+  private shadowBargePlan(heard: string): void {
+    const running = listVoiceTasks().filter((t) => !TERMINAL.includes(t.state));
+    const risk = strictest(running.map((t) => this.taskRiskClass(t)));
+    const plan = onBargeIn(risk, ownerSaidCancelTask(heard));
+    this.shadowTurn((a) => a.bargePlan(risk, plan, Date.now()));
   }
 
   /** Stop playback without touching the brain. A newer clip must not start. */
@@ -4810,26 +6695,33 @@ class AssistantModeStore {
     // A new speech generation ends a draft.
     this.discardEager();
     if (!this.gateKeep) this.endInterruptCandidate();
+    // A read-back stopped before its end is asked again.
+    this.noteAskCut();
     if (hold && (this.state.speaking || this.arbiter.size())) {
       const waiting = this.arbiter
         .peek()
         .filter((row) => row.priority === "direct")
-        .map((row) => row.text);
+        .map((row) => stripDeliveryTags(row.text));
       const held = holdInterrupted([this.spokenText, ...waiting]);
       if (held) this.unfinished = held;
     }
     this.speechGen += 1;
+    this.echoCapAt = 0;
+    this.shadowTurn((a) => a.stopped(Date.now()));
     stopAckClip();
     // A real interruption drops what was queued to say, but an approval prompt still has to be asked.
     this.arbiter.bargeIn();
     this.arbiter.flush(["direct"]);
+    this.taggedLines.clear();
+    this.firstLine = "";
     this.bargeDetector.playbackEnded();
     this.streamSpeaker?.cancel();
     stopSpeaking();
     voiceGate.setSpeakingGuard(false);
     voiceGate.wake.speakEnd(performance.now());
     this.state.speaking = false;
-    this.echoUntil = Date.now() + 800;
+    // Every stop lowers the window: what she was saying is cut, only the room's tail is left.
+    this.echoUntil = Date.now() + ECHO_TAIL_MS;
   }
 
   private cancelSpeech() {
@@ -4852,6 +6744,7 @@ class AssistantModeStore {
   private forgetOpenQuestions() {
     this.approvalAsked = null;
     this.approvalSpoken = null;
+    this.approvalPrompt = null;
     this.restartAsk = null;
     this.supersedeOnConfirm = null;
     this.unfinished = "";
@@ -4860,7 +6753,34 @@ class AssistantModeStore {
   }
 
   private recentlySpeaking(): boolean {
+    this.holdEchoWhilePlaying();
     return this.state.speaking || Date.now() < this.echoUntil;
+  }
+
+  /**
+   * The window for a clause that just started: its estimated length (a lower bound, about 400 ms a word) plus the
+   * room's tail, never more than the hard cap. The play promise and the end hook are not trusted to close it.
+   */
+  private openEchoWindow(spoken: string) {
+    const now = Date.now();
+    const words = spoken.split(/\s+/).filter(Boolean).length;
+    this.echoCapAt = now + ECHO_CAP_MS;
+    this.echoUntil = Math.min(now + words * ECHO_WORD_MS + ECHO_TAIL_MS, this.echoCapAt);
+  }
+
+  /**
+   * While the sample player still holds scheduled audio the clip is longer than the estimate: the window stays open
+   * for what the speaker has left plus the tail, up to the cap. Without a player the estimate stands.
+   */
+  private holdEchoWhilePlaying() {
+    const now = Date.now();
+    if (now >= this.echoCapAt) return;
+    const backlog = playbackPressure()?.backlogMs ?? 0;
+    if (backlog <= 0) return;
+    this.echoUntil = Math.max(
+      this.echoUntil,
+      Math.min(now + backlog + ECHO_TAIL_MS, this.echoCapAt),
+    );
   }
 
   /** True when the recognised text is just FRIDAY's own voice coming back. */
@@ -4922,14 +6842,22 @@ class AssistantModeStore {
     // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
     // pronunciation entries win. The echo filter then compares against what is really spoken.
     const voice = preferences.getSnapshot().voice;
+    // Delivery tags survive only in the reply the model wrote for a spoken turn; every other line loses them here.
+    const tagged = meta.reply === true && this.state.mode === "auto";
+    const hindiTurn = this.turnSpeaksHindi();
     const prepared = prepareForSpeech(spoken, voice.pronunciations, {
       enabled: voice.speechPrep !== false,
-      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang),
+      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang) || hindiTurn,
+      ...(tagged ? { deliveryTags: true } : {}),
     });
-    if (!prepared) {
+    if (!stripDeliveryTags(prepared).trim()) {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
+    const addedTag =
+      tagged && prepared !== stripDeliveryTags(prepared) && !this.taggedLines.has(prepared);
+    if (addedTag) this.taggedLines.add(prepared);
+    if (meta.first) this.firstLine = prepared;
     // An old caller says a plain line: it is a direct answer. Task lines name their own priority. A direct line
     // is the last thing she said, so an earlier approval prompt is no longer the open question.
     if ((meta.priority ?? "direct") === "direct") this.approvalAsked = null;
@@ -4943,6 +6871,8 @@ class AssistantModeStore {
       ...(meta.whisper ? { whisper: true } : {}),
     });
     if (!queued.accepted) {
+      // A refused line is never played, so its tag mark must not wait for a later line with the same words.
+      if (addedTag) this.taggedLines.delete(prepared);
       markTurnStage("spoken", false, "the line was dropped by the speech queue");
       return;
     }
@@ -4958,6 +6888,7 @@ class AssistantModeStore {
       for (;;) {
         if (!spokenReplyAllowed(this.state.mode, this.state.muted) || this.stopped()) {
           this.arbiter.clear();
+          this.taggedLines.clear();
           break;
         }
         const item = this.arbiter.next();
@@ -4976,6 +6907,7 @@ class AssistantModeStore {
             this.playingItem = {
               priority: item.priority,
               ...(item.taskId ? { taskId: item.taskId } : {}),
+              text: item.text,
             };
             await this.playSpoken(item.text, gen);
           }
@@ -4999,15 +6931,151 @@ class AssistantModeStore {
   }
 
   /**
-   * The line being played is an approval prompt: it sounded now, so a short yes may answer it for the next 120 s.
+   * The line being played is an approval prompt: it sounded now, so a short yes may answer it inside the owner's
+   * approval window (`voice.approvalTtlSec`, 30 s by default).
    * Called when the voice starts and again when it ends (the window counts from the end of the prompt).
    */
-  private noteApprovalSpoken() {
+  private noteApprovalSpoken(phase: "start" | "end" = "end") {
     const item = this.playingItem;
     if (!item || item.priority !== "approval") return;
     const at = Date.now();
-    this.approvalSpoken = { at, ...(item.taskId ? { taskId: item.taskId } : {}) };
+    this.approvalSpoken = {
+      at,
+      ...(item.taskId ? { taskId: item.taskId } : {}),
+      ended: phase === "end",
+    };
     if (item.taskId) this.approvalAsked = { askedAt: at, taskId: item.taskId };
+    if (item.taskId && item.text && phase === "start") {
+      // A refusal line re-asks the prompt; its lead is not part of the question.
+      const text = stripDeliveryTags(item.text).replace(REFUSAL_LEAD, "").trim();
+      if (text) this.approvalPrompt = { taskId: item.taskId, text };
+    }
+    const sound = this.askSound;
+    if (item.taskId || !sound) return;
+    if (phase === "start") {
+      sound.startedAt = at;
+      sound.endedAt = null;
+    } else {
+      sound.owed = Math.max(0, sound.owed - 1);
+      if (sound.owed === 0) sound.endedAt = at;
+    }
+  }
+
+  /** When a task or restart prompt finished sounding: Infinity while it still plays, its stamp once it ended. */
+  private promptEndsAt(taskId: string): number | null {
+    const spoken = this.approvalSpoken;
+    if (spoken?.taskId === taskId && spoken.ended === false) return Number.POSITIVE_INFINITY;
+    return this.approvalAsked?.taskId === taskId ? this.approvalAsked.askedAt : null;
+  }
+
+  /** The read-back playing now is stopped before its end hook: a yes to it waits for a full re-read. */
+  private noteAskCut() {
+    const sound = this.askSound;
+    const item = this.playingItem;
+    if (!sound || !item || item.priority !== "approval" || item.taskId) return;
+    if (sound.startedAt !== null && sound.endedAt === null) sound.cut = true;
+  }
+
+  /** A digest read-back was handed to the voice: a yes to it waits for the end of this read. */
+  private noteAskSounding(digest: ConfirmDigest, ask: string) {
+    // Every explicit digest and every hard order (delete, uninstall, format, shut down, run or install a file, send,
+    // share, pay) is tracked, its short question too: a yes over the question's tail never runs it. Only a soft,
+    // reversible order keeps the barge-in yes (the window then counts from the ask, as before).
+    if (!(digest.mode === "explicit" || digest.risk === "hard")) return;
+    const now = Date.now();
+    const estimateMs = ask.split(/\s+/).filter(Boolean).length * ECHO_WORD_MS;
+    const same = this.askSound?.digestId === digest.id ? this.askSound : null;
+    // A read that was cut owes nothing more: the re-read is the one to finish.
+    const owed = same && !same.cut ? same.owed : 0;
+    this.askSound = {
+      digestId: digest.id,
+      estimateEnd: Math.max(same?.estimateEnd ?? 0, now + estimateMs),
+      estimateMs,
+      startedAt: null,
+      endedAt: null,
+      owed: owed + 1,
+      cut: false,
+    };
+  }
+
+  /**
+   * When this digest's read-back finished sounding (Infinity while it is still playing). A digest she has no read
+   * for (built outside the ask paths) keeps the moment it was built.
+   */
+  private askEndsAt(digest: ConfirmDigest): number {
+    const sound = this.askSound;
+    if (!sound || sound.digestId !== digest.id) return digest.askedAt;
+    // Cut before its end (a barge-in, a cough): the owner never heard all of it, so it is asked again.
+    if (sound.cut) return Number.POSITIVE_INFINITY;
+    if (sound.endedAt !== null) return sound.endedAt;
+    const playing = this.playingItem?.priority === "approval" && !this.playingItem.taskId;
+    if (playing && sound.startedAt !== null) return Number.POSITIVE_INFINITY;
+    const started = sound.startedAt === null ? 0 : sound.startedAt + sound.estimateMs;
+    return Math.max(digest.askedAt, sound.estimateEnd, started);
+  }
+
+  /** The digest with its window counted from the end of its read-back (never from a moment still ahead). */
+  private soundedDigest(digest: ConfirmDigest): ConfirmDigest {
+    const ttl = digest.expiresAt - digest.askedAt;
+    const askedAt = Math.min(this.askEndsAt(digest), Date.now());
+    if (askedAt <= digest.askedAt) return digest;
+    return { ...digest, askedAt, expiresAt: askedAt + ttl };
+  }
+
+  /**
+   * When the voice of this final began. The ear's stream start when it framed this turn. Without it the start is
+   * unknown: the final's time less the heard length, and, against a full read-back (`early`), put earlier still on
+   * purpose (about 400 ms a word plus the recogniser's delay), so an unknown start never passes the older-yes rule by
+   * default. Null only for a line that is no heard turn at all (a direct call, not the intake).
+   */
+  private yesBeganAt(early = false): number | null {
+    const ear = this.heardEar;
+    if (!ear) return null;
+    if (ear.beganAt !== null) return ear.beganAt;
+    if (!early) return Date.now() - (this.lastSpeechMs ?? 0);
+    const words = (this.heardRawLines[0] ?? "").split(/\s+/).filter(Boolean).length;
+    const spokeMs = Math.max(this.lastSpeechMs ?? 0, words * ECHO_WORD_MS);
+    return Date.now() - spokeMs - (this.state.stt.lastLatencyMs ?? STT_DELAY_GUESS_MS);
+  }
+
+  /**
+   * Why a spoken yes may not approve, or null. The words as heard say no ("no, I mean yes" rewritten to "yes"); the
+   * room is a TV or music scene, or the ear tagged another voice (these tags only ever refuse; a speaker match never
+   * approves); or the yes began before the prompt finished sounding.
+   */
+  private yesRefusal(askEnd: number | null, room: AddressFacts | null): YesRefusal | null {
+    if (this.heardRawLines.some((line) => confirmationVerdict(line) === "no")) return "mixed";
+    const scene = room?.scene?.kind;
+    if (scene === "tv" || scene === "music" || room?.speaker === "other") return "room";
+    if (askEnd === null) return null;
+    // A known prompt end: an unknown voice start is put early, as for a digest read-back.
+    const began = this.yesBeganAt(true);
+    if (askEnd === Number.POSITIVE_INFINITY || (began !== null && began < askEnd))
+      return "older yes";
+    return null;
+  }
+
+  /** A yes to a task, restart or Brain prompt that was not taken: the prompt stays open and she says why, once. */
+  private refuseYes(text: string, why: YesRefusal, taskId?: string) {
+    this.remember("confirm-unclear", text, why);
+    this.trace("dropped", `yes not taken (${why}): the question stays open`);
+    this.caption("user", text);
+    const hi = this.narrationLang() === "hi";
+    const lead =
+      why === "older yes"
+        ? hi
+          ? "Main abhi pooch rahi thi. Sawaal ke baad haan boliye."
+          : "I was still asking. Say yes after the question."
+        : hi
+          ? "Sirf haan ya na boliye."
+          : "Just yes or no, please.";
+    // The prompt's own words come again, so the yes that follows answers the question it names.
+    const prompt = taskId && this.approvalPrompt?.taskId === taskId ? this.approvalPrompt.text : "";
+    const line = prompt ? `${lead} ${prompt}` : lead;
+    this.caption("friday", line);
+    this.emit();
+    // Said as the same prompt again: a yes binds once this line has sounded.
+    this.speak(line, { priority: "approval", ...(taskId ? { taskId } : {}) });
   }
 
   /** Lines wait while the owner talks and for a moment after: look again once, when that moment is over. */
@@ -5030,21 +7098,27 @@ class AssistantModeStore {
       !localOnly && (typeof navigator === "undefined" ? true : navigator.onLine !== false);
     const voicePrivacy = preferences.getSnapshot().voice.privacyMode === true;
     // A line that looks private (a password, a PIN, a card number) is said by a local voice, whatever the settings.
-    const sensitive = looksSensitive(spoken);
+    const sensitive = this.turnSensitive || looksSensitive(spoken);
+    const tuning = activeVoiceSettings();
+    // The owner's explicit online pick (a Neural voice in the library) is the one way auto keeps a cloud voice first.
+    const ownerPickedCloud =
+      tuning.kind !== "system" && tuning.kind !== "file" && /Neural$/i.test(tuning.voiceName || "");
     const engine = chooseTtsEngine({
       network: online,
       supertonicReady: this.offlineVoiceReady,
+      supertonicBreakerOpen: this.supertonicBreakerOpen(),
       privacy: voicePrivacy || sensitive,
-      prefer: this.ttsPrefer,
+      prefer: this.ttsPrefer === "auto" && ownerPickedCloud ? "neural" : this.ttsPrefer,
     });
     const fallen = switchMidSentence({
       networkDropped: !online,
       current: engine,
-      supertonicReady: this.offlineVoiceReady,
+      supertonicReady: this.offlineVoiceReady && !this.supertonicBreakerOpen(),
     });
-    const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
-    const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
+    const spokenLang = voiceForLanguage(
+      this.turnSpeaksHindi() ? "hi-IN" : voicePrefs.speechLang || voicePrefs.recognitionLang,
+    );
     const lastOwner =
       [...this.state.captions].reverse().find((row) => row.who === "user")?.text ?? "";
     const tone = speakingProsody({
@@ -5063,7 +7137,10 @@ class AssistantModeStore {
       whisper: voicePrefs.whisperMode === true,
     });
     const privacy = voicePrivacy || sensitive;
+    // FRIDAY Voice stays the voice of a private line when it is ready: it is on this PC, so only an unready one
+    // sends privacy to the system voice.
     const localVoice = fallen !== "neural" || privacy;
+    const systemVoice = fallen === "sapi" || (privacy && fallen !== "supertonic");
     const cloudClip = privacy || localOnly ? undefined : this.cloudClipFor();
     const argTuning = {
       ...tuning,
@@ -5076,9 +7153,13 @@ class AssistantModeStore {
       ...(localVoice
         ? {
             voiceName: "",
-            kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
+            kind: (systemVoice ? "system" : "neural") as "system" | "neural",
           }
-        : {}),
+        : // The cloud rung (FRIDAY Voice cannot speak): a tuning with no voice of its own gets the owner's online voice,
+          // named here and nowhere else; an explicit pick, a system voice or a file stays as it is.
+          tuning.kind === undefined && !ownerPickedCloud
+          ? { kind: "neural" as const, voiceName: cloudFallbackVoice(spokenLang.lang) }
+          : {}),
       ...(cloudClip ? { cloudClip } : {}),
     };
     return { fallen, tuning, privacy, tone, argTuning };
@@ -5089,8 +7170,11 @@ class AssistantModeStore {
     const next = this.arbiter.peek()[0]?.text;
     if (!next || gen !== this.speechGen) return;
     try {
-      const plan = this.speakPlan(next);
-      if (plan.argTuning.kind !== "system") prefetchSpeech(next, plan.argTuning);
+      const plan = this.speakPlan(stripDeliveryTags(next));
+      const argTuning = this.taggedLines.has(next)
+        ? { ...plan.argTuning, deliveryTags: true }
+        : plan.argTuning;
+      if (plan.argTuning.kind !== "system") prefetchSpeech(next, argTuning);
     } catch {
       /* the sentence is simply made when its turn comes */
     }
@@ -5099,6 +7183,11 @@ class AssistantModeStore {
   private cloudSpeechKeys: Record<string, boolean> = {};
   private cloudSpeechKeysAt = 0;
   private cloudSpeechBlockedUntil = 0;
+  /** The reply being spoken (by run) was classified SENSITIVE as a whole: no clause of it may reach a cloud voice. */
+  private replySensitiveRunId = "";
+  private replySensitive = false;
+  /** The heard command of the turn in flight was SENSITIVE: its whole reply stays on this PC, whatever the reply says. */
+  private turnSensitive = false;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
   private streamSpeakerPlayback = false;
@@ -5218,9 +7307,139 @@ class AssistantModeStore {
 
   private readonly soak = new SoakRecorder();
 
-  /** The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak). */
+  /**
+   * The session record for the 30-minute hardware check, as JSON (see scripts/voice-hardware-validate.cjs soak), with
+   * the turn engine shadow's agree and disagree counts beside it (numbers only: no audio, no transcript).
+   */
   soakReport(): string {
-    return JSON.stringify(this.soak.record(), null, 2);
+    const shadow = this.turnShadow?.report() ?? null;
+    return JSON.stringify(
+      {
+        ...this.soak.record(),
+        turnShadow: shadow
+          ? {
+              counters: shadow.counters,
+              lastTurn: shadow.lastTurn,
+              calibration: shadow.calibration,
+            }
+          : null,
+      },
+      null,
+      2,
+    );
+  }
+
+  /** The turn engine in shadow (`voice.turn.classifier`). Null when off, before its first event, or after a fault. */
+  private turnShadow: TurnEngineAdapter | null = null;
+  /** The shadow threw once: it stays off for this session, and the live turn never saw the error. */
+  private turnShadowBroken = false;
+
+  /**
+   * The shadow, made on first use. "off" makes none. "shadow" (the default) and "live" both run it as a shadow in
+   * this build: nothing the engine or the classifier says is acted on, every action still comes from the live path.
+   */
+  private turnShadowAdapter(): TurnEngineAdapter | null {
+    const turn = preferences.getSnapshot().voice.turn;
+    if (this.turnShadowBroken || turn.classifier === "off") {
+      this.turnShadow = null;
+      return null;
+    }
+    // The adapter reads `voice.turn` once, when it is made: a later change to the longest wait or to calibration
+    // makes a new one (its counters start again), so the change is never ignored.
+    const key = `${turn.maxWaitMs}|${turn.calibrate}`;
+    if (this.turnShadow && key !== this.turnShadowKey) this.turnShadow = null;
+    if (!this.turnShadow) {
+      this.turnShadowKey = key;
+      this.turnShadow = new TurnEngineAdapter({
+        handsFree: () => this.state.handsFree,
+        maxWaitMs: turn.maxWaitMs,
+        calibrate: turn.calibrate,
+        startAt: Date.now(),
+        expectNow: () => this.shadowExpect(),
+      });
+    }
+    return this.turnShadow;
+  }
+
+  /** What the live adapter was built from (`voice.turn`), so a change to it is noticed. */
+  private turnShadowKey = "";
+
+  /** The session ends (Auto exit, Stop everything, mute): the shadow's numbers and audio go with it. */
+  private dropTurnShadow(): void {
+    this.turnShadow = null;
+  }
+
+  /** What the open turn is expected to be: a dictation while a voice note is open, a yes or no while one waits. */
+  private shadowExpect(): TurnExpect | undefined {
+    return voiceNotes.active() ? "dictation" : this.waitingForOwner() ? "yesno" : undefined;
+  }
+
+  /** Feed the shadow, in Auto mode only. A fault drops it for the session; the live turn goes on untouched. */
+  private shadowTurn(feed: (a: TurnEngineAdapter) => void): void {
+    if (this.state.mode !== "auto") return;
+    try {
+      const a = this.turnShadowAdapter();
+      if (a) feed(a);
+    } catch {
+      this.turnShadowBroken = true;
+      this.turnShadow = null;
+    }
+  }
+
+  /**
+   * The classifier's verdict beside the live gate's. The input is read now, at the live verdict; the classifier runs
+   * in the returned call, which the caller makes after the live verdict was applied, so it never delays a stop.
+   */
+  private shadowBarge(
+    verdict: GateVerdict,
+    text: string | null,
+    voiced: boolean,
+    selfEcho: boolean,
+  ): () => void {
+    if (verdict.kind === "wait") return NO_SHADOW;
+    return this.shadowLater(verdict.kind === "restore" ? "keep" : "takeover", () =>
+      this.shadowBargeInput(text, voiced || Boolean(text), selfEcho),
+    );
+  }
+
+  /** The classifier's verdict beside the final-transcript judge of a paused reply (run after it acted). */
+  private shadowJudge(verdict: ReturnType<typeof judgeInterruption>, text: string): () => void {
+    return this.shadowLater(verdict === "interrupt" ? "takeover" : "keep", () =>
+      this.shadowBargeInput(text, true, this.isSelfEcho(text)),
+    );
+  }
+
+  private shadowLater(live: BargeVerdict, read: () => InterruptionInput): () => void {
+    let later = NO_SHADOW;
+    this.shadowTurn((a) => {
+      const input = read();
+      const at = Date.now();
+      a.holdAudioForVerdict();
+      later = () => this.shadowTurn((b) => void (b === a && b.barge(live, input, at)));
+    });
+    return later;
+  }
+
+  /** What the classifier is told: read from the live state, never written back. The speaker is never a pass. */
+  private shadowBargeInput(
+    text: string | null,
+    voiced: boolean,
+    selfEcho: boolean,
+  ): InterruptionInput {
+    const now = Date.now();
+    const since = this.replyStartedAt === null ? 0 : Math.max(0, now - this.replyStartedAt);
+    const env = this.turnTracker.lastEnv?.kind;
+    return {
+      words: text ? text.trim().split(/\s+/).filter(Boolean) : [],
+      voiceMs: 0,
+      vadP: voiced ? 0.9 : 0.1,
+      ttsPlaying: this.state.speaking || Boolean(this.interruptHold),
+      playedMs: since,
+      echoClean: !selfEcho && (this.gateLadder || this.echoCleanSourceNow()),
+      scene: env ?? "quiet",
+      speaker: "unknown",
+      sinceTtsStartMs: since,
+    };
   }
 
   private bargeDetector = new BargeInDetector();
@@ -5257,7 +7476,11 @@ class AssistantModeStore {
           const v = Number(samples[i]) || 0;
           sum += v * v;
         }
-        const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        const rawLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        // With the echo reference running the capture is cleaned of her own voice: the level the detector compares
+        // with the speaker is the cleaned one (a raw level would read her own sound as the owner's).
+        const micLevel =
+          (this.echoReferenceLive() ? cleanedLevel(performance.now()) : null) ?? rawLevel;
         const playbackLevel = speechRms();
         this.bargeMicLevel = micLevel;
         this.bargeMicAt = performance.now();
@@ -5270,6 +7493,7 @@ class AssistantModeStore {
           playbackLevel,
         });
         if (fired) this.bargeShadow.detectorFired(performance.now(), { playbackLevel, micLevel });
+        if (this.interruptGate.active) this.shadowTurn((a) => a.audio(samples, rate));
         if (Date.now() - this.bargeSavedAt > 30_000) this.saveBargeLedger();
       });
     } catch {
@@ -5468,6 +7692,8 @@ class AssistantModeStore {
         keys: this.cloudSpeechKeys,
         privacyMode: false,
         online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+        // The billing firewall, read now and failing closed: a lane with no free-allowance proof needs paid access.
+        billingAllowsPaid: billingAllowsPaidNow(),
       },
       this.cloudLedger,
     );
@@ -5540,7 +7766,85 @@ class AssistantModeStore {
       lastError: null,
       lastLatencyMs: meta?.ms ?? null,
     };
-    this.handleHeard(text, meta?.wake ?? null);
+    const record = buildTurnRecord({
+      text: trimmed,
+      textRaw: text,
+      declaredLanguage: meta?.quality?.language || preferences.getSnapshot().voice.recognitionLang,
+      confidence: heardConfidence(trimmed, meta?.quality),
+      facts: this.turnTracker.take(Date.now()),
+      interruptedPlayedMs: this.lastInterruptedPlayedMs,
+    });
+    // The turn's language: the ear's locked language wins over the script heuristic when it is sure (the tracker keeps
+    // `streamLang` only at a lock of at least STREAM_LANG_MIN_CONF). The reply hint and the voice follow this one.
+    this.turnRecord = {
+      ...record,
+      lang: preferStreamLang(record.lang, record.streamLang, STREAM_LANG_MIN_CONF),
+    };
+    // The room and the voice reach only the addressedness gate, which can only ADD a wake requirement.
+    this.addressFacts = {
+      ...(record.env ? { scene: record.env } : {}),
+      ...(record.speaker ? { speaker: record.speaker.tag } : {}),
+    };
+    this.lastInterruptedPlayedMs = null;
+    this.turnRecordLive = true;
+    this.heardSpeaker =
+      record.speaker && (!record.env || record.env.kind === "speech") ? record.speaker.tag : null;
+    this.heardTurnId = this.turnRecord.turnId;
+    // A yes is judged on the ear's sureness band and on when its voice began (both numbers; never the speaker or the
+    // room), for this turn only.
+    const began = this.streamTurnBegan;
+    this.heardEar = {
+      asrBand: this.turnRecord.confidence === null ? null : this.turnRecord.asrBand,
+      beganAt: began && began.turnId === this.turnRecord.turnId ? began.at : null,
+    };
+    // The canonical code-mixed line (script policy) is what the turn acts on; the raw words stay in the record.
+    const line = this.turnRecord.canonical || text;
+    const stoppedAtFinal = this.stopped();
+    this.heardRaw = text;
+    try {
+      this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
+    } finally {
+      this.heardEar = null;
+      this.heardRaw = "";
+      // The shadow hears of the final after the live path has handled it (a final dropped for Stop everything is no turn).
+      if (!stoppedAtFinal) this.shadowTurn((a) => a.liveFinal(line, this.lastOwnerAt));
+    }
+  }
+
+  /**
+   * The record of the turn being handled: its words, language mix, confidence and the ear's facts about it. Tags
+   * only; the speaker and the room never feed an approval, a confirmation or an authority check.
+   */
+  lastTurn(): TurnRecord | null {
+    return this.turnRecord;
+  }
+
+  /** The five language and confidence hints of the heard turn for the Brain. Never the speaker or the room. */
+  private turnHints(): TurnHints | undefined {
+    if (this.replayTurn) return this.replayTurn.hints;
+    const t = this.turnRecord;
+    if (!t) return undefined;
+    return {
+      lang: t.lang,
+      mix: t.mix,
+      confidence: t.confidence,
+      eager: t.eager,
+      clipped: t.clipped,
+    };
+  }
+
+  private turnHintsOption() {
+    const turn = this.turnHints();
+    return turn ? { turn } : {};
+  }
+
+  /**
+   * The heard turn is Hindi (the ear's lock or the script) and the reply follows the owner's language: the reply is
+   * spoken through the Hindi voice and lexicon path even when the chosen voice language is English.
+   */
+  private turnSpeaksHindi(): boolean {
+    if (replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user") return false;
+    return this.turnHints()?.lang === "hi";
   }
 
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
@@ -5577,6 +7881,7 @@ class AssistantModeStore {
           keys: this.cloudSpeechKeys,
           privacyMode: false, // privacy mode already returned above
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+          billingAllowsPaid: billingAllowsPaidNow(),
         },
         ledger,
       );
@@ -5737,7 +8042,8 @@ class AssistantModeStore {
     if (!provider || !cloud.cloudEnabled || !cloud.allowedProviders.includes(provider))
       return undefined;
     return async (text, lang, tone) => {
-      if (Date.now() < this.cloudSpeechBlockedUntil || looksSensitive(text)) return null;
+      if (Date.now() < this.cloudSpeechBlockedUntil || this.turnSensitive || looksSensitive(text))
+        return null;
       const api = desktopApi();
       if (Date.now() - this.cloudSpeechKeysAt > 60_000) {
         this.cloudSpeechKeysAt = Date.now();
@@ -5756,6 +8062,9 @@ class AssistantModeStore {
           keys: this.cloudSpeechKeys,
           privacyMode: preferences.getSnapshot().voice.privacyMode === true,
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+          billingAllowsPaid: billingAllowsPaidNow(),
+          // The whole reply, not just this clause: a harmless clause of a sensitive reply stays on this PC.
+          ...(this.replySensitive || this.turnSensitive ? { sensitiveReply: true } : {}),
         },
         {
           ledger,
@@ -5764,14 +8073,22 @@ class AssistantModeStore {
             ? {
                 speak: (
                   p: string,
-                  r: { text: string; language: string; speaker?: string; pace?: number },
+                  r: {
+                    text: string;
+                    language: string;
+                    speaker?: string;
+                    pace?: number;
+                    sensitiveReply?: boolean;
+                  },
                 ) => this.streamingSpeak().speak(p, r),
               }
             : {}),
         },
       );
       if (!out.ok) {
-        this.cloudSpeechBlockedUntil = Date.now() + 60_000;
+        // A refusal for a sensitive reply is the rule working, not a failing provider: no cool-down for the next reply.
+        if (!this.replySensitive && !this.turnSensitive)
+          this.cloudSpeechBlockedUntil = Date.now() + 60_000;
         this.trace("segment", `cloud voice skipped — ${out.error}`);
         return null;
       }
@@ -5803,35 +8120,50 @@ class AssistantModeStore {
         voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
       }
     }
-    const plan = this.speakPlan(spoken);
+    const plan = this.speakPlan(stripDeliveryTags(spoken));
     const { fallen, tuning, privacy, tone } = plan;
     this.state.tts = { ...this.state.tts, engine: fallen };
     const out = outputReachable({ deviceId: "default", volume: tone.volume });
     if (!out.ok) this.state.status = out.reason;
-    this.spokenText = spoken;
+    // What she says aloud and what the echo filter compares against has no delivery tags; the voice gets them.
+    this.spokenText = stripDeliveryTags(spoken);
+    const tagged = this.taggedLines.delete(spoken);
+    const first = this.firstLine !== "" && this.firstLine === spoken;
+    if (first) this.firstLine = "";
+    const argTuning = tagged ? { ...plan.argTuning, deliveryTags: true } : plan.argTuning;
     this.openFollowUp();
     // The next sentence, if it is already waiting, is made while this one plays.
     this.prefetchNext(gen);
-    return speakText(spoken, plan.argTuning, {
+    return speakText(spoken, argTuning, {
+      ...(first ? { first: true } : {}),
       onFirstAudio: () => {
         if (gen === this.speechGen) this.turnStages.mark("ttsFirstAudioReceived");
       },
       onStart: () => {
         if (gen !== this.speechGen) return;
+        this.shadowTurn((a) => a.tts("first-audio", `g${gen}`, 0, Date.now()));
         this.turnStages.mark("playbackFirstSample");
         if (!this.budgetRecorded) this.budgetRecorded = recordTurnBudget(this.turnStages);
         this.replyStartedAt = Date.now();
-        this.noteApprovalSpoken();
+        this.noteApprovalSpoken("start");
         this.bargeDetector.playbackStarted(performance.now());
-        this.echoUntil = Date.now() + 120_000;
+        this.openEchoWindow(spoken);
         if (this.to("tts-start")) this.pauseForSpeech();
         this.emit();
       },
       onEnd: () => {
         if (gen !== this.speechGen) return;
+        this.shadowTurn((a) =>
+          a.tts(
+            this.arbiter.size() ? "clause-end" : "drained",
+            `g${gen}`,
+            this.replyStartedAt === null ? 0 : Date.now() - this.replyStartedAt,
+            Date.now(),
+          ),
+        );
         this.bargeDetector.playbackEnded();
-        this.echoUntil = Date.now() + 1500;
-        this.noteApprovalSpoken();
+        this.echoUntil = Date.now() + ECHO_TAIL_MS;
+        this.noteApprovalSpoken("end");
         // The follow-up window counts from the end of her reply, not its start,
         // so a long answer does not use up the owner's turn.
         this.openFollowUp();
@@ -5868,6 +8200,7 @@ class AssistantModeStore {
               : route.engine === "sapi"
                 ? "sapi"
                 : how;
+        if (engine === "supertonic") this.supertonicBreakerUntil = 0;
         this.state.tts = {
           engine,
           voice: route.voiceId || tuning.voiceName || "",
@@ -5891,7 +8224,11 @@ class AssistantModeStore {
           `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}${lastClipUsedPcm() ? " · pcm" : ""}${pcmNote ? ` · ${pcmNote}` : ""}`,
         );
         this.trace("segment", `turn: ${turnTraceLine(voiceTurn())}`);
-        if (how !== "none") return;
+        if (how !== "none") {
+          this.noteTtsOutcome(true);
+          return;
+        }
+        this.noteTtsOutcome(false);
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
@@ -5906,6 +8243,7 @@ class AssistantModeStore {
         const detail = String((error as Error)?.message || error);
         this.state.tts = { ...this.state.tts, engine: "none", lastError: detail };
         markTurnStage("spoken", false, detail);
+        this.noteTtsOutcome(false);
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
@@ -5930,9 +8268,19 @@ class AssistantModeStore {
     }).active;
   }
 
+  /** Classify the reply read so far once per reply: one sensitive part marks every clause of it. */
+  private noteReplySensitivity(runId: string, text: string) {
+    if (this.replySensitiveRunId !== runId) {
+      this.replySensitiveRunId = runId;
+      this.replySensitive = this.turnSensitive;
+    }
+    if (!this.replySensitive && looksSensitive(text)) this.replySensitive = true;
+  }
+
   private speakStreamed(runId: string, text: string, final: boolean) {
     if (!text.trim()) return;
     if (isBootHolding()) return;
+    this.noteReplySensitivity(runId, text);
     if (this.interruptHold) {
       // Paused for a possible interruption: keep the newest text and say it if the owner only nodded along.
       this.deferredStream = { runId, text, final };
@@ -5942,6 +8290,7 @@ class AssistantModeStore {
       this.voicedRunId = runId;
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      this.firstClauseDue = true;
       // The clauses heard of an earlier reply are not part of this one.
       beginPlayedReply(runId);
     }
@@ -5956,16 +8305,37 @@ class AssistantModeStore {
       beginPlayedReply(runId, true);
       this.voicedChars = 0;
       this.voicedPrefix = "";
+      this.firstClauseDue = true;
     }
     if (text.length < this.voicedChars) return;
-    // Fast first clause (opt-in): the first words go to the voice at once; everything after it is spoken as before.
-    const fast = this.voicedChars === 0 && preferences.getSnapshot().voice.fastFirstClause === true;
-    const cut = fast ? firstClauseCut(text, { final }) : null;
+    // The tags the model wrote for this spoken reply, put back where they stood in the words being handed to the voice
+    // (the screen text has none). Only a spoken turn in Auto mode has a script, and it must match the shown words.
+    const anchors: TagAnchor[] =
+      this.state.mode === "auto" ? alignedAnchors(brain.deliveryScript(runId), text) : [];
+    const voiceReply = (parts: string[], before: string) => {
+      for (const piece of reinsertParts(parts, before, anchors)) {
+        const first = this.firstClauseDue;
+        this.firstClauseDue = false;
+        this.speak(piece, { reply: true, ...(first ? { first: true } : {}) });
+      }
+    };
+    // Which rule cuts the next clause: the first-clause rule opens a reply fast (opt-in) and, whenever the speaker is
+    // close to running dry with nothing queued, shortens the next clause; otherwise a clause is a whole sentence.
+    const rule = pickClauseRule({
+      firstOfReply: this.voicedChars === 0,
+      fastFirst: preferences.getSnapshot().voice.fastFirstClause === true,
+      underrunRisk: playbackPressure()?.underrunRisk === true,
+      queued: this.arbiter.size(),
+    });
+    const fast = rule === "first";
+    const cut =
+      rule === "sentence" ? null : firstClauseCut(text.slice(this.voicedChars), { final });
     if (cut) {
-      this.turnStages.mark("firstClauseReady");
+      this.stampFirstClause();
+      const before = text.slice(0, this.voicedChars);
       this.voicedChars += cut.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);
-      for (const part of splitLongSpeech(cut.spoken)) this.speak(part);
+      voiceReply(splitLongSpeech(cut.spoken), before);
     }
     const pending = text.slice(this.voicedChars);
     let chunk = takeSpeakable(pending, final);
@@ -5973,10 +8343,11 @@ class AssistantModeStore {
       chunk = earlyClause(pending);
     if (!chunk.spoken && !cut) return;
     if (chunk.spoken) {
-      this.turnStages.mark("firstClauseReady");
+      this.stampFirstClause();
+      const before = text.slice(0, this.voicedChars);
       this.voicedChars += chunk.consumed;
       this.voicedPrefix = text.slice(0, this.voicedChars);
-      for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
+      voiceReply(splitLongSpeech(chunk.spoken), before);
     }
     if (
       final &&

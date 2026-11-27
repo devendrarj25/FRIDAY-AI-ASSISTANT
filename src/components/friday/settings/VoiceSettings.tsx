@@ -1,15 +1,44 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lucide-react";
+import {
+  HardDriveDownload,
+  Mic,
+  Save,
+  ShieldCheck,
+  Settings2,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { HudPanel, LoadingState, StatusPill, ToggleRow } from "@/components/friday/ui";
+import {
+  noteStreamAuto,
+  streamEarHint,
+  type StreamAutoView,
+} from "@/lib/friday/voice-engine/stream-session";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
+import { readEarsStats } from "@/lib/friday/voice-audio";
+import {
+  deleteVoiceDataFailure,
+  deleteVoiceDataOutcome,
+  ON_BY_DEFAULT_HINT,
+  type DeleteVoiceDataOutcome,
+} from "@/components/friday/settings/voice-settings-model";
+import { VoiceEarsSettings } from "@/components/friday/settings/VoiceEarsSettings";
 import { VoiceAudioPickers } from "@/components/friday/settings/VoiceAudioPickers";
 import { VoiceEnrollment } from "@/components/friday/settings/VoiceEnrollment";
 import { FridayVoice } from "@/components/friday/settings/FridayVoice";
 import { desktopApi } from "@/lib/friday/desktop";
+import { ErrorState } from "@/components/friday/PageStates";
+import {
+  LOCAL_VOICE_CHOICES,
+  SYNTHETIC_VOICE_NOTE,
+  localVoicePickerState,
+  pickerValueFor,
+} from "@/lib/friday/voice-engine/friday-voice-profile";
+import { readFridayVoiceStatus, type FridayVoiceStatus } from "@/lib/friday/voice-diagnostics-rows";
 import {
   ownerAcceptanceSteps,
   voiceReadinessNote,
@@ -17,7 +46,10 @@ import {
 } from "@/lib/friday/voice-doctor";
 import {
   preferences,
+  sanitizeLocalVoiceStyle,
   sanitizeConfirmLevel,
+  type LocalVoiceStyle,
+  sanitizeStreamEngine,
   sanitizeVoiceTaskPrefs,
 } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -59,15 +91,104 @@ const RECOGNITION_LANGS = [
   { value: "en-US", label: "English (US)" },
 ];
 
+type StreamEarRead =
+  | { phase: "loading" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; auto: StreamAutoView | null };
+
+/**
+ * What the stream ear setting does on this PC right now: the Auto explainer and the speed-check line from the speech
+ * status (`streamAuto`), or a one-line note that Auto is available when Off is stored. It also tells the listening
+ * path when Auto is refused, so the live-words pass never assumes a stream that does not run. Read when the choice
+ * changes; Retry asks again. The stored choice is never changed here.
+ */
+function StreamEarStatus({ choice }: { choice: string }) {
+  const [read, setRead] = useState<StreamEarRead>({ phase: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const offline = !desktopApi()?.sttStatus;
+  useEffect(() => {
+    let live = true;
+    const api = desktopApi();
+    if (!api?.sttStatus) return undefined;
+    api
+      .sttStatus(false, true, false)
+      .then((status) => {
+        if (!live) return;
+        const auto = noteStreamAuto((status as { streamAuto?: unknown } | null)?.streamAuto);
+        setRead({ phase: "ready", auto });
+      })
+      .catch((error: unknown) => {
+        if (live) setRead({ phase: "error", message: String((error as Error)?.message || error) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [choice, attempt]);
+
+  if (!offline && read.phase === "loading") {
+    return <LoadingState label="Checking this PC" rows={0} />;
+  }
+  if (!offline && read.phase === "error") {
+    return (
+      <ErrorState
+        title="The streaming ear status did not load"
+        error={read.message}
+        onRetry={() => {
+          setRead({ phase: "loading" });
+          setAttempt((n) => n + 1);
+        }}
+        className="py-3"
+      />
+    );
+  }
+  const line =
+    offline || read.phase !== "ready"
+      ? "Open the FRIDAY desktop app to see whether this PC runs the streaming ear."
+      : streamEarHint(choice, read.auto);
+  if (!line) return null;
+  return (
+    <p className="text-meta-sm text-muted-foreground" role="status">
+      {line}
+    </p>
+  );
+}
+
 export function VoiceSettings() {
   const prefs = usePreferences();
   const voice = useAssistantMode();
   const router = useRouter({ warn: false });
   const [busy, setBusy] = useState(false);
 
+  /** Asks, deletes the voiceprint and the audio caches, and tells the truth; a failure offers Retry. */
+  const deleteVoiceData = async (confirmed = false): Promise<void> => {
+    if (
+      !confirmed &&
+      !window.confirm("Delete your voiceprint and every saved voice sample on this PC?")
+    ) {
+      return;
+    }
+    const api = desktopApi();
+    let outcome: DeleteVoiceDataOutcome;
+    try {
+      outcome = deleteVoiceDataOutcome(api?.clearVoiceprint ? await api.clearVoiceprint() : null);
+    } catch (error) {
+      outcome = deleteVoiceDataFailure(error);
+    }
+    if (outcome.kind === "failed") {
+      toast.error(outcome.message, {
+        action: { label: "Retry", onClick: () => void deleteVoiceData(true) },
+      });
+      return;
+    }
+    toast.success(outcome.message);
+  };
+
   return (
     <div className="space-y-4">
       <FridayVoice />
+      <HudPanel title="FRIDAY voice (default)" hint="which local voice speaks">
+        <LocalVoicePicker />
+      </HudPanel>
       <HudPanel title="Voice & Wake Word" hint="used by auto mode in the title bar">
         <div className="grid gap-3 sm:grid-cols-2">
           <EditField
@@ -233,7 +354,14 @@ export function VoiceSettings() {
             onToggle={() => assistantMode.setHandsFree(!voice.handsFree)}
           />
           <ToggleRow
-            label="Mute microphone"
+            label="Mute voice and microphone"
+            hint="Stops her voice and closes the microphone until you unmute."
+            on={voice.muted}
+            onToggle={() => assistantMode.toggleMuted()}
+          />
+          <ToggleRow
+            label="Pause listening"
+            hint="The same pause as the tray: she stops listening until you resume."
             on={voice.paused}
             onToggle={() => assistantMode.setPaused(!voice.paused)}
           />
@@ -269,29 +397,6 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
-          <label className="block">
-            <span className="label-xs text-muted-foreground">Local voice style</span>
-            <select
-              value={prefs.voice.localVoiceStyle || ""}
-              onChange={(e) =>
-                preferences.setVoice({
-                  localVoiceStyle: e.target.value as typeof prefs.voice.localVoiceStyle,
-                })
-              }
-              className="mt-1 h-8 w-full rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground"
-            >
-              <option value="">Default (F2)</option>
-              <option value="F1">F1</option>
-              <option value="F2">F2</option>
-              <option value="F3">F3</option>
-              <option value="F4">F4</option>
-              <option value="F5">F5</option>
-            </select>
-            <span className="mt-1 block text-meta-sm text-muted-foreground">
-              Female styles of the local voice. Press Test voice to hear one. A style the installed
-              model does not have falls back to the default.
-            </span>
-          </label>
           <ToggleRow
             label="Expressive speech"
             hint="A question rises, an apology softens, good news brightens, with short natural pauses between clauses. Small changes on top of your own voice settings. Off keeps the pace and pitch exactly as set."
@@ -320,15 +425,54 @@ export function VoiceSettings() {
             on={prefs.voice.liveWords === true}
             onToggle={() => preferences.setVoice({ liveWords: prefs.voice.liveWords !== true })}
           />
+          <label className="block">
+            <span className="label-xs text-muted-foreground">
+              FRIDAY's own streaming ear (experimental)
+            </span>
+            <select
+              value={sanitizeStreamEngine(prefs.voice.streamEngine)}
+              onChange={(e) =>
+                preferences.setVoice({ streamEngine: sanitizeStreamEngine(e.target.value) })
+              }
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="off" className="bg-background">
+                Off: the normal listening path
+              </option>
+              <option value="auto" className="bg-background">
+                Auto: on when this PC is fast enough (default)
+              </option>
+              <option value="nemotron" className="bg-background">
+                FRIDAY Ear Live
+              </option>
+              <option value="stream-ear-nemotron" className="bg-background">
+                FRIDAY Ear Live, int8 (the pinned download)
+              </option>
+            </select>
+            <span className="mt-1 block text-meta-sm text-muted-foreground">
+              Auto mode only. Words appear while you speak, in Hindi, English and Hinglish, on this
+              PC only; nothing is sent anywhere. It needs the streaming model (Models page); without
+              it, or when anything fails, the normal listening path carries on. Not yet tried on a
+              real microphone.
+            </span>
+          </label>
+          <StreamEarStatus choice={sanitizeStreamEngine(prefs.voice.streamEngine)} />
+          <ToggleRow
+            label="Write spoken numbers, times and money as digits"
+            hint="Hindi, English and Hinglish: spoken numbers, times, money and web addresses are written as digits in the words shown, only where the reading is sure. It runs on this PC after the tidy step and never changes the script you spoke. On by default."
+            on={prefs.voice.itn !== false}
+            onToggle={() => preferences.setVoice({ itn: prefs.voice.itn === false })}
+          />
           <ToggleRow
             label="Listen for the wake word live (needs a wake model)"
-            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs an openWakeWord model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
+            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs a wake model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
             on={prefs.voice.liveWake === true}
             onToggle={() => preferences.setVoice({ liveWake: prefs.voice.liveWake !== true })}
           />
           <VoiceNotesList />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
+          <VoiceEarsSettings readStats={readEarsStats} />
           <SpeechModelCheck />
           <ToggleRow
             label="Realtime voice (experimental)"
@@ -390,7 +534,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Fast first clause (experimental)"
-            hint="Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. Off by default and not yet measured on a real speaker."
+            hint={`Auto mode only. FRIDAY starts speaking after the first four to eight words, at a comma or a dash, instead of waiting for the end of the first sentence. Numbers, names like Dr. Sharma, links, code and quotations are never cut. Nothing leaves this PC; it only moves timing. ${ON_BY_DEFAULT_HINT}`}
             on={prefs.voice.fastFirstClause === true}
             onToggle={() =>
               preferences.setVoice({ fastFirstClause: prefs.voice.fastFirstClause !== true })
@@ -398,13 +542,13 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Play the local voice as raw samples (experimental)"
-            hint="Only for the local Supertonic voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. Off by default and not yet measured on a real speaker."
+            hint={`Only for the local FRIDAY Voice. Skips the audio file and plays each clause through the gapless scheduler. If anything fails, that clause and the rest of the session play the old way, and Voice diagnostics says why. ${ON_BY_DEFAULT_HINT}`}
             on={prefs.voice.pcmPlayback === true}
             onToggle={() => preferences.setVoice({ pcmPlayback: prefs.voice.pcmPlayback !== true })}
           />
           <ToggleRow
-            label="Use the light Hindi voice for Hindi (optional download, CC-BY-4.0 credit: Sulabh Katiyar, AI4Bharat Rasa)"
-            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the Hindi light voice download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
+            label="Use FRIDAY Voice Lite for Hindi (optional download)"
+            hint="Lines written fully in Devanagari are spoken by a small Hindi voice that runs on this PC; English and mixed lines keep the usual voice. It needs the FRIDAY Voice Lite download in Models (about 91 MB); until then, and whenever it cannot speak a line, the usual local voice speaks and Voice diagnostics says why. Plays as raw samples. Off by default and not yet heard on your PC."
             on={prefs.voice.hindiLightVoice === true}
             onToggle={() =>
               preferences.setVoice({ hindiLightVoice: prefs.voice.hindiLightVoice !== true })
@@ -412,7 +556,7 @@ export function VoiceSettings() {
           />
           <ToggleRow
             label="Check the language on every phrase (experimental)"
-            hint="faster-whisper listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
+            hint="FRIDAY Ear listens for the language again in each phrase, so a sentence that switches between Hindi and English is read in both. Works with the Hindi and English choices above, where FRIDAY detects the language itself. Uses a little more CPU. Off by default."
             on={prefs.voice.sttMultilingual === true}
             onToggle={() =>
               preferences.setVoice({ sttMultilingual: prefs.voice.sttMultilingual !== true })
@@ -499,11 +643,7 @@ export function VoiceSettings() {
           <button
             type="button"
             className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 text-left font-mono text-xs text-foreground"
-            onClick={() => {
-              const api = (window as unknown as { friday?: { clearVoiceprint?: () => void } })
-                .friday;
-              void api?.clearVoiceprint?.();
-            }}
+            onClick={() => void deleteVoiceData()}
           >
             <Trash2 className="size-3" aria-hidden="true" />
             Delete voice data
@@ -560,7 +700,7 @@ export function VoiceSettings() {
                 hinglish: true,
               });
               resetToBestVoice();
-              assistantMode.setHandsFree(true);
+              assistantMode.setHandsFree(false);
               assistantMode.setMuted(false);
               assistantMode.setPaused(false);
               void preferences.flush();
@@ -591,6 +731,146 @@ export function VoiceSettings() {
         </div>
       </HudPanel>
       <VoiceLibraryPanel />
+    </div>
+  );
+}
+
+/**
+ * Settings, Voice: which local voice speaks. FRIDAY (sweet and warm) is the default and needs nothing chosen; the
+ * variants and the presets are the owner's explicit pick. Preview plays one without saving it, through the same
+ * sample path as Test voice, so it needs Auto mode like every spoken line.
+ */
+function LocalVoicePicker() {
+  const prefs = usePreferences();
+  const desktop = Boolean(desktopApi());
+  const [loading, setLoading] = useState(desktop);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState<FridayVoiceStatus | null>(null);
+  const ask = () =>
+    neuralVoiceStatus()
+      .then((answer) => setStatus(readFridayVoiceStatus(answer.fridayVoice)))
+      .catch((failure: unknown) =>
+        setError(
+          String((failure as Error)?.message ?? failure) || "the local voice did not answer",
+        ),
+      )
+      .finally(() => setLoading(false));
+  const retry = () => {
+    setError("");
+    setLoading(true);
+    void ask();
+  };
+  useEffect(() => {
+    if (desktop) void ask();
+    // The status is read once when the page opens; Retry asks again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const state = localVoicePickerState({ loading, desktop, error, status });
+  const chosen = pickerValueFor(prefs.voice.localVoiceStyle);
+  const chosenLabel = LOCAL_VOICE_CHOICES.find((choice) => choice.id === chosen)?.label ?? "";
+  // Speech plays only in Auto mode, so the previews say so up front instead of failing after the click.
+  const autoMode = useAssistantMode().mode === "auto";
+  const canPreview = state.kind === "ready" && autoMode;
+  const hintId = "local-voice-preview-hint";
+  const preview = (style: LocalVoiceStyle) => {
+    if (assistantMode.getSnapshot().mode !== "auto") {
+      toast.error("FRIDAY speaks only in Auto mode");
+      return;
+    }
+    const tuning = activeVoiceSettings();
+    if (!speakSample("Namaste, main FRIDAY hoon.", { ...tuning, previewStyle: style })) {
+      toast.error("Speech synthesis is unavailable on this machine");
+    }
+  };
+
+  return (
+    <div className="sm:col-span-2" data-testid="local-voice-picker">
+      <span className="label-xs text-muted-foreground" id="local-voice-label">
+        Local voice
+      </span>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <select
+          aria-labelledby="local-voice-label"
+          value={chosen}
+          onChange={(e) =>
+            preferences.setVoice({ localVoiceStyle: sanitizeLocalVoiceStyle(e.target.value) })
+          }
+          className="h-8 min-w-[220px] flex-1 rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground"
+        >
+          {LOCAL_VOICE_CHOICES.map((choice) => (
+            <option key={choice.id || "default"} value={choice.id} className="bg-background">
+              {choice.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canPreview}
+          aria-label={`Preview ${chosenLabel}`}
+          aria-describedby={state.kind === "ready" && !autoMode ? hintId : undefined}
+          onClick={() => preview(chosen)}
+        >
+          <Volume2 className="size-4" /> Preview
+        </Button>
+      </div>
+      {state.kind === "ready" && !autoMode ? (
+        <p id={hintId} className="mt-1 text-meta-sm text-muted-foreground">
+          Previews play in Auto mode only. Switch to Auto mode to hear a voice.
+        </p>
+      ) : null}
+      <ul className="mt-2 space-y-1">
+        {LOCAL_VOICE_CHOICES.map((choice) => (
+          <li key={choice.id || "default"} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 text-meta-sm text-muted-foreground">
+              {choice.label}: {choice.hint}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!canPreview}
+              aria-label={`Preview ${choice.label}`}
+              title={`Preview ${choice.label}`}
+              aria-describedby={state.kind === "ready" && !autoMode ? hintId : undefined}
+              onClick={() => preview(choice.id)}
+            >
+              <Volume2 className="size-4" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {state.kind === "error" ? (
+        <ErrorState title="The local voice did not answer" error={state.note} onRetry={retry} />
+      ) : (
+        <p
+          className="mt-2 flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground"
+          role="status"
+        >
+          <StatusPill
+            label={
+              state.kind === "ready"
+                ? state.own
+                  ? "own engine"
+                  : "package voice"
+                : state.kind === "loading"
+                  ? "checking"
+                  : state.kind === "empty"
+                    ? "not installed"
+                    : "desktop only"
+            }
+            tone={
+              state.kind === "ready" && state.own
+                ? "accent"
+                : state.kind === "loading" || state.kind === "offline"
+                  ? "muted"
+                  : "warning"
+            }
+          />
+          {state.note}
+        </p>
+      )}
+      <p className="mt-1 text-meta-sm text-muted-foreground">{SYNTHETIC_VOICE_NOTE}</p>
     </div>
   );
 }

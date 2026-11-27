@@ -1,0 +1,12 @@
+{
+  "name": "friday-runtime-llm",
+  "engine": "llama.cpp",
+  "tag": null,
+  "commit": null,
+  "variant": null,
+  "toolchain": null,
+  "files": [],
+  "assetName": null,
+  "sha256": null,
+  "builtAt": null
+}

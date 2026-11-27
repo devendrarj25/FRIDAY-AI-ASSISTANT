@@ -269,9 +269,17 @@ describe("the catalog's manifest fields are the pinned ones", () => {
 
   it("every pinned voice model has the same fields and numbers on both sides, and the disk bytes are the pins' sum", () => {
     const ids = registry.modelRegistry().map((row) => row.catalogId);
-    expect(ids.length).toBe(17); // 14 before the denoiser, the speaker model and the Vaani ear
+    expect(ids.length).toBe(26); // 14 before the two denoisers, the speaker model, the Vaani ear, the streaming ear, the Trelis Hinglish ear, the wake embedding, the four acquired-ear rows (English, Swift, Quick and its vocabulary) and FRIDAY Ear Hinglish Pro (the converted copy)
     expect(ids).toEqual(
-      expect.arrayContaining(["denoise-dpdfnet", "speaker-wespeaker", "hindi-vaani-ear"]),
+      expect.arrayContaining([
+        "denoise-dpdfnet",
+        "denoise-gtcrn",
+        "speaker-wespeaker",
+        "hindi-vaani-ear",
+        "stream-ear-nemotron",
+        "hinglish-ear-trelis",
+        "wake-embed",
+      ]),
     );
     expect(Object.keys(voiceModelFacts).sort()).toEqual([...ids].sort());
     for (const id of ids) {

@@ -190,7 +190,9 @@ describe("the dangerous set keeps asking, once, short", () => {
   it("asks ONE question when she is unsure of a dangerous order: the action question, never a read-back first", () => {
     drive.lastHeardQuality = { avgLogprob: -1.7, languageProbability: 0.35, language: "en" };
     drive.handleHeard("Friday send the money to Rahul");
-    expect(spoken).toEqual(["Should I send the money to rahul?"]);
+    // The one question is the digest read in full (a person is named): what and to whom, then the short yes it needs.
+    expect(spoken).toEqual(["Send the money to rahul. Say yes to confirm."]);
+    expect(spoken.join(" ")).not.toMatch(ASKING);
     expect(drive.pendingHeard).toBeNull();
     expect(sent).toEqual([]);
     drive.lastHeardQuality = null;

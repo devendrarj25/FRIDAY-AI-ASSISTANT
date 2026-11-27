@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "set_timer",
+        "description": "Start a countdown timer.",
+        "parameters": {
+          "type": "object",
+          "properties": { "minutes": { "type": "number" } },
+          "required": ["minutes"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "open_app",
+        "description": "Open an installed application by name.",
+        "parameters": {
+          "type": "object",
+          "properties": { "name": { "type": "string" } },
+          "required": ["name"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_reminder",
+        "description": "Create a reminder with text and a 24-hour time such as 18:00.",
+        "parameters": {
+          "type": "object",
+          "properties": { "text": { "type": "string" }, "time": { "type": "string" } },
+          "required": ["text", "time"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_volume",
+        "description": "Set the system volume from 0 to 100.",
+        "parameters": {
+          "type": "object",
+          "properties": { "level": { "type": "integer" } },
+          "required": ["level"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_notes",
+        "description": "Search the owner's notes.",
+        "parameters": {
+          "type": "object",
+          "properties": { "query": { "type": "string" } },
+          "required": ["query"]
+        }
+      }
+    }
+  ]
+}

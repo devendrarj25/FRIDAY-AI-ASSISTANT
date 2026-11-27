@@ -36,7 +36,7 @@ import {
 import { preferences } from "./preferences";
 import { normalizeListenStyle, pttCapturing, pttHeldForMs } from "./push-to-talk";
 import { biasPrompt } from "./speech-parse";
-import { voiceGate } from "./voice-audio";
+import { noteStreamDenoise, noteStreamVad, voiceGate } from "./voice-audio";
 import {
   ProvisionalDecoder,
   provisionalWanted,
@@ -53,6 +53,19 @@ import {
   type HearingAudio,
 } from "./voice-hearing";
 import type { HeardQuality } from "./asr-bias";
+import type { LiveWordsUpdate } from "./voice-engine/live-words";
+import { eotHoldFrames, maxWaitFramesFor, type EotLang } from "./voice-engine/endpoint-calibration";
+import type { TurnExpect } from "./voice-engine/turn-engine";
+import {
+  STREAM_MIN_CHUNK_MS,
+  STREAM_RATE,
+  SttStreamSession,
+  streamEarlyRead,
+  streamWanted,
+  type StreamBridge,
+  type StreamPlan,
+  type StreamTurn,
+} from "./voice-engine/stream-session";
 import type { VoiceMatchResult } from "./desktop";
 
 /** The same fault line is logged once. A new class replaces it. */
@@ -86,6 +99,10 @@ export interface SttStatus {
   loadCount?: number;
   moonshineReady?: boolean;
   windowsSpeech?: boolean;
+  /** The optional Trelis Hinglish ear: its pinned files are on disk and the PC can run it (unset = not reported). */
+  hinglishEarTrelisReady?: boolean;
+  /** Why the last request for the Trelis ear fell back to the usual one. */
+  hinglishEarSkipped?: string;
 }
 
 const OFFLINE: SttStatus = {
@@ -112,6 +129,43 @@ export function whisperLanguageArg(pref?: string | null): string {
 
 /** A hold may reach back this far to the key-down; longer waiting before speaking is only silence to decode. */
 export const PTT_LEAD_MAX_MS = 3000;
+
+/**
+ * The longest one utterance may stay open. It is a safety net: the end of the turn (a pause the turn model confirms, the
+ * talk key, the streaming ear) closes a segment long before it. A long monologue is read by the kernel in pieces cut at
+ * its silences (`kernel/stt.py` long form), so it is never cut mid-sentence here.
+ */
+export const LONGFORM_MAX_UTTERANCE_MS = 300_000;
+/** Audio held by the shared capture ring, in ms, from which a segment is moved to its own store at the next pause. */
+export const LONGFORM_SPILL_AT_MS = 15_000;
+/** The same move with no pause at all, before the ring (30 s) would drop the start of the segment. */
+export const LONGFORM_SPILL_FORCE_MS = 24_000;
+/** A pause this long is a quiet place to move the segment's audio out of the ring. */
+export const LONGFORM_SPILL_QUIET_MS = 250;
+/** A segment longer than this is not read early at a pause (the early read would decode a long clip again and again). */
+export const LONGFORM_EARLY_READ_MAX_MS = 30_000;
+
+/** Whether the ring's part of an open segment should now move to the segment's own store. */
+export function spillDue(input: {
+  heldMs: number;
+  quietMs: number | null;
+  speech: boolean;
+}): boolean {
+  if (input.heldMs >= LONGFORM_SPILL_FORCE_MS) return true;
+  if (input.heldMs < LONGFORM_SPILL_AT_MS || input.speech) return false;
+  return (input.quietMs ?? 0) >= LONGFORM_SPILL_QUIET_MS;
+}
+
+/** The parts of one segment, in order, as one clip. */
+export function joinSamples(parts: readonly Float32Array[]): Float32Array {
+  const out = new Float32Array(parts.reduce((total, part) => total + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
 
 /**
  * Where a segment starts. Speech heard while the talk key is down began at or after the key-down, so the segment
@@ -234,6 +288,10 @@ export async function sttStatus(
     if (typeof raw?.loadCount === "number") value.loadCount = raw.loadCount;
     if (typeof raw?.moonshineReady === "boolean") value.moonshineReady = raw.moonshineReady;
     if (typeof raw?.windowsSpeech === "boolean") value.windowsSpeech = raw.windowsSpeech;
+    if (typeof raw?.hinglishEarTrelisReady === "boolean")
+      value.hinglishEarTrelisReady = raw.hinglishEarTrelisReady;
+    if (typeof raw?.hinglishEarSkipped === "string" && raw.hinglishEarSkipped)
+      value.hinglishEarSkipped = raw.hinglishEarSkipped;
     if (localOnly) cachedLocal = { at: Date.now(), value };
     else cached = { at: Date.now(), value };
     return value;
@@ -264,6 +322,25 @@ export async function installStt(): Promise<{ ok: boolean; error?: string }> {
 
 /** The owner's voice score is scored beside the transcription; it never holds a turn longer than this. */
 const VOICE_PROBE_MS = 4000;
+
+/**
+ * The stream bridge with the owner's `voice.ears` added to stream-open (main clamps it again) and the gate engine of
+ * the reply kept for the Doctor. Every other call passes through untouched.
+ */
+function earsBridge<T extends StreamBridge | null | undefined>(bridge: T): T {
+  const open = bridge?.openSttStream;
+  if (!bridge || !open) return bridge;
+  return {
+    ...bridge,
+    openSttStream: async (payload: Parameters<typeof open>[0]) => {
+      const withEars = { ...payload, ears: preferences.getSnapshot().voice.ears };
+      const reply = await open.call(bridge, withEars);
+      noteStreamVad((reply as { vad?: unknown } | null | undefined)?.vad);
+      noteStreamDenoise((reply as { denoise?: unknown } | null | undefined)?.denoise);
+      return reply;
+    },
+  };
+}
 
 function withTimeout<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
   return new Promise((resolve) => {
@@ -309,7 +386,7 @@ export interface DictationOptions {
   initialPrompt?: string | (() => string);
   /** The owner's dictionary as faster-whisper `hotwords` (see `sttHotwords`); nothing is sent when empty. */
   hotwords?: string | (() => string);
-  /** Hard cap so one long monologue still gets transcribed. */
+  /** Safety cap on one utterance (default `LONGFORM_MAX_UTTERANCE_MS`); the end of the turn closes it first. */
   maxUtteranceMs?: number;
   /**
    * A finished transcript. `meta.wake` carries the openWakeWord verdict when
@@ -364,7 +441,30 @@ export interface DictationOptions {
   }) => void;
   /** One clear line when the shared capture must be rebuilt. */
   onFault?: (fault: { kind: MicFaultKind; message: string }) => void;
+  /**
+   * The streaming ear for the next utterance (`voice.streamEngine`), or null for the ordinary decode. Read once per
+   * segment; only a segment taken from the PCM ring streams. A refusal falls back to the ordinary decode.
+   */
+  streamPlan?: () => StreamPlan | null;
+  /** A live partial from the streaming ear: display and barge-in data only, never a turn. */
+  onStreamPartial?: (update: LiveWordsUpdate) => void;
+  /** A turn event of the streaming ear (also reaches every `subscribeStreamTurns` listener). */
+  onStreamTurn?: (turn: StreamTurn) => void;
+  /** What kind of answer is expected now: dictation and open turns may wait longer for a verdict. */
+  turnExpect?: () => TurnExpect | undefined;
+  /** The language of the turn, for the unfinished-sentence wait. */
+  turnLang?: () => EotLang | undefined;
+  /** The words heard so far, when the caller has them (the stream's own partials are used first). */
+  turnTail?: () => string;
+  /** The speech worker is in a crash loop: say so in the voice status, with its retry time. */
+  onListeningPaused?: (pause: ListeningPause) => void;
 }
+
+/** The worker's crash-loop answer, in the three languages, and when listening may be retried. */
+export type ListeningPause = {
+  lines: { en: string; hi: string; hinglish: string };
+  retryAfterMs: number;
+};
 
 /**
  * Continuous on-device dictation. One microphone stream. The PCM ring records
@@ -497,9 +597,22 @@ let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 
 export type TurnHold = "idle" | "scoring" | "extend" | "confirmed" | "done";
 
-/** What the end-of-turn model's answer means for the closing pause. A missing or middling score changes nothing. */
-export function turnHoldAfterScore(probability: unknown): TurnHold {
-  if (typeof probability !== "number" || !Number.isFinite(probability)) return "done";
+/** One quiet frame of the end-of-turn rules (the calibration module counts waits in these). */
+const EOT_FRAME_MS = 80;
+/** The longest quiet wait when none is given (the default `voice.turn.maxWaitMs`). */
+const MAX_WAIT_FRAMES_MS = 2400;
+
+/** What the owner has said so far, for judging a turn the model could not score. */
+export type TurnTail = { text: string; expect?: TurnExpect; lang?: EotLang };
+
+/**
+ * What the end-of-turn model's answer means for the closing pause. A middling score changes nothing. A missing or busy
+ * score changes nothing either, unless the transcript tail is unfinished ("... aur"): then the pause is held.
+ */
+export function turnHoldAfterScore(probability: unknown, tail?: TurnTail): TurnHold {
+  if (typeof probability !== "number" || !Number.isFinite(probability)) {
+    return tail && eotHoldFrames(tail.text, tail.expect, tail.lang) > 0 ? "extend" : "done";
+  }
   if (probability < 0.5) return "extend";
   return probability >= TURN_CONFIRM_PROBABILITY ? "confirmed" : "done";
 }
@@ -521,8 +634,15 @@ export function turnHoldPlan(input: {
   capMs: number;
   canScore: boolean;
   tooLong?: boolean;
+  /** A live streaming ear owns the end of the turn: no score is asked, only its verdict or `maxWaitMs` closes. */
+  streamOwns?: boolean;
+  maxWaitMs?: number;
 }): { ask: boolean; close: boolean } {
   if (input.speech) return { ask: false, close: Boolean(input.tooLong) };
+  if (input.streamOwns) {
+    const longest = input.maxWaitMs ?? MAX_WAIT_FRAMES_MS;
+    return { ask: false, close: Boolean(input.tooLong) || input.quietMs >= longest };
+  }
   const askAt = Math.min(TURN_SCORE_ASK_MS, input.silenceMs);
   const ask =
     input.hold === "idle" &&
@@ -556,10 +676,23 @@ type TranscribeReply = {
   notice?: string;
   emptyReason?: string;
   audio?: HearingAudio | null;
+  lines?: { en?: string; hi?: string; hinglish?: string };
+  retry?: boolean;
+  retryAfterMs?: number;
 };
 type ProvisionalReply = TranscribeReply;
-/** The early read of a sealed pause, carried with its utterance through the queue. */
-type EarlyRead = ProvisionalHandle<ProvisionalReply> | null;
+/**
+ * The early read of a sealed pause, or the streaming ear's final, carried with its utterance through the queue.
+ * `take` answers null when the ordinary decode must run.
+ */
+type EarlyRead =
+  | ProvisionalHandle<ProvisionalReply>
+  | {
+      source: "stream";
+      take: () => Promise<ProvisionalReply | null>;
+      cancel: () => void;
+    }
+  | null;
 
 export class DesktopDictation {
   private stream: MediaStream | null = null;
@@ -622,12 +755,18 @@ export class DesktopDictation {
   private turnHold: TurnHold = "idle";
   /** Bumps whenever a segment opens or speech resumes, so a late score for an older pause is ignored. */
   private turnGen = 0;
+  /** The words the streaming ear has shown for the open segment (the tail the unfinished-sentence rule reads). */
+  private streamTail = "";
+  private pause: ListeningPause | null = null;
   private captureHealthy = true;
   private startedMono = 0;
   private pcmFrom = 0;
   /** True while the open segment was started by a push-to-talk hold: the key, not the pause, ends it. */
   private pttSegment = false;
   private segmentSamples = 0;
+  /** Audio of this segment already moved out of the shared ring (a long utterance), oldest first. */
+  private spill: Float32Array[] = [];
+  private spillSamples = 0;
   private delivered = false;
   private watchTimer: number | null = null;
   private droppedCount = 0;
@@ -636,6 +775,12 @@ export class DesktopDictation {
   private lastFault = "";
   private histogram = emptyHistogram();
   private readonly restartStamps: number[] = [];
+
+  /** The streaming ear of the open segment (null when it is off, refused or not a PCM segment). */
+  private streamSession: SttStreamSession | null = null;
+  /** Samples of this segment already handed to the stream. */
+  private streamFed = 0;
+  private streamSeq = 0;
 
   private unsubscribe: (() => void) | null = null;
   private leaseToken = "";
@@ -788,6 +933,7 @@ export class DesktopDictation {
     this.recorder = null;
     this.pcmSegment = false;
     this.chunks = [];
+    this.dropStream("stopped");
     for (const row of this.queue) row.provisional?.cancel();
     this.queue = [];
     this.provisional.invalidate();
@@ -820,7 +966,8 @@ export class DesktopDictation {
       if (voiceGate.getSnapshot().speech) {
         if (!this.speechSince) this.speechSince = performance.now();
       } else this.speechSince = 0;
-      if (this.pcmFrom) this.segmentSamples = capturedSince(this.pcmFrom + PRE_ROLL_MS);
+      if (this.pcmFrom)
+        this.segmentSamples = this.spillSamples + capturedSince(this.pcmFrom + PRE_ROLL_MS);
       const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
       const decision = micWatch({
         live: true,
@@ -831,7 +978,7 @@ export class DesktopDictation {
         speechForMs: speechFor,
         capturedSamples: this.segmentSamples,
         segmentWallMs: this.startedAt && this.speaking ? Date.now() - this.startedAt : 0,
-        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+        maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
         trackState: track?.readyState ?? "live",
         muted: Boolean(track?.muted),
       });
@@ -884,7 +1031,7 @@ export class DesktopDictation {
       speechForMs: 0,
       capturedSamples: 0,
       segmentWallMs: 0,
-      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
       trackState: kind === "track-ended" ? "ended" : "live",
       muted: kind === "track-muted",
     });
@@ -912,6 +1059,7 @@ export class DesktopDictation {
       this.openSegmentClock();
       this.pcmSegment = true;
       this.recorder = null;
+      this.openStream();
       return true;
     }
     if (typeof MediaRecorder === "undefined") {
@@ -950,7 +1098,7 @@ export class DesktopDictation {
         nowMono: performance.now(),
         startedWall: this.startedAt,
         nowWall: Date.now(),
-        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+        maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
       });
       if (clock.bug && !this.bugLogged) {
         this.bugLogged = true;
@@ -994,6 +1142,7 @@ export class DesktopDictation {
     this.turnHold = "idle";
     this.turnGen += 1;
     this.turnScore = null;
+    this.streamTail = "";
     this.provisional.openSegment();
     const start = pttSegmentStart(performance.now(), this.pttLeadMs());
     this.pttSegment = this.pttFollows() && pttCapturing(Date.now(), this.options.language ?? "en");
@@ -1001,6 +1150,8 @@ export class DesktopDictation {
     this.startedAt = Date.now() - (performance.now() - start.startedMono);
     this.pcmFrom = start.pcmFrom;
     this.segmentSamples = 0;
+    this.spill = [];
+    this.spillSamples = 0;
     this.delivered = false;
     this.bugLogged = false;
     this.earlyWake = null;
@@ -1025,15 +1176,112 @@ export class DesktopDictation {
     return encodeWav(samples);
   }
 
+  /** Open the streaming ear for this PCM segment when the owner asked for it. Never opens a microphone. */
+  private openStream(): void {
+    this.dropStream("replaced");
+    const plan = this.options.streamPlan?.() ?? null;
+    if (!plan || !streamWanted(plan.streamEngine)) return;
+    this.streamSeq += 1;
+    const session: SttStreamSession = new SttStreamSession({
+      bridge: earsBridge(desktop()),
+      onTurn: (turn) => {
+        if (this.streamSession === session) this.options.onStreamTurn?.(turn);
+      },
+      streamId: `dictation-${Date.now().toString(36)}-${this.streamSeq}`,
+      onPartial: (update) => {
+        if (this.streamSession !== session) return;
+        this.streamTail = update.shown || update.settled || this.streamTail;
+        this.options.onStreamPartial?.(update);
+      },
+      onEndpoint: (endpoint) => {
+        if (this.streamSession !== session || endpoint.event !== "EndOfTurn") return;
+        this.options.onDiagnostic?.({
+          stage: "segment",
+          detail: `streaming ear: end of turn${endpoint.reason ? ` · ${endpoint.reason}` : ""}`,
+          ...(endpoint.silenceMs !== null ? { ms: endpoint.silenceMs } : {}),
+        });
+      },
+      onFallback: (why) => {
+        if (this.streamSession !== session) return;
+        this.options.onDiagnostic?.({
+          stage: "segment",
+          detail: `streaming ear unavailable (${why}) — the ordinary decode reads this utterance`,
+        });
+      },
+    });
+    this.streamSession = session;
+    this.streamFed = 0;
+    void session.open(plan);
+  }
+
+  /** Hand the stream the audio of this segment it has not had yet (the ring is read only when a chunk is due). */
+  private feedStream(): void {
+    const session = this.streamSession;
+    if (!session?.live || !this.pcmFrom) return;
+    const due = capturedSince(this.pcmFrom + PRE_ROLL_MS) - this.streamFed;
+    if (due < (STREAM_MIN_CHUNK_MS / 1000) * STREAM_RATE) return;
+    const all = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    if (all.length < this.streamFed) {
+      // The ring moved past the start of this segment: what was fed no longer lines up.
+      this.dropStream("ring");
+      return;
+    }
+    session.push(all.subarray(this.streamFed));
+    this.streamFed = all.length;
+  }
+
+  /**
+   * A long utterance outgrows the shared ring (it keeps about 30 s). Its audio moves to the segment's own store at the
+   * next pause (or before the ring would drop its start), so the whole turn reaches the decoder. The stream is handed
+   * what it has not had yet first, and counts from the new start afterwards.
+   */
+  private spillRing(speech: boolean, quietMs: number | null): void {
+    if (!this.pcmSegment || !this.pcmFrom) return;
+    const heldMs = (capturedSince(this.pcmFrom + PRE_ROLL_MS) / STREAM_RATE) * 1000;
+    if (!spillDue({ heldMs, quietMs, speech })) return;
+    const held = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    this.spill.push(held);
+    this.spillSamples += held.length;
+    const session = this.streamSession;
+    if (session?.live && held.length > this.streamFed) session.push(held.subarray(this.streamFed));
+    this.streamFed = 0;
+    this.pcmFrom = performance.now();
+  }
+
+  /** The stream's final as this utterance's early read, or null (no stream, refused): the ordinary decode runs. */
+  private takeStreamRead(): EarlyRead {
+    const session = this.streamSession;
+    if (!session?.live) {
+      this.dropStream("closed");
+      return null;
+    }
+    this.feedStream();
+    this.streamSession = null;
+    this.streamFed = 0;
+    // Closed now, not when the queue reaches it: the stream holds the one turn gate until it is closed.
+    return streamEarlyRead(session.close(true));
+  }
+
+  private dropStream(reason: string): void {
+    this.streamSession?.abort(reason);
+    this.streamSession = null;
+    this.streamFed = 0;
+  }
+
   private finishSegment(reason: string) {
     const wav = this.pcmFrom ? this.takePcm() : null;
-    if (!wav) this.provisional.cancel();
+    this.spill = [];
+    this.spillSamples = 0;
+    if (!wav) {
+      this.provisional.cancel();
+      this.dropStream("dropped");
+    }
     const clock = segmentClock({
       startedMono: this.startedMono || performance.now(),
       nowMono: performance.now(),
       startedWall: this.startedAt || Date.now(),
       nowWall: Date.now(),
-      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      maxUtteranceMs: this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS,
     });
     if (wav) {
       this.delivered = true;
@@ -1055,7 +1303,9 @@ export class DesktopDictation {
             signature: JSON.stringify(this.decodeFields()),
           })
         : null;
-      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake, sealed);
+      const streamed = this.takeStreamRead();
+      if (streamed) sealed?.cancel();
+      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake, streamed ?? sealed);
     } else if (clock.bug && !this.bugLogged) {
       this.bugLogged = true;
       this.options.onDiagnostic?.({ stage: "error", detail: clock.reason, ms: clock.reportMs });
@@ -1073,7 +1323,7 @@ export class DesktopDictation {
 
   /** End the utterance after enough trailing silence, or at the hard cap. */
   private evaluateSegment(speech: boolean) {
-    const maxMs = this.options.maxUtteranceMs ?? 20_000;
+    const maxMs = this.options.maxUtteranceMs ?? LONGFORM_MAX_UTTERANCE_MS;
     const clock = segmentClock({
       startedMono: this.startedMono || performance.now(),
       nowMono: performance.now(),
@@ -1103,11 +1353,19 @@ export class DesktopDictation {
         this.finishSegment(late.reason);
         return;
       }
+      this.feedStream();
+      // The streaming ear judged the turn over: the utterance ends now (push-to-talk still waits for the key).
+      if (this.streamSession?.endOfTurn && !this.pttSegment) {
+        this.finishSegment("stream-endpoint");
+        return;
+      }
       const snapshot = voiceGate.getSnapshot();
+      this.spillRing(snapshot.speech, snapshot.sinceSpeech);
       const quietFor = snapshot.sinceSpeech ?? 0;
       const tooLong = performance.now() - this.startedMono > maxMs;
       const silenceMs = this.silenceBudget();
-      const cap = Math.min(1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
+      const maxWaitMs = this.maxWaitMs();
+      const cap = Math.min(maxWaitMs, 1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
       if (snapshot.speech && this.turnHold !== "idle") {
         // Speech resumed: whatever the model said about the earlier pause no longer applies.
         this.turnHold = "idle";
@@ -1124,6 +1382,9 @@ export class DesktopDictation {
         capMs: cap,
         canScore: turnScoreReady !== "absent" && Boolean(desktop()?.scoreTurn),
         tooLong,
+        // One owner: a live streaming ear's verdict ends the turn (above); the renderer never scores beside it.
+        streamOwns: Boolean(this.streamSession?.live),
+        maxWaitMs,
       });
       if (plan.ask) {
         this.turnHold = "scoring";
@@ -1168,16 +1429,38 @@ export class DesktopDictation {
       const scored = await api.scoreTurn({ audioBytes, mime: "audio/wav" });
       if (scored?.ready) turnScoreReady = "ready";
       else if (/absent/.test(scored?.reason || "")) turnScoreReady = "absent";
-      next = turnHoldAfterScore(scored?.probability);
+      next = turnHoldAfterScore(scored?.probability, this.turnTail());
       score = typeof scored?.probability === "number" ? scored.probability : null;
     } catch {
-      next = "done";
+      next = turnHoldAfterScore(null, this.turnTail());
     }
     // A score for an older pause (speech resumed, or a new segment opened) is dropped.
     if (gen === this.turnGen) {
       this.turnHold = next;
       this.turnScore = score;
     }
+  }
+
+  /** The words so far, with the expected answer and language, for the unfinished-sentence wait. */
+  private turnTail(): TurnTail {
+    const text = (this.streamTail || this.options.turnTail?.() || "").trim();
+    const expect = this.options.turnExpect?.();
+    const lang = this.options.turnLang?.();
+    return { text, ...(expect ? { expect } : {}), ...(lang ? { lang } : {}) };
+  }
+
+  /** The longest quiet wait of this turn: `voice.turn.maxWaitMs`, longer for dictation and open answers. */
+  private maxWaitMs(): number {
+    const configured = preferences.getSnapshot().voice.turn.maxWaitMs;
+    return (
+      maxWaitFramesFor(this.options.turnExpect?.(), Math.round(configured / EOT_FRAME_MS)) *
+      EOT_FRAME_MS
+    );
+  }
+
+  /** The worker's last crash-loop answer, or null once a decode went through. */
+  get listeningPause(): ListeningPause | null {
+    return this.pause;
   }
 
   /** Everything about a decode except the audio, read once per request so an early read and the final one agree. */
@@ -1192,6 +1475,7 @@ export class DesktopDictation {
     const hotOpt = this.options.hotwords;
     const hotwords = (typeof hotOpt === "function" ? hotOpt() : (hotOpt ?? "")).trim();
     const multilingual = preferences.getSnapshot().voice.sttMultilingual === true;
+    const hinglishEar = preferences.getSnapshot().voice.hinglishEar;
     return {
       language,
       ...(this.options.language ? { speechPref: this.options.language } : {}),
@@ -1200,6 +1484,7 @@ export class DesktopDictation {
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(hotwords ? { hotwords } : {}),
       ...(multilingual ? { multilingual: true } : {}),
+      ...(hinglishEar === "trelis" ? { hinglishEar } : {}),
     };
   }
 
@@ -1219,7 +1504,8 @@ export class DesktopDictation {
 
   /** The audio of this segment so far from the shared ring, or null when there is too little to read. */
   private takeSamples(): Float32Array | null {
-    const samples = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    const held = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
+    const samples = this.spill.length ? joinSamples([...this.spill, held]) : held;
     this.segmentSamples = samples.length;
     this.lastSamples = samples;
     return samples.length < 1600 ? null : samples;
@@ -1227,6 +1513,9 @@ export class DesktopDictation {
 
   /** At the model-confirmed end of the pause: read what was said now, so the answer is ready when the pause closes. */
   private maybeReadEarly(input: { speech: boolean; tooLong: boolean; quietMs: number }) {
+    // The streaming ear already reads this utterance; a second decode would only wait for its turn gate.
+    if (this.streamSession?.live) return;
+    if (this.segmentSamples > (LONGFORM_EARLY_READ_MAX_MS / 1000) * STREAM_RATE) return;
     if (
       !provisionalWanted({
         score: this.turnScore,
@@ -1340,6 +1629,18 @@ export class DesktopDictation {
     }
   }
 
+  /** A crash-loop answer carries the line in three languages and when to retry: keep both for the voice status. */
+  private noteCrashLoop(result: TranscribeReply): void {
+    if (result.reason !== "crash-loop") return;
+    const en = result.lines?.en || result.error || "";
+    const pause: ListeningPause = {
+      lines: { en, hi: result.lines?.hi || en, hinglish: result.lines?.hinglish || en },
+      retryAfterMs: Math.max(1, Math.round(Number(result.retryAfterMs) || 0)),
+    };
+    this.pause = pause;
+    this.options.onListeningPaused?.(pause);
+  }
+
   private async send(blob: Blob, early: WakeProbe | null = null, provisional: EarlyRead = null) {
     const api = desktop();
     if (!api?.transcribe) {
@@ -1405,7 +1706,10 @@ export class DesktopDictation {
       if (adopted) {
         this.options.onDiagnostic?.({
           stage: "transcribing",
-          detail: "adopted the early read (same audio, no second decode)",
+          detail:
+            provisional && "source" in provisional && provisional.source === "stream"
+              ? "adopted the streaming ear's final (no second decode)"
+              : "adopted the early read (same audio, no second decode)",
           bytes: blob.size,
         });
       }
@@ -1417,6 +1721,7 @@ export class DesktopDictation {
           ...(keepUtteranceWavs() ? { keepWav: true } : {}),
         }))) as TranscribeReply;
       if (result?.ok) {
+        this.pause = null;
         this.lastErrorDetail = "";
         if (typeof result.elapsedMs === "number" && result.elapsedMs > 0) {
           this.decodeMs =
@@ -1485,6 +1790,7 @@ export class DesktopDictation {
           });
         }
       } else if (result?.error) {
+        this.noteCrashLoop(result);
         const detail = transcriptionFaultLine(result);
         this.options.onDiagnostic?.({
           stage: "dropped",

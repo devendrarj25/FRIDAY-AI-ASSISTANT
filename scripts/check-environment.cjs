@@ -776,6 +776,7 @@ let setupPlanData = null;
       "hindi-light-tts": "Voice model: light Hindi voice",
       "hinglish-ear": "Voice model: Hinglish ear",
       "hindi-fallback-ear": "Voice model: Hindi fallback ear",
+      "stream-ear-nemotron": "Voice model: streaming ear (live words)",
       "qwen3-4b": "Chat model file: Qwen3 4B",
       "llamacpp-runtime": "Local engine: llama.cpp (llama-server)",
     };
@@ -852,9 +853,11 @@ let setupPlanData = null;
           ok: planned ? here : true,
           found: here
             ? "on disk"
-            : planned
-              ? "missing"
-              : "not on disk (extra, not part of this PC's plan)",
+            : planned && job.optional && job.fallback
+              ? `missing (optional; ${job.fallback} stay in use until it is fetched)`.slice(0, 160)
+              : planned
+                ? "missing"
+                : "not on disk (extra, not part of this PC's plan)",
           want:
             job.id === "llamacpp-runtime"
               ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"

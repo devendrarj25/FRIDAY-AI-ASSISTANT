@@ -9,8 +9,9 @@ import { desktopApi } from "./desktop";
 import { kernelApi } from "./kernel-api";
 import { encodeWav } from "./pcm-capture";
 import { preferences } from "./preferences";
+import { readFridayVoiceStatus } from "./voice-diagnostics-rows";
 import { getSystemPressureSnapshot } from "./system-pressure";
-import { activeVoiceSettings } from "./voice-library";
+import { activeLocalStyle, activeVoiceSettings } from "./voice-library";
 import { sttStatus, whisperLanguageArg } from "./voice-stt";
 import {
   AckMemory,
@@ -25,6 +26,7 @@ import {
 } from "./voice-engine/prewarm";
 import { stopAckClip } from "./voice-engine/ack-player";
 import { bytesToPcm16 } from "./voice-engine/pcm-clip-player";
+import { streamLocale, streamWanted } from "./voice-engine/stream-session";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 
 /** An acknowledgement line made in advance: raw samples, kept in memory only. */
@@ -34,13 +36,19 @@ export type AckClip = { text: string; lang: "en" | "hi"; pcm: Int16Array; rate: 
 export const ackMemory = new AckMemory<AckClip>();
 
 type WarmBridge = {
-  neuralVoiceStatus?: () => Promise<{ available: boolean; reason?: string }>;
+  neuralVoiceStatus?: () => Promise<{
+    available: boolean;
+    reason?: string;
+    fridayVoice?: unknown;
+  }>;
   speakNeuralPcm?: (payload: {
     text: string;
     rate: number;
     lang?: string;
     style?: string;
     seq?: number;
+    /** True asks only for the voice engine's one warm-up pass (no text is spoken). */
+    warm?: boolean;
   }) => Promise<{
     ok: boolean;
     reason?: string;
@@ -48,6 +56,11 @@ type WarmBridge = {
     pcm?: ArrayLike<number> & { length: number };
   }>;
   transcribe?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
+  /** Loads the streaming ear's model on the live worker; never opens a stream (voice:stt-stream-warm). */
+  warmSttStream?: (payload: {
+    streamEngine: string;
+    locale: string;
+  }) => Promise<{ ok: boolean; reason?: string }>;
   scoreTurn?: (payload: {
     audioBytes: Uint8Array;
     mime: string;
@@ -65,6 +78,30 @@ const NO_BRIDGE: PrewarmResult = {
 /** One second of silence at 16 kHz, as a WAV file. */
 const silence = (): Uint8Array => encodeWav(new Float32Array(16_000));
 
+let engineWarmed = false;
+let engineWarmTries = 0;
+/** A warm-up that failed is asked again by the next prewarm, this many times in all per app run. */
+const ENGINE_WARM_TRIES_MAX = 3;
+
+/**
+ * The voice engine's own warm-up op: once per app run when it worked; a failure is asked again on the next prewarm,
+ * at most three tries. A failure never stops the clip below, which warms the engine as well.
+ */
+async function warmVoiceEngineOnce(api: WarmBridge): Promise<void> {
+  if (engineWarmed || engineWarmTries >= ENGINE_WARM_TRIES_MAX || !api.speakNeuralPcm) return;
+  engineWarmTries += 1;
+  const answered = await api
+    .speakNeuralPcm({ text: "", rate: 1, style: activeLocalStyle(), warm: true })
+    .catch(() => null);
+  if (answered?.ok === true) engineWarmed = true;
+}
+
+/** Test hook: lets a test see the once-per-run warm-up again. */
+export function resetVoiceEngineWarm(): void {
+  engineWarmed = false;
+  engineWarmTries = 0;
+}
+
 async function speak(
   text: string,
   lang: string,
@@ -77,14 +114,18 @@ async function speak(
   const api = bridge();
   if (!api?.speakNeuralPcm) return { ok: false, reason: "no local voice bridge" };
   const status = await api.neuralVoiceStatus?.().catch(() => null);
-  if (status && !status.available) {
+  // The own voice engine being ready is enough; only when it does not report ready does the older flag decide.
+  const own = readFridayVoiceStatus(status?.fridayVoice);
+  if (status && !status.available && !(own && own.ready)) {
     return { ok: false, reason: status.reason || "the local voice is not installed" };
   }
+  await warmVoiceEngineOnce(api);
   const result = await api.speakNeuralPcm({
     text,
     rate: activeVoiceSettings().rate,
     lang,
-    style: preferences.getSnapshot().voice.localVoiceStyle || "",
+    // The voice the owner's replies use ("friday" unless another style was chosen), so the warm-up loads that one.
+    style: activeLocalStyle(),
     seq: 0,
   });
   const rate = Number(result?.sampleRate) || 0;
@@ -110,8 +151,18 @@ export function createPrewarmIO(alive: () => boolean = () => true): PrewarmIO {
       const state = await sttStatus(false, true, true);
       if (!state.ready)
         return { ok: false, reason: state.reason || "the speech engine is not ready" };
-      if (!api.transcribe) return { ok: true };
       const voice = preferences.getSnapshot().voice;
+      // The streaming ear's model loads here, on its own limit, so the first stream-open of a turn only reuses it. Only
+      // when the owner asked for that ear; a miss or refusal is a fallback to the ordinary decode, never a failed step.
+      if (streamWanted(voice.streamEngine) && api.warmSttStream) {
+        await api
+          .warmSttStream({
+            streamEngine: voice.streamEngine,
+            locale: streamLocale(voice.recognitionLang),
+          })
+          .catch(() => null);
+      }
+      if (!api.transcribe) return { ok: true };
       const language = whisperLanguageArg(voice.recognitionLang) || undefined;
       const out = await api.transcribe({
         audioBytes: silence(),

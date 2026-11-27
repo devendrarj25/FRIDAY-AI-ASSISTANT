@@ -21,6 +21,7 @@
 
 const nodeFs = require("node:fs");
 const nodePath = require("node:path");
+const nodeCrypto = require("node:crypto");
 const vendor = require("./vendor-sources.cjs");
 const llama = require("./llama-runtime.cjs");
 
@@ -150,7 +151,114 @@ function llamaPin() {
   return pinMemo;
 }
 
+/* ------------------------------------------------ FRIDAY's own llama.cpp build */
+
+const OWN_ID = "friday-runtime-llm";
+const OWN_ASSET = /-(friday-native|friday-portable)-win-x64\.zip$/i;
+const HEX64 = /^[a-f0-9]{64}$/;
+
+/** The record the owner's build script wrote (`config/friday-runtime-llm.json`), or null. Fields stay null until a build ran. */
+function readOwnRecord() {
+  try {
+    const file = require("./resource-paths.cjs").readConfigJson("friday-runtime-llm.json", null);
+    return file?.value && typeof file.value === "object" ? file.value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The GitHub repository that publishes FRIDAY's own release assets (the release mirror of the Core manifest), or null. */
+function ownRepository() {
+  try {
+    const manifest = require("./friday-core.cjs").read({});
+    return (
+      manifest?.mirrors?.find((m) => m?.kind === "release" && m.repository)?.repository || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The release asset of the own build as a `pinned` source, or null. A record with no tag, no asset name or a null
+ * SHA-256 gives null: an asset without a recorded digest is never installed.
+ */
+function ownPin(record, repository) {
+  if (!record?.tag || !record.assetName || !HEX64.test(record.sha256 || "") || !repository)
+    return null;
+  const tag = String(record.tag);
+  return {
+    kind: "pinned",
+    version: tag.replace(/^b/, ""),
+    tag,
+    assets: [
+      {
+        name: record.assetName,
+        url: `https://github.com/${repository}/releases/download/${OWN_ID}-${encodeURIComponent(tag)}/${encodeURIComponent(record.assetName)}`,
+        bytes: 0,
+        sha256: record.sha256,
+      },
+    ],
+  };
+}
+
+/** The own build's single asset (it must carry its digest); the variant comes from the asset name. */
+function ownPlan(_entry, assets) {
+  const hit = (Array.isArray(assets) ? assets : []).find(
+    (a) => a?.name && a.url && OWN_ASSET.test(a.name),
+  );
+  if (!hit) return { ok: false, reason: "this release has no FRIDAY Runtime LLM zip for Windows" };
+  if (!HEX64.test(hit.sha256 || ""))
+    return { ok: false, reason: `the release published no SHA-256 for ${hit.name}` };
+  const variant = OWN_ASSET.exec(hit.name)?.[1]?.toLowerCase() || "friday-native";
+  return {
+    ok: true,
+    zips: [{ name: hit.name, url: hit.url, bytes: hit.bytes || 0, sha256: hit.sha256 }],
+    variant,
+  };
+}
+
+const sha256Of = (fsApi, file) =>
+  nodeCrypto.createHash("sha256").update(fsApi.readFileSync(file)).digest("hex");
+
+/** Every recorded file must be in the staging folder with the recorded SHA-256, or the install is refused. */
+function checkFiles(fsApi, staging, depth, files) {
+  for (const f of Array.isArray(files) ? files : []) {
+    if (!f?.name || !HEX64.test(f.sha256 || "")) continue;
+    const hit = llama.walk(staging, depth, (n) => n.toLowerCase() === String(f.name).toLowerCase());
+    if (!hit) throw new StageError("verify", `${f.name} is missing from the build`);
+    if (sha256Of(fsApi, hit) !== f.sha256)
+      throw new StageError("verify", `${f.name} does not match its recorded SHA-256`);
+  }
+}
+
+/** Copy a local build folder (flat, as the build script writes it) into staging; a file the record does not list is refused. */
+function copyFlat(fsApi, from, to, files) {
+  const listed = new Set((files || []).map((f) => String(f.name).toLowerCase()));
+  for (const entry of fsApi.readdirSync(from, { withFileTypes: true })) {
+    if (!entry.isFile() || !listed.has(entry.name.toLowerCase()))
+      throw new StageError("verify", `${entry.name} is not listed in the build record`);
+    fsApi.copyFileSync(nodePath.join(from, entry.name), nodePath.join(to, entry.name));
+  }
+}
+
 const ENGINES = Object.freeze({
+  [OWN_ID]: {
+    id: OWN_ID,
+    label: "FRIDAY Runtime LLM",
+    dirName: llama.OWN_DIR_NAME,
+    binNames: [llama.OWN_NAME.toLowerCase()],
+    healthArgs: ["--version"],
+    depth: 2,
+    origin: "friday-own",
+    chain: () => ({ chain: [{ backend: "cpu", variant: "friday-native" }], skipped: [] }),
+    plan: ownPlan,
+    // No live source: the owner's own release asset is the only one, and only once its record holds a SHA-256.
+    sources: [],
+    get pinned() {
+      return ownPin(readOwnRecord(), ownRepository());
+    },
+  },
   "llama.cpp": {
     id: "llama.cpp",
     label: "llama.cpp",
@@ -160,9 +268,25 @@ const ENGINES = Object.freeze({
     depth: 2,
     chain: (facts, options) => llama.backendChain(facts, options),
     plan: (entry, assets) => llama.planAssets(entry, assets),
+    // Upstream's "latest" is a source-only semver release; the Windows zips are in the bNNNN releases. The list reader
+    // takes the newest bNNNN with the CPU zip and its digest (adopted at most weekly); the atom feed names a tag only
+    // and is usable only where the pin holds a digest for it; the pin ends the chain.
     sources: [
-      { kind: "github-api", repo: llama.LLAMA_REPO, strip: "^b" },
-      { kind: "github-atom", repo: llama.LLAMA_REPO, strip: "^b" },
+      {
+        kind: "github-list",
+        repo: llama.LLAMA_REPO,
+        strip: "^b",
+        tagPattern: "^b\\d+$",
+        assetPattern: "^llama-.*-bin-win-cpu-x64\\.zip$",
+        cadenceDays: 7,
+      },
+      {
+        kind: "github-atom",
+        repo: llama.LLAMA_REPO,
+        strip: "^b",
+        tagPattern: "^b\\d+$",
+        requireDigest: true,
+      },
     ],
     // The pinned CPU zip the setup path verifies (config/local-runners.json): the last source.
     get pinned() {
@@ -256,6 +380,8 @@ function detectEngine(root, spec, fsApi = nodeFs) {
       version: marker?.version || name.replace(/^(?:b|master-)/i, "").replace(/-.*$/, ""),
       backend: marker?.backend || null,
       variant: marker?.variant || null,
+      healthy: marker?.healthy,
+      origin: marker?.origin === "friday-own" ? "friday-own" : "official",
       tag: marker?.tag || name,
       fellBack: Array.isArray(marker?.fellBack) ? marker.fellBack : [],
     };
@@ -283,6 +409,39 @@ function pruneOld(root, spec, keep = 2, fsApi = nodeFs, protect = []) {
   return gone;
 }
 
+const NUMERIC_VERSION = /^\d[\d.]*$/;
+
+/**
+ * The installed copy when it already is the release asked for (or newer) and still starts: nothing is downloaded.
+ * Only the first chain step counts (a CUDA build is not "current" for a CPU request), a marker flagged unhealthy
+ * never does, and non-numeric versions must match exactly. Returns the install result, or null to install.
+ */
+async function reusable(root, spec, release, first, deps, fsApi) {
+  const found = detectEngine(root, spec, fsApi);
+  if (!found.installed || found.backend !== first.backend || found.healthy === false) return null;
+  const have = String(found.version || "");
+  const want = String(release.version || "");
+  const current =
+    NUMERIC_VERSION.test(have) && NUMERIC_VERSION.test(want)
+      ? vendor.compareVersions(have, want) >= 0
+      : have === want;
+  if (!current || typeof deps.health !== "function") return null;
+  const health = await deps.health(found.path, spec.healthArgs);
+  if (!health?.ok) return null;
+  return {
+    ok: true,
+    id: spec.id,
+    reused: true,
+    tag: found.tag,
+    version: have,
+    backend: found.backend,
+    variant: found.variant,
+    fellBack: [],
+    bin: found.path,
+    attempts: [{ backend: found.backend, ok: true, stage: "reused" }],
+  };
+}
+
 /**
  * Install the best build of a release-zip engine, falling back one step at a time. Never throws. The old install is
  * only ever replaced by a copy that started.
@@ -298,12 +457,17 @@ async function installEngine(root, spec, input, deps = {}) {
   const now = deps.now || Date.now;
   const release = input?.release;
   if (!root) return { ok: false, error: "no FRIDAY folder is selected", attempts: [] };
-  if (!release?.assets?.length) {
+  const local = input?.local || null;
+  if (!local && !release?.assets?.length) {
     return { ok: false, error: release?.error || "the release lists no files", attempts: [] };
   }
   const tag = safeName(release.tag || release.version);
   const base = engineBase(root, spec);
   const { chain, skipped } = spec.chain(input.facts, input);
+  if (input.reuse !== false && chain.length) {
+    const kept = await reusable(root, spec, release, chain[0], deps, fsApi);
+    if (kept) return kept;
+  }
   const attempts = skipped.map((s) => ({
     backend: s.backend,
     ok: false,
@@ -312,7 +476,9 @@ async function installEngine(root, spec, input, deps = {}) {
   }));
 
   for (const entry of chain) {
-    const planned = await spec.plan(entry, release.assets, { fetchText: deps.fetchText });
+    const planned = local
+      ? { ok: true, zips: [], variant: local.variant || "friday-native", files: local.files }
+      : await spec.plan(entry, release.assets, { fetchText: deps.fetchText });
     if (!planned.ok) {
       attempts.push({ backend: entry.backend, ok: false, stage: "plan", reason: planned.reason });
       continue;
@@ -352,6 +518,10 @@ async function installEngine(root, spec, input, deps = {}) {
     try {
       rmrf(fsApi, staging);
       fsApi.mkdirSync(staging, { recursive: true });
+      if (local) {
+        say(`copying the local build from ${local.dir}`);
+        await run("install", () => copyFlat(fsApi, local.dir, staging, local.files));
+      }
       for (const zip of planned.zips) {
         const file = nodePath.join(
           installersDir(root, spec),
@@ -373,6 +543,7 @@ async function installEngine(root, spec, input, deps = {}) {
         spec.binNames.includes(name.toLowerCase()),
       );
       if (!bin) throw new StageError("unpack", `the zips hold no ${spec.binNames[0]}`);
+      checkFiles(fsApi, staging, spec.depth, input.expectFiles || local?.files);
       say(`checking that ${nodePath.basename(bin)} starts`);
       const health = await deps.health(bin, spec.healthArgs);
       if (!health.ok) throw new StageError("health", health.reason || "it did not start");
@@ -400,9 +571,10 @@ async function installEngine(root, spec, input, deps = {}) {
       backend: entry.backend,
       variant: planned.variant,
       source: release.source || null,
+      origin: spec.origin || "official",
       pinnedRelease: Boolean(release.usedPin),
       installedAt: now(),
-      files: planned.zips.map((z) => ({ name: z.name, sha256: z.sha256 })),
+      files: planned.files || planned.zips.map((z) => ({ name: z.name, sha256: z.sha256 })),
       fellBack,
     };
     const prev = `${target}.prev`;
@@ -447,6 +619,146 @@ async function installEngine(root, spec, input, deps = {}) {
     error: `${spec.label} was not installed (${why || "no build fits"}); the previous install is untouched`,
     attempts,
   };
+}
+
+/**
+ * Install FRIDAY's own llama.cpp build. Sources in order: the owner's release asset (only when `config/friday-runtime-llm.json`
+ * holds its SHA-256; a null one is never installed), then a local build folder (default `llama.ownLocalDir(root)`,
+ * every file checked against the record's hashes), then the official engine, which needs nothing from here.
+ * The own build and the official engine must be the same tag: a different one is installed when asked but flagged
+ * `outdated` ("own build outdated"), and the official engine keeps running.
+ *
+ * @param input { record?, repo?, pin?, localDir?, officialTag?, facts, reuse }
+ * @returns { ok, source, tag, bin, outdated, officialTag, attempts } or { ok:false, fellBack:"official", error, attempts }
+ */
+async function installOwnEngine(root, input = {}, deps = {}) {
+  const spec = ENGINES[OWN_ID];
+  const fsApi = deps.fs || nodeFs;
+  const record = input.record !== undefined ? input.record : readOwnRecord();
+  const officialTag =
+    input.officialTag !== undefined
+      ? input.officialTag
+      : detectEngine(root, ENGINES["llama.cpp"], fsApi).tag || null;
+  const attempts = [];
+  const finish = (result) => ({
+    ...result,
+    officialTag,
+    outdated: Boolean(result.tag && officialTag && String(result.tag) !== String(officialTag)),
+    attempts,
+  });
+  const files = (Array.isArray(record?.files) ? record.files : []).filter(
+    (f) => f?.name && HEX64.test(f.sha256 || ""),
+  );
+
+  const pin = input.pin !== undefined ? input.pin : ownPin(record, input.repo ?? ownRepository());
+  if (!pin) {
+    attempts.push({
+      source: "release",
+      ok: false,
+      reason: HEX64.test(record?.sha256 || "")
+        ? "no release repository is known"
+        : "no release asset is published yet (its SHA-256 is null)",
+    });
+  } else {
+    const done = await installEngine(
+      root,
+      spec,
+      {
+        ...input,
+        release: { ...pin, source: "friday-release", usedPin: false, ok: true },
+        expectFiles: files,
+      },
+      deps,
+    );
+    attempts.push({ source: "release", ok: done.ok, ...(done.ok ? {} : { reason: done.error }) });
+    if (done.ok)
+      return finish({
+        ok: true,
+        source: "release",
+        tag: done.tag,
+        bin: done.bin,
+        reused: Boolean(done.reused),
+      });
+  }
+
+  const localDir = input.localDir || llama.ownLocalDir(root);
+  const exe = files.find((f) => f.name.toLowerCase() === llama.OWN_NAME.toLowerCase());
+  if (!fsApi.existsSync(localDir)) {
+    attempts.push({ source: "local", ok: false, reason: `no local build in ${localDir}` });
+  } else if (!record?.tag || !exe) {
+    attempts.push({
+      source: "local",
+      ok: false,
+      reason: "the local build has no record with a tag and file hashes",
+    });
+  } else {
+    const tag = String(record.tag);
+    const done = await installEngine(
+      root,
+      spec,
+      {
+        ...input,
+        release: {
+          version: tag.replace(/^b/, ""),
+          tag,
+          assets: [],
+          source: "local-build",
+          usedPin: false,
+          ok: true,
+        },
+        local: { dir: localDir, files, variant: record.variant || "friday-native" },
+      },
+      deps,
+    );
+    attempts.push({ source: "local", ok: done.ok, ...(done.ok ? {} : { reason: done.error }) });
+    if (done.ok)
+      return finish({
+        ok: true,
+        source: "local",
+        tag: done.tag,
+        bin: done.bin,
+        reused: Boolean(done.reused),
+      });
+  }
+
+  attempts.push({ source: "official", ok: true, reason: "the official engine stays in use" });
+  return finish({
+    ok: false,
+    fellBack: "official",
+    error: `FRIDAY Runtime LLM was not installed (${attempts
+      .filter((a) => !a.ok)
+      .map((a) => `${a.source}: ${a.reason}`)
+      .join("; ")}); the official llama.cpp stays in use`,
+  });
+}
+
+/** Two failed health checks in a row demote an engine folder (marker `healthy:false`, which `orderedFolders` reads). */
+const HEALTH_FAIL_LIMIT = 2;
+
+/**
+ * Record one health check of an engine folder in its marker: `healthFails` counts failures in a row, the second sets
+ * `healthy:false`, a pass resets the count. A folder with no marker is never written; an old marker is only touched
+ * by a failure or by a reset. Returns `{ demoted, fails }`.
+ */
+function noteHealth(entry, ok, deps = {}) {
+  const fsApi = deps.fs || nodeFs;
+  const marker = entry?.dir ? llama.readFolderMarker(entry.dir, fsApi) : null;
+  if (!marker) return { demoted: false, fails: 0 };
+  const before = Number(marker.healthFails) || 0;
+  if (ok && before === 0) return { demoted: false, fails: 0 };
+  const fails = ok ? 0 : before + 1;
+  const next = { ...marker, healthFails: fails };
+  if (!ok && fails >= HEALTH_FAIL_LIMIT) next.healthy = false;
+  const file = nodePath.join(entry.dir, MARKER);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fsApi.writeFileSync(tmp, JSON.stringify(next, null, 2));
+    fsApi.renameSync(tmp, file);
+  } catch {
+    rmrf(fsApi, tmp);
+    return { demoted: false, fails: before, error: "the marker could not be written" };
+  }
+  return { demoted: next.healthy === false, fails };
 }
 
 /** Remove every copy of an engine under its own folder. Returns whether anything was removed. */
@@ -939,6 +1251,11 @@ module.exports = {
   detectEngine,
   pruneOld,
   installEngine,
+  installOwnEngine,
+  noteHealth,
+  HEALTH_FAIL_LIMIT,
+  ownPin,
+  readOwnRecord,
   uninstallEngine,
   wheelSources,
   planWheels,

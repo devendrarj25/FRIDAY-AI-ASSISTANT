@@ -187,7 +187,17 @@ function onFatal(kind, error) {
 process.on("uncaughtException", (error) => onFatal("uncaughtException", error));
 process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  dialog,
+  shell,
+  screen,
+  session,
+  systemPreferences,
+} = require("electron");
 
 // The portable EXE keeps its own settings, FRIDAY folder, lock, kernel port and updates (electron/portable-data.cjs), so
 // it can run beside an installed FRIDAY without touching it. This must run before anything reads `userData`, asks for
@@ -595,6 +605,7 @@ const startupTasks = loadNamed("startup-tasks", () =>
 const startupTrace = loadNamed("startup-trace", () => require("./startup-trace.cjs"));
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("load:voice");
 const neuralVoice = loadNamed("neural-voice", () => require("./neural-voice.cjs"));
+const voiceIpc = require("./voice-ipc.cjs");
 const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
 const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
 const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
@@ -2010,6 +2021,7 @@ async function waitForKernel(timeoutMs = 20000) {
         // boot screen waits for it, so a slower start would be the very lag this is meant to remove.
         if (kernel && kernel.pid) priority.lowerKernel(kernel.pid);
         if (process.env.FRIDAY_READINESS !== "1") connectSessionStream();
+        coreWiring.onKernelReady();
         // The kernel starts locked down; hand it the owner's real policy.
         void pushBillingToKernel();
         serviceHealth.invalidate();
@@ -2022,6 +2034,74 @@ async function waitForKernel(timeoutMs = 20000) {
   }
   return false;
 }
+
+/**
+ * FRIDAY Core wiring (the owner's `brainCoreEnabled` setting, off by default). The kernel call is bound once; every
+ * later kernel-ready (a restart) pushes the Core row again. Core starts only while the setting is on and stops when it
+ * turns off; quitting stops it through `stopManagedEngines`. A failure never reaches the caller.
+ */
+function createCoreWiring({ api, request, isEnabled, prefer, log: say = () => undefined }) {
+  let bound = false;
+  let desired = null;
+  const guard = (promise) => Promise.resolve(promise).catch((e) => say(`core: ${e?.message || e}`));
+  const reconcile = () => {
+    const enabled = isEnabled() === true;
+    desired = enabled;
+    return guard(
+      enabled
+        ? api.startCore?.({
+            isEnabled: () => isEnabled() === true,
+            ...(prefer ? { prefer: prefer() } : {}),
+          })
+        : api.stopCore?.(),
+    );
+  };
+  return {
+    onKernelReady() {
+      if (!bound) {
+        bound = true;
+        api.bindCoreKernel?.(request);
+      }
+      // First ready and every restart: the kernel router learns where Core is (or that it is down).
+      void guard(api.pushCoreToKernel?.());
+      if (isEnabled() === true) void reconcile();
+    },
+    apply(enabled) {
+      if (typeof enabled !== "boolean" || enabled === desired) return undefined;
+      if (enabled !== true && desired === null) {
+        desired = false;
+        return undefined;
+      }
+      return reconcile();
+    },
+  };
+}
+const coreWiring = createCoreWiring({
+  api: modelsApi,
+  request: (method, params, timeoutMs) => kernelRequest(method, params, timeoutMs),
+  isEnabled: () => ownerPrefToggle("brainCoreEnabled", false),
+  // The owner's `brain.engine.prefer` (auto, own or official) picks which llama.cpp build runs Core.
+  prefer: () => ownerPrefField("brainEnginePrefer", "auto"),
+  log: (m) => log(m),
+});
+
+// CORE-STATUS-BEGIN
+/**
+ * What the Brain settings may show about FRIDAY Core: the variant and her name, whether a model is installed, whether
+ * it is running and ready. Only these five fields leave the main process: never the launch key, the port or the URL.
+ */
+function buildCoreStatus({ endpoint, plan }) {
+  const running = Boolean(endpoint);
+  const source = running ? endpoint : plan && plan.ok ? plan : null;
+  return {
+    variant: source ? String(source.variant || "") : "",
+    fridayName: source ? String(source.fridayName || "") : "",
+    installed: running || Boolean(plan && plan.ok),
+    running,
+    ready: running,
+  };
+}
+// CORE-STATUS-END
 
 /** True while something still holds the kernel's local port. */
 function portBusy(port) {
@@ -5348,6 +5428,13 @@ ipcMain.handle("voice:neural-speak", (_e, payload) => neuralVoice.speak(payload 
 ipcMain.handle("voice:neural-speak-pcm", (_e, payload) => neuralVoice.speakPcm(payload || {}));
 ipcMain.handle("voice:neural-cancel-pcm", (_e, payload) => neuralVoice.cancelPcm(payload || {}));
 ipcMain.handle("voice:echo-shadow", (_e, payload) => neuralVoice.echoShadow(payload || {}));
+ipcMain.handle("voice:restart-tts", () =>
+  voiceIpc.restartTts({ neuralVoice, scrubPaths: stt.scrubPaths }),
+);
+ipcMain.handle("voice:mic-access", () => voiceIpc.micAccessStatus({ systemPreferences }));
+ipcMain.handle("voice:open-mic-privacy", (_e, url) =>
+  voiceIpc.openMicPrivacySettings({ shell }, url),
+);
 // Push-to-talk toggle. A global shortcut reports a press and no release, so it
 // toggles; hold-to-talk is Ctrl+Space inside the window. Registered only while
 // the owner picked push-to-talk in Auto mode, and released again when not.
@@ -5356,20 +5443,28 @@ let pttShortcutOn = false;
 function setPttShortcut(on) {
   const { globalShortcut } = require("electron");
   if (on && !pttShortcutOn) {
-    pttShortcutOn = globalShortcut.register(PTT_TOGGLE_ACCELERATOR, () =>
-      send("voice:ptt-toggle", {}),
-    );
+    let reason = "another app holds that shortcut";
+    try {
+      pttShortcutOn = globalShortcut.register(PTT_TOGGLE_ACCELERATOR, () =>
+        send("voice:ptt-toggle", {}),
+      );
+    } catch (error) {
+      pttShortcutOn = false;
+      reason = `the system refused that shortcut (${String(error?.message || error).slice(0, 120)})`;
+    }
+    // `registered` is what the system says now, so the window never claims a key nobody holds.
     return {
       ok: pttShortcutOn,
+      registered: pttShortcutOn,
       accelerator: PTT_TOGGLE_ACCELERATOR,
-      reason: pttShortcutOn ? "" : "another app holds that shortcut",
+      reason: pttShortcutOn ? "" : reason,
     };
   }
   if (!on && pttShortcutOn) {
     globalShortcut.unregister(PTT_TOGGLE_ACCELERATOR);
     pttShortcutOn = false;
   }
-  return { ok: true, accelerator: PTT_TOGGLE_ACCELERATOR, reason: "" };
+  return { ok: true, registered: pttShortcutOn, accelerator: PTT_TOGGLE_ACCELERATOR, reason: "" };
 }
 ipcMain.handle("voice:ptt-shortcut", (_e, on) => setPttShortcut(on === true));
 app.on("will-quit", () => setPttShortcut(false));
@@ -5379,7 +5474,7 @@ ipcMain.handle("voice:duck", (_e, payload) => {
 });
 ipcMain.handle("voice:meeting", () => meetingWatch.status());
 ipcMain.handle("voice:voiceprint-status", () => voiceprint.status());
-ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
+ipcMain.handle("voice:voiceprint-clear", () => voicePrivacy.clearVoiceData());
 
 // ------------------------------------------- the owner's own voice (Settings -> Voice) --
 // Samples recorded in Settings become a voiceprint and a personal "Friday" template (electron/voice-enroll.cjs).
@@ -5465,7 +5560,7 @@ ipcMain.handle("voice:stt-status", (_e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
   if (options.warm) warmFastChatModel();
   return stt.status(Boolean(options.force), {
-    localOnly: Boolean(options.localOnly),
+    localOnly: options.localOnly,
     warm: Boolean(options.warm),
   });
 });
@@ -5484,6 +5579,11 @@ ipcMain.handle("voice:transcribe", (e, payload) =>
 );
 ipcMain.handle("voice:score-turn", (_e, payload) => stt.scoreTurn(payload || {}));
 ipcMain.handle("voice:cancel-transcribe", (_e, payload) => stt.cancelTranscribe(payload || {}));
+// FRIDAY's own streaming ear (voice.streamEngine, off by default): local only, one stream, holds the turn gate.
+ipcMain.handle("voice:stt-stream-open", (_e, payload) => stt.streamOpen(payload || {}));
+ipcMain.handle("voice:stt-stream-warm", (_e, payload) => stt.streamWarm(payload || {}));
+ipcMain.handle("voice:stt-stream-feed", (_e, payload) => stt.streamFeed(payload || {}));
+ipcMain.handle("voice:stt-stream-close", (_e, payload) => stt.streamClose(payload || {}));
 
 // ------------------------------------------ low-latency wake word (openWW) --
 // The REAL detector when openWakeWord is installed with a model for the
@@ -5525,10 +5625,11 @@ ipcMain.handle("voice:budget", async () => {
   const llmResidentVramGb = await residentLlmVramGb();
   const cudaRuntimeReady = await stt.cudaRuntimeVerdict();
   const probe = weights.probeHardware({ gpuInfo, hardwareFacts: () => facts, cudaRuntimeReady });
-  return {
-    ok: true,
-    ...weights.budgetForProbe(probe, llmResidentVramGb > 0 ? { llmResidentVramGb } : {}),
-  };
+  const budget = weights.budgetForProbe(probe, llmResidentVramGb > 0 ? { llmResidentVramGb } : {});
+  // The profile's idle unload reaches both workers (the speech ear and the speaker).
+  void stt.setSpeechProfile(budget);
+  neuralVoice.setIdleUnloadMs(budget.idleUnloadMs);
+  return { ok: true, ...budget };
 });
 ipcMain.handle("voice:restore", (_e, id) => {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) {
@@ -5742,12 +5843,31 @@ ipcMain.handle("kernel:restart", async () => {
   return { ok: true };
 });
 
+/**
+ * The FRIDAY Core row (its loopback endpoint and this launch's key) is written by the main process alone, through
+ * `coreKernelRequest` in models.cjs. A renderer call that adds or syncs a model with that id is refused.
+ */
+function touchesCoreRow(name, payload) {
+  const isCore = (row) =>
+    String((row && row.id) || "")
+      .trim()
+      .toLowerCase() === "friday-core";
+  if (name === "model.add" || name === "model.remove") return isCore(payload);
+  if (name === "model.sync")
+    return Array.isArray(payload && payload.models) && payload.models.some(isCore);
+  return false;
+}
+
 ipcMain.handle("kernel:rpc", async (_e, method, params) => {
   const name = String(method || "");
   if (!kernelMethods.isAllowedKernelMethod(name))
     return { ok: false, error: `kernel method not allowed: ${name}`, denied: true };
   const payload = params && typeof params === "object" ? { ...params } : {};
   for (const field of kernelMethods.CALLER_FORBIDDEN_FIELDS) delete payload[field];
+  // The page never decides that a paid model may be used: only the main process says `explicitPaid`.
+  if (name === "model.route_generation") delete payload.explicitPaid;
+  if (touchesCoreRow(name, payload))
+    return { ok: false, error: "the FRIDAY Core model is managed by the desktop", denied: true };
   if (name === "chat.complete" || name === "chat.stream") {
     const privacy = await confirmKernelChat(payload, name);
     if (!privacy.allowed)
@@ -5997,6 +6117,16 @@ function ownerPrefToggle(key, fallback) {
   }
 }
 
+function ownerPrefField(key, fallback) {
+  try {
+    const raw = latestPreferences || JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+    const value = raw && raw.fields ? raw.fields[key] : undefined;
+    return typeof value === "string" ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 let senseFeed = null;
 
 function ensureSenses() {
@@ -6116,6 +6246,7 @@ function applyOwnerPreferenceEffects(value) {
       systemMonitor.setSampleMs(Number(fields.sampleSeconds) * 1000);
     }
     ensureSenses().apply(toggles, fields);
+    void coreWiring.apply(toggles.brainCoreEnabled);
   } catch (error) {
     log(`preference side effects: ${error?.message || error}`);
   }
@@ -6900,38 +7031,71 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
   return result;
 });
 /**
- * Draw a picture with a connected cloud provider. The same two gates as a chat
- * turn run first (privacy, then billing), so a picture request cannot leave this
+ * Draw a picture with a connected cloud provider. The kernel router picks the
+ * model after its billing and privacy checks, then the same two gates as a chat
+ * turn run (privacy, then billing), so a picture request cannot leave this
  * PC or spend money any more easily than a message can.
  */
-ipcMain.handle("image:generate", async (_e, payload) => {
+async function generateImageRouted(payload) {
   const prompt = String(payload?.prompt || "").trim();
   if (!prompt) return { ok: false, error: "describe the picture you want" };
-  const wanted = payload?.modelId ? String(payload.modelId) : null;
   const images = require("./image-generation.cjs");
   const { models } = await refreshRoutable(false);
   const policy = modelUsagePolicy();
   const now = Date.now();
-  let list = images.candidates(
+  const list = images.candidates(
     models,
     (model) => modelRouter.modelAvailability(model, policy, now, "image").visibility === "show",
   );
-  if (wanted) {
-    list = list.filter((model) => model.id === wanted || model.providerModelId === wanted);
-  }
   if (!list.length) {
     return {
       ok: false,
-      error: wanted
-        ? "that model cannot draw right now (not connected, hidden by the cost setting, or not an image model)"
-        : "no connected provider has an image model I may use. Connect OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face in Models, or turn paid access on.",
+      error:
+        "no connected provider has an image model I may use. Connect OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face in Models, or turn paid access on.",
     };
   }
+  // The router alone chooses the model, after the billing and privacy guards. A kernel that cannot answer
+  // draws nothing. The model id a caller supplies is never used to choose; it can only confirm the pick.
+  let route = null;
+  try {
+    await syncKernelModels();
+    route = await kernelRequest(
+      "model.route_generation",
+      {
+        kind: "image",
+        content: prompt,
+        explicitPaid: false,
+        privacyMode: voicePrivacyOn() || modelRouteMode() === "local-only" ? "private" : "",
+      },
+      15000,
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: `the router could not choose a drawing model: ${String(error?.message || error)}`,
+    };
+  }
+  if (!route?.ok || !route.modelId) {
+    return { ok: false, error: String(route?.reason || "the router allowed no drawing model") };
+  }
+  // Only ids the router named, in its order (up to three); a model the caller supplies is never added.
+  const picked = (
+    Array.isArray(route.candidates) && route.candidates.length ? route.candidates : [route.modelId]
+  )
+    .slice(0, 3)
+    .map((id) => list.find((entry) => entry.id === id))
+    .filter(Boolean);
+  if (!picked.length)
+    return { ok: false, error: "the router picked a model that cannot draw from here" };
+  const asked = payload?.modelId ? String(payload.modelId) : "";
+  if (asked && !picked.some((m) => asked === m.id || asked === m.providerModelId)) {
+    return { ok: false, error: "the router chooses the drawing model; that one was not picked" };
+  }
   const problems = [];
-  for (const model of list.slice(0, 3)) {
+  for (const model of picked) {
     const auth = await authoriseProviderRequest({
       model,
-      explicitPaid: Boolean(wanted),
+      explicitPaid: false,
       label: "image",
       content: prompt,
     });
@@ -6960,13 +7124,53 @@ ipcMain.handle("image:generate", async (_e, payload) => {
     };
   }
   return { ok: false, error: problems.join(" · ") || "no picture was made" };
-});
+}
+ipcMain.handle("image:generate", (_e, payload) => generateImageRouted(payload));
 ipcMain.handle("comfyui:status", () => require("./comfyui-client.cjs").status());
 ipcMain.handle("comfyui:run", (_e, workflow) =>
   require("./comfyui-client.cjs").run(workflow, {
     outDir: path.join(paths.ensureDir("assets"), "comfyui"),
   }),
 );
+ipcMain.handle("brain:core-status", () => {
+  const endpoint = modelsApi.coreEndpoint();
+  let plan = null;
+  if (!endpoint) {
+    try {
+      plan = require("./llama-runtime.cjs").corePlan(paths.root() || paths.base());
+    } catch {
+      plan = null;
+    }
+  }
+  return buildCoreStatus({ endpoint, plan });
+});
+// The dual chat engine: the read of both engines and the owner-started bench (electron/llm-engine-ipc.cjs). The stored
+// `brain.engine.prefer` goes into the engine choice; a voice lease in the governor means a turn is running.
+let llmEngineIpc = null;
+function llmEngine() {
+  if (llmEngineIpc) return llmEngineIpc;
+  llmEngineIpc = require("./llm-engine-ipc.cjs").createLlmEngineIpc({
+    runtime: require("./llama-runtime.cjs"),
+    finetune,
+    core: require("./friday-core.cjs"),
+    root: () => paths.root() || paths.base(),
+    readPrefer: () => ownerPrefField("brainEnginePrefer", "auto"),
+    governor,
+    coreLoaded: () => Boolean(modelsApi.coreEndpoint()),
+    stopCore: () => modelsApi.stopCore(),
+    resumeCore: () =>
+      ownerPrefToggle("brainCoreEnabled", false)
+        ? modelsApi.startCore({
+            isEnabled: () => ownerPrefToggle("brainCoreEnabled", false),
+            prefer: ownerPrefField("brainEnginePrefer", "auto"),
+          })
+        : undefined,
+    voiceBusy: () => Boolean(governor?.status().leases.some((lease) => lease.priority === "voice")),
+  });
+  return llmEngineIpc;
+}
+ipcMain.handle("llm-engine:state", (_e, payload) => llmEngine().state(payload));
+ipcMain.handle("llm-engine:bench", (_e, payload) => llmEngine().bench(payload));
 ipcMain.handle("models:local-status", async () =>
   require("./local-model-status.cjs").describeLocal({
     inventory: await modelsApi.inventory(modelsContext()),
@@ -7904,6 +8108,8 @@ function getInstallerCatalog() {
   installerCatalogMemo = api.createInstallerCatalog({
     root: () => getWorkspaceRoot(),
     facts: () => routingHardwareFacts(),
+    // The Doctor and Install Manager row (`engine:friday-runtime-llm`) names the engine the owner's choice picks.
+    enginePrefer: () => ownerPrefField("brainEnginePrefer", "auto"),
     tools: () => toolchain.TOOLS,
     detected: () => toolchain.lastDetected(),
     packs: () => require("./toolchain-pack.cjs").readManifest().packs || [],
@@ -7931,23 +8137,64 @@ toolchain.setFactsProvider(() => routingHardwareFacts());
 toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
 ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
-// An update starts only with the owner's consent for this row, or when the autonomy dial is Full; never by itself.
-ipcMain.handle("installer:update", async (_e, request) => {
+// ---- install and update gate (main-side) ---------------------------------------------------------------------------
+// The renderer's word is never the authority: the autonomy dial is read here from the owner's stored state, the data
+// root is the paths module's one root, and every update passes `planUpdate` first. Windows' own permission prompt
+// (UAC) is never answered by FRIDAY. A bundled runtime (notify-only row) is refused under every dial.
+function ownerAutonomyDial() {
+  try {
+    const stored = stateStore.readState(stateFile("friday.autonomy.v1"));
+    if (!stored || typeof stored !== "object") return "balanced"; // the shipped default, still asks
+    if (stored.halted === true) return "ask";
+    if (stored.approvalLevel === "full") return "full";
+    if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
+      return "balanced";
+    return "ask";
+  } catch {
+    return "ask";
+  }
+}
+async function gatedToolJob({ id, action, consent }) {
   const catalogApi = getInstallerCatalog();
-  const id = String(request?.id || "");
   const row = catalogApi.snapshot().rows.find((item) => item.id === id);
-  const decision = catalogApi.planUpdate({
-    row,
-    autonomy: request?.autonomy,
-    consent: request?.consent,
-  });
-  if (!decision.allowed) return { ok: false, ...decision };
+  const dial = ownerAutonomyDial();
+  if (action === "update") {
+    const decision = catalogApi.planUpdate({ row, autonomy: dial, consent });
+    if (!decision.allowed) return { ok: false, ...decision };
+    log(`tool update ${id} allowed (${decision.via})`);
+    return { gate: decision };
+  }
+  // A fresh install of a machine-wide tool writes into Windows' folders: it needs the owner's yes or Full autonomy.
+  if (action === "install" && row?.home === "machine" && row.installed !== true) {
+    if (consent?.granted !== true && dial !== "full") {
+      return {
+        ok: false,
+        allowed: false,
+        needsConsent: true,
+        home: "machine",
+        dial,
+        reason: "this install changes the whole PC: it needs your OK",
+      };
+    }
+  }
+  return { gate: { allowed: true } };
+}
+ipcMain.handle("installer:update", async (_e, request) => {
+  const id = String(request?.id || "");
   if (!toolchain.toolById(id)) {
     return { ok: false, allowed: false, reason: "this row updates through its own installer" };
   }
+  const catalogApi = getInstallerCatalog();
+  const row = catalogApi.snapshot().rows.find((item) => item.id === id);
+  const decision = catalogApi.planUpdate({
+    row,
+    autonomy: ownerAutonomyDial(),
+    consent: request?.consent,
+  });
+  if (!decision.allowed) return { ok: false, ...decision };
   log(`installer update ${id} allowed (${decision.via})`);
   const result = await toolchain.runJob(
-    { id, action: "update", root: getWorkspaceRoot() },
+    { id, action: "update", root: paths.root() || getWorkspaceRoot() },
     (event) => send("tools:progress", event),
   );
   return { ...result, allowed: true, via: decision.via };
@@ -7963,16 +8210,15 @@ ipcMain.handle("tools:extension-remove", (_e, id) =>
 );
 ipcMain.handle("tools:active-jobs", () => toolchain.activeJobs());
 ipcMain.handle("tools:cancel", (_e, job) => toolchain.cancelJob(job || {}));
-ipcMain.handle("tools:run", (_e, job) =>
-  toolchain.runJob(
-    {
-      id: String(job?.id || ""),
-      action: String(job?.action || "install"),
-      root: job?.root || getWorkspaceRoot(),
-    },
-    (event) => send("tools:progress", event),
-  ),
-);
+ipcMain.handle("tools:run", async (_e, job) => {
+  const id = String(job?.id || "");
+  const action = String(job?.action || "install");
+  const gated = await gatedToolJob({ id, action, consent: job?.consent });
+  if (!gated.gate) return gated;
+  return toolchain.runJob({ id, action, root: paths.root() || getWorkspaceRoot() }, (event) =>
+    send("tools:progress", event),
+  );
+});
 
 // ---- Import & in-app build -------------------------------------------------
 // A FRIDAY ZIP (or folder) is staged, classified and diffed first; nothing is
@@ -9206,7 +9452,15 @@ function initSelfMaintenance(root) {
   if (!root) return;
   // Local LoRA/QLoRA training lives beside self-maintenance: same workspace
   // root, same logging, and it never runs without the owner's approval.
-  finetune.init({ send, log, projectRoot: app.isPackaged ? null : path.join(__dirname, "..") });
+  finetune.init({
+    send,
+    log,
+    // A training run takes a background lease from the resource governor and gives it back when it ends.
+    governor,
+    projectRoot: app.isPackaged ? null : path.join(__dirname, ".."),
+    // The one privacy classifier (kernel/privacy.py): rows the kernel cannot classify never train.
+    classify: (text) => kernelRequest("privacy.classify", { text: String(text || "") }),
+  });
   selfMaintenance.init({
     root,
     send,
@@ -10152,6 +10406,7 @@ ipcMain.handle("realtime:close", (_e, id) => realtimeSessions.close(String(id ||
 // ---- Cloud speech (Sarvam, Azure Speech): requests are made here so a key never reaches the renderer ----
 const voiceCloud = require("./voice-cloud.cjs");
 const voiceCloudApi = voiceCloud.createVoiceCloud({
+  paidUnlocked: () => billingPolicy.paidUnlocked(billingState()).allowed === true,
   getSecret: (id) => require("./credentials.cjs").getSecret(keyStoreRoot(), id),
   prefs: () => {
     try {
@@ -10161,6 +10416,7 @@ const voiceCloudApi = voiceCloud.createVoiceCloud({
     }
   },
 });
+stt.setCloudGate((provider) => ({ ok: voiceCloudApi.gate(String(provider || "")).ok === true }));
 ipcMain.handle("voice-cloud:speak", (_e, provider, request) =>
   voiceCloudApi.speak(String(provider || ""), request),
 );
@@ -10190,9 +10446,9 @@ ipcMain.handle("voice-stream:open", async (e, id, kind, options) => {
   const opened = await sarvamStreams.whenOpen(streamId);
   return opened.ok ? { ...started, opened: true } : { ok: false, error: opened.error };
 });
-ipcMain.handle("voice-stream:send", (_e, id, message) =>
-  sarvamStreams.send(String(id || ""), message),
-);
+// Every clause is classified here, in the main process, before it reaches the socket (a sensitive one stays local).
+const sendStream = voiceCloud.guardedStreamSend(voiceCloudApi, sarvamStreams);
+ipcMain.handle("voice-stream:send", (_e, id, message) => sendStream(String(id || ""), message));
 ipcMain.handle("voice-stream:close", (_e, id) => sarvamStreams.close(String(id || "")));
 ipcMain.handle("voice-cloud:key-status", () => {
   const credentials = require("./credentials.cjs");

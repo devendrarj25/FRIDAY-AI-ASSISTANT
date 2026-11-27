@@ -194,6 +194,16 @@ class VoiceRuntimeTests(unittest.TestCase):
         self.assertNotIn("hunter2", leaked["text"])
         self.assertFalse(leaked["instruction"])
 
+    def test_a_missing_denoiser_is_an_optional_note_never_a_fault(self):
+        """FRIDAY Denoise weights are optional and pyrnnoise is only a fallback, so neither absent is not a FAIL."""
+        from unittest import mock
+
+        absent = {"ready": False, "engine": "none", "reason": "optional - both absent"}
+        with mock.patch.object(voice_runtime, "noise_status", return_value=absent):
+            lines = voice_runtime.check_lines()
+        self.assertTrue(any(line.startswith("OPTIONAL rnnoise ") for line in lines))
+        self.assertFalse(any(line.startswith("FAIL rnnoise") for line in lines))
+
     def test_denoise_keeps_unit_float_scale(self):
         """pyrnnoise 0.4.5 yields int16. Whisper needs float32 in [-1, 1]."""
         try:

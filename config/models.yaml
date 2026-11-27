@@ -32,6 +32,20 @@ models:
     params: "560M · F16"
     context_k: 8
 
+  # The bundled local model. The desktop fills the endpoint and a per-run key when it starts the runner;
+  # neither is stored here or in the database. It stays unavailable until then.
+  - id: friday-core
+    label: FRIDAY Core
+    provider: llamacpp
+    endpoint: ""
+    role: brain
+    params: "local multimodal"
+    context_k: 8
+    capabilities:
+      vision: true
+      audio: true
+      tools: true
+
   # Online models read their key from the OS keychain / env, never from this file.
   - id: research-online
     label: Online reasoning model

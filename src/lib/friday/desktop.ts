@@ -255,6 +255,12 @@ export type InstallerCatalogRow = {
   installedVersion: string | null;
   latestVersion: string | null;
   updateStatus: InstallerUpdateStatus;
+  /** Voice rows: which source served the installed files ("FRIDAY release" or "official source"); absent or null when unknown. */
+  servedFrom?: string | null;
+  /** A row derived from a release asset that is not published yet: nothing to download until it is. */
+  needsRelease?: boolean;
+  /** Plain words for the row when needsRelease is true. */
+  note?: string;
   /** The official source that answered (github-api, github-atom, pypi-json, pypi-simple, hf-api, npm, feed, pinned). */
   source: string | null;
   checkedAt: number | null;
@@ -263,6 +269,14 @@ export type InstallerCatalogRow = {
   /** The version is the catalogue's own pin, not a fresh answer. */
   pinnedAnswer: boolean;
   error?: string;
+  /** Where a tool lives: friday-root, machine, npm-global (others are shown by nobody). */
+  home?: string;
+  /** The row only shows a newer version; FRIDAY never updates it. */
+  notifyOnly?: boolean;
+  /** Tool rows: false until the catalogue holds a published checksum, so FRIDAY cannot install it itself. */
+  downloadReady?: boolean;
+  /** How the newest version was reached, when the row says so. */
+  via?: "primary" | "fallback" | "cache" | "pinned";
   /** The model host's newest revision when it differs from the pinned one FRIDAY installs. */
   upstreamVersion?: string;
   fit: EngineFit;
@@ -795,7 +809,13 @@ type DesktopApi = {
   /** Cloud speech (Sarvam, Azure Speech). The main process makes the request; no key reaches the renderer. */
   voiceCloudSpeak?: (
     provider: string,
-    request: { text: string; language: string; speaker?: string; pace?: number },
+    request: {
+      text: string;
+      language: string;
+      speaker?: string;
+      pace?: number;
+      sensitiveReply?: boolean;
+    },
   ) => Promise<{ ok: boolean; error?: string; audioBase64?: string; mime?: string }>;
   voiceCloudTranscribe?: (
     provider: string,
@@ -963,7 +983,7 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; id: string; tier: string }>;
 
   /** Where inference may run: auto | local-only | cloud-only | hybrid | multi. */
-  /** On-device speech-to-text (faster-whisper) run by the main process. */
+  /** On-device speech-to-text (FRIDAY Ear) run by the main process. */
   sttStatus?: (
     force?: boolean,
     localOnly?: boolean,
@@ -976,6 +996,8 @@ type DesktopApi = {
     reason?: string | null;
     moonshineReady?: boolean;
     windowsSpeech?: boolean;
+    hinglishEarTrelisReady?: boolean;
+    hinglishEarSkipped?: string;
     dependency?: string;
     worker?: string;
     inference?: string;
@@ -1001,6 +1023,8 @@ type DesktopApi = {
     initialPrompt?: string;
     hotwords?: string;
     multilingual?: boolean;
+    /** The opt-in large Hinglish ear; nothing is sent when it is off. */
+    hinglishEar?: "trelis";
     speechPref?: string;
     sttSize?: string;
     keepWav?: boolean;
@@ -1045,6 +1069,61 @@ type DesktopApi = {
     audioBase64?: string;
     mime?: string;
   }) => Promise<{ ok: boolean; ready?: boolean; probability?: number | null; reason?: string }>;
+  /**
+   * FRIDAY's own streaming ear (voice.streamEngine). Local only, one stream at a time, three quick calls, no push
+   * channel. Every refusal is `{ ok: false, fallback: true, reason }` and never a throw; a reply with `fallback`
+   * means the stream is over, so use `transcribe`. Reasons: off, bad-engine, busy, worker, no-stream, bad-audio,
+   * too-large, aborted, plus the worker's own (weights-missing, locale-unsupported, open-failed, ...).
+   */
+  openSttStream?: (payload: {
+    streamId?: string;
+    streamEngine: "off" | "auto" | "nemotron" | "stream-ear-nemotron";
+    locale: "hi" | "en" | "hi-en" | "";
+    hotwords?: string[];
+    endpoint?: boolean;
+    localOnly?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    engine?: string;
+    locale?: string;
+    chunkMs?: number;
+    loadMs?: number;
+    fallback?: boolean;
+    reason?: string;
+  }>;
+  /** `pcm` is base64 of int16 little-endian 16 kHz mono, one chunk of 80 to 320 ms. */
+  feedSttStream?: (payload: { streamId: string; pcm: string }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    /** partial: text, committed, stable, volatile, newlyCommitted, revision, audioMs; endpoint: event, reason, silenceMs. */
+    events?: { type: "partial" | "endpoint"; [key: string]: unknown }[];
+    text?: string;
+    committed?: string;
+    audioMs?: number;
+    /** The endpointer's current verdict: `event` is null until the turn is judged over. */
+    endpoint?: {
+      event?: string | null;
+      requiredWaitMs?: number;
+      reason?: string;
+      inTurn?: boolean;
+      audioMs?: number;
+    };
+    fallback?: boolean;
+    reason?: string;
+  }>;
+  closeSttStream?: (payload: { streamId: string; finalize?: boolean }) => Promise<{
+    ok: boolean;
+    streamId?: string;
+    final?: boolean;
+    text?: string;
+    committed?: string;
+    words?: { text: string; startMs?: number; endMs?: number }[];
+    audioMs?: number;
+    rtf?: number;
+    fallback?: boolean;
+    reason?: string;
+  }>;
   duckAudio?: (payload: {
     on: boolean;
   }) => Promise<{ ok: boolean; ducked?: boolean; reason?: string }>;
@@ -1063,6 +1142,19 @@ type DesktopApi = {
     seq?: number;
     reason?: string;
   }>;
+  /** Drop a hung local speaker so the next clause starts a fresh one. `error` is short and path-free. */
+  restartTts?: () => Promise<{
+    ok: boolean;
+    state: "restarted" | "not-running" | "breaker-open" | "error";
+    error?: string;
+  }>;
+  /** Windows' own microphone privacy answer for this app (`unknown` when the platform cannot say). */
+  micAccessStatus?: () => Promise<{
+    ok: boolean;
+    status: "granted" | "denied" | "restricted" | "not-determined" | "unknown";
+  }>;
+  /** Opens the microphone privacy page in Windows Settings (that one page only). */
+  openMicPrivacySettings?: () => Promise<{ ok: boolean; error?: "refused" | "open-failed" }>;
   meetingStatus?: () => Promise<{
     ok?: boolean;
     meeting?: boolean;
@@ -1071,7 +1163,13 @@ type DesktopApi = {
   }>;
   openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   voiceprintStatus?: () => Promise<{ ok?: boolean; enrolled?: boolean; reason?: string }>;
-  clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
+  clearVoiceprint?: () => Promise<{
+    ok?: boolean;
+    enrolled?: boolean;
+    removed?: number;
+    bytes?: number;
+    failed?: number;
+  }>;
   voiceEnrollStatus?: () => Promise<VoiceEnrollStatus>;
   voiceEnrollSaveSample?: (payload: {
     id: string;
@@ -1116,14 +1214,15 @@ type DesktopApi = {
   onSystemSuspend?: (cb: () => void) => () => void;
   onSystemPressure?: (cb: (snapshot: SystemPressure) => void) => () => void;
   getSystemPressure?: () => Promise<SystemPressure | null>;
-  /** Low-latency wake detection (openWakeWord) — the real engine when present. */
+  /** Low-latency wake detection (the FRIDAY wake engine) — the real engine when present. */
   wakeEngineStatus?: (payload: { wakeWord?: string; force?: boolean }) => Promise<{
-    engine: "openwakeword" | "friday-linear" | "transcript";
+    engine: "openwakeword" | "friday-linear" | "friday-embed" | "transcript";
     installed: boolean;
     ready: boolean;
     model?: string | null;
     modelDir?: string | null;
     models?: string[];
+    embedModel?: string | null;
     wakeWord: string;
     reason?: string | null;
   }>;
@@ -1159,7 +1258,7 @@ type DesktopApi = {
     frames?: number;
     reason?: string;
   }>;
-  /** Real post-install probes for faster-whisper / edge-tts. */
+  /** Real post-install probes for FRIDAY Ear / edge-tts. */
   verifyVoiceRuntime?: (payload?: { loadModel?: boolean; model?: string }) => Promise<{
     ok: boolean;
     python: string | null;
@@ -1261,6 +1360,8 @@ type DesktopApi = {
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
   localModelStatus?: () => Promise<LocalModelStatus>;
+  /** FRIDAY Core status for the Brain settings. It never carries the launch key, the port or the endpoint. */
+  brainCoreStatus?: () => Promise<CoreStatus>;
   /** Draw a picture with a connected cloud provider (privacy and billing gates apply). */
   generateImage?: (payload: {
     prompt: string;
@@ -1341,6 +1442,15 @@ export type KnowledgeStatusRow = {
 
 export type LocalRunnerState =
   "serving" | "not-loaded" | "runner-stopped" | "runner-not-installed" | "failed";
+
+/** FRIDAY Core as the Brain settings see it. No key, port or endpoint is ever part of it. */
+export type CoreStatus = {
+  variant: string;
+  fridayName: string;
+  installed: boolean;
+  running: boolean;
+  ready: boolean;
+};
 
 export type LocalModelStatus = {
   at: number;

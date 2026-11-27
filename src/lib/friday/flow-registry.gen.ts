@@ -199,6 +199,9 @@ export const FLOW_REGISTRY = {
     "fields.archiveFormat",
     "fields.attentionWindow",
     "fields.bodyFont",
+    "fields.brainEnginePrefer",
+    "fields.brainLearnClasses",
+    "fields.brainSpeculative",
     "fields.bubbleStyle",
     "fields.buildOutput",
     "fields.buttonLabels",
@@ -252,6 +255,9 @@ export const FLOW_REGISTRY = {
     "toggles.biometric",
     "toggles.blockUnknownHosts",
     "toggles.blur",
+    "toggles.brainCoreEnabled",
+    "toggles.brainLearnAdapters",
+    "toggles.brainLearnGlossary",
     "toggles.chatTimestamps",
     "toggles.circuit",
     "toggles.clearWorkingOnQuit",
@@ -299,10 +305,12 @@ export const FLOW_REGISTRY = {
     "voice.addressName",
     "voice.addressWindowSec",
     "voice.allowAmbientCloud",
+    "voice.approvalTtlSec",
     "voice.cloudVoice",
     "voice.confirmLevel",
     "voice.duckOthers",
     "voice.eagerTurn",
+    "voice.ears",
     "voice.echoReference",
     "voice.englishVoice",
     "voice.expressiveSpeech",
@@ -312,9 +320,11 @@ export const FLOW_REGISTRY = {
     "voice.hindiLightVoice",
     "voice.hindiVoice",
     "voice.hinglish",
+    "voice.hinglishEar",
     "voice.inputDeviceId",
     "voice.instantAck",
     "voice.interruptGate",
+    "voice.itn",
     "voice.keepUtteranceWavs",
     "voice.listenStyle",
     "voice.liveWake",
@@ -340,12 +350,15 @@ export const FLOW_REGISTRY = {
     "voice.speakReplies",
     "voice.speechLang",
     "voice.speechPrep",
+    "voice.streamEngine",
     "voice.sttMultilingual",
     "voice.sttSize",
     "voice.tasks",
     "voice.tidyDictation",
     "voice.trimHistoryToPlayed",
     "voice.ttsEngine",
+    "voice.turn",
+    "voice.understanding",
     "voice.utteranceWavDays",
     "voice.vocabulary",
     "voice.voiceName",
@@ -423,6 +436,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "boot:steps",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "brain:core-status",
       file: "electron/main.cjs",
     },
     {
@@ -1354,6 +1371,14 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "llm-engine:bench",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "llm-engine:state",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "mcp:desk",
       file: "electron/main.cjs",
     },
@@ -2250,6 +2275,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:mic-access",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:neural-cancel-pcm",
       file: "electron/main.cjs",
     },
@@ -2274,11 +2303,19 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice:open-mic-privacy",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:ptt-shortcut",
       file: "electron/main.cjs",
     },
     {
       channel: "voice:remove",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:restart-tts",
       file: "electron/main.cjs",
     },
     {
@@ -2299,6 +2336,22 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:stt-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-close",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-feed",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-open",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:stt-stream-warm",
       file: "electron/main.cjs",
     },
     {
@@ -2488,6 +2541,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "angle",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "approval-required",
       file: "kernel/main.py",
     },
@@ -2500,12 +2557,20 @@ export const FLOW_REGISTRY = {
       file: "kernel/companion.py",
     },
     {
+      kind: "bandpass",
+      file: "kernel/voice_fx.py",
+    },
+    {
       kind: "boolean",
       file: "kernel/tools.py",
     },
     {
       kind: "bullets",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "C",
+      file: "kernel/text_norm.py",
     },
     {
       kind: "camera",
@@ -2548,12 +2613,28 @@ export const FLOW_REGISTRY = {
       file: "kernel/voice_pin_selftest.py",
     },
     {
+      kind: "ctc",
+      file: "kernel/nemo_ear.py",
+    },
+    {
       kind: "docx",
       file: "kernel/doc_writer.py",
     },
     {
       kind: "done",
       file: "kernel/main.py",
+    },
+    {
+      kind: "en",
+      file: "kernel/tts_eval.py",
+    },
+    {
+      kind: "energy",
+      file: "kernel/stream_ear.py",
+    },
+    {
+      kind: "engine",
+      file: "kernel/tts_delivery.py",
     },
     {
       kind: "epub",
@@ -2564,12 +2645,28 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "fast",
+      file: "kernel/stt.py",
+    },
+    {
       kind: "gif",
       file: "kernel/file_tools.py",
     },
     {
       kind: "heading",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "hi",
+      file: "kernel/tts_eval.py",
+    },
+    {
+      kind: "highpass",
+      file: "kernel/voice_fx.py",
+    },
+    {
+      kind: "highshelf",
+      file: "kernel/voice_fx.py",
     },
     {
       kind: "html",
@@ -2596,6 +2693,22 @@ export const FLOW_REGISTRY = {
       file: "kernel/billing.py",
     },
     {
+      kind: "locale",
+      file: "kernel/stream_ear.py",
+    },
+    {
+      kind: "lowpass",
+      file: "kernel/voice_fx.py",
+    },
+    {
+      kind: "lowshelf",
+      file: "kernel/voice_fx.py",
+    },
+    {
+      kind: "M",
+      file: "kernel/text_norm.py",
+    },
+    {
       kind: "md",
       file: "kernel/doc_writer.py",
     },
@@ -2610,6 +2723,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "model-missing",
       file: "kernel/stt.py",
+    },
+    {
+      kind: "mood",
+      file: "kernel/tts_delivery.py",
     },
     {
       kind: "mp3",
@@ -2628,6 +2745,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "O",
+      file: "kernel/text_norm.py",
+    },
+    {
       kind: "object",
       file: "kernel/tools.py",
     },
@@ -2640,6 +2761,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/voice_pin_selftest.py",
     },
     {
+      kind: "pace",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "paid",
       file: "kernel/billing.py",
     },
@@ -2648,8 +2773,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "pause",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "pdf",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "peak",
+      file: "kernel/voice_fx.py",
     },
     {
       kind: "planned",
@@ -2676,6 +2809,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "rnnt",
+      file: "kernel/nemo_ear.py",
+    },
+    {
       kind: "rtf",
       file: "kernel/doc_writer.py",
     },
@@ -2688,12 +2825,28 @@ export const FLOW_REGISTRY = {
       file: "kernel/office_tools.py",
     },
     {
+      kind: "S",
+      file: "kernel/text_norm.py",
+    },
+    {
+      kind: "silero",
+      file: "kernel/stream_ear.py",
+    },
+    {
       kind: "single",
       file: "kernel/file_tools.py",
     },
     {
+      kind: "speech",
+      file: "kernel/ears_eval.py",
+    },
+    {
       kind: "sqlite",
       file: "kernel/file_tools.py",
+    },
+    {
+      kind: "stream",
+      file: "kernel/stt.py",
     },
     {
       kind: "string",
@@ -2704,6 +2857,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "tag",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "tar",
       file: "kernel/file_tools.py",
     },
@@ -2712,8 +2869,20 @@ export const FLOW_REGISTRY = {
       file: "kernel/companion.py",
     },
     {
+      kind: "tdt",
+      file: "kernel/nemo_ear.py",
+    },
+    {
+      kind: "text",
+      file: "kernel/tts_delivery.py",
+    },
+    {
       kind: "thinking",
       file: "kernel/reasoning_control.py",
+    },
+    {
+      kind: "V",
+      file: "kernel/text_norm.py",
     },
     {
       kind: "wake",
@@ -2722,6 +2891,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "wav",
       file: "kernel/file_tools.py",
+    },
+    {
+      kind: "whisper",
+      file: "kernel/stt.py",
     },
     {
       kind: "windows-executable",
@@ -4223,7 +4396,7 @@ export const FLOW_REGISTRY = {
     {
       id: "coqui-tts",
       kind: "model",
-      name: "Coqui TTS VITS",
+      name: "FRIDAY Voice Classic",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4271,7 +4444,13 @@ export const FLOW_REGISTRY = {
     {
       id: "denoise-dpdfnet",
       kind: "model",
-      name: "DPDFNet denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+      name: "FRIDAY Denoise (optional, off by default)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "denoise-gtcrn",
+      kind: "model",
+      name: "FRIDAY Denoise Lite (optional, off by default)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4295,37 +4474,37 @@ export const FLOW_REGISTRY = {
     {
       id: "faster-whisper",
       kind: "model",
-      name: "Faster Whisper large-v3",
+      name: "FRIDAY Ear large-v3",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-base",
       kind: "model",
-      name: "Faster Whisper base",
+      name: "FRIDAY Ear base",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-large-v3-turbo",
       kind: "model",
-      name: "Faster Whisper large v3 turbo",
+      name: "FRIDAY Ear large v3 turbo",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-medium",
       kind: "model",
-      name: "Faster Whisper medium",
+      name: "FRIDAY Ear medium",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-small",
       kind: "model",
-      name: "Faster Whisper small",
+      name: "FRIDAY Ear small",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "faster-whisper-tiny",
       kind: "model",
-      name: "Faster Whisper tiny",
+      name: "FRIDAY Ear tiny",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -4487,37 +4666,49 @@ export const FLOW_REGISTRY = {
     {
       id: "hindi-ear",
       kind: "model",
-      name: "Hindi ear (IndicConformer, int8)",
+      name: "FRIDAY Ear Hindi",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-fallback-ear",
       kind: "model",
-      name: "Hindi fallback ear (Whisper small Hindi, credit: Collabora, CC-BY-4.0)",
+      name: "FRIDAY Ear Hindi Backup",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-light-tts",
       kind: "model",
-      name: "Light Hindi voice (credit: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0)",
+      name: "FRIDAY Voice Lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-punct",
       kind: "model",
-      name: "Hindi punctuation (47 languages, adds commas and the danda, Apache-2.0)",
+      name: "FRIDAY Punctuate Hindi",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hindi-vaani-ear",
       kind: "model",
-      name: "Hindi Vaani ear (candidate, Whisper large-v3 fine-tune by ARTPARK-IISc, Apache-2.0)",
+      name: "FRIDAY Ear Hindi Large (candidate)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "hinglish-ear",
       kind: "model",
-      name: "Hinglish ear (Roman letters, Whisper base fine-tune by Oriserve, int8)",
+      name: "FRIDAY Ear Hinglish (Roman letters)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hinglish-ear-pro",
+      kind: "model",
+      name: "FRIDAY Ear Hinglish Pro",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "hinglish-ear-trelis",
+      kind: "model",
+      name: "FRIDAY Ear Hinglish Large (candidate, mixed script)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -5073,6 +5264,18 @@ export const FLOW_REGISTRY = {
       file: "modules/ui/svg-title-list/manifest.json",
     },
     {
+      id: "moonshine-ear",
+      kind: "model",
+      name: "FRIDAY Ear Quick",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "moonshine-ear-vocab",
+      kind: "model",
+      name: "FRIDAY Ear Quick Vocabulary",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "moonshot-kimi-k2",
       kind: "model",
       name: "Kimi K2",
@@ -5187,6 +5390,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "parakeet-ear",
+      kind: "model",
+      name: "FRIDAY Ear English",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "phi4-14b",
       kind: "model",
       name: "Phi-4 14B",
@@ -5201,7 +5410,7 @@ export const FLOW_REGISTRY = {
     {
       id: "piper-en",
       kind: "model",
-      name: "Piper (en_US amy)",
+      name: "FRIDAY Voice English lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -6069,9 +6278,15 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "shruti-ear",
+      kind: "model",
+      name: "FRIDAY Ear Swift",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "silero-vad",
       kind: "model",
-      name: "Silero VAD",
+      name: "FRIDAY Listen Gate",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7535,7 +7750,7 @@ export const FLOW_REGISTRY = {
     {
       id: "smart-turn",
       kind: "model",
-      name: "Smart Turn v3.2",
+      name: "FRIDAY Turn",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7547,7 +7762,7 @@ export const FLOW_REGISTRY = {
     {
       id: "speaker-wespeaker",
       kind: "model",
-      name: "WeSpeaker speaker model (candidate, credit: WeSpeaker, ONNX by onnx-community, CC-BY-4.0)",
+      name: "FRIDAY Speaker (candidate)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -7563,9 +7778,15 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "stream-ear-nemotron",
+      kind: "model",
+      name: "FRIDAY Ear Live (candidate)",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "supertonic-3",
       kind: "model",
-      name: "Supertonic 3",
+      name: "FRIDAY Voice",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -8669,7 +8890,7 @@ export const FLOW_REGISTRY = {
     {
       id: "vosk-en",
       kind: "model",
-      name: "Vosk English small",
+      name: "FRIDAY Ear English lite",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -8681,13 +8902,13 @@ export const FLOW_REGISTRY = {
     {
       id: "whisper-large-v3",
       kind: "model",
-      name: "Whisper large-v3",
+      name: "FRIDAY Ear large-v3 (full precision)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
       id: "whispercpp-base",
       kind: "model",
-      name: "Whisper.cpp base",
+      name: "FRIDAY Ear base (C++ build)",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9395,7 +9616,7 @@ export const FLOW_REGISTRY = {
     {
       id: "xtts-v2",
       kind: "model",
-      name: "XTTS v2 (voice clone)",
+      name: "FRIDAY Voice Clone",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9551,16 +9772,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 162,
-      total: 162,
+      mapped: 175,
+      total: 175,
     },
     capabilities: {
-      mapped: 1111,
-      total: 1111,
+      mapped: 1119,
+      total: 1119,
     },
     ipc: {
-      mapped: 513,
-      total: 513,
+      mapped: 523,
+      total: 523,
     },
     kernel: {
       mapped: 14,

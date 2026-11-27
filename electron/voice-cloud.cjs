@@ -10,9 +10,14 @@
  *                           `Ocp-Apim-Subscription-Key`, `Content-Type: application/ssml+xml`,
  *                           `X-Microsoft-OutputFormat`, `User-Agent`; body SSML
  * Nothing here has been run against a live account. Gates (checked here, in this order): cloud voice switched on,
- * the provider allowed, privacy mode off, a key saved. Quotas are counted by the renderer's usage ledger before
+ * the provider allowed, privacy mode off, paid access on when the provider costs money (the billing firewall), a
+ * key saved. Before any request the text itself is classified here
+ * (the privacy firewall), so a SENSITIVE reply never leaves this PC whatever the renderer sent; a renderer
+ * `sensitiveReply: true` (the whole reply was classified) can only add a refusal. Quotas are counted by the renderer's usage ledger before
  * the call. Only the two fixed hosts below are ever contacted; an error text is scrubbed of the key.
  */
+const { classify } = require("./privacy-firewall.cjs");
+
 const SARVAM_HOST = "api.sarvam.ai";
 const REGION = /^[a-z0-9]{3,30}$/;
 const VOICE = /^[A-Za-z0-9-]{3,64}$/;
@@ -23,6 +28,12 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const TIMEOUT_MS = 20_000;
 
 const SECRET_IDS = { sarvam: "voice-sarvam", "azure-speech": "voice-azure-speech" };
+
+/**
+ * Providers refused while paid access is off: the renderer router's PAID_BY_DEFAULT plus every lane with no
+ * free-allowance proof (Sarvam has only a one-time signup credit). A test keeps this list in step with the router.
+ */
+const PAID_PROVIDERS = new Set(["openai", "xai", "sarvam"]);
 
 const escapeXml = (text) =>
   String(text).replace(
@@ -104,21 +115,68 @@ function parseSarvamStt(json) {
  *   fetchImpl?: typeof fetch,
  *   getSecret: (id: string) => string,
  *   prefs: () => any,
+ *   costsMoney?: (provider: string) => boolean,
+ *   paidUnlocked?: () => boolean,
  * }} deps
  */
-function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
-  function gate(provider) {
-    const secretId = SECRET_IDS[provider];
-    if (!secretId) return { ok: false, error: "that provider has no speech connection here" };
-    const voice = prefs() || {};
+function createVoiceCloud({
+  fetchImpl = globalThis.fetch,
+  getSecret,
+  prefs,
+  costsMoney = (id) => PAID_PROVIDERS.has(id),
+  paidUnlocked = () => false,
+}) {
+  /**
+   * The settings part of the gate, with no key read: cloud voice on, the provider allowed, privacy mode off, and
+   * paid access on when the provider costs money. Returns the refusal, or null. Preferences that cannot be read
+   * refuse. The streaming path asks this on every clause, so a switch turned off mid-stream stops the next one.
+   */
+  function refusal(provider) {
+    let voice;
+    try {
+      voice = prefs() || {};
+    } catch {
+      return { ok: false, error: "voice settings could not be read" };
+    }
     const cloud = voice.cloudVoice || {};
     if (cloud.cloudEnabled !== true) return { ok: false, error: "cloud voice is switched off" };
     if (!Array.isArray(cloud.allowedProviders) || !cloud.allowedProviders.includes(provider))
       return { ok: false, error: "that provider is not on the allowed list" };
     if (voice.privacyMode === true) return { ok: false, error: "Keep speech on this PC is on" };
+    // A provider that costs money is refused while paid access is off. No answer from the firewall is a refusal.
+    let paidOff = false;
+    try {
+      paidOff = costsMoney(provider) === true && paidUnlocked() !== true;
+    } catch {
+      paidOff = true;
+    }
+    if (paidOff) return { ok: false, error: "paid access is off (this provider costs money)" };
+    return null;
+  }
+
+  function gate(provider) {
+    const secretId = SECRET_IDS[provider];
+    if (!secretId) return { ok: false, error: "that provider has no speech connection here" };
+    const refused = refusal(provider);
+    if (refused) return refused;
     const key = getSecret(secretId);
     if (!key) return { ok: false, error: "no key is saved for that provider" };
-    return { ok: true, key, cloud };
+    return { ok: true, key, cloud: (prefs() || {}).cloudVoice || {} };
+  }
+
+  /**
+   * One frame for the streaming speech socket. A text clause is checked here, in the main process, with the privacy
+   * firewall and the settings gate, before it can be sent; a renderer `sensitiveReply: true` can only add a refusal.
+   * Every other frame (flush, config) carries no text and passes. The reply then stays on the local voice.
+   */
+  function screenStreamMessage(provider, message) {
+    if (message?.type !== "text") return { ok: true };
+    const refused = refusal(provider);
+    if (refused) return refused;
+    const text = String(message.text ?? "").trim();
+    if (message.sensitiveReply === true || classify(text).level === "sensitive")
+      return { ok: false, sensitive: true, error: "cloud speech is blocked for sensitive text" };
+    return { ok: true };
   }
 
   async function call(spec, key, provider) {
@@ -157,7 +215,7 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
     }
   }
 
-  /** @returns {Promise<{ok: boolean, error?: string, audioBase64?: string, mime?: string, provider?: string}>} */
+  /** @returns {Promise<{ok: boolean, sensitive?: boolean, error?: string, audioBase64?: string, mime?: string, provider?: string}>} */
   async function speak(provider, request) {
     const text = String(request?.text ?? "").trim();
     if (!text) return { ok: false, error: "there is no text to speak" };
@@ -167,6 +225,9 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
     if (!LANG.test(language)) return { ok: false, error: "name the language as hi-IN or en-IN" };
     const allowed = gate(provider);
     if (!allowed.ok) return allowed;
+    // The firewall runs on this side too: the renderer flag can only add a refusal, never lift one.
+    if (request?.sensitiveReply === true || classify(text).level === "sensitive")
+      return { ok: false, sensitive: true, error: "cloud speech is blocked for sensitive text" };
     let spec;
     if (provider === "sarvam") {
       const speaker = request.speaker ? String(request.speaker) : "";
@@ -249,11 +310,25 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
       : { ok: false, error: "the provider returned no transcript" };
   }
 
-  return { speak, transcribe, gate };
+  return { speak, transcribe, gate, screenStreamMessage };
+}
+
+/**
+ * The `voice-stream:send` handler body: screen the frame in the main process, then hand it to the open stream.
+ * The key never passes through here; the stream holds it.
+ * @param {{ screenStreamMessage: (provider: string, message: any) => any }} api
+ * @param {{ send: (id: string, message: any) => any }} streams
+ */
+function guardedStreamSend(api, streams, provider = "sarvam") {
+  return (id, message) => {
+    const screened = api.screenStreamMessage(provider, message);
+    return screened.ok === true ? streams.send(id, message) : screened;
+  };
 }
 
 module.exports = {
   createVoiceCloud,
+  guardedStreamSend,
   buildSarvamTts,
   sarvamModelFor,
   SARVAM_V2_FEMALE,
@@ -262,4 +337,5 @@ module.exports = {
   parseSarvamStt,
   escapeXml,
   SECRET_IDS,
+  PAID_PROVIDERS,
 };

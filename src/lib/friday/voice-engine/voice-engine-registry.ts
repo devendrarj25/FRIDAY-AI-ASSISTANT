@@ -91,8 +91,6 @@ export type VoiceEngine = {
   publishedWer?: { dataset: string; wer: number }[];
   /** The speech size this row stands for, for the Whisper ladder (tiny = 0). */
   sizeRank?: number;
-  /** Credit line to show (a licence that needs one), and the date and place the facts were read. */
-  credit?: string;
   evidence: string[];
 };
 

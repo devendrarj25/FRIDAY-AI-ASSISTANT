@@ -1,0 +1,1014 @@
+{
+  "note": "Synthetic vectors for T-WER, the switch-point error rate, the script policy and the Wilson ranges, shared by kernel/stt_bench.py and src/lib/friday/voice-engine/transcript-scorer.ts (and hinglish-lexicon.ts). Text is invented, no audio exists. The fixScript, label, fold and count expectations were worked out by hand; the Wilson ranges were checked against the textbook values (0 of 10 is 0 to 0.2775, 5 of 10 is 0.2366 to 0.7634). The lexicon digest pins the two copies of the word tables together: when you change a table in one language, change the other and the digest. They test the scorer, not any model.",
+  "lexiconVersion": "hinglish-lex-3",
+  "lexiconDigest": {
+    "entries": 413,
+    "sha256": "5e126d752f43471110b6dd00e7ad0e4a39f08d757b3be435b967d21a7dec539b",
+    "how": "sha256 of the lexicon lines joined with a newline, UTF-8"
+  },
+  "fix": [
+    {
+      "id": "roman-hindi-to-devanagari",
+      "text": "mujhe meeting ki description chahiye",
+      "policy": "codemix",
+      "expected": "मुझे meeting की description चाहिए"
+    },
+    {
+      "id": "loanword-back-to-latin",
+      "text": "मुझे मीटिंग की डिस्क्रिप्शन चाहिए",
+      "policy": "codemix",
+      "expected": "मुझे meeting की description चाहिए"
+    },
+    {
+      "id": "hindi-policy-leaves-loanwords",
+      "text": "मुझे मीटिंग की डिस्क्रिप्शन chahiye",
+      "policy": "hindi",
+      "expected": "मुझे मीटिंग की डिस्क्रिप्शन चाहिए"
+    },
+    {
+      "id": "english-policy-leaves-roman-hindi",
+      "text": "mujhe मीटिंग chahiye",
+      "policy": "english",
+      "expected": "mujhe meeting chahiye"
+    },
+    {
+      "id": "ambiguous-do-follows-its-neighbour",
+      "text": "kal subah alarm laga do",
+      "policy": "codemix",
+      "expected": "कल सुबह alarm लगा दो"
+    },
+    {
+      "id": "ambiguous-do-stays-in-english",
+      "text": "do you want tea",
+      "policy": "codemix",
+      "expected": "do you want tea"
+    },
+    {
+      "id": "main-turns-beside-hindi",
+      "text": "main kal aaunga",
+      "policy": "codemix",
+      "expected": "मैं कल aaunga"
+    },
+    {
+      "id": "hai-stays-beside-english",
+      "text": "Kal, meeting hai!",
+      "policy": "codemix",
+      "expected": "कल, meeting hai!"
+    },
+    {
+      "id": "hai-turns-beside-hindi",
+      "text": "yeh hai theek",
+      "policy": "codemix",
+      "expected": "यह है ठीक"
+    },
+    {
+      "id": "nukta-in-the-loanword",
+      "text": "फ़ोन करो",
+      "policy": "codemix",
+      "expected": "phone करो"
+    },
+    {
+      "id": "chandrabindu-in-the-loanword",
+      "text": "कँप्यूटर चालू",
+      "policy": "codemix",
+      "expected": "computer चालू"
+    },
+    {
+      "id": "two-ambiguous-words-do-not-prove-each-other",
+      "text": "me to ठीक",
+      "policy": "codemix",
+      "expected": "me तो ठीक"
+    },
+    {
+      "id": "spacing-and-punctuation-kept",
+      "text": "  Kal,   (nahi)  ",
+      "policy": "codemix",
+      "expected": "  कल,   (नहीं)  "
+    },
+    {
+      "id": "unknown-words-untouched",
+      "text": "xyzzy kal",
+      "policy": "codemix",
+      "expected": "xyzzy कल"
+    },
+    {
+      "id": "digits-untouched",
+      "text": "2 baje",
+      "policy": "codemix",
+      "expected": "2 बजे"
+    },
+    {
+      "id": "empty",
+      "text": "",
+      "policy": "codemix",
+      "expected": ""
+    },
+    {
+      "id": "added-sure-words-roman-to-devanagari",
+      "text": "ruko meeting dekh ji",
+      "policy": "codemix",
+      "expected": "रुको meeting देख जी"
+    },
+    {
+      "id": "added-sure-word-variants",
+      "text": "rukiye dekhne",
+      "policy": "codemix",
+      "expected": "रुकिए देखने"
+    }
+  ],
+  "label": [
+    {
+      "cores": [
+        "kal",
+        "meeting",
+        "hai"
+      ],
+      "langs": [
+        "hi",
+        "en",
+        "en"
+      ]
+    },
+    {
+      "cores": [
+        "मुझे",
+        "मीटिंग",
+        "की",
+        "डिस्क्रिप्शन",
+        "चाहिए"
+      ],
+      "langs": [
+        "hi",
+        "en",
+        "hi",
+        "en",
+        "hi"
+      ]
+    },
+    {
+      "cores": [
+        "set",
+        "alarm",
+        "for",
+        "7",
+        "baje"
+      ],
+      "langs": [
+        "en",
+        "en",
+        "en",
+        "none",
+        "hi"
+      ]
+    },
+    {
+      "cores": [
+        "yeh",
+        "hai"
+      ],
+      "langs": [
+        "hi",
+        "hi"
+      ]
+    },
+    {
+      "cores": [],
+      "langs": []
+    },
+    {
+      "cores": [
+        "ruko",
+        "meeting",
+        "dekh",
+        "ji"
+      ],
+      "langs": [
+        "hi",
+        "en",
+        "hi",
+        "hi"
+      ]
+    }
+  ],
+  "twerFold": [
+    {
+      "text": "डिस्क्रिप्शन",
+      "tokens": [
+        "description"
+      ]
+    },
+    {
+      "text": "description",
+      "tokens": [
+        "description"
+      ]
+    },
+    {
+      "text": "meeting मीटिंग",
+      "tokens": [
+        "miting",
+        "miting"
+      ]
+    },
+    {
+      "text": "ज़्यादा zyada jyada",
+      "tokens": [
+        "jyada",
+        "jyada",
+        "jyada"
+      ]
+    },
+    {
+      "text": "nahi nahin nhi नहीं",
+      "tokens": [
+        "nahin",
+        "nahin",
+        "nahin",
+        "nahin"
+      ]
+    },
+    {
+      "text": "kal subah alarm laga do",
+      "tokens": [
+        "kal",
+        "subah",
+        "alarm",
+        "laga",
+        "do"
+      ]
+    },
+    {
+      "text": "कल सुबह अलार्म लगा दो",
+      "tokens": [
+        "kal",
+        "subah",
+        "alarm",
+        "laga",
+        "do"
+      ]
+    },
+    {
+      "text": "",
+      "tokens": []
+    }
+  ],
+  "counts": [
+    {
+      "id": "loanwords-and-roman-hindi",
+      "reference": "mujhe meeting ki description chahiye",
+      "hypothesis": "मुझे मीटिंग की डिस्क्रिप्शन चाहिए",
+      "twerEdits": 0,
+      "switchPoints": 4,
+      "switchErrors": 0,
+      "policyFixes": 2,
+      "hypWords": 5,
+      "foldedEditsAtLeast": 1
+    },
+    {
+      "id": "dropped-word-at-a-switch",
+      "reference": "kal meeting hai",
+      "hypothesis": "कल hai",
+      "twerEdits": 1,
+      "switchPoints": 1,
+      "switchErrors": 1,
+      "policyFixes": 1,
+      "hypWords": 2
+    },
+    {
+      "id": "substitution-at-a-switch",
+      "reference": "रिपोर्ट भेजो please",
+      "hypothesis": "रिपोर्ट भेजो plus",
+      "twerEdits": 1,
+      "switchPoints": 2,
+      "switchErrors": 1,
+      "policyFixes": 1,
+      "hypWords": 3
+    },
+    {
+      "id": "digits-do-not-break-a-switch",
+      "reference": "set alarm 7 baje",
+      "hypothesis": "set alarm 7 baje",
+      "twerEdits": 0,
+      "switchPoints": 1,
+      "switchErrors": 0,
+      "policyFixes": 1,
+      "hypWords": 4
+    },
+    {
+      "id": "ambiguous-word-in-english",
+      "reference": "do you want tea",
+      "hypothesis": "दो you want tea",
+      "twerEdits": 0,
+      "switchPoints": 0,
+      "switchErrors": 0,
+      "policyFixes": 0,
+      "hypWords": 4
+    },
+    {
+      "id": "both-empty",
+      "reference": "",
+      "hypothesis": "",
+      "twerEdits": 0,
+      "switchPoints": 0,
+      "switchErrors": 0,
+      "policyFixes": 0,
+      "hypWords": 0
+    },
+    {
+      "id": "all-inserted",
+      "reference": "",
+      "hypothesis": "x",
+      "twerEdits": 1,
+      "switchPoints": 0,
+      "switchErrors": 0,
+      "policyFixes": 0,
+      "hypWords": 1
+    },
+    {
+      "id": "added-sure-words-devanagari-hypothesis",
+      "reference": "rukiye meeting dekh ji",
+      "hypothesis": "रुकिए मीटिंग देख जी",
+      "twerEdits": 0,
+      "switchPoints": 2,
+      "switchErrors": 0,
+      "policyFixes": 1,
+      "hypWords": 4
+    },
+    {
+      "id": "added-sure-words-roman-hypothesis",
+      "reference": "ruko meeting dekh ji",
+      "hypothesis": "ruko meeting dekh ji",
+      "twerEdits": 0,
+      "switchPoints": 2,
+      "switchErrors": 0,
+      "policyFixes": 3,
+      "hypWords": 4
+    }
+  ],
+  "aggregate": {
+    "ids": [
+      "loanwords-and-roman-hindi",
+      "dropped-word-at-a-switch",
+      "substitution-at-a-switch",
+      "digits-do-not-break-a-switch"
+    ],
+    "words": 15,
+    "twerEdits": 2,
+    "switchPoints": 8,
+    "switchErrors": 2,
+    "policyFixes": 5,
+    "hypWords": 14,
+    "twer": 0.13333333333333333,
+    "switchPointErrorRate": 0.25
+  },
+  "wilson": [
+    {
+      "hits": 0,
+      "total": 10,
+      "note": "textbook: 0 of 10 is 0 to 0.2775",
+      "estimate": 0.0,
+      "low": 0.0,
+      "high": 0.2775401687666166
+    },
+    {
+      "hits": 5,
+      "total": 10,
+      "note": "textbook: 5 of 10 is 0.2366 to 0.7634",
+      "estimate": 0.5,
+      "low": 0.23658959361548731,
+      "high": 0.7634104063845126
+    },
+    {
+      "hits": 10,
+      "total": 10,
+      "note": "all of ten, the top is clamped to 1",
+      "estimate": 1.0,
+      "low": 0.7224598312333834,
+      "high": 1.0
+    },
+    {
+      "hits": 1,
+      "total": 40,
+      "note": "a small rate on a larger set",
+      "estimate": 0.025,
+      "low": 0.0044267174077949195,
+      "high": 0.1288165948800778
+    },
+    {
+      "hits": 3,
+      "total": 0,
+      "note": "no trials, no interval",
+      "estimate": 0.0,
+      "low": null,
+      "high": null
+    }
+  ],
+  "gate": [
+    {
+      "id": "twer-regression-alone-fails",
+      "baseline": {
+        "lang": "hinglish",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "twerEdits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "candidate": {
+        "lang": "hinglish",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "twerEdits": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      "pass": false,
+      "reasonIncludes": [
+        "hinglish: T-WER"
+      ],
+      "reasonExcludes": [
+        "folded WER"
+      ]
+    },
+    {
+      "id": "twer-small-rise-passes",
+      "baseline": {
+        "lang": "hinglish",
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "edits": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "twerEdits": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ]
+      },
+      "candidate": {
+        "lang": "hinglish",
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "edits": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "twerEdits": [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ]
+      },
+      "pass": true,
+      "reasonIncludes": [],
+      "reasonExcludes": []
+    },
+    {
+      "id": "twer-noisy-rise-does-not-prove-a-regression",
+      "baseline": {
+        "lang": "hinglish",
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "edits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "twerEdits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ]
+      },
+      "candidate": {
+        "lang": "hinglish",
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "edits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "twerEdits": [
+          34,
+          12,
+          33,
+          13,
+          32,
+          14,
+          31,
+          15,
+          30,
+          16
+        ]
+      },
+      "pass": true,
+      "reasonIncludes": [],
+      "reasonExcludes": []
+    },
+    {
+      "id": "twer-improvement-passes",
+      "baseline": {
+        "lang": "hinglish",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "twerEdits": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      "candidate": {
+        "lang": "hinglish",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "twerEdits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "pass": true,
+      "reasonIncludes": [],
+      "reasonExcludes": []
+    },
+    {
+      "id": "older-baseline-without-twer-still-gates-on-folded-wer",
+      "baseline": {
+        "lang": "en",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "candidate": {
+        "lang": "en",
+        "words": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "twerEdits": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "pass": false,
+      "reasonIncludes": [
+        "en: folded WER"
+      ],
+      "reasonExcludes": [
+        "T-WER"
+      ]
+    },
+    {
+      "id": "one-language-cannot-hide-in-the-twer-total",
+      "baseline": {
+        "lang": [
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish"
+        ],
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "twerEdits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "candidate": {
+        "lang": [
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "en",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish",
+          "hinglish"
+        ],
+        "words": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "edits": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "twerEdits": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      "pass": false,
+      "reasonIncludes": [
+        "hinglish: T-WER"
+      ],
+      "reasonExcludes": [
+        "folded WER"
+      ]
+    }
+  ]
+}

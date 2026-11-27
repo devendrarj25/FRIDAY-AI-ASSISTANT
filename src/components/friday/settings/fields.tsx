@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { preferences } from "@/lib/friday/preferences";
@@ -39,8 +40,51 @@ export function EditField({
   );
 }
 
-const SELECT_CLASS =
-  "hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground";
+/** The one look of a settings dropdown (hud-tile has no focus style, so the ring is added here). */
+export const SELECT_CLASS =
+  "hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** A labelled dropdown over a fixed list of words. The accessible name is the label; the hint describes it. */
+export function PickRow<T extends string>({
+  label,
+  hint,
+  value,
+  picks,
+  words,
+  onPick,
+}: {
+  label: string;
+  hint: string;
+  value: T;
+  picks: readonly T[];
+  words: Record<T, string>;
+  onPick: (next: T) => void;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={`${id}-select`} className="label-xs text-muted-foreground">
+        {label}
+      </label>
+      <select
+        id={`${id}-select`}
+        value={value}
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => onPick(e.target.value as T)}
+        className={SELECT_CLASS}
+      >
+        {picks.map((pick) => (
+          <option key={pick} value={pick} className="bg-background">
+            {words[pick]}
+          </option>
+        ))}
+      </select>
+      <p id={`${id}-hint`} className="mt-1 text-meta-sm text-muted-foreground">
+        {hint}
+      </p>
+    </div>
+  );
+}
 
 export function SelectField({
   label,

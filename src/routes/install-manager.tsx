@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { InstallerFitPanel } from "@/components/friday/InstallerFitPanel";
 import { OwnToolsPanel } from "@/components/friday/OwnToolsPanel";
+import { LlmEnginePanel } from "@/components/friday/LlmEnginePanel";
 import {
   DataTable,
   FilterTabs,
@@ -717,6 +718,7 @@ function InstallManagerPage() {
                 onCopy={copyValue}
               />
             ) : null}
+            <LlmEnginePanel controls={false} />
             <OwnToolsPanel title="Your own tools" />
           </>
         )}

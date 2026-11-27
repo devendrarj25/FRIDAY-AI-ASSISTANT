@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EchoCanceller } from "../../src/lib/friday/voice-engine/audio-aec";
 import {
   floatToPcm16,
@@ -324,6 +324,23 @@ describe("echo reference: live-capture hook", () => {
     expect(cancelMicFrame(ref, broken, mic, { deliveredAt: 1 + 320 / ECHO_RATE })).toBe(mic);
   });
 
+  it("a canceller that failed five frames in a row hands back every frame as it came in", () => {
+    const ref = new EchoReference();
+    ref.tap(1, new Int16Array(16_000).fill(4000));
+    const echo = new EchoCanceller({ rate: ECHO_RATE });
+    const spy = vi.spyOn(echo as unknown as { far: () => number }, "far").mockImplementation(() => {
+      throw new Error("ring failed");
+    });
+    const mic = Float32Array.from({ length: 320 }, (_, i) => Math.sin(i / 9) * 0.2);
+    for (let n = 0; n < 8; n += 1) {
+      const out = cancelMicFrame(ref, echo, mic, { deliveredAt: 1 + ((n + 1) * 320) / ECHO_RATE });
+      expect(Array.from(out)).toEqual(Array.from(mic));
+    }
+    expect(echo.isPassthrough()).toBe(true);
+    expect(echo.stats().failures).toBe(5);
+    spy.mockRestore();
+  });
+
   it("without a reference the canceller behaves exactly as before", () => {
     const rand = rng(9);
     const near = Float32Array.from({ length: 6400 }, () => rand() * 0.4);
@@ -456,9 +473,9 @@ describe("echo reference: end to end on simulated rooms (not a real room)", () =
       "24 kHz answer, 160 ms path",
       { sourceRate: 24_000 as const, delayMs: 160, gain: 0.5, seed: 23 },
     ],
-  ])("takes at least 20 dB out of the echo: %s", (_name, opts) => {
+  ])("takes at least 22 dB out of the echo: %s", (_name, opts) => {
     const reduction = simulate(opts);
-    expect(reduction).toBeGreaterThanOrEqual(20);
+    expect(reduction).toBeGreaterThanOrEqual(22);
   });
 });
 

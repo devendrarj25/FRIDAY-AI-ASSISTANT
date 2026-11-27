@@ -18,15 +18,23 @@ Pure logic only (no I/O, no httpx) so it can be unit tested on its own.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
 import re
-from typing import Any
+import unicodedata
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 import local_engines
 
 LEVELS = ("sensitive", "private", "internal", "public")
 SENSITIVE = "sensitive"
 WAY_FORWARD = "Remove it from the message, or run this turn on a local model."
+# System messages that router.py builds from the owner's own words.
+OWNER_TEXT_SYSTEM_PREFIXES = ("Relevant memory:", "Earlier in this same conversation")
 
 
 def luhn_ok(digits: str) -> bool:
@@ -117,47 +125,133 @@ def financial_identity_hit(text: str) -> bool:
     return False
 
 
+# The SENSITIVE text markers are ONE table, ``config/sensitive-markers.json``, shared with
+# electron/privacy-firewall.cjs and src/lib/friday/brain/memory-policy.ts (English, Hindi and Hinglish).
+# This file keeps no copy. If the table cannot be read, nothing is sent: the loader fails closed.
+_MARKERS_PATH = Path(__file__).resolve().parents[1] / "config" / "sensitive-markers.json"
+MARKERS_MISSING_LABEL = "the sensitive-marker table could not be loaded"
+
+
+_FAIL_CLOSED: tuple[dict[str, Any], ...] = (
+    {
+        "level": "sensitive",
+        "label": MARKERS_MISSING_LABEL,
+        "test": lambda text: bool(str(text).strip()),
+    },
+)
+
+
+def _build_normaliser(spec: dict[str, Any]) -> Callable[[Any], str]:
+    """The ``normalise`` section of the table: speech-to-text spellings ("O T P", a Devanagari
+    digit, "pass word") fold into plain text. The renderer and the desktop firewall run the same
+    steps in the same order; the character classes live in the table only."""
+    dropped = {int(code, 16) for code in spec["dropChars"]}
+    digits = [(int(lo, 16), int(hi, 16)) for lo, hi in spec["digitRanges"]]
+    form = cast("Literal['NFC', 'NFD', 'NFKC', 'NFKD']", spec["form"])
+    sep = str(spec["separators"])
+    separators = re.compile(f"[{sep}]+")
+    runs = []
+    for unit in spec["units"]:
+        one = f"[{unit['letter']}]" + (f"[{unit['marks']}]*" if unit["marks"] else "")
+        guard = unit["guard"]
+        runs.append(re.compile(f"(?<![{guard}]){one}(?:[{sep}]+{one}(?![{guard}])){{{int(spec['minRun']) - 1},}}"))
+    pairs = [
+        (re.compile(f"(?<![{p['guard']}])" + f"[{sep}]+".join(p["parts"]) + f"(?![{p['guard']}])"), "".join(p["parts"]))
+        for p in spec["joinPairs"]
+    ]
+    lower = bool(spec["lowercase"])
+
+    def fold_char(ch: str) -> str:
+        code = ord(ch)
+        if code in dropped:
+            return ""
+        for lo, hi in digits:
+            if lo <= code <= hi:
+                return str(code - lo)
+        return ch
+
+    def normalise(text: Any) -> str:
+        out = unicodedata.normalize(form, text if isinstance(text, str) else "")
+        out = "".join(fold_char(ch) for ch in out)
+        if lower:
+            out = out.lower()
+        for run in runs:
+            out = run.sub(lambda m: separators.sub("", m.group(0)), out)
+        for pair, joined in pairs:
+            out = pair.sub(joined, out)
+        return out
+
+    return normalise
+
+
+def _load_normaliser(path: Path) -> Callable[[Any], str] | None:
+    try:
+        return _build_normaliser(json.loads(path.read_text(encoding="utf-8"))["normalise"])
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        return None
+
+
+_PLACEHOLDER = re.compile(r"\{\{([\w.]+)\}\}")
+_PLAIN_WORD = re.compile(r"[\w\u0900-\u097f]+")
+
+
+def _expand_pattern(pattern: str, table: dict[str, Any]) -> str:
+    """Fill each {{name}} of a row pattern: {{words.list}} is a word list joined with |, any other name a
+    piece from ``fragments``. An unknown name or a word that is not a plain word raises, so the loader fails closed."""
+    parts: dict[str, str] = dict(table.get("fragments", {}))
+    for name, words in table.get("words", {}).items():
+        if not all(_PLAIN_WORD.fullmatch(word) for word in words):
+            raise ValueError(f"not a plain word in {name}")
+        parts[f"words.{name}"] = "|".join(words)
+    text = pattern
+    for _ in range(8):
+        if "{{" not in text:
+            return text
+        text = _PLACEHOLDER.sub(lambda match: parts[match.group(1)], text)
+    raise ValueError("fragments nest too deep")
+
+
+def _load_markers(path: Path) -> tuple[dict[str, Any], ...]:
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+        rows = table["markers"]
+        signals = tuple(
+            {
+                "level": "sensitive",
+                "label": str(row["label"]),
+                "re": re.compile(
+                    _expand_pattern(str(row["pattern"]), table), re.I if "i" in str(row.get("flags", "")) else 0
+                ),
+                "folded": True,
+            }
+            for row in rows
+        )
+        if signals:
+            return signals
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        pass
+    return _FAIL_CLOSED
+
+
+_NORMALISER = _load_normaliser(_MARKERS_PATH)
+# A table without a usable normalise section stops everything, like a table that cannot be read.
+_MARKER_SIGNALS = _load_markers(_MARKERS_PATH) if _NORMALISER else _FAIL_CLOSED
+MARKERS_LOADED = _MARKER_SIGNALS[0]["label"] != MARKERS_MISSING_LABEL
+
+
+def normalise_text(text: Any) -> str:
+    """The text the markers are matched against, besides the raw text."""
+    return _NORMALISER(text) if _NORMALISER else (text if isinstance(text, str) else "")
+
+
 # Same signals, same order, as electron/privacy-firewall.cjs.
 SIGNALS: tuple[dict[str, Any], ...] = (
-    {
-        "level": "sensitive",
-        "label": "credential or key material",
-        "re": re.compile(
-            r"\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
-            r"AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
-        ),
-    },
-    {
-        "level": "sensitive",
-        "label": "password or secret named in the text",
-        "re": re.compile(
-            r"\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b"
-            r"(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+",
-            re.I,
-        ),
-    },
-    {
-        "level": "sensitive",
-        "label": "PIN, passcode or one-time code named in the text",
-        "re": re.compile(
-            r"\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b"
-            r"(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+",
-            re.I,
-        ),
-    },
+    *_MARKER_SIGNALS,
     {
         "level": "sensitive",
         "label": "financial or identity number",
         "test": financial_identity_hit,
-    },
-    {
-        "level": "sensitive",
-        "label": "business ledger or bank-account figures",
-        "re": re.compile(
-            r"\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|"
-            r"\b(account (number|no\.?)|a/c)\s*[:#]?\s*\d{8,}",
-            re.I,
-        ),
+        "folded": True,
     },
     {
         "level": "private",
@@ -209,14 +303,70 @@ def classify(content: Any) -> dict[str, Any]:
         return {"level": "public", "reasons": [], "sample": 0}
     reasons: list[str] = []
     rank = LEVELS.index("public")
+    folded = normalise_text(text)
     for signal in SIGNALS:
         tester = signal.get("test")
-        hit = tester(text) if callable(tester) else bool(signal["re"].search(text))
+        forms = (text, folded) if signal.get("folded") and folded != text else (text,)
+        hit = any(tester(form) if callable(tester) else bool(signal["re"].search(form)) for form in forms)
         if not hit:
             continue
         reasons.append(signal["label"])
         rank = min(rank, LEVELS.index(signal["level"]))
     return {"level": LEVELS[rank], "reasons": reasons, "sample": len(text)}
+
+
+def _host_of(value: Any) -> str:
+    """The lower-case host of an endpoint or a bare ``host[:port]``; empty when there is none."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return (urlsplit(text if "://" in text else f"http://{text}").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def trusted_engine_hosts(env: Mapping[str, str] | None = None) -> frozenset[str]:
+    """THE locality rule, part 2 (same rule as ``trustedEngineHosts`` in electron/model-access.cjs).
+
+    A model is local only on a loopback host or on a host the OWNER set in this process's
+    environment (``OLLAMA_HOST`` and any other ``env`` named in ``local_engines.json``), so a LAN
+    engine the owner chose keeps working. The set is read from the environment at each call and from
+    nowhere else: never a model row, a renderer message or a kernel RPC.
+    """
+    source = os.environ if env is None else env
+    hosts = {_host_of(source.get(row["env"])) for row in local_engines.ENGINES.values() if row.get("env")}
+    return frozenset(h for h in hosts if h)
+
+
+def is_loopback_endpoint(endpoint: Any) -> bool:
+    """True when the URL's host is this PC (localhost or a loopback address) or the owner's engine host.
+
+    The host is parsed, never searched for, so ``http://127.0.0.1.evil.test`` or a loopback
+    address in a path, query or user-info is not this machine. See ``trusted_engine_hosts``.
+    """
+    host = _host_of(endpoint)
+    if not host:
+        return False
+    if host == "localhost" or host in trusted_engine_hosts():
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def endpoint_of(model: Any) -> str:
+    if isinstance(model, dict):
+        return str(model.get("endpoint") or "").strip()
+    return str(getattr(model, "endpoint", "") or "").strip()
+
+
+def endpoint_allows_local(model: Any) -> bool:
+    """A model with an endpoint is local only when that endpoint is loopback. No endpoint set: the kind decides."""
+    endpoint = endpoint_of(model)
+    return not endpoint or is_loopback_endpoint(endpoint)
 
 
 def is_local_kind(model: Any) -> bool:
@@ -230,11 +380,22 @@ def is_local_kind(model: Any) -> bool:
         or (model.get("type") if isinstance(model, dict) else "")
         or ""
     ).lower()
-    return kind in LOCAL_KINDS
+    provider = str(
+        options.get("provider")
+        or getattr(model, "provider", "")
+        or (model.get("provider") if isinstance(model, dict) else "")
+        or ""
+    ).lower()
+    return (kind in LOCAL_KINDS or (not kind and provider in LOCAL_KINDS)) and endpoint_allows_local(model)
 
 
 def user_content(messages: Any) -> str:
-    """Owner-authored turns only — system persona is not classified."""
+    """Owner-authored turns, plus the system lines that carry the owner's own text.
+
+    The persona and tool lists are FRIDAY's, so they are not classified (a tool called
+    ``api key`` must not block every chat). Recalled memory and the shortened gist of the
+    conversation are the owner's words in a system message, so they are classified.
+    """
     if isinstance(messages, str):
         return messages
     if not isinstance(messages, list):
@@ -243,9 +404,10 @@ def user_content(messages: Any) -> str:
     for item in messages:
         if not isinstance(item, dict):
             continue
-        if str(item.get("role") or "") == "system":
+        text = _safe_text(item.get("content"))
+        if str(item.get("role") or "") == "system" and not text.startswith(OWNER_TEXT_SYSTEM_PREFIXES):
             continue
-        parts.append(_safe_text(item.get("content")))
+        parts.append(text)
     return "\n".join(parts)
 
 

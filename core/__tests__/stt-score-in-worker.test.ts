@@ -3,76 +3,102 @@
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installFakeWorker, settle, STATUS_OK } from "./helpers/fake-stt-worker";
 
 const read = (path: string) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 const stt = createRequire(import.meta.url)("../../electron/stt.cjs");
 
-/** A worker session as attachWorker builds it, with the child replaced by a recorder. */
-function fakeSession(loaded: boolean) {
-  const writes: string[] = [];
-  const kill = vi.fn();
-  return {
-    writes,
-    kill,
-    session: {
-      alive: true,
-      loaded,
-      pending: new Map(),
-      child: {
-        pid: 4242,
-        kill,
-        stdin: { destroyed: false, write: (line: string) => writes.push(line) },
-      },
-    },
-  };
-}
+const WAV = new Uint8Array(64);
 
 describe("a score never kills a worker that is still loading", () => {
-  afterEach(() => vi.useRealTimers());
+  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] }));
+  afterEach(() => {
+    stt.useForTests();
+    vi.useRealTimers();
+  });
 
   it("returns busy while the first load is in flight, and the load survives past the score deadline", async () => {
-    vi.useFakeTimers();
-    const { session, writes, kill } = fakeSession(false);
-    const load = stt.workerRequest(session, { op: "load", model: "small" }, 180000);
-    load.catch(() => {});
-    const out = await stt.scoreInWorker("clip.wav", session);
+    const r = installFakeWorker(stt);
+    r.control.respond = (msg) =>
+      msg.op === "load"
+        ? undefined
+        : msg.op === "status"
+          ? { id: msg.id, ...STATUS_OK }
+          : undefined;
+    const turn = stt.transcribe({ audioBytes: WAV, localOnly: true });
+    turn.catch(() => {});
+    await settle();
+    expect(r.sent("load")).toHaveLength(1);
+    const out = await stt.scoreInWorker(WAV);
     expect(out).toEqual({ ok: true, ready: false, probability: null, reason: "busy" });
-    expect(writes.some((line) => line.includes("score-turn"))).toBe(false);
+    expect(r.sent("score-turn")).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(30000);
-    expect(kill).not.toHaveBeenCalled();
-    expect(session.pending.size).toBe(1);
+    expect(r.killTree).not.toHaveBeenCalled();
   });
 
   it("returns busy for a loaded worker that still has a request queued (a model reload)", async () => {
-    vi.useFakeTimers();
-    const { session, writes, kill } = fakeSession(true);
-    stt.workerRequest(session, { op: "load", model: "base" }, 180000).catch(() => {});
-    const out = await stt.scoreInWorker("clip.wav", session);
+    const r = installFakeWorker(stt);
+    await stt.transcribe({ audioBytes: WAV, localOnly: true, model: "small" });
+    r.control.respond = (msg) => (msg.op === "load" ? undefined : { id: msg.id, ok: true });
+    const reload = stt.transcribe({ audioBytes: WAV, localOnly: true, model: "base" });
+    reload.catch(() => {});
+    await settle();
+    expect(r.sent("load")).toHaveLength(2);
+    const out = await stt.scoreInWorker(WAV);
     expect(out?.reason).toBe("busy");
-    expect(writes.filter((line) => line.includes("score-turn"))).toHaveLength(0);
+    expect(r.sent("score-turn")).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(25000);
-    expect(kill).not.toHaveBeenCalled();
+    expect(r.killTree).not.toHaveBeenCalled();
   });
 
   it("scores in the worker when it is loaded and idle", async () => {
-    const { session, writes } = fakeSession(true);
-    const pending = stt.scoreInWorker("clip.wav", session);
-    await Promise.resolve();
-    expect(writes).toHaveLength(1);
-    const sent = JSON.parse(writes[0] as string);
-    expect(sent.op).toBe("score-turn");
-    session.pending
-      .get(sent.id)
-      .resolve({ id: sent.id, ready: true, probability: 0.9, reason: "ok" });
-    expect(await pending).toEqual({ ok: true, ready: true, probability: 0.9, reason: "ok" });
+    const r = installFakeWorker(stt);
+    await stt.transcribe({ audioBytes: WAV, localOnly: true });
+    r.control.respond = (msg) =>
+      msg.op === "score-turn"
+        ? { id: msg.id, ready: true, probability: 0.9, reason: "ok" }
+        : undefined;
+    const out = await stt.scoreInWorker(WAV);
+    expect(out).toEqual({ ok: true, ready: true, probability: 0.9, reason: "ok" });
+    expect(r.sent("score-turn")[0]).toMatchObject({
+      op: "score-turn",
+      audioB64: Buffer.from(WAV).toString("base64"),
+    });
+  });
+
+  it("a status check during the first load starts no probe process and no ping", async () => {
+    const r = installFakeWorker(stt);
+    const probeJson = JSON.stringify({ ok: true, dependency: "ready", available: true });
+    const probe = vi.fn(async () => ({ ok: true, stdout: probeJson, stderr: "" }));
+    stt.useForTests({
+      spawn: r.spawn,
+      killTree: r.killTree,
+      python: async () => ["python-test", []],
+      run: probe,
+      weights: async (wanted: string) => ({ ok: true, dir: `/w/${wanted}`, size: wanted }),
+    });
+    r.control.respond = (msg) =>
+      msg.op === "status"
+        ? { id: msg.id, ...STATUS_OK }
+        : msg.op === "load"
+          ? undefined
+          : undefined;
+    const turn = stt.transcribe({ audioBytes: WAV, localOnly: true });
+    turn.catch(() => {});
+    await settle();
+    probe.mockClear();
+    await stt.status(true, { localOnly: true });
+    expect(probe).not.toHaveBeenCalled();
+    expect(r.sent("status")).toHaveLength(1);
+    expect(r.killTree).not.toHaveBeenCalled();
   });
 });
 
 describe("scoring a turn in the running worker", () => {
   const stt = read("electron/stt.cjs");
   const fn =
-    /async function scoreInWorker\(file, session = worker\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
+    /async function scoreInWorker\(clip, session = worker\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
 
   it("asks the worker for the score-turn op and never starts a worker just to score", () => {
     expect(fn).toContain('op: "score-turn"');
@@ -82,24 +108,27 @@ describe("scoring a turn in the running worker", () => {
 
   it("does not queue a score behind a running transcription (a busy worker closes the turn on the plain pause)", () => {
     expect(fn).toMatch(
-      /if \(turnGate\.busy\(\) \|\|[^)]*\) \{\s*return \{ ok: true, ready: false, probability: null, reason: "busy" \}/,
+      /turnGate\.busy\(\) \|\|[\s\S]*?getVoiceWorker\(\)\.status\(\)\.state === "busy"\s*\) \{\s*return \{ ok: true, ready: false, probability: null, reason: "busy" \}/,
     );
   });
 
   it("sends only to a loaded worker with nothing queued (a score must not sit behind a load and kill it on its 20 s deadline)", () => {
-    expect(fn).toMatch(/!session\.loaded \|\| session\.pending\.size > 0/);
+    expect(fn).toMatch(/!session\.loaded \|\|\s*session\.pending\.size > 0/);
+    expect(fn).toMatch(/state === "starting"[\s\S]*?reason: "busy"/);
   });
 
-  it("falls back to the one-shot process when the worker is down, does not know the op, or fails", () => {
+  it("skips a cold worker or an old one that does not know the op: no one-shot process is started", () => {
     expect(fn).toContain('parsed.reason === "unknown-op"');
     expect(fn).toMatch(/catch \{\s*return null;/);
     const score = /async function scoreTurn\(req = \{\}\) \{[\s\S]*?\n\}\n/.exec(stt)?.[0] ?? "";
-    expect(score.indexOf("scoreInWorker(file)")).toBeGreaterThan(0);
-    expect(score.indexOf("scoreInWorker(file)")).toBeLessThan(score.indexOf('"--score"'));
+    expect(score).toContain("scoreInWorker(bytes)");
+    expect(score).toContain('skipped: "cold"');
+    expect(score).not.toContain('"--score"');
+    expect(score).not.toContain("writeFileSync");
   });
 
   it("is a request with its own long deadline, so a slow answer is not a hung worker", () => {
-    expect(fn).toMatch(/workerRequest\(session, \{ op: "score-turn", audio: file \}, 20000\)/);
+    expect(fn).toMatch(/workerRequest\(session, \{ op: "score-turn", audioB64 \}, 20000\)/);
   });
 });
 

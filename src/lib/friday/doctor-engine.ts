@@ -14,9 +14,34 @@ import { speechDoctorRows } from "./speech-core";
 import { liveSttFromStatus, rememberedLiveStt, sttLadderDoctor } from "./speech-stt";
 import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
-import { voiceDoctorMarks, voiceLayerChecks } from "./voice-doctor";
+import { earsStatsNow } from "./voice-audio";
+import {
+  fridayVoiceDoctorRows,
+  noteFridayVoiceStatus,
+  voiceDoctorMarks,
+  voiceLayerChecks,
+} from "./voice-doctor";
+import { neuralVoiceStatus } from "./voice-library";
 import { preferences } from "./preferences";
 import { installer } from "./installer-engine";
+
+/** The stored listening choices with what was really measured (null when nothing ran); never throws. */
+function earsDoctorInput() {
+  let stats = null;
+  try {
+    stats = earsStatsNow();
+  } catch {
+    /* an unreadable front end is simply not measured */
+  }
+  const voice = preferences.getSnapshot().voice;
+  const status = cachedSttStatus();
+  const hinglish = {
+    pref: voice.hinglishEar,
+    ready: status?.hinglishEarTrelisReady ?? null,
+    ...(status?.hinglishEarSkipped ? { skipped: status.hinglishEarSkipped } : {}),
+  };
+  return { prefs: voice.ears, stats, gate: voice.interruptGate, hinglish };
+}
 
 export type DoctorStatus =
   "Ready" | "Running" | "Missing" | "Outdated" | "Error" | "Warning" | "Repairing";
@@ -350,6 +375,16 @@ class DoctorStore {
           this.push("error", `diagnostic failed: ${(err as Error).message}`);
         }
       }
+      // What the speech worker says about FRIDAY Voice, so the two voice rows below are real, not guessed.
+      if (desktop) {
+        try {
+          const answer = await neuralVoiceStatus();
+          if (answer?.fridayVoice) noteFridayVoiceStatus(answer.fridayVoice);
+          else noteFridayVoiceStatus(null, "the speech worker sent no voice status");
+        } catch (failure) {
+          noteFridayVoiceStatus(null, failure ?? "no answer");
+        }
+      }
       // Cross-mode routing sync is a renderer-side truth: it compares what a
       // typed chat turn and an Auto Mode voice turn would really route to,
       // right now, from the same shared stores.
@@ -357,7 +392,8 @@ class DoctorStore {
         ...this.state.checks,
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
-        ...voiceLayerChecks(voiceDoctorMarks()),
+        ...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()),
+        ...fridayVoiceDoctorRows(),
         ...sttLadderChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
@@ -726,7 +762,8 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...desktopUiaChecks());
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
-  checks.push(...voiceLayerChecks(voiceDoctorMarks()));
+  checks.push(...voiceLayerChecks(voiceDoctorMarks(), earsDoctorInput()));
+  checks.push(...fridayVoiceDoctorRows());
   checks.push(...speechDoctorRows());
   checks.push(...sttLadderChecks());
   checks.push(...toolchainDoctorRows());

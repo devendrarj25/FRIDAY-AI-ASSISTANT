@@ -10,7 +10,13 @@
  */
 
 import { endsInOpenDot } from "./voice-engine/language-segmenter";
+import { canonicalise } from "./voice-engine/script-policy";
 import { isBackchannel } from "./voice-engine/interruption-controller";
+import {
+  SHORT_TURN_WORDS,
+  detectTurnLanguage,
+  labelLanguages,
+} from "./voice-engine/hinglish-lexicon";
 import { socialLine } from "./conversation-style";
 import { transcriptDoubtful, type HeardQuality } from "./asr-bias";
 import { isConsequential } from "./brain/action-risk";
@@ -216,26 +222,317 @@ export function wakeOnCooldown(
 }
 
 /**
- * A spoken answer to "should I go ahead?": yes, no, or neither. A no always beats a yes, so "okay cancel that",
- * "haan nahi" and "ok mat karo" stop the action instead of approving it. Hindi and Hinglish count: "ha kar do",
- * "theek hai kar do", "kar do" are yes; "mat karo", "ruko", "rehne do", "nahi" are no. The particle "na"
- * ("kar do na", please do it) is a no only when it is the whole answer.
+ * The one table of spoken answers to "should I go ahead?", in Latin, Hinglish and Devanagari. A yes is an allowlist:
+ * the whole answer, once the fillers are gone, is one or more `yes` phrases and at most four words. Anything else is
+ * never a yes. A no is any `no` phrase anywhere in the answer, so a no always beats a yes ("okay cancel that",
+ * "haan nahi", "no, I mean yes"). An `unclear` phrase is the whole answer only ("no problem", "why not"): it re-asks.
+ * Every other line is unclear: a later or a maybe that names no stop word, laughter, a question, a name, a number.
  */
-const NO_WORDS =
-  /\b(no|nope|nah|cancel|stop|abort|reject|don'?t|do not|nahi|nahin|nhi|mat|ruko|rukiye|rehne do|rahne do|chhod do|chod do|wait|hold on|never ?mind|leave it|forget it)\b/i;
-const YES_WORDS =
-  /\b(yes|yeah|yep|yup|sure|confirm(?:ed)?|do it|go ahead|proceed|haan|haa|han|ha|ji|jee|bilkul|theek hai|thik hai|ok|okay|kar do|kar de|karo|chalao|chala do)\b/i;
+export const CONFIRM_WORDS = {
+  yes: [
+    "yes",
+    "yeah",
+    "yea",
+    "yep",
+    "yup",
+    "ok",
+    "okay",
+    "okey",
+    "sure",
+    "go ahead",
+    "do it",
+    "confirm",
+    "confirmed",
+    "proceed",
+    "of course",
+    "absolutely",
+    "haan",
+    "han",
+    "haa",
+    "ha",
+    "haanji",
+    "hanji",
+    "ji haan",
+    "ji han",
+    "theek hai",
+    "thik hai",
+    "theek he",
+    "thik he",
+    "kar do",
+    "kar de",
+    "kar dijiye",
+    "haan karo",
+    "bilkul",
+    "zaroor",
+    "zarur",
+    "jaroor",
+    "jarur",
+    "हाँ",
+    "हां",
+    "जी हाँ",
+    "हाँ जी",
+    "हाँ करो",
+    "ठीक है",
+    "कर दो",
+    "कर दें",
+    "कर दीजिए",
+    "बिल्कुल",
+    "बिलकुल",
+    "ज़रूर",
+    "ओके",
+    "यस",
+  ],
+  no: [
+    "no",
+    "not",
+    "nope",
+    "nah",
+    "never",
+    "cancel",
+    "stop",
+    "abort",
+    "reject",
+    "don't",
+    "dont",
+    "do not",
+    "nahi",
+    "nahin",
+    "nhi",
+    "nai",
+    "nako",
+    "na karo",
+    "na kar",
+    "naa karo",
+    "naa kar",
+    "mat",
+    "matt",
+    "mana",
+    "ruk",
+    "ruko",
+    "rukiye",
+    "rukk",
+    "ruk jao",
+    "rok",
+    "roko",
+    "rok do",
+    "tham",
+    "thamo",
+    "thehro",
+    "thahro",
+    "theher",
+    "rehne do",
+    "rahne do",
+    "rehne de",
+    "rahne de",
+    "chhod do",
+    "chod do",
+    "chhodo",
+    "chodo",
+    "chhod",
+    "jane do",
+    "jaane do",
+    "wait",
+    "hold",
+    "hold on",
+    "hold off",
+    "pause",
+    "skip",
+    "enough",
+    "nevermind",
+    "never mind",
+    "leave it",
+    "forget it",
+    "later",
+    "tomorrow",
+    "band",
+    "bandh",
+    "bas",
+    "baad",
+    "baadme",
+    "badme",
+    "baad mein",
+    "baad me",
+    "kal",
+    "नहीं",
+    "नही",
+    "नहि",
+    "ना करो",
+    "ना कर",
+    "मत",
+    "मना",
+    "रुको",
+    "रुकिए",
+    "रुक",
+    "रोको",
+    "रोक",
+    "ठहरो",
+    "ठहरिए",
+    "थमो",
+    "थम",
+    "बंद",
+    "बन्द",
+    "बस",
+    "बाद",
+    "कल",
+    "रहने दो",
+    "रहने दे",
+    "रहने दें",
+    "छोड़",
+    "छोड़ो",
+    "छोड़िए",
+    "छोड़ दो",
+    "जाने दो",
+    "कैंसल",
+    "रद्द",
+    "स्टॉप",
+    "पॉज़",
+    "स्किप",
+    "होल्ड",
+  ],
+  /** Whole answers that hold a no or a yes word but are neither: they re-ask. */
+  unclear: ["no problem", "no worries", "why not", "not bad", "no doubt", "koi baat nahi"],
+  /** Words that carry no answer: politeness, address, hesitation and a pointer to the thing asked about. */
+  fillers: [
+    "please",
+    "pls",
+    "plz",
+    "kripya",
+    "ji",
+    "jee",
+    "bhai",
+    "bhaiya",
+    "yaar",
+    "sir",
+    "friday",
+    "so",
+    "well",
+    "um",
+    "umm",
+    "uh",
+    "uhh",
+    "hmm",
+    "hm",
+    "mm",
+    "mmm",
+    "er",
+    "erm",
+    "isko",
+    "ise",
+    "ye",
+    "yeh",
+    "जी",
+    "भाई",
+    "यार",
+    "प्लीज़",
+    "कृपया",
+    "फ्राइडे",
+    "इसको",
+    "इसे",
+    "ये",
+    "यह",
+  ],
+} as const;
 
-export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
-  const value = String(text || "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+/** A yes answer is at most this many words once the fillers are gone. */
+export const CONFIRM_YES_MAX_WORDS = 4;
+
+/**
+ * One spelling for matching: the code-mix canonical form, lower case, no punctuation, and the Devanagari marks that
+ * speech recognisers write either way folded (chandrabindu to anusvara, no nukta), so "हाँ" and "हां" are one word.
+ * Vowel signs stay: dropping them would turn "नहीं" into "न ह".
+ */
+export function confirmAnswerKey(text: string): string {
+  return canonicalise(String(text ?? ""))
+    .text.toLowerCase()
+    .replace(/ँ/g, "ं")
+    .replace(/़/g, "")
+    .replace(/[^\p{L}\p{M}\p{N}'\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const keyList = (list: readonly string[]) =>
+  [...new Set(list.map(confirmAnswerKey))].filter(Boolean);
+const YES_PHRASES = keyList(CONFIRM_WORDS.yes).map((p) => p.split(" "));
+const UNCLEAR_PHRASES = new Set(keyList(CONFIRM_WORDS.unclear));
+const FILLERS = new Set(keyList(CONFIRM_WORDS.fillers));
+/** A no phrase anywhere; a letter, a vowel sign, a digit or an apostrophe on either side makes it another word. */
+const NO_PHRASE = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}'])(?:${keyList(CONFIRM_WORDS.no)
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/ /g, "\\s+"))
+    .join("|")})(?![\\p{L}\\p{M}\\p{N}'])`,
+  "u",
+);
+const YES_ANYWHERE = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}'])(?:${keyList(CONFIRM_WORDS.yes)
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/ /g, "\\s+"))
+    .join("|")})(?![\\p{L}\\p{M}\\p{N}'])`,
+  "u",
+);
+
+/**
+ * True when a yes or a no word from the table appears anywhere in the line. For lines FRIDAY says herself (an
+ * acknowledgement, a name after it): such a line could be heard back as an answer, so it is kept out.
+ */
+export function mentionsConfirmWord(text: string): boolean {
+  const value = confirmAnswerKey(text);
+  return !!value && (YES_ANYWHERE.test(value) || NO_PHRASE.test(value));
+}
+/** Two or more "ha" (or "haha", "hehe", "lol") and nothing else: laughter, not an answer. */
+const LAUGH_TOKEN = /^(?:(?:ha|हा){2,}|(?:he){2,}|lol)$/u;
+
+/** The words left in a yes candidate are one yes phrase after another, and nothing else. */
+function allYesPhrases(words: readonly string[]): boolean {
+  const ok: boolean[] = [true];
+  for (let i = 1; i <= words.length; i += 1) {
+    ok[i] = YES_PHRASES.some((p) => {
+      const start = i - p.length;
+      return start >= 0 && ok[start] === true && p.every((w, k) => words[start + k] === w);
+    });
+  }
+  return ok[words.length] === true;
+}
+
+/** The answer as words with the fillers gone, or the verdict it already has: a no, or unclear. */
+function readAnswer(text: string): "no" | "unclear" | string[] {
+  const raw = String(text ?? "");
+  const value = confirmAnswerKey(raw);
   if (!value) return "unclear";
-  if (value === "na" || NO_WORDS.test(value)) return "no";
-  if (YES_WORDS.test(value)) return "yes";
-  return "unclear";
+  if (UNCLEAR_PHRASES.has(value)) return "unclear";
+  // The particle "na" is a refusal only on its own; "kar do na" is a request.
+  if (/^(?:na+|ना)$/u.test(value) || NO_PHRASE.test(value)) return "no";
+  // A question back ("yes?", "haan?") asks; it does not answer.
+  if (/[?\u061F\uFF1F]/u.test(raw)) return "unclear";
+  const all = value.split(" ");
+  if (
+    all.some((w) => LAUGH_TOKEN.test(w)) ||
+    (all.length > 1 && all.every((w) => w === "ha" || w === "हा"))
+  )
+    return "unclear";
+  const words = all.filter((w) => !FILLERS.has(w));
+  if (words.length > 1 && /^(?:na+|ना)$/u.test(words[words.length - 1] ?? "")) words.pop();
+  return words.length ? words : "unclear";
+}
+
+export function confirmationVerdict(text: string): "yes" | "no" | "unclear" {
+  const words = readAnswer(text);
+  if (typeof words === "string") return words;
+  return words.length <= CONFIRM_YES_MAX_WORDS && allYesPhrases(words) ? "yes" : "unclear";
+}
+
+/**
+ * The words after a leading yes ("yes send it to Rahul" gives "send it to rahul"), in the matching spelling of
+ * `confirmAnswerKey`, or null when the answer does not start with a yes or says no anywhere. An empty list is a plain
+ * yes. The caller decides whether the rest only repeats what was asked; this never makes a yes on its own.
+ */
+export function wordsAfterYes(text: string): string[] | null {
+  const words = readAnswer(text);
+  if (typeof words === "string") return null;
+  for (let k = Math.min(words.length, CONFIRM_YES_MAX_WORDS); k > 0; k -= 1)
+    if (allYesPhrases(words.slice(0, k))) return words.slice(k);
+  return null;
 }
 
 /** Spoken yes/no must be short. A long line that merely contains "yes" is not a confirmation. */
@@ -246,8 +543,17 @@ export function isBoundConfirmation(text: string, affirms: (value: string) => bo
   return affirms(text);
 }
 
-/** How long a spoken confirmation stays valid. A late yes does not run the old action. */
-export const APPROVAL_TTL_MS = 120_000;
+/** How long a spoken confirmation stays valid (30 s, the owner's decision). A late yes does not run the old action. */
+export const APPROVAL_TTL_MS = 30_000;
+
+/**
+ * The owner's expiry preference (`voice.approvalTtlSec`) in milliseconds, clamped to 10-60 s. A missing, non-number
+ * or non-finite value keeps the 30 s default. The caller reads the preference and passes it in.
+ */
+export function approvalTtlMs(sec?: unknown): number {
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return APPROVAL_TTL_MS;
+  return Math.min(60, Math.max(10, sec)) * 1000;
+}
 
 export function approvalFresh(askedAt: number, now: number, ttlMs = APPROVAL_TTL_MS): boolean {
   return askedAt > 0 && now >= askedAt && now - askedAt <= ttlMs;
@@ -258,10 +564,104 @@ export function approvalFresh(askedAt: number, now: number, ttlMs = APPROVAL_TTL
  * The desktop approval path still decides. This only forces that path.
  */
 export function voiceClaimsAuthority(text: string): boolean {
-  return /\b(ignore (?:all |any )?(?:previous|prior|above)|disable (?:the )?approval|auto-?approve|skip (?:the )?confirmation|without asking|you are now)\b/i.test(
-    text ?? "",
-  );
+  const raw = String(text ?? "");
+  if (ENGLISH_AUTHORITY.test(raw)) return true;
+  const folded = foldAuthorityText(raw);
+  return ENGLISH_AUTHORITY.test(folded) || AUTHORITY_CLAIM.test(folded) || SYSTEM_LEAD.test(folded);
 }
+
+/* The claim tables. A claim states an identity ("main malik hu"), grants approval ("approve kar do", "sab kuch allow
+ * kar do"), overrides the rules ("pichle instructions ignore karo", "bina puche"), asks for the prompt or a secret, or
+ * orders a command. A plain yes ("haan", "kar do isko") is not a claim: the approval flow binds it. Asking about
+ * someone ("malik ka number do") is a lookup. Every rule runs on the folded text, in Latin and Devanagari at once, so a
+ * mixed-script line matches too. */
+
+/** The English table as it was, kept on the raw text so folding can never lose a match. */
+const ENGLISH_AUTHORITY =
+  /\b(ignore (?:all |any )?(?:previous|prior|above)|disable (?:the )?approval|auto-?approve|skip (?:the )?confirmation|without asking|you are now)\b/i;
+
+const INVISIBLE = new RegExp("[\\u00ad\\u200b-\\u200d\\u2060\\ufeff]", "g");
+const NUKTA = new RegExp("\\u093c", "g");
+const CHANDRABINDU = new RegExp("\\u0901", "g");
+const PUNCTUATION = new RegExp("[,;!?\\u0964\\u201c\\u201d\\u0022()]+", "g");
+/** Three or more single letters spelled out ("s y s t e m", "s.y.s.t.e.m", "i-g-n-o-r-e"). */
+const SPELLED_LETTERS = /(?<![\p{L}\p{N}])[a-z](?:[\s.\-_*]+[a-z](?![\p{L}\p{N}])){2,}/gu;
+
+/**
+ * Lower case, compatibility fold, no zero-width characters, no nukta, one nasal sign, spelled-out letters joined and
+ * punctuation turned into spaces: the same small fold the sensitive-marker reader applies, kept local and cheap.
+ */
+function foldAuthorityText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(INVISIBLE, "")
+    .replace(NUKTA, "")
+    .replace(CHANDRABINDU, "\u0902")
+    .replace(SPELLED_LETTERS, (run) => run.replace(/[\s.\-_*]+/g, ""))
+    .replace(PUNCTUATION, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CLAIM_BEFORE = "(?<![\\p{L}\\p{M}\\p{N}])";
+const CLAIM_AFTER = "(?![\\p{L}\\p{M}\\p{N}])";
+const MARKS = String.raw`[\p{L}\p{M}]*`;
+/** "kar do" and its spellings, Roman and Devanagari. */
+const DO_IT = String.raw`kar\s*do|kardo|karo|kar\s*de|kijiye|kariye|कर\s*दो|करदो|करो|कर\s*दे|कीजिए|करिए`;
+const OWNER_WORD = String.raw`owner|malik|maalik|admin|administrator|ओनर|औनर|मालिक|एडमिन`;
+const I_AM = String.raw`h(?:uun|un|u|oon|oo)|ह[ूु]ं?`;
+const GRANT_WORD = String.raw`allow|approve|permit|manzoor|manjoor|manzur|manjur|alau|ijazat|anumati|अलाउ|अलाऊ|अप्रूव|मंजूर|इजाजत|अनुमति|अनुमत`;
+const RULE_NOUN = String.raw`instructions?|nirdesh(?:on)?|niyam(?:on)?|rules?|aadesh|adesh|guidelines?|prompt|safety|approval|इंस्ट्रक्शन(?:स|्स)?|निर्देश(?:ों)?|नियम(?:ों)?|आदेश|रूल्?स?|सेफ्टी|अप्रूवल|प्रॉम्प्ट|गाइडलाइन्?स?`;
+const OVERRIDE_VERB = String.raw`ignor(?:e|ing)|override|bypass|andekha|nazarandaz|bh(?:oo|u)l(?:o|na)?|hata(?:o|na)?|tod(?:o|na)?|इग्नोर|ओवरराइड|बायपास|अनदेखा|नजरअंदाज|भ[ूु]ल${MARKS}|हटा${MARKS}|तोड${MARKS}`;
+const GATE_NOUN = String.raw`approval|confirmation|confirm|permission|anumati|ijazat|puchna|poochna|अप्रूवल|कन्फर्मेशन|कन्फर्म|कंफर्म|परमिशन|अनुमति|इजाजत|पूछना`;
+const GATE_OFF = String.raw`band|बंद|off|disable|डिसेबल|hata(?:o|na)?|हटा${MARKS}|skip|स्किप|bypass|बायपास|ignore|इग्नोर|khatam|खत्म|mat\s+(?:lo|maango|mango|pucho|puchho)|मत\s+(?:लो|मांगो|पूछो)`;
+const SYSTEM_WORD = String.raw`system|स[िी]स्?टम`;
+const PROMPT_WORD = String.raw`prompt|instructions?|nirdesh|प्र[ॉो]म्?प्?ट|प्रांप्ट|प्रामप्ट|इंस्ट्रक्शन|निर्देश`;
+const COMMAND_NOUN = String.raw`command|cmd|script|code|shell|कमांड|कमान्ड|स्क्रिप्ट|कोड`;
+const SECRET_NOUN = String.raw`password|passcode|pass\s*word|api\s*key|secret\s*key|पासवर्ड|पासकोड`;
+
+const AUTHORITY_RULES: readonly string[] = [
+  // English: identity, approval, command and prompt claims.
+  String.raw`i\s+am\s+(?:the\s+|your\s+)?(?:owner|admin|administrator)`,
+  String.raw`(?:the\s+|your\s+)?owner\s+(?:says?|said|approved?|allows?|allowed|authori[sz]ed|confirms?|confirmed)`,
+  String.raw`approve\s+(?:this|it|that|everything|all)`,
+  String.raw`(?:run|execute)\s+(?:this|the\s+following|these)\s+(?:${COMMAND_NOUN})s?`,
+  String.raw`(?:${SYSTEM_WORD})\s*(?:${PROMPT_WORD})`,
+  String.raw`new\s+instructions?`,
+  String.raw`forget\s+(?:(?:all|your|the)\s+)*(?:(?:previous|prior|earlier)\s+)?(?:instructions|rules)`,
+  String.raw`override\s+(?:(?:all|your|the)\s+)*(?:rules|safety|approval|instructions)`,
+  String.raw`from\s+now\s+on\s+(?:you|your)`,
+  String.raw`without\s+(?:confirm\w*|permission|approval)`,
+  String.raw`(?:reveal|tell\s+me|read\s+out)\s+(?:(?:the|your|my)\s+)?(?:${SECRET_NOUN})`,
+  // Identity: "main malik hu", "मैं ओनर हूं", "owner hi hoon".
+  String.raw`(?:${OWNER_WORD})\s+(?:(?:hi|ही)\s+)?(?:${I_AM})`,
+  // The owner is quoted: "owner ne kaha haan", "malik ka order hai".
+  String.raw`(?:${OWNER_WORD})\s+(?:ne|ने)\s+(?:(?:kaha|bola|bataya|कहा|बोला|बताया)\s+(?:\S+\s+){0,2}?(?:haan|han|yes|ok|okay|allow|approve|हां|हा|ठीक|अलाउ|अप्रूव)|(?:${GRANT_WORD}|permission|परमिशन)${MARKS})`,
+  String.raw`(?:${OWNER_WORD})\s+(?:ka|ki|का|की)\s+(?:order|aadesh|adesh|hukum|hukm|permission|anumati|ijazat|manzoori|आदेश|हुक्म|ऑर्डर|परमिशन|अनुमति|इजाजत|मंजूरी)`,
+  // Approval stated: "approve kar do", "manzoor hai", "sab kuch allow kar do".
+  String.raw`(?:approv(?:e|ed)|अप्रूव(?:ड)?)\s+(?:${DO_IT}|hai|है|hua|हुआ|karta|karti|करता|करती)`,
+  String.raw`(?:manzoor|manjoor|manzur|manjur|मंजूर)\s+(?:${DO_IT}|hai|है|h|hua|हुआ|kiya|किया|karta|karti|करता|करती)`,
+  String.raw`(?:sab(?:\s+kuch)?|sabhi|saare|saari|everything|all|सब(?:\s+कुछ)?|सभी|सारे|सारी)\s+(?:(?:ko|को|bhi|भी|ki|की)\s+)?(?:${GRANT_WORD})`,
+  // Rules overridden: "pichle instructions ignore karo", "approval band karo", "bina puche".
+  String.raw`(?:${RULE_NOUN})\s+(?:(?:ko|को|bhi|भी|sab|सब|saare|सारे|sabhi|सभी|ka|का)\s+)*(?:${OVERRIDE_VERB})`,
+  String.raw`(?:${GATE_NOUN})\s+(?:(?:ko|को|wala|वाला|sab|सब)\s+)*(?:${GATE_OFF})`,
+  String.raw`(?:bina|bagair|बिना|बगैर|बिन)\s+(?:(?:kuch|कुछ)\s+)?(?:p(?:oo|u)(?:c|cc|chh?)(?:e|ey|en)|confirm\w*|permission|approval|anumati|ijazat|rok\s*tok|प[ूु]छ\p{M}*|कन्फर्म|कंफर्म|परमिशन|अप्रूवल|अनुमति|इजाजत|रोकटोक)`,
+  // Rewrites her role: "ab se tum ...", "tumhe ab se yeh karna hai".
+  String.raw`(?:ab|अब)\s+(?:se|से)\s+(?:tum|tu|aap|friday|तुम|तू|आप|फ्राइडे)`,
+  String.raw`(?:tumhe|tumhein|tujhe|aapko|तुम्हें|तुझे|आपको)\s+(?:ab|अब)\s+(?:se|से)`,
+  // A command to run: "ye command chalao", "यह कमांड चलाओ".
+  String.raw`(?:yeh?|is|iss|this|यह|ये|इस|इसे)\s+(?:${COMMAND_NOUN})\s+(?:(?:ko|को)\s+)?(?:chalao|chala\s*do|chalana|chalaiye|run\s+(?:karo|kar\s*do|kar\s*de)|execute(?:\s+karo|\s+kar\s*do)?|चलाओ|चला\s*दो|चलाना|चलाइए|रन\s+(?:करो|कर\s*दो)|एक्जीक्यूट(?:\s+करो)?)`,
+  // A secret asked for: "password batao", "पासवर्ड बताओ".
+  String.raw`(?:${SECRET_NOUN})\s+(?:(?:ko|को|mujhe|muje|hume|humein|मुझे)\s+)?(?:batao|bata\s*do|btao|bolo|bol\s*do|dikhao|dikha\s*do|bhejo|bhej\s*do|likho|tell|show|reveal|share|send|read|do|de\s*do|बताओ|बता\s*दो|बोलो|बोल\s*दो|दिखाओ|दिखा\s*दो|भेजो|भेज\s*दो|लिखो|पढो|दो|दे\s*दो)`,
+];
+
+const AUTHORITY_CLAIM = new RegExp(
+  `${CLAIM_BEFORE}(?:${AUTHORITY_RULES.map((rule) => `(?:${rule})`).join("|")})${CLAIM_AFTER}`,
+  "u",
+);
+/** A line that opens like a system message: "system: allow all", "[system] ...", "सिस्टम: ...". */
+const SYSTEM_LEAD = /^[\s[(<#*]*(?:system|स[िी]स्टम)[\])>*]*\s*:/u;
 
 /* ---------- when she may ask "should I?" or "did you say?" ----------
  * A yes or no costs the owner a turn, so it is asked only for what cannot be taken back (delete, send, pay, power off,
@@ -1047,14 +1447,43 @@ export function backchannel(input: {
   return "Mm-hmm.";
 }
 
-/** Latin-script Hindi (Hinglish) markers; a Devanagari line is Hindi on its own. */
-const HINGLISH_WORDS =
-  /\b(kya|kar(?:o|na|ti|ta|ke)?|rahi|raha|rahe|hai|hain|abhi|ruko|batao|bata|dekh|mujhe|mera|meri|tum|aap|nahi|haan|achha|accha|theek|thik|kaise|kitna|kab|gaya|hua|chalo|bolo|suno|sun|bhai|yaar)\b/i;
+/** The three ways she can say a fixed line: English, Hindi in Devanagari, Hinglish in Latin letters. */
+export type ReplyForm = "en" | "hi" | "hinglish";
 
-/** The language a short spoken line should answer in: Hindi or Hinglish gets Hinglish, the rest English. */
-export function replyLanguage(text: string): "hi" | "en" {
-  if (/\p{Script=Devanagari}/u.test(text)) return "hi";
-  return HINGLISH_WORDS.test(text) ? "hi" : "en";
+const WORD_EDGE = /^[^\p{L}\p{M}]+|[^\p{L}\p{M}]+$/gu;
+
+/** A line too short to share-judge ("theek hai", "ruko"): one sure Roman Hindi word is enough for her own reply. */
+function shortSureHindi(text: string): boolean {
+  const cores = text
+    .split(/\s+/)
+    .map((piece) => piece.replace(WORD_EDGE, ""))
+    .filter((core) => /\p{L}/u.test(core));
+  return (
+    cores.length > 0 && cores.length < SHORT_TURN_WORDS && labelLanguages(cores).includes("hi")
+  );
+}
+
+/**
+ * The form a short spoken line should take: the owner's own words decide it, through the one detector the Brain's
+ * reply-language hint also uses (`detectTurnLanguage`). A line in Devanagari alone gets Devanagari Hindi; Hindi
+ * mixed with English, Roman Hindi, and a Hindi or Hinglish ear's declared language get Hinglish; the rest English.
+ */
+export function replyForm(text: string, declared: "hi" | "en" | "hi-en" | "" = ""): ReplyForm {
+  const heard = String(text || "");
+  const deva = /\p{Script=Devanagari}/u.test(heard);
+  const latin = /[A-Za-z]/.test(heard);
+  if (deva && !latin) return "hi";
+  const read = detectTurnLanguage(heard, declared);
+  if (deva || read.romanised || read.lang === "hi" || read.lang === "hi-en") return "hinglish";
+  return shortSureHindi(heard) ? "hinglish" : "en";
+}
+
+/** The two-way view for callers that pick a pool: "hi" is Hindi or Hinglish, "en" is English. */
+export function replyLanguage(
+  text: string,
+  declared: "hi" | "en" | "hi-en" | "" = "",
+): "hi" | "en" {
+  return replyForm(text, declared) === "en" ? "en" : "hi";
 }
 
 /**
@@ -1063,9 +1492,8 @@ export function replyLanguage(text: string): "hi" | "en" {
  * the real answer is already being spoken.
  */
 export function holdLines(text: string): { first: string; later: string } {
-  return replyLanguage(text) === "hi"
-    ? { first: "Ek second, dekh rahi hu.", later: "Abhi bhi kaam kar rahi hu, bas thoda aur." }
-    : { first: "One moment, I'm on it.", later: "Still working on it, almost there." };
+  const pool = NARRATION_POOLS[replyForm(text)];
+  return { first: pool.first[0] as string, later: pool.later[0] as string };
 }
 
 /**
@@ -1085,7 +1513,7 @@ export type NarrationContext = {
   elapsedMs: number;
 };
 
-const NARRATION_POOLS: Record<"en" | "hi", Record<NarrationKind, string[]>> = {
+export const NARRATION_POOLS: Record<ReplyForm, Record<NarrationKind, string[]>> = {
   en: {
     first: [
       "One moment, I'm on it.",
@@ -1110,6 +1538,24 @@ const NARRATION_POOLS: Record<"en" | "hi", Record<NarrationKind, string[]>> = {
     ],
   },
   hi: {
+    first: [
+      "एक सेकंड, देख रही हूँ।",
+      "हाँ, अभी करती हूँ।",
+      "रुकिए, देखती हूँ।",
+      "ठीक है, लग गई हूँ।",
+      "एक मिनट, अभी सँभालती हूँ।",
+    ],
+    later: [
+      "अभी भी काम कर रही हूँ, बस थोड़ा और।",
+      "थोड़ा समय लग रहा है, पर हो रहा है।",
+      "भूली नहीं हूँ, लगी हुई हूँ। बस हो ही गया समझिए।",
+      "लगभग हो गया, होते ही बताती हूँ।",
+      "अभी चल रहा है। आप बात करते रहिए, मैं सुन रही हूँ।",
+      "थोड़ा बड़ा काम है, पर आगे बढ़ रहा है।",
+    ],
+    tool: ["ये अभी कर रही हूँ।", "हाँ, ये हो रहा है।", "इसे सँभाल रही हूँ।", "इस कदम पर लगी हूँ।"],
+  },
+  hinglish: {
     first: [
       "Ek second, dekh rahi hu.",
       "Haan, abhi karti hu.",
@@ -1185,7 +1631,7 @@ export function createNarrator(now: () => number = Date.now) {
       if (kind === "tool" && ctx.elapsedMs < NARRATION_TOOL_AFTER_MS) return "";
       const at = now();
       if (lastAt && at - lastAt < NARRATION_MIN_GAP_MS) return "";
-      const lang = replyLanguage(ctx.text);
+      const lang = replyForm(ctx.text);
       const subject = kind === "tool" && lang === "en" ? stepSubject(ctx.detail || "") : "";
       const line = subject
         ? fresh([`${subject}.`, `${subject} — one moment.`, `${subject}, almost there.`])
@@ -1202,6 +1648,10 @@ const STATUS_ASK =
   /\b(kya kar (?:rahi|raha|rahe)|kya ho raha|ho gaya|hua kya|kitna (?:time|der|samay)|kab tak|abhi tak|progress|status|what are you (?:doing|working)|are you (?:still )?(?:working|there|listening)|still working|how long|done yet|is it done|sun rahi|sunn? rahi ho)\b|^(?:hello|hi|hey)(?: friday)?[.!?]*$/i;
 const SMALL_ACK =
   /^(?:ok(?:ay)?|theek hai|thik hai|achha|accha|haan|han|cool|thanks|thank you|shukriya|dhanyavad|great|nice|badhiya|sahi hai)[.!?]*$/i;
+/** The same asks in Devanagari (a word boundary does not exist there, so these are plain phrases). */
+const STATUS_ASK_DEVA =
+  /क्या कर (?:रही|रहा|रहे)|क्या हो रहा|हो गया|हुआ क्या|कितना (?:समय|देर|टाइम)|कब तक|अभी तक|सुन रही/;
+const SMALL_ACK_DEVA = /^(?:ठीक है|अच्छा|हाँ|हां|शुक्रिया|धन्यवाद|बढ़िया|सही है)[\s.!।]*$/;
 
 /**
  * A light remark made while a turn is still running (how is it going, are you
@@ -1212,15 +1662,22 @@ const SMALL_ACK =
 export function busyReply(text: string, work: { task: string; elapsedMs: number }): string {
   const heard = text.trim();
   if (!heard) return "";
-  const hindi = replyLanguage(heard) === "hi";
-  if (STATUS_ASK.test(heard)) {
+  const form = replyForm(heard);
+  if (STATUS_ASK.test(heard) || STATUS_ASK_DEVA.test(heard)) {
     const task = work.task.replace(/\s+/g, " ").trim().slice(0, 60);
     const seconds = Math.max(1, Math.round(work.elapsedMs / 1000));
-    return hindi
+    if (form === "hi") {
+      return `हाँ, मैं ${task ? `"${task}" पर` : "काम पर"} लगी हूँ, ${seconds} सेकंड से। हो जाए तो तुरंत बताती हूँ।`;
+    }
+    return form === "hinglish"
       ? `Haan, main ${task ? `"${task}" par` : "kaam"} lagi hu, ${seconds} second se. Ho jaye to turant batati hu.`
       : `I'm on it${task ? `: "${task}"` : ""}, ${seconds} seconds in. I'll tell you the moment it's done.`;
   }
-  if (SMALL_ACK.test(heard)) return hindi ? "Haan, kaam chal raha hai." : "Still on it.";
+  if (SMALL_ACK.test(heard) || SMALL_ACK_DEVA.test(heard)) {
+    return { en: "Still on it.", hi: "हाँ, काम चल रहा है।", hinglish: "Haan, kaam chal raha hai." }[
+      form
+    ];
+  }
   return "";
 }
 
@@ -1235,6 +1692,9 @@ export type BusyDecision =
 
 const CHANGE_OF_MIND =
   /\b(stop|cancel|abort|wait|hold on|never ?mind|forget (?:it|that)|scratch that|actually|instead|ruko|rukiye|ruk jao|rehne do|chhodo|chodo|band karo|nahi nahi|nahin|nahi|galat|wrong|no no)\b/i;
+const CHANGE_OF_MIND_DEVA = /रुको|रुकिए|रुक जाओ|रहने दो|छोड़ो|छोड़ दो|बंद करो|नहीं|गलत|स्टॉप|कैंसल/;
+const SOCIAL_WHILE_BUSY_DEVA =
+  /^(?:नमस्ते|धन्यवाद|शुक्रिया|कैसे हो|कैसी हो|क्या हाल(?: है)?|अलविदा|बाय)[\s!.,।]*$/;
 const SOCIAL_WHILE_BUSY =
   /^(?:hi|hello|hey|namaste|good (?:morning|afternoon|evening|night)|how are you|how'?s it going|kaise ho|kaisi ho|kya haal(?: hai)?|thanks?(?: you)?|shukriya|dhanyavaad|bye|alvida)[\s!.,।]*$/i;
 /** A new request must come this long after the work began to be queued rather than replace it. */
@@ -1249,43 +1709,53 @@ export function whileBusy(
   if (!heard) return { kind: "interrupt" };
   const quick = busyReply(heard, work);
   if (quick) return { kind: "reply", line: quick };
-  const hindi = replyLanguage(heard) === "hi";
-  if (SOCIAL_WHILE_BUSY.test(heard)) {
-    const kind = /thank|shukriya|dhanyavaad/i.test(heard)
+  const form = replyForm(heard);
+  if (SOCIAL_WHILE_BUSY.test(heard) || SOCIAL_WHILE_BUSY_DEVA.test(heard)) {
+    const kind = /thank|shukriya|dhanyavaad|धन्यवाद|शुक्रिया/i.test(heard)
       ? "thanks"
-      : /bye|alvida|night/i.test(heard)
+      : /bye|alvida|night|अलविदा|बाय/i.test(heard)
         ? "goodbye"
-        : /how are you|how'?s it going|kaise|kaisi|haal/i.test(heard)
+        : /how are you|how'?s it going|kaise|kaisi|haal|कैसे|कैसी|हाल/i.test(heard)
           ? "howareyou"
           : "greeting";
     const line = socialLine({ kind, prompt: heard }).text;
-    return {
-      kind: "reply",
-      line: `${line} ${hindi ? "Kaam bhi chal raha hai." : "The work is still running."}`,
-    };
+    const tail = {
+      en: "The work is still running.",
+      hi: "काम भी चल रहा है।",
+      hinglish: "Kaam bhi chal raha hai.",
+    }[form];
+    return { kind: "reply", line: `${line} ${tail}` };
   }
-  if (CHANGE_OF_MIND.test(heard) || work.elapsedMs < BUSY_QUEUE_AFTER_MS) {
+  if (
+    CHANGE_OF_MIND.test(heard) ||
+    CHANGE_OF_MIND_DEVA.test(heard) ||
+    work.elapsedMs < BUSY_QUEUE_AFTER_MS
+  ) {
     return { kind: "interrupt" };
   }
   if (limits.queued >= (limits.maxQueued ?? 3)) {
     return {
       kind: "reply",
-      line: hindi
-        ? "Abhi kaafi kuch line mein hai. Pehle isko khatam kar leti hu."
-        : "I have a few things lined up already. Let me finish this one first.",
+      line: {
+        en: "I have a few things lined up already. Let me finish this one first.",
+        hi: "अभी काफ़ी कुछ कतार में है। पहले इसे ख़त्म कर लेती हूँ।",
+        hinglish: "Abhi kaafi kuch line mein hai. Pehle isko khatam kar leti hu.",
+      }[form],
     };
   }
-  const ack = hindi
-    ? [
-        "Theek hai, isko ke baad kar leti hu.",
-        "Note kar liya, pehle ye khatam karti hu.",
-        "Haan, uske baad ye bhi.",
-      ]
-    : [
-        "Got it — I'll do that right after this.",
-        "Noted, that's next.",
-        "Okay, that goes after this one.",
-      ];
+  const ack = {
+    en: [
+      "Got it — I'll do that right after this.",
+      "Noted, that's next.",
+      "Okay, that goes after this one.",
+    ],
+    hi: ["ठीक है, इसके बाद कर लेती हूँ।", "नोट कर लिया, पहले ये ख़त्म करती हूँ।", "हाँ, उसके बाद ये भी।"],
+    hinglish: [
+      "Theek hai, iske baad kar leti hu.",
+      "Note kar liya, pehle ye khatam karti hu.",
+      "Haan, uske baad ye bhi.",
+    ],
+  }[form];
   return { kind: "queue", line: ack[limits.queued % ack.length] as string };
 }
 
@@ -1342,8 +1812,15 @@ export function clarifyPrompt(text: string, hasContext = false): string {
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (!words.length || words.length > 3) return "";
   if (/^(what|who|when|where|why|how|kya|kaun|kab)\b/i.test(trimmed)) return "";
-  if (/\b(it|that|this|them|woh|wo|वो|ये)\b/i.test(trimmed)) return "Which one do you mean?";
-  return "";
+  if (/^(क्या|कौन|कब|कहाँ|कहां|क्यों|कैसे)(?![\p{L}\p{M}])/u.test(trimmed)) return "";
+  const pronoun =
+    /(?<![\p{L}\p{M}])(it|that|this|them|woh|wo|yeh|ye|isko|usko|वो|वह|ये|यह|इसे|उसे|इसको|उसको)(?![\p{L}\p{M}])/iu;
+  if (!pronoun.test(trimmed)) return "";
+  return {
+    en: "Which one do you mean?",
+    hi: "आप किसकी बात कर रहे हैं?",
+    hinglish: "Kaunsa wala? Zara bataiye.",
+  }[replyForm(trimmed)];
 }
 
 export function wantsContinue(text: string): boolean {
@@ -1359,37 +1836,71 @@ export function holdInterrupted(parts: string[]): string {
     .slice(0, 500);
 }
 
-/** Short line FRIDAY can say when a stage fails. It does not run an action. */
-export function spokenFailure(fault: VoiceFault): string {
-  switch (fault) {
-    case "asr-timeout":
-      return "I didn't catch that. Say it once more.";
-    case "tts-crash":
-    case "model-missing":
-      return "I can't speak that voice right now. The answer is on screen.";
-    case "permission-denied":
-      return "The microphone is blocked. Allow it in Windows, then try again.";
-    case "device-ended":
-    case "bluetooth-switch":
-      return "The microphone dropped. I am still here in text.";
-    case "sleep-resume":
-      return "I am listening again.";
-    case "disk-full":
-      return "The disk is too full for a voice model. I will stay in text.";
-    case "engine-down":
-      return "Voice is not ready yet. I can still read what you type.";
-    case "approval-expired":
-      return "That yes expired. Ask again if you still want it.";
-    case "injection":
-      return "I ignored that. It does not change what I am allowed to do.";
-    case "echo-loop":
-    case "barge-in":
-      return "";
-    default: {
-      const _never: never = fault;
-      return _never;
-    }
-  }
+/** Faults that are handled without a word: she does not announce her own echo or an interruption. */
+type SilentFault = "echo-loop" | "barge-in";
+
+const FAILURE_LINES: Record<Exclude<VoiceFault, SilentFault>, Record<ReplyForm, string>> = {
+  "asr-timeout": {
+    en: "I didn't catch that. Say it once more.",
+    hi: "मैं सुन नहीं पाई। एक बार फिर बोलिए।",
+    hinglish: "Main sun nahi payi. Ek baar phir boliye.",
+  },
+  "tts-crash": {
+    en: "I can't speak that voice right now. The answer is on screen.",
+    hi: "अभी मैं आवाज़ में नहीं बोल सकती। जवाब स्क्रीन पर है।",
+    hinglish: "Abhi main awaaz mein nahi bol sakti. Jawab screen par hai.",
+  },
+  "model-missing": {
+    en: "I can't speak that voice right now. The answer is on screen.",
+    hi: "अभी मैं आवाज़ में नहीं बोल सकती। जवाब स्क्रीन पर है।",
+    hinglish: "Abhi main awaaz mein nahi bol sakti. Jawab screen par hai.",
+  },
+  "permission-denied": {
+    en: "The microphone is blocked. Allow it in Windows, then try again.",
+    hi: "माइक्रोफ़ोन बंद है। Windows में उसे अनुमति दीजिए, फिर कोशिश कीजिए।",
+    hinglish: "Microphone blocked hai. Windows mein allow kijiye, phir try kijiye.",
+  },
+  "device-ended": {
+    en: "The microphone dropped. I am still here in text.",
+    hi: "माइक्रोफ़ोन कट गया। मैं टेक्स्ट में यहीं हूँ।",
+    hinglish: "Microphone kat gaya. Main text mein yahin hu.",
+  },
+  "bluetooth-switch": {
+    en: "The microphone dropped. I am still here in text.",
+    hi: "माइक्रोफ़ोन कट गया। मैं टेक्स्ट में यहीं हूँ।",
+    hinglish: "Microphone kat gaya. Main text mein yahin hu.",
+  },
+  "sleep-resume": {
+    en: "I am listening again.",
+    hi: "मैं फिर से सुन रही हूँ।",
+    hinglish: "Main phir se sun rahi hu.",
+  },
+  "disk-full": {
+    en: "The disk is too full for a voice model. I will stay in text.",
+    hi: "वॉइस मॉडल के लिए डिस्क बहुत भरी है। मैं टेक्स्ट में रहूँगी।",
+    hinglish: "Voice model ke liye disk bahut bhari hai. Main text mein rahungi.",
+  },
+  "engine-down": {
+    en: "Voice is not ready yet. I can still read what you type.",
+    hi: "आवाज़ अभी तैयार नहीं है। जो आप टाइप करें, वो मैं पढ़ सकती हूँ।",
+    hinglish: "Voice abhi ready nahi hai. Jo aap type karenge, wo main padh sakti hu.",
+  },
+  "approval-expired": {
+    en: "That yes expired. Ask again if you still want it.",
+    hi: "वो हाँ अब पुरानी हो गई। अब भी चाहिए तो फिर से कहिए।",
+    hinglish: "Wo haan purana ho gaya. Ab bhi chahiye to phir se kahiye.",
+  },
+  injection: {
+    en: "I ignored that. It does not change what I am allowed to do.",
+    hi: "मैंने उसे अनदेखा किया। उससे मेरी अनुमतियाँ नहीं बदलतीं।",
+    hinglish: "Maine use anadekha kiya. Isse meri permissions nahi badalti.",
+  },
+};
+
+/** Short line FRIDAY can say when a stage fails, in the form of the owner's last line. It does not run an action. */
+export function spokenFailure(fault: VoiceFault, form: ReplyForm = "en"): string {
+  if (fault === "echo-loop" || fault === "barge-in") return "";
+  return FAILURE_LINES[fault][form];
 }
 
 export function wordErrorRate(reference: string, hypothesis: string): number {

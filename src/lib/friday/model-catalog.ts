@@ -1310,7 +1310,7 @@ export const modelCatalog: ModelSpec[] = [
   /* ------------------------------------------------------------ local STT */
   M(
     "whisper-large-v3",
-    "Whisper large-v3",
+    "FRIDAY Ear large-v3 (full precision)",
     "transformers",
     "Speech to Text",
     "1.55B",
@@ -1325,7 +1325,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "whispercpp-base",
-    "Whisper.cpp base",
+    "FRIDAY Ear base (C++ build)",
     "llamacpp",
     "Speech to Text",
     "74M",
@@ -1340,7 +1340,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper",
-    "Faster Whisper large-v3",
+    "FRIDAY Ear large-v3",
     "onnx",
     "Speech to Text",
     "1.55B",
@@ -1355,7 +1355,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper-tiny",
-    "Faster Whisper tiny",
+    "FRIDAY Ear tiny",
     "onnx",
     "Speech to Text",
     "39M",
@@ -1370,7 +1370,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper-base",
-    "Faster Whisper base",
+    "FRIDAY Ear base",
     "onnx",
     "Speech to Text",
     "74M",
@@ -1385,7 +1385,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper-small",
-    "Faster Whisper small",
+    "FRIDAY Ear small",
     "onnx",
     "Speech to Text",
     "244M",
@@ -1400,7 +1400,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper-medium",
-    "Faster Whisper medium",
+    "FRIDAY Ear medium",
     "onnx",
     "Speech to Text",
     "769M",
@@ -1415,7 +1415,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "faster-whisper-large-v3-turbo",
-    "Faster Whisper large v3 turbo",
+    "FRIDAY Ear large v3 turbo",
     "onnx",
     "Speech to Text",
     "809M",
@@ -1430,7 +1430,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "vosk-en",
-    "Vosk English small",
+    "FRIDAY Ear English lite",
     "onnx",
     "Speech to Text",
     "40M",
@@ -1447,7 +1447,7 @@ export const modelCatalog: ModelSpec[] = [
   /* ------------------------------------------------------------ local TTS */
   M(
     "piper-en",
-    "Piper (en_US amy)",
+    "FRIDAY Voice English lite",
     "onnx",
     "Text to Speech",
     "20M",
@@ -1462,7 +1462,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "coqui-tts",
-    "Coqui TTS VITS",
+    "FRIDAY Voice Classic",
     "transformers",
     "Text to Speech",
     "83M",
@@ -1477,7 +1477,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "xtts-v2",
-    "XTTS v2 (voice clone)",
+    "FRIDAY Voice Clone",
     "transformers",
     "Text to Speech",
     "460M",
@@ -1492,7 +1492,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "silero-vad",
-    "Silero VAD",
+    "FRIDAY Listen Gate",
     "onnx",
     "Speech to Text",
     "2M",
@@ -1507,7 +1507,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "supertonic-3",
-    "Supertonic 3",
+    "FRIDAY Voice",
     "onnx",
     "Text to Speech",
     "?",
@@ -1522,7 +1522,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "smart-turn",
-    "Smart Turn v3.2",
+    "FRIDAY Turn",
     "onnx",
     "Speech to Text",
     "8M",
@@ -1537,7 +1537,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-ear",
-    "Hindi ear (IndicConformer, int8)",
+    "FRIDAY Ear Hindi",
     "onnx",
     "Speech to Text",
     "120M",
@@ -1552,7 +1552,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hinglish-ear",
-    "Hinglish ear (Roman letters, Whisper base fine-tune by Oriserve, int8)",
+    "FRIDAY Ear Hinglish (Roman letters)",
     "onnx",
     "Speech to Text",
     "74M",
@@ -1567,7 +1567,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-fallback-ear",
-    "Hindi fallback ear (Whisper small Hindi, credit: Collabora, CC-BY-4.0)",
+    "FRIDAY Ear Hindi Backup",
     "onnx",
     "Speech to Text",
     "244M",
@@ -1582,7 +1582,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-punct",
-    "Hindi punctuation (47 languages, adds commas and the danda, Apache-2.0)",
+    "FRIDAY Punctuate Hindi",
     "onnx",
     "Speech to Text",
     "?",
@@ -1597,7 +1597,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-light-tts",
-    "Light Hindi voice (credit: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0)",
+    "FRIDAY Voice Lite",
     "onnx",
     "Text to Speech",
     "22M",
@@ -1612,22 +1612,37 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "denoise-dpdfnet",
-    "DPDFNet denoiser (optional, off by default, Apache-2.0, Ceva-IP)",
+    "FRIDAY Denoise (optional, off by default)",
     "onnx",
     "Speech to Text",
-    "3.5M",
-    0.015,
+    "2.5M",
+    0.01,
     0,
     0,
     "Apache-2.0",
     HF("Ceva-IP/DPDFNet"),
-    "dpdfnet8",
+    "dpdfnet2",
+    ["audio"],
+    { format: "ONNX", quant: "FP32", ramGb: 1 },
+  ),
+  M(
+    "denoise-gtcrn",
+    "FRIDAY Denoise Lite (optional, off by default)",
+    "onnx",
+    "Speech to Text",
+    "24K",
+    0.0005,
+    0,
+    0,
+    "MIT",
+    HF("TigreGotico/audiosronnx-gtcrn"),
+    "gtcrn_simple",
     ["audio"],
     { format: "ONNX", quant: "FP32", ramGb: 1 },
   ),
   M(
     "speaker-wespeaker",
-    "WeSpeaker speaker model (candidate, credit: WeSpeaker, ONNX by onnx-community, CC-BY-4.0)",
+    "FRIDAY Speaker (candidate)",
     "onnx",
     "Speech to Text",
     "ResNet34",
@@ -1642,7 +1657,7 @@ export const modelCatalog: ModelSpec[] = [
   ),
   M(
     "hindi-vaani-ear",
-    "Hindi Vaani ear (candidate, Whisper large-v3 fine-tune by ARTPARK-IISc, Apache-2.0)",
+    "FRIDAY Ear Hindi Large (candidate)",
     "onnx",
     "Speech to Text",
     "1.5B",
@@ -1654,6 +1669,113 @@ export const modelCatalog: ModelSpec[] = [
     "1",
     ["audio"],
     { format: "ONNX", quant: "INT8", ramGb: 6 },
+  ),
+  M(
+    "stream-ear-nemotron",
+    "FRIDAY Ear Live (candidate)",
+    "onnx",
+    "Speech to Text",
+    "0.6B",
+    0.76,
+    0,
+    0,
+    "NVIDIA-Open-Model-License",
+    HF("soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8"),
+    "int8-320ms",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 2 },
+  ),
+  M(
+    "hinglish-ear-trelis",
+    "FRIDAY Ear Hinglish Large (candidate, mixed script)",
+    "onnx",
+    "Speech to Text",
+    "1.5B",
+    1.56,
+    0,
+    4,
+    "Apache-2.0",
+    HF("nikh360pro/capsbro-hinglish-ct2"),
+    "int8",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 4 },
+  ),
+  M(
+    "parakeet-ear",
+    "FRIDAY Ear English",
+    "onnx",
+    "Speech to Text",
+    "0.6B",
+    0.66,
+    0,
+    0,
+    "CC-BY-4.0",
+    HF("istupakov/parakeet-tdt-0.6b-v2-onnx"),
+    "int8",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 2 },
+  ),
+  M(
+    "shruti-ear",
+    "FRIDAY Ear Swift",
+    "onnx",
+    "Speech to Text",
+    "small",
+    0.09,
+    0,
+    0,
+    "Apache-2.0",
+    HF("udgamlabs/Shruti-ONNX"),
+    "hi",
+    ["audio"],
+    { format: "ONNX", quant: "4-bit and INT8", ramGb: 1 },
+  ),
+  M(
+    "moonshine-ear",
+    "FRIDAY Ear Quick",
+    "onnx",
+    "Speech to Text",
+    "tiny",
+    0.03,
+    0,
+    0,
+    "MIT",
+    HF("moonshine-ai/moonshine"),
+    "tiny-int8",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 1 },
+  ),
+  M(
+    "moonshine-ear-vocab",
+    "FRIDAY Ear Quick Vocabulary",
+    "onnx",
+    "Speech to Text",
+    "text",
+    0.002,
+    0,
+    0,
+    "MIT",
+    HF("moonshine-ai/moonshine-tiny"),
+    "tiny",
+    ["audio"],
+    { format: "ONNX", quant: "—", ramGb: 1 },
+  ),
+  // A derived ear: FRIDAY's converted int8 copy of a 1.6 GB source checkpoint. It installs only from the FRIDAY release
+  // (the downloader ignores the sources a caller sends for it), so the link is the release page, never a repository.
+  M(
+    "hinglish-ear-pro",
+    "FRIDAY Ear Hinglish Pro",
+    "onnx",
+    "Speech to Text",
+    "turbo",
+    0.83,
+    0,
+    3,
+    "Apache-2.0",
+    "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/tag/friday-voice-weights-2026.11.1",
+    "pro-int8",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 3 },
   ),
   M(
     "edge-tts",
@@ -2747,7 +2869,7 @@ export type RoutingTask =
 /**
  * The speech sizes voice mode can load, by the Models-page id. The speech worker
  * opens these folders (electron/voice-weights.cjs STT_CATALOG says the same);
- * any other Speech to Text row (Silero VAD, Smart Turn, Vosk) is a helper or not
+ * any other Speech to Text row (FRIDAY Listen Gate, FRIDAY Turn, FRIDAY Ear English lite) is a helper or not
  * shipped, and is never offered as "the" speech model.
  */
 export const STT_SIZE_MODEL: Record<string, string> = {
@@ -2816,13 +2938,11 @@ export type VoicePack = {
   /** The Settings recognition language under which the listening path uses this pack's ear. */
   recognitionLang: string;
   members: VoicePackMember[];
-  /** Licence credit lines that must stay visible (CC-BY needs its author named). */
-  credits: string[];
 };
 
 const ENGLISH_EAR_MEMBER: VoicePackMember = {
   id: "faster-whisper-small",
-  role: "English ear (Whisper, int8)",
+  role: "FRIDAY Ear small, the English ear",
   bytes: 486212372,
   swap: "english-ear",
 };
@@ -2838,12 +2958,12 @@ const TURN_MEMBER: VoicePackMember = {
 };
 const NEURAL_VOICE_MEMBER: VoicePackMember = {
   id: "supertonic-3",
-  role: "Fast neural voice that speaks back",
+  role: "FRIDAY Voice, the fast neural voice that speaks back",
   bytes: 401276918,
 };
 const HINDI_EAR_MEMBER: VoicePackMember = {
   id: "hindi-ear",
-  role: "Hindi ear (IndicConformer, int8)",
+  role: "FRIDAY Ear Hindi",
   bytes: 137680132,
 };
 const HINDI_PUNCT_MEMBER: VoicePackMember = {
@@ -2858,41 +2978,31 @@ export const voicePacks: VoicePack[] = [
     id: "voice-pack-english",
     label: "English pack",
     description:
-      "Everything to hear and answer in English on this PC: the Whisper English ear, the voice-activity and sentence-end helpers, and the fast Supertonic voice. One action downloads what is missing.",
+      "Everything to hear and answer in English on this PC: the FRIDAY Ear English ear, the listen gate and turn helpers, and the fast FRIDAY Voice. One action downloads what is missing.",
     recognitionLang: "en-IN",
     members: [VAD_MEMBER, TURN_MEMBER, ENGLISH_EAR_MEMBER, NEURAL_VOICE_MEMBER],
-    credits: [
-      "Whisper (faster-whisper conversion): MIT. Silero VAD: MIT. Smart Turn: BSD-2-Clause (Pipecat).",
-      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
-    ],
   },
   {
     kind: "voice-pack",
     id: "voice-pack-hindi",
     label: "Hindi pack",
     description:
-      "Hindi in Devanagari: the IndicConformer Hindi ear, Hindi punctuation, a light Hindi voice, the Supertonic voice, and a Whisper Hindi ear that listens if the main one cannot. Choose Hindi in Settings to use it.",
+      "Hindi in Devanagari: FRIDAY Ear Hindi, FRIDAY Punctuate Hindi, FRIDAY Voice Lite, FRIDAY Voice, and FRIDAY Ear Hindi Backup that listens if the main one cannot. Choose Hindi in Settings to use it.",
     recognitionLang: "hi-IN",
     members: [
       HINDI_EAR_MEMBER,
       HINDI_PUNCT_MEMBER,
       {
         id: "hindi-light-tts",
-        role: "Light Hindi voice",
+        role: "FRIDAY Voice Lite",
         bytes: 91024663,
       },
       NEURAL_VOICE_MEMBER,
       {
         id: "hindi-fallback-ear",
-        role: "Hindi fallback ear (Whisper small Hindi)",
+        role: "FRIDAY Ear Hindi Backup",
         bytes: 487097397,
       },
-    ],
-    credits: [
-      "Hindi fallback ear: Whisper small Hindi by Collabora, CC-BY-4.0 (faster-whisper conversion).",
-      "Light Hindi voice: Sulabh Katiyar, trained on AI4Bharat Rasa, CC-BY-4.0.",
-      "Hindi ear: AI4Bharat IndicConformer, MIT. Hindi punctuation: 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
-      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
     ],
   },
   {
@@ -2900,12 +3010,12 @@ export const voicePacks: VoicePack[] = [
     id: "voice-pack-hinglish",
     label: "Hinglish pack",
     description:
-      "Hindi and English mixed in Roman letters: the Hinglish ear, the Hindi ear and punctuation behind it, and the English essentials. Choose Hinglish in Settings to use the Roman-letter ear.",
+      "Hindi and English mixed in Roman letters: FRIDAY Ear Hinglish, FRIDAY Ear Hindi and FRIDAY Punctuate Hindi behind it, and the English essentials. Choose Hinglish in Settings to use the Roman-letter ear.",
     recognitionLang: "hi-Latn",
     members: [
       {
         id: "hinglish-ear",
-        role: "Hinglish ear (Roman letters)",
+        role: "FRIDAY Ear Hinglish (Roman letters)",
         bytes: 81398368,
       },
       HINDI_EAR_MEMBER,
@@ -2914,12 +3024,6 @@ export const voicePacks: VoicePack[] = [
       TURN_MEMBER,
       ENGLISH_EAR_MEMBER,
       NEURAL_VOICE_MEMBER,
-    ],
-    credits: [
-      "Hinglish ear: Whisper base Hindi-to-Hinglish fine-tune (Oriserve, MSpider3 CT2 conversion), Apache-2.0.",
-      "Hindi ear: AI4Bharat IndicConformer, MIT. Hindi punctuation: 1-800-BAD-CODE punct_cap_seg_47_language, Apache-2.0.",
-      "Whisper: MIT. Silero VAD: MIT. Smart Turn: BSD-2-Clause (Pipecat).",
-      "Supertonic 3: MIT code, OpenRAIL-M weights (Supertone); the licence text stays with the weights.",
     ],
   },
 ];
@@ -3075,7 +3179,18 @@ export const voiceModelFacts: Record<string, VoiceModelFacts> = {
     minRamGb: 0.1,
     recommendedRamGb: 0.2,
     minVramGb: 0,
-    diskBytes: 14542517,
+    diskBytes: 10178747,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "denoise-gtcrn": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    diskBytes: 535638,
     cpuOk: true,
     gpuOk: false,
     quantization: "fp32 (ONNX)",
@@ -3101,6 +3216,86 @@ export const voiceModelFacts: Record<string, VoiceModelFacts> = {
     cpuOk: false,
     gpuOk: true,
     quantization: CT2_BIG,
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "stream-ear-nemotron": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    diskBytes: 755387281,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 encoder, fp32 decoder and joint (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "hinglish-ear-trelis": {
+    minRamGb: 3.2,
+    recommendedRamGb: 4.5,
+    minVramGb: 4,
+    diskBytes: 1560338830,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, community conversion of the parent)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "parakeet-ear": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    diskBytes: 661191781,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "shruti-ear": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    diskBytes: 85034864,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "4-bit weights (ONNX), int8 set optional",
+    fallbackPriority: "experimental",
+    basis: "measured",
+  },
+  "moonshine-ear": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    diskBytes: 28180947,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "moonshine-ear-vocab": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    diskBytes: 1985530,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "vocabulary (text)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  // The converted copy (the release files), not the 1.6 GB source checkpoint the pin names.
+  "hinglish-ear-pro": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    diskBytes: 825369378,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, converted from the BF16 source)",
     fallbackPriority: "experimental",
     basis: "estimated",
   },
@@ -3134,6 +3329,17 @@ export const voiceModelFacts: Record<string, VoiceModelFacts> = {
     cpuOk: true,
     gpuOk: false,
     quantization: "int8 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
+  "wake-embed": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    diskBytes: 1326578,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
     fallbackPriority: "primary",
     basis: "estimated",
   },
@@ -3320,7 +3526,7 @@ export const routingTasks: {
     effect: "voice",
     label: "Text to speech",
     accepts: ["Text to Speech"],
-    hint: "FRIDAY's spoken voice. Supertonic 3 speaks when installed; otherwise Edge or the system voice does.",
+    hint: "FRIDAY's spoken voice. FRIDAY Voice speaks when installed; otherwise Edge or the system voice does.",
     only: [NEURAL_VOICE_MODEL],
   },
   {

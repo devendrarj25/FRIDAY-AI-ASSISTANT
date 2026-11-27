@@ -59,6 +59,9 @@ describe("failure injection", () => {
 
   it("expires a spoken yes when the clock jumps", () => {
     const asked = 1_000_000;
+    expect(APPROVAL_TTL_MS).toBe(30_000);
+    expect(approvalFresh(asked, asked + 30_000)).toBe(true);
+    expect(approvalFresh(asked, asked + 30_001)).toBe(false);
     expect(approvalFresh(asked, asked + APPROVAL_TTL_MS)).toBe(true);
     expect(approvalFresh(asked, asked + APPROVAL_TTL_MS + 1)).toBe(false);
     expect(approvalFresh(asked, asked - 50)).toBe(false);

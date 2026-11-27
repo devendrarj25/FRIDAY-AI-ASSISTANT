@@ -79,6 +79,8 @@ function bundledWakeDir() {
   return dirs.find((dir) => fs.existsSync(path.join(dir, "friday-wake.json")));
 }
 
+const PRODUCTION_KINDS = new Set(["friday-linear-v2", "friday-embed-v1"]);
+
 /**
  * May this manifest be installed as the wake detector? Only a model trained on real recordings whose held-out
  * evaluation met its targets (scripts/train-friday-wake.py). A synthetic or unevaluated scorer is never copied.
@@ -87,7 +89,7 @@ function isProductionManifest(manifest) {
   const evaluation = (manifest && manifest.evaluation) || {};
   return Boolean(
     manifest &&
-    manifest.kind === "friday-linear-v2" &&
+    PRODUCTION_KINDS.has(manifest.kind) &&
     manifest.provenance === "real-speech" &&
     manifest.production === true &&
     evaluation.meetsTargets === true &&
@@ -114,6 +116,12 @@ function installBundledModel() {
     fs.copyFileSync(path.join(fromDir, "friday-wake.json"), dest);
     const onnx = path.join(fromDir, "friday.onnx");
     if (fs.existsSync(onnx)) fs.copyFileSync(onnx, path.join(destDir, "friday.onnx"));
+    if (manifest.kind === "friday-embed-v1") {
+      const recorded = manifest.embedding && manifest.embedding.file;
+      const embedName = path.basename(String(recorded || "wake-embed.onnx"));
+      const embed = path.join(fromDir, embedName);
+      if (fs.existsSync(embed)) fs.copyFileSync(embed, path.join(destDir, embedName));
+    }
     return dest;
   } catch {
     return null;
@@ -272,6 +280,7 @@ function mapStatus(parsed, key, fallbackReason) {
       model: parsed.model || null,
       modelDir: parsed.modelDir || null,
       models: parsed.models || [],
+      embedModel: parsed.embedModel || null,
       wakeWord: key,
       loadCount: parsed.loadCount,
       reason: parsed.error || null,
@@ -438,13 +447,14 @@ async function detect({
 /**
  * Score a chunk of live 16 kHz mono PCM16 (base64) taken from the one shared capture. The worker keeps a streaming
  * scorer per `session`, so a phrase that spans chunks is still one trigger. Needs an openWakeWord model; the bundled
- * linear scorer scores whole clips only and says so. `reset: true` ends the session's scorer.
+ * linear scorer scores whole clips only and says so. `reset: true` ends the session's scorer. With no `threshold`
+ * the kernel runs the manifest's evaluated one (raised to 0.5 at least).
  */
 async function scoreFrames({
   session: sessionId = "default",
   pcmBase64 = "",
   wakeWord = "friday",
-  threshold = 0.5,
+  threshold,
   reset = false,
   minFrames = 2,
   cooldownMs = 1500,
@@ -460,7 +470,8 @@ async function scoreFrames({
         pcm: reset ? "" : String(pcmBase64),
         reset: Boolean(reset),
         wakeWord: String(wakeWord || "friday"),
-        threshold,
+        // Only a caller's own level is sent: otherwise the kernel uses the model manifest's evaluated threshold (never below 0.5).
+        ...(Number.isFinite(threshold) && threshold > 0 ? { threshold } : {}),
         minFrames,
         cooldownMs,
       },

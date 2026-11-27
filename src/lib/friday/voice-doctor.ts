@@ -13,6 +13,15 @@ import { voiceGate } from "./voice-audio";
 import { lastSpeechRoute } from "./voice-library";
 import { currentVoiceHealth } from "./voice-health";
 import { prewarmDoctorRows } from "./voice-engine/prewarm";
+import type { VoiceEarsPrefs } from "./preferences";
+import {
+  bargeInRow,
+  earsRows,
+  fridayVoiceRows,
+  readFridayVoiceStatus,
+  type EarsStats,
+  type FridayVoiceStatus,
+} from "./voice-diagnostics-rows";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -41,6 +50,106 @@ type VoiceLayerRow = {
   fixable: false;
   steps?: string[];
 };
+
+/**
+ * The optional large Hinglish ear: installed, not installed, or why the last request for it fell back. `ready` is the
+ * stt status key `hinglishEarTrelisReady` (null: not reported yet) and `skipped` the `hinglishEarSkipped` result fact.
+ * It stays a Ready row while the choice is off, because nothing is expected of it.
+ */
+export function hinglishEarRow(input: {
+  pref: string;
+  ready: boolean | null;
+  skipped?: string;
+}): VoiceLayerRow {
+  const base = {
+    id: "voice:hinglish-ear-trelis",
+    label: "Voice: large Hinglish ear",
+    group: "Voice",
+  };
+  const pin = [
+    "Open the Models page and pin the Hinglish mixed-script ear (FRIDAY Ear Hinglish Large), then let it download.",
+  ];
+  const on = input.pref === "trelis";
+  if (on && input.skipped) {
+    return {
+      ...base,
+      status: "Warning",
+      detail: `skipped: ${input.skipped}. The usual ear heard the phrase.`,
+      fixable: false,
+      steps: pin,
+    };
+  }
+  if (input.ready === true) {
+    return {
+      ...base,
+      status: "Ready",
+      detail: on
+        ? "installed and chosen. Not tried on a real microphone yet."
+        : "installed; off in Settings, Voice listening.",
+      fixable: false,
+    };
+  }
+  return {
+    ...base,
+    status: on ? "Warning" : "Ready",
+    detail:
+      input.ready === false
+        ? `not installed${on ? "; the usual ear is used" : " (off, so nothing is needed)"}.`
+        : `not reported yet${on ? "; the usual ear is used" : " (off)"}.`,
+    fixable: false,
+    ...(on ? { steps: pin } : {}),
+  };
+}
+
+let lastFridayVoice: FridayVoiceStatus | null = null;
+let lastFridayVoiceFailure = "";
+
+/** A failure as one short plain line: control characters removed, no more than 80 characters. */
+function shortFailure(reason: unknown): string {
+  return String((reason as Error)?.message ?? reason ?? "")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+/**
+ * Remember what the speech worker last said about FRIDAY Voice (`undefined` or odd shapes clear it). A failed
+ * status call passes its reason, so the rows say the call failed instead of blaming a missing desktop app.
+ */
+export function noteFridayVoiceStatus(raw: unknown, failure?: unknown): FridayVoiceStatus | null {
+  lastFridayVoice = readFridayVoiceStatus(raw);
+  lastFridayVoiceFailure = lastFridayVoice
+    ? ""
+    : failure === undefined
+      ? ""
+      : shortFailure(failure) || "no reason given";
+  return lastFridayVoice;
+}
+
+/** The "FRIDAY Voice engine" and active-voice rows from the last worker status; Warning rows say when none came. */
+export function fridayVoiceDoctorRows(
+  status: FridayVoiceStatus | null = lastFridayVoice,
+): VoiceLayerRow[] {
+  return fridayVoiceRows(status, status === lastFridayVoice ? lastFridayVoiceFailure : "").map(
+    (row) => ({
+      id: `voice:${row.id}`,
+      label: row.label,
+      group: "Voice",
+      status: row.state === "ok" ? "Ready" : "Warning",
+      detail: row.value,
+      fixable: false,
+      ...(row.state !== "ok"
+        ? {
+            steps: [
+              "Open Install Manager and install the local voice model (FRIDAY Voice).",
+              "Switch to Auto mode, press Test voice in Settings, Voice, then run Setup & Doctor again.",
+            ],
+          }
+        : {}),
+    }),
+  );
+}
 
 /** Which voice-check row proves which layer. */
 const CHECK_LAYER: Array<[RegExp, VoiceLayer]> = [
@@ -117,7 +226,15 @@ export function voiceDoctorMarks(): Partial<Record<VoiceLayer, LayerMark>> {
  * One row per layer that passed or failed. Layers nobody has checked yet are
  * one row that says how to check them, not twelve warnings.
  */
-export function voiceLayerChecks(marks?: Partial<Record<VoiceLayer, LayerMark>>): VoiceLayerRow[] {
+export function voiceLayerChecks(
+  marks?: Partial<Record<VoiceLayer, LayerMark>>,
+  ears?: {
+    prefs: VoiceEarsPrefs;
+    stats: EarsStats | null;
+    gate?: { ladder?: boolean };
+    hinglish?: { pref: string; ready: boolean | null; skipped?: string };
+  },
+): VoiceLayerRow[] {
   const rows: VoiceLayerRow[] = [];
   const unchecked: VoiceLayer[] = [];
   for (const id of VOICE_LAYERS) {
@@ -155,7 +272,31 @@ export function voiceLayerChecks(marks?: Partial<Record<VoiceLayer, LayerMark>>)
   }
   // A warm-up step that failed is a Warning of its own; a pass that went well adds nothing here.
   rows.push(...prewarmDoctorRows());
+  if (ears) rows.push(...earsDoctorRows(ears.prefs, ears.stats, ears.gate));
+  if (ears?.hinglish) rows.push(hinglishEarRow(ears.hinglish));
   return rows;
+}
+
+/**
+ * The listening-front-end rows (ears-vad, ears-turn, ears-clip, ears-agc, ears-denoise, ears-scene, and ears-bargein when the gate is given), fed by
+ * injected stats. A measured, healthy or switched-off row is Ready; a measured problem or a missing measurement is a
+ * Warning that says which, so "absent" is never shown as a pass.
+ */
+export function earsDoctorRows(
+  prefs: VoiceEarsPrefs,
+  stats: EarsStats | null,
+  gate?: { ladder?: boolean } | null,
+): VoiceLayerRow[] {
+  const rows = earsRows(prefs, stats);
+  if (gate !== undefined) rows.push(bargeInRow(gate, stats));
+  return rows.map((row) => ({
+    id: `voice:${row.id}`,
+    label: row.label,
+    group: "Voice",
+    status: row.state === "ok" || row.state === "off" ? "Ready" : "Warning",
+    detail: row.value,
+    fixable: false,
+  }));
 }
 
 export function voiceSelfTestPlan(): string[] {
@@ -305,7 +446,12 @@ export function voiceReadinessNote(root: string): string {
   const first = corpus[0];
   const graded = first ? gradeCase(first).length : 0;
   const wake = roomWakeDecision([0.01, 0.02, 0.8], 0.8, 0.01);
-  const watch = trackWatch({ frames: 10, sameEnergy: 0, handles: 1, crashes: 0 });
+  const watch = trackWatch({
+    frames: 0,
+    sameEnergy: 0,
+    handles: voiceGate.liveTracks(),
+    crashes: voiceGate.lastCaptureFailure() ? 1 : 0,
+  });
   const output = outputReachable({ deviceId: "default", volume: 1 });
   const memory = arcSnapshot().length;
   return `${ids}. Offline cases: ${corpus.length}. Voice steps ${steps}. Flow ${flow.phase}. Scenarios ${scenarios.length - failed}/${scenarios.length}. Budgets ${budgets.filter((row) => row.ok).length}. Sample ${sample}. Grade ${graded}. Wake ${wake.mark}. Watch ${watch.restart ? "restart" : "steady"}. Output ${output.ok ? "ready" : "silent"}. Notes ${memory}.${quiet}${sight.text}`;

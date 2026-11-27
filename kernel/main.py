@@ -23,6 +23,8 @@ import devices_network
 import embedder
 import folder_access
 import folder_watch
+import glossary_learn
+import privacy
 import run_trace
 import stt_bench
 import uvicorn
@@ -752,6 +754,14 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return router.sync(params.get("models", []))
     if method == "model.remove":
         return {"removed": router.unregister(params["id"])}
+    if method == "model.route_generation":
+        # The desktop asks which model may draw, speak or film this job; it only chooses, never spends.
+        return router.route_generation(
+            str(params.get("kind") or ""),
+            str(params.get("content") or ""),
+            explicit_paid=params.get("explicitPaid") is True,
+            privacy_mode=str(params.get("privacyMode") or ""),
+        )
 
     if method == "chat.stream":
         # Fans out to one or many models; streams partial deltas back.
@@ -990,6 +1000,20 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return {"ok": True, "sessionId": session_id, "count": count}
     if method == "memory.search":
         return {"results": await memory.search(params["query"], k=params.get("k", 8))}
+    if method == "glossary.learn":
+        # The owner's stored setting decides; a caller's ``on`` can only say no.
+        glossary_on = params.get("on") is not False and glossary_learn.setting_on(storage.settings())
+        rows = list(params.get("rows") or [])
+        return {"terms": await asyncio.to_thread(glossary_learn.learn_from_corrections, rows, glossary_on)}
+    if method == "glossary.list":
+        glossary_on = params.get("on") is not False and glossary_learn.setting_on(storage.settings())
+        return {"terms": await asyncio.to_thread(glossary_learn.glossary_terms, glossary_on)}
+    if method == "glossary.forget":
+        if params.get("all"):
+            return {"removed": await asyncio.to_thread(glossary_learn.forget_all)}
+        return {"removed": int(await asyncio.to_thread(glossary_learn.forget, str(params.get("term") or "")))}
+    if method == "privacy.classify":
+        return {"level": privacy.classify(str(params.get("text") or "")).get("level", "public")}
     if method == "stt.bench":
         folder = tools._resolve_read(params.get("folder", ""))[0]
         if not folder.is_dir():

@@ -57,6 +57,11 @@ const KERNEL_METHODS = [
   "companion.status",
   "companion.pair",
   "companion.revoke",
+  "model.route_generation",
+  "glossary.learn",
+  "glossary.list",
+  "glossary.forget",
+  "privacy.classify",
 ];
 
 const ALLOWED = new Set(KERNEL_METHODS);

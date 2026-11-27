@@ -17,6 +17,7 @@ import {
   type AckContext,
   type AckLang,
 } from "../../src/lib/friday/voice-engine/instant-ack";
+import { ACK_THRESHOLD_MS, ackWanted } from "../../src/lib/friday/voice-engine/brain-bridge";
 import { VOICE_STAGES } from "../../src/lib/friday/voice-engine/latency-monitor";
 import type { AckLine } from "../../src/lib/friday/voice-engine/prewarm";
 import {
@@ -25,6 +26,9 @@ import {
   voiceClaimsAuthority,
 } from "../../src/lib/friday/voice-session";
 import { addressName } from "../../src/lib/friday/assistant-conduct";
+import { bestOfMs } from "./helpers/wall-clock";
+// Best-of-5 bound: at least 10x the idle median of this work.
+const DECIDE_AVG_BOUND_MS = 1;
 
 type GateCase = {
   name: string;
@@ -69,6 +73,9 @@ const base = (over: Partial<AckContext> = {}): AckContext => ({
   whisperMode: false,
   narratorLinesLeft: 4,
   ackedThisTurn: 0,
+  // A turn that is expected to take a while: an acknowledgement is opt-in by the expected wait.
+  lane: "full",
+  expectedAnswerMs: 4000,
   endpointAtMs: 1000,
   generation: 7,
   liveGeneration: 7,
@@ -416,7 +423,12 @@ describe("instant acknowledgement: timing, cancel and wiring facts", () => {
       "utf8",
     );
     const imports = [...source.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
-    expect(imports.sort()).toEqual(["../voice-session", "./latency-monitor", "./utterance-router"]);
+    expect(imports.sort()).toEqual([
+      "../voice-session",
+      "./brain-bridge",
+      "./latency-monitor",
+      "./utterance-router",
+    ]);
     expect(source).not.toMatch(
       /\bfetch\(|Date\.now|setTimeout|Math\.random|XMLHttpRequest|WebSocket/,
     );
@@ -424,8 +436,101 @@ describe("instant acknowledgement: timing, cancel and wiring facts", () => {
 
   it("decides in well under a millisecond on average", () => {
     const ctx = base({ addressName: "Asha" });
-    const started = performance.now();
-    for (let i = 0; i < 5000; i += 1) shouldAck({ ...ctx, turn: i });
-    expect((performance.now() - started) / 5000).toBeLessThan(1);
+    expect(shouldAck({ ...ctx, turn: 1 })).toEqual(shouldAck({ ...ctx, turn: 1 }));
+    const total = bestOfMs(() => {
+      for (let i = 0; i < 5000; i += 1) shouldAck({ ...ctx, turn: i });
+    });
+    expect(total / 5000).toBeLessThan(DECIDE_AVG_BOUND_MS);
+  });
+});
+
+describe("instant acknowledgement: only when the wait is expected to be long", () => {
+  const cases: Array<{
+    name: string;
+    set: Partial<AckContext>;
+    unknown?: boolean;
+    reason: string | null;
+  }> = [
+    {
+      name: "command lane, long wait",
+      set: { lane: "command", expectedAnswerMs: 4000 },
+      reason: "command-lane",
+    },
+    {
+      name: "command lane, short wait",
+      set: { lane: "command", expectedAnswerMs: 500 },
+      reason: "command-lane",
+    },
+    { name: "expected 500 ms", set: { expectedAnswerMs: 500 }, reason: "quick-answer" },
+    { name: "expected exactly 1500 ms", set: { expectedAnswerMs: 1500 }, reason: "quick-answer" },
+    { name: "expected 1501 ms", set: { expectedAnswerMs: 1501 }, reason: null },
+    { name: "expected 4000 ms", set: { expectedAnswerMs: 4000 }, reason: null },
+    { name: "quick lane, 4000 ms", set: { lane: "quick", expectedAnswerMs: 4000 }, reason: null },
+    {
+      name: "quick lane, 800 ms",
+      set: { lane: "quick", expectedAnswerMs: 800 },
+      reason: "quick-answer",
+    },
+    { name: "unknown wait", set: {}, unknown: true, reason: "expected-unknown" },
+    {
+      name: "wait is not a number",
+      set: { expectedAnswerMs: Number.NaN },
+      reason: "expected-unknown",
+    },
+    {
+      name: "wait is infinite",
+      set: { expectedAnswerMs: Number.POSITIVE_INFINITY },
+      reason: "expected-unknown",
+    },
+    { name: "no lane given, long wait", set: { lane: undefined }, reason: null },
+    {
+      name: "already speaking, long wait",
+      set: { speaking: true, expectedAnswerMs: 9000 },
+      reason: "speaking",
+    },
+    {
+      name: "first clause ready, long wait",
+      set: { firstClauseReady: true },
+      reason: "first-clause-ready",
+    },
+  ];
+
+  it.each(cases)("$name", ({ set, unknown, reason }) => {
+    const ctx = base(set);
+    if (unknown) delete (ctx as { expectedAnswerMs?: number }).expectedAnswerMs;
+    const decision = shouldAck(ctx);
+    if (reason === null) expect(decision.ack).toBe(true);
+    else expect(decision).toEqual({ ack: false, reason });
+  });
+
+  it("uses the one rule of the brain bridge, with its 1500 ms threshold", () => {
+    expect(ACK_THRESHOLD_MS).toBe(1500);
+    for (const lane of ["command", "quick", "full"] as const) {
+      for (const expectedMs of [0, 500, 1500, 1501, 4000, Number.NaN]) {
+        const wanted = ackWanted({ lane, expectedMs });
+        const decision = shouldAck(base({ lane, expectedAnswerMs: expectedMs }));
+        expect(decision.ack, `${lane} ${expectedMs}`).toBe(wanted);
+      }
+    }
+    const source = readFileSync(
+      new URL("../../src/lib/friday/voice-engine/instant-ack.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("ackWanted(");
+    expect(source).not.toMatch(/ACK_MIN_WAIT_MS|expectedAnswerMs\s*[<>]=?\s*\d/);
+  });
+
+  it("a played line rotates through the pool and is never the one before", () => {
+    const seen = new Set<string>();
+    let last = "";
+    for (let turn = 0; turn < 40; turn += 1) {
+      const d = shouldAck(base({ turn, lastLineId: last }));
+      expect(d.ack).toBe(true);
+      if (!d.ack) continue;
+      expect(d.clipId).not.toBe(last);
+      seen.add(d.clipId);
+      last = d.clipId;
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(3);
   });
 });

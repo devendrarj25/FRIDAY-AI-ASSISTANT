@@ -5,6 +5,7 @@ import { chooseTts, switchMidSentence as speechSwitch } from "../../src/lib/frid
 import { chooseTtsEngine, switchMidSentence } from "../../src/lib/friday/tts-ladder";
 import {
   DEFAULT_CLOUD_SETTINGS,
+  PROVIDERS,
   UsageLedger,
   routeVoice,
   type VoiceCloudSettings,
@@ -96,18 +97,21 @@ function build(scripts: Partial<Record<string, Script>> = {}, extra: TtsProvider
   return { manager, rigs, cloud };
 }
 
-describe("the older ladders still pick exactly what they picked", () => {
-  // The reference is the rule as it was written before the single ranking: copied here as the oracle.
+describe("the ladders pick FRIDAY Voice first, and the cloud only when it is allowed", () => {
+  // The oracle: the owner's explicit choice, then FRIDAY Voice when ready (online, offline, private), then the cloud
+  // voice (only online, privacy off), then the system voice. An explicit `neural` pick is the owner's cloud choice.
   const refLadder = (i: {
     network: boolean;
     supertonicReady: boolean;
     privacy: boolean;
     prefer?: "auto" | "neural" | "supertonic" | "sapi";
   }) => {
-    if (i.privacy || i.prefer === "sapi") return "sapi";
-    if (i.prefer === "supertonic") return i.supertonicReady ? "supertonic" : "sapi";
-    if (!i.network) return i.supertonicReady ? "supertonic" : "sapi";
-    return "neural";
+    if (i.prefer === "sapi") return "sapi";
+    if (i.prefer === "neural" && i.network && !i.privacy) return "neural";
+    if (i.supertonicReady) return "supertonic";
+    if (i.prefer === "supertonic") return "sapi";
+    if (i.network && !i.privacy) return "neural";
+    return "sapi";
   };
   const refChoose = (i: {
     network: boolean;
@@ -115,12 +119,8 @@ describe("the older ladders still pick exactly what they picked", () => {
     supertonicReady: boolean;
     windows: boolean;
   }) => {
-    if (i.privacy) return "sapi";
-    if (i.supertonicReady && !i.network) return "supertonic";
-    if (i.network && !i.privacy) return "neural";
-    if (i.supertonicReady) return "supertonic";
-    if (i.windows) return "sapi";
-    return "formant";
+    const ladder = refLadder(i);
+    return ladder === "sapi" && !i.windows ? "formant" : ladder;
   };
   const bools = [true, false];
 
@@ -181,8 +181,10 @@ describe("the older ladders still pick exactly what they picked", () => {
   it("the two older files no longer carry a ladder of their own", () => {
     for (const file of ["src/lib/friday/tts-ladder.ts", "src/lib/friday/speech-tts.ts"]) {
       const source = read(file);
-      expect(source).toContain("legacyEngineChoice");
-      expect(source).toContain("voice-engine/tts-provider");
+      expect(source).toContain(
+        file.endsWith("tts-ladder.ts") ? "legacyEngineChoice" : 'from "./tts-ladder"',
+      );
+      if (file.endsWith("tts-ladder.ts")) expect(source).toContain("voice-engine/tts-provider");
       expect(source).not.toMatch(/input\.privacy \|\|/);
     }
   });
@@ -269,15 +271,23 @@ describe("the provider router decides the cloud voices", () => {
     keyPresent: { sarvam: true },
     dailyRequests: 10,
     monthlyRequests: 100,
+    // Sarvam has only a one-time signup credit (no free allowance), so the lane needs paid access on.
+    paidAllowed: true,
+    paidApproved: true,
+    spendLimitUsd: 5,
     ...patch,
   });
-  const route = (patch: Partial<VoiceCloudSettings> = {}, ctx: Partial<TtsContext> = {}) =>
+  const route = (
+    patch: Partial<VoiceCloudSettings> = {},
+    ctx: Partial<TtsContext> = {},
+    billingAllowsPaid = true,
+  ) =>
     routeVoice(
       {
         need: "tts",
         sensitive: ctx.sensitive ?? false,
         privacyMode: ctx.privacyMode ?? false,
-        billingAllowsPaid: false,
+        billingAllowsPaid,
         online: ctx.online ?? true,
         needHindi: true,
       },
@@ -292,23 +302,48 @@ describe("the provider router decides the cloud voices", () => {
       expect.arrayContaining(["sarvam", "azure-speech", "openai"]),
     );
     expect(table.find((i) => i.id === "openai")?.cost).toBe("paid");
-    expect(table.find((i) => i.id === "sarvam")?.cost).toBe("free-quota");
+    // Sarvam has only a one-time trial credit (no proof of a free allowance), so it is ranked as paid.
+    expect(table.find((i) => i.id === "sarvam")?.cost).toBe("paid");
+    expect(table.find((i) => i.id === "azure-speech")?.cost).toBe("free-quota");
+    // The label follows the lane's cost proof for every row: official or cached is free-quota, anything else paid.
+    for (const row of table) {
+      const proof = PROVIDERS.find((p) => p.id === row.id)?.lane?.costProof;
+      const free = proof === "official" || proof === "cached";
+      expect(row.cost, row.id).toBe(free ? "free-quota" : "paid");
+    }
     expect(table.every((i) => i.kind === "cloud" && i.privacy === "cloud" && i.viaRouter)).toBe(
       true,
     );
   });
 
   it("a router-approved cloud voice leads; the router's refusal keeps it out", () => {
-    const allowed = rankTtsProviders(infos, HI, { ...base, cloud: route() });
+    const paidOpen = { ...base, billingAllowsPaid: true };
+    const allowed = rankTtsProviders(infos, HI, { ...paidOpen, cloud: route() });
     expect(allowed.order[0]?.id).toBe("sarvam");
+    // Sarvam is ranked paid (a trial credit is no free allowance): the caller's own billing answer must say yes too.
+    const billingClosed = rankTtsProviders(infos, HI, { ...base, cloud: route() });
+    expect(billingClosed.order.map((i) => i.id)).not.toContain("sarvam");
+    expect(billingClosed.refused.find((r) => r.id === "sarvam")?.why).toMatch(/paid/);
     const quotaGone = rankTtsProviders(infos, HI, {
-      ...base,
+      ...paidOpen,
       cloud: route({ dailyRequests: 0 }),
     });
     expect(quotaGone.order.map((i) => i.id)).not.toContain("sarvam");
     expect(quotaGone.refused.find((r) => r.id === "sarvam")?.why).toMatch(/quota/);
     const none = rankTtsProviders(infos, HI, { ...base });
     expect(none.order.map((i) => i.id)).not.toContain("sarvam");
+  });
+
+  it("with paid access off the router refuses Sarvam (a signup credit is no free allowance) and the ladder drops it", () => {
+    for (const decision of [
+      route({}, {}, false),
+      route({ paidAllowed: false, paidApproved: false, spendLimitUsd: 0 }),
+    ]) {
+      expect(decision.active).not.toBe("cloud");
+      expect(decision.refused.find((r) => r.id === "sarvam")?.why).toMatch(/trial credit/);
+      const ranked = rankTtsProviders(infos, HI, { ...base, cloud: decision });
+      expect(ranked.order.map((i) => i.id)).not.toContain("sarvam");
+    }
   });
 
   it("a router decision never overrides privacy, a sensitive line or the billing firewall", () => {
@@ -370,7 +405,7 @@ describe("TtsFallbackManager: the fallback matrix", () => {
     ]);
     expect(out.fallbackReason).toBe("worker is not running");
     expect(out.note).toBe(
-      "The standard local voice did not speak this clause (worker is not running); the system voice did.",
+      "FRIDAY's own voice did not speak this clause (worker is not running); the system voice did.",
     );
   });
 
@@ -484,7 +519,7 @@ describe("TtsFallbackManager: the fallback matrix", () => {
     expect(out.engine).toBe("supertonic");
     expect(out.fallbackReason).toBe("no key saved");
     expect(out.note).toBe(
-      "The online voice did not speak this clause (no key saved); the standard local voice did.",
+      "The online voice did not speak this clause (no key saved); FRIDAY's own voice did.",
     );
   });
 

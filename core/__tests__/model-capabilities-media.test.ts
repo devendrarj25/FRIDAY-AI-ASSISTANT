@@ -102,3 +102,24 @@ describe("how the Models page shows it", () => {
     expect(counts.get("Chat")).toBe(2);
   });
 });
+
+describe("Nemotron: chat models stay chat, the streaming ear stays audio", () => {
+  it.each(["nemotron-nano-9b", "nemotron-ultra-253b", "@cf/nvidia/nemotron-3-120b-a12b"])(
+    "%s is a chat model",
+    (id) => {
+      const c = of(id);
+      expect(c["registryId"]).not.toBe("audio");
+      expect(c["chat"]).not.toBe(false);
+      expect(c["tools"]).not.toBe(false);
+      expect(cloudKindOf(c)).not.toBe("Audio");
+    },
+  );
+  it.each(["stream-ear-nemotron", "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8"])(
+    "%s is audio",
+    (id) => {
+      const c = of(id);
+      expect(c["chat"]).toBe(false);
+      expect(["audio", "speech-to-text"]).toContain(c["registryId"]);
+    },
+  );
+});

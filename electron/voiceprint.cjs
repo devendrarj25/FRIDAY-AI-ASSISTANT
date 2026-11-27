@@ -79,6 +79,32 @@ async function load() {
   }
 }
 
+const OWNER_DIM_MIN = 64;
+const OWNER_DIM_MAX = 1024;
+
+/**
+ * The owner's speaker-model centroid for the streaming ear's speaker tag (kernel/ear_scene.py), or null. Only
+ * the main process reads it: it goes to the speech worker on stream-open and nowhere else (never the renderer,
+ * a log or a cloud call). A saved vector of another size (an older voiceprint) or any error gives null, so the
+ * speaker stays "unknown". A speaker tag never approves an action.
+ */
+async function loadOwnerEmbedding() {
+  try {
+    const vector = await load();
+    if (
+      !Array.isArray(vector) ||
+      vector.length < OWNER_DIM_MIN ||
+      vector.length > OWNER_DIM_MAX ||
+      !vector.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      return null;
+    }
+    return vector;
+  } catch {
+    return null;
+  }
+}
+
 function clear() {
   const file = storePath();
   if (file && fs.existsSync(file)) fs.unlinkSync(file);
@@ -141,4 +167,4 @@ function forget() {
   return clear();
 }
 
-module.exports = { status, save, load, clear, score, enrol, forget, cosine };
+module.exports = { status, save, load, loadOwnerEmbedding, clear, score, enrol, forget, cosine };

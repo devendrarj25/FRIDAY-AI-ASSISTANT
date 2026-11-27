@@ -247,7 +247,8 @@ describe("licence and provenance lines", () => {
     const credits = profileCredits(profile);
     const light = credits.find((c) => c.engine === "hindi-light");
     expect(light?.licence).toBe("CC-BY-4.0");
-    expect(light?.provenance).toMatch(/Sulabh Katiyar/);
+    expect(light?.provenance).toMatch(/^FRIDAY Voice Lite; licence CC-BY-4\.0/);
+    expect(light?.provenance).not.toMatch(/credit|Sulabh Katiyar/i);
     const standard = credits.find((c) => c.engine === "supertonic");
     expect(standard?.licence).toMatch(/OpenRAIL-M/);
     expect(credits.find((c) => c.engine === "sapi")?.provenance).toMatch(/comes with Windows/);

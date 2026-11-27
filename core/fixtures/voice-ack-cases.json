@@ -282,13 +282,44 @@
       }
     },
     {
-      "name": "answer expected in 600 ms is not quick",
+      "name": "answer expected in 600 ms is still quick",
       "set": {
         "expectedAnswerMs": 600
       },
       "expect": {
+        "ack": false,
+        "reason": "quick-answer"
+      }
+    },
+    {
+      "name": "answer expected in exactly 1500 ms",
+      "set": {
+        "expectedAnswerMs": 1500
+      },
+      "expect": {
+        "ack": false,
+        "reason": "quick-answer"
+      }
+    },
+    {
+      "name": "answer expected in 1501 ms",
+      "set": {
+        "expectedAnswerMs": 1501
+      },
+      "expect": {
         "ack": true,
         "lang": "en"
+      }
+    },
+    {
+      "name": "command lane never gets one",
+      "set": {
+        "lane": "command",
+        "expectedAnswerMs": 5000
+      },
+      "expect": {
+        "ack": false,
+        "reason": "command-lane"
       }
     },
     {

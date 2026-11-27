@@ -8,7 +8,13 @@
  * silence to the recogniser, and every utterance came back empty.
  * Durations use a monotonic clock. A wall-clock jump past the hard cap is a
  * stuck segment and is reported once at the cap.
+ * While the audio worklet captures, each frame first goes through the front end
+ * (clip meter, high-pass, Kaiser FIR decimator, optional own AGC; see
+ * `voice-engine/front-end-dsp.ts`); the analyser fallback re-reads overlapping
+ * windows, which a stateful filter cannot follow, so it keeps the box filter.
  */
+
+import { boxcarDecimate, processFrontEnd, resetFrontEnd } from "./voice-engine/front-end-dsp";
 
 export const PRE_ROLL_MS = 500;
 export const TARGET_RATE = 16_000;
@@ -199,16 +205,13 @@ export class PcmRing {
 
   /**
    * Downsample by averaging each group of input samples (a box filter) so
-   * energy above 8 kHz does not fold back into the speech band.
+   * energy above 8 kHz does not fold back into the speech band. The worklet
+   * path decimates with the FIR in `front-end-dsp.ts` and arrives here at 16 kHz.
    */
   push(samples: ArrayLike<number>, atMono: number, fromRate = TARGET_RATE): void {
-    const step = fromRate > TARGET_RATE ? fromRate / TARGET_RATE : 1;
-    for (let pos = 0; pos < samples.length; pos += step) {
-      const start = Math.floor(pos);
-      const end = Math.min(samples.length, Math.max(start + 1, Math.floor(pos + step)));
-      let sum = 0;
-      for (let i = start; i < end; i += 1) sum += samples[i] ?? 0;
-      this.data[this.write] = sum / (end - start);
+    const mono = fromRate > TARGET_RATE ? boxcarDecimate(samples, fromRate, TARGET_RATE) : samples;
+    for (let i = 0; i < mono.length; i += 1) {
+      this.data[this.write] = mono[i] ?? 0;
       this.stampAt[this.write] = atMono;
       this.write = (this.write + 1) % this.data.length;
       this.filled = Math.min(this.data.length, this.filled + 1);
@@ -343,6 +346,7 @@ export function resetCaptureRing(): void {
   lastFrameWall = 0;
   workletOn = false;
   cleanedAtMono = 0;
+  resetFrontEnd();
 }
 
 /** Where a frame sits in the capture: a number that only goes up, and the sample index it starts at. */
@@ -381,19 +385,33 @@ export function noteCaptureFrame(
 ): void {
   if (!samples || samples.length === 0) return;
   let fed = false;
-  if (processor && workletOn) {
+  if (workletOn) {
     try {
-      const cleaned = processor.process(samples, fromRate, atMono);
-      if (cleaned && cleaned.length > 0) {
-        ring.push(cleaned, atMono, TARGET_RATE);
-        cleanedAtMono = atMono;
+      let aecDone = false;
+      const active = processor;
+      const aec = active
+        ? (filtered: ArrayLike<number>): Float32Array | null => {
+            try {
+              const cleaned = active.process(filtered, fromRate, atMono);
+              aecDone = !!cleaned && cleaned.length > 0;
+              processorFailures = 0;
+              return cleaned;
+            } catch {
+              // Fail closed: this frame goes on without the canceller, and one that keeps failing is removed.
+              processorFailures += 1;
+              if (processorFailures >= MAX_PROCESSOR_FAILURES) processor = null;
+              return null;
+            }
+          }
+        : undefined;
+      const out = processFrontEnd(samples, fromRate, atMono, aec);
+      if (out.length > 0) {
+        ring.push(out, atMono, TARGET_RATE);
+        if (aecDone) cleanedAtMono = atMono;
         fed = true;
       }
-      processorFailures = 0;
     } catch {
-      // Fail closed: this frame goes in untouched, and a processor that keeps failing is removed.
-      processorFailures += 1;
-      if (processorFailures >= MAX_PROCESSOR_FAILURES) processor = null;
+      // The front end never throws; if it ever did, the frame still reaches the ring as it came in.
     }
   }
   if (!fed) ring.push(samples, atMono, fromRate);
@@ -422,6 +440,7 @@ export function markWorklet(on: boolean): void {
       /* nothing to forget */
     }
   }
+  if (!on) resetFrontEnd();
 }
 
 export function workletCapturing(): boolean {

@@ -333,15 +333,57 @@ function looksFreeName(value = "") {
   return /(^|[:\-/])free($|[:\-/])/.test(name) || name.endsWith(":free");
 }
 
+/**
+ * THE locality rule (same rule as kernel/privacy.py `trusted_engine_hosts` and `is_loopback_endpoint`).
+ * A model is local only on a loopback host or on a host the OWNER set in this process's environment
+ * (`OLLAMA_HOST` and any other `env` named in kernel/local_engines.json), so a LAN engine the owner
+ * chose keeps working. The host comes from the environment at each call and from nowhere else: never
+ * a model row, a renderer message or a kernel RPC. A name never makes a remote host local.
+ */
+function hostOf(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text.includes("://") ? text : `http://${text}`);
+    return url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+function trustedEngineHosts(env = process.env) {
+  const hosts = new Set();
+  for (const row of localEngines.engines()) {
+    const host = row.env ? hostOf(env[row.env]) : "";
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
+
+function isLocalEndpoint(endpoint, env = process.env) {
+  const host = hostOf(endpoint);
+  if (!host) return false;
+  if (host === "localhost" || host === "::1" || host === "::" || host === "0.0.0.0") return true;
+  if (/^127(\.\d{1,3}){3}$/.test(host)) return true;
+  return trustedEngineHosts(env).has(host);
+}
+
+/** A model with an endpoint is local only when that endpoint is local; with none, its kind decides. */
+function endpointAllowsLocal(model = {}) {
+  const endpoint = String(model?.endpoint || model?.meta?.endpoint || "").trim();
+  return !endpoint || isLocalEndpoint(endpoint);
+}
+
 function isLocalModel(model = {}) {
   const kind = String(model.kind || model.type || model.meta?.kind || "").toLowerCase();
   const provider = String(
     model.providerId || model.meta?.providerId || model.provider || "",
   ).toLowerCase();
-  if (LOCAL_KINDS.has(kind) || LOCAL_PROVIDERS.has(provider)) return true;
+  if ((LOCAL_KINDS.has(kind) || LOCAL_PROVIDERS.has(provider)) && endpointAllowsLocal(model)) {
+    return true;
+  }
   const endpoint = String(model.endpoint || model.meta?.endpoint || "");
-  if (provider === "nvidia" && /127\.0\.0\.1|localhost/i.test(endpoint)) return true;
-  return false;
+  return provider === "nvidia" && isLocalEndpoint(endpoint);
 }
 
 function parseMoney(value) {
@@ -1208,7 +1250,7 @@ function nvidiaCatalogueRow(catalogue) {
 }
 
 function classifyNvidia(input, now) {
-  if (input.customEndpoint || /127\.0\.0\.1|localhost/i.test(String(input.endpoint || ""))) {
+  if (input.customEndpoint || isLocalEndpoint(input.endpoint)) {
     return classifyLocal(now);
   }
   const pricing = cataloguePricing(input.catalogue);
@@ -1789,7 +1831,10 @@ function classifyModel(input = {}, now = Date.now()) {
   if (existing && input.probe) return applyProbe(existing, input.probe, now);
   if (existing && !input.reclassify) return existing;
 
-  if (isLocalModel(input) || isLocalModel({ kind: input.kind, provider: input.providerId })) {
+  if (
+    isLocalModel(input) ||
+    isLocalModel({ kind: input.kind, provider: input.providerId, endpoint: input.endpoint })
+  ) {
     const local = classifyLocal(now);
     return input.probe ? applyProbe(local, input.probe, now) : local;
   }
@@ -2323,6 +2368,9 @@ module.exports = {
   clearKnowledgeOverlay,
   looksFreeName,
   isLocalModel,
+  isLocalEndpoint,
+  trustedEngineHosts,
+  endpointAllowsLocal,
   cataloguePricing,
   makeRecord,
   effectiveStatus,

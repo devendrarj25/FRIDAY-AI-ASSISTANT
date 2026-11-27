@@ -58,7 +58,10 @@ describe("live Auto Mode HUD is not sample catalog data", () => {
   });
 
   it("shows the formal voice status string on the Auto Mode HUD", () => {
-    expect(read("src/components/friday/AutoMode.tsx")).toContain("{voice.status}");
+    // The line is the formal status string; known jargon is mapped to plain words and any other text is shown as is.
+    expect(read("src/components/friday/AutoMode.tsx")).toMatch(
+      /\{voice\.status\}|plainFaultLine\(voice\.status, faultLang(, faultContext\(voice\))?\)/,
+    );
     expect(read("src/components/friday/AutoMode.tsx")).not.toContain(
       'voice.listening ? "listening" : voice.micReady ? "idle"',
     );

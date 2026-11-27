@@ -80,11 +80,11 @@ describe("Rust feed", () => {
     const source = read("electron/toolchain.cjs");
     expect(read("electron/vendor-sources.cjs")).toContain("allowUnsigned: true");
     expect(source).toContain("...(feed.allowUnsigned ? { allowUnsigned: true } : {})");
-    expect(source).toContain(
-      'tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned"',
+    expect(source).toMatch(
+      /tool\.allowUnsigned && tool\.sha256 && String\(signed\.reason\) === "NotSigned"/,
     );
     // Any other result (HashMismatch, NotTrusted ...) still refuses the file.
-    expect(source).toContain("if (!signed.ok && !unsignedOk) {");
+    expect(source).toContain("ok: Boolean(signed.ok || unsignedOk)");
   });
 
   it("takes a bare hash only when no file name is asked for", () => {

@@ -233,7 +233,10 @@ describe("wave 7 routing parity", () => {
     expect(ownerWave7Steps().length).toBe(9);
     const assistant = readFileSync(path.join(ROOT, "src/lib/friday/assistant-mode.ts"), "utf8");
     const chat = readFileSync(path.join(ROOT, "src/components/friday/ChatDock.tsx"), "utf8");
-    expect(assistant).toContain('routingSurface: "voice"');
+    expect(assistant).toContain("...VOICE_SEND");
+    expect(readFileSync(path.join(ROOT, "src/lib/friday/brain-engine.ts"), "utf8")).toContain(
+      'export const VOICE_SEND = { routingSurface: "voice" } as const;',
+    );
     expect(chat).toContain('routingSurface: "chat"');
     expect(chat).not.toContain("getUserMedia");
     const faults = [

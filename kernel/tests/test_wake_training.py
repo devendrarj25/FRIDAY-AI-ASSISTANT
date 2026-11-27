@@ -280,5 +280,167 @@ class ClipEvaluationTests(unittest.TestCase):
         self.assertGreater(report["falseAcceptsPerHour"], 100)
 
 
+def pooled_embed(windows):
+    """A stand-in embedding model: the time average of each mel window, (n, 76, 32) -> (n, 32)."""
+    return np.asarray(windows, dtype=np.float32).mean(axis=1)
+
+
+class HeadFitTests(unittest.TestCase):
+    def setUp(self):
+        self.trainer = load_trainer()
+
+    def blobs(self, centres, labels, per=200, spread=0.4, seed=0):
+        rng = np.random.default_rng(seed)
+        x = np.concatenate([rng.normal(c, spread, (per, len(c))) for c in centres])
+        y = np.concatenate([np.full(per, label) for label in labels])
+        return x.astype(np.float32), y.astype(np.float64)
+
+    def accuracy(self, layers, x, y):
+        head = {"mean": np.zeros(x.shape[1], np.float32), "std": np.ones(x.shape[1], np.float32), "layers": layers}
+        head["window"] = 1
+        scores = wf.head_scores(x[:, None, :], head)
+        return float(np.mean((scores > 0.5) == (y > 0.5)))
+
+    def test_the_logistic_head_converges_on_separable_data(self):
+        x, y = self.blobs([(2.0, 2.0, 0.0), (-2.0, -2.0, 0.0)], [1, 0])
+        layers = self.trainer.fit_head(x, y, hidden=0, epochs=15)
+        self.assertEqual(len(layers), 1)
+        self.assertGreater(self.accuracy(layers, x, y), 0.99)
+
+    def test_a_hidden_layer_solves_what_a_line_cannot(self):
+        centres = [(2, 2), (-2, -2), (2, -2), (-2, 2)]
+        x, y = self.blobs(centres, [1, 1, 0, 0])
+        line = self.trainer.fit_head(x, y, hidden=0, epochs=30)
+        net = self.trainer.fit_head(x, y, hidden=16, epochs=60)
+        self.assertLess(self.accuracy(line, x, y), 0.8)
+        self.assertGreater(self.accuracy(net, x, y), 0.97)
+
+    def test_training_is_repeatable_for_a_seed_and_balances_a_rare_positive(self):
+        rng = np.random.default_rng(2)
+        x = np.concatenate([rng.normal(1.5, 0.5, (20, 8)), rng.normal(-1.5, 0.5, (980, 8))]).astype(np.float32)
+        y = np.concatenate([np.ones(20), np.zeros(980)])
+        first = self.trainer.fit_head(x, y, hidden=4, epochs=20, seed=5)
+        again = self.trainer.fit_head(x, y, hidden=4, epochs=20, seed=5)
+        self.assertTrue(all(np.array_equal(a[0], b[0]) for a, b in zip(first, again, strict=True)))
+        head = {"mean": np.zeros(8, np.float32), "std": np.ones(8, np.float32), "layers": first, "window": 1}
+        recall = float(np.mean(wf.head_scores(x[:20, None, :], head) > 0.5))
+        self.assertGreater(recall, 0.9)
+
+
+class EmbedTrainerTests(unittest.TestCase):
+    def setUp(self):
+        self.trainer = load_trainer()
+        self.trainer.MIN_POSITIVES = 20
+        self.trainer.MIN_NEGATIVE_MINUTES = 1.0
+        self.trainer.MIN_NEAR_MISS = 2
+        self.trainer.MIN_HELD_OUT_NEGATIVE_HOURS = 0.005
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name) / "data"
+        self.out = Path(self.tmp.name) / "out"
+
+    def manifest(self):
+        return json.loads((self.out / "friday-wake.json").read_text(encoding="utf-8"))
+
+    def test_a_varied_attested_set_trains_a_head_that_scores_on_the_streaming_path(self):
+        make_dataset(self.data, speakers=6, takes=6, sources=6, clips=3)
+        code = self.trainer.train_embed(self.data, self.out, pooled_embed, "ab" * 32)
+        manifest = self.manifest()
+        self.assertIn(code, (0, 2))
+        self.assertEqual(manifest["kind"], "friday-embed-v1")
+        self.assertEqual(
+            manifest["embedding"], {"file": "wake-embed.onnx", "sha256": "ab" * 32, "frames": 76, "dim": 96}
+        )
+        self.assertTrue(manifest["evaluation"]["independent"])
+        self.assertIn("80 ms", manifest["evaluation"]["measuredAs"])
+        head = wf.load_head(manifest)
+        self.assertEqual(head["window"], 16)
+        rng = np.random.default_rng(99)
+        hit = wf.score_embed_clip(positive(rng), pooled_embed, head)
+        miss = wf.score_embed_clip(negative(rng, 3.0), pooled_embed, head)
+        self.assertGreater(hit, miss)
+        self.assertGreater(hit, manifest["threshold"])
+        self.assertLess(miss, manifest["threshold"])
+        if code == 0:  # the band-noise stand-in is separable, so the gate normally opens
+            self.assertTrue(manifest["production"])
+            self.assertEqual(manifest["notProductionBecause"], [])
+
+    def test_the_trained_head_is_one_json_file_the_kernel_can_open(self):
+        make_dataset(self.data, speakers=4, takes=4, sources=4, clips=2)
+        self.trainer.train_embed(self.data, self.out, pooled_embed, "cd" * 32)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["friday-wake.json", "friday-wake.report.json"])
+        manifest = self.manifest()
+        self.assertEqual(wake_word.engine_for_path(str(self.out / "friday-wake.json")), "friday-embed")
+        self.assertEqual(manifest["head"]["layers"][-1]["w"]["shape"][1], 1)
+
+    def test_an_unattested_set_is_a_candidate_the_app_will_not_use(self):
+        make_dataset(self.data, attested=False)
+        self.assertEqual(self.trainer.train_embed(self.data, self.out, pooled_embed), 2)
+        manifest = self.manifest()
+        self.assertFalse(manifest["production"])
+        self.assertTrue(any("PROVENANCE.json" in r for r in manifest["notProductionBecause"]))
+
+    def test_too_few_speakers_cannot_be_held_apart(self):
+        make_dataset(self.data, speakers=2, sources=2)
+        self.assertEqual(self.trainer.train_embed(self.data, self.out, pooled_embed), 2)
+        self.assertFalse(self.manifest()["evaluation"]["independent"])
+
+    def test_a_candidate_is_never_written_into_resources_wake(self):
+        make_dataset(self.data, attested=False)
+        target = Path(self.tmp.name) / "resources" / "wake"
+        self.trainer.PRODUCTION_DIR = target
+        self.assertEqual(self.trainer.train_embed(self.data, target, pooled_embed), 3)
+        self.assertFalse((target / "friday-wake.json").exists())
+
+    def test_the_embedding_model_is_needed_to_train_and_the_command_line_says_so(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "train-embed",
+                "--dataset",
+                str(self.data),
+                "--embedding",
+                str(Path(self.tmp.name) / "missing.onnx"),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("is not there", done.stderr)
+
+    def test_evaluate_scores_an_embed_head_on_unseen_audio_with_the_streaming_rule(self):
+        make_dataset(self.data, speakers=6, takes=6, sources=6, clips=3)
+        self.trainer.train_embed(self.data, self.out, pooled_embed)
+        fresh = Path(self.tmp.name) / "fresh"
+        make_dataset(fresh, speakers=2, takes=4, sources=2, clips=2, attested=False)
+        self.trainer.load_embedding = lambda _path: (pooled_embed, "")
+        self.assertIn(self.trainer.evaluate(fresh, self.out, None), (0, 2))
+        manifest = self.manifest()
+        report = wf.evaluate_embed_clips(
+            [positive(np.random.default_rng(i)) for i in range(4)],
+            [negative(np.random.default_rng(50 + i), 6.0) for i in range(3)],
+            pooled_embed,
+            wf.load_head(manifest),
+            manifest["threshold"],
+        )
+        self.assertEqual(report["falseRejectionRate"], 0.0)
+        self.assertEqual(report["falseAcceptsPerHour"], 0.0)
+        self.assertEqual(report["negativeHours"], round(18.0 / 3600.0, 4))
+
+    def test_positive_windows_end_just_after_the_word_and_negatives_are_subsampled(self):
+        rng = np.random.default_rng(4)
+        windows = self.trainer.positive_embed_windows(positive(rng), pooled_embed)
+        passes = len(self.trainer.POSITIVE_GAINS) * len(self.trainer.POSITIVE_TAILS)
+        self.assertEqual(windows.shape, (passes * self.trainer.POSITIVE_ENDS, 16, 32))
+        long_negative = negative(rng, 8.0)
+        every = self.trainer.negative_embed_windows(long_negative, pooled_embed, stride=1)
+        sparse = self.trainer.negative_embed_windows(long_negative, pooled_embed, stride=2)
+        self.assertEqual(len(sparse), (len(every) + 1) // 2)
+        short = self.trainer.negative_embed_windows(negative(rng, 0.6), pooled_embed)
+        self.assertGreater(len(short), 0)  # a short clip is padded to stream length, not dropped
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,31 @@
  *   patience      A frame-level score must clear it for `patienceFrames` frames in a row (an utterance-level
  *                 transcript match is one decision and skips this).
  *
+ * The ears' scene tag (`observeScene`, from the kernel's `env {kind, score}` on a turn note) may RAISE the threshold
+ * while music or a TV is read at 0.6 or more, by up to `SCENE_BOOST_MAX`, for `SCENE_HOLD_MS` after the last tag; any
+ * other kind, a low score or junk raises nothing and nothing here ever lowers it. A speaker tag has no way in:
+ * "owner" is a label, never a reason to wake sooner or to skip a gate.
+ *
+ * Two gates only ever ADD a requirement (a refusal that was an accept stays a refusal, never the other way for a
+ * gate that existed): while a music or TV scene is on, a wake that came from the transcript alone (`source`
+ * "transcript" or "personal") needs the scorer to agree (`probeScore` within `max(nearBand, 0.1)` of the threshold) or
+ * a leading match with a real lead-in (`leadInMs`), else it is "uncorroborated"; quiet rooms are untouched. The second
+ * chance (`nearBand`, off at 0) lets a LEADING transcript wake through when the wake scorer was just under the bar (a
+ * near-miss frame earlier in the same utterance, or the candidate's own score) and every other gate passes: no scene,
+ * no noise raise, the speaker not marked different, at most one per 10 s. A speaker tag never lowers a gate or
+ * approves anything; it can only refuse.
+ *
+ * Two optional guards, both off at 0 (today's behaviour), only ever add a requirement or a second look. The second
+ * pass (`secondPassMargin`) answers a frame score just under the bar (inside the margin) with `verify: true` and still
+ * refuses: the caller may run one short transcript check and pass it back as an "utterance", which goes through every
+ * gate as usual, so a near miss is never accepted here. It asks at most once per `VERIFY_SPACING_MS` and
+ * `VERIFY_PER_MINUTE` a minute, and only after locked, cooldown, self-voice and no-speech passed. The ultrasonic flag
+ * (`ultrasonicShare`, with `WakeFrame.highBandShare`, the capture's share of energy above 17 kHz, absent = unknown)
+ * marks a room whose last `ULTRASONIC_FRAMES` frames all carried that share: for `SCENE_HOLD_MS` the bar rises like a
+ * music scene (never more than `SCENE_BOOST_MAX`, not added to a real scene tag). While any raise is in force (a scene,
+ * steady noise, the flag) no second look is asked and the second chance is off. It cannot wake, lower a bar or approve. Unverified: a 16 kHz capture cannot see above 8 kHz, so
+ * the flag has no real input until a wider capture path exists; the logic is tested on synthetic frames only.
+ *
  * Hands-free stays what the owner saved: `handsFree` starts false, and while it is false a wake is required in
  * the asleep state. Time is always passed in (`nowMs`), no timers, so every rule is tested on a fake clock.
  * Unverified until the owner's PC: the thresholds against a real room, a real TV and a real speaker.
@@ -54,6 +79,25 @@ export type WakeGuardConfig = {
    * reply whose end was never reported (a failed voice) cannot lock the owner out of waking her.
    */
   speakMaxMs: number;
+  /**
+   * Second chance: a leading transcript wake is taken when the wake scorer read within this much under the threshold
+   * (never under 0.35). 0 turns it off, which is today's behaviour. It also widens the corroboration band (D5).
+   */
+  nearBand: number;
+  /** How long a near-miss frame stays usable for a leading transcript wake of the same utterance. */
+  secondChanceMs: number;
+  /** The quiet before the name that a leading match needs to corroborate a transcript-only wake in a TV or music scene. */
+  leadInMs: number;
+  /**
+   * Second pass: a frame score within this much under the threshold gets one short transcript check (`verify: true`)
+   * instead of a plain refusal; it is never an accept. 0 turns it off (today's behaviour).
+   */
+  secondPassMargin: number;
+  /**
+   * Ultrasonic flag: a capture whose share of energy above 17 kHz (`WakeFrame.highBandShare`) reaches this on three
+   * frames in a row raises the bar like a music scene (a replayed recording). 0 turns it off.
+   */
+  ultrasonicShare: number;
 };
 
 export const WAKE_GUARD_DEFAULTS: WakeGuardConfig = {
@@ -69,6 +113,11 @@ export const WAKE_GUARD_DEFAULTS: WakeGuardConfig = {
   longSpeechMs: 20_000,
   speechRecencyMs: 5000,
   speakMaxMs: 20_000,
+  nearBand: 0,
+  secondChanceMs: 1500,
+  leadInMs: 300,
+  secondPassMargin: 0,
+  ultrasonicShare: 0,
 };
 
 /** Each value is kept inside a sane range; junk or a missing value falls back to the default. */
@@ -85,6 +134,11 @@ const BOUNDS: { [K in keyof WakeGuardConfig]: [number, number] } = {
   longSpeechMs: [8000, 120_000],
   speechRecencyMs: [1000, 20_000],
   speakMaxMs: [5000, 120_000],
+  nearBand: [0, 0.2],
+  secondChanceMs: [500, 3000],
+  leadInMs: [100, 1500],
+  secondPassMargin: [0, 0.2],
+  ultrasonicShare: [0, 1],
 };
 
 export function normalizeWakeGuardConfig(
@@ -102,6 +156,9 @@ export function normalizeWakeGuardConfig(
   return out;
 }
 
+/** The kernel's room reading of a turn note (`env`). Only `music` and `tv` at or above `SCENE_ACT_AT` count. */
+export type SceneTag = { kind: string; score: number };
+
 export type WakeFrame = {
   nowMs: number;
   /** The level the VAD judged (after the echo reference, when it cleans the frame), 0..1. */
@@ -110,6 +167,8 @@ export type WakeFrame = {
   speech: boolean;
   /** FRIDAY is speaking now (playback is audible). */
   speaking: boolean;
+  /** Share (0..1) of the capture's energy above 17 kHz. Absent or out of range = unknown = no effect. */
+  highBandShare?: number;
 };
 
 export type WakeCandidate = {
@@ -127,7 +186,20 @@ export type WakeCandidate = {
   echoRefLive?: boolean;
   /** The transcript is her own words (from `isSelfEchoTranscript`). */
   selfEchoText?: boolean;
+  /** Where the wake came from. Absent means today's behaviour (no source rule applies). */
+  source?: "engine" | "transcript" | "personal";
+  /** The transcript match opened the utterance (`matchWakeWord(...).leading`). */
+  leading?: boolean;
+  /** The quiet before the wake word began, in ms. */
+  leadInMs?: number;
+  /** The speaker check on the wake audio. "different" can only refuse; "match" changes nothing. */
+  speaker?: "match" | "different" | "unknown";
+  /** The wake scorer's real reading for this utterance; null or absent means the scorer did not hear it. */
+  probeScore?: number | null;
 };
+
+/** The guard's input is a candidate; the alias keeps the wiring and the tests on one name. */
+export type WakeGuardInput = WakeCandidate;
 
 export type WakeBlock =
   | "locked"
@@ -136,15 +208,33 @@ export type WakeBlock =
   | "no-speech"
   | "below-threshold"
   | "room-noise"
-  | "patience";
+  | "patience"
+  | "uncorroborated"
+  | "second-chance-limit"
+  | "speaker-different";
 
-export type WakeVerdict = { accept: boolean; reason: WakeBlock | "accepted" };
+export type WakeVerdict = {
+  accept: boolean;
+  reason: WakeBlock | "accepted";
+  /** Only ever with `accept: false`: one short transcript check may follow, passed back as an "utterance". */
+  verify?: true;
+};
 
 export type WakeCounters = {
   accepted: number;
   falseWakes: number;
   forcedAsleep: number;
   noiseRaises: number;
+  /** Turns the ears marked `needsWake` and that had no wake word while the conversation was closed. */
+  heldTurns: number;
+  /** Leading transcript wakes taken inside the near band (the second chance). */
+  secondChances: number;
+  /** Near-miss frames that were given a second look (`verify: true`). */
+  verifyAsked: number;
+  /** Second looks (an utterance inside `VERIFY_WINDOW_MS` of an ask) that every gate then accepted. */
+  verifyAccepted: number;
+  /** Ultrasonic episodes (a flagged room), counted once per hold. */
+  ultrasonic: number;
   blocked: Record<WakeBlock, number>;
 };
 
@@ -174,6 +264,31 @@ const STEADY_MIN_LEVEL = 0.02;
 /** A relative level wobble under this is steady (a hum); speech wobbles far more. */
 const STEADY_WOBBLE = 0.25;
 const PLAYBACK_AUDIBLE = 0.02;
+/** The second chance never reaches below this score, whatever `nearBand` says. */
+const SECOND_CHANCE_FLOOR = 0.35;
+/** At most one second chance per this long. */
+const SECOND_CHANCE_SPACING_MS = 10_000;
+/** A transcript-only wake in a scene is corroborated by a scorer reading within at least this much of the threshold. */
+const CORROBORATE_BAND = 0.1;
+/** Lead values (ears.scene): the most a music or TV tag raises the wake threshold, the score it needs, how long it holds. */
+export const SCENE_BOOST_MAX = 0.15;
+export const SCENE_ACT_AT = 0.6;
+export const SCENE_HOLD_MS = 4000;
+/** The second pass: at most one ask per spacing and per minute; the utterance must follow within the window. */
+export const VERIFY_SPACING_MS = 5000;
+export const VERIFY_PER_MINUTE = 12;
+export const VERIFY_WINDOW_MS = 1500;
+/** The ultrasonic flag needs this many flagged frames in a row. */
+export const ULTRASONIC_FRAMES = 3;
+
+/** 0 for anything but a music or TV tag with a finite score at or above the bar; else up to `SCENE_BOOST_MAX`. */
+function raiseForTag(tag: unknown): number {
+  if (!tag || typeof tag !== "object") return 0;
+  const { kind, score } = tag as Partial<SceneTag>;
+  if (kind !== "music" && kind !== "tv") return 0;
+  if (typeof score !== "number" || !Number.isFinite(score) || score < SCENE_ACT_AT) return 0;
+  return Math.round(SCENE_BOOST_MAX * Math.min(1, score) * 1000) / 1000;
+}
 
 const emptyBlocked = (): Record<WakeBlock, number> => ({
   locked: 0,
@@ -183,6 +298,9 @@ const emptyBlocked = (): Record<WakeBlock, number> => ({
   "below-threshold": 0,
   "room-noise": 0,
   patience: 0,
+  uncorroborated: 0,
+  "second-chance-limit": 0,
+  "speaker-different": 0,
 });
 
 export class WakeGuard {
@@ -191,6 +309,8 @@ export class WakeGuard {
   private handsFreeOn = false;
   private lockReason = "";
   private boost = 0;
+  private sceneBoost = 0;
+  private sceneUntil = -Infinity;
   private cooldownUntil = 0;
   private hits = 0;
   private lastObs = 0;
@@ -207,11 +327,24 @@ export class WakeGuard {
   private emaLevel = 0;
   private wobble = 1;
   private deadline = 0;
+  /** Counts utterances (a gap over `UTTERANCE_GAP_MS` starts the next one): a near miss only serves its own. */
+  private utterEpoch = 0;
+  private nearMiss: { atMs: number; epoch: number } | null = null;
+  private lastSecondChanceAt = -Infinity;
+  private verifyTimes: number[] = [];
+  private verifyPendingAt = -Infinity;
+  private ultraRun = 0;
+  private ultraUntil = -Infinity;
   private counters: WakeCounters = {
     accepted: 0,
     falseWakes: 0,
     forcedAsleep: 0,
     noiseRaises: 0,
+    heldTurns: 0,
+    secondChances: 0,
+    verifyAsked: 0,
+    verifyAccepted: 0,
+    ultrasonic: 0,
     blocked: emptyBlocked(),
   };
   private trace: WakeTraceRow[] = [];
@@ -242,6 +375,7 @@ export class WakeGuard {
     if (frame.speaking) this.lastSpeakingAt = frame.nowMs;
     this.trackSpeech(frame, dt);
     this.trackNoise(frame, dt);
+    this.trackHighBand(frame);
     this.expire(frame.nowMs);
   }
 
@@ -257,7 +391,10 @@ export class WakeGuard {
     }
     if (frame.speech && !frame.speaking) {
       // A run that begins long after the last one ended is a new utterance: the count starts again.
-      if (this.runMs === 0 && frame.nowMs - this.lastRunEndAt > UTTERANCE_GAP_MS) this.utterMs = 0;
+      if (this.runMs === 0 && frame.nowMs - this.lastRunEndAt > UTTERANCE_GAP_MS) {
+        this.utterMs = 0;
+        this.utterEpoch += 1;
+      }
       this.runMs += dt;
       this.gapMs = 0;
       return;
@@ -297,9 +434,73 @@ export class WakeGuard {
     this.decay(dt);
   }
 
+  /** Three flagged frames in a row hold the ultrasonic flag; an unknown or clean frame ends the run. */
+  private trackHighBand(frame: WakeFrame): void {
+    const share = frame.highBandShare;
+    const flagged =
+      this.cfg.ultrasonicShare > 0 &&
+      typeof share === "number" &&
+      Number.isFinite(share) &&
+      share >= 0 &&
+      share <= 1 &&
+      share >= this.cfg.ultrasonicShare;
+    if (!flagged) {
+      this.ultraRun = 0;
+      return;
+    }
+    this.ultraRun += 1;
+    if (this.ultraRun < ULTRASONIC_FRAMES) return;
+    if (!this.ultrasonicSuspect(frame.nowMs)) {
+      this.counters.ultrasonic += 1;
+      this.note(frame.nowMs, "ultrasonic", `high band share ${share.toFixed(2)}`);
+    }
+    this.ultraUntil = frame.nowMs + SCENE_HOLD_MS;
+  }
+
+  /** A replay-like capture is flagged: the bar is raised like a music scene until the hold ends. */
+  ultrasonicSuspect(nowMs: number): boolean {
+    return nowMs <= this.ultraUntil;
+  }
+
   private decay(dt: number): void {
     if (this.boost <= 0) return;
     this.boost = Math.max(0, this.boost - (this.cfg.steadyBoost * dt) / this.cfg.steadyDecayMs);
+  }
+
+  /**
+   * The ears' room reading. Music or TV at `SCENE_ACT_AT` or more raises the wake threshold by up to
+   * `SCENE_BOOST_MAX` (scaled by the score) until `SCENE_HOLD_MS` after this tag; a calmer scene tag ends the raise.
+   * Anything without a scene `kind` (a speaker tag, junk) is ignored; another kind or a score below the bar never
+   * raises, and nothing here can lower the threshold.
+   */
+  observeScene(tag: unknown, nowMs: number): void {
+    if (!tag || typeof tag !== "object" || typeof (tag as Partial<SceneTag>).kind !== "string")
+      return;
+    const raise = raiseForTag(tag);
+    const was = this.sceneRaise(nowMs);
+    this.sceneBoost = raise;
+    this.sceneUntil = raise > 0 ? nowMs + SCENE_HOLD_MS : -Infinity;
+    if (raise > 0 && was === 0)
+      this.note(nowMs, "scene", `${(tag as SceneTag).kind} +${raise.toFixed(2)}`);
+  }
+
+  /**
+   * A turn the ears marked `needsWake` was held to ambient (no wake word, conversation closed). A count for the
+   * Doctor only: it asks for MORE proof and has no way to lower a gate or approve anything.
+   */
+  noteHeldTurn(nowMs: number): void {
+    this.counters.heldTurns += 1;
+    this.note(nowMs, "held", "other voice or TV, no wake word");
+  }
+
+  /** The scene raise in force at `nowMs` (0 once its hold ran out). */
+  sceneRaise(nowMs: number): number {
+    return nowMs <= this.sceneUntil ? this.sceneBoost : 0;
+  }
+
+  /** A music or TV tag is in force: the room may be speaking the name itself. */
+  sceneActive(nowMs: number): boolean {
+    return this.sceneRaise(nowMs) > 0;
   }
 
   /** Speech the VAD heard that can still back a wake: the live run, or a run that ended recently. */
@@ -318,7 +519,28 @@ export class WakeGuard {
 
   consider(input: WakeCandidate): WakeVerdict {
     this.lastNow = input.nowMs;
+    const verifying = this.takeVerifyWindow(input);
     const block = this.blockReason(input);
+    if (block === "verify") {
+      this.hits = 0;
+      this.verifyTimes.push(input.nowMs);
+      this.verifyPendingAt = input.nowMs;
+      this.counters.verifyAsked += 1;
+      this.counters.blocked["below-threshold"] += 1;
+      this.note(input.nowMs, "wake-verify", `score ${input.score.toFixed(2)}`);
+      return { accept: false, reason: "below-threshold", verify: true };
+    }
+    if (block === "second-chance") {
+      this.hits = 0;
+      this.counters.accepted += 1;
+      if (verifying) this.counters.verifyAccepted += 1;
+      this.counters.secondChances += 1;
+      this.nearMiss = null;
+      this.state = "listening";
+      this.deadline = input.nowMs + this.cfg.listenTimeoutMs;
+      this.note(input.nowMs, "wake", `second chance, score ${input.score.toFixed(2)}`);
+      return { accept: true, reason: "accepted" };
+    }
     if (block) {
       this.counters.blocked[block] += 1;
       if (block !== "below-threshold" && block !== "patience") {
@@ -329,26 +551,125 @@ export class WakeGuard {
     }
     this.hits = 0;
     this.counters.accepted += 1;
+    if (verifying) this.counters.verifyAccepted += 1;
     this.state = "listening";
     this.deadline = input.nowMs + this.cfg.listenTimeoutMs;
     this.note(input.nowMs, "wake", `score ${input.score.toFixed(2)}`);
     return { accept: true, reason: "accepted" };
   }
 
-  private blockReason(input: WakeCandidate): WakeBlock | null {
+  /**
+   * An utterance inside `VERIFY_WINDOW_MS` of an ask is that ask's second look; one ask has one look, whatever its
+   * outcome, and a frame candidate never uses it up. It only labels the count: no gate is skipped for it.
+   */
+  private takeVerifyWindow(input: WakeCandidate): boolean {
+    if (input.kind !== "utterance" || this.verifyPendingAt === -Infinity) return false;
+    const at = this.verifyPendingAt;
+    this.verifyPendingAt = -Infinity;
+    return input.nowMs >= at && input.nowMs - at <= VERIFY_WINDOW_MS;
+  }
+
+  /** The second pass may ask now: not too soon after the last ask, and not too many in the last minute. */
+  private verifyAllowed(nowMs: number): boolean {
+    this.verifyTimes = this.verifyTimes.filter((at) => nowMs - at < 60_000 && at <= nowMs);
+    const last = this.verifyTimes[this.verifyTimes.length - 1];
+    if (last !== undefined && nowMs - last < VERIFY_SPACING_MS) return false;
+    return this.verifyTimes.length < VERIFY_PER_MINUTE;
+  }
+
+  private blockReason(input: WakeCandidate): WakeBlock | "second-chance" | "verify" | null {
     if (this.lockReason) return "locked";
     if (input.nowMs < this.cooldownUntil) return "cooldown";
     if (this.speakingNow(input.nowMs) && this.isSelfVoice(input)) return "self-voice";
     if (this.speechHeardMs(input.nowMs) < this.cfg.minSpeechMs) return "no-speech";
-    const effective = Math.min(0.98, input.threshold + this.boost);
+    const raise = this.boost + this.sceneLikeRaise(input.nowMs);
+    const effective = Math.min(0.98, input.threshold + raise);
     if (input.score < effective) {
-      return this.boost > 0 && input.score >= input.threshold ? "room-noise" : "below-threshold";
+      const second = this.secondChance(input, raise);
+      if (second) return second;
+      this.recordNearMiss(input, raise);
+      if (raise === 0 && this.wantsVerify(input)) return "verify";
+      return raise > 0 && input.score >= input.threshold ? "room-noise" : "below-threshold";
     }
+    if (this.needsCorroboration(input) && !this.corroborated(input)) return "uncorroborated";
     if (input.kind === "frame") {
       this.hits += 1;
       if (this.hits < this.cfg.patienceFrames) return "patience";
     }
     return null;
+  }
+
+  /** A frame score inside the margin under the bar (the caller checked no raise is in force) and the rate cap allows it. */
+  private wantsVerify(input: WakeCandidate): boolean {
+    const margin = this.cfg.secondPassMargin;
+    if (margin <= 0 || input.kind !== "frame") return false;
+    if (input.source === "transcript" || input.source === "personal") return false;
+    // Rounded so a score exactly one margin under the bar is inside it whatever the float arithmetic says.
+    if (Math.round((input.threshold - input.score) * 1e6) > Math.round(margin * 1e6)) return false;
+    return this.verifyAllowed(input.nowMs);
+  }
+
+  /** The most a scene tag or the ultrasonic flag raises the bar: one raise, never the two added together. */
+  private sceneLikeRaise(nowMs: number): number {
+    const flagged = this.ultrasonicSuspect(nowMs) ? SCENE_BOOST_MAX : 0;
+    return Math.max(this.sceneRaise(nowMs), flagged);
+  }
+
+  /** A wake that came from the transcript alone, while a music or TV scene is on, wants a second witness. */
+  private needsCorroboration(input: WakeCandidate): boolean {
+    return (
+      (input.source === "transcript" || input.source === "personal") &&
+      this.sceneActive(input.nowMs)
+    );
+  }
+
+  /** The scorer read close to the bar, or the name opened the utterance after a real lead-in of quiet. */
+  private corroborated(input: WakeCandidate): boolean {
+    const probe = input.probeScore;
+    const band = Math.max(this.cfg.nearBand, CORROBORATE_BAND);
+    if (typeof probe === "number" && Number.isFinite(probe) && probe >= input.threshold - band)
+      return true;
+    const leadIn = input.leadInMs;
+    return (
+      input.leading === true &&
+      typeof leadIn === "number" &&
+      Number.isFinite(leadIn) &&
+      leadIn >= this.cfg.leadInMs
+    );
+  }
+
+  private nearFloor(input: WakeCandidate): number {
+    return Math.max(SECOND_CHANCE_FLOOR, input.threshold - this.cfg.nearBand);
+  }
+
+  /** A scorer frame just under the bar (no scene, no noise raise) is remembered for the next transcript wake. */
+  private recordNearMiss(input: WakeCandidate, raise: number): void {
+    if (this.cfg.nearBand <= 0 || raise > 0) return;
+    if (input.source === "transcript" || input.source === "personal") return;
+    if (input.score < this.nearFloor(input) || input.score >= input.threshold) return;
+    this.nearMiss = { atMs: input.nowMs, epoch: this.utterEpoch };
+  }
+
+  /**
+   * A leading transcript wake whose scorer reading sat just under the threshold (its own score, or a near-miss frame
+   * of the same utterance inside `secondChanceMs`). Null when it does not apply, so the usual refusal stands.
+   */
+  private secondChance(input: WakeCandidate, raise: number): WakeBlock | "second-chance" | null {
+    if (this.cfg.nearBand <= 0 || raise > 0) return null;
+    if (input.source !== "transcript" || input.leading !== true) return null;
+    const own = input.score >= this.nearFloor(input) && input.score < input.threshold;
+    const miss = this.nearMiss;
+    const recorded =
+      miss !== null &&
+      miss.epoch === this.utterEpoch &&
+      input.nowMs >= miss.atMs &&
+      input.nowMs - miss.atMs <= this.cfg.secondChanceMs;
+    if (!own && !recorded) return null;
+    if (input.speaker === "different") return "speaker-different";
+    if (input.nowMs - this.lastSecondChanceAt < SECOND_CHANCE_SPACING_MS)
+      return "second-chance-limit";
+    this.lastSecondChanceAt = input.nowMs;
+    return "second-chance";
   }
 
   private isSelfVoice(input: WakeCandidate): boolean {
@@ -448,7 +769,13 @@ export class WakeGuard {
   /** The microphone closed or was reopened: what the audio showed so far no longer applies. State stays. */
   resetAudio(): void {
     this.hits = 0;
+    this.nearMiss = null;
+    this.verifyPendingAt = -Infinity;
+    this.ultraRun = 0;
+    this.ultraUntil = -Infinity;
     this.boost = 0;
+    this.sceneBoost = 0;
+    this.sceneUntil = -Infinity;
     this.steadyAccum = 0;
     this.emaLevel = 0;
     this.wobble = 1;

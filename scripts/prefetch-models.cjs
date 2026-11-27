@@ -241,7 +241,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
   // The voice plan of this PC (voice-weights.cjs voiceInstallPlan): the pinned models its RAM and disk can carry for
   // Hindi, English and Hinglish. Without a plan the list is exactly what it was.
-  for (const item of have.plan?.items || []) {
+  for (const item of planRows(have.plan)) {
     if (item.state === "skipped" || jobs.some((job) => job.id === voiceJobId(item.id))) continue;
     // FRIDAY_PREFETCH_STT_LARGE=0 keeps the two heavy sizes off this PC even when its plan could carry them.
     if (
@@ -339,7 +339,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   // A speech size this PC does not load on its own stays out of setup (the owner can still install it from the Models
   // page, or ask for it here with FRIDAY_PREFETCH_STT_BIG=1); the run says why, in the same line as any other skip.
   // A size the plan itself skipped (its memory or disk does not carry it) is named with the plan's own reason.
-  for (const item of have.plan?.items || []) {
+  for (const item of planRows(have.plan)) {
     const job = item.state === "skipped" && jobs.find((row) => row.id === voiceJobId(item.id));
     if (job && !job.explicit && !job.skipReason) job.skipReason = item.reason;
   }
@@ -352,7 +352,9 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   // note and the Doctor does not require it. Any other size is named with the reason and left to the Models page.
   if (have.plan) {
     const listed = new Set(
-      (have.plan.items || []).filter((i) => i.state !== "skipped").map((i) => voiceJobId(i.id)),
+      planRows(have.plan)
+        .filter((i) => i.state !== "skipped")
+        .map((i) => voiceJobId(i.id)),
     );
     const extras = Array.isArray(have.plan.extras)
       ? new Map(have.plan.extras.map((extra) => [extra.id, extra]))
@@ -371,6 +373,11 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   return jobs;
 }
 
+/** The rows of a voice plan setup fetches from: its items, then the streaming ear when the plan decided one. */
+function planRows(plan) {
+  return [...(plan?.items || []), ...(plan?.streamEar ? [plan.streamEar] : [])];
+}
+
 /** The setup job id of a catalog id: a speech size is `stt-<size>`, every other voice model keeps its own id. */
 function voiceJobId(catalogId) {
   const size = Object.keys(voiceWeights.STT_CATALOG).find(
@@ -381,7 +388,8 @@ function voiceJobId(catalogId) {
 
 /**
  * The job for a pinned voice model that setup does not already fetch by its own rule: a speech size, the Hindi ear and its
- * punctuation model (fetched at their pinned revision into `<root>/models/<id>`, like the neural voice).
+ * punctuation model, and the streaming ear when the plan carries it (fetched at their pinned revision into
+ * `<root>/models/<id>`, every file checked against its pinned SHA-256, like the neural voice).
  */
 function voiceModelJob(root, catalogId) {
   const size = Object.keys(voiceWeights.STT_CATALOG).find(
@@ -398,9 +406,20 @@ function voiceModelJob(root, catalogId) {
   }
   const row = voiceWeights.modelRegistry().find((item) => item.catalogId === catalogId);
   if (!row?.repo || row.dir[0] !== "models") return null;
+  // A plan model that stays optional (the streaming ear): like the two helpers, a failed fetch is a NOTE that names the
+  // fallback, never a FAIL or ACTION REQUIRED, and the Doctor never requires it.
+  const optional = voiceWeights.isPlanOptional(catalogId);
   return {
     id: catalogId,
     kind: "voice-model",
+    ...(optional
+      ? {
+          optional: true,
+          fallback: voiceWeights.planFallback(catalogId),
+          failureLine: (result) => voiceWeights.pinnedFailureLine(catalogId, result),
+        }
+      : {}),
+    approxBytes: voiceWeights.manifestOf(catalogId)?.diskBytes || 0,
     ready: path.join(root, ...row.dir),
     job: {
       modelId: catalogId,
@@ -1376,7 +1395,12 @@ async function prefetch(
   uiRef.current = ui;
   const say = ui ? (line) => ui.say(line) : log;
   if (ui) {
-    ui.start(jobs.map((row) => ({ id: row.id, approxBytes: APPROX_BYTES[row.id] || 0 })));
+    ui.start(
+      jobs.map((row) => ({
+        id: row.id,
+        approxBytes: APPROX_BYTES[row.id] || row.approxBytes || 0,
+      })),
+    );
   }
   const outcomes = await mapPool(jobs, parallel, async (row) => {
     if (alreadyThere(row)) {
@@ -1655,6 +1679,7 @@ module.exports = {
   readPlanSync,
   plainBlocked,
   voiceJobId,
+  voiceModelJob,
   PLAN_JSON,
   MOONSHINE_DIR,
 };

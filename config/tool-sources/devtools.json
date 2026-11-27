@@ -1,0 +1,548 @@
+{
+  "version": 1,
+  "rows": {
+    "Git": {
+      "home": "machine",
+      "homeReason": "Git for Windows installs system-wide (PATH, credential manager) and asks for UAC; MinGit is the friday-root copy.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "git-for-windows/git",
+          "strip": "^v|\\.windows\\.\\d+$"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "git-for-windows/git",
+          "tagPattern": "^v\\d+\\.\\d+\\.\\d+\\.windows\\.\\d+$",
+          "strip": "^v|\\.windows\\.\\d+$"
+        },
+        {
+          "kind": "endoflife",
+          "product": "git"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "git",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/git-for-windows/git/releases/download/v{version}.windows.1/Git-{version}-64-bit.exe",
+        "archive": "exe"
+      },
+      "silentInstall": "Git-{version}-64-bit.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "MinGit": {
+      "home": "friday-root",
+      "homeReason": "MinGit is a plain zip with no installer, so it stays inside the FRIDAY folder.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "git-for-windows/git",
+          "strip": "^v|\\.windows\\.\\d+$"
+        },
+        {
+          "kind": "endoflife",
+          "product": "git"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "mingit",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/git-for-windows/git/releases/download/v{version}.windows.1/MinGit-{version}-64-bit.zip",
+        "archive": "zip",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/mingit.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Gradle": {
+      "home": "friday-root",
+      "homeReason": "The binary distribution is a zip that runs from any folder (needs a JDK).",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://services.gradle.org/versions/current",
+          "path": "$.version"
+        },
+        {
+          "kind": "github-api",
+          "repo": "gradle/gradle-distributions"
+        },
+        {
+          "kind": "endoflife",
+          "product": "gradle"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "gradle",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://services.gradle.org/distributions/gradle-{version}-bin.zip",
+        "archive": "zip",
+        "digestUrl": "https://services.gradle.org/distributions/gradle-{version}-bin.zip.sha256"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Maven": {
+      "home": "friday-root",
+      "homeReason": "The binary distribution is a zip that runs from any folder (needs a JDK).",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://maven.apache.org/download.cgi",
+          "pattern": "Apache Maven (\\d+\\.\\d+\\.\\d+) is the latest release"
+        },
+        {
+          "kind": "endoflife",
+          "product": "apache-maven"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "maven",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.zip",
+        "archive": "zip",
+        "digestUrl": "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.zip.sha512",
+        "digestAlgo": "sha512"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "LLVM / Clang": {
+      "home": "machine",
+      "homeReason": "The MSI is about 1 GB and adds itself to PATH system-wide, so it belongs on the PC and asks for UAC.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "llvm/llvm-project",
+          "strip": "^llvmorg-"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "llvm/llvm-project",
+          "tagPattern": "^llvmorg-\\d+\\.\\d+\\.\\d+$",
+          "strip": "^llvmorg-"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "llvm",
+          "bucket": "Main"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/llvm.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/LLVM-{version}-win64.msi",
+        "archive": "msi",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/llvm.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "silentInstall": "msiexec /i LLVM-{version}-win64.msi /qn /norestart",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "MSYS2": {
+      "home": "friday-root",
+      "homeReason": "The base archive unpacks portably and runs its own first-start setup; the setup exe is the machine-wide alternative.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://repo.msys2.org/distrib/x86_64/",
+          "pattern": "msys2-base-x86_64-(\\d{8})\\.tar\\.xz\"",
+          "pick": "highest"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "msys2/msys2-installer",
+          "tagPattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "strip": "-"
+        },
+        {
+          "kind": "github-api",
+          "repo": "msys2/msys2-installer",
+          "strip": "-"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Packages()?$filter=Id%20eq%20'msys2'%20and%20IsLatestVersion&$select=Version",
+          "pattern": "<d:Version>([\\d.]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://repo.msys2.org/distrib/x86_64/msys2-base-x86_64-{version}.tar.xz",
+        "archive": "tar.xz",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/msys2.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "w64devkit": {
+      "home": "friday-root",
+      "homeReason": "A self-extracting 7z that is fully portable and needs no installer.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "skeeto/w64devkit"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "skeeto/w64devkit"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "w64devkit",
+          "bucket": "Extras"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/skeeto/w64devkit/releases/download/v{version}/w64devkit-x64-{version}.7z.exe",
+        "archive": "7z",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Extras/master/bucket/w64devkit.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "NSIS": {
+      "home": "machine",
+      "homeReason": "The zip has no SHA-256 from any source, so the setup exe (SHA-256 published by the vendor) is used; its installer asks for UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://sourceforge.net/projects/nsis/best_release.json",
+          "pattern": "nsis-(\\d+(?:\\.\\d+)+)-setup\\.exe"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "nsis",
+          "bucket": "Extras"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Packages()?$filter=Id%20eq%20'nsis'%20and%20IsLatestVersion&$select=Version",
+          "pattern": "<d:Version>([\\d.]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://downloads.sourceforge.net/project/nsis/NSIS%203/{version}/nsis-{version}-setup.exe",
+        "archive": "exe",
+        "digestUrl": "https://sourceforge.net/projects/nsis/best_release.json",
+        "digestPath": "$.release.sha256sum"
+      },
+      "silentInstall": "nsis-{version}-setup.exe /S",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Graphviz": {
+      "home": "friday-root",
+      "homeReason": "The official win64 zip runs portable (bin/dot.exe); the catalogue installer is the machine alternative.",
+      "sources": [
+        {
+          "kind": "json-path",
+          "url": "https://gitlab.com/api/v4/projects/graphviz%2Fgraphviz/releases?per_page=1",
+          "path": "[0].tag_name"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "graphviz",
+          "bucket": "Main"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/graphviz.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/{version}/windows_10_cmake_Release_Graphviz-{version}-win64.zip",
+        "archive": "zip"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "D2": {
+      "home": "friday-root",
+      "homeReason": "A single static binary in a tar.gz that runs from any folder; the catalogue MSI is the machine alternative.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "d2lang/d2"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "d2lang/d2"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "d2",
+          "bucket": "Main"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/d2.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/d2lang/d2/releases/download/v{version}/d2-v{version}-windows-amd64.tar.gz",
+        "archive": "tar.gz",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/d2.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "aria2": {
+      "home": "friday-root",
+      "homeReason": "A static zip holding aria2c.exe that runs from any folder.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "aria2/aria2",
+          "strip": "^release-"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "aria2/aria2",
+          "tagPattern": "^release-\\d+(\\.\\d+)+$",
+          "strip": "^release-"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/aria2.json",
+          "path": "$.version",
+          "strip": "-\\d+$"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/aria2.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/aria2/aria2/releases/download/release-{version}/aria2-{version}-win-64bit-build1.zip",
+        "archive": "zip",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/aria2.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "7-Zip": {
+      "home": "machine",
+      "homeReason": "The MSI integrates with the shell and asks for UAC.",
+      "sources": [
+        {
+          "kind": "html-regex",
+          "url": "https://www.7-zip.org/download.html",
+          "pattern": "Download 7-Zip (\\d+\\.\\d+) \\("
+        },
+        {
+          "kind": "github-api",
+          "repo": "ip7z/7zip"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "7zip",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/ip7z/7zip/releases/download/{version}/7z{versionNoDots}-x64.msi",
+        "archive": "msi",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/7zip.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "silentInstall": "msiexec /i 7z{versionNoDots}-x64.msi /qn /norestart",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "Pandoc": {
+      "home": "friday-root",
+      "homeReason": "The windows-x86_64 zip is portable; the MSI is the machine alternative.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "jgm/pandoc"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "jgm/pandoc"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "pandoc",
+          "bucket": "Main"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/pandoc.json",
+          "path": "$.versions.stable"
+        },
+        {
+          "kind": "html-regex",
+          "url": "https://community.chocolatey.org/api/v2/Packages()?$filter=Id%20eq%20'pandoc'%20and%20IsLatestVersion&$select=Version",
+          "pattern": "<d:Version>([\\d.]+)</d:Version>"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/jgm/pandoc/releases/download/{version}/pandoc-{version}-windows-x86_64.zip",
+        "archive": "zip",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/pandoc.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "ImageMagick": {
+      "home": "machine",
+      "homeReason": "The portable build is a 7z with no published SHA-256; the installer has one and asks for UAC.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "ImageMagick/ImageMagick"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "ImageMagick/ImageMagick"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "imagemagick",
+          "bucket": "Main"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/imagemagick.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/ImageMagick/ImageMagick/releases/download/{version}/ImageMagick-{version}-Q16-HDRI-x64-dll.exe",
+        "archive": "exe",
+        "digestUrl": "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/imagemagick.json",
+        "digestPath": "$.architecture.64bit.hash"
+      },
+      "silentInstall": "ImageMagick-{version}-Q16-HDRI-x64-dll.exe /VERYSILENT /NORESTART /SP-",
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "FFmpeg": {
+      "home": "friday-root",
+      "homeReason": "The essentials zip holds bin/ffmpeg.exe and runs from any folder.",
+      "sources": [
+        {
+          "kind": "text-line",
+          "url": "https://www.gyan.dev/ffmpeg/builds/release-version"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://endoflife.date/api/ffmpeg.json",
+          "path": "[0].latest",
+          "strip": "\\.0$"
+        },
+        {
+          "kind": "scoop-manifest",
+          "name": "ffmpeg",
+          "bucket": "Main"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-{version}-essentials_build.zip",
+        "archive": "zip",
+        "digestUrl": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-{version}-essentials_build.zip.sha256"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "whisper.cpp": {
+      "home": "friday-root",
+      "homeReason": "The release zip holds whisper-cli.exe and runs from any folder.",
+      "sources": [
+        {
+          "kind": "github-api",
+          "repo": "ggml-org/whisper.cpp"
+        },
+        {
+          "kind": "github-atom",
+          "repo": "ggml-org/whisper.cpp",
+          "tagPattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://formulae.brew.sh/api/formula/whisper.cpp.json",
+          "path": "$.versions.stable"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://github.com/ggml-org/whisper.cpp/releases/download/v{version}/whisper-bin-x64.zip",
+        "archive": "zip"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27"
+    },
+    "ggml-base": {
+      "home": "friday-root",
+      "homeReason": "A single model file kept under the FRIDAY models folder.",
+      "sources": [
+        {
+          "kind": "hf-api",
+          "repo": "ggerganov/whisper.cpp"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main",
+          "path": "$[?(@.path=='ggml-base.bin')].lfs.oid"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+        "digestUrl": "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main",
+        "digestPath": "$[?(@.path=='ggml-base.bin')].lfs.oid"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27",
+      "singleSourceReason": "Hugging Face ggerganov/whisper.cpp is the only official host of these weights; both specs read that one repository (revision, and the file's own content id)."
+    },
+    "ggml-tiny": {
+      "home": "friday-root",
+      "homeReason": "A single model file kept under the FRIDAY models folder.",
+      "sources": [
+        {
+          "kind": "hf-api",
+          "repo": "ggerganov/whisper.cpp"
+        },
+        {
+          "kind": "json-path",
+          "url": "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main",
+          "path": "$[?(@.path=='ggml-tiny.bin')].lfs.oid"
+        }
+      ],
+      "download": {
+        "urlTemplate": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        "digestUrl": "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main",
+        "digestPath": "$[?(@.path=='ggml-tiny.bin')].lfs.oid"
+      },
+      "notifyOnly": false,
+      "checked": "2026-11-27",
+      "singleSourceReason": "Hugging Face ggerganov/whisper.cpp is the only official host of these weights; both specs read that one repository (revision, and the file's own content id)."
+    }
+  }
+}

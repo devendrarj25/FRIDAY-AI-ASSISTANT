@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "checked": "2026-11-27",
+  "note": "FRIDAY Core: the local brain FRIDAY runs on this PC through FRIDAY Runtime LLM. Every weight is fetched on demand into <ROOT>/models/friday-core/ from the first source that is published (mirrors, in order), refused unless its size and SHA-256 match, and never committed or bundled in the EXE. Read from the official Hugging Face model API (blobs=true, siblings[].lfs.sha256) and re-checked against the resolve headers (x-linked-etag, x-linked-size) at the pinned revision on 2026-11-27. Licence notes live in the documents only.",
+  "diskDir": "models/friday-core",
+  "serve": {
+    "ctx": 8192
+  },
+  "memory": {
+    "windowsGb": 3.5,
+    "appReserveGb": 3.5,
+    "estimate": true
+  },
+  "mirrors": [
+    {
+      "id": "friday-models",
+      "kind": "release",
+      "repository": "devendrarj25/FRIDAY-AI-ASSISTANT",
+      "tagPrefix": "friday-models-",
+      "urlPattern": "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/releases/download/<pack tag>/<file>",
+      "match": "sha256",
+      "partBytes": 1900000000
+    },
+    {
+      "id": "upstream",
+      "kind": "upstream",
+      "urlPattern": "https://huggingface.co/<repo>/resolve/<revision>/<file>"
+    }
+  ],
+  "licences": {
+    "Apache-2.0": {
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "checkedAt": "2026-11-27"
+    },
+    "MIT": {
+      "url": "https://opensource.org/license/mit",
+      "checkedAt": "2026-11-27"
+    }
+  },
+  "variants": [
+    {
+      "id": "e4b",
+      "fridayId": "friday-core",
+      "fridayName": "FRIDAY Core",
+      "role": "default",
+      "caps": ["text", "image", "video-frames", "audio-30s", "tools"],
+      "kvGbAt8k": 0.8,
+      "overheadGb": 0.5,
+      "licence": {
+        "id": "Apache-2.0",
+        "source": "https://ai.google.dev/gemma/docs/gemma_4_license",
+        "checkedAt": "2026-11-27"
+      },
+      "files": [
+        {
+          "kind": "model",
+          "disk": "friday-core-e4b.gguf",
+          "upstream": {
+            "repo": "ggml-org/gemma-4-E4B-it-GGUF",
+            "revision": "8903cb408c7df39cde2ed15fac397e6d7be92951",
+            "file": "gemma-4-E4B-it-Q4_0.gguf"
+          },
+          "bytes": 4590807392,
+          "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+        },
+        {
+          "kind": "mmproj",
+          "disk": "friday-core-e4b-mmproj.gguf",
+          "upstream": {
+            "repo": "ggml-org/gemma-4-E4B-it-GGUF",
+            "revision": "8903cb408c7df39cde2ed15fac397e6d7be92951",
+            "file": "mmproj-gemma-4-E4B-it-Q8_0.gguf"
+          },
+          "bytes": 559874848,
+          "sha256": "9257f21a0f5358204b4a612cff83fad2e56412f4f607f0049331ce60c0cf9d34"
+        }
+      ]
+    },
+    {
+      "id": "e2b",
+      "fridayId": "friday-core-lite",
+      "fridayName": "FRIDAY Core Lite",
+      "role": "lite",
+      "caps": ["text", "image", "video-frames", "audio-30s", "tools"],
+      "kvGbAt8k": 0.5,
+      "overheadGb": 0.5,
+      "licence": {
+        "id": "Apache-2.0",
+        "source": "https://ai.google.dev/gemma/docs/gemma_4_license",
+        "checkedAt": "2026-11-27"
+      },
+      "files": [
+        {
+          "kind": "model",
+          "disk": "friday-core-e2b.gguf",
+          "upstream": {
+            "repo": "ggml-org/gemma-4-E2B-it-GGUF",
+            "revision": "2a8538c2e2d4687953a86c422c7c623cfd022880",
+            "file": "gemma-4-E2B-it-Q4_0.gguf"
+          },
+          "bytes": 2841481184,
+          "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52"
+        },
+        {
+          "kind": "mmproj",
+          "disk": "friday-core-e2b-mmproj.gguf",
+          "upstream": {
+            "repo": "ggml-org/gemma-4-E2B-it-GGUF",
+            "revision": "2a8538c2e2d4687953a86c422c7c623cfd022880",
+            "file": "mmproj-gemma-4-E2B-it-Q8_0.gguf"
+          },
+          "bytes": 557368096,
+          "sha256": "042cc2561806cd3b5cb5efb25cab76911e3100c43cc09d854904f921924b1429"
+        }
+      ]
+    },
+    {
+      "id": "q4b",
+      "fridayId": "friday-core-q",
+      "fridayName": "FRIDAY Core Q",
+      "role": "challenger",
+      "caps": ["text", "image", "video-frames", "tools"],
+      "kvGbAt8k": 0.6,
+      "overheadGb": 0.5,
+      "licence": {
+        "id": "Apache-2.0",
+        "source": "https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE",
+        "checkedAt": "2026-11-27"
+      },
+      "files": [
+        {
+          "kind": "model",
+          "disk": "friday-core-q4b.gguf",
+          "upstream": {
+            "repo": "ggml-org/Qwen3.5-4B-GGUF",
+            "revision": "8d43d974efc48399cb58957ad49c8b26bf5a109c",
+            "file": "Qwen3.5-4B-Q4_K_M.gguf"
+          },
+          "bytes": 3032091584,
+          "sha256": "217002fa8008ef4fc6d548353a3aebef055a96e6ff8e0e2c0953ef8254a89c14"
+        },
+        {
+          "kind": "mmproj",
+          "disk": "friday-core-q4b-mmproj.gguf",
+          "upstream": {
+            "repo": "ggml-org/Qwen3.5-4B-GGUF",
+            "revision": "8d43d974efc48399cb58957ad49c8b26bf5a109c",
+            "file": "mmproj-Qwen3.5-4B-Q8_0.gguf"
+          },
+          "bytes": 366894560,
+          "sha256": "5a5ba634d46f9888599963bfc52194eadf099e1efdbee46d71957d911cf62654"
+        }
+      ]
+    },
+    {
+      "id": "recall",
+      "fridayId": "friday-recall",
+      "fridayName": "FRIDAY Recall embedder",
+      "role": "embedder",
+      "caps": ["embed"],
+      "kvGbAt8k": 0.0,
+      "overheadGb": 0.1,
+      "licence": {
+        "id": "MIT",
+        "source": "https://huggingface.co/BAAI/bge-m3",
+        "checkedAt": "2026-11-27"
+      },
+      "files": [
+        {
+          "kind": "model",
+          "disk": "friday-core-recall.gguf",
+          "upstream": {
+            "repo": "ggml-org/bge-m3-Q8_0-GGUF",
+            "revision": "9eba04c5d75ba5a1595e45de734d36bef4e5cb98",
+            "file": "bge-m3-q8_0.gguf"
+          },
+          "bytes": 634553760,
+          "sha256": "aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173"
+        }
+      ]
+    }
+  ],
+  "fallbackTiers": [
+    {
+      "tier": "cpu-ram-8",
+      "tag": "qwen3.5:2b",
+      "minRamGb": 8,
+      "minFreeGb": 5
+    },
+    {
+      "tier": "cpu-ram-under-8",
+      "tag": "qwen3.5:0.8b",
+      "minRamGb": 0,
+      "minFreeGb": 0
+    }
+  ],
+  "runtime": {
+    "repo": "ggml-org/llama.cpp",
+    "tag": "b12230",
+    "releasedAt": "2026-11-09",
+    "checkedAt": "2026-11-27",
+    "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b12230",
+    "urlPattern": "https://github.com/ggml-org/llama.cpp/releases/download/b12230/<name>",
+    "assets": [
+      {
+        "id": "cpu-x64",
+        "name": "llama-b12230-bin-win-cpu-x64.zip",
+        "bytes": 24898046,
+        "sha256": "a787fb94d48e6d93aa5809133f5f984360a5713b20d2f9ee1ccc4b22cd9cce56"
+      },
+      {
+        "id": "cuda-12.4-x64",
+        "name": "llama-b12230-bin-win-cuda-12.4-x64.zip",
+        "bytes": null,
+        "sha256": "29180e373c153ca59e1837872561eeb800f5b60f1e6375653f8b7d3df57ab885"
+      },
+      {
+        "id": "cudart-12.4-x64",
+        "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "bytes": null,
+        "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+      },
+      {
+        "id": "vulkan-x64",
+        "name": "llama-b12230-bin-win-vulkan-x64.zip",
+        "bytes": null,
+        "sha256": "1ae697ed5c08d6f260add738e222f3bce525d79836286575d6a335972d772076"
+      }
+    ]
+  },
+  "unverified": [
+    "runtime bytes of the CUDA, cudart and Vulkan zips (the release page shows megabytes only; the sha256 values were read twice from the release asset list)",
+    "the memory figures (kvGbAt8k, overheadGb, windowsGb, appReserveGb) are estimates, not measured on the owner's PC",
+    "Gemma 4 audio input and the multi-token draft files at llama.cpp tag b12230",
+    "Qwen3.5 projector support in the pinned llama.cpp tag",
+    "no Core file is in the FRIDAY Models release yet, so the upstream source is the only live road"
+  ]
+}

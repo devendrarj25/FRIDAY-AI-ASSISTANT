@@ -428,7 +428,9 @@ describe("the real engines behind the pass (fake bridge, no device)", () => {
       "turn:done",
       "acks:skipped",
     ]);
-    expect(sent["speak"]).toHaveLength(1); // only the three-word warm-up phrase
+    const calls = (sent["speak"] ?? []) as Array<{ text: string; warm?: boolean }>;
+    expect(calls.filter((c) => c.warm === true)).toHaveLength(1); // the engine warm-up, once
+    expect(calls.filter((c) => !c.warm)).toHaveLength(1); // only the three-word warm-up phrase
     expect(lib.ackMemory.ids()).toEqual([]);
     expect(lib.readyAckClipIds()).toEqual([]);
   });

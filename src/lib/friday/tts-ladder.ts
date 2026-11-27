@@ -11,16 +11,28 @@ export {
 export type TtsEngine = "neural" | "supertonic" | "sapi";
 
 /**
- * Neural online, Supertonic offline, then the system voice. Privacy stays on the system voice.
- * The decision is the one ranking in `voice-engine/tts-provider.ts` (the fallback manager's order).
+ * The ladder of the standard voice: the owner's explicit choice first, then FRIDAY Voice (the local voice) whenever it
+ * is installed and its breaker is closed, online, offline and under privacy mode alike; then, only when the cloud is
+ * allowed (online, privacy mode off, an explicit pick or FRIDAY Voice unavailable), the online neural voice; the system
+ * voice is the last rung. An explicit `neural` pick is the owner's, and still never reaches a private line.
+ * The cloud rung itself is still decided by the one ranking in `voice-engine/tts-provider.ts`.
  */
 export function chooseTtsEngine(input: {
   network: boolean;
   supertonicReady: boolean;
   privacy: boolean;
   prefer?: "auto" | TtsEngine;
+  /** FRIDAY Voice failed lately: its breaker is open, so it counts as not ready until it closes. */
+  supertonicBreakerOpen?: boolean;
 }): TtsEngine {
-  return legacyEngineChoice(input) as TtsEngine;
+  const { supertonicBreakerOpen, ...rest } = input;
+  const ready = rest.supertonicReady && supertonicBreakerOpen !== true;
+  const ranked = legacyEngineChoice({ ...rest, supertonicReady: ready }) as TtsEngine;
+  if (rest.prefer === "sapi") return ranked;
+  // The cloud rung wins only when the owner asked for it, or FRIDAY Voice cannot speak.
+  if (ranked === "neural") return ready && rest.prefer !== "neural" ? "supertonic" : "neural";
+  // A private line is on-device by definition: FRIDAY Voice, not the system voice, when it is ready.
+  return ready ? "supertonic" : ranked;
 }
 
 const HINDI_LIGHT_WHY: Record<string, string> = {

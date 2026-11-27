@@ -350,8 +350,19 @@ describe("LiveWords streaming (timed words, LocalAgreement-2)", () => {
     await r.lw.tick();
     for (const u of r.updates) {
       expect(Object.keys(u).sort()).toEqual(
-        ["language", "passes", "settled", "shown", "unstable"].sort(),
+        [
+          "language",
+          "passes",
+          "revision",
+          "settled",
+          "shown",
+          "stable",
+          "unstable",
+          "volatile",
+        ].sort(),
       );
+      expect(Object.keys(u)).not.toContain("final");
+      expect(Object.keys(u)).not.toContain("actionable");
     }
     const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
     const at = mode.indexOf("onUpdate: (update) => {");

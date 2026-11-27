@@ -179,7 +179,7 @@ describe("setup uses the plan (prefetch-models.cjs)", () => {
       {
         kind: "hf-repo",
         repo: "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx",
-        label: "Hugging Face (Hindi ear)",
+        label: "Hugging Face (FRIDAY Ear Hindi)",
       },
     ]);
     expect(jobs.find((job) => job.id === "hindi-punct")).toBeTruthy();

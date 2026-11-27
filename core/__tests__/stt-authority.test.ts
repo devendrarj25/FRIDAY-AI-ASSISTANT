@@ -276,7 +276,9 @@ describe("the option and its wiring", () => {
     expect(mode).toContain("this.sttArbiter().cloudFinal(final.text");
     // The only call that turns heard text into a turn is the arbiter's submit.
     const accept = mode.slice(mode.indexOf("private acceptFinalUtterance"));
-    expect(accept).toContain("this.handleHeard(text, meta?.wake ?? null)");
+    expect(accept).toContain(
+      "this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null)",
+    );
     const onFinal = mode.slice(mode.indexOf("onFinal: (text, meta) => {"));
     expect(onFinal.slice(0, 600)).not.toContain("handleHeard(");
     // A partial from the stream only draws the caption.

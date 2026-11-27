@@ -10,10 +10,92 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
+/**
+ * The licence record of every pin, read from each repository's own tag and card (the Hugging Face API at the pinned
+ * revision) and from the official licence page, all re-read on 2026-11-27. `license` (the plain id string) stays as it
+ * was; `licenseRecord` is the structured form the bundle gate reads:
+ *   · id             the licence id (SPDX-like); the allowlist below is the only set a bundled tier may carry;
+ *   · url            the official licence page (HTTP 200 on 2026-11-27);
+ *   · redistribution permissive (MIT, Apache-2.0: keep the notices), attribution (credit and a copy of the agreement),
+ *                    use-restricted (OpenRAIL-M: the use limits travel with the copy) or refused (never bundled).
+ * No licence text body is kept in the repository: whether FRIDAY redistributes weights at all is the owner's decision,
+ * and until then every weight is downloaded from the official repository on the owner's PC and never bundled.
+ */
+const LICENCES = {
+  MIT: { url: "https://opensource.org/license/mit", redistribution: "permissive" },
+  "Apache-2.0": {
+    url: "https://www.apache.org/licenses/LICENSE-2.0",
+    redistribution: "permissive",
+  },
+  // Smart Turn (pipecat-ai/smart-turn-v3): the pinned revision f766f81d's README front matter reads `license: bsd-2-clause`
+  // and the upstream LICENSE reads "BSD 2-Clause License"; both re-read on 2026-11-27.
+  "BSD-2-Clause": {
+    url: "https://opensource.org/license/bsd-2-clause",
+    redistribution: "permissive",
+  },
+  "CC-BY-4.0": {
+    url: "https://creativecommons.org/licenses/by/4.0/",
+    redistribution: "attribution",
+  },
+  "OpenRAIL-M": {
+    url: "https://huggingface.co/Supertone/supertonic-3/blob/3cadd1ee6394adea1bd021217a0e650ede09a323/LICENSE",
+    redistribution: "use-restricted",
+  },
+  "NVIDIA-Open-Model-License": {
+    url: "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
+    redistribution: "attribution",
+  },
+  "OpenMDW-1.1": { url: "https://openmdw.ai/license/1-1/", redistribution: "attribution" },
+};
+const LICENCE_CHECKED_AT = "2026-11-27";
+const REDISTRIBUTION_CLASSES = ["permissive", "attribution", "use-restricted", "refused"];
+
+/** The licence the upstream NVIDIA card names for the streaming ear's base model (the pinned copy carries the older tag). */
+const UPSTREAM_OPENMDW = {
+  id: "OpenMDW-1.1",
+  url: LICENCES["OpenMDW-1.1"].url,
+  source: "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+  checkedAt: LICENCE_CHECKED_AT,
+};
+
+function licence(id) {
+  const known = LICENCES[id];
+  return {
+    id,
+    url: known.url,
+    redistribution: known.redistribution,
+    checkedAt: LICENCE_CHECKED_AT,
+  };
+}
+
+/** True for a licence id that is copyleft (GPL, LGPL, AGPL), non-commercial (NC) or share-alike (SA), by its name. */
+function isCopyleftOrRestricted(id) {
+  const text = String(id || "").toUpperCase();
+  return /(^|[^A-Z])[AL]?GPL/.test(text) || /(^|[^A-Z0-9])(NC|SA)([^A-Z0-9]|$)/.test(text);
+}
+
+/**
+ * The bundle gate: may this pin ship inside the installer or a bundled tier? Pure. It refuses a pin with no record,
+ * a licence id that is not on the allowlist (unknown), a copyleft, non-commercial or share-alike id, a class outside
+ * the four, a `refused` class, and a record whose url is not https.
+ */
+function bundleAllowed(pin) {
+  const rec = pin?.licenseRecord;
+  if (!rec || typeof rec !== "object") return false;
+  const id = String(rec.id || "");
+  if (!id || isCopyleftOrRestricted(id)) return false;
+  if (!Object.prototype.hasOwnProperty.call(LICENCES, id)) return false;
+  if (!REDISTRIBUTION_CLASSES.includes(rec.redistribution) || rec.redistribution === "refused")
+    return false;
+  if (typeof rec.url !== "string" || !rec.url.startsWith("https://")) return false;
+  return true;
+}
+
 const PINS = {
   "Systran/faster-whisper-base": {
     revision: "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
@@ -36,6 +118,7 @@ const PINS = {
   "Systran/faster-whisper-large-v3": {
     revision: "edaa852ec7e145841d8ffdb056a99866b5f0a478",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
@@ -62,6 +145,7 @@ const PINS = {
   "Systran/faster-whisper-medium": {
     revision: "08e178d48790749d25932bbc082711ddcfdfbc4f",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807",
@@ -84,6 +168,7 @@ const PINS = {
   "Systran/faster-whisper-small": {
     revision: "536b0662742c02347bc0e980a01041f333bce120",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
@@ -106,6 +191,7 @@ const PINS = {
   "Systran/faster-whisper-tiny": {
     revision: "d90ca5fe260221311c53c58e660288d3deb8d356",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8",
@@ -128,6 +214,7 @@ const PINS = {
   "dropbox-dash/faster-whisper-large-v3-turbo": {
     revision: "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e",
@@ -154,6 +241,7 @@ const PINS = {
   "OpenVoiceOS/ai4bharat-indicconformer-hi-onnx": {
     revision: "8960b8611af5b8c375d442d52907360176410c8b",
     license: "MIT",
+    licenseRecord: licence("MIT"),
     files: {
       "config.json": {
         sha256: "4bfb1d53736f8b675b784d6ece61f5b8e7ae73ca2c0ed4c232e9135ac44ab909",
@@ -174,6 +262,7 @@ const PINS = {
   "MSpider3/whisper-hindi2hinglish-swift-ct2": {
     revision: "484362f23d657c07c2762ce1c52d7b4a7ab49d25",
     license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.json": {
         sha256: "7dcc85f06f98312a1146df7f28959c358c87ab3d01c369eacd4b22f1ec2c43e4",
@@ -197,11 +286,11 @@ const PINS = {
       },
     },
   },
-  // The Hindi fallback: Collabora's Whisper-small Hindi fine-tune, CTranslate2. CC-BY-4.0: the credit is
-  // shown on the Models page. Used instead of generic small only when Hindi is chosen and the Hindi ear is missing.
+  // The Hindi fallback: Collabora's Whisper-small Hindi fine-tune, CTranslate2. CC-BY-4.0. Used instead of generic small only when Hindi is chosen and the Hindi ear is missing.
   "collabora/faster-whisper-small-hindi": {
     revision: "92e09a8982af971cf2033ed592d4ef8b249baad2",
     license: "CC-BY-4.0",
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "config.json": {
         sha256: "a009751ea519c21514a766f08b33784c0ce0aef4f3fafdc3687f56e33ef35b1a",
@@ -230,6 +319,7 @@ const PINS = {
   "1-800-BAD-CODE/punct_cap_seg_47_language": {
     revision: "1b9d51fc7989ebc61e844d407d9dadd08ff4ba28",
     license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.yaml": {
         sha256: "30eb8e05fcea3865828ab73f41fbba21dd7faf127a61950a706af9156f5b84f2",
@@ -246,12 +336,12 @@ const PINS = {
     },
   },
   // The optional light Hindi voice (kernel/tts_hindi_light.py): three ONNX graphs, 91 MB. The model files are
-  // CC-BY-4.0 (credit: Sulabh Katiyar, trained on AI4Bharat Rasa): the credit is shown in the Models page row and the
-  // licence text is kept next to the weights. The package code in the repository is not downloaded; FRIDAY's own
+  // CC-BY-4.0: the licence text is kept next to the weights. The package code in the repository is not downloaded; FRIDAY's own
   // thin Devanagari frontend replaces it.
   "sulabhkatiyar/indic-tiny-tts-hindi": {
     revision: "1fb1b108ee6ffb73ee74bd68b283ec13eb39e957",
     license: "CC-BY-4.0",
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "LICENSE.md": {
         sha256: "64fa648284b590c9e62a0d40521ba8c40728ec16cfb485245ef620436f0579ed",
@@ -282,6 +372,7 @@ const PINS = {
   "Supertone/supertonic-3": {
     revision: "3cadd1ee6394adea1bd021217a0e650ede09a323",
     license: "OpenRAIL-M",
+    licenseRecord: licence("OpenRAIL-M"),
     files: {
       "config.json": {
         sha256: "4099082b107a9d4029849ac76b89eca65e03732660969c2babe5bf308c7357f2",
@@ -353,25 +444,45 @@ const PINS = {
       },
     },
   },
-  // Optional, off by default, never fetched on its own. Read from the Hugging Face API on 2026-11-23 and the small files
-  // fetched at the pinned revision and hashed here. Only the one 16 kHz ONNX graph is pinned (the repository also holds
-  // 8 kHz, 48 kHz, TFLite and checkpoint files, none of which FRIDAY uses). A streaming speech-enhancement model
-  // (Apache-2.0, Ceva-IP): one 10 ms frame in, one frame out, with a state vector. No wrapper in FRIDAY runs it yet.
+  // Optional, off by default, never fetched on its own. Read from the Hugging Face API (`?blobs=true`, lfs.sha256) on
+  // 2026-11-26 and the pinned file downloaded and hashed here. Only the one 16 kHz ONNX graph, `dpdfnet2` (the smallest
+  // of the 16 kHz family, 10.2 MB), is pinned: the repository also holds dpdfnet4 and dpdfnet8, 8 kHz and 48 kHz graphs,
+  // TFLite and checkpoint files, none of which FRIDAY uses. A streaming speech-enhancement model (Apache-2.0, Ceva-IP):
+  // one 10 ms spectrum frame in, one frame out, with a flat state vector. `kernel/denoise_onnx.py` runs it (A/B tool
+  // only; no live path or setting connects it yet).
   "Ceva-IP/DPDFNet": {
     revision: "dd6818d00f50c836fed43a6243ebe49116de5964",
     license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
     files: {
-      "onnx/dpdfnet8.onnx": {
-        sha256: "899d4f23f3ff86edbffa8c537e4bcbdc49da1b4e84e0ef390611e0604a3b26cb",
-        bytes: 14542517,
+      "onnx/dpdfnet2.onnx": {
+        sha256: "4f0ee28935b4a32abecc717d745416976565834d839601acf43031094b4dc94c",
+        bytes: 10178747,
       },
     },
   },
-  // Optional speaker-verification candidate (CC-BY-4.0, credit shown in the Models row): WeSpeaker ResNet34-LM, int8,
+  // Optional, off by default, never fetched on its own: GTCRN, an ultra-light 16 kHz streaming denoiser (MIT, upstream
+  // Xiaobin-Rong/gtcrn). This copy (TigreGotico/audiosronnx-gtcrn, MIT) holds the same bytes as bitsydarel/gtcrn-onnx
+  // (the sha256 is identical); the graph carries three cache tensors, so it is the streaming export (read with
+  // onnxruntime 1.32 on 2026-11-26: `mix [1,257,1,2]` plus conv, tra and inter caches). Read from the Hugging Face API
+  // on 2026-11-26 and the file downloaded and hashed here. `kernel/denoise_onnx.py` runs it.
+  "TigreGotico/audiosronnx-gtcrn": {
+    revision: "eeba5e9636e7e0aad93b25fad17471a9646d2640",
+    license: "MIT",
+    licenseRecord: licence("MIT"),
+    files: {
+      "gtcrn_simple.onnx": {
+        sha256: "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+        bytes: 535638,
+      },
+    },
+  },
+  // Optional speaker-verification candidate (CC-BY-4.0): WeSpeaker ResNet34-LM, int8,
   // 80-bin Kaldi filterbank in, one 256-number voice embedding out. Only the int8 graph and its two small configs are pinned.
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {
     revision: "6a61a1833ff2583aabeba044f5c8221f00b67ceb",
     license: "CC-BY-4.0",
+    licenseRecord: licence("CC-BY-4.0"),
     files: {
       "config.json": {
         sha256: "4a65a1544d2085d7819632f130583d83f6815f49ef6c8ba6c8eb460bd4085041",
@@ -394,6 +505,7 @@ const PINS = {
   "bjollans/whisper-large-v3-vaani-hindi-ct2": {
     revision: "27e81d52186393a5e7ee6f3a64ebd5c627dc25ed",
     license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
     files: {
       "config.json": {
         sha256: "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
@@ -410,6 +522,261 @@ const PINS = {
       "vocabulary.json": {
         sha256: "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
         bytes: 1068114,
+      },
+    },
+  },
+  // The Hinglish mixed-script ear: Trelis Research's Whisper large-v3 fine-tune (Apache-2.0, trained from ARTPARK-IISc
+  // Vaani) converted to CTranslate2 int8 by a community account (`int8/` folder, weights unchanged). It answers Hindi in
+  // Devanagari and English words in Latin letters in one line (the card's `<|mixedcode|>` marker, token 51866, put after
+  // the language token). A CANDIDATE, never a default, on demand only: the publisher's WER table is a lead, FRIDAY's own
+  // measurement is in the registry (voice-engine-table.ts). The parent is Trelis/whisper-hinglish-preview at
+  // eab1188fd2d0e91f2584229b32b3bfe1901c896c; every file below was fetched at the pinned revision and hashed here, and
+  // the 1,556,723,863-byte model.bin matches the SHA-256 Hugging Face lists. The repository's own LICENSE (Apache-2.0
+  // text) is pinned beside the weights so the licence travels with them. Its `tokenizer.json` stops at id 51865 (it does not hold the marker),
+  // while `vocabulary.json` and the model hold id 51866: the marker is written as that id, never encoded from text.
+  "nikh360pro/capsbro-hinglish-ct2": {
+    revision: "87a1f963adb6e7902a766a3d20217fa63d7f018b",
+    license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
+    files: {
+      LICENSE: {
+        sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        bytes: 11358,
+      },
+      "int8/config.json": {
+        sha256: "f277d9390e65adc1630b349151eca38aaf7420c41c814271928854edcfd6ffbe",
+        bytes: 2634,
+      },
+      "int8/model.bin": {
+        sha256: "624bae081b85f4ac433edb73bf64bd5277bb7a4c03fe305d572fe2fd1a89a7d3",
+        bytes: 1556723863,
+      },
+      "int8/preprocessor_config.json": {
+        sha256: "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+        bytes: 357,
+      },
+      "int8/tokenizer.json": {
+        sha256: "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
+        bytes: 2480617,
+      },
+      "int8/vocabulary.json": {
+        sha256: "e2125783966ea6f3aad20a065a9b2ae5c9c8532438aa80e62e84f7e635adbbda",
+        bytes: 1120001,
+      },
+    },
+  },
+  // Optional streaming ear candidate, never a default; setup fetches it only when the voice plan says this PC can carry
+  // it (electron/voice-weights.cjs streamEarDecision), each file checked against the digest below. NVIDIA Nemotron 3.5 ASR
+  // Streaming 0.6B (cache-aware FastConformer RNN-T, 128 language prompt slots incl. hi-IN and en-US), exported to ONNX
+  // by soniqo with an INT8 encoder and FP32 decoder and joint: a fixed 320 ms chunk, 32 mel frames per pass. Read from the
+  // Hugging Face tree API on 2026-11-26: each large file carries its LFS SHA-256, the three small files were fetched at the
+  // pinned revision and hashed here, and every digest and size was re-checked against the downloaded bytes. The card names
+  // an `encoder.onnx.data` that this revision does not hold: the 657,558,932-byte encoder.onnx carries its weights inline.
+  // The weights are the NVIDIA Open Model License: the repository's own tag and card text, re-read on 2026-11-27 (the
+  // API at the pinned revision gives license_name nvidia-open-model-license). The upstream model nvidia/nemotron-3.5-asr-
+  // streaming-0.6b now says OpenMDW-1.1 ("Governing Terms: Use of the model is governed by the OpenMDW-1.1 license"),
+  // kept as `licenseRecord.upstream`; the int4 repository of another publisher is tagged MIT. Both agreements ask for a
+  // copy of the agreement with a redistributed copy; neither is NC, SA or copyleft. The conflict is also recorded in
+  // docs/FRIDAY_VOICE_ENGINE.md. FRIDAY never bundles or redistributes the files: the owner's PC fetches them from the
+  // official repository. Run by FRIDAY's own onnxruntime loop (kernel/transducer_loop.py), no torch.
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    revision: "1ce4daedd303e01d4e603634a72c28562f1a6855",
+    license: "NVIDIA-Open-Model-License",
+    licenseRecord: {
+      ...licence("NVIDIA-Open-Model-License"),
+      upstream: UPSTREAM_OPENMDW,
+    },
+    files: {
+      "config.json": {
+        sha256: "0592a224f30670e00f5e0f1f106f0171428b0abde0fd4cbc64237b02c2241502",
+        bytes: 602,
+      },
+      "decoder.onnx": {
+        sha256: "68e7c40e673e94b364476303d687478ed7726bfb984e3496d0234d8e368b0894",
+        bytes: 4345,
+      },
+      "decoder.onnx.data": {
+        sha256: "4f2ced2289e1a62f7576ae9b42a97b972bdbc001eca8b41c4cc4c2421c0982eb",
+        bytes: 59760640,
+      },
+      "encoder.onnx": {
+        sha256: "faba6d952270255f1f9c4c22a44fbc60439638d808cb9feee51bba6a8daf0f87",
+        bytes: 657558932,
+      },
+      "joint.onnx": {
+        sha256: "c2839f49ac23e353c60b82ad325afcabee38e5ee6f8238fe575799908f877fc4",
+        bytes: 2023,
+      },
+      "joint.onnx.data": {
+        sha256: "5e96c9d54ee68a924f58fd734cd64ddf6fa0dd0f81c981ceb1a5bac5e860d74c",
+        bytes: 37822592,
+      },
+      "languages.json": {
+        sha256: "a1efe863e1057d4658bce8175c978020ac35a63a3c9a65ae899f324a32c8e4f6",
+        bytes: 2020,
+      },
+      "vocab.json": {
+        sha256: "fd726dc25cc0c0b46403675127e831bab56ca56b8c7ae3ee7781f5c6d7692f4f",
+        bytes: 236127,
+      },
+    },
+  },
+  // Optional English final-pass ear (FRIDAY Ear English), a candidate that becomes a default only after its own evaluation.
+  // Four files at one revision: the int8 encoder, the fused decoder and joint graph, the vocabulary and the config.
+  // `kernel/nemo_ear.py` runs them unchanged (TDT greedy, onnxruntime and numpy, no torch). Each large file carries the
+  // SHA-256 the Hugging Face API lists at this revision; the two small files were fetched at it and hashed (2026-11-27).
+  "istupakov/parakeet-tdt-0.6b-v2-onnx": {
+    revision: "0bbb45a3365852604aef28b538a8f066f4ccaa85",
+    license: "CC-BY-4.0",
+    licenseRecord: licence("CC-BY-4.0"),
+    files: {
+      "config.json": {
+        sha256: "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
+        bytes: 97,
+      },
+      "decoder_joint-model.int8.onnx": {
+        sha256: "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
+        bytes: 8998286,
+      },
+      "encoder-model.int8.onnx": {
+        sha256: "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
+        bytes: 652184014,
+      },
+      "vocab.txt": {
+        sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+        bytes: 9384,
+      },
+    },
+  },
+  // Optional small Hindi, Hinglish and Indian-English final-pass ear (FRIDAY Ear Swift), a candidate, never a default.
+  // Only the Hindi folders are pinned: `hi/onnx` (4-bit weights) and `hi/onnx-int8` (the low-memory set), each with its
+  // frontend, encoder, decoder and `shruti.json`, plus the licence and notice files that travel with the weights. The
+  // other languages in the repository are not used. `kernel/shruti_ear.py` runs the graphs (onnxruntime and numpy).
+  // Digests as for the other pins: LFS SHA-256 from the API at this revision, small files fetched and hashed (2026-11-27).
+  "udgamlabs/Shruti-ONNX": {
+    revision: "a464a502cc732e4335313869e1ccf393ff8ba56b",
+    license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
+    files: {
+      LICENSE: {
+        sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        bytes: 11358,
+      },
+      NOTICE: {
+        sha256: "4e2e035dfd9a58c597cb81e5d644635ce8fd2ebbd51e44cc22b8bc5bf4da8110",
+        bytes: 1031,
+      },
+      "hi/onnx-int8/decoder.onnx": {
+        sha256: "777870e340af2c5a9513f8bef14ecf0c2d57ba7dbfe8682a99674ec58dbd6f70",
+        bytes: 32293075,
+      },
+      "hi/onnx-int8/encoder.onnx": {
+        sha256: "b26a33cedf74ce11f13ad3854f3c0a34e7272c4e2dfd0d5cd2818185b029b996",
+        bytes: 19633861,
+      },
+      "hi/onnx-int8/frontend.onnx": {
+        sha256: "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+        bytes: 911143,
+      },
+      "hi/onnx-int8/shruti.json": {
+        sha256: "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+        bytes: 94153,
+      },
+      "hi/onnx/decoder.onnx": {
+        sha256: "d6ad12693b4289fe5d8f23af5c87dffae9597aa5a585fffaea82fe54a3f27cc3",
+        bytes: 20480122,
+      },
+      "hi/onnx/encoder.onnx": {
+        sha256: "8935017652b2fec8932d9eb220a4ae1d5287b8b05904820eadabdc64c0de63d0",
+        bytes: 10604825,
+      },
+      "hi/onnx/frontend.onnx": {
+        sha256: "0457d948c74b62e12b5d652d275269331092e13b22a2cdf64d2773c639a2b276",
+        bytes: 911143,
+      },
+      "hi/onnx/shruti.json": {
+        sha256: "82aa655fef9ace280b626f5cfbbbe9a9e417c5c997a2708480e65d33ec3bdc45",
+        bytes: 94153,
+      },
+    },
+  },
+  // Optional fast English final-pass ear (FRIDAY Ear Quick), a candidate, never a default: the tiny merged-cache int8
+  // encoder and decoder. The repository was renamed (the old organisation name answers with a redirect), so the new name
+  // is pinned. Its vocabulary is a separate repository, pinned next. `kernel/ear_quick.py` runs it (onnxruntime and numpy).
+  "moonshine-ai/moonshine": {
+    revision: "48b4e427b587bcf67797a5be706d6ddc4a298149",
+    license: "MIT",
+    licenseRecord: licence("MIT"),
+    files: {
+      "onnx/merged/tiny/quantized/decoder_model_merged.onnx": {
+        sha256: "eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367",
+        bytes: 20243286,
+      },
+      "onnx/merged/tiny/quantized/encoder_model.onnx": {
+        sha256: "c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a",
+        bytes: 7937661,
+      },
+    },
+  },
+  // The vocabulary of FRIDAY Ear Quick: one 2 MB file from its own repository, kept as a second pin because a pin holds
+  // one repository. It is a helper row of the same ear, not a model of its own.
+  "moonshine-ai/moonshine-tiny": {
+    revision: "390624ed33d594443aa4aa221f5b9f283b545b5a",
+    license: "MIT",
+    licenseRecord: licence("MIT"),
+    files: {
+      "tokenizer.json": {
+        sha256: "6579793438bc4fbafffacf699169ff53e3769c5a0a0f5e71cdee8853e8130deb",
+        bytes: 1985530,
+      },
+    },
+  },
+  // The Hinglish Pro ear (FRIDAY Ear Hinglish Pro): Oriserve's Whisper-Hindi2Hinglish-Apex, a fine-tune of Whisper
+  // large-v3-turbo (4 decoder layers, 808,878,080 parameters, BF16), card licence apache-2.0. This pin is the SOURCE
+  // checkpoint, not a runnable folder: `scripts/build-friday-models.cjs` converts it with the `ct2-int8` recipe
+  // (`kernel/voice_merge.py convert`, numpy only, no torch) into a CTranslate2 int8 folder, and the pack pins that
+  // folder's hashes. Revision and sizes read from the Hugging Face API (`?blobs=true`) on 2026-11-27; the LFS
+  // SHA-256 of model.safetensors equals the digest of the downloaded bytes, and the seven small files (the API lists no
+  // digest for them) were fetched at the pinned revision and hashed here. The repository holds no LICENSE file, so its
+  // README (the card, with the licence front matter) is pinned beside the weights. Decode it with the language token
+  // `en` for Hinglish, the card's own setting; it writes Hindi in Roman letters, so the Devanagari policy keeps it an
+  // explicit mode, never the default. A CANDIDATE, on demand only.
+  "Oriserve/Whisper-Hindi2Hinglish-Apex": {
+    revision: "f3214eed20b4e4d4144e739982d911f87b9cb223",
+    license: "Apache-2.0",
+    licenseRecord: licence("Apache-2.0"),
+    files: {
+      "README.md": {
+        sha256: "841ae75f5c5915e87d15698021a73c600b4ac0be29ce1f9643a9ef498026b31c",
+        bytes: 12439,
+      },
+      "added_tokens.json": {
+        sha256: "3c51f66c4c21f9e126970078f11ae77a78c74aee8df606ee9daba86e467108e0",
+        bytes: 34648,
+      },
+      "config.json": {
+        sha256: "14209b98fb68fc127201bbfebd57cc9f834b0f1a0d0d463a561c8051800af9f4",
+        bytes: 1194,
+      },
+      "generation_config.json": {
+        sha256: "ab32c08bdb83e3ce745c1dc72700b1d7d990aed2b7180a861177d826881061b1",
+        bytes: 3584,
+      },
+      "model.safetensors": {
+        sha256: "5560830fe8fa09b8cdf1b5926d0cc39a2586eadaad685d809e156432c4ebca80",
+        bytes: 1617825448,
+      },
+      "preprocessor_config.json": {
+        sha256: "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499",
+        bytes: 357,
+      },
+      "tokenizer.json": {
+        sha256: "5c1bf30c9e716e1477bedef846b01be0013daecb89e9e3ef7ab89b23c178df1b",
+        bytes: 3930645,
+      },
+      "vocab.json": {
+        sha256: "6788c80b082e9b0d1393147d3a3e62ba19285ac0c82ace8e5ef00f37ead58971",
+        bytes: 835528,
       },
     },
   },
@@ -587,6 +954,9 @@ const FACTS = {
     basis: "measured",
     peakRssMb: 489,
   },
+  // Peak resident memory 81 MB (dpdfnet2) and 64 MB (gtcrn) over a 15 s Python process that had already loaded numpy and
+  // onnxruntime (45 MB of it), 8 s of speech through `kernel/denoise_onnx.py` on a Linux x86-64 CPU (2026-11-26); real-time
+  // factor 0.16 and 0.06 there (one thread), so both keep up with live speech on that machine; Windows is unmeasured.
   "Ceva-IP/DPDFNet": {
     minRamGb: 0.1,
     recommendedRamGb: 0.2,
@@ -596,7 +966,18 @@ const FACTS = {
     quantization: "fp32 (ONNX)",
     fallbackPriority: "experimental",
     basis: "measured",
-    peakRssMb: 85,
+    peakRssMb: 81,
+  },
+  "TigreGotico/audiosronnx-gtcrn": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 64,
   },
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {
     minRamGb: 0.2,
@@ -618,6 +999,92 @@ const FACTS = {
     quantization: "int8 on CPU, float16 on GPU (CTranslate2)",
     fallbackPriority: "experimental",
     basis: "estimated",
+  },
+  // Peak resident memory 3,042 MB after loading the int8 folder with faster-whisper 1.2.1 and decoding one 15 s clip, on a
+  // Linux x86-64 CPU (2026-11-26); a clip decodes in about 5 to 10 s on 4 threads, slower than speech, so `cpuOk` is false.
+  "nikh360pro/capsbro-hinglish-ct2": {
+    minRamGb: 3.2,
+    recommendedRamGb: 4.5,
+    minVramGb: 4,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, community conversion of the parent)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 3042,
+  },
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 encoder, fp32 decoder and joint (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 1161,
+  },
+  // Peak resident memory 1,163 MB (int8, 4 threads, 2026-11-27); a clip decodes at about 0.12 of its length on a Linux CPU.
+  "istupakov/parakeet-tdt-0.6b-v2-onnx": {
+    minRamGb: 1.2,
+    recommendedRamGb: 1.8,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 1163,
+  },
+  // Peak resident memory 728 MB for the 4-bit set and 348 MB for the int8 set (5-beam search, 2026-11-27).
+  "udgamlabs/Shruti-ONNX": {
+    minRamGb: 0.8,
+    recommendedRamGb: 1.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "4-bit weights (ONNX), int8 set optional",
+    fallbackPriority: "experimental",
+    basis: "measured",
+    peakRssMb: 728,
+  },
+  // Not measured for memory: the pair is 28 MB on disk and the working set is estimated from its size.
+  "moonshine-ai/moonshine": {
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "int8 (ONNX)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  "moonshine-ai/moonshine-tiny": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "vocabulary (text)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+  },
+  // The pin is the BF16 source (1.6 GB); the ear that runs is its CTranslate2 int8 conversion (820 MB, recipe `ct2-int8`
+  // of the voice pack). Not measured for memory: estimated from the 4-layer turbo decoder at int8. A clip decoded at about
+  // 1.2 to 1.6 of its length on a loaded 4-core Linux CPU (2026-11-27), slower than speech, so `cpuOk` is false.
+  // `decodeLanguage` is the language token the ear is decoded with for Hinglish: `en`, the card's own setting.
+  "Oriserve/Whisper-Hindi2Hinglish-Apex": {
+    minRamGb: 2,
+    recommendedRamGb: 3,
+    minVramGb: 3,
+    cpuOk: false,
+    gpuOk: true,
+    quantization:
+      "int8 on CPU, int8 or float16 on GPU (CTranslate2, converted from the BF16 source)",
+    fallbackPriority: "experimental",
+    basis: "estimated",
+    decodeLanguage: "en",
   },
 };
 
@@ -643,6 +1110,16 @@ const FILE_FACTS = {
     fallbackPriority: "primary",
     basis: "estimated",
   },
+  "wake-embed": {
+    minRamGb: 0.1,
+    recommendedRamGb: 0.2,
+    minVramGb: 0,
+    cpuOk: true,
+    gpuOk: false,
+    quantization: "fp32 (ONNX)",
+    fallbackPriority: "primary",
+    basis: "estimated",
+  },
 };
 
 /**
@@ -660,14 +1137,31 @@ const SELF_TESTS = {
   "Ceva-IP/DPDFNet": {
     kind: "onnx-signature",
     wrapper: null,
-    file: "onnx/dpdfnet8.onnx",
+    file: "onnx/dpdfnet2.onnx",
     inputs: [
       { name: "spec", shape: [1, 1, 161, 2], type: "float32" },
-      { name: "state_in", shape: [66928], type: "float32" },
+      { name: "state_in", shape: [45424], type: "float32" },
     ],
     outputs: [
       { name: "spec_e", shape: [1, 1, 161, 2] },
-      { name: "state_out", shape: [66928] },
+      { name: "state_out", shape: [45424] },
+    ],
+  },
+  "TigreGotico/audiosronnx-gtcrn": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "gtcrn_simple.onnx",
+    inputs: [
+      { name: "mix", shape: [1, 257, 1, 2], type: "float32" },
+      { name: "conv_cache", shape: [2, 1, 16, 16, 33], type: "float32" },
+      { name: "tra_cache", shape: [2, 3, 1, 1, 16], type: "float32" },
+      { name: "inter_cache", shape: [2, 1, 33, 16], type: "float32" },
+    ],
+    outputs: [
+      { name: "enh", shape: [1, 257, 1, 2] },
+      { name: "conv_cache_out", shape: [2, 1, 16, 16, 33] },
+      { name: "tra_cache_out", shape: [2, 3, 1, 1, 16] },
+      { name: "inter_cache_out", shape: [2, 1, 33, 16] },
     ],
   },
   "onnx-community/wespeaker-voxceleb-resnet34-LM": {
@@ -691,6 +1185,41 @@ const SELF_TESTS = {
       reason:
         "needs the large-v3 tokenizer.json (pinned under Systran/faster-whisper-large-v3) beside the model; without it faster-whisper would fetch one from the network",
     },
+  },
+  "nikh360pro/capsbro-hinglish-ct2": {
+    kind: "ct2-folder",
+    wrapper: null,
+    // The model folder is the pinned `int8/` subfolder. The repository's tokenizer.json is whole (no companion needed);
+    // it lacks the `<|mixedcode|>` marker, which the decoder prompt writes as the id 51866 held by vocabulary.json.
+    needs: [
+      "int8/config.json",
+      "int8/model.bin",
+      "int8/tokenizer.json",
+      "int8/vocabulary.json",
+      "LICENSE",
+    ],
+  },
+  "soniqo/Nemotron-3.5-ASR-Streaming-Multilingual-0.6B-ONNX-INT8": {
+    kind: "onnx-signature",
+    wrapper: null,
+    file: "encoder.onnx",
+    inputs: [
+      { name: "audio_signal", shape: [1, 128, 32], type: "float32" },
+      { name: "audio_length", shape: [1], type: "int32" },
+      { name: "language_mask", shape: [1, 128], type: "float32" },
+      { name: "pre_cache", shape: [1, 128, 9], type: "float32" },
+      { name: "cache_last_channel", shape: [24, 1, 56, 1024], type: "float32" },
+      { name: "cache_last_time", shape: [24, 1, 1024, 8], type: "float32" },
+      { name: "cache_last_channel_len", shape: [1], type: "int32" },
+    ],
+    outputs: [
+      { name: "encoded_output", shape: [1, 4, 1024] },
+      { name: "encoded_length", shape: [1] },
+      { name: "new_pre_cache", shape: [1, 128, 9] },
+      { name: "new_cache_last_channel", shape: [24, 1, 56, 1024] },
+      { name: "new_cache_last_time", shape: [24, 1, 1024, 8] },
+      { name: "new_cache_last_channel_len", shape: [1] },
+    ],
   },
 };
 
@@ -1140,6 +1669,9 @@ function rollbackToPrevious(dir) {
 
 module.exports = {
   PINS,
+  LICENCES,
+  LICENCE_CHECKED_AT,
+  bundleAllowed,
   FACTS,
   FILE_FACTS,
   SELF_TESTS,

@@ -25,6 +25,7 @@ const vendor = require("./vendor-sources.cjs");
 const fitApi = require("./engine-fit.cjs");
 const engineInstall = require("./engine-install.cjs");
 const llama = require("./llama-runtime.cjs");
+const llmSelect = require("./llm-engine-select.cjs");
 const inventory = require("./install-inventory.cjs");
 
 const UPDATE_STATUSES = Object.freeze(["current", "update", "unknown", "error"]);
@@ -52,15 +53,31 @@ function updateStatusOf({ installed, installedVersion, latest, byRevision = fals
 function planUpdate({ row, autonomy, consent } = {}) {
   const dial = AUTONOMY.includes(String(autonomy)) ? String(autonomy) : "ask";
   if (!row) return { allowed: false, needsConsent: false, reason: "unknown row" };
+  // A runtime bundled in the app (Electron, FRIDAY Node, the pip bootstrap) only reports a newer version: no dial and
+  // no consent swaps it at run time; the owner's version bump does.
+  if (row.notifyOnly === true) {
+    return {
+      allowed: false,
+      needsConsent: false,
+      notifyOnly: true,
+      reason:
+        "a newer version is available; this runtime is bundled and changes only with a FRIDAY update",
+      dial,
+    };
+  }
   if (row.updateStatus !== "update") {
     return { allowed: false, needsConsent: false, reason: "there is no update for this row" };
   }
   if (row.fit?.state === "unsupported") {
     return { allowed: false, needsConsent: false, reason: "this PC cannot run the update" };
   }
+  // A machine-home install writes into Windows' own folders: Windows shows its own permission prompt, FRIDAY never
+  // answers it, and the plan says so.
+  const machine = row.home === "machine" ? { home: "machine", elevation: "windows" } : {};
   if (consent?.granted === true)
-    return { allowed: true, needsConsent: false, via: "consent", dial };
-  if (dial === "full") return { allowed: true, needsConsent: false, via: "full-autonomy", dial };
+    return { allowed: true, needsConsent: false, via: "consent", dial, ...machine };
+  if (dial === "full")
+    return { allowed: true, needsConsent: false, via: "full-autonomy", dial, ...machine };
   return {
     allowed: false,
     needsConsent: true,
@@ -69,6 +86,7 @@ function planUpdate({ row, autonomy, consent } = {}) {
         ? "Balanced asks before updating a tool"
         : "Ask every time: updating needs your OK",
     dial,
+    ...(row.home === "machine" ? { home: "machine" } : {}),
   };
 }
 
@@ -76,7 +94,9 @@ function planUpdate({ row, autonomy, consent } = {}) {
 function chainOfTool(tool) {
   if (tool.engine && engineInstall.ENGINES[tool.engine]) {
     const spec = engineInstall.ENGINES[tool.engine];
-    return { key: spec.id, sources: engineInstall.engineSources(spec), spec };
+    const sources = engineInstall.engineSources(spec);
+    // FRIDAY's own build has nothing to read until its release asset is recorded; no chain means no "error" row.
+    return sources.length ? { key: spec.id, sources, spec } : null;
   }
   if (tool.pipBundle && engineInstall.PIP_BUNDLES[tool.pipBundle]) {
     const main = engineInstall.PIP_BUNDLES[tool.pipBundle].parts.at(-1).dist;
@@ -84,6 +104,14 @@ function chainOfTool(tool) {
   }
   const sources = vendor.chainFor(tool);
   return sources.length ? { key: tool.id, sources } : null;
+}
+
+/** Where a tool without a declared home goes, from the one route it installs through. */
+function routeHome(tool) {
+  if (tool.winget) return "machine";
+  if (tool.npm) return "npm-global";
+  if (tool.pip || tool.pipDist || tool.pipBundle) return "friday-root";
+  return null;
 }
 
 /** Rows from the tool list the Install Manager already scans. */
@@ -94,8 +122,15 @@ function toolRows(tools, detected) {
     if (!tool || !tool.id || tool.aliasOf) continue;
     const found = seen.get(tool.id);
     const chain = chainOfTool(tool);
+    // What the data file says about the row (home, notify-only, download, silent switches): read, never copied.
+    const spec = vendor.rowSpec(tool.id);
     out.push({
       id: tool.id,
+      home: vendor.declaredHome(tool) || routeHome(tool),
+      notifyOnly: spec?.notifyOnly === true,
+      ...(spec?.download ? { download: spec.download } : {}),
+      ...(spec?.silentInstall ? { silentInstall: spec.silentInstall } : {}),
+      ...(spec ? { downloadReady: vendor.downloadReadiness(spec).installable } : {}),
       kind: tool.engine || tool.pipBundle ? "engine" : "tool",
       name: tool.name || tool.id,
       category: tool.category || "Tool",
@@ -146,18 +181,43 @@ function voiceRows(root, deps = {}) {
     const dir = root ? nodePath.join(root, ...entry.dir) : null;
     let installed = null;
     let version = null;
-    if (dir) {
+    let servedFrom = null;
+    // A derived ear (the converted copy of a source checkpoint) reads its install state from the FRIDAY release files:
+    // `null` while the release has none (no Download button; the row says so), never the source repository.
+    const derived =
+      entry.derivedFrom && typeof weights.derivedEarState === "function"
+        ? weights.derivedEarState(root, entry.catalogId, {
+            ...deps.releaseDeps,
+            exists: (file) => fsApi.existsSync(file),
+          })
+        : null;
+    const derivedPin =
+      derived?.plan && typeof weights.derivedEarPin === "function"
+        ? weights.derivedEarPin(entry.catalogId, deps.releaseDeps)
+        : null;
+    if (derived) {
+      if (dir && derived.state !== "needs-release") {
+        installed = derived.state === "installed";
+        version = installed ? pins.readMarker(dir)?.revision || null : null;
+        servedFrom = installed ? weights.RELEASE_LABEL || null : null;
+      }
+    } else if (dir) {
       const pin = entry.repo ? pins.pinForRepo(entry.repo) : null;
       if (pin) {
         installed = Object.keys(pin.files).every((name) =>
           fsApi.existsSync(nodePath.join(dir, name)),
         );
         version = installed ? pins.readMarker(dir)?.revision || null : null;
+        // Which source served the folder on this PC: "FRIDAY release" or "official source" (null when unknown).
+        servedFrom =
+          installed && typeof weights.servedSource === "function"
+            ? weights.servedSource(dir, pin) || null
+            : null;
       } else if (entry.file) {
         installed = fsApi.existsSync(nodePath.join(dir, entry.file));
       }
     }
-    const pin = entry.repo ? pins.pinForRepo(entry.repo) : null;
+    const pin = derivedPin || (entry.repo ? pins.pinForRepo(entry.repo) : null);
     out.push({
       id: `voice:${entry.catalogId}`,
       kind: "voice-model",
@@ -165,7 +225,12 @@ function voiceRows(root, deps = {}) {
       category: entry.kind === "tts" ? "Voice output" : "Voice input",
       installed,
       installedVersion: version,
+      servedFrom,
+      ...(derived?.state === "needs-release" ? { needsRelease: true, note: derived.text } : {}),
       facts: manifest || null,
+      // Internal catalog metadata; the Models and Installer pages never print either field.
+      license: manifest?.license || entry.license || null,
+      firewallClass: manifest?.firewallClass || entry.firewallClass || null,
       optional: manifest?.fallbackPriority === "experimental",
       byRevision: Boolean(pin),
       // FRIDAY installs the PINNED revision; the model host's newest revision is shown, never installed unseen.
@@ -173,7 +238,8 @@ function voiceRows(root, deps = {}) {
         ? {
             key: `voice:${entry.catalogId}`,
             sources: [
-              { kind: "hf-api", repo: manifest?.repo || entry.repo },
+              // A derived ear never asks the source repository for a newer revision: its files are the release's.
+              ...(derived ? [] : [{ kind: "hf-api", repo: manifest?.repo || entry.repo }]),
               { kind: "pinned", version: pin.revision, revision: pin.revision, assets: [] },
             ],
             revisionPolicy: "pinned",
@@ -252,6 +318,24 @@ function createInstallerCatalog(deps = {}) {
 
   const factsNow = () => safe(() => (deps.facts ? deps.facts() : null), null);
 
+  /** Which engine runs and the row strings of both (`llama-runtime.engineState`); null when nothing can be read. */
+  function ownEngineState() {
+    const root = rootDir();
+    if (!root) return null;
+    const state = safe(
+      () =>
+        deps.engineState
+          ? deps.engineState(root)
+          : llama.engineState(root, {
+              prefer: deps.enginePrefer ? safe(deps.enginePrefer, "auto") : "auto",
+            }),
+      null,
+    );
+    return state
+      ? { active: state.active, outdated: Boolean(state.outdated), rows: state.rows }
+      : null;
+  }
+
   /** The catalogue as it is now: quick, no network, no probe. */
   function snapshot() {
     const facts = factsNow();
@@ -293,6 +377,13 @@ function createInstallerCatalog(deps = {}) {
             checkedAt: null,
           };
       }
+      // How the newest version was reached: this session's answer, else what the stored row recorded, else the pin.
+      const via =
+        row.chain && latest?.ok !== false && latest
+          ? latest.pinned || latest.source === "pinned"
+            ? "pinned"
+            : reached.get(row.chain.key) || cached?.via || "cache"
+          : null;
       const installed = row.installed;
       const fit = fitApi.classify(
         {
@@ -323,6 +414,14 @@ function createInstallerCatalog(deps = {}) {
         checkedAt: latest?.checkedAt ?? null,
         stale: latest ? Boolean(latest.stale) : false,
         pinnedAnswer: Boolean(latest?.pinned),
+        ...(row.home ? { home: row.home } : {}),
+        notifyOnly: row.notifyOnly === true,
+        ...(row.id && row.kind === "tool" && typeof row.downloadReady === "boolean"
+          ? { downloadReady: row.downloadReady, installable: row.downloadReady }
+          : {}),
+        ...(via ? { via } : {}),
+        ...(row.servedFrom ? { servedFrom: row.servedFrom } : {}),
+        ...(row.needsRelease ? { needsRelease: true, note: row.note } : {}),
         ...(latest?.ok === false ? { error: latest.error } : {}),
         ...(latest?.upstream && latest.upstream !== latest.version
           ? { upstreamVersion: latest.upstream }
@@ -341,6 +440,7 @@ function createInstallerCatalog(deps = {}) {
             : null,
         };
       }
+      if (row.engine === "friday-runtime-llm") out.engineState = ownEngineState();
       return out;
     });
     return {
@@ -366,6 +466,8 @@ function createInstallerCatalog(deps = {}) {
   }
 
   const failures = new Map();
+  /** How each key's newest version was last reached this session (primary, fallback, cache, pinned). */
+  const reached = new Map();
   const manualWait = () => {
     const plan = vendor.planFeedRefresh({
       trigger: "manual",
@@ -433,6 +535,7 @@ function createInstallerCatalog(deps = {}) {
         const answer = await run("download", () =>
           vendor.resolveLatest(chain.key, sources, { store, fetchImpl: deps.fetchImpl, now }),
         ).catch((error) => ({ ok: false, error: String(error?.message || error) }));
+        if (answer.ok && answer.via) reached.set(chain.key, answer.via);
         if (answer.ok && !answer.stale && !answer.pinned) {
           ok += 1;
           failures.delete(chain.key);
@@ -528,6 +631,32 @@ function doctorRows(rows) {
         ? `${row.installedVersion || "installed"}${row.engine?.active?.backend ? `, ${row.engine.active.backend} build` : ""}`
         : "optional: not installed",
       repair: row.installed ? { id, action: "repair" } : null,
+    });
+  }
+  // A bundled runtime with a newer version out: shown, never installed (it changes with a FRIDAY update).
+  for (const row of rows) {
+    if (row.notifyOnly !== true || row.updateStatus !== "update") continue;
+    out.push({
+      id: `bundled:${row.id}`,
+      label: `${row.name}: a newer version is available`,
+      status: "warn",
+      detail: `installed ${row.installedVersion || "unknown"}, newest ${row.latestVersion}; bundled with FRIDAY, so it changes only with a FRIDAY update`,
+      repair: null,
+    });
+  }
+  const ownRow = pick("friday-runtime-llm");
+  if (ownRow) {
+    const state = ownRow.engineState;
+    const names = state?.rows || llmSelect.rowNames({});
+    out.push({
+      id: "engine:friday-runtime-llm",
+      label: ownRow.installed ? names.own : "FRIDAY Runtime LLM (own build, native)",
+      status: !ownRow.installed ? "skip" : state?.outdated ? "warn" : "ok",
+      detail: !ownRow.installed
+        ? "optional: not installed, the official llama.cpp runs FRIDAY Core"
+        : [names.status, names.outdated].filter(Boolean).join("; ") ||
+          `installed ${ownRow.installedVersion || ""}`.trim(),
+      repair: { id: ownRow.id, action: ownRow.installed ? "repair" : "install" },
     });
   }
   return out;

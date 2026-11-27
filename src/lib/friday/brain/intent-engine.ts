@@ -20,6 +20,7 @@ import {
   rememberPhrasing,
 } from "./intent-memory";
 import { parseWhen } from "../speech-parse";
+import { confirmationVerdict } from "../voice-session";
 import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
 import { currentTopic } from "./topic-state";
@@ -203,7 +204,7 @@ export function conversationalMove(text: string): ConversationalMove {
   if (/\bwaise ek (aur|alag) baat\b/i.test(t)) return "side-topic";
   if (/\b(i disagree|don't think so|galat approach|that's not right)\b/i.test(t))
     return "disagreement";
-  if (/^(yes|yep|haan|ha|ok|okay|sure|do it|bas kar do|go ahead|approved|proceed)\b/i.test(t)) {
+  if (confirmationVerdict(t) === "yes") {
     return "approval";
   }
   if (/^(no|nahi|don't|cancel|stop that)\b/i.test(t)) return "rejection";

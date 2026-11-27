@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingState, ToggleRow } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
+import { SELECT_CLASS } from "@/components/friday/settings/fields";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { desktopApi } from "@/lib/friday/desktop";
 import { NEURAL_VOICE_MODEL } from "@/lib/friday/model-catalog";
@@ -14,7 +15,11 @@ import {
   onSystemVoices,
   speakerFallbackNote,
 } from "@/lib/friday/voice-library";
-import { deviceOptions, planSavedDevice } from "@/lib/friday/voice-engine/audio-devices";
+import {
+  deviceOptions,
+  micListIssue,
+  planSavedDevice,
+} from "@/lib/friday/voice-engine/audio-devices";
 import {
   sttChoices,
   ttsChoices,
@@ -23,14 +28,16 @@ import {
 import { useModels } from "@/lib/friday/use-models";
 import { usePreferences } from "@/lib/friday/use-preferences";
 
-const SELECT =
-  "hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground";
-
 type DeviceState =
   | { phase: "loading" }
   | { phase: "unsupported" }
   | { phase: "error"; error: unknown }
-  | { phase: "ready"; inputs: AudioDeviceInfo[]; outputs: AudioDeviceInfo[] };
+  | {
+      phase: "ready";
+      inputs: AudioDeviceInfo[];
+      outputs: AudioDeviceInfo[];
+      permitted: boolean;
+    };
 
 const enumerateSupported = () =>
   typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.enumerateDevices);
@@ -39,7 +46,14 @@ async function readDevices(): Promise<DeviceState> {
   if (!enumerateSupported()) return { phase: "unsupported" };
   try {
     const listed = await listAudioDevices();
-    return { phase: "ready", inputs: listed.inputs, outputs: listed.outputs };
+    if (!listed.enumerated)
+      return { phase: "error", error: new Error("The device list could not be read.") };
+    return {
+      phase: "ready",
+      inputs: listed.inputs,
+      outputs: listed.outputs,
+      permitted: listed.permitted,
+    };
   } catch (error) {
     return { phase: "error", error };
   }
@@ -99,7 +113,9 @@ export function VoiceAudioPickers() {
 
   const inputs = useMemo(() => (devices.phase === "ready" ? devices.inputs : []), [devices]);
   const outputs = useMemo(() => (devices.phase === "ready" ? devices.outputs : []), [devices]);
-  const micPlan = planSavedDevice("microphone", prefs.voice.inputDeviceId, inputs);
+  const permitted = devices.phase === "ready" ? devices.permitted : true;
+  const micPlan = planSavedDevice("microphone", prefs.voice.inputDeviceId, inputs, { permitted });
+  const micIssue = devices.phase === "ready" ? micListIssue(inputs, { permitted }) : null;
   const speakerPlan = planSavedDevice("speaker", prefs.voice.outputDeviceId, outputs);
   const micRows = useMemo(
     () => deviceOptions("microphone", prefs.voice.inputDeviceId, inputs),
@@ -183,7 +199,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.inputDeviceId}
             onChange={(e) => pickMic(e.target.value)}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {micRows.map((row) => (
               <option key={row.value || "default"} value={row.value} className="bg-background">
@@ -192,18 +208,23 @@ export function VoiceAudioPickers() {
             ))}
           </select>
           <span className="mt-1 block text-meta-sm text-muted-foreground">
-            {devices.phase === "ready" && inputs.length === 0
-              ? "No microphone was found. Plug one in; the list refreshes by itself."
+            {micIssue?.kind
+              ? micIssue.text
               : micPlan.note ||
                 "Reopened when you change it. While muted or paused it is read when the microphone opens."}
           </span>
+          {micIssue?.kind === "permission" ? (
+            <Button size="sm" variant="outline" className="mt-1" onClick={refresh}>
+              Retry
+            </Button>
+          ) : null}
         </label>
         <label className="block">
           <span className="label-xs text-muted-foreground">Speaker</span>
           <select
             value={prefs.voice.outputDeviceId}
             onChange={(e) => pickSpeaker(e.target.value)}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {speakerRows.map((row) => (
               <option key={row.value || "default"} value={row.value} className="bg-background">
@@ -234,7 +255,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.sttSize || "auto"}
             onChange={(e) => preferences.setVoice({ sttSize: sanitizeSttSize(e.target.value) })}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {stt.map((row) => (
               <option key={row.value} value={row.value} className="bg-background">
@@ -264,7 +285,7 @@ export function VoiceAudioPickers() {
           <select
             value={prefs.voice.ttsEngine}
             onChange={(e) => preferences.setVoice({ ttsEngine: sanitizeTtsEngine(e.target.value) })}
-            className={SELECT}
+            className={SELECT_CLASS}
           >
             {tts.map((row) => (
               <option key={row.value} value={row.value} className="bg-background">

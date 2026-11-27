@@ -15,6 +15,24 @@
 
 export type Need = "text" | "stream-text" | "stt" | "tts" | "realtime-audio";
 
+/**
+ * What a cloud lane IS, for a settings page and for the router. It describes; it never switches anything on.
+ *   · costProof: "official" = a provider pricing page read for this row names a free allowance; "cached" = an older
+ *     copy of such a page (a proven-free lane stays usable and is not turned to unknown by age alone); "none" = no
+ *     proof, so the router treats the lane like a paid one and the settings page hides it until paid access is on;
+ *     "trial" = only a one-time signup credit, which is not a free allowance, so it is treated exactly like "none";
+ *   · trainsOnData: "no" only with a source for it; "unknown" until the provider's data page was read;
+ *   · region: where the provider says it processes the audio ("unknown" when the row does not say);
+ *   · codemixMode: "native" = a switch for mixed Hindi and English, "detect" = no switch, the model reads mixed
+ *     speech by itself, "none" = mixed speech is not supported.
+ */
+export type LaneDescriptor = {
+  costProof: "official" | "cached" | "none" | "trial";
+  trainsOnData: "no" | "yes" | "unknown";
+  region: "in" | "us" | "eu" | "unknown";
+  codemixMode: "native" | "detect" | "none";
+};
+
 export type ProviderCaps = {
   id: string;
   label: string;
@@ -29,6 +47,8 @@ export type ProviderCaps = {
   /** The provider's documentation was read for this row. */
   verified: boolean;
   note: string;
+  /** Cloud rows only. A row without one keeps the older rules exactly. */
+  lane?: LaneDescriptor;
 };
 
 /**
@@ -100,6 +120,7 @@ export const PROVIDERS: ProviderCaps[] = [
     freeTier: "unknown",
     verified: false,
     note: "Realtime is a paid API; it is chosen only with paid use allowed and approved.",
+    lane: { costProof: "none", trainsOnData: "unknown", region: "unknown", codemixMode: "detect" },
   },
   {
     id: "gemini",
@@ -112,7 +133,8 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: true,
     freeTier: "limited",
     verified: false,
-    note: "Live API connected 2026-11-07 from Google's SDK source: wss address with the key in the query, setup message, audio in 16 kHz and out 24 kHz. The audio mime string and speechConfig shape are not confirmed by those sources. Never run on a live account. The free allowance is the owner's setting.",
+    note: "Live API connected 2026-11-07 from Google's SDK source: wss address with the key in the query, setup message, audio in 16 kHz and out 24 kHz. The audio mime string and speechConfig shape are not confirmed by those sources. Never run on a live account. The free allowance is the owner's setting. Pricing page read 2026-11-27: free of charge, and free-tier content is used to improve Google products.",
+    lane: { costProof: "official", trainsOnData: "yes", region: "unknown", codemixMode: "detect" },
   },
   {
     id: "anthropic",
@@ -126,6 +148,7 @@ export const PROVIDERS: ProviderCaps[] = [
     freeTier: "none",
     verified: false,
     note: "Text only. The consumer voice mode is not an embeddable API.",
+    lane: { costProof: "none", trainsOnData: "unknown", region: "unknown", codemixMode: "detect" },
   },
   {
     id: "xai",
@@ -139,6 +162,7 @@ export const PROVIDERS: ProviderCaps[] = [
     freeTier: "unknown",
     verified: false,
     note: "Voice WebSocket connected (OpenAI-style events, Bearer key). The 24 kHz PCM16 default comes from secondary sources only; the xAI pages read state no format. Text is also available. Never run on a live account.",
+    lane: { costProof: "none", trainsOnData: "unknown", region: "unknown", codemixMode: "detect" },
   },
   {
     id: "sarvam",
@@ -151,7 +175,8 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: false,
     freeTier: "unknown",
     verified: true,
-    note: "Docs read 2026-11-08: one-shot text-to-speech and speech-to-text (hi-IN, en-IN; codemix for Hinglish) plus realtime speech-to-text (partial and final transcripts, saaras:v4) and text-to-speech (bulbul:v4-flash) over WebSocket; the key goes in the api-subscription-key header. Streaming is connected here and unit tested; never run on a live account.",
+    note: "Docs read 2026-11-08: one-shot text-to-speech and speech-to-text (hi-IN, en-IN; codemix for Hinglish) plus realtime speech-to-text (partial and final transcripts, saaras:v4) and text-to-speech (bulbul:v4-flash) over WebSocket; the key goes in the api-subscription-key header. Streaming is connected here and unit tested; never run on a live account. Pricing page read 2026-11-27: a one-time signup credit (no separate free tier), which is not a free allowance, so the lane stays unproven until paid access is on; the size is not stored here.",
+    lane: { costProof: "trial", trainsOnData: "unknown", region: "in", codemixMode: "native" },
   },
   {
     id: "azure-speech",
@@ -165,6 +190,12 @@ export const PROVIDERS: ProviderCaps[] = [
     freeTier: "limited",
     verified: true,
     note: "Docs read 2026-11-07: text-to-speech REST with SSML and a regional address. The speech-to-text page and a Hindi voice name were not read; the owner sets the voice. The free allowance is the owner's setting.",
+    lane: {
+      costProof: "official",
+      trainsOnData: "unknown",
+      region: "unknown",
+      codemixMode: "none",
+    },
   },
 ];
 
@@ -278,6 +309,34 @@ export type RouteDecision = {
 
 export const PAID_BY_DEFAULT = new Set(["openai", "xai"]);
 
+/** A lane with no free-allowance proof, or only a one-time signup credit: it is treated like a paid lane. */
+function lacksFreeProof(p: ProviderCaps): boolean {
+  return p.lane?.costProof === "none" || p.lane?.costProof === "trial";
+}
+
+/** The refusal for a cloud lane with no cost proof: it is treated like a paid lane. */
+const NO_COST_PROOF = "no cost proof: paid access must be on";
+const TRIAL_ONLY = "only a one-time trial credit, not a free allowance: paid access must be on";
+
+/** The plain-words training note for a lane, or null when the lane makes no such claim. */
+export function trainsOnDataNote(p: ProviderCaps): string | null {
+  return p.lane?.trainsOnData === "yes"
+    ? "Free-tier audio may be used to improve the provider's products."
+    : null;
+}
+
+/**
+ * The cloud rows a settings page may list. A lane with no cost proof stays hidden until paid access is switched on;
+ * a row with proof, or one with no descriptor, is listed as before. This only lists: it never enables a lane, and
+ * `routeVoice` still decides every call.
+ */
+export function visibleLanes(
+  table: ProviderCaps[],
+  settings: Pick<VoiceCloudSettings, "paidAllowed">,
+): ProviderCaps[] {
+  return table.filter((p) => p.kind === "cloud" && (!lacksFreeProof(p) || settings.paidAllowed));
+}
+
 export function routeVoice(
   request: RouteRequest,
   settings: VoiceCloudSettings,
@@ -313,8 +372,9 @@ export function routeVoice(
         continue;
       }
       const paid = request.costsMoney ? request.costsMoney(p) : PAID_BY_DEFAULT.has(p.id);
+      const unproven = lacksFreeProof(p);
       if (
-        paid &&
+        (paid || unproven) &&
         !(
           settings.paidAllowed &&
           settings.paidApproved &&
@@ -322,7 +382,14 @@ export function routeVoice(
           request.billingAllowsPaid
         )
       ) {
-        refused.push({ id: p.id, why: "paid use is not allowed and approved" });
+        refused.push({
+          id: p.id,
+          why: paid
+            ? "paid use is not allowed and approved"
+            : p.lane?.costProof === "trial"
+              ? TRIAL_ONLY
+              : NO_COST_PROOF,
+        });
         continue;
       }
       const usage = ledger.usage(p.id);

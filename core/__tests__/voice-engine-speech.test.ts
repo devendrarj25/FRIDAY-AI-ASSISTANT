@@ -344,7 +344,7 @@ describe("live wiring", () => {
 
   it("starts the next sentence's audio while the current one plays, and never sends sensitive text to a cloud voice", () => {
     expect(mode).toContain("this.prefetchNext(gen)");
-    expect(mode).toContain("prefetchSpeech(next, plan.argTuning)");
+    expect(mode).toContain("prefetchSpeech(next, argTuning)");
     expect(mode).toContain("looksSensitive(text)");
     expect(mode).toContain("speakWithCloud(");
     expect(mode).toContain("expressive: voicePrefs.expressiveSpeech !== false");

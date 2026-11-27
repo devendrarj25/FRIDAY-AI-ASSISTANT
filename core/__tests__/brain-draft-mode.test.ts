@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { voiceModeBlock } from "../../src/lib/friday/conversation-style";
 import {
   DRAFT_SYSTEM,
   DRAFT_TTL_MS,
@@ -171,7 +172,8 @@ describe("a draft is a text-only call that leaves no trace", () => {
     expect(String(request["requestId"])).toMatch(/^draft-/);
     expect(request["sessionId"]).not.toBe("main");
     expect(request["prompt"]).toBe(QUESTION);
-    expect(request["system"]).toBe(DRAFT_SYSTEM);
+    // the plain-call rules, then the voice block every spoken turn carries (and no language line without a turn)
+    expect(request["system"]).toBe(`${DRAFT_SYSTEM}\n\n${voiceModeBlock({ deliveryTags: true })}`);
     expect(request["draft"]).toBe(true);
     expect(request["routingSurface"]).toBe("voice");
     const contract = request["routingContract"] as {

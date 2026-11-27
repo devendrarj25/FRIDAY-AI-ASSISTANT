@@ -252,17 +252,28 @@ class _Session:
         return [real, np.zeros_like(real)]
 
 
+class _Options:
+    def __init__(self):
+        self.entries: dict[str, str] = {}
+
+    def add_session_config_entry(self, key, value):
+        self.entries[key] = value
+
+
 def _fake_onnxruntime(monkeypatch, log: list):
     module = types.ModuleType("onnxruntime")
-    module.SessionOptions = lambda: types.SimpleNamespace()  # type: ignore[attr-defined]
+    module.SessionOptions = _Options  # type: ignore[attr-defined]
     module.GraphOptimizationLevel = types.SimpleNamespace(ORT_ENABLE_ALL=99)  # type: ignore[attr-defined]
 
     def session(path, options, providers=None):
         assert providers == ["CPUExecutionProvider"]
+        module.opened.append(options)  # type: ignore[attr-defined]
         return _Session(Path(path).stem, log)
 
     module.InferenceSession = session  # type: ignore[attr-defined]
+    module.opened = []  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "onnxruntime", module)
+    return module
 
 
 def test_the_engine_feeds_the_graphs_the_way_the_model_was_trained(monkeypatch, tmp_path):
@@ -323,7 +334,10 @@ def _fake_supertonic(monkeypatch):
 def test_speak_pcm_keeps_its_old_reply_when_no_engine_is_asked_for(monkeypatch, tmp_path):
     seen = _fake_supertonic(monkeypatch)
     body = voice_runtime.speak_pcm_payload({"text": "नमस्ते दुनिया", "lang": "hi-IN", "seq": 4})
-    assert set(body) == {"ok", "sampleRate", "pcm16", "ms", "seq"}
+    old_fields = {"ok", "sampleRate", "pcm16", "ms", "seq", "pausedMs"}
+    assert set(body) == old_fields | {"engine", "own", "voiceId", "recipeVersion"}  # no fallback: nothing said so
+    assert body["engine"] == "supertonic-3" and body["own"] is False and body["recipeVersion"] == 0
+    assert body["pausedMs"] == 0
     assert seen == ["नमस्ते दुनिया"] and body["sampleRate"] == 22050
 
 
@@ -399,3 +413,17 @@ def test_the_voice_check_line_says_installed_missing_or_broken(monkeypatch, tmp_
     assert voice_runtime._hindi_light_line().startswith("FAIL hindi-light-tts the weights are on disk but")
     monkeypatch.setattr("importlib.util.find_spec", lambda name, *a, **k: object())
     assert voice_runtime._hindi_light_line() == "PASS hindi-light-tts pinned weights present"
+
+
+def test_the_light_voice_graphs_open_on_the_speaker_budget_without_spinning_threads(monkeypatch, tmp_path):
+    import voice_budget
+
+    monkeypatch.delenv("FRIDAY_VOICE_THREADS", raising=False)
+    monkeypatch.setattr(voice_budget, "cpu_count", lambda: 4)
+    module = _fake_onnxruntime(monkeypatch, [])
+    light._OnnxEngine(_stage_real_shape(tmp_path))
+    assert module.opened
+    for options in module.opened:
+        assert options.intra_op_num_threads == voice_budget.steady("tts", 4) == 2
+        assert options.inter_op_num_threads == 1
+        assert options.entries == {"session.intra_op.allow_spinning": "0"}

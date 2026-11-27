@@ -33,11 +33,11 @@ import sys
 import tempfile
 import threading
 import time
-import unicodedata
 import wave
 from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # The packaged self-check and the speech worker run this file with the bundled
 # embeddable Python. Its ._pth file means the script folder is not on sys.path,
@@ -46,9 +46,43 @@ _KERNEL_DIR = str(Path(__file__).resolve().parent)
 if _KERNEL_DIR not in sys.path:
     sys.path.insert(0, _KERNEL_DIR)
 
+import glossary_learn  # noqa: E402
 import hindi_ear  # noqa: E402
+import speech_segments  # noqa: E402
+import stream_ear  # noqa: E402
+import voice_budget  # noqa: E402
 import voice_runtime  # noqa: E402
 import whisper_ears  # noqa: E402
+from la2_partials import (  # noqa: E402
+    RATE,
+    TurnLanguage,
+    apply_rescore,
+    plan_rescore,
+    script_of,
+    segments_from_words,
+    snap_hotwords,
+    turn_mode,
+    with_ctc_bias,
+)
+from stream_commit import LocalAgreementCommitter, Word, join_words, words_from_text  # noqa: E402
+from transcript_gate import (  # noqa: E402,F401 — the text gates live there; every name stays importable from here
+    _FOREIGN_SCRIPT_NAMES,
+    _NOISE_PHRASES,
+    LIVE_NOISE_LOGPROB,
+    LIVE_NOISE_NO_SPEECH,
+    NOISE_PHRASE_LOGPROB,
+    NOISE_PHRASE_MAX_SECONDS,
+    NOISE_PHRASE_NO_SPEECH,
+    apply_no_speech_policy,
+    is_foreign_script,
+    is_invented_noise,
+    is_noise_hallucination,
+    is_repetition_loop,
+    live_segment_is_noise,
+    short_clip_decode,
+    stream_text_dropped,
+    vad_evidence,
+)
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -90,6 +124,233 @@ def resolve_language(raw: str) -> str | None:
         return None
     iso = value[:2]
     return iso if len(iso) == 2 and iso.isalpha() else None
+
+
+# ---- One route per final reading ----------------------------------------------------------------------------------
+# The language of a turn is decided once, from the cheapest first signal: what the owner declared, then what the
+# last turn was. Whisper's own language guess is a decode of its own (about a second on the small model), so a turn
+# whose language is known skips it; the Hindi ear and faster-whisper do not both decode one turn unless the ear
+# itself is unsure.
+
+PRIOR_TTL_S = 90.0  # a turn this old says nothing about the next one
+PRIOR_MIN_PROBABILITY = 0.80  # whisper's own certainty needed before an English reading becomes a prior
+_prior: dict[str, Any] = {"language": "", "at": None}
+
+
+class Route(NamedTuple):
+    ear: bool  # the Hindi ear listens first
+    lock: str | None  # faster-whisper's decode language; None leaves it to detect
+    why: str
+    min_logprob: float | None  # a locked reading scoring below this is heard again open (None: never)
+    lane: str  # the short-final policy that may read it first ("en"), or ""
+
+
+# Locked-English reads scored on synthetic speech (test_stt_route.py): English clips -0.13 to -0.57, Hindi clips forced
+# to English -0.53 to -1.03. The floor catches a Hindi turn that the Hindi ear was unsure of and the lock then misread.
+LOCK_MIN_LOGPROB = -0.60
+
+# A short English turn is read by the base model first; the owner's own model decodes again when that read is not
+# sure. One named table; the measured times and scores are in test_stt_route.py.
+SHORT_FINAL_POLICY: dict[str, dict] = {
+    "en": {"size": "base", "max_clip_s": 4.0, "min_logprob": -0.70, "max_no_speech": 0.5},
+}
+
+# The decision table of an English-locked turn (data, one place). A locked read scoring below its floor is heard again
+# open. The floor follows what told us the turn is English: a guess from the turn before it (``prior-en``) keeps the
+# strict floor; the ear's own English words or the clip's own language guess are evidence about this clip, so the base
+# model's own gate is proof enough and a read that passes it is never heard a second time.
+LOCK_FLOORS: dict[str, float] = {
+    "prior-en": LOCK_MIN_LOGPROB,
+    "english-words": SHORT_FINAL_POLICY["en"]["min_logprob"],
+    "cue-en": SHORT_FINAL_POLICY["en"]["min_logprob"],
+}
+# The lane of an auto turn the Hindi ear listened to and could not read (English or mixed speech as Devanagari
+# garbage): the base model reads it first with the language open, the owner's model only when that read is not sure
+# English. None sends it straight to the owner's model, as before.
+EAR_UNSURE_LANE: str | None = "en"
+
+
+def route_turn(language: str, speech_pref: str, prior: str = "", open_route: bool = False) -> Route:
+    """The route of one final reading. A language is locked only when the turn before it was heard as English (the
+    owner's declared Hindi or English is not enough: Indian English and Hinglish share a chosen language and are told
+    apart by listening). An open turn keeps the Hindi ear in front of the lock (``lock_after_ear``), so a Hindi turn
+    that follows an English one is read by the ear and never mistaken for English. ``open_route`` is the route of
+    before: the ear for Hindi or open turns, no lock."""
+    mode = hindi_ear.listen_mode(language, speech_pref)
+    lock = resolve_language(language)
+    if open_route:
+        return Route(hindi_ear.tries_ear(language, speech_pref), lock, "open", None, "")
+    if mode == "en" and prior == "en":
+        return Route(False, "en", "prior-en", LOCK_MIN_LOGPROB, "en")
+    if mode in {"hi", "auto"}:
+        return Route(True, lock, "ear-first", None, "")
+    return Route(False, lock, "roman" if mode == "roman" else "declared", None, "en" if mode == "en" else "")
+
+
+def lock_after_ear(route: Route, prior: str, mode: str) -> Route:
+    """The route of an open turn the Hindi ear listened to and kept nothing of: English after an English turn is
+    locked, anything else keeps the guess. Without the ear installed nothing stands between a Hindi turn and the lock,
+    so none is made."""
+    if mode == "auto" and route.why == "ear-first" and prior == "en" and route.lock is None and hindi_ear.ready():
+        return Route(False, "en", "prior-en", LOCK_MIN_LOGPROB, "en")
+    return route
+
+
+def lane_after_ear(route: Route, mode: str, unsure: bool) -> Route:
+    """The route of an auto turn the Hindi ear read but was not sure of, with no language to lock: the language stays
+    open and the short English lane (the base model) reads it first (``EAR_UNSURE_LANE``). A turn the ear gave no line
+    for at all keeps the owner's model."""
+    if unsure and EAR_UNSURE_LANE and mode == "auto" and route.why == "ear-first" and route.lock is None:
+        return Route(False, None, "ear-unsure", None, EAR_UNSURE_LANE)
+    return route
+
+
+def route_after_english_gate(route: Route, why: str = "") -> Route:
+    """The route of a turn whose ear line the English gate refused (``hindi_ear.english_gate``): English, locked,
+    behind the floor of what said so (``LOCK_FLOORS``; the strict one when unknown). On the open route (a locked read
+    already scored poorly) whisper guesses."""
+    if route.why == "open":
+        return Route(False, route.lock, "open", None, "")
+    return Route(False, "en", "ear-gate-en", LOCK_FLOORS.get(why, LOCK_MIN_LOGPROB), "en")
+
+
+def ear_language_cue(samples) -> dict | None:
+    """``{"en": p, "hi": p}`` from whisper's language guess on the clip's first ``cueSeconds``, read by a model that
+    is already resident (the base model of the short-final lane, then the owner's), or None. Never opens a model."""
+    model = _fast["model"] if _fast["model"] is not None else _model
+    guess = getattr(model, "detect_language", None)
+    if model is None or guess is None or (model is _model and is_heavy_model(_model_name) and _device_name == "cpu"):
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        head = np.asarray(samples, dtype=np.float32).reshape(-1)[: int(16000 * hindi_ear.ENGLISH_GATE["cueSeconds"])]
+        _language, _probability, ranked = guess(audio=head)
+        probs = {str(code): float(p) for code, p in ranked}
+    except Exception:  # noqa: BLE001 — no cue: the prior, then the ear's line, decide
+        return None
+    touch()
+    return {"en": probs.get("en", 0.0), "hi": probs.get("hi", 0.0)}
+
+
+def ear_keeps_live(mode: str, heard: dict | None, hotwords: list[str]) -> bool:
+    """Whether a live ear reading stands: the ear's own score, and in auto the English gate on its words alone (a
+    partial never pays for a language guess; an unclear line stays the ear's, as before the gate)."""
+    if not heard or not hindi_ear.confident(mode, heard.get("confidence")):
+        return False
+    if mode != "auto":
+        return True
+    return hindi_ear.english_gate(heard.get("text"), heard.get("confidence"), hotwords)["verdict"] != "english"
+
+
+def turn_prior() -> str:
+    """``en`` or ``hi`` while the last strong reading is fresh, else an empty string."""
+    at = _prior.get("at")
+    if at is None or _now() - at > PRIOR_TTL_S:
+        return ""
+    return str(_prior.get("language") or "")
+
+
+def reset_turn_prior() -> None:
+    _prior["language"], _prior["at"] = "", None
+
+
+def note_turn_language(text: str, language: str, probability: float | None) -> None:
+    """Keep the language of a finished turn: Devanagari text is Hindi; Latin text is English only when whisper was
+    sure. Mixed script, a weak guess or no words clear the prior, so a doubtful turn never decides the next."""
+    script = script_of(text or "")
+    keep = ""
+    if script == "deva":
+        keep = "hi"
+    elif script == "latin" and (language or "").lower().startswith("en") and probability is not None:
+        keep = "en" if probability >= PRIOR_MIN_PROBABILITY else ""
+    _prior["language"], _prior["at"] = keep, (_now() if keep else None)
+
+
+def guard_hotwords(kwargs: dict) -> dict:
+    """faster-whisper ignores ``hotwords`` when a ``prefix`` is set: send neither half of a no-op."""
+    if kwargs.get("prefix"):
+        kwargs.pop("hotwords", None)
+    return kwargs
+
+
+_fast: dict[str, Any] = {"model": None, "name": "", "failed": False}
+
+
+def fast_size_dir(size: str) -> Path | None:
+    """The folder of a speech size whose weights are on disk (no folder is made), or None."""
+    root = os.environ.get("FRIDAY_ROOT")
+    base = Path(root) / "cache" / "stt" if root else Path.home() / ".friday" / "cache" / "stt"
+    folder = base / size
+    try:
+        if (folder / "config.json").is_file() and (folder / "model.bin").is_file():
+            return folder
+    except OSError:
+        return None
+    return None
+
+
+def fast_english_model():
+    """The resident base model of the short-final policy, opened once; None when it is not installed, the memory is
+    tight, or it once failed to open (a broken file is never tried again in this worker)."""
+    policy = SHORT_FINAL_POLICY["en"]
+    if _fast["model"] is not None:
+        touch()
+        return _fast["model"]
+    if _fast["failed"]:
+        return None
+    folder = fast_size_dir(policy["size"])
+    cls = _import_whisper() if folder is not None else None
+    if folder is None or cls is None or memory_pressure()["level"] != "ok":
+        return None
+    started = _now()
+    try:
+        spec = model_load_kwargs(policy["size"], str(folder))
+        if spec["device"] != "cpu":
+            return None  # a graphics card reads the owner's own model fast enough
+        if not admit("fast", load_estimate_mb(policy["size"])):
+            return None  # refused, not broken: it is tried again when the memory returns
+        _fast["model"], _ = open_whisper(cls, spec["target"], spec)
+    except Exception:  # noqa: BLE001 — the owner's model answers instead
+        _fast["failed"] = True
+        note_fallback("fast-model-to-owner-model")
+        return None
+    _fast["name"] = policy["size"]
+    _load_ms[policy["size"]] = int((_now() - started) * 1000)
+    touch()
+    return _fast["model"]
+
+
+def short_final_lane(route: Route, samples, owner_size: str, requested: str) -> bool:
+    """True when this final is a short English-lane clip read on a processor, the owner did not pick a size, and the
+    owner's model is bigger than the policy's."""
+    policy = SHORT_FINAL_POLICY.get(route.lane)
+    if policy is None or samples is None:
+        return False
+    if (owner_size or "").strip().lower() in OWNER_SIZES or len(samples) / RATE > policy["max_clip_s"]:
+        return False
+    wanted, fast = model_rank(requested), model_rank(policy["size"])
+    return wanted is not None and fast is not None and wanted > fast
+
+
+def fast_read_sure(read: dict, locked: bool) -> bool:
+    """True when the base model's reading stands: words, a good token score, clear speech, and (when the language was
+    not locked) a confident English guess."""
+    policy = SHORT_FINAL_POLICY["en"]
+    logprob = read.get("avgLogprob")
+    probability = read.get("languageProbability")
+    spoken_english = locked or (
+        str(read.get("language") or "").startswith("en")
+        and isinstance(probability, (int, float))
+        and probability >= PRIOR_MIN_PROBABILITY
+    )
+    return (
+        spoken_english
+        and bool((read.get("text") or "").strip())
+        and isinstance(logprob, (int, float))
+        and logprob >= policy["min_logprob"]
+        and (read.get("noSpeechProb") or 0.0) <= policy["max_no_speech"]
+    )
 
 
 def select_model(ram_gb: float, gpu: bool, battery: bool, auto: bool, requested: str = "small") -> str:
@@ -221,13 +482,13 @@ def choose_stt_device(cuda_ready: bool) -> dict:
 def cpu_threads() -> int:
     """Threads for the CPU engine. CTranslate2 uses 4 unless told otherwise, which leaves most of a modern PC idle.
 
-    `FRIDAY_STT_THREADS` sets it; otherwise about half the logical processors (the physical cores on most PCs),
-    never fewer than 4 or more than 8, since a larger count stops helping one short utterance.
+    `FRIDAY_STT_THREADS` sets it; otherwise the final reader's share of the one voice thread budget
+    (`voice_budget`), so the reader, the speaker and the audio models never ask for more threads than the PC has.
     """
     raw = os.environ.get("FRIDAY_STT_THREADS", "").strip()
     if raw.isdigit() and 1 <= int(raw) <= 64:
         return int(raw)
-    return max(4, min(8, (os.cpu_count() or 4) // 2))
+    return voice_budget.steady("asr_final")
 
 
 def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
@@ -300,6 +561,39 @@ def clean_hotwords(raw) -> str:
     return ", ".join(words)[:MAX_HOTWORDS_CHARS].strip(" ,")
 
 
+def hotword_list(raw) -> list[str]:
+    """The owner's words as a list (the same cleaning and cap as ``clean_hotwords``)."""
+    return [word for word in clean_hotwords(raw).split(", ") if word]
+
+
+def snap_text(text: str, hotwords: list[str]) -> str:
+    """A transcript with words close to the owner's words in their spelling (the ear that gives only text)."""
+    if not hotwords or not text:
+        return text
+    return " ".join(w.text for w in snap_hotwords(words_from_text(text), hotwords))
+
+
+def _learn_on(extras: dict | None) -> bool:
+    """Learned words are used only when the owner's stored ``brain.learn.glossary`` is on (read by the kernel itself).
+
+    A request's ``learnGlossary`` may only say no: it can never turn on what the owner turned off.
+    """
+    return (extras or {}).get("learnGlossary") is not False and glossary_learn.setting_on()
+
+
+def ears_hotwords(extras: dict | None) -> str:
+    """The owner's words first, then the words learned from his corrections; one line under the same cap."""
+    owner = clean_hotwords((extras or {}).get("hotwords"))
+    learned = glossary_learn.glossary_terms(_learn_on(extras))
+    return clean_hotwords([owner, *learned]) if learned else owner
+
+
+def with_glossary_hint(hint: str, extras: dict | None) -> str:
+    """``initial_prompt`` text with the learned words appended (unchanged when off or nothing is learned)."""
+    learned = glossary_learn.prompt_hint(_learn_on(extras))
+    return f"{hint} {learned}".strip() if learned else hint
+
+
 def decode_options(extras: dict | None, language_locked: bool) -> dict:
     """Extra faster-whisper 1.2.1 options from the owner's settings. Everything is off unless it is asked for.
 
@@ -310,7 +604,7 @@ def decode_options(extras: dict | None, language_locked: bool) -> dict:
     """
     extras = extras or {}
     out: dict = {}
-    hot = clean_hotwords(extras.get("hotwords"))
+    hot = ears_hotwords(extras)
     if hot:
         out["hotwords"] = hot
     if extras.get("multilingual") is True and not language_locked:
@@ -353,11 +647,28 @@ def cache_dir() -> str:
 _emit_lock = threading.Lock()  # the reader thread answers a cancel while the main thread streams a decode
 
 
+def _utf8_streams() -> None:
+    """Make stdout and stderr UTF-8 with a non-throwing error handler: on Windows a console code page such as
+    cp1252 would otherwise raise on a Devanagari profile or data-root path and the probe would look like a missing
+    package. Streams that cannot be reconfigured (a test buffer) are left as they are."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001,S110 - a stream that cannot be reconfigured is still written to
+            pass
+
+
 def emit(payload: dict) -> None:
-    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    # ASCII-escaped JSON is valid on any code page and parses to the same text (the kernel worker does the same).
+    # numpy values are written as plain numbers; a reply that still cannot be written goes out as an error envelope
+    # with its id, so one odd value never ends the serve loop.
+    line = voice_runtime.json_line(payload)
     with _emit_lock:
-        sys.stdout.write(line)
-        sys.stdout.flush()
+        try:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        except (OSError, ValueError):  # the app closed the pipe: the reader sees the end and the loop stops
+            pass
 
 
 def _import_whisper():
@@ -372,7 +683,7 @@ def _import_whisper():
         _whisper_cls = WhisperModel
         return _whisper_cls
     except Exception as exc:  # noqa: BLE001 — surfaced to the UI verbatim
-        _whisper_error = f"faster-whisper is not installed ({exc})."
+        _whisper_error = f"faster-whisper is not installed ({voice_runtime.scrub_text(exc, 300)})."
         return None
 
 
@@ -394,7 +705,19 @@ PRESSURE_CRITICAL = (0.07, 1024, 1536)
 # Substring order matters: "large-v3-turbo" must read as turbo before it reads as large.
 _MODEL_RANKS = (("tiny", 1), ("base", 2), ("small", 3), ("medium", 4), ("turbo", 5), ("large", 6))
 HEAVY_RANK = 4
-USE_OPS = frozenset({"load", "transcribe", "flush", "self-test", "hearing-self-test"})
+USE_OPS = frozenset(
+    {
+        "load",
+        "transcribe",
+        "flush",
+        "self-test",
+        "hearing-self-test",
+        "ears-self-test",
+        "stream-open",
+        "stream-feed",
+        "stream-warm",
+    }
+)
 
 
 class MemoryStatusEx(ctypes.Structure):
@@ -527,7 +850,9 @@ def _ear_loaded() -> bool:
 
 def loaded_names() -> list[str]:
     names = [_model_name] if _model is not None and _model_name else []
-    return names + ([HINDI_EAR_NAME] if _ear_loaded() else [])
+    names += [str(_fast["name"])] if _fast["model"] is not None and _fast["name"] else []
+    own = [ear.name for ear in _every_own_ear() if ear.loaded()]
+    return names + ([HINDI_EAR_NAME] if _ear_loaded() else []) + own + stream_ear.HOST.loaded_name()
 
 
 def unload_models() -> list[str]:
@@ -535,7 +860,11 @@ def unload_models() -> list[str]:
     global _model, _model_name, _unloads
     names = loaded_names()
     _model, _model_name = None, None
+    _fast["model"], _fast["name"] = None, ""
     hindi_ear.unload()
+    for ear in _every_own_ear():
+        ear.unload()
+    stream_ear.HOST.unload()
     if names:
         _unloads += 1
         gc.collect()
@@ -596,7 +925,7 @@ def cache_status() -> dict:
     loaded = [
         {
             "name": name,
-            "engine": "hindi-ear" if name == HINDI_EAR_NAME else "faster-whisper",
+            "engine": "hindi-ear" if name == HINDI_EAR_NAME else _own_engine(name),
             "loadMs": _load_ms.get(name),
         }
         for name in loaded_names()
@@ -610,7 +939,105 @@ def cache_status() -> dict:
         "unloadCount": _unloads,
         "fallbacks": {"total": sum(_fallbacks.values()), "byKind": dict(_fallbacks)},
         "memory": memory_pressure(),
+        "admit": _last_admit,
     }
+
+
+# --- one admission before every model load -------------------------------------------------------------------------
+# Every load (the owner's model, the resident base, the Hindi ear, the stream engine, the punctuation and speaker
+# models) asks ``admit`` first. A load that would leave less free memory than the critical line first drops resident
+# models in this order, re-reading the machine after each; a load that still would not fit is refused (the owner's
+# own model is required: it drops the others and loads anyway). Each drop and refusal is a counted fallback.
+EVICT_ORDER = ("stream", "fast", "whisper", "hinglish-pro-ear", "english-ear", "quick-ear", "swift-ear", "hindi-ear")
+_ADMIT_SLOT = {"speaker": "stream", "punct": "hindi-ear"}  # a load never drops the slot it belongs to
+_WHISPER_LOAD_MB = {1: 150.0, 2: 300.0, 3: 700.0, 4: 1700.0, 5: 1800.0, 6: 3300.0}  # rough int8 resident sizes
+_last_admit: dict | None = None
+
+
+def load_estimate_mb(name: str | None) -> float:
+    """The rough resident size of a whisper model by its size word (unknown names read as small)."""
+    return _WHISPER_LOAD_MB.get(model_rank(name) or 0, 700.0)
+
+
+def _resident_mb(kind: str) -> float:
+    if kind == "stream":
+        return stream_ear.HOST.resident_mb()
+    if kind == "fast":
+        return load_estimate_mb(str(_fast["name"])) if _fast["model"] is not None else 0.0
+    if kind == "whisper":
+        return load_estimate_mb(_model_name) if _model is not None else 0.0
+    own = _own_ear_of(kind)
+    if own is not None:
+        return float(own.load_mb) if own.loaded() else 0.0
+    return hindi_ear.LOAD_MB if hindi_ear.loaded() else 0.0
+
+
+def _evict(kind: str) -> bool:
+    global _model, _model_name
+    if kind == "stream":
+        return bool(stream_ear.HOST.unload_idle_engine())
+    if kind == "fast":
+        _fast["model"], _fast["name"] = None, ""
+    elif kind == "whisper":
+        _model, _model_name = None, None
+    elif (own := _own_ear_of(kind)) is not None:
+        return own.unload()
+    else:
+        return hindi_ear.unload()
+    return True
+
+
+def admit(kind: str, est_mb: float, required: bool = False) -> bool:
+    """True when a load of about ``est_mb`` MB may open now (see the comment above). Never raises."""
+    global _last_admit
+    pressure = memory_pressure()
+    available, total = pressure.get("availableMb"), pressure.get("totalMb")
+    record: dict[str, Any] = {"kind": kind, "estMb": int(est_mb), "level": pressure.get("level"), "evicted": []}
+    _last_admit = record
+    if not pressure.get("known", True) or available is None or total is None:
+        record["verdict"] = "unknown"  # a machine that cannot be read never stops speech
+        return True
+    line = _pressure_line(float(total), PRESSURE_CRITICAL)
+    slot = _ADMIT_SLOT.get(kind, kind)
+    order = [k for k in EVICT_ORDER if k != slot]
+    fits = float(available) - est_mb >= line
+    # Dropping the base, owner or Hindi model is only safe while no decode reads it: the request loop holds
+    # ``_cache_lock`` for a whole request. A caller on another thread (the stream-warm) never waits for it: busy
+    # means only the idle stream engine may go (it closes only when no stream is live), so the load is refused
+    # (a counted fallback, ``low-memory`` to the caller) rather than pulling a model from under a decode.
+    locked = False if fits else _cache_lock.acquire(blocking=False)
+    try:
+        if not fits and not locked:
+            order = [k for k in order if k == "stream"]
+            record["lockBusy"] = True
+        gain = 0.0 if fits else sum(_resident_mb(k) for k in order)
+        if not fits and (required or float(available) + gain - est_mb >= line):
+            for victim in order:
+                if _resident_mb(victim) <= 0 or not _evict(victim):
+                    continue
+                record["evicted"].append(victim)
+                note_fallback(f"evicted-{victim}")
+                gc.collect()
+                again = memory_pressure().get("availableMb")
+                if again is None:
+                    break
+                available = again
+                if float(available) - est_mb >= line:
+                    fits = True
+                    break
+    finally:
+        if locked:
+            _cache_lock.release()
+    record["availableMb"] = available
+    if fits:
+        record["verdict"] = "load"
+        return True
+    if required:
+        record["verdict"] = "over-line"
+        return True
+    record["verdict"] = "refused"
+    note_fallback(f"admit-refused-{kind}")
+    return False
 
 
 def admit_load(wanted: str, auto: bool) -> str:
@@ -637,16 +1064,19 @@ def admit_load(wanted: str, auto: bool) -> str:
     return "evict" if _model is not None else "load"
 
 
-def get_model(name: str, model_path: str | None = None, auto: bool = False):
+def get_model(name: str, model_path: str | None = None, auto: bool = False, compute_type: str | None = None):
     """Load WhisperModel once per worker. `local_files_only` blocks a silent download.
 
-    `auto` marks a size the tier setting picked (not the owner), which memory pressure may refuse.
+    `auto` marks a size the tier setting picked (not the owner), which memory pressure may refuse. `compute_type` is
+    the precision an optional ear wants on the GPU; the processor always keeps int8.
     """
     global _model, _model_name, _load_count, _device_name, _compute_type
     cls = _import_whisper()
     if cls is None:
         raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
     spec = model_load_kwargs(name, model_path or os.environ.get("FRIDAY_STT_MODEL_PATH"))
+    if compute_type and spec["device"] == "cuda":
+        spec["compute_type"] = compute_type
     wanted = spec["target"]
     if _model is not None and _model_name == wanted:
         touch()
@@ -659,6 +1089,7 @@ def get_model(name: str, model_path: str | None = None, auto: bool = False):
     if verdict == "evict":
         _model, _model_name = None, None
         gc.collect()
+    admit("whisper", load_estimate_mb(wanted), required=True)
     started = _now()
     _model, _used = open_whisper(cls, wanted, spec)
     if _used != spec["device"]:
@@ -921,122 +1352,6 @@ def load_audio_array(path: str):
     return decode_foreign(path)
 
 
-# What Whisper "hears" in room noise, a fan, a TV or silence: the sign-offs and credits of the
-# videos it was trained on. Said alone, short, and with weak evidence of speech, they are noise.
-_NOISE_PHRASES = {
-    "thank you",
-    "thanks",
-    "thanks for watching",
-    "thank you for watching",
-    "thank you so much for watching",
-    "please subscribe",
-    "like and subscribe",
-    "bye",
-    "bye bye",
-    "you",
-    "okay",
-    "ok",
-    "subtitles by the amara org community",
-    "धन्यवाद",
-    "शुक्रिया",
-    "नमस्कार दोस्तों",
-    "सब्सक्राइब करें",
-}
-NOISE_PHRASE_MAX_SECONDS = 2.5
-NOISE_PHRASE_NO_SPEECH = 0.25
-NOISE_PHRASE_LOGPROB = -0.7
-
-
-def is_noise_hallucination(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> bool:
-    """True for a stock sign-off that came out of noise rather than out of the owner.
-
-    The same words from a clear, longer recording are kept: someone may really say "thank you".
-    """
-    # Only punctuation and symbols go: a Devanagari vowel sign is not a word character to \w.
-    bare = "".join(" " if unicodedata.category(ch)[0] in "PS" else ch for ch in (text or "").lower())
-    bare = " ".join(bare.split())
-    if bare not in _NOISE_PHRASES:
-        return False
-    weak = (
-        avg_ns >= NOISE_PHRASE_NO_SPEECH
-        or (avg_logprob is not None and avg_logprob <= NOISE_PHRASE_LOGPROB)
-        or (duration_s is not None and duration_s < NOISE_PHRASE_MAX_SECONDS)
-    )
-    return weak
-
-
-# Scripts this owner does not speak. A clip heard in room noise that comes back as Japanese,
-# Korean, Thai, Arabic or Cyrillic with weak evidence is the model inventing text.
-_FOREIGN_SCRIPT_NAMES = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "THAI", "ARABIC", "CYRILLIC", "HEBREW")
-
-
-def is_foreign_script(text: str) -> bool:
-    letters = [ch for ch in (text or "") if unicodedata.category(ch)[0] == "L"]
-    if len(letters) < 3:
-        return False
-    foreign = sum(1 for ch in letters if any(name in unicodedata.name(ch, "") for name in _FOREIGN_SCRIPT_NAMES))
-    return foreign * 2 > len(letters)
-
-
-def is_repetition_loop(text: str) -> bool:
-    """The same word or phrase repeated three or more times in a row ("1.5kg 1.5kg 1.5kg")."""
-    words = (text or "").lower().split()
-    if len(words) < 3:
-        return False
-    for size in (1, 2, 3):
-        if len(words) < size * 3:
-            continue
-        for start in range(0, len(words) - size * 3 + 1):
-            chunk = words[start : start + size]
-            if words[start + size : start + size * 2] == chunk and words[start + size * 2 : start + size * 3] == chunk:
-                return True
-    return False
-
-
-def is_invented_noise(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> bool:
-    """A loop or a script the owner does not speak, said with weak evidence of speech."""
-    if not (is_repetition_loop(text) or is_foreign_script(text)):
-        return False
-    return (
-        avg_ns >= NOISE_PHRASE_NO_SPEECH
-        or (avg_logprob is not None and avg_logprob <= NOISE_PHRASE_LOGPROB)
-        or (duration_s is not None and duration_s < NOISE_PHRASE_MAX_SECONDS + 1.5)
-    )
-
-
-def apply_no_speech_policy(
-    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
-) -> tuple[str, str, str]:
-    """Returns (text, note, drop code).
-
-    Text that Whisper produced is kept unless BOTH the average no-speech
-    probability is at the one threshold or above AND the average log-probability
-    is at the low-confidence mark or below. A stock sign-off such as "thank you" that came
-    from a short or doubtful recording is dropped as noise. Empty text is dropped with the
-    code that says why.
-    """
-    body = (text or "").strip()
-    high = avg_ns >= voice_runtime.NO_SPEECH_THRESHOLD
-    unsure = avg_logprob is not None and avg_logprob <= voice_runtime.LOW_CONFIDENCE_LOGPROB
-    if body:
-        if high and unsure:
-            return "", f"no_speech {avg_ns:.2f} and avg_logprob {avg_logprob:.2f}", "low-confidence"
-        if is_noise_hallucination(body, avg_ns, avg_logprob, duration_s):
-            return "", f"noise phrase {body!r}; no_speech {avg_ns:.2f}", "no-speech"
-        if is_invented_noise(body, avg_ns, avg_logprob, duration_s):
-            return "", f"invented text {body[:40]!r}; no_speech {avg_ns:.2f}", "no-speech"
-        if high:
-            return body, f"kept segment text; no_speech {avg_ns:.2f}", ""
-        return body, "", ""
-    if high:
-        return "", f"no_speech {avg_ns:.2f}", "no-speech"
-    return "", "", "empty"
-
-
 def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", (text or "").lower())
 
@@ -1227,6 +1542,456 @@ def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
     return text or None
 
 
+# --- FRIDAY's own final-pass ears: Swift, Quick and English ---------------------------------------------------------
+# Each is used only when its pinned folder is on disk and certified (the Install Manager writes ``.friday-pin.json``
+# after it checked every pinned file), every load asks ``admit`` first, and any failure hands the turn to the ear that
+# answers today (the Hindi ear, the moonshine package, faster-whisper): a broken own ear never breaks a turn. Nothing
+# here downloads; the stream ear, the wake word and the privacy firewall are not touched. The language decides the ear:
+# Hindi, Hinglish and open turns go to Swift after the Hindi ear; an English turn goes to English, then Quick.
+PIN_MARKER = ".friday-pin.json"
+OWN_EAR_RATE = 16000
+OWN_EAR_MIN_S = 0.2
+OWN_EAR_MAX_S = 60
+SWIFT_REPO, SWIFT_SETS = "udgamlabs/Shruti-ONNX", ("hi/onnx", "hi/onnx-int8")
+QUICK_REPO, QUICK_VOCAB_REPO = "moonshine-ai/moonshine", "moonshine-ai/moonshine-tiny"
+QUICK_SET = "onnx/merged/tiny"
+QUICK_FILES = ("encoder_model.onnx", "decoder_model_merged.onnx")
+SWIFT_LOAD_MB = 800.0  # the 4-bit build expands to about 0.7 GB in the runtime (``shruti_ear.LOAD_MB``)
+QUICK_LOAD_MB = 150.0
+ENGLISH_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx"
+ENGLISH_FILES = ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "vocab.txt", "config.json")
+ENGLISH_LOAD_MB = 1200.0  # measured peak 1163 MB
+# FRIDAY Ear Hinglish Pro: FRIDAY's own CTranslate2 int8 conversion of Oriserve's Whisper-Hindi2Hinglish-Apex. The pin
+# is the BF16 source (never installed); the folder that runs holds the converted release files, certified under the
+# source's repository name. It writes Hinglish in Roman letters when decoded with the language token ``en``.
+HINGLISH_PRO_DIR = "hinglish-ear-pro"
+HINGLISH_PRO_REPO = "Oriserve/Whisper-Hindi2Hinglish-Apex"
+HINGLISH_PRO_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.json", "preprocessor_config.json")
+HINGLISH_PRO_MIN_BYTES = 700_000_000  # model.bin is 820,316,291 bytes; anything far smaller is a partial copy
+HINGLISH_PRO_DECODE = "en"
+HINGLISH_PRO_LOAD_MB = 2000.0  # int8 weights 820 MB, plus the decoder and the encoder's working set (estimated)
+_markers: dict[str, tuple[tuple[int, int], dict | None]] = {}
+
+
+def _models_root() -> Path:
+    root = os.environ.get("FRIDAY_ROOT", "").strip()
+    return (Path(root) if root else Path.home() / ".friday") / "models"
+
+
+def _pin_marker(root: Path) -> dict | None:
+    """The verified-pin record of a model folder (read again only when the file changed), or None."""
+    file = root / PIN_MARKER
+    try:
+        stat = file.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        held = _markers.get(str(file))
+        if held is not None and held[0] == stamp:
+            return held[1]
+        record = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    good = (
+        isinstance(record, dict)
+        and isinstance(record.get("repo"), str)
+        and isinstance(record.get("revision"), str)
+        and isinstance(record.get("files"), dict)
+    )
+    _markers[str(file)] = (stamp, record if good else None)
+    return record if good else None
+
+
+def certified_files(root: Path, repo: str, names: Sequence[str]) -> dict[str, str] | None:
+    """``{name: sha256}`` when ``root`` holds the verified pin of ``repo`` and every one of ``names`` is on disk at its
+    pinned size; None otherwise (no marker, another repository, a missing or short file)."""
+    record = _pin_marker(root)
+    if record is None or str(record["repo"]).lower() != repo.lower():
+        return None
+    hashes: dict[str, str] = {}
+    for name in names:
+        row = record["files"].get(name)
+        try:
+            if not isinstance(row, dict) or (root / name).stat().st_size != int(row["bytes"]):
+                return None
+        except (OSError, KeyError, TypeError, ValueError):
+            return None
+        hashes[name] = str(row.get("sha256") or "")
+    return hashes
+
+
+def _marker_stamp(root: Path) -> tuple[str, int, int]:
+    try:
+        stat = (root / PIN_MARKER).stat()
+    except OSError:
+        return (str(root), 0, 0)
+    return (str(root), stat.st_mtime_ns, stat.st_size)
+
+
+class _Found(NamedTuple):
+    folder: Path
+    stamp: tuple[str, int, int]
+    extra: dict[str, Any]
+
+
+def _shruti() -> Any:
+    """The ``shruti_ear`` module, or None when it cannot be imported (it needs numpy and onnxruntime: an ear that
+    cannot import is an ear that is not installed). Its graphs are opened here, behind this worker's memory gate."""
+    try:
+        import shruti_ear
+    except Exception:  # noqa: BLE001 - optional at boot: the other ears answer
+        return None
+    return shruti_ear
+
+
+def _swift_found() -> _Found | None:
+    """The certified Swift model folder (``hi/onnx``, else ``hi/onnx-int8``) with every graph at a real size."""
+    module = _shruti()
+    if module is None:
+        return None
+    base = _models_root() / module.MODEL_DIR
+    for sub in SWIFT_SETS:
+        if certified_files(base, SWIFT_REPO, [f"{sub}/{name}" for name in module.REQUIRED]) is None:
+            continue
+        try:
+            if all((base / sub / name).stat().st_size >= least for name, least in module.MIN_BYTES.items()):
+                return _Found(base / sub, _marker_stamp(base), {})
+        except OSError:
+            continue
+    return None
+
+
+def _quick_found() -> _Found | None:
+    base, vocab = _models_root() / "moonshine-ear", _models_root() / "moonshine-ear-vocab"
+    graphs = certified_files(base, QUICK_REPO, [f"{QUICK_SET}/quantized/{name}" for name in QUICK_FILES])
+    if graphs is None or certified_files(vocab, QUICK_VOCAB_REPO, ["tokenizer.json"]) is None:
+        return None
+    pins = {name: graphs[f"{QUICK_SET}/quantized/{name}"] for name in QUICK_FILES}
+    return _Found(base / QUICK_SET, _marker_stamp(base), {"tokenizer": vocab / "tokenizer.json", "sha256": pins})
+
+
+def _english_found() -> _Found | None:
+    base = _models_root() / "parakeet-ear"
+    if certified_files(base, ENGLISH_REPO, ENGLISH_FILES) is None:
+        return None
+    return _Found(base, _marker_stamp(base), {})
+
+
+def _build_quick(found: _Found) -> Any:
+    import ear_quick
+
+    return ear_quick.EarQuick.load(found.folder, True, found.extra["tokenizer"], found.extra["sha256"])
+
+
+def _build_english(found: _Found) -> Any:
+    import nemo_ear
+
+    return nemo_ear.NemoEar.load(found.folder, kind="tdt", quantization="int8")
+
+
+def _hinglish_pro_found() -> _Found | None:
+    """The certified Hinglish Pro folder: every file the runtime opens is in the marker and ``model.bin`` is whole."""
+    base = _models_root() / HINGLISH_PRO_DIR
+    if certified_files(base, HINGLISH_PRO_REPO, HINGLISH_PRO_FILES) is None:
+        return None
+    try:
+        if (base / "model.bin").stat().st_size < HINGLISH_PRO_MIN_BYTES:
+            return None
+    except OSError:
+        return None
+    return _Found(base, _marker_stamp(base), {})
+
+
+def _build_hinglish_pro(found: _Found) -> Any:
+    """The CTranslate2 model through the same runner and device plan as every other faster-whisper folder."""
+    cls = _import_whisper()
+    if cls is None:
+        raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
+    spec = model_load_kwargs(HINGLISH_PRO_DIR, str(found.folder))
+    runner, used = open_whisper(cls, spec["target"], spec)
+    if used != spec["device"]:
+        note_fallback("cuda-to-cpu")
+    return runner
+
+
+def _read_hinglish_pro(runner: Any, audio: Any, _language: str | None) -> tuple[str, str]:
+    """One decode with the language token ``en``, the worker's voice filter and no-speech policy; reported as Hindi."""
+    options = {
+        "language": HINGLISH_PRO_DECODE,
+        "vad_filter": True,
+        "vad_parameters": dict(VAD_PARAMETERS),
+        "beam_size": 1,
+        "condition_on_previous_text": False,
+    }
+    heard = _consume_whisper(runner, audio, options, None)
+    return str(heard.get("text") or "").strip(), "hi"
+
+
+def _own_error(exc: BaseException) -> str:
+    try:
+        return voice_runtime._safe_error(exc)
+    except Exception:  # noqa: BLE001 - without the scrubber only the class name leaves
+        return type(exc).__name__
+
+
+class _OwnEarSkipped(RuntimeError):
+    """The ear did not open: the worker refused the memory, or this folder already failed to open."""
+
+
+class OwnEar:
+    """One own final-pass ear: ``locate`` finds its certified folder, ``build`` opens it, ``read`` returns the text."""
+
+    def __init__(self, ident, label, name, load_mb, locate, build, read, engine, model, language="en") -> None:
+        self.ident, self.label, self.name, self.kind = ident, label, name, f"{ident}-ear"
+        self._language = language
+        self.load_mb, self.engine, self.model = load_mb, engine, model
+        self._locate, self._build, self._read = locate, build, read
+        self._broken: dict[tuple[str, int, int], str] = {}
+        self._runner: Any = None
+        self._stamp: tuple[str, int, int] | None = None
+        self._skip = self._fault = ""
+
+    def ready(self) -> bool:
+        found = self._locate()
+        return found is not None and found.stamp not in self._broken
+
+    def error(self) -> str | None:
+        found = self._locate()
+        return None if found is None else self._broken.get(found.stamp)
+
+    def last_skip(self) -> str:
+        return self._skip
+
+    def fault(self) -> str:
+        return self._fault
+
+    def last_language(self) -> str:
+        return self._language
+
+    def loaded(self) -> bool:
+        return self._runner is not None
+
+    def unload(self) -> bool:
+        was_open = self._runner is not None
+        self._runner, self._stamp = None, None
+        return was_open
+
+    def _open(self, found: _Found) -> Any:
+        if self._runner is not None and self._stamp == found.stamp:
+            return self._runner
+        if found.stamp in self._broken:
+            self._skip = "broken"
+            raise _OwnEarSkipped("broken")
+        if not admit(self.kind, self.load_mb):
+            self._skip = "low-memory"
+            raise _OwnEarSkipped("low-memory")
+        try:
+            runner = self._build(found)
+        except Exception as exc:  # noqa: BLE001 - remembered, so the next ear answers at once
+            self._broken[found.stamp] = _own_error(exc)
+            self._skip = "broken"
+            raise _OwnEarSkipped("broken") from exc
+        self._runner, self._stamp = runner, found.stamp
+        return runner
+
+    def transcribe(self, samples, language: str | None = None) -> str | None:
+        """Text for 16 kHz mono float samples, or None to let the next ear answer. Never raises."""
+        self._skip = self._fault = ""
+        found = self._locate()
+        if found is None:
+            return None
+        try:
+            import numpy as np  # type: ignore
+
+            audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+            if audio.size < int(OWN_EAR_RATE * OWN_EAR_MIN_S):
+                return None
+            heard = self._read(self._open(found), audio[: OWN_EAR_RATE * OWN_EAR_MAX_S], language)
+            text, used = heard if isinstance(heard, tuple) else (heard, "")
+            text = str(text or "").strip()
+            if used:
+                self._language = used
+        except _OwnEarSkipped:
+            return None
+        except Exception as exc:  # noqa: BLE001 - a broken own ear never breaks a turn
+            self._fault = _own_error(exc)
+            return None
+        return text or None
+
+
+def _build_swift(found: _Found) -> Any:
+    module = _shruti()
+    if module is None:
+        raise RuntimeError("shruti_ear cannot be imported")
+    return module.load_runner(found.folder)
+
+
+def _read_swift(runner: Any, audio: Any, language: str | None) -> tuple[str, str] | str:
+    """Beam-searched text in the script policy (Hindi words in Devanagari, English in Latin) and the language used."""
+    heard = runner.transcribe(audio, language=language if language in runner.languages else None, beams=_SWIFT_BEAMS)
+    text = str(heard["text"]).strip()
+    used = str(heard["language"] or "")
+    return (_shruti()._policy(text, used), used) if text else ""
+
+
+_SWIFT_BEAMS = 5  # the model's own default (``shruti_ear.BEAMS``)
+SWIFT = OwnEar(
+    "swift", "FRIDAY Ear Swift", "shruti-ear", SWIFT_LOAD_MB, _swift_found, _build_swift, _read_swift,
+    "friday-ear-swift", "shruti-ear", language="hi",
+)  # fmt: skip
+QUICK = OwnEar(
+    "quick", "FRIDAY Ear Quick", "moonshine-ear", QUICK_LOAD_MB, _quick_found, _build_quick,
+    lambda runner, audio, _language: runner.transcribe(audio), "friday-ear-quick", "moonshine-tiny-onnx",
+)  # fmt: skip
+ENGLISH = OwnEar(
+    "english", "FRIDAY Ear English", "parakeet-ear", ENGLISH_LOAD_MB, _english_found, _build_english,
+    lambda runner, audio, _language: runner.recognize(audio), "friday-ear-english", "parakeet-tdt-0.6b-v2-int8",
+)  # fmt: skip
+
+
+HINGLISH_PRO = OwnEar(
+    "hinglish-pro", "FRIDAY Ear Hinglish Pro", HINGLISH_PRO_DIR, HINGLISH_PRO_LOAD_MB, _hinglish_pro_found,
+    _build_hinglish_pro, _read_hinglish_pro, "friday-ear-hinglish-pro", "whisper-hindi2hinglish-apex-ct2-int8",
+    language="hi",
+)  # fmt: skip
+
+
+def _own_ears() -> tuple[Any, ...]:
+    """The three own ears, read from the module each time (a test swaps them)."""
+    return (SWIFT, QUICK, ENGLISH)
+
+
+def _every_own_ear() -> tuple[Any, ...]:
+    """The three own ears and Hinglish Pro: what is resident, evicted, unloaded and named. Pro answers Roman Hinglish
+    turns only, so it is not one of the three the Doctor lists under ``ownEars``."""
+    return (*_own_ears(), HINGLISH_PRO)
+
+
+def _own_engine(name: str) -> str:
+    """The engine label of a resident model name: an own ear's engine, else faster-whisper."""
+    return next((ear.engine for ear in _every_own_ear() if ear.name == name), "faster-whisper")
+
+
+def _own_ear_of(kind: str):
+    return next((ear for ear in _every_own_ear() if ear.kind == kind), None)
+
+
+def _read_own(ear, samples, language: str | None = None) -> str | None:
+    """One read by an own ear, with its load time and the idle clock kept like the Hindi ear's."""
+    was_open, started = ear.loaded(), _now()
+    text = ear.transcribe(samples, language)
+    if ear.loaded():
+        if not was_open:
+            _load_ms[ear.name] = int((_now() - started) * 1000)
+        touch()
+    check_cancel()
+    return text
+
+
+def english_final(samples, on_partial) -> tuple[str | None, str, str]:
+    """``(text, engine, model)`` of an English final read: Ear English, then Ear Quick, then the moonshine package.
+    ``(None, "faster-whisper", "")`` sends the turn to faster-whisper. An ear that ran cleanly and heard nothing ends
+    the chain (the next ones would hear the same silence); an ear that is missing, refused or broken hands on."""
+    for ear in (ENGLISH, QUICK):
+        if not ear.ready():
+            continue
+        text = _read_own(ear, samples)
+        if text:
+            if on_partial:
+                on_partial(text)
+            return text, ear.engine, ear.model
+        if not (ear.last_skip() or ear.fault()):
+            return None, "faster-whisper", ""
+        note_fallback(f"{ear.name}-to-next")
+    moon_dir = moonshine_model_dir()
+    if moon_dir:
+        text = transcribe_moonshine(samples, moon_dir, on_partial)
+        if text:
+            return text, "moonshine-en", "moonshine-tiny-streaming"
+    return None, "faster-whisper", ""
+
+
+def swift_final(samples, mode: str, hotwords: list[str]) -> str | None:
+    """The Swift text of a Hindi, Hinglish or open turn the Hindi ear left unread, or None for faster-whisper."""
+    if mode not in {"hi", "auto"} or not SWIFT.ready():
+        return None
+    text = _read_own(SWIFT, samples, "hi" if mode == "hi" else None)
+    if not text:
+        if SWIFT.last_skip() or SWIFT.fault():
+            note_fallback("shruti-ear-to-whisper")
+        return None
+    return snap_text(text, hotwords)
+
+
+def hinglish_pro_final(samples, language: str, speech_pref: str, hotwords: list[str]) -> str | None:
+    """The Hinglish Pro text of a Roman Hinglish turn, or None for the Hinglish ear and the speech model of today.
+
+    Asked only for the explicit Roman Hinglish mode (``hi-Latn``), only when its certified folder is installed; every
+    load asks the memory gate first. An ear that is refused or cannot open is a counted fallback, not a broken turn."""
+    if not whisper_ears.wants_roman_hinglish(language, speech_pref) or not HINGLISH_PRO.ready():
+        return None
+    text = _read_own(HINGLISH_PRO, samples, HINGLISH_PRO_DECODE)
+    if not text:
+        if HINGLISH_PRO.last_skip() or HINGLISH_PRO.fault():
+            note_fallback("hinglish-pro-to-whisper")
+        return None
+    return snap_text(text, hotwords)
+
+
+def hinglish_pro_status() -> dict:
+    """The Doctor row of Hinglish Pro: installed and certified, loaded now, and why it cannot open."""
+    return {
+        "id": HINGLISH_PRO.ident,
+        "label": HINGLISH_PRO.label,
+        "catalogId": HINGLISH_PRO.name,
+        "engine": HINGLISH_PRO.engine,
+        "ready": HINGLISH_PRO.ready(),
+        "loaded": HINGLISH_PRO.loaded(),
+        "error": HINGLISH_PRO.error(),
+    }
+
+
+def own_ears_status() -> list[dict]:
+    """One row per own ear for the Doctor: installed and certified, loaded now, and why it cannot open."""
+    return [
+        {
+            "id": ear.ident,
+            "label": ear.label,
+            "catalogId": ear.name,
+            "ready": ear.ready(),
+            "loaded": ear.loaded(),
+            "error": ear.error(),
+        }
+        for ear in _own_ears()
+    ]
+
+
+def _ear_self_test_row(ear, samples) -> dict:
+    """One own ear on the probe clip: ``ok``, ``missing``, ``refused`` or ``failed`` (``run_own_ears_self_test``)."""
+    row: dict[str, Any] = {"id": ear.ident, "label": ear.label, "catalogId": ear.name, "local": True}
+    broken = ear.error()
+    if not ear.ready():
+        return {**row, "status": "failed" if broken else "missing", "reason": broken or "not installed", "ms": 0}
+    started = time.perf_counter()
+    _read_own(ear, samples)
+    ms = int((time.perf_counter() - started) * 1000)
+    if ear.last_skip() == "low-memory":
+        return {**row, "status": "refused", "reason": "low memory", "ms": ms}
+    if ear.last_skip() or ear.fault() or ear.error():
+        return {**row, "status": "failed", "reason": ear.fault() or ear.error() or "cannot open", "ms": ms}
+    return {**row, "status": "ok", "reason": "", "ms": ms}
+
+
+def run_own_ears_self_test(samples=None) -> dict:
+    """One row per own ear on the probe clip: ``ok``, ``missing`` (not installed: the ear of today answers),
+    ``refused`` (the memory gate said no) or ``failed`` (it cannot open or decode). Hinglish Pro has its own row,
+    ``hinglishPro``, beside the three. Nothing leaves the machine."""
+    if samples is None:
+        samples = read_pcm16_wav(write_probe_wav(str(Path(tempfile.mkdtemp(prefix="friday-ears-")) / "probe.wav")))
+    rows = [_ear_self_test_row(ear, samples) for ear in _own_ears()]
+    pro = _ear_self_test_row(HINGLISH_PRO, samples)
+    ok = all(row["status"] != "failed" for row in [*rows, pro])
+    return {"ok": ok, "local": True, "ears": rows, "hinglishPro": pro}
+
+
 # True only while a provisional (not-final) pass runs: it is neither counted nor recorded.
 _provisional_pass = False
 
@@ -1371,10 +2136,13 @@ def _transcribe_file(
             model_path,
             hearing,
             original,
-            extras,
+            {**(extras or {}), "turn_prior": "" if provisional else turn_prior()},
         )
         if not provisional:
             _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
+            note_turn_language(
+                result.get("text") or "", result.get("language") or "", result.get("languageProbability")
+            )
         return result
     finally:
         if cleanup and os.path.exists(cleanup):
@@ -1388,8 +2156,6 @@ def _transcribe_file(
 
 LIVE_MAX_S = 30.0  # the renderer keeps its buffer to about this; a longer clip loses its oldest audio
 LIVE_MIN_S = 0.2
-LIVE_NOISE_NO_SPEECH = 0.6
-LIVE_NOISE_LOGPROB = -1.0
 LIVE_PAD_S = 0.1  # a Roman Hindi phrase is cut this much wider before the Hindi ear re-reads it
 
 
@@ -1398,19 +2164,15 @@ def _live_empty(seconds: float) -> dict:
             "engine": "faster-whisper", "durationMs": int(seconds * 1000)}  # fmt: skip
 
 
-def live_segment_is_noise(text: str, no_speech, logprob) -> bool:
-    """A segment that is a loop, a stock sign-off from noise, or silence the model made words for."""
-    if is_repetition_loop(text):
-        return True
-    ns = float(no_speech) if isinstance(no_speech, (int, float)) else 0.0
-    lp = float(logprob) if isinstance(logprob, (int, float)) else None
-    if lp is not None and ns >= LIVE_NOISE_NO_SPEECH and lp <= LIVE_NOISE_LOGPROB:
-        return True
-    return is_noise_hallucination(text, ns, lp)
-
-
 def _shifted(words: list[dict], by: float) -> list[dict]:
     return [{"text": w["text"], "start": round(w["start"] + by, 3), "end": round(w["end"] + by, 3)} for w in words]
+
+
+def _snap_rows(rows: list[dict], hotwords: list[str]) -> list[dict]:
+    if not hotwords:
+        return rows
+    words = [Word(r["text"], float(r["start"]), float(r["end"])) for r in rows]
+    return [{"text": w.text, "start": w.start, "end": w.end} for w in snap_hotwords(words, hotwords)]
 
 
 def _live_script(words: list[dict]) -> str:
@@ -1448,12 +2210,13 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
     check_cancel()
     mode = hindi_ear.listen_mode(language, speech_pref)
     if mode in {"hi", "auto"} and hindi_ear.ready():
-        heard = hindi_ear.transcribe_words(clip)
+        with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+            heard = hindi_ear.transcribe_words(clip)
         if _ear_loaded():
             touch()
         check_cancel()
-        if heard and hindi_ear.confident(mode, heard.get("confidence")):
-            words = _shifted(heard["words"], shift)
+        if heard is not None and ear_keeps_live(mode, heard, hotword_list((extras or {}).get("hotwords"))):
+            words = _shifted(_snap_rows(heard["words"], hotword_list((extras or {}).get("hotwords"))), shift)
             return {
                 "ok": True,
                 "text": " ".join(w["text"] for w in words),
@@ -1465,7 +2228,8 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
                 "durationMs": duration_ms,
             }
     alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
-    if _model is None or (alt is not None and _model_name != alt["path"]):
+    if _model is None or (alt is not None and _model_name != alt["path"]) or whisper_ears.is_trelis_path(_model_name):
+        # (The Trelis ear needs its own decoder prompt, so a live pass never decodes with it.)
         return {
             "ok": False,
             "reason": "not-ready",
@@ -1525,7 +2289,8 @@ def transcribe_live(audio: str, language: str, speech_pref: str, extras: dict | 
                 continue
             lo = max(0.0, row["start"] - LIVE_PAD_S)
             hi = min(len(clip) / rate, row["end"] + LIVE_PAD_S)
-            heard = hindi_ear.transcribe_words(clip[int(lo * rate) : int(hi * rate)])
+            with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+                heard = hindi_ear.transcribe_words(clip[int(lo * rate) : int(hi * rate)])
             check_cancel()
             if heard and hindi_ear.confident("auto", heard.get("confidence")):
                 row["words"] = _shifted(heard["words"], lo)
@@ -1556,6 +2321,7 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     check_cancel()
     segments, info = model.transcribe(payload, **kwargs)
     parts: list[str] = []
+    rows: list[dict] = []
     no_speech: list[float] = []
     logprobs: list[float] = []
     partials = 0
@@ -1564,6 +2330,9 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         text = (getattr(seg, "text", "") or "").strip()
         if text:
             parts.append(text)
+            begin, end = getattr(seg, "start", None), getattr(seg, "end", None)
+            if isinstance(begin, (int, float)) and isinstance(end, (int, float)):
+                rows.append({"text": text, "start": float(begin), "end": float(end)})
             partials += 1
             if on_partial and partials <= 12:
                 on_partial(" ".join(parts))
@@ -1577,11 +2346,18 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
     avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
     duration = getattr(info, "duration", None)
-    kept, note, policy_code = apply_no_speech_policy(
-        joined, avg, avg_lp, float(duration) if isinstance(duration, (int, float)) else None
-    )
     vad = getattr(info, "duration_after_vad", None)
     vad_ms = int(float(vad) * 1000) if isinstance(vad, (int, float)) else 0
+    # The VAD that ran before the decode says how much of the clip was voice; a clip with no such figure is not gated.
+    fraction, voiced = vad_evidence(vad, duration)
+    kept, note, policy_code = apply_no_speech_policy(
+        joined,
+        avg,
+        avg_lp,
+        float(duration) if isinstance(duration, (int, float)) else None,
+        speech_fraction=fraction,
+        voiced_ms=voiced,
+    )
     return {
         "text": kept,
         "noSpeechProb": round(avg, 4),
@@ -1592,6 +2368,198 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         "language": getattr(info, "language", "") or "",
         "languageProbability": _language_probability(info),
         "durationMs": int(float(getattr(info, "duration", 0.0) or 0.0) * 1000),
+        "segments": rows if len(rows) == partials else [],
+    }
+
+
+# ---- Long form: a long utterance is cut at its silences, read in pieces and joined again --------------------------
+
+LONGFORM_TRIGGER_S = 30.0  # Whisper reads up to 30 s in one window; a longer clip is chunked
+LONGFORM_CHUNK_S = 25.0  # the longest piece
+LONGFORM_OVERLAP_S = 1.0  # each piece starts this far before the previous one ended
+LONGFORM_MIN_CHUNK_S = 4.0  # a silence closer than this to the piece's start is not a cut point
+LONGFORM_MIN_SILENCE_S = 0.3
+LONGFORM_FRAME_S = 0.02
+LONGFORM_HOLD_S = 0.15  # after a cut with no silence, words ending this close to it are heard again in the next piece
+LONGFORM_KEPT_WORDS = 50_000
+
+
+def is_longform(seconds: float) -> bool:
+    return seconds > LONGFORM_TRIGGER_S
+
+
+def silence_runs(samples, rate: int = RATE, min_silence_s: float = LONGFORM_MIN_SILENCE_S) -> list[tuple[float, float]]:
+    """(start, end) seconds of every pause of at least ``min_silence_s``, judged by frame energy against the clip's
+    own loud level (a tenth of it, never under 0.003)."""
+    import numpy as np  # type: ignore
+
+    clip = np.asarray(samples, dtype=np.float32).reshape(-1)
+    frame = max(1, int(rate * LONGFORM_FRAME_S))
+    count = len(clip) // frame
+    if count == 0:
+        return []
+    rms = np.sqrt(np.mean(np.square(clip[: count * frame].reshape(count, frame)), axis=1))
+    quiet = rms < max(0.003, 0.1 * float(np.percentile(rms, 90)))
+    runs: list[tuple[float, float]] = []
+    begin: int | None = None
+    for index, is_quiet in enumerate([*quiet.tolist(), False]):
+        if is_quiet and begin is None:
+            begin = index
+        elif not is_quiet and begin is not None:
+            if (index - begin) * LONGFORM_FRAME_S >= min_silence_s:
+                runs.append((begin * LONGFORM_FRAME_S, index * LONGFORM_FRAME_S))
+            begin = None
+    return runs
+
+
+def plan_chunks(
+    samples,
+    rate: int = RATE,
+    *,
+    max_s: float = LONGFORM_CHUNK_S,
+    overlap_s: float = LONGFORM_OVERLAP_S,
+    min_chunk_s: float = LONGFORM_MIN_CHUNK_S,
+    pauses: list[tuple[float, float]] | None = None,
+) -> list[dict]:
+    """Pieces of at most ``max_s`` seconds, each cut in the middle of the latest pause that fits, else hard at
+    ``max_s``. A piece starts ``overlap_s`` before the previous one ended. ``cut`` says how a piece ends:
+    "silence", "hard" or "end". ``pauses`` are (start, end) seconds of the quiet stretches to cut in (from the voice
+    model, see ``longform_pauses``); without them the clip's own energy decides."""
+    total = len(samples) / rate
+    if total <= 0:
+        return []
+    if not (max_s > overlap_s + min_chunk_s > 0):
+        raise ValueError("max_s must exceed overlap_s plus min_chunk_s")
+    middles = [(a + b) / 2 for a, b in (silence_runs(samples, rate) if pauses is None else pauses)]
+    pieces: list[dict] = []
+    start = 0.0
+    while True:
+        if total - start <= max_s:
+            pieces.append({"start": round(start, 3), "end": round(total, 3), "cut": "end"})
+            return pieces
+        limit = start + max_s
+        fits = [p for p in middles if start + min_chunk_s <= p <= limit]
+        cut, kind = (max(fits), "silence") if fits else (limit, "hard")
+        pieces.append({"start": round(start, 3), "end": round(cut, 3), "cut": kind})
+        start = cut - overlap_s
+
+
+def longform_pauses(samples, language: str | None = None, rate: int = RATE) -> list[tuple[float, float]] | None:
+    """The quiet stretches of a long clip as the Silero voice model hears them: the gaps between its speech spans
+    (cut at ``LONGFORM_CHUNK_S`` at the best silence, so an unbroken run still has cut points). A clip with no speech
+    is one long pause. None when the model, numpy or onnxruntime is missing: the caller plans from energy instead."""
+    try:
+        import vad_onnx
+
+        stream = vad_onnx.SileroStream()
+        probs = speech_segments.frame_probabilities(samples, stream, tick=check_cancel)
+    except Exception:  # noqa: BLE001 — no model, no runtime or a broken frame: the energy plan stays (a cancel is a BaseException and passes)
+        return None
+    options = speech_segments.options_for_language(language, max_speech_s=LONGFORM_CHUNK_S)
+    spans = speech_segments.speech_spans(probs, len(samples), options, rate)
+    if not spans:
+        return [(0.0, len(samples) / rate)]
+    return speech_segments.silence_gaps(spans, rate, options.min_cut_silence_ms / 1000)
+
+
+def _spread_words(text: str, begin: float, end: float) -> list[Word]:
+    words = text.split()
+    if not words:
+        return []
+    step = max(0.0, end - begin) / len(words)
+    return [Word(w, begin + i * step, begin + (i + 1) * step) for i, w in enumerate(words)]
+
+
+def _segment_words(seg, shift: float) -> list[Word]:
+    """The segment's words on the whole clip's clock; spread over the segment when the model gave no word times."""
+    begin = float(getattr(seg, "start", 0.0) or 0.0) + shift
+    end = float(getattr(seg, "end", 0.0) or 0.0) + shift
+    timed = [
+        Word(str(getattr(w, "word", "") or "").strip(), float(w.start) + shift, float(w.end) + shift)
+        for w in (getattr(seg, "words", None) or [])
+    ]
+    timed = [w for w in timed if w.text]
+    return timed or _spread_words((getattr(seg, "text", "") or "").strip(), begin, end)
+
+
+def _seam_filter(words: list[Word], last_end: float | None) -> list[Word]:
+    """Drop what the previous piece already said: a word whose middle falls inside the committed time."""
+    if last_end is None:
+        return words
+    return [w for w in words if w.start is None or w.end is None or (w.start + w.end) / 2 > last_end]
+
+
+def _consume_longform(model, samples, kwargs: dict, hint: str, on_partial) -> dict:
+    """One utterance of any length, read piece by piece. Every piece is decoded with word times and the last 200
+    characters already said as its prompt; the pieces are joined by the same seam logic the streaming ear commits
+    with (a word is kept once, a repeat of the last words at the seam is dropped). Same result shape as
+    ``_consume_whisper``."""
+    total = len(samples) / RATE
+    pieces = plan_chunks(samples, pauses=longform_pauses(samples, kwargs.get("language")))
+    committer = LocalAgreementCommitter(max_kept_words=LONGFORM_KEPT_WORDS)
+    rows: list[dict] = []
+    no_speech: list[float] = []
+    logprobs: list[float] = []
+    voiced = 0.0
+    language, probability = "", None
+    for index, piece in enumerate(pieces):
+        check_cancel()
+        carry = committer.prompt()
+        options = {**kwargs, "word_timestamps": True, "hallucination_silence_threshold": HALLUCINATION_SILENCE_S}
+        prompt = carry or hint
+        if prompt:
+            options["initial_prompt"] = prompt[:800]
+        else:
+            options.pop("initial_prompt", None)
+        begin = piece["start"]
+        segments, info = model.transcribe(samples[int(begin * RATE) : int(piece["end"] * RATE)], **options)
+        heard: list[Word] = []
+        for seg in segments:
+            check_cancel()
+            text = (getattr(seg, "text", "") or "").strip()
+            ns = getattr(seg, "no_speech_prob", None)
+            lp = getattr(seg, "avg_logprob", None)
+            if isinstance(ns, (int, float)):
+                no_speech.append(float(ns))
+            if isinstance(lp, (int, float)):
+                logprobs.append(float(lp))
+            if text and not live_segment_is_noise(text, ns, lp):
+                heard.extend(_segment_words(seg, begin))
+        after_vad = getattr(info, "duration_after_vad", None)
+        voiced += float(after_vad) if isinstance(after_vad, (int, float)) else 0.0
+        if not language:
+            language = getattr(info, "language", "") or ""
+            probability = _language_probability(info)
+        if piece["cut"] == "hard":
+            heard = [w for w in heard if w.end is None or w.end <= piece["end"] - LONGFORM_HOLD_S]
+        last = committer.all_committed[-1].stamp if committer.all_committed else None
+        committer.insert(_seam_filter(heard, last))
+        said = committer.finalize()
+        if said:
+            rows.append({"text": join_words(said), "start": said[0].start, "end": said[-1].end})
+        if index + 1 < len(pieces):
+            committer.trim_at(pieces[index + 1]["start"])
+        if on_partial and rows:
+            on_partial(" ".join(r["text"] for r in rows))
+    text = " ".join(r["text"] for r in rows)
+    avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
+    avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
+    fraction, voiced_ms = vad_evidence(min(voiced, total), total)
+    kept, note, policy_code = apply_no_speech_policy(
+        text, avg, avg_lp, total, speech_fraction=fraction, voiced_ms=voiced_ms
+    )
+    return {
+        "text": kept,
+        "noSpeechProb": round(avg, 4),
+        "noSpeechNote": note,
+        "avgLogprob": round(avg_lp, 4) if avg_lp is not None else None,
+        "policyCode": policy_code,
+        "vadMs": int(min(voiced, total) * 1000),
+        "language": language,
+        "languageProbability": probability,
+        "durationMs": int(total * 1000),
+        "segments": rows if kept == text else [],
+        "chunks": len(pieces),
     }
 
 
@@ -1642,8 +2610,38 @@ def choose_language_pass(first: dict, second: dict) -> tuple[dict, str]:
     return {**second, "languageNote": note}, note
 
 
+def rescore_segments(first: dict, samples, language: str, speech_pref: str, decode) -> tuple[dict, str]:
+    """One forced-language look per segment whose language differs from the reading's (Hindi in Devanagari, English
+    in Latin, Roman Hindi read as Hindi), so a Hinglish utterance is not written in one script. ``decode(clip, lang)``
+    is one Whisper pass; a segment keeps its first text unless the new one is in the right script and length."""
+    rows = first.get("segments") or []
+    text = (first.get("text") or "").strip()
+    if samples is None or not rows or not text or " ".join(r["text"] for r in rows).strip() != text:
+        return first, ""
+    mode = turn_mode(speech_pref or language)
+    plans = plan_rescore(rows, first.get("language") or None, mode)
+    if not plans:
+        return first, ""
+
+    def one(plan) -> dict:
+        check_cancel()
+        return decode(samples[int(plan.start * RATE) : int(plan.end * RATE)], plan.language)
+
+    rows, changed = apply_rescore(rows, plans, one)
+    if not changed:
+        return first, ""
+    note = f"read {changed} segment(s) again in their own language"
+    return {**first, "text": " ".join(r["text"] for r in rows), "segments": rows, "rescored": changed}, note
+
+
 TOO_SHORT_MS = 300
-VAD_PARAMETERS = {"threshold": 0.35, "min_silence_duration_ms": 700, "speech_pad_ms": 400}
+# A word as short as "haan" or "ruko" (120 ms of voice up) reaches the decode; the short-clip rule judges it after.
+VAD_PARAMETERS = {
+    "threshold": 0.35,
+    "min_silence_duration_ms": 700,
+    "speech_pad_ms": 400,
+    "min_speech_duration_ms": 120,
+}
 
 _counters: dict = {"heard": 0, "dropped": {}}
 
@@ -1799,33 +2797,96 @@ def _transcribe_prepared(
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
-    if wants_english_stream(language, speech_pref) and samples is not None:
-        moon_dir = moonshine_model_dir()
-        if moon_dir:
-            moon_text = transcribe_moonshine(samples, moon_dir, on_partial)
-            if moon_text:
-                engine = "moonshine-en"
+    own_model = ""  # the model name of an own English ear that heard the turn
+    swift_text, swift_tried = None, False
+    pro_tried = False  # Hinglish Pro already read this clip: a second pass does not decode it again
+    # The Trelis mixed-script ear is asked for by name and checked for files and hardware; None is the engine of today.
+    trelis, trelis_skipped = whisper_ears.trelis_verdict(extras, cuda_runtime_ready)
+    # One route per turn: the Hindi ear, or whisper with the turn's language already known (no language guess).
+    prior = str((extras or {}).get("turn_prior") or "")  # (the worker puts it there: see ``_transcribe_file``)
+    route = route_turn(language, speech_pref, prior, bool((extras or {}).get("route_open")))
+
+    def retry(options: dict | None = None) -> dict:
+        chosen = options if options is not None else extras
+        if swift_tried:  # Ear Swift already read this clip: a second pass does not decode it again
+            chosen = {**(chosen or {}), "swift_done": True}
+        if pro_tried:
+            chosen = {**(chosen or {}), "pro_done": True}
+        return _transcribe_prepared(
+            audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
+            owner_size, model_path, hearing, original, chosen,
+        )  # fmt: skip
+
+    if trelis is None and wants_english_stream(language, speech_pref) and samples is not None:
+        moon_text, engine, own_model = english_final(samples, on_partial)
     hindi_text = None
     ear_note = ""
-    if not moon_text and samples is not None and hindi_ear.tries_ear(language, speech_pref):
+    ear_heard: dict | None = None  # the ear's line and cue behind an English gate, handed to the open re-read
+    gate_why, ear_unsure = "", False
+    skip_note = ""  # the Hindi ear could not open for this turn: said in the reply, never a silent English decode
+    if trelis is None and not moon_text and samples is not None and route.ear:
         # Hindi chosen, or no language chosen, and FRIDAY's Hindi ear on disk: it hears first and faster-whisper
         # answers if it cannot, or if the ear itself is unsure (English or mixed speech comes out as Devanagari
         # words that mean nothing, and its own token scores say so).
-        ear_was_open, ear_started = _ear_loaded(), _now()
-        hindi_text = hindi_ear.transcribe(samples)
-        if _ear_loaded():
-            if not ear_was_open:
-                # The first reading opens the ear, so this time includes that one decode.
-                _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
-            touch()
-        check_cancel()
+        # A re-read of the same clip: the ear's line and cue are not decoded again.
+        held = (extras or {}).get("ear_heard")
+        if held:
+            hindi_text, ear_conf = held["text"], held["confidence"]
+        else:
+            ear_was_open, ear_started = _ear_loaded(), _now()
+            with hindi_ear.with_hotwords(hotword_list((extras or {}).get("hotwords"))):
+                hindi_text = hindi_ear.transcribe(samples)
+            ear_conf = hindi_ear.last_confidence()
+            skipped = hindi_ear.last_skip()
+            if skipped:
+                why = "low memory" if skipped == "low-memory" else "its files cannot be opened"
+                skip_note = f"the Hindi ear could not open ({why}): faster-whisper heard it"
+            if _ear_loaded():
+                if not ear_was_open:
+                    # The first reading opens the ear, so this time includes that one decode.
+                    _load_ms[HINDI_EAR_NAME] = int((_now() - ear_started) * 1000)
+                touch()
+            check_cancel()
         mode = hindi_ear.listen_mode(language, speech_pref)
-        if hindi_text and not hindi_ear.confident(mode, hindi_ear.last_confidence()):
-            hindi_text = None
+        if hindi_text and not hindi_ear.confident(mode, ear_conf):
+            hindi_text, ear_unsure = None, True
             note_fallback("hindi-ear-to-whisper")
             ear_note = "the Hindi ear was unsure (English or mixed speech): faster-whisper heard it"
+        gate_english = False
+        if hindi_text and mode == "auto":
+            # A sure-sounding line can still be English spelled in Devanagari: its own words judge it, and only a
+            # line they cannot tell costs a language guess on its first seconds (from a model already resident).
+            ear_line = hindi_text
+            gate = hindi_ear.english_gate(hindi_text, ear_conf, hotword_list((extras or {}).get("hotwords")))
+            cue_known = bool(held) and "cue" in held
+            cue = held["cue"] if held and cue_known else None
+            if gate["verdict"] == "listen":
+                if not cue_known:
+                    cue, cue_known = ear_language_cue(samples), True
+                gate = hindi_ear.settle_gate(gate, cue, prior)
+                check_cancel()
+            if gate["verdict"] == "english":
+                hindi_text, gate_english, gate_why = None, True, str(gate["why"])
+                if not held:
+                    note_fallback("hindi-ear-english-gate")
+                ear_note = f"the Hindi ear wrote English in Devanagari ({gate['why']}): faster-whisper heard English"
+                ear_heard = {"text": ear_line, "confidence": ear_conf, **({"cue": cue} if cue_known else {})}
+        if not hindi_text and not held and not (extras or {}).get("swift_done"):
+            # FRIDAY Ear Swift reads what the Hindi ear left (not installed, refused, unsure, or English in Devanagari).
+            swift_tried = True
+            swift_text = swift_final(samples, mode, hotword_list((extras or {}).get("hotwords")))
         if hindi_text:
             engine = "hindi-ear"
+            hindi_text = snap_text(hindi_text, hotword_list((extras or {}).get("hotwords")))
+        elif swift_text:
+            engine = SWIFT.engine
+        elif gate_english:
+            route = route_after_english_gate(route, gate_why)
+        elif not skip_note:
+            # The ear listened and kept nothing: after an English turn that is English, not Hindi; a line it was unsure
+            # of, with no English before it, is read by the base model first with the language open. An ear that never
+            # opened heard nothing, so the turn before it does not lock this one to English.
+            route = lane_after_ear(lock_after_ear(route, prior, mode), mode, ear_unsure)
     turn_probability = None
     # The end-of-turn score is informational here (the capture already closed the turn), so it is read only when asked
     # for: it used to run before every decode and add its own model run to the wait for the words.
@@ -1843,7 +2904,7 @@ def _transcribe_prepared(
                 "text": moon_text,
                 "language": "en",
                 "durationMs": 0,
-                "model": "moonshine-tiny-streaming",
+                "model": own_model or "moonshine-tiny-streaming",
                 "noSpeechProb": 0.0,
                 "loadCount": _load_count,
                 "engine": engine,
@@ -1852,7 +2913,26 @@ def _transcribe_prepared(
             hearing,
             {"text": moon_text, "vadMs": None, "noSpeechProb": 0.0, "language": "en", "noSpeechNote": ""},
             "",
-            ["moonshine"],
+            ["moonshine" if engine == "moonshine-en" else engine],
+        )
+    if swift_text:
+        swift_language = SWIFT.last_language()
+        return _heard(
+            {
+                "ok": True,
+                "text": swift_text,
+                "language": swift_language,
+                "durationMs": 0,
+                "model": SWIFT.model,
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": swift_text, "vadMs": None, "noSpeechProb": 0.0, "language": swift_language, "noSpeechNote": ""},
+            "",
+            [engine],
         )
     if hindi_text:
         return _heard(
@@ -1872,21 +2952,59 @@ def _transcribe_prepared(
             "",
             ["hindi-ear"],
         )
+    # FRIDAY Ear Hinglish Pro reads the explicit Roman Hinglish mode before the Hinglish ear and the speech model of
+    # today, when its certified folder is installed; a refusal, a failure or silence hands the turn on unchanged.
+    pro_text = None
+    if trelis is None and samples is not None and not (extras or {}).get("pro_done"):
+        pro_tried = True
+        pro_text = hinglish_pro_final(samples, language, speech_pref, hotword_list((extras or {}).get("hotwords")))
+    if pro_text:
+        return _heard(
+            {
+                "ok": True,
+                "text": pro_text,
+                "language": "hi",
+                "languageNote": "Hinglish Pro ear: Roman letters",
+                "durationMs": 0,
+                "model": HINGLISH_PRO.model,
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": HINGLISH_PRO.engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": pro_text, "vadMs": None, "noSpeechProb": 0.0, "language": "hi", "noSpeechNote": ""},
+            "",
+            [HINGLISH_PRO.engine],
+        )
     # An optional ear (Hinglish in Roman letters, or the Hindi fallback) listens only when its mode is chosen and its
     # pinned files are on disk; any load or decode failure is remembered and the engine of today hears the utterance.
     check_cancel()  # the ear is done and nothing was heard: do not open a model for a decode nobody wants
-    alt = whisper_ears.choose(language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref))
+    alt = trelis or whisper_ears.choose(
+        language, speech_pref, hindi_ear.ready(), hindi_ear.wants_hindi(language, speech_pref)
+    )
     model = None
     if alt is not None:
         try:
-            model = get_model(alt["id"], alt["path"])
+            model = get_model(alt["id"], alt["path"], **({"compute_type": alt["compute_type"]} if trelis else {}))
         except Exception:  # noqa: BLE001 — the generic model answers instead
             whisper_ears.mark_failed(alt["id"])
             note_fallback("ear-to-generic")
+            if trelis:
+                return retry()  # the Hinglish and Hindi ears and the generic model answer, as without the option
             alt = None
+    requested_model = owner_model(owner_size, model_name)
+
+    def open_owner_model():
+        return get_model(requested_model, model_path or None, **auto_flag(owner_size))
+
+    fast = None  # the base model of a short English final: the owner's model is opened only if it is not sure
+    if model is None and alt is None and short_final_lane(route, samples, owner_size, requested_model):
+        fast = fast_english_model()
+        model = fast
     try:
         if model is None:
-            model = get_model(owner_model(owner_size, model_name), model_path or None, **auto_flag(owner_size))
+            model = open_owner_model()
     except Exception:
         windows_text = transcribe_windows(audio)
         if not windows_text:
@@ -1909,12 +3027,23 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    lang = alt["decode"] if alt is not None else resolve_language(language)
+    lang = alt["decode"] if alt is not None else route.lock
     if alt is not None:
         engine = alt["engine"]
-    hint = (initial_prompt or "").strip()
+    if trelis:
+        try:
+            model = whisper_ears.decoder_for(model, alt)
+        except Exception:  # noqa: BLE001 — an ear that cannot carry its prompt never hears
+            whisper_ears.mark_failed(trelis["id"])
+            note_fallback("ear-to-generic")
+            return retry()
+    hint = "" if trelis else (initial_prompt or "").strip()  # (the Trelis prompt has no text part)
     if lang is None and not hint:
         hint = DEFAULT_HINT
+    if not trelis:
+        hint = with_glossary_hint(hint, extras)
+    if samples is not None:  # a clip under 600 ms is decoded without a prompt (it would be repeated back)
+        lang, hint = short_clip_decode(len(samples) / RATE, lang, hint)
     kwargs: dict = {
         "language": lang,
         "vad_filter": True,
@@ -1927,17 +3056,27 @@ def _transcribe_prepared(
     }
     if hint:
         kwargs["initial_prompt"] = hint[:800]
+    guard_hotwords(kwargs)
     payload = samples if samples is not None else audio
     try:
-        first = _consume_whisper(model, payload, kwargs, on_partial)
+        if samples is not None and is_longform(len(samples) / RATE):
+            first = _consume_longform(model, samples, kwargs, hint, on_partial)
+        else:
+            first = None
+            if fast is not None:
+                try:
+                    first = _consume_whisper(fast, payload, kwargs, on_partial)
+                except Exception:  # noqa: BLE001 — the owner's model answers instead, and the base one rests
+                    _fast["failed"] = True
+                if first is None or not fast_read_sure(first, lang is not None):
+                    model, fast, first = open_owner_model(), None, None
+            if first is None:
+                first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
         if alt is not None:
             # The optional ear could not decode: remember it and let the engine of today hear this utterance.
             whisper_ears.mark_failed(alt["id"])
-            return _transcribe_prepared(
-                audio, samples, model_name, language, initial_prompt, on_partial, speech_pref,
-                owner_size, model_path, hearing, original, extras,
-            )  # fmt: skip
+            return retry()
         fault = classify_stt_exception(exc)
         windows_text = None
         if fault.kind in {"oom", "timeout", "dependency-incompatible"} and isinstance(audio, str):
@@ -1966,6 +3105,21 @@ def _transcribe_prepared(
         )
     language_note = ear_note
     check_cancel()
+    floor = route.min_logprob if lang == route.lock and alt is None else None
+    logprob = first.get("avgLogprob")
+    if (
+        floor is not None
+        and (first.get("text") or "").strip()
+        and isinstance(logprob, (int, float))
+        and logprob < floor
+    ):
+        # The turn's language was taken from a signal, not heard: the locked reading is poor, so the turn is read
+        # again on the open route (the ear first, the language guess on), and the prior that misled is dropped.
+        reset_turn_prior()
+        note_fallback("language-lock-to-open")
+        return retry(
+            {**(extras or {}), "route_open": True, "turn_prior": "", **({"ear_heard": ear_heard} if ear_heard else {})}
+        )
     if not ear_note and should_recheck_language(first, lang is not None):
         # (Not after the Hindi ear judged this audio: a second Hindi-locked decode would repeat that look at full cost.)
         try:
@@ -1975,6 +3129,17 @@ def _transcribe_prepared(
             language_note = "kept the first reading: the second look failed"
     bare = {key: value for key, value in kwargs.items() if key not in {"initial_prompt", "vad_parameters"}}
     bare["vad_filter"] = False
+    if alt is None:
+        plain = {k: v for k, v in bare.items() if k not in {"word_timestamps", "hallucination_silence_threshold"}}
+        first, rescore_note = rescore_segments(
+            first,
+            samples,
+            language,
+            speech_pref,
+            lambda clip, forced: _consume_whisper(model, clip, {**plain, "language": forced}, None),
+        )
+        language_note = "; ".join(n for n in (language_note, rescore_note) if n)
+    language_note = "; ".join(n for n in (skip_note, language_note) if n)
 
     def again(kind: str) -> dict:
         check_cancel()
@@ -1983,6 +3148,10 @@ def _transcribe_prepared(
 
     chosen, passes = run_hearing_ladder(first, hearing, hint, again)
     text = (chosen.get("text") or "").strip()
+    if trelis and whisper_ears.script_violation(text, speech_pref):
+        # Hindi in Roman letters breaks the script policy: the engine of today reads this utterance again.
+        note_fallback("trelis-script")
+        return retry({**(extras or {}), "hinglish_ear": ""})
     return _heard(
         {
             "ok": True,
@@ -1993,11 +3162,12 @@ def _transcribe_prepared(
             or ("Hinglish ear: Roman letters" if alt is not None and alt["id"] == whisper_ears.HINGLISH_ID else ""),
             "avgLogprob": chosen.get("avgLogprob"),
             "durationMs": chosen.get("durationMs") or 0,
-            "model": _model_name or model_name,
+            "model": str(_fast["name"]) if fast is not None else _model_name or model_name,
             "noSpeechProb": chosen.get("noSpeechProb") or 0.0,
             "loadCount": _load_count,
             "engine": engine,
             "turnProbability": turn_probability,
+            **whisper_ears.result_facts(alt, text, trelis_skipped),
         },
         hearing,
         chosen,
@@ -2057,6 +3227,13 @@ def windows_speech_ready() -> bool:
     except Exception:
         _windows_speech = False
     return bool(_windows_speech)
+
+
+def windows_speech_known() -> bool | None:
+    """The Windows recogniser answer without asking: the cached probe, False off Windows, None while unprobed."""
+    if _windows_speech is not None:
+        return bool(_windows_speech)
+    return None if sys.platform == "win32" else False
 
 
 def transcribe_windows(audio: str) -> str | None:
@@ -2142,15 +3319,33 @@ def live_ladder(facts: dict | None) -> dict:
     }
 
 
+def whisper_known() -> tuple[bool, str | None]:
+    """Is faster-whisper here, without importing it: the import's own answer once it ran, else a package lookup."""
+    if _whisper_cls is not None:
+        return True, None
+    if _whisper_error:
+        return False, _whisper_error
+    try:
+        import importlib.util
+
+        found = importlib.util.find_spec("faster_whisper") is not None
+    except (ImportError, ValueError):
+        found = False
+    return found, None if found else "faster-whisper is not installed."
+
+
 def status_payload() -> dict:
-    cls = _import_whisper()
+    """The light status the app pings with a deadline: no faster_whisper import, no PowerShell probe. The heavy
+    checks run once, in ``probe_payload`` (the ``probe`` op and ``--probe``), and this answer reports them after."""
+    available, whisper_error = whisper_known()
+    speech = windows_speech_known()
     cuda_ready = cuda_runtime_ready()
     device = choose_stt_device(cuda_ready)
-    return {
+    payload = {
         "ok": True,
         "cudaRuntimeReady": cuda_ready,
-        "available": cls is not None,
-        "dependency": "ready" if cls is not None else "missing",
+        "available": available,
+        "dependency": "ready" if available else "missing",
         "modelLoaded": _model is not None,
         "model": _model_name or DEFAULT_MODEL,
         "cache": cache_dir(),
@@ -2159,12 +3354,16 @@ def status_payload() -> dict:
         "compute": device["compute_type"],
         "deviceReason": device["reason"],
         "inference": "verified" if _model is not None else "unverified",
-        "error": None if cls is not None else _whisper_error,
+        "error": whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "hindiEarReady": hindi_ear.ready(),
+        "hindiEarError": hindi_ear.error(),
+        "ownEars": own_ears_status(),
+        "hinglishPro": hinglish_pro_status(),
+        "streamEar": stream_ear.HOST.status(),
         "hinglishEarReady": whisper_ears.hinglish_ready(),
         "hindiFallbackReady": whisper_ears.hindi_fallback_ready(),
-        "windowsSpeech": windows_speech_ready(),
+        "hinglishEarTrelisReady": whisper_ears.trelis_ready(),
         "av": av_guard(),
         **cache_status(),
         "counters": counters_payload(),
@@ -2172,15 +3371,25 @@ def status_payload() -> dict:
         "local": True,
         "ladder": live_ladder(
             {
-                "whisperReady": cls is not None,
+                "whisperReady": available,
                 "weightsReady": _model is not None,
                 "size": _model_name or DEFAULT_MODEL,
                 "english": False,
                 "moonshineReady": moonshine_model_dir() is not None,
-                "windowsSpeech": windows_speech_ready(),
+                "windowsSpeech": bool(speech),
             }
         ),
     }
+    if speech is not None:  # unprobed on Windows: the key stays out, so the app keeps what its own probe found
+        payload["windowsSpeech"] = speech
+    return payload
+
+
+def probe_payload() -> dict:
+    """The heavy probe, run lazily and cached: the faster_whisper import and the Windows recogniser question."""
+    _import_whisper()
+    windows_speech_ready()
+    return status_payload()
 
 
 def run_speech_self_test(transcribe=None) -> dict:
@@ -2491,6 +3700,151 @@ def provisional_reply(result: dict, req: dict) -> dict:
     return reply
 
 
+# ---- FRIDAY Ears: the re-decoding ears behind the stream ops (LocalAgreement-2 partials) -------------------------
+
+STREAM_HINDI = "stream-ear-hindi"
+STREAM_WHISPER = "stream-ear-whisper"
+
+
+def _hindi_stream_reader(_folder: Path, _turn: TurnLanguage, hotwords: list[str]):
+    """The Hindi ear over the window (always Hindi, Devanagari), with the owner's words snapped in."""
+
+    def read(window, _prompt: str) -> list[Word]:
+        with hindi_ear.with_hotwords(hotwords):
+            heard = hindi_ear.transcribe_words(window)
+        if not heard or not hindi_ear.confident("hi", heard.get("confidence")):
+            return []
+        if stream_text_dropped(heard.get("text") or "", confidence=heard.get("confidence"), language="hi"):
+            return []
+        touch()
+        words = [Word(str(w["text"]), float(w["start"]), float(w["end"])) for w in heard["words"]]
+        return snap_hotwords(words, hotwords)
+
+    # With the owner's words in play, the ear's own CTC head is biased toward them while decoding; with none, or when
+    # the head is not exposed, today's reader answers unchanged (``with_ctc_bias`` falls back by itself).
+    def gate(text: str, confidence: float | None) -> bool:
+        """The plain reader's own checks (the ear's confidence floor, then the noise gate) on a CTC reading."""
+        return not hindi_ear.confident("hi", confidence) or bool(
+            stream_text_dropped(text, confidence=confidence, language="hi")
+        )
+
+    return with_ctc_bias(read, hotwords, gate=gate) if hotwords else read
+
+
+class WhisperStreamReader:
+    """The resident faster-whisper model over the window: the turn's one language (never detected again mid-turn),
+    the owner's words as ``hotwords``, the text that left the window as the prompt, word times on."""
+
+    def __init__(self, turn: TurnLanguage, hotwords: list[str], model_ref=lambda: _model) -> None:
+        self.turn, self.hotwords, self._model_ref = turn, hotwords, model_ref
+
+    def _kwargs(self, language: str | None, words: bool) -> dict:
+        extras = {"hotwords": self.hotwords, "word_timestamps": words}
+        return {
+            "language": language,
+            "vad_filter": False,
+            "beam_size": 1,
+            "condition_on_previous_text": False,
+            "temperature": 0.0,
+            **decode_options(extras, language is not None),
+        }
+
+    def __call__(self, window, prompt: str) -> list[Word]:
+        model = self._model_ref()
+        if model is None:
+            return []
+        language = self.turn.decode_language()
+        kwargs = self._kwargs(language, True)
+        hint = prompt or (DEFAULT_HINT if language is None else "")
+        if hint:
+            kwargs["initial_prompt"] = hint[:800]
+        segments, info = model.transcribe(window, **kwargs)
+        words: list[Word] = []
+        for seg in segments:
+            text = (getattr(seg, "text", "") or "").strip()
+            if not text or live_segment_is_noise(
+                text, getattr(seg, "no_speech_prob", None), getattr(seg, "avg_logprob", None)
+            ):
+                continue
+            if hint and prompt_echo(text, hint):
+                continue
+            for w in getattr(seg, "words", None) or []:
+                said = str(getattr(w, "word", "") or "").strip()
+                if said:
+                    words.append(Word(said, float(w.start), float(w.end)))
+        if language is None:
+            self.turn.observe(getattr(info, "language", "") or "")
+        return words
+
+    def rescore(self, audio, words: list[Word], turn: TurnLanguage) -> tuple[str, int]:
+        """The finished turn, one forced-language look per segment whose language differs from the turn's."""
+        model = self._model_ref()
+        rows = segments_from_words(words, turn.mode)
+        plans = plan_rescore(rows, turn.decode_language(), turn.mode)
+        if model is None or not plans:
+            return "", 0
+
+        def one(plan) -> dict:
+            clip = audio[int(plan.start * RATE) : int(plan.end * RATE)]
+            segments, _info = model.transcribe(clip, **self._kwargs(plan.language, False))
+            return {"text": " ".join((getattr(seg, "text", "") or "").strip() for seg in segments).strip()}
+
+        rows, changed = apply_rescore(rows, plans, one)
+        return (" ".join(r["text"] for r in rows), changed) if changed else ("", 0)
+
+
+def _whisper_stream_dir() -> Path | None:
+    """The resident model, when there is one fast enough for live words (the same rule as ``transcribe_live``)."""
+    if _model is None or (is_heavy_model(_model_name) and _device_name == "cpu"):
+        return None
+    if whisper_ears.is_trelis_path(_model_name):
+        return None  # the bare Trelis model has no marker prompt: ``transcribe_live`` refuses it for the same reason
+    return Path(cache_dir()) / (_model_name or "whisper")
+
+
+def stream_hardware_tier() -> str | None:
+    """small-cpu, mid or gpu for the stream speed gate; None (no gate) when the memory cannot be read."""
+    memory = read_memory_mb()
+    if memory is None:
+        return None
+    return stream_ear.hardware_tier(memory[1] / 1024, os.cpu_count() or 1, _device_name == "cuda")
+
+
+stream_ear.register_engine(
+    stream_ear.EngineSpec(
+        name=STREAM_HINDI,
+        folder=hindi_ear.MODEL_DIR,
+        files={},
+        factory=lambda: stream_ear.La2Engine(STREAM_HINDI, _hindi_stream_reader),
+        aliases=("hindi-ear",),
+        modules=("numpy", "onnxruntime"),
+        languages=lambda _folder: {"hi"},
+        priority=20,
+        locate=hindi_ear.model_dir,
+    )
+)
+stream_ear.register_engine(
+    stream_ear.EngineSpec(
+        name=STREAM_WHISPER,
+        folder="whisper",
+        files={},
+        factory=lambda: stream_ear.La2Engine(
+            STREAM_WHISPER, lambda _folder, turn, hotwords: WhisperStreamReader(turn, hotwords)
+        ),
+        aliases=("whisper",),
+        modules=("numpy", "faster_whisper"),
+        languages=lambda _folder: {"auto", "en", "hi", "hi-en", "en-hi", "hinglish", "mixed"},
+        priority=30,
+        locate=_whisper_stream_dir,
+    )
+)
+stream_ear.HOST.hardware = stream_hardware_tier
+# The stream ear's GPU choice uses the same CUDA verdict as faster-whisper (cuBLAS 12 and cuDNN 9 found).
+stream_ear.HOST.cuda_ok = cuda_runtime_ready
+hindi_ear.admit_hook = admit
+stream_ear.admit_hook = admit
+
+
 def handle_request(req: dict) -> dict:
     """One request. A use of the models (load, transcribe) restarts the idle clock; a status question does not."""
     configure_idle(req)
@@ -2505,12 +3859,18 @@ def handle_request(req: dict) -> dict:
 
 def _handle_op(req: dict) -> dict:
     op = str(req.get("op") or "")
-    if op in {"status", "probe"}:
+    if op == "status":
         return status_payload()
+    if op == "probe":
+        return probe_payload()
+    if op == stream_ear.WARM_OP:
+        return stream_ear.HOST.warm(req)
     if op == "self-test":
         return run_speech_self_test()
     if op == "hearing-self-test":
         return run_hearing_self_test()
+    if op == "ears-self-test":
+        return run_own_ears_self_test()
     if op == "load":
         import time
 
@@ -2583,6 +3943,7 @@ def _handle_op(req: dict) -> dict:
                     "hotwords": req.get("hotwords"),
                     "multilingual": req.get("multilingual") is True,
                     "word_timestamps": (req.get("word_timestamps") or req.get("wordTimestamps")) is True,
+                    **whisper_ears.request_options(req),
                 },
                 **pass_kwargs,
             )
@@ -2599,22 +3960,55 @@ def _handle_op(req: dict) -> dict:
                 "dropCode": "stt-fault",
                 "reason": fault.kind,
                 "sttClass": fault.kind,
-                "error": str(fault)[-600:],
+                "error": voice_runtime.scrub_text(str(fault)[-600:], 600),
                 "fix": fault.fix,
                 "loadCount": _load_count,
             }
+    if op in stream_ear.STREAM_OPS:
+        # The own streaming ear: off unless voice.streamEngine asks for it AND its pinned weights are on disk.
+        return stream_ear.HOST.handle(req)
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
+
+
+_warm_lock = threading.Lock()
+_warm_waiters: list[Any] = []  # the ids of the stream-warm requests the running warm answers when it finishes
+
+
+def _warm_in_background(req: dict) -> None:
+    """Start the stream-warm on its own thread, outside the cache lock, or join the one already running. Every
+    request that joined gets the same answer, under its own id, when the load finishes."""
+    with _warm_lock:
+        _warm_waiters.append(req.get("id"))
+        if len(_warm_waiters) > 1:
+            return
+
+    def run() -> None:
+        try:
+            result = stream_ear.HOST.warm(req)
+            if result.get("ok") and stream_ear.HOST.loaded_name():
+                touch()
+        except Exception as exc:  # noqa: BLE001 - a failed warm is answered, never fatal
+            error = voice_runtime._safe_error(exc)
+            result = {"ok": False, "op": stream_ear.WARM_OP, "reason": "worker-error", "error": error}
+        with _warm_lock:
+            waiters = list(_warm_waiters)
+            _warm_waiters.clear()
+        for rid in waiters:
+            emit({"id": rid, **result} if rid is not None else result)
+
+    threading.Thread(target=run, name="stt-stream-warm", daemon=True).start()
 
 
 def serve() -> int:
     """Persistent worker: one process, one WhisperModel, many utterances."""
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
+    _utf8_streams()
     start_idle_watch()
     # Input is read on its own thread, so a cancel is answered while a decode holds this one. Every other request
     # waits in order; only "cancel" jumps the line, and it only sets a flag.
@@ -2625,11 +4019,16 @@ def serve() -> int:
         if req is None:
             return 0
         rid = req.get("id")
+        if str(req.get("op") or "") == stream_ear.WARM_OP:
+            # A first load can take minutes: it runs beside this loop, so a transcribe or a status is still answered.
+            configure_idle(req)
+            _warm_in_background(req)
+            continue
         try:
             with _cache_lock:
                 result = handle_request(req)
         except Exception as exc:  # noqa: BLE001 — one bad request never stops the worker
-            result = {"ok": False, "reason": "worker-error", "error": f"{type(exc).__name__}: {exc}"[-300:]}
+            result = {"ok": False, "reason": "worker-error", "error": voice_runtime._safe_error(exc)}
         if rid is not None:
             result = {"id": rid, **result}
         emit(result)
@@ -2661,6 +4060,7 @@ def _read_requests(inbox: queue.Queue) -> None:
 
 
 def main() -> int:
+    _utf8_streams()
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio")
     ap.add_argument("--language", default="")
@@ -2671,6 +4071,7 @@ def main() -> int:
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--self-test", dest="self_test", action="store_true")
     ap.add_argument("--hearing-self-test", dest="hearing_self_test", action="store_true")
+    ap.add_argument("--ears-self-test", dest="ears_self_test", action="store_true")
     args = ap.parse_args()
 
     if args.serve:
@@ -2687,13 +4088,18 @@ def main() -> int:
         emit(payload)
         return 0 if payload.get("ok") else 1
 
+    if args.ears_self_test:
+        payload = run_own_ears_self_test()
+        emit(payload)
+        return 0 if payload.get("ok") else 1
+
     if args.self_test:
         payload = run_speech_self_test()
         emit(payload)
         return 0 if payload.get("ok") else 1
 
     if args.probe:
-        emit(status_payload())
+        emit(probe_payload())
         return 0
 
     if _import_whisper() is None:
@@ -2732,7 +4138,7 @@ def main() -> int:
                 "ok": False,
                 "reason": fault.kind,
                 "sttClass": fault.kind,
-                "error": str(fault)[-600:],
+                "error": voice_runtime.scrub_text(str(fault)[-600:], 600),
                 "fix": fault.fix,
             }
         )

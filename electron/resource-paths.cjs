@@ -20,6 +20,8 @@ const WATCHED = [
   "toolchain-manifest.json",
   "kernel.yaml",
   "models.yaml",
+  "sensitive-markers.json",
+  "hinglish-lexicon.json",
 ];
 
 const cache = new Map();
