@@ -8137,23 +8137,64 @@ toolchain.setFactsProvider(() => routingHardwareFacts());
 toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
 ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
-// An update starts only with the owner's consent for this row, or when the autonomy dial is Full; never by itself.
-ipcMain.handle("installer:update", async (_e, request) => {
+// ---- install and update gate (main-side) ---------------------------------------------------------------------------
+// The renderer's word is never the authority: the autonomy dial is read here from the owner's stored state, the data
+// root is the paths module's one root, and every update passes `planUpdate` first. Windows' own permission prompt
+// (UAC) is never answered by FRIDAY. A bundled runtime (notify-only row) is refused under every dial.
+function ownerAutonomyDial() {
+  try {
+    const stored = stateStore.readState(stateFile("friday.autonomy.v1"));
+    if (!stored || typeof stored !== "object") return "balanced"; // the shipped default, still asks
+    if (stored.halted === true) return "ask";
+    if (stored.approvalLevel === "full") return "full";
+    if (stored.approvalLevel === "balanced" || stored.approvalLevel === "trusted")
+      return "balanced";
+    return "ask";
+  } catch {
+    return "ask";
+  }
+}
+async function gatedToolJob({ id, action, consent }) {
   const catalogApi = getInstallerCatalog();
-  const id = String(request?.id || "");
   const row = catalogApi.snapshot().rows.find((item) => item.id === id);
-  const decision = catalogApi.planUpdate({
-    row,
-    autonomy: request?.autonomy,
-    consent: request?.consent,
-  });
-  if (!decision.allowed) return { ok: false, ...decision };
+  const dial = ownerAutonomyDial();
+  if (action === "update") {
+    const decision = catalogApi.planUpdate({ row, autonomy: dial, consent });
+    if (!decision.allowed) return { ok: false, ...decision };
+    log(`tool update ${id} allowed (${decision.via})`);
+    return { gate: decision };
+  }
+  // A fresh install of a machine-wide tool writes into Windows' folders: it needs the owner's yes or Full autonomy.
+  if (action === "install" && row?.home === "machine" && row.installed !== true) {
+    if (consent?.granted !== true && dial !== "full") {
+      return {
+        ok: false,
+        allowed: false,
+        needsConsent: true,
+        home: "machine",
+        dial,
+        reason: "this install changes the whole PC: it needs your OK",
+      };
+    }
+  }
+  return { gate: { allowed: true } };
+}
+ipcMain.handle("installer:update", async (_e, request) => {
+  const id = String(request?.id || "");
   if (!toolchain.toolById(id)) {
     return { ok: false, allowed: false, reason: "this row updates through its own installer" };
   }
+  const catalogApi = getInstallerCatalog();
+  const row = catalogApi.snapshot().rows.find((item) => item.id === id);
+  const decision = catalogApi.planUpdate({
+    row,
+    autonomy: ownerAutonomyDial(),
+    consent: request?.consent,
+  });
+  if (!decision.allowed) return { ok: false, ...decision };
   log(`installer update ${id} allowed (${decision.via})`);
   const result = await toolchain.runJob(
-    { id, action: "update", root: getWorkspaceRoot() },
+    { id, action: "update", root: paths.root() || getWorkspaceRoot() },
     (event) => send("tools:progress", event),
   );
   return { ...result, allowed: true, via: decision.via };
@@ -8169,16 +8210,15 @@ ipcMain.handle("tools:extension-remove", (_e, id) =>
 );
 ipcMain.handle("tools:active-jobs", () => toolchain.activeJobs());
 ipcMain.handle("tools:cancel", (_e, job) => toolchain.cancelJob(job || {}));
-ipcMain.handle("tools:run", (_e, job) =>
-  toolchain.runJob(
-    {
-      id: String(job?.id || ""),
-      action: String(job?.action || "install"),
-      root: job?.root || getWorkspaceRoot(),
-    },
-    (event) => send("tools:progress", event),
-  ),
-);
+ipcMain.handle("tools:run", async (_e, job) => {
+  const id = String(job?.id || "");
+  const action = String(job?.action || "install");
+  const gated = await gatedToolJob({ id, action, consent: job?.consent });
+  if (!gated.gate) return gated;
+  return toolchain.runJob({ id, action, root: paths.root() || getWorkspaceRoot() }, (event) =>
+    send("tools:progress", event),
+  );
+});
 
 // ---- Import & in-app build -------------------------------------------------
 // A FRIDAY ZIP (or folder) is staged, classified and diffed first; nothing is
