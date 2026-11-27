@@ -193,6 +193,13 @@ Function FridayRootBrowse
   ${EndIf}
 FunctionEnd
 
+; One line of the report: the folder (relative to the root) and the word shown for it.
+!macro FridayDetectFolder Folder Label
+  ${If} ${FileExists} "$FridayRoot\${Folder}\*.*"
+    StrCpy $FridayDetected "$FridayDetected ${Label}, "
+  ${EndIf}
+!macroend
+
 ; Reports what already exists so the user knows the folder is reused, not reset.
 Function FridayRootDetect
   ${NSD_GetText} $FridayRootText $FridayRoot
@@ -223,6 +230,19 @@ Function FridayRootDetect
   ${If} ${FileExists} "$FridayRoot\workflows\*.*"
     StrCpy $FridayDetected "$FridayDetected workflows, "
   ${EndIf}
+  ; A folder made by the CMD build (setup, doctor, build:win) holds the runtime, the caches and the installers it built,
+  ; and the older spellings (aliases) of the storage contract: it is an existing FRIDAY folder, so it is reused as it
+  ; is. Detection only reads; nothing here creates, moves or removes a folder.
+  !insertmacro FridayDetectFolder "runtime" "runtime"
+  !insertmacro FridayDetectFolder "cache" "cache"
+  !insertmacro FridayDetectFolder "installer" "installer"
+  !insertmacro FridayDetectFolder "downloads" "downloads"
+  !insertmacro FridayDetectFolder "updates" "updates"
+  !insertmacro FridayDetectFolder "db" "database"
+  !insertmacro FridayDetectFolder "data\models" "models"
+  !insertmacro FridayDetectFolder "cache\models" "models"
+  !insertmacro FridayDetectFolder "data\state" "state"
+  !insertmacro FridayDetectFolder "resources\voices" "voices"
 
   ${If} $FridayDetected == ""
     ${NSD_SetText} $FridayDetectedText "New FRIDAY folder - the program goes to $FridayRoot\${FRIDAY_APP_DIR} and the full data structure is created beside it."
@@ -337,6 +357,19 @@ FunctionEnd
   ${Else}
     WriteRegStr HKCU "Software\FRIDAY" "InstallPath" "$INSTDIR"
   ${EndIf}
+  ; The folder Setup was started from ($EXEDIR). A CMD build leaves the installer, the portable EXE and its packs side
+  ; by side, so the app looks here for assets it can use before it downloads them from the repository release. It is
+  ; only a place to look: nothing reads it to delete, move or write anything. An update started by the app runs Setup
+  ; from the updater's own download folder; that does not replace the folder the owner's Setup came from.
+  ${IfNot} ${isUpdated}
+    ${If} "${PRODUCT_NAME}" == "FRIDAY Test"
+      WriteRegStr HKCU "Software\FRIDAY Test" "InstallSourceDir" "$EXEDIR"
+    ${Else}
+      WriteRegStr HKCU "Software\FRIDAY" "InstallSourceDir" "$EXEDIR"
+    ${EndIf}
+  ${EndIf}
+  ; A move note of an earlier stopped uninstall is history once a new installation is in place.
+  DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
 
 
   ; The installed EXE prefers its own isolated Python environment, created by
@@ -426,6 +459,9 @@ Var FridayUnSource
 ; "1" only when the owner, on the uninstall page and after the second confirmation, chose to remove the source checkout
 ; together with FRIDAY's data ("complete removal"). Anything else (unset, "0", a silent uninstall) protects the checkout.
 Var FridayUnWipeSource
+; The path handed to un.FridayNormalizePath and the answer it gives back (a dedicated variable: the $R registers are
+; scratch that electron-builder's own uninstaller code reuses, so customUnInstall never names one).
+Var FridayUnPath
 !endif
 
 !ifdef BUILD_UNINSTALLER
@@ -457,7 +493,58 @@ Function un.FridayDetectDeleteSwitch
     StrCpy $R2 "1"
   friday_del_done:
 FunctionEnd
+
+; Writes one path the way Windows spells it, so two spellings of one folder compare equal: slashes become backslashes,
+; "." and ".." segments, doubled and trailing separators are resolved (GetFullPathName), an 8.3 short name becomes the
+; long name when the folder exists (GetLongPathName), and a "\\?\D:" prefix is dropped. In: $FridayUnPath the path.
+; Out: $FridayUnPath the normalised path, or "" when Windows cannot normalise it. The caller takes "" as "unknown" and
+; chooses the careful branch.
+Function un.FridayNormalizePath
+  StrCpy $R0 "$FridayUnPath"
+  StrCpy $R1 ""
+  StrCpy $R2 "0"
+  System::Call 'Kernel32::GetFullPathNameW(w R0, i ${NSIS_MAX_STRLEN}, w .R1, i 0)i .R2'
+  ${If} $R2 == 0
+  ${OrIf} $R1 == ""
+    StrCpy $FridayUnPath ""
+  ${Else}
+    StrCpy $R2 "$R1" 4
+    ${If} $R2 == "\\?\"
+      StrCpy $R2 "$R1" 1 5
+      ${If} $R2 == ":"
+        StrLen $R2 "$R1"
+        IntOp $R2 $R2 - 4
+        StrCpy $R1 "$R1" $R2 4
+      ${EndIf}
+    ${EndIf}
+    StrCpy $R3 ""
+    StrCpy $R2 "0"
+    System::Call 'Kernel32::GetLongPathNameW(w R1, w .R3, i ${NSIS_MAX_STRLEN})i .R2'
+    ${If} $R2 != 0
+    ${AndIf} $R3 != ""
+      StrCpy $R1 "$R3"
+    ${EndIf}
+    StrLen $R2 "$R1"
+    ${If} $R2 != 3
+      IntOp $R3 $R2 - 1
+      StrCpy $R2 "$R1" 1 $R3
+      ${If} $R2 == "\"
+        StrCpy $R1 "$R1" $R3
+      ${EndIf}
+    ${EndIf}
+    StrCpy $FridayUnPath "$R1"
+  ${EndIf}
+FunctionEnd
 !endif
+
+; One step of the search for a free name for the folder that takes the data out of the program folder: when the name
+; chosen so far is already taken (by a folder or a file), the next candidate is tried. Called in order, so the data
+; never goes into, over or beside-and-merged with a folder that exists.
+!macro FridayPreservedProbe Suffix
+  ${If} ${FileExists} "$4"
+    StrCpy $4 "$PROFILE\FRIDAY${Suffix}"
+  ${EndIf}
+!macroend
 
 !macro customUnInit
   ; Default for every path, including a silent uninstall and the uninstaller
@@ -523,16 +610,57 @@ FunctionEnd
   ; "keep" really keeps and a later Setup reuses exactly the same data.
   ${If} $FridayUnMode == "keep"
   ${AndIf} $FridayUnRoot != ""
-    ; "Inside the program folder" means the program folder itself or a path under "$INSTDIR\": compared with the
-    ; trailing separator, so a sibling such as "App-data" next to "App" is never taken for a folder inside it.
-    StrLen $2 "$INSTDIR\"
-    StrCpy $3 "$FridayUnRoot" $2
-    ${If} "$FridayUnRoot" == "$INSTDIR"
-    ${OrIf} "$3" == "$INSTDIR\"
-      StrCpy $4 "$PROFILE\FRIDAY"
-      ${If} ${FileExists} "$4\*.*"
-        StrCpy $4 "$PROFILE\FRIDAY-preserved"
+    ; Both folders are written the way Windows spells them before they are compared (slashes, "." and ".." segments,
+    ; doubled and trailing separators, 8.3 short names): the same folder spelled two ways must not read as two folders,
+    ; or the program folder's removal would take the data with it. A path Windows cannot normalise is unknown, and
+    ; unknown counts as inside: the careful branch below moves the data out and stops when it cannot.
+    StrCpy $FridayUnPath "$FridayUnRoot"
+    Call un.FridayNormalizePath
+    StrCpy $5 "$FridayUnPath"
+    StrCpy $FridayUnPath "$INSTDIR"
+    Call un.FridayNormalizePath
+    StrCpy $6 "$FridayUnPath"
+    StrCpy $7 "1"
+    ${If} $5 != ""
+    ${AndIf} $6 != ""
+      ; "Inside the program folder" means the program folder itself or a path under "$6": compared with the trailing
+      ; separator, so a sibling such as "App-data" next to "App" is never taken for a folder inside it.
+      StrCpy $7 "0"
+      StrLen $2 "$6\"
+      StrCpy $3 "$5" $2
+      ${If} "$5" == "$6"
+      ${OrIf} "$3" == "$6\"
+        StrCpy $7 "1"
       ${EndIf}
+    ${EndIf}
+    ${If} $7 == "1"
+      ${If} $5 != ""
+        StrCpy $FridayUnRoot "$5"
+      ${EndIf}
+      ; The folder that takes the data is one that does not exist yet: a folder that is already there (the owner's own
+      ; FRIDAY folder in the profile, or an earlier preserved copy) is never merged into, moved into or replaced. The
+      ; names tried, in order: FRIDAY, FRIDAY-preserved, FRIDAY-preserved-2 ... -9. Because the folder is new, the data
+      ; lands exactly there, and that is the folder WorkspacePath is pointed at below.
+      StrCpy $4 "$PROFILE\FRIDAY"
+      !insertmacro FridayPreservedProbe "-preserved"
+      !insertmacro FridayPreservedProbe "-preserved-2"
+      !insertmacro FridayPreservedProbe "-preserved-3"
+      !insertmacro FridayPreservedProbe "-preserved-4"
+      !insertmacro FridayPreservedProbe "-preserved-5"
+      !insertmacro FridayPreservedProbe "-preserved-6"
+      !insertmacro FridayPreservedProbe "-preserved-7"
+      !insertmacro FridayPreservedProbe "-preserved-8"
+      !insertmacro FridayPreservedProbe "-preserved-9"
+      ${If} ${FileExists} "$4"
+        WriteRegStr HKCU "Software\FRIDAY" "DataMoveNote" "Uninstall stopped, nothing removed. Data: $FridayUnRoot (no free FRIDAY-preserved name in $PROFILE)"
+        DetailPrint "No free name for the data folder in $PROFILE (FRIDAY-preserved ... -9 are taken). The data stays in $FridayUnRoot."
+        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder: every folder name FRIDAY-preserved ... FRIDAY-preserved-9 in $PROFILE is already taken, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\n$\r$\nMove or rename one of those folders, then run the uninstaller again." /SD IDOK
+        Abort
+      ${EndIf}
+      ; Written before the move and removed when the move is proven, so a run that stops, or is cut off, leaves a note
+      ; (read by Setup & Doctor) that names both folders even when nobody watched: a silent update, or a move to another
+      ; drive that ran out of room.
+      WriteRegStr HKCU "Software\FRIDAY" "DataMoveNote" "The FRIDAY data folder was being moved out of the program folder. Data: $FridayUnRoot. Moving to: $4"
       DetailPrint "Moving the FRIDAY data folder out of the program folder to keep it: $4"
       ClearErrors
       Rename "$FridayUnRoot" "$4"
@@ -548,7 +676,8 @@ FunctionEnd
       ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder
       ; must be gone from it. A rename that failed, and a move helper that moved only part of the data (a locked file),
       ; both leave data here: stop now, leave the program folder, the data and the pointer exactly as they are, and say
-      ; so. /SD IDOK keeps a silent uninstall (the update path) from waiting for a click; it still stops.
+      ; so. /SD IDOK keeps a silent uninstall (the update path) from waiting for a click; it still stops, and the note
+      ; written above stays in the registry.
       ${If} ${FileExists} "$FridayUnRoot\*.*"
         DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot (any part already moved is in $4)"
         MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\nAny part that was already moved is in: $4$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again." /SD IDOK
@@ -557,6 +686,7 @@ FunctionEnd
       ${If} ${FileExists} "$4\*.*"
         StrCpy $FridayUnRoot "$4"
         WriteRegStr HKCU "Software\FRIDAY" "WorkspacePath" "$4"
+        DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
         DetailPrint "FRIDAY data preserved at $4 - a new installation will reuse it."
       ${EndIf}
     ${EndIf}
@@ -631,6 +761,7 @@ FunctionEnd
       ; leave it pointing at a program that is gone (Windows then reports the missing file at every sign-in). An
       ; upgrade keeps it, and the new version sets it again at its first start from the owner's saved setting.
       ${IfNot} ${isUpdated}
+        DeleteRegValue HKCU "Software\FRIDAY" "InstallSourceDir"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "dev.friday.desk"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"

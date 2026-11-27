@@ -8,7 +8,11 @@
  * constraints file and one hashed requirements file (name==version --hash=sha256:...) per series into a stored zip at
  * resources/toolchain/wheelhouse/pack.bin. The zip has no timestamps, so the same lock gives the same bytes on every
  * builder. installer/build/repair-runtime.ps1 unpacks it only when something must be installed and runs pip with
- * --no-index --require-hashes first, so only a wheel with a pinned hash can be installed.
+ * --no-index --require-hashes first, so from the pack only a wheel with a pinned hash installs. A second pass fills
+ * what the pack lacks with --require-hashes too, so it adds only the wheels requirements-<tag>.txt lists.
+ * A hash mismatch in either pass ends that repair (recorded as PythonSetupPending) and never falls through to the
+ * unhashed network methods; those remain only for a Setup EXE with no usable pack for the series, or after a plain
+ * failure such as no network.
  *
  *   node scripts/wheelhouse.cjs check   plan the committed lock against kernel/requirements.txt (no network)
  *   node scripts/wheelhouse.cjs lock    resolve the closure for each series on PyPI and rewrite the lock

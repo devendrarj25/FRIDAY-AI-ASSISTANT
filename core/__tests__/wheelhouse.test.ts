@@ -6,7 +6,16 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -661,3 +670,288 @@ describe("the CMD chain output stays the same", () => {
     expect(src).toContain("[friday] FAIL     packs for the EXE: ");
   });
 });
+
+describe("a hash mismatch in the wheelhouse install ends that path and never falls through to unhashed pip", () => {
+  const repair = read("installer/build/repair-runtime.ps1");
+  const fnText = (name: string) =>
+    repair.match(new RegExp(`^function ${name}\\b[\\s\\S]*?^}\\r?$`, "m"))?.[0] ?? "";
+
+  it("scans pip's own log for the hash failure after each hashed pass, and says so in the pip command", () => {
+    const fn = fnText("Install-FromWheelhouse");
+    const calls = [...fn.matchAll(/& \$venvPython -m pip install[^\r\n]*/g)].map((m) => m[0]);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call).toContain("--log $log");
+    const scan = fnText("Test-PipHashMismatch");
+    expect(scan).toContain("DO NOT MATCH THE HASHES");
+    expect(scan).toContain("Select-String -LiteralPath $Log");
+    expect(fn.match(/Test-PipHashMismatch \$log/g)).toHaveLength(2);
+    expect(fn).toContain("$script:wheelhouseMismatch = $true");
+    // The first thing the function does is clear the flag: an answer of an earlier call never leaks.
+    expect(fn.indexOf("$script:wheelhouseMismatch = $false")).toBeLessThan(
+      fn.indexOf("pip install"),
+    );
+  });
+
+  it("stops the voice-core install and the fresh install at a mismatch, records it, and skips the network methods", () => {
+    const voice = fnText("Install-VoiceCore");
+    const stop = "if ($script:wheelhouseMismatch) { return }";
+    expect(voice).toContain(stop);
+    expect(voice.indexOf(stop)).toBeLessThan(voice.indexOf("$voiceMethods = @("));
+    const tail = repair.slice(repair.indexOf("if (Test-RuntimeTwice)"));
+    // Healthy runtime, voice core missing: the mismatch ends Setup's repair before the optional extras.
+    const healthy = tail.slice(0, tail.indexOf("if (-not (Test-Path -LiteralPath $requirements"));
+    expect(healthy.indexOf("Install-VoiceCore")).toBeLessThan(
+      healthy.indexOf("if ($script:wheelhouseMismatch) { Finish 'wheelhouse-hash-mismatch' 11 }"),
+    );
+    expect(healthy.indexOf("wheelhouse-hash-mismatch")).toBeLessThan(
+      healthy.indexOf("Install-CapabilityExtras"),
+    );
+    // Fresh environment: the check sits between the wheelhouse pass and the four network methods.
+    const fresh = tail.slice(tail.indexOf("$installed = Install-FromWheelhouse $requirements"));
+    expect(fresh.indexOf("Finish 'wheelhouse-hash-mismatch' 11")).toBeGreaterThan(-1);
+    expect(fresh.indexOf("Finish 'wheelhouse-hash-mismatch' 11")).toBeLessThan(
+      fresh.indexOf("foreach ($method in $pipMethods)"),
+    );
+    // NSIS records runtime-repair-<code> as PythonSetupPending for any non-zero code, so code 11 reaches Setup & Doctor.
+    expect(read("installer/build/installer.nsh")).toContain('StrCpy $R5 "runtime-repair-$0"');
+  });
+
+  it("names exactly what the network pass can add, and what the old unhashed methods are still for", () => {
+    expect(repair).toContain("NETWORK PASS");
+    const note = repair.slice(
+      repair.indexOf("NETWORK PASS"),
+      repair.indexOf("function Install-FromWheelhouse"),
+    );
+    expect(note).toContain("requirements-<tag>.txt");
+    expect(note).toContain("wheels only");
+    expect(note).toContain("SHA-256");
+    expect(note).toMatch(/unhashed[\s\S]*no usable pack/i);
+  });
+
+  it("removes only stale unpack folders and falls back to a random folder under the user's temp folder", () => {
+    const fn = fnText("Get-Wheelhouse");
+    // Old behaviour removed every friday-wheelhouse-* folder, which deletes another run's files: a filter now stands between.
+    expect(fn).not.toMatch(/friday-wheelhouse-\*'[^\r\n]*\|\s*\r?\n\s*Remove-Item/);
+    expect(fn).toMatch(/friday-wheelhouse-\*'[^\r\n]*\|\s*\r?\n\s*Where-Object/);
+    expect(fn).toContain("AddHours(-1)");
+    expect(fn).toContain("run.lock");
+    expect(fn).toContain("[System.IO.Path]::GetTempPath()");
+    expect(fn).toContain("-ErrorAction Stop");
+    expect(fn).toContain("$script:wheelhouseDir = $dir");
+  });
+
+  it("states in wheelhouse.cjs what only hashed wheels can do, and what a mismatch does", () => {
+    const head = read("scripts/wheelhouse.cjs").slice(0, 1800);
+    expect(head).toContain("hash mismatch");
+    expect(head).toContain("unhashed network methods");
+    expect(head).not.toContain("so only a wheel with a pinned hash can be installed.");
+  });
+});
+
+/** PowerShell 7 where this machine has it (PATH, FRIDAY_PWSH, or a FRIDAY_PWSH_PREFIX/<version>/pwsh install). */
+function findPwsh(): string | null {
+  if (process.env["FRIDAY_PWSH"] && existsSync(process.env["FRIDAY_PWSH"]))
+    return process.env["FRIDAY_PWSH"];
+  if (hasCommand("pwsh")) return "pwsh";
+  const prefix = process.env["FRIDAY_PWSH_PREFIX"];
+  if (prefix && existsSync(prefix)) {
+    for (const version of readdirSync(prefix)) {
+      const exe = path.join(prefix, version, "pwsh");
+      if (existsSync(exe)) return exe;
+    }
+  }
+  return null;
+}
+const pwsh = findPwsh();
+
+describe.skipIf(pwsh === null)(
+  "the repair functions, run for real in PowerShell with a fake pip",
+  () => {
+    const repair = read("installer/build/repair-runtime.ps1");
+    const fnText = (name: string) =>
+      repair.match(new RegExp(`^function ${name}\\b[\\s\\S]*?^}\\r?$`, "m"))?.[0] ?? "";
+    const made: string[] = [];
+    afterEach(() => {
+      while (made.length) rmSync(made.pop()!, { recursive: true, force: true });
+    });
+
+    /** One temp world: a fake python (a shell script), a pack, the requirements file and a call log. */
+    function world(plan: string[]) {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-repair-"));
+      made.push(dir);
+      const fake = path.join(dir, "fakepy");
+      writeFileSync(
+        fake,
+        [
+          "#!/bin/bash",
+          'echo "$@" >> "$FAKE_CALLS"',
+          'if [ "$1" = "-c" ]; then echo cp312; exit 0; fi',
+          'if [ "$3" != "install" ]; then exit 0; fi',
+          'log=""; for ((i=1;i<=$#;i++)); do if [ "${!i}" = "--log" ]; then j=$((i+1)); log="${!j}"; fi; done',
+          'step=$(head -n1 "$FAKE_PLAN"); tail -n +2 "$FAKE_PLAN" > "$FAKE_PLAN.next"; mv "$FAKE_PLAN.next" "$FAKE_PLAN"',
+          'case "$step" in',
+          '  mismatch) [ -n "$log" ] && echo "ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE." >> "$log"; exit 1;;',
+          '  fail) [ -n "$log" ] && echo "ERROR: No matching distribution found" >> "$log"; exit 1;;',
+          "  *) exit 0;;",
+          "esac",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      writeFileSync(path.join(dir, "plan.txt"), plan.length ? `${plan.join("\n")}\n` : "");
+      writeFileSync(path.join(dir, "requirements.txt"), "fastapi==1.0\n");
+      return {
+        dir,
+        calls: path.join(dir, "calls.txt"),
+        installs: () =>
+          (existsSync(path.join(dir, "calls.txt"))
+            ? readFileSync(path.join(dir, "calls.txt"), "utf8")
+            : ""
+          )
+            .split("\n")
+            .filter((l) => l.includes("-m pip install")),
+      };
+    }
+
+    /** Runs a scenario with the shipped functions defined; returns what it printed. */
+    function run(
+      w: ReturnType<typeof world>,
+      scenario: string,
+      env: Record<string, string> = {},
+    ): string {
+      const script = [
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        "$ProgressPreference = 'SilentlyContinue'",
+        `$venvPython = '${path.join(w.dir, "fakepy")}'`,
+        `$requirements = '${path.join(w.dir, "requirements.txt")}'`,
+        `$wheelhousePack = '${path.join(w.dir, "pack.bin")}'`,
+        `$wheelhouseTemp = '${path.join(w.dir, "temporary")}'`,
+        "$wheelhouseDir = Join-Path $wheelhouseTemp ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))",
+        "$script:wheelhouse = $null",
+        "$script:wheelhouseMismatch = $false",
+        // A pack with a manifest and the two per-series files, built the way the build packs them (a zip of a folder).
+        `$src = Join-Path '${w.dir}' 'src'; New-Item -ItemType Directory -Force -Path $src | Out-Null`,
+        "Set-Content -LiteralPath (Join-Path $src 'wheelhouse.json') -Value '{}'",
+        "Set-Content -LiteralPath (Join-Path $src 'constraints-cp312.txt') -Value 'fastapi==1.0'",
+        "Set-Content -LiteralPath (Join-Path $src 'requirements-cp312.txt') -Value 'fastapi==1.0 --hash=sha256:aa'",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+        "[System.IO.Compression.ZipFile]::CreateFromDirectory($src, $wheelhousePack)",
+        "function Test-VoiceCore { return $false }",
+        fnText("Test-PipHashMismatch"),
+        fnText("Get-Wheelhouse"),
+        fnText("Install-FromWheelhouse"),
+        fnText("Install-VoiceCore"),
+        scenario,
+      ].join("\n");
+      const file = path.join(w.dir, "h.ps1");
+      writeFileSync(file, script);
+      const out = spawnSync(pwsh!, ["-NoProfile", "-NonInteractive", "-File", file], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FAKE_CALLS: w.calls,
+          FAKE_PLAN: path.join(w.dir, "plan.txt"),
+          TMPDIR: path.join(w.dir, "tmp"),
+          ...env,
+        },
+      });
+      return `${out.stdout}${out.stderr}`;
+    }
+
+    it("a mismatch in the offline pass answers false with the flag set and runs no second pip", () => {
+      const w = world(["mismatch"]);
+      const out = run(
+        w,
+        '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(out).toContain("RESULT=False MISMATCH=True");
+      expect(w.installs()).toHaveLength(1);
+      expect(w.installs()[0]).toContain("--no-index");
+    });
+
+    it("a mismatch in the network pass sets the flag too", () => {
+      const w = world(["fail", "mismatch"]);
+      const out = run(
+        w,
+        '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(out).toContain("RESULT=False MISMATCH=True");
+      expect(w.installs()).toHaveLength(2);
+      expect(w.installs()[1]).not.toContain("--no-index");
+    });
+
+    it("a plain failure (a missing wheel, no network) leaves the flag clear, so the old fallback still applies", () => {
+      const w = world(["fail", "fail"]);
+      const out = run(
+        w,
+        '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(out).toContain("RESULT=False MISMATCH=False");
+      const ok = world(["ok"]);
+      expect(
+        run(ok, '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r"'),
+      ).toContain("RESULT=True");
+    });
+
+    it("the voice-core install runs only hashed pip after a mismatch, and the four network methods after a plain failure", () => {
+      const bad = world(["mismatch"]);
+      run(bad, "Install-VoiceCore");
+      expect(bad.installs().length).toBeGreaterThan(0);
+      for (const call of bad.installs()) expect(call).toContain("--require-hashes");
+
+      const plain = world(["fail", "fail", "ok"]);
+      run(plain, "Install-VoiceCore");
+      const installs = plain.installs();
+      expect(installs.slice(0, 2).every((c) => c.includes("--require-hashes"))).toBe(true);
+      expect(installs.length).toBeGreaterThan(2);
+      expect(installs[2]).not.toContain("--require-hashes");
+    });
+
+    it("removes only a stale unpack folder (no lock, or a lock over an hour old) and keeps a live run's folder", () => {
+      const w = world([]);
+      const parent = path.join(w.dir, "temporary");
+      const make = (name: string, lock: "none" | "old" | "fresh") => {
+        const dir = path.join(parent, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, "marker.txt"), name);
+        if (lock !== "none") {
+          const file = path.join(dir, "run.lock");
+          writeFileSync(file, "1");
+          if (lock === "old") utimesSync(file, new Date(2000, 0, 1), new Date(2000, 0, 1));
+        }
+      };
+      make("friday-wheelhouse-live", "fresh");
+      make("friday-wheelhouse-old", "old");
+      make("friday-wheelhouse-nolock", "none");
+      make("kept-other-folder", "none");
+      const out = run(w, '$d = Get-Wheelhouse; Write-Output "DIR=$d"');
+      const dir = /DIR=(.*)/.exec(out)?.[1]?.trim() ?? "";
+      expect(dir.startsWith(parent)).toBe(true);
+      expect(existsSync(path.join(dir, "wheelhouse.json"))).toBe(true);
+      expect(existsSync(path.join(dir, "run.lock"))).toBe(true);
+      expect(existsSync(path.join(parent, "friday-wheelhouse-live", "marker.txt"))).toBe(true);
+      expect(existsSync(path.join(parent, "kept-other-folder", "marker.txt"))).toBe(true);
+      expect(existsSync(path.join(parent, "friday-wheelhouse-old"))).toBe(false);
+      expect(existsSync(path.join(parent, "friday-wheelhouse-nolock"))).toBe(false);
+    });
+
+    it("falls back to a random folder under the user's temp folder when the install's temporary folder cannot be made", () => {
+      const w = world([]);
+      // The parent is a plain file here, so a folder cannot be created under it (a per-machine install without rights).
+      const blocked = path.join(w.dir, "blocked");
+      writeFileSync(blocked, "not a folder");
+      mkdirSync(path.join(w.dir, "tmp"), { recursive: true });
+      const out = run(
+        w,
+        `$wheelhouseTemp = '${blocked}/inner'; $wheelhouseDir = Join-Path $wheelhouseTemp 'friday-wheelhouse-x'; ` +
+          '$d = Get-Wheelhouse; Write-Output "DIR=$d"; Write-Output "KEPT=$wheelhouseDir"',
+      );
+      const dir = /DIR=(.*)/.exec(out)?.[1]?.trim() ?? "";
+      expect(dir.startsWith(path.join(w.dir, "tmp"))).toBe(true);
+      expect(path.basename(dir)).toMatch(/^friday-wheelhouse-[0-9a-f]{32}$/);
+      expect(existsSync(path.join(dir, "wheelhouse.json"))).toBe(true);
+      // The script-wide folder name now points at it, so Finish removes the folder that was really used.
+      expect(/KEPT=(.*)/.exec(out)?.[1]?.trim()).toBe(dir);
+    });
+  },
+);

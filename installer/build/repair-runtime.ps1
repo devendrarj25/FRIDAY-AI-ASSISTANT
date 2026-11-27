@@ -22,12 +22,16 @@ $pythonPathFile = Join-Path $env:TEMP "friday-python-$PID.txt"
 # The Setup EXE carries the pinned Windows wheels of kernel\requirements.txt for each Python series it supports
 # (scripts/wheelhouse.cjs checks every one against its SHA-256 at build and packs a hashed requirements file per
 # series). It is unpacked only when something has to be installed, into a per-run random folder inside the install's
-# own temporary folder (never the shared user TEMP, where another process could swap a file between the unpack and
-# pip), and that folder is removed when this script ends.
+# own temporary folder, and that folder is removed when this script ends. Only when that folder cannot be made (a
+# per-machine install without rights there) the folder is made under the user's own temp folder instead of going
+# online. A run's folder carries run.lock; another run's folder is removed only when it has no lock or its lock is more
+# than an hour old, never while it may still be in use.
 $wheelhousePack = Join-Path $InstallDir 'resources\toolchain\wheelhouse\pack.bin'
 $wheelhouseTemp = Join-Path $InstallDir 'temporary'
 $wheelhouseDir = Join-Path $wheelhouseTemp ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))
 $script:wheelhouse = $null
+# Set by Install-FromWheelhouse when pip refused a wheel because its SHA-256 differs from the build's lock.
+$script:wheelhouseMismatch = $false
 
 # The FRIDAY folder's own environment is the one this script repairs, reuses and, when nothing exists, builds:
 # <root>\runtime\.venv, the home the storage contract names. An update and a normal uninstall never touch it, so a
@@ -54,6 +58,14 @@ function Test-Runtime {
   if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
   & $venvPython -c "import sys,sqlite3;assert sys.version_info[:3]>=(3,12,10);import fastapi,uvicorn,httpx,pydantic,yaml;c=sqlite3.connect(':memory:');c.execute('create table t(a)');c.execute('insert into t values(1)');assert c.execute('select a from t').fetchone()[0]==1;c.close()" 2>$null
   return ($LASTEXITCODE -eq 0)
+}
+
+# True when pip's own log (pip --log) records a wheel whose SHA-256 differs from the hash pinned for it. That is the
+# one failure that is never retried through the network: a wheel that does not match its pin is not installed from
+# anywhere else either.
+function Test-PipHashMismatch([string]$Log) {
+  if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) { return $false }
+  return [bool](Select-String -LiteralPath $Log -Pattern 'DO NOT MATCH THE HASHES' -Quiet)
 }
 
 # Memory / devices / OCR / Windows control extras. Best-effort: a missing
@@ -89,17 +101,35 @@ function Get-Wheelhouse {
   if ($null -ne $script:wheelhouse) { return $script:wheelhouse }
   $script:wheelhouse = ''
   if (-not (Test-Path -LiteralPath $wheelhousePack -PathType Leaf)) { return '' }
-  try {
-    New-Item -ItemType Directory -Force -Path $wheelhouseTemp | Out-Null
-    Get-ChildItem -LiteralPath $wheelhouseTemp -Directory -Filter 'friday-wheelhouse-*' -ErrorAction SilentlyContinue |
-      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($wheelhousePack, $wheelhouseDir)
-    if (Test-Path -LiteralPath (Join-Path $wheelhouseDir 'wheelhouse.json') -PathType Leaf) {
-      $script:wheelhouse = $wheelhouseDir
+  $stale = (Get-Date).AddHours(-1)
+  # The install's own temporary folder first; when it cannot be made, a random folder under the user's temp folder.
+  $userTemp = Join-Path ([System.IO.Path]::GetTempPath()) ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))
+  foreach ($dir in @($wheelhouseDir, $userTemp)) {
+    try {
+      $parent = Split-Path -Parent $dir
+      New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop | Out-Null
+      # Leftovers of a run that was killed. Another run's folder is left alone while it may still be in use: only a
+      # folder without run.lock, or with a lock older than an hour, is removed.
+      Get-ChildItem -LiteralPath $parent -Directory -Filter 'friday-wheelhouse-*' -ErrorAction SilentlyContinue |
+        Where-Object {
+          $lock = Join-Path $_.FullName 'run.lock'
+          -not (Test-Path -LiteralPath $lock -PathType Leaf) -or ((Get-Item -LiteralPath $lock).LastWriteTime -lt $stale)
+        } |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+      Set-Content -LiteralPath (Join-Path $dir 'run.lock') -Value "$PID" -Encoding ASCII -ErrorAction Stop
+      # Finish removes the folder this run really used.
+      $script:wheelhouseDir = $dir
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      [System.IO.Compression.ZipFile]::ExtractToDirectory($wheelhousePack, $dir)
+      if (Test-Path -LiteralPath (Join-Path $dir 'wheelhouse.json') -PathType Leaf) {
+        $script:wheelhouse = $dir
+        break
+      }
+    } catch {
+      Write-Host "FRIDAY: the wheelhouse could not be unpacked into $dir"
     }
-  } catch {
-    $script:wheelhouse = ''
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
   }
   return $script:wheelhouse
 }
@@ -108,8 +138,17 @@ function Get-Wheelhouse {
 # EXE does not carry), the wheelhouse is kept and the network fills only what is missing, at the same pinned
 # versions. Both passes install from requirements-<tag>.txt with --require-hashes, so pip refuses a package that is
 # not pinned there and any wheel whose SHA-256 differs from the build's lock. A pack without that file is not used.
-# Returns $true or $false and never ends Setup: on $false the caller's network methods run as before.
+#
+# NETWORK PASS: the second pass can add only what requirements-<tag>.txt lists: wheels only (--only-binary=:all:),
+# each at its pinned name==version, each accepted only when its SHA-256 is one of the pinned digests, from pip's default
+# index. It can add no other package, no source build and no other version.
+# A SHA-256 mismatch, in either pass, ends this path: $script:wheelhouseMismatch is set, nothing else is tried here
+# and the caller stops with a status that Setup records as PythonSetupPending. The older unhashed network methods
+# stay only for a Setup EXE with no usable pack for this Python (no pack, no files for this series), and for a plain
+# failure such as a missing wheel or no network; they are never reached after a mismatch.
+# Returns $true or $false and never ends Setup: on $false the caller decides, as above.
 function Install-FromWheelhouse([string]$Requirements) {
+  $script:wheelhouseMismatch = $false
   if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
   $tag = & $venvPython -c "import sys;print('cp%d%d' % sys.version_info[:2])" 2>$null | Select-Object -First 1
   $tag = "$tag".Trim()
@@ -118,19 +157,24 @@ function Install-FromWheelhouse([string]$Requirements) {
   if (-not $house) { return $false }
   $constraints = Join-Path $house "constraints-$tag.txt"
   $hashed = Join-Path $house "requirements-$tag.txt"
+  $log = Join-Path $house 'pip-wheelhouse.log'
   if (-not (Test-Path -LiteralPath $Requirements -PathType Leaf)) { return $false }
   if (-not (Test-Path -LiteralPath $constraints -PathType Leaf)) { return $false }
   if (-not (Test-Path -LiteralPath $hashed -PathType Leaf)) { return $false }
-  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house --require-hashes -r $hashed | Out-Host
+  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house --require-hashes --log $log -r $hashed | Out-Host
   if ($LASTEXITCODE -eq 0) { return $true }
-  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints --require-hashes -r $hashed | Out-Host
-  return ($LASTEXITCODE -eq 0)
+  if (Test-PipHashMismatch $log) { $script:wheelhouseMismatch = $true; return $false }
+  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints --require-hashes --log $log -r $hashed | Out-Host
+  if ($LASTEXITCODE -eq 0) { return $true }
+  if (Test-PipHashMismatch $log) { $script:wheelhouseMismatch = $true }
+  return $false
 }
 
 function Install-VoiceCore {
   if (Test-VoiceCore) { return }
   if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { return }
   if (Install-FromWheelhouse $requirements) { return }
+  if ($script:wheelhouseMismatch) { return }
   $voiceMethods = @(
     @('--disable-pip-version-check', '--only-binary=:all:', '-r', $requirements),
     @('--disable-pip-version-check', '--prefer-binary', '-r', $requirements),
@@ -153,6 +197,7 @@ function Test-RuntimeTwice {
 
 if (Test-RuntimeTwice) {
   Install-VoiceCore
+  if ($script:wheelhouseMismatch) { Finish 'wheelhouse-hash-mismatch' 11 }
   Install-CapabilityExtras
   if (-not (Test-VoiceCore)) { Finish 'voice-packages-failed' 10 }
   Finish 'ready' 0
@@ -220,6 +265,7 @@ $pipMethods = @(
   @('--disable-pip-version-check', '--prefer-binary', '--index-url', 'https://pypi.org/simple', '-r', $requirements)
 )
 $installed = Install-FromWheelhouse $requirements
+if ($script:wheelhouseMismatch) { Finish 'wheelhouse-hash-mismatch' 11 }
 if (-not $installed) {
   foreach ($method in $pipMethods) {
     & $venvPython -m pip install @method
