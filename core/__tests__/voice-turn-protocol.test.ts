@@ -472,11 +472,12 @@ describe("needsWake only ADDS a requirement", () => {
       expect(held).toContain(open);
     expect(held).not.toMatch(/return true/);
     const gate = src.slice(
-      src.indexOf("const held = !stop"),
+      src.indexOf("const held ="),
       src.indexOf("if (accepted) this.liveWakeAt"),
     );
-    expect(gate).toContain(
-      "const held = !stop && decision.answer && this.heldForWake(wake.matched);",
+    // The addressedness gate is OR-ed into the hold: it can only add a wake requirement, never lift one.
+    expect(gate).toMatch(
+      /const held =\s+!stop &&\s+decision\.answer &&\s+\(this\.heldForWake\(wake\.matched\) \|\|\s+this\.addressednessAddsWake\(/,
     );
     expect(gate).toContain("(stop || (decision.answer && decision.tools && !held))");
   });

@@ -54,8 +54,10 @@ import { tidyTranscript, type TidyChange } from "./voice-engine/transcript-tidy"
 import {
   buildTurnRecord,
   languageMix,
+  preferStreamLang,
   ScriptPolicyTally,
   shapeHeardText,
+  STREAM_LANG_MIN_CONF,
   streamLocale,
   streamWanted,
   subscribeStreamTurns,
@@ -64,7 +66,10 @@ import {
   type StreamTurn,
   type TurnRecord,
 } from "./voice-engine/stream-session";
-import { streamHotwords } from "./voice-engine/hotwords";
+import { commandHints, streamHotwords } from "./voice-engine/hotwords";
+import type { CommandHit, CommandRegistryEntry } from "./voice-engine/command-lane";
+import { judgeAddressedness } from "./voice-engine/addressedness";
+import { detectSelfRepair, repairAuditLine } from "./voice-engine/self-repair";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi, isBootHolding, whenBootDone } from "./desktop";
 import {
@@ -287,7 +292,7 @@ import {
   type StatusKey,
 } from "./voice-engine/narration-policy";
 import { createFinalDeduper } from "./voice-engine/final-dedupe";
-import { routeUtterance, type Route } from "./voice-engine/utterance-router";
+import { routeCommandLane, routeUtterance, type Route } from "./voice-engine/utterance-router";
 import {
   ackStillDue,
   shouldAck,
@@ -339,6 +344,7 @@ import {
   sttHotwords,
   sttInitialPrompt,
   sttStatus,
+  type ListeningPause,
 } from "./voice-stt";
 import {
   isPlainStop,
@@ -1249,6 +1255,12 @@ type EagerSnapshot = {
   halted: boolean;
 };
 
+/** The ear's room and voice tags of one final, read only by the addressedness gate. */
+type AddressFacts = {
+  scene?: { kind: "speech" | "music" | "tv" | "noise"; score: number };
+  speaker?: "owner" | "other" | "unknown";
+};
+
 class AssistantModeStore {
   private listeners = new Set<() => void>();
   /** On-device transcription is Auto Mode's only recognition engine. */
@@ -1312,6 +1324,11 @@ class AssistantModeStore {
   private turnRecordLive = false;
   /** The id of the heard turn, kept apart from the record so only the intake reads the record to make it. */
   private heardTurnId = "";
+  /**
+   * The ear's room and voice tags of the final being handled, for the addressedness gate only (spent by it). A tag
+   * can only ADD a wake requirement there; no approval, confirmation or authority check reads it.
+   */
+  private addressFacts: AddressFacts | null = null;
   private streamTurnId = "";
   private holdTurnId = "";
   private holdSeenAt = 0;
@@ -1954,6 +1971,10 @@ class AssistantModeStore {
       locale: streamLocale(voice.recognitionLang),
       hotwords: streamHotwords({
         names: [voice.addressName, voice.wakeWord],
+        // The command lane's names bias the decode (one per phonetic key), so "open Spotify" is heard as said.
+        ...(voice.understanding.commandLane
+          ? { apps: commandHints(this.commandRegistry().flatMap((entry) => entry.names)) }
+          : {}),
         vocabulary: parseVocabulary(voice.vocabulary),
       }),
     };
@@ -2553,7 +2574,13 @@ class AssistantModeStore {
   /** What the speech model said about the last utterance: how sure it was of the words and the language. */
   private lastHeardQuality: HeardQuality | null = null;
   /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
-  private pendingHeard: { command: string; at: number; turn?: TurnHints | undefined } | null = null;
+  /** A read-back waiting for a yes; `ttlMs` (the approval window) when a snap or a repair asked, else 25 s. */
+  private pendingHeard: {
+    command: string;
+    at: number;
+    turn?: TurnHints | undefined;
+    ttlMs?: number;
+  } | null = null;
   /** When she last read words back: she does not do it twice in a row. */
   private lastReadBackAt = 0;
 
@@ -3679,6 +3706,33 @@ class AssistantModeStore {
     );
   }
 
+  /** What answer she waits for: a yes or no while a read-back, a confirmation or an approval is open, else dictation. */
+  private turnExpect(): TurnExpect | undefined {
+    if (this.state.pending || this.pendingHeard || this.approvalAsked || this.restartAsk)
+      return "yesno";
+    if (brain.getSnapshot().approval) return "yesno";
+    if (voiceNotes.active() || this.translateTo) return "dictation";
+    return undefined;
+  }
+
+  /** The language of the conversation for the unfinished-sentence wait: the last turn's, else the chosen one. */
+  private turnEotLang(): EotLang | undefined {
+    const lang =
+      this.turnHints()?.lang || streamLocale(preferences.getSnapshot().voice.recognitionLang);
+    return lang === "hi" ? "hi" : lang === "en" ? "en" : lang === "hi-en" ? "hinglish" : undefined;
+  }
+
+  /** The speech worker is in a crash loop: the status says so in the owner's language, with the retry time. */
+  private showListeningPaused(pause: ListeningPause) {
+    const lang = this.turnHints()?.lang;
+    const line =
+      lang === "hi" ? pause.lines.hi : lang === "hi-en" ? pause.lines.hinglish : pause.lines.en;
+    const seconds = Math.max(1, Math.ceil(pause.retryAfterMs / 1000));
+    this.trace("error", `speech worker paused after repeated crashes, retry in ${seconds} s`);
+    this.state.status = `${line} (${seconds} s)`;
+    this.emit();
+  }
+
   private startDesktopDictation() {
     void refreshVoiceProfile();
     this.stopWakeOnly();
@@ -3720,6 +3774,11 @@ class AssistantModeStore {
         this.startLiveWords();
         this.liveWords?.show(update);
       },
+      // The end-of-turn wait reads what she expects (a yes, dictation), the owner's language and the words so far.
+      turnExpect: () => this.turnExpect(),
+      turnLang: () => this.turnEotLang(),
+      turnTail: () => this.state.interim,
+      onListeningPaused: (pause) => this.showListeningPaused(pause),
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         // A turn whose budget was already recorded at its first sound adds only its stage gaps here.
@@ -4244,6 +4303,10 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // The room tags of this final are spent here, so a later line never reads another turn's scene.
+    const room = this.addressFacts;
+    this.addressFacts = null;
+    const sinceLastTurnMs = this.lastOwnerAt > 0 ? Date.now() - this.lastOwnerAt : null;
     this.lastOwnerAt = Date.now();
     this.shadowTurn((a) => a.liveFinal(text, this.lastOwnerAt));
     // Noise gate: the recogniser sometimes turns a cough, a keyboard or the TV
@@ -4315,7 +4378,7 @@ class AssistantModeStore {
     // She read the words back and is waiting: a yes goes ahead with them, a no drops them, anything else is a new request.
     const readBack = this.pendingHeard;
     this.pendingHeard = null;
-    if (readBack && Date.now() - readBack.at <= HEARD_CONFIRM_MS) {
+    if (readBack && Date.now() - readBack.at <= (readBack.ttlMs ?? HEARD_CONFIRM_MS)) {
       if (isBoundConfirmation(text, (value) => confirmationVerdict(value) === "yes")) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
@@ -4515,7 +4578,11 @@ class AssistantModeStore {
     }
     const awake = Date.now() < this.awakeUntil;
     const stop = this.isStopHeard(text, wake.matched);
-    const held = !stop && decision.answer && this.heldForWake(wake.matched);
+    const held =
+      !stop &&
+      decision.answer &&
+      (this.heldForWake(wake.matched) ||
+        this.addressednessAddsWake(text, wake.matched, room, sinceLastTurnMs));
     if (held) voiceGate.wake.noteHeldTurn(performance.now());
     const accepted = this.micAllowed() && (stop || (decision.answer && decision.tools && !held));
     this.trace(
@@ -4531,6 +4598,11 @@ class AssistantModeStore {
             : "no wake word, not awake, not a hands-free turn",
     );
     if (accepted) this.liveWakeAt = 0; // a live wake covers one line, then it is spent
+    // While she speaks, a quietening verb (stop, mute, pause, quieter) needs no wake word; a held line, or one heard
+    // over a TV or music scene, never acts.
+    const roomPlays = room?.scene?.kind === "tv" || room?.scene?.kind === "music";
+    if (!accepted && !held && !roomPlays && this.micAllowed() && this.commandLaneTakes(text, false))
+      return;
     if (!accepted) {
       markTurnStage(
         "routed",
@@ -4544,7 +4616,8 @@ class AssistantModeStore {
       this.emit();
       return;
     }
-    const command = (wake.matched ? wake.command : text).trim();
+    const heardCommand = (wake.matched ? wake.command : text).trim();
+    let command = heardCommand;
     if (wake.matched && !command && wakeOnCooldown(Date.now(), this.lastWakeAt)) {
       this.trace("dropped", "wake word repeated inside the cooldown");
       markTurnStage("routed", false, "wake word repeated inside the cooldown");
@@ -4557,6 +4630,13 @@ class AssistantModeStore {
     this.turnStages.mark("sttFinalReceived");
     this.turnStages.mark("brainRequestStarted");
     this.to("wake-matched");
+    // A spoken self-repair ("do nahi nahi teen") acts on the repaired line; the raw words stay in the transcript and
+    // the audit. A repair that changes a number, a name, a target or a consequential order is read back first.
+    if (command) {
+      const repair = this.selfRepairOf(command, text);
+      if (repair === "asked") return;
+      if (repair) command = repair;
+    }
     // One router names what this line is for (see utterance-router). It reads, it never acts: a yes it finds is
     // only an answer, and the approval paths below decide. Task words act on tasks, a plain stop never does.
     const route = this.routeHeard(command || text, this.approvalAsked);
@@ -4656,10 +4736,11 @@ class AssistantModeStore {
     if (this.wakeFalseTimer) clearTimeout(this.wakeFalseTimer);
     this.wakeFalseTimer = null;
     const lastCaption = this.state.captions[this.state.captions.length - 1];
-    const shown = this.tidyShown(command);
+    // The transcript keeps what was said: a self-repair shows the raw line, the repaired one goes on.
+    const shown = this.tidyShown(heardCommand);
     if (!(
       lastCaption?.who === "user" &&
-      (lastCaption.text.includes(command) || lastCaption.text.includes(shown.text))
+      (lastCaption.text.includes(heardCommand) || lastCaption.text.includes(shown.text))
     )) {
       this.caption("user", shown.text, false, {
         tag: "addressed",
@@ -4712,6 +4793,9 @@ class AssistantModeStore {
       return;
     }
 
+    // The closed-vocabulary command lane (stop, mute, open a known name) answers without the Brain; a miss falls
+    // through. A doubtful line was read back above with the words as heard, before any snap.
+    if (this.commandLaneTakes(command, true)) return;
     this.ackTurnKind = route.kind;
     this.routeCommand(command, route.kind === "new-task" && route.needsConfirm === true);
   }
@@ -4739,6 +4823,168 @@ class AssistantModeStore {
       busy:
         Boolean(brain.getSnapshot().activeRunId) || tasks.some((t) => !TERMINAL.includes(t.state)),
     });
+  }
+
+  /**
+   * The addressedness gate on a final with no wake word: a TV or music scene, another voice, narration, a doubtful
+   * decode, a long run of speech or a stale conversation may ADD a wake requirement (see addressedness.ts). It never
+   * lowers one, never accepts and never approves: the base rule here is "no wake needed", so only an added one holds.
+   */
+  private addressednessAddsWake(
+    text: string,
+    wakeMatched: boolean,
+    room: AddressFacts | null,
+    sinceLastTurnMs: number | null,
+  ): boolean {
+    if (wakeMatched || this.listenStyle() === "push-to-talk") return false;
+    const now = Date.now();
+    const verdict = judgeAddressedness({
+      text,
+      lang: this.turnHints()?.lang ?? "",
+      baseRequireWake: false,
+      wakeHeard: false,
+      // A follow-up is her own open question or a live wake; the hands-free attention window is not one.
+      followUp: now < this.followUpUntil || now - this.liveWakeAt < LIVE_WAKE_MS,
+      expectingAnswer: Boolean(this.state.pending || this.approvalAsked || this.restartAsk),
+      handsFree: this.state.handsFree,
+      ...(room?.scene ? { scene: room.scene } : {}),
+      ...(room?.speaker ? { speaker: room.speaker } : {}),
+      asrLogProb: this.lastHeardQuality?.avgLogprob ?? null,
+      sinceLastTurnMs,
+      speechMs: this.lastSpeechMs,
+    });
+    if (verdict.requireWake)
+      this.trace(
+        "wake",
+        `addressedness ${verdict.addressed} (${verdict.reasons.join(", ")}): wake word required`,
+      );
+    return verdict.requireWake;
+  }
+
+  /**
+   * A mid-sentence self-repair (`voice.understanding.selfRepair`, on by default): the repaired line, or "asked" when
+   * the repair is consequential and was read back (a fresh yes then routes the repaired line through every check),
+   * or null when there is none. The raw words go to the audit with one repair line.
+   */
+  private selfRepairOf(command: string, heard: string): string | "asked" | null {
+    if (!preferences.getSnapshot().voice.understanding.selfRepair) return null;
+    const lang = this.turnHints()?.lang;
+    // The wake split folds case; the same words as heard keep a name a name ("Rahul I mean Rohan").
+    const words = heard.trim().split(/\s+/);
+    const tail = words.slice(-command.split(/\s+/).length).join(" ");
+    const cased = normalizeTranscript(tail) === command ? tail : command;
+    const repair = detectSelfRepair(cased, lang ? { lang } : {});
+    if (!repair || !repair.repaired.trim()) return null;
+    const audit = repairAuditLine(repair);
+    this.trace("segment", audit);
+    this.remember("self-repair", repair.raw, audit);
+    if (!repair.consequential || !repair.readBack) return repair.repaired;
+    const heardTurn = this.turnHints();
+    this.pendingHeard = {
+      command: repair.repaired,
+      at: Date.now(),
+      ttlMs: this.approvalTtl(),
+      ...(heardTurn ? { turn: heardTurn } : {}),
+    };
+    this.lastReadBackAt = Date.now();
+    markTurnStage("routed", false, "self-repair read back — waiting for a yes");
+    this.caption("user", repair.raw);
+    this.caption("friday", repair.readBack);
+    this.state.status = this.line("waiting-yesno");
+    this.emit();
+    this.speak(repair.readBack);
+    return "asked";
+  }
+
+  /**
+   * The names the command lane may open, and the ear's hint list. The owner's dictionary (Settings > Voice) is the
+   * one list of names kept on this side; each entry is its own name.
+   */
+  private commandRegistry(): CommandRegistryEntry[] {
+    return parseVocabulary(preferences.getSnapshot().voice.vocabulary).map((name) => ({
+      id: `vocabulary:${name.toLocaleLowerCase()}`,
+      names: [name],
+    }));
+  }
+
+  /**
+   * The closed-vocabulary command lane (`voice.understanding.commandLane`, on by default), before the Brain. True
+   * when it answered the line. An `addressed` line (wake word, attention window, hands-free) may take any lane verb;
+   * an unaddressed one only a quietening verb while she speaks. A miss, or a verb the conduct path owns (pause,
+   * volume), falls through. An open is never run here: a snapped name goes through the same risk and approval path,
+   * and a snap to a consequential name is read back and waits for a fresh yes inside the approval window.
+   */
+  private commandLaneTakes(line: string, addressed: boolean): boolean {
+    if (!preferences.getSnapshot().voice.understanding.commandLane) return false;
+    const started = performance.now();
+    const lang = this.turnHints()?.lang;
+    const lane = routeCommandLane({
+      text: line,
+      partial: false,
+      ctx: {
+        registry: this.commandRegistry(),
+        ...(lang ? { lang: lang === "hi-en" ? ("hinglish" as const) : lang } : {}),
+      },
+      speakingNow: this.state.speaking,
+      handsFree: addressed && this.state.handsFree,
+      wakeHeard: addressed,
+    });
+    if (lane.route !== "command" || !lane.command) return false;
+    const took = this.runLaneCommand(lane.command);
+    if (took)
+      this.trace(
+        "wake",
+        `command lane — ${lane.command.command} (${lane.reason}, ${Math.round(performance.now() - started)} ms)`,
+      );
+    return took;
+  }
+
+  private runLaneCommand(hit: CommandHit): boolean {
+    const en = this.narrationLang() !== "hi";
+    switch (hit.command) {
+      case "stop":
+      case "stop-all":
+        this.queuedCommands = [];
+        this.queuedHints.clear();
+        this.stopQueueTimer();
+        markTurnStage("routed", true, "", "command lane stop");
+        this.cancelSpeech();
+        this.state.status = this.line("stopped-listening");
+        this.emit();
+        return true;
+      case "mute":
+      case "unmute":
+        markTurnStage("routed", true, "", `command lane ${hit.command}`);
+        this.setMuted(hit.command === "mute");
+        return true;
+      case "open": {
+        const target = hit.args?.target?.trim();
+        if (!target) return false;
+        const command = `open ${target}`;
+        if (hit.readBack) {
+          const ask = en ? `Open ${target}? Yes or no.` : `${target} kholun? Haan ya na.`;
+          const heardTurn = this.turnHints();
+          this.pendingHeard = {
+            command,
+            at: Date.now(),
+            ttlMs: this.approvalTtl(),
+            ...(heardTurn ? { turn: heardTurn } : {}),
+          };
+          this.lastReadBackAt = Date.now();
+          markTurnStage("routed", false, "command lane read back — waiting for a yes");
+          this.caption("friday", ask);
+          this.state.status = this.line("waiting-yesno");
+          this.emit();
+          this.speak(ask);
+          return true;
+        }
+        this.ackTurnKind = "control";
+        this.routeCommand(command);
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   /** How often she asks first: the autonomy dial, adjusted by the owner's own `voice.confirmLevel` (rare when absent). */
@@ -6152,9 +6398,10 @@ class AssistantModeStore {
     const voice = preferences.getSnapshot().voice;
     // Delivery tags survive only in the reply the model wrote for a spoken turn; every other line loses them here.
     const tagged = meta.reply === true && this.state.mode === "auto";
+    const hindiTurn = this.turnSpeaksHindi();
     const prepared = prepareForSpeech(spoken, voice.pronunciations, {
       enabled: voice.speechPrep !== false,
-      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang),
+      hindiVoice: usesHindiVoice(voice.speechLang || voice.recognitionLang) || hindiTurn,
       ...(tagged ? { deliveryTags: true } : {}),
     });
     if (!stripDeliveryTags(prepared).trim()) {
@@ -6286,7 +6533,9 @@ class AssistantModeStore {
       supertonicReady: this.offlineVoiceReady,
     });
     const voicePrefs = preferences.getSnapshot().voice;
-    const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
+    const spokenLang = voiceForLanguage(
+      this.turnSpeaksHindi() ? "hi-IN" : voicePrefs.speechLang || voicePrefs.recognitionLang,
+    );
     const lastOwner =
       [...this.state.captions].reverse().find((row) => row.who === "user")?.text ?? "";
     const tone = speakingProsody({
@@ -6912,7 +7161,7 @@ class AssistantModeStore {
       lastError: null,
       lastLatencyMs: meta?.ms ?? null,
     };
-    this.turnRecord = buildTurnRecord({
+    const record = buildTurnRecord({
       text: trimmed,
       textRaw: text,
       declaredLanguage: meta?.quality?.language || preferences.getSnapshot().voice.recognitionLang,
@@ -6920,10 +7169,22 @@ class AssistantModeStore {
       facts: this.turnTracker.take(Date.now()),
       interruptedPlayedMs: this.lastInterruptedPlayedMs,
     });
+    // The turn's language: the ear's locked language wins over the script heuristic when it is sure (the tracker keeps
+    // `streamLang` only at a lock of at least STREAM_LANG_MIN_CONF). The reply hint and the voice follow this one.
+    this.turnRecord = {
+      ...record,
+      lang: preferStreamLang(record.lang, record.streamLang, STREAM_LANG_MIN_CONF),
+    };
+    // The room and the voice reach only the addressedness gate, which can only ADD a wake requirement.
+    this.addressFacts = {
+      ...(record.env ? { scene: record.env } : {}),
+      ...(record.speaker ? { speaker: record.speaker.tag } : {}),
+    };
     this.lastInterruptedPlayedMs = null;
     this.turnRecordLive = true;
     this.heardTurnId = this.turnRecord.turnId;
-    this.handleHeard(text, meta?.wake ?? null);
+    // The canonical code-mixed line (script policy) is what the turn acts on; the raw words stay in the record.
+    this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null);
   }
 
   /**
@@ -6951,6 +7212,15 @@ class AssistantModeStore {
   private turnHintsOption() {
     const turn = this.turnHints();
     return turn ? { turn } : {};
+  }
+
+  /**
+   * The heard turn is Hindi (the ear's lock or the script) and the reply follows the owner's language: the reply is
+   * spoken through the Hindi voice and lexicon path even when the chosen voice language is English.
+   */
+  private turnSpeaksHindi(): boolean {
+    if (replyIdentity.getSnapshot().profile.replyLanguage !== "follow-user") return false;
+    return this.turnHints()?.lang === "hi";
   }
 
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;

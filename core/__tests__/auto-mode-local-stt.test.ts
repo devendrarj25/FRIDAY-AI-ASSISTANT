@@ -48,7 +48,9 @@ describe("Auto Mode local speech recognition contract", () => {
       "if ((this.recentlySpeaking() && this.isSelfEcho(text)) || this.ackEchoHeard(text))",
     );
 
-    expect(assistant).toContain("this.handleHeard(text, meta?.wake ?? null)");
+    expect(assistant).toContain(
+      "this.handleHeard(this.turnRecord.canonical || text, meta?.wake ?? null)",
+    );
   });
 
   it("keeps retrying a dead STT session and speaks each cause once", () => {

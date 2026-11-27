@@ -51,7 +51,8 @@ describe("ITN after tidy, behind voice.itn", () => {
     expect(body).toMatch(/tidy: true,/);
     expect(body).toMatch(/itn: voice\.itn !== false,/);
     // The command that reaches the Brain is the heard line; only the caption takes the shaped text.
-    expect(modeSource).toMatch(/const shown = this\.tidyShown\(command\);/);
+    expect(modeSource).toMatch(/const shown = this\.tidyShown\(heardCommand\);/);
+    expect(modeSource).not.toMatch(/routeCommand\(shown/);
   });
 });
 

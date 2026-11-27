@@ -172,7 +172,7 @@ describe("FRIDAY Tidy wiring", () => {
 
   it("only the words shown are tidied, only when the setting is not off, and never the Brain command", () => {
     expect(mode).toMatch(/if \(voice\.tidyDictation === false\) return \{ text: heard \};/);
-    expect(mode).toMatch(/const shown = this\.tidyShown\(command\);/);
+    expect(mode).toMatch(/const shown = this\.tidyShown\(heardCommand\);/);
     expect(mode).toMatch(/this\.caption\("user", shown\.text, false, \{/);
     expect(mode).toMatch(
       /this\.routeCommand\(command, route\.kind === "new-task" && route\.needsConfirm === true\);/,
