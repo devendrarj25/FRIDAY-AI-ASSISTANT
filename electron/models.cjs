@@ -2043,6 +2043,8 @@ function coreKernelRow(endpoint = coreEndpoint()) {
     role: "brain",
     endpoint: up ? endpoint.baseUrl : "",
     apiKey: up ? endpoint.apiKey : "",
+    // `local` goes with the loopback endpoint only: it lets the router treat the row as on this PC.
+    ...(up ? { type: "local" } : {}),
     status: up ? "ready" : "unavailable",
     capabilities: coreCapabilities,
   };
@@ -2089,6 +2091,24 @@ const coreHealthy = async (port, probe) => {
 };
 
 /**
+ * The port is ours only if it refuses a caller without this launch's key (401) and accepts the key (200). Anything
+ * else (a squatter that answers `/health` for the port we were handed, a server with another key, no answer) is not
+ * FRIDAY Core. The key goes in one request header and is never logged.
+ */
+const coreKeyed = async (port, key, probe) => {
+  const ask = probe || request;
+  const url = `http://127.0.0.1:${port}/v1/models`;
+  const bare = await ask(url, { timeout: 2000 });
+  if (!bare || bare.status !== 401) return false;
+  const keyed = await ask(url, { timeout: 2000, headers: { Authorization: `Bearer ${key}` } });
+  return Boolean(keyed && keyed.status === 200);
+};
+
+/** The runtime child while it loads (spawned, not yet ready): `stopCore` can end it, and `coreJob` knows it was told to. */
+let pendingChild = null;
+let coreCancelled = false;
+
+/**
  * Start FRIDAY Core. Returns `{ ok, running, endpoint }` once the server answers `/health`, or `{ ok: false, error }`.
  * `options`: `variant`, plus injections for tests (`launch`, `spawn`, `probe`, `timeoutMs`, `stepMs`).
  */
@@ -2097,6 +2117,7 @@ async function startCore(options = {}) {
     return { ok: true, running: true, endpoint: coreEndpoint(), detail: "already running" };
   if (coreJob) return { ok: false, error: "a start/stop job is already running" };
   coreJob = true;
+  coreCancelled = false;
   try {
     const runtime = require("./llama-runtime.cjs");
     const root = paths.root() || paths.base();
@@ -2122,6 +2143,9 @@ async function startCore(options = {}) {
         error: `could not be started: ${String(err.message || err)}`,
       };
     }
+    pendingChild = child;
+    // The one lifecycle owner stops it on quit or after a crash, like the speech workers.
+    require("./app-lifecycle.cjs").trackOwned("runner", child, launch.bin);
     let exited = null;
     child.once("exit", (code) => {
       exited = code ?? -1;
@@ -2135,7 +2159,13 @@ async function startCore(options = {}) {
     });
     const until = Date.now() + (options.timeoutMs || 120000);
     const step = options.stepMs || 500;
+    const stopped = () => ({
+      ok: false,
+      running: false,
+      error: "FRIDAY Core was stopped while loading",
+    });
     for (;;) {
+      if (coreCancelled) return stopped();
       if (exited !== null)
         return {
           ok: false,
@@ -2149,6 +2179,23 @@ async function startCore(options = {}) {
       }
       await new Promise((r) => setTimeout(r, step));
     }
+    if (coreCancelled) return stopped();
+    if (!(await coreKeyed(launch.port, launch.key, options.probe).catch(() => false))) {
+      killChild(child);
+      return {
+        ok: false,
+        running: false,
+        error: "the port did not answer to this launch's key, so it was stopped",
+      };
+    }
+    // The owner may have turned Core off while the model loaded.
+    if (
+      coreCancelled ||
+      (typeof options.isEnabled === "function" && options.isEnabled() !== true)
+    ) {
+      killChild(child);
+      return stopped();
+    }
     coreCapabilities = launch.capabilities || coreCapabilities;
     coreServer = {
       child,
@@ -2160,9 +2207,11 @@ async function startCore(options = {}) {
       fridayName: launch.fridayName,
       vision: launch.vision,
     };
+    pendingChild = null;
     await announceCore();
     return { ok: true, running: true, endpoint: coreEndpoint() };
   } finally {
+    pendingChild = null;
     coreJob = false;
   }
 }
@@ -2178,6 +2227,13 @@ function killChild(child) {
 
 /** Stop the Core FRIDAY started. True when none is left running. */
 async function stopCore() {
+  if (pendingChild) {
+    // Stopped mid-load: end the runtime now; the start in flight sees the flag and returns without a Core.
+    const loading = pendingChild;
+    pendingChild = null;
+    coreCancelled = true;
+    killChild(loading);
+  }
   if (!coreServer) return true;
   const { child } = coreServer;
   coreServer = null;

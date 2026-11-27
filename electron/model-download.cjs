@@ -1016,11 +1016,14 @@ function writeServedSource(dest, source, pin, deps = {}) {
   }
 }
 
-/** Hash and size of the parts of one release file, in order, joined into `target`; the bytes are written only after they are whole. */
+/**
+ * Hash and size of the parts of one release file, in order, joined into `target`; the bytes are written only after
+ * they are whole. `target` is created exclusively (`wx`): a file or a link someone left there is never written through.
+ */
 function joinParts(partFiles, target) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
-    const out = fs.createWriteStream(target);
+    const out = fs.createWriteStream(target, { flags: "wx" });
     let bytes = 0;
     let index = 0;
     out.on("error", reject);
@@ -1088,6 +1091,8 @@ async function fetchReleaseFile(asset, finalPath, ctx) {
   }
   const joining = `${finalPath}.join.part`;
   fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+  // Remove what is there (a link included, never its target), then create the file exclusively.
+  fs.rmSync(joining, { force: true });
   try {
     const joined = await joinParts(staged, joining);
     if (joined.bytes !== asset.bytes || joined.sha256 !== asset.sha256) {
@@ -1670,6 +1675,8 @@ module.exports = {
   assertDiskRoom,
   assertSha256,
   downloadUrl,
+  joinParts,
+  fetchReleaseFile,
   mapPool,
   combinedProgress,
   planSegments,

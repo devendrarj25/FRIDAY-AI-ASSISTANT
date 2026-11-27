@@ -2047,7 +2047,9 @@ function createCoreWiring({ api, request, isEnabled, log: say = () => undefined 
   const reconcile = () => {
     const enabled = isEnabled() === true;
     desired = enabled;
-    return guard(enabled ? api.startCore?.() : api.stopCore?.());
+    return guard(
+      enabled ? api.startCore?.({ isEnabled: () => isEnabled() === true }) : api.stopCore?.(),
+    );
   };
   return {
     onKernelReady() {
@@ -5816,12 +5818,29 @@ ipcMain.handle("kernel:restart", async () => {
   return { ok: true };
 });
 
+/**
+ * The FRIDAY Core row (its loopback endpoint and this launch's key) is written by the main process alone, through
+ * `coreKernelRequest` in models.cjs. A renderer call that adds or syncs a model with that id is refused.
+ */
+function touchesCoreRow(name, payload) {
+  const isCore = (row) =>
+    String((row && row.id) || "")
+      .trim()
+      .toLowerCase() === "friday-core";
+  if (name === "model.add" || name === "model.remove") return isCore(payload);
+  if (name === "model.sync")
+    return Array.isArray(payload && payload.models) && payload.models.some(isCore);
+  return false;
+}
+
 ipcMain.handle("kernel:rpc", async (_e, method, params) => {
   const name = String(method || "");
   if (!kernelMethods.isAllowedKernelMethod(name))
     return { ok: false, error: `kernel method not allowed: ${name}`, denied: true };
   const payload = params && typeof params === "object" ? { ...params } : {};
   for (const field of kernelMethods.CALLER_FORBIDDEN_FIELDS) delete payload[field];
+  if (touchesCoreRow(name, payload))
+    return { ok: false, error: "the FRIDAY Core model is managed by the desktop", denied: true };
   if (name === "chat.complete" || name === "chat.stream") {
     const privacy = await confirmKernelChat(payload, name);
     if (!privacy.allowed)

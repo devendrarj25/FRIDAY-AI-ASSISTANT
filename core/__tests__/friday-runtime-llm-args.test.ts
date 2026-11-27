@@ -21,6 +21,17 @@ const SERVER = process.platform === "win32" ? "friday-runtime-llm.exe" : "friday
 const KEY = ["fk", "test", "key", String(1234567890)].join("-");
 let dir: string;
 
+/** A healthy server that answers /v1/models 401 without this launch's key and 200 with it (the check before ready). */
+const keyedProbe =
+  (seen: string[] = []) =>
+  async (url: string, init?: { headers?: Record<string, string> }) => {
+    seen.push(url);
+    if (url.endsWith("/health")) return { ok: true, status: 200 };
+    return init?.headers?.["Authorization"] === `Bearer ${KEY}`
+      ? { ok: true, status: 200 }
+      : { ok: false, status: 401 };
+  };
+
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "friday-core-args-"));
 });
@@ -287,11 +298,15 @@ describe("startCore and stopCore", () => {
     const out = await models.startCore({
       launch,
       spawn: (...a: unknown[]) => (calls.push(a), fakeChild()),
-      probe: async (url: string) => (urls.push(url), { ok: true }),
+      probe: keyedProbe(urls),
       stepMs: 1,
     });
     expect(out.ok).toBe(true);
-    expect(urls).toEqual(["http://127.0.0.1:40777/health"]);
+    expect(urls).toEqual([
+      "http://127.0.0.1:40777/health",
+      "http://127.0.0.1:40777/v1/models",
+      "http://127.0.0.1:40777/v1/models",
+    ]);
     expect(models.coreEndpoint()).toMatchObject({
       baseUrl: launch.baseUrl,
       apiKey: KEY,
@@ -384,7 +399,7 @@ describe("Core is pushed to the kernel router", () => {
       await models.startCore({
         launch,
         spawn: () => child(),
-        probe: async () => ({ ok: true }),
+        probe: keyedProbe(),
         stepMs: 1,
       });
       expect(calls).toHaveLength(1);
@@ -396,6 +411,7 @@ describe("Core is pushed to the kernel router", () => {
         role: "brain",
         endpoint: "http://127.0.0.1:40888/v1",
         apiKey: KEY,
+        type: "local",
         status: "ready",
         capabilities: { chat: true, vision: true, audio: true, tools: true },
       });
@@ -424,7 +440,7 @@ describe("Core is pushed to the kernel router", () => {
       const out = await models.startCore({
         launch,
         spawn: () => child(),
-        probe: async () => ({ ok: true }),
+        probe: keyedProbe(),
         stepMs: 1,
       });
       expect(out.ok).toBe(true);
