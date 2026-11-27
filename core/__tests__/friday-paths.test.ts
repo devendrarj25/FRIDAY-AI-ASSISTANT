@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
@@ -156,6 +166,129 @@ describe("canonical FRIDAY folder", () => {
     rmSync(join(folder, "database", "friday.sqlite3"));
     writeFileSync(join(folder, "database", "friday.db"), "x");
     expect(paths.describeExisting(folder)).toContain("database");
+    rmSync(folder, { recursive: true, force: true });
+  });
+});
+
+/** Every entry under `folder` as `relative/path` (directories end in `/`), sorted. */
+function treeOf(folder: string): string[] {
+  const out: string[] = [];
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      const rel = relative(folder, full).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        out.push(`${rel}/`);
+        walk(full);
+      } else out.push(rel);
+    }
+  };
+  walk(folder);
+  return out.sort();
+}
+
+describe("ensureStructure is idempotent and never destructive (D8)", () => {
+  it("yields an identical tree when it runs twice", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-tree-twice-"));
+    paths.ensureStructure(folder);
+    const first = treeOf(folder);
+    const second = paths.ensureStructure(folder);
+    expect(treeOf(folder)).toEqual(first);
+    expect(second.created).toEqual([]);
+    expect(second.migrated).toEqual([]);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("uses a differently cased Models folder in place and never makes a second one", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-case-alias-"));
+    mkdirSync(join(folder, "Models", "whisper"), { recursive: true });
+    writeFileSync(join(folder, "Models", "whisper", "weights.bin"), "w");
+    const result = paths.ensureStructure(folder);
+    const names = readdirSync(folder).filter((name) => name.toLowerCase() === "models");
+    expect(names).toEqual(["Models"]);
+    expect(existsSync(join(folder, "Models", "whisper", "weights.bin"))).toBe(true);
+    expect(result.created).not.toContain("models");
+    expect(result.migrated).toEqual([]);
+    paths.setRoot(folder);
+    expect(paths.dir("models")).toBe(join(folder, "Models"));
+    paths.setRoot(null);
+    paths.ensureStructure(folder);
+    expect(readdirSync(folder).filter((name) => name.toLowerCase() === "models")).toEqual([
+      "Models",
+    ]);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("finds an entry through a lowercase alias with one shared helper", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-find-entry-"));
+    mkdirSync(join(folder, "Skills", "Core"), { recursive: true });
+    expect(paths.findEntry(folder, "skills/core")).toBe(join(folder, "Skills", "Core"));
+    expect(paths.findEntry(folder, "skills/core", { exact: true })).toBeNull();
+    expect(paths.findEntry(folder, "Skills/Core", { exact: true })).toBe(
+      join(folder, "Skills", "Core"),
+    );
+    expect(paths.findEntry(folder, "skills/missing")).toBeNull();
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("never creates backend/ or frontend/ in a checkout-shaped root", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-checkout-shaped-"));
+    writeFileSync(join(folder, "package.json"), "{}\n");
+    mkdirSync(join(folder, "src"));
+    mkdirSync(join(folder, "kernel"));
+    writeFileSync(join(folder, "kernel", "notes.txt"), "kept");
+    const result = paths.ensureStructure(folder);
+    expect(existsSync(join(folder, "backend"))).toBe(false);
+    expect(existsSync(join(folder, "frontend"))).toBe(false);
+    expect(existsSync(join(folder, "kernel", "notes.txt"))).toBe(true);
+    expect(existsSync(join(folder, "src"))).toBe(true);
+    expect(result.created).not.toContain("backend");
+    expect(result.created).not.toContain("frontend");
+    expect(result.migrated).toEqual([]);
+    expect(existsSync(join(folder, "models"))).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("counts a symlinked or dangling child as existing and leaves it alone", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-link-child-"));
+    const outside = mkdtempSync(join(tmpdir(), "friday-link-target-"));
+    writeFileSync(join(outside, "keep.txt"), "kept");
+    symlinkSync(outside, join(folder, "downloads"), "junction");
+    symlinkSync(join(outside, "gone"), join(folder, "logs"), "junction");
+    const result = paths.ensureStructure(folder);
+    expect(lstatSync(join(folder, "downloads")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(folder, "logs")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(outside, "keep.txt"))).toBe(true);
+    expect(existsSync(join(outside, "gone"))).toBe(false);
+    expect(result.created).not.toContain("downloads");
+    expect(result.created).not.toContain("logs");
+    expect(result.existing).toContain("downloads");
+    expect(result.existing).toContain("logs");
+    rmSync(folder, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("never removes or renames away anything that was already there", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-nothing-removed-"));
+    const seed: Record<string, string> = {
+      "models/a.bin": "a",
+      "Memory/m.db": "m",
+      "Config/friday-settings.json": "{}",
+      "custom-user-folder/note.txt": "n",
+      "skills/mine/skill.md": "s",
+      "loose.txt": "l",
+    };
+    for (const [rel, body] of Object.entries(seed)) {
+      mkdirSync(join(folder, rel, ".."), { recursive: true });
+      writeFileSync(join(folder, rel), body);
+    }
+    const before = treeOf(folder);
+    paths.ensureStructure(folder);
+    const after = new Set(treeOf(folder));
+    for (const entry of before) expect(after.has(entry)).toBe(true);
+    for (const [rel, body] of Object.entries(seed)) {
+      expect(readFileSync(join(folder, rel), "utf8")).toBe(body);
+    }
     rmSync(folder, { recursive: true, force: true });
   });
 });

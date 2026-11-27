@@ -105,6 +105,9 @@ function dir(name) {
   for (const candidate of candidates) {
     const full = path.join(from, ...candidate.split("/"));
     if (fs.existsSync(full) && !isProtectedSourceDir(full, name)) return full;
+    // A differently cased copy (`Models`) is the same folder on a case-insensitive disk.
+    const alias = findEntry(from, candidate);
+    if (alias && !isProtectedSourceDir(alias, name)) return alias;
   }
   return path.join(from, ...candidates[0].split("/"));
 }
@@ -146,16 +149,18 @@ function ensureStructure(target = rootPath) {
   if (!target) return { root: null, created: [], existing: [], migrated: [] };
   const restored = restoreCheckoutCollisions(target);
   const migrated = migrateLegacy(target);
+  const checkout = isCheckoutShaped(target);
   const created = [];
   const existing = [];
   const makeChildren = (parent, name) => {
     for (const child of contract.FOLDERS[name].children) {
-      const full = path.join(parent, child);
-      const relative = path.relative(target, full).replace(/\\/g, "/");
-      if (fs.existsSync(full)) {
-        existing.push(relative);
+      const live = findEntry(parent, child);
+      if (live) {
+        existing.push(path.relative(target, live).replace(/\\/g, "/"));
         continue;
       }
+      const full = path.join(parent, child);
+      const relative = path.relative(target, full).replace(/\\/g, "/");
       try {
         fs.mkdirSync(full, { recursive: true });
         created.push(relative);
@@ -168,13 +173,14 @@ function ensureStructure(target = rootPath) {
     const candidates = DIRS[name];
     const base = layoutBase(target, name);
     const found = candidates
-      .map((candidate) => path.join(base, ...candidate.split("/")))
-      .find((full) => fs.existsSync(full) && !isProtectedSourceDir(full, name));
+      .map((candidate) => findEntry(base, candidate))
+      .find((full) => full && !isProtectedSourceDir(full, name));
     if (found) {
       existing.push(path.relative(target, found).replace(/\\/g, "/"));
       makeChildren(found, name);
       continue;
     }
+    if (checkout && CHECKOUT_SOURCE_NAMES.has(name)) continue;
     const full = path.join(base, ...candidates[0].split("/"));
     try {
       fs.mkdirSync(full, { recursive: true });
@@ -198,13 +204,14 @@ function ensureStructure(target = rootPath) {
     if (!candidates) continue;
     const base = layoutBase(target, tree);
     const found = candidates
-      .map((candidate) => path.join(base, ...candidate.split("/")))
-      .find((full) => fs.existsSync(full) && !isProtectedSourceDir(full, tree));
+      .map((candidate) => findEntry(base, candidate))
+      .find((full) => full && !isProtectedSourceDir(full, tree));
     const parent = found || path.join(base, ...candidates[0].split("/"));
-    const full = path.join(parent, ...rest.split("/"));
+    const present = findEntry(parent, rest);
+    const full = present || path.join(parent, ...rest.split("/"));
     const live = path.relative(target, full).replace(/\\/g, "/");
-    if (seen.has(live.toLowerCase()) || fs.existsSync(full)) {
-      if (fs.existsSync(full) && !created.includes(live) && !existing.includes(live)) {
+    if (seen.has(live.toLowerCase()) || present) {
+      if (present && !created.includes(live) && !existing.includes(live)) {
         existing.push(live);
       }
       continue;
@@ -229,25 +236,61 @@ function ensureStructure(target = rootPath) {
  * the canonical folder simply stays authoritative for every read and write.
  */
 /**
- * Does this relative path exist on disk with EXACTLY this spelling? Windows and
- * macOS are case-insensitive, so `fs.existsSync("models")` is also true when
- * only a legacy `Models` folder exists — which would silently skip the
- * migration and leave the legacy spelling as the live store.
+ * The one lookup shared by ensureStructure and migrateLegacy: resolve a
+ * relative path (`skills/core`) to the path that really exists on disk.
+ * Every segment is read with readdir, so a symlink, a junction or a dangling
+ * link counts as present, and `Models` is the same folder as `models` on a
+ * case-insensitive disk (no second copy is ever created next to it).
+ * `exact` demands the literal spelling instead, which migration needs to tell
+ * a legacy name from the canonical one. Returns null when nothing matches.
  */
-function existsExact(root, relative) {
+function findEntry(root, relative, { exact = false } = {}) {
   let current = path.resolve(root);
   for (const segment of String(relative).split("/")) {
     let entries;
     try {
       entries = fs.readdirSync(current);
     } catch {
+      return null;
+    }
+    let match = entries.includes(segment) ? segment : null;
+    if (!match && !exact) {
+      const lower = segment.toLowerCase();
+      match = entries.filter((name) => name.toLowerCase() === lower).sort()[0] || null;
+    }
+    if (!match) return null;
+    current = path.join(current, match);
+  }
+  return current;
+}
+
+/** Does this relative path exist on disk with EXACTLY this spelling? */
+const existsExact = (root, relative) => findEntry(root, relative, { exact: true }) !== null;
+
+/**
+ * A Git checkout used as the FRIDAY folder: package.json next to src/ and
+ * kernel/. Its source trees are never data folders, so backend/ and frontend/
+ * are neither created nor migrated there.
+ */
+function isCheckoutShaped(target) {
+  if (!target) return false;
+  const isDir = (name) => {
+    try {
+      return fs.statSync(path.join(target, name)).isDirectory();
+    } catch {
       return false;
     }
-    if (!entries.includes(segment)) return false;
-    current = path.join(current, segment);
+  };
+  try {
+    return (
+      fs.statSync(path.join(target, "package.json")).isFile() && isDir("src") && isDir("kernel")
+    );
+  } catch {
+    return false;
   }
-  return true;
 }
+
+const CHECKOUT_SOURCE_NAMES = new Set(["backend", "frontend"]);
 
 /** True when `dir` is the Python kernel source tree, not a data folder. */
 function isSourceKernel(dir) {
@@ -355,11 +398,15 @@ function moveDir(from, to) {
 function migrateLegacy(target = rootPath) {
   const moved = [];
   if (!target) return moved;
+  const checkout = isCheckoutShaped(target);
   for (const name of NAMES) {
+    if (checkout && CHECKOUT_SOURCE_NAMES.has(name)) continue;
     const candidates = DIRS[name];
     const canonicalRel = candidates[0];
     const canonical = path.join(target, ...canonicalRel.split("/"));
-    if (existsExact(target, canonicalRel)) continue;
+    // Any spelling of the canonical folder (`Models`) is the live one: it is
+    // used in place, never renamed and never duplicated.
+    if (findEntry(target, canonicalRel)) continue;
     for (const alias of candidates.slice(1)) {
       if (!existsExact(target, alias)) continue;
       const legacy = path.join(target, ...alias.split("/"));
@@ -567,6 +614,7 @@ function writeIfChanged(target, body) {
 }
 
 module.exports = {
+  findEntry,
   DIRS,
   NAMES,
   setRoot,
