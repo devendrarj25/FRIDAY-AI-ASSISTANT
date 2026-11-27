@@ -158,7 +158,7 @@ export type VoiceTurnPrefs = {
   calibrate: boolean;
   /** Use the sentence-final prior when deciding a turn has ended. */
   eotPrior: boolean;
-  /** off: not run; shadow: scored and logged only; live: allowed to end a turn. */
+  /** off: not run; shadow: scored and logged only; live: stored, but it still acts as shadow until its gates are met on this PC. */
   classifier: (typeof VOICE_TURN_CLASSIFIER_PICKS)[number];
   /** The longest wait for more speech before a turn is closed (1200 to 4000 ms). */
   maxWaitMs: number;
