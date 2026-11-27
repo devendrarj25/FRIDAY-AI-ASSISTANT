@@ -1,7 +1,7 @@
 {
   "note": "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names under 'The Windows CMD chain is finished and locked'. Changed only on the owner's request or a real log from his PC; a new tool, package or model is added through its catalogue, not here (docs/FRIDAY_BUILD_AND_RELEASE.md). Refresh with: node scripts/workflow-lock.cjs --cmd-chain --write",
   "files": {
-    "scripts/build-pipeline.cjs": "7bb64adca9907bdcebcd82842cc23d0a8cef5160a6e0532c050f76a06fb3b5d0",
+    "scripts/build-pipeline.cjs": "29bb5f7f88516d1ea24795259ffd2d899d1c59152340e487c5f3adea83bf8a20",
     "scripts/build-windows.cmd": "d7aae9b5382d9fd42fae98185f5ecdd35cfbd0948774fa2bf6e7bd9abe60e558",
     "scripts/check-environment.cjs": "f5020a9906b13c6d7f06d0d6139b1f04c063ded87149f5ac9cb6cb56f3824264",
     "scripts/console-bar.cjs": "d152fe9f73f13e9170430b00d944cc58347eb962490725175f06ce5d8e9cf041",
@@ -10,7 +10,7 @@
     "scripts/electron-pack.cjs": "d4a9bb6c1ad95fde6ebfa69ada2cb1a1202278e7ad9e9a24da6894be15dda617",
     "scripts/ensure-electron.cjs": "f9953965ab65b09ee8d4e99c2a06f60e177570cfc099e0d19489026daa8c3d09",
     "scripts/live-console.cjs": "ea4065aec47f77b399020480556747f10e33a4b4466f11b36cc50303b5344f7f",
-    "scripts/prefetch-models.cjs": "7fe487161dec35f6cf207dd0184910759a0bed2c4d363bc48d05a9d09c43431e",
+    "scripts/prefetch-models.cjs": "0e2bd1faea2b2bd9c9317740258a0adc58420c8079a47c95771cfd2ed5b61261",
     "scripts/prefetch-toolkit.cjs": "db87dbf3003b51524388c68c320f54be18f6e92166f5c50299e97fd680f9e11c",
     "scripts/setup-python.cjs": "a460ab5e8b02a6b6e5c0b41a6fbf85909124b1aecbd3309250be35345baf73a7",
     "scripts/setup-windows.ps1": "a87c4faf5e9fb01faad711feb2a6dbb4e5003ef8901f79db913249b4c4438842",

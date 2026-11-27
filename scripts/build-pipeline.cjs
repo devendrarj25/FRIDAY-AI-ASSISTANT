@@ -1304,6 +1304,37 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
   return lines;
 }
 
+/**
+ * The `placed` row of the FRIDAY BUILD READY table: after a whole green run, the CMD build copies its outputs to
+ * `<FRIDAY folder>/installer/installers/<version>/` (scripts/place-build.cjs). It is not a phase: `build N/13`
+ * counts PHASES only, and the row is added to the printed table after the report file was written. Null when the run
+ * was partial or failed; a SKIP row for another caller, CI and FRIDAY_PLACE_BUILD=0. Never throws.
+ */
+function placedRow(options, report, root = ROOT, deps = {}) {
+  const whole = options.from === PHASES[0] && options.through === PHASES[PHASES.length - 1];
+  if (!report?.ok || !whole) return null;
+  const lib = require("./place-build.cjs");
+  const env = deps.env || process.env;
+  try {
+    const skip = lib.skipReason({ caller: options.caller, env });
+    if (skip) return lib.rowFor({ status: "skipped", reason: skip });
+    const home =
+      deps.home || require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root;
+    const place = deps.place || lib.placeBuild;
+    return lib.rowFor(
+      place({
+        root: home,
+        releaseDir: path.join(root, "release"),
+        caller: options.caller,
+        env,
+        log: (line) => console.log(line),
+      }),
+    );
+  } catch (error) {
+    return lib.rowFor({ status: "failed", reason: error && error.message ? error.message : error });
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv);
   if (options.planOnly) {
@@ -1318,6 +1349,8 @@ async function main() {
   }
   const report = await runPipeline(options);
   if (options.caller === "cmd" || options.caller === "npm") {
+    const placed = placedRow(options, report);
+    if (placed) report.phases.push(placed);
     for (const line of readySummary(options, report)) console.log(line);
   }
   if (!report.ok) require("./leave.cjs").leave(1);
@@ -1336,6 +1369,7 @@ module.exports = {
   assertNotSkipped,
   ensureToolchain,
   readySummary,
+  placedRow,
   selectedPhases,
   commandsFor,
   installerBounds,

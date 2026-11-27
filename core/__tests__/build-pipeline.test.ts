@@ -778,3 +778,81 @@ describe("the renderer build does not depend on a shell-resolved PATH ('node' / 
     expect(read("scripts/electron-pack.cjs")).toContain("cleanEnv(process.env)");
   });
 });
+
+describe("placing a CMD build is a row of the READY table, not a phase", () => {
+  const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+  const placing = pipeline as unknown as {
+    placedRow: (
+      options: ReturnType<typeof pipeline.parseArgs>,
+      report: { ok: boolean; phases: unknown[] },
+      root?: string,
+      deps?: {
+        env?: Record<string, string>;
+        home?: string;
+        place?: (input: Record<string, unknown>) => Record<string, unknown>;
+      },
+    ) => { name: string; status: string; detail: string } | null;
+  };
+  const cmd = pipeline.parseArgs(["node", "x", "--caller", "cmd"]);
+  const green = { ok: true, phases: [] };
+
+  it("adds one `placed` row after a whole green CMD run, with the release folder and the FRIDAY folder", () => {
+    const seen: Record<string, unknown>[] = [];
+    const row = placing.placedRow(cmd, green, "/checkout", {
+      env: {},
+      home: "/home/friday",
+      place: (input) => (
+        seen.push(input),
+        { status: "placed", dir: "/home/friday/installer/installers/1.2.5.8" }
+      ),
+    });
+    expect(row).toEqual({
+      name: "placed",
+      status: "ok",
+      detail: "/home/friday/installer/installers/1.2.5.8",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ caller: "cmd", root: "/home/friday" });
+    expect(String(seen[0]!["releaseDir"]).replace(/\\/g, "/")).toBe("/checkout/release");
+  });
+
+  it("is a SKIP row for FRIDAY_PLACE_BUILD=0 and CI, and never asks for the FRIDAY folder then", () => {
+    for (const env of [{ FRIDAY_PLACE_BUILD: "0" }, { CI: "true" }]) {
+      const row = placing.placedRow(cmd, green, "/checkout", {
+        env,
+        place: () => {
+          throw new Error("must not place");
+        },
+      });
+      expect(row?.status).toBe("skipped");
+      expect(row?.detail).toMatch(/^skipped: /);
+    }
+  });
+
+  it("is absent after a failed or partial run, and a SKIP for any caller but the CMD build", () => {
+    const place = () => ({ status: "placed", dir: "x" });
+    expect(placing.placedRow(cmd, { ok: false, phases: [] }, "/c", { env: {}, place })).toBeNull();
+    const partial = pipeline.parseArgs(["node", "x", "--caller", "cmd", "--through", "package"]);
+    expect(placing.placedRow(partial, green, "/c", { env: {}, place })).toBeNull();
+    for (const caller of ["npm", "release", "test", "node"]) {
+      const options = pipeline.parseArgs(["node", "x", "--caller", caller]);
+      expect(placing.placedRow(options, green, "/c", { env: {}, place })?.status).toBe("skipped");
+    }
+  });
+
+  it("keeps the 13 phases and the `build N/13` heads: `placed` is not a phase", () => {
+    expect(pipeline.PHASES).toHaveLength(13);
+    expect(pipeline.PHASES).not.toContain("placed");
+    expect(read("scripts/build-pipeline.cjs")).toContain(
+      "build ${index + 1}/${phases.length}: ${phase}",
+    );
+  });
+
+  it("main() adds the row only to the printed table, after the report file was written", () => {
+    const source = read("scripts/build-pipeline.cjs");
+    const main = source.slice(source.indexOf("async function main()"));
+    expect(main).toContain("placedRow(");
+    expect(main.indexOf("runPipeline(options)")).toBeLessThan(main.indexOf("placedRow("));
+    expect(main.indexOf("placedRow(")).toBeLessThan(main.indexOf("readySummary(options"));
+  });
+});
