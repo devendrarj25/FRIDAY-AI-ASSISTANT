@@ -8,7 +8,8 @@ Listening: when ``silero_vad.onnx`` is on disk, it is scored with the
 onnxruntime FRIDAY already installs. Otherwise the desktop energy VAD
 remains the listener. The Silero pip package is not used; it requires torch.
 Smart Turn, when its ONNX file is present, can only lengthen a pause. Noise
-suppression is pyrnnoise on PCM when that wheel imports. FRIDAY Echo
+suppression is FRIDAY Denoise (denoise_onnx.py) when its weights are installed, else pyrnnoise on PCM.
+FRIDAY Echo
 (echo_canceller.py, pyaec) is optional: the live microphone path cleans with the renderer's own canceller
 (`audio-aec.ts`, setting `voice.echoReference`); this module only measures it (`echo-shadow`, levels, never a gate).
 
@@ -349,7 +350,26 @@ def speaker_status() -> dict:
     }
 
 
+FRIDAY_DENOISE_ORDER = ("dpdfnet2", "gtcrn")  # FRIDAY Denoise first, then Denoise Lite
+
+
+def friday_denoise_engine() -> str | None:
+    """The first FRIDAY denoiser whose pinned weights are on disk, else None (pyrnnoise is the fallback then)."""
+    try:
+        import denoise_onnx
+
+        for name in FRIDAY_DENOISE_ORDER:
+            if denoise_onnx.find_model(denoise_onnx.ENGINES[name]) is not None:
+                return name
+    except Exception:  # noqa: BLE001 - a probe never breaks the Doctor row
+        return None
+    return None
+
+
 def noise_status() -> dict:
+    engine = friday_denoise_engine()
+    if engine is not None:
+        return {"ready": True, "engine": f"friday-{engine}", "reason": ""}
     try:
         import pyrnnoise  # type: ignore  # noqa: F401
 
@@ -1124,14 +1144,44 @@ def guard_denoised(original, cleaned, ratio: float = DENOISE_KEEP_RATIO):
     return result, ""
 
 
+def _friday_denoise(samples, sample_rate: int):
+    """FRIDAY Denoise (DPDFNet) then Denoise Lite (GTCRN) over the pinned weights; None when neither is usable."""
+    if int(sample_rate) != 16000:
+        return None
+    try:
+        import denoise_onnx
+        import numpy as np  # type: ignore
+
+        mono = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if mono.size == 0:
+            return mono
+        peak = float(np.max(np.abs(mono)))
+        scaled = mono / 32768.0 if peak > 1.5 else mono
+        for name in FRIDAY_DENOISE_ORDER:
+            if denoise_onnx.find_model(denoise_onnx.ENGINES[name]) is None:
+                continue
+            denoiser = denoise_onnx.build_denoiser(name)
+            if not denoiser.active:
+                continue
+            out = np.asarray(denoiser.run_clip(scaled), dtype=np.float32)
+            if denoiser.active and out.size == scaled.size:
+                return np.clip(out, -1.0, 1.0).astype(np.float32)
+    except Exception:  # noqa: BLE001 - fall back to pyrnnoise, never raise into the audio path
+        return None
+    return None
+
+
 def denoise_pcm(samples, sample_rate: int = 16000):
-    """RNNoise when the wheel is installed. The same samples come back otherwise.
+    """FRIDAY Denoise when its weights are installed, else RNNoise when the wheel is installed, else the same samples.
 
     pyrnnoise 0.4.5 ``denoise_chunk`` yields int16 frames whatever the input
     (a 0.2 peak sine came back at 7116). This is the one place that scales them,
     so every caller gets float32 in [-1, 1]. A failed import or a failed decode
     returns the original array.
     """
+    friday = _friday_denoise(samples, sample_rate)
+    if friday is not None:
+        return friday
     try:
         import numpy as np  # type: ignore
         from pyrnnoise import RNNoise  # type: ignore
