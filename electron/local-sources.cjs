@@ -27,6 +27,7 @@ const nodeFs = require("node:fs");
 const nodePath = require("node:path");
 const childProcess = require("node:child_process");
 const bundleLib = require("./build-bundle.cjs");
+const { isLocalPath } = require("./staged-assets.cjs");
 
 const ENV_OFF = "FRIDAY_LOCAL_BUNDLES";
 const SETTING_TOGGLE = "installUseLocalBuilds";
@@ -116,14 +117,6 @@ function isCheckout(root, fs) {
   }
 }
 
-/**
- * A UNC share (`\\host\share`, `\\?\UNC\...`, `//host/share`) or a device path is never looked at: statting or
- * resolving it would open a network connection. The value is judged as written, before any resolve.
- */
-function isLocalPath(value) {
-  return !/^[\\/]{2}/.test(value) && !value.includes("\0");
-}
-
 /** Is this the Test channel? `opts.testChannel` (a boolean) wins; otherwise the running build's own channel. */
 function testChannel(opts) {
   if (typeof opts.testChannel === "boolean") return opts.testChannel;
@@ -138,9 +131,14 @@ function testChannel(opts) {
 function candidateFolders(root, opts, fs) {
   const env = opts.env || process.env;
   const out = [];
-  const add = (origin, dir) => {
-    if (typeof dir === "string" && dir.trim() && isLocalPath(dir.trim()))
-      out.push({ origin, dir: nodePath.resolve(dir.trim()) });
+  // An external source (registry value, portable folder, recorded build root) must be an absolute local path: a
+  // relative one would resolve against whatever the working folder is, and a UNC share or device path would open a
+  // network connection. A folder derived from the FRIDAY folder (`installers`, `release`) is joined onto that root.
+  const add = (origin, dir, { derived = false } = {}) => {
+    if (typeof dir !== "string" || !dir.trim()) return;
+    const value = dir.trim();
+    if (derived ? /^[\\/]{2}/.test(value) || value.includes("\0") : !isLocalPath(value)) return;
+    out.push({ origin, dir: nodePath.resolve(value) });
   };
   const read = opts.readRegistry || ((k, n) => defaultReadRegistry(k, n));
   const keys = testChannel(opts)
@@ -164,8 +162,9 @@ function candidateFolders(root, opts, fs) {
     const wanted = opts.appVersion ? String(opts.appVersion) : "";
     const first = names.filter((name) => wanted && name.toLowerCase() === wanted.toLowerCase());
     const rest = names.filter((name) => !first.includes(name)).sort(newestFirst);
-    for (const name of [...first, ...rest]) add("installers", nodePath.join(base, name));
-    if (isCheckout(root, fs)) add("release", nodePath.join(root, "release"));
+    for (const name of [...first, ...rest])
+      add("installers", nodePath.join(base, name), { derived: true });
+    if (isCheckout(root, fs)) add("release", nodePath.join(root, "release"), { derived: true });
   }
   add("portable", opts.portableDir === undefined ? env.PORTABLE_EXECUTABLE_DIR : opts.portableDir);
   let roots = [];

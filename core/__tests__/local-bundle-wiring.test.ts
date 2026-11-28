@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -356,60 +357,129 @@ describe("installer:adopt-local: handler, budget class, preload, page", () => {
 });
 
 describe("a model already in its canonical place is not downloaded again", () => {
-  it("models:download asks adoptByHash about the pinned files before any source is tried", () => {
+  const pins = require(path.join(root, "electron/voice-pins.cjs")) as {
+    writeMarker: (dir: string, repo: string, pin: unknown) => void;
+    readMarker: (dir: string) => unknown;
+    MARKER: string;
+  };
+  const download = require(path.join(root, "electron/model-download.cjs")) as {
+    auditPinnedFolder: unknown;
+  };
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  const FILES = { "config.json": "{}", "sub/model.bin": "weights-v1" };
+  const pin = {
+    revision: "d".repeat(40),
+    files: Object.fromEntries(
+      Object.entries(FILES).map(([name, text]) => [
+        name,
+        { sha256: sha(text), bytes: text.length },
+      ]),
+    ),
+  };
+
+  it("models:download asks the one folder audit about the pinned files before any source is tried", () => {
     const handler = handlerSource("models:download");
     const check = handler.indexOf("pinnedModelInPlace(");
     expect(check).toBeGreaterThanOrEqual(0);
     expect(check).toBeLessThan(handler.indexOf("modelDownload.downloadModel("));
-    expect(main).toMatch(/installInventory\.adoptByHash\(/);
+    const body = functionSource("pinnedModelInPlace");
+    expect(body).toMatch(/modelDownload\.auditPinnedFolder\(/);
+    // One implementation of "is this folder certified": no second hashing path in main.cjs.
+    expect(main).not.toMatch(/installInventory\.adoptByHash\(/);
   });
 
-  const pinned = (adoptedAll: boolean, marker: boolean) => {
+  const folder = (stale: boolean, withMarker = true) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-inplace-"));
-    const adoptByHash = vi.fn(async (items: Array<{ id: string }>) => ({
-      adopted: adoptedAll ? items.map((i) => i.id) : [],
-      pending: adoptedAll ? [] : items.map((i) => i.id),
-      items: [],
-    }));
+    const target = path.join(dir, "m");
+    for (const [name, text] of Object.entries(FILES)) {
+      const file = path.join(target, ...name.split("/"));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    }
+    if (withMarker) {
+      pins.writeMarker(target, "o/pinned", pin);
+      if (stale) {
+        const file = path.join(target, pins.MARKER);
+        const record = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+        fs.writeFileSync(
+          file,
+          JSON.stringify({ ...record, verifiedAt: "2000-01-01T00:00:00.000Z" }),
+        );
+      }
+    }
+    const hashFile = vi.fn(async (file: string) => sha(fs.readFileSync(file, "utf8")));
     const fn = build<
-      (modelId: string, folderId: string, dir: string, sources: unknown[]) => Promise<unknown>
+      (
+        modelId: string,
+        folderId: string,
+        dir: string,
+        sources: unknown[],
+        deps?: unknown,
+      ) => Promise<unknown>
     >("pinnedModelInPlace", {
       path,
-      installInventory: { adoptByHash },
+      modelDownload: download,
       voicePins: {
-        pinForRepo: (repo: string) =>
-          repo === "o/pinned"
-            ? { revision: "r1", files: { "a.bin": { bytes: 3, sha256: "aa" } } }
-            : null,
-        readMarker: () => (marker ? { revision: "r1" } : null),
+        pinForRepo: (repo: string) => (repo === "o/pinned" ? pin : null),
+        readMarker: pins.readMarker,
       },
     });
-    return { dir, fn, adoptByHash };
+    const run = (sources: unknown[] = [{ kind: "hf-repo", repo: "o/pinned" }]) =>
+      fn("m", "m", dir, sources, { hashFile });
+    return { dir, run, hashFile };
   };
 
-  it("returns the folder when every pinned file is adopted and the folder is certified", async () => {
-    const { dir, fn, adoptByHash } = pinned(true, true);
-    const out = (await fn("m", "m", dir, [{ kind: "hf-repo", repo: "o/pinned" }])) as {
-      ok: boolean;
-      via: string;
-      path: string;
-    };
-    expect(out).toMatchObject({ ok: true, via: "in-place", path: path.join(dir, "m") });
-    const items = (adoptByHash.mock.calls[0] as unknown[])[0] as Array<{ dest: string }>;
-    expect(items[0]?.dest).toBe(path.join(dir, "m", "a.bin"));
+  it("a certified folder (fresh record) is in place and is not hashed at all", async () => {
+    const { dir, run, hashFile } = folder(false);
+    try {
+      expect(await run()).toMatchObject({
+        ok: true,
+        via: "in-place",
+        path: path.join(dir, "m"),
+        skipped: true,
+      });
+      expect(hashFile).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it("falls through to the download chain when a file differs or the folder is not certified", async () => {
-    expect(
-      await pinned(false, true).fn("m", "m", "/x", [{ kind: "hf-repo", repo: "o/pinned" }]),
-    ).toBe(null);
-    expect(
-      await pinned(true, false).fn("m", "m", "/x", [{ kind: "hf-repo", repo: "o/pinned" }]),
-    ).toBe(null);
-    expect(
-      await pinned(true, true).fn("m", "m", "/x", [{ kind: "hf-repo", repo: "o/other" }]),
-    ).toBe(null);
-    expect(await pinned(true, true).fn("m", "m", "/x", [])).toBe(null);
+  it("a stale record is hashed once per file, then the folder is in place", async () => {
+    const { dir, run, hashFile } = folder(true);
+    try {
+      expect(await run()).toMatchObject({ ok: true, via: "in-place" });
+      expect(hashFile).toHaveBeenCalledTimes(Object.keys(FILES).length);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a same-size corrupt file under a stale record falls through to the download chain", async () => {
+    const { dir, run } = folder(true);
+    try {
+      fs.writeFileSync(path.join(dir, "m", "sub", "model.bin"), "weights-v9");
+      expect(await run()).toBe(null);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("no record, another repo or no source falls through without hashing anything", async () => {
+    const bare = folder(false, false);
+    try {
+      expect(await bare.run()).toBe(null);
+      expect(bare.hashFile).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(bare.dir, { recursive: true, force: true });
+    }
+    const other = folder(false);
+    try {
+      expect(await other.run([{ kind: "hf-repo", repo: "o/other" }])).toBe(null);
+      expect(await other.run([])).toBe(null);
+      expect(other.hashFile).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(other.dir, { recursive: true, force: true });
+    }
   });
 });
 

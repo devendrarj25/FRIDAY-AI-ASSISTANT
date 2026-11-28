@@ -141,6 +141,22 @@ describe("Install Manager page: local builds", () => {
     expect(page).toContain("adoptLocalBuilds");
   });
 
+  it("turning the toggle on or off writes the setting, then reads the list again", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    const handler = body.slice(body.indexOf("const switchLocalBuilds"));
+    expect(body).toContain("onToggle={() => void switchLocalBuilds()}");
+    const write = handler.indexOf('preferences.setToggle("installUseLocalBuilds", !on)');
+    const sent = handler.indexOf("await preferences.flush()");
+    const reload = handler.indexOf("catalog.load()");
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(sent).toBeGreaterThan(write);
+    expect(reload).toBeGreaterThan(sent);
+    // The reload also runs when the write fails, and the existing loading and error-with-Retry states are kept.
+    expect(handler.slice(0, handler.indexOf("\n  };")).includes("finally")).toBe(true);
+    expect(body).toContain("<LoadingState");
+    expect(body).toContain("onRetry={() => void catalog.load()}");
+  });
+
   it("uses the typed bridge and shows the swept count only when something was swept", () => {
     const body = page.slice(page.indexOf("function LocalBuildsPanel"));
     expect(page).toMatch(

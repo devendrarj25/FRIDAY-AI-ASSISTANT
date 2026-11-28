@@ -1435,6 +1435,7 @@ function LocalBuildsPanel() {
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<InstallerAdoptResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   const adoptBridge = desktopApi()?.adoptLocalBuilds;
   const found = ((catalog.catalog?.rows ?? []) as InstallerCatalogRow[]).filter(
@@ -1460,6 +1461,20 @@ function LocalBuildsPanel() {
       setFailure(String((error as Error)?.message || error));
     } finally {
       setBusy(false);
+      void catalog.load();
+    }
+  };
+
+  // The setting reaches the main process first, so the list read afterwards already follows it (a build switched
+  // off drops its "Found on this PC" rows at once, not at the next poll).
+  const switchLocalBuilds = async () => {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      preferences.setToggle("installUseLocalBuilds", !on);
+      await preferences.flush();
+    } finally {
+      setSwitching(false);
       void catalog.load();
     }
   };
@@ -1530,7 +1545,7 @@ function LocalBuildsPanel() {
         label="Look for local builds before downloading"
         hint="Only files that match their checksum are used, and nothing already in your FRIDAY folder is replaced."
         on={on}
-        onToggle={() => preferences.setToggle("installUseLocalBuilds", !on)}
+        onToggle={() => void switchLocalBuilds()}
       />
       {body}
       {failure ? (

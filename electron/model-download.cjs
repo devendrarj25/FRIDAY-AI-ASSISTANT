@@ -1036,11 +1036,15 @@ function markerCertifies(dest, pin, deps = {}) {
 /**
  * Look at a pinned folder on disk without any network: sizes first; when they are right and no fresh record vouches
  * for the folder, every file is held to its pinned SHA-256 too (`hashed: true` in the result). Never changes a file.
+ * `deps.now` and `deps.hashFile` are the clock and the hasher (injected by tests).
  */
 async function auditPinnedFolder(dest, pin, deps = {}) {
   const sized = await voicePins.auditDir(dest, pin);
   if (!sized.ok || markerCertifies(dest, pin, deps)) return sized;
-  return voicePins.auditDir(dest, pin, { hash: true });
+  return voicePins.auditDir(dest, pin, {
+    hash: true,
+    ...(typeof deps.hashFile === "function" ? { hashFile: deps.hashFile } : {}),
+  });
 }
 
 /** Which source served a pinned model folder, written beside it (`<folder>.source.json`) for the Doctor and the Install Manager. */

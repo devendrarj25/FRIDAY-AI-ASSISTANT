@@ -788,6 +788,23 @@ describe("the pointer file", () => {
     );
   };
 
+  it("exports the one local-path predicate: absolute, local, no NUL", () => {
+    const check = (staged as unknown as { isLocalPath: (value: unknown) => boolean }).isLocalPath;
+    for (const bad of [
+      "\\\\host\\share\\FRIDAY",
+      "//host/share/FRIDAY",
+      "\\\\?\\C:\\FRIDAY",
+      "\\\\.\\PhysicalDrive0",
+      "relative/build",
+      "",
+      "/ok\0bad",
+      null,
+    ]) {
+      expect(check(bad), String(bad)).toBe(false);
+    }
+    expect(check(root)).toBe(true);
+  });
+
   it("accepts local drive paths only: no UNC share, device path or relative path is ever touched", async () => {
     for (const bad of [
       "\\\\host\\share\\FRIDAY",

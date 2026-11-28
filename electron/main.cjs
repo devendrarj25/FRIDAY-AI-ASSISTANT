@@ -1334,7 +1334,9 @@ function discoverLocalBuilds(root = getWorkspaceRoot()) {
 
 /**
  * Catalog rows gain `localSource: { origin, dir }` when a local build holds that model with its files on this PC.
- * The matching itself is install-inventory's one matcher (the same one the inventory rows use).
+ * The matching itself is install-inventory's one matcher (the same one the inventory rows use). Only the voice-model
+ * rows hold a pinned model a build can carry (the pins of `config/friday-models.json`); a chat-model row is an engine
+ * tag and a runtime-pack row is a release pack, neither has a pin, so those rows stay as they are.
  */
 function catalogWithLocalSources(catalog, entries = discoverLocalBuilds()) {
   if (!catalog || !Array.isArray(catalog.rows) || !Array.isArray(entries) || !entries.length) {
@@ -7501,27 +7503,22 @@ ipcMain.handle("models:pull", async (_e, model, jobId) => {
 });
 
 /**
- * A pinned model whose files are already in its folder with the pinned size and SHA-256, and whose folder was certified
- * for the pinned revision, needs no download. The size is read first; the hash only on a size match. Null otherwise
- * (the source chain then audits and certifies the folder as before). Never throws, never writes.
+ * A pinned model whose files are already in its folder with the pinned size, and whose folder was certified for the
+ * pinned revision, needs no download. This asks the download module's one folder audit: a fresh record on the folder
+ * certifies it by size alone (nothing is hashed); only a missing, stale or future-dated record makes it hash the files,
+ * and a folder with no record for the pinned revision is left to the source chain, which audits and certifies it once.
+ * `deps` is the audit's own (`now`, `hashFile`). Null otherwise. Never throws, never writes.
  */
-async function pinnedModelInPlace(modelId, folderId, dir, sources) {
+async function pinnedModelInPlace(modelId, folderId, dir, sources, deps = {}) {
   try {
     for (const source of Array.isArray(sources) ? sources : []) {
       if (source?.kind !== "hf-repo" || !source.repo) continue;
       const pin = voicePins.pinForRepo(source.repo);
       if (!pin?.files) continue;
       const folder = path.join(dir, folderId);
-      const checked = await installInventory.adoptByHash(
-        Object.entries(pin.files).map(([name, row]) => ({
-          id: name,
-          dest: path.join(folder, ...name.split("/")),
-          bytes: row.bytes,
-          sha256: row.sha256,
-        })),
-      );
-      if (checked.pending.length || !checked.adopted.length) return null;
       if (voicePins.readMarker(folder)?.revision !== pin.revision) return null;
+      const audit = await modelDownload.auditPinnedFolder(folder, pin, deps);
+      if (!audit.ok) return null;
       return { ok: true, via: "in-place", path: folder, skipped: true, modelId };
     }
   } catch {

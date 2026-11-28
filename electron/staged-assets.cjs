@@ -821,6 +821,7 @@ module.exports = {
   STAGING_NAME,
   ADOPTED,
   pointerPath,
+  isLocalPath,
   recordStaging,
   recordBuildRoot,
   readPointer,

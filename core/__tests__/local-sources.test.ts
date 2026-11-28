@@ -814,6 +814,33 @@ describe("discoverLocalBundles: a network path is never opened", () => {
     expect(seen.filter((entry) => entry.includes("fileserver"))).toEqual([]);
   });
 
+  it("refuses a relative path from the registry, the portable folder and a recorded build root: it would resolve against the working folder", () => {
+    const { fake, seen } = recording();
+    const found = discover(mk("root"), {
+      fs: fake,
+      readRegistry: () => "relative-src/FRIDAY",
+      portableDir: "relative-portable",
+      readBuildRoots: () => [{ root: "relative-build", kind: "staging" }],
+    });
+    expect(found).toEqual([]);
+    expect(seen.filter((entry) => entry.includes("relative-"))).toEqual([]);
+  });
+
+  it("uses the one predicate of staged-assets, not a copy of its own", () => {
+    const source = fs.readFileSync(path.join(repoRoot, "electron/local-sources.cjs"), "utf8");
+    expect(source).not.toMatch(/function isLocalPath/);
+    expect(source).toMatch(/require\("\.\/staged-assets\.cjs"\)/);
+  });
+
+  it("keeps the folders it derives from the FRIDAY folder (installers, release) working", () => {
+    const home = mk("root");
+    const placed = path.join(home, "installer", "installers", "1.0.0.0");
+    fs.mkdirSync(placed, { recursive: true });
+    writeBundle(placed);
+    const found = discover(home, {});
+    expect(found.map((entry: { origin: string }) => entry.origin)).toContain("installers");
+  });
+
   it("still takes a local folder from the registry", () => {
     const dir = mk("src");
     writeBundle(dir);
