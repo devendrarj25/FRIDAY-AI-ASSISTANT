@@ -368,8 +368,19 @@ FunctionEnd
       WriteRegStr HKCU "Software\FRIDAY" "InstallSourceDir" "$EXEDIR"
     ${EndIf}
   ${EndIf}
-  ; A move note of an earlier stopped uninstall is history once a new installation is in place.
-  DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
+  ; A move note of an earlier stopped uninstall is history only once the folder it names holds no data any more: it is
+  ; kept while that folder still exists (Setup & Doctor reads it), and a FRIDAY Test installation never drops it, because
+  ; the note belongs to the FRIDAY folder's own key.
+  ${If} "${PRODUCT_NAME}" != "FRIDAY Test"
+    ReadRegStr $0 HKCU "Software\FRIDAY" "DataMoveFrom"
+    ${If} $0 != ""
+    ${AndIf} ${FileExists} "$0\*.*"
+      DetailPrint "The move note stays: $0 still holds FRIDAY data."
+    ${Else}
+      DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
+      DeleteRegValue HKCU "Software\FRIDAY" "DataMoveFrom"
+    ${EndIf}
+  ${EndIf}
 
 
   ; The installed EXE prefers its own isolated Python environment, created by
@@ -494,12 +505,46 @@ Function un.FridayDetectDeleteSwitch
   friday_del_done:
 FunctionEnd
 
-; Writes one path the way Windows spells it, so two spellings of one folder compare equal: slashes become backslashes,
-; "." and ".." segments, doubled and trailing separators are resolved (GetFullPathName), an 8.3 short name becomes the
-; long name when the folder exists (GetLongPathName), and a "\\?\D:" prefix is dropped. In: $FridayUnPath the path.
-; Out: $FridayUnPath the normalised path, or "" when Windows cannot normalise it. The caller takes "" as "unknown" and
-; chooses the careful branch.
+; Drops the NT path prefix of the path in $FridayUnPath: "\\?\UNC\host\share" becomes "\\host\share" and "\\?\D:\x"
+; becomes "D:\x" (a "\\?\Volume{...}" name is left as it is). The scratch registers $R0-$R1 are saved and restored.
+Function un.FridayStripNtPrefix
+  Push $R0
+  Push $R1
+  StrCpy $R0 "$FridayUnPath" 8
+  ${If} $R0 == "\\?\UNC\"
+    StrLen $R0 "$FridayUnPath"
+    IntOp $R0 $R0 - 8
+    StrCpy $R1 "$FridayUnPath" $R0 8
+    StrCpy $FridayUnPath "\\$R1"
+  ${Else}
+    StrCpy $R0 "$FridayUnPath" 4
+    ${If} $R0 == "\\?\"
+      StrCpy $R0 "$FridayUnPath" 1 5
+      ${If} $R0 == ":"
+        StrLen $R0 "$FridayUnPath"
+        IntOp $R0 $R0 - 4
+        StrCpy $FridayUnPath "$FridayUnPath" $R0 4
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; Writes one path the way Windows spells it, so two spellings of one folder compare equal: the "\\?\" and "\\?\UNC\"
+; prefixes are dropped, slashes become backslashes, "." and ".." segments, doubled and trailing separators are resolved
+; (GetFullPathName), an 8.3 short name becomes the long name when the folder exists (GetLongPathName), and a folder that
+; is reached through a junction or a symbolic link is answered with the folder it really is (CreateFileW with
+; FILE_FLAG_BACKUP_SEMANTICS, then GetFinalPathNameByHandleW). A path that does not exist keeps the spelling-only
+; answer. In: $FridayUnPath the path. Out: $FridayUnPath the normalised path, or "" when Windows cannot normalise it.
+; The caller takes "" as "unknown" and chooses the careful branch. The scratch registers $R0-$R3 are saved and
+; restored, so a caller that uses them is never disturbed.
 Function un.FridayNormalizePath
+  Push $R0
+  Push $R1
+  Push $R2
+  Push $R3
+  Call un.FridayStripNtPrefix
   StrCpy $R0 "$FridayUnPath"
   StrCpy $R1 ""
   StrCpy $R2 "0"
@@ -508,21 +553,30 @@ Function un.FridayNormalizePath
   ${OrIf} $R1 == ""
     StrCpy $FridayUnPath ""
   ${Else}
-    StrCpy $R2 "$R1" 4
-    ${If} $R2 == "\\?\"
-      StrCpy $R2 "$R1" 1 5
-      ${If} $R2 == ":"
-        StrLen $R2 "$R1"
-        IntOp $R2 $R2 - 4
-        StrCpy $R1 "$R1" $R2 4
-      ${EndIf}
-    ${EndIf}
     StrCpy $R3 ""
     StrCpy $R2 "0"
     System::Call 'Kernel32::GetLongPathNameW(w R1, w .R3, i ${NSIS_MAX_STRLEN})i .R2'
     ${If} $R2 != 0
     ${AndIf} $R3 != ""
       StrCpy $R1 "$R3"
+    ${EndIf}
+    ; Open the folder (access 128 = read attributes, share 7 = read, write and delete, 3 = open existing, flag
+    ; 33554432 = FILE_FLAG_BACKUP_SEMANTICS, which is what lets CreateFileW open a folder) and ask for its final path:
+    ; every junction and symbolic link on the way is resolved. A folder that does not exist, or cannot be opened,
+    ; gives no handle (-1 or 0) and the spelling-only answer above stays.
+    StrCpy $R3 ""
+    System::Call 'Kernel32::CreateFileW(w R1, i 128, i 7, i 0, i 3, i 33554432, i 0)i .R2'
+    ${If} $R2 != "-1"
+    ${AndIf} $R2 != 0
+    ${AndIf} $R2 != "4294967295"
+      System::Call 'Kernel32::GetFinalPathNameByHandleW(i R2, w .R3, i ${NSIS_MAX_STRLEN}, i 0)i .R0'
+      System::Call 'Kernel32::CloseHandle(i R2)'
+      ${If} $R0 != 0
+      ${AndIf} $R3 != ""
+        StrCpy $FridayUnPath "$R3"
+        Call un.FridayStripNtPrefix
+        StrCpy $R1 "$FridayUnPath"
+      ${EndIf}
     ${EndIf}
     StrLen $R2 "$R1"
     ${If} $R2 != 3
@@ -533,6 +587,71 @@ Function un.FridayNormalizePath
       ${EndIf}
     ${EndIf}
     StrCpy $FridayUnPath "$R1"
+  ${EndIf}
+  Pop $R3
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; The FRIDAY folder named by $FridayUnRoot is never one this uninstaller may release or delete when, written the way
+; Windows really spells it (junctions followed), it is a whole drive, the user's profile, the Windows folder, a Program
+; Files folder, or a folder that lies above the parent of the program folder (the program folder is "<root>\App", so the
+; root can be that parent and nothing higher). It is then cleared to "": the program folder is still removed, the
+; pointer is left for the owner to correct, and nothing outside it is touched. A path Windows cannot place is kept in
+; keep mode (the data guard counts an unknown path as inside and moves it out) and refused in delete mode. Runs in both
+; modes, on the normalised pointer, so "D:\\", "D:\.", "\\?\D:\" and a junction to any of them read the same.
+; In and out: $FridayUnRoot. Reads $FridayUnMode. The scratch registers $R0-$R3 are saved and restored.
+Function un.FridayRefuseUnsafeRoot
+  ${If} $FridayUnRoot != ""
+    Push $R0
+    Push $R1
+    Push $R2
+    Push $R3
+    StrCpy $FridayUnPath "$FridayUnRoot"
+    Call un.FridayNormalizePath
+    StrCpy $R0 "$FridayUnPath"
+    StrCpy $FridayUnPath "$INSTDIR\.."
+    Call un.FridayNormalizePath
+    StrCpy $R1 "$FridayUnPath"
+    StrCpy $R3 ""
+    ${If} $R0 == ""
+      ${If} $FridayUnMode == "delete"
+        StrCpy $R3 "a folder Windows cannot place"
+      ${EndIf}
+    ${Else}
+      StrLen $R2 "$R0"
+      ${If} $R2 == 1
+      ${OrIf} $R2 == 2
+      ${OrIf} $R2 == 3
+      ${OrIf} $R0 == "$PROFILE"
+      ${OrIf} $R0 == "$WINDIR"
+      ${OrIf} $R0 == "$PROGRAMFILES"
+      ${OrIf} $R0 == "$PROGRAMFILES64"
+        StrCpy $R3 "a whole drive or a system folder"
+      ${Else}
+        ${If} $R1 == ""
+          ${If} $FridayUnMode == "delete"
+            StrCpy $R3 "a folder whose place relative to the program folder Windows cannot tell"
+          ${EndIf}
+        ${Else}
+          ; The root is above the parent of the program folder when that parent starts with "<root>\".
+          StrLen $R2 "$R0\"
+          StrCpy $R1 "$R1" $R2
+          ${If} "$R1" == "$R0\"
+            StrCpy $R3 "a folder above the parent of the program folder"
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+    ${If} $R3 != ""
+      DetailPrint "The registered FRIDAY folder ($FridayUnRoot) is $R3: it is never deleted or released."
+      StrCpy $FridayUnRoot ""
+    ${EndIf}
+    Pop $R3
+    Pop $R2
+    Pop $R1
+    Pop $R0
   ${EndIf}
 FunctionEnd
 !endif
@@ -588,6 +707,10 @@ FunctionEnd
     DetailPrint "The registered FRIDAY folder ($FridayUnRoot) is a whole drive: it is never deleted or released."
     StrCpy $FridayUnRoot ""
   ${EndIf}
+  ; The same test on the pointer as Windows really spells it (junctions followed, "D:\\", "D:\." and "\\?\D:\" read as
+  ; the drive they are), plus the profile, the Windows and Program Files folders and any folder above the program
+  ; folder's parent. In both modes, before anything is stopped, moved or deleted.
+  Call un.FridayRefuseUnsafeRoot
 
   ${If} $FridayUnMode != "delete"
     StrCpy $FridayUnMode "keep"
@@ -652,6 +775,7 @@ FunctionEnd
       !insertmacro FridayPreservedProbe "-preserved-8"
       !insertmacro FridayPreservedProbe "-preserved-9"
       ${If} ${FileExists} "$4"
+        WriteRegStr HKCU "Software\FRIDAY" "DataMoveFrom" "$FridayUnRoot"
         WriteRegStr HKCU "Software\FRIDAY" "DataMoveNote" "Uninstall stopped, nothing removed. Data: $FridayUnRoot (no free FRIDAY-preserved name in $PROFILE)"
         DetailPrint "No free name for the data folder in $PROFILE (FRIDAY-preserved ... -9 are taken). The data stays in $FridayUnRoot."
         MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder: every folder name FRIDAY-preserved ... FRIDAY-preserved-9 in $PROFILE is already taken, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\n$\r$\nMove or rename one of those folders, then run the uninstaller again." /SD IDOK
@@ -660,17 +784,28 @@ FunctionEnd
       ; Written before the move and removed when the move is proven, so a run that stops, or is cut off, leaves a note
       ; (read by Setup & Doctor) that names both folders even when nobody watched: a silent update, or a move to another
       ; drive that ran out of room.
+      ; DataMoveFrom names the folder the note is about: a new installation drops the note only when that folder no
+      ; longer holds data, and a FRIDAY Test installation never drops it.
+      WriteRegStr HKCU "Software\FRIDAY" "DataMoveFrom" "$FridayUnRoot"
       WriteRegStr HKCU "Software\FRIDAY" "DataMoveNote" "The FRIDAY data folder was being moved out of the program folder. Data: $FridayUnRoot. Moving to: $4"
       DetailPrint "Moving the FRIDAY data folder out of the program folder to keep it: $4"
+      ; The name was free when it was chosen. It is looked at once more right before the move, because a move into a
+      ; folder that exists goes inside it: the data would be nested in whatever appeared in the meantime.
+      ${If} ${FileExists} "$4"
+        DetailPrint "The folder $4 appeared while the uninstall was getting ready to move the data. The data stays in $FridayUnRoot."
+        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder: the folder $4 appeared in the meantime, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\n$\r$\nRun the uninstaller again." /SD IDOK
+        Abort
+      ${EndIf}
       ClearErrors
       Rename "$FridayUnRoot" "$4"
       ${If} ${Errors}
         ; Different volume or a locked handle — copy it out instead. The two folders travel in the environment of
         ; the helper, not in its command line: an apostrophe in a folder or user name would end the PowerShell
-        ; quote and break the move, or inject a command into it.
+        ; quote and break the move, or inject a command into it. The helper moves nothing when the destination
+        ; exists by then (exit 3), because Move-Item would put the data inside it.
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_FROM", t "$FridayUnRoot")'
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_TO", t "$4")'
-        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Move-Item -LiteralPath $$env:FRIDAY_UN_FROM -Destination $$env:FRIDAY_UN_TO -Force -ErrorAction SilentlyContinue"'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath $$env:FRIDAY_UN_TO) { exit 3 }; Move-Item -LiteralPath $$env:FRIDAY_UN_FROM -Destination $$env:FRIDAY_UN_TO -Force -ErrorAction SilentlyContinue"'
         Pop $0
       ${EndIf}
       ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder
@@ -687,6 +822,7 @@ FunctionEnd
         StrCpy $FridayUnRoot "$4"
         WriteRegStr HKCU "Software\FRIDAY" "WorkspacePath" "$4"
         DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
+        DeleteRegValue HKCU "Software\FRIDAY" "DataMoveFrom"
         DetailPrint "FRIDAY data preserved at $4 - a new installation will reuse it."
       ${EndIf}
     ${EndIf}
@@ -701,7 +837,17 @@ FunctionEnd
     ${If} $FridayUnRoot != ""
       RMDir /r "$FridayUnRoot\profiles\test"
     ${EndIf}
-    DeleteRegKey HKCU "Software\FRIDAY Test"
+    ; The product's own key (never the FRIDAY key, which holds the shared folder's pointer): the values Setup wrote are
+    ; removed first, and an update keeps where Setup was started from, as it does for FRIDAY.
+    ${If} ${isUpdated}
+      DeleteRegValue HKCU "Software\FRIDAY Test" "InstallPath"
+      DeleteRegValue HKCU "Software\FRIDAY Test" "PythonSetupPending"
+      DeleteRegValue HKCU "Software\FRIDAY Test" "LastInstallMode"
+      DeleteRegKey /ifempty HKCU "Software\FRIDAY Test"
+    ${Else}
+      DeleteRegValue HKCU "Software\FRIDAY Test" "InstallSourceDir"
+      DeleteRegKey HKCU "Software\FRIDAY Test"
+    ${EndIf}
   ${Else}
     ${If} $FridayUnMode == "delete"
       ${If} $FridayUnRoot != ""
@@ -756,10 +902,20 @@ FunctionEnd
       DeleteRegValue HKCU "Software\FRIDAY" "InstallPath"
       DeleteRegValue HKCU "Software\FRIDAY" "PythonSetupPending"
       DeleteRegValue HKCU "Software\FRIDAY" "LastInstallMode"
-      DeleteRegKey /ifempty HKCU "Software\FRIDAY"
+      ; A move note of an earlier stopped uninstall is dropped when the folder it names holds no data any more.
+      ReadRegStr $0 HKCU "Software\FRIDAY" "DataMoveFrom"
+      ${If} $0 != ""
+      ${AndIf} ${FileExists} "$0\*.*"
+        DetailPrint "The move note stays: $0 still holds FRIDAY data."
+      ${Else}
+        DeleteRegValue HKCU "Software\FRIDAY" "DataMoveNote"
+        DeleteRegValue HKCU "Software\FRIDAY" "DataMoveFrom"
+      ${EndIf}
       ; "Start FRIDAY when I sign in" lives in the Run key, outside the FRIDAY folder. A real uninstall must not
       ; leave it pointing at a program that is gone (Windows then reports the missing file at every sign-in). An
-      ; upgrade keeps it, and the new version sets it again at its first start from the owner's saved setting.
+      ; upgrade keeps it, and the new version sets it again at its first start from the owner's saved setting. The
+      ; folder Setup was started from goes with a real uninstall and stays through an update, which runs this
+      ; uninstaller first.
       ${IfNot} ${isUpdated}
         DeleteRegValue HKCU "Software\FRIDAY" "InstallSourceDir"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
@@ -767,6 +923,10 @@ FunctionEnd
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"
         DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "dev.friday.desk"
       ${EndIf}
+      ; Every value of the key is removed BEFORE the key is tried: "/ifempty" removes the key only when nothing is left
+      ; in it, so a value deleted after it would leave an empty key behind. WorkspacePath stays (the data pointer), so
+      ; a keep-uninstall normally leaves the key, and a pointer-less one leaves nothing.
+      DeleteRegKey /ifempty HKCU "Software\FRIDAY"
     ${EndIf}
   ${EndIf}
 

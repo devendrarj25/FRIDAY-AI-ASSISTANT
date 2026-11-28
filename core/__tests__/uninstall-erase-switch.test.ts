@@ -132,3 +132,34 @@ describe("silent uninstall data contract", () => {
     expect(smoke.indexOf('"/DELETEDATA"')).toBeLessThan(smoke.indexOf("PASS installer -> boot"));
   });
 });
+
+describe("the erase-all uninstall checks the folder it is about to delete", () => {
+  const lf = nsh.replace(/\r\n/g, "\n");
+  const body = lf.slice(
+    lf.indexOf("!macro customUnInstall"),
+    lf.indexOf("!macroend", lf.indexOf("!macro customUnInstall")),
+  );
+
+  it("refuses an unsafe folder before the stop script, the delete and the sweeper take it as a target", () => {
+    const refuse = body.indexOf("Call un.FridayRefuseUnsafeRoot");
+    expect(refuse).toBeGreaterThan(-1);
+    for (const later of [
+      "close-friday.ps1",
+      'RMDir /r "$FridayUnRoot"',
+      "remove-source-root-data.ps1",
+      '"FRIDAY_SWEEP_ROOT"',
+    ])
+      expect(body.indexOf(later), later).toBeGreaterThan(refuse);
+    // A cleared pointer is not deleted: the delete and the helper both sit behind a non-empty test.
+    const del = body.indexOf('RMDir /r "$FridayUnRoot"');
+    expect(body.lastIndexOf('${If} $FridayUnRoot != ""', del)).toBeGreaterThan(
+      body.lastIndexOf('${If} $FridayUnMode == "delete"', del),
+    );
+  });
+
+  it("is not run for the silent default: the guard also covers the keep mode the silent uninstall starts in", () => {
+    // The call is not inside either mode's branch, so /S without /DELETEDATA is checked too.
+    const head = body.slice(0, body.indexOf("Call un.FridayRefuseUnsafeRoot"));
+    expect(head.match(/\$\{If\}/g)?.length).toBe(head.match(/\$\{EndIf\}/g)?.length);
+  });
+});

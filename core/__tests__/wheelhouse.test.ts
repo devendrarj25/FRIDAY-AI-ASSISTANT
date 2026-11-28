@@ -13,6 +13,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -748,6 +749,96 @@ describe("a hash mismatch in the wheelhouse install ends that path and never fal
   });
 });
 
+describe("the unpacked wheelhouse cannot be swapped between the unpack and pip", () => {
+  const repair = read("installer/build/repair-runtime.ps1");
+  const fnText = (name: string) =>
+    repair.match(new RegExp(`^function ${name}\\b[\\s\\S]*?^}\\r?$`, "m"))?.[0] ?? "";
+
+  it("makes the folder with its lock under a name the sweep never matches, and renames it only after the lock exists", () => {
+    const fn = fnText("Get-Wheelhouse");
+    const stage = fn.indexOf("friday-stage-");
+    const lock = fn.indexOf("run.lock", stage);
+    const rename = fn.indexOf("Rename-Item", lock);
+    const extract = fn.indexOf("ExtractToDirectory");
+    expect(stage).toBeGreaterThan(-1);
+    expect(lock).toBeGreaterThan(stage);
+    expect(rename).toBeGreaterThan(lock);
+    expect(extract).toBeGreaterThan(rename);
+    // The sweep matches only the final names, so a folder without a lock is never visible to it.
+    expect("friday-stage-x".startsWith("friday-wheelhouse-")).toBe(false);
+    expect(fn).toContain("-Filter 'friday-wheelhouse-*'");
+  });
+
+  it("reads the two pin files of each series from the pack itself and checks the unpacked copies against them", () => {
+    const pins = fnText("Get-PackPins");
+    expect(pins).toContain("[System.IO.Compression.ZipFile]::OpenRead($wheelhousePack)");
+    expect(pins).toContain("SHA256");
+    expect(pins).toMatch(/requirements\|constraints/);
+    const check = fnText("Test-PinFile");
+    expect(check).toContain("Get-FileHash -LiteralPath $Path -Algorithm SHA256");
+    expect(check).toContain("$script:wheelhousePins");
+    const get = fnText("Get-Wheelhouse");
+    expect(get.indexOf("Get-PackPins")).toBeLessThan(get.indexOf("ExtractToDirectory"));
+    expect(get.indexOf("Test-PinFile")).toBeGreaterThan(get.indexOf("ExtractToDirectory"));
+    expect(get.indexOf("Test-PinFile")).toBeLessThan(get.indexOf("$script:wheelhouse = $dir"));
+  });
+
+  it("checks both pin files right before each pip run, and calls a changed pin a hash mismatch", () => {
+    const fn = fnText("Install-FromWheelhouse");
+    const first = fn.indexOf("pip install");
+    expect(fn.indexOf("Test-PinFile $hashed")).toBeGreaterThan(-1);
+    expect(fn.indexOf("Test-PinFile $constraints")).toBeGreaterThan(-1);
+    expect(fn.indexOf("Test-PinFile $hashed")).toBeLessThan(first);
+    expect(fn.indexOf("Test-PinFile $constraints")).toBeLessThan(first);
+    const second = fn.indexOf("pip install", first + 10);
+    expect(fn.lastIndexOf("Test-PinFile $hashed", second)).toBeGreaterThan(first);
+    expect(fn).toMatch(/Test-PinFile \$hashed[^\n]*\n[^\n]*wheelhouseMismatch = \$true/);
+  });
+
+  it("keeps pip's log in a private folder of its own, away from the unpacked pins and wheels, and removes it at the end", () => {
+    const fn = fnText("Install-FromWheelhouse");
+    expect(fn).toContain("$log = Join-Path (Get-PipLogDir $house) 'pip-wheelhouse.log'");
+    expect(fn).not.toMatch(/\$log = Join-Path \$house/);
+    const dir = fnText("Get-PipLogDir");
+    expect(dir).toContain("friday-piplog-");
+    expect(dir).toContain("SetAccessRuleProtection($true, $false)");
+    expect(
+      repair.slice(repair.indexOf("function Finish"), repair.indexOf("function Test-Runtime")),
+    ).toContain("$script:pipLogDir");
+  });
+
+  it("decides on a mismatch from what pip printed as well as from its log, so an edited log hides nothing", () => {
+    const fn = fnText("Install-FromWheelhouse");
+    const calls = [...fn.matchAll(/& \$venvPython -m pip install[^\r\n]*/g)].map((m) => m[0]);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call).toContain("Tee-Object -Variable pipOut");
+    expect(fn.match(/Test-PipHashMismatch \$log "\$pipOut"/g)).toHaveLength(2);
+    const scan = fnText("Test-PipHashMismatch");
+    expect(scan).toContain("[string]$Output");
+    expect(scan.indexOf("$Output")).toBeLessThan(scan.indexOf("Select-String"));
+  });
+
+  it("refreshes run.lock while pip runs, and stops the refresh on every way out", () => {
+    const fn = fnText("Install-FromWheelhouse");
+    expect(fn.indexOf("Start-LockHeartbeat")).toBeGreaterThan(-1);
+    expect(fn.indexOf("Start-LockHeartbeat")).toBeLessThan(fn.indexOf("pip install"));
+    expect(fn).toMatch(/finally \{\s*Stop-LockHeartbeat \$beat/);
+    const beat = fnText("Start-LockHeartbeat");
+    expect(beat).toContain("[powershell]::Create()");
+    expect(beat).toContain("Start-Sleep -Seconds 300");
+    expect(beat).toContain("LastWriteTime");
+    // A lock refreshed every five minutes outlives the hour after which another run may sweep its folder.
+    expect(300).toBeLessThan(3600);
+    expect(fnText("Update-RunLock")).toContain("LastWriteTime");
+  });
+
+  it("stays 7-bit ASCII with CRLF line ends and keeps the pip call count", () => {
+    const raw = readFileSync(path.join(ROOT, "installer/build/repair-runtime.ps1"));
+    expect([...raw].filter((b) => b > 127)).toEqual([]);
+    expect(raw.toString("latin1").replace(/\r\n/g, "").includes("\n")).toBe(false);
+  });
+});
+
 /** PowerShell 7 where this machine has it (PATH, FRIDAY_PWSH, or a FRIDAY_PWSH_PREFIX/<version>/pwsh install). */
 function findPwsh(): string | null {
   if (process.env["FRIDAY_PWSH"] && existsSync(process.env["FRIDAY_PWSH"]))
@@ -791,6 +882,8 @@ describe.skipIf(pwsh === null)(
           'step=$(head -n1 "$FAKE_PLAN"); tail -n +2 "$FAKE_PLAN" > "$FAKE_PLAN.next"; mv "$FAKE_PLAN.next" "$FAKE_PLAN"',
           'case "$step" in',
           '  mismatch) [ -n "$log" ] && echo "ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE." >> "$log"; exit 1;;',
+          // pip printed its refusal to the screen only; whoever can edit the log has removed the line from it.
+          '  mismatch-out) echo "ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE." >&2; exit 1;;',
           '  fail) [ -n "$log" ] && echo "ERROR: No matching distribution found" >> "$log"; exit 1;;',
           "  *) exit 0;;",
           "esac",
@@ -838,6 +931,12 @@ describe.skipIf(pwsh === null)(
         "[System.IO.Compression.ZipFile]::CreateFromDirectory($src, $wheelhousePack)",
         "function Test-VoiceCore { return $false }",
         fnText("Test-PipHashMismatch"),
+        fnText("Get-PackPins"),
+        fnText("Test-PinFile"),
+        fnText("Get-PipLogDir"),
+        fnText("Update-RunLock"),
+        fnText("Start-LockHeartbeat"),
+        fnText("Stop-LockHeartbeat"),
         fnText("Get-Wheelhouse"),
         fnText("Install-FromWheelhouse"),
         fnText("Install-VoiceCore"),
@@ -952,6 +1051,79 @@ describe.skipIf(pwsh === null)(
       expect(existsSync(path.join(dir, "wheelhouse.json"))).toBe(true);
       // The script-wide folder name now points at it, so Finish removes the folder that was really used.
       expect(/KEPT=(.*)/.exec(out)?.[1]?.trim()).toBe(dir);
+    });
+    it("stops, with the mismatch flag set and no pip run, when a pin file was swapped after the unpack", () => {
+      const w = world(["ok"]);
+      const out = run(
+        w,
+        '$d = Get-Wheelhouse; Set-Content -LiteralPath (Join-Path $d "requirements-cp312.txt") -Value "evil==9 --hash=sha256:bb"; ' +
+          '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(out).toContain("RESULT=False MISMATCH=True");
+      expect(w.installs()).toHaveLength(0);
+      const constraints = world(["ok"]);
+      const again = run(
+        constraints,
+        '$d = Get-Wheelhouse; Set-Content -LiteralPath (Join-Path $d "constraints-cp312.txt") -Value "evil==9"; ' +
+          '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(again).toContain("RESULT=False MISMATCH=True");
+      expect(constraints.installs()).toHaveLength(0);
+    });
+
+    it("refuses an unpack whose pin files differ from the ones inside the pack", () => {
+      const w = world([]);
+      const out = run(
+        w,
+        // The pack is read twice: once for the pins, once to unpack. A pack changed in between is not used.
+        '$pins = Get-PackPins; Write-Output "PINS=$($pins.Count)"; ' +
+          '$d = Get-Wheelhouse; Write-Output "OK=$(Test-PinFile (Join-Path $d "requirements-cp312.txt"))"; ' +
+          'Set-Content -LiteralPath (Join-Path $d "requirements-cp312.txt") -Value "other"; ' +
+          'Write-Output "AFTER=$(Test-PinFile (Join-Path $d "requirements-cp312.txt"))"',
+      );
+      expect(out).toContain("PINS=2");
+      expect(out).toContain("OK=True");
+      expect(out).toContain("AFTER=False");
+    });
+
+    it("sees a hash mismatch that pip printed even when the log does not say it", () => {
+      const w = world(["mismatch-out"]);
+      const out = run(
+        w,
+        '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r MISMATCH=$($script:wheelhouseMismatch)"',
+      );
+      expect(out).toContain("RESULT=False MISMATCH=True");
+      expect(w.installs()).toHaveLength(1);
+    });
+
+    it("writes pip's log to a folder of its own, not into the unpacked wheelhouse, and removes it at the end", () => {
+      const w = world(["ok"]);
+      const out = run(
+        w,
+        '$r = Install-FromWheelhouse $requirements; Write-Output "RESULT=$r"; Write-Output "LOGDIR=$($script:pipLogDir)"; ' +
+          'Write-Output "HOUSE=$($script:wheelhouse)"',
+      );
+      expect(out).toContain("RESULT=True");
+      const used = /--log (\S+)/.exec(w.installs()[0] ?? "")?.[1] ?? "";
+      expect(used).toContain("friday-piplog-");
+      expect(used).not.toContain("friday-wheelhouse-");
+      const house = /HOUSE=(.*)/.exec(out)?.[1]?.trim() ?? "";
+      expect(house).not.toBe("");
+      expect(used.startsWith(house)).toBe(false);
+    });
+
+    it("refreshes the lock of a run in progress, and a lock that was refreshed is not swept", () => {
+      const w = world([]);
+      const lock = path.join(w.dir, "lock-dir", "run.lock");
+      mkdirSync(path.dirname(lock), { recursive: true });
+      writeFileSync(lock, "1");
+      utimesSync(lock, new Date(2000, 0, 1), new Date(2000, 0, 1));
+      const out = run(
+        w,
+        `Update-RunLock '${path.dirname(lock)}'; $b = Start-LockHeartbeat '${lock}'; Write-Output "BEAT=$($null -ne $b)"; Stop-LockHeartbeat $b`,
+      );
+      expect(out).toContain("BEAT=True");
+      expect(Date.now() - statSync(lock).mtimeMs).toBeLessThan(120_000);
     });
   },
 );

@@ -204,6 +204,36 @@ describe("the installer and uninstaller never treat a whole drive as the FRIDAY 
   });
 });
 
+describe("the uninstaller's root guard names what it protects", () => {
+  const nsh = read("installer/build/installer.nsh").replace(/\r\n/g, "\n");
+  const fn = nsh.slice(
+    nsh.indexOf("Function un.FridayRefuseUnsafeRoot"),
+    nsh.indexOf("FunctionEnd", nsh.indexOf("Function un.FridayRefuseUnsafeRoot")),
+  );
+
+  it("tests the normalised pointer against a drive, the profile, Windows, both Program Files and the program's parent", () => {
+    expect(fn.indexOf("Call un.FridayNormalizePath")).toBeLessThan(fn.indexOf("StrLen $R2"));
+    for (const folder of ["$PROFILE", "$WINDIR", "$PROGRAMFILES", "$PROGRAMFILES64"])
+      expect(fn, folder).toContain(`$R0 == "${folder}"`);
+    for (const length of [1, 2, 3]) expect(fn).toContain(`$R2 == ${length}`);
+    // The program folder's parent is asked of Windows the same way, so a junction there reads as what it is.
+    expect(fn).toContain('StrCpy $FridayUnPath "$INSTDIR\\.."');
+    expect([...fn.matchAll(/Call un\.FridayNormalizePath/g)]).toHaveLength(2);
+    expect(fn).toContain('StrCpy $FridayUnRoot ""');
+  });
+
+  it("keeps the older raw drive test in front of it, for a pointer Windows could not normalise", () => {
+    const body = nsh.slice(
+      nsh.indexOf("!macro customUnInstall"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+    );
+    expect(body.indexOf('StrLen $0 "$FridayUnRoot"')).toBeGreaterThan(-1);
+    expect(body.indexOf('StrLen $0 "$FridayUnRoot"')).toBeLessThan(
+      body.indexOf("Call un.FridayRefuseUnsafeRoot"),
+    );
+  });
+});
+
 describe("the installed-runtime helpers", () => {
   const python = read("installer/build/install-python.ps1");
   const repair = read("installer/build/repair-runtime.ps1");

@@ -46,6 +46,10 @@ type World = {
   short?: Record<string, string>;
   /** Inputs the full-path call cannot answer for. */
   unnormalisable?: string[];
+  /** Junctions: a folder spelled here (lower-case key) is really the folder named by the value. */
+  junctions?: Record<string, string>;
+  /** Called when the data-move note is written: a chance for the world to change between two instructions. */
+  onNote?: (world: World) => void;
 };
 
 const under = (tree: Set<string>, base: string) =>
@@ -69,6 +73,17 @@ function shippedBody(kind: "Function" | "!macro", name: string): string {
 
 /** What Windows' GetFullPathNameW does to a drive path: slashes, "." and ".." segments, doubled separators. */
 function fullPath(input: string): string | null {
+  // A network path: \\host\share\...
+  const unc = /^\\\\(?!\?)([^\\/]+)[\\/]+([^\\/]+)(?:[\\/]+(.*))?$/.exec(input);
+  if (unc) {
+    const rest: string[] = [];
+    for (const part of (unc[3] ?? "").split(/[\\/]+/)) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") rest.pop();
+      else rest.push(part);
+    }
+    return `\\\\${unc[1]}\\${unc[2]}${rest.length ? `\\${rest.join("\\")}` : ""}`;
+  }
   const m = /^(\\\\\?\\)?([A-Za-z]:)[\\/]?(.*)$/.exec(input);
   if (!m) return null;
   const segments: string[] = [];
@@ -81,7 +96,27 @@ function fullPath(input: string): string | null {
   return `${m[1] ?? ""}${m[2]}\\${segments.join("\\")}${trailing}`;
 }
 
-function runGuard(world: World): void {
+/** The folder a spelling really is on disk once junctions are followed, or null when it does not exist. */
+function realFolder(world: World, input: string): string | null {
+  const trimmed = input.replace(/\\$/, "");
+  let real = trimmed;
+  for (const [from, to] of Object.entries(world.junctions ?? {})) {
+    const low = trimmed.toLowerCase();
+    if (low === from.toLowerCase() || low.startsWith(`${from.toLowerCase()}\\`))
+      real = `${to}${trimmed.slice(from.length)}`;
+  }
+  return [...world.tree].find((p) => p.toLowerCase() === real.toLowerCase()) ?? null;
+}
+
+/** How GetFinalPathNameByHandleW spells a real folder: the NT prefix, and "UNC\\" for a network share. */
+function ntSpelling(real: string): string {
+  return real.startsWith("\\\\") ? `\\\\?\\UNC\\${real.slice(2)}` : `\\\\?\\${real}`;
+}
+
+function runGuard(world: World, text?: string): void {
+  const handles: string[] = [];
+  // The value stack of Push and Pop, shared by every function the text calls (as in NSIS).
+  const pushed: string[] = [];
   const expand = (text: string) =>
     text.replace(/\$([A-Za-z_]\w*|\d)/g, (whole, name: string) => world.vars[name] ?? whole);
   const arg = (text: string) => expand(text.trim().replace(/^"|"$/g, ""));
@@ -123,7 +158,17 @@ function runGuard(world: World): void {
         continue;
       }
       if (!live()) continue;
-      if (/^(DetailPrint|Pop)\b/.test(line)) continue;
+      if (/^DetailPrint\b/.test(line)) continue;
+      const push = /^Push\s+\$(\w+)$/.exec(line);
+      if (push) {
+        pushed.push(world.vars[push[1]!] ?? "");
+        continue;
+      }
+      const pop = /^Pop\s+\$(\w+)$/.exec(line);
+      if (pop) {
+        world.vars[pop[1]!] = pushed.pop() ?? "";
+        continue;
+      }
       if (line === "ClearErrors") {
         errors = false;
         continue;
@@ -170,6 +215,32 @@ function runGuard(world: World): void {
         world.vars[full[3]!] = String(out ? out.length : 0);
         continue;
       }
+      // CreateFileW(path, ...) -> a handle, -1 when the folder cannot be opened (it does not exist). Junctions are followed.
+      const open = /^System::Call\s+'Kernel32::CreateFileW\(w (\w+),[^)]*\)i \.(\w+)'$/.exec(line);
+      if (open) {
+        const real = realFolder(world, world.vars[open[1]!] ?? "");
+        const handle = real === null ? -1 : handles.push(real) + 7000;
+        world.vars[open[2]!] = String(handle);
+        continue;
+      }
+      // GetFinalPathNameByHandleW(handle, out, size, 0) -> length of the "\\?\"-prefixed real path.
+      const final =
+        /^System::Call\s+'Kernel32::GetFinalPathNameByHandleW\(i (\w+),\s*w \.(\w+),[^)]*\)i \.(\w+)'$/.exec(
+          line,
+        );
+      if (final) {
+        const real = handles[Number(world.vars[final[1]!]) - 7001];
+        const spelled = real === undefined ? "" : ntSpelling(real);
+        world.vars[final[2]!] = spelled;
+        world.vars[final[3]!] = String(spelled.length);
+        continue;
+      }
+      if (/^System::Call\s+'Kernel32::CloseHandle\(i \w+\)'$/.test(line)) continue;
+      const readReg = /^ReadRegStr\s+\$(\w+)\s+\w+\s+"(.+?)"\s+"(.+?)"$/.exec(line);
+      if (readReg) {
+        world.vars[readReg[1]!] = world.reg[`${readReg[2]}\\${readReg[3]}`] ?? "";
+        continue;
+      }
       // GetLongPathNameW(in, out, size) -> length, 0 when the path does not exist; gives the on-disk spelling.
       const long =
         /^System::Call\s+'Kernel32::GetLongPathNameW\(w (\w+),\s*w \.(\w+),[^)]*\)i \.(\w+)'$/.exec(
@@ -198,6 +269,7 @@ function runGuard(world: World): void {
       if (line.startsWith("nsExec::ExecToLog")) {
         // What the helper process really receives: NSIS turns $$ into $ and $\' into a plain apostrophe.
         world.ran.push(expand(line).replace(/\$\$/g, "$").replace(/\$\\'/g, "'"));
+        pushed.push("0");
         // The helper reads its two folders from its environment, as the shipped command does.
         const from = world.env["FRIDAY_UN_FROM"] ?? "";
         const to = world.env["FRIDAY_UN_TO"] ?? "";
@@ -229,12 +301,13 @@ function runGuard(world: World): void {
       const writeReg = /^WriteRegStr\s+\w+\s+"(.+?)"\s+"(.+?)"\s+(".*?")$/.exec(line);
       if (writeReg) {
         world.reg[`${writeReg[1]}\\${writeReg[2]}`] = arg(writeReg[3]!);
+        if (writeReg[2] === "DataMoveNote") world.onNote?.(world);
         continue;
       }
       throw new Error(`unsupported NSIS instruction in the move guard: ${line}`);
     }
   };
-  run(guardRegion());
+  run(text ?? guardRegion());
 }
 
 const INSTDIR = "D:\\Apps\\FRIDAY\\App";
@@ -546,5 +619,335 @@ describe("the preserved data folder never reuses a name that is taken", () => {
       expect(w.reg["Software\\FRIDAY\\DataMoveNote"], String(renameFails)).toBeUndefined();
       expect(w.reg[POINTER]).toBe(`${PROFILE}\\FRIDAY`);
     }
+  });
+});
+
+/** Runs shipped NSIS text (a call to one function) in the same simulated world as the guard region. */
+function runShipped(w: World, text: string): void {
+  runGuard(w, text);
+}
+
+function normalise(w: World, input: string): string {
+  w.vars["FridayUnPath"] = input;
+  runShipped(w, "Call un.FridayNormalizePath");
+  return w.vars["FridayUnPath"] ?? "";
+}
+
+describe("the path normaliser follows junctions and drops NT prefixes", () => {
+  it("drops the NT prefix of a drive path and of a network path, in any case, before it resolves dot segments", () => {
+    const w = world();
+    expect(normalise(w, "\\\\?\\D:\\Apps\\FRIDAY")).toBe("D:\\Apps\\FRIDAY");
+    expect(normalise(w, "\\\\?\\D:\\.")).toBe("D:\\");
+    expect(normalise(w, "\\\\?\\D:\\Apps\\..\\Apps\\FRIDAY\\")).toBe("D:\\Apps\\FRIDAY");
+    expect(normalise(w, "\\\\?\\UNC\\host\\share\\FRIDAY\\")).toBe("\\\\host\\share\\FRIDAY");
+    expect(normalise(w, "\\\\?\\unc\\host\\share\\FRIDAY")).toBe("\\\\host\\share\\FRIDAY");
+  });
+
+  it("answers with the real folder when the spelling goes through a junction, for the folder and for a parent", () => {
+    const w = world({ junctions: { "d:\\elsewhere\\friday": DATA } });
+    expect(normalise(w, "D:\\Elsewhere\\FRIDAY")).toBe(DATA);
+    expect(normalise(w, "d:/elsewhere/friday/memory/")).toBe(`${DATA}\\memory`);
+    // The prefix Windows puts on the real path is not left in the answer.
+    expect(normalise(w, "D:\\Elsewhere\\FRIDAY").startsWith("\\\\?\\")).toBe(false);
+  });
+
+  it("falls back to the spelling-only answer when the folder does not exist", () => {
+    const w = world();
+    expect(normalise(w, "D:\\Nowhere\\a\\..\\b")).toBe("D:\\Nowhere\\b");
+    expect(normalise(w, "D:/Nowhere/b/")).toBe("D:\\Nowhere\\b");
+  });
+
+  it("still answers empty for a path Windows cannot normalise", () => {
+    const w = world({ unnormalisable: ["D:\\Odd"] });
+    expect(normalise(w, "D:\\Odd")).toBe("");
+  });
+
+  it("leaves the scratch registers of its caller alone (Push and Pop), and the stack balanced", () => {
+    const w = world({ junctions: { "d:\\elsewhere\\friday": DATA } });
+    for (const name of ["R0", "R1", "R2", "R3"]) w.vars[name] = `keep-${name}`;
+    normalise(w, "\\\\?\\UNC\\host\\share\\x");
+    normalise(w, "D:\\Elsewhere\\FRIDAY");
+    normalise(w, "D:\\Nowhere");
+    for (const name of ["R0", "R1", "R2", "R3"]) expect(w.vars[name], name).toBe(`keep-${name}`);
+    const fn = shippedBody("Function", "un.FridayNormalizePath");
+    const pushes = [...fn.matchAll(/^\s*Push \$(R\d)$/gm)].map((m) => m[1]);
+    const pops = [...fn.matchAll(/^\s*Pop \$(R\d)$/gm)].map((m) => m[1]);
+    expect(pushes).toEqual(["R0", "R1", "R2", "R3"]);
+    expect(pops).toEqual(["R3", "R2", "R1", "R0"]);
+  });
+
+  it("is shipped with the junction-following calls, in the order open, ask, close, and with the backup-semantics flag", () => {
+    const fn = shippedBody("Function", "un.FridayNormalizePath");
+    const open = fn.indexOf("Kernel32::CreateFileW");
+    const ask = fn.indexOf("Kernel32::GetFinalPathNameByHandleW");
+    const close = fn.indexOf("Kernel32::CloseHandle");
+    expect(open).toBeGreaterThan(fn.indexOf("Kernel32::GetFullPathNameW"));
+    expect(ask).toBeGreaterThan(open);
+    expect(close).toBeGreaterThan(ask);
+    // FILE_FLAG_BACKUP_SEMANTICS (0x02000000) is what lets CreateFileW open a folder.
+    expect(fn).toMatch(/Kernel32::CreateFileW\([^)]*i 33554432[^)]*\)/);
+    // A failed open (-1, 0) never reaches the answer: the spelling-only result stays.
+    expect(fn).toMatch(/\$R2 != "?-1"?/);
+    const strip = shippedBody("Function", "un.FridayStripNtPrefix");
+    expect(strip).toContain('"\\\\?\\UNC\\"');
+    expect(strip).toContain('"\\\\?\\"');
+    expect([...fn.matchAll(/Call un\.FridayStripNtPrefix/g)].length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("makes a keep-uninstall move the data when the pointer reaches the program folder through a junction", () => {
+    // The root is spelled outside the program folder, but the folder is the one inside it.
+    const w = world({ junctions: { "d:\\elsewhere\\friday": DATA } });
+    w.vars["FridayUnRoot"] = "D:\\Elsewhere\\FRIDAY";
+    w.reg[POINTER] = "D:\\Elsewhere\\FRIDAY";
+    runGuard(w);
+    expect(w.tree.has("C:\\Users\\owner\\FRIDAY\\memory\\notes.db")).toBe(true);
+    expect(under(w.tree, DATA)).toEqual([]);
+    expect(w.reg[POINTER]).toBe("C:\\Users\\owner\\FRIDAY");
+  });
+
+  it("makes a keep-uninstall move the data when the program folder itself is spelled through a junction", () => {
+    // INSTDIR is spelled under C:, but "Programs" is a junction to D:\Real; the pointer names the real folder.
+    const via = "C:\\Users\\owner\\AppData\\Local\\Programs\\FRIDAY\\App";
+    const real = "D:\\Real\\FRIDAY\\App";
+    const w = world({
+      junctions: { "c:\\users\\owner\\appdata\\local\\programs": "D:\\Real" },
+    });
+    for (const p of [real, `${real}\\data-root`, `${real}\\data-root\\memory`]) w.tree.add(p);
+    w.tree.add(`${real}\\data-root\\memory\\notes.db`);
+    w.vars["INSTDIR"] = via;
+    w.vars["FridayUnRoot"] = `${real}\\data-root`;
+    w.reg[POINTER] = `${real}\\data-root`;
+    runGuard(w);
+    expect(w.tree.has("C:\\Users\\owner\\FRIDAY\\memory\\notes.db")).toBe(true);
+    expect(under(w.tree, `${real}\\data-root`)).toEqual([]);
+  });
+});
+
+describe("the root guard refuses a drive, a system folder and a folder above the program's parent, in both modes", () => {
+  const drive = (w: World) => {
+    w.vars["WINDIR"] = "C:\\Windows";
+    w.vars["PROGRAMFILES"] = "C:\\Program Files (x86)";
+    w.vars["PROGRAMFILES64"] = "C:\\Program Files";
+    for (const p of ["D:\\Apps", "D:\\Apps\\FRIDAY", "C:\\Windows", "C:\\Program Files"])
+      w.tree.add(p);
+    return w;
+  };
+  const guard = (root: string, mode: "keep" | "delete", over: Partial<World> = {}): string => {
+    const w = drive(world(over));
+    w.vars["FridayUnRoot"] = root;
+    w.vars["FridayUnMode"] = mode;
+    runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+    return w.vars["FridayUnRoot"] ?? "";
+  };
+
+  const refused = [
+    "D:\\",
+    "D:\\\\",
+    "D:\\.",
+    "D:/",
+    "D:",
+    "\\\\?\\D:\\",
+    "D:\\Apps\\..",
+    "C:\\Users\\owner",
+    "C:\\Users\\owner\\",
+    "c:\\users\\OWNER",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "D:\\Apps",
+    "D:\\Apps\\FRIDAY\\..",
+  ];
+  it.each(["keep", "delete"] as const)("clears every unsafe spelling in %s mode", (mode) => {
+    for (const root of refused) expect(guard(root, mode), `${mode} ${root}`).toBe("");
+  });
+
+  it("clears a junction that really is the profile, a drive, or a folder above the program's parent", () => {
+    const over = {
+      junctions: {
+        "d:\\link": "C:\\Users\\owner",
+        "e:\\alias": "D:\\Apps",
+        "e:\\sys": "C:\\Windows",
+      },
+    };
+    for (const mode of ["keep", "delete"] as const)
+      for (const root of ["D:\\Link", "E:\\Alias", "E:\\Sys\\"])
+        expect(guard(root, mode, over), `${mode} ${root}`).toBe("");
+  });
+
+  it("keeps an ordinary root: the program's parent, the program folder, a folder inside it, an unrelated folder", () => {
+    const fine = [
+      "D:\\Apps\\FRIDAY",
+      "D:\\Apps\\FRIDAY\\",
+      "D:/Apps/FRIDAY",
+      INSTDIR,
+      DATA,
+      "E:\\FRIDAY-data",
+      "D:\\Apps\\FRIDAY-data",
+      "D:\\Apps\\FRI",
+      "C:\\Users\\owner\\FRIDAY",
+      "C:\\Users\\owner\\Documents\\FRIDAY",
+    ];
+    for (const mode of ["keep", "delete"] as const)
+      for (const root of fine) expect(guard(root, mode), `${mode} ${root}`).toBe(root);
+  });
+
+  it("never refuses an empty pointer, and never invents one", () => {
+    expect(guard("", "delete")).toBe("");
+    expect(guard("", "keep")).toBe("");
+  });
+
+  it("refuses a folder Windows cannot place when it would be deleted, and leaves it to the keep-mode move when it would be kept", () => {
+    const odd = "D:\\Odd\\FRIDAY";
+    expect(guard(odd, "delete", { unnormalisable: [odd] })).toBe("");
+    expect(guard(odd, "keep", { unnormalisable: [odd] })).toBe(odd);
+    // A program folder Windows cannot place leaves the ancestor test undecided: nothing is deleted then either.
+    expect(guard("D:\\Apps\\FRIDAY", "delete", { unnormalisable: [`${INSTDIR}\\..`] })).toBe("");
+    expect(guard("D:\\Apps\\FRIDAY", "keep", { unnormalisable: [`${INSTDIR}\\..`] })).toBe(
+      "D:\\Apps\\FRIDAY",
+    );
+  });
+
+  it("leaves the scratch registers of its caller alone", () => {
+    const w = drive(world());
+    w.vars["FridayUnRoot"] = "C:\\Windows";
+    for (const name of ["R0", "R1", "R2", "R3"]) w.vars[name] = `keep-${name}`;
+    runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+    for (const name of ["R0", "R1", "R2", "R3"]) expect(w.vars[name], name).toBe(`keep-${name}`);
+  });
+
+  it("runs on the pointer after the raw drive test and before the data guard, the stop script and any delete", () => {
+    const body = nsh.slice(
+      nsh.indexOf("!macro customUnInstall"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+    );
+    const call = body.indexOf("Call un.FridayRefuseUnsafeRoot");
+    expect(call).toBeGreaterThan(body.indexOf('StrLen $0 "$FridayUnRoot"'));
+    expect(call).toBeLessThan(body.indexOf("LAST-LINE DATA GUARD"));
+    expect(call).toBeLessThan(body.indexOf("close-friday.ps1"));
+    expect(call).toBeLessThan(body.indexOf('RMDir /r "$FridayUnRoot"'));
+    expect(call).toBeLessThan(body.indexOf("remove-source-root-data.ps1"));
+    // One call, in the body both modes share (not inside the keep-only or delete-only branch).
+    expect([...body.matchAll(/Call un\.FridayRefuseUnsafeRoot/g)]).toHaveLength(1);
+    expect(body.slice(0, call).match(/\$\{If\}/g)?.length).toBe(
+      body.slice(0, call).match(/\$\{EndIf\}/g)?.length,
+    );
+  });
+});
+
+describe("the move note stays until the data it names is gone", () => {
+  const NOTE = "Software\\FRIDAY\\DataMoveNote";
+  const FROM = "Software\\FRIDAY\\DataMoveFrom";
+  const installPart = () => {
+    const start = nsh.indexOf("; A move note of an earlier stopped uninstall");
+    const end = nsh.indexOf("; The installed EXE prefers", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return nsh.slice(start, end);
+  };
+  const install = (product: string, still: boolean, withFrom = true) => {
+    const w = world();
+    w.reg[NOTE] = "Uninstall stopped, nothing removed.";
+    if (withFrom) w.reg[FROM] = DATA;
+    if (!still) for (const item of under(w.tree, DATA)) w.tree.delete(item);
+    runGuard(w, installPart().replace(/\$\{PRODUCT_NAME\}/g, product));
+    return w;
+  };
+
+  it("an installation keeps the note while the folder it names still holds data", () => {
+    const w = install("FRIDAY", true);
+    expect(w.reg[NOTE]).toBeDefined();
+    expect(w.reg[FROM]).toBe(DATA);
+  });
+
+  it("an installation drops the note once that folder is gone, and one without a recorded folder", () => {
+    for (const w of [install("FRIDAY", false), install("FRIDAY", true, false)]) {
+      expect(w.reg[NOTE]).toBeUndefined();
+      expect(w.reg[FROM]).toBeUndefined();
+    }
+  });
+
+  it("a FRIDAY Test installation never touches the note, so Setup & Doctor can still read it", () => {
+    for (const still of [true, false]) {
+      const w = install("FRIDAY Test", still);
+      expect(w.reg[NOTE], String(still)).toBeDefined();
+      expect(w.reg[FROM], String(still)).toBe(DATA);
+    }
+    // The only delete sits inside the branch that is closed to FRIDAY Test.
+    const part = installPart();
+    expect(part.indexOf('${If} "${PRODUCT_NAME}" != "FRIDAY Test"')).toBeGreaterThan(-1);
+    expect(part.indexOf('${If} "${PRODUCT_NAME}" != "FRIDAY Test"')).toBeLessThan(
+      part.indexOf('DeleteRegValue HKCU "Software\\FRIDAY" "DataMoveNote"'),
+    );
+    expect(part.match(/DeleteRegValue HKCU "Software\\FRIDAY" "DataMoveNote"/g)).toHaveLength(1);
+  });
+
+  it("a stopped uninstall records the folder that still holds the data beside the note, a proven move removes both", () => {
+    for (const helper of ["none", "partial"] as const) {
+      const w = world({ renameFails: true, helper });
+      expect(() => runGuard(w)).toThrow(UninstallAborted);
+      expect(w.reg[FROM], helper).toBe(DATA);
+    }
+    for (const renameFails of [false, true]) {
+      const w = world({ renameFails, helper: "full" });
+      runGuard(w);
+      expect(w.reg[NOTE], String(renameFails)).toBeUndefined();
+      expect(w.reg[FROM], String(renameFails)).toBeUndefined();
+    }
+  });
+
+  it("a real keep uninstall drops a note whose folder is gone, before the key is tried for removal", () => {
+    const body = nsh.slice(
+      nsh.indexOf("!macro customUnInstall"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+    );
+    const keep = body.indexOf('DetailPrint "Keeping the FRIDAY data folder and its pointer');
+    const tidy = body.indexOf('"DataMoveFrom"', keep);
+    expect(tidy).toBeGreaterThan(keep);
+    expect(tidy).toBeLessThan(body.indexOf('DeleteRegKey /ifempty HKCU "Software\\FRIDAY"', keep));
+  });
+});
+
+describe("the preserved folder name is checked again right before the move", () => {
+  const PROFILE = "C:\\Users\\owner";
+
+  it("stops, and nests nothing, when the chosen name appears after the first check", () => {
+    for (const renameFails of [false, true]) {
+      const w = world({
+        renameFails,
+        helper: "full",
+        onNote: (world) => {
+          world.tree.add(`${PROFILE}\\FRIDAY`);
+          world.tree.add(`${PROFILE}\\FRIDAY\\keep.txt`);
+        },
+      });
+      expect(() => runGuard(w), String(renameFails)).toThrow(UninstallAborted);
+      expect(w.boxes, String(renameFails)).toHaveLength(1);
+      expect(w.boxes[0]).toContain(DATA);
+      expect(w.ran, String(renameFails)).toEqual([]);
+      expect(under(w.tree, DATA), String(renameFails)).toHaveLength(5);
+      expect(w.tree.has(`${PROFILE}\\FRIDAY\\data-root`), String(renameFails)).toBe(false);
+      expect(under(w.tree, `${PROFILE}\\FRIDAY`), String(renameFails)).toEqual([
+        `${PROFILE}\\FRIDAY`,
+        `${PROFILE}\\FRIDAY\\keep.txt`,
+      ]);
+      expect(w.reg[POINTER], String(renameFails)).toBe(DATA);
+      expect(w.reg["Software\\FRIDAY\\DataMoveNote"], String(renameFails)).toContain(DATA);
+    }
+  });
+
+  it("checks after the note is written and before the rename, and the move helper refuses an existing destination itself", () => {
+    const region = guardRegion();
+    const note = region.indexOf(
+      'WriteRegStr HKCU "Software\\FRIDAY" "DataMoveNote" "The FRIDAY data folder',
+    );
+    const rename = region.indexOf("Rename ");
+    const recheck = region.indexOf('${If} ${FileExists} "$4"', note);
+    expect(recheck).toBeGreaterThan(note);
+    expect(recheck).toBeLessThan(rename);
+    const helper = region.slice(region.indexOf("nsExec::ExecToLog"));
+    const test = helper.indexOf("Test-Path -LiteralPath $$env:FRIDAY_UN_TO");
+    expect(test).toBeGreaterThan(-1);
+    expect(test).toBeLessThan(helper.indexOf("Move-Item"));
+    expect(helper.slice(test, helper.indexOf("Move-Item"))).toContain("exit 3");
   });
 });

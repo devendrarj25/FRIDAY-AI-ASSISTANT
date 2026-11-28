@@ -139,7 +139,8 @@ function runNsis(body: string, env: Env): void {
       runNsis(functionBody(call[1]!), env);
       continue;
     }
-    if (/^(DetailPrint|ClearErrors|Pop|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
+    // Push and Pop only save and restore the scratch registers of a function; the run keeps one flat set of variables.
+    if (/^(DetailPrint|ClearErrors|Push|Pop|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
 
     const rmdir = /^RMDir\s+(?:\/r\s+)?(.+)$/.exec(line);
     if (rmdir) {
@@ -236,6 +237,13 @@ function runNsis(body: string, env: Env): void {
       const there = input !== "" && existsSync(input);
       env.vars[longPathCall[2]!] = there ? input : "";
       env.vars[longPathCall[3]!] = String(there ? input.length : 0);
+      continue;
+    }
+    // The junction-following step of the path normaliser: this host has no junctions, so no folder is opened (a handle
+    // of -1), and the spelling-only answer above stands.
+    const openCall = /^System::Call 'Kernel32::CreateFileW\(w (\w+),[^)]*\)i \.(\w+)'$/.exec(line);
+    if (openCall) {
+      env.vars[openCall[2]!] = "-1";
       continue;
     }
     // The folders for the detached sweeper travel in its environment, not in its command line.

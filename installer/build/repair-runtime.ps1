@@ -24,12 +24,21 @@ $pythonPathFile = Join-Path $env:TEMP "friday-python-$PID.txt"
 # series). It is unpacked only when something has to be installed, into a per-run random folder inside the install's
 # own temporary folder, and that folder is removed when this script ends. Only when that folder cannot be made (a
 # per-machine install without rights there) the folder is made under the user's own temp folder instead of going
-# online. A run's folder carries run.lock; another run's folder is removed only when it has no lock or its lock is more
-# than an hour old, never while it may still be in use.
+# online. A run's folder carries run.lock from the moment it can be seen (it is made under another name, given its lock
+# and only then renamed), and the lock is refreshed every five minutes while pip runs; another run's folder is removed
+# only when it has no lock or its lock was last refreshed more than an hour ago, never while it may still be in use.
+# The two pin files of each Python series (requirements-<tag>.txt, constraints-<tag>.txt) are read from the pack itself
+# and hashed in memory; the unpacked copies must have the same SHA-256 when the unpack ends and again right before each
+# pip run, so a file swapped in between is a hash mismatch. Pip's own log goes to a private folder of its own, and what
+# pip printed is read as well, so an edited log hides nothing.
 $wheelhousePack = Join-Path $InstallDir 'resources\toolchain\wheelhouse\pack.bin'
 $wheelhouseTemp = Join-Path $InstallDir 'temporary'
 $wheelhouseDir = Join-Path $wheelhouseTemp ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))
 $script:wheelhouse = $null
+# The SHA-256 of each pin file as it is inside the pack (name -> hex), read before anything is unpacked.
+$script:wheelhousePins = $null
+# The private folder that holds pip's log, made when the first hashed pip run needs it.
+$script:pipLogDir = $null
 # Set by Install-FromWheelhouse when pip refused a wheel because its SHA-256 differs from the build's lock.
 $script:wheelhouseMismatch = $false
 
@@ -51,6 +60,7 @@ function Finish([string]$Status, [int]$Code) {
   Set-Content -LiteralPath $StatusFile -Value $Status -Encoding ASCII
   Remove-Item -LiteralPath $pythonPathFile -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $wheelhouseDir -Recurse -Force -ErrorAction SilentlyContinue
+  if ($script:pipLogDir) { Remove-Item -LiteralPath $script:pipLogDir -Recurse -Force -ErrorAction SilentlyContinue }
   exit $Code
 }
 
@@ -60,10 +70,12 @@ function Test-Runtime {
   return ($LASTEXITCODE -eq 0)
 }
 
-# True when pip's own log (pip --log) records a wheel whose SHA-256 differs from the hash pinned for it. That is the
-# one failure that is never retried through the network: a wheel that does not match its pin is not installed from
-# anywhere else either.
-function Test-PipHashMismatch([string]$Log) {
+# True when pip's own log (pip --log) or what pip printed ($Output, kept in memory by the caller) records a wheel whose
+# SHA-256 differs from the hash pinned for it. That is the one failure that is never retried through the network: a
+# wheel that does not match its pin is not installed from anywhere else either. The printed text cannot be edited by
+# anyone who can reach the log file, so the two together are not defeated by a changed log.
+function Test-PipHashMismatch([string]$Log, [string]$Output = '') {
+  if ($Output -match 'DO NOT MATCH THE HASHES') { return $true }
   if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) { return $false }
   return [bool](Select-String -LiteralPath $Log -Pattern 'DO NOT MATCH THE HASHES' -Quiet)
 }
@@ -96,6 +108,82 @@ function Test-VoiceCore {
   return ($LASTEXITCODE -eq 0)
 }
 
+# The SHA-256 (hex) of each pin file inside the pack, read straight from the pack in memory: name -> hash. The pack is
+# opened once here, before anything is unpacked.
+function Get-PackPins {
+  $pins = @{}
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $zip = [System.IO.Compression.ZipFile]::OpenRead($wheelhousePack)
+  try {
+    foreach ($entry in $zip.Entries) {
+      if ($entry.FullName -notmatch '^(requirements|constraints)-cp[0-9]+\.txt$') { continue }
+      $stream = $entry.Open()
+      try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $pins[$entry.FullName] = ([System.BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+      } finally { $stream.Dispose() }
+    }
+  } finally { $zip.Dispose() }
+  return $pins
+}
+
+# True when the pin file at $Path has exactly the SHA-256 that the pack has for a file of that name.
+function Test-PinFile([string]$Path) {
+  $name = Split-Path -Leaf $Path
+  if ($null -eq $script:wheelhousePins -or -not $script:wheelhousePins.ContainsKey($name)) { return $false }
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+  $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+  return ("$actual".ToLowerInvariant() -eq $script:wheelhousePins[$name])
+}
+
+# A folder of this run's own for pip's log, away from the unpacked pins and wheels. Only the current user gets access
+# where Windows ACLs apply; when the folder cannot be made the log goes next to the pins as before ($Fallback).
+function Get-PipLogDir([string]$Fallback = '') {
+  if ($script:pipLogDir) { return $script:pipLogDir }
+  $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('friday-piplog-' + [guid]::NewGuid().ToString('N'))
+  try {
+    New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+  } catch { return $Fallback }
+  try {
+    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    Set-Acl -LiteralPath $dir -AclObject $acl -ErrorAction Stop
+  } catch { }
+  $script:pipLogDir = $dir
+  return $dir
+}
+
+# Marks the run's folder as in use now: the sweep of another run keeps a folder whose lock was refreshed in the last hour.
+function Update-RunLock([string]$Dir) {
+  $lock = Join-Path $Dir 'run.lock'
+  try { Set-Content -LiteralPath $lock -Value "$PID" -Encoding ASCII -ErrorAction Stop } catch { }
+  try { (Get-Item -LiteralPath $lock -ErrorAction Stop).LastWriteTime = [DateTime]::Now } catch { }
+}
+
+# Refreshes run.lock every five minutes in a runspace of its own while a native pip call blocks this one. Returns the
+# handle for Stop-LockHeartbeat, or $null when it cannot be started (the lock is then only as fresh as the run's start).
+function Start-LockHeartbeat([string]$Lock) {
+  try {
+    $shell = [powershell]::Create()
+    [void]$shell.AddScript({
+        param($file)
+        while ($true) {
+          Start-Sleep -Seconds 300
+          try { (Get-Item -LiteralPath $file -ErrorAction Stop).LastWriteTime = [DateTime]::Now } catch { }
+        }
+      }).AddArgument($Lock)
+    $handle = $shell.BeginInvoke()
+    return @{ Shell = $shell; Handle = $handle }
+  } catch { return $null }
+}
+
+function Stop-LockHeartbeat($Beat) {
+  if ($null -eq $Beat) { return }
+  try { [void]$Beat.Shell.BeginStop($null, $null) } catch { }
+}
+
 # The unpacked wheelhouse folder, or '' when this EXE carries none or it cannot be read. Never an error.
 function Get-Wheelhouse {
   if ($null -ne $script:wheelhouse) { return $script:wheelhouse }
@@ -105,30 +193,44 @@ function Get-Wheelhouse {
   # The install's own temporary folder first; when it cannot be made, a random folder under the user's temp folder.
   $userTemp = Join-Path ([System.IO.Path]::GetTempPath()) ('friday-wheelhouse-' + [guid]::NewGuid().ToString('N'))
   foreach ($dir in @($wheelhouseDir, $userTemp)) {
+    $stage = $null
     try {
       $parent = Split-Path -Parent $dir
       New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop | Out-Null
       # Leftovers of a run that was killed. Another run's folder is left alone while it may still be in use: only a
-      # folder without run.lock, or with a lock older than an hour, is removed.
+      # folder without run.lock, or with a lock last refreshed more than an hour ago, is removed.
       Get-ChildItem -LiteralPath $parent -Directory -Filter 'friday-wheelhouse-*' -ErrorAction SilentlyContinue |
         Where-Object {
           $lock = Join-Path $_.FullName 'run.lock'
           -not (Test-Path -LiteralPath $lock -PathType Leaf) -or ((Get-Item -LiteralPath $lock).LastWriteTime -lt $stale)
         } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-      New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
-      Set-Content -LiteralPath (Join-Path $dir 'run.lock') -Value "$PID" -Encoding ASCII -ErrorAction Stop
+      # The folder is made under a name the sweep above never matches, given its lock, and renamed to its final name
+      # only then: no other run can see it without a lock.
+      $stage = Join-Path $parent ('friday-stage-' + [guid]::NewGuid().ToString('N'))
+      New-Item -ItemType Directory -Path $stage -ErrorAction Stop | Out-Null
+      Set-Content -LiteralPath (Join-Path $stage 'run.lock') -Value "$PID" -Encoding ASCII -ErrorAction Stop
+      Rename-Item -LiteralPath $stage -NewName (Split-Path -Leaf $dir) -ErrorAction Stop
+      $stage = $null
       # Finish removes the folder this run really used.
       $script:wheelhouseDir = $dir
       Add-Type -AssemblyName System.IO.Compression.FileSystem
+      # What the pin files must be, taken from the pack itself before it is unpacked.
+      $script:wheelhousePins = Get-PackPins
       [System.IO.Compression.ZipFile]::ExtractToDirectory($wheelhousePack, $dir)
-      if (Test-Path -LiteralPath (Join-Path $dir 'wheelhouse.json') -PathType Leaf) {
+      $pinsOk = $true
+      foreach ($name in @($script:wheelhousePins.Keys)) {
+        if (-not (Test-PinFile (Join-Path $dir $name))) { $pinsOk = $false }
+      }
+      if ($pinsOk -and (Test-Path -LiteralPath (Join-Path $dir 'wheelhouse.json') -PathType Leaf)) {
         $script:wheelhouse = $dir
         break
       }
+      Write-Host "FRIDAY: the unpacked wheelhouse does not match its pack in $dir"
     } catch {
       Write-Host "FRIDAY: the wheelhouse could not be unpacked into $dir"
     }
+    if ($stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
   }
   return $script:wheelhouse
@@ -157,17 +259,35 @@ function Install-FromWheelhouse([string]$Requirements) {
   if (-not $house) { return $false }
   $constraints = Join-Path $house "constraints-$tag.txt"
   $hashed = Join-Path $house "requirements-$tag.txt"
-  $log = Join-Path $house 'pip-wheelhouse.log'
+  $log = Join-Path (Get-PipLogDir $house) 'pip-wheelhouse.log'
   if (-not (Test-Path -LiteralPath $Requirements -PathType Leaf)) { return $false }
   if (-not (Test-Path -LiteralPath $constraints -PathType Leaf)) { return $false }
   if (-not (Test-Path -LiteralPath $hashed -PathType Leaf)) { return $false }
-  & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house --require-hashes --log $log -r $hashed | Out-Host
-  if ($LASTEXITCODE -eq 0) { return $true }
-  if (Test-PipHashMismatch $log) { $script:wheelhouseMismatch = $true; return $false }
-  & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints --require-hashes --log $log -r $hashed | Out-Host
-  if ($LASTEXITCODE -eq 0) { return $true }
-  if (Test-PipHashMismatch $log) { $script:wheelhouseMismatch = $true }
-  return $false
+  $beat = Start-LockHeartbeat (Join-Path $house 'run.lock')
+  try {
+    Update-RunLock $house
+    # Both pin files must still be the ones the pack holds, checked right before each pip run: a pin file that was
+    # swapped after the unpack is a hash mismatch and ends this path, like a wheel that does not match.
+    if (-not ((Test-PinFile $hashed) -and (Test-PinFile $constraints))) {
+      $script:wheelhouseMismatch = $true
+      return $false
+    }
+    $pipOut = $null
+    & $venvPython -m pip install --disable-pip-version-check --no-index --find-links $house --require-hashes --log $log -r $hashed 2>&1 | Tee-Object -Variable pipOut | Out-Host
+    if ($LASTEXITCODE -eq 0) { return $true }
+    if (Test-PipHashMismatch $log "$pipOut") { $script:wheelhouseMismatch = $true; return $false }
+    if (-not ((Test-PinFile $hashed) -and (Test-PinFile $constraints))) {
+      $script:wheelhouseMismatch = $true
+      return $false
+    }
+    $pipOut = $null
+    & $venvPython -m pip install --disable-pip-version-check --only-binary=:all: --find-links $house -c $constraints --require-hashes --log $log -r $hashed 2>&1 | Tee-Object -Variable pipOut | Out-Host
+    if ($LASTEXITCODE -eq 0) { return $true }
+    if (Test-PipHashMismatch $log "$pipOut") { $script:wheelhouseMismatch = $true }
+    return $false
+  } finally {
+    Stop-LockHeartbeat $beat
+  }
 }
 
 function Install-VoiceCore {
