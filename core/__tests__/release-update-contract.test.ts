@@ -279,4 +279,90 @@ describe("the build record (friday-bundle.json) travels with every manifest", ()
     expect(() => run(s, { caller: "cmd" })).not.toThrow();
     expect(bundleOf(s).models).toEqual([]);
   });
+
+  it("leaves FRIDAY's own marker files out of a model row, so the config pin still wins and the copy is adopted", async () => {
+    const s = stage();
+    const put = (rel: string, text: string) => {
+      const file = path.join(s.home, "models", ...rel.split("/"));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    };
+    put("friday-ear-tiny/config.json", "{}");
+    put("friday-ear-tiny/sub/model.bin", "weights");
+    put("friday-ear-tiny/.friday-pin.json", '{"revision":"abc"}');
+    put("friday-ear-tiny/.friday-complete", "");
+    put("friday-ear-tiny/.cache/huggingface/download/x.metadata", "meta");
+    put("friday-ear-tiny/sub/model.bin.part.json", "{}");
+    run(s, { caller: "cmd" });
+    const [model] = bundleOf(s).models;
+    expect(model.files.map((f: { path: string }) => f.path)).toEqual([
+      "config.json",
+      "sub/model.bin",
+    ]);
+    const pin = [
+      { path: "config.json", bytes: 2, sha256: hex("{}") },
+      { path: "sub/model.bin", bytes: 7, sha256: hex("weights") },
+    ];
+    expect(bundleLib.pinWins(model, { files: pin })).toBe(true);
+
+    // The strict adopter accepts the record for the finished files (its folder walk counts files, so the copy
+    // here leaves FRIDAY's own markers behind, as the move to the app root does).
+    const staged = require_(path.join(root, "electron/staged-assets.cjs"));
+    const checkout = path.join(s.base, "checkout");
+    fs.mkdirSync(checkout);
+    fs.cpSync(path.join(s.home, "models"), path.join(checkout, "models"), {
+      recursive: true,
+      filter: (src: string) => !/\.friday-|\.cache|\.part/.test(path.basename(src)),
+    });
+    fs.copyFileSync(
+      path.join(s.dir, "friday-bundle.json"),
+      path.join(checkout, "friday-bundle.json"),
+    );
+    const env = { APPDATA: path.join(s.base, "appdata") };
+    fs.mkdirSync(env.APPDATA, { recursive: true });
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    const target = path.join(s.base, "FRIDAY");
+    const report = await staged.adopt(target, {
+      env,
+      pins: pin.map((p) => ({ fridayId: "friday-ear-tiny", ...p })),
+      statfs: async () => ({ bavail: 10_000, bsize: 1024 ** 3 }),
+    });
+    expect(report.items.map((r: { id: string; result: string }) => [r.id, r.result])).toEqual([
+      ["models/friday-ear-tiny", "adopted"],
+    ]);
+  });
+
+  it("records a pack folder built by the CMD opt-in as a local source, and keeps the others on the release", () => {
+    const s = stage();
+    const before = run(s, { caller: "cmd" });
+    expect(before).toBeTruthy();
+    const tags = bundleOf(s).packs.map((p: { tag: string }) => p.tag);
+    expect(bundleOf(s).packs.every((p: { location: string }) => p.location === "release")).toBe(
+      true,
+    );
+    const tag = tags[0];
+    const dir = path.join(s.home, "installer", "packs", tag);
+    fs.mkdirSync(dir, { recursive: true });
+    run(s, { caller: "cmd" });
+    // An empty folder is not a source.
+    expect(bundleOf(s).packs.find((p: { tag: string }) => p.tag === tag).location).toBe("release");
+    fs.writeFileSync(path.join(dir, "weights.bin"), "w");
+    run(s, { caller: "cmd" });
+    const packs = bundleOf(s).packs;
+    expect(packs.find((p: { tag: string }) => p.tag === tag)).toMatchObject({
+      location: "local",
+      dir: `installer/packs/${tag}`,
+    });
+    expect(
+      packs
+        .filter((p: { location: string }) => p.location === "local")
+        .map((p: { tag: string }) => p.tag),
+    ).toEqual([tag]);
+    expect(bundleLib.read(path.join(s.dir, "friday-bundle.json"))).not.toBeNull();
+    // Only a CMD build points at this PC; a hosted build keeps every pack on the release.
+    run(s, { caller: "release" });
+    expect(bundleOf(s).packs.every((p: { location: string }) => p.location === "release")).toBe(
+      true,
+    );
+  });
 });

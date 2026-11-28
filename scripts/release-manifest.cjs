@@ -29,12 +29,13 @@ const { spawnSync } = require("node:child_process");
 const IDENTITY = require("./identity.cjs");
 const engine = require("./release-engine.cjs");
 const bundleLib = require("../electron/build-bundle.cjs");
+const voicePins = require("../electron/voice-pins.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const RELEASE = path.join(ROOT, "release");
 /** A folder name the record can carry as a model id. */
 const FOLDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-/** A file that is still arriving: a folder holding one is not a finished model. */
+/** A file that is still arriving, apart from FRIDAY's own part files: a folder holding one is not a finished model. */
 const UNFINISHED = /\.(part\d*|tmp|partial|download|crdownload)$/i;
 
 /** SHA-256 of a file, read in 1 MiB steps so a multi-GB weight file never sits in memory. */
@@ -103,11 +104,33 @@ function commitOf(env) {
   }
 }
 
+/** Where the CMD build keeps a weight pack (scripts/place-build.cjs buildPacks), relative to the FRIDAY folder. */
+const packDirOf = (tag) => `installer/packs/${tag}`;
+
+/** True when `<home>/installer/packs/<tag>` holds at least one file: only then is that pack a local source. */
+function packOnDisk(home, tag) {
+  if (!home || !FOLDER_ID.test(String(tag))) return false;
+  const found = (folder) => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      if (entry.isFile()) return true;
+      if (entry.isDirectory() && found(path.join(folder, entry.name))) return true;
+    }
+    return false;
+  };
+  try {
+    return found(path.join(home, ...packDirOf(tag).split("/")));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The weight packs this build knows: every `packs[]` row of config/friday-models.json, plus the old
  * `<tagPrefix><revision>` pack when a FRIDAY Core variant of config/friday-core.json is named by no row.
+ * A pack that sits in `<home>/installer/packs/<tag>` (the CMD opt-in FRIDAY_BUILD_PACKS=1) is a local source
+ * (`location: "local"`, `dir: "installer/packs/<tag>"`); any other pack stays on the release.
  */
-function packsOf(root) {
+function packsOf(root, home = null) {
   const models = readJson(path.join(root, "config", "friday-models.json"));
   const core = readJson(path.join(root, "config", "friday-core.json"));
   const rows = Array.isArray(models?.packs) ? models.packs : [];
@@ -128,8 +151,14 @@ function packsOf(root) {
       dir: null,
     });
   }
-  return out;
+  return out.map((p) =>
+    packOnDisk(home, p.tag) ? { ...p, location: "local", dir: packDirOf(p.tag) } : p,
+  );
 }
+
+/** FRIDAY's own marker files and download scratch (the predicate the pin audit uses, not a second list). */
+const isOwnFile = (rel) =>
+  voicePins.unexpectedFiles("", { files: {} }, { list: () => [rel] }).length === 0;
 
 /** Every file under a model folder, or null when it holds a link, a stray entry or an unfinished download. */
 function filesOf(dir) {
@@ -138,6 +167,7 @@ function filesOf(dir) {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const full = path.join(folder, entry.name);
+      if (isOwnFile(rel)) continue;
       if (entry.isDirectory()) {
         if (!walk(full, rel)) return false;
       } else if (entry.isFile() && !UNFINISHED.test(entry.name)) {
@@ -198,7 +228,7 @@ function bundleOf({ clean, test, caller, assets, sumsFile, resourcesDir, home, e
         ? { bytes: fs.statSync(pack).size, sha256: sha256(pack) }
         : null,
     },
-    packs: packsOf(ROOT),
+    packs: packsOf(ROOT, caller === "cmd" ? home : null),
     models: [],
   };
   if (caller === "cmd" && String(env.FRIDAY_BUNDLE_MODELS || "") !== "0" && home) {
