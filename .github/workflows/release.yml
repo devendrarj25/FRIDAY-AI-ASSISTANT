@@ -1681,6 +1681,7 @@ jobs:
 
           publish_pack() {
             local pack="$1" title="$2" kind mpack model bytes ct2 out need avail free_kb f size specs final stale
+            local -a spec_args
             local files=()
             dir="$work/$pack"
             rm -rf "$dir"
@@ -1719,11 +1720,12 @@ jobs:
                     if (!row) throw new Error(n + " is not in config/wheelhouse.lock.json");
                     return n + "==" + row.version;
                   };
-                  console.log(pin("numpy"), pin("ctranslate2"));
+                  console.log([pin("numpy"), pin("ctranslate2")].join("\n"));
                 ')
-                echo "installing the pinned converter packages: $specs"
-                python -m pip install --disable-pip-version-check --no-input $specs < /dev/null \
-                  || drop "the converter packages ($specs) could not be installed"
+                mapfile -t spec_args <<< "$specs"
+                echo "installing the pinned converter packages: ${spec_args[*]}"
+                python -m pip install --disable-pip-version-check --no-input "${spec_args[@]}" < /dev/null \
+                  || drop "the converter packages (${spec_args[*]}) could not be installed"
                 ct2_ready=1
               fi
 
