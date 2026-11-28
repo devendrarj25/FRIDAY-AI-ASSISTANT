@@ -385,3 +385,60 @@ describe("a pinned repository download is folder-safe", () => {
     expect(fs.existsSync(`${target}.prev`)).toBe(false);
   });
 });
+
+describe("a record that cannot be true never certifies a folder", () => {
+  const files = { "config.json": "{}", "model.bin": "weights-v1", "tok.json": "tok" };
+  const REV = "c".repeat(40);
+  const pin: Pin = {
+    revision: REV,
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, text]) => [
+        name,
+        { sha256: sha(text), bytes: text.length },
+      ]),
+    ),
+  };
+  const audit = download as unknown as {
+    auditPinnedFolder: (
+      dest: string,
+      pin: Pin,
+      deps?: { now?: () => Date },
+    ) => Promise<{ ok: boolean; hashed?: boolean }>;
+  };
+  const writeMarkerAt = (dir: string, verifiedAt: string) => {
+    pins.writeMarker(dir, "test/pinned-voice", pin);
+    const file = path.join(dir, pins.MARKER);
+    const record = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...record, verifiedAt }));
+  };
+  const folder = (tampered: boolean) => {
+    const dir = temp();
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+    if (tampered) fs.writeFileSync(path.join(dir, "model.bin"), "weights-v9");
+    return dir;
+  };
+
+  it("a record dated in the future is not trusted: every file is hashed and the same-size bad file fails", async () => {
+    const dir = folder(true);
+    writeMarkerAt(dir, "2100-01-01T00:00:00.000Z");
+    const result = await audit.auditPinnedFolder(dir, pin, { now: () => new Date() });
+    expect(result.hashed).toBe(true);
+    expect(result.ok).toBe(false);
+  });
+
+  it("a record whose time is not a timestamp is not trusted either", async () => {
+    const dir = folder(true);
+    writeMarkerAt(dir, "not-a-time");
+    const result = await audit.auditPinnedFolder(dir, pin);
+    expect(result.hashed).toBe(true);
+    expect(result.ok).toBe(false);
+  });
+
+  it("a fresh record on an untouched folder still certifies without hashing", async () => {
+    const dir = folder(false);
+    writeMarkerAt(dir, new Date(Date.now() + 1000).toISOString());
+    const result = await audit.auditPinnedFolder(dir, pin);
+    expect(result.ok).toBe(true);
+    expect(result.hashed).toBeFalsy();
+  });
+});

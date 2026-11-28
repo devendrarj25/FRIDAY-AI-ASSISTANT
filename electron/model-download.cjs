@@ -1007,16 +1007,20 @@ async function certifyPinnedFolder(ctx) {
 
 /** Slack for a clock that rounds a file time a little past the marker's own time. */
 const MARKER_SLACK_MS = 2000;
+/** A record dated later than this past "now" cannot be true: it is ignored and every file is hashed. */
+const MARKER_FUTURE_SLACK_MS = 5 * 60 * 1000;
 
 /**
  * True when the folder's own record (`.friday-pin.json`) certifies exactly this pin and no pinned file was written
  * after the record was made. A file touched later is not trusted by size alone: it is hashed again.
  */
-function markerCertifies(dest, pin) {
+function markerCertifies(dest, pin, deps = {}) {
   const marker = voicePins.readMarker(dest);
   if (!marker || marker.revision !== pin.revision) return false;
   const verifiedAt = Date.parse(marker.verifiedAt);
   if (!Number.isFinite(verifiedAt)) return false;
+  const now = (deps.now ? deps.now() : new Date()).getTime();
+  if (verifiedAt > now + MARKER_FUTURE_SLACK_MS) return false;
   for (const [name, row] of Object.entries(pin.files)) {
     if (marker.files?.[name]?.sha256 !== row.sha256) return false;
     try {
@@ -1033,9 +1037,9 @@ function markerCertifies(dest, pin) {
  * Look at a pinned folder on disk without any network: sizes first; when they are right and no fresh record vouches
  * for the folder, every file is held to its pinned SHA-256 too (`hashed: true` in the result). Never changes a file.
  */
-async function auditPinnedFolder(dest, pin) {
+async function auditPinnedFolder(dest, pin, deps = {}) {
   const sized = await voicePins.auditDir(dest, pin);
-  if (!sized.ok || markerCertifies(dest, pin)) return sized;
+  if (!sized.ok || markerCertifies(dest, pin, deps)) return sized;
   return voicePins.auditDir(dest, pin, { hash: true });
 }
 
@@ -1415,7 +1419,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         const present = (name) => fs.existsSync(path.join(dest, ...name.split("/")));
         const names = plan.files.map((file) => file.name);
         // The sizes, and (no fresh record) the SHA-256 of what is already there: a same-size corrupt file is damaged too.
-        const audit0 = await auditPinnedFolder(dest, pin);
+        const audit0 = await auditPinnedFolder(dest, pin, deps);
         // Already installed and verified: nothing to copy; the sources behind this one audit and certify it as before.
         if (audit0.ok && names.every(present)) continue;
         const { swap, keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
@@ -1608,7 +1612,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         // A folder that is already whole needs no listing: it is looked at on disk first, so it also works offline.
         // Sizes right and a fresh record: certified as it is. No record: every file is hashed once, then certified.
         const folder = path.join(root, modelId);
-        const early = pin ? await auditPinnedFolder(folder, pin) : null;
+        const early = pin ? await auditPinnedFolder(folder, pin, deps) : null;
         if (early?.ok) {
           await certifyPinnedFolder({
             dest: folder,
@@ -1929,6 +1933,7 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
 }
 
 module.exports = {
+  auditPinnedFolder,
   withHfAuth,
   HF_HOSTS,
   selfCheckPlan,

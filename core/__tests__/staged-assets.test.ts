@@ -89,6 +89,20 @@ describe("staged build downloads", () => {
     expect(fs.existsSync(path.join(root, "cache", "stt", "base", "model.bin"))).toBe(true);
   });
 
+  it("a moved item lands without FRIDAY's own marker files, so the app certifies it itself", async () => {
+    write(root, ".friday-dev/cache/stt/base/model.bin", "weights");
+    write(root, ".friday-dev/cache/stt/base/.friday-pin.json", "{}");
+    write(root, ".friday-dev/cache/stt/base/.friday-complete", "");
+    write(root, ".friday-dev/cache/stt/base/sub/.friday-pin.json", "{}");
+    const report = await staged.adopt(root, { env });
+    expect(report.moved.length).toBe(1);
+    const landed = path.join(root, "cache", "stt", "base");
+    expect(fs.readFileSync(path.join(landed, "model.bin"), "utf8")).toBe("weights");
+    expect(fs.existsSync(path.join(landed, ".friday-pin.json"))).toBe(false);
+    expect(fs.existsSync(path.join(landed, ".friday-complete"))).toBe(false);
+    expect(fs.existsSync(path.join(landed, "sub", ".friday-pin.json"))).toBe(false);
+  });
+
   it("never overwrites a model the FRIDAY folder already has", async () => {
     write(root, "cache/stt/small/model.bin", "kept");
     const dev = path.join(temp, "checkout", ".friday-dev");

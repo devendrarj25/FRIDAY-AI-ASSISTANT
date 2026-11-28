@@ -312,8 +312,24 @@ async function claimDestination(to) {
   if (await exists(to)) throw new DestinationAppeared();
 }
 
+/**
+ * Drops FRIDAY's own certification records (`.friday-pin.json`, `.friday-complete`) from a staged item before it
+ * moves: a record that arrives from a build root vouches for nothing here, so the app hashes the folder once itself.
+ * Only an item inside the staging folder reaches this (its source is ours to change).
+ */
+async function dropMarkers(dir) {
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) await dropMarkers(full);
+    else if (entry.isFile() && [".friday-pin.json", ".friday-complete"].includes(entry.name))
+      await fs.promises.rm(full, { force: true });
+  }
+}
+
 async function moveItem(from, to) {
   await claimDestination(to);
+  await dropMarkers(from);
   try {
     await fs.promises.rename(from, to);
     return "renamed";
