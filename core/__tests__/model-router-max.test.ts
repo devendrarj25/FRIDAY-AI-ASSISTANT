@@ -223,12 +223,14 @@ describe("per-model breaker and score", () => {
     const oldFixture = "sk-" + "abcdefghij123456";
     expect(src).not.toContain(oldFixture);
     const ignore = readFileSync(path.resolve(__dirname, "../../.gitleaksignore"), "utf8").trim();
-    // Exactly the known history hits of fake fixtures are ignored, nothing else.
+    // Exactly the known history hits are ignored, nothing else: four fake fixtures, and one public SHA-256 pin of a
+    // model file (`tokenizer.bin` in electron/voice-weights.cjs) that the scanner's key-value rule read as a key.
     expect(ignore.split("\n")).toEqual([
       "1fc8c6073be152b1f676ac56d813a1b676e35c02:core/__tests__/model-router-max.test.ts:generic-api-key:178",
       "9be8ad49459946516ffff49efa683067b52f28ab:core/__tests__/voice-turn-brain.test.ts:generic-api-key:558",
       "2df14b2e5b729ab19a338b971887d8a3364ec6e4:core/__tests__/friday-runtime-llm-args.test.ts:generic-api-key:20",
       "fc8da975f0dc631ce379d865fc7d70b1fa88e18c:core/__tests__/finetune-gate.test.ts:generic-api-key:353",
+      "9a155f7b7d7897e88eb3b24a48f71d8c69745518:electron/voice-weights.cjs:generic-api-key:2025",
     ]);
   });
 
