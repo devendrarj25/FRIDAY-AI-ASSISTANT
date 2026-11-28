@@ -164,9 +164,9 @@ describe("install markers and pins", () => {
       const found = installs.installedBin(dir, {
         id: "MinGit",
         archiveBin: "cmd/git.exe",
-        pinVersion: "2.56.0.2",
+        pinVersion: "2.56.1",
       });
-      expect(found.version).toBe("2.56.0.2");
+      expect(found.version).toBe("2.56.1");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

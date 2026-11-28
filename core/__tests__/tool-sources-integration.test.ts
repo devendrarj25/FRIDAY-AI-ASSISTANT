@@ -559,7 +559,7 @@ describe("the shipped data files obey the same rules", () => {
     expect(got.errors).toEqual([]);
     expect(got.warnings.join()).toMatch(/no digest source/);
     vendor.clearToolSources();
-    for (const id of ["Python", ".NET SDK", "AWS CLI", "VC++ Redistributable", "Ruby", "PHP"]) {
+    for (const id of ["Python", ".NET SDK", "AWS CLI", "VC++ Redistributable", "Lua", "PHP"]) {
       expect(vendor.downloadReadiness(vendor.rowSpec(id)).installable, id).toBe(false);
     }
   });
@@ -575,6 +575,7 @@ describe("the shipped data files obey the same rules", () => {
       "majorMinor",
       "patch",
       "versionNoDots",
+      "sqliteNumeric",
       "file",
     ]);
     for (const [id, r] of Object.entries(rows) as [string, Record<string, unknown>][]) {

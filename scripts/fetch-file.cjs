@@ -2,11 +2,13 @@
  * One file over HTTPS with the live download row the other setup downloads use (scripts/download-board.cjs): the
  * solid coloured bar, the percent, `done/total` in MB, the speed and the time left on a real console, a plain line
  * every tenth in a log file. setup-windows.ps1 runs it for the installers it downloads once Node.js is there; the
- * file is checked by the caller (SHA-256 or publisher signature), never here.
+ * file is checked by the caller (SHA-256 or publisher signature), never here. A connection that breaks keeps the
+ * `.part` file and the next run continues it with a Range request (a 206 that starts at the right byte, else a clean
+ * restart).
  *
  *   node scripts/fetch-file.cjs --url <https url> --out <file> [--label <name>]
  *
- * Exit 0 = the file is complete at --out; 1 = failed (nothing is left behind); 2 = bad arguments; 3 = this machine
+ * Exit 0 = the file is complete at --out; 1 = failed (a cut connection keeps the .part file for the next run, any other failure leaves nothing); 2 = bad arguments; 3 = this machine
  * reaches the network through a proxy, which this script does not use, so the caller uses its own transports.
  * The row is written to stderr and stdout stays empty, so a PowerShell function that captures its output still shows
  * the bar. TLS stays fully on: only https is followed, redirects included.
@@ -44,12 +46,17 @@ function proxyConfigured(env = process.env) {
   );
 }
 
-/** One GET that follows redirects and hands the final response to `onResponse`. */
-function request(url, onResponse, redirects = 0) {
+/** An error that keeps the `.part` file: the connection broke, the bytes so far are good and a retry can continue. */
+function interrupted(message) {
+  return Object.assign(new Error(message), { keepPart: true });
+}
+
+/** One GET that follows redirects and hands the final 200 or 206 response to `onResponse`. */
+function request(url, headers, onResponse, redirects = 0) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
-      { headers: { "User-Agent": "FRIDAY-Setup" }, timeout: CONNECT_MS },
+      { headers: { "User-Agent": "FRIDAY-Setup", ...headers }, timeout: CONNECT_MS },
       (res) => {
         const status = Number(res.statusCode || 0);
         if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
@@ -57,53 +64,108 @@ function request(url, onResponse, redirects = 0) {
           const next = nextUrl(url, res.headers.location);
           if (!next) return reject(new Error(`redirect to a URL that is not https`));
           if (redirects >= MAX_REDIRECTS) return reject(new Error("too many redirects"));
-          return request(next, onResponse, redirects + 1).then(resolve, reject);
+          return request(next, headers, onResponse, redirects + 1).then(resolve, reject);
         }
-        if (status !== 200) {
+        if (status !== 200 && status !== 206) {
           res.resume();
-          return reject(new Error(`HTTP ${status}`));
+          return reject(Object.assign(new Error(`HTTP ${status}`), { status }));
         }
-        res.setTimeout(IDLE_MS, () => req.destroy(new Error("the connection went quiet")));
+        res.setTimeout(IDLE_MS, () => req.destroy(interrupted("the connection went quiet")));
         return onResponse(res).then(resolve, reject);
       },
     );
-    req.on("timeout", () => req.destroy(new Error("connection timed out")));
-    req.on("error", reject);
+    req.on("timeout", () => req.destroy(interrupted("connection timed out")));
+    req.on("error", (error) => reject(Object.assign(error, { keepPart: true })));
   });
 }
 
-/** Download `url` to `out` (through `<out>.part`), calling `onProgress({ bytesDone, bytesTotal })`. */
+/** Size of the bytes already kept in `part`, 0 when there are none. */
+function keptBytes(part) {
+  try {
+    return fs.statSync(part).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** `start` and `total` of a `Content-Range: bytes 100-199/200` header, or null. */
+function parseContentRange(value) {
+  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/i.exec(String(value || "").trim());
+  return match ? { start: Number(match[1]), total: match[3] === "*" ? 0 : Number(match[3]) } : null;
+}
+
+/**
+ * One try: continue after the `have` bytes already kept when there are any (a Range request), start over on a 200.
+ * A 206 counts only when its range begins exactly at `have`; anything else asks for a clean restart.
+ */
+function attempt(url, part, have, onProgress) {
+  const headers = have > 0 ? { Range: `bytes=${have}-` } : {};
+  return request(
+    url,
+    headers,
+    (res) =>
+      new Promise((resolve, reject) => {
+        const status = Number(res.statusCode || 0);
+        let done = 0;
+        let total = 0;
+        if (status === 206) {
+          const range = parseContentRange(res.headers["content-range"]);
+          if (have <= 0 || !range || range.start !== have) {
+            res.resume();
+            return reject(
+              Object.assign(new Error("the server sent the wrong range"), { restart: true }),
+            );
+          }
+          done = have;
+          total = range.total || have + Number(res.headers["content-length"] || 0);
+        } else {
+          total = Number(res.headers["content-length"] || 0);
+        }
+        const sink = fs.createWriteStream(part, { flags: status === 206 ? "a" : "w" });
+        const cut = (error) => sink.end(() => reject(error));
+        res.on("data", (chunk) => {
+          done += chunk.length;
+          onProgress({ bytesDone: done, bytesTotal: total });
+        });
+        res.on("error", (error) => cut(Object.assign(error, { keepPart: true })));
+        res.on("aborted", () => cut(interrupted("the connection was cut")));
+        sink.on("error", reject);
+        sink.on("finish", () => {
+          if (total && done !== total) reject(new Error(`got ${done} of ${total} bytes`));
+          else resolve(done);
+        });
+        res.pipe(sink);
+      }),
+  );
+}
+
+/**
+ * Download `url` to `out` (through `<out>.part`), calling `onProgress({ bytesDone, bytesTotal })`. A connection that
+ * breaks leaves the `.part` file, and the next call asks only for the rest (Range); the caller still checks the whole
+ * file's SHA-256 or signature. Any other failure leaves nothing behind.
+ */
 async function fetchFile(url, out, onProgress = () => {}) {
   const part = `${out}.part`;
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.rmSync(part, { force: true });
+  let have = keptBytes(part);
+  if (have === 0) fs.rmSync(part, { force: true });
   try {
-    await request(
-      url,
-      (res) =>
-        new Promise((resolve, reject) => {
-          const total = Number(res.headers["content-length"] || 0);
-          let done = 0;
-          const sink = fs.createWriteStream(part);
-          res.on("data", (chunk) => {
-            done += chunk.length;
-            onProgress({ bytesDone: done, bytesTotal: total });
-          });
-          res.on("error", reject);
-          res.on("aborted", () => reject(new Error("the connection was cut")));
-          sink.on("error", reject);
-          sink.on("finish", () => {
-            if (total && done !== total) reject(new Error(`got ${done} of ${total} bytes`));
-            else resolve(done);
-          });
-          res.pipe(sink);
-        }),
-    );
+    for (let tries = 0; ; tries += 1) {
+      try {
+        await attempt(url, part, have, onProgress);
+        break;
+      } catch (error) {
+        const stale = have > 0 && (error.restart || error.status === 416);
+        if (!stale || tries > 0) throw error;
+        fs.rmSync(part, { force: true });
+        have = 0;
+      }
+    }
     fs.rmSync(out, { force: true });
     fs.renameSync(part, out);
     return fs.statSync(out).size;
   } catch (error) {
-    fs.rmSync(part, { force: true });
+    if (!(error && error.keepPart && keptBytes(part) > 0)) fs.rmSync(part, { force: true });
     throw error;
   }
 }
@@ -175,7 +237,14 @@ async function main(argv) {
   }
 }
 
-module.exports = { fetchFile, nextUrl, proxyConfigured, makeReporter, argValue };
+module.exports = {
+  fetchFile,
+  nextUrl,
+  proxyConfigured,
+  makeReporter,
+  argValue,
+  parseContentRange,
+};
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => {

@@ -225,7 +225,7 @@
       "id": "Gradle",
       "group": "language",
       "why": "build Java projects that have a build.gradle",
-      "approxBytes": 134921139,
+      "approxBytes": 134970743,
       "probe": {
         "cmd": ["gradle", "gradle.bat"],
         "args": ["-v"]

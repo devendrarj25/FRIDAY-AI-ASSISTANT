@@ -55,7 +55,8 @@ const UPSTREAM_OPENMDW = {
   id: "OpenMDW-1.1",
   url: LICENCES["OpenMDW-1.1"].url,
   source: "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
-  checkedAt: LICENCE_CHECKED_AT,
+  revision: "ea30d66debe3740a08b573244286791d423d6b3e",
+  checkedAt: "2026-11-28",
 };
 
 function licence(id) {

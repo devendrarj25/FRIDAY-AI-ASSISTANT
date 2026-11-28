@@ -18,7 +18,11 @@
       ],
       "download": {
         "urlTemplate": "https://www.python.org/ftp/python/{version}/python-{version}-amd64.exe",
-        "archive": "exe"
+        "archive": "exe",
+        "mirrors": [
+          "https://mirrors.huaweicloud.com/python/{version}/python-{version}-amd64.exe",
+          "https://registry.npmmirror.com/-/binary/python/{version}/python-{version}-amd64.exe"
+        ]
       },
       "silentInstall": "python-{version}-amd64.exe /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0",
       "checked": "2026-11-27"
@@ -46,24 +50,29 @@
     },
     "FRIDAY Python embed": {
       "home": "friday-root",
-      "homeReason": "The embeddable zip unpacks anywhere, needs no registry entry and no UAC.",
+      "homeReason": "The embeddable zip unpacks anywhere, needs no registry entry and no UAC. The kernel targets Python 3.12 and python.org ships Windows binaries for it only up to 3.12.10, so the row follows that series and only reports; the pinned embed zip is the install source.",
       "sources": [
         {
           "kind": "html-regex",
           "url": "https://www.python.org/downloads/windows/",
-          "pattern": "Python (3\\.14\\.[0-9]+)"
+          "pattern": "Python (3\\.12\\.[0-9]+)"
         },
         {
-          "kind": "endoflife",
-          "product": "python",
-          "cycle": "3.14"
+          "kind": "scoop-manifest",
+          "name": "python312",
+          "bucket": "Versions"
         }
       ],
       "download": {
         "urlTemplate": "https://www.python.org/ftp/python/{version}/python-{version}-embed-amd64.zip",
-        "archive": "zip"
+        "archive": "zip",
+        "mirrors": [
+          "https://mirrors.huaweicloud.com/python/{version}/python-{version}-embed-amd64.zip",
+          "https://registry.npmmirror.com/-/binary/python/{version}/python-{version}-embed-amd64.zip"
+        ]
       },
-      "checked": "2026-11-27"
+      "checked": "2026-11-27",
+      "notifyOnly": true
     },
     "FRIDAY pip bootstrap": {
       "home": "friday-root",
@@ -103,7 +112,12 @@
       "download": {
         "urlTemplate": "https://nodejs.org/dist/v{version}/node-v{version}-x64.msi",
         "archive": "msi",
-        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt"
+        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt",
+        "mirrors": [
+          "https://mirrors.huaweicloud.com/nodejs/v{version}/node-v{version}-x64.msi",
+          "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v{version}/node-v{version}-x64.msi",
+          "https://registry.npmmirror.com/-/binary/node/v{version}/node-v{version}-x64.msi"
+        ]
       },
       "silentInstall": "msiexec /i node-v{version}-x64.msi /qn /norestart",
       "checked": "2026-11-27"
@@ -131,7 +145,12 @@
       "download": {
         "urlTemplate": "https://nodejs.org/dist/v{version}/node-v{version}-win-x64.zip",
         "archive": "zip",
-        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt"
+        "digestUrl": "https://nodejs.org/dist/v{version}/SHASUMS256.txt",
+        "mirrors": [
+          "https://mirrors.huaweicloud.com/nodejs/v{version}/node-v{version}-win-x64.zip",
+          "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v{version}/node-v{version}-win-x64.zip",
+          "https://registry.npmmirror.com/-/binary/node/v{version}/node-v{version}-win-x64.zip"
+        ]
       },
       "notifyOnly": true,
       "checked": "2026-11-27"
@@ -160,7 +179,11 @@
       "download": {
         "urlTemplate": "https://go.dev/dl/go{version}.windows-amd64.zip",
         "archive": "zip",
-        "digestUrl": "https://dl.google.com/go/go{version}.windows-amd64.zip.sha256"
+        "digestUrl": "https://dl.google.com/go/go{version}.windows-amd64.zip.sha256",
+        "mirrors": [
+          "https://dl.google.com/go/go{version}.windows-amd64.zip",
+          "https://golang.google.cn/dl/go{version}.windows-amd64.zip"
+        ]
       },
       "checked": "2026-11-27"
     },
@@ -185,7 +208,8 @@
       "download": {
         "urlTemplate": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe",
         "archive": "exe",
-        "digestUrl": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe.sha256"
+        "digestUrl": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe.sha256",
+        "mirrors": ["https://win.rustup.rs/x86_64"]
       },
       "silentInstall": "rustup-init.exe -y --default-toolchain stable --profile minimal",
       "allowUnsigned": true,
@@ -195,6 +219,7 @@
     "Ruby": {
       "home": "friday-root",
       "homeReason": "The portable 7z archive unpacks into the FRIDAY folder with no installer and no UAC.",
+      "singleSourceReason": "The archive and its digest are assets of one GitHub release; there is no independent second host.",
       "sources": [
         {
           "kind": "html-regex",
@@ -213,7 +238,9 @@
       ],
       "download": {
         "urlTemplate": "https://github.com/oneclick/rubyinstaller2/releases/download/RubyInstaller-{version}/rubyinstaller-{version}-x64.7z",
-        "archive": "7z"
+        "archive": "7z",
+        "digestUrl": "https://api.github.com/repos/oneclick/rubyinstaller2/releases/tags/RubyInstaller-{version}",
+        "digestPath": "$.assets[?(@.name=='{file}')].digest"
       },
       "checked": "2026-11-27"
     },
@@ -309,7 +336,11 @@
       ],
       "download": {
         "urlTemplate": "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-win-x64.exe",
-        "archive": "exe"
+        "archive": "exe",
+        "mirrors": [
+          "https://dotnetcli.blob.core.windows.net/dotnet/Sdk/{version}/dotnet-sdk-{version}-win-x64.exe",
+          "https://dotnetcli.azureedge.net/dotnet/Sdk/{version}/dotnet-sdk-{version}-win-x64.exe"
+        ]
       },
       "silentInstall": "dotnet-sdk-{version}-win-x64.exe /install /quiet /norestart",
       "checked": "2026-11-27"
@@ -317,6 +348,7 @@
     "OpenJDK (Temurin)": {
       "home": "machine",
       "homeReason": "The MSI sets JAVA_HOME and PATH system-wide and asks for UAC.",
+      "singleSourceReason": "The Adoptium API is the only source of the installer and its checksum and redirects to the GitHub release asset.",
       "sources": [
         {
           "kind": "json-path",
@@ -347,6 +379,7 @@
     "Temurin JDK zip": {
       "home": "friday-root",
       "homeReason": "The zip unpacks into the FRIDAY folder; FRIDAY points JAVA_HOME at it, no installer and no UAC.",
+      "singleSourceReason": "The Adoptium API is the only source of the zip and its checksum and redirects to the GitHub release asset.",
       "sources": [
         {
           "kind": "json-path",
@@ -445,6 +478,7 @@
     "MongoDB": {
       "home": "friday-root",
       "homeReason": "The zip holds mongod.exe and runs from the FRIDAY folder with no Windows service and no UAC.",
+      "singleSourceReason": "fastdl.mongodb.org is the only publisher of the zip and its checksum; no mirror file name has been verified.",
       "sources": [
         {
           "kind": "json-path",
@@ -491,7 +525,8 @@
         }
       ],
       "download": {
-        "archive": "zip"
+        "archive": "zip",
+        "urlTemplate": "https://www.sqlite.org/2026/sqlite-tools-win-x64-{sqliteNumeric}.zip"
       },
       "checked": "2026-11-27"
     },

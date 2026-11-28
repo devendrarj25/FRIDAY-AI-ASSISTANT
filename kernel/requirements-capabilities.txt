@@ -46,6 +46,8 @@ moonshine-voice>=0.1.6
 sentencepiece>=0.2.3
 # FRIDAY Echo (kernel/echo_canceller.py): SpeexDSP echo canceller, MIT, 83 KB win_amd64 wheel. Optional at runtime.
 pyaec>=1.0.1
+# Optional second echo backend (WebRTC AEC3, BSD-3-Clause). The echo canceller prefers it when it imports; FRIDAY_AEC_BACKEND overrides.
+aec-audio-processing>=1.0.1; python_version < "3.14" and sys_platform == "win32"
 soundfile>=0.14.0
 pymupdf>=2.1
 # Shaping for Devanagari and Arabic text in PDFs made by doc_writer (optional: without it those scripts stay a '?').

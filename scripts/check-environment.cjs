@@ -1234,6 +1234,22 @@ if (win) {
     fix: "Install the NVIDIA driver, then npm run doctor",
     url: "https://developer.nvidia.com/cuda-downloads",
   });
+  // Vulkan is the llama.cpp road for AMD and Intel video cards: a recommended row, never a blocker.
+  if (pc?.gpu && pc.gpu.vendor !== "nvidia") {
+    const vulkan = fs.existsSync(
+      path.join(process.env.SystemRoot || "C:\\Windows", "System32", "vulkan-1.dll"),
+    );
+    add({
+      name: "Vulkan runtime (vulkan-1.dll)",
+      required: false,
+      warn: true,
+      ok: vulkan,
+      found: vulkan ? "present" : "not found",
+      want: "installed with the video driver; the local chat engine uses it on this GPU",
+      fix: "Update the video driver from the GPU maker, then npm run doctor",
+      url: "https://vulkan.gpuinfo.org/",
+    });
+  }
   // The CUDA 12 libraries (cuBLAS, cuDNN): required only when this PC's plan installs them; the plan never installs them
   // without an NVIDIA card whose driver reports CUDA 12.
   const libs = setupPlanData?.required.find((row) => row.id === "cuda-libs");

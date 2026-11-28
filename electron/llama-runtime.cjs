@@ -183,7 +183,13 @@ async function installFromZip(root, zip, tag, deps = {}) {
 const MIN_CUDA_VRAM_GB = 4;
 /** CUDA 12 builds need compute capability 7.5 (Turing) or newer. */
 const MIN_COMPUTE_CAP = 7.5;
-const BACKENDS = Object.freeze(["cuda", "vulkan", "cpu"]);
+const BACKENDS = Object.freeze(["cuda", "rocm", "vulkan", "cpu"]);
+
+/** "arm64" on Windows on ARM, "x64" for everything else, including a fact that is missing or unreadable. */
+const archOf = (facts) => {
+  const raw = facts && typeof facts === "object" ? (facts.arch ?? facts.os?.arch) : null;
+  return /^(arm64|aarch64)$/i.test(String(raw ?? "").trim()) ? "arm64" : "x64";
+};
 
 const finite = (v) => {
   if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return null;
@@ -216,6 +222,16 @@ function backendChain(facts, options = {}) {
   const chain = [];
   const skipped = [];
 
+  if (archOf(f) === "arm64") {
+    // Windows on ARM runs the native arm64 CPU build; the x64 GPU builds are not offered there.
+    skipped.push({
+      backend: "cuda",
+      reason: "this PC is Windows on ARM; the GPU builds are x64 only",
+    });
+    chain.push({ backend: "cpu", variant: "cpu", arch: "arm64" });
+    return { chain, skipped };
+  }
+
   if (!nvidia) skipped.push({ backend: "cuda", reason: "no NVIDIA graphics card was found" });
   else {
     const level = cudaLevel(f.cuda?.driverCuda);
@@ -239,6 +255,13 @@ function backendChain(facts, options = {}) {
     else chain.push({ backend: "cuda", variant: "cuda", driverCuda: level });
   }
 
+  // A discrete AMD card with a working graphics driver (the Vulkan loader answers) tries the ROCm build first; the
+  // health check after the install decides, and Vulkan follows.
+  const amd = gpus.find((g) => g.vendor === "amd" && g.integrated !== true);
+  if (amd && f.vulkan === true) chain.push({ backend: "rocm", variant: "rocm" });
+  else if (gpus.some((g) => g.vendor === "amd" && g.integrated === true))
+    skipped.push({ backend: "rocm", reason: "an integrated AMD graphics part uses Vulkan" });
+
   if (f.vulkan === true && gpus.length > 0) chain.push({ backend: "vulkan", variant: "vulkan" });
   else
     skipped.push({
@@ -259,28 +282,31 @@ function nextStep(chain, failedBackend) {
 
 const asset = (a) => ({ name: a.name, url: a.url, bytes: a.bytes || 0, sha256: a.sha256 || "" });
 const ARCH = "x64";
-const CPU_PATTERNS = {
-  avx512: [
-    new RegExp(`-bin-win-avx512-${ARCH}\\.zip$`, "i"),
-    new RegExp(`-bin-win-cpu-${ARCH}\\.zip$`, "i"),
-  ],
-  avx2: [
-    new RegExp(`-bin-win-avx2-${ARCH}\\.zip$`, "i"),
-    new RegExp(`-bin-win-cpu-${ARCH}\\.zip$`, "i"),
-  ],
-  plain: [
-    new RegExp(`-bin-win-(?:noavx|avx)-${ARCH}\\.zip$`, "i"),
-    new RegExp(`-bin-win-cpu-${ARCH}\\.zip$`, "i"),
-  ],
-  cpu: [new RegExp(`-bin-win-cpu-${ARCH}\\.zip$`, "i")],
+/** The CPU zips of one variant and architecture; older releases also named avx512, avx2 and noavx zips. */
+const cpuPatterns = (variant, arch) => {
+  const cpu = new RegExp(`-bin-win-cpu-${arch}\\.zip$`, "i");
+  if (arch !== "x64") return [cpu];
+  if (variant === "avx512") return [new RegExp(`-bin-win-avx512-${ARCH}\\.zip$`, "i"), cpu];
+  if (variant === "avx2") return [new RegExp(`-bin-win-avx2-${ARCH}\\.zip$`, "i"), cpu];
+  if (variant === "plain") return [new RegExp(`-bin-win-(?:noavx|avx)-${ARCH}\\.zip$`, "i"), cpu];
+  return [cpu];
+};
+/** Builds picked by name when asked for: the AMD ROCm build, and the Intel SYCL and OpenVINO builds (opt-in, never in the default chain). */
+const OTHER_GPU = {
+  rocm: /^llama-.*-bin-win-rocm-(\d+(?:\.\d+)*)-x64\.zip$/i,
+  sycl: /^llama-.*-bin-win-sycl-x64\.zip$/i,
+  openvino: /^llama-.*-bin-win-openvino-(\d+(?:\.\d+)*)-x64\.zip$/i,
 };
 const CUDA_MAIN = /^llama-b\d+-bin-win-cuda-(\d+\.\d+)-x64\.zip$/i;
+/** A 12.x build needs a driver at that minor or newer; a 13.x build runs on any CUDA 13 driver (minor compatibility). */
+const cudaBuildFits = (build, driver) =>
+  build <= driver || (Math.floor(build) >= 13 && Math.floor(build) === Math.floor(driver));
 const cudartFor = (minor) =>
   new RegExp(`^cudart-llama-bin-win-cuda-${minor.replace(".", "\\.")}-x64\\.zip$`, "i");
 
 /**
- * The zips of one chain step out of a release's asset list. CUDA: the newest 12.x build the driver supports and the
- * cudart zip of the same minor (both are needed). Every zip must carry a digest: one without is not installable.
+ * The zips of one chain step out of a release's asset list. CUDA: the newest 12.x or 13.x build the driver supports and
+ * the cudart zip of the same minor (both are needed); ROCm, SYCL and OpenVINO by name; arm64 only the arm64 CPU zip. Every zip must carry a digest: one without is not installable.
  * Returns `{ ok, zips, variant }` or `{ ok: false, reason }`.
  */
 function planAssets(entry, assets) {
@@ -291,7 +317,7 @@ function planAssets(entry, assets) {
     const driver = entry.driverCuda ?? 12;
     const builds = list
       .map((a) => ({ a, m: CUDA_MAIN.exec(a.name) }))
-      .filter((x) => x.m && Number(x.m[1]) >= 12 && Number(x.m[1]) <= driver)
+      .filter((x) => x.m && Number(x.m[1]) >= 12 && cudaBuildFits(Number(x.m[1]), driver))
       .sort((x, y) => Number(y.m[1]) - Number(x.m[1]));
     for (const { a, m } of builds) {
       const rt = list.find((x) => cudartFor(m[1]).test(x.name));
@@ -304,16 +330,24 @@ function planAssets(entry, assets) {
     if (!zips.length)
       return {
         ok: false,
-        reason: `no CUDA 12 build up to CUDA ${driver} with its cudart zip in this release`,
+        reason: `no CUDA build up to CUDA ${driver} with its cudart zip in this release`,
       };
   } else if (entry.backend === "vulkan") {
+    const arch = entry.arch === "arm64" ? "arm64" : ARCH;
     const hit = list.find((a) =>
-      new RegExp(`^llama-.*-bin-win-vulkan-${ARCH}\\.zip$`, "i").test(a.name),
+      new RegExp(`^llama-.*-bin-win-vulkan-${arch}\\.zip$`, "i").test(a.name),
     );
     if (!hit) return { ok: false, reason: "this release has no Vulkan build for Windows" };
     zips = [asset(hit)];
+  } else if (Object.hasOwn(OTHER_GPU, entry.backend)) {
+    const hit = list.find((a) => OTHER_GPU[entry.backend].test(a.name));
+    if (!hit)
+      return { ok: false, reason: `this release has no ${entry.backend} build for Windows` };
+    zips = [asset(hit)];
+    const level = OTHER_GPU[entry.backend].exec(hit.name)?.[1];
+    variant = level ? `${entry.backend}-${level}` : entry.backend;
   } else {
-    const patterns = CPU_PATTERNS[entry.variant] || CPU_PATTERNS.cpu;
+    const patterns = cpuPatterns(entry.variant, entry.arch === "arm64" ? "arm64" : ARCH);
     let hit = null;
     for (const p of patterns) {
       hit = list.find((a) => /^llama-/i.test(a.name) && p.test(a.name));
@@ -321,7 +355,9 @@ function planAssets(entry, assets) {
     }
     if (!hit) return { ok: false, reason: "this release has no CPU build for Windows" };
     zips = [asset(hit)];
-    variant = /-bin-win-(avx512|avx2|noavx|avx)-/i.exec(hit.name)?.[1]?.toLowerCase() || "cpu";
+    variant =
+      /-bin-win-(avx512|avx2|noavx|avx)-/i.exec(hit.name)?.[1]?.toLowerCase() ||
+      (entry.arch === "arm64" ? "cpu-arm64" : "cpu");
   }
   const missing = zips.find((z) => !/^[a-f0-9]{64}$/.test(z.sha256));
   if (missing) return { ok: false, reason: `the release published no SHA-256 for ${missing.name}` };
@@ -430,8 +466,13 @@ async function freeLoopbackPort({ net = require("node:net"), tries = 8 } = {}) {
   throw new Error("no free loopback port was found");
 }
 
-/** True for a build that can use the graphics card (the CUDA and Vulkan zips); the CPU zip cannot. */
-const isGpuBackend = (backend) => backend === "cuda" || backend === "vulkan";
+/** True for a build that can use the graphics card (the CUDA, ROCm, Vulkan, SYCL and OpenVINO zips); the CPU zip cannot. */
+const isGpuBackend = (backend) =>
+  backend === "cuda" ||
+  backend === "rocm" ||
+  backend === "vulkan" ||
+  backend === "sycl" ||
+  backend === "openvino";
 
 /**
  * The command line of FRIDAY Core. The API key is NOT here: the pinned build reads `LLAMA_API_KEY` from its
@@ -1220,6 +1261,7 @@ function engineState(root, deps = {}) {
 const LLAMA_REPO = "ggml-org/llama.cpp";
 
 module.exports = {
+  archOf,
   engineDir,
   ENGINE_MARKER,
   readFolderMarker,

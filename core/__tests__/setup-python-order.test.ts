@@ -122,6 +122,12 @@ describe("the GPU ONNX Runtime swap never leaves both wheels or none unrecorded"
       "root",
       "path",
       "fs",
+      "nvidiaDriverVersion",
+      "gpuStackFor",
+      "GPU_HEALTH_PROBE",
+      "CUDA13_DRIVER_FLOOR",
+      "CUDA12_DRIVER_FLOOR",
+      "installTierLibraries",
       body,
     )(
       true,
@@ -142,6 +148,12 @@ describe("the GPU ONNX Runtime swap never leaves both wheels or none unrecorded"
       path.join(tmpdir(), "friday-ort-swap"),
       path,
       { rmSync() {}, mkdirSync() {}, writeFileSync() {} },
+      () => "581.15",
+      () => ({ tier: "cuda13", bundles: ["cuda13-libs", "ort-gpu"] }),
+      "CUDAExecutionProvider session probe",
+      580,
+      576,
+      () => ({ ok: true }),
     );
     return { calls, notices, cleared, logs: logs.join("\n") };
   }

@@ -284,7 +284,7 @@ export type InstallerCatalogRow = {
   fit: EngineFit;
   /** llama.cpp and stable-diffusion.cpp: the builds this PC would use, best first, and the installed one. */
   engine?: {
-    chain: ("cuda" | "vulkan" | "cpu")[];
+    chain: ("cuda" | "rocm" | "vulkan" | "cpu")[];
     skipped: { backend: string; reason: string }[];
     active: {
       installed: boolean;

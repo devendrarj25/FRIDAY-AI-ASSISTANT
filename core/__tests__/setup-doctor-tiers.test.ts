@@ -607,4 +607,27 @@ describe("the reach order and the this-PC rows", () => {
       found: "this PC changed since setup (2026-11-01)",
     });
   });
+
+  it("doctor header names the real tiers: packs are a notice, the system CA store is on for child steps", () => {
+    const source = read("scripts/doctor.cjs");
+    const header = source.slice(0, source.indexOf('"use strict"'));
+    expect(header).not.toMatch(/the EXE packs\b[^)]*\)\s+is what the build cannot run without/);
+    expect(header).toMatch(/NOTICE[\s*]+step \(the EXE packs/);
+    const env: Record<string, string> = {};
+    doctor.useSystemCa(env);
+    expect(env["NODE_USE_SYSTEM_CA"]).toBe("1");
+    const own: Record<string, string> = { NODE_USE_SYSTEM_CA: "0" };
+    doctor.useSystemCa(own);
+    expect(own["NODE_USE_SYSTEM_CA"]).toBe("0");
+  });
+
+  it("environment check: a never-blocking Vulkan row for a non-NVIDIA GPU without vulkan-1.dll", () => {
+    const source = read("scripts/check-environment.cjs");
+    const at = source.indexOf("vulkan-1.dll");
+    expect(at).toBeGreaterThan(-1);
+    const block = source.slice(at - 600, at + 900);
+    expect(block).toContain('vendor !== "nvidia"');
+    expect(block).toContain("required: false");
+    expect(block).toContain("warn: true");
+  });
 });

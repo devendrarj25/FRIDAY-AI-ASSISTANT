@@ -64,8 +64,21 @@ const KNOWN_GAPS = {
   /** The data file says why all of a row's official sources are one host. */
   oneOfficialHost: {
     reason:
-      "the official host is the only publisher: Hugging Face for the ggml weights (a revision and the file's content id are two reads of one repository), Memurai's own page for Redis (Memurai)",
-    ids: ["Redis (Memurai)", "ggml-base", "ggml-tiny"],
+      "the official host is the only publisher: Hugging Face for the ggml weights (a revision and the file's content id are two reads of one repository), Memurai's own page for Redis (Memurai), or the vendor is the only publisher of a download road and the data row names it in singleSourceReason",
+    ids: [
+      "Docker Desktop",
+      "FRIDAY GitHub CLI",
+      "MongoDB",
+      "NSIS",
+      "OpenJDK (Temurin)",
+      "Redis (Memurai)",
+      "Ruby",
+      "Temurin JDK zip",
+      "Visual Studio Code",
+      "Windows Terminal",
+      "ggml-base",
+      "ggml-tiny",
+    ],
   },
   /** `releases/latest` strings outside vendor-sources.cjs that bypass the source chain (counts per file). */
   rawLatestUrl: {

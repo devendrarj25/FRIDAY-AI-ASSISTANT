@@ -4,7 +4,7 @@
  * serves the bytes: no network, no date, no Windows.
  */
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +20,7 @@ const fetchFile = require_("../../scripts/fetch-file.cjs") as {
     onProgress?: (p: { bytesDone: number; bytesTotal: number }) => void,
   ) => Promise<number>;
   nextUrl: (current: string, location: string) => string | null;
+  parseContentRange: (value: unknown) => { start: number; total: number } | null;
   proxyConfigured: (env: Record<string, string>) => boolean;
   makeReporter: (
     label: string,
@@ -41,13 +42,17 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Reply = { status: number; headers?: Record<string, string>; body?: Buffer };
+type Reply = { status: number; headers?: Record<string, string>; body?: Buffer; cut?: boolean };
+/** The options (headers) of every request the fake served, in order. */
+let sentOptions: { headers?: Record<string, string> }[] = [];
 /** A fake https.get: each call takes the next reply; the asked URLs are recorded. */
 function serve(replies: Reply[]) {
   const asked: string[] = [];
+  sentOptions = [];
   https.get = (...args: unknown[]) => {
     const callback = args[2] as (res: unknown) => void;
     asked.push(String(args[0]));
+    sentOptions.push(args[1] as { headers?: Record<string, string> });
     const reply = replies.shift() ?? { status: 500 };
     const req = new EventEmitter() as EventEmitter & { destroy: (e?: Error) => void };
     req.destroy = (error?: Error) => void (error && req.emit("error", error));
@@ -61,7 +66,10 @@ function serve(replies: Reply[]) {
       res.headers = reply.headers ?? {};
       res.setTimeout = () => {};
       callback(res);
-      if (reply.body) res.end(reply.body);
+      if (reply.cut) {
+        if (reply.body) res.write(reply.body);
+        setImmediate(() => res.emit("aborted"));
+      } else if (reply.body) res.end(reply.body);
       else res.end();
     });
     return req;
@@ -116,6 +124,70 @@ describe("fetch-file", () => {
       fetchFile.fetchFile("https://a.example/n", path.join(dir, "b.bin")),
     ).rejects.toThrow(/got 5 of 10/);
     expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("keeps the .part of a cut connection and continues it with a Range request", async () => {
+    const dir = temp();
+    const out = path.join(dir, "big.bin");
+    serve([
+      { status: 200, headers: { "content-length": "10" }, body: Buffer.from("abcde"), cut: true },
+    ]);
+    await expect(fetchFile.fetchFile("https://a.example/big", out)).rejects.toThrow(/cut/);
+    expect(existsSync(out)).toBe(false);
+    expect(readFileSync(`${out}.part`, "utf8")).toBe("abcde");
+
+    serve([
+      {
+        status: 206,
+        headers: { "content-range": "bytes 5-9/10", "content-length": "5" },
+        body: Buffer.from("fghij"),
+      },
+    ]);
+    const seen: number[] = [];
+    const size = await fetchFile.fetchFile("https://a.example/big", out, (p) =>
+      seen.push(p.bytesDone),
+    );
+    expect(sentOptions[0]?.headers?.["Range"]).toBe("bytes=5-");
+    expect(size).toBe(10);
+    expect(readFileSync(out, "utf8")).toBe("abcdefghij");
+    expect(seen.at(-1)).toBe(10);
+    expect(readdirSync(dir)).toEqual(["big.bin"]);
+  });
+
+  it("starts over when the server ignores the range, sends the wrong one, or refuses it", async () => {
+    const full = Buffer.from("0123456789");
+    const dir = temp();
+    const out = path.join(dir, "r.bin");
+    const keep = () => writeFileSync(`${out}.part`, "stale");
+
+    keep();
+    serve([{ status: 200, headers: { "content-length": "10" }, body: full }]);
+    await fetchFile.fetchFile("https://a.example/r", out);
+    expect(sentOptions[0]?.headers?.["Range"]).toBe("bytes=5-");
+    expect(readFileSync(out).equals(full)).toBe(true);
+
+    keep();
+    serve([
+      { status: 206, headers: { "content-range": "bytes 0-9/10" }, body: full },
+      { status: 200, headers: { "content-length": "10" }, body: full },
+    ]);
+    await fetchFile.fetchFile("https://a.example/r", out);
+    expect(sentOptions.map((o) => o.headers?.["Range"])).toEqual(["bytes=5-", undefined]);
+    expect(readFileSync(out).equals(full)).toBe(true);
+
+    keep();
+    serve([{ status: 416 }, { status: 200, headers: { "content-length": "10" }, body: full }]);
+    await fetchFile.fetchFile("https://a.example/r", out);
+    expect(sentOptions.map((o) => o.headers?.["Range"])).toEqual(["bytes=5-", undefined]);
+    expect(readFileSync(out).equals(full)).toBe(true);
+    expect(readdirSync(dir)).toEqual(["r.bin"]);
+  });
+
+  it("reads a Content-Range header and nothing else", () => {
+    expect(fetchFile.parseContentRange("bytes 5-9/10")).toEqual({ start: 5, total: 10 });
+    expect(fetchFile.parseContentRange("bytes 5-9/*")).toEqual({ start: 5, total: 0 });
+    expect(fetchFile.parseContentRange("items 5-9/10")).toBeNull();
+    expect(fetchFile.parseContentRange(undefined)).toBeNull();
   });
 
   it("leaves a proxy to curl.exe and Invoke-WebRequest", () => {

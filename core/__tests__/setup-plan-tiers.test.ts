@@ -61,7 +61,7 @@ const nvidia = (vramGb: number, freeGb: number, extra: Facts = {}, card: Facts =
         name: "Test NVIDIA card",
         vramGb,
         vramCapped: false,
-        driver: "560.94",
+        driver: "576.80",
         integrated: false,
         unifiedMemory: false,
         computeCap: 7.5,
@@ -69,7 +69,7 @@ const nvidia = (vramGb: number, freeGb: number, extra: Facts = {}, card: Facts =
       },
     ],
     cudaReady: true,
-    driverVersion: "560.94",
+    driverVersion: "576.80",
     vulkan: true,
     cuda: { driverCuda: "12.6", cublas12: false, cudnn9: false, runtimeFilesFound: false },
     ...extra,
@@ -454,6 +454,127 @@ describe("the table", () => {
     const env = plan.buildSetupPlan(nvidia(8, 7), deps()).chat.settings.env;
     for (const [key, value] of Object.entries(env))
       if (key === "OLLAMA_FLASH_ATTENTION") expect(["0", "1"]).toContain(value);
+  });
+});
+
+const ARM_PIN = {
+  ...PIN,
+  assets: [
+    ...PIN.assets,
+    {
+      name: "llama-b1-bin-win-cpu-arm64.zip",
+      url: "https://example.invalid/arm.zip",
+      bytes: 2,
+      sha256: "b".repeat(64),
+    },
+  ],
+};
+const withDriver = (version: string, cuda: string) =>
+  nvidia(12, 11, { driverVersion: version, cuda: { driverCuda: cuda } }, { driver: version });
+
+describe("hardware plan: the window follows the real attention layout", () => {
+  it("a 16 GB card never gets a smaller context than a 12 GB card (Gemma 4 12B keeps 8 global layers only)", () => {
+    const t = tiersFile.tiers.find((x: { id: string }) => x.id === "gpu-16");
+    expect(t.kvKbPerToken).toBeLessThanOrEqual(32);
+    expect(t.kvEstimated).toBeUndefined();
+    expect(t.kvFixedGb).toBeGreaterThan(0);
+    const c12 = plan.chatModelFor(nvidia(12, 11)).numCtx;
+    const c16 = plan.chatModelFor(nvidia(16, 15)).numCtx;
+    expect(c16).toBeGreaterThanOrEqual(c12);
+    expect(c16).toBeGreaterThanOrEqual(32768);
+    const a12 = plan.chatModelFor(other("amd", 12)).numCtx;
+    const a16 = plan.chatModelFor(other("amd", 16)).numCtx;
+    expect(a16).toBeGreaterThanOrEqual(a12);
+    expect(a16).toBeGreaterThanOrEqual(32768);
+  });
+
+  it("the fixed sliding-window cache comes off the spare memory before the ladder step is picked", () => {
+    const tiers = JSON.parse(JSON.stringify(tiersFile));
+    const row = tiers.tiers.find((x: { id: string }) => x.id === "gpu-16");
+    const lean = plan.chatModelFor(nvidia(16, 15), { tiers }).numCtx;
+    row.kvFixedGb = 60;
+    expect(plan.chatModelFor(nvidia(16, 15), { tiers }).numCtx).toBeLessThan(lean);
+  });
+});
+
+describe("hardware plan: setup never auto-pulls the 39 GB CPU model", () => {
+  it("a 64 GB or 128 GB CPU PC pulls the 23 GB build and keeps q8 as an offer", () => {
+    for (const ram of [64, 128]) {
+      const p = plan.buildSetupPlan(noGpu(ram), deps());
+      expect(p.chat.tag).toBe("qwen3.6:35b-a3b");
+      expect(p.chat.action).toBe("pull");
+      expect(p.chat.needs.downloadGb).toBeLessThanOrEqual(23);
+      const q8 = (p.chat.alternatives as { tag: string; downloadGb: number }[]).find(
+        (a) => a.tag === "qwen3.6:35b-a3b-q8_0",
+      );
+      expect(q8?.downloadGb).toBe(39);
+      expect(p.offered.map((o: { id: string }) => o.id)).toContain("qwen3.6:35b-a3b-q8_0");
+    }
+    for (const t of tiersFile.tiers.filter((x: { device: string }) => x.device === "cpu"))
+      expect(t.downloadGb, t.id).toBeLessThanOrEqual(23);
+  });
+});
+
+describe("hardware plan: ARM64 caps and the native build", () => {
+  const arm = (extra: Facts = {}) => noGpu(32, { arch: "arm64", cpu: { avx2: null }, ...extra });
+
+  it("with a native ARM64 build pinned the cap rises to 4b and the plan names the native build", () => {
+    const p = plan.buildSetupPlan(arm(), deps({ llamaPin: ARM_PIN }));
+    expect(p.chat.tag).toBe("qwen3.5:4b");
+    expect(p.chat.notes.join(" ")).toMatch(/native ARM64/);
+    expect(p.chat.notes.join(" ")).not.toMatch(/x64 emulation/);
+    expect(p.llama.install.assetId).toBe("cpu-arm64");
+    expect(p.llama.install.asset).toBe("llama-b1-bin-win-cpu-arm64.zip");
+    expect(p.llama.install.sha256).toBe("b".repeat(64));
+    expect(p.llama.chain).toEqual(["cpu"]);
+    expect(p.llama.cpuVariant).toBe("cpu-arm64");
+    expect(plan.chatModelFor(arm({ cpuClass: "low" }), { llamaPin: ARM_PIN }).tag).toBe(
+      "qwen3.5:0.8b",
+    );
+  });
+
+  it("without a native build the x64 build runs by emulation and the 2b cap stays", () => {
+    const p = plan.buildSetupPlan(arm(), deps());
+    expect(p.chat.tag).toBe("qwen3.5:2b");
+    expect(p.chat.notes.join(" ")).toMatch(/x64 emulation, slow/);
+    expect(p.llama.install.assetId).toBe("cpu-x64");
+    expect(p.llama.install.asset).toBe("llama-b1-bin-win-cpu-x64.zip");
+    expect(p.llama.skipped.some((s: { reason: string }) => /emulation/.test(s.reason))).toBe(true);
+  });
+});
+
+describe("hardware plan: llama.cpp build order (NVIDIA, AMD, Intel, ARM64, CPU)", () => {
+  it("NVIDIA at driver 580 or CUDA 13 gets the CUDA 13.5 build, an older driver CUDA 12.4", () => {
+    const n13 = plan.buildSetupPlan(withDriver("581.42", "13.0"), deps()).llama;
+    expect(n13.install.backend).toBe("cuda");
+    expect(n13.install.assetId).toBe("cuda-13.5-x64");
+    expect(n13.install.runtimeAssetId).toBe("cudart-13.5-x64");
+    expect(n13.reason).toMatch(/CUDA 13/);
+    const n12 = plan.buildSetupPlan(withDriver("560.94", "12.6"), deps()).llama;
+    expect(n12.install.assetId).toBe("cuda-12.4-x64");
+    expect(n12.install.runtimeAssetId).toBe("cudart-12.4-x64");
+    expect(n12.reason).toMatch(/CUDA 12/);
+    const edge = plan.buildSetupPlan(withDriver("579.9", "12.9"), deps()).llama;
+    expect(edge.install.assetId).toBe("cuda-12.4-x64");
+  });
+
+  it("AMD tries ROCm then Vulkan, Intel Vulkan, and the CPU build is always last", () => {
+    const amd = plan.buildSetupPlan(other("amd", 16), deps()).llama;
+    expect(amd.chain).toEqual(["rocm", "vulkan", "cpu"]);
+    expect(amd.install.backend).toBe("rocm");
+    expect(amd.install.assetId).toBe("rocm-10.0-x64");
+    expect(amd.fallbacks).toEqual(["vulkan", "cpu-pinned"]);
+    const intel = plan.buildSetupPlan(other("intel", 16), deps()).llama;
+    expect(intel.chain).toEqual(["vulkan", "cpu"]);
+    expect(intel.install.assetId).toBe("vulkan-x64");
+    const cpu = plan.buildSetupPlan(noGpu(16), deps()).llama;
+    expect(cpu.chain).toEqual(["cpu"]);
+    expect(cpu.install.assetId).toBe("cpu-x64");
+  });
+
+  it("an integrated AMD part never reaches ROCm", () => {
+    const apu = other("amd", 2, { integrated: true });
+    expect(plan.buildSetupPlan(apu, deps()).llama.chain).not.toContain("rocm");
   });
 });
 

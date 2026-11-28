@@ -190,7 +190,7 @@ describe("a PC with no graphics card", () => {
     expect(cuda).toContain("What it would need:");
     expect(cuda).toContain("NVIDIA driver 527.41 or newer");
     expect(cuda).not.toContain("<button");
-    expect(article(out, "ONNX Runtime (GPU)")).toContain(
+    expect(article(out, "ONNX Runtime (GPU, CUDA 12)")).toContain(
       "Use instead:</span> ONNX Runtime (DirectML)",
     );
   });
@@ -216,19 +216,19 @@ describe("a PC with no graphics card", () => {
 describe("an NVIDIA 16 GB PC", () => {
   const catalog = withRows(
     realCatalog(NVIDIA_16GB_PC, { detected: [{ id: "CUDA runtime libraries", installed: false }] }),
-    { "ONNX Runtime (GPU)": { installed: false } },
+    { "ONNX Runtime (GPU, CUDA 12)": { installed: false } },
   );
 
   it("shows the CUDA hint and an Install button on the runtime row", () => {
-    const out = html(ready(only(catalog, "CUDA runtime libraries", "ONNX Runtime (GPU)")));
+    const out = html(ready(only(catalog, "CUDA runtime libraries", "ONNX Runtime (GPU, CUDA 12)")));
     const row = article(out, "CUDA runtime libraries");
     expect(row).toContain("GPU found; install the CUDA runtime libraries");
     expect(buttonLabels(row)).toEqual(["Install"]);
   });
 
   it("a limited row lists its reason lines and still has a button (its confirm opens on click)", () => {
-    const out = html(ready(only(catalog, "CUDA runtime libraries", "ONNX Runtime (GPU)")));
-    const row = article(out, "ONNX Runtime (GPU)");
+    const out = html(ready(only(catalog, "CUDA runtime libraries", "ONNX Runtime (GPU, CUDA 12)")));
+    const row = article(out, "ONNX Runtime (GPU, CUDA 12)");
     expect(row).toContain('data-fit-state="limited"');
     expect(row).toContain("not installed; install the CUDA runtime libraries first.");
     expect(buttonLabels(row)).toEqual(["Install"]);
@@ -236,7 +236,7 @@ describe("an NVIDIA 16 GB PC", () => {
   });
 
   it("has an empty not-supported list that still opens", () => {
-    const out = html(ready(only(catalog, "ONNX Runtime (GPU)")), {
+    const out = html(ready(only(catalog, "ONNX Runtime (GPU, CUDA 12)")), {
       initiallyOpen: ["unsupported"],
     });
     expect(out).toContain("Nothing in this list.");

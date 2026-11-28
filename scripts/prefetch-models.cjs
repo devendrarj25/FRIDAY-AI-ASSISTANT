@@ -1378,7 +1378,7 @@ async function prefetch(
     plan.llama.action !== "present"
   )
     log(
-      `[friday] INFO     llama.cpp: setup installs the pinned CPU build; the ${plan.llama.install.backend} build this PC qualifies for is installed from the Install Manager (Engines), with a hash check and a fallback`,
+      `[friday] INFO     llama.cpp: setup installs the pinned CPU build; the ${plan.llama.install.backend} build this PC qualifies for ${llamaBuildNote(plan.llama.install, electronModule.load("friday-core.cjs").read())}`,
     );
   if (voicePlan && !quietPlan) {
     // A skipped speech size that has its own job is named once, by that job, when the run reaches it.
@@ -1943,7 +1943,21 @@ function failureReport(rows) {
   ];
 }
 
+/**
+ * Finishes the sentence about the GPU llama.cpp build the plan chose, naming it by its release asset id, but only when that id is pinned in
+ * `config/friday-core.json` (`runtime.assets`: cuda-12.4-x64, cuda-13.5-x64, rocm-10.0-x64, vulkan-x64, ...). A build with
+ * no pinned asset is never named, so the message cannot promise an engine that does not exist.
+ */
+function llamaBuildNote(install, manifest) {
+  const assets = Array.isArray(manifest?.runtime?.assets) ? manifest.runtime.assets : [];
+  const id = install?.assetId;
+  if (id && assets.some((a) => a && a.id === id))
+    return `is installed from the Install Manager (Engines) as ${id}, with a hash check and a fallback`;
+  return "has no pinned release asset in this FRIDAY, so the CPU build stays";
+}
+
 module.exports = {
+  llamaBuildNote,
   STT_SIZES,
   strict,
   failureReport,
@@ -2218,6 +2232,8 @@ if (require.main === module && process.argv.includes("--plan")) {
   // `--plan` prints this PC's block and downloads nothing; `--plan --json` prints the required set the Doctor reads.
   const picked = require("./friday-root.cjs").workspaceRootOrDev({ record: false });
   const json = process.argv.includes("--json");
+  // Setup already printed the block ahead of Step 1 (FRIDAY_PLAN_PRINTED=1): Step 4 does not measure and print it twice.
+  if (!json && String(process.env.FRIDAY_PLAN_PRINTED ?? "") === "1") process.exit(0);
   thisPcPlan(picked.root, { env: process.env }).then(
     ({ plan }) => {
       if (json)

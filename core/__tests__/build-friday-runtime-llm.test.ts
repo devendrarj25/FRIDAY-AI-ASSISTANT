@@ -52,7 +52,7 @@ const SHA = "a".repeat(64);
 const COMMIT = "b".repeat(40);
 const record = (extra: Record<string, unknown> = {}) =>
   build.buildRecord({
-    tag: "b12230",
+    tag: "b12619",
     commit: COMMIT,
     variant: "friday-native",
     toolchain: "vs2022",
@@ -75,14 +75,14 @@ describe("the tag is pinned to the official engine", () => {
   });
 
   it("accepts only a plain build tag", () => {
-    expect(build.isPinnedTag("b12230")).toBe(true);
+    expect(build.isPinnedTag("b12619")).toBe(true);
     for (const bad of [
       "master",
       "latest",
       "",
       "12230",
-      "b12230-rc",
-      "b12230 --force",
+      "b12619-rc",
+      "b12619 --force",
       COMMIT,
       null,
     ])
@@ -104,7 +104,7 @@ describe("the cmake arguments", () => {
   it("friday-native is a native static CPU server build", () => {
     const { configure, build: compile } = build.buildArgs({
       variant: "friday-native",
-      tag: "b12230",
+      tag: "b12619",
       toolchain: "vs2022",
     });
     for (const flag of [
@@ -174,7 +174,7 @@ describe("the cmake arguments", () => {
     expect(
       build.parseArgs(["--work", "w", "--fixture", "f.gguf", "--timebox-min", "30", "--dry-run"]),
     ).toEqual({
-      tag: "b12230",
+      tag: "b12619",
       variant: "friday-native",
       toolchain: "vs2022",
       work: "w",
@@ -193,9 +193,9 @@ describe("a dry run and the folders", () => {
       encoding: "utf8",
     });
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("llama.cpp b12230, friday-native");
+    expect(result.stdout).toContain("llama.cpp b12619, friday-native");
     expect(result.stdout).toContain("--target llama-server");
-    expect(result.stdout).toContain("friday-runtime-llm-b12230-friday-native-win-x64.zip");
+    expect(result.stdout).toContain("friday-runtime-llm-b12619-friday-native-win-x64.zip");
     expect(fs.existsSync(work)).toBe(false);
   });
 
@@ -218,10 +218,10 @@ describe("a dry run and the folders", () => {
 
 describe("the files and the record", () => {
   it("names the asset after the tag and the variant", () => {
-    expect(build.assetName("b12230", "friday-native")).toBe(
-      "friday-runtime-llm-b12230-friday-native-win-x64.zip",
+    expect(build.assetName("b12619", "friday-native")).toBe(
+      "friday-runtime-llm-b12619-friday-native-win-x64.zip",
     );
-    expect(build.assetName("b12230", "friday-portable")).toContain("friday-portable-win-x64.zip");
+    expect(build.assetName("b12619", "friday-portable")).toContain("friday-portable-win-x64.zip");
     expect(() => build.assetName("main", "friday-native")).toThrow(/unpinned tag/);
   });
 
@@ -240,7 +240,7 @@ describe("the files and the record", () => {
     expect(record()).toEqual({
       name: "friday-runtime-llm",
       engine: "llama.cpp",
-      tag: "b12230",
+      tag: "b12619",
       commit: COMMIT,
       variant: "friday-native",
       toolchain: "vs2022",
@@ -248,7 +248,7 @@ describe("the files and the record", () => {
         { name: "friday-runtime-llm.exe", sha256: SHA },
         { name: "ggml-cpu.dll", sha256: "c".repeat(64) },
       ],
-      assetName: "friday-runtime-llm-b12230-friday-native-win-x64.zip",
+      assetName: "friday-runtime-llm-b12619-friday-native-win-x64.zip",
       sha256: "d".repeat(64),
       builtAt: "2026-11-27T00:00:00.000Z",
     });

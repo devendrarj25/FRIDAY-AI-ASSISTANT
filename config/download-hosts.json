@@ -12,7 +12,16 @@
     "archive.apache.org",
     "getcomposer.org",
     "cmake.org",
-    "downloads.gradle.org"
+    "downloads.gradle.org",
+    "dlcdn.apache.org",
+    "dotnetcli.azureedge.net",
+    "dotnetcli.blob.core.windows.net",
+    "golang.google.cn",
+    "mirrors.huaweicloud.com",
+    "mirrors.tuna.tsinghua.edu.cn",
+    "registry.npmmirror.com",
+    "win.rustup.rs",
+    "files.pythonhosted.org"
   ],
   "families": [
     {
@@ -39,6 +48,16 @@
     {
       "id": "lmstudio",
       "suffixes": ["lmstudio.ai"]
+    },
+    {
+      "id": "pypimirrors",
+      "hosts": [
+        "pypi.tuna.tsinghua.edu.cn",
+        "mirrors.aliyun.com",
+        "mirrors.huaweicloud.com",
+        "mirrors.ustc.edu.cn",
+        "mirrors.cloud.tencent.com"
+      ]
     },
     {
       "id": "toolvendors",
@@ -91,15 +110,77 @@
         "www.python.org",
         "www.sqlite.org"
       ]
+    },
+    {
+      "id": "toolmirrors",
+      "hosts": [
+        "dlcdn.apache.org",
+        "dotnetcli.azureedge.net",
+        "dotnetcli.blob.core.windows.net",
+        "golang.google.cn",
+        "mirrors.tuna.tsinghua.edu.cn",
+        "registry.npmmirror.com",
+        "win.rustup.rs"
+      ]
+    },
+    {
+      "id": "pypiofficial",
+      "hosts": ["files.pythonhosted.org"]
+    }
+  ],
+  "pypiMirrors": [
+    {
+      "id": "tuna",
+      "packages": "https://pypi.tuna.tsinghua.edu.cn/packages",
+      "simple": "https://pypi.tuna.tsinghua.edu.cn/simple"
+    },
+    {
+      "id": "aliyun",
+      "packages": "https://mirrors.aliyun.com/pypi/packages",
+      "simple": "https://mirrors.aliyun.com/pypi/simple"
+    },
+    {
+      "id": "huaweicloud",
+      "packages": "https://mirrors.huaweicloud.com/repository/pypi/packages",
+      "simple": "https://mirrors.huaweicloud.com/repository/pypi/simple"
+    },
+    {
+      "id": "ustc",
+      "packages": "https://mirrors.ustc.edu.cn/pypi/packages",
+      "simple": "https://mirrors.ustc.edu.cn/pypi/simple"
+    },
+    {
+      "id": "tencent",
+      "packages": "https://mirrors.cloud.tencent.com/pypi/packages",
+      "simple": "https://mirrors.cloud.tencent.com/pypi/simple"
     }
   ],
   "pathPrefixes": {
     "aka.ms": ["/vs/", "/dotnet/"],
+    "dlcdn.apache.org": ["/maven/"],
+    "dotnetcli.azureedge.net": ["/dotnet/Sdk/"],
+    "dotnetcli.blob.core.windows.net": ["/dotnet/Sdk/"],
     "downloads.sourceforge.net": ["/project/nsis/", "/project/luabinaries/"],
+    "files.pythonhosted.org": ["/packages/"],
     "gitlab.com": ["/api/v4/projects/4207231/", "/api/v4/projects/graphviz%2Fgraphviz/"],
     "go.microsoft.com": ["/fwlink/"],
+    "golang.google.cn": ["/dl/"],
     "jb.gg": ["/android-studio-releases-list.json"],
-    "sourceforge.net": ["/projects/nsis/", "/projects/luabinaries/"]
+    "mirrors.aliyun.com": ["/pypi/packages/", "/pypi/simple/"],
+    "mirrors.cloud.tencent.com": ["/pypi/packages/", "/pypi/simple/"],
+    "mirrors.huaweicloud.com": [
+      "/git-for-windows/",
+      "/nodejs/",
+      "/python/",
+      "/repository/pypi/packages/",
+      "/repository/pypi/simple/"
+    ],
+    "mirrors.tuna.tsinghua.edu.cn": ["/nodejs-release/"],
+    "mirrors.ustc.edu.cn": ["/pypi/packages/", "/pypi/simple/"],
+    "pypi.tuna.tsinghua.edu.cn": ["/packages/", "/simple/"],
+    "registry.npmmirror.com": ["/-/binary/"],
+    "sourceforge.net": ["/projects/nsis/", "/projects/luabinaries/"],
+    "win.rustup.rs": ["/x86_64"]
   },
   "optInHosts": ["hf-mirror.com"],
   "loopbackHttp": ["127.0.0.1", "localhost", "::1"]

@@ -28,6 +28,7 @@ const voicePins = require("./voice-pins.cjs");
 const voiceWeights = require("./voice-weights.cjs");
 const localSources = require("./local-sources.cjs");
 const safety = require("./download-safety.cjs");
+const { fetchCompat } = require("./net-fetch.cjs");
 const library = require("./local-library.cjs");
 const localEngines = require("./local-engines.cjs");
 
@@ -128,7 +129,7 @@ async function hfFiles(repo, signal, revision = "") {
         ? `${host}/api/models/${repo}/revision/${revision}?blobs=true`
         : `${host}/api/models/${repo}?blobs=true`;
       safety.assertAllowedUrl(listingUrl);
-      const res = await fetch(listingUrl, withHfAuth(listingUrl, { signal }));
+      const res = await fetchCompat(listingUrl, withHfAuth(listingUrl, { signal }));
       if (!res.ok) {
         lastError = `HTTP ${res.status}`;
         continue;
@@ -858,6 +859,7 @@ async function ollamaFailure(res) {
  * https://github.com/ollama/ollama/blob/main/docs/api.md
  */
 async function registerGguf(name, file, onEvent, signal, io = {}) {
+  // Local Ollama on loopback: plain Node fetch, so a multi-GB blob stream is never replayed through a second stack.
   const call = io.fetch || fetch;
   if (!(await ollamaReachable(signal))) return { ok: false, error: "ollama not running" };
   try {
@@ -1316,7 +1318,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
   const derived = voiceWeights.DERIVED_EARS.find((ear) => ear.catalogId === modelId);
   const sources = derived
     ? voiceWeights.derivedEarSources(modelId, chainDeps)
-    : voiceWeights.withFridayRelease(job.sources, chainDeps);
+    : voiceWeights.withModelscopeRoad(voiceWeights.withFridayRelease(job.sources, chainDeps));
   if (derived && !sources.length) {
     return {
       ok: false,

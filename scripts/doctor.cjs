@@ -9,14 +9,13 @@
  * where it stopped and fetches what is missing again from every source. Every step
  * is safe to run again and reuses what is healthy.
  *
- * Two tiers. A BLOCKER step (dependencies, the environment check, the EXE packs, the
- * runtime folders, the main-process dependencies) is what the build cannot run
- * without: when it cannot finish it fails the run with its reason. A NOTICE step
- * (the models, the voice files, the voice stack, the registry, the pinned runners)
- * that cannot finish prints a NOTICE row, is recorded in
- * <FRIDAY_ROOT>/runtime/setup-notices.json and does not fail the run: the build
- * still runs and FRIDAY > Install Manager / Models finishes the item.
- * FRIDAY_SETUP_STRICT=1 makes every step a blocker again.
+ * Two tiers. A BLOCKER step (dependencies, the environment check, the runtime folders, the main-process
+ * dependencies) is what the build cannot run without: when it cannot finish it fails the run with its reason. A NOTICE
+ * step (the EXE packs, the models, the voice files, the voice stack, the registry, the pinned runners) that cannot
+ * finish prints a NOTICE row, is recorded in <FRIDAY_ROOT>/runtime/setup-notices.json and does not fail the run: the
+ * build still runs (it fetches the packs again and stops there only when that fails too) and FRIDAY > Install Manager /
+ * Models finishes the item. FRIDAY_SETUP_STRICT=1 makes every step a blocker again. The run is always steps 1 to 10
+ * ("doctor N/10").
  *
  *   1. dependencies    npm ci when node_modules does not match package-lock.json
  *   2. environment     scripts/check-environment.cjs --fix: the toolchain, Electron,
@@ -296,12 +295,18 @@ function runDoctor(steps = STEPS, log = console.log, env = process.env, deps = {
   return { ok: failed.length === 0, rows, notices: open };
 }
 
-module.exports = { STEPS, runDoctor, models, modelNoticesOpen };
+/** Child steps trust the Windows certificate store (a company proxy CA); an owner's own value is kept. */
+function useSystemCa(env = process.env) {
+  if (env.NODE_USE_SYSTEM_CA === undefined) env.NODE_USE_SYSTEM_CA = "1";
+}
+
+module.exports = { STEPS, runDoctor, models, modelNoticesOpen, useSystemCa };
 
 if (require.main === module) {
   // exitCode, not process.exit(): ending the process while child pipes are closing can abort Node on Windows.
   // A Node.js / npm update left by the last `npm run setup` finishes first.
   require("./running-tools-upgrade.cjs").waitForPending();
+  useSystemCa();
   // One reachability cache for the whole run: the steps below are separate processes and probe each host once.
   const reachCache = process.env.FRIDAY_REACH_CACHE
     ? ""

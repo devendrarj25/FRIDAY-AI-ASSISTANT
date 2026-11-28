@@ -18,6 +18,74 @@ if (-not $env:npm_config_progress) { $env:npm_config_progress = 'false' }
 if (-not $env:PIP_PROGRESS_BAR) { $env:PIP_PROGRESS_BAR = 'off' }
 # Only npm's errors are printed: its deprecation notices name packages inside electron-builder that FRIDAY cannot change.
 if (-not $env:npm_config_loglevel) { $env:npm_config_loglevel = 'error' }
+# Behind a company proxy that re-signs HTTPS, the certificate it uses is in the Windows store, not in Node.js's own list:
+# Node.js (the build scripts) is told to read the Windows store, unless the user has chosen. Node.js reads it at start.
+if (-not $env:NODE_USE_SYSTEM_CA) { $env:NODE_USE_SYSTEM_CA = '1' }
+# Windows PowerShell 5.1 uses the Internet Options proxy but sends no proxy credentials: the signed-in Windows user's
+# are given to it, so a proxy that wants single sign-on answers the downloads of this script too.
+try {
+  $webProxy = [Net.WebRequest]::GetSystemWebProxy()
+  $webProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials
+  [Net.WebRequest]::DefaultWebProxy = $webProxy
+} catch { }
+
+# The registry ProxyServer value is 'host:port' or 'http=host:port;https=host:port;ftp=...'; Node.js, npm, pip, git and
+# curl read HTTPS_PROXY instead. Only an HTTP proxy URL comes out ('' for a SOCKS proxy or an empty value).
+function ConvertTo-ProxyUrl([string]$Server) {
+  $text = "$Server".Trim()
+  if (-not $text) { return '' }
+  $pick = ''
+  if ($text.Contains('=')) {
+    $byScheme = @{}
+    foreach ($part in ($text -split ';')) {
+      $pair = $part.Trim() -split '=', 2
+      if ($pair.Count -eq 2 -and $pair[1].Trim()) { $byScheme[$pair[0].Trim().ToLowerInvariant()] = $pair[1].Trim() }
+    }
+    if ($byScheme.ContainsKey('https')) { $pick = $byScheme['https'] } elseif ($byScheme.ContainsKey('http')) { $pick = $byScheme['http'] }
+  } else {
+    $pick = $text
+  }
+  if (-not $pick -or $pick -match '^socks') { return '' }
+  if ($pick -notmatch '^[A-Za-z][A-Za-z0-9+.-]*://') { $pick = "http://$pick" }
+  return $pick
+}
+
+# What the Windows proxy settings become as environment variables: HTTPS_PROXY, and NO_PROXY with the local addresses
+# first (the kernel and Ollama on this PC never go through the proxy) plus the ProxyOverride list.
+function Get-WindowsProxyEnv([bool]$Enabled, [string]$Server, [string]$Override) {
+  $result = @{ Https = ''; NoProxy = '' }
+  if (-not $Enabled) { return $result }
+  $url = ConvertTo-ProxyUrl $Server
+  if (-not $url) { return $result }
+  $skip = New-Object System.Collections.Generic.List[string]
+  foreach ($local in @('localhost', '127.0.0.1', '::1')) { $skip.Add($local) }
+  foreach ($item in ("$Override" -split ';')) {
+    $entry = $item.Trim()
+    if (-not $entry -or $entry -eq '<local>' -or $entry.Contains('<')) { continue }
+    $entry = $entry.TrimStart('*')
+    if ($entry -and -not $entry.Contains('*') -and -not $skip.Contains($entry)) { $skip.Add($entry) }
+  }
+  $result.Https = $url
+  $result.NoProxy = ($skip -join ',')
+  return $result
+}
+
+# A proxy the user already exported always wins. Otherwise the one in Windows (Settings, Network, Proxy) is exported for
+# this setup and the tools it starts; a PAC script alone (no fixed ProxyServer) is left to the Windows stack.
+function Set-ProxyEnvFromWindows {
+  foreach ($name in @('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy')) {
+    if ([Environment]::GetEnvironmentVariable($name)) { return }
+  }
+  try {
+    $settings = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
+    $found = Get-WindowsProxyEnv ([bool]($settings.ProxyEnable -eq 1)) "$($settings.ProxyServer)" "$($settings.ProxyOverride)"
+    if (-not $found.Https) { return }
+    $env:HTTPS_PROXY = $found.Https
+    if (-not $env:NO_PROXY -and -not $env:no_proxy) { $env:NO_PROXY = $found.NoProxy }
+    Write-Host "[FRIDAY] web proxy from the Windows settings: $($found.Https -replace '://[^/@]*@', '://') (set HTTPS_PROXY yourself to use another)" -ForegroundColor DarkGray
+  } catch { }
+}
+Set-ProxyEnvFromWindows
 
 # FRIDAY - idempotent Windows setup.
 #
@@ -105,6 +173,103 @@ function Write-FollowUps {
   Write-Host ''
   Write-Host '[FRIDAY] Notices - setup passed; finish these when you can (FRIDAY > Install Manager / Models, or run npm run setup or npm run doctor again):' -ForegroundColor Yellow
   foreach ($line in $script:FollowUps) { Write-Host "[FRIDAY]   - $line" -ForegroundColor Yellow }
+}
+
+# The PC preflight: a quick look before Step 1 of 9 (it is not a numbered step). A Windows too old for Node.js 22 stops
+# here; the rest is a yellow notice (a stop only with FRIDAY_SETUP_STRICT=1, and only for a nearly full disk).
+function Get-DiskLevel([double]$FreeGb) {
+  if ($FreeGb -lt 0) { return 'unknown' }
+  if ($FreeGb -lt 8) { return 'stop' }
+  if ($FreeGb -lt 25) { return 'low' }
+  return 'ok'
+}
+
+function Get-RootPathProblem([string]$Path) {
+  if ($Path.Length -gt 80) { return "The folder $Path is $($Path.Length) characters long: paths over 80 characters break the build and the installer tools. Move FRIDAY to a shorter folder such as C:\FRIDAY." }
+  if ($Path -match '[^\x00-\x7F]') { return "The folder $Path has letters outside plain ASCII: some build tools cannot read such a path. Move FRIDAY to a folder with an ASCII name such as C:\FRIDAY." }
+  return ''
+}
+
+function Get-FreeGb([string]$Path) {
+  try {
+    $drive = [IO.Path]::GetPathRoot($Path)
+    if (-not $drive) { return -1 }
+    return [math]::Round((New-Object IO.DriveInfo($drive)).AvailableFreeSpace / 1GB, 1)
+  } catch { return -1 }
+}
+
+function Get-PcFacts {
+  $admin = $false
+  try { $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
+  $reachable = $false
+  try { Invoke-WebRequest -Uri 'https://nodejs.org/' -Method Head -UseBasicParsing -TimeoutSec 10 | Out-Null; $reachable = $true } catch { }
+  $temp = [IO.Path]::GetTempPath()
+  $same = $false
+  try { $same = [IO.Path]::GetPathRoot($temp) -eq [IO.Path]::GetPathRoot($Root) } catch { }
+  return @{
+    Build = [Environment]::OSVersion.Version.Build
+    Root = $Root
+    RootFreeGb = Get-FreeGb $Root
+    TempPath = $temp
+    TempFreeGb = Get-FreeGb $temp
+    SameDrive = $same
+    IsAdmin = $admin
+    NodeReachable = $reachable
+  }
+}
+
+function Test-PcPreflight([hashtable]$Facts = $null) {
+  if (-not $Facts) { $Facts = Get-PcFacts }
+  $script:IsAdmin = [bool]$Facts.IsAdmin
+  if ([int]$Facts.Build -lt 17763) {
+    throw "This Windows is build $($Facts.Build); FRIDAY and Node.js 22 need build 17763 (Windows 10 version 1809) or newer. Update Windows, then run npm run setup again."
+  }
+  $free = [double]$Facts.RootFreeGb
+  $level = Get-DiskLevel $free
+  if ($level -eq 'stop') {
+    Stop-OrNotice "Only $free GB is free on the drive of $($Facts.Root). The toolchain, the Python environment, the models and the EXE need about 25 GB." 'Free space or move FRIDAY to a bigger drive, then run npm run setup again.'
+  } elseif ($level -eq 'low') {
+    Write-Notice "Only $free GB is free on the drive of $($Facts.Root); the full setup needs about 25 GB." 'Free some space, or the larger models will not fit.'
+  }
+  $tempFree = [double]$Facts.TempFreeGb
+  if (-not $Facts.SameDrive -and $tempFree -ge 0 -and $tempFree -lt 4) {
+    Write-Notice "Only $tempFree GB is free on the TEMP drive ($($Facts.TempPath)); installers unpack there." 'Free space on it, or point the TEMP variable at a roomier folder.'
+  }
+  $problem = Get-RootPathProblem "$($Facts.Root)"
+  if ($problem) { Write-Notice $problem }
+  if ($script:IsAdmin) {
+    Write-Host '[FRIDAY] Running as administrator: tools are installed for every user and files FRIDAY creates belong to the elevated account. A normal (non-elevated) window is the usual way.' -ForegroundColor Yellow
+  }
+  if (-not $Facts.NodeReachable) {
+    Write-Notice 'nodejs.org did not answer.' 'Setup tries the mirrors listed in config\toolchain-manifest.json; if downloads fail, check the network, VPN or proxy.'
+  }
+  if (-not $ToolchainOnly) {
+    Write-Step ("PC check: Windows build {0}, {1} GB free on the FRIDAY drive" -f $Facts.Build, $free)
+  }
+}
+
+# This PC's plan (chat model, speech sizes, llama.cpp, CUDA libraries) is printed right after the preflight, before any
+# download, when Node.js is already here; on a fresh PC the same print comes at Step 4. It measures and prints only.
+function Show-PcPlan {
+  if ($ToolchainOnly) { return }
+  if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) { return }
+  $before = $ErrorActionPreference
+  $lines = @()
+  try {
+    $ErrorActionPreference = 'Continue'
+    $lines = @(& node.exe (Join-Path $Root 'scripts\prefetch-models.cjs') --plan 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+  } catch {
+    $code = 1
+  } finally {
+    $ErrorActionPreference = $before
+  }
+  # A plan that could not be made (no dependencies yet) prints nothing here; Step 4 prints it or says why not.
+  if ($code -eq 0 -and ($lines | Where-Object { $_ -match 'this PC:' })) {
+    Write-Step 'Measuring this PC: the plan below decides every model and GPU package setup downloads'
+    foreach ($line in $lines) { Write-Host $line }
+    $env:FRIDAY_PLAN_PRINTED = '1'
+  }
 }
 
 # A FRIDAY_PYTHON left from an older install that points at a file that is gone is removed from the user's own
@@ -262,6 +427,7 @@ function Invoke-OfficialDownload([string]$Url, [string]$FileName, [string[]]$Mir
     }
     $method = Receive-FromSource $sources[$index] $FileName $target $errors
     if ($method) {
+      $script:LastDownloadSource = $sources[$index]
       Write-DownloadDone $target $started $method
       return $target
     }
@@ -555,11 +721,34 @@ function Get-GitHubLatestRelease([string]$Repository) {
 # A checksum a vendor publishes at a URL (a '.sha256' sidecar or a checksum page) is read over TLS and compared with
 # the file. $true = the file matched; a mismatch deletes the file and throws; $false = nothing usable was published
 # (not found, unreadable, no 64-digit value), which Install-Package and the archive paths treat as unverified.
-function Assert-PublishedChecksum([string]$File, [string]$Url, [string]$Label) {
+# With $AssetName the URL is a list of several files (hashes.sha256 of PowerShell: UTF-16, one '<hash> *<name>' line each).
+function Assert-PublishedChecksum([string]$File, [string]$Url, [string]$Label, [string]$AssetName = '') {
   try {
-    $text = (Invoke-WebRequest -Uri $Url -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }).Content
-    if ($text -is [byte[]]) { $text = [Text.Encoding]::ASCII.GetString($text) }
-    $expected = ([regex]::Match("$text", '(?i)\b[0-9a-f]{64}\b')).Value.ToLowerInvariant()
+    $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -Headers @{ 'User-Agent' = 'FRIDAY-Setup' }
+    # The body is read as bytes where the response keeps them: PowerShell publishes hashes.sha256 as UTF-16 with a
+    # byte-order mark, and a text decoder in either PowerShell edition would garble it.
+    $bytes = $null
+    try { if ($response.RawContentStream) { $bytes = $response.RawContentStream.ToArray() } } catch { $bytes = $null }
+    if (-not $bytes -and $response.Content -is [byte[]]) { $bytes = $response.Content }
+    if ($bytes) {
+      if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $text = [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2) }
+      elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $text = [Text.Encoding]::BigEndianUnicode.GetString($bytes, 2, $bytes.Length - 2) }
+      else { $text = [Text.Encoding]::ASCII.GetString($bytes) }
+    } else {
+      $text = "$($response.Content)"
+      if ($text.Length -ge 2 -and [int][char]$text[0] -eq 0xFF -and [int][char]$text[1] -eq 0xFE) {
+        # Already decoded as Latin-1: turn the characters back into the bytes they came from.
+        $raw = [Text.Encoding]::GetEncoding(28591).GetBytes($text)
+        $text = [Text.Encoding]::Unicode.GetString($raw, 2, $raw.Length - 2)
+      }
+    }
+    $text = "$text".TrimStart([char]0xFEFF)
+    if ($AssetName) {
+      # A list of several files: only the line of this asset counts, never another line.
+      $expected = ([regex]::Match($text, '(?im)^\s*([0-9a-f]{64})\s+\*?' + [regex]::Escape($AssetName) + '\s*$')).Groups[1].Value.ToLowerInvariant()
+    } else {
+      $expected = ([regex]::Match($text, '(?i)\b[0-9a-f]{64}\b')).Value.ToLowerInvariant()
+    }
   } catch {
     Write-Step "checksum file for $Label could not be read ($($_.Exception.Message))"
     return $false
@@ -580,13 +769,63 @@ function Assert-AssetChecksum($Release, $Asset, [string]$File) {
   return (Assert-PublishedChecksum $File $sidecar.browser_download_url $Asset.name)
 }
 
-function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [string[]]$SilentArgs, [string[]]$Publishers = @()) {
+# The GitHub release JSON carries the SHA-256 of each asset ('digest': 'sha256:<64 hex>'). A file that matches it is
+# verified whichever road delivered it; a mismatch deletes the file and throws; $false = the release names no digest.
+function Assert-AssetDigest($Asset, [string]$File) {
+  $expected = ([regex]::Match("$($Asset.digest)", '^(?i)sha256:([0-9a-f]{64})$')).Groups[1].Value.ToLowerInvariant()
+  if (-not $expected) { return $false }
+  $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $expected) {
+    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+    throw "SHA-256 mismatch for $($Asset.name) against the digest GitHub lists for the release: expected $expected, got $actual (file deleted)"
+  }
+  Write-Step "SHA-256 matches the digest GitHub lists for $($Asset.name)"
+  return $true
+}
+
+# $MirrorTemplate is an optional second road to the same release file (https, with {asset} and optionally {tag}).
+# The file from either road goes through the same checks below: the sidecar checksum, the digest GitHub lists, the pin
+# and the signature. A file that came from the mirror and matches none of the first three (sidecar, digest, pin) is
+# deleted and refused: the signer name alone never lets a mirror's bytes run.
+function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [string[]]$SilentArgs, [string[]]$Publishers = @(), [string]$MirrorTemplate = '') {
   $release = Get-GitHubLatestRelease $Repository
   $asset = $release.assets | Where-Object { $_.name -like $AssetPattern } | Select-Object -First 1
   if (-not $asset) { throw "no official asset matching $AssetPattern in $Repository" }
-  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
+  $mirrors = @()
+  if ($MirrorTemplate -and $MirrorTemplate.StartsWith('https://') -and $MirrorTemplate.Contains('{asset}') -and "$($release.tag_name)" -match '^[A-Za-z0-9._+-]+$' -and $asset.name -match '^[A-Za-z0-9._+-]+$') {
+    $mirrors = @($MirrorTemplate.Replace('{tag}', "$($release.tag_name)").Replace('{asset}', "$($asset.name)"))
+  }
+  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name $mirrors
   $verified = Assert-AssetChecksum $release $asset $file
+  if (-not $verified) { $verified = Assert-AssetDigest $asset $file }
+  if (-not $verified -and "$script:LastDownloadSource" -ne "$($asset.browser_download_url)" -and -not (Get-InstallerPin $asset.name)) {
+    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    throw "$($asset.name) came from a mirror and no sidecar, GitHub digest or pinned SHA-256 matched it, so it was deleted and not run"
+  }
   Install-Package $file $SilentArgs $Publishers $verified
+}
+
+# The Tesseract installer that config\toolchain-versions.json (installerPins) pins by SHA-256 is the last direct
+# method: digi.bib first, GitHub second. The pin decides (Install-Package refuses any other bytes), so neither host
+# has to be trusted. A pin of another tool is not touched.
+function Install-PinnedTesseract {
+  $pins = $Versions.installerPins
+  if (-not $pins) { throw 'no pinned Tesseract installer is configured' }
+  $last = 'no pinned Tesseract installer is configured'
+  foreach ($entry in @($pins.PSObject.Properties)) {
+    if ($entry.Name -notmatch '^tesseract-ocr-w64-setup-([0-9.]+)\.exe$') { continue }
+    $name = $entry.Name
+    $tag = "v$($Matches[1])"
+    try {
+      $file = Invoke-OfficialDownload "https://digi.bib.uni-mannheim.de/tesseract/$name" $name @("https://github.com/UB-Mannheim/tesseract/releases/download/$tag/$name")
+      Install-Package $file @('/S') @('Mannheim')
+      return
+    } catch {
+      $last = $_.Exception.Message
+      Write-MethodFailure "pinned Tesseract installer $name" $last
+    }
+  }
+  throw $last
 }
 
 # FFmpeg ships as a ZIP, not an installer: it is unpacked into a per-user folder (no administrator rights,
@@ -595,12 +834,13 @@ function Install-FfmpegArchive {
   $release = Get-GitHubLatestRelease 'GyanD/codexffmpeg'
   $asset = $release.assets | Where-Object { $_.name -like 'ffmpeg-*-essentials_build.zip' } | Select-Object -First 1
   if (-not $asset) { throw 'no official FFmpeg essentials archive in GyanD/codexffmpeg' }
-  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
+  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name @("https://www.gyan.dev/ffmpeg/builds/packages/$($asset.name)")
   # A ZIP carries no Authenticode signature: it is unpacked only when a published SHA-256 matched it, the release's
-  # own sidecar first, then gyan.dev's checksum for its current essentials build (a second host).
+  # own sidecar first, then gyan.dev's sidecar of the same file name (a second host; the moving release-essentials
+  # alias could belong to another build, so it is never read).
   $verified = Assert-AssetChecksum $release $asset $file
   if (-not $verified) {
-    $verified = Assert-PublishedChecksum $file 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256' $asset.name
+    $verified = Assert-PublishedChecksum $file "https://www.gyan.dev/ffmpeg/builds/packages/$($asset.name).sha256" $asset.name
   }
   if (-not $verified) {
     Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
@@ -620,6 +860,49 @@ function Install-FfmpegArchive {
     [Environment]::SetEnvironmentVariable('Path', (($userPath, $bin | Where-Object { $_ }) -join ';'), 'User')
   }
   Write-Step "FFmpeg unpacked to $bin and added to your user PATH"
+}
+
+# PowerShell 7 ships as a per-user ZIP (the release has no MSI from 7.7 on): unpacked into a folder of its own with no
+# administrator rights and added to the user PATH. The ZIP is unpacked only when the hashes.sha256 list of the same
+# release names it with a matching SHA-256; the unpacked pwsh.exe must then carry a Valid Microsoft Corporation
+# signature before it replaces anything, and a failure deletes the copy again (fail closed).
+function Install-PwshArchive {
+  $release = Get-GitHubLatestRelease 'PowerShell/PowerShell'
+  $asset = $release.assets | Where-Object { $_.name -match '^PowerShell-[0-9.]+-win-x64\.zip$' } | Select-Object -First 1
+  if (-not $asset) { throw 'no official PowerShell win-x64 zip in PowerShell/PowerShell' }
+  $sums = $release.assets | Where-Object { $_.name -eq 'hashes.sha256' } | Select-Object -First 1
+  $file = Invoke-OfficialDownload $asset.browser_download_url $asset.name
+  $verified = $false
+  if ($sums) { $verified = Assert-PublishedChecksum $file $sums.browser_download_url $asset.name $asset.name }
+  if (-not $verified) {
+    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    throw "no published SHA-256 was found for $($asset.name), so the archive was deleted and not unpacked"
+  }
+  $base = $env:LOCALAPPDATA
+  if (-not $base) { $base = Join-Path $env:USERPROFILE 'AppData\Local' }
+  $destination = Join-Path $base 'FRIDAY\tools\pwsh'
+  $staging = Join-Path $base ('FRIDAY\tools\pwsh-new-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Force -Path $staging | Out-Null
+  try {
+    Expand-Archive -LiteralPath $file -DestinationPath $staging -Force
+    $exe = Join-Path $staging 'pwsh.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { throw 'the PowerShell archive did not contain pwsh.exe' }
+    $signature = if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) { Get-AuthenticodeSignature -LiteralPath $exe } else { $null }
+    if (-not $signature -or "$($signature.Status)" -ne 'Valid' -or -not $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+      $state = if ($signature) { "$($signature.Status)" } else { 'no signature check available' }
+      throw "pwsh.exe is not signed by Microsoft Corporation ($state), so the unpacked copy was deleted"
+    }
+  } catch {
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    throw
+  }
+  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
+  Move-Item -LiteralPath $staging -Destination $destination
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if (-not $userPath -or (($userPath -split ';') -notcontains $destination)) {
+    [Environment]::SetEnvironmentVariable('Path', (($userPath, $destination | Where-Object { $_ }) -join ';'), 'User')
+  }
+  Write-Step "PowerShell unpacked to $destination and added to your user PATH"
 }
 
 # ---------------------------------------------------------------- Tesseract Hindi data
@@ -672,7 +955,12 @@ function Install-TesseractHindi {
     return
   }
   try {
-    $file = Invoke-OfficialDownload $pin.url 'hin.traineddata'
+    # jsDelivr serves the same file at the same pinned commit; the SHA-256 below decides, whichever host answered.
+    $hindiMirrors = @()
+    if ("$($pin.url)" -match '^https://raw\.githubusercontent\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/([0-9a-f]{40})/([A-Za-z0-9._/-]+)$') {
+      $hindiMirrors = @("https://cdn.jsdelivr.net/gh/$($Matches[1])/$($Matches[2])@$($Matches[3])/$($Matches[4])")
+    }
+    $file = Invoke-OfficialDownload $pin.url 'hin.traineddata' $hindiMirrors
     $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne "$($pin.sha256)".ToLowerInvariant()) {
       Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
@@ -1081,6 +1369,8 @@ Push-Location $Root
 try {
   Wait-RunningToolsUpgrade
   Refresh-Path
+  Test-PcPreflight
+  Show-PcPlan
   Write-Stage 1 'The PC toolchain'
   Write-Step 'Preparing the FRIDAY Windows toolchain: each tool is detected first, kept when supported, and updated when its official source has a newer release'
   if ($script:UpdateWanted) {
@@ -1116,12 +1406,13 @@ try {
   # installed is a notice, like PowerShell 7 below.
   Ensure-Tool 'Git' 'git.exe' @('--version') $Versions.gitMinimum @(
     @{ Label = 'official winget package (Git.Git)'; Action = { Install-WingetPackage 'Git.Git' } },
-    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') @('Johannes Schindelin') } }
+    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') @('Johannes Schindelin') 'https://registry.npmmirror.com/-/binary/git-for-windows/{tag}/{asset}' } }
   ) @('Git.Git') $false
 
   Ensure-Tool 'PowerShell' 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') $Versions.powershellMinimum @(
     @{ Label = 'official winget package (Microsoft.PowerShell)'; Action = { Install-WingetPackage 'Microsoft.PowerShell' } },
-    @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') @('Microsoft Corporation') } }
+    @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') @('Microsoft Corporation') } },
+    @{ Label = 'official PowerShell release ZIP download (per-user)'; Action = { Install-PwshArchive } }
   ) @('Microsoft.PowerShell') $false
 
   Ensure-Tool 'npm' 'npm.cmd' @('--version') $Versions.npmMinimum @(
@@ -1179,7 +1470,8 @@ try {
 
   Ensure-RequiredCommand 'Tesseract OCR' 'tesseract.exe' @(
     @{ Label = 'official winget package (UB-Mannheim.TesseractOCR)'; Action = { Install-WingetPackage 'UB-Mannheim.TesseractOCR' } },
-    @{ Label = 'official UB-Mannheim GitHub installer'; Action = { Install-FromGitHubRelease 'UB-Mannheim/tesseract' '*w64-setup*.exe' @('/S') @('Mannheim') } }
+    @{ Label = 'official UB-Mannheim GitHub installer'; Action = { Install-FromGitHubRelease 'UB-Mannheim/tesseract' '*w64-setup*.exe' @('/S') @('Mannheim') 'https://digi.bib.uni-mannheim.de/tesseract/{asset}' } },
+    @{ Label = 'pinned UB-Mannheim installer (digi.bib, then GitHub)'; Action = { Install-PinnedTesseract } }
   ) @('UB-Mannheim.TesseractOCR')
   Install-TesseractHindi
 
@@ -1216,7 +1508,8 @@ try {
     }
     if (-not $vcInstalled) {
       try {
-        $vcFile = Invoke-OfficialDownload 'https://aka.ms/vs/17/release/vc_redist.x64.exe' 'vc_redist.x64.exe'
+        # The second road is the pinned build of Microsoft's own download host; the installer needs the Microsoft signature from either.
+        $vcFile = Invoke-OfficialDownload 'https://aka.ms/vs/17/release/vc_redist.x64.exe' 'vc_redist.x64.exe' @('https://download.visualstudio.microsoft.com/download/pr/e9604e21-4b79-4096-a4b3-1b63d4b55b4d/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe')
         Install-Package $vcFile @('/install', '/quiet', '/norestart') @('Microsoft Corporation')
         Write-Step 'Visual C++ Redistributable installed from aka.ms/vs/17/release/vc_redist.x64.exe'
         $vcInstalled = $true
@@ -1270,7 +1563,7 @@ try {
   Write-Stage 4 'Python environment and voice models'
   # Hardware first: this PC's plan (chat model, speech sizes, llama.cpp, CUDA libraries) is printed before anything
   # downloads, and the model step reads the same plan. It only measures and prints; a failure here changes nothing.
-  Write-Step 'Measuring this PC: the plan below decides every model and GPU package setup downloads'
+  if ($env:FRIDAY_PLAN_PRINTED -ne '1') { Write-Step 'Measuring this PC: the plan below decides every model and GPU package setup downloads' }
   & node.exe scripts\prefetch-models.cjs --plan
   if ($LASTEXITCODE -eq 0) { $env:FRIDAY_PLAN_PRINTED = '1' }
   Write-Step 'Creating the isolated Python environment and runtime storage'

@@ -117,8 +117,8 @@ describe("the CUDA 12 speech libraries are installed by pin", () => {
   });
 
   it("setup-python builds that list, installs it with --require-hashes, and never retries a pin unpinned", () => {
-    const lines = fn(setup, "function pinnedCudaLibsLines()");
-    // Run the real function with the real engine-install module (win32 x64 injected).
+    const lines = `${fn(setup, "function pinnedBundleLines(")}${fn(setup, "function pinnedCudaLibsLines()")}`;
+    // Run the real functions with the real engine-install module (win32 x64 injected).
     const run = new Function(
       "win",
       "process",

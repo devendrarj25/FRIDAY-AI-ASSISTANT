@@ -291,6 +291,38 @@ if (onnxBefore.gpu.length) {
     `ONNX Runtime ${onnxBefore.gpu.map((row) => `${row.name} ${row.version}`).join(", ")} is installed; the plain CPU wheel is not installed over it`,
   );
 }
+// The GPU tables are the Install Manager's own (electron/engine-install.cjs): which stack a driver can run, the
+// health session, the driver floors and the PyPI mirrors. Setup never stops when they cannot be read.
+const {
+  gpuStackFor,
+  GPU_HEALTH_PROBE,
+  CUDA13_DRIVER_FLOOR,
+  CUDA12_DRIVER_FLOOR,
+  PIP_BUNDLES,
+  pypiMirrors,
+} = (() => {
+  try {
+    return require("./electron-module.cjs").load("engine-install.cjs");
+  } catch {
+    return {};
+  }
+})();
+
+/**
+ * The unhashed `pip --index-url` fallback is opt-in: FRIDAY_PYPI_MIRROR=1 lists the PyPI mirrors of
+ * config/download-hosts.json (tried in order after the official index), or an https PIP_INDEX_URL the PC already has
+ * is tried as a last method. Nothing is added by default, and a second index is never added beside the official one (it
+ * could win a package name). The hashed wheel downloads of the Install Manager use the mirrors on their own, checked by
+ * SHA-256 (electron/engine-install.cjs).
+ */
+function pypiMirrorIndexes(env = process.env) {
+  if (String(env.FRIDAY_PYPI_MIRROR || "") === "1") {
+    return (typeof pypiMirrors === "function" ? pypiMirrors() : []).map((m) => m.simple);
+  }
+  const existing = String(env.PIP_INDEX_URL || "").trim();
+  return /^https:\/\//.test(existing) ? [existing] : [];
+}
+
 const base = [
   "-m",
   "pip",
@@ -327,6 +359,10 @@ const pipMethods = (extra) => [
       ...extra,
     ],
   },
+  ...pypiMirrorIndexes().map((index) => ({
+    label: `PyPI mirror ${new URL(index).hostname} (opt-in, no hash check)`,
+    args: [...base, "--prefer-binary", "--index-url", index, ...extra],
+  })),
 ];
 
 // A newest-release install that breaks the kernel must not be the state the owner is left in: the
@@ -823,17 +859,19 @@ function fetchChromaEmbeddingModel() {
  * silently stayed on the CPU. pip ships both as ordinary wheels, so they are installed on an NVIDIA PC.
  * Best effort: without them speech works on the CPU as before.
  */
-function pinnedCudaLibsLines() {
+/** The pinned `name==version --hash=sha256:...` lines of one PIP_BUNDLES entry for Windows x64, or null when no pin fits. */
+function pinnedBundleLines(name) {
   if (!win || process.arch !== "x64") return null;
   try {
     const { PIP_BUNDLES, PINNED_WHEELS, planWheels } =
       require("./electron-module.cjs").load("engine-install.cjs");
-    const bundle = PIP_BUNDLES["cuda-libs"];
+    const bundle = PIP_BUNDLES[name];
+    if (!bundle) return null;
     const resolved = Object.fromEntries(
       bundle.parts.map((part) => {
-        const pin = PINNED_WHEELS[part.dist];
+        const pin = PINNED_WHEELS[part.pin || part.dist];
         return [
-          part.dist,
+          part.pin || part.dist,
           pin ? { ok: true, version: pin.version, assets: pin.assets } : { ok: false },
         ];
       }),
@@ -843,6 +881,11 @@ function pinnedCudaLibsLines() {
   } catch {
     return null;
   }
+}
+
+/** The pinned lines of the CUDA 12 speech libraries (ctranslate2 keeps CUDA 12 on every NVIDIA tier). */
+function pinnedCudaLibsLines() {
+  return pinnedBundleLines("cuda-libs");
 }
 
 /** This PC's plan, read once (a second reader would measure the PC again). */
@@ -940,21 +983,66 @@ function installGpuSpeechLibraries() {
 
 installGpuSpeechLibraries();
 
+/** The `driver_version` nvidia-smi reports for the first GPU ("581.15"), or "" when it cannot be read. */
+function nvidiaDriverVersion() {
+  const out = capture("nvidia-smi", ["--query-gpu=driver_version", "--format=csv,noheader"]);
+  if (out.status !== 0) return "";
+  return (
+    String(out.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || ""
+  );
+}
+
 /**
- * The GPU (CUDA) build of ONNX Runtime, when this PC's plan says so (`onnxruntime` variant gpu: the CUDA libraries are on
- * this PC or were installed just above). The same pinned, hash-checked wheel the Install Manager installs
+ * Installs the library bundles of a GPU stack (everything before its ONNX Runtime bundle), in order, each by SHA-256 pin
+ * (`--require-hashes --no-deps`, never retried unpinned). The CUDA 12 pair is skipped when its DLLs are already there.
+ * `{ ok: true }`, or `{ ok: false, reason }` for the first bundle that did not install.
+ */
+function installTierLibraries(stack) {
+  for (const name of stack.bundles) {
+    const bundle = PIP_BUNDLES[name];
+    if (!bundle || bundle.conflicts.length) continue;
+    if (name === "cuda-libs" && capture(python, CUDA_LIBS_PROBE).status === 0) continue;
+    const lines = pinnedBundleLines(name);
+    if (!lines) return { ok: false, reason: `no pinned ${bundle.id} wheel fits this PC` };
+    const file = path.join(root, "temporary", "downloads", `${name}-pinned.txt`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${lines.join("\n")}\n`);
+    log(`installing the ${bundle.id} (${lines.length} pinned wheels) with SHA-256 checks`);
+    if (
+      !installWithMethods(["--require-hashes", "--no-deps", "-r", file], {
+        preferBinaryFirst: true,
+        noUpgrade: true,
+      })
+    )
+      return { ok: false, reason: `the ${bundle.id} did not install` };
+  }
+  return { ok: true };
+}
+
+/**
+ * The GPU build of ONNX Runtime, when this PC's plan says so (`onnxruntime` variant gpu). The NVIDIA driver picks the stack
+ * (electron/engine-install.cjs gpuStackFor): CUDA 13 libraries and ONNX Runtime 1.32.0 from driver 580, the CUDA 12.9
+ * set and ONNX Runtime 1.26.0 from 576, DirectML below that; the stack's libraries are installed first, in order. The same pinned, hash-checked wheel the Install Manager installs
  * (electron/engine-install.cjs PINNED_WHEELS), in the same order as its bundle: the wheel is downloaded and verified
  * first, a copy of the CPU wheel is kept, the CPU wheel is removed (two builds never sit together, they share one
  * module), the GPU wheel is installed, and a health check must pass. A failure puts the CPU wheel back from the kept
  * copy and records a notice; it never stops the setup, and the CPU wheel that was working keeps working.
  */
-function pinnedGpuOrtLines(pyTag) {
+function pinnedGpuOrtLines(pyTag, tier = "cuda13") {
   try {
-    const pin =
-      require("./electron-module.cjs").load("engine-install.cjs").PINNED_WHEELS["onnxruntime-gpu"];
+    const key =
+      tier === "cuda12"
+        ? "onnxruntime-gpu-cu12"
+        : tier === "directml"
+          ? "onnxruntime-directml"
+          : "onnxruntime-gpu";
+    const pin = require("./electron-module.cjs").load("engine-install.cjs").PINNED_WHEELS[key];
     const wheel = pin?.assets.find((asset) => asset.name.includes(`-${pyTag}-`));
     return wheel && /^[a-f0-9]{64}$/.test(wheel.sha256)
-      ? { line: `onnxruntime-gpu==${pin.version} --hash=sha256:${wheel.sha256}`, wheel }
+      ? { line: `${pin.dist || key}==${pin.version} --hash=sha256:${wheel.sha256}`, wheel }
       : null;
   } catch {
     return null;
@@ -1022,8 +1110,23 @@ function installGpuOnnxRuntime() {
         installManagerId: "onnxruntime",
       });
   };
-  // The GPU build needs the CUDA libraries: without them it would load and run on the CPU anyway.
-  if (capture(python, CUDA_LIBS_PROBE).status !== 0) {
+  // The driver picks the stack: its libraries go in first, in order, because the GPU build needs them (without them it
+  // loads and runs on the CPU anyway). A driver that cannot be read gets DirectML, which needs no CUDA libraries.
+  if (typeof gpuStackFor !== "function") {
+    fail("the GPU install tables could not be read");
+    return;
+  }
+  const driver = nvidiaDriverVersion();
+  const stack = gpuStackFor(driver);
+  log(
+    `NVIDIA driver ${driver || "unknown"}: ${stack.tier} stack (CUDA 13 libraries need driver ${CUDA13_DRIVER_FLOOR}+, the CUDA 12 set ${CUDA12_DRIVER_FLOOR}+, DirectML below)`,
+  );
+  const libs = installTierLibraries(stack);
+  if (!libs.ok) {
+    fail(libs.reason);
+    return;
+  }
+  if (stack.tier === "cuda12" && capture(python, CUDA_LIBS_PROBE).status !== 0) {
     fail("the CUDA 12 libraries are not in place");
     return;
   }
@@ -1031,11 +1134,12 @@ function installGpuOnnxRuntime() {
     "-c",
     "import sys; print(f'cp{sys.version_info[0]}{sys.version_info[1]}')",
   ]);
-  const pinned = pinnedGpuOrtLines(String(tag.stdout || "").trim());
+  const pinned = pinnedGpuOrtLines(String(tag.stdout || "").trim(), stack.tier);
   if (!pinned) {
     fail("no pinned GPU wheel fits this Python");
     return;
   }
+  const ortDist = pinned.line.split("==")[0];
   const dir = path.join(root, "temporary", "downloads", "ort-gpu");
   const wheels = path.join(dir, "wheels");
   const previous = path.join(dir, "previous");
@@ -1077,14 +1181,7 @@ function installGpuOnnxRuntime() {
   }
   // Puts the CPU build back and says whether one is installed afterwards (true when there was none to begin with).
   const restoreCpu = () => {
-    run(python, [
-      "-m",
-      "pip",
-      "uninstall",
-      "--yes",
-      "--disable-pip-version-check",
-      "onnxruntime-gpu",
-    ]);
+    run(python, ["-m", "pip", "uninstall", "--yes", "--disable-pip-version-check", ortDist]);
     if (!before) return true;
     return (
       pip("install", "--no-index", "--find-links", previous, "--no-deps", `onnxruntime==${before}`)
@@ -1112,15 +1209,18 @@ function installGpuOnnxRuntime() {
     "-r",
     path.join(dir, "requirements.txt"),
   );
-  // 4. Health: it imports and offers the CUDA provider. Otherwise the CPU build is restored.
+  // 4. Health: a real session must run on the card (GPU_HEALTH_PROBE: CUDAExecutionProvider listed first; a provider
+  // list alone names CUDA even when its DLLs are missing); DirectML only has to import. Otherwise the CPU build is restored.
   const healthy =
     put.status === 0 &&
-    capture(python, [
-      "-c",
-      "import onnxruntime as o, sys; sys.exit(0 if 'CUDAExecutionProvider' in o.get_available_providers() else 3)",
-    ]).status === 0;
+    capture(python, ["-c", stack.tier === "directml" ? "import onnxruntime" : GPU_HEALTH_PROBE])
+      .status === 0;
   if (!healthy) {
-    giveUp("it did not pass its health check (import and the CUDA provider)");
+    giveUp(
+      stack.tier === "directml"
+        ? "it did not pass its health check (import)"
+        : "it did not pass its health check (a real session on the GPU)",
+    );
     return;
   }
   log("ONNX Runtime GPU build installed and healthy");

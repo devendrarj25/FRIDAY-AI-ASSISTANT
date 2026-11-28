@@ -4479,6 +4479,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "embeddinggemma-300m",
+      kind: "model",
+      name: "EmbeddingGemma 300M",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "falcon-11b",
       kind: "model",
       name: "Falcon 2 11B",
@@ -6258,6 +6264,24 @@ export const FLOW_REGISTRY = {
       id: "qwen3-8b",
       kind: "model",
       name: "Qwen3 8B",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "qwen3-embedding-0.6b",
+      kind: "model",
+      name: "Qwen3 Embedding 0.6B",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "qwen3-vl-2b",
+      kind: "model",
+      name: "Qwen3-VL 2B",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "qwen3-vl-4b",
+      kind: "model",
+      name: "Qwen3-VL 4B",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -9795,8 +9819,8 @@ export const FLOW_REGISTRY = {
       total: 176,
     },
     capabilities: {
-      mapped: 1120,
-      total: 1120,
+      mapped: 1124,
+      total: 1124,
     },
     ipc: {
       mapped: 526,

@@ -20,7 +20,8 @@
  *              default; a model already installed is kept when it is at least as good (never deleted or re-pulled).
  *              The plan also carries `numCtx` (context window that fits), `voice` (the small fast twin model) and
  *              `backend` (cuda, vulkan or cpu).
- *   packages   CUDA 12 libraries only with an NVIDIA GPU whose driver reports CUDA 12; the ONNX Runtime variant; heavy
+ *   packages   CUDA 12 libraries only with an NVIDIA GPU whose driver reports CUDA 12; the GPU stack by driver tier
+ *              (`gpuStack`: CUDA 13 libraries from 580, the CUDA 12.9 extras from 576, DirectML below); the ONNX Runtime variant; heavy
  *              extras are listed as offered, not installed.
  *   voice      electron/voice-weights.cjs `voiceInstallPlan`, read only, its decision carried in the same object.
  *
@@ -36,9 +37,37 @@ const MIB = 1024 ** 2;
 const BIG_DOWNLOAD_BYTES = 500 * MIB;
 /** Bytes the CUDA libraries need (config: electron/engine-install.cjs, read from PyPI). */
 const CUDA_LIBS_BYTES = 553162896 + 696300805;
-const ORT_BYTES = Object.freeze({ cpu: 16698767, directml: 25111930, gpu: 157765830 });
+const ORT_BYTES = Object.freeze({ cpu: 16698767, directml: 25111930 });
+
+/**
+ * What a pinned wheel bundle of engine-install.cjs writes (the cp312 wheel of each part): the sizes of the CUDA 13 and
+ * CUDA 12 stacks come from the pins, never from a second copy.
+ */
+function bundleBytes(bundleId) {
+  const engines = require("./engine-install.cjs");
+  const bundle = engines.PIP_BUNDLES[bundleId];
+  if (!bundle) return 0;
+  return bundle.parts.reduce((sum, part) => {
+    const pin = engines.PINNED_WHEELS[part.pin || part.dist];
+    const asset = pin?.assets.find((a) => /cp312|py3-none/.test(a.name)) || pin?.assets[0];
+    return sum + (Number(asset?.bytes) || 0);
+  }, 0);
+}
 /** What a GPU llama.cpp zip weighs, from the release pages (an estimate: the real size is read at install time). */
-const LLAMA_GPU_APPROX_BYTES = Object.freeze({ cuda: 650 * MIB, vulkan: 60 * MIB });
+const LLAMA_GPU_APPROX_BYTES = Object.freeze({
+  cuda: 650 * MIB,
+  vulkan: 60 * MIB,
+  "cuda-13.5-x64": 622 * MIB,
+  "rocm-10.0-x64": 271 * MIB,
+});
+/** The llama.cpp release asset ids (decision D-9) a build step installs; CUDA steps carry theirs by driver. */
+const LLAMA_ASSET_IDS = Object.freeze({
+  cpu: "cpu-x64",
+  vulkan: "vulkan-x64",
+  rocm: "rocm-10.0-x64",
+});
+/** NVIDIA driver major version from which the CUDA 13.5 build runs. */
+const CUDA13_MIN_DRIVER = 580;
 const PLAN_SCHEMA = 1;
 const INFO = "[friday] INFO     ";
 
@@ -84,6 +113,12 @@ function pinOf(deps) {
     return null;
   }
 }
+
+/** True when the pinned llama.cpp release carries a native ARM64 CPU zip. */
+const ARM64_CPU_ZIP = /-bin-win-cpu-arm64\.zip$/i;
+const X64_CPU_ZIP = /-bin-win-cpu-x64\.zip$/i;
+const hasNativeArm = (pin) =>
+  Array.isArray(pin?.assets) && pin.assets.some((a) => ARM64_CPU_ZIP.test(String(a?.name ?? "")));
 
 /* ------------------------------------------------------------------- facts */
 
@@ -213,16 +248,30 @@ function reserveFor(ramTotal, rules) {
 }
 
 /** The processor architecture the facts carry ("x64", "arm64"), or "". */
-const archOf = (f) => text(f.arch) || text(f.os?.arch) || "";
+const archOf = (f) =>
+  text(f.arch) || text(f.os?.arch) ? require("./llama-runtime.cjs").archOf(f) : "";
 
 /**
  * A cap on the size of a model that runs on the CPU: no AVX2 (llama.cpp falls back to its plain build) and ARM64
- * Windows (the x64 build runs by emulation). `{ maxGb, notes }`; maxGb is null when nothing caps this PC.
+ * Windows (the x64 build runs by emulation; `arm64Native` is true when a native ARM64 build is pinned, which lifts
+ * the cap to the row's `native*` figures). `{ maxGb, notes }`; maxGb is null when nothing caps this PC.
  */
-function cpuCapFor(f, rules) {
+function cpuCapFor(f, rules, arm64Native = false) {
   const caps = isRecord(rules.cpuCaps) ? rules.cpuCaps : {};
   const hits = [];
-  if (/^arm/i.test(archOf(f)) && isRecord(caps.arm64)) hits.push(caps.arm64);
+  if (/^arm/i.test(archOf(f)) && isRecord(caps.arm64)) {
+    const a = caps.arm64;
+    const native = arm64Native && num(a.nativeMaxDownloadGb) !== null;
+    hits.push(
+      native
+        ? {
+            maxDownloadGb: a.nativeMaxDownloadGb,
+            lowClassMaxDownloadGb: a.nativeLowClassMaxDownloadGb ?? a.lowClassMaxDownloadGb,
+            note: a.nativeNote,
+          }
+        : a,
+    );
+  }
   if (isRecord(f.cpu) && f.cpu.avx2 === false && isRecord(caps.noAvx2)) hits.push(caps.noAvx2);
   if (!hits.length) return { maxGb: null, notes: [] };
   const weak = f.cpuClass === "low";
@@ -389,7 +438,9 @@ function numCtxFor(tier, mem, device, spareGb, rules) {
     .sort((a, b) => a - b);
   const kv = positive(tier.kvKbPerToken) ?? positive(n.defaultKvKbPerToken) ?? 64;
   const share = num(n.spareShare) ?? 0.5;
-  let limit = Math.floor((Math.max(0, spareGb) * share * 1024 * 1024) / kv);
+  // A row's fixed cache (sliding-window layers hold a constant window, whatever num_ctx is) comes off the spare first.
+  const fixed = positive(tier.kvFixedGb) ?? 0;
+  let limit = Math.floor((Math.max(0, spareGb - fixed) * share * 1024 * 1024) / kv);
   limit = Math.min(
     limit,
     positive(tier.contextK) ? tier.contextK * 1024 : Infinity,
@@ -457,7 +508,7 @@ function chatModelFor(facts, options = {}) {
   const rules = cfg.rules || {};
   const view = gpuView(f);
   const mem = memoryFor(f, cfg, view);
-  const cap = cpuCapFor(f, rules);
+  const cap = cpuCapFor(f, rules, options.arm64Native ?? hasNativeArm(pinOf(options)));
   const diskFactor = num(rules.diskFactor) ?? 1.3;
   const diskFree = positive(f.diskFreeGb);
   const diskAvail =
@@ -671,6 +722,7 @@ function planChat(f, deps, ctx) {
   const cfg = loadTiers(deps);
   const pick = chatModelFor(f, {
     ...(cfg ? { tiers: cfg } : {}),
+    ...(deps.llamaPin !== undefined ? { llamaPin: deps.llamaPin } : {}),
     diskReserveGb: ctx.diskReserveGb,
   });
   const base = {
@@ -755,6 +807,31 @@ function planChat(f, deps, ctx) {
 
 /* ------------------------------------------------------------------- llama */
 
+/**
+ * Names each step of `llama-runtime.backendChain` (which owns the order, decision D-9: CUDA, ROCm, Vulkan, the ARM64
+ * CPU build, CPU last) with the release asset id it installs (`assetId`, and `runtimeAssetId` for the CUDA runtime
+ * zip). CUDA 13.5 is named when the driver reports CUDA 13 (else when its version is 580 or newer), CUDA 12.4 below.
+ */
+function nameLlamaChain(chain, f, view) {
+  const card = view.nvidia;
+  const major = versionParts(card?.driver ?? f.driverVersion)?.[0] ?? 0;
+  const level = (step) => step.driverCuda ?? versionParts(f.cuda?.driverCuda)?.[0] ?? null;
+  return chain.map((s) => {
+    if (s.backend === "cuda") {
+      const known = level(s);
+      const generation =
+        known !== null ? (known >= 13 ? 13 : 12) : major >= CUDA13_MIN_DRIVER ? 13 : 12;
+      return {
+        ...s,
+        assetId: generation === 13 ? "cuda-13.5-x64" : "cuda-12.4-x64",
+        runtimeAssetId: generation === 13 ? "cudart-13.5-x64" : "cudart-12.4-x64",
+        cudaGeneration: generation,
+      };
+    }
+    return { ...s, assetId: s.assetId || LLAMA_ASSET_IDS[s.backend] || LLAMA_ASSET_IDS.cpu };
+  });
+}
+
 /** The llama.cpp step: the pinned CPU zip, or a GPU build with a digest verified at install time, with fallbacks. */
 function planLlama(f, deps) {
   const llama = require("./llama-runtime.cjs");
@@ -764,12 +841,19 @@ function planLlama(f, deps) {
     ...f,
     gpus: view.real.filter((g) => view.vulkan.includes(g) || g.vendor === "nvidia"),
   };
-  const { chain, skipped } = llama.backendChain(chainFacts);
+  const built = llama.backendChain(chainFacts);
+  const chain = nameLlamaChain(built.chain, f, view);
+  const skipped = built.skipped;
   const pin = pinOf(deps);
-  const pinned = pin?.assets?.[0] || null;
+  const assets = Array.isArray(pin?.assets) ? pin.assets : [];
+  const arm = /^arm/i.test(archOf(f));
+  const nativeArm = arm ? assets.find((a) => ARM64_CPU_ZIP.test(String(a?.name ?? ""))) : null;
+  const pinned =
+    nativeArm || assets.find((a) => X64_CPU_ZIP.test(String(a?.name ?? ""))) || assets[0] || null;
   const pinnedStep = {
     backend: "cpu",
-    variant: "cpu",
+    variant: nativeArm ? "cpu-arm64" : "cpu",
+    assetId: nativeArm ? "cpu-arm64" : "cpu-x64",
     source: pinned ? "pinned" : "release-api",
     digest: pinned ? "pinned-sha256" : "release-api-sha256",
     ...(pinned
@@ -777,8 +861,13 @@ function planLlama(f, deps) {
       : {}),
   };
   const first = chain[0];
-  const cpuVariant = chain[chain.length - 1]?.variant || "cpu";
+  const cpuVariant = nativeArm ? "cpu-arm64" : chain[chain.length - 1]?.variant || "cpu";
   const out = { chain: chain.map((s) => s.backend), cpuVariant, skipped: [...skipped] };
+  if (arm && !nativeArm)
+    out.skipped.push({
+      backend: "cpu",
+      reason: "no native ARM64 llama.cpp build is pinned: the x64 build runs by x64 emulation",
+    });
   const present = deps.installed?.llama === true;
   const net = networkOf(f);
 
@@ -787,7 +876,8 @@ function planLlama(f, deps) {
     ? `the pinned CPU build ${pinned.name} (SHA-256 pinned)`
     : "the CPU build, digest read from the official release API";
   if (first && first.backend !== "cpu") {
-    const approx = LLAMA_GPU_APPROX_BYTES[first.backend] || 0;
+    const approx =
+      LLAMA_GPU_APPROX_BYTES[first.assetId] || LLAMA_GPU_APPROX_BYTES[first.backend] || 0;
     const wait = waitReason(f, approx);
     if (wait || net.online === false) {
       out.skipped.push({
@@ -804,13 +894,21 @@ function planLlama(f, deps) {
       step = {
         backend: first.backend,
         variant: first.variant,
+        assetId: first.assetId,
+        ...(first.runtimeAssetId ? { runtimeAssetId: first.runtimeAssetId } : {}),
         source: "release-api",
         digest: "release-api-sha256",
         approxBytes: approx,
         verified:
           "the zip digest is read from the official release API at install time, SHA-256 verified, health-checked",
       };
-      why = `${first.backend === "cuda" ? "the CUDA 12 build" : "the Vulkan build"}, digest read from the official release API at install time; a build that fails its check is removed and the next step down is tried`;
+      const label =
+        first.backend === "cuda"
+          ? `the CUDA ${first.cudaGeneration || 12} build`
+          : first.backend === "rocm"
+            ? "the ROCm build"
+            : "the Vulkan build";
+      why = `${label}, digest read from the official release API at install time; a build that fails its check is removed and the next step down is tried`;
       out.fallbacks = [
         ...chain
           .slice(1)
@@ -840,7 +938,7 @@ function planLlama(f, deps) {
 
 /* ---------------------------------------------------------------- packages */
 
-function planPackages(f, deps) {
+function planPackages(f, deps, tight = false) {
   const view = gpuView(f);
   const cuda = isRecord(f.cuda) ? f.cuda : {};
   const card = view.nvidia;
@@ -878,6 +976,12 @@ function planPackages(f, deps) {
         bytes: CUDA_LIBS_BYTES,
         reason: `the CUDA libraries (${gb(CUDA_LIBS_BYTES)}) wait: ${wait}`,
       };
+    else if (tight)
+      cudaLibs = {
+        action: "skip",
+        reason:
+          "the disk is tight, so the chat model comes first; the CUDA libraries wait for the Install Manager",
+      };
     else if (room !== null && (CUDA_LIBS_BYTES * 1.3) / GIB > room - 1)
       cudaLibs = {
         action: "skip",
@@ -892,32 +996,109 @@ function planPackages(f, deps) {
   }
   if (cudaLibs.action === "skip") skipped.push({ id: "cuda-libs", reason: cudaLibs.reason });
 
+  // The GPU stack the driver can run (engine-install.cjs gpuStackFor, decision D-8): CUDA 13 libraries with ONNX Runtime
+  // 1.32.0 from driver 580, the CUDA 12.9 extras with ONNX Runtime 1.26.0 for 576 to 579, DirectML below that or when
+  // the driver version is unknown. The speech libraries above (CUDA 12, for the ear) are the same on every tier.
+  const stack = card
+    ? require("./engine-install.cjs").gpuStackFor(card.driver ?? f.driverVersion)
+    : { tier: "none", bundles: [] };
+  const ortLibsId =
+    stack.tier === "cuda13" ? "cuda13-libs" : stack.tier === "cuda12" ? "cuda12-ort-libs" : null;
+  const ortLibsBytes = ortLibsId ? bundleBytes(ortLibsId) : 0;
+  const ortLibsLabel = stack.tier === "cuda13" ? "CUDA 13" : "CUDA 12";
+  let ortLibs;
+  if (!ortLibsId) {
+    ortLibs = {
+      id: null,
+      action: "skip",
+      reason: card
+        ? "the NVIDIA driver is older than 576 or unknown, so the CUDA ONNX Runtime libraries are not installed; DirectML is used"
+        : "no NVIDIA graphics card was found",
+    };
+  } else if (cudaLibs.action === "skip") {
+    ortLibs = { id: ortLibsId, action: "skip", reason: cudaLibs.reason };
+  } else if (deps.installed?.[ortLibsId] === true) {
+    ortLibs = {
+      id: ortLibsId,
+      action: "present",
+      reason: `the ${ortLibsLabel} runtime libraries are already installed`,
+    };
+  } else {
+    const wait = waitReason(f, ortLibsBytes);
+    const room = positive(f.diskFreeGb);
+    const base = { id: ortLibsId, bytes: ortLibsBytes };
+    if (wait)
+      ortLibs = {
+        ...base,
+        action: "defer",
+        deferReason: wait,
+        reason: `the ${ortLibsLabel} runtime libraries (${gb(ortLibsBytes)}) wait: ${wait}`,
+      };
+    else if (tight)
+      ortLibs = {
+        ...base,
+        action: "skip",
+        reason: `the disk is tight, so the chat model comes first; the ${ortLibsLabel} runtime libraries wait for the Install Manager`,
+      };
+    else if (room !== null && (ortLibsBytes * 1.3) / GIB > room - 1)
+      ortLibs = {
+        ...base,
+        action: "skip",
+        reason: `not enough free disk space for the ${ortLibsLabel} runtime libraries (${gb(ortLibsBytes * 1.3)} needed)`,
+      };
+    else
+      ortLibs = {
+        ...base,
+        action: "install",
+        reason: `NVIDIA driver ${stack.tier === "cuda13" ? "runs CUDA 13" : "runs CUDA 12.9"}; the ${ortLibsLabel} runtime libraries (${gb(ortLibsBytes)}) are installed with pinned hashes`,
+      };
+  }
+  if (ortLibs.id && ortLibs.action === "skip")
+    skipped.push({ id: ortLibs.id, reason: ortLibs.reason });
+  const ortGpuBytes = bundleBytes(stack.tier === "cuda12" ? "ort-gpu-cu12" : "ort-gpu");
+
   // ONNX Runtime: setup installs the CPU wheel; a GPU variant is offered, never installed together with another.
+  const libsOk = (step, actions) => actions.includes(step.action);
   const gpuOrt =
     card &&
-    (cudaLibs.action === "present" || cudaLibs.action === "install" || cudaLibs.action === "defer");
+    ortLibsId !== null &&
+    libsOk(cudaLibs, ["present", "install", "defer"]) &&
+    libsOk(ortLibs, ["present", "install", "defer"]);
   const directml = !gpuOrt && view.vulkan.length > 0;
   const variant = gpuOrt ? "gpu" : directml ? "directml" : "cpu";
   // The GPU build is the one to install now when the CUDA libraries are on this PC or planned in this same setup.
   const gpuNow =
-    variant === "gpu" && (cudaLibs.action === "present" || cudaLibs.action === "install");
+    variant === "gpu" &&
+    libsOk(cudaLibs, ["present", "install"]) &&
+    libsOk(ortLibs, ["present", "install"]);
   const installNow = gpuNow ? "gpu" : "cpu";
   const ort = {
     variant,
     installNow,
     action: "install",
-    bytes: ORT_BYTES[installNow],
+    bytes: installNow === "gpu" ? ortGpuBytes : ORT_BYTES[installNow],
     reason: gpuNow
-      ? `the CUDA libraries ${cudaLibs.action === "present" ? "are on this PC" : "are installed in this setup"}, so the GPU (CUDA) build of ONNX Runtime (${mb(ORT_BYTES.gpu)}) is installed`
+      ? `the CUDA libraries ${cudaLibs.action === "present" ? "are on this PC" : "are installed in this setup"}, so the GPU (CUDA) build of ONNX Runtime (${mb(ortGpuBytes)}) is installed`
       : variant === "cpu"
         ? "no qualifying GPU: the CPU build of ONNX Runtime"
-        : `the CPU build is installed first; the ${variant === "gpu" ? "GPU (CUDA)" : "DirectML"} build is offered (${mb(ORT_BYTES[variant])}) and swapped in from the Install Manager with a hash check and a rollback`,
+        : `the CPU build is installed first; the ${variant === "gpu" ? "GPU (CUDA)" : "DirectML"} build is offered (${mb(variant === "gpu" ? ortGpuBytes : ORT_BYTES[variant])}) and swapped in from the Install Manager with a hash check and a rollback`,
   };
   if (variant !== "cpu" && !gpuNow)
-    offered.push({ id: `onnxruntime-${variant}`, bytes: ORT_BYTES[variant], reason: ort.reason });
+    offered.push({
+      id: `onnxruntime-${variant}`,
+      bytes: variant === "gpu" ? ortGpuBytes : ORT_BYTES[variant],
+      reason: ort.reason,
+    });
   if (net.online === false) ort.action = deps.installed?.onnxruntime === true ? "present" : "defer";
   else if (deps.installed?.onnxruntime === true) ort.action = "present";
-  return { cudaLibs, ort, offered, skipped };
+  return {
+    cudaLibs,
+    ortLibs,
+    gpuStack: { tier: stack.tier, bundles: [...stack.bundles] },
+    ort,
+    offered,
+    skipped,
+  };
 }
 
 /* ------------------------------------------------------------------- voice */
@@ -951,7 +1132,12 @@ function voiceProbe(f, deps, packages) {
   };
 }
 
-function planVoice(f, deps, chat, packages) {
+/**
+ * The voice plan. `reserveBytes` is disk another part of this setup (the chat model, llama.cpp, the CUDA libraries)
+ * already claims: the voice plan sees that much less free space, so its optional models yield (the essential ones
+ * are never skipped for disk).
+ */
+function planVoice(f, deps, chat, packages, reserveBytes = 0) {
   if (!text(deps.root))
     return {
       planned: false,
@@ -971,7 +1157,9 @@ function planVoice(f, deps, chat, packages) {
     const plan = voice.voiceInstallPlan(deps.root, voiceProbe(f, deps, packages), {
       exists: deps.exists || (() => false),
       ...(wait ? { waitReason: wait } : {}),
-      ...(deps.statfs ? { statfs: deps.statfs } : {}),
+      ...(deps.statfs || reserveBytes > 0
+        ? { statfs: reservedStatfs(deps.statfs, reserveBytes) }
+        : {}),
       ...(llmGb > 0 ? { llmResidentVramGb: llmGb } : {}),
     });
     const b = plan.budget;
@@ -1008,6 +1196,19 @@ function planVoice(f, deps, chat, packages) {
       reason: `the voice plan could not be computed: ${String(error?.message || error).slice(0, 160)}`,
     };
   }
+}
+
+/** A `statfs` that reports `reserveBytes` less free space than the disk has (never below zero). */
+function reservedStatfs(statfs, reserveBytes) {
+  const real = statfs || ((where) => require("node:fs").statfsSync(where));
+  return (where) => {
+    const stat = real(where);
+    const size = Number(stat.bsize) || 1;
+    return {
+      ...stat,
+      bavail: Math.max(0, Number(stat.bavail) - Math.ceil(Math.max(0, reserveBytes) / size)),
+    };
+  };
 }
 
 /* -------------------------------------------------------------------- plan */
@@ -1104,18 +1305,46 @@ function buildSetupPlan(facts, deps = {}) {
   const pc = pcOf(f, view);
   const skipped = [];
 
-  // Disk is shared by this setup's downloads: voice first, then llama.cpp, the CUDA libraries, then the chat model.
+  // Disk is shared by this setup's downloads: llama.cpp, the CUDA libraries and the voice plan are planned first, then
+  // the chat model takes what is left; on a tight disk the chat model comes before the optional speech models.
   const llama = planLlama(f, deps);
-  const packages = planPackages(f, deps);
-  // The voice plan needs the chat memory first (a model resident on the card), so plan chat with a first disk reserve.
-  const fixedBytes =
-    (llama.action === "install" ? llama.bytes : 0) +
-    (packages.cudaLibs.action === "install" ? CUDA_LIBS_BYTES : 0) +
-    (packages.ort.action === "install" ? packages.ort.bytes : 0);
-  const chatFirst = planChat(f, deps, { diskReserveGb: (fixedBytes * 1.3) / GIB });
-  const voice = planVoice(f, deps, chatFirst, packages);
+  const pass = (pk) => {
+    const fixed =
+      (llama.action === "install" ? llama.bytes : 0) +
+      (pk.cudaLibs.action === "install" ? CUDA_LIBS_BYTES : 0) +
+      (pk.ortLibs.action === "install" ? pk.ortLibs.bytes : 0) +
+      (pk.ort.action === "install" ? pk.ort.bytes : 0);
+    // The voice plan needs the chat memory first (a model resident on the card), so plan chat with a first disk reserve.
+    const first = planChat(f, deps, { diskReserveGb: (fixed * 1.3) / GIB });
+    let voicePlan = planVoice(f, deps, first, pk);
+    const bytesOf = (v) => (v.planned ? v.downloadBytes : 0);
+    let chatPlan = planChat(f, deps, { diskReserveGb: ((fixed + bytesOf(voicePlan)) * 1.3) / GIB });
+    // When the voice plan took the room the first chat pick needed (no model, or a smaller one), plan the voice again
+    // with that room held back: its optional models yield, then the chat again.
+    const wanted = first.tag && first.needs ? first.needs.downloadGb : 0;
+    const got = chatPlan.tag && chatPlan.needs ? chatPlan.needs.downloadGb : 0;
+    if (voicePlan.planned && wanted > got) {
+      const reserve = GIB * (num(loadTiers(deps)?.rules?.diskReserveGb) ?? 1);
+      const squeezed = planVoice(f, deps, first, pk, (fixed + wanted * GIB) * 1.3 + reserve);
+      if (squeezed.planned) {
+        voicePlan = squeezed;
+        chatPlan = planChat(f, deps, {
+          diskReserveGb: ((fixed + bytesOf(voicePlan)) * 1.3) / GIB,
+        });
+      }
+    }
+    return { pk, voicePlan, chatPlan, first };
+  };
+  let run = pass(planPackages(f, deps));
+  // Still no chat model although the first pick fitted: the optional GPU accelerators wait for the Install Manager too.
+  if (run.chatPlan.tag === null && run.first.tag && run.pk.cudaLibs.action === "install") {
+    const lean = pass(planPackages(f, deps, true));
+    if (lean.chatPlan.tag !== null) run = lean;
+  }
+  const packages = run.pk;
+  const voice = run.voicePlan;
+  const chat = run.chatPlan;
   const voiceBytes = voice.planned ? voice.downloadBytes : 0;
-  const chat = planChat(f, deps, { diskReserveGb: ((fixedBytes + voiceBytes) * 1.3) / GIB });
 
   skipped.push(...llama.skipped.map((s) => ({ id: `llama.cpp:${s.backend}`, reason: s.reason })));
   skipped.push(...packages.skipped);
@@ -1147,6 +1376,7 @@ function buildSetupPlan(facts, deps = {}) {
   const planned =
     (llama.action === "install" ? llama.bytes : 0) +
     (packages.cudaLibs.action === "install" ? CUDA_LIBS_BYTES : 0) +
+    (packages.ortLibs.action === "install" ? packages.ortLibs.bytes : 0) +
     (packages.ort.action === "install" ? packages.ort.bytes : 0) +
     pull +
     voiceBytes;
@@ -1154,6 +1384,7 @@ function buildSetupPlan(facts, deps = {}) {
   const deferredBytes =
     (llama.action === "defer" ? llama.bytes : 0) +
     (packages.cudaLibs.action === "defer" ? CUDA_LIBS_BYTES : 0) +
+    (packages.ortLibs.action === "defer" ? packages.ortLibs.bytes : 0) +
     (packages.ort.action === "defer" ? packages.ort.bytes : 0) +
     (chat.action === "defer" && chat.needs ? Math.round(chat.needs.downloadGb * GIB) : 0) +
     (offline ? voiceBytes : 0);
@@ -1163,7 +1394,12 @@ function buildSetupPlan(facts, deps = {}) {
     pc,
     llama,
     chat,
-    packages: { cudaLibs: packages.cudaLibs, ort: packages.ort },
+    packages: {
+      cudaLibs: packages.cudaLibs,
+      ortLibs: packages.ortLibs,
+      gpuStack: packages.gpuStack,
+      ort: packages.ort,
+    },
     voice,
     offered,
     skipped,
@@ -1226,6 +1462,7 @@ function describePlan(plan) {
   const pk = p.packages;
   if (pk) {
     add(`CUDA libraries: ${pk.cudaLibs.action} - ${pk.cudaLibs.reason}`);
+    if (pk.ortLibs?.id) add(`${pk.ortLibs.id}: ${pk.ortLibs.action} - ${pk.ortLibs.reason}`);
     add(`ONNX Runtime: ${pk.ort.action} ${pk.ort.installNow} - ${pk.ort.reason}`);
   }
   const v = p.voice;
@@ -1270,6 +1507,8 @@ function toJSON(plan) {
   }
   if (p.packages?.cudaLibs && wanted(p.packages.cudaLibs.action))
     need("cuda-libs", "runtime-pack", { action: p.packages.cudaLibs.action });
+  if (p.packages?.ortLibs?.id && wanted(p.packages.ortLibs.action))
+    need(p.packages.ortLibs.id, "runtime-pack", { action: p.packages.ortLibs.action });
   if (p.packages?.ort && wanted(p.packages.ort.action))
     need("onnxruntime", "runtime-pack", {
       variant: p.packages.ort.installNow,
@@ -1309,4 +1548,5 @@ module.exports = {
   loadTiers,
   gpuView,
   waitReason,
+  nameLlamaChain,
 };

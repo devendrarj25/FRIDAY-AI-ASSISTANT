@@ -101,9 +101,9 @@ describe("backendChain: the build is chosen by facts, never by a card's name", (
     unknown["vramFreeGb"] = null;
     expect(chainOf(unknown)).not.toContain("cuda");
   });
-  it("AMD, Intel or an iGPU with Vulkan: vulkan then cpu", () => {
+  it("a discrete AMD card tries rocm first; Intel or an iGPU with Vulkan: vulkan then cpu", () => {
     const amd = pc({ gpus: [{ vendor: "amd", vramGb: 8 }], vulkan: true });
-    expect(chainOf(amd)).toEqual(["vulkan", "cpu"]);
+    expect(chainOf(amd)).toEqual(["rocm", "vulkan", "cpu"]);
     const intel = pc({ gpus: [{ vendor: "intel", vramGb: null, integrated: true }], vulkan: true });
     expect(chainOf(intel)).toEqual(["vulkan", "cpu"]);
   });
@@ -207,6 +207,93 @@ describe("planAssets: patterns matched against the release's own names", () => {
     expect(out.ok).toBe(false);
     expect(out.reason).toMatch(/SHA-256/);
     expect(llama.planAssets({ backend: "cpu", variant: "cpu" }, [] as never).ok).toBe(false);
+  });
+});
+
+const NEW = [
+  ZIP("llama-b12619-bin-win-cpu-x64.zip"),
+  ZIP("llama-b12619-bin-win-cpu-arm64.zip"),
+  ZIP("llama-b12619-bin-win-vulkan-x64.zip"),
+  ZIP("llama-b12619-bin-win-vulkan-arm64.zip"),
+  ZIP("llama-b12619-bin-win-cuda-12.4-x64.zip"),
+  ZIP("cudart-llama-bin-win-cuda-12.4-x64.zip"),
+  ZIP("llama-b12619-bin-win-cuda-13.5-x64.zip"),
+  ZIP("cudart-llama-bin-win-cuda-13.5-x64.zip"),
+  ZIP("llama-b12619-bin-win-rocm-10.0-x64.zip"),
+  ZIP("llama-b12619-bin-win-sycl-x64.zip"),
+  ZIP("llama-b12619-bin-win-openvino-2026.4.1-x64.zip"),
+];
+const names = (r: { zips: { name: string }[] }) => r.zips.map((z) => z.name);
+const gpuOf = (vendor: string, over: Facts = {}): Facts =>
+  pc({
+    gpus: [{ vendor, name: "card", vramGb: 16, vramCapped: false, integrated: false, ...over }],
+    gpuVendor: vendor,
+    vulkan: true,
+  });
+
+describe("CUDA 13, ROCm, ARM64, SYCL and OpenVINO builds (b12619 names)", () => {
+  it("a CUDA 13 driver gets cuda-13.5 with its cudart; a 12.x driver never gets 13", () => {
+    const hi = llama.planAssets({ backend: "cuda", variant: "cuda", driverCuda: 13 }, NEW);
+    expect(hi).toMatchObject({ ok: true, variant: "cuda-13.5" });
+    expect(names(hi)).toEqual([
+      "llama-b12619-bin-win-cuda-13.5-x64.zip",
+      "cudart-llama-bin-win-cuda-13.5-x64.zip",
+    ]);
+    const mid = llama.planAssets({ backend: "cuda", variant: "cuda", driverCuda: 12.9 }, NEW);
+    expect(mid.variant).toBe("cuda-12.4");
+    const only12 = NEW.filter((a) => !/13\.5/.test(a.name));
+    expect(
+      llama.planAssets({ backend: "cuda", variant: "cuda", driverCuda: 13 }, only12).variant,
+    ).toBe("cuda-12.4");
+    const noRt13 = NEW.filter((a) => a.name !== "cudart-llama-bin-win-cuda-13.5-x64.zip");
+    expect(
+      llama.planAssets({ backend: "cuda", variant: "cuda", driverCuda: 13 }, noRt13).variant,
+    ).toBe("cuda-12.4");
+  });
+  it("the chain carries the driver's CUDA level so a CUDA 13 driver reaches the planner", () => {
+    const entry = llama.backendChain(nvidia(12, { driverCuda: "13.0" })).chain[0];
+    expect(entry).toMatchObject({ backend: "cuda", driverCuda: 13 });
+    expect(llama.planAssets(entry, NEW).variant).toBe("cuda-13.5");
+  });
+  it("AMD: rocm, then vulkan, then cpu; an integrated AMD part goes straight to vulkan", () => {
+    expect(chainOf(gpuOf("amd"))).toEqual(["rocm", "vulkan", "cpu"]);
+    expect(chainOf(gpuOf("amd", { integrated: true }))).toEqual(["vulkan", "cpu"]);
+    expect(chainOf(gpuOf("intel"))).toEqual(["vulkan", "cpu"]);
+    const rocm = llama.planAssets(llama.backendChain(gpuOf("amd")).chain[0], NEW);
+    expect(rocm).toMatchObject({ ok: true, variant: "rocm-10.0" });
+    expect(names(rocm)).toEqual(["llama-b12619-bin-win-rocm-10.0-x64.zip"]);
+    expect(llama.planAssets({ backend: "rocm", variant: "rocm" }, ASSETS)).toMatchObject({
+      ok: false,
+    });
+  });
+  it("SYCL and OpenVINO are planned by name when asked for, never by the default chain", () => {
+    expect(names(llama.planAssets({ backend: "sycl", variant: "sycl" }, NEW))).toEqual([
+      "llama-b12619-bin-win-sycl-x64.zip",
+    ]);
+    expect(names(llama.planAssets({ backend: "openvino", variant: "openvino" }, NEW))).toEqual([
+      "llama-b12619-bin-win-openvino-2026.4.1-x64.zip",
+    ]);
+    for (const f of [gpuOf("amd"), gpuOf("intel"), nvidia(8)])
+      expect(chainOf(f)).not.toEqual(expect.arrayContaining(["sycl"]));
+  });
+  it("Windows on ARM: only the arm64 CPU zip, from the facts' arch; an unknown arch stays x64", () => {
+    const arm = llama.backendChain(pc({ arch: "arm64" }));
+    expect(arm.chain).toEqual([{ backend: "cpu", variant: "cpu", arch: "arm64" }]);
+    expect(names(llama.planAssets(arm.chain[0], NEW))).toEqual([
+      "llama-b12619-bin-win-cpu-arm64.zip",
+    ]);
+    expect(chainOf(nvidia(8, {}))).toContain("cuda");
+    expect(chainOf({ ...nvidia(8), arch: "arm64" })).toEqual(["cpu"]);
+    expect(chainOf(pc({ os: { arch: "ARM64" } }))).toEqual(["cpu"]);
+    for (const arch of [undefined, null, "x64", "AMD64", "ia32"]) {
+      const c = llama.backendChain(pc({ arch })).chain.at(-1);
+      expect(names(llama.planAssets(c, NEW))).toEqual(["llama-b12619-bin-win-cpu-x64.zip"]);
+    }
+  });
+  it("rocm, sycl and openvino count as GPU backends", () => {
+    for (const b of ["cuda", "vulkan", "rocm", "sycl", "openvino"])
+      expect(llama.isGpuBackend(b)).toBe(true);
+    expect(llama.isGpuBackend("cpu")).toBe(false);
   });
 });
 

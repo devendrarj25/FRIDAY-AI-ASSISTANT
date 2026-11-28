@@ -544,12 +544,29 @@ describe("building the lock", () => {
     };
     const pypi = {
       "fastapi==0.165.0": {
-        urls: [{ filename: "fastapi-0.165.0-py3-none-any.whl", size: 10, digests: { sha256: A } }],
+        urls: [
+          {
+            filename: "fastapi-0.165.0-py3-none-any.whl",
+            size: 10,
+            digests: { sha256: A },
+            upload_time_iso_8601: "1999-12-01T00:00:00.000000Z",
+          },
+        ],
       },
       "pyyaml==6.0.4": {
         urls: [
-          { filename: "pyyaml-6.0.4-cp312-cp312-win_amd64.whl", size: 20, digests: { sha256: B } },
-          { filename: "pyyaml-6.0.4-cp313-cp313-win_amd64.whl", size: 21, digests: { sha256: C } },
+          {
+            filename: "pyyaml-6.0.4-cp312-cp312-win_amd64.whl",
+            size: 20,
+            digests: { sha256: B },
+            upload_time_iso_8601: "1999-12-01T00:00:00.000000Z",
+          },
+          {
+            filename: "pyyaml-6.0.4-cp313-cp313-win_amd64.whl",
+            size: 21,
+            digests: { sha256: C },
+            upload_time_iso_8601: "1999-12-01T00:00:00.000000Z",
+          },
         ],
       },
     };

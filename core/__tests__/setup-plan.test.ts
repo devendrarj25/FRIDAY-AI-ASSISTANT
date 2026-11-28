@@ -66,13 +66,13 @@ const nvidia = (vramGb: number, freeGb: number, extra: Facts = {}): Facts =>
         name: "Test NVIDIA card",
         vramGb,
         vramCapped: false,
-        driver: "560.94",
+        driver: "576.80",
         integrated: false,
         computeCap: 7.5,
       },
     ],
     cudaReady: true,
-    driverVersion: "560.94",
+    driverVersion: "576.80",
     vulkan: true,
     cuda: { driverCuda: "12.6", cublas12: false, cudnn9: false, runtimeFilesFound: false },
     ...extra,
@@ -139,7 +139,9 @@ describe("setup plan: chat model by memory", () => {
     expect(plan.chatModelFor(noGpu(32, 28)).tag).toBe("qwen3.6:35b-a3b");
     expect(plan.chatModelFor(noGpu(48, 44)).tag).toBe("qwen3.6:35b-a3b");
     const big = plan.chatModelFor(noGpu(64, 50));
-    expect(big.tag).toBe("qwen3.6:35b-a3b-q8_0");
+    expect(big.tag).toBe("qwen3.6:35b-a3b");
+    expect(big.needs.downloadGb).toBeLessThanOrEqual(23);
+    expect(big.alternatives.map((a: { tag: string }) => a.tag)).toContain("qwen3.6:35b-a3b-q8_0");
     expect(big.estimated).toBe(true);
     for (const ram of [16, 24, 32, 48, 64]) {
       const p = plan.chatModelFor(noGpu(ram, ram - 2));
@@ -240,7 +242,10 @@ describe("setup plan: chat model by memory", () => {
       vulkan: true,
     });
     const p = plan.buildSetupPlan(f, deps());
-    expect(p.llama.install.backend).toBe("vulkan");
+    // Decision D-9: a dedicated AMD card tries ROCm first and Vulkan is its first fallback; Ollama chat stays on Vulkan.
+    expect(p.llama.install.backend).toBe("rocm");
+    expect(p.llama.chain).toEqual(["rocm", "vulkan", "cpu"]);
+    expect(p.llama.fallbacks).toEqual(["vulkan", "cpu-pinned"]);
     expect(p.chat.device).toBe("gpu");
     expect(p.chat.backend).toBe("vulkan");
     expect(p.chat.estimated).toBe(true);
@@ -584,5 +589,27 @@ describe("setup plan: the tier table and the source", () => {
     expect(source).not.toMatch(/\.name\s*(===|!==|==|!=|\.test|\.includes|\.match)/);
     expect(source).not.toMatch(/(?:name|gpuName)\)?\s*\.(?:test|includes|match|startsWith)\(/);
     expect(JSON.stringify(tiersFile)).not.toMatch(/\b(rtx|gtx|geforce|radeon)\b/i);
+  });
+});
+
+describe("setup plan: a tight disk keeps the chat model, the voice extras yield", () => {
+  const tight = (freeGb: number) => ({
+    statfs: () => ({ bavail: Math.round(freeGb * 1024 ** 2), bsize: 1024 }),
+  });
+
+  it("8 GB free on a 12 GB card still plans a chat model of 1.3 GB or more", () => {
+    const p = plan.buildSetupPlan(nvidia(12, 11, { diskFreeGb: 8 }), deps(tight(8)));
+    expect(p.chat.tag).not.toBeNull();
+    expect(p.chat.needs.downloadGb).toBeGreaterThanOrEqual(1.3);
+    expect(["pull", "defer"]).toContain(p.chat.action);
+  });
+
+  it("with room for everything nothing yields: the chat model and the voice extras both stay", () => {
+    const roomy = plan.buildSetupPlan(nvidia(12, 11), deps());
+    expect(roomy.chat.tag).toBe("qwen3.5:9b");
+    expect(roomy.voice.optionalBytes).toBeGreaterThan(0);
+    expect(
+      roomy.voice.skipped.filter((s: { reason: string }) => /disk|space/i.test(s.reason)),
+    ).toEqual([]);
   });
 });

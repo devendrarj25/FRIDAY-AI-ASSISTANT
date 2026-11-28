@@ -8,9 +8,10 @@
  * for the tools named here. A miss is not an error: the next source is tried.
  *
  * Package names are the managers' own (community.chocolatey.org, the Scoop main,
- * extras and java buckets). They were not read from a live catalogue here, so a
- * wrong name only means that source answers "not found" and the job reports the
- * sources it tried.
+ * extras, versions and java buckets). A name must install the same major the Install
+ * Manager row expects (Python 3.12, .NET SDK 10, Temurin 25), read against the live
+ * catalogues on 2026-11-28; a wrong name only means that source answers "not found"
+ * and the job reports the sources it tried.
  */
 
 /** Install Manager tool id -> package name per manager. */
@@ -35,18 +36,19 @@ const ALT = Object.freeze({
   Gradle: { choco: "gradle", scoop: "gradle" },
   Maven: { choco: "maven", scoop: "maven" },
   Rust: { choco: "rustup.install", scoop: "rustup" },
-  "OpenJDK (Temurin)": { choco: "temurin21", scoop: "temurin21-jdk" },
+  "OpenJDK (Temurin)": { choco: "temurin25", scoop: "temurin25-jdk" },
   "GCC and G++ (WinLibs)": { choco: "mingw", scoop: "gcc" },
   Ruby: { choco: "ruby", scoop: "ruby" },
   PHP: { choco: "php", scoop: "php" },
   Composer: { choco: "composer", scoop: "composer" },
-  ".NET SDK": { choco: "dotnet-sdk", scoop: "dotnet-sdk" },
+  ".NET SDK": { choco: "dotnet-10.0-sdk" },
   "eSpeak NG": { choco: "espeak-ng" },
   "Docker Desktop": { choco: "docker-desktop" },
   "WSL 2": { choco: "wsl2" },
   "CUDA Toolkit": { choco: "cuda" },
-  Python: { choco: "python", scoop: "python" },
+  Python: { choco: "python312", scoop: "versions/python312" },
   "Node.js LTS": { choco: "nodejs-lts", scoop: "nodejs-lts" },
+  "Redis (Memurai)": { choco: "memurai-developer" },
   "Visual Studio Code": { choco: "vscode", scoop: "vscode" },
 });
 

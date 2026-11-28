@@ -41,7 +41,9 @@ describe("the console PATH is refreshed from the registry", () => {
     expect(read("scripts/doctor.cjs")).toContain("refreshWindowsPath()");
     const setup = read("scripts/setup-windows.ps1");
     expect(
-      setup.indexOf("Refresh-Path\n  Write-Stage 1 'The PC toolchain'\n  Write-Step 'Preparing"),
+      setup.indexOf(
+        "Refresh-Path\n  Test-PcPreflight\n  Show-PcPlan\n  Write-Stage 1 'The PC toolchain'\n  Write-Step 'Preparing",
+      ),
     ).toBeGreaterThan(-1);
     // The session PATH is merged, not replaced.
     expect(setup).toContain('(("$env:Path;$machine;$user") -split');

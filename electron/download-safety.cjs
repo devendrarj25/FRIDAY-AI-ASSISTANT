@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const resourcePaths = require("./resource-paths.cjs");
 const { AsyncLocalStorage } = require("node:async_hooks");
-const { boundedInit } = require("./net-fetch.cjs");
+const { boundedInit, fetchCompat } = require("./net-fetch.cjs");
 
 // Fail closed when the allowlist file is missing. Loopback stays so the
 // local daemon can still be reached. Doctor reports the degraded row.
@@ -199,7 +199,7 @@ async function fetchAllowlisted(raw, options = {}, extraHosts = []) {
     const bounded = boundedInit({ ...options, redirect: "manual" }, 30_000);
     let res;
     try {
-      res = await fetch(current, bounded.init);
+      res = await fetchCompat(current, bounded.init);
     } finally {
       bounded.clear();
     }

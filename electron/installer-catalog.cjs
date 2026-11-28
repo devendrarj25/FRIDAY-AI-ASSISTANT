@@ -662,6 +662,22 @@ function doctorRows(rows) {
       repair: needed ? { id: libs.id, action: libs.installed ? "repair" : "install" } : null,
     });
   }
+  // The CUDA 13 libraries (driver 580 or newer) for the CUDA 13 ONNX Runtime; the speech pair above stays CUDA 12.
+  const libs13 = pick("CUDA 13 runtime libraries");
+  if (libs13) {
+    const needed = libs13.fit.state !== "unsupported";
+    out.push({
+      id: "cuda13-libs",
+      label: "CUDA 13 runtime libraries (cuBLAS 13, cuDNN 9)",
+      status: !needed ? "skip" : libs13.installed ? "ok" : "warn",
+      detail: !needed
+        ? libs13.fit.reasons[0]?.text || "no NVIDIA GPU with a CUDA 13 driver"
+        : libs13.installed
+          ? `installed ${libs13.installedVersion || ""}`.trim()
+          : "not installed: the GPU ONNX Runtime stays off",
+      repair: needed ? { id: libs13.id, action: libs13.installed ? "repair" : "install" } : null,
+    });
+  }
   for (const id of ["llama.cpp", "stable-diffusion.cpp", "FFmpeg (LGPL, portable)"]) {
     const row = pick(id);
     if (!row) continue;

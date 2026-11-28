@@ -23,6 +23,8 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const GRACE_DAYS = 14;
+/** The age a new pin must already have (a wheel, a tool, a model): the lock generators read this one number. */
+const MIN_PIN_AGE_DAYS = 7;
 
 /** Where each pin lives and where its newest release is announced. A tool may be pinned in several files. */
 const PINS = [
@@ -97,7 +99,7 @@ async function fetchLatest(source, fetchJson, options = {}) {
   try {
     if (source.github) {
       // The one source chain: the API, then the public feed (no release date), then the last stored answer.
-      const vendor = require("../electron/vendor-sources.cjs");
+      const vendor = require("./electron-module.cjs").load("vendor-sources.cjs");
       const dir = options.root || process.env.FRIDAY_ROOT;
       const got = await vendor.resolveLatest(
         `release:${source.github}`,
@@ -229,6 +231,7 @@ function summarize(results) {
 module.exports = {
   PINS,
   GRACE_DAYS,
+  MIN_PIN_AGE_DAYS,
   compareVersions,
   readPin,
   fetchLatest,

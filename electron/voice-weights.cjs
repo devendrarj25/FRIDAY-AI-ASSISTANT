@@ -330,6 +330,14 @@ const PINNED = [
         bytes: SMART_TURN_BYTES,
         label: "Hugging Face (pipecat-ai, pinned commit)",
       },
+      {
+        // The same file on ModelScope (hashed 2026-11-28, equal to the pin); `Revision=master` moves, the SHA-256 decides.
+        kind: "url",
+        url: "https://modelscope.cn/api/v1/models/pipecat-ai/smart-turn-v3/repo?Revision=master&FilePath=smart-turn-v3.2-cpu.onnx",
+        sha256: SMART_TURN_SHA256,
+        bytes: SMART_TURN_BYTES,
+        label: "ModelScope (same SHA-256)",
+      },
     ],
   },
   {
@@ -726,6 +734,25 @@ function withFridayRelease(sources, deps = {}) {
   return out;
 }
 
+/**
+ * `sources` with, last, the ModelScope copy (`modelscopeSource`) of every pinned Hugging Face repository it holds, once
+ * per repository and never when the list already carries that url-set. The copy is checked against the same pinned
+ * SHA-256 and size, so it is only another road to the same bytes. Any other source and any other repository is
+ * returned as it was. It is separate from `withFridayRelease` on purpose: that chain ends with the official source.
+ */
+function withModelscopeRoad(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  const mirrors = [];
+  for (const source of list) {
+    if (source?.kind !== "hf-repo" || !source.repo) continue;
+    if (list.some((s) => s?.kind === "url-set" && s.repo === source.repo)) continue;
+    if (mirrors.some((s) => s.repo === source.repo)) continue;
+    const held = modelscopeSource(source.repo);
+    if (held) mirrors.push(held);
+  }
+  return mirrors.length ? [...list, ...mirrors] : list;
+}
+
 /** The file that says which source served a model folder (`<folder>.source.json`, beside the folder, so the pin never sees it). */
 function sourceNotePath(dir) {
   return `${dir}${SOURCE_NOTE}`;
@@ -795,10 +822,11 @@ function sttPlan(model, root) {
 }
 
 /**
- * A second road to the same speech weights: ModelScope holds copies of the five Systran faster-whisper repositories under
+ * A second road to the same pinned weights: ModelScope holds copies of the five Systran faster-whisper repositories under
  * the same names (tiny, base, small, medium, large-v3). All 21 pinned files were compared on 2026-11-28 against the
  * pins: the SHA-256 and byte count ModelScope lists for each equal the pin, and a download of three files was hashed
- * here and matched. The mirror is NOT part of `sttPlan().sources` (the first road stays Hugging Face, exactly as it
+ * here and matched. The same day every file of Supertone/supertonic-3 (17), onnx-community/wespeaker-voxceleb-resnet34-LM
+ * (3) and the turbo speech model (5, under its old publisher name) was downloaded from ModelScope and hashed: all equal the pin. The mirror is NOT part of `sttPlan().sources` (the first road stays Hugging Face, exactly as it
  * was); `sttSourcesWithMirror` is the one place that adds it, behind Hugging Face, and moves it first only when the
  * Doctor reach probe says Hugging Face is down. A file is accepted only when it matches the pinned SHA-256 and size,
  * so a wrong or moved mirror file is refused like any other source. `Revision=master` is a moving name on purpose:
@@ -808,9 +836,23 @@ const MODELSCOPE_HOST = "modelscope.cn";
 const MODELSCOPE_FAMILY = "modelscope";
 const MODELSCOPE_LABEL = "ModelScope (same SHA-256)";
 const HUGGING_FACE_HOST = "huggingface.co";
-const MODELSCOPE_REPOS = new Set(
-  ["tiny", "base", "small", "medium", "large-v3"].map((size) => STT_REPOS[size]),
-);
+const MODELSCOPE_REPOS = new Set([
+  ...["tiny", "base", "small", "medium", "large-v3"].map((size) => STT_REPOS[size]),
+  "Supertone/supertonic-3",
+  "onnx-community/wespeaker-voxceleb-resnet34-LM",
+  // The turbo pin is the renamed repository; ModelScope still holds it under the first publisher name.
+  "dropbox-dash/faster-whisper-large-v3-turbo",
+]);
+/**
+ * A pinned repository whose ModelScope copy has another name. Only the url is built from the mapped name: the files,
+ * hashes and sizes are always the pin's own. The turbo plan's first repository is the old name itself, which is not
+ * in `MODELSCOPE_REPOS`, so the speech plan keeps its two Hugging Face sources and only a source that carries the
+ * renamed repository (the Install Manager's turbo row) gets this road. Silero VAD has no entry on purpose: the file
+ * ModelScope holds has the pinned size and other bytes.
+ */
+const MODELSCOPE_REPO_MAP = {
+  "dropbox-dash/faster-whisper-large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+};
 
 /**
  * The ModelScope copy of a pinned repository as one source: `{ kind: "url-set", host, family, label, repo, files }`,
@@ -828,7 +870,7 @@ function modelscopeSource(repo) {
     repo,
     files: Object.entries(pin.files).map(([file, row]) => ({
       kind: "url",
-      url: `https://${MODELSCOPE_HOST}/api/v1/models/${repo}/repo?Revision=master&FilePath=${encodeURIComponent(file)}`,
+      url: `https://${MODELSCOPE_HOST}/api/v1/models/${MODELSCOPE_REPO_MAP[repo] || repo}/repo?Revision=master&FilePath=${encodeURIComponent(file)}`,
       sha256: row.sha256,
       bytes: row.bytes,
       relPath: file,
@@ -2519,6 +2561,8 @@ module.exports = {
   planFallback,
   OPTIONAL_PLAN_FALLBACKS,
   modelscopeSource,
+  withModelscopeRoad,
+  MODELSCOPE_REPO_MAP,
   sttSourcesWithMirror,
   downloadMirrorSet,
   MODELSCOPE_HOST,

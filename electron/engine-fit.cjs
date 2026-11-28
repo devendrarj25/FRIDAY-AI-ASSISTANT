@@ -19,8 +19,9 @@
  *   diskBytes / diskGb        what the install writes (the model drive needs 1.3 times that, like the downloader)
  *   downloadBytes             what crosses the network (defaults to diskBytes)
  *   gpu                       "nvidia" (a CUDA card) | "any" (any GPU, DirectML) | null
- *   cudaMin                   lowest CUDA the NVIDIA driver must support, as "12" or "12.4"
- *   cudaLibs                  cuBLAS 12 and cuDNN 9 must be installed (their own rows install them)
+ *   cudaMin                   lowest CUDA the NVIDIA driver must support, as "12", "12.4" or "13"
+ *   cudaLibs                  cuBLAS and cuDNN 9 must be installed: the CUDA 13 set on a driver from 580, the CUDA 12
+ *                             set below (their own rows install them)
  *   computeCapMin             lowest CUDA compute capability, e.g. 7.5
  *   vulkan, avx2              the CPU or GPU feature the build needs
  *   cpuOk, gpuOk              voice manifest: keeps up on a CPU / has a GPU path
@@ -46,7 +47,12 @@ const CUDA_DRIVER_MIN = Object.freeze({
   12.6: "560.76",
   12.8: "570.65",
   12.9: "576.57",
+  // CUDA 13 runs from driver 580 (the floor engine-install.cjs gpuStackFor uses; the exact build is unverified).
+  13: "580",
 });
+
+/** The NVIDIA driver major version from which the CUDA 13 libraries are the ones to install (engine-install.cjs). */
+const CUDA13_DRIVER_MAJOR = 580;
 
 const num = (value) => {
   if (value === null || value === undefined || value === "") return null;
@@ -406,6 +412,20 @@ function nvidiaChecks(req, f, gpu, cuda, add) {
   }
   // the CUDA libraries themselves are installable, so a missing pair is a caveat that names its own fix
   if (req.cudaLibs) {
+    // The wording follows the driver: from 580 the CUDA 13 libraries are the ones to install, and the CUDA 12 files
+    // the PC may hold do not count for them (the probe has not looked for the CUDA 13 files unless it says so).
+    const major = versionParts(card.driver ?? f.driverVersion)?.[0] ?? null;
+    if (major !== null && major >= CUDA13_DRIVER_MAJOR) {
+      if (cuda.cuda13LibsFound === true) return;
+      add(
+        "limit",
+        cuda.cuda13LibsFound === false ? "cuda-libs-missing" : "cuda-libs-unknown",
+        cuda.cuda13LibsFound === false
+          ? "cuBLAS 13 and cuDNN 9 not installed; install the CUDA 13 runtime libraries first."
+          : "cuBLAS 13 and cuDNN 9 have not been looked for yet; the CUDA 13 runtime libraries row installs them.",
+      );
+      return;
+    }
     if (cuda.runtimeFilesFound === true || (cuda.cublas12 === true && cuda.cudnn9 === true)) return;
     if (cuda.cublas12 === null && cuda.cudnn9 === null && cuda.runtimeFilesFound === null)
       add("limit", "cuda-libs-unknown", "cuBLAS 12 and cuDNN 9 have not been looked for yet.");

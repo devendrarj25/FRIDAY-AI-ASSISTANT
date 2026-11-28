@@ -16,13 +16,22 @@
  *
  *   node scripts/wheelhouse.cjs check   plan the committed lock against kernel/requirements.txt (no network)
  *   node scripts/wheelhouse.cjs lock    resolve the closure for each series on PyPI and rewrite the lock
- *                                       (needs Python with pip; FRIDAY_PYTHON picks the interpreter)
+ *                                       (needs Python with pip 26 or newer; FRIDAY_PYTHON picks the interpreter)
+ *   node scripts/wheelhouse.cjs lock --allow-young <name>
+ *                                       take a file younger than 7 days for that package (recorded in the lock)
+ *
+ * A pin is at least MIN_PIN_AGE_DAYS (7) old when it is locked: the resolver gets --uploaded-prior-to, every entry
+ * records the PyPI upload time, and a younger file is refused unless --allow-young names its package. The build
+ * tries the PyPI mirrors of config/download-hosts.json (pypiMirrors) after files.pythonhosted.org; each candidate
+ * is checked against the pinned SHA-256 and size, so a mirror is only a different road to the same bytes.
  */
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
+const { MIN_PIN_AGE_DAYS } = require("./pin-freshness.cjs");
+const sharedMirrors = require("./electron-module.cjs").load("pypi-mirrors.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const LOCK_FILE = path.join(ROOT, "config", "wheelhouse.lock.json");
@@ -30,6 +39,8 @@ const DEST = "toolchain/wheelhouse";
 const WHEEL_HOST = "files.pythonhosted.org";
 const INDEX_URL = "https://pypi.org/simple";
 const DEFAULT_TAGS = ["cp312", "cp313", "cp314"];
+const HOSTS_FILE = path.join(ROOT, "config", "download-hosts.json");
+const DAY_MS = 86_400_000;
 
 /** PEP 503 name: lower case, runs of -_. become one dash. */
 function normalizeName(name) {
@@ -174,6 +185,20 @@ function planWheelhouse(lock, { budgetBytes = 0, requirementsText = null } = {})
     const bytes = Number(wheel.bytes || 0);
     if (!Number.isInteger(bytes) || bytes <= 0) errors.push(`${label}: no size`);
     else sum += bytes;
+    if (wheel.uploaded !== undefined) {
+      const uploaded = Date.parse(String(wheel.uploaded));
+      const lockedAt = Date.parse(`${String(lock?.checked || "")}T23:59:59Z`);
+      if (!Number.isFinite(uploaded)) errors.push(`${label}: uploaded is not a time`);
+      else if (
+        Number.isFinite(lockedAt) &&
+        uploaded > lockedAt - MIN_PIN_AGE_DAYS * DAY_MS &&
+        wheel.allowYoung !== true
+      ) {
+        errors.push(
+          `${label}: younger than ${MIN_PIN_AGE_DAYS} days when locked (uploaded ${wheel.uploaded})`,
+        );
+      }
+    }
     const wheelTags = Array.isArray(wheel.tags) ? wheel.tags.map(String) : [];
     if (!wheelTags.length) errors.push(`${label}: serves no Python series`);
     for (const tag of wheelTags) {
@@ -399,6 +424,22 @@ function readLock(file = LOCK_FILE) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+/** The PyPI mirrors of config/download-hosts.json, in order: [{ id, packages, simple }]. */
+function pypiMirrors(file = HOSTS_FILE) {
+  let list = [];
+  try {
+    list = JSON.parse(fs.readFileSync(file, "utf8")).pypiMirrors;
+  } catch {
+    list = [];
+  }
+  return sharedMirrors.validMirrors(list);
+}
+
+/** The same file on each mirror (shared with the engine installer through electron/pypi-mirrors.cjs). */
+function mirrorUrls(url, mirrors = pypiMirrors()) {
+  return sharedMirrors.mirrorUrls(url, mirrors);
+}
+
 function readRequirements(lock, root = ROOT) {
   return fs.readFileSync(path.join(root, lock?.requirements || "kernel/requirements.txt"), "utf8");
 }
@@ -416,6 +457,7 @@ async function stageWheelhouse({
   fetchImpl,
   offline = false,
   log = () => {},
+  mirrors = pypiMirrors(),
 }) {
   const plan = planWheelhouse(lock, { budgetBytes, requirementsText });
   if (plan.errors.length) {
@@ -438,22 +480,36 @@ async function stageWheelhouse({
         error.errors = ["offline"];
         throw error;
       }
-      try {
-        const res = await fetchImpl(wheel.url, {
-          pack: { id: wheel.name, sha256: wheel.sha256, bytes: Number(wheel.bytes) },
-          log,
-        });
-        body = Buffer.isBuffer(res) ? res : Buffer.from(res?.body || []);
-      } catch (err) {
-        const error = new Error(
-          `${wheel.filename} could not be downloaded (${String((err && err.message) || err)})`,
-        );
-        error.errors = ["download"];
-        throw error;
+      const urls = [wheel.url, ...mirrorUrls(wheel.url, mirrors)];
+      const pack = {
+        id: wheel.name,
+        sha256: wheel.sha256,
+        bytes: Number(wheel.bytes),
+        mirrors: urls.slice(1),
+      };
+      const failures = [];
+      let wrong = false;
+      body = null;
+      for (const url of urls) {
+        try {
+          const res = await fetchImpl(url, { pack, log });
+          const got = Buffer.isBuffer(res) ? res : Buffer.from(res?.body || []);
+          if (good(got)) {
+            body = got;
+            break;
+          }
+          wrong = true;
+          failures.push(`${new URL(url).hostname}: failed SHA-256 or size check`);
+        } catch (err) {
+          failures.push(`${new URL(url).hostname}: ${String((err && err.message) || err)}`);
+        }
+        log(`[friday] ${wheel.filename}: ${failures[failures.length - 1]}; trying the next source`);
       }
-      if (!good(body)) {
-        const error = new Error(`${wheel.filename} failed SHA-256 or size check`);
-        error.errors = ["sha256"];
+      if (!body) {
+        const error = wrong
+          ? new Error(`${wheel.filename} failed SHA-256 or size check (${failures.join("; ")})`)
+          : new Error(`${wheel.filename} could not be downloaded (${failures.join("; ")})`);
+        error.errors = [wrong ? "sha256" : "download"];
         throw error;
       }
       fs.writeFileSync(cacheFile, body);
@@ -513,7 +569,21 @@ function formatLock(lock) {
   return `${text}\n`;
 }
 
-function buildLock({ reports, pypi, checked, requirements = "kernel/requirements.txt" }) {
+/** The newest upload time pip may consider: MIN_PIN_AGE_DAYS before the clock (an ISO instant pip accepts). */
+function uploadedCutoff(now = new Date()) {
+  return new Date(now.getTime() - MIN_PIN_AGE_DAYS * DAY_MS).toISOString();
+}
+
+function buildLock({
+  reports,
+  pypi,
+  checked,
+  requirements = "kernel/requirements.txt",
+  now = new Date(),
+  allowYoung = [],
+}) {
+  const allowed = new Set((allowYoung || []).map(normalizeName));
+  const limit = now.getTime() - MIN_PIN_AGE_DAYS * DAY_MS;
   const tags = Object.keys(reports).sort();
   const byFile = new Map();
   for (const tag of tags) {
@@ -531,6 +601,17 @@ function buildLock({ reports, pypi, checked, requirements = "kernel/requirements
           `${name} ${version}: the digest pip resolved differs from PyPI's for ${filename}`,
         );
       }
+      const uploaded = String(listed.upload_time_iso_8601 || "");
+      // No upload time (or one that is not a time) cannot be proven old: it is refused like a young file.
+      const unknownAge = !Number.isFinite(Date.parse(uploaded));
+      const isYoung = unknownAge || Date.parse(uploaded) > limit;
+      if (isYoung && !allowed.has(name)) {
+        throw new Error(
+          unknownAge
+            ? `${name} ${version}: ${filename} has no upload time on PyPI, so its age is unknown (lock it only with --allow-young ${name})`
+            : `${name} ${version}: ${filename} was uploaded ${uploaded}, younger than ${MIN_PIN_AGE_DAYS} days (lock it only with --allow-young ${name})`,
+        );
+      }
       const row = byFile.get(filename) || {
         name,
         version,
@@ -538,6 +619,8 @@ function buildLock({ reports, pypi, checked, requirements = "kernel/requirements
         url,
         sha256: digest,
         bytes: Number(listed.size),
+        ...(!unknownAge ? { uploaded } : {}),
+        ...(isYoung ? { allowYoung: true } : {}),
         tags: [],
       };
       if (!row.tags.includes(tag)) row.tags.push(tag);
@@ -585,6 +668,8 @@ function resolveReport({
   tag,
   requirementsFile,
   spawn = require("child_process").spawnSync,
+  now = new Date(),
+  uploadedPriorTo = uploadedCutoff(now),
 }) {
   const version = `${tag.slice(2, 3)}.${tag.slice(3)}`;
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "friday-wheel-lock-"));
@@ -615,6 +700,7 @@ function resolveReport({
       tag,
       "--index-url",
       INDEX_URL,
+      ...(uploadedPriorTo ? ["--uploaded-prior-to", uploadedPriorTo] : []),
       "-r",
       requirementsFile,
     ];
@@ -635,6 +721,8 @@ async function writeLockFromPypi({
   tags = DEFAULT_TAGS,
   requirements = "kernel/requirements.txt",
   file = LOCK_FILE,
+  now = new Date(),
+  allowYoung = [],
   fetchJson = async (url) => {
     const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
     if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
@@ -643,7 +731,14 @@ async function writeLockFromPypi({
 } = {}) {
   const reports = {};
   for (const tag of tags) {
-    reports[tag] = resolveReport({ python, tag, requirementsFile: path.join(ROOT, requirements) });
+    // --allow-young lifts pip's cutoff; buildLock then refuses every young file that is not named.
+    reports[tag] = resolveReport({
+      python,
+      tag,
+      requirementsFile: path.join(ROOT, requirements),
+      now,
+      ...(allowYoung.length ? { uploadedPriorTo: null } : {}),
+    });
   }
   const pypi = {};
   for (const report of Object.values(reports)) {
@@ -659,8 +754,10 @@ async function writeLockFromPypi({
   const lock = buildLock({
     reports,
     pypi,
-    checked: new Date().toISOString().slice(0, 10),
+    checked: now.toISOString().slice(0, 10),
     requirements,
+    now,
+    allowYoung,
   });
   fs.writeFileSync(file, formatLock(lock));
   return lock;
@@ -670,6 +767,9 @@ module.exports = {
   LOCK_FILE,
   DEST,
   WHEEL_HOST,
+  uploadedCutoff,
+  pypiMirrors,
+  mirrorUrls,
   normalizeName,
   parseWheelFilename,
   wheelFits,
@@ -695,7 +795,12 @@ module.exports = {
 if (require.main === module) {
   const command = process.argv[2] || "check";
   if (command === "lock") {
-    writeLockFromPypi().then(
+    const allowYoung = [];
+    const rest = process.argv.slice(3);
+    for (let i = 0; i < rest.length; i += 1) {
+      if (rest[i] === "--allow-young" && rest[i + 1]) allowYoung.push(rest[(i += 1)]);
+    }
+    writeLockFromPypi({ allowYoung }).then(
       (lock) => {
         const mib = Math.round(lock.wheels.reduce((sum, w) => sum + w.bytes, 0) / 1024 ** 2);
         console.log(

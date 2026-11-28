@@ -853,7 +853,7 @@ const pepName = (pkg) =>
 
 /**
  * A version string a reader may hand on: 1 to 64 characters of letters, digits and `. _ + -`, starting with a digit
- * (an optional `v` is removed) or with one to four letters and digits (`b12230`). A page, a word such as "latest",
+ * (an optional `v` is removed) or with one to four letters and digits (`b12619`). A page, a word such as "latest",
  * or anything with a space, a slash or markup is not a version. `strip` is a regex removed first.
  */
 function sanitizeVersion(raw, strip) {
@@ -883,7 +883,7 @@ function httpsUrl(raw) {
 const versionOnly = (version) => ({ version, assets: [] });
 const hostOf = (url) => new URL(url).hostname;
 
-/** `$.a.b[0].c`, `[0].version`, `$['a-b']`, or one filter `$[?(@.cycle=='3.14')].latest`, as a list of steps. */
+/** `$.a.b[0].c`, `[0].version`, `$['a-b']`, or one filter `$[?(@.cycle=='3.14')].latest` (the key may be quoted: `@['cycle']`), as a list of steps. */
 function jsonPathSteps(path) {
   const src = String(path ?? "").trim();
   if (!src) throw new Error("the json path is empty");
@@ -895,8 +895,13 @@ function jsonPathSteps(path) {
     if ((m = /^\.([A-Za-z0-9_-]+)/.exec(rest))) steps.push({ key: m[1] });
     else if ((m = /^\[(\d+)\]/.exec(rest))) steps.push({ index: Number(m[1]) });
     else if ((m = /^\[(['"])([^'"\]]+)\1\]/.exec(rest))) steps.push({ key: m[2] });
-    else if ((m = /^\[\?\(@\.([A-Za-z0-9_-]+)\s*==\s*(['"])([^'"]*)\2\)\]/.exec(rest)))
-      steps.push({ filterKey: m[1], filterValue: m[3] });
+    else if (
+      (m =
+        /^\[\?\(@(?:\.([A-Za-z0-9_-]+)|\[(['"])([A-Za-z0-9_-]+)\2\])\s*==\s*(['"])([^'"]*)\4\)\]/.exec(
+          rest,
+        ))
+    )
+      steps.push({ filterKey: m[1] ?? m[3], filterValue: m[5] });
     else throw new Error(`the json path "${src.slice(0, 60)}" is not understood at position ${i}`);
     i += m[0].length;
     if (steps.length > 16) throw new Error("the json path is too long");
@@ -1574,6 +1579,21 @@ function rowProblem(row) {
         return `"download.urlTemplate" must be a plain https address`;
       }
     }
+    // A second road to the same file: https templates with the same fields; the one digest covers every road.
+    if (d.mirrors !== undefined) {
+      if (!Array.isArray(d.mirrors) || d.mirrors.some((m) => typeof m !== "string"))
+        return `"download.mirrors" must be a list of https addresses`;
+      if (d.mirrors.length && d.urlTemplate === undefined)
+        return `"download.mirrors" needs a "download.urlTemplate" to be a second road to`;
+      for (const m of d.mirrors) {
+        try {
+          httpsUrl(m.replace(/\{\w+\}/g, "x"));
+        } catch {
+          return `"download.mirrors" must be a list of plain https addresses`;
+        }
+        if (m === d.urlTemplate) return `"download.mirrors" lists the primary address again`;
+      }
+    }
     if (d.digestAlgo !== undefined && !Object.hasOwn(DIGEST_LENGTH, d.digestAlgo))
       return `"download.digestAlgo" must be one of ${Object.keys(DIGEST_LENGTH).join(", ")}`;
     // `archive` is absent for a plain file (a model weight); when present it names how the file is unpacked.
@@ -1720,7 +1740,7 @@ function declaredHome(tool, options = {}) {
   return tool.id ? (rowSpec(tool.id, options)?.home ?? null) : null;
 }
 
-/** `{v}`, `{version}`, `{versionNoDots}`, `{major}`, `{minor}`, `{majorMinor}`, `{patch}` and any `extra` filled into a template. */
+/** `{v}`, `{version}`, `{versionNoDots}`, `{major}`, `{minor}`, `{majorMinor}`, `{patch}`, `{sqliteNumeric}` and any `extra` filled into a template. */
 function expandTemplate(template, version, extra = {}) {
   const parts = String(version).split(".");
   const vars = {
@@ -1731,6 +1751,12 @@ function expandTemplate(template, version, extra = {}) {
     majorMinor: parts.slice(0, 2).join("."),
     patch: parts[2] ?? "",
     versionNoDots: String(version).replace(/\./g, ""),
+    // SQLite names its files by number: 3.54.1 is 3540100 (major*1000000 + minor*10000 + patch*100).
+    sqliteNumeric: String(
+      (Number(parts[0]) || 0) * 1000000 +
+        (Number(parts[1]) || 0) * 10000 +
+        (Number(parts[2]) || 0) * 100,
+    ),
     ...extra,
   };
   return String(template).replace(/\{(\w+)\}/g, (m, k) =>
@@ -1804,7 +1830,14 @@ async function resolveDownloadDigest(download, version, options = {}) {
     if (!download?.urlTemplate) throw new Error("the row has no download address");
     const url = httpsUrl(expandTemplate(download.urlTemplate, v));
     if (/\{\w+\}/.test(url)) throw new Error("the download address still has an unfilled field");
-    const base = { url };
+    // Each mirror fills the same fields; one with a field left open is dropped, never sent.
+    const mirrors = [];
+    for (const m of Array.isArray(download.mirrors) ? download.mirrors : []) {
+      const filled = expandTemplate(m, v);
+      if (/\{\w+\}/.test(filled) || filled === url || mirrors.includes(filled)) continue;
+      mirrors.push(httpsUrl(filled));
+    }
+    const base = { url, mirrors };
     if (!download.digestUrl)
       return {
         ok: false,
@@ -1980,6 +2013,7 @@ async function planRowDownload(rowId, options = {}) {
     ok: true,
     version,
     url: got.url,
+    mirrors: got.mirrors || [],
     algo: got.algo,
     digest: got.digest,
     ...(got.sha256 ? { sha256: got.sha256 } : {}),
@@ -2151,6 +2185,7 @@ function agreeOnDigest(pinned, official) {
 
 module.exports = {
   FEEDS,
+  expandTemplate,
   hasFeed,
   feedIds,
   resolveFeed,

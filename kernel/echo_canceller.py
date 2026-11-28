@@ -4,12 +4,13 @@ The far end is FRIDAY's own speech, so the exact signal that reaches the
 speaker is known. ``EchoCanceller.process(mic, ref)`` takes one 16 kHz mono
 int16 microphone frame and the frame FRIDAY is playing at the same moment, finds
 how late the room returns that sound (cross-correlation on a short window), lines
-the reference up and lets the SpeexDSP adaptive filter (``pyaec``, MIT, the
-SpeexDSP code is BSD) subtract it. What is left is the owner's voice.
+the reference up and lets the adaptive filter subtract it: WebRTC AEC3
+(``aec-audio-processing``, BSD) when it imports, else SpeexDSP (``pyaec``, MIT,
+the SpeexDSP code is BSD). ``FRIDAY_AEC_BACKEND`` (aec3, speex, auto) overrides. What is left is the owner's voice.
 
 Rules this module keeps:
 
-- Optional. A missing ``pyaec`` or ``numpy`` import, a failed filter, an
+- Optional. A missing backend package or ``numpy`` import, a failed filter, an
   unsupported frame or a reference that is silent returns the microphone frame
   unchanged. It never raises into the audio path.
 - No timer and no thread of its own. The delay is re-estimated inside
@@ -24,6 +25,7 @@ Not wired into live capture yet, and not measured on a real speaker or room.
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any
 
@@ -43,20 +45,85 @@ MAX_ERRORS = 3  # consecutive failures before the canceller turns itself off
 RING_SAMPLES = MAX_DELAY_SAMPLES + WINDOW_SAMPLES + AEC_FRAME * 4
 
 ENGINE = "speexdsp-aec"
+ENGINE_AEC3 = "webrtc-aec3"
 LICENSE = "MIT (pyaec); SpeexDSP code is BSD"
+LICENSE_AEC3 = "BSD-3-Clause (aec-audio-processing, WebRTC AEC3)"
+BACKEND_ENV = "FRIDAY_AEC_BACKEND"  # aec3 | speex | auto (default)
+
+
+class _Aec3:
+    """The ``pyaec.Aec`` call shape (``cancel_echo(rec, echo)``) over WebRTC AEC3.
+
+    One 10 ms frame in, one 10 ms frame out, the reference fed first, so the
+    caller does not know which backend it runs.
+    """
+
+    engine = ENGINE_AEC3
+    license = LICENSE_AEC3
+
+    def __init__(self, frame_size: int, _filter_length: int, sample_rate: int, _preprocess: bool = False) -> None:
+        module = _import_aec3()
+        if module is None:
+            raise RuntimeError("aec-audio-processing is not installed")
+        self._frame = int(frame_size)
+        proc = module.AudioProcessor(enable_aec=True, enable_ns=False, enable_agc=False)
+        proc.set_stream_format(sample_rate, 1)
+        proc.set_reverse_stream_format(sample_rate, 1)
+        proc.set_stream_delay(0)  # the caller already lines the reference up
+        self._proc = proc
+
+    def cancel_echo(self, rec: Any, echo: Any) -> list[int]:
+        pack = lambda values: b"".join(int(v).to_bytes(2, "little", signed=True) for v in values)  # noqa: E731
+        self._proc.process_reverse_stream(pack(echo))
+        raw = bytes(self._proc.process_stream(pack(rec)))
+        return [int.from_bytes(raw[i : i + 2], "little", signed=True) for i in range(0, len(raw) - 1, 2)]
+
+
+def _import_aec3() -> Any:
+    try:
+        import aec_audio_processing  # type: ignore
+
+        return aec_audio_processing
+    except BaseException:
+        return None
+
+
+def _import_speex() -> Any:
+    try:
+        from pyaec import Aec  # type: ignore
+
+        return Aec
+    except BaseException:
+        return None
+
+
+def backend_choice() -> str:
+    """``aec3``, ``speex`` or ``auto`` from FRIDAY_AEC_BACKEND (anything else is auto)."""
+    value = os.environ.get(BACKEND_ENV, "").strip().lower()
+    return value if value in ("aec3", "speex") else "auto"
 
 
 def _load() -> tuple[Any, Any, str]:
-    """(numpy, pyaec.Aec, "") when both import, else (None, None, the reason)."""
+    """(numpy, filter class, "") when numpy and a backend import, else (None, None, the reason).
+
+    ``auto`` and ``aec3`` try WebRTC AEC3 first and fall back to SpeexDSP;
+    ``speex`` skips AEC3. A forced backend that is missing never fails the audio
+    path: the other one answers.
+    """
     try:
         import numpy as np  # type: ignore
     except Exception:
         return None, None, "numpy is not installed"
-    try:
-        from pyaec import Aec  # type: ignore
-    except BaseException:
+    if backend_choice() != "speex" and _import_aec3() is not None:
+        return np, _Aec3, ""
+    speex = _import_speex()
+    if speex is None:
         return None, None, "pyaec is not installed"
-    return np, Aec, ""
+    return np, speex, ""
+
+
+def _engine_of(backend: Any) -> str:
+    return str(getattr(backend, "engine", ENGINE))
 
 
 def echo_status() -> dict:
@@ -65,11 +132,11 @@ def echo_status() -> dict:
     ready = np is not None and not reason
     return {
         "ready": ready,
-        "engine": ENGINE if ready else "none",
+        "engine": _engine_of(_aec) if ready else "none",
         "reason": "" if ready else f"optional - {reason}",
         "optional": True,
         "gate": False,
-        "license": LICENSE,
+        "license": getattr(_aec, "license", LICENSE),
         "bundled": False,
         "wired": False,
     }
@@ -161,7 +228,7 @@ class EchoCanceller:
     def status(self) -> dict:
         return {
             "ready": self.ready,
-            "engine": ENGINE if self.ready else "none",
+            "engine": _engine_of(type(self._aec)) if self.ready else "none",
             "reason": self._reason,
             "delayMs": self.delay_ms,
             "confidence": round(self._confidence, 3),
