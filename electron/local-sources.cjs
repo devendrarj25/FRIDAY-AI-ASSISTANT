@@ -114,12 +114,20 @@ function isCheckout(root, fs) {
   }
 }
 
+/**
+ * A UNC share (`\\host\share`, `\\?\UNC\...`, `//host/share`) or a device path is never looked at: statting or
+ * resolving it would open a network connection. The value is judged as written, before any resolve.
+ */
+function isLocalPath(value) {
+  return !/^[\\/]{2}/.test(value) && !value.includes("\0");
+}
+
 /** The folders to look in, in order, each with its origin. Existence is not checked here. */
 function candidateFolders(root, opts, fs) {
   const env = opts.env || process.env;
   const out = [];
   const add = (origin, dir) => {
-    if (typeof dir === "string" && dir.trim())
+    if (typeof dir === "string" && dir.trim() && isLocalPath(dir.trim()))
       out.push({ origin, dir: nodePath.resolve(dir.trim()) });
   };
   const read = opts.readRegistry || ((k, n) => defaultReadRegistry(k, n));

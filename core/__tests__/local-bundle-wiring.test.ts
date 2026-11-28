@@ -249,9 +249,8 @@ describe("installer:catalog rows carry localSource, additively", () => {
   const withLocal = build<
     (catalog: unknown, entries: unknown[]) => { rows: Array<Record<string, unknown>> }
   >("catalogWithLocalSources", {
-    fs,
-    path,
-    localSources: { baseRootsOf: (e: { dir: string }) => [e.dir, path.dirname(e.dir)] },
+    installInventory: require(path.join(root, "electron/install-inventory.cjs")),
+    getWorkspaceRoot: () => null,
   });
 
   it("adds { origin, dir } only to a row a bundle holds with its files on this PC", () => {
@@ -411,5 +410,121 @@ describe("a model already in its canonical place is not downloaded again", () =>
       await pinned(true, true).fn("m", "m", "/x", [{ kind: "hf-repo", repo: "o/other" }]),
     ).toBe(null);
     expect(await pinned(true, true).fn("m", "m", "/x", [])).toBe(null);
+  });
+});
+
+describe("one matcher for the catalog and the inventory (reviewer finding 4)", () => {
+  it("catalogWithLocalSources has no private copy of the file check", () => {
+    const body = functionSource("catalogWithLocalSources");
+    expect(body).toContain("installInventory.localSourceFor(");
+    expect(body).not.toMatch(/statSync|baseRootsOf/);
+  });
+
+  it("names the FRIDAY folder so a model already inside it is not shown as a local build", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-local-home-"));
+    try {
+      fs.mkdirSync(path.join(dir, "models", "friday-home"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "models", "friday-home", "m.bin"), "abcd");
+      const entry = {
+        origin: "installers",
+        dir: path.join(dir, "installer", "installers", "1.0.0.0"),
+        bundle: {
+          models: [
+            {
+              fridayId: "friday-home",
+              dir: "models/friday-home",
+              files: [{ path: "m.bin", bytes: 4 }],
+            },
+          ],
+        },
+      };
+      const withLocal = (home: string | null) =>
+        build<(c: unknown, e: unknown[]) => { rows: Array<Record<string, unknown>> }>(
+          "catalogWithLocalSources",
+          {
+            installInventory: require(path.join(root, "electron/install-inventory.cjs")),
+            getWorkspaceRoot: () => home,
+          },
+        );
+      const rows = [{ id: "voice:friday-home", kind: "voice-model", installed: true }];
+      expect("localSource" in (withLocal(null)({ ok: true, rows }, [entry]).rows[0] ?? {})).toBe(
+        true,
+      );
+      expect("localSource" in (withLocal(dir)({ ok: true, rows }, [entry]).rows[0] ?? {})).toBe(
+        false,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("adoptStagedDownloads reports the sweep and installer:adopt-local carries it", () => {
+  it("logs the swept partial copies", async () => {
+    const lines: string[] = [];
+    const fn = build<(root: string) => Promise<unknown>>("adoptStagedDownloads", {
+      stagedAssets: {
+        adopt: async () => ({ moved: [], failed: [], items: [], swept: ["models/a/m.bin.part1x"] }),
+      },
+      localBuildsOn: () => true,
+      log: (line: string) => lines.push(line),
+      process: { env: {} },
+    });
+    await fn("/r");
+    expect(lines.join("\n")).toMatch(/swept.*models\/a\/m\.bin\.part1x/);
+  });
+
+  it("the handler hands the swept list to the page with the items", async () => {
+    const body = handlerSource("installer:adopt-local", true);
+    let handle: (() => Promise<Record<string, unknown>>) | null = null;
+    new Function(
+      "ipcMain",
+      "getWorkspaceRoot",
+      "localBuildsOn",
+      "adoptStagedDownloads",
+      "localBuildsMemo",
+      body,
+    )(
+      { handle: (_c: string, fn: () => Promise<Record<string, unknown>>) => (handle = fn) },
+      () => "/r",
+      () => true,
+      async () => ({ moved: [], failed: [], items: [], sources: [], swept: ["x/y.part1"] }),
+      { key: "", at: 0, entries: [] },
+    );
+    expect(await handle!()).toMatchObject({ ok: true, swept: ["x/y.part1"] });
+  });
+});
+
+describe("workspace:set does not call the same folder in another case a move", () => {
+  const same = (a: string, b: string, platform: string, real: (p: string) => string = (p) => p) =>
+    build<(a: string, b: string, o?: unknown) => boolean>("sameWorkspaceFolder", {
+      path: path.win32,
+      fs: { realpathSync: { native: (p: string) => p } },
+      process: { platform: "linux" },
+    })(a, b, { platform, realpath: real });
+
+  it("folds case after realpath on win32 only", () => {
+    expect(same("c:\\friday", "C:\\FRIDAY", "win32")).toBe(true);
+    expect(same("c:\\friday\\", "C:\\Friday", "win32")).toBe(true);
+    expect(same("C:\\friday", "C:\\other", "win32")).toBe(false);
+    expect(same("c:\\friday", "C:\\FRIDAY", "linux")).toBe(false);
+  });
+
+  it("compares what a link points to", () => {
+    const real = (p: string) => (p.toLowerCase() === "d:\\link" ? "C:\\Friday" : p);
+    expect(same("D:\\Link", "c:\\FRIDAY", "win32", real)).toBe(true);
+  });
+
+  it("falls back to the plain path when the folder cannot be read", () => {
+    const boom = () => {
+      throw new Error("gone");
+    };
+    expect(same("c:\\a", "C:\\A", "win32", boom)).toBe(true);
+  });
+
+  it("the handler uses it for the move check", () => {
+    const handler = handlerSource("workspace:set");
+    expect(handler).toContain("sameWorkspaceFolder(previousRoot, resolvedRoot)");
+    expect(handler).not.toContain("path.resolve(previousRoot) !== resolvedRoot");
   });
 });

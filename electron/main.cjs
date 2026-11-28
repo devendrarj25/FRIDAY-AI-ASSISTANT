@@ -1332,48 +1332,19 @@ function discoverLocalBuilds(root = getWorkspaceRoot()) {
   return entries;
 }
 
-/** Catalog rows gain `localSource: { origin, dir }` when a local build holds that model with its files on this PC. */
+/**
+ * Catalog rows gain `localSource: { origin, dir }` when a local build holds that model with its files on this PC.
+ * The matching itself is install-inventory's one matcher (the same one the inventory rows use).
+ */
 function catalogWithLocalSources(catalog, entries = discoverLocalBuilds()) {
   if (!catalog || !Array.isArray(catalog.rows) || !Array.isArray(entries) || !entries.length) {
     return catalog;
   }
-  const lastName = (dir) =>
-    String(dir || "")
-      .split("/")
-      .filter(Boolean)
-      .pop() || "";
-  const present = (entry, model) => {
-    const files = Array.isArray(model.files) ? model.files : [];
-    if (!files.length) return false;
-    return localSources.baseRootsOf(entry).some((base) =>
-      files.every((file) => {
-        try {
-          const stat = fs.statSync(
-            path.resolve(base, ...String(model.dir).split("/"), ...String(file.path).split("/")),
-          );
-          return stat.isFile() && stat.size === file.bytes;
-        } catch {
-          return false;
-        }
-      }),
-    );
-  };
+  const root = getWorkspaceRoot();
   const rows = catalog.rows.map((row) => {
     if (row?.kind !== "voice-model") return row;
-    const name = String(row.id)
-      .replace(/^voice:/, "")
-      .toLowerCase();
-    for (const entry of entries) {
-      for (const model of Array.isArray(entry?.bundle?.models) ? entry.bundle.models : []) {
-        const same =
-          lastName(model.dir).toLowerCase() === name ||
-          String(model.fridayId || "").toLowerCase() === name;
-        if (same && present(entry, model)) {
-          return { ...row, localSource: { origin: entry.origin, dir: entry.dir } };
-        }
-      }
-    }
-    return row;
+    const found = installInventory.localSourceFor(row.id, entries, { root });
+    return found ? { ...row, localSource: found } : row;
   });
   return { ...catalog, rows };
 }
@@ -1397,6 +1368,11 @@ async function adoptStagedDownloads(root) {
     for (const row of report.failed) {
       log(
         `staged download ${row.item} could not be moved (${row.error}); it is fetched again on use`,
+      );
+    }
+    if (Array.isArray(report.swept) && report.swept.length) {
+      log(
+        `local download: swept ${report.swept.length} stale partial copies (${report.swept.join(", ")})`,
       );
     }
     return report;
@@ -6696,6 +6672,28 @@ const MIGRATED_FOLDERS = [
   "logs",
 ];
 
+/**
+ * Whether two paths name one folder: both go through realpath, and on Windows the case is folded, so `c:\friday` and
+ * `C:\FRIDAY` are the same folder and picking it again is not a move onto itself. A path that cannot be read
+ * compares as written. `platform` and `realpath` are injectable.
+ */
+function sameWorkspaceFolder(
+  a,
+  b,
+  { platform = process.platform, realpath = fs.realpathSync.native } = {},
+) {
+  const real = (value) => {
+    const resolved = path.resolve(String(value));
+    try {
+      return path.resolve(realpath(resolved));
+    } catch {
+      return resolved;
+    }
+  };
+  const [left, right] = [real(a), real(b)];
+  return platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
 /** Real copy (not a reference) of the previous folder's data into the new one. */
 async function migrateWorkspaceData(from, to) {
   const report = { from, to, copied: [], skipped: [], failed: [] };
@@ -6737,7 +6735,7 @@ ipcMain.handle("workspace:set", async (_e, root) => {
     throw new Error("The selected folder does not exist or cannot be opened.");
   }
   const previousRoot = getWorkspaceRoot();
-  const moving = Boolean(previousRoot) && path.resolve(previousRoot) !== resolvedRoot;
+  const moving = Boolean(previousRoot) && !sameWorkspaceFolder(previousRoot, resolvedRoot);
   // Copying is never silent: the user decides between copying the previous
   // folder's data, using the new folder as it is, or staying where they are.
   let decision = "fresh";
@@ -8447,6 +8445,7 @@ ipcMain.handle("installer:adopt-local", async () => {
     off: false,
     items: report.items || [],
     sources: report.sources || [],
+    swept: report.swept || [],
     failed: report.failed,
   };
 });

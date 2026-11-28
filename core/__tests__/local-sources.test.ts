@@ -770,3 +770,54 @@ describe("wiring", () => {
     expect(local.ENV_OFF).toBe("FRIDAY_LOCAL_BUNDLES");
   });
 });
+
+describe("discoverLocalBundles: a network path is never opened", () => {
+  const recording = () => {
+    const seen: string[] = [];
+    const wrap =
+      <T extends (...args: never[]) => unknown>(fn: T) =>
+      (...args: Parameters<T>) => {
+        seen.push(String(args[0]));
+        return fn(...args);
+      };
+    const fake = {
+      ...fs,
+      statSync: wrap(fs.statSync.bind(fs)),
+      realpathSync: Object.assign(wrap(fs.realpathSync.bind(fs)), {
+        native: wrap(fs.realpathSync.native.bind(fs)),
+      }),
+      readFileSync: wrap(fs.readFileSync.bind(fs)),
+      readdirSync: wrap(fs.readdirSync.bind(fs)),
+    };
+    return { fake, seen };
+  };
+
+  it.each([
+    "\\\\fileserver\\share\\FRIDAY",
+    "\\\\?\\UNC\\fileserver\\share\\FRIDAY",
+    "//fileserver/share/FRIDAY",
+  ])("refuses %s from the InstallSourceDir registry value without any disk call", (value) => {
+    const { fake, seen } = recording();
+    const found = discover(mk("root"), { fs: fake, readRegistry: () => value });
+    expect(found).toEqual([]);
+    expect(seen.filter((entry) => entry.includes("fileserver"))).toEqual([]);
+  });
+
+  it("refuses a UNC portable folder and a UNC recorded build root the same way", () => {
+    const { fake, seen } = recording();
+    const found = discover(mk("root"), {
+      fs: fake,
+      portableDir: "\\\\fileserver\\share",
+      readBuildRoots: () => [{ root: "\\\\fileserver\\builds" }],
+    });
+    expect(found).toEqual([]);
+    expect(seen.filter((entry) => entry.includes("fileserver"))).toEqual([]);
+  });
+
+  it("still takes a local folder from the registry", () => {
+    const dir = mk("src");
+    writeBundle(dir);
+    const found = discover(mk("root"), { readRegistry: () => dir });
+    expect(found.map((entry: { origin: string }) => entry.origin)).toEqual(["install-source"]);
+  });
+});

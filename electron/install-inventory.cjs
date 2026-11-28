@@ -181,34 +181,91 @@ function sizeOnDisk(file, bytes) {
   }
 }
 
-function defaultVerifyLocal(entry, model) {
+const foldCase = (value) =>
+  process.platform === "win32" || process.platform === "darwin" ? value.toLowerCase() : value;
+
+function realKey(dir) {
+  try {
+    return foldCase(path.resolve(fs.realpathSync.native(dir)));
+  } catch {
+    return foldCase(path.resolve(dir));
+  }
+}
+
+/**
+ * The folders of one build that hold a model. A base that is the FRIDAY folder itself is left out: a model already
+ * inside it is installed, not "found in a local build".
+ */
+function basesFor(entry, root) {
+  const home = root ? realKey(root) : "";
+  return defaultBases(entry).filter((base) => !home || realKey(base) !== home);
+}
+
+function filesOnDisk(base, model) {
   const files = Array.isArray(model.files) ? model.files : [];
   if (!files.length) return false;
-  return defaultBases(entry).some((base) =>
-    files.every((file) =>
-      sizeOnDisk(
-        path.resolve(base, ...String(model.dir).split("/"), ...String(file.path).split("/")),
-        file.bytes,
-      ),
+  return files.every((file) =>
+    sizeOnDisk(
+      path.resolve(base, ...String(model.dir).split("/"), ...String(file.path).split("/")),
+      file.bytes,
     ),
   );
 }
 
-function localSourceFor(row, entries, verify) {
-  const name = String(row.id).toLowerCase();
-  for (const entry of entries) {
+/**
+ * Whether one build holds one model with its files on this PC. Remembered per entry object: the entries come from the
+ * 30 s discovery memo in main.cjs, so a new discovery (new objects) is the moment the disk is read again and a polled
+ * catalog does no stat per file in between.
+ */
+const presenceMemo = new WeakMap();
+
+function defaultVerifyLocal(entry, model, root) {
+  if (!entry || typeof entry !== "object" || !model || typeof model !== "object") return false;
+  let perModel = presenceMemo.get(entry);
+  if (!perModel) {
+    perModel = new WeakMap();
+    presenceMemo.set(entry, perModel);
+  }
+  let perRoot = perModel.get(model);
+  if (!perRoot) {
+    perRoot = new Map();
+    perModel.set(model, perRoot);
+  }
+  const rootKey = root || "";
+  if (!perRoot.has(rootKey)) {
+    perRoot.set(
+      rootKey,
+      basesFor(entry, root).some((base) => filesOnDisk(base, model)),
+    );
+  }
+  return perRoot.get(rootKey);
+}
+
+/**
+ * The one matcher of a model name (`friday-ear`, or `voice:friday-ear` as the catalog writes it) against the local
+ * builds. Returns `{ origin, dir }` for the first build that lists that model and has its files here, else null.
+ * `root` is the FRIDAY folder (a model already inside it is not a local build); `verify(entry, model)` replaces the
+ * default size check and is not remembered.
+ */
+function localSourceFor(id, entries, { root = null, verify = null } = {}) {
+  const name = String(id)
+    .replace(/^voice:/, "")
+    .toLowerCase();
+  for (const entry of Array.isArray(entries) ? entries : []) {
     const models = Array.isArray(entry?.bundle?.models) ? entry.bundle.models : [];
     for (const model of models) {
       const matches =
         lastSegment(model.dir).toLowerCase() === name ||
         String(model.fridayId || "").toLowerCase() === name;
-      if (matches && verify(entry, model)) return { origin: entry.origin, dir: entry.dir };
+      if (!matches) continue;
+      const present = verify ? verify(entry, model) : defaultVerifyLocal(entry, model, root);
+      if (present) return { origin: entry.origin, dir: entry.dir };
     }
   }
   return null;
 }
 
-function withLocalSources(items, { localSources, verifyLocal }) {
+function withLocalSources(items, { localSources, verifyLocal, root = null }) {
   if (typeof localSources !== "function") return items;
   let entries = [];
   try {
@@ -217,12 +274,12 @@ function withLocalSources(items, { localSources, verifyLocal }) {
     entries = [];
   }
   if (!Array.isArray(entries) || !entries.length) return items;
-  const verify = typeof verifyLocal === "function" ? verifyLocal : defaultVerifyLocal;
+  const verify = typeof verifyLocal === "function" ? verifyLocal : null;
   return items.map((row) => {
     if (row.category !== "Model") return row;
     let found = null;
     try {
-      found = localSourceFor(row, entries, verify);
+      found = localSourceFor(row.id, entries, { root, verify });
     } catch {
       found = null;
     }
@@ -243,7 +300,7 @@ function buildInventory(
       ...tools.filter((tool) => !tool.aliasOf).map((tool) => toolRow(tool, root, latest)),
       ...diskRows(root),
     ],
-    { localSources, verifyLocal },
+    { localSources, verifyLocal, root },
   );
   const byHome = {};
   for (const item of items) {
@@ -587,6 +644,7 @@ module.exports = {
   writeInventory,
   readInventory,
   newer,
+  localSourceFor,
   checkDownloadedModels,
   modelCheckRow,
   needsModelCheck,

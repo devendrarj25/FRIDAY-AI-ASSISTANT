@@ -2,7 +2,7 @@
  * <root>/inventory.json writes down where each thing FRIDAY uses is installed,
  * from the real scan and the real folders, and only rewrites when it changed.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
@@ -628,5 +628,79 @@ describe("model check row wording", () => {
     });
     expect(row.fix ?? null).toBeNull();
     expect(row.fixable).toBe(false);
+  });
+});
+
+describe("localSourceFor: the one matcher the catalog and the inventory share", () => {
+  const seedBuild = (name: string, text: string) => {
+    const build = path.join(root, "release");
+    fs.mkdirSync(path.join(build, "models", name), { recursive: true });
+    fs.writeFileSync(path.join(build, "models", name, "w.bin"), text);
+    return build;
+  };
+  const entryFor = (build: string, name = "alpha", text = "alpha-weights") => ({
+    origin: "release",
+    dir: build,
+    bundle: bundleFor(`models/${name}`, [{ path: "w.bin", text }]),
+  });
+
+  it("matches a catalog voice id and an inventory model id by the same name", () => {
+    const build = seedBuild("alpha", "alpha-weights");
+    const entries = [entryFor(build)];
+    const want = { origin: "release", dir: build };
+    expect(inventory.localSourceFor("alpha", entries)).toEqual(want);
+    expect(inventory.localSourceFor("voice:alpha", entries)).toEqual(want);
+    expect(inventory.localSourceFor("voice:ALPHA", entries)).toEqual(want);
+    expect(inventory.localSourceFor("beta", entries)).toBeNull();
+  });
+
+  it("returns null for a model that is only inside the FRIDAY folder itself", () => {
+    const build = seedBuild("alpha", "alpha-weights");
+    const entries = [entryFor(build)];
+    // Without a root the parent of the build folder (the root) is a base too; with the root named it is skipped.
+    fs.mkdirSync(path.join(root, "models", "gamma"), { recursive: true });
+    fs.writeFileSync(path.join(root, "models", "gamma", "w.bin"), "gamma-weights");
+    const inRoot = [entryFor(build, "gamma", "gamma-weights")];
+    expect(inventory.localSourceFor("gamma", inRoot)).toEqual({ origin: "release", dir: build });
+    expect(inventory.localSourceFor("gamma", inRoot, { root })).toBeNull();
+    expect(inventory.localSourceFor("alpha", entries, { root })).toEqual({
+      origin: "release",
+      dir: build,
+    });
+  });
+
+  it("checks the disk once per entry and model, so a polled catalog does no stat per file", () => {
+    const build = seedBuild("alpha", "alpha-weights");
+    const entries = [entryFor(build)];
+    const spy = vi.spyOn(fs, "statSync");
+    try {
+      expect(inventory.localSourceFor("alpha", entries, { root })).not.toBeNull();
+      const first = spy.mock.calls.length;
+      expect(first).toBeGreaterThan(0);
+      expect(inventory.localSourceFor("voice:alpha", entries, { root })).not.toBeNull();
+      expect(inventory.localSourceFor("beta", entries, { root })).toBeNull();
+      expect(spy.mock.calls.length).toBe(first);
+      // A new discovery gives new entry objects, so the next look reads the disk again.
+      expect(inventory.localSourceFor("alpha", [entryFor(build)], { root })).not.toBeNull();
+      expect(spy.mock.calls.length).toBeGreaterThan(first);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an injected verifier is used as given and is never remembered", () => {
+    const build = seedBuild("alpha", "alpha-weights");
+    const entries = [entryFor(build)];
+    const verify = vi.fn(() => false);
+    expect(inventory.localSourceFor("alpha", entries, { verify })).toBeNull();
+    expect(inventory.localSourceFor("alpha", entries, { verify })).toBeNull();
+    expect(verify).toHaveBeenCalledTimes(2);
+  });
+
+  it("main.cjs keeps no second copy of the matcher", () => {
+    const main = fs.readFileSync(path.join(__dirname, "..", "..", "electron", "main.cjs"), "utf8");
+    expect(main).toContain("installInventory.localSourceFor(");
+    expect(main).not.toMatch(/const present = \(entry, model\)/);
+    expect(main).not.toMatch(/lastName\(model\.dir\)/);
   });
 });

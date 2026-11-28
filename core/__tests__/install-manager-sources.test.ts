@@ -164,8 +164,9 @@ describe("a row found in a local build", () => {
     expect(page).toContain("Found on this PC (from a local build)");
     const desktop = read("src/lib/friday/desktop.ts");
     expect(desktop).toMatch(/export type InstallerCatalogRow = \{/);
-    expect(read("electron/main.cjs")).toContain(
-      "localSource: { origin: entry.origin, dir: entry.dir }",
+    expect(read("electron/install-inventory.cjs")).toContain(
+      "return { origin: entry.origin, dir: entry.dir }",
     );
+    expect(read("electron/main.cjs")).toContain("{ ...row, localSource: found }");
   });
 });

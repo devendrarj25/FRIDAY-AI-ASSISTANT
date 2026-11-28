@@ -345,6 +345,25 @@ export type InstallerUpdateResult = {
   error?: string;
 };
 
+/** One item of "Use local builds": what happened to a file or folder a build on this PC holds. */
+export type InstallerAdoptItem = {
+  id: string;
+  origin: string;
+  result: "adopted" | "in-place" | "skipped";
+  reason?: string;
+};
+
+/** The answer of `installer:adopt-local` (electron/main.cjs): the per-item rows, the sources read and what was swept. */
+export type InstallerAdoptResult = {
+  ok: boolean;
+  off?: boolean;
+  error?: string;
+  items: InstallerAdoptItem[];
+  sources: string[];
+  swept?: string[];
+  failed?: { item: string; error: string }[];
+};
+
 /** The resource governor's read-only status (electron/resource-governor.cjs `status`). */
 export type GovernorStatus = {
   ok: boolean;
@@ -708,6 +727,7 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; facts?: HardwareFacts; error?: string }>;
   installerCatalog?: () => Promise<InstallerCatalog>;
   refreshInstallerCatalog?: () => Promise<InstallerRefreshResult>;
+  adoptLocalBuilds?: () => Promise<InstallerAdoptResult>;
   updateInstallerRow?: (request: InstallerUpdateRequest) => Promise<InstallerUpdateResult>;
   governorStatus?: () => Promise<GovernorStatus>;
   onGovernorNotice?: (cb: (notice: { line: string }) => void) => () => void;
