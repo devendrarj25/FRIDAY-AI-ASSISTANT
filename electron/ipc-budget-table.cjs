@@ -253,6 +253,7 @@ const CHANNEL_CLASS = Object.freeze({
   "hardware:detect": "quick",
   "hardware:facts": "quick",
   "hub:analyze": "quick",
+  "installer:adopt-local": "long-job",
   "installer:catalog": "quick",
   "installer:refresh": "quick",
   "installer:update": "long-job",

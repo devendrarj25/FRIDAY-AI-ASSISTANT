@@ -134,3 +134,10 @@ describe("a limit that ends the wait for a tool call says it is still running", 
     expect(wrapper).toContain("if (still) return still;");
   });
 });
+
+describe("copying a local build is a long job", () => {
+  it("installer:adopt-local has no total wait limit: it copies gigabytes", () => {
+    expect(table.budgetFor("installer:adopt-local")).toMatchObject({ class: "long-job", ms: 0 });
+    expect(main).toContain('ipcMain.handle("installer:adopt-local"');
+  });
+});

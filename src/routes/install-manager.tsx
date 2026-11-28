@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FolderSearch,
   History,
   Pause,
   Play,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { InstallerFitPanel } from "@/components/friday/InstallerFitPanel";
+import { ErrorState } from "@/components/friday/PageStates";
 import { OwnToolsPanel } from "@/components/friday/OwnToolsPanel";
 import { LlmEnginePanel } from "@/components/friday/LlmEnginePanel";
 import {
@@ -38,6 +40,8 @@ import {
   StatusPill,
   toneForStatus,
   EmptyState,
+  LoadingState,
+  ToggleRow,
 } from "@/components/friday/ui";
 import {
   categories,
@@ -57,6 +61,10 @@ import {
 } from "@/lib/friday/installer-engine";
 import { INSTALL_SECTIONS, type InstallSection } from "@/lib/friday/installer-sections";
 import { useInstaller } from "@/lib/friday/use-installer";
+import { useInstallerCatalog } from "@/lib/friday/use-installer-catalog";
+import { usePreferences } from "@/lib/friday/use-preferences";
+import { preferences } from "@/lib/friday/preferences";
+import { desktopApi, type InstallerCatalogRow } from "@/lib/friday/desktop";
 import { copyText } from "@/lib/friday/clipboard";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -497,6 +505,7 @@ function InstallManagerPage() {
         {section === "software" && (
           <>
             <InstallerFitPanel scope="installManager" />
+            <LocalBuildsPanel />
             <HudPanel
               title="Software Catalog"
               hint={`${rows.length} shown · ${state.bridge === "desktop" ? "kernel bridge" : "preview engine"}`}
@@ -1404,5 +1413,149 @@ function JobRow({ job }: { job: Job }) {
         }
       />
     </li>
+  );
+}
+
+type LocalBuildRow = InstallerCatalogRow & { localSource?: { origin: string; dir: string } };
+type AdoptItem = {
+  id: string;
+  origin: string;
+  result: "adopted" | "in-place" | "skipped";
+  reason?: string;
+};
+type AdoptReply = { ok: boolean; off?: boolean; error?: string; items?: AdoptItem[] };
+
+const adoptWords: Record<AdoptItem["result"], string> = {
+  adopted: "Copied into your FRIDAY folder",
+  "in-place": "Already in your FRIDAY folder",
+  skipped: "Left as it is",
+};
+
+/** Models a build made on this PC already holds: found, switched on or off, and copied in on request. */
+function LocalBuildsPanel() {
+  const catalog = useInstallerCatalog();
+  const prefs = usePreferences();
+  const on = prefs.toggles["installUseLocalBuilds"] !== false;
+  const [busy, setBusy] = useState(false);
+  const [reply, setReply] = useState<AdoptReply | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const bridge = desktopApi() as { adoptLocalBuilds?: () => Promise<AdoptReply> } | undefined;
+  const found = ((catalog.catalog?.rows ?? []) as LocalBuildRow[]).filter((row) => row.localSource);
+
+  const adopt = async () => {
+    if (!bridge?.adoptLocalBuilds || busy) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      const out = await bridge.adoptLocalBuilds();
+      setReply(out);
+      if (out.ok) {
+        const copied = (out.items ?? []).filter((item) => item.result === "adopted").length;
+        toast[copied ? "success" : "message"](
+          copied ? `${copied} item(s) copied from a local build` : "Nothing new to copy",
+        );
+      } else {
+        setFailure(out.error || "Some items could not be copied.");
+      }
+    } catch (error) {
+      setFailure(String((error as Error)?.message || error));
+    } finally {
+      setBusy(false);
+      void catalog.load();
+    }
+  };
+
+  let body;
+  if (catalog.offline) {
+    body = (
+      <EmptyState
+        title="Local builds are available in the desktop app."
+        hint="This preview has no access to the files on this PC."
+      />
+    );
+  } else if (catalog.error && !catalog.catalog) {
+    body = (
+      <ErrorState
+        title="The list of local builds could not be read"
+        error={catalog.error}
+        onRetry={() => void catalog.load()}
+      />
+    );
+  } else if (!catalog.loaded) {
+    body = <LoadingState label="Looking for local builds…" rows={2} />;
+  } else if (!found.length) {
+    body = (
+      <EmptyState
+        icon={FolderSearch}
+        title="No local build found on this PC."
+        hint="A build made with the build script on this PC shows up here, and FRIDAY then uses it before it downloads anything."
+      />
+    );
+  } else {
+    body = (
+      <ul className="space-y-1.5" aria-label="Models found in a local build">
+        {found.map((row) => (
+          <li
+            key={row.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-ctl border border-border/60 px-3 py-2 text-sm"
+          >
+            <span className="min-w-0 truncate text-foreground">{row.name}</span>
+            <span className="text-meta text-muted-foreground" title={row.localSource?.dir}>
+              Found on this PC (from a local build)
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Local builds"
+      className="space-y-3 rounded-surface border border-border/60 bg-muted/20 p-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm text-foreground">Local builds</h2>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!on || busy || catalog.offline || !bridge?.adoptLocalBuilds}
+          aria-busy={busy}
+          aria-label="Use local builds: copy verified models from a build on this PC"
+          onClick={() => adopt()}
+        >
+          <FolderSearch className="size-4" /> {busy ? "Copying…" : "Use local builds"}
+        </Button>
+      </div>
+      <ToggleRow
+        label="Look for local builds before downloading"
+        hint="Only files that match their checksum are used, and nothing already in your FRIDAY folder is replaced."
+        on={on}
+        onToggle={() => preferences.setToggle("installUseLocalBuilds", !on)}
+      />
+      {body}
+      {failure ? (
+        <ErrorState
+          title="Local builds could not be used"
+          error={failure}
+          onRetry={() => void adopt()}
+        />
+      ) : null}
+      {reply?.off ? (
+        <p role="status" className="text-meta text-muted-foreground">
+          Local builds are switched off.
+        </p>
+      ) : reply?.items?.length ? (
+        <ul role="status" aria-label="What was copied" className="space-y-1 text-meta">
+          {reply.items.map((item) => (
+            <li key={`${item.origin}|${item.id}`} className="text-muted-foreground">
+              <span className="text-foreground">{item.id}</span>: {adoptWords[item.result]}
+              {item.result === "skipped" && item.reason ? ` (${item.reason})` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }

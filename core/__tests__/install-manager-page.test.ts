@@ -108,3 +108,36 @@ describe("Install Manager page", () => {
     expect(page).toContain("no official source names a newer version");
   });
 });
+
+describe("Install Manager page: local builds", () => {
+  const page = read(PAGE);
+
+  it("shows the local builds panel in the software section, not under a registered panel title", () => {
+    const software = page.indexOf('section === "software"');
+    const panel = page.indexOf("<LocalBuildsPanel />");
+    expect(panel).toBeGreaterThan(software);
+    expect(panel).toBeLessThan(page.indexOf('section === "queue"'));
+    expect(page).not.toMatch(/<HudPanel[^>]*title="Local builds"/);
+  });
+
+  it("covers loading, empty, error with Retry and offline, and every control has a handler", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    for (const needle of [
+      "catalog.offline",
+      "<LoadingState",
+      "<EmptyState",
+      "<ErrorState",
+      "onRetry",
+      "aria-label",
+      "onToggle=",
+      "onClick={() => adopt()}",
+    ]) {
+      expect(body, needle).toContain(needle);
+    }
+  });
+
+  it("calls only a bridge function the preload exposes", () => {
+    expect(read("electron/preload.cjs")).toMatch(/^ {2}adoptLocalBuilds:/m);
+    expect(page).toContain("adoptLocalBuilds");
+  });
+});

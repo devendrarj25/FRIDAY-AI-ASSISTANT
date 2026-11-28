@@ -1320,6 +1320,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "installer:adopt-local",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "installer:catalog",
       file: "electron/main.cjs",
     },
@@ -9789,8 +9793,8 @@ export const FLOW_REGISTRY = {
       total: 1119,
     },
     ipc: {
-      mapped: 525,
-      total: 525,
+      mapped: 526,
+      total: 526,
     },
     kernel: {
       mapped: 14,

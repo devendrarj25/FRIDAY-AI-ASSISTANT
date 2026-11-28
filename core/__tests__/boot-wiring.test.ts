@@ -245,3 +245,11 @@ describe("capabilities:reset-builtin", () => {
     expect(table.CHANNEL_CLASS["capabilities:reset-builtin"]).toBe("quick");
   });
 });
+
+describe("local builds are read by the running app", () => {
+  it("main.cjs finds local builds, adopts them and hands them to the inventory", () => {
+    expect(main).toMatch(/localSources\.discoverLocalBundles\(/);
+    expect(main).toMatch(/stagedAssets\.adopt\(/);
+    expect(functionSource("recordInventory")).toContain("localSources: () => discoverLocalBuilds(");
+  });
+});
