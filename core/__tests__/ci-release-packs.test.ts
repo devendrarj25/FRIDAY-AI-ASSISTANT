@@ -91,9 +91,12 @@ case "$*" in
     done
     exit 0 ;;
   "api --paginate repos/owner/repo/releases/777/assets?per_page=100 --jq"*) cat "$d/uploaded" 2>/dev/null; exit 0 ;;
+  "api repos/owner/repo/releases/777 --jq .draft"*) if [ -f "$d/draft" ]; then echo true; else echo false; fi; exit 0 ;;
   "api -X DELETE repos/owner/repo/releases/777"*) rm -f "$d/draft"; echo deleted >> "$d/drops"; exit 0 ;;
   "api -X PATCH repos/owner/repo/releases/777"*)
-    cat "$d/draft-tag" >> "$d/published"; rm -f "$d/draft"; echo "$*" >> "$d/patches"; exit 0 ;;
+    cat "$d/draft-tag" >> "$d/published"; rm -f "$d/draft"; echo "$*" >> "$d/patches"
+    if [ -f "$d/patch-lost" ]; then echo "HTTP 502: bad gateway" >&2; exit 1; fi
+    exit 0 ;;
 esac
 echo "unexpected gh $*" >&2; exit 9
 `;
@@ -307,6 +310,16 @@ suite("release step: Publish missing weight packs (run against stand-ins)", () =
     expect(r.out).toMatch(/NOT deleted/);
     expect(fs.existsSync(path.join(s.dir, "patches"))).toBe(true);
     expect(fs.existsSync(path.join(s.dir, "drops"))).toBe(false);
+  });
+
+  it("never deletes a release that is already public when the PATCH answer was lost", () => {
+    const s = sandbox(withoutRecall);
+    fs.writeFileSync(path.join(s.dir, "patch-lost"), "1");
+    const r = run(s);
+    expect(r.code).toBe(1);
+    expect(fs.existsSync(path.join(s.dir, "patches"))).toBe(true);
+    expect(fs.existsSync(path.join(s.dir, "drops"))).toBe(false);
+    expect(r.out).toMatch(/not a draft/);
   });
 
   it("stops when the tag lookup fails for a reason other than not found", () => {

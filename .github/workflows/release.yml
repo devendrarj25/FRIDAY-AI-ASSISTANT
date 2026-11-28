@@ -1645,7 +1645,15 @@ jobs:
           # Any failure ends here: the draft is deleted, the work folder is removed, nothing is published.
           drop() {
             echo "::error::$1 - the draft for $tag is deleted and nothing was published."
-            [ -z "$id" ] || gh api -X DELETE "repos/$repo/releases/$id" > /dev/null 2>&1 < /dev/null || true
+            if [ -n "$id" ]; then
+              # Only a DRAFT is ever deleted: a release that is already public (a PATCH whose answer was lost) stays.
+              is_draft=$(gh api "repos/$repo/releases/$id" --jq '.draft' 2>/dev/null < /dev/null || echo unknown)
+              if [ "$is_draft" = true ]; then
+                gh api -X DELETE "repos/$repo/releases/$id" > /dev/null 2>&1 < /dev/null || true
+              else
+                echo "::warning::release $id is not a draft (or could not be read): it is left exactly as it is - check it by hand."
+              fi
+            fi
             rm -rf "$work"
             exit 1
           }
