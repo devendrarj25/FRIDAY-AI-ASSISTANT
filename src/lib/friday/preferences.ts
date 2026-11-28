@@ -621,6 +621,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     doNotDisturb: false,
     quietHours: false,
     clearWorkingOnQuit: false,
+    /** `install.useLocalBuilds`: use models a build on this PC already made before downloading them (hash-verified, nothing overwritten). */
+    installUseLocalBuilds: true,
   },
   fields: {
     language: "English",

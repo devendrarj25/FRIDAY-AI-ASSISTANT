@@ -25,6 +25,8 @@ import { toast } from "sonner";
 import { desktopApi } from "@/lib/friday/desktop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContentUpdateReport } from "@/components/friday/CapabilityBadge";
+import type { AlreadyInRelease, KeptYours } from "@/lib/friday/capability-trees";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { ReleaseFiles, UpdateGuide } from "@/components/friday/settings/UpdateGuide";
 import {
@@ -110,6 +112,10 @@ export function GithubUpdates() {
   const [connection, setConnection] = useState<GithubTest | null>(null);
   const [session, setSession] = useState<GithubConnection>({ state: "unknown" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [contentReport, setContentReport] = useState<{
+    alreadyInRelease: AlreadyInRelease[];
+    keptYours: KeptYours[];
+  } | null>(null);
   // The portable EXE updates by replacing itself with the new Portable file; it never runs the Setup installer.
   const [portable, setPortable] = useState(false);
   useEffect(() => {
@@ -131,7 +137,16 @@ export function GithubUpdates() {
     channelSwitch?: boolean;
   } | null>(null);
 
-  const reload = useCallback(async () => setConfig(await githubConfig()), []);
+  // A content report describes one update of one checked ref: a reload or another ref makes it stale.
+  const reload = useCallback(async () => {
+    setContentReport(null);
+    setConfig(await githubConfig());
+  }, []);
+  const [reportRef, setReportRef] = useState(check?.ref);
+  if (check?.ref !== reportRef) {
+    setReportRef(check?.ref);
+    setContentReport(null);
+  }
 
   // The credential is stored once and restored by the main process at startup;
   // the UI only ever reads the resulting session state.
@@ -646,6 +661,7 @@ export function GithubUpdates() {
               title="Merge the new skills, agents, plugins, modules, workflows and docs of this release into your FRIDAY folder. The program itself updates through the installer."
               onClick={() =>
                 run("content", async () => {
+                  setContentReport(null);
                   const result = await githubUpdateNow(check?.ref, { contentOnly: true });
                   if (!result.ok) {
                     toast.error(result.error || "Update failed — nothing was changed.");
@@ -653,6 +669,10 @@ export function GithubUpdates() {
                   }
                   setProgress(null);
                   await reload();
+                  setContentReport({
+                    alreadyInRelease: result.alreadyInRelease ?? [],
+                    keptYours: result.keptYours ?? [],
+                  });
                   toast.success(
                     result.applied
                       ? `Merged ${result.applied} file(s) of content${result.restartRequired ? " — restart FRIDAY to load them" : ""}`
@@ -721,6 +741,11 @@ export function GithubUpdates() {
                   ? "Install TEST build"
                   : "Install new EXE"}
             </Button>
+          ) : null}
+          {contentReport ? (
+            <div className="basis-full">
+              <ContentUpdateReport {...contentReport} />
+            </div>
           ) : null}
           {check?.staged && check?.updateAvailable ? (
             <p className="basis-full text-xs text-muted-foreground">

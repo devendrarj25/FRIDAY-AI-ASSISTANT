@@ -257,6 +257,8 @@ export type InstallerCatalogRow = {
   updateStatus: InstallerUpdateStatus;
   /** Voice rows: which source served the installed files ("FRIDAY release" or "official source"); absent or null when unknown. */
   servedFrom?: string | null;
+  /** A matching copy found in a local build of FRIDAY (Install Manager shows it); absent when there is none. */
+  localSource?: { origin: string; dir: string };
   /** A row derived from a release asset that is not published yet: nothing to download until it is. */
   needsRelease?: boolean;
   /** Plain words for the row when needsRelease is true. */
@@ -343,6 +345,25 @@ export type InstallerUpdateResult = {
   reason?: string;
   via?: "consent" | "full-autonomy";
   error?: string;
+};
+
+/** One item of "Use local builds": what happened to a file or folder a build on this PC holds. */
+export type InstallerAdoptItem = {
+  id: string;
+  origin: string;
+  result: "adopted" | "in-place" | "skipped";
+  reason?: string;
+};
+
+/** The answer of `installer:adopt-local` (electron/main.cjs): the per-item rows, the sources read and what was swept. */
+export type InstallerAdoptResult = {
+  ok: boolean;
+  off?: boolean;
+  error?: string;
+  items: InstallerAdoptItem[];
+  sources: string[];
+  swept?: string[];
+  failed?: { item: string; error: string }[];
 };
 
 /** The resource governor's read-only status (electron/resource-governor.cjs `status`). */
@@ -594,6 +615,8 @@ export type CompanionRemoteState = {
 
 type DesktopApi = {
   isDesktop: true;
+  /** Stop everything, told to the main process in the same tick: true when it took the signal, false when refused. */
+  signalHalted?: (halted: boolean) => boolean;
   /** Publish the nav/feature registry so the phone companion mirrors it. */
   publishCompanionFeatures?: (
     payload: unknown[] | { features: unknown[]; capabilities: unknown[]; live?: unknown },
@@ -706,6 +729,7 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; facts?: HardwareFacts; error?: string }>;
   installerCatalog?: () => Promise<InstallerCatalog>;
   refreshInstallerCatalog?: () => Promise<InstallerRefreshResult>;
+  adoptLocalBuilds?: () => Promise<InstallerAdoptResult>;
   updateInstallerRow?: (request: InstallerUpdateRequest) => Promise<InstallerUpdateResult>;
   governorStatus?: () => Promise<GovernorStatus>;
   onGovernorNotice?: (cb: (notice: { line: string }) => void) => () => void;

@@ -13,7 +13,12 @@
  *      are the manifest's;
  *   3. SHA256SUMS.txt agrees with the files and with the manifest;
  *   4. latest.yml names this version and this installer, with the installer's
- *      real size and SHA-512.
+ *      real size and SHA-512;
+ *   5. friday-bundle.json (the build record) is the file friday-update.json names:
+ *      its size and SHA-256 match, it is a valid record for this version and
+ *      channel, and every app file it lists is the uploaded file;
+ *   6. no uploaded file is larger than 2147483648 bytes, the most GitHub
+ *      accepts for one release asset.
  *
  *   node scripts/verify-published-release.cjs --dir <downloaded assets> --version 1.2.3.4
  *
@@ -23,8 +28,27 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
-const digest = (file, algorithm, encoding) =>
-  crypto.createHash(algorithm).update(fs.readFileSync(file)).digest(encoding);
+const bundleLib = require("../electron/build-bundle.cjs");
+
+/** GitHub refuses a release asset above this size (2 GiB). */
+const MAX_ASSET_BYTES = 2147483648;
+
+/** Streamed, so a file near the limit is never read into memory whole. */
+function digest(file, algorithm, encoding) {
+  const hash = crypto.createHash(algorithm);
+  const buf = Buffer.allocUnsafe(1024 * 1024);
+  const fd = fs.openSync(file, "r");
+  try {
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n === 0) break;
+      hash.update(buf.subarray(0, n));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest(encoding);
+}
 
 /** latest.yml is electron-builder's flat YAML; only these scalar keys are read. */
 function parseLatest(text) {
@@ -38,7 +62,69 @@ function parseLatest(text) {
   return out;
 }
 
-function verifyPublishedRelease({ dir, version }) {
+/** The build record the manifest names: the right file, a valid record, and every app file it lists is real. */
+function checkBundle({ manifest, assets, clean, at, fail, notes }) {
+  const ref = manifest.bundle;
+  if (!ref || typeof ref !== "object") {
+    fail(
+      "friday-update.json names no bundle (friday-bundle.json), so an installed app finds no build record.",
+    );
+    return;
+  }
+  if (ref.name !== bundleLib.FILE_NAME) {
+    fail(`friday-update.json names the bundle ${ref.name}, not ${bundleLib.FILE_NAME}.`);
+    return;
+  }
+  const file = at(bundleLib.FILE_NAME);
+  let size = 0;
+  try {
+    size = fs.statSync(file).size;
+  } catch (error) {
+    fail(`friday-bundle.json cannot be read from the published release: ${error.message}`);
+    return;
+  }
+  if (size !== ref.bytes || digest(file, "sha256", "hex") !== String(ref.sha256).toLowerCase()) {
+    fail(
+      "friday-bundle.json on the release does not match the size or SHA-256 in friday-update.json.",
+    );
+    return;
+  }
+  const record = bundleLib.read(file);
+  if (!record) {
+    fail("friday-bundle.json is not a valid build record.");
+    return;
+  }
+  const base = clean.replace(/-.*$/, "");
+  if (record.version !== base) fail(`friday-bundle.json is for v${record.version}, not v${base}.`);
+  if (record.channel !== (manifest.channel === "test" ? "test" : "stable")) {
+    fail(`friday-bundle.json is for the ${record.channel} channel, not ${manifest.channel}.`);
+  }
+  const listed = new Map(assets.map((a) => [a.name, a]));
+  let agreed = true;
+  for (const row of record.app) {
+    const known = listed.get(row.name);
+    const upload = at(row.name);
+    let same = false;
+    try {
+      same = known
+        ? known.bytes === row.bytes && String(known.sha256).toLowerCase() === row.sha256
+        : fs.statSync(upload).size === row.bytes && digest(upload, "sha256", "hex") === row.sha256;
+    } catch {
+      same = false;
+    }
+    if (!same) {
+      agreed = false;
+      fail(`friday-bundle.json does not agree with the file on the release about ${row.name}.`);
+    }
+  }
+  if (agreed) {
+    notes.push(
+      `friday-bundle.json matches friday-update.json (size, SHA-256 and ${record.app.length} app files)`,
+    );
+  }
+}
+
+function verifyPublishedRelease({ dir, version, maxBytes = MAX_ASSET_BYTES }) {
   const problems = [];
   const notes = [];
   const fail = (text) => problems.push(text);
@@ -65,9 +151,23 @@ function verifyPublishedRelease({ dir, version }) {
     fail("friday-update.json lists no block map, so no update could download only what changed.");
   }
 
+  // No asset above the size GitHub accepts; such a file is never read or hashed.
+  const oversized = new Set();
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const size = fs.statSync(at(entry.name)).size;
+    if (size > maxBytes) {
+      oversized.add(entry.name);
+      fail(
+        `${entry.name} is ${size} bytes, over the release asset limit (GitHub accepts at most ${MAX_ASSET_BYTES}).`,
+      );
+    }
+  }
+
   let checked = 0;
   for (const row of assets) {
     const file = at(row.name);
+    if (oversized.has(row.name)) continue;
     if (!fs.existsSync(file)) {
       fail(`${row.name} is in friday-update.json but was not uploaded to the release.`);
       continue;
@@ -84,6 +184,8 @@ function verifyPublishedRelease({ dir, version }) {
     checked += 1;
   }
   if (checked) notes.push(`${checked} uploaded files match friday-update.json (size and SHA-256)`);
+
+  checkBundle({ manifest, assets, clean, at, fail, notes });
 
   // SHA256SUMS.txt
   try {
@@ -135,7 +237,7 @@ function verifyPublishedRelease({ dir, version }) {
   return { problems, notes };
 }
 
-module.exports = { verifyPublishedRelease, parseLatest };
+module.exports = { verifyPublishedRelease, parseLatest, MAX_ASSET_BYTES };
 
 if (require.main === module) {
   const args = process.argv.slice(2);

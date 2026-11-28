@@ -157,3 +157,16 @@ describe("the rendered row", () => {
     expect(article).toContain("<button");
   });
 });
+
+describe("a row found in a local build", () => {
+  it("is named in plain words on the page, and the catalog row type stays additive", () => {
+    const page = read("src/routes/install-manager.tsx");
+    expect(page).toContain("Found on this PC (from a local build)");
+    const desktop = read("src/lib/friday/desktop.ts");
+    expect(desktop).toMatch(/export type InstallerCatalogRow = \{/);
+    expect(read("electron/install-inventory.cjs")).toContain(
+      "return { origin: entry.origin, dir: entry.dir }",
+    );
+    expect(read("electron/main.cjs")).toContain("{ ...row, localSource: found }");
+  });
+});

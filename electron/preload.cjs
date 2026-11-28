@@ -537,6 +537,7 @@ contextBridge.exposeInMainWorld("friday", {
   setCapabilityEnabled: (id, enabled) =>
     ipcRenderer.invoke("capabilities:set-enabled", id, enabled),
   reloadCapabilities: () => ipcRenderer.invoke("capabilities:reload"),
+  resetBuiltinCapability: (id) => ipcRenderer.invoke("capabilities:reset-builtin", id),
   installCapability: (pack) => ipcRenderer.invoke("capabilities:install", pack),
   uninstallCapability: (id) => ipcRenderer.invoke("capabilities:uninstall", id),
   installCapabilityFromUrl: (url) => ipcRenderer.invoke("capabilities:install-url", url),
@@ -600,6 +601,8 @@ contextBridge.exposeInMainWorld("friday", {
   installerCatalog: () => ipcRenderer.invoke("installer:catalog"),
   refreshInstallerCatalog: () => ipcRenderer.invoke("installer:refresh"),
   updateInstallerRow: (request) => ipcRenderer.invoke("installer:update", request),
+  // "Use local builds": copy verified models a build on this PC already made into the FRIDAY folder.
+  adoptLocalBuilds: () => ipcRenderer.invoke("installer:adopt-local"),
   runToolJob: (job) => ipcRenderer.invoke("tools:run", job),
   cancelToolJob: (job) => ipcRenderer.invoke("tools:cancel", job),
   listToolExtensions: () => ipcRenderer.invoke("tools:extensions"),

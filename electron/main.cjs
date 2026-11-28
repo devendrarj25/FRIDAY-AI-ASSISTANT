@@ -625,6 +625,10 @@ const { runReadiness } = loadNamed("readiness", () => require("./readiness.cjs")
 const storageManager = loadNamed("storage", () => require("./storage-manager.cjs"));
 const stagedAssets = loadNamed("staged-assets", () => require("./staged-assets.cjs"));
 const installInventory = loadNamed("install-inventory", () => require("./install-inventory.cjs"));
+const localSources = loadNamed("local-sources", () => require("./local-sources.cjs"));
+const voicePins = loadNamed("voice-pins", () => require("./voice-pins.cjs"));
+const dataMigrations = loadNamed("data-migrations", () => require("./data-migrations.cjs"));
+const builtinsSync = loadNamed("builtins-sync", () => require("./builtins-sync.cjs"));
 // Production EXE vs portable branch test EXE. Resolved and applied to the path
 // service before ANY FRIDAY path is read, so a test build isolates its mutable
 // state while still sharing the models/runtime/assets already on this PC.
@@ -1295,18 +1299,82 @@ async function resolveWorkspaceRoot() {
   return publish(null);
 }
 
-/** Move what setup and the build staged in `.friday-dev` into the chosen root. Never throws. */
+/**
+ * Local builds: folders on this PC that hold a `friday-bundle.json` (a CMD build placed next to the install, the
+ * folder Setup ran from, a recorded build root). On by default; `install.useLocalBuilds` and FRIDAY_LOCAL_BUNDLES=0 turn
+ * it off. Only hash-verified files are ever used and nothing is overwritten.
+ */
+const localBuildsMemo = { key: "", at: 0, entries: [] };
+const LOCAL_BUILDS_MEMO_MS = 30_000;
+
+function localBuildsOn() {
+  return (
+    ownerPrefToggle("installUseLocalBuilds", true) &&
+    String(process.env.FRIDAY_LOCAL_BUNDLES ?? "1").trim() !== "0"
+  );
+}
+
+/** The local builds found for the FRIDAY folder, remembered for a short while (the registry read is a process spawn). */
+function discoverLocalBuilds(root = getWorkspaceRoot()) {
+  if (!root) return [];
+  const useLocalBuilds = ownerPrefToggle("installUseLocalBuilds", true);
+  const key = `${root}|${useLocalBuilds}|${productVersion()}`;
+  if (localBuildsMemo.key === key && Date.now() - localBuildsMemo.at < LOCAL_BUILDS_MEMO_MS) {
+    return localBuildsMemo.entries;
+  }
+  const entries = localSources.discoverLocalBundles(root, {
+    useLocalBuilds,
+    appVersion: productVersion(),
+  });
+  localBuildsMemo.key = key;
+  localBuildsMemo.at = Date.now();
+  localBuildsMemo.entries = entries;
+  return entries;
+}
+
+/**
+ * Catalog rows gain `localSource: { origin, dir }` when a local build holds that model with its files on this PC.
+ * The matching itself is install-inventory's one matcher (the same one the inventory rows use). Only the voice-model
+ * rows hold a pinned model a build can carry (the pins of `config/friday-models.json`); a chat-model row is an engine
+ * tag and a runtime-pack row is a release pack, neither has a pin, so those rows stay as they are.
+ */
+function catalogWithLocalSources(catalog, entries = discoverLocalBuilds()) {
+  if (!catalog || !Array.isArray(catalog.rows) || !Array.isArray(entries) || !entries.length) {
+    return catalog;
+  }
+  const root = getWorkspaceRoot();
+  const rows = catalog.rows.map((row) => {
+    if (row?.kind !== "voice-model") return row;
+    const found = installInventory.localSourceFor(row.id, entries, { root });
+    return found ? { ...row, localSource: found } : row;
+  });
+  return { ...catalog, rows };
+}
+
+/**
+ * Move what setup and the build staged in `.friday-dev` into the chosen root, and copy verified items from a build
+ * root on this PC into free places. Every item is logged by its result. Never throws.
+ */
 async function adoptStagedDownloads(root) {
   try {
-    const report = await stagedAssets.adopt(root);
-    if (report.moved.length) {
+    // Build roots are one of the local builds: the owner's setting turns them off for this call too.
+    const options = localBuildsOn() ? {} : { env: { ...process.env, FRIDAY_LOCAL_BUNDLES: "0" } };
+    const report = await stagedAssets.adopt(root, options);
+    for (const row of report.items || []) {
+      if (String(row.reason || "").startsWith("failed:")) continue;
+      const how = row.result === "in-place" ? "already in place" : row.result;
       log(
-        `moved ${report.moved.length} build download(s) into ${root}: ${report.moved.map((row) => row.item).join(", ")}`,
+        `local download ${row.id}: ${how}${row.reason ? ` (${row.reason})` : ""}, from ${row.origin}`,
       );
     }
     for (const row of report.failed) {
       log(
         `staged download ${row.item} could not be moved (${row.error}); it is fetched again on use`,
+      );
+    }
+    if (Array.isArray(report.swept) && report.swept.length) {
+      log(
+        `local download: swept ${report.swept.length} stale partial copies (${report.swept.join(", ")})`,
       );
     }
     return report;
@@ -3378,7 +3446,7 @@ async function leaseLocalModel({ model, request, hardwareOffload, requestId }) {
     // a different placement would only make the engine load it twice.
     const tag = model.meta?.providerId === "ollama" ? model.meta?.modelName : null;
     if (tag && !taken.shrunk) {
-      const warmed = await loadLeases.runLoad(priority, () => modelsApi.ollamaWarm(tag, "5m"));
+      const warmed = await loadLeases.runLoad(priority, () => modelsApi.ollamaWarm(tag));
       if (!warmed.ran) {
         taken.lease?.release();
         const line = `${model.displayName || model.label || model.id} was not loaded: other models are still loading.`;
@@ -6606,6 +6674,28 @@ const MIGRATED_FOLDERS = [
   "logs",
 ];
 
+/**
+ * Whether two paths name one folder: both go through realpath, and on Windows the case is folded, so `c:\friday` and
+ * `C:\FRIDAY` are the same folder and picking it again is not a move onto itself. A path that cannot be read
+ * compares as written. `platform` and `realpath` are injectable.
+ */
+function sameWorkspaceFolder(
+  a,
+  b,
+  { platform = process.platform, realpath = fs.realpathSync.native } = {},
+) {
+  const real = (value) => {
+    const resolved = path.resolve(String(value));
+    try {
+      return path.resolve(realpath(resolved));
+    } catch {
+      return resolved;
+    }
+  };
+  const [left, right] = [real(a), real(b)];
+  return platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
 /** Real copy (not a reference) of the previous folder's data into the new one. */
 async function migrateWorkspaceData(from, to) {
   const report = { from, to, copied: [], skipped: [], failed: [] };
@@ -6647,7 +6737,7 @@ ipcMain.handle("workspace:set", async (_e, root) => {
     throw new Error("The selected folder does not exist or cannot be opened.");
   }
   const previousRoot = getWorkspaceRoot();
-  const moving = Boolean(previousRoot) && path.resolve(previousRoot) !== resolvedRoot;
+  const moving = Boolean(previousRoot) && !sameWorkspaceFolder(previousRoot, resolvedRoot);
   // Copying is never silent: the user decides between copying the previous
   // folder's data, using the new folder as it is, or staying where they are.
   let decision = "fresh";
@@ -6680,14 +6770,8 @@ ipcMain.handle("workspace:set", async (_e, root) => {
     try {
       // One canonical layout, created through the path service.
       paths.ensureStructure(resolvedRoot);
-      ensureCanonicalConfig(resolvedRoot);
-      ensureRootFiles(resolvedRoot, { version: productVersion() });
-      await adoptStagedDownloads(resolvedRoot);
-      // A different root means different models, keys and endpoints: never
-      // serve the previous folder's cached catalogue.
-      routableCache = { at: 0, models: [] };
-      providerHealth.clear();
-      void rebuildRootIndexes(resolvedRoot);
+      // The old folder's data is copied FIRST: the copy never overwrites, so a config or ledger file the steps below
+      // seed in an empty folder would otherwise win over the owner's own.
       if (moving && decision === "copy") {
         send("workspace:migrate", { phase: "start", from: previousRoot, to: resolvedRoot });
         const report = await migrateWorkspaceData(previousRoot, resolvedRoot);
@@ -6703,6 +6787,18 @@ ipcMain.handle("workspace:set", async (_e, root) => {
           );
         }
       }
+      ensureCanonicalConfig(resolvedRoot);
+      ensureRootFiles(resolvedRoot, { version: productVersion() });
+      // The new root gets the same data steps as a first boot, before the kernel restarts. They never throw.
+      runDataBootSteps(resolvedRoot);
+      modelCheckState.last = null;
+      modelCheckState.settled = false;
+      await adoptStagedDownloads(resolvedRoot);
+      // A different root means different models, keys and endpoints: never
+      // serve the previous folder's cached catalogue.
+      routableCache = { at: 0, models: [] };
+      providerHealth.clear();
+      void rebuildRootIndexes(resolvedRoot);
       startWatching(resolvedRoot);
       initSelfMaintenance(resolvedRoot);
       restartKernel();
@@ -7407,6 +7503,31 @@ ipcMain.handle("models:pull", async (_e, model, jobId) => {
 });
 
 /**
+ * A pinned model whose files are already in its folder with the pinned size, and whose folder was certified for the
+ * pinned revision, needs no download. This asks the download module's one folder audit: a fresh record on the folder
+ * certifies it by size alone (nothing is hashed); only a missing, stale or future-dated record makes it hash the files,
+ * and a folder with no record for the pinned revision is left to the source chain, which audits and certifies it once.
+ * `deps` is the audit's own (`now`, `hashFile`). Null otherwise. Never throws, never writes.
+ */
+async function pinnedModelInPlace(modelId, folderId, dir, sources, deps = {}) {
+  try {
+    for (const source of Array.isArray(sources) ? sources : []) {
+      if (source?.kind !== "hf-repo" || !source.repo) continue;
+      const pin = voicePins.pinForRepo(source.repo);
+      if (!pin?.files) continue;
+      const folder = path.join(dir, folderId);
+      if (voicePins.readMarker(folder)?.revision !== pin.revision) return null;
+      const audit = await modelDownload.auditPinnedFolder(folder, pin, deps);
+      if (!audit.ok) return null;
+      return { ok: true, via: "in-place", path: folder, skipped: true, modelId };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
  * Multi-source download: the renderer passes the ordered sources from the
  * catalog and FRIDAY keeps the first one that really delivers the bytes.
  */
@@ -7439,6 +7560,17 @@ ipcMain.handle("models:download", async (_e, payload) => {
   try {
     const pump = { paused: false };
     modelPumps.set(id, pump);
+    const inPlace = await pinnedModelInPlace(modelId, folderId, dir, sources);
+    if (inPlace) {
+      send("models:pull-progress", {
+        jobId: id,
+        model: modelId,
+        status: "already on this PC",
+        progress: 100,
+      });
+      send("models:pull-done", { jobId: id, model: modelId, ...inPlace });
+      return { jobId: id, ...inPlace };
+    }
     const result = await modelDownload.downloadModel(
       { modelId: folderId, sources, dir, control: pump, transferId: id },
       (event) => send("models:pull-progress", { jobId: id, model: modelId, ...event }),
@@ -8074,6 +8206,19 @@ ipcMain.handle("doctor:run", async (_e, options) => {
           path.join(paths.dir("cache"), "model-catalogue"),
         ),
       );
+      try {
+        const modelRow = modelCheckDoctorRow();
+        if (modelRow) checks.push(modelRow);
+        const builtinsRow = builtinsSync.doctorRow(builtinsBoot.last);
+        checks.push({
+          ...builtinsRow,
+          group: "FRIDAY",
+          status: builtinsRow.ok ? "Ready" : "Warning",
+          fixable: false,
+        });
+      } catch (error) {
+        log(`doctor: install rows skipped: ${error?.message || error}`, "warn");
+      }
       return { ...(result || {}), checks };
     })
     .finally(() => {
@@ -8224,7 +8369,13 @@ let latestSeen = null;
 function recordInventory(scan) {
   const root = getWorkspaceRoot();
   if (!root || !scan?.tools?.length) return;
-  installInventory.writeInventory(root, scan, { latest: latestSeen, version: productVersion() });
+  installInventory.writeInventory(root, scan, {
+    latest: latestSeen,
+    version: productVersion(),
+    // Models a local build on this PC holds get a `localSource` row in inventory.json.
+    localSources: () => discoverLocalBuilds(root),
+  });
+  if (readinessTrace.backgroundWorkAllowed()) void runPostUpdateModelCheck();
 }
 ipcMain.handle("tools:detect", async (_e, force) => {
   const scan = await toolchain.detectTools({ force: Boolean(force) });
@@ -8274,8 +8425,27 @@ function getInstallerCatalog() {
 // heavy steps in the governor's download and install lanes.
 toolchain.setFactsProvider(() => routingHardwareFacts());
 toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
-ipcMain.handle("installer:catalog", () => getInstallerCatalog().catalog());
+ipcMain.handle("installer:catalog", () => catalogWithLocalSources(getInstallerCatalog().catalog()));
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
+// "Use local builds": bring verified models from a build on this PC into the FRIDAY folder, into free places only.
+// Items come back one by one as { id, origin, result: adopted | in-place | skipped, reason }.
+ipcMain.handle("installer:adopt-local", async () => {
+  const root = getWorkspaceRoot();
+  if (!root) return { ok: false, error: "Choose the FRIDAY folder first.", items: [], sources: [] };
+  if (!localBuildsOn()) return { ok: true, off: true, items: [], sources: [] };
+  const report = await adoptStagedDownloads(root);
+  localBuildsMemo.at = 0;
+  if (!report)
+    return { ok: false, error: "The local builds could not be read.", items: [], sources: [] };
+  return {
+    ok: report.failed.length === 0,
+    off: false,
+    items: report.items || [],
+    sources: report.sources || [],
+    swept: report.swept || [],
+    failed: report.failed,
+  };
+});
 const autonomyReader = toolGate.createAutonomyReader(() =>
   toolGate.readAutonomyFile(stateStore, stateFile("friday.autonomy.v1")),
 );
@@ -9816,6 +9986,62 @@ const capabilityRoots = () => ({
 });
 let stopCapabilityWatch = null;
 
+// Boot: data migrations first, then the built-ins sync. A throwing step is logged and the next one still runs.
+const builtinsBoot = { last: null };
+function runDataBootSteps(root, state = builtinsBoot) {
+  try {
+    const migrated = dataMigrations.run(root, productVersion());
+    if (migrated.applied.length) log(`data migrations applied: ${migrated.applied.join(", ")}`);
+    if (migrated.error) log(`data migrations: ${migrated.error}`, "warn");
+  } catch (error) {
+    log(`data migrations skipped: ${error?.message || error}`, "warn");
+  }
+  try {
+    state.last = builtinsSync.run({ appRoot: packagedCapabilityRoot(), workspaceRoot: root });
+    if (state.last.skipped) log(`built-ins sync skipped: ${state.last.skipped}`);
+  } catch (error) {
+    log(`built-ins sync skipped: ${error?.message || error}`, "warn");
+  }
+}
+
+// After an update the downloaded models are size-checked once per app version. The result feeds the Doctor row.
+const modelCheckState = { last: null, settled: false, running: false };
+async function runPostUpdateModelCheck(state = modelCheckState) {
+  const root = getWorkspaceRoot();
+  if (!root || state.settled || state.running) return null;
+  state.running = true;
+  try {
+    const outcome = await installInventory.postUpdateCheck(root, { version: productVersion() });
+    if (outcome?.ran) state.last = outcome.result;
+    // Without inventory.json nothing is recorded, so the check asks again after the first inventory write.
+    if (!outcome?.ran || outcome.persisted) state.settled = true;
+    return outcome;
+  } catch (error) {
+    log(`post-update model check skipped: ${error?.message || error}`, "warn");
+    return null;
+  } finally {
+    state.running = false;
+  }
+}
+
+/** Doctor row for the models after an update: this session's check, else the one saved in inventory.json. */
+function modelCheckDoctorRow(state = modelCheckState) {
+  let result = state.last;
+  if (!result) {
+    const saved = installInventory.readInventory(getWorkspaceRoot())?.modelCheck;
+    if (!saved) return null;
+    result = {
+      ok: saved.ok === true,
+      hashed: saved.hashed === true,
+      checked: saved.checked,
+      bad: (saved.bad || []).map((id) => ({ id, detail: "flagged at the last check" })),
+      errors: [],
+    };
+  }
+  const row = installInventory.modelCheckRow(result);
+  return { ...row, group: "Storage", status: row.ok ? "Ready" : "Warning", fixable: false };
+}
+
 /**
  * Rebuild the root's own indexes from what is really on disk: registry.json
  * (validated components), integrity.json (structure + digests) and boot.json
@@ -9855,6 +10081,11 @@ async function rebuildRootIndexes(root, { ms = 0 } = {}) {
 ipcMain.handle("root:registry", () => rebuildRootIndexes(getWorkspaceRoot()));
 
 ipcMain.handle("capabilities:list", () => capabilityIndex.list(capabilityRoots()));
+ipcMain.handle("capabilities:reset-builtin", (_e, id) => {
+  const result = capabilityIndex.resetBuiltin(capabilityRoots(), String(id || ""));
+  if (result.ok) send("capabilities:changed", { reset: result.id });
+  return result;
+});
 ipcMain.handle("capabilities:set-enabled", async (_e, id, enabled) => {
   const key = String(id || "");
   const result = capabilityIndex.setEnabled(capabilityRoots(), key, enabled);
@@ -10852,16 +11083,20 @@ async function terminalPython() {
 ipcMain.handle("terminal:exec", async (_e, options) => {
   const { origin, ...request } = options || {};
   const command = String(request.command || "");
+  // Gated by default: only the explicit owner mark, which the Terminal page's own runner sets for what the owner types,
+  // skips the gate. A call with no origin, an unknown one or "agent" is FRIDAY's own (the renderer cannot be trusted
+  // to remember a flag), so it follows the same rules as every other tool call.
+  const ownerTyped = origin === "owner";
+  const startedAt = Date.now();
   // Stop everything also stops FRIDAY's own shell commands: none starts while it is halted.
-  if (origin === "agent" && ownerAutonomyState().halted === true) {
+  if (!ownerTyped && ownerAutonomyState().halted === true) {
     return { ok: false, error: "Stop everything is on, so the command was not run." };
   }
-  // A command FRIDAY itself chose (agent origin) that is not a plain read/check goes through the same
-  // permission gate as every other write/exec tool. What the owner types on the Terminal page is his own.
+  // A command that is not a plain read/check goes through the same permission gate as every other write/exec tool.
   // A folder with its own repository or project can run its own hooks and scripts: there only cmd built-ins pass.
   const root = getWorkspaceRoot();
   if (
-    origin === "agent" &&
+    !ownerTyped &&
     terminal.classifyCommand(command, {
       untrusted: terminal.isUntrustedFolder(root, request.cwd),
     }) === "exec"
@@ -10869,6 +11104,10 @@ ipcMain.handle("terminal:exec", async (_e, options) => {
     const verdict = await authorizeToolCall("terminal.exec", { command });
     if (!verdict.allowed) {
       return { ok: false, error: verdict.reason || "The command was not allowed." };
+    }
+    // The invoke ended with a budget error while the question was open: a late Allow does not run it.
+    if (ipcBudgetTable.waitExpired("terminal:exec", [options], startedAt)) {
+      return { ok: false, error: "The wait for your answer ended, so the command was not run." };
     }
   }
   return terminal.runCommand(root, { ...request, python: await terminalPython() }, (event) =>
@@ -11146,6 +11385,9 @@ app
           ? `repaired ${config.repaired.join(", ")}`
           : path.join(root, "config"),
       );
+      // Stored data is brought to this build's shape, then the built-in capabilities are reconciled
+      // with the owner's record, both before the kernel reads anything. Neither step can stop boot.
+      runDataBootSteps(root);
     }
     // Screen-vision state follows the chosen folder like everything else.
     screenVision.setRoot(root);
@@ -11257,6 +11499,16 @@ app
         readiness: false,
         run() {
           startModelRegistryRefresh();
+        },
+      });
+      startupTasks.register({
+        id: "post-update-model-check",
+        phase: "idle",
+        timeoutMs: 8000,
+        readiness: false,
+        run() {
+          void runPostUpdateModelCheck();
+          return { armed: true, policy: "once-per-version" };
         },
       });
       startupTasks.register({

@@ -92,7 +92,6 @@ import {
 import {
   attachmentDirective,
   attachmentOwnerText,
-  attachmentOwnerTextCut,
   formatBytes,
   readAttachments,
   type Attachment,
@@ -491,13 +490,10 @@ export function ChatDock() {
       turnAwarenessExtra(text, { kind: "typed", forceLibrary: libraryIds.length > 0 }),
     );
     const fileWords = attachmentOwnerText(files);
-    const fileWordsCut = attachmentOwnerTextCut(files);
     const sent = brain.send(text, {
       ...(combined ? { extra: combined } : {}),
       // The words inside the attachment, so the privacy check sees what the typed line never shows.
       ...(fileWords ? { ownerText: fileWords } : {}),
-      // Words too long for that copy cannot be screened whole downstream: the turn stays on this PC.
-      ...(fileWordsCut ? { turnSensitive: true } : {}),
       ...(pinned.length ? { modelIds: pinned } : {}),
       routeMode: registry.routeMode,
       routingSurface: "chat",

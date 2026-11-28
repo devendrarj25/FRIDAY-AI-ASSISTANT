@@ -17,7 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { runtimes as sampleRuntimes, tools as sampleTools } from "@/lib/friday/mock";
-import { useCapabilities } from "@/lib/friday/capability-trees";
+import { useCapabilities, type CapabilityStatus } from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useInstaller } from "@/lib/friday/use-installer";
 import { installer } from "@/lib/friday/installer-engine";
 import { toast } from "sonner";
@@ -61,7 +63,8 @@ const riskTone = {
 const DESKTOP_ONLY = "This change needs the FRIDAY desktop app.";
 
 function ToolsPage() {
-  const { supported, items, toggle, refresh } = useCapabilities("tools");
+  const { supported, error, items, toggle, refresh } = useCapabilities("tools");
+  const [busyId, setBusyId] = useState<string | null>(null);
   const state = useInstaller();
   const [importBusy, setImportBusy] = useState<"zip" | "folder" | "git" | "forge" | "test" | null>(
     null,
@@ -81,14 +84,19 @@ function ToolsPage() {
         summary: item.description || `${item.segment} tool`,
         risk: item.risk,
         enabled: item.enabled,
+        origin: item.origin as string,
+        layer: item.status as CapabilityStatus | undefined,
         toggleable: true,
         onToggle: (next: boolean) => {
-          void toggle(item.id, next);
+          setBusyId(item.id);
+          void toggle(item.id, next).finally(() => setBusyId(null));
         },
       }))
     : sampleTools.map((tool) => ({
         id: "",
         ...tool,
+        origin: "",
+        layer: undefined as CapabilityStatus | undefined,
         toggleable: false,
         onToggle: (_next: boolean) => {},
       }));
@@ -296,23 +304,43 @@ function ToolsPage() {
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Tool permissions" hint="risk gated">
-          {tools.length ? (
+          {error ? (
+            <ErrorState
+              title="Your tools could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : tools.length ? (
             <ul className="space-y-3">
               {tools.map((tool) => (
                 <li key={tool.id || tool.name} className="flex items-start justify-between gap-3">
-                  <button
-                    type="button"
-                    className={`min-w-0 text-left ${selectedId === tool.id ? "text-primary" : ""}`}
-                    onClick={() => tool.id && setSelectedId(tool.id)}
-                  >
-                    <p className="font-mono text-sm">{tool.name}</p>
-                    <p className="text-xs text-muted-foreground">{tool.summary}</p>
-                    <span className={`label-xs ${riskTone[tool.risk]}`}>{tool.risk}</span>
-                  </button>
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      className={`min-w-0 text-left ${selectedId === tool.id ? "text-primary" : ""}`}
+                      onClick={() => tool.id && setSelectedId(tool.id)}
+                    >
+                      <p className="font-mono text-sm">{tool.name}</p>
+                      <p className="text-xs text-muted-foreground">{tool.summary}</p>
+                      <span className={`label-xs ${riskTone[tool.risk]}`}>{tool.risk}</span>
+                    </button>
+                    {tool.id ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <CapabilityBadge status={tool.layer} origin={tool.origin} />
+                        <ResetBuiltinButton
+                          id={tool.id}
+                          name={tool.name}
+                          status={tool.layer}
+                          refresh={refresh}
+                          disabled={Boolean(busyId)}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                   <Switch
                     checked={tool.enabled}
                     onCheckedChange={tool.onToggle}
-                    disabled={!tool.toggleable}
+                    disabled={!tool.toggleable || Boolean(busyId)}
                     aria-label={`Enable ${tool.name}`}
                   />
                 </li>

@@ -11,9 +11,9 @@ import { autonomy } from "../../src/lib/friday/self/autonomy";
 import { brain } from "../../src/lib/friday/brain-engine";
 import {
   clearPendingChange,
-  noteSpokenLine,
   pendingChange,
   readSettingsIntent,
+  withSettingsOrigin,
   setHandsFreeReader,
 } from "../../src/lib/friday/brain/settings-intents";
 import { SpeechArbiter } from "../../src/lib/friday/voice-engine/speech-arbiter";
@@ -130,18 +130,24 @@ describe("a yes after the wake word to a staged change that needs the screen", (
 describe("the settings reader behind the voice gate", () => {
   it("refuses a voice-origin yes for hands-free on and keeps the change for a typed yes", () => {
     readSettingsIntent("turn hands-free on");
-    noteSpokenLine("yes");
-    const out = readSettingsIntent("yes");
+    const out = readSettingsIntent("yes", "owner-voice");
     expect(out?.kind).toBe("refused");
     expect(out?.message).toMatch(/screen/i);
     expect(pendingChange()?.to).toBe("on");
-    // A typed yes (no spoken line behind it) applies it.
-    expect(readSettingsIntent("yes")?.kind).toBe("applied");
+    // A typed yes (the payload says "typed") applies it.
+    expect(readSettingsIntent("yes", "typed")?.kind).toBe("applied");
+  });
+
+  it("an unknown origin counts as spoken: no yes without a marker opens the microphone", () => {
+    readSettingsIntent("turn hands-free on");
+    expect(readSettingsIntent("yes")?.kind).toBe("refused");
+    expect(readSettingsIntent("yes", undefined)?.kind).toBe("refused");
+    expect(pendingChange()?.to).toBe("on");
   });
 
   it("refuses a voice-origin yes for a paid policy", () => {
     readSettingsIntent("allow paid models");
-    noteSpokenLine("haan");
+    expect(readSettingsIntent("haan", "owner-voice")?.kind).toBe("refused");
     expect(readSettingsIntent("haan")?.kind).toBe("refused");
     expect(pendingChange()).not.toBeNull();
   });
@@ -149,21 +155,41 @@ describe("the settings reader behind the voice gate", () => {
   it("a voice yes to a change that needs no screen still applies", () => {
     handsFreeNow = true;
     readSettingsIntent("turn hands-free off");
-    noteSpokenLine("yes");
-    expect(readSettingsIntent("yes")?.kind).toBe("applied");
+    expect(readSettingsIntent("yes", "owner-voice")?.kind).toBe("applied");
+  });
+
+  it("the Brain's origin reaches the reader through the scope, and nothing leaks out of it", () => {
+    readSettingsIntent("turn hands-free on");
+    expect(withSettingsOrigin("owner-voice", () => readSettingsIntent("yes"))?.kind).toBe(
+      "refused",
+    );
+    expect(withSettingsOrigin("typed", () => readSettingsIntent("yes"))?.kind).toBe("applied");
+    readSettingsIntent("turn hands-free on");
+    expect(readSettingsIntent("yes")?.kind).toBe("refused");
   });
 });
 
-describe("the voice note is matched loosely and spent once", () => {
-  it("a voice 'Yes.' is the same line as 'yes!' at the reader", () => {
-    readSettingsIntent("turn hands-free on");
-    noteSpokenLine("Yes.");
-    expect(readSettingsIntent("yes!")?.kind).toBe("refused");
+describe("a voice-heard yes needs no side note", () => {
+  it("the old one-shot note is gone from the module", async () => {
+    const mod = (await import("../../src/lib/friday/brain/settings-intents")) as Record<
+      string,
+      unknown
+    >;
+    expect(mod["noteSpokenLine"]).toBeUndefined();
   });
 
-  it("a note from an older voice line does not refuse a later typed yes", () => {
-    noteSpokenLine("yes");
-    readSettingsIntent("turn hands-free on");
-    expect(readSettingsIntent("yes")?.kind).toBe("applied");
+  it("the Brain hands the payload's origin to the baseline reader, and the voice send no longer notes a line", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const root = resolve(__dirname, "../../src/lib/friday");
+    expect(readFileSync(resolve(root, "brain-engine.ts"), "utf8")).toMatch(
+      /withSettingsOrigin\(options\.promptOrigin,/,
+    );
+    expect(readFileSync(resolve(root, "assistant-mode.ts"), "utf8")).not.toContain(
+      "noteSpokenLine",
+    );
+    expect(readFileSync(resolve(root, "brain/settings-intents.ts"), "utf8")).toMatch(
+      /readSettingsIntent\(clean, "typed"\)/,
+    );
   });
 });

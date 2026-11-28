@@ -797,3 +797,87 @@ describe("INSTALL.md owner command map", () => {
     expect(install).toContain(`release\\FRIDAY-Setup-${releaseVersion}.exe`);
   });
 });
+
+describe("keep-mode uninstall never loses data to a failed move", () => {
+  const nsh = () => read("installer/build/installer.nsh").replace(/\r\n/g, "\n");
+  const macro = () => {
+    const text = nsh();
+    const start = text.indexOf("!macro customUnInstall");
+    return text.slice(start, text.indexOf("!macroend", start));
+  };
+
+  it("stops before the program folder is removed when the data folder could not be moved out", () => {
+    const body = macro();
+    const guardAt = body.indexOf("LAST-LINE DATA GUARD");
+    const moveAt = body.indexOf('Rename "$FridayUnRoot" "$4"', guardAt);
+    expect(guardAt).toBeGreaterThan(0);
+    expect(moveAt).toBeGreaterThan(guardAt);
+    // The proof comes after both move attempts and before the pointer is re-pointed at the new home.
+    const stillThere = body.indexOf('${If} ${FileExists} "$FridayUnRoot\\*.*"', moveAt);
+    const repoint = body.indexOf(
+      'WriteRegStr HKCU "Software\\FRIDAY" "WorkspacePath" "$4"',
+      moveAt,
+    );
+    expect(stillThere).toBeGreaterThan(moveAt);
+    expect(stillThere).toBeLessThan(repoint);
+    const branch = body.slice(stillThere, body.indexOf("${EndIf}", stillThere));
+    // A visible, silent-safe message, then Abort: the uninstall stops and the unconditional RMDir /r $INSTDIR never runs.
+    expect(branch).toMatch(/MessageBox MB_OK\|MB_ICONSTOP ".*\$FridayUnRoot.*" \/SD IDOK/);
+    expect(branch).toMatch(/^\s*Abort\s*$/m);
+    // The branch only reports and stops: it moves, deletes and re-points nothing.
+    expect(branch).not.toMatch(/RMDir|Delete |WriteRegStr|Rename|nsExec/);
+    // Nothing that removes files runs between the move attempt and the guard.
+    const between = body.slice(moveAt, stillThere);
+    expect(between).not.toMatch(/RMDir|Delete /);
+    // The guard comes before every removal in the macro, so a stopped uninstall removes nothing.
+    expect(body.indexOf("Abort", moveAt)).toBeLessThan(body.indexOf("RMDir", moveAt));
+  });
+
+  it("keeps the move guard in the uninstaller pass and out of the installer pass", () => {
+    const text = nsh();
+    const unGuard = text.indexOf("!ifdef BUILD_UNINSTALLER");
+    expect(text.indexOf("LAST-LINE DATA GUARD")).toBeGreaterThan(unGuard);
+    expect(text.indexOf("!macro customUnInstall")).toBeGreaterThan(unGuard);
+  });
+
+  it("never lets an uninstall RMDir name a data, shared or backed-up folder of the root", () => {
+    const { NEVER_DELETED } = require(path.join(root, "electron", "friday-contract.cjs")) as {
+      NEVER_DELETED: string[];
+    };
+    expect(NEVER_DELETED).toEqual(
+      expect.arrayContaining(["memory", "database", "models", "config"]),
+    );
+    const lines = macro()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^RMDir\b/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      const target = /^RMDir\s+(?:\/r\s+)?"([^"]+)"/.exec(line)?.[1] ?? "";
+      expect(target, line).not.toBe("");
+      const rest = /^\$FridayUnRoot\\(.+)$/.exec(target)?.[1];
+      if (rest !== undefined) {
+        // Only FRIDAY Test's own profile may be removed beneath the root.
+        expect(rest.toLowerCase(), line).toBe("profiles\\test");
+      } else if (target === "$FridayUnRoot") {
+        // The whole root goes only on the confirmed delete path.
+        const at = macro().indexOf(line);
+        const before = macro().slice(0, at);
+        expect(before.lastIndexOf('${If} $FridayUnMode == "delete"'), line).toBeGreaterThan(
+          before.lastIndexOf('${If} $FridayUnMode == "keep"'),
+        );
+        expect(before.lastIndexOf('${If} $FridayUnMode == "delete"'), line).toBeGreaterThan(0);
+      } else {
+        expect(target, line).toMatch(/^\$(INSTDIR|APPDATA|LOCALAPPDATA|TEMP)\b/);
+        const segments = target
+          .split("\\")
+          .slice(1)
+          .map((s) => s.toLowerCase());
+        if (target.startsWith("$INSTDIR")) {
+          // Under the program folder only: the unpacked resources and the Setup-built runtime.
+          expect(["resources\\app.asar.unpacked", "runtime"], line).toContain(segments.join("\\"));
+        }
+      }
+    }
+  });
+});

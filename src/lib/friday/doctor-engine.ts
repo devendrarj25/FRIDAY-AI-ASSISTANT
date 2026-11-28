@@ -380,7 +380,8 @@ class DoctorStore {
         try {
           const answer = await neuralVoiceStatus();
           if (answer?.fridayVoice) noteFridayVoiceStatus(answer.fridayVoice);
-          else noteFridayVoiceStatus(null, "the speech worker sent no voice status");
+          else
+            noteFridayVoiceStatus(null, answer?.reason || "the speech worker sent no voice status");
         } catch (failure) {
           noteFridayVoiceStatus(null, failure ?? "no answer");
         }

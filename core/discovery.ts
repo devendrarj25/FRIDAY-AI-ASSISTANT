@@ -72,6 +72,17 @@ const MANIFEST_NAMES: Record<CapabilityTree, string[]> = Object.fromEntries(
 ) as Record<CapabilityTree, string[]>;
 
 const RISKS = new Set(["safe", "write", "exec"]);
+/** Keys of config/capabilities.json that are records, never capability ids (and prototype keys). */
+const RESERVED_RECORD_KEYS = new Set([
+  "schema",
+  "forks",
+  "removedBuiltins",
+  "lastBuiltins",
+  "prunedToggles",
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 
 /**
  * Root of the running FRIDAY installation, resolved by the one canonical
@@ -208,18 +219,43 @@ export function scanManifestFolder(root: string, tree: CapabilityTree): Capabili
     return [];
   }
   const out: CapabilityEntry[] = [];
-  for (const file of files) {
-    if (!file.toLowerCase().endsWith(".json")) continue;
+  const jsonFiles = files.filter((file) => file.toLowerCase().endsWith(".json"));
+  const prefix = `${tree}/manifests/`;
+  const fileIds = new Set(
+    jsonFiles.map((file) => `${prefix}${path.basename(file, ".json")}`.toLowerCase()),
+  );
+  for (const file of jsonFiles) {
     const full = path.join(dir, file);
     const manifest = readJsonSafe(full);
     if (!manifest) continue;
-    const id = String(manifest["id"] ?? `${tree}/manifests/${path.basename(file, ".json")}`);
+    // The id is the path's; the body may only pick another name in the same `<tree>/manifests/`
+    // namespace, never another file's id or a reserved record key (electron/capabilities.cjs
+    // flatManifestId is the same rule).
+    const own = `${prefix}${path.basename(file, ".json")}`;
+    const want = typeof manifest["id"] === "string" ? manifest["id"] : "";
+    const name = want.slice(prefix.length);
+    const id =
+      want.toLowerCase().startsWith(prefix) &&
+      name &&
+      !name.includes("/") &&
+      !RESERVED_RECORD_KEYS.has(want) &&
+      (want.toLowerCase() === own.toLowerCase() || !fileIds.has(want.toLowerCase()))
+        ? want
+        : own;
     out.push(toEntry(tree, "manifests", id, full, full, manifest, "manifest"));
   }
   return out;
 }
 
 type EnabledState = Record<string, boolean>;
+
+/** The one writer of config/capabilities.json lives in the Electron pass; loaded on first toggle. */
+function ownerRecord(): {
+  setEnabled: (roots: { workspaceRoot: string }, id: string, enabled: boolean) => { ok: boolean };
+  readStateFile: (workspaceRoot: string) => { value: Record<string, unknown> };
+} {
+  return createRequire(import.meta.url)("../electron/capabilities.cjs");
+}
 
 /**
  * Process-wide capability registry. Sources register their scan function once
@@ -302,14 +338,16 @@ export class CapabilityRegistry {
     return counts;
   }
 
-  /** Persisted toggle — survives restarts, mirrors what the UI shows. */
+  /**
+   * Persisted toggle — survives restarts, mirrors what the UI shows. It goes through the same
+   * guarded, atomic writer as the Electron pass (a reserved record key is refused, a damaged
+   * or newer record is never rewritten, the previous body is kept as `.bak`).
+   */
   setEnabled(id: string, enabled: boolean): boolean {
-    const overrides = { ...this.readOverrides(), [id]: enabled };
-    const file = path.join(this.root, "config", "capabilities.json");
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, `${JSON.stringify(overrides, null, 2)}\n`, "utf8");
-      this.overrides = overrides;
+      const result = ownerRecord().setEnabled({ workspaceRoot: this.root }, id, enabled);
+      if (!result.ok) return false;
+      this.overrides = null;
       bus.emit("capabilities:toggled", { id, enabled });
       return true;
     } catch {
@@ -319,8 +357,13 @@ export class CapabilityRegistry {
 
   private readOverrides(): EnabledState {
     if (this.overrides) return this.overrides;
-    const file = path.join(this.root, "config", "capabilities.json");
-    this.overrides = readJsonSafe<EnabledState>(file) ?? {};
+    // Through the owner record's reader: a truncated or missing main file answers from its .bak.
+    try {
+      this.overrides = ownerRecord().readStateFile(this.root).value as EnabledState;
+    } catch {
+      this.overrides =
+        readJsonSafe<EnabledState>(path.join(this.root, "config", "capabilities.json")) ?? {};
+    }
     return this.overrides;
   }
 

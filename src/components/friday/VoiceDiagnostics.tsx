@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { assistantMode, voiceBudgetLine } from "@/lib/friday/assistant-mode";
 import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
 import { wakeEngineDoctorRow } from "@/lib/friday/wake-engine";
@@ -361,8 +362,11 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         ))}
       </ul>
       <div className="mt-1 flex flex-wrap gap-3">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             setMicBusy(true);
             setMicLevel(0);
@@ -378,27 +382,28 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               .finally(() => setMicBusy(false));
           }}
           disabled={micBusy}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <Mic className="size-3" aria-hidden="true" />
-          {micBusy ? "listening…" : "mic test"}
-        </button>
-        <button
+          {micBusy ? "Listening…" : "Mic test"}
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             setSpeakBusy(true);
-            setSpeakLine("speaking…");
+            setSpeakLine("Speaking…");
             void assistantMode
               .speakTest()
               .then((result) => setSpeakLine(result.detail))
               .finally(() => setSpeakBusy(false));
           }}
           disabled={speakBusy}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <Volume2 className="size-3" aria-hidden="true" />
-          {speakBusy ? "speaking…" : "speak test"}
-        </button>
+          {speakBusy ? "Speaking…" : "Speak test"}
+        </Button>
         <label className="flex items-center gap-1 text-meta-sm uppercase text-muted-foreground">
           <input
             type="checkbox"
@@ -411,77 +416,81 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           />
           keep last 5 wavs
         </label>
-        <button
-          type="button"
-          onClick={() => runProbes()}
-          disabled={busy}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={() => runProbes()} disabled={busy}>
           <ShieldCheck className="size-3" aria-hidden="true" />
-          {busy ? "probing…" : "run voice self-test"}
-        </button>
-        <button
+          {busy ? "Probing…" : "Run voice self-test"}
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             setWorker({ phase: "loading" });
             void readWorker().then(setWorker);
           }}
           disabled={worker.phase === "loading"}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <RefreshCw className="size-3" aria-hidden="true" />
-          {worker.phase === "loading" ? "reading…" : "refresh speech worker"}
-        </button>
-        <button
+          {worker.phase === "loading" ? "Reading…" : "Refresh speech worker"}
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             setPc({ phase: "loading" });
             void readPc(true).then(setPc);
           }}
           disabled={pc.phase === "loading"}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <RefreshCw className="size-3" aria-hidden="true" />
-          {pc.phase === "loading" ? "reading…" : "refresh this PC"}
-        </button>
-        <button
+          {pc.phase === "loading" ? "Reading…" : "Refresh this PC"}
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             setResources({ phase: "loading" });
             void readResources().then(setResources);
           }}
           disabled={resources.phase === "loading"}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <RefreshCw className="size-3" aria-hidden="true" />
-          {resources.phase === "loading" ? "reading…" : "refresh resources"}
-        </button>
-        <button
+          {resources.phase === "loading" ? "Reading…" : "Refresh resources"}
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => assistantMode.refreshWakeEngine(true)}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <RefreshCw className="size-3" aria-hidden="true" />
-          recheck wake engine
-        </button>
-        <button
-          type="button"
-          onClick={() => assistantMode.fixVoice()}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
-        >
+          Recheck wake engine
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => assistantMode.fixVoice()}>
           <Wrench className="size-3" aria-hidden="true" />
-          fix voice
-        </button>
-        <button
+          Fix voice
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => assistantMode.resetMicrophone()}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <RotateCcw className="size-3" aria-hidden="true" />
-          reset microphone
-        </button>
-        <button
+          Reset microphone
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="text-accent"
           onClick={() => {
             const probes = formatVoiceProbeReport(checks);
             const live = redactDiagnostics(
@@ -498,11 +507,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               [probes.diagnostics, live].filter(Boolean).join("\n"),
             );
           }}
-          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <ClipboardCopy className="size-3" aria-hidden="true" />
-          copy diagnostics
-        </button>
+          Copy diagnostics
+        </Button>
       </div>
       {micBusy ? (
         <p className="mt-1 text-meta-sm text-foreground/80">mic level {micLevel.toFixed(3)}</p>
@@ -525,19 +533,24 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                 {check.label} — {check.detail}
               </span>
               {check.optional && check.installId ? (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-accent"
                   onClick={() => models.install(check.installId || "")}
-                  className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
                 >
                   <Download className="size-3" aria-hidden="true" />
                   Install
-                </button>
+                </Button>
               ) : null}
               {check.rollbackId ? (
                 <span className="flex items-center gap-1">
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-accent"
                     onClick={() => {
                       const id = check.rollbackId || "";
                       if (restoreAsk !== id) {
@@ -571,11 +584,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                           })),
                         );
                     }}
-                    className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
                   >
                     <RotateCcw className="size-3" aria-hidden="true" />
                     {restoreAsk === check.rollbackId ? "Confirm restore" : "Restore"}
-                  </button>
+                  </Button>
                   {restoreLine[check.rollbackId] ? (
                     <span className="text-meta-sm text-foreground/80">
                       {restoreLine[check.rollbackId]}

@@ -395,7 +395,7 @@ describe("the Resources rows of the diagnostics", () => {
   it("is wired to the diagnostics page with its own refresh control", () => {
     const page = read("src/components/friday/VoiceDiagnostics.tsx");
     expect(page).toContain("...resourceRows(resources)");
-    expect(page).toContain("refresh resources");
+    expect(page).toContain("Refresh resources");
     expect(page).toContain("api.governorStatus()");
   });
 });

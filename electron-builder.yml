@@ -67,16 +67,50 @@ extraResources:
     to: config/toolchain-versions.json
   - from: modules
     to: modules
+    # Never ship a build machine's compiled Python cache: builtins.json hashes the same items without it.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: skills
     to: skills
+    # Never ship a build machine's compiled Python cache: builtins.json hashes the same items without it.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: tools
     to: tools
+    # Never ship a build machine's compiled Python cache: builtins.json hashes the same items without it.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: agents
     to: agents
+    # Never ship a build machine's compiled Python cache: builtins.json hashes the same items without it.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: plugins
     to: plugins
+    # Never ship a build machine's compiled Python cache: builtins.json hashes the same items without it.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: workflows
     to: workflows
+    # The owner's runs, schedules and history are his own state, never part of the installer. The shipped templates
+    # (saved/) and the barrel stay.
+    filter:
+      - "**/*"
+      - "!active/**"
+      - "!history/**"
+      - "!schedules/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
   - from: config
     to: config
     # When the FRIDAY folder is this checkout, the owner's settings, keys and state sit in config/. They are

@@ -150,7 +150,7 @@ function ProjectsPage() {
 
   useEffect(() => {
     registerProjectWorkspaceAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatProjectExtra() });
+      const result = brain.send(prompt, { extra: formatProjectExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerProjectWorkspaceAsk(null);
@@ -189,7 +189,7 @@ function ProjectsPage() {
   const handsOff = Boolean(active?.handsOffAuto || active?.preferences.handsOffAuto);
 
   const sendChat = (prompt: string) => {
-    const result = brain.send(prompt, { extra: formatProjectExtra() });
+    const result = brain.send(prompt, { extra: formatProjectExtra(), promptOrigin: "typed" });
     if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     else toast.success("Sent to Chat.");
   };

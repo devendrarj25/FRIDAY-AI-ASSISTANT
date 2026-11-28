@@ -175,7 +175,8 @@ describe("source pins", () => {
   });
   it("one polite live region, 24 px targets and a visible focus ring", () => {
     expect(bar).toMatch(/aria-live="polite"/);
-    expect(bar).toMatch(/h-6 min-w-6/);
+    expect(bar).toMatch(/PANEL_BUTTON/);
+    expect(read("src/components/friday/ui.tsx")).toMatch(/PANEL_BUTTON =\s*"[^"]*h-6 min-w-6/);
     expect(bar).toMatch(/focus-visible:ring-1/);
   });
   it("a toggle keeps a stable label with aria-pressed, never both flipping", () => {

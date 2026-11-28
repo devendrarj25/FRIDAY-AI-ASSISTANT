@@ -270,6 +270,7 @@ export const FLOW_REGISTRY = {
     "toggles.gpuRender",
     "toggles.highContrast",
     "toggles.installApproval",
+    "toggles.installUseLocalBuilds",
     "toggles.keepModelsWarm",
     "toggles.launchMinimized",
     "toggles.lessons",
@@ -704,6 +705,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "capabilities:reload",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "capabilities:reset-builtin",
       file: "electron/main.cjs",
     },
     {
@@ -1312,6 +1317,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "import:verify-packs",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "installer:adopt-local",
       file: "electron/main.cjs",
     },
     {
@@ -9776,16 +9785,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 175,
-      total: 175,
+      mapped: 176,
+      total: 176,
     },
     capabilities: {
       mapped: 1119,
       total: 1119,
     },
     ipc: {
-      mapped: 524,
-      total: 524,
+      mapped: 526,
+      total: 526,
     },
     kernel: {
       mapped: 14,

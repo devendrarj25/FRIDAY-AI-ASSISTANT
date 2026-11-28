@@ -108,3 +108,64 @@ describe("Install Manager page", () => {
     expect(page).toContain("no official source names a newer version");
   });
 });
+
+describe("Install Manager page: local builds", () => {
+  const page = read(PAGE);
+
+  it("shows the local builds panel in the software section, not under a registered panel title", () => {
+    const software = page.indexOf('section === "software"');
+    const panel = page.indexOf("<LocalBuildsPanel />");
+    expect(panel).toBeGreaterThan(software);
+    expect(panel).toBeLessThan(page.indexOf('section === "queue"'));
+    expect(page).not.toMatch(/<HudPanel[^>]*title="Local builds"/);
+  });
+
+  it("covers loading, empty, error with Retry and offline, and every control has a handler", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    for (const needle of [
+      "catalog.offline",
+      "<LoadingState",
+      "<EmptyState",
+      "<ErrorState",
+      "onRetry",
+      "aria-label",
+      "onToggle=",
+      "onClick={() => adopt()}",
+    ]) {
+      expect(body, needle).toContain(needle);
+    }
+  });
+
+  it("calls only a bridge function the preload exposes", () => {
+    expect(read("electron/preload.cjs")).toMatch(/^ {2}adoptLocalBuilds:/m);
+    expect(page).toContain("adoptLocalBuilds");
+  });
+
+  it("turning the toggle on or off writes the setting, then reads the list again", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    const handler = body.slice(body.indexOf("const switchLocalBuilds"));
+    expect(body).toContain("onToggle={() => void switchLocalBuilds()}");
+    const write = handler.indexOf('preferences.setToggle("installUseLocalBuilds", !on)');
+    const sent = handler.indexOf("await preferences.flush()");
+    const reload = handler.indexOf("catalog.load()");
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(sent).toBeGreaterThan(write);
+    expect(reload).toBeGreaterThan(sent);
+    // The reload also runs when the write fails, and the existing loading and error-with-Retry states are kept.
+    expect(handler.slice(0, handler.indexOf("\n  };")).includes("finally")).toBe(true);
+    expect(body).toContain("<LoadingState");
+    expect(body).toContain("onRetry={() => void catalog.load()}");
+  });
+
+  it("uses the typed bridge and shows the swept count only when something was swept", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    expect(page).toMatch(
+      /import \{[^}]*type InstallerAdoptResult[^}]*\} from "@\/lib\/friday\/desktop"/,
+    );
+    expect(body).toContain("desktopApi()?.adoptLocalBuilds");
+    expect(body).not.toMatch(/desktopApi\(\) as \{/);
+    expect(page).not.toMatch(/type AdoptReply\b/);
+    expect(body).toMatch(/swept\?\.length \?\? 0\) > 0|swept\?\.length\) > 0/);
+    expect(body).toMatch(/partly copied file/);
+  });
+});

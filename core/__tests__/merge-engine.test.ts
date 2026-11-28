@@ -215,6 +215,43 @@ describe("maintenance cleanup - never removes anything live", () => {
     expect(plan.kept.test).toEqual(["v1.3.6-test.2"]);
   });
 
+  it("never lists a weight-pack release or an unknown tag as stale", () => {
+    const mixed = [
+      ...[5, 4, 3, 2, 1].map((n) => ({
+        tagName: `v1.3.${n}`,
+        isPrerelease: false,
+        createdAt: `2026-0${n}-01`,
+      })),
+      ...[3, 2, 1].map((n) => ({
+        tagName: `v1.3.6-test.${n}`,
+        isPrerelease: true,
+        createdAt: `2026-06-0${n}`,
+      })),
+      { tagName: "friday-voice-weights-x", isPrerelease: false, createdAt: "2020-01-01" },
+      { tagName: "friday-brain-weights-x", isPrerelease: false, createdAt: "2020-01-02" },
+      { tagName: "friday-models-x", isPrerelease: false, createdAt: "2020-01-03" },
+      { tagName: "nightly", isPrerelease: true, createdAt: "2020-01-04" },
+      { tagName: "weights-v2", isPrerelease: false, createdAt: "2020-01-05" },
+      { tagName: "v1.3.7-rc.1", isPrerelease: true, createdAt: "2020-01-06" },
+    ];
+    const plan = engine.planCleanup({ releases: mixed }, { keepOfficial: 1, keepTest: 1 });
+    expect(plan.officialReleases).toEqual(["v1.3.4", "v1.3.3", "v1.3.2", "v1.3.1"]);
+    expect(plan.testReleases).toEqual(["v1.3.6-test.2", "v1.3.6-test.1"]);
+    const stale = [...plan.officialReleases, ...plan.testReleases];
+    for (const tag of [
+      "friday-voice-weights-x",
+      "friday-brain-weights-x",
+      "friday-models-x",
+      "nightly",
+      "weights-v2",
+      "v1.3.7-rc.1",
+    ]) {
+      expect(stale).not.toContain(tag);
+    }
+    expect(plan.kept.official).toEqual(["v1.3.5"]);
+    expect(plan.kept.test).toEqual(["v1.3.6-test.3"]);
+  });
+
   it("never deletes the current release even if the policy would", () => {
     const plan = engine.planCleanup({ releases }, { keepOfficial: 1, currentTag: "v1.3.2" });
     expect(plan.officialReleases).not.toContain("v1.3.2");

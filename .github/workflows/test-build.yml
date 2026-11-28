@@ -373,7 +373,12 @@ jobs:
             --file test-notes.md \
             --tag "$tag" \
             --channel test
-          assets=("$setup" "$portable" release/friday-update.json release/SHA256SUMS.txt)
+          # The build record travels with every build, like the manifest; a TEST build publishes no weight pack.
+          [ -f release/friday-bundle.json ] || {
+            echo "::error::no build record (friday-bundle.json) for $version — release-manifest wrote none."
+            exit 1
+          }
+          assets=("$setup" "$portable" release/friday-update.json release/friday-bundle.json release/SHA256SUMS.txt)
           [ -f release/latest.yml ] && assets+=(release/latest.yml)
           # The manifest lists the installer's block map, so it is uploaded too:
           # the next Test update can then download only what changed.
@@ -389,7 +394,7 @@ jobs:
             "${assets[@]}"
           names=$(gh release view "$tag" --json assets --jq '.assets[].name')
           echo "$names"
-          for required in "FRIDAY-Test-Setup-$version.exe" "FRIDAY-Portable-$version.exe" friday-update.json; do
+          for required in "FRIDAY-Test-Setup-$version.exe" "FRIDAY-Portable-$version.exe" friday-update.json friday-bundle.json; do
             echo "$names" | grep -qx "$required" \
               || { echo "::error::$required was not uploaded — test prerelease incomplete."; exit 1; }
           done
@@ -415,7 +420,8 @@ jobs:
 
       - name: Keep only the last 3 TEST prereleases
         # Test housekeeping only: official (non-prerelease) releases are never
-        # listed here and never deleted by this workflow.
+        # listed here and never deleted by this workflow; the weight packs are
+        # not test tags and are never listed either. A test tag is v<version>-test.<n>.
         if: inputs.publish || env.TEST_PUBLISH == 'true'
         continue-on-error: true
         shell: bash
@@ -424,7 +430,7 @@ jobs:
           TEST_TAG: ${{ steps.testversion.outputs.tag }}
         run: |
           gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \
-            --jq 'map(select(.isDraft|not) | select(.isPrerelease)) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old-tests.txt
+            --jq 'map(select(.isDraft|not) | select(.isPrerelease) | select(.tagName|test("^v[0-9][0-9.]*-test\\.[0-9]+$"))) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old-tests.txt
           while read -r tag; do
             [ -n "$tag" ] || continue
             [ "$tag" = "$TEST_TAG" ] && continue

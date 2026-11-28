@@ -57,8 +57,11 @@ export type TerminalExecOptions = {
   shell?: string;
   timeoutMs?: number;
   env?: Record<string, string>;
-  /** "agent": FRIDAY chose this command itself, so a non-read command goes through the permission gate. */
-  origin?: "agent";
+  /**
+   * "owner": the owner typed this on the Terminal page, so it runs as his own. Anything else (including no origin, or
+   * "agent": FRIDAY chose it) is gated: a non-read command goes through the permission gate and a halt refuses it.
+   */
+  origin?: "agent" | "owner";
 };
 
 type Bridge = {

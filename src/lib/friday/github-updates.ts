@@ -6,6 +6,7 @@
  * an update happened.
  */
 
+import type { AlreadyInRelease, KeptYours } from "./capability-trees";
 import { memory } from "./self/memory-engine";
 import { shouldSnapshotMemory } from "./settings-runtime";
 
@@ -527,6 +528,10 @@ export async function githubUpdateNow(
   preserved?: number;
   /** Files that changed which need a dependency refresh on a source checkout. */
   dependencyChanges?: { file: string; command: string }[];
+  /** Content the release already ships, left out of the merge ("already in this release"). */
+  alreadyInRelease?: AlreadyInRelease[];
+  /** Content the owner changed, kept as theirs ("kept your version"). */
+  keptYours?: KeptYours[];
 }> {
   const api = bridge();
   if (!api?.githubPull) return { ok: false, error: DESKTOP_ONLY };
@@ -553,6 +558,8 @@ export async function githubUpdateNow(
     restartRequired?: boolean;
     preserved?: number;
     dependencyChanges?: { file: string; command: string }[];
+    alreadyInRelease?: AlreadyInRelease[];
+    keptYours?: KeptYours[];
   };
   if (!result?.ok) return { ok: false, error: result?.error || "The update could not be applied." };
   await api.githubRecord?.({
@@ -568,6 +575,8 @@ export async function githubUpdateNow(
     restartRequired: Boolean(result.restartRequired),
     preserved: result.preserved ?? 0,
     dependencyChanges: result.dependencyChanges ?? [],
+    alreadyInRelease: result.alreadyInRelease ?? [],
+    keptYours: result.keptYours ?? [],
   };
 }
 

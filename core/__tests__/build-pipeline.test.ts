@@ -32,7 +32,12 @@ const pipeline = require(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
     ceiling: number;
     assetLimit: number;
   };
-  assertPackagedLayout: (input: { releaseDir: string; manifest: unknown; targets: string[] }) => {
+  assertPackagedLayout: (input: {
+    releaseDir: string;
+    manifest: unknown;
+    targets: string[];
+    env?: Record<string, string | undefined>;
+  }) => {
     ok: boolean;
   };
   runtimeSmokePlan: (manifest?: unknown) => {
@@ -251,12 +256,25 @@ describe("build pipeline", () => {
     const big = Buffer.alloc(boundsSafe(data), 2);
     fs.writeFileSync(path.join(release, "FRIDAY-Setup-1.0.1.2.exe"), big);
     fs.writeFileSync(path.join(release, "FRIDAY-Portable-1.0.1.2.exe"), big);
+    // The offline Python wheelhouse is a required pack of the app too.
+    expect(() =>
+      pipeline.assertPackagedLayout({
+        releaseDir: release,
+        manifest: data,
+        targets: ["nsis", "portable"],
+        env: {},
+      }),
+    ).toThrow(/wheelhouse/);
+    const wheelDir = path.join(release, "win-unpacked", "resources", "toolchain", "wheelhouse");
+    fs.mkdirSync(wheelDir, { recursive: true });
+    fs.writeFileSync(path.join(wheelDir, "pack.bin"), Buffer.alloc(8));
     try {
       expect(
         pipeline.assertPackagedLayout({
           releaseDir: release,
           manifest: data,
           targets: ["nsis", "portable"],
+          env: {},
         }).ok,
       ).toBe(true);
     } finally {
@@ -758,5 +776,154 @@ describe("the renderer build does not depend on a shell-resolved PATH ('node' / 
     expect(check).toContain("where node && where npm");
     expect(check).toMatch(/name: "Shell PATH \(cmd\.exe\)",\s*required: false/);
     expect(read("scripts/electron-pack.cjs")).toContain("cleanEnv(process.env)");
+  });
+});
+
+describe("placing a CMD build is a row of the READY table, not a phase", () => {
+  const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+  const placing = pipeline as unknown as {
+    placedRow: (
+      options: ReturnType<typeof pipeline.parseArgs>,
+      report: { ok: boolean; phases: unknown[] },
+      root?: string,
+      deps?: {
+        env?: Record<string, string>;
+        home?: string;
+        place?: (input: Record<string, unknown>) => Record<string, unknown>;
+      },
+    ) => { name: string; status: string; detail: string } | null;
+  };
+  const cmd = pipeline.parseArgs(["node", "x", "--caller", "cmd"]);
+  const green = { ok: true, phases: [] };
+
+  it("adds one `placed` row after a whole green CMD run, with the release folder and the FRIDAY folder", () => {
+    const seen: Record<string, unknown>[] = [];
+    const row = placing.placedRow(cmd, green, "/checkout", {
+      env: {},
+      home: "/home/friday",
+      place: (input) => (
+        seen.push(input),
+        { status: "placed", dir: "/home/friday/installer/installers/1.2.5.8" }
+      ),
+    });
+    expect(row).toEqual({
+      name: "placed",
+      status: "ok",
+      detail: "/home/friday/installer/installers/1.2.5.8",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ caller: "cmd", root: "/home/friday" });
+    expect(String(seen[0]!["releaseDir"]).replace(/\\/g, "/")).toBe("/checkout/release");
+  });
+
+  it("is a SKIP row for FRIDAY_PLACE_BUILD=0 and CI, and never asks for the FRIDAY folder then", () => {
+    for (const env of [{ FRIDAY_PLACE_BUILD: "0" }, { CI: "true" }]) {
+      const row = placing.placedRow(cmd, green, "/checkout", {
+        env,
+        place: () => {
+          throw new Error("must not place");
+        },
+      });
+      expect(row?.status).toBe("skipped");
+      expect(row?.detail).toMatch(/^skipped: /);
+    }
+  });
+
+  it("is absent after a failed or partial run, and a SKIP for any caller but the CMD build", () => {
+    const place = () => ({ status: "placed", dir: "x" });
+    expect(placing.placedRow(cmd, { ok: false, phases: [] }, "/c", { env: {}, place })).toBeNull();
+    const partial = pipeline.parseArgs(["node", "x", "--caller", "cmd", "--through", "package"]);
+    expect(placing.placedRow(partial, green, "/c", { env: {}, place })).toBeNull();
+    for (const caller of ["npm", "release", "test", "node"]) {
+      const options = pipeline.parseArgs(["node", "x", "--caller", caller]);
+      expect(placing.placedRow(options, green, "/c", { env: {}, place })?.status).toBe("skipped");
+    }
+  });
+
+  it("keeps the 13 phases and the `build N/13` heads: `placed` is not a phase", () => {
+    expect(pipeline.PHASES).toHaveLength(13);
+    expect(pipeline.PHASES).not.toContain("placed");
+    expect(read("scripts/build-pipeline.cjs")).toContain(
+      "build ${index + 1}/${phases.length}: ${phase}",
+    );
+  });
+
+  it("main() adds the row only to the printed table, after the report file was written", () => {
+    const source = read("scripts/build-pipeline.cjs");
+    const main = source.slice(source.indexOf("async function main()"));
+    expect(main).toContain("placedRow(");
+    expect(main.indexOf("runPipeline(options)")).toBeLessThan(main.indexOf("placedRow("));
+    expect(main.indexOf("placedRow(")).toBeLessThan(main.indexOf("readySummary(options"));
+  });
+});
+
+describe("the manifest phase names who is building (--caller), so a local test run is not labelled by guesswork", () => {
+  const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+  const naming = pipeline as unknown as {
+    manifestCaller: (options: { caller: string; channel: string }, env?: object) => string;
+    manifestArgs: (
+      options: { caller: string; channel: string; releaseType?: string },
+      input: { version: string; notes?: boolean; env?: object },
+    ) => string[];
+  };
+  const opts = (caller: string, channel: string) => ({ caller, channel });
+
+  it("a local run is `cmd` for every caller and both channels", () => {
+    for (const caller of ["cmd", "npm", "node", "release", "test", "pr-validation"]) {
+      for (const channel of ["production", "test"])
+        expect(naming.manifestCaller(opts(caller, channel), {}), `${caller}/${channel}`).toBe(
+          "cmd",
+        );
+    }
+    // A CI variable alone, without a hosted workflow, does not make a local run a release.
+    expect(naming.manifestCaller(opts("node", "test"), { CI: "1" })).toBe("cmd");
+  });
+
+  it("a hosted workflow is `release` or `test` by its channel", () => {
+    const env = { GITHUB_ACTIONS: "true" };
+    expect(naming.manifestCaller(opts("release", "production"), env)).toBe("release");
+    expect(naming.manifestCaller(opts("pr-validation", "production"), env)).toBe("release");
+    expect(naming.manifestCaller(opts("test", "test"), env)).toBe("test");
+    expect(naming.manifestCaller(opts("node", "test"), env)).toBe("test");
+  });
+
+  it("passes --caller, the version, the channel, the notes and the type to release-manifest", () => {
+    const local = naming.manifestArgs(opts("node", "test"), {
+      version: "1.2.3-test.1",
+      notes: true,
+      env: {},
+    });
+    expect(local).toEqual([
+      "--version",
+      "1.2.3-test.1",
+      "--channel",
+      "test",
+      "--caller",
+      "cmd",
+      "--notes",
+      "release-notes.md",
+    ]);
+    const hosted = naming.manifestArgs(
+      { ...opts("release", "production"), releaseType: "feature" },
+      { version: "1.2.5.8", env: { GITHUB_ACTIONS: "true" } },
+    );
+    expect(hosted).toEqual([
+      "--version",
+      "1.2.5.8",
+      "--channel",
+      "stable",
+      "--caller",
+      "release",
+      "--type",
+      "feature",
+    ]);
+  });
+
+  it("the manifest phase uses that argument builder", () => {
+    const source = read("scripts/build-pipeline.cjs");
+    const phase = source.slice(source.indexOf('if (phase === "manifest")'));
+    expect(phase.slice(0, phase.indexOf('if (phase === "verify-artifacts")'))).toContain(
+      "manifestArgs(",
+    );
   });
 });

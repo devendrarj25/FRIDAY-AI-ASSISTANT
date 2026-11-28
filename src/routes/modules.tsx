@@ -8,7 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { FilterTabs, HudPanel, EmptyState } from "@/components/friday/ui";
 import { modules as sampleModules } from "@/lib/friday/mock";
-import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
+import {
+  useCapabilities,
+  type CapabilityItem,
+  type CapabilityStatus,
+} from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { hub } from "@/lib/friday/hub-engine";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
@@ -46,6 +52,7 @@ type ModuleRow = {
   entry: string;
   enabled: boolean;
   origin: "app" | "workspace" | "";
+  layer?: CapabilityStatus | undefined;
   uiPage: string;
   uiIcon: string;
   toggleable: boolean;
@@ -68,7 +75,7 @@ function ModulesPage() {
   const [importBusy, setImportBusy] = useState<"forge" | "test" | null>(null);
   const [forgeGoal, setForgeGoal] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, items, toggle, refresh } = useCapabilities("modules");
+  const { supported, error, items, toggle, refresh } = useCapabilities("modules");
 
   const modules = useMemo<ModuleRow[]>(() => {
     if (!supported)
@@ -98,6 +105,7 @@ function ModulesPage() {
       entry: item.entry ?? item.path,
       enabled: item.enabled,
       origin: item.origin,
+      layer: item.status,
       uiPage: item.uiPage || "",
       uiIcon: item.uiIcon || "",
       toggleable: true,
@@ -280,11 +288,19 @@ function ModulesPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          {rows.length ? (
+          {error ? (
+            <ErrorState
+              className="md:col-span-2"
+              title="Your modules could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : rows.length ? (
             rows.map((mod) => (
               <Panel key={mod.key} title={mod.name} hint={`v${mod.version}`}>
                 <p className="text-sm text-muted-foreground">{mod.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
+                  <CapabilityBadge status={mod.layer} origin={mod.origin} />
                   {mod.permissions.map((p) => (
                     <Badge key={p} variant="outline" className="text-meta">
                       {p}
@@ -327,6 +343,13 @@ function ModulesPage() {
                       onCheckedChange={(next) => void onToggle(mod, next)}
                       disabled={!mod.toggleable || Boolean(busyId)}
                       aria-label={`Enable ${mod.name}`}
+                    />
+                    <ResetBuiltinButton
+                      id={mod.id}
+                      name={mod.name}
+                      status={mod.layer}
+                      refresh={refresh}
+                      disabled={Boolean(busyId)}
                     />
                     <Button
                       size="sm"

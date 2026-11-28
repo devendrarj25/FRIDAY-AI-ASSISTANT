@@ -89,7 +89,13 @@ describe("main process: leases at the heavy load sites", () => {
     expect(main).toMatch(
       /return loadLeases\.runLoad\("prefetch", \(\) => modelsApi\.ollamaWarm\(tag\)\);[\s\S]{0,80}\.catch\(\(\) => \{/,
     );
-    expect(main.match(/modelsApi\.ollamaWarm\(tag\)/g)?.length).toBe(1);
+    // The prefetch slot is the only fire-and-forget warm; the one other call is the lease's own load, which
+    // uses the shared plan keep_alive, never a hard-coded duration.
+    expect(main.match(/runLoad\("prefetch", \(\) => modelsApi\.ollamaWarm\(tag\)\)/g)?.length).toBe(
+      1,
+    );
+    expect(main.match(/modelsApi\.ollamaWarm\(tag\)/g)?.length).toBe(2);
+    expect(main).not.toMatch(/ollamaWarm\(tag, /);
     expect(main).not.toMatch(/void modelsApi\.ollamaWarm\(tag\)/);
   });
 

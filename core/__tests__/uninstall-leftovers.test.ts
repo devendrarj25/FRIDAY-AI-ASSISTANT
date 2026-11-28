@@ -81,3 +81,55 @@ describe("what the speech probe starts must not outlive or hold the program fold
     expect(read("electron/voice-worker.cjs")).toContain("cwd: opts.cwd || os.tmpdir(),");
   });
 });
+
+describe("the registry values are removed before their key is tried, for both products", () => {
+  const nsh = read("installer/build/installer.nsh").replace(/\r\n/g, "\n");
+  const body = nsh.slice(
+    nsh.indexOf("!macro customUnInstall"),
+    nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+  );
+
+  it("FRIDAY: every value goes before DeleteRegKey /ifempty, so a real uninstall leaves no empty key", () => {
+    const keep = body.slice(body.indexOf("Keeping the FRIDAY data folder and its pointer"));
+    const ifempty = keep.indexOf('DeleteRegKey /ifempty HKCU "Software\\FRIDAY"');
+    expect(ifempty).toBeGreaterThan(-1);
+    for (const value of [
+      "InstallPath",
+      "PythonSetupPending",
+      "LastInstallMode",
+      "InstallSourceDir",
+      "DataMoveNote",
+      "DataMoveFrom",
+    ]) {
+      const at = keep.indexOf(`DeleteRegValue HKCU "Software\\FRIDAY" "${value}"`);
+      expect(at, value).toBeGreaterThan(-1);
+      expect(at, value).toBeLessThan(ifempty);
+    }
+    // The pointer to the data is the one value a keep-uninstall never removes.
+    expect(keep.slice(0, keep.indexOf("; Application-only leftovers"))).not.toContain(
+      '"WorkspacePath"',
+    );
+    // An update's uninstaller keeps the folder Setup came from.
+    const source = keep.indexOf('"InstallSourceDir"');
+    expect(keep.lastIndexOf("${IfNot} ${isUpdated}", source)).toBeGreaterThan(
+      keep.indexOf("Keeping"),
+    );
+  });
+
+  it("FRIDAY Test: its own key only, the source folder removed first, an update keeps the source folder", () => {
+    const from = body.indexOf('${If} "${PRODUCT_NAME}" == "FRIDAY Test"');
+    const last = 'DeleteRegKey HKCU "Software\\FRIDAY Test"';
+    const test = body.slice(from, body.indexOf(last, from) + last.length);
+    expect(test).toContain("Software\\FRIDAY Test");
+    expect(test).not.toMatch(/HKCU "Software\\FRIDAY" /);
+    const source = test.indexOf('DeleteRegValue HKCU "Software\\FRIDAY Test" "InstallSourceDir"');
+    expect(source).toBeGreaterThan(-1);
+    expect(source).toBeLessThan(test.indexOf('DeleteRegKey HKCU "Software\\FRIDAY Test"'));
+    // The update branch removes the other values one by one and only an empty key, so the source folder survives.
+    const updated = test.slice(test.indexOf("${If} ${isUpdated}"), source);
+    expect(updated).toContain('DeleteRegKey /ifempty HKCU "Software\\FRIDAY Test"');
+    expect(updated).not.toContain('"InstallSourceDir"');
+    for (const value of ["InstallPath", "PythonSetupPending", "LastInstallMode"])
+      expect(updated.indexOf(`"${value}"`), value).toBeGreaterThan(-1);
+  });
+});

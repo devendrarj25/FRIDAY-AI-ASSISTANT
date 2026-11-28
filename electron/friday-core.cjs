@@ -6,8 +6,9 @@
  * nothing; the Install Manager catalog calls it, and the downloader (`download-safety.cjs`) does the transfer.
  *
  * A file is only planned when it is pinned by a full 64-hex SHA-256 and a revision. An entry without a pin is
- * skipped and reported, never guessed. Sources come in the manifest's `mirrors` order: the FRIDAY Models release first
- * (only when `config/friday-models.json` really holds a file with the same SHA-256), the official upstream last.
+ * skipped and reported, never guessed. Sources come in the manifest's `mirrors` order, after a local build on this PC
+ * when one holds the file: the FRIDAY Models release first (only when `config/friday-models.json` really holds a file
+ * with the same SHA-256), the official upstream last.
  */
 const fs = require("fs");
 const path = require("path");
@@ -134,9 +135,41 @@ function packTagFor(mirror, pack, variantId) {
   return entry ? entry.tag : `${mirror.tagPrefix}${pack.revision}`;
 }
 
-/** Every road to one file, in manifest order. A release road exists only when the pack really holds the file. */
-function sourcesFor(manifest, file, pack, variantId = "") {
+/**
+ * The local-bundle road to one file, or null: a build on this PC (`deps.localBundles`, from `local-sources.cjs`) that
+ * holds the file under `models/friday-core` with the pinned size and SHA-256, or the parts of its release asset in a
+ * local pack of the right tag. `local.parts` are the files to read, in order; there is no URL.
+ */
+function localCoreRoad(manifest, file, pack, variantId, deps) {
+  if (!Array.isArray(deps.localBundles) || !deps.localBundles.length) return null;
+  const asset = releaseAssetFor(file, pack);
+  const mirror = (manifest.mirrors || []).find((m) => m.kind === "release");
+  const found = require("./local-sources.cjs").planLocalCoreFile({
+    bundles: deps.localBundles,
+    installRoot: deps.installRoot,
+    file,
+    ...(asset && mirror ? { asset, tag: packTagFor(mirror, pack, variantId) } : {}),
+    ...(deps.localFs ? { fs: deps.localFs } : {}),
+  });
+  return found
+    ? {
+        id: "local-bundle",
+        kind: "local-bundle",
+        parts: found.parts.length,
+        urls: [],
+        local: { origin: found.origin, dir: found.dir, via: found.via, parts: found.parts },
+      }
+    : null;
+}
+
+/**
+ * Every road to one file, in manifest order, with a local build first when one holds the file (`deps.localBundles`).
+ * A release road exists only when the pack really holds the file.
+ */
+function sourcesFor(manifest, file, pack, variantId = "", deps = {}) {
   const out = [];
+  const local = localCoreRoad(manifest, file, pack, variantId, deps);
+  if (local) out.push(local);
   for (const mirror of manifest.mirrors || []) {
     if (mirror.kind === "release") {
       const asset = releaseAssetFor(file, pack);
@@ -191,7 +224,7 @@ function planAssets(root, variantId, deps = {}) {
       bytes: file.bytes,
       sha256: file.sha256,
       licence: variant.licence?.id || "",
-      sources: sourcesFor(manifest, file, pack, variant.id),
+      sources: sourcesFor(manifest, file, pack, variant.id, deps),
       present: !!found && found.size === file.bytes,
     });
   }

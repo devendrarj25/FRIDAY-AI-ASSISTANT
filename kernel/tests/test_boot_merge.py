@@ -84,7 +84,7 @@ def test_a_lone_backup_is_folded_without_raising(tmp_path):
     assert store._merge_needed is False
 
 
-def test_a_failing_fold_is_logged_and_never_raises(tmp_path, capsys):
+def test_a_failing_fold_is_logged_and_never_raises(tmp_path, caplog):
     NumpyIndex(tmp_path / "local").add("kept", kind="note", title="d", record_id="d1")
 
     class Broken(Collection):
@@ -97,10 +97,11 @@ def test_a_failing_fold_is_logged_and_never_raises(tmp_path, capsys):
         store.start_merge()
         await store._merge_task
 
-    asyncio.run(scenario())
+    with caplog.at_level("WARNING", logger="friday.memory"):
+        asyncio.run(scenario())
     assert store._merge_task.exception() is None
     assert store._merge_needed is True
-    assert "store is locked" in capsys.readouterr().out
+    assert "store is locked" in caplog.text
 
 
 def test_one_fold_runs_at_a_time_and_add_does_not_start_a_second(tmp_path):

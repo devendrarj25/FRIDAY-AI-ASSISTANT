@@ -197,6 +197,9 @@ const parseNumbers = (value) =>
     .map((n) => Number(n))
     .filter((n) => Number.isFinite(n) && n > 0);
 
+const APP_OFFICIAL_TAG = /^v\d/;
+const APP_TEST_TAG = /^v[\d.]+-test\.\d+$/;
+
 /**
  * Safe cleanup plan.
  *
@@ -209,8 +212,9 @@ const parseNumbers = (value) =>
  *     a pull request that was merged into main (a squash or rebase merge leaves
  *     no ancestor, but a branch with nothing after that head has nothing left to
  *     lose). A branch with one commit more than its merged pull request is live work.
- *   - test releases: prereleases only, newest TEST release always kept
- *   - official releases: newest `keepOfficial` always kept, current never touched
+ *   - test releases: app test prereleases only (tag v<version>-test.<n>), newest TEST release always kept
+ *   - official releases: app releases only (tag v<digit>..., not a prerelease), newest `keepOfficial`
+ *     always kept, current never touched; weight packs (friday-*) and unknown tags are never listed
  *   - runs: newest `keepRuns` per workflow always kept; running runs never touched
  */
 function planCleanup(input = {}, policy = {}) {
@@ -251,8 +255,14 @@ function planCleanup(input = {}, policy = {}) {
   const releases = (input.releases || []).filter((r) => r && r.tagName && !r.isDraft);
   const byNewest = (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
 
-  const test = releases.filter((r) => r.isPrerelease).sort(byNewest);
-  const official = releases.filter((r) => !r.isPrerelease).sort(byNewest);
+  // Only app releases are ever counted. Weight-pack releases (friday-<pack>-<revision>) and any
+  // other tag shape are the installed app's repo-release source and are never listed as stale.
+  const test = releases
+    .filter((r) => r.isPrerelease && APP_TEST_TAG.test(String(r.tagName)))
+    .sort(byNewest);
+  const official = releases
+    .filter((r) => !r.isPrerelease && APP_OFFICIAL_TAG.test(String(r.tagName)))
+    .sort(byNewest);
 
   const staleTest = test.slice(Math.max(keepTest, 1)).map((r) => r.tagName);
   const staleOfficial = official.slice(Math.max(keepOfficial, 1)).map((r) => r.tagName);

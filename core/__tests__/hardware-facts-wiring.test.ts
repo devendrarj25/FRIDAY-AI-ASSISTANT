@@ -247,7 +247,7 @@ describe("This PC rows", () => {
     const page = read("src/components/friday/VoiceDiagnostics.tsx");
     expect(page).toContain("api.hardwareFacts(force)");
     expect(page).toContain("...thisPcRows(pc)");
-    expect(page).toContain("refresh this PC");
+    expect(page).toContain("Refresh this PC");
     expect(page).not.toMatch(/setInterval|setTimeout/);
   });
 });

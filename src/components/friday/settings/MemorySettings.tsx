@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   exportMemoryBackup,
   importMemoryBackup,
@@ -33,9 +33,10 @@ export function MemorySettings() {
     if (restoring) return;
     setRestoring(true);
     try {
-      let n = memory.restoreBackup();
-      if (!n) n = await memory.restoreBackupFromDisk();
-      if (n) toast.success(`${n} record(s) restored`);
+      const { found, restored } = await memory.restoreSnapshot();
+      if (restored) toast.success(`${restored} record(s) restored`);
+      else if (found)
+        toast.info("Nothing to restore: the snapshot is empty or holds only forgotten records");
       else toast.error("No backup found");
     } catch (error) {
       toast.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`, {
@@ -52,6 +53,16 @@ export function MemorySettings() {
     setSeenWrite(state.lastWriteAt);
     setBackupAt(memory.lastBackupAt());
   }
+  // The browser keys can be cleared (new root, reinstall) while the desktop copy of the snapshot is still there.
+  useEffect(() => {
+    let live = true;
+    void memory.lastBackupAtAnywhere().then((at) => {
+      if (live && at) setBackupAt((current) => current ?? at);
+    });
+    return () => {
+      live = false;
+    };
+  }, [seenWrite]);
 
   const isOn = (k: string) => prefs.toggles[k] === true;
   const flip = (k: string) => preferences.setToggle(k, !isOn(k));

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join, normalize, resolve, sep } from "node:path";
 import { createRequire } from "node:module";
 
 const projectRoot = resolve(__dirname, "../..");
@@ -40,6 +40,8 @@ type Env = {
   ran?: string[];
   /** Environment variables the script set for the detached sweeper through System::Call. */
   sweepEnv?: Record<string, string>;
+  /** The NSIS stack: Push and Pop of a variable save and restore it, as a function's scratch registers do. */
+  stack?: string[];
 };
 
 /** Body of a named NSIS function from the shipped script. */
@@ -139,7 +141,18 @@ function runNsis(body: string, env: Env): void {
       runNsis(functionBody(call[1]!), env);
       continue;
     }
-    if (/^(DetailPrint|ClearErrors|Pop|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
+    // Push and Pop of a variable save and restore it, so a function's scratch registers read as they do in NSIS.
+    const push = /^Push\s+\$(\w+)$/.exec(line);
+    if (push) {
+      (env.stack ??= []).push(env.vars[push[1]!] ?? "");
+      continue;
+    }
+    const pop = /^Pop\s+\$(\w+)$/.exec(line);
+    if (pop) {
+      env.vars[pop[1]!] = env.stack?.pop() ?? "";
+      continue;
+    }
+    if (/^(DetailPrint|ClearErrors|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
 
     const rmdir = /^RMDir\s+(?:\/r\s+)?(.+)$/.exec(line);
     if (rmdir) {
@@ -199,6 +212,50 @@ function runNsis(body: string, env: Env): void {
       // what keeps WorkspacePath alive through a keep-uninstall.
       if (delRegKey[1] && remaining.length) continue;
       for (const key of remaining) delete env.reg[key];
+      continue;
+    }
+    // A macro with one text argument (the probes that pick a free preserved-folder name), run in the same state.
+    const macroCall = /^!insertmacro\s+(\w+)\s+"(.*)"$/.exec(line);
+    if (macroCall) {
+      runNsis(macroBody(macroCall[1]!).replace(/\$\{Suffix\}/g, macroCall[2]!), env);
+      continue;
+    }
+    const intop = /^IntOp\s+\$(\w+)\s+(\S+)\s+([+-])\s+(\S+)$/.exec(line);
+    if (intop) {
+      const a = Number(expand(intop[2]!));
+      const b = Number(expand(intop[4]!));
+      env.vars[intop[1]!] = String(intop[3] === "+" ? a + b : a - b);
+      continue;
+    }
+    // The Windows path calls of the path normaliser, answered by the host: the full path resolves dot segments and
+    // slashes; the long path answers only for what exists.
+    const fullPathCall =
+      /^System::Call 'Kernel32::GetFullPathNameW\(w (\w+),[^,]*,\s*w \.(\w+),[^)]*\)i \.(\w+)'$/.exec(
+        line,
+      );
+    if (fullPathCall) {
+      const input = env.vars[fullPathCall[1]!] ?? "";
+      const out = input ? normalize(input) : "";
+      env.vars[fullPathCall[2]!] = out;
+      env.vars[fullPathCall[3]!] = String(out.length);
+      continue;
+    }
+    const longPathCall =
+      /^System::Call 'Kernel32::GetLongPathNameW\(w (\w+),\s*w \.(\w+),[^)]*\)i \.(\w+)'$/.exec(
+        line,
+      );
+    if (longPathCall) {
+      const input = env.vars[longPathCall[1]!] ?? "";
+      const there = input !== "" && existsSync(input);
+      env.vars[longPathCall[2]!] = there ? input : "";
+      env.vars[longPathCall[3]!] = String(there ? input.length : 0);
+      continue;
+    }
+    // The junction-following step of the path normaliser: this host has no junctions, so no folder is opened (a handle
+    // of -1), and the spelling-only answer above stands.
+    const openCall = /^System::Call 'Kernel32::CreateFileW\(w (\w+),[^)]*\)i \.(\w+)'$/.exec(line);
+    if (openCall) {
+      env.vars[openCall[2]!] = "-1";
       continue;
     }
     // The folders for the detached sweeper travel in its environment, not in its command line.
@@ -323,6 +380,47 @@ describe("uninstall executed against a real folder tree", () => {
     expect(env.deferred).toContain(instdir);
     expect(existsSync(root)).toBe(false);
     expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  it("delete mode never erases a stale pointer to a folder that is not FRIDAY's, and still erases one that carries a marker", () => {
+    for (const named of [false, true]) {
+      const { base, instdir, env } = buildInstall();
+      const documents = join(base, "profile", "Documents");
+      const plain = join(base, "profile", "Projects");
+      for (const folder of [documents, plain]) {
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "mine.txt"), "the owner's file");
+      }
+      env.vars["DOCUMENTS"] = documents;
+      env.vars["FridayUnMode"] = "delete";
+      // A pointer left over, or edited, so that it names a folder FRIDAY never made: the shell folder and a plain one.
+      for (const stale of [documents, plain]) {
+        env.reg["Software\\FRIDAY\\WorkspacePath"] = stale;
+        env.vars["FridayUnRoot"] = named ? stale : "";
+        runNsis(macroBody("customUnInstall"), env);
+        expect(readFileSync(join(stale, "mine.txt"), "utf8"), `${named} ${stale}`).toBe(
+          "the owner's file",
+        );
+        // The program folder itself is still removed, so a failed pointer never keeps the uninstall from finishing.
+        expect(env.deferred, `${named} ${stale}`).not.toContain(stale);
+      }
+      // A workspace.json alone is a name any project root has (a monorepo): it is not the FRIDAY root shape.
+      writeFileSync(join(plain, "workspace.json"), "{}");
+      env.reg["Software\\FRIDAY\\WorkspacePath"] = plain;
+      env.vars["FridayUnRoot"] = named ? plain : "";
+      runNsis(macroBody("customUnInstall"), env);
+      expect(readFileSync(join(plain, "mine.txt"), "utf8"), `${named} marker only`).toBe(
+        "the owner's file",
+      );
+      // The same folder, once it carries the marker FRIDAY writes next to a FRIDAY data folder, is the owner's
+      // FRIDAY folder and is erased.
+      mkdirSync(join(plain, "database"), { recursive: true });
+      env.reg["Software\\FRIDAY\\WorkspacePath"] = plain;
+      env.vars["FridayUnRoot"] = named ? plain : "";
+      runNsis(macroBody("customUnInstall"), env);
+      expect(existsSync(plain), `${named} marked`).toBe(false);
+      expect(existsSync(instdir)).toBe(true);
+    }
   });
 
   it("delete mode on a source checkout keeps the owner's source and Git history and hands the data to the helper", () => {
@@ -518,5 +616,164 @@ describe("uninstall executed against a real folder tree", () => {
     const preserved = join(base, "profile", "FRIDAY");
     expect(existsSync(join(preserved, "memory", "user-content"))).toBe(true);
     expect(env.reg["Software\\FRIDAY\\WorkspacePath"]).toBe(preserved);
+  });
+});
+
+describe("Setup records the folder it was started from, for the app to find a CMD build beside it", () => {
+  const install = macroBody("customInstall");
+  const SOURCE = "Software\\FRIDAY\\InstallSourceDir";
+
+  it("writes InstallSourceDir = $EXEDIR for each product, except when the update helper starts Setup", () => {
+    expect(install).toContain('WriteRegStr HKCU "Software\\FRIDAY" "InstallSourceDir" "$EXEDIR"');
+    expect(install).toContain(
+      'WriteRegStr HKCU "Software\\FRIDAY Test" "InstallSourceDir" "$EXEDIR"',
+    );
+    // An update runs from the updater's own download folder: that must not replace the folder Setup came from.
+    const at = install.indexOf('"InstallSourceDir"');
+    expect(install.lastIndexOf("${IfNot} ${isUpdated}", at)).toBeGreaterThan(
+      install.indexOf('"WorkspacePath"'),
+    );
+    // The registry key is written after the program folder pointer, never before the root is known.
+    expect(at).toBeGreaterThan(install.indexOf('"WorkspacePath"'));
+  });
+
+  it("is never read by the uninstaller: nothing reads it for a delete", () => {
+    expect(nsh).not.toMatch(/ReadReg\w*\s[^\n]*InstallSourceDir/);
+    expect(nsh).not.toMatch(/\$\{?InstallSourceDir/);
+    // Not a path any RMDir or Delete could take: the only mentions are the two writes and the two removals.
+    const mentions = nsh.split(/\r?\n/).filter((l) => l.includes("InstallSourceDir"));
+    expect(
+      mentions.every(
+        (l) => /^\s*(WriteRegStr|DeleteRegValue)\b/.test(l) || l.trim().startsWith(";"),
+      ),
+    ).toBe(true);
+  });
+
+  it("a real keep uninstall forgets it, an update's uninstall keeps it, a delete-all removes the whole key", () => {
+    const keep = buildInstall();
+    keep.env.reg[SOURCE] = "E:\\Builds\\1.2.5.8";
+    runNsis(macroBody("customUnInstall"), keep.env);
+    expect(keep.env.reg[SOURCE]).toBeUndefined();
+    expect(keep.env.reg["Software\\FRIDAY\\WorkspacePath"]).toBe(keep.root);
+
+    const update = buildInstall();
+    update.env.vars["__updated"] = "1";
+    update.env.reg[SOURCE] = "E:\\Builds\\1.2.5.8";
+    runNsis(macroBody("customUnInstall"), update.env);
+    expect(update.env.reg[SOURCE]).toBe("E:\\Builds\\1.2.5.8");
+
+    const wipe = buildInstall();
+    wipe.env.vars["FridayUnMode"] = "delete";
+    wipe.env.reg[SOURCE] = "E:\\Builds\\1.2.5.8";
+    runNsis(macroBody("customUnInstall"), wipe.env);
+    expect(Object.keys(wipe.env.reg).filter((k) => k.startsWith("Software\\FRIDAY\\"))).toEqual([]);
+  });
+});
+
+describe("a folder made by a CMD build reads as an existing FRIDAY folder", () => {
+  const detect = functionBody("FridayRootDetect");
+  // The folders named directly and the ones named through the one-line detection macro.
+  const probed = [
+    ...[...detect.matchAll(/\$FridayRoot\\([^"*\s]+?)\\\*\.\*/g)].map((m) => m[1]!),
+    ...[...detect.matchAll(/!insertmacro FridayDetectFolder "([^"]+)"/g)].map((m) => m[1]!),
+  ];
+  const known = new Set(
+    (contract.NAMES as string[]).flatMap((name: string) =>
+      [name, ...contract.FOLDERS[name].aliases].map((x: string) =>
+        x.replace(/\//g, "\\").toLowerCase(),
+      ),
+    ),
+  );
+
+  it("recognises the runtime, cache and installer folders and the contract's alias spellings", () => {
+    for (const folder of ["runtime", "cache", "installer", "downloads", "updates"]) {
+      expect(probed, folder).toContain(folder);
+    }
+    for (const alias of [
+      "db",
+      "data\\models",
+      "data\\state",
+      "cache\\models",
+      "resources\\voices",
+    ]) {
+      expect(probed, alias).toContain(alias);
+    }
+  });
+
+  it("looks only for folders the storage contract names (a name or an alias), so no folder is invented", () => {
+    expect(probed.length).toBeGreaterThan(8);
+    for (const folder of probed) expect(known.has(folder.toLowerCase()), folder).toBe(true);
+  });
+
+  it("only reports and reuses: detection creates, moves and removes nothing", () => {
+    expect(detect).not.toMatch(/\b(CreateDirectory|RMDir|Rename|Delete|CopyFiles)\b/);
+    expect(detect).toContain("it will be validated and reused, never overwritten");
+  });
+});
+
+describe("no RMDir reaches above the program folder or into a folder the owner chose to keep", () => {
+  it("every RMDir targets the program folder's own parts, FRIDAY's caches or - only in delete mode - the root", () => {
+    const targets = nsh
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => /^RMDir\b/.test(l))
+      .map((l) => l.replace(/^RMDir\s+(\/r\s+)?/, ""));
+    for (const t of targets) {
+      expect(t, t).not.toContain("..");
+      expect(t, t).not.toMatch(/^"\$INSTDIR"$/);
+      expect(t, t).not.toMatch(/^"\$FridayRoot/);
+    }
+    const root = targets.filter((t) => t.startsWith('"$FridayUnRoot'));
+    expect(root.sort()).toEqual(['"$FridayUnRoot"', '"$FridayUnRoot\\profiles\\test"']);
+    // The whole-root removal sits inside the delete branch, behind the explicit choice.
+    const at = nsh.indexOf('RMDir /r "$FridayUnRoot"');
+    expect(nsh.lastIndexOf('${If} $FridayUnMode == "delete"', at)).toBeGreaterThan(
+      nsh.lastIndexOf('${If} $FridayUnMode == "keep"', at),
+    );
+    // Nothing removes a data folder of the root by name.
+    for (const t of targets)
+      expect(t, t).not.toMatch(/\\(database|memory|models|config|agents|skills)\b/);
+  });
+});
+
+describe("the data guard sees through a path spelled to look outside the program folder", () => {
+  it("rescues data whose pointer reaches the program folder through a dot segment", () => {
+    const { base, root, instdir, env } = buildInstall();
+    const nested = join(instdir, "data-root");
+    mkdirSync(join(nested, "memory"), { recursive: true });
+    writeFileSync(join(nested, "memory", "user-content"), "memory");
+    // Starts in the data folder "database", walks back out and into App: it is inside App all the same.
+    env.reg["Software\\FRIDAY\\WorkspacePath"] =
+      `${root}${sep}database${sep}..${sep}App${sep}data-root`;
+
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+
+    const preserved = join(base, "profile", "FRIDAY");
+    expect(existsSync(join(preserved, "memory", "user-content"))).toBe(true);
+    expect(env.reg["Software\\FRIDAY\\WorkspacePath"]).toBe(preserved);
+  });
+
+  it("keeps a real FRIDAY folder in the profile and puts the rescued data beside it, in a free name", () => {
+    const { base, instdir, env } = buildInstall();
+    const nested = join(instdir, "data-root");
+    mkdirSync(join(nested, "memory"), { recursive: true });
+    writeFileSync(join(nested, "memory", "user-content"), "memory");
+    env.reg["Software\\FRIDAY\\WorkspacePath"] = nested;
+    for (const name of ["FRIDAY", "FRIDAY-preserved"]) {
+      mkdirSync(join(base, "profile", name), { recursive: true });
+      writeFileSync(join(base, "profile", name, "mine.txt"), name);
+    }
+
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+
+    const preserved = join(base, "profile", "FRIDAY-preserved-2");
+    expect(readFileSync(join(preserved, "memory", "user-content"), "utf8")).toBe("memory");
+    expect(env.reg["Software\\FRIDAY\\WorkspacePath"]).toBe(preserved);
+    for (const name of ["FRIDAY", "FRIDAY-preserved"]) {
+      expect(readFileSync(join(base, "profile", name, "mine.txt"), "utf8")).toBe(name);
+      expect(existsSync(join(base, "profile", name, "data-root"))).toBe(false);
+    }
   });
 });

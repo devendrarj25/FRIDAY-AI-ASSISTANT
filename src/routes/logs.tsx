@@ -138,7 +138,7 @@ function LogsPage() {
 
   useEffect(() => {
     registerLogsAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatLogsExtra() });
+      const result = brain.send(prompt, { extra: formatLogsExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerLogsAsk(null);
@@ -201,7 +201,7 @@ function LogsPage() {
     if (!text || brainState.activeRunId) return;
     setAsk("");
     const prompt = /log/i.test(text) ? text : `${text} in the logs`;
-    brain.send(prompt, { extra: formatLogsExtra() });
+    brain.send(prompt, { extra: formatLogsExtra(), promptOrigin: "typed" });
   };
 
   const recent = brainState.messages.slice(-8);

@@ -204,7 +204,7 @@ function SandboxPage() {
 
   useEffect(() => {
     registerSandboxAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatSandboxExtra() });
+      const result = brain.send(prompt, { extra: formatSandboxExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     registerSandboxRunner(async (line, options) => {
@@ -359,7 +359,7 @@ function SandboxPage() {
     if (!text || brainState.activeRunId) return;
     setAsk("");
     const prompt = /sandbox/i.test(text) ? text : `${text} in the sandbox`;
-    brain.send(prompt, { extra: formatSandboxExtra() });
+    brain.send(prompt, { extra: formatSandboxExtra(), promptOrigin: "typed" });
   };
 
   const onDiff = async () => {
@@ -881,11 +881,11 @@ function SandboxPage() {
                     variant="ghost"
                     disabled={Boolean(brainState.activeRunId)}
                     onClick={() => {
-                      const errors = summarizeSandboxOutput(output);
-                      const prompt = errors
-                        ? `find the errors in the sandbox\n${errors}`
-                        : "find the errors in the sandbox";
-                      const result = brain.send(prompt, { extra: formatSandboxExtra() });
+                      // The output is tool output: it travels in the extra block, never inside the typed prompt.
+                      const result = brain.send("find the errors in the sandbox", {
+                        extra: formatSandboxExtra(),
+                        promptOrigin: "typed",
+                      });
                       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
                     }}
                   >

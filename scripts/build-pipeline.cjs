@@ -56,11 +56,11 @@ const PHASE_COMMANDS = {
   ],
   "stage-toolchain": ["scripts/stage-toolchain.cjs"],
   "build-renderer": ["npm run build:desktop"],
-  package: ["scripts/electron-pack.cjs"],
+  package: ["scripts/builtins-manifest.cjs", "scripts/electron-pack.cjs"],
   "packaged-requires": ["scripts/packaged-requires.cjs"],
   "sign-hook": ["scripts/sign-windows.ps1"],
   manifest: ["scripts/release-manifest.cjs"],
-  "verify-artifacts": ["scripts/verify-build.cjs"],
+  "verify-artifacts": ["scripts/verify-build.cjs", "scripts/builtins-manifest.cjs"],
   "verify-boot": ["scripts/verify-boot.cjs"],
   readiness: ["scripts/readiness-test.cjs --pack"],
   "packaged-self-check": [
@@ -150,9 +150,11 @@ function commandsFor(phases = PHASES) {
 function installerBounds(manifest) {
   const plan = stage.stagePlan(manifest);
   const floor = Math.floor(plan.sum * 0.7);
+  // The wheelhouse (offline Python wheels) is a second tier beside the toolchain budget.
+  const wheelhouseBudget = Number(manifest.wheelhouse?.budgetBytes) || 0;
   const ceiling = Math.min(
     GITHUB_ASSET_LIMIT - 1,
-    Number(manifest.budgetBytes) + 800 * 1024 * 1024,
+    Number(manifest.budgetBytes) + wheelhouseBudget + 800 * 1024 * 1024,
   );
   return {
     floor,
@@ -171,7 +173,13 @@ function readManifest(root = ROOT) {
  * A Setup or Portable file below the toolchain floor means staging did not
  * land. A file at or above the ceiling cannot be a GitHub release asset.
  */
-function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portable"] }) {
+function assertPackagedLayout({
+  releaseDir,
+  manifest,
+  targets = ["nsis", "portable"],
+  env = process.env,
+  wheels,
+}) {
   const plan = stage.stagePlan(manifest);
   const bounds = installerBounds(manifest);
   const errors = [];
@@ -182,6 +190,20 @@ function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portab
       errors.push(
         `${pack.id} is missing at ${file} — toolchain staging did not land inside the app; refusing a small EXE`,
       );
+    }
+  }
+  // The offline Python wheelhouse is part of every build unless FRIDAY_WHEELHOUSE=0 switched it off.
+  if (manifest.wheelhouse && String(env.FRIDAY_WHEELHOUSE || "") !== "0") {
+    const wheelhouse = require("./wheelhouse.cjs");
+    const file = path.join(unpacked, "resources", ...wheelhouse.DEST.split("/"), "pack.bin");
+    if (!fs.existsSync(file)) {
+      errors.push(
+        `the Python wheelhouse is missing at ${file} — wheelhouse staging did not land inside the app (FRIDAY_WHEELHOUSE=0 builds without it)`,
+      );
+    } else if (Array.isArray(wheels)) {
+      for (const problem of wheelhouse.verifyWheelhouseZip(file, wheels)) {
+        errors.push(`wheelhouse ${problem}`);
+      }
     }
   }
   const names = fs.existsSync(releaseDir) ? fs.readdirSync(releaseDir) : [];
@@ -216,6 +238,42 @@ function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portab
     throw error;
   }
   return { ok: true, bounds, setup: setup || null, portable: portable || null };
+}
+
+/** The wheels the lock pins, for the content check of the packed wheelhouse; undefined when it is switched off. */
+function lockedWheels(root, manifest, env = process.env) {
+  if (!manifest.wheelhouse || String(env.FRIDAY_WHEELHOUSE || "") === "0") return undefined;
+  const wheelhouse = require("./wheelhouse.cjs");
+  const lock = wheelhouse.readLock(path.join(root, manifest.wheelhouse.lock));
+  return Array.isArray(lock.wheels) ? lock.wheels : [];
+}
+
+/**
+ * Writes resources/builtins.json (scripts/builtins-manifest.cjs) from the checkout trees that electron-builder is
+ * about to copy, so the installer and the portable EXE carry it. The generator needs electron/capabilities.cjs, which
+ * lives inside app.asar once packed, so it runs here and verify-artifacts then proves it against the real pack.
+ */
+function writeBuiltins({ root = ROOT, outFile, version } = {}) {
+  const out = outFile || path.join(root, "resources", "builtins.json");
+  return require("./builtins-manifest.cjs").write(
+    root,
+    out,
+    version ? { release: version } : undefined,
+  );
+}
+
+/** Fails the build when win-unpacked\resources\builtins.json is missing or does not describe the packed trees. */
+function assertBuiltins(resourcesDir) {
+  const result = require("./builtins-manifest.cjs").verify(
+    resourcesDir,
+    path.join(resourcesDir, "builtins.json"),
+  );
+  if (!result.ok) {
+    const shown = result.problems.slice(0, 10).join("; ");
+    const more = result.problems.length > 10 ? ` (and ${result.problems.length - 10} more)` : "";
+    throw new Error(`builtins.json does not match the packed app: ${shown}${more}`);
+  }
+  return result;
 }
 
 function runtimeSmokePlan(manifest = readManifest()) {
@@ -792,6 +850,31 @@ function applyChannel(root, options) {
   );
 }
 
+/**
+ * Who is building, as the update manifest and friday-bundle.json record it. A hosted workflow (GITHUB_ACTIONS) is
+ * `test` on the test channel and `release` otherwise; every local run (the CMD build, an npm script, a plain node call)
+ * is `cmd`, so a local `--channel test` run is not labelled as a hosted one.
+ */
+function manifestCaller(options, env = process.env) {
+  if (String(env.GITHUB_ACTIONS || "") !== "true") return "cmd";
+  return options.channel === "test" ? "test" : "release";
+}
+
+/** The arguments of scripts/release-manifest.cjs for this run. */
+function manifestArgs(options, { version, notes = false, env = process.env } = {}) {
+  const args = [
+    "--version",
+    version,
+    "--channel",
+    options.channel === "test" ? "test" : "stable",
+    "--caller",
+    manifestCaller(options, env),
+  ];
+  if (notes) args.push("--notes", "release-notes.md");
+  if (options.releaseType) args.push("--type", options.releaseType);
+  return args;
+}
+
 function signingRequested(options) {
   if (options.sign === "off" || options.sign === "false") return false;
   return Boolean(process.env.CSC_LINK || process.env.FRIDAY_PFX);
@@ -902,8 +985,10 @@ function runPhase(phase, options, root) {
         "-c.nsis.uninstallDisplayName=FRIDAY Test - Personal AI Assistant",
       );
     }
+    const written = writeBuiltins({ root, version: options.version });
+    const builtinCount = Object.values(written.trees).reduce((sum, list) => sum + list.length, 0);
     runNode("scripts/electron-pack.cjs", packArgs, root);
-    return `packaged ${packArgs.join(" ")}`;
+    return `packaged ${packArgs.join(" ")}; builtins.json lists ${builtinCount} built-ins`;
   }
   if (phase === "packaged-requires") {
     runNode("scripts/packaged-requires.cjs", [], root);
@@ -944,15 +1029,10 @@ function runPhase(phase, options, root) {
     const engine = require("./release-engine.cjs");
     const identity = engine.readCanonicalIdentity({ root });
     const version = options.version || identity.releaseVersion;
-    const args = [
-      "--version",
+    const args = manifestArgs(options, {
       version,
-      "--channel",
-      options.channel === "test" ? "test" : "stable",
-    ];
-    if (fs.existsSync(path.join(root, "release-notes.md")))
-      args.push("--notes", "release-notes.md");
-    if (options.releaseType) args.push("--type", options.releaseType);
+      notes: fs.existsSync(path.join(root, "release-notes.md")),
+    });
     runNode("scripts/release-manifest.cjs", args, root);
     return options.channel === "test"
       ? "test checksums written; stable channel files are this run's test manifest only"
@@ -971,11 +1051,14 @@ function runPhase(phase, options, root) {
       verifyArgs.push("--version", options.version || identity.releaseVersion, "--manifest");
     }
     runNode("scripts/verify-build.cjs", verifyArgs, root);
+    assertBuiltins(path.join(root, "release", "win-unpacked", "resources"));
     if (!options.targets.includes("dir") || options.targets.length > 1) {
+      const manifest = readManifest(root);
       assertPackagedLayout({
         releaseDir: path.join(root, "release"),
-        manifest: readManifest(root),
+        manifest,
         targets: options.targets,
+        wheels: lockedWheels(root, manifest),
       });
     }
     return "artifacts verified";
@@ -1241,6 +1324,37 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
   return lines;
 }
 
+/**
+ * The `placed` row of the FRIDAY BUILD READY table: after a whole green run, the CMD build copies its outputs to
+ * `<FRIDAY folder>/installer/installers/<version>/` (scripts/place-build.cjs). It is not a phase: `build N/13`
+ * counts PHASES only, and the row is added to the printed table after the report file was written. Null when the run
+ * was partial or failed; a SKIP row for another caller, CI and FRIDAY_PLACE_BUILD=0. Never throws.
+ */
+function placedRow(options, report, root = ROOT, deps = {}) {
+  const whole = options.from === PHASES[0] && options.through === PHASES[PHASES.length - 1];
+  if (!report?.ok || !whole) return null;
+  const lib = require("./place-build.cjs");
+  const env = deps.env || process.env;
+  try {
+    const skip = lib.skipReason({ caller: options.caller, env });
+    if (skip) return lib.rowFor({ status: "skipped", reason: skip });
+    const home =
+      deps.home || require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root;
+    const place = deps.place || lib.placeBuild;
+    return lib.rowFor(
+      place({
+        root: home,
+        releaseDir: path.join(root, "release"),
+        caller: options.caller,
+        env,
+        log: (line) => console.log(line),
+      }),
+    );
+  } catch (error) {
+    return lib.rowFor({ status: "failed", reason: error && error.message ? error.message : error });
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv);
   if (options.planOnly) {
@@ -1255,6 +1369,8 @@ async function main() {
   }
   const report = await runPipeline(options);
   if (options.caller === "cmd" || options.caller === "npm") {
+    const placed = placedRow(options, report);
+    if (placed) report.phases.push(placed);
     for (const line of readySummary(options, report)) console.log(line);
   }
   if (!report.ok) require("./leave.cjs").leave(1);
@@ -1273,13 +1389,18 @@ module.exports = {
   assertNotSkipped,
   ensureToolchain,
   readySummary,
+  placedRow,
   selectedPhases,
   commandsFor,
   installerBounds,
   assertPackagedLayout,
+  writeBuiltins,
+  assertBuiltins,
   runtimeSmokePlan,
   applyChannel,
   signingRequested,
+  manifestCaller,
+  manifestArgs,
   signingStatusLines,
   runPackagedSelfCheck,
   runPipeline,

@@ -7,8 +7,11 @@
  * arguments, network commands and repository code in an untrusted folder. One case table runs through both copies
  * (renderer and main process) and both must give the same answer.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { SAFE_COMMANDS, classifyCommand } from "../../src/lib/friday/terminal-command";
 
@@ -16,6 +19,7 @@ type Classify = (command: string, options?: { untrusted?: boolean }) => "write" 
 const terminal = createRequire(import.meta.url)("../../electron/terminal.cjs") as {
   SAFE_COMMANDS: unknown;
   classifyCommand: Classify;
+  isUntrustedFolder: (root: string, cwd: unknown) => boolean;
 };
 
 /** Each line runs a program, writes a file, reaches the network or leaves the folder: the owner approves it. */
@@ -343,4 +347,98 @@ describe("repository code in an untrusted folder is exec", () => {
       for (const line of PLAIN) expect(classify(line, { untrusted: true }), line).toBe("write");
     });
   }
+});
+
+describe("a folder with config that a check tool loads is untrusted", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+  /** A workspace root with one sub-folder holding exactly the given entries (a trailing slash makes a folder). */
+  function workspace(...entries: string[]) {
+    const root = mkdtempSync(join(tmpdir(), "friday-untrusted-"));
+    roots.push(root);
+    mkdirSync(join(root, "downloaded", "deep"), { recursive: true });
+    for (const entry of entries) {
+      const target = join(root, "downloaded", entry.replace(/\/$/, ""));
+      if (entry.endsWith("/")) mkdirSync(target, { recursive: true });
+      else {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, "");
+      }
+    }
+    return root;
+  }
+
+  const MARKERS = [
+    "conftest.py",
+    "pytest.ini",
+    "tox.ini",
+    "eslint.config.js",
+    "eslint.config.mjs",
+    "eslint.config.ts",
+    ".eslintrc",
+    ".eslintrc.json",
+    ".eslintrc.cjs",
+    "prettier.config.js",
+    ".prettierrc",
+    ".prettierrc.json",
+    "vitest.config.ts",
+    "vite.config.ts",
+    "vite.config.mjs",
+    "tsconfig.json",
+    "Makefile",
+    ".cargo/",
+    "pom.xml",
+  ];
+
+  it.each(MARKERS)("%s makes the folder, and every folder below it, untrusted", (marker) => {
+    const root = workspace(marker);
+    expect(terminal.isUntrustedFolder(root, "downloaded")).toBe(true);
+    expect(terminal.isUntrustedFolder(root, "downloaded/deep")).toBe(true);
+  });
+
+  it("matches the file names however the file system spells them", () => {
+    expect(terminal.isUntrustedFolder(workspace("CONFTEST.PY"), "downloaded")).toBe(true);
+    expect(terminal.isUntrustedFolder(workspace("makefile"), "downloaded")).toBe(true);
+  });
+
+  it("a plain folder and look-alike names stay trusted", () => {
+    const root = workspace(
+      "notes.txt",
+      "eslint.config",
+      "vitest.configuration.txt",
+      "my-conftest.py",
+    );
+    expect(terminal.isUntrustedFolder(root, "downloaded")).toBe(false);
+    expect(terminal.isUntrustedFolder(root, "downloaded/deep")).toBe(false);
+  });
+
+  it("the workspace root's own project files stay the owner's, but a root whose git config runs code is not", () => {
+    const root = workspace();
+    writeFileSync(join(root, "conftest.py"), "");
+    writeFileSync(join(root, "tsconfig.json"), "{}");
+    expect(terminal.isUntrustedFolder(root, "")).toBe(false);
+    mkdirSync(join(root, ".git"));
+    writeFileSync(join(root, ".git", "config"), "[core]\n\trepositoryformatversion = 0\n");
+    expect(terminal.isUntrustedFolder(root, "")).toBe(false);
+    for (const line of [
+      "fsmonitor = calc.exe",
+      "hooksPath = ./evil",
+      "sshCommand = ssh -o ProxyCommand=x",
+      "pager = calc.exe",
+      "editor = calc.exe",
+    ]) {
+      writeFileSync(join(root, ".git", "config"), `[core]\n\t${line}\n`);
+      expect(terminal.isUntrustedFolder(root, ""), line).toBe(true);
+    }
+    writeFileSync(
+      join(root, ".git", "config"),
+      '[alias]\n\tst = !calc.exe\n[filter "x"]\n\tsmudge = c\n',
+    );
+    expect(terminal.isUntrustedFolder(root, "")).toBe(true);
+    // A sub-folder of that root is judged by the root's git config too, because git reads it from there.
+    mkdirSync(join(root, "plain"));
+    expect(terminal.isUntrustedFolder(root, "plain")).toBe(true);
+  });
 });

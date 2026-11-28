@@ -62,6 +62,32 @@ describe("the Python environment an update finds again", () => {
   });
 });
 
+describe("what Setup and the uninstaller leave for Setup & Doctor and for the next install", () => {
+  const nsh = read("installer/build/installer.nsh").replace(/\r\n/g, "\n");
+  const install = nsh.slice(nsh.indexOf("!macro customInstall"), nsh.indexOf("runtime_done:"));
+
+  it("an installation drops the move note only for FRIDAY itself, and only when the folder it names holds no data", () => {
+    const guard = install.indexOf('${If} "${PRODUCT_NAME}" != "FRIDAY Test"');
+    const read_ = install.indexOf('ReadRegStr $0 HKCU "Software\\FRIDAY" "DataMoveFrom"');
+    const drop = install.indexOf('DeleteRegValue HKCU "Software\\FRIDAY" "DataMoveNote"');
+    expect(guard).toBeGreaterThan(-1);
+    expect(read_).toBeGreaterThan(guard);
+    expect(drop).toBeGreaterThan(read_);
+    expect(install.slice(read_, drop)).toContain('${FileExists} "$0\\*.*"');
+    // The FRIDAY Test installation leaves the FRIDAY key's note alone: nothing before the guard deletes it.
+    expect(install.slice(0, guard)).not.toContain('"DataMoveNote"');
+  });
+
+  it("keeps the program folder's runtime removal and never names the FRIDAY folder's runtime in an uninstall", () => {
+    const body = nsh.slice(
+      nsh.indexOf("!macro customUnInstall"),
+      nsh.indexOf("!macroend", nsh.indexOf("!macro customUnInstall")),
+    );
+    expect(body).toContain('RMDir /r "$INSTDIR\\runtime"');
+    expect(body).not.toMatch(/RMDir \/r "\$FridayUnRoot\\runtime/);
+  });
+});
+
 describe("an update's installer is checksummed in chunks", () => {
   const made: string[] = [];
   afterEach(() => {

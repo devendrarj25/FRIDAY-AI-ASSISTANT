@@ -418,7 +418,7 @@ function TasksPage() {
 
   useEffect(() => {
     registerTasksAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatTasksExtra() });
+      const result = brain.send(prompt, { extra: formatTasksExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerTasksAsk(null);
@@ -528,7 +528,7 @@ function TasksPage() {
     if (!text || brainState.activeRunId) return;
     setAsk("");
     const prompt = /task|queue|graph/i.test(text) ? text : `${text} in the tasks`;
-    brain.send(prompt, { extra: formatTasksExtra() });
+    brain.send(prompt, { extra: formatTasksExtra(), promptOrigin: "typed" });
   };
 
   const latest = tasks.reduce((max, task) => Math.max(max, task.startedAt || 0), 0);

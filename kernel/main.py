@@ -47,6 +47,8 @@ from tools import ToolRegistry
 
 HOST = os.environ.get("FRIDAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FRIDAY_PORT", "8765"))
+# How long chat.cancel waits for a stopped chat to unwind before it answers anyway (seconds).
+CANCEL_UNWIND_SECONDS = 5.0
 TOKEN = os.environ.get("FRIDAY_BRIDGE_TOKEN", "")
 WORKSPACE_ROOT = os.environ.get("FRIDAY_WORKSPACE_ROOT", "")
 
@@ -859,6 +861,21 @@ async def dispatch(method: str, params: dict, send) -> dict:
             turn_limits["max_tokens"] = params["maxTokens"]
         if params.get("ownerText"):
             turn_limits["owner_text"] = params["ownerText"]
+
+        async def persist_replies() -> None:
+            for model_id, chunks in replies.items():
+                if ephemeral:
+                    break  # a draft is never stored, mirrored or learned from
+                answer = "".join(chunks)
+                origin = "phone" if phone_cognize else "desktop"
+                await asyncio.to_thread(storage.append_chat, session_id, "assistant", answer, model_id, origin=origin)
+                if phone_cognize:
+                    _PHONE_COGNIZE_STORED.add(session_id)
+                sender_ws = _PHONE_COGNIZE_SENDER.get(session_id) if phone_cognize else None
+                await phone_broadcast(
+                    {"type": "peer", "role": "assistant", "text": answer, "origin": origin}, exclude_ws=sender_ws
+                )
+
         try:
             async for delta in router.stream(
                 prompt=params["prompt"],
@@ -900,21 +917,18 @@ async def dispatch(method: str, params: dict, send) -> dict:
                                 "error": delta.get("error"),
                             }
                         )
+        except asyncio.CancelledError:
+            # A stop (chat.cancel or a closed socket) keeps what the owner had already read: the kernel copy and
+            # the phone mirror hold the cut-off reply, not only the question. The schema has no partial flag.
+            try:
+                await asyncio.shield(persist_replies())
+            except Exception:  # noqa: S110 - the stop goes on whether or not the partial reply was kept
+                pass
+            raise
         finally:
             if no_tools_token is not None:
                 router_no_tools.reset(no_tools_token)
-        for model_id, chunks in replies.items():
-            if ephemeral:
-                break  # a draft is never stored, mirrored or learned from
-            answer = "".join(chunks)
-            origin = "phone" if phone_cognize else "desktop"
-            await asyncio.to_thread(storage.append_chat, session_id, "assistant", answer, model_id, origin=origin)
-            if phone_cognize:
-                _PHONE_COGNIZE_STORED.add(session_id)
-            sender_ws = _PHONE_COGNIZE_SENDER.get(session_id) if phone_cognize else None
-            await phone_broadcast(
-                {"type": "peer", "role": "assistant", "text": answer, "origin": origin}, exclude_ws=sender_ws
-            )
+        await persist_replies()
         if not replies:
             return {
                 "done": False,
@@ -1301,13 +1315,16 @@ async def bridge(ws: WebSocket) -> None:
         task.add_done_callback(lambda t: chats.pop(id(t), None))
 
     async def cancel_chats(request_id=None) -> int:
-        """Cancel the running chats (all, or the one request id) and wait until each has unwound."""
+        """Cancel the running chats (all, or the one request id) and wait, for a bounded time, until each has
+        unwound. A chat that does not unwind in time is answered as cancelled anyway: it must not hold this read
+        loop (and with it every other request on the socket)."""
         victims = [(rid, t) for rid, t in list(chats.values()) if request_id is None or rid == request_id]
         for _rid, task in victims:
             task.cancel()
+        if victims:
+            await asyncio.wait([t for _rid, t in victims], timeout=CANCEL_UNWIND_SECONDS)
         for rid, task in victims:
-            await asyncio.gather(task, return_exceptions=True)
-            if task.cancelled():  # a chat that finished on its own already answered
+            if not task.done() or task.cancelled():  # a chat that finished on its own already answered
                 await _reply_quiet(send, {"id": rid, "type": "result", "data": {"done": False, "cancelled": True}})
         return len(victims)
 
@@ -1348,7 +1365,7 @@ async def bridge(ws: WebSocket) -> None:
         for _rid, task in list(chats.values()):
             task.cancel()
         if chats:
-            await asyncio.gather(*(t for _r, t in list(chats.values())), return_exceptions=True)
+            await asyncio.wait([t for _r, t in list(chats.values())], timeout=CANCEL_UNWIND_SECONDS)
 
 
 async def on_startup() -> None:
@@ -1421,7 +1438,11 @@ async def _kernel_lifespan(_app: FastAPI):
     quiet_routine_connections()
     await _watch_companion_registry()
     await on_startup()
-    yield
+    try:
+        yield
+    finally:
+        # A normal stop leaves the clean mark that lets the next boot skip the full scan of a large database.
+        await asyncio.to_thread(storage.mark_clean)
 
 
 app.router.lifespan_context = _kernel_lifespan

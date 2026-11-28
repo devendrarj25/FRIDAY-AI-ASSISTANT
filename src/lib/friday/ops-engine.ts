@@ -714,7 +714,8 @@ class OpsStore {
     await this.initTerminal();
     const builtin = await this.tryBuiltin(command);
     if (builtin) return builtin;
-    return this.spawn(command, {});
+    // The owner typed this on the Terminal page: the one place that marks a command as his own.
+    return this.spawn(command, { origin: "owner" });
   }
 
   /**
@@ -795,7 +796,12 @@ class OpsStore {
   /** One real child process, with the console wired to its live output. */
   private async spawn(
     command: string,
-    options: { shell?: string; cwd?: string; timeoutMs?: number; origin?: "agent" },
+    options: {
+      shell?: string;
+      cwd?: string;
+      timeoutMs?: number;
+      origin?: "agent" | "owner";
+    },
   ) {
     const runId = `term-${uid()}`;
     this.activeRun = runId;

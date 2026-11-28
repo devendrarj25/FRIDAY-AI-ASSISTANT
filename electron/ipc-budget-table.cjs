@@ -119,6 +119,7 @@ const CHANNEL_CLASS = Object.freeze({
   "capabilities:install-workflow-zip": "long-job",
   "capabilities:list": "quick",
   "capabilities:reload": "quick",
+  "capabilities:reset-builtin": "quick",
   "capabilities:set-enabled": "quick",
   "capabilities:uninstall": "quick",
   "capabilities:verify": "quick",
@@ -252,6 +253,7 @@ const CHANNEL_CLASS = Object.freeze({
   "hardware:detect": "quick",
   "hardware:facts": "quick",
   "hub:analyze": "quick",
+  "installer:adopt-local": "long-job",
   "installer:catalog": "quick",
   "installer:refresh": "quick",
   "installer:update": "long-job",
@@ -613,6 +615,12 @@ function toolNamed(args) {
   return typeof name === "string" && /^[\w.:-]{1,80}$/.test(name) ? name : "";
 }
 
+/** True only for the explicit owner mark on a `terminal:exec` call (set by the Terminal page's own runner). */
+function isOwnerTyped(args) {
+  const options = Array.isArray(args) ? args[0] : null;
+  return Boolean(options) && typeof options === "object" && options.origin === "owner";
+}
+
 function budgetFor(channel, args) {
   const name = String(channel || "");
   let method = "";
@@ -627,8 +635,20 @@ function budgetFor(channel, args) {
     if (isLongTool(toolNamed(args))) cls = "long-job";
     else allowance = ASK_TIMEOUT_MS;
   }
+  // A shell command that is not the owner's own typing may ask first (electron/main.cjs terminal:exec): its total also
+  // covers the owner's time to answer, exactly like a quick tool call.
+  if (name === "terminal:exec" && !isOwnerTyped(args)) allowance = ASK_TIMEOUT_MS;
   const ms = cls === "long-job" ? 0 : cls === "stream" ? STREAM_IDLE_MS : QUICK_MS + allowance;
   return { class: cls, ms, channel: name, method, inactivity: cls === "stream" };
+}
+
+/**
+ * True when the wait for this call has run past its own budget since `startedAt`. A handler that asked the owner a
+ * question checks it after the answer: the invoke already ended with a budget error, so a late Allow must not run.
+ */
+function waitExpired(channel, args, startedAt, now = Date.now) {
+  const { ms } = budgetFor(channel, args);
+  return ms > 0 && now() - startedAt > ms;
 }
 
 /**
@@ -648,7 +668,7 @@ function stillRunningReply(error, args) {
   return {
     ok: false,
     stillRunning: true,
-    error: `${tool || "The tool"} is still running. The wait for it ended, but it was not cancelled; ask again in a moment for the result.`,
+    error: `${tool || "The tool"} is still running. The wait for it ended, but it was not cancelled and no result comes back to this call; do not run it again, because that would run it twice.`,
   };
 }
 
@@ -661,5 +681,6 @@ module.exports = {
   KERNEL_CLASS,
   isLongTool,
   budgetFor,
+  waitExpired,
   stillRunningReply,
 };

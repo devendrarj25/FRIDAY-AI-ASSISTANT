@@ -1955,7 +1955,11 @@ if (require.main === module && process.argv.includes("--plan")) {
       /* Moonshine is then skipped with a note, as before */
     }
   }
+  // Every CMD run records the folder it built into: the development staging folder moves into the chosen root, any other
+  // build root is copied from, so the installed app finds what this PC fetched. A hosted runner leaves no pointer.
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
+  else if (!(process.env.CI || process.env.GITHUB_ACTIONS))
+    require("../electron/staged-assets.cjs").recordBuildRoot(picked.root, { kind: "checkout" });
   // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
   // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".
   const finish = (code) => {
@@ -1967,6 +1971,14 @@ if (require.main === module && process.argv.includes("--plan")) {
     (rows) => {
       const lines = failureReport(rows);
       for (const line of lines) console.error(line);
+      // Opt-in (FRIDAY_BUILD_PACKS=1, default off): the FRIDAY weight packs, one model at a time. Never fails setup.
+      try {
+        const packs = require("./place-build.cjs");
+        for (const line of packs.packsNote(packs.buildPacks({ root: picked.root })))
+          console.log(line);
+      } catch (err) {
+        console.error(`[friday] note     packs not built: ${String((err && err.message) || err)}`);
+      }
       finish(lines.length && strict() ? 1 : 0);
     },
     (err) => {

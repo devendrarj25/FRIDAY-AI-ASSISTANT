@@ -272,7 +272,6 @@ import { autonomy } from "./self/autonomy";
 import { taskGraph } from "./self/task-graph";
 import {
   clearPendingChange,
-  noteSpokenLine,
   pendingChange,
   spokenYesNeedsScreen,
   setHandsFreeReader,
@@ -1418,6 +1417,9 @@ type AddressFacts = {
   speaker?: "owner" | "other" | "unknown";
 };
 
+/** Retry triggers after which the local voice may have changed, so its reason is read again. */
+const VOICE_STATUS_TRIGGERS = new Set(["install-finished", "model-ready", "settings", "fix-voice"]);
+
 class AssistantModeStore {
   private listeners = new Set<() => void>();
   /** On-device transcription is Auto Mode's only recognition engine. */
@@ -1438,6 +1440,23 @@ class AssistantModeStore {
     const reading = localVoiceReadiness(this.offlineVoiceStatus, this.offlineVoicePackage);
     this.offlineVoiceReady = reading.ready;
     this.offlineVoiceReason = reading.reason;
+  }
+
+  /** The status line while a turn runs and a new request was answered or queued: the approval wait is named. */
+  private busyStatusLine(kind: "reply" | "queue", awaitingApproval: boolean): string {
+    if (awaitingApproval) return "Waiting for your approval";
+    return kind === "queue" ? "Working — next request queued" : "Working — still on it";
+  }
+
+  /**
+   * Why the failed speech was not heard, for the failed-voice lines: the local voice's reason, and only when the
+   * route that failed was a local engine (FRIDAY Voice or the system voice), never for a cloud route.
+   */
+  private localVoiceFailureReason(route: { engine: string; cloud: boolean }): string {
+    if (route.cloud) return "";
+    return route.engine === "" || /supertonic|sapi|friday|system/i.test(route.engine)
+      ? this.offlineVoiceReason
+      : "";
   }
 
   /** Ask the speech worker how FRIDAY Voice is, once; a bridge without it keeps the package row alone. */
@@ -3485,6 +3504,8 @@ class AssistantModeStore {
   noteVoiceTrigger(trigger: string) {
     if (!shouldRetryNow(trigger)) return;
     if (this.state.mode !== "auto" || this.state.paused || this.state.muted) return;
+    // The local voice may have been installed or mended: read its reason again so a stale one is not quoted.
+    if (VOICE_STATUS_TRIGGERS.has(trigger)) void this.refreshOfflineVoice();
     this.resetVoiceRecovery();
     this.startRecognition();
   }
@@ -3495,6 +3516,7 @@ class AssistantModeStore {
    */
   fixVoice() {
     speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
+    void this.refreshOfflineVoice();
     void this.selfCheckVoice(true);
   }
 
@@ -6039,8 +6061,7 @@ class AssistantModeStore {
           this.remember("busy-reply", command, "answered while the turn keeps running");
         }
         this.caption("friday", decision.line);
-        this.state.status =
-          decision.kind === "queue" ? "Working — next request queued" : "Working — still on it";
+        this.state.status = this.busyStatusLine(decision.kind, brain.isAwaitingApproval());
         this.emit();
         this.speak(decision.line);
         return true;
@@ -6103,8 +6124,6 @@ class AssistantModeStore {
       : fullPayload();
     this.pendingUserEcho += 1;
     affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
-    // The settings reader learns this line came by voice (a spoken yes never applies a change that needs the screen).
-    noteSpokenLine(command);
     let result = brain.send(command, payload);
     this.shadowTurn((a) => a.dispatch(command, Date.now()));
     if (side && !result.accepted && result.refused && result.foregroundUntouched) {
@@ -6132,7 +6151,6 @@ class AssistantModeStore {
       this.dropPlayback();
       this.trimReplyToHeard(heard);
       brain.stop("foreground");
-      noteSpokenLine(command);
       result = brain.send(command, fullPayload());
     }
     // A new spoken command (not a side question, which took the lane above) is an interrupt: stop the in-flight
@@ -6140,7 +6158,6 @@ class AssistantModeStore {
     // waits its turn behind it.
     if (!result.accepted && result.reason === "busy") {
       brain.stop("foreground");
-      noteSpokenLine(command);
       result = brain.send(command, payload);
       if (!result.accepted && result.reason === "busy" && this.laneHeldByTask()) {
         this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
@@ -8514,6 +8531,7 @@ class AssistantModeStore {
       .then((how) => {
         if (gen !== this.speechGen) return;
         const route = lastSpeechRoute();
+        const failureReason = how === "none" ? this.localVoiceFailureReason(route) : "";
         const engine =
           how === "none"
             ? "none"
@@ -8529,7 +8547,7 @@ class AssistantModeStore {
           lastSpokenAt: how === "none" ? this.state.tts.lastSpokenAt : Date.now(),
           lastError:
             how === "none"
-              ? `no speech engine could speak the reply${this.offlineVoiceReason ? ` (${this.offlineVoiceReason})` : ""}`
+              ? `no speech engine could speak the reply${failureReason ? ` (${failureReason})` : ""}`
               : null,
         };
         if (how !== "none" && (route.note || (route.voiceId && !route.cloud))) {
@@ -8559,9 +8577,9 @@ class AssistantModeStore {
         voiceGate.setSpeakingGuard(false);
         voiceGate.wake.speakEnd(performance.now());
         this.echoUntil = Date.now() + 400;
-        this.state.error = noVoiceFailure(spoken, this.offlineVoiceReason);
+        this.state.error = noVoiceFailure(spoken, failureReason);
         // The status line says why too, not only that the voice failed.
-        if (this.offlineVoiceReason) this.state.status = `Voice failed: ${this.offlineVoiceReason}`;
+        if (failureReason) this.state.status = `Voice failed: ${failureReason}`;
         this.emit();
       })
       .catch((error: unknown) => {

@@ -30,14 +30,42 @@ import reasoning_control
 OPENAI_COMPATIBLE = set(local_engines.openai_compatible_ids()) | {"online"}
 
 
+_DEFAULT_KEEP_ALIVE = "20m"
+
+
+_KEEP_ALIVE_SECONDS = re.compile(r"-?[0-9]+", re.ASCII)
+_KEEP_ALIVE_DURATION = re.compile(r"[0-9]+(?:ms|s|m|h)", re.ASCII)
+
+
+def _keep_alive_value(raw) -> str | int | None:
+    """A keep_alive in either wire form (a duration string or whole seconds), or None when it is neither."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        if _KEEP_ALIVE_SECONDS.fullmatch(text):
+            return int(text)
+        return text if _KEEP_ALIVE_DURATION.fullmatch(text) else None
+    return None
+
+
 def ollama_keep_alive() -> str | int:
-    """How long Ollama keeps a model loaded after a turn. 20 minutes by default; 0 unloads at once."""
-    raw = os.environ.get("FRIDAY_OLLAMA_KEEP_ALIVE", "").strip()
-    if not raw:
-        return "20m"
-    if raw.lstrip("-").isdigit():
-        return int(raw)
-    return raw
+    """How long Ollama keeps a model loaded after a turn; 0 unloads at once.
+
+    FRIDAY_OLLAMA_KEEP_ALIVE wins, then ollamaSettings.keep_alive in config/chat-tiers.json (the plan the desktop
+    reads too), then 20 minutes when that plan cannot be read.
+    """
+    env = _keep_alive_value(os.environ.get("FRIDAY_OLLAMA_KEEP_ALIVE", ""))
+    if env is not None:
+        return env
+    try:
+        data = json.loads(_CHAT_TIERS_PATH.read_text(encoding="utf-8"))
+        planned = _keep_alive_value(data["ollamaSettings"]["keep_alive"])
+    except (OSError, ValueError, KeyError, TypeError):
+        planned = None
+    return _DEFAULT_KEEP_ALIVE if planned is None else planned
 
 
 # One reader for the Ollama context window. The value is the shared plan in config/chat-tiers.json

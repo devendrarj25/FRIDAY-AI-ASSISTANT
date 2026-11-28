@@ -437,3 +437,85 @@ describe("the registry and the TTS ladder", () => {
       expect(pins.pinnedBytes(pins.pinForRepo(repo)!)).toBeGreaterThan(0);
   });
 });
+
+describe("a local build is tried before the release and the official source", () => {
+  type Source = { kind: string; repo?: string; label?: string };
+  const chain = req("../../electron/voice-weights.cjs") as {
+    withFridayRelease: (sources: Source[], deps: Record<string, unknown>) => Source[];
+  };
+
+  /** A fake disk that has every pinned file of a repository at the pinned size (no multi-hundred-MB temp files). */
+  const diskOf = (id: string, pin: Pin) => ({
+    statSync: (file: string) => {
+      const name = Object.keys(pin.files).find((n) =>
+        file.endsWith(path.join("models", id, ...n.split("/"))),
+      );
+      if (!name) throw Object.assign(new Error("missing"), { code: "ENOENT" });
+      return { isFile: () => true, size: pin.files[name]!.bytes };
+    },
+    realpathSync: Object.assign((p: string) => p, { native: (p: string) => p }),
+  });
+  const bundleFor = (id: string, pin: Pin, tweak = (sha: string) => sha) => ({
+    origin: "build-root",
+    dir: path.resolve("/built"),
+    bundle: {
+      packs: [],
+      models: [
+        {
+          fridayId: id,
+          dir: `models/${id}`,
+          files: Object.entries(pin.files).map(([name, row]) => ({
+            path: name,
+            bytes: row.bytes,
+            sha256: tweak(row.sha256),
+          })),
+        },
+      ],
+    },
+  });
+
+  it("puts local-bundle first for every optional pinned repository when the build holds the pinned files", () => {
+    for (const { id, repo } of PINNED) {
+      const pin = pins.pinForRepo(repo)!;
+      const sources: Source[] = [{ kind: "hf-repo", repo, label: "Hugging Face" }];
+      const out = chain.withFridayRelease(sources, {
+        modelId: id,
+        localBundles: [bundleFor(id, pin)],
+        localFs: diskOf(id, pin),
+        env: {},
+      });
+      expect(
+        out.map((s) => s.kind),
+        id,
+      ).toEqual(["local-bundle", ...out.slice(1).map((s) => s.kind)]);
+      expect(out[0]!.label).toBe("local build");
+      expect(out[out.length - 1]).toBe(sources[0]);
+    }
+  });
+
+  it("leaves the chain as it was when the bundle's hash differs from the pin, or the model is not named", () => {
+    for (const { id, repo } of PINNED) {
+      const pin = pins.pinForRepo(repo)!;
+      const sources: Source[] = [{ kind: "hf-repo", repo, label: "Hugging Face" }];
+      const wrong = chain.withFridayRelease(sources, {
+        modelId: id,
+        localBundles: [bundleFor(id, pin, () => "0".repeat(64))],
+        localFs: diskOf(id, pin),
+        env: {},
+      });
+      expect(
+        wrong.some((s) => s.kind === "local-bundle"),
+        id,
+      ).toBe(false);
+      const unnamed = chain.withFridayRelease(sources, {
+        localBundles: [bundleFor(id, pin)],
+        localFs: diskOf(id, pin),
+        env: {},
+      });
+      expect(
+        unnamed.some((s) => s.kind === "local-bundle"),
+        id,
+      ).toBe(false);
+    }
+  });
+});

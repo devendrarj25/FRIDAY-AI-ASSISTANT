@@ -1784,3 +1784,115 @@ describe("PR Validation keeps the write token away from the pull request's code"
     }
   });
 });
+
+/**
+ * The build record (friday-bundle.json) and the weight packs in the two publishing workflows. The behaviour of the
+ * pack step itself is run against stand-ins in ci-release-packs.test.ts; these pins hold the shape of the YAML.
+ */
+describe("build record and weight packs in the publishing workflows", () => {
+  const release = read("release.yml");
+  const testBuild = read("test-build.yml");
+  const releaseDoc = load("release.yml");
+  const stepText = (src: string, name: string) => {
+    const start = src.indexOf(`      - name: ${name}\n`);
+    expect(start, name).toBeGreaterThan(-1);
+    const next = src.indexOf("\n      - name: ", start + 1);
+    return src.slice(start, next < 0 ? undefined : next);
+  };
+  const code = (text: string) =>
+    text
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .join("\n");
+
+  it("keeps the last 3 OFFICIAL releases by their v tag, so a weight pack release is never deleted", () => {
+    const cleanup = stepText(release, "Keep only the last 3 releases");
+    expect(cleanup).toContain('select(.tagName|startswith("v"))');
+    expect(cleanup).toContain("select(.isPrerelease|not)");
+    expect(cleanup).toContain(".[3:]");
+    expect(release.split("gh release delete").length - 1).toBe(1);
+  });
+
+  it("keeps the last 3 TEST prereleases by their test tag, never an official release or a weight pack", () => {
+    const cleanup = stepText(testBuild, "Keep only the last 3 TEST prereleases");
+    expect(cleanup).toContain("select(.isPrerelease)");
+    expect(cleanup).toContain('select(.tagName|test("^v[0-9][0-9.]*-test\\\\.[0-9]+$"))');
+    expect(testBuild.split("gh release delete").length - 1).toBe(1);
+  });
+
+  it("uploads friday-bundle.json in the release, in a rebuild too, and refuses a release without it", () => {
+    const create = stepText(release, "Create GitHub Release");
+    expect(create).toContain('"release/friday-bundle.json" \\');
+    expect(create.indexOf("friday-bundle.json")).toBeLessThan(create.indexOf('"CHANGELOG.md"'));
+    expect(create).toMatch(/\[ ! -f "release\/friday-bundle\.json" \][\s\S]{0,200}exit 1/);
+    // the rebuild upload and the new-release script both take the same asset list
+    const rebuild = create.slice(create.indexOf("gh release upload"));
+    expect(rebuild).toContain('"${assets[@]}"');
+    expect(create).toContain('"${assets[@]}"');
+  });
+
+  it("confirms the bundle asset, that every pack tag it names is a release, and that no asset passes 2 GiB", () => {
+    const confirm = stepText(release, "Confirm the release and its assets");
+    expect(confirm).toContain('grep -q "friday-bundle.json"');
+    expect(confirm).toContain(
+      'require("./electron/build-bundle.cjs").read("release/friday-bundle.json")',
+    );
+    expect(confirm).toContain('gh release view "$ptag"');
+    expect(confirm).toContain("2147483648");
+    expect(confirm).toContain(".size >= 2147483648");
+  });
+
+  it("publishes the missing weight packs after the build and before the app release, one model at a time", () => {
+    const publish = releaseDoc.jobs.publish.steps.map((step: { name: string }) => step.name);
+    const at = publish.indexOf("Publish missing weight packs");
+    expect(at).toBeGreaterThan(publish.indexOf("Build with the shared pipeline"));
+    expect(at).toBeLessThan(publish.indexOf("Create GitHub Release"));
+    const step = releaseDoc.jobs.publish.steps[at];
+    const run = code(String(step.run));
+    expect(step.shell).toBe("bash");
+    expect(run).toContain("set -euo pipefail");
+    expect(run).toContain('--pack "$pack" --only "$model" --out "$out" --part-bytes "$part_bytes"');
+    expect(run).toContain('work="${RUNNER_TEMP:?RUNNER_TEMP required}/friday-packs"');
+    expect(run).toContain('rm -rf "$out"');
+    expect(run).toContain("df -Pk");
+    expect(run).toContain("skipped - every weight pack release already exists");
+    // draft first, checked before it is public, and never the latest release
+    expect(run).toContain("-F draft=true");
+    expect(run).toContain("-f make_latest=false");
+    expect(run).toContain("is not the built file");
+    expect(run).toContain("2147483648");
+    expect(run).toContain("1900000000");
+    // an existing tag is never touched
+    expect(run).not.toContain("gh release delete");
+    expect(run).not.toContain("gh release create");
+    expect(run).not.toContain("--clobber");
+    expect(run).not.toMatch(/gh release (edit|upload) "\$ptag"/);
+    expect(run).not.toContain("--prerelease");
+    // the token stays in the step env, the commit comes from the plan, nothing is echoed
+    expect(step.env.GH_TOKEN).toBe("${{ github.token }}");
+    expect(step.env.RELEASE_SHA).toBe("${{ steps.plan.outputs.sha }}");
+    expect(run).not.toContain('echo "$GH_TOKEN"');
+  });
+
+  it("gives the publish job room for the packs and the step its own limit, under the 6 hour job maximum", () => {
+    const step = releaseDoc.jobs.publish.steps.find(
+      (row: { name: string }) => row.name === "Publish missing weight packs",
+    );
+    expect(step["timeout-minutes"]).toBeLessThan(releaseDoc.jobs.publish["timeout-minutes"]);
+    expect(releaseDoc.jobs.publish["timeout-minutes"]).toBeGreaterThanOrEqual(300);
+    expect(releaseDoc.jobs.publish["timeout-minutes"]).toBeLessThanOrEqual(360);
+  });
+
+  it("publishes the build record with a TEST prerelease and builds no weight pack there", () => {
+    const publish = stepText(testBuild, "Publish the TEST prerelease (Test update channel)");
+    expect(publish).toContain(
+      'assets=("$setup" "$portable" release/friday-update.json release/friday-bundle.json release/SHA256SUMS.txt)',
+    );
+    expect(publish).toMatch(/\[ -f release\/friday-bundle\.json \] \|\| \{[\s\S]{0,200}exit 1/);
+    expect(publish).toContain(
+      '"FRIDAY-Portable-$version.exe" friday-update.json friday-bundle.json; do',
+    );
+    expect(testBuild).not.toContain("Publish missing weight packs");
+    expect(testBuild).not.toContain("build-friday-models");
+  });
+});

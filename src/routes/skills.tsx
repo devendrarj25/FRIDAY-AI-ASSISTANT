@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   DataTable,
@@ -26,7 +25,13 @@ import {
   EmptyState,
   LoadingState,
 } from "@/components/friday/ui";
-import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
+import {
+  useCapabilities,
+  type CapabilityItem,
+  type CapabilityStatus,
+} from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useLedger } from "@/lib/friday/self/use-self";
 import { lastUsedLabel, statsFor } from "@/lib/friday/self/mastery";
 import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
@@ -79,6 +84,7 @@ type SkillRow = {
   inputs: string[];
   /** "app" ships with FRIDAY; "workspace" was installed into the FRIDAY folder. */
   origin: "app" | "workspace";
+  layer?: CapabilityStatus | undefined;
   version: string;
   path: string;
   approvalPrompt: string;
@@ -116,7 +122,7 @@ function SkillsPage() {
   const [forgeGoal, setForgeGoal] = useState("");
   const [testInput, setTestInput] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, loading, items, refresh, toggle } = useCapabilities("skills");
+  const { supported, loading, error, items, refresh, toggle } = useCapabilities("skills");
   const { tasks } = useLedger();
 
   // Real skills come from the skill manifests on disk. Mastery/level are
@@ -147,6 +153,7 @@ function SkillsPage() {
         permissions: item.permissions || [],
         inputs: item.inputs || [],
         origin: item.origin,
+        layer: item.status,
         version: item.version || "",
         path: item.path || "",
         approvalPrompt: item.approvalPrompt || "",
@@ -600,18 +607,23 @@ function SkillsPage() {
             />
           ) : loading ? (
             <LoadingState label="Reading your skill folders…" rows={4} />
+          ) : error ? (
+            <ErrorState
+              title="Your skills could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
           ) : rows.length ? (
             <>
               <DataTable
                 pinLast
+                rowKey={(index) => rows[index]?.id || index}
                 columns={["Skill Name", "Category", "Status", "Level", "Last Used", "Actions"]}
                 rows={rows.slice(0, shown).map((s) => [
                   <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Puzzle className="size-3.5 text-primary" />
                     {s.name}
-                    <Badge variant="outline" className="text-note">
-                      {s.origin === "app" ? "Built-in" : "Installed"}
-                    </Badge>
+                    <CapabilityBadge status={s.layer} origin={s.origin} />
                     {s.version ? (
                       <span className="font-mono text-note text-muted-foreground">
                         v{s.version}
@@ -638,6 +650,13 @@ function SkillsPage() {
                     >
                       {s.enabled ? "Disable" : "Enable"}
                     </Button>
+                    <ResetBuiltinButton
+                      id={s.id}
+                      name={s.name}
+                      status={s.layer}
+                      refresh={refresh}
+                      disabled={Boolean(busyId)}
+                    />
                     <Button
                       size="sm"
                       variant="outline"

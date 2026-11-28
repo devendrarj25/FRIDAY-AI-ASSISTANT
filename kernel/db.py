@@ -60,6 +60,9 @@ CREATE INDEX IF NOT EXISTS idx_task_steps_task_id ON task_steps(task_id, id);
 """
 
 BUSY_TIMEOUT_MS = 5000
+# PRAGMA quick_check reads the whole file. Up to this size it runs on every boot; above it only after a start that
+# did not follow a clean shutdown (see Storage.mark_clean), and otherwise a read of the first page and the schema.
+QUICK_CHECK_MAX_BYTES = 64 * 1024 * 1024
 
 
 def _locked(method):
@@ -114,6 +117,51 @@ class Storage:
             return not cls._is_corruption(error)
         return len(rows) == 1 and str(rows[0][0]).lower() == "ok"
 
+    @classmethod
+    def _passes_header_probe(cls, conn: sqlite3.Connection) -> bool:
+        """The cheap check for a large file after a clean shutdown: the header and the schema table must read."""
+        try:
+            conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        except sqlite3.Error as error:
+            return not cls._is_corruption(error)
+        return True
+
+    def _clean_mark(self) -> Path:
+        return Path(str(self.path) + ".clean")
+
+    def _took_clean_mark(self) -> bool:
+        """True when the last run ended through mark_clean. The mark is consumed: a run that is killed leaves none."""
+        mark = self._clean_mark()
+        present = mark.exists()
+        try:
+            mark.unlink(missing_ok=True)
+        except OSError:  # noqa: S110 - an undeletable mark only makes the next boot trust a file it should scan
+            pass
+        return present
+
+    def mark_clean(self) -> None:
+        """Called on a normal shutdown: fold the WAL into the file and leave a mark, so the next boot can skip the
+        full scan of a large database. A failure here only means the next boot scans in full."""
+        conn = self._conn
+        if conn is None or self._memory_only:
+            return
+        try:
+            conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+            self._clean_mark().write_text("clean", encoding="ascii")
+        except (sqlite3.Error, OSError):  # noqa: S110
+            pass
+
+    def _boot_check(self, conn: sqlite3.Connection) -> bool:
+        clean = self._took_clean_mark()
+        try:
+            large = self.path.stat().st_size > QUICK_CHECK_MAX_BYTES
+        except OSError:
+            large = False
+        if large and clean:
+            return self._passes_header_probe(conn)
+        return self._passes_quick_check(conn)
+
     def _set_aside(self) -> Path | None:
         """Rename the damaged file (and its journal files) to `<name>.corrupt-<stamp>`; the bytes are kept.
 
@@ -139,7 +187,7 @@ class Storage:
 
     def _open(self) -> None:
         conn = self._connect()
-        if not self._passes_quick_check(conn):
+        if not self._boot_check(conn):
             # Never stop the kernel at import for a damaged file: keep it, then restore the backup or start fresh.
             conn.close()
             aside = self._set_aside()
@@ -186,9 +234,10 @@ class Storage:
     def close(self) -> None:
         """Release the file. Windows will not delete a database that is still open."""
         conn = self._conn
-        self._conn = None
         if conn is None:
             return
+        self.mark_clean()
+        self._conn = None
         try:
             conn.close()
         except Exception:  # noqa: S110 — a second close on Windows is already finished

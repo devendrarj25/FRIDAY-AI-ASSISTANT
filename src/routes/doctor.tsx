@@ -169,7 +169,7 @@ function DoctorPage() {
 
   useEffect(() => {
     registerDoctorAsk((prompt) => {
-      const result = brain.send(prompt, { extra: formatDoctorExtra() });
+      const result = brain.send(prompt, { extra: formatDoctorExtra(), promptOrigin: "typed" });
       if (!result.accepted) toast.error(result.message || "FRIDAY is busy.");
     });
     return () => registerDoctorAsk(null);
@@ -264,7 +264,10 @@ function DoctorPage() {
 
   const askAbout = (check: DoctorCheck) => {
     if (brainState.activeRunId) return;
-    brain.send(`explain ${check.label} on setup and doctor`, { extra: formatDoctorExtra() });
+    brain.send(`explain ${check.label} on setup and doctor`, {
+      extra: formatDoctorExtra(),
+      promptOrigin: "typed",
+    });
   };
 
   const askFriday = () => {
@@ -272,7 +275,7 @@ function DoctorPage() {
     if (!text || brainState.activeRunId) return;
     setAsk("");
     const prompt = /doctor|setup|scan|repair|diagnos/i.test(text) ? text : `${text} in the doctor`;
-    brain.send(prompt, { extra: formatDoctorExtra() });
+    brain.send(prompt, { extra: formatDoctorExtra(), promptOrigin: "typed" });
   };
 
   return (

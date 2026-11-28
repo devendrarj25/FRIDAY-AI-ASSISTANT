@@ -155,6 +155,8 @@ Your files are in the `release` folder inside your FRIDAY folder:
 - `release\FRIDAY-Portable-1.2.5.7.exe` (no installer)
 - `release\win-unpacked\FRIDAY.exe` (the unpacked program)
 
+After a green run the build also copies the Setup, the Portable EXE, `friday-update.json` and `friday-bundle.json` into `installer\installers\<version>` inside your FRIDAY folder and adds a `placed` row to the closing table (SKIP, with the reason, when it could not). `set FRIDAY_PLACE_BUILD=0` turns that off. `set FRIDAY_BUILD_PACKS=1` also builds the FRIDAY weight packs into `installer\packs\<tag>` (off by default, about 28 GB, and only when your FRIDAY folder is not the source checkout). Unverified on Windows until you run it. Details: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+
 Optional: `npm run verify:install` runs the finished build once in a throwaway folder and chats with it (it needs a loaded local model or a cloud key for the chat part).
 
 Want only one? `scripts\build-windows.cmd nsis` builds Setup only, `scripts\build-windows.cmd portable` builds Portable only, and `npm run build:win:dir` builds only the unpacked folder (fastest, for testing).
@@ -257,6 +259,7 @@ Open **Install Manager** for the tools FRIDAY can use on your PC: Git, Node, Pyt
 - The page re-reads your PC every five minutes and after every install. A row shows installed or missing, the installed version and the newest version.
 - Press **Install** on a row, or **Update** to update it. It uses `winget` first and the vendor's own checked installer if winget cannot. **Refresh** reads again; **Update all** updates what has a newer version; **Cancel** stops a download or an installer.
 - On an app installed from a release, the button **Install agent toolkit** installs the same toolkit Path B installs (search and convert helpers, Git and build tools, Go, Rust, Java with Maven and Gradle, C and C++ (GCC), Ruby, PHP with Composer, .NET with dotnet-script, eSpeak NG, WSL 2, Docker, Windows Sandbox, and CUDA with an NVIDIA card). Some of these ask for administrator approval.
+- **Local builds:** the **Local builds** panel looks on this PC for a build made with `build:win` (or a Setup folder that carries `friday-bundle.json`) and **Use local builds** copies the models it holds into your FRIDAY folder, so they are not downloaded again. Only files that match the recorded SHA-256 are used, nothing is overwritten and the build folder is never changed. The switch **Look for local builds before downloading** is on by default (setting `install.useLocalBuilds`; `FRIDAY_LOCAL_BUNDLES=0` turns it off for a run). Order for a model: a local build, the FRIDAY release, the official source. Unverified on Windows.
 - **Your own tools:** the **Software** section can add anything that installs with winget, npm or pip.
 - **Services** (Ollama, LM Studio, Docker Desktop) can be started and stopped there.
 
@@ -606,19 +609,20 @@ Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run bui
 
 One scannable root: the folder you run setup and `build:win` in is it, unless you already chose another folder (the installer then offers it as the install folder). Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 
-| Location                                                 | What it is                                                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `<root>\App`                                             | Program files (`FRIDAY.exe`, resources). Replaced by a normal upgrade / keep-data uninstall |
-| `<root>\runtime\.venv`                                   | Isolated CPython the installed app launches (after a folder is chosen)                      |
-| `<root>\database`                                        | `friday.sqlite3` — the kernel database                                                      |
-| `<root>\models` and `<root>\models\wake`                 | Downloaded weights and wake `.onnx` files                                                   |
-| `<root>\config`                                          | Including `first-run.json`, `github.json` (update channel)                                  |
-| `HKCU\Software\FRIDAY\WorkspacePath`                     | Pointer to the root                                                                         |
-| Checkout `.venv`                                         | Only on a machine where the checkout cannot be the root (not Windows, or Program Files)     |
-| Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`)                       |
-| Checkout `temporary\downloads`                           | Official installer payloads during `npm run setup`                                          |
-| Checkout `dist-desktop\`                                 | Renderer bundle                                                                             |
-| Checkout `release\`                                      | `FRIDAY-Setup-1.2.5.7.exe`, `FRIDAY-Portable-1.2.5.7.exe`, `win-unpacked\FRIDAY.exe`        |
+| Location                                                 | What it is                                                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<root>\App`                                             | Program files (`FRIDAY.exe`, resources). Replaced by a normal upgrade / keep-data uninstall                                                         |
+| `<root>\installer\installers\<version>`                  | The built Setup, Portable, `friday-update.json` and `friday-bundle.json`, placed by `build:win`; never deleted by an update or uninstall of the app |
+| `<root>\runtime\.venv`                                   | Isolated CPython the installed app launches (after a folder is chosen)                                                                              |
+| `<root>\database`                                        | `friday.sqlite3` — the kernel database                                                                                                              |
+| `<root>\models` and `<root>\models\wake`                 | Downloaded weights and wake `.onnx` files                                                                                                           |
+| `<root>\config`                                          | Including `first-run.json`, `github.json` (update channel)                                                                                          |
+| `HKCU\Software\FRIDAY\WorkspacePath`                     | Pointer to the root                                                                                                                                 |
+| Checkout `.venv`                                         | Only on a machine where the checkout cannot be the root (not Windows, or Program Files)                                                             |
+| Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`)                                                                               |
+| Checkout `temporary\downloads`                           | Official installer payloads during `npm run setup`                                                                                                  |
+| Checkout `dist-desktop\`                                 | Renderer bundle                                                                                                                                     |
+| Checkout `release\`                                      | `FRIDAY-Setup-1.2.5.7.exe`, `FRIDAY-Portable-1.2.5.7.exe`, `win-unpacked\FRIDAY.exe`                                                                |
 
 ### 16.6 Troubleshooting (technical)
 

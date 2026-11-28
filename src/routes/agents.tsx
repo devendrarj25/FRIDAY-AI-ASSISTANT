@@ -15,7 +15,13 @@ import {
   toneForStatus,
   EmptyState,
 } from "@/components/friday/ui";
-import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
+import {
+  useCapabilities,
+  type CapabilityItem,
+  type CapabilityStatus,
+} from "@/lib/friday/capability-trees";
+import { CapabilityBadge, ResetBuiltinButton } from "@/components/friday/CapabilityBadge";
+import { ErrorState } from "@/components/friday/PageStates";
 import { useLedger } from "@/lib/friday/self/use-self";
 import { lastUsedLabel, statsFor, tasksFor } from "@/lib/friday/self/mastery";
 import { hub } from "@/lib/friday/hub-engine";
@@ -65,6 +71,7 @@ type AgentRow = {
   lastRunLabel: string;
   lastRunPreview: string;
   origin: "app" | "workspace" | "";
+  layer?: CapabilityStatus | undefined;
 };
 
 const DESKTOP_ONLY = "This change needs the FRIDAY desktop app.";
@@ -105,7 +112,7 @@ function AgentsPage() {
   const [forgeGoal, setForgeGoal] = useState("");
   const [testInput, setTestInput] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, items, refresh, toggle } = useCapabilities("agents");
+  const { supported, error, items, refresh, toggle } = useCapabilities("agents");
   const { tasks } = useLedger();
 
   // Real agents come from the agent manifests on disk; their status and load
@@ -135,6 +142,7 @@ function AgentsPage() {
         lastRunLabel: last.label,
         lastRunPreview: last.preview,
         origin: item.origin,
+        layer: item.status,
       };
     });
   }, [supported, items, tasks]);
@@ -345,10 +353,17 @@ function AgentsPage() {
               ]}
             />
           </div>
-          {rows.length ? (
+          {error ? (
+            <ErrorState
+              title="Your agents could not be listed"
+              error={error}
+              onRetry={() => void refresh()}
+            />
+          ) : rows.length ? (
             <>
               <DataTable
                 pinLast
+                rowKey={(index) => rows[index]?.id || index}
                 columns={[
                   "Agent Name",
                   "Category",
@@ -359,9 +374,10 @@ function AgentsPage() {
                   "Actions",
                 ]}
                 rows={rows.map((a) => [
-                  <span key="n" className="flex items-center gap-2 text-foreground">
+                  <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Users className="size-3.5 text-primary" />
                     {a.name}
+                    <CapabilityBadge status={a.layer} origin={a.origin} />
                   </span>,
                   <span key="c" className="text-muted-foreground">
                     {a.category || "—"}
@@ -390,6 +406,13 @@ function AgentsPage() {
                       onCheckedChange={(next) => void onToggle(a, next)}
                       disabled={!a.id || Boolean(busyId)}
                       aria-label={`Enable ${a.name}`}
+                    />
+                    <ResetBuiltinButton
+                      id={a.id}
+                      name={a.name}
+                      status={a.layer}
+                      refresh={refresh}
+                      disabled={Boolean(busyId)}
                     />
                     <Button
                       size="sm"

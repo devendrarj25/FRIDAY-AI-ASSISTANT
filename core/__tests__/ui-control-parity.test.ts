@@ -47,6 +47,16 @@ export const RENAMES: Record<string, string> = {
   "Mute microphone": "Pause listening",
   "Speaker match threshold":
     "Speaker match bar (0.30 to 0.99; 0.75 is what your saved voice was measured at)",
+  // Voice diagnostics: the actions are the shared ghost Button with sentence-case labels (they were small
+  // upper-cased text), same meaning.
+  "copy diagnostics": "Copy diagnostics",
+  "fix voice": "Fix voice",
+  "listening…": "Listening…",
+  "mic test": "Mic test",
+  "probing…": "Probing…",
+  "reset microphone": "Reset microphone",
+  "speak test": "Speak test",
+  "speaking…": "Speaking…",
 };
 
 describe("UI control parity", () => {
