@@ -732,8 +732,15 @@ describe("the root guard refuses a drive, a system folder and a folder above the
       w.tree.add(p);
     return w;
   };
-  const guard = (root: string, mode: "keep" | "delete", over: Partial<World> = {}): string => {
+  // An installed FRIDAY folder carries the workspace marker; the allow-list tests below turn it off.
+  const guard = (
+    root: string,
+    mode: "keep" | "delete",
+    over: Partial<World> = {},
+    marked = true,
+  ): string => {
     const w = drive(world(over));
+    if (marked) w.tree.add(`${root}\\workspace.json`);
     w.vars["FridayUnRoot"] = root;
     w.vars["FridayUnMode"] = mode;
     runShipped(w, "Call un.FridayRefuseUnsafeRoot");
@@ -789,6 +796,87 @@ describe("the root guard refuses a drive, a system folder and a folder above the
     ];
     for (const mode of ["keep", "delete"] as const)
       for (const root of fine) expect(guard(root, mode), `${mode} ${root}`).toBe(root);
+  });
+
+  it("refuses the shell folders and the folder that holds the profile in both modes, even with a FRIDAY marker inside", () => {
+    const shell = {
+      DOCUMENTS: "C:\\Users\\owner\\Documents",
+      DESKTOP: "C:\\Users\\owner\\Desktop",
+      APPDATA: "C:\\Users\\owner\\AppData\\Roaming",
+      LOCALAPPDATA: "C:\\Users\\owner\\AppData\\Local",
+    };
+    const stale = [
+      "C:\\Users",
+      "C:\\Users\\",
+      "C:\\Users\\owner\\..",
+      ...Object.values(shell),
+      "c:\\users\\OWNER\\documents\\",
+    ];
+    for (const mode of ["keep", "delete"] as const)
+      for (const root of stale) {
+        const w = drive(world());
+        for (const p of Object.values(shell)) w.tree.add(p);
+        w.tree.add("C:\\Users");
+        Object.assign(w.vars, shell);
+        w.tree.add(`${root}\\workspace.json`);
+        w.vars["FridayUnRoot"] = root;
+        w.vars["FridayUnMode"] = mode;
+        runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+        expect(w.vars["FridayUnRoot"], `${mode} ${root}`).toBe("");
+      }
+  });
+
+  it("compares the shell folders after normalising, so a junction that is the profile still matches", () => {
+    const over = {
+      junctions: { "e:\\mydocs": "C:\\Users\\owner\\Documents", "e:\\me": "C:\\Users\\owner" },
+    };
+    for (const mode of ["keep", "delete"] as const)
+      for (const root of ["E:\\MyDocs", "E:\\Me"]) {
+        const w = drive(world(over));
+        w.tree.add("C:\\Users\\owner\\Documents");
+        w.tree.add("E:\\MyDocs");
+        w.tree.add("E:\\Me");
+        w.vars["DOCUMENTS"] = "C:\\Users\\owner\\Documents";
+        w.vars["FridayUnRoot"] = root;
+        w.vars["FridayUnMode"] = mode;
+        runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+        expect(w.vars["FridayUnRoot"], `${mode} ${root}`).toBe("");
+      }
+  });
+
+  it("delete mode is an allow-list: only the program folder's parent or a folder with a FRIDAY marker may be deleted", () => {
+    const stranger = ["E:\\Stuff", "C:\\Users\\owner\\Projects", "D:\\Apps\\Other"];
+    for (const root of stranger) {
+      expect(guard(root, "delete", {}, false), `delete ${root}`).toBe("");
+      // Keep mode never deletes the folder, so the move guard still handles it as before.
+      expect(guard(root, "keep", {}, false), `keep ${root}`).toBe(root);
+    }
+    // The program folder's parent is the by-design root, with or without a marker; any spelling of it.
+    for (const root of ["D:\\Apps\\FRIDAY", "D:/Apps/FRIDAY/", "D:\\Apps\\FRIDAY\\App\\.."])
+      expect(guard(root, "delete", {}, false), root).toBe(root);
+    // Each marker FRIDAY itself writes or detects is enough.
+    for (const marker of [
+      "workspace.json",
+      "friday.json",
+      "database\\friday.sqlite3",
+      "database\\friday.db",
+    ]) {
+      const w = drive(world());
+      w.tree.add("E:\\Stuff");
+      w.tree.add(`E:\\Stuff\\${marker}`);
+      w.vars["FridayUnRoot"] = "E:\\Stuff";
+      w.vars["FridayUnMode"] = "delete";
+      runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+      expect(w.vars["FridayUnRoot"], marker).toBe("E:\\Stuff");
+    }
+    // A "config" or "database" folder alone is a shape any folder can have: it is not a marker.
+    const w = drive(world());
+    for (const p of ["E:\\Stuff", "E:\\Stuff\\config", "E:\\Stuff\\database", "E:\\Stuff\\memory"])
+      w.tree.add(p);
+    w.vars["FridayUnRoot"] = "E:\\Stuff";
+    w.vars["FridayUnMode"] = "delete";
+    runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+    expect(w.vars["FridayUnRoot"]).toBe("");
   });
 
   it("never refuses an empty pointer, and never invents one", () => {
@@ -935,7 +1023,7 @@ describe("the preserved folder name is checked again right before the move", () 
     }
   });
 
-  it("checks after the note is written and before the rename, and the move helper refuses an existing destination itself", () => {
+  it("checks after the note is written and before the rename", () => {
     const region = guardRegion();
     const note = region.indexOf(
       'WriteRegStr HKCU "Software\\FRIDAY" "DataMoveNote" "The FRIDAY data folder',
@@ -944,10 +1032,36 @@ describe("the preserved folder name is checked again right before the move", () 
     const recheck = region.indexOf('${If} ${FileExists} "$4"', note);
     expect(recheck).toBeGreaterThan(note);
     expect(recheck).toBeLessThan(rename);
+  });
+
+  it("the move helper moves with one call that fails when the destination exists, never test-then-move", () => {
+    const region = guardRegion();
     const helper = region.slice(region.indexOf("nsExec::ExecToLog"));
-    const test = helper.indexOf("Test-Path -LiteralPath $$env:FRIDAY_UN_TO");
-    expect(test).toBeGreaterThan(-1);
-    expect(test).toBeLessThan(helper.indexOf("Move-Item"));
-    expect(helper.slice(test, helper.indexOf("Move-Item"))).toContain("exit 3");
+    const line = helper.slice(0, helper.indexOf("\n"));
+    // [System.IO.Directory]::Move is one operation: it throws when the destination appears, and nothing is nested.
+    expect(line).toContain("[System.IO.Directory]::Move($$f, $$t)");
+    expect(line).not.toContain("Test-Path");
+    // A failed move is "not moved" (exit 3); the proof after it reads the folder, not the exit code.
+    expect(line).toContain("exit 3");
+    // The only other move is the cross-volume fallback, and it moves the children into a destination that it
+    // had to create itself (New-Item without -Force fails when the folder exists).
+    const create = line.indexOf("New-Item -ItemType Directory -Path $$t -ErrorAction Stop");
+    expect(create).toBeGreaterThan(-1);
+    expect(line.indexOf("GetPathRoot($$f) -ne [System.IO.Path]::GetPathRoot($$t)")).toBeLessThan(
+      create,
+    );
+    expect(line).not.toContain("-Force -ErrorAction Stop");
+    expect([...line.matchAll(/Move-Item/g)]).toHaveLength(1);
+    expect(line.indexOf("Move-Item")).toBeGreaterThan(create);
+    expect(line).not.toContain("Move-Item -LiteralPath $$env:FRIDAY_UN_FROM");
+  });
+
+  it("a destination that appears makes the helper move nothing: the folder it names is left as it was", () => {
+    // The helper cannot run here; this pins what the simulation stands for. The world's "none" helper is the
+    // exit-3 outcome and must stop the uninstall with the data and the note intact.
+    const w = world({ renameFails: true, helper: "none" });
+    expect(() => runGuard(w)).toThrow(UninstallAborted);
+    expect(under(w.tree, DATA)).toHaveLength(5);
+    expect(w.reg["Software\\FRIDAY\\DataMoveNote"]).toContain(DATA);
   });
 });

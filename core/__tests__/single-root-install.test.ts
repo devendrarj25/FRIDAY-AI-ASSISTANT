@@ -40,6 +40,8 @@ type Env = {
   ran?: string[];
   /** Environment variables the script set for the detached sweeper through System::Call. */
   sweepEnv?: Record<string, string>;
+  /** The NSIS stack: Push and Pop of a variable save and restore it, as a function's scratch registers do. */
+  stack?: string[];
 };
 
 /** Body of a named NSIS function from the shipped script. */
@@ -139,8 +141,18 @@ function runNsis(body: string, env: Env): void {
       runNsis(functionBody(call[1]!), env);
       continue;
     }
-    // Push and Pop only save and restore the scratch registers of a function; the run keeps one flat set of variables.
-    if (/^(DetailPrint|ClearErrors|Push|Pop|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
+    // Push and Pop of a variable save and restore it, so a function's scratch registers read as they do in NSIS.
+    const push = /^Push\s+\$(\w+)$/.exec(line);
+    if (push) {
+      (env.stack ??= []).push(env.vars[push[1]!] ?? "");
+      continue;
+    }
+    const pop = /^Pop\s+\$(\w+)$/.exec(line);
+    if (pop) {
+      env.vars[pop[1]!] = env.stack?.pop() ?? "";
+      continue;
+    }
+    if (/^(DetailPrint|ClearErrors|SetShellVarContext|SetOutPath)\b/.test(line)) continue;
 
     const rmdir = /^RMDir\s+(?:\/r\s+)?(.+)$/.exec(line);
     if (rmdir) {
@@ -368,6 +380,38 @@ describe("uninstall executed against a real folder tree", () => {
     expect(env.deferred).toContain(instdir);
     expect(existsSync(root)).toBe(false);
     expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  it("delete mode never erases a stale pointer to a folder that is not FRIDAY's, and still erases one that carries a marker", () => {
+    for (const named of [false, true]) {
+      const { base, instdir, env } = buildInstall();
+      const documents = join(base, "profile", "Documents");
+      const plain = join(base, "profile", "Projects");
+      for (const folder of [documents, plain]) {
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "mine.txt"), "the owner's file");
+      }
+      env.vars["DOCUMENTS"] = documents;
+      env.vars["FridayUnMode"] = "delete";
+      // A pointer left over, or edited, so that it names a folder FRIDAY never made: the shell folder and a plain one.
+      for (const stale of [documents, plain]) {
+        env.reg["Software\\FRIDAY\\WorkspacePath"] = stale;
+        env.vars["FridayUnRoot"] = named ? stale : "";
+        runNsis(macroBody("customUnInstall"), env);
+        expect(readFileSync(join(stale, "mine.txt"), "utf8"), `${named} ${stale}`).toBe(
+          "the owner's file",
+        );
+        // The program folder itself is still removed, so a failed pointer never keeps the uninstall from finishing.
+        expect(env.deferred, `${named} ${stale}`).not.toContain(stale);
+      }
+      // The same folder, once it carries the marker FRIDAY writes, is the owner's FRIDAY folder and is erased.
+      writeFileSync(join(plain, "workspace.json"), "{}");
+      env.reg["Software\\FRIDAY\\WorkspacePath"] = plain;
+      env.vars["FridayUnRoot"] = named ? plain : "";
+      runNsis(macroBody("customUnInstall"), env);
+      expect(existsSync(plain), `${named} marked`).toBe(false);
+      expect(existsSync(instdir)).toBe(true);
+    }
   });
 
   it("delete mode on a source checkout keeps the owner's source and Git history and hands the data to the helper", () => {

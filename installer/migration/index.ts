@@ -71,7 +71,8 @@ export function runMigrations(
   // A ledger that cannot be read is left as it is: writing a fresh list over it would run everything again.
   if (!settleLedger(root)) return [];
   const applied = appliedMigrations(root);
-  const seen = new Set(applied.map((m) => m.id));
+  // A row that is not an object (null, a number) cannot name a migration: it is kept and skipped, as the boot runner does.
+  const seen = new Set(applied.map((m) => m?.id));
   for (const migration of MIGRATIONS) {
     if (seen.has(migration.id)) continue;
     migration.run(root);

@@ -594,13 +594,69 @@ Function un.FridayNormalizePath
   Pop $R0
 FunctionEnd
 
+; In: $FridayUnPath a folder and $R0 the normalised FRIDAY folder (the caller's). Out: $FridayUnPath "1" when that folder,
+; written the way Windows spells it, is the FRIDAY folder, else "0". A folder Windows cannot place is never equal.
+Function un.FridayIsRoot
+  Call un.FridayNormalizePath
+  ${If} $FridayUnPath != ""
+  ${AndIf} $FridayUnPath == "$R0"
+    StrCpy $FridayUnPath "1"
+  ${Else}
+    StrCpy $FridayUnPath "0"
+  ${EndIf}
+FunctionEnd
+
+; In: $R0 the normalised FRIDAY folder (the caller's). Out: $FridayUnPath "1" when it is the user's profile, the folder
+; that holds the profile, or the Documents, Desktop, Roaming or Local application data folder, each compared after it
+; is normalised too (so a junction that leads to one of them matches). $R1 is saved and restored.
+Function un.FridayRootIsShellFolder
+  Push $R1
+  StrCpy $R1 "0"
+  StrCpy $FridayUnPath "$PROFILE"
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$PROFILE\.."
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$DOCUMENTS"
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$DESKTOP"
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$APPDATA"
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$LOCALAPPDATA"
+  Call un.FridayIsRoot
+  ${If} $FridayUnPath == "1"
+    StrCpy $R1 "1"
+  ${EndIf}
+  StrCpy $FridayUnPath "$R1"
+  Pop $R1
+FunctionEnd
+
 ; The FRIDAY folder named by $FridayUnRoot is never one this uninstaller may release or delete when, written the way
 ; Windows really spells it (junctions followed), it is a whole drive, the user's profile, the Windows folder, a Program
 ; Files folder, or a folder that lies above the parent of the program folder (the program folder is "<root>\App", so the
 ; root can be that parent and nothing higher). It is then cleared to "": the program folder is still removed, the
-; pointer is left for the owner to correct, and nothing outside it is touched. A path Windows cannot place is kept in
-; keep mode (the data guard counts an unknown path as inside and moves it out) and refused in delete mode. Runs in both
-; modes, on the normalised pointer, so "D:\\", "D:\.", "\\?\D:\" and a junction to any of them read the same.
+; pointer is left for the owner to correct, and nothing outside it is touched. The profile, the folder that holds it and
+; the Documents, Desktop and application data folders are refused the same way. A path Windows cannot place is kept in
+; keep mode (the data guard counts an unknown path as inside and moves it out) and refused in delete mode. Delete mode
+; is an allow-list: the folder must be the parent of the program folder (the folder this installation made) or carry a
+; FRIDAY marker (workspace.json, friday.json or the database file FRIDAY writes); a stale or edited pointer to any other
+; folder is never erased. Runs in both modes, on the normalised pointer, so "D:\\", "D:\.", "\\?\D:\" and a junction
+; to any of them read the same.
 ; In and out: $FridayUnRoot. Reads $FridayUnMode. The scratch registers $R0-$R3 are saved and restored.
 Function un.FridayRefuseUnsafeRoot
   ${If} $FridayUnRoot != ""
@@ -630,16 +686,35 @@ Function un.FridayRefuseUnsafeRoot
       ${OrIf} $R0 == "$PROGRAMFILES64"
         StrCpy $R3 "a whole drive or a system folder"
       ${Else}
-        ${If} $R1 == ""
-          ${If} $FridayUnMode == "delete"
-            StrCpy $R3 "a folder whose place relative to the program folder Windows cannot tell"
-          ${EndIf}
+        Call un.FridayRootIsShellFolder
+        ${If} $FridayUnPath == "1"
+          StrCpy $R3 "the profile, the folder that holds it, or a Documents, Desktop or application data folder"
         ${Else}
-          ; The root is above the parent of the program folder when that parent starts with "<root>\".
-          StrLen $R2 "$R0\"
-          StrCpy $R1 "$R1" $R2
-          ${If} "$R1" == "$R0\"
-            StrCpy $R3 "a folder above the parent of the program folder"
+          ${If} $R1 == ""
+            ${If} $FridayUnMode == "delete"
+              StrCpy $R3 "a folder whose place relative to the program folder Windows cannot tell"
+            ${EndIf}
+          ${Else}
+            ; Delete mode erases the whole folder, so it must be one FRIDAY made or marked: the parent of the program
+            ; folder, or a folder with a marker FRIDAY writes. R2 is free again here (the length test is over).
+            StrCpy $R2 "0"
+            ${If} $R0 == "$R1"
+            ${OrIf} ${FileExists} "$R0\workspace.json"
+            ${OrIf} ${FileExists} "$R0\friday.json"
+            ${OrIf} ${FileExists} "$R0\database\friday.sqlite3"
+            ${OrIf} ${FileExists} "$R0\database\friday.db"
+              StrCpy $R2 "1"
+            ${EndIf}
+            ${If} $FridayUnMode == "delete"
+            ${AndIf} $R2 == "0"
+              StrCpy $R3 "a folder that FRIDAY did not make and that carries no FRIDAY marker"
+            ${EndIf}
+            ; The root is above the parent of the program folder when that parent starts with "<root>\".
+            StrLen $R2 "$R0\"
+            StrCpy $R1 "$R1" $R2
+            ${If} "$R1" == "$R0\"
+              StrCpy $R3 "a folder above the parent of the program folder"
+            ${EndIf}
           ${EndIf}
         ${EndIf}
       ${EndIf}
@@ -801,11 +876,14 @@ FunctionEnd
       ${If} ${Errors}
         ; Different volume or a locked handle — copy it out instead. The two folders travel in the environment of
         ; the helper, not in its command line: an apostrophe in a folder or user name would end the PowerShell
-        ; quote and break the move, or inject a command into it. The helper moves nothing when the destination
-        ; exists by then (exit 3), because Move-Item would put the data inside it.
+        ; quote and break the move, or inject a command into it. The helper moves with one call that fails when the
+        ; destination exists, however late it appeared (Directory.Move), so the data is never nested in a folder
+        ; that turned up after the check; a failure is "not moved" (exit 3), and the proof below reads the folder,
+        ; not the exit code. Directory.Move does not cross volumes: then, and only then, the helper creates the
+        ; destination itself (it fails when it exists) and moves the contents into it.
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_FROM", t "$FridayUnRoot")'
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_TO", t "$4")'
-        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath $$env:FRIDAY_UN_TO) { exit 3 }; Move-Item -LiteralPath $$env:FRIDAY_UN_FROM -Destination $$env:FRIDAY_UN_TO -Force -ErrorAction SilentlyContinue"'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$f = $$env:FRIDAY_UN_FROM; $$t = $$env:FRIDAY_UN_TO; try { [System.IO.Directory]::Move($$f, $$t) } catch { if ([System.IO.Path]::GetPathRoot($$f) -ne [System.IO.Path]::GetPathRoot($$t)) { try { New-Item -ItemType Directory -Path $$t -ErrorAction Stop | Out-Null; Get-ChildItem -LiteralPath $$f -Force | Move-Item -Destination $$t -Force -ErrorAction SilentlyContinue } catch { exit 3 } } else { exit 3 } }"'
         Pop $0
       ${EndIf}
       ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder

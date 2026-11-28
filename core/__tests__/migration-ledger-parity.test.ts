@@ -34,8 +34,8 @@ type Fixture = {
   name: string;
   main: string | Buffer | "dir" | null;
   bak: string | Buffer | null;
-  /** The ledger ids after a run, or "unreadable" when the main file is left as it is. */
-  after: string[] | "left";
+  /** The ledger ids after a run (a row without an id reads null), or "left" when the main file is left as it is. */
+  after: (string | null)[] | "left";
 };
 
 const fixtures: Fixture[] = [
@@ -92,6 +92,19 @@ const fixtures: Fixture[] = [
   { name: "main is empty and the backup is good", main: "", bak: OLD, after: ["0000-old", NEW_ID] },
   { name: "main is empty and there is no backup", main: "", bak: null, after: "left" },
   { name: "main is empty and the backup is empty", main: "", bak: "", after: "left" },
+  { name: "main holds a null row", main: "[null]", bak: null, after: [null, NEW_ID] },
+  {
+    name: "main holds rows without an id (a number and an empty object)",
+    main: "[1,{}]",
+    bak: null,
+    after: [null, null, NEW_ID],
+  },
+  {
+    name: "main holds a good row, a null row and a bare number",
+    main: `[{"id":"0000-old","appliedAt":1},null,5]`,
+    bak: null,
+    after: ["0000-old", null, null, NEW_ID],
+  },
   {
     name: "main cannot be replaced (a folder stands in its place) and the backup is good",
     main: "dir",
@@ -122,12 +135,12 @@ afterEach(() => {
 function outcome(root: string, fixture: Fixture) {
   const file = boot.ledgerFile(root);
   const stat = fs.existsSync(file) ? fs.statSync(file) : null;
-  let ids: string[] | "left" = "left";
+  let ids: (string | null)[] | "left" = "left";
   if (stat?.isFile()) {
     try {
       const rows = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (Array.isArray(rows) && rows.some((row: { id: string }) => row.id === NEW_ID))
-        ids = rows.map((row: { id: string }) => row.id);
+      const idOf = (row: { id?: string } | null) => row?.id ?? null;
+      if (Array.isArray(rows) && rows.some((row) => idOf(row) === NEW_ID)) ids = rows.map(idOf);
     } catch {
       /* damaged and left as it is */
     }
