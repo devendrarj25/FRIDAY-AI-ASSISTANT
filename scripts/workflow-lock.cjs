@@ -17,6 +17,13 @@
  *
  * The CMD chain list is the one AGENTS.md names in its "The Windows CMD chain" section. Every command takes an
  * optional `--root <dir>` to work on another checkout (the tests use a temporary copy).
+ *
+ * The third lock is NOT dormant: `config/agents-lock.json` records AGENTS.md and is always on (no switch). The hash
+ * ignores line endings and the two version numbers the release engine rewrites ("current public line **FRIDAY x**"
+ * and "Next public revision is **x**"), so a release never trips it. Only the owner asks for a change to AGENTS.md:
+ *
+ *   node scripts/workflow-lock.cjs --agents                 check AGENTS.md (exit 1 when it differs)
+ *   node scripts/workflow-lock.cjs --agents --write         record AGENTS.md after the owner's change
  */
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -25,10 +32,12 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const LOCK_FILE = path.join(root, "config", "workflow-lock.json");
 const CHAIN_LOCK_FILE = path.join(root, "config", "cmd-chain-lock.json");
+const AGENTS_LOCK_FILE = path.join(root, "config", "agents-lock.json");
 
 const KINDS = {
   workflows: { name: "workflow-lock.json", label: "workflow lock", flag: "" },
   "cmd-chain": { name: "cmd-chain-lock.json", label: "CMD chain lock", flag: " --cmd-chain" },
+  agents: { name: "agents-lock.json", label: "AGENTS.md lock", flag: " --agents" },
 };
 
 const NOTES = {
@@ -36,6 +45,8 @@ const NOTES = {
     "SHA-256 of every workflow and composite action, line endings normalised. Dormant by owner policy: enforced is false, so nothing is checked. To re-lock, run: node scripts/workflow-lock.cjs --write, then set enforced to true.",
   "cmd-chain":
     "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names in its Windows CMD chain section. Dormant by owner policy: enforced is false, so nothing is checked. To re-lock, run: node scripts/workflow-lock.cjs --cmd-chain --write, then set enforced to true.",
+  agents:
+    "SHA-256 of AGENTS.md, line endings normalised and the two version numbers the release engine rewrites ignored. Always on: there is no switch. Only the owner asks for a change to AGENTS.md; after it, record the file with: node scripts/workflow-lock.cjs --agents --write.",
 };
 
 function lockPath(kind, base = root) {
@@ -52,6 +63,7 @@ function readBody(kind, base = root) {
 
 /** On only when the lock file says the literal boolean true; missing, unreadable or any other value is off. */
 function isEnforced(kind, base = root) {
+  if (kind === "agents") return true;
   const body = readBody(kind, base);
   return Boolean(body) && body.enforced === true;
 }
@@ -147,9 +159,46 @@ function writeChainLock(base = root) {
   writeKind("cmd-chain", files, base);
 }
 
+const AGENTS_VERSION_SENTENCES = [
+  /(current public line\s*\*\*FRIDAY\s+)\d+\.\d+\.\d+(?:\.\d+)?(\*\*)/g,
+  /(Next public revision is\s*\*\*)\d+\.\d+\.\d+(?:\.\d+)?(\*\*)/g,
+];
+
+/** SHA-256 of AGENTS.md without the two version numbers the release engine rewrites, line endings normalised. */
+function agentsDigest(base = root) {
+  let text = fs.readFileSync(path.join(base, "AGENTS.md"), "utf8").replace(/\r\n/g, "\n");
+  for (const pattern of AGENTS_VERSION_SENTENCES) text = text.replace(pattern, "$1VERSION$2");
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function currentAgents(base = root) {
+  return { "AGENTS.md": agentsDigest(base) };
+}
+
+function readAgentsLock(base = root) {
+  return (readBody("agents", base) || {}).files || {};
+}
+
+/** Records AGENTS.md. Only for a change the owner asked for in his own message. */
+function writeAgentsLock(base = root) {
+  const file = lockPath("agents", base);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const body = { note: NOTES.agents, files: currentAgents(base) };
+  fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`);
+}
+
 /** `{ enforced, problems }`: problems is always empty while the lock is off. */
 function verify(kind, base = root) {
   if (!isEnforced(kind, base)) return { enforced: false, problems: [] };
+  if (kind === "agents") {
+    if (!readBody("agents", base)) {
+      return {
+        enforced: true,
+        problems: ["config/agents-lock.json is missing or unreadable: AGENTS.md is not locked"],
+      };
+    }
+    return { enforced: true, problems: compare(readAgentsLock(base), currentAgents(base)) };
+  }
   const recorded = kind === "cmd-chain" ? readChainLock(base) : readLock(base);
   const actual = kind === "cmd-chain" ? currentChain(base) : current(base);
   return { enforced: true, problems: compare(recorded, actual) };
@@ -170,18 +219,35 @@ module.exports = {
   CHAIN_LOCK_FILE,
   isEnforced,
   verify,
+  agentsDigest,
+  currentAgents,
+  readAgentsLock,
+  writeAgentsLock,
+  AGENTS_LOCK_FILE,
 };
 
 function main(argv) {
   const at = argv.indexOf("--root");
   const base = at >= 0 && argv[at + 1] ? path.resolve(argv[at + 1]) : root;
-  const kind = argv.includes("--cmd-chain") ? "cmd-chain" : "workflows";
+  const kind = argv.includes("--agents")
+    ? "agents"
+    : argv.includes("--cmd-chain")
+      ? "cmd-chain"
+      : "workflows";
   const { label, flag } = KINDS[kind];
   const lockName = `config/${KINDS[kind].name}`;
-  const count = () => Object.keys(kind === "cmd-chain" ? currentChain(base) : current(base)).length;
+  const count = () =>
+    Object.keys(
+      kind === "agents"
+        ? currentAgents(base)
+        : kind === "cmd-chain"
+          ? currentChain(base)
+          : current(base),
+    ).length;
   try {
     if (argv.includes("--write")) {
-      if (kind === "cmd-chain") writeChainLock(base);
+      if (kind === "agents") writeAgentsLock(base);
+      else if (kind === "cmd-chain") writeChainLock(base);
       else writeLock(base);
       console.log(`${label} written for ${count()} files (enforced: ${isEnforced(kind, base)})`);
       return 0;
@@ -193,11 +259,13 @@ function main(argv) {
     const { problems } = verify(kind, base);
     if (problems.length) {
       console.error(
-        `${kind === "cmd-chain" ? "CMD chain" : "workflow"} files differ from the lock:`,
+        `${kind === "agents" ? "AGENTS.md" : kind === "cmd-chain" ? "CMD chain" : "workflow"} files differ from the lock:`,
       );
       for (const line of problems) console.error(`  - ${line}`);
       console.error(
-        `The lock is on (enforced: true in ${lockName}). Record the new files with: node scripts/workflow-lock.cjs${flag} --write`,
+        kind === "agents"
+          ? `AGENTS.md is locked. Only the owner asks for a change to it; after his change, record it with: node scripts/workflow-lock.cjs${flag} --write`
+          : `The lock is on (enforced: true in ${lockName}). Record the new files with: node scripts/workflow-lock.cjs${flag} --write`,
       );
       return 1;
     }

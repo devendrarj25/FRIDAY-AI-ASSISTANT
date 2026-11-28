@@ -1,5 +1,5 @@
 /**
- * Locked section: UI organization, EXE install/update/uninstall, and
+ * Contract tests: UI organization, EXE install/update/uninstall, and
  * project independence. These files must stay inside the default `npm test`
  * run (`vitest run` with no path filter). They are not an opt-in suite.
  */
@@ -10,7 +10,7 @@ import path from "node:path";
 const ROOT = path.resolve(__dirname, "../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
-/** Exact set that must be re-run after any edit of the locked files. */
+/** Exact set that must be re-run after any edit of the files these tests cover. */
 export const LOCKED_STABLE_TESTS = [
   "core/__tests__/project-independence.test.ts",
   "core/__tests__/ui-live-honesty.test.ts",
