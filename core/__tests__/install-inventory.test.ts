@@ -704,3 +704,113 @@ describe("localSourceFor: the one matcher the catalog and the inventory share", 
     expect(main).not.toMatch(/lastName\(model\.dir\)/);
   });
 });
+
+describe("a model folder on disk is Ready only when it is whole", () => {
+  const voicePins = require("../../electron/voice-pins.cjs");
+  const text = { "config.json": "{}", "model.bin": "0123456789" } as Record<string, string>;
+  const PIN = {
+    revision: "e".repeat(40),
+    files: Object.fromEntries(
+      Object.entries(text).map(([name, body]) => [name, { bytes: body.length, sha256: sha(body) }]),
+    ),
+  };
+  const folderPin = (name: string) => (name === "pinned" ? PIN : null);
+  const seed = (name: string, files: Record<string, string>) => {
+    const dir = path.join(root, "models", name);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [file, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, file), body);
+    return dir;
+  };
+  const rowOf = (name: string, extra: Record<string, unknown> = {}) => {
+    const built = inventory.buildInventory(root, { tools: [], folderPin, ...extra });
+    return {
+      built,
+      row: built.items.find((item: { id: string }) => item.id === name),
+    };
+  };
+
+  it("a half-copied pinned folder with no record is Incomplete, not Ready, and counts as missing", () => {
+    seed("pinned", { "config.json": "{}" });
+    const { built, row } = rowOf("pinned");
+    expect(row.installed).toBe(false);
+    expect(row.status).toBe("Incomplete");
+    expect(row.home).toBe("friday-models");
+    expect(row.removedByDeleteAllData).toBe(true);
+    expect(built.totals).toMatchObject({ items: 1, installed: 0, missing: 1 });
+    expect(built.totals.byHome["friday-models"]).toBeUndefined();
+  });
+
+  it("a folder with every pinned file at its size, or with the record of this revision, is Ready", () => {
+    seed("pinned", text);
+    const whole = rowOf("pinned");
+    expect(whole.row).toMatchObject({ installed: true, status: "Ready" });
+    expect(whole.built.totals).toMatchObject({ installed: 1, missing: 0 });
+    fs.rmSync(path.join(root, "models", "pinned", "model.bin"));
+    expect(rowOf("pinned").row.status).toBe("Incomplete");
+    voicePins.writeMarker(path.join(root, "models", "pinned"), "o/r", PIN);
+    expect(rowOf("pinned").row).toMatchObject({ installed: true, status: "Ready" });
+  });
+
+  it("a folder no pin knows stays Ready, and an injected state replaces the default", () => {
+    seed("qwen-local", {});
+    expect(rowOf("qwen-local").row).toMatchObject({ installed: true, status: "Ready" });
+    const forced = rowOf("qwen-local", { folderState: () => "incomplete" });
+    expect(forced.row).toMatchObject({ installed: false, status: "Incomplete" });
+    expect(forced.built.totals.missing).toBe(1);
+  });
+
+  it("knows the real pinned ears by folder name, so a half-copied ear is Incomplete", () => {
+    seed("hindi-ear", { "config.json": "{}" });
+    const built = inventory.buildInventory(root, { tools: [] });
+    const row = built.items.find((item: { id: string }) => item.id === "hindi-ear");
+    expect(row).toMatchObject({ installed: false, status: "Incomplete" });
+  });
+});
+
+describe("localSourceFor: the config pin wins over what a bundle says", () => {
+  const body = "alpha-weights";
+  const make = (text: string) => {
+    const build = path.join(root, "release");
+    fs.mkdirSync(path.join(build, "models", "alpha"), { recursive: true });
+    fs.writeFileSync(path.join(build, "models", "alpha", "w.bin"), text);
+    return [
+      {
+        origin: "release",
+        dir: build,
+        bundle: bundleFor("models/alpha", [{ path: "w.bin", text }]),
+      },
+    ];
+  };
+  const pinOf = (text: string) => () => ({
+    files: [{ path: "w.bin", bytes: text.length, sha256: sha(text) }],
+  });
+
+  it("serves a model whose bundle agrees with the pin, and refuses one that lists other bytes", () => {
+    const entries = make(body);
+    expect(inventory.localSourceFor("alpha", entries, { root, pinOf: pinOf(body) })).not.toBeNull();
+    expect(
+      inventory.localSourceFor("alpha", entries, { root, pinOf: pinOf("other-weights") }),
+    ).toBeNull();
+  });
+
+  it("applies the pin before an injected verifier, and a model with no known pin is not held to one", () => {
+    const entries = make(body);
+    const verify = vi.fn(() => true);
+    expect(
+      inventory.localSourceFor("alpha", entries, { verify, pinOf: pinOf("other-weights") }),
+    ).toBeNull();
+    expect(verify).not.toHaveBeenCalled();
+    expect(inventory.localSourceFor("alpha", entries, { root, pinOf: () => null })).not.toBeNull();
+  });
+
+  it("is used by the inventory rows and the catalog alike through the one matcher", () => {
+    const entries = make(body);
+    fs.mkdirSync(path.join(root, "models", "alpha"), { recursive: true });
+    const built = inventory.buildInventory(root, {
+      tools: [],
+      localSources: () => entries,
+      pinOf: pinOf("other-weights"),
+    });
+    expect("localSource" in built.items[0]).toBe(false);
+  });
+});

@@ -821,3 +821,68 @@ describe("discoverLocalBundles: a network path is never opened", () => {
     expect(found.map((entry: { origin: string }) => entry.origin)).toEqual(["install-source"]);
   });
 });
+
+describe("discoverLocalBundles: the registry of both channels", () => {
+  const PROD = "HKCU\\Software\\FRIDAY";
+  const TEST = "HKCU\\Software\\FRIDAY Test";
+  const reader =
+    (values: Record<string, string>, seen: string[] = []) =>
+    (keyPath: string, name: string) => {
+      seen.push(`${keyPath}|${name}`);
+      return name === "InstallSourceDir" ? (values[keyPath] ?? null) : null;
+    };
+
+  it("reads the FRIDAY Test key as well, so a Test Setup folder is found", () => {
+    const setup = mk("test-setup");
+    writeBundle(setup);
+    const found = discover(mk("root"), { readRegistry: reader({ [TEST]: setup }) });
+    expect(found.map((f: { dir: string }) => f.dir)).toEqual([setup]);
+    expect(found[0].origin).toBe("install-source");
+  });
+
+  it("asks the key of the running channel first, then the other, and lists one real folder once", () => {
+    const prod = mk("prod-setup");
+    const test = mk("test-setup");
+    writeBundle(prod);
+    writeBundle(test);
+    const values = { [PROD]: prod, [TEST]: test };
+    const seen: string[] = [];
+    const asProd = discover(mk("root"), { readRegistry: reader(values, seen), testChannel: false });
+    expect(asProd.map((f: { dir: string }) => f.dir)).toEqual([prod, test]);
+    expect(seen).toEqual([`${PROD}|InstallSourceDir`, `${TEST}|InstallSourceDir`]);
+    const asTest = discover(mk("root"), { readRegistry: reader(values), testChannel: true });
+    expect(asTest.map((f: { dir: string }) => f.dir)).toEqual([test, prod]);
+    const same = discover(mk("root"), { readRegistry: reader({ [PROD]: prod, [TEST]: prod }) });
+    expect(same).toHaveLength(1);
+  });
+
+  it("survives one key that throws and still reads the other", () => {
+    const setup = mk("test-setup");
+    writeBundle(setup);
+    const found = discover(mk("root"), {
+      readRegistry: (keyPath: string) => {
+        if (keyPath === PROD) throw new Error("no key");
+        return setup;
+      },
+    });
+    expect(found).toHaveLength(1);
+  });
+});
+
+describe("baseRootsOf: the FRIDAY root above a placed Setup folder", () => {
+  const rootsOf = (origin: string, dir: string) =>
+    local.baseRootsOf({ origin, dir, bundle: {} }).map((d: string) => path.resolve(d));
+
+  it("adds the root three levels up for installer/installers/<name>, whatever the origin", () => {
+    const base = path.join(tmp, "src", "installer", "installers", "1.2.5.8");
+    for (const origin of ["install-source", "installers", "portable", "build-root"])
+      expect(rootsOf(origin, base)).toContain(path.join(tmp, "src"));
+    const cased = path.join(tmp, "src", "Installer", "INSTALLERS", "1.2.5.8");
+    expect(rootsOf("install-source", cased)).toContain(path.join(tmp, "src"));
+  });
+
+  it("adds nothing for a folder that is not placed that way", () => {
+    const base = path.join(tmp, "a", "b", "c");
+    expect(rootsOf("install-source", base)).toEqual([base, path.join(tmp, "a", "b")]);
+  });
+});

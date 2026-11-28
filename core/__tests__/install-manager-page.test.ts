@@ -140,4 +140,16 @@ describe("Install Manager page: local builds", () => {
     expect(read("electron/preload.cjs")).toMatch(/^ {2}adoptLocalBuilds:/m);
     expect(page).toContain("adoptLocalBuilds");
   });
+
+  it("uses the typed bridge and shows the swept count only when something was swept", () => {
+    const body = page.slice(page.indexOf("function LocalBuildsPanel"));
+    expect(page).toMatch(
+      /import \{[^}]*type InstallerAdoptResult[^}]*\} from "@\/lib\/friday\/desktop"/,
+    );
+    expect(body).toContain("desktopApi()?.adoptLocalBuilds");
+    expect(body).not.toMatch(/desktopApi\(\) as \{/);
+    expect(page).not.toMatch(/type AdoptReply\b/);
+    expect(body).toMatch(/swept\?\.length \?\? 0\) > 0|swept\?\.length\) > 0/);
+    expect(body).toMatch(/partly copied file/);
+  });
 });

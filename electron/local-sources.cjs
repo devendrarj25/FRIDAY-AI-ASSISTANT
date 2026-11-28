@@ -8,7 +8,8 @@
  *
  * Where a bundle is looked for, in this order (a folder counts only when it holds a bundle that
  * `build-bundle.cjs` reads and validates):
- *   1. `install-source`  the folder Setup was started from (HKCU\Software\FRIDAY `InstallSourceDir`)
+ *   1. `install-source`  the folder Setup was started from (`InstallSourceDir` under HKCU\Software\FRIDAY, or under
+ *                        HKCU\Software\FRIDAY Test for the Test channel: the running channel's key first, then the other)
  *   2. `installers`      `<root>/installer/installers/<app version>`, then the newest other version
  *   3. `release`         `<root>/release`, only when the root is a checkout (package.json name is friday)
  *   4. `portable`        the folder of the portable EXE
@@ -30,6 +31,7 @@ const bundleLib = require("./build-bundle.cjs");
 const ENV_OFF = "FRIDAY_LOCAL_BUNDLES";
 const SETTING_TOGGLE = "installUseLocalBuilds";
 const REGISTRY_KEY = "HKCU\\Software\\FRIDAY";
+const REGISTRY_KEY_TEST = "HKCU\\Software\\FRIDAY Test";
 const REGISTRY_VALUE = "InstallSourceDir";
 const LOCAL_LABEL = "local build";
 const PRODUCT_PACKAGE = "friday";
@@ -122,6 +124,16 @@ function isLocalPath(value) {
   return !/^[\\/]{2}/.test(value) && !value.includes("\0");
 }
 
+/** Is this the Test channel? `opts.testChannel` (a boolean) wins; otherwise the running build's own channel. */
+function testChannel(opts) {
+  if (typeof opts.testChannel === "boolean") return opts.testChannel;
+  try {
+    return require("./build-channel.cjs").isTest() === true;
+  } catch {
+    return false;
+  }
+}
+
 /** The folders to look in, in order, each with its origin. Existence is not checked here. */
 function candidateFolders(root, opts, fs) {
   const env = opts.env || process.env;
@@ -131,10 +143,15 @@ function candidateFolders(root, opts, fs) {
       out.push({ origin, dir: nodePath.resolve(dir.trim()) });
   };
   const read = opts.readRegistry || ((k, n) => defaultReadRegistry(k, n));
-  try {
-    add("install-source", read(REGISTRY_KEY, REGISTRY_VALUE));
-  } catch {
-    /* an unreadable registry is no source */
+  const keys = testChannel(opts)
+    ? [REGISTRY_KEY_TEST, REGISTRY_KEY]
+    : [REGISTRY_KEY, REGISTRY_KEY_TEST];
+  for (const registryKey of keys) {
+    try {
+      add("install-source", read(registryKey, REGISTRY_VALUE));
+    } catch {
+      /* an unreadable registry is no source */
+    }
   }
   if (root) {
     const base = nodePath.join(root, "installer", "installers");
@@ -194,11 +211,26 @@ function discoverLocalBundles(root, opts = {}) {
 
 /**
  * The folders a bundle's relative paths can start from: the bundle folder, its parent (a `release` folder sits in
- * its checkout) and, for an `installers/<version>` folder, the FRIDAY root three levels up.
+ * its checkout) and, for a folder placed as `<root>/installer/installers/<version>` (what Setup records as
+ * `InstallSourceDir` after the build is placed), the FRIDAY root three levels up, whatever the origin says.
  */
+function isPlacedSetupFolder(dir) {
+  const parts = nodePath
+    .resolve(dir)
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  const n = parts.length;
+  return (
+    n >= 3 &&
+    parts[n - 2].toLowerCase() === "installers" &&
+    parts[n - 3].toLowerCase() === "installer"
+  );
+}
+
 function baseRootsOf(entry) {
   const out = [entry.dir, nodePath.dirname(entry.dir)];
-  if (entry.origin === "installers") out.push(nodePath.resolve(entry.dir, "..", "..", ".."));
+  if (entry.origin === "installers" || isPlacedSetupFolder(entry.dir))
+    out.push(nodePath.resolve(entry.dir, "..", "..", ".."));
   const seen = new Set();
   return out.filter((dir) => !seen.has(key(dir)) && seen.add(key(dir)));
 }

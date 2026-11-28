@@ -64,7 +64,12 @@ import { useInstaller } from "@/lib/friday/use-installer";
 import { useInstallerCatalog } from "@/lib/friday/use-installer-catalog";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { preferences } from "@/lib/friday/preferences";
-import { desktopApi, type InstallerCatalogRow } from "@/lib/friday/desktop";
+import {
+  desktopApi,
+  type InstallerAdoptItem,
+  type InstallerAdoptResult,
+  type InstallerCatalogRow,
+} from "@/lib/friday/desktop";
 import { copyText } from "@/lib/friday/clipboard";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -1417,15 +1422,7 @@ function JobRow({ job }: { job: Job }) {
 }
 
 type LocalBuildRow = InstallerCatalogRow & { localSource?: { origin: string; dir: string } };
-type AdoptItem = {
-  id: string;
-  origin: string;
-  result: "adopted" | "in-place" | "skipped";
-  reason?: string;
-};
-type AdoptReply = { ok: boolean; off?: boolean; error?: string; items?: AdoptItem[] };
-
-const adoptWords: Record<AdoptItem["result"], string> = {
+const adoptWords: Record<InstallerAdoptItem["result"], string> = {
   adopted: "Copied into your FRIDAY folder",
   "in-place": "Already in your FRIDAY folder",
   skipped: "Left as it is",
@@ -1437,18 +1434,18 @@ function LocalBuildsPanel() {
   const prefs = usePreferences();
   const on = prefs.toggles["installUseLocalBuilds"] !== false;
   const [busy, setBusy] = useState(false);
-  const [reply, setReply] = useState<AdoptReply | null>(null);
+  const [reply, setReply] = useState<InstallerAdoptResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const bridge = desktopApi() as { adoptLocalBuilds?: () => Promise<AdoptReply> } | undefined;
+  const adoptBridge = desktopApi()?.adoptLocalBuilds;
   const found = ((catalog.catalog?.rows ?? []) as LocalBuildRow[]).filter((row) => row.localSource);
 
   const adopt = async () => {
-    if (!bridge?.adoptLocalBuilds || busy) return;
+    if (!adoptBridge || busy) return;
     setBusy(true);
     setFailure(null);
     try {
-      const out = await bridge.adoptLocalBuilds();
+      const out = await adoptBridge();
       setReply(out);
       if (out.ok) {
         const copied = (out.items ?? []).filter((item) => item.result === "adopted").length;
@@ -1520,7 +1517,7 @@ function LocalBuildsPanel() {
         <Button
           size="sm"
           variant="outline"
-          disabled={!on || busy || catalog.offline || !bridge?.adoptLocalBuilds}
+          disabled={!on || busy || catalog.offline || !adoptBridge}
           aria-busy={busy}
           aria-label="Use local builds: copy verified models from a build on this PC"
           onClick={() => adopt()}
@@ -1555,6 +1552,11 @@ function LocalBuildsPanel() {
             </li>
           ))}
         </ul>
+      ) : null}
+      {(reply?.swept?.length ?? 0) > 0 ? (
+        <p role="status" className="text-meta text-muted-foreground">
+          Cleaned up {reply?.swept?.length} partly copied file(s) left by an earlier try.
+        </p>
       ) : null}
     </section>
   );

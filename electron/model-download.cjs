@@ -980,7 +980,8 @@ async function certifyPinnedFolder(ctx) {
   const fetched = new Set(todo);
   const kept = Object.fromEntries(Object.entries(pin.files).filter(([name]) => !fetched.has(name)));
   const marker = voicePins.readMarker(dest);
-  const certified = marker && marker.revision === pin.revision;
+  // `verified`: the caller already held every file to its pinned SHA-256, so it is not hashed a second time.
+  const certified = ctx.verified === true || (marker && marker.revision === pin.revision);
   const final = await voicePins.auditDir(dest, pin);
   const recheck = certified
     ? { ok: true, wrongDigest: [] }
@@ -1002,6 +1003,40 @@ async function certifyPinnedFolder(ctx) {
     });
   }
   voicePins.writeMarker(dest, repo, pin);
+}
+
+/** Slack for a clock that rounds a file time a little past the marker's own time. */
+const MARKER_SLACK_MS = 2000;
+
+/**
+ * True when the folder's own record (`.friday-pin.json`) certifies exactly this pin and no pinned file was written
+ * after the record was made. A file touched later is not trusted by size alone: it is hashed again.
+ */
+function markerCertifies(dest, pin) {
+  const marker = voicePins.readMarker(dest);
+  if (!marker || marker.revision !== pin.revision) return false;
+  const verifiedAt = Date.parse(marker.verifiedAt);
+  if (!Number.isFinite(verifiedAt)) return false;
+  for (const [name, row] of Object.entries(pin.files)) {
+    if (marker.files?.[name]?.sha256 !== row.sha256) return false;
+    try {
+      if (fs.statSync(path.join(dest, ...name.split("/"))).mtimeMs > verifiedAt + MARKER_SLACK_MS)
+        return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Look at a pinned folder on disk without any network: sizes first; when they are right and no fresh record vouches
+ * for the folder, every file is held to its pinned SHA-256 too (`hashed: true` in the result). Never changes a file.
+ */
+async function auditPinnedFolder(dest, pin) {
+  const sized = await voicePins.auditDir(dest, pin);
+  if (!sized.ok || markerCertifies(dest, pin)) return sized;
+  return voicePins.auditDir(dest, pin, { hash: true });
 }
 
 /** Which source served a pinned model folder, written beside it (`<folder>.source.json`) for the Doctor and the Install Manager. */
@@ -1379,12 +1414,16 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         const dest = path.join(root, modelId);
         const present = (name) => fs.existsSync(path.join(dest, ...name.split("/")));
         const names = plan.files.map((file) => file.name);
-        const audit0 = await voicePins.auditDir(dest, pin);
+        // The sizes, and (no fresh record) the SHA-256 of what is already there: a same-size corrupt file is damaged too.
+        const audit0 = await auditPinnedFolder(dest, pin);
         // Already installed and verified: nothing to copy; the sources behind this one audit and certify it as before.
         if (audit0.ok && names.every(present)) continue;
-        const { keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
+        const { swap, keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
         try {
-          const audit = await voicePins.auditDir(dest, pin);
+          const audit =
+            audit0.hashed && !swap.swapped
+              ? audit0
+              : await voicePins.auditDir(dest, pin, audit0.hashed ? { hash: true } : {});
           const removed = voicePins.removeBad(dest, audit);
           if (removed.length) onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });
           const todo = plan.files.filter((file) => !present(file.name));
@@ -1566,6 +1605,42 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         // A repository FRIDAY pins (electron/voice-pins.cjs) is fetched at its pinned revision, only the
         // pinned files, each checked against the pinned SHA-256 and size. Any other repository is unchanged.
         const pin = (deps.pinForRepo || voicePins.pinForRepo)(source.repo);
+        // A folder that is already whole needs no listing: it is looked at on disk first, so it also works offline.
+        // Sizes right and a fresh record: certified as it is. No record: every file is hashed once, then certified.
+        const folder = path.join(root, modelId);
+        const early = pin ? await auditPinnedFolder(folder, pin) : null;
+        if (early?.ok) {
+          await certifyPinnedFolder({
+            dest: folder,
+            pin,
+            repo: source.repo,
+            todo: [],
+            modelId,
+            root,
+            canonical,
+            deps,
+            onEvent,
+            verified: early.hashed,
+          });
+          onEvent?.({ status: "already on disk", progress: 100 });
+          remember(root, job, {
+            status: "installed",
+            dest: folder,
+            sourceUrl: `https://huggingface.co/${source.repo}`,
+            bytes: 0,
+          });
+          const servedFrom = releaseInChain ? voiceWeights.servedSource(folder, pin) : "";
+          return {
+            ok: true,
+            via: "hf-repo",
+            path: folder,
+            bytes: 0,
+            source: label,
+            engine: "own",
+            ...(servedFrom ? { servedFrom } : {}),
+            attempts,
+          };
+        }
         const listing = await hfFiles(source.repo, signal, pin?.revision || "");
         if (!listing.ok) throw new Error(listing.error);
         let wanted = listing.files.filter((f) =>
@@ -1579,14 +1654,16 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         }
         if (!wanted.length) throw new Error(`no weight files in ${source.repo}`);
         const dest = path.join(root, modelId);
-        const { keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
+        const { swap, keepPrevious } = beginPinnedSwap(dest, source.repo, pin, onEvent);
         let bytes = 0;
         let engine = "own";
         let fetchedCount = 0;
         try {
           if (pin) {
-            // Repair: a file with the wrong size is removed here so the loop below fetches it again.
-            const audit = await voicePins.auditDir(dest, pin);
+            // Repair: a file with the wrong size (or, hashed above, the wrong SHA-256) is removed here so the loop below
+            // fetches it again.
+            const audit =
+              early?.hashed && !swap.swapped ? early : await voicePins.auditDir(dest, pin);
             const removed = voicePins.removeBad(dest, audit);
             if (removed.length)
               onEvent?.({ status: `repairing ${removed.length} damaged file(s)` });

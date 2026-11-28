@@ -115,22 +115,67 @@ function listDir(dir, exists = fs.existsSync) {
   }
 }
 
-/** Model and speech folders as they are on disk. */
-function diskRows(root) {
+/**
+ * The pin of a model folder by its name (the catalog id), or null when no pin knows it: the pinned ears and helpers
+ * (`voice-weights` rows) and the voice weights. Read lazily; never throws.
+ */
+function defaultFolderPin(name) {
+  try {
+    const weights = require("./voice-weights.cjs");
+    const pins = require("./voice-pins.cjs");
+    const row = [...weights.EAR_MODELS, ...weights.EXTRA_MODELS].find(
+      (item) => item.catalogId === name,
+    );
+    if (row) return pins.pinForRepo(row.repo) || null;
+    if (name === "supertonic-3") return pins.pinForRepo(weights.TTS_REPO) || null;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "ready" or "incomplete" for one model folder. A record of this revision inside the folder (`.friday-pin.json`, left by
+ * the verified copy) means ready. Without one, a folder a pin knows must hold every pinned file at its size; a folder no
+ * pin knows cannot be judged and stays ready. Sizes only, so a scan stays cheap: the hash pass is the model check.
+ */
+function defaultFolderState(name, dir, folderPin = defaultFolderPin) {
+  try {
+    const pin = folderPin(name);
+    if (!pin?.files) return "ready";
+    const marker = require("./voice-pins.cjs").readMarker(dir);
+    if (marker && marker.revision === pin.revision) return "ready";
+    for (const [file, row] of Object.entries(pin.files)) {
+      if (!sizeOnDisk(path.join(dir, ...file.split("/")), row.bytes)) return "incomplete";
+    }
+    return "ready";
+  } catch {
+    return "ready";
+  }
+}
+
+/** Model and speech folders as they are on disk. A model folder that is not whole is listed as Incomplete, not installed. */
+function diskRows(root, { folderState, folderPin } = {}) {
   if (!root) return [];
   const rows = [];
   for (const name of listDir(path.join(root, "models"))) {
+    const dir = path.join(root, "models", name);
+    const state =
+      typeof folderState === "function"
+        ? folderState(name, dir)
+        : defaultFolderState(name, dir, folderPin);
+    const whole = state !== "incomplete";
     rows.push({
       id: name,
       category: "Model",
-      installed: true,
-      status: "Ready",
+      installed: whole,
+      status: whole ? "Ready" : "Incomplete",
       version: null,
       latest: null,
       updateAvailable: false,
       manager: "files",
       home: "friday-models",
-      path: path.join(root, "models", name),
+      path: dir,
       removedByDeleteAllData: true,
     });
   }
@@ -241,13 +286,35 @@ function defaultVerifyLocal(entry, model, root) {
   return perRoot.get(rootKey);
 }
 
+const buildBundle = require("./build-bundle.cjs");
+
+/** The pin rows of `config/friday-models.json`, read once. Empty when the file cannot be read. */
+let configAssets = null;
+function configPinOf(model) {
+  if (configAssets === null) {
+    try {
+      const value = require("./resource-paths.cjs").readConfigJson(
+        "friday-models.json",
+        null,
+      ).value;
+      configAssets = Array.isArray(value?.assets) ? value.assets : [];
+    } catch {
+      configAssets = [];
+    }
+  }
+  const pin = buildBundle.pinFromAssets(configAssets, model?.fridayId);
+  return pin.files.length ? pin : null;
+}
+
 /**
  * The one matcher of a model name (`friday-ear`, or `voice:friday-ear` as the catalog writes it) against the local
  * builds. Returns `{ origin, dir }` for the first build that lists that model and has its files here, else null.
  * `root` is the FRIDAY folder (a model already inside it is not a local build); `verify(entry, model)` replaces the
- * default size check and is not remembered.
+ * default size check and is not remembered. `pinOf(model)` gives the config pin of a bundle model (`{ files }`, or null
+ * when none is known, which holds nothing back); by default the rows of `config/friday-models.json`. A pin that the
+ * bundle model does not match file for file (`pinWins`) rules the model out before the disk is looked at.
  */
-function localSourceFor(id, entries, { root = null, verify = null } = {}) {
+function localSourceFor(id, entries, { root = null, verify = null, pinOf = configPinOf } = {}) {
   const name = String(id)
     .replace(/^voice:/, "")
     .toLowerCase();
@@ -258,6 +325,9 @@ function localSourceFor(id, entries, { root = null, verify = null } = {}) {
         lastSegment(model.dir).toLowerCase() === name ||
         String(model.fridayId || "").toLowerCase() === name;
       if (!matches) continue;
+      // The config pin always wins over a bundle: a model that lists other files or hashes than the pin is no source.
+      const pin = typeof pinOf === "function" ? pinOf(model) : null;
+      if (pin && !buildBundle.pinWins(model, pin)) continue;
       const present = verify ? verify(entry, model) : defaultVerifyLocal(entry, model, root);
       if (present) return { origin: entry.origin, dir: entry.dir };
     }
@@ -265,7 +335,7 @@ function localSourceFor(id, entries, { root = null, verify = null } = {}) {
   return null;
 }
 
-function withLocalSources(items, { localSources, verifyLocal, root = null }) {
+function withLocalSources(items, { localSources, verifyLocal, root = null, pinOf }) {
   if (typeof localSources !== "function") return items;
   let entries = [];
   try {
@@ -279,7 +349,7 @@ function withLocalSources(items, { localSources, verifyLocal, root = null }) {
     if (row.category !== "Model") return row;
     let found = null;
     try {
-      found = localSourceFor(row.id, entries, { root, verify });
+      found = localSourceFor(row.id, entries, { root, verify, ...(pinOf ? { pinOf } : {}) });
     } catch {
       found = null;
     }
@@ -293,14 +363,24 @@ function withLocalSources(items, { localSources, verifyLocal, root = null }) {
  */
 function buildInventory(
   root,
-  { tools = [], latest = null, version = "0.0.0", at = null, localSources, verifyLocal } = {},
+  {
+    tools = [],
+    latest = null,
+    version = "0.0.0",
+    at = null,
+    localSources,
+    verifyLocal,
+    pinOf,
+    folderState,
+    folderPin,
+  } = {},
 ) {
   const items = withLocalSources(
     [
       ...tools.filter((tool) => !tool.aliasOf).map((tool) => toolRow(tool, root, latest)),
-      ...diskRows(root),
+      ...diskRows(root, { folderState, folderPin }),
     ],
-    { localSources, verifyLocal, root },
+    { localSources, verifyLocal, root, pinOf },
   );
   const byHome = {};
   for (const item of items) {
@@ -342,6 +422,9 @@ function writeInventory(root, scan, options = {}) {
       at: scan.at,
       localSources: options.localSources,
       verifyLocal: options.verifyLocal,
+      pinOf: options.pinOf,
+      folderState: options.folderState,
+      folderPin: options.folderPin,
     });
     const file = path.join(root, FILE);
     let previous = null;
