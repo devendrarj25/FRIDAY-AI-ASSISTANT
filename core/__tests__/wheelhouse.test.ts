@@ -855,7 +855,8 @@ function findPwsh(): string | null {
 }
 const pwsh = findPwsh();
 
-describe.skipIf(pwsh === null)(
+// The fake python below is a bash script run through PowerShell 7: it cannot run on win32, where the real python.exe is used.
+describe.skipIf(pwsh === null || process.platform === "win32")(
   "the repair functions, run for real in PowerShell with a fake pip",
   () => {
     const repair = read("installer/build/repair-runtime.ps1");

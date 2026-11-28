@@ -43,6 +43,12 @@ const ALLOW: Allow[] = [
     reason: "Asserts the shared stub writes a shebang only in the POSIX file.",
   },
   {
+    file: "core/__tests__/wheelhouse.test.ts",
+    rule: "shebang-stub",
+    reason:
+      "The fake python is a bash script for the PowerShell 7 repair tests; that suite is skipped on win32.",
+  },
+  {
     file: "core/__tests__/windows-hazard-scan.test.ts",
     rule: "shebang-stub",
     reason: "The scanner names the shebang pattern it rejects in other tests.",

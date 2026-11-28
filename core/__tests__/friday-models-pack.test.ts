@@ -646,9 +646,24 @@ describe("the locked chain never reaches it", () => {
     expect(text).not.toContain("friday-models.json");
   });
 
-  it("no workflow runs it", () => {
+  it("no workflow runs it except the one release step that publishes the missing weight packs", () => {
     const dir = path.join(root, ".github", "workflows");
-    for (const name of fs.readdirSync(dir))
-      expect(fs.readFileSync(path.join(dir, name), "utf8")).not.toContain("build-friday-models");
+    for (const name of fs.readdirSync(dir)) {
+      const text = fs.readFileSync(path.join(dir, name), "utf8");
+      if (name !== "release.yml") {
+        expect(text, name).not.toContain("build-friday-models");
+        continue;
+      }
+      const start = text.indexOf("- name: Publish missing weight packs");
+      const end = text.indexOf("- name: Create GitHub Release");
+      expect(start).toBeGreaterThan(0);
+      expect(end).toBeGreaterThan(start);
+      let at = text.indexOf("build-friday-models");
+      expect(at).toBeGreaterThan(start);
+      while (at !== -1) {
+        expect(at).toBeLessThan(end);
+        at = text.indexOf("build-friday-models", at + 1);
+      }
+    }
   });
 });
