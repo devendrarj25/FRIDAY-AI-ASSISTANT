@@ -1994,36 +1994,36 @@ const FILE_SETS = [
     optional: true,
     fallback: "faster-whisper (the speech model of today)",
     files: [
-      ["adapter.ort", "c5f9f7cc98c27a965d8e200816f7e5c07b892712bb30cf07444bbde4ffd38199", 1319616],
-      ["cross_kv.ort", "5f68900da4ea20f40fbe67bbec36399f0d47faedbd7198b29abd9dc5f472ef9f", 1287504],
+      ["adapter.ort", 1319616, "c5f9f7cc98c27a965d8e200816f7e5c07b892712bb30cf07444bbde4ffd38199"],
+      ["cross_kv.ort", 1287504, "5f68900da4ea20f40fbe67bbec36399f0d47faedbd7198b29abd9dc5f472ef9f"],
       [
         "decoder_kv.ort",
-        "6564f2c9a19de44195a53e336e07d05108f14babab57105d623bb68b79572d75",
         32748720,
+        "6564f2c9a19de44195a53e336e07d05108f14babab57105d623bb68b79572d75",
       ],
       [
         "decoder_kv_with_attention.ort",
-        "24181780a1cec49516390213fd3cb10261d8dbc0efd52f36bd51b2ae001e761c",
         32676624,
+        "24181780a1cec49516390213fd3cb10261d8dbc0efd52f36bd51b2ae001e761c",
       ],
-      ["encoder.ort", "617e403b2aae48f2474e0b148bf835deb9510bc8692efeabfe27203959a3256e", 7675392],
+      ["encoder.ort", 7675392, "617e403b2aae48f2474e0b148bf835deb9510bc8692efeabfe27203959a3256e"],
       [
         "frontend.model.ort",
-        "5662679f0e5758646d8eade3bc4b5d9ebda875feb6e696c0cc5f1a08fea2219e",
         23392,
+        "5662679f0e5758646d8eade3bc4b5d9ebda875feb6e696c0cc5f1a08fea2219e",
       ],
       [
         "frontend.weights.ort",
-        "55c91d7efab9f7506d7d753131cba72145ff016be3447319fe414a31e13f25b4",
         2093416,
+        "55c91d7efab9f7506d7d753131cba72145ff016be3447319fe414a31e13f25b4",
       ],
       [
         "streaming_config.json",
-        "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
         509,
+        "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
       ],
-      ["tokenizer.bin", "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d", 249974],
-    ].map(([file, sha256, bytes]) => ({
+      ["tokenizer.bin", 249974, "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"],
+    ].map(([file, bytes, sha256]) => ({
       file,
       sha256,
       bytes,
