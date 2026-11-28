@@ -30,15 +30,57 @@ const MIGRATIONS = [
   },
 ];
 
+/** The rows of a ledger text (a leading byte order mark is ignored), or null when it is not a JSON list. */
+function parseRows(text) {
+  try {
+    const value = JSON.parse(String(text).replace(/^\uFEFF/, ""));
+    return Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function rowsOf(file, fsApi) {
+  try {
+    return parseRows(fsApi.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The ledger rows and where they came from ("file", "backup", or "none" when there is no ledger yet), or null
+ * The one rule for reading the ledger, used by boot and by installer/migration (so by the updater): the main
+ * file answers when it is a JSON list; otherwise a .bak that is a JSON list answers. Truncated JSON, an empty
+ * file, and valid JSON that is not a list ("{}", "null") all count as damaged.
+ * Returns the rows and where they came from ("file", "backup", or "none" when there is no ledger yet), or null
  * when a ledger exists but neither it nor its backup can be read.
  */
-function readLedger(root) {
+function readLedger(root, { fsApi = fs } = {}) {
   const file = ledgerFile(root);
-  if (!fs.existsSync(file) && !fs.existsSync(`${file}.bak`)) return { rows: [], source: "none" };
-  const read = safeWrite.readJsonSafe(file, null);
-  return Array.isArray(read.value) ? { rows: read.value, source: read.source } : null;
+  const backup = `${file}.bak`;
+  if (!fsApi.existsSync(file) && !fsApi.existsSync(backup)) return { rows: [], source: "none" };
+  const main = rowsOf(file, fsApi);
+  if (main) return { rows: main, source: "file" };
+  const saved = rowsOf(backup, fsApi);
+  return saved ? { rows: saved, source: "backup" } : null;
+}
+
+/**
+ * Makes the ledger safe for a runner that reads only the main file: a damaged main file with a good backup is
+ * rebuilt from that backup. False means "leave it alone and run nothing": the ledger exists but cannot be
+ * read, or the backup could not be copied over a locked main file. Never throws.
+ */
+function settleLedger(root, { fsApi = fs } = {}) {
+  const ledger = readLedger(root, { fsApi });
+  if (!ledger) return false;
+  if (ledger.source !== "backup") return true;
+  try {
+    const file = ledgerFile(root);
+    fsApi.copyFileSync(`${file}.bak`, file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function appliedMigrations(root) {
@@ -110,4 +152,4 @@ function run(
   }
 }
 
-module.exports = { MIGRATIONS, ledgerFile, appliedMigrations, run };
+module.exports = { MIGRATIONS, ledgerFile, readLedger, settleLedger, appliedMigrations, run };

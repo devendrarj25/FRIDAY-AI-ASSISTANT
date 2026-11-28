@@ -5,6 +5,7 @@
  */
 import path from "node:path";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import { capabilities } from "../../core/discovery";
 import {
   countFiles,
@@ -34,6 +35,18 @@ export interface Migration {
 
 const ledgerFile = (root: string) => path.join(root, "database", "migrations.json");
 
+// The one rule for reading the ledger lives in the boot runner (electron/data-migrations.cjs); both call it.
+const bootRunner = createRequire(import.meta.url)("../../electron/data-migrations.cjs") as {
+  readLedger(root: string): { rows: unknown[]; source: "file" | "backup" | "none" } | null;
+  settleLedger(root: string): boolean;
+};
+
+/**
+ * Makes the ledger safe to run on: a damaged main file with a good backup is rebuilt from that backup. False
+ * means leave it alone: it exists but cannot be read (or the backup could not be copied over a locked file).
+ */
+export const settleLedger = (root: string): boolean => bootRunner.settleLedger(root);
+
 /** Built-in workspace migrations, oldest first. */
 export const MIGRATIONS: Migration[] = [
   {
@@ -48,13 +61,15 @@ export const MIGRATIONS: Migration[] = [
 ];
 
 export function appliedMigrations(root = capabilities.getRoot()): MigrationRecord[] {
-  return readJson<MigrationRecord[]>(ledgerFile(root)) ?? [];
+  return (bootRunner.readLedger(root)?.rows ?? []) as MigrationRecord[];
 }
 
 export function runMigrations(
   root = capabilities.getRoot(),
   appVersion?: string | null,
 ): MigrationRecord[] {
+  // A ledger that cannot be read is left as it is: writing a fresh list over it would run everything again.
+  if (!settleLedger(root)) return [];
   const applied = appliedMigrations(root);
   const seen = new Set(applied.map((m) => m.id));
   for (const migration of MIGRATIONS) {

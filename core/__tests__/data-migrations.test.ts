@@ -281,3 +281,14 @@ describe("both runners treat a damaged ledger the same way", () => {
     expect(source).not.toContain("exactly one place");
   });
 });
+
+describe("the ledger reading rule exists once", () => {
+  it("installer/migration reads and settles the ledger through the CommonJS runner", () => {
+    const source = fs.readFileSync(path.join(repo, "installer/migration/index.ts"), "utf8");
+    expect(source).toContain("electron/data-migrations.cjs");
+    expect(source).toMatch(/bootRunner\.readLedger\(/);
+    expect(source).toMatch(/bootRunner\.settleLedger\(/);
+    expect(source).not.toMatch(/JSON\.parse/);
+    expect(source).not.toContain("copyFileSync");
+  });
+});
