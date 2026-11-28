@@ -208,6 +208,8 @@ export type VoiceBudget = {
   }[];
   /** Catalog ids a fresh setup fetches, in install order. */
   install: string[];
+  /** Optional catalog ids a fresh setup also plans (a failed fetch is only a notice), in install order. */
+  optionalInstall: string[];
   /** Speech sizes this machine may load on its own, smallest first. */
   allowedSizes: string[];
   maxResidentModels: 2;
@@ -231,6 +233,20 @@ const LANGUAGE_PACKS = ["voice-pack-english", "voice-pack-hindi", "voice-pack-hi
 const LADDER = ["tiny", "base", "small", "medium", "large-v3-turbo"];
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const minRam = (id: string) => voiceModelFacts[id]?.minRamGb ?? 0;
+
+/**
+ * The optional models a fresh setup plans (the same table as `optionalPlanFor` in electron/voice-weights.cjs): the Roman
+ * Hinglish ear on every profile, the Hindi Whisper backup when the speech budget carries it, the light Hindi voice from
+ * 8 GB of RAM, the two small denoisers (not wired to the live stream) on every profile but lite.
+ */
+function optionalPlanFor(total: number, speechBudgetGb: number, profile: ProfileName): string[] {
+  const ids = ["hinglish-ear"];
+  if (speechBudgetGb >= (voiceModelFacts["hindi-fallback-ear"]?.minRamGb ?? Infinity))
+    ids.push("hindi-fallback-ear");
+  if (total >= 8) ids.push("hindi-light-tts");
+  if (profile !== "lite") ids.push("denoise-gtcrn", "denoise-dpdfnet");
+  return ids;
+}
 
 /** Resident memory a speech size needs with the voice and the two helpers loaded beside it. */
 export function residentNeedGb(size: string): number {
@@ -344,6 +360,7 @@ export function budgetFor(
     ...(size !== "tiny" && profile !== "lite" ? ["hindi-punct"] : []),
   ];
   const install = wanted.filter((id, at) => wanted.indexOf(id) === at);
+  const optionalInstall = optionalPlanFor(total, speechBudgetGb, profile);
   const packs = LANGUAGE_PACKS.flatMap((id) => {
     const pack = voicePackById.get(id);
     if (!pack) return [];
@@ -365,6 +382,7 @@ export function budgetFor(
     ttsEngine: "supertonic",
     packs,
     install,
+    optionalInstall,
     allowedSizes,
     maxResidentModels: 2,
     idleUnloadMs: IDLE_UNLOAD_MS[profile],

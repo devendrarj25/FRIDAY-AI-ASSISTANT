@@ -1193,6 +1193,53 @@ function qualityAdjustment(model, qualityTarget, normTask) {
   return extra;
 }
 
+/**
+ * The small, fast voice models: the tags under `voice.tags` in config/chat-tiers.json, the one file the setup plan
+ * and the kernel router read too. Nothing here lists a tag. A missing file or section means no fast model.
+ */
+function voiceFastTags() {
+  try {
+    const tags = require("./resource-paths.cjs").readConfigJson("chat-tiers.json", null)?.value
+      ?.voice?.tags;
+    return Array.isArray(tags) ? tags.filter((t) => typeof t === "string" && t.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** True when a local model's tag is one of the voice tags (`tags` injected, else the config file). */
+function isVoiceFastModel(model, tags) {
+  if (model?.type !== "local") return false;
+  const list = (tags === undefined ? voiceFastTags() : Array.isArray(tags) ? tags : [])
+    .filter((t) => typeof t === "string")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  if (!list.length) return false;
+  const names = [model.id, model.providerModelId, model.meta?.modelName, model.options?.model];
+  return names.some((raw) => {
+    const name = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    return (
+      Boolean(name) &&
+      list.some((tag) => name === tag || name.endsWith(`:${tag}`) || name.endsWith(`/${tag}`))
+    );
+  });
+}
+
+/** Only these two lanes mean something to the scorer; anything else is ignored. */
+function normaliseLane(value) {
+  return value === "quick" || value === "full" ? value : null;
+}
+
+/** Tasks the kernel's escalate() sends to a bigger model: the fast voice model never takes them. */
+const FAST_LANE_EXCLUDED_TASKS = new Set([
+  "reasoning",
+  "coding",
+  "vision",
+  "tools",
+  "research",
+  "audio",
+]);
+
 /** Score a candidate. Higher wins; the formula stays readable on purpose. */
 function scoreModel(
   model,
@@ -1204,6 +1251,9 @@ function scoreModel(
     qualityTarget = null,
     surface = null,
     hardware = null,
+    lane = null,
+    voiceTags = null,
+    mainLocalPresent = false,
   } = {},
 ) {
   const normTask = normaliseRoutingTask(task);
@@ -1211,8 +1261,12 @@ function scoreModel(
   const neededCap = TASK_CAPABILITY[normTask] || TASK_CAPABILITY[task] || null;
   let score = 0;
 
+  // A model whose tag is a voice tag is the fast one, whatever its size says.
+  const voiceFast = isVoiceFastModel(model, voiceTags);
+  const role = voiceFast ? "fast" : model.role;
+
   // Capability fit
-  if (model.role === wantedRole) score += 2;
+  if (role === wantedRole) score += 2;
   if (neededCap && model.capabilities[neededCap]) score += 2.5;
   if (model.contextK >= 64) score += 0.4;
   else if (model.contextK >= 32) score += 0.2;
@@ -1263,7 +1317,15 @@ function scoreModel(
   if (surface === "voice") {
     if (model.latencyMs) score += Math.max(-1, 1 - model.latencyMs / 2000) * 2;
     score += (qp.speedScore || 0) * 4;
-    if (model.role === "fast") score += 2;
+    if (role === "fast") score += 2;
+    // Two local brains: a quick spoken side line goes to the fast model, the real answer to the main one.
+    // A turn escalate() would send up (hard task, long context) never gets the preference.
+    if (voiceFast) {
+      const sentUp =
+        FAST_LANE_EXCLUDED_TASKS.has(normTask) || (Number(requirements.contextK) || 0) > 32;
+      if (normaliseLane(lane) === "quick" && !sentUp) score += 8;
+      else if (normaliseLane(lane) === "full" && mainLocalPresent) score -= 4;
+    }
   } else if (surface === "chat") {
     score += (qp.chatScore || qp.reasoningScore || 0.5) * 2;
     if ((qp.chatScore || 0) >= 0.8) score += 1;
@@ -1791,6 +1853,10 @@ function prepareRoute(models, options = {}) {
     if (match && !pinned.includes(match)) pinned.push(match);
   }
 
+  // The full voice lane only steps back from the fast model when a main local model can take the real answer.
+  const mainLocalPresent = eligible.some(
+    (m) => m.type === "local" && !isVoiceFastModel(m, options.voiceTags),
+  );
   const rest = eligible
     .filter((m) => !pinned.includes(m))
     .map((m) => ({
@@ -1803,6 +1869,9 @@ function prepareRoute(models, options = {}) {
         qualityTarget,
         surface: options.surface,
         hardware: options.hardware,
+        ...(options.lane ? { lane: options.lane } : {}),
+        ...(options.voiceTags ? { voiceTags: options.voiceTags } : {}),
+        ...(mainLocalPresent ? { mainLocalPresent } : {}),
       }),
     }))
     .sort((a, b) => b.score - a.score || a.m.id.localeCompare(b.m.id))
@@ -3660,6 +3729,8 @@ module.exports = {
   localFanout,
   fanoutLanes,
   hardwareFit,
+  voiceFastTags,
+  isVoiceFastModel,
   nudgePrior,
   cooldownJitter,
   localSafetyNet,

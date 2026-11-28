@@ -154,3 +154,183 @@ export function speculationAllowed(input: {
 }): boolean {
   return input.readOnly && !input.privacyChanged && !input.paidChanged && !input.autonomyChanged;
 }
+
+/* ---------- status lines while a long task runs ---------- */
+
+/**
+ * The small fast model may say ONE short status line while the main model works. The line comes from a closed
+ * template that names only the task verb: the label of the task, a tool result, a page or a file never reaches the
+ * model (all of it is data, never an instruction), and the model's words go through `cleanTaskStatus` before any
+ * sound. The conductor owns the timer, the model call and the playback; these are the pure rules.
+ */
+export const STATUS_VERBS = [
+  "search",
+  "read",
+  "open",
+  "write",
+  "check",
+  "install",
+  "download",
+  "work",
+] as const;
+export type StatusVerb = (typeof STATUS_VERBS)[number];
+export type StatusLineLang = "en" | "hi" | "hinglish";
+
+/** A status line is at most this many words. */
+export const STATUS_LINE_MAX_WORDS = 12;
+/** The first status line comes after the task has run this long without an answer. */
+export const STATUS_FIRST_MS = 8_000;
+/** At least this long between two status lines of one task. */
+export const STATUS_GAP_MS = 20_000;
+/** At most this many status lines for one task. */
+export const STATUS_PER_TASK = 4;
+
+// Closed stems, matched on a lowercased label. A label is read here and never copied: only a verb comes out.
+const VERB_STEMS: ReadonlyArray<readonly [StatusVerb, RegExp]> = [
+  ["download", /download|डाउनलोड/u],
+  ["install", /install|set\s?up|इंस्टॉल/u],
+  ["search", /search|find|look\s?up|dhoond|khoj|ढूँढ|खोज/u],
+  ["read", /\bread|summar|padh|पढ़/u],
+  ["open", /\bopen|launch|khol|खोल/u],
+  ["write", /\bwrite|draft|compose|likh|लिख/u],
+  ["check", /check|verify|\btest|scan|jaanch|जाँच/u],
+];
+
+/** The one verb of the closed list that a task label points at; "work" when none does. */
+export function statusVerbFor(label: unknown): StatusVerb {
+  if (typeof label !== "string") return "work";
+  const text = label.normalize("NFC").toLowerCase().slice(0, 200);
+  for (const [verb, stem] of VERB_STEMS) if (stem.test(text)) return verb;
+  return "work";
+}
+
+const STATUS_LANG_RULE: Record<StatusLineLang, string> = {
+  en: "English",
+  hi: "Hindi in Devanagari script, as a woman (for example: कर रही हूँ, देखती हूँ)",
+  hinglish: "Hinglish in Latin letters, as a woman (for example: kar rahi hoon, dekhti hoon)",
+};
+const STATUS_VERB_PHRASE: Record<StatusVerb, string> = {
+  search: "searching",
+  read: "reading",
+  open: "opening something",
+  write: "writing",
+  check: "checking",
+  install: "installing",
+  download: "downloading",
+  work: "working on it",
+};
+
+export type StatusLineRequest = { system: string; prompt: string; maxTokens: number };
+
+/**
+ * The model call for one status line. The only variable parts are two members of closed lists (the verb and the
+ * language), so no text of the owner, a task or a tool can steer the model.
+ */
+export function statusLineRequest(verb: StatusVerb, lang: StatusLineLang): StatusLineRequest {
+  const v: StatusVerb = STATUS_VERBS.includes(verb) ? verb : "work";
+  const rule = STATUS_LANG_RULE[lang] ?? STATUS_LANG_RULE.en;
+  return {
+    system:
+      "You are FRIDAY, speaking aloud while a longer task runs. " +
+      `Say ONE short sentence, at most ${STATUS_LINE_MAX_WORDS} words, in ${rule}. ` +
+      `Say only that you are still ${STATUS_VERB_PHRASE[v]}. ` +
+      "No emoji, no markdown, no list, no question, no numbers, no link. " +
+      "Do not say yes, no or okay, and do not ask for or give any permission.",
+    prompt: `Task: ${v}`,
+    maxTokens: 48,
+  };
+}
+
+export type StatusSkip =
+  | "not-auto-mode"
+  | "speech-off"
+  | "held"
+  | "quiet-hours"
+  | "whisper-mode"
+  | "call-hold"
+  | "pending-confirmation"
+  | "speaking"
+  | "owner-speaking"
+  | "no-task"
+  | "answer-started"
+  | "too-early"
+  | "rate-limited"
+  | "task-cap";
+
+export type StatusDueInput = {
+  /** The conductor mode. Only Auto speaks; Chat and Manual never do. */
+  mode: string;
+  speakReplies: boolean;
+  held: boolean;
+  quiet: boolean;
+  whisperMode: boolean;
+  callHold: boolean;
+  pendingConfirmation: boolean;
+  speaking: boolean;
+  ownerSpeaking: boolean;
+  /** A long task or tool run is going. */
+  taskRunning: boolean;
+  /** The first clause of the real answer has started. */
+  answerStarted: boolean;
+  now: number;
+  taskStartedAt: number;
+  /** When the last status line of this task was said; null for none yet. */
+  lastStatusAt: number | null;
+  sentThisTask: number;
+};
+
+/** Every gate, in order; the first that fires is the reason. A missing or odd value never speaks. */
+export function statusLineDue(
+  input: StatusDueInput,
+): { due: true } | { due: false; reason: StatusSkip } {
+  const no = (reason: StatusSkip) => ({ due: false as const, reason });
+  if (input.mode !== "auto") return no("not-auto-mode");
+  if (input.speakReplies !== true) return no("speech-off");
+  if (input.held) return no("held");
+  if (input.quiet) return no("quiet-hours");
+  if (input.whisperMode) return no("whisper-mode");
+  if (input.callHold) return no("call-hold");
+  if (input.pendingConfirmation) return no("pending-confirmation");
+  if (input.speaking) return no("speaking");
+  if (input.ownerSpeaking) return no("owner-speaking");
+  if (input.taskRunning !== true) return no("no-task");
+  if (input.answerStarted) return no("answer-started");
+  if (!(input.sentThisTask < STATUS_PER_TASK)) return no("task-cap");
+  if (!Number.isFinite(input.now) || !Number.isFinite(input.taskStartedAt)) return no("too-early");
+  if (input.now - input.taskStartedAt < STATUS_FIRST_MS) return no("too-early");
+  if (input.lastStatusAt !== null && !(input.now - input.lastStatusAt >= STATUS_GAP_MS)) {
+    return no("rate-limited");
+  }
+  return { due: true };
+}
+
+/**
+ * Asked again after every await (the model call, the clip loading): false means drop the line at once. The real
+ * answer starting, the task ending, a newer turn, the owner speaking and a hold all cancel it.
+ */
+export function statusLineStillDue(
+  armed: { taskId: string; generation: number },
+  live: {
+    taskId: string;
+    generation: number;
+    taskRunning: boolean;
+    answerStarted: boolean;
+    held: boolean;
+    speaking: boolean;
+    ownerSpeaking: boolean;
+    pendingConfirmation: boolean;
+    callHold: boolean;
+  },
+): { due: true } | { due: false; reason: StatusSkip | "stale-generation" } {
+  if (armed.taskId !== live.taskId || armed.generation !== live.generation) {
+    return { due: false, reason: "stale-generation" };
+  }
+  if (live.answerStarted) return { due: false, reason: "answer-started" };
+  if (!live.taskRunning) return { due: false, reason: "no-task" };
+  if (live.held) return { due: false, reason: "held" };
+  if (live.pendingConfirmation) return { due: false, reason: "pending-confirmation" };
+  if (live.ownerSpeaking) return { due: false, reason: "owner-speaking" };
+  if (live.speaking) return { due: false, reason: "speaking" };
+  if (live.callHold) return { due: false, reason: "call-hold" };
+  return { due: true };
+}

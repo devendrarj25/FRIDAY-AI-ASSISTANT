@@ -1,5 +1,5 @@
 {
-  "checked": "2026-11-27",
+  "checked": "2026-11-28",
   "hosts": [
     "ollama.com",
     "registry.ollama.ai",
@@ -7,6 +7,8 @@
     "api.github.com",
     "lmstudio.ai",
     "huggingface.co",
+    "modelscope.cn",
+    "download.moonshine.ai",
     "archive.apache.org",
     "getcomposer.org",
     "cmake.org",
@@ -16,6 +18,14 @@
     {
       "id": "huggingface",
       "suffixes": ["huggingface.co", "hf.co"]
+    },
+    {
+      "id": "modelscope",
+      "hosts": ["modelscope.cn"]
+    },
+    {
+      "id": "moonshine",
+      "hosts": ["download.moonshine.ai"]
     },
     {
       "id": "github",

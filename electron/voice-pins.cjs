@@ -782,9 +782,16 @@ const PINS = {
   },
 };
 
-/** The turbo repository was renamed; the old name redirects to the same revision and files. */
+/**
+ * A repository that was renamed answers on both names with the same revision and files. The key is the name the pin
+ * is filed under, the value the other name it is also reached by: `AudioSRonnx/gtcrn` is the new home of
+ * `TigreGotico/audiosronnx-gtcrn` (the old name redirects to it); the revision `eeba5e96...`, the file
+ * `gtcrn_simple.onnx`, its 535,638 bytes and its SHA-256 were read from the Hugging Face API under the new name on
+ * 2026-11-28 and equal this pin, and the pinned-revision file url answers 200 under it.
+ */
 const ALIASES = {
   "mobiuslabsgmbh/faster-whisper-large-v3-turbo": "dropbox-dash/faster-whisper-large-v3-turbo",
+  "AudioSRonnx/gtcrn": "TigreGotico/audiosronnx-gtcrn",
 };
 
 /**

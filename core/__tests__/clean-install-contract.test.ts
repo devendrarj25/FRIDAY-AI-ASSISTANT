@@ -657,7 +657,16 @@ describe("environment check is actionable", () => {
 
   it("never calls a tool that is not installed on this run optional or a warning", () => {
     expect(script).not.toContain("optional here");
-    expect(script).not.toContain('"WARN"');
+    // WARN exists only for the four rows that compare this PC with its plan; a tool that is not installed is never one.
+    expect(
+      [...script.matchAll(/name: "([^"]+)",\s*required: false,\s*warn: true/g)].map((m) => m[1]),
+    ).toEqual([
+      "ONNX Runtime build (cpu, gpu, directml)",
+      "llama.cpp backend (cuda, vulkan, cpu)",
+      "This PC since setup",
+      "Visual C++ runtime version",
+    ]);
+    expect(script.match(/warn: true/g)).toHaveLength(4);
     expect(script).toContain("SKIPPED");
     expect(script).toContain("const notRequiredBecause");
   });

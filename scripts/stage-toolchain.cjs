@@ -116,7 +116,16 @@ async function stageBundledPacks({
   for (const pack of plan.packs) {
     const cacheFile = path.join(cacheDir, `${pack.sha256}.bin`);
     let body = null;
-    if (fs.existsSync(cacheFile)) body = fs.readFileSync(cacheFile);
+    if (fs.existsSync(cacheFile)) {
+      body = fs.readFileSync(cacheFile);
+      // A pack cut short by a crash or a full disk, or damaged since, is a cache miss: it is deleted and fetched
+      // again instead of failing every build until someone clears .cache by hand.
+      if (body.length !== pack.bytes || sha256(body) !== pack.sha256) {
+        log(`[friday] ${pack.id}: the cached copy is incomplete or damaged; fetching it again`);
+        fs.rmSync(cacheFile, { force: true });
+        body = null;
+      }
+    }
     if (!body) {
       if (offline) {
         const error = new Error(`offline build: ${pack.id} is not in the staging cache`);
@@ -155,7 +164,12 @@ async function stageBundledPacks({
       error.errors = ["sha256"];
       throw error;
     }
-    if (!fs.existsSync(cacheFile)) fs.writeFileSync(cacheFile, body);
+    if (!fs.existsSync(cacheFile)) {
+      // Written beside the final name and renamed, so a stop half way never leaves a pack that looks complete.
+      const partFile = `${cacheFile}.part`;
+      fs.writeFileSync(partFile, body);
+      fs.renameSync(partFile, cacheFile);
+    }
     const destDir = path.join(stageDir, pack.dest, pack.id);
     fs.mkdirSync(destDir, { recursive: true });
     const destFile = path.join(destDir, "pack.bin");

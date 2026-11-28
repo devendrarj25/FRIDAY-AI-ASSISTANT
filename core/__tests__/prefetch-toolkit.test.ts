@@ -261,7 +261,7 @@ describe("toolkit run", () => {
     expect(text).toContain("Docker Desktop needs administrator rights");
     expect(text).toContain("CUDA Toolkit skipped: no NVIDIA GPU driver");
     expect(text).toContain("aria2 was not installed");
-    // A tool that could not be installed fails the step and is named, with the way forward.
+    // A tool that could not be installed is named with the way forward (strict mode fails the step on it; by default it is a notice).
     const report = toolkit.failureReport(rows).join("\n");
     expect(report).toContain("ACTION REQUIRED");
     expect(report).toContain("aria2");
@@ -291,16 +291,85 @@ describe("toolkit run", () => {
     expect(text).toContain("Install Manager");
   });
 
-  it("installs the CUDA Toolkit when the owner opts in with FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1", async () => {
+  // The JSON of `prefetch-models.cjs --plan --json` for a PC with an NVIDIA card (what the CUDA Toolkit gate reads).
+  const gpuPlan = (over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+    required: [{ id: "cuda-libs", kind: "runtime-pack", action: "install" }],
+    skipped: [],
+    pc: {
+      gpu: { name: "RTX 3060", vramGb: 12, computeCap: 8.6, driver: "560.1" },
+      cudaDriver: true,
+      diskFreeGb: 400,
+      ...over,
+    },
+    ...extra,
+  });
+
+  it("installs the CUDA Toolkit when the owner opts in with FRIDAY_PREFETCH_TOOLKIT_OPTIONAL=1 and this PC's plan lets it in", async () => {
     const stub = fakeToolchain({ "NVIDIA Driver": "560.1" });
     await toolkit.prefetchToolkit("C:/friday", {
       ...win,
       env: { ...win.env, FRIDAY_PREFETCH_TOOLKIT_OPTIONAL: "1" },
       toolchain: stub,
       progressLine,
+      plan: gpuPlan(),
       log: () => {},
     });
     expect(stub.jobs.map((job) => job.id)).toContain("CUDA Toolkit");
+  });
+
+  it("keeps the opted-in CUDA Toolkit waiting when the plan refuses: no CUDA 12 driver, a low compute capability, no disk, or no plan", async () => {
+    const refused: Array<[string, unknown, RegExp]> = [
+      ["no CUDA 12 driver", gpuPlan({ cudaDriver: false }), /does not report CUDA 12/],
+      [
+        "low compute capability",
+        gpuPlan(
+          {},
+          { skipped: [{ id: "cuda-libs", reason: "compute capability 6.1 is below 7.5" }] },
+        ),
+        /compute capability 6\.1/,
+      ],
+      ["no disk", gpuPlan({ diskFreeGb: 4 }), /not enough free disk space/],
+      ["no card in the plan", gpuPlan({ gpu: null }), /no NVIDIA graphics card/],
+      [
+        "waiting line",
+        gpuPlan({}, { required: [{ id: "cuda-libs", action: "defer" }] }),
+        /better moment/,
+      ],
+      ["no plan", null, /plan could not be read/],
+    ];
+    for (const [label, plan, why] of refused) {
+      const stub = fakeToolchain({ "NVIDIA Driver": "560.1" });
+      const lines: string[] = [];
+      const rows = await toolkit.prefetchToolkit("C:/friday", {
+        ...win,
+        env: { ...win.env, FRIDAY_PREFETCH_TOOLKIT_OPTIONAL: "1" },
+        toolchain: stub,
+        progressLine,
+        plan,
+        log: (l: string) => lines.push(l),
+      });
+      expect(
+        stub.jobs.map((job) => job.id),
+        label,
+      ).not.toContain("CUDA Toolkit");
+      expect(
+        rows.find((row: { id: string }) => row.id === "CUDA Toolkit"),
+        label,
+      ).toMatchObject({
+        ok: true,
+        skipped: true,
+      });
+      expect(lines.join("\n"), label).toMatch(why);
+    }
+  });
+
+  it("the CUDA Toolkit gate is pure and reads the plan of this PC, never the driver alone", () => {
+    const entry = { approxBytes: 3 * 1024 ** 3 };
+    expect(toolkit.cudaToolkitGate(gpuPlan(), entry)).toEqual({ ok: true, reason: "" });
+    expect(toolkit.cudaToolkitGate(gpuPlan({ diskFreeGb: null }), entry).ok).toBe(true);
+    expect(toolkit.cudaToolkitGate(gpuPlan({ diskFreeGb: 4 }), entry).ok).toBe(false);
+    expect(toolkit.cudaToolkitGate(null, entry).ok).toBe(false);
+    expect(toolkit.cudaToolkitGate({}, entry).ok).toBe(false);
   });
 
   it("reports a pending restart without stopping the build", async () => {
@@ -326,7 +395,7 @@ describe("toolkit run", () => {
     expect(stub.jobs.map((job) => job.id)).toContain("Docker Desktop");
   });
 
-  it("turns a throwing install into a failed row and a failing step, never an uncaught crash", async () => {
+  it("turns a throwing install into a failed row and a notice-only step, never an uncaught crash", async () => {
     const stub = fakeToolchain({});
     stub.runJob = async () => {
       throw new Error("winget exploded");
@@ -341,8 +410,56 @@ describe("toolkit run", () => {
     expect(tried.length).toBeGreaterThan(10);
     expect(tried.every((row: { ok: boolean }) => row.ok === false)).toBe(true);
     expect(toolkit.failureReport(rows).length).toBeGreaterThan(tried.length);
-    expect(toolkit.strict({})).toBe(true);
+    // A tool that did not install is a notice: the step exits 0 unless the owner opts in to strict mode.
+    expect(toolkit.strict({})).toBe(false);
     expect(toolkit.strict({ FRIDAY_PREFETCH_TOOLKIT_STRICT: "0" })).toBe(false);
+    expect(toolkit.strict({ FRIDAY_PREFETCH_TOOLKIT_STRICT: "1" })).toBe(true);
+    expect(toolkit.strict({ FRIDAY_SETUP_STRICT: "1" })).toBe(true);
+  });
+
+  it("records every tool that did not install as one notice, clears it when the tool verifies, and says so in one line", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-toolnotice-"));
+    try {
+      const lines: string[] = [];
+      const rows = [
+        { id: "aria2", ok: false, error: "winget exploded" },
+        { id: "Git", ok: true, downloaded: false },
+      ];
+      const recorded = toolkit.recordToolNotices(rows, {
+        root: dir,
+        log: (l: string) => lines.push(l),
+      });
+      expect(recorded.map((entry: { id: string }) => entry.id)).toEqual(["tool:aria2"]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("NOTICE");
+      expect(lines[0]).toContain("Not a stop");
+      const file = JSON.parse(
+        readFileSync(path.join(dir, "runtime", "setup-notices.json"), "utf8"),
+      );
+      expect(file.notices[0]).toMatchObject({
+        id: "tool:aria2",
+        kind: "tool",
+        installManagerId: "aria2",
+        repair: "npm run setup:toolkit",
+      });
+      toolkit.recordToolNotices([{ id: "aria2", ok: true, downloaded: true }], {
+        root: dir,
+        log: () => {},
+      });
+      const after = JSON.parse(
+        readFileSync(path.join(dir, "runtime", "setup-notices.json"), "utf8"),
+      );
+      expect(after.notices).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves with exit 0 on a failed tool by default, and with exit 1 only in strict mode (source)", () => {
+    const src = readFileSync(path.join(root, "scripts/prefetch-toolkit.cjs"), "utf8");
+    expect(src).toContain("leave(lines.length && strict() ? 1 : 0)");
+    expect(src).toContain("recordToolNotices(rows, { root: picked.root })");
+    expect(src).toContain("if (strict()) for (const line of lines) console.error(line)");
   });
 
   it("tries a newer release once: a shadowed or finished update is not downloaded on the next run", async () => {
@@ -510,13 +627,19 @@ describe("toolkit is part of the one build recipe", () => {
     expect(source).toContain('runNode("scripts/prefetch-toolkit.cjs", ["--no-update"], root)');
   });
 
-  it("is also run by the Windows setup script, which stops when the toolkit is not complete", () => {
+  it("is also run by the Windows setup script, which notes an incomplete toolkit and stops only when strict", () => {
     const setup = readFileSync(path.join(root, "scripts/setup-windows.ps1"), "utf8");
     expect(setup).toContain("scripts\\prefetch-toolkit.cjs");
-    expect(setup).toMatch(/prefetch-toolkit\.cjs\s*\n\s*if \(\$LASTEXITCODE -ne 0\) \{ throw /);
-    expect(setup).not.toMatch(
-      /prefetch-toolkit\.cjs\s*\n\s*if \(\$LASTEXITCODE -ne 0\) \{ Write-Host/,
+    expect(setup).toMatch(
+      /prefetch-toolkit\.cjs\s*\r?\n\s*if \(\$LASTEXITCODE -ne 0\) \{ Stop-OrNotice /,
     );
+    expect(setup).not.toMatch(
+      /prefetch-toolkit\.cjs\s*\r?\n\s*if \(\$LASTEXITCODE -ne 0\) \{ Write-Host/,
+    );
+    // Stop-OrNotice is the stop: it throws when the strict switch is on and only prints a notice otherwise.
+    const stopOrNotice = setup.match(/^function Stop-OrNotice\b[\s\S]*?^}\r?$/m)?.[0] ?? "";
+    expect(stopOrNotice).toMatch(/if \(\$script:SetupStrict\) \{ throw /);
+    expect(stopOrNotice).toContain("Write-Notice");
   });
 });
 

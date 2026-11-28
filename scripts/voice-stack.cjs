@@ -4,11 +4,13 @@
  * and really connected to the next one? Every row comes from the files of this checkout (and, when a FRIDAY folder
  * is given, from what is on disk). Nothing is assumed and nothing is started: it reads files and loads modules.
  *
- *   node scripts/voice-stack.cjs            a table, exit code 1 when a row FAILs
+ *   node scripts/voice-stack.cjs            a table, exit code 1 when a row FAILs (a WARN never fails it)
  *   node scripts/voice-stack.cjs --json     the rows as JSON
  *   node scripts/voice-stack.cjs --root DIR also check which models are on disk under DIR
  *
- * A row is PASS, FAIL (a gap: something that must exist or be connected is not) or INFO (a fact, not a verdict).
+ * A row is PASS, FAIL (a gap in the wiring: something that must be connected is not), WARN (a model or package this PC's
+ * plan carries is not here yet: a NOTICE, never a stop, finished by `npm run doctor` or FRIDAY > Install Manager / Models)
+ * or INFO (a fact, not a verdict).
  * What only a real PC can show (a microphone, a live account, a Windows run) is never reported here as PASS.
  */
 const fs = require("node:fs");
@@ -282,9 +284,10 @@ function planView(planData, voicePlan) {
 
 /**
  * One row per language and role (Hindi, English, Hinglish: ears, speaking, punctuation, the light voice, the fallback
- * ear) plus the language-free noise and echo rows. A model that this PC's plan carries and that is not on disk is FAIL
- * (MISSING); one the plan skipped is INFO with the plan's reason; one that is not part of the plan is INFO. A package
- * the row needs is FAIL when absent from the venv on a PC that must have it, INFO when it was not checked.
+ * ear) plus the language-free noise and echo rows. A model that this PC's plan carries and that is not on disk is WARN
+ * (MISSING, with the repair command); one the plan skipped is INFO with the plan's reason; one that is not part of the
+ * plan is INFO. A package the row needs is WARN when absent from the venv on a PC that must have it, INFO when it was not
+ * checked. A row that only has an optional fallback (noise suppression) is PASS only when that package is installed.
  */
 function languageRows({
   onDisk,
@@ -304,7 +307,7 @@ function languageRows({
         text: `${id} skipped on this PC: ${String(view.skipped.get(id)).slice(0, 110)}`,
       };
     if (view.planned.has(id))
-      return { state: "missing", text: `${id} MISSING: planned for this PC, run npm run setup` };
+      return { state: "missing", text: `${id} MISSING: planned for this PC, run npm run doctor` };
     if (!view.source)
       return { state: "unknown", text: `${id} not on disk (this PC's plan could not be read)` };
     return {
@@ -326,7 +329,7 @@ function languageRows({
       };
     return {
       state: "missing",
-      text: "moonshine-en MISSING: setup fetches it on every PC, run npm run setup",
+      text: "moonshine-en MISSING: setup fetches it on every PC, run npm run doctor",
     };
   };
   const packagePart = (mod) => {
@@ -349,16 +352,25 @@ function languageRows({
     const pkgs = modules.map(packagePart);
     const extras = optional.map(optionalPart);
     let state = "INFO";
-    if (parts.some((p) => p.state === "missing")) state = "FAIL";
+    let detail = null;
+    if (parts.some((p) => p.state === "missing")) state = "WARN";
     else if (needed && pkgs.some((p) => p.state === "absent"))
-      state = packagesRequired ? "FAIL" : "INFO";
-    else if (needed && parts.every((p) => p.state === "ok") && pkgs.every((p) => p.state === "ok"))
+      state = packagesRequired ? "WARN" : "INFO";
+    else if (!models.length && !modules.length && optional.length) {
+      // Nothing is required here: PASS only when the optional package is really installed.
+      if (extras.some((p) => p.state === "ok" && /present/.test(p.text))) state = "PASS";
+      else detail = mods ? "not installed (optional)" : null;
+    } else if (
+      needed &&
+      parts.every((p) => p.state === "ok") &&
+      pkgs.every((p) => p.state === "ok")
+    )
       state = "PASS";
     rows.push({
       layer: "language",
       name,
       state,
-      detail: [...parts, ...pkgs, ...extras].map((p) => p.text).join("; "),
+      detail: detail || [...parts, ...pkgs, ...extras].map((p) => p.text).join("; "),
     });
   };
   add("hindi ears (STT)", ["hindi-ear"], ["numpy", "onnxruntime"], ["onnx_asr"]);
@@ -553,8 +565,8 @@ function inventory({
         row(
           "disk",
           job.id,
-          here ? "PASS" : "FAIL",
-          here ? `on disk${sources(false)}` : `missing — run npm run setup${sources(true)}`,
+          here ? "PASS" : "WARN",
+          here ? `on disk${sources(false)}` : `missing — run npm run doctor${sources(true)}`,
         );
       }
     }
@@ -859,10 +871,55 @@ function print(rows, log = console.log, { summary = false } = {}) {
     log(`  ${r.state.padEnd(4)}  ${r.name.padEnd(width)}  ${r.detail}`);
   }
   const fails = rows.filter((r) => r.state === "FAIL");
+  const warns = rows.filter((r) => r.state === "WARN");
   log(
-    `\n${rows.length} rows: ${rows.filter((r) => r.state === "PASS").length} pass, ${fails.length} fail, ${rows.filter((r) => r.state === "INFO").length} info`,
+    `\n${rows.length} rows: ${rows.filter((r) => r.state === "PASS").length} pass, ${fails.length} fail, ${rows.filter((r) => r.state === "INFO").length} info${warns.length ? `, ${warns.length} warn (notice: finish with npm run doctor or in FRIDAY > Install Manager / Models)` : ""}`,
   );
   return fails.length;
+}
+
+/**
+ * The notices a run of this check leaves: one per WARN row of the disk layer (`voice:<download job>`, the id the model
+ * step records, so setup and Doctor record the same item once) and one per language row that waits for a package
+ * (`package:voice-stack:<row>`). Pure.
+ */
+function noticeEntries(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    if (r.state !== "WARN") continue;
+    if (r.layer === "disk")
+      out.push({
+        id: `voice:${r.name}`,
+        kind: "voice",
+        label: `Voice file: ${r.name}`,
+        reason: String(r.detail).split(";")[0],
+        repair: "npm run doctor",
+      });
+    else if (r.layer === "language" && /NOT installed in the venv/.test(r.detail))
+      out.push({
+        id: `package:voice-stack:${r.name}`,
+        kind: "package",
+        label: `Voice package: ${r.name}`,
+        reason:
+          String(r.detail)
+            .split(";")
+            .find((part) => /NOT installed/.test(part))
+            ?.trim() || "a package is missing",
+        repair: "npm run setup:python",
+      });
+  }
+  return out;
+}
+
+/** The ids of the notices a passing row settles (the same ids `noticeEntries` records for a WARN row). Pure. */
+function noticeClearIds(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    if (r.state !== "PASS") continue;
+    if (r.layer === "disk") out.push(`voice:${r.name}`);
+    else if (r.layer === "language") out.push(`package:voice-stack:${r.name}`);
+  }
+  return out;
 }
 
 module.exports = {
@@ -875,6 +932,8 @@ module.exports = {
   engineProof,
   languageRows,
   planView,
+  noticeEntries,
+  noticeClearIds,
   VOICE_MODULES,
   BANNED_PACKAGES,
 };
@@ -891,6 +950,12 @@ if (require.main === module) {
     python: root ? probes.venvPython(process.env) : "",
     reach: (hosts) => probes.reachSync(hosts),
   });
+  // What is missing is recorded for FRIDAY > Install Manager / Models (best effort, never a stop).
+  if (root) {
+    const notices = require("./setup-notices.cjs");
+    for (const id of noticeClearIds(rows)) notices.clearNotice(id);
+    for (const entry of noticeEntries(rows)) notices.recordNotice(entry, { print: false });
+  }
   if (args.includes("--json")) {
     console.log(JSON.stringify(rows, null, 2));
     process.exitCode = rows.some((r) => r.state === "FAIL") ? 1 : 0;

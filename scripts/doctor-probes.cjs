@@ -8,6 +8,9 @@
  *   - tesseract   the languages `tesseract --list-langs` reports (English is required, Hindi is a language pack)
  *   - onnxruntime the installed flavour (cpu, gpu, directml) against what this PC's plan recommends
  *   - python      which importable modules exist in the FRIDAY venv (importlib.util.find_spec, nothing is imported)
+ *   - this PC     the VC++ runtime against its floor, the llama.cpp build against the plan, and whether the PC changed since
+ *                 setup (all three are warnings, never a failure)
+ *   - order       `orderSources` moves a source whose host is down behind the others (it never drops one)
  *
  *   node scripts/doctor-probes.cjs --probe host [host ...]   prints one JSON line (used by reachSync)
  */
@@ -245,6 +248,87 @@ function sourcesLine(hosts, reach = {}, { missing = false } = {}) {
   return parts.join("; ");
 }
 
+/**
+ * The sources in the order to try them now: a host reported down goes last, everything else keeps its order. Nothing is
+ * removed (a host that is down now can answer a minute later), and an unchecked host counts as up. `sources` may be
+ * source objects (a url, a mirror endpoint, a Hugging Face repository) or plain host names; a new array is returned.
+ */
+function orderSources(sources, reach = {}) {
+  const list = Array.isArray(sources) ? sources : [];
+  const hostOf = (source) => (typeof source === "string" ? hostOfUrl(source) : sourceHost(source));
+  const down = (source) => reach?.[hostOf(source)]?.state === "down";
+  return [...list.filter((source) => !down(source)), ...list.filter(down)];
+}
+
+/** True when Hugging Face answered "down" in this reach map (the cue to try the opt-in mirror). */
+function huggingFaceDown(reach = {}) {
+  return reach?.[HUGGING_FACE]?.state === "down";
+}
+
+/* ---------------------------------------------------------------------------------------------------------- tiers */
+
+/** The notice kind of each group of the environment check (scripts/setup-notices.cjs KINDS). */
+const NOTICE_KIND = {
+  "local-models": "model",
+  toolchain: "tool",
+  "agent-toolkit": "tool",
+  "python-packages": "package",
+};
+const noticeSlug = (text) =>
+  String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+/**
+ * The one notice id of a check row, `<kind>:<id>`, the same id the step that downloads the item records (a tool as
+ * `tool:<tool id>` from scripts/prefetch-toolkit.cjs, a model or voice file as `<kind>:<job id>` from
+ * scripts/prefetch-models.cjs), so a later check clears exactly what setup recorded and no second line stays behind.
+ * `modelNoticeId(jobId)` is the model step's own id for a job; without it a model row is `model:<job id>`. A row with no
+ * job or tool id is `<kind>:<slug of its name>`. Pure.
+ */
+function noticeIdOf(check, { modelNoticeId } = {}) {
+  const kind = NOTICE_KIND[check.group] || "other";
+  if (check.noticeId) {
+    if (check.group === "local-models" && typeof modelNoticeId === "function")
+      return modelNoticeId(check.noticeId);
+    return `${kind}:${check.noticeId}`;
+  }
+  return `${kind}:${noticeSlug(check.name)}`;
+}
+
+/** The bare ids an older run recorded for the same row (no kind in front); a passing row clears them as well. */
+function legacyNoticeIds(check) {
+  return [...new Set([check.noticeId, noticeSlug(check.name)].filter(Boolean))];
+}
+
+/**
+ * The three kinds of non-passing row of the environment check. A BLOCKER is a required row the build cannot run
+ * without (`blocker: true`); a NOTICE is any other required row (a tool, a model, a voice package: printed, recorded for
+ * FRIDAY > Install Manager / Models, exit 0); a warned row is one that does not apply on this run or only differs from
+ * the plan.
+ */
+function classifyChecks(checks) {
+  const list = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
+  return {
+    blockers: list.filter((c) => c.required && c.blocker === true),
+    notices: list.filter((c) => c.required && c.blocker !== true),
+    warned: list.filter((c) => !c.required),
+  };
+}
+
+/**
+ * The exit code of the environment check: 1 only for a blocker, or for a notice when FRIDAY_SETUP_STRICT=1
+ * (`noticesFail`), or for a warned row under `--strict`. Everything else is 0.
+ */
+function environmentExitCode(checks, { strict = false, noticesFail = false } = {}) {
+  const { blockers, notices, warned } = classifyChecks(checks);
+  if (blockers.length) return 1;
+  if (noticesFail && notices.length) return 1;
+  if (strict && warned.length) return 1;
+  return 0;
+}
+
 /* -------------------------------------------------------------------------------------------------- tesseract */
 
 /** The language codes `tesseract --list-langs` prints (a header line, then one code per line). */
@@ -365,6 +449,76 @@ function ortRow(probe, planRow) {
   return { found, want, note };
 }
 
+/* ------------------------------------------------------------------------------------------ this PC against the plan */
+
+const numberParts = (text) =>
+  String(text || "")
+    .split(".")
+    .map((part) => Number(part) || 0);
+
+function atLeast(found, minimum) {
+  const a = numberParts(found);
+  const b = numberParts(minimum);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return true;
+}
+
+/**
+ * The Visual C++ runtime version against the floor in config/toolchain-versions.json (`vcRedistMinimum`). No floor,
+ * no row (null); a version that could not be read is fine, because the presence row already says whether the DLL exists.
+ */
+function vcRedistRow(version, minimum) {
+  const floor = String(minimum || "").trim();
+  if (!floor) return null;
+  const have = String(version || "").trim();
+  if (!have) return { ok: true, found: "version not read", want: `Visual C++ runtime >=${floor}` };
+  return {
+    ok: atLeast(have, floor),
+    found: `v${have}`,
+    want: `Visual C++ runtime >=${floor} (native Python wheels and model runtimes need a current one)`,
+  };
+}
+
+/** The onnxruntime flavour setup installs against the one installed: "" when they agree or cannot be compared. */
+function ortMismatch(probe, planRow) {
+  const planned = String(planRow?.variant || "").trim();
+  if (!probe || !planned) return "";
+  if (probe.flavour === "none") return `planned ${planned}, not installed`;
+  return probe.flavour === planned ? "" : `planned ${planned}, installed ${probe.flavour}`;
+}
+
+/**
+ * The llama.cpp build the plan chose against the one installed (`installed` is electron/llama-runtime.cjs readBackend).
+ * Null when the plan has no engine row. A different build is a warning: the installer falls back a step when the first
+ * build fails its health check, so that is normal, but the owner should see it.
+ */
+function llamaBackendRow(planRow, installed) {
+  if (!planRow) return null;
+  const planned = String(planRow.backend || "cpu");
+  const want =
+    "the build this PC's plan chose; a slower build stays in use when the first failed its health check";
+  if (!installed) return { ok: true, found: `planned ${planned}, not installed yet`, want };
+  const have = installed.backend ? String(installed.backend) : "";
+  if (!have) return { ok: true, found: `planned ${planned}, installed (build not recorded)`, want };
+  return { ok: have === planned, found: `planned ${planned}, installed ${have}`, want };
+}
+
+/**
+ * Whether this PC differs from the one setup planned for. `record` is <root>/runtime/setup-plan.json
+ * (`{ schema, at, fingerprint, pc }`), `fresh` the fingerprint of the plan made now. Null when either is missing.
+ */
+function setupChangedRow(record, fresh) {
+  const before = String(record?.fingerprint || "");
+  const now = String(fresh || "");
+  if (!before || !now) return null;
+  const when = String(record?.at || "").slice(0, 10);
+  return before === now
+    ? { ok: true, found: `same PC as at setup${when ? ` (${when})` : ""}` }
+    : { ok: false, found: `this PC changed since setup${when ? ` (${when})` : ""}` };
+}
+
 /* ------------------------------------------------------------------------------------------------ python modules */
 
 const MODULE_PROBE = [
@@ -432,6 +586,16 @@ module.exports = {
   parseOrtProbe,
   probeOrt,
   ortRow,
+  ortMismatch,
+  vcRedistRow,
+  llamaBackendRow,
+  setupChangedRow,
+  orderSources,
+  huggingFaceDown,
+  noticeIdOf,
+  legacyNoticeIds,
+  classifyChecks,
+  environmentExitCode,
   probeModules,
   venvPython,
 };

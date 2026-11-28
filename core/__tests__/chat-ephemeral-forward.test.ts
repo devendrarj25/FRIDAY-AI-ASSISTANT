@@ -83,7 +83,7 @@ describe("I1: the quick lane is an ephemeral, text-only turn too", () => {
   it("the quick lane asks ephemerally; the full turn and the other callers do not change", () => {
     const brain = read("src/lib/friday/brain-engine.ts");
     expect(brain).toMatch(
-      /askFriday\(text, \{\s*system: quickSystem\(meta\.context, this\.quickVoiceParts\(meta, surface\), text\),\s*timeoutMs: 45_000,\s*ephemeral: true,?\s*\}\)/,
+      /askFriday\(text, \{\s*system: quickSystem\(meta\.context, this\.quickVoiceParts\(meta, surface\), text\),\s*timeoutMs: 45_000,\s*ephemeral: true,(?:\s*\/\/[^\n]*)*\s*\.\.\.\(surface === "voice"\s*\?\s*\{ routingSurface: "voice" as const, lane: "quick" as const \}\s*:\s*\{\}\),?\s*\}\)/,
     );
     const ask = read("src/lib/friday/ask.ts");
     expect(ask).toMatch(/\.\.\.\(options\.ephemeral === true \? \{ draft: true \} : \{\}\)/);

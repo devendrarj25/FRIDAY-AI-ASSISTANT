@@ -14,9 +14,12 @@
  *              API at install time, verified, health-checked, and a failed build falls back one step down
  *              (electron/engine-install.cjs). Never a GPU build on a PC without a qualifying GPU.
  *   chat       which Ollama chat model (`chatModelFor`, table config/chat-tiers.json): the best tier whose weights plus
- *              20 percent fit the usable memory (free video memory less 1 GB on a verified NVIDIA card, else free RAM less
- *              what Windows, Electron and speech keep), never a partial offload by default, and a model already installed
- *              is kept when it is at least as good (it is never deleted or re-pulled).
+ *              20 percent fit the usable memory, judged on the TOTAL memory of this PC (video memory less 1 GB on a
+ *              verified NVIDIA card, or on a dedicated AMD or Intel card through Vulkan, else RAM less what Windows,
+ *              Electron and speech keep). Free memory never changes the tier: it only warns. Never a partial offload by
+ *              default; a model already installed is kept when it is at least as good (never deleted or re-pulled).
+ *              The plan also carries `numCtx` (context window that fits), `voice` (the small fast twin model) and
+ *              `backend` (cuda, vulkan or cpu).
  *   packages   CUDA 12 libraries only with an NVIDIA GPU whose driver reports CUDA 12; the ONNX Runtime variant; heavy
  *              extras are listed as offered, not installed.
  *   voice      electron/voice-weights.cjs `voiceInstallPlan`, read only, its decision carried in the same object.
@@ -107,7 +110,26 @@ function gpuView(f) {
   const byMemory = (a, b) => (num(b.vramGb) ?? 0) - (num(a.vramGb) ?? 0);
   const nvidia = real.filter((g) => g.vendor === "nvidia").sort(byMemory)[0] || null;
   const vulkan = real.filter((g) => (num(g.vramGb) ?? 0) >= 2 || g.vramCapped === true);
-  return { rows, real, nvidia, vulkan, integratedOnly: rows.length > 0 && real.length === 0 };
+  // A dedicated AMD or Intel card (not an APU whose "video memory" is a carve-out of RAM) a chat model may use.
+  const vulkanChat =
+    real
+      .filter(
+        (g) =>
+          (g.vendor === "amd" || g.vendor === "intel") &&
+          g.unifiedMemory !== true &&
+          positive(g.vramGb) !== null,
+      )
+      .sort(byMemory)[0] || null;
+  const dedicated = real.filter((g) => g.unifiedMemory !== true);
+  return {
+    rows,
+    real,
+    nvidia,
+    vulkan,
+    vulkanChat,
+    multiGpu: dedicated.length > 1,
+    integratedOnly: rows.length > 0 && real.length === 0,
+  };
 }
 
 const networkOf = (f) => {
@@ -171,7 +193,64 @@ function knownRows(cfg) {
   return out;
 }
 
-/** The memory plan of this PC for a chat model: a verified NVIDIA card (video memory) or the CPU (RAM). */
+/** What Windows, Electron and speech keep of this much RAM: linear between the table's points, flat outside them. */
+function reserveFor(ramTotal, rules) {
+  const r = rules.cpuReserveGb || {};
+  const points = [
+    [4, num(r.at4) ?? 2],
+    [8, num(r.at8) ?? 4.5],
+    [16, num(r.at16) ?? 6],
+  ];
+  if (ramTotal <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i += 1) {
+    if (ramTotal <= points[i][0]) {
+      const [x0, y0] = points[i - 1];
+      const [x1, y1] = points[i];
+      return y0 + ((y1 - y0) * (ramTotal - x0)) / (x1 - x0);
+    }
+  }
+  return points[points.length - 1][1];
+}
+
+/** The processor architecture the facts carry ("x64", "arm64"), or "". */
+const archOf = (f) => text(f.arch) || text(f.os?.arch) || "";
+
+/**
+ * A cap on the size of a model that runs on the CPU: no AVX2 (llama.cpp falls back to its plain build) and ARM64
+ * Windows (the x64 build runs by emulation). `{ maxGb, notes }`; maxGb is null when nothing caps this PC.
+ */
+function cpuCapFor(f, rules) {
+  const caps = isRecord(rules.cpuCaps) ? rules.cpuCaps : {};
+  const hits = [];
+  if (/^arm/i.test(archOf(f)) && isRecord(caps.arm64)) hits.push(caps.arm64);
+  if (isRecord(f.cpu) && f.cpu.avx2 === false && isRecord(caps.noAvx2)) hits.push(caps.noAvx2);
+  if (!hits.length) return { maxGb: null, notes: [] };
+  const weak = f.cpuClass === "low";
+  const limits = hits
+    .map((h) =>
+      weak ? (num(h.lowClassMaxDownloadGb) ?? num(h.maxDownloadGb)) : num(h.maxDownloadGb),
+    )
+    .filter((v) => v !== null);
+  let variant = "";
+  try {
+    variant = require("./llama-runtime.cjs").cpuVariant(f);
+  } catch {
+    variant = "";
+  }
+  return {
+    maxGb: limits.length ? Math.min(...limits) : null,
+    notes: [
+      ...hits.map((h) => text(h.note)).filter(Boolean),
+      ...(variant ? [`llama.cpp runs its ${variant} CPU build on this PC`] : []),
+    ],
+  };
+}
+
+/**
+ * The memory plan of this PC for a chat model, from TOTAL memory: a verified NVIDIA card or a dedicated AMD or Intel
+ * card through Vulkan (video memory), else the CPU (RAM). Free memory is carried as `freeUsableGb` to warn with; it
+ * never decides the tier.
+ */
 function memoryFor(f, cfg, view) {
   const rules = cfg.rules || {};
   const margin = num(rules.weightsMargin) ?? 1.2;
@@ -181,48 +260,82 @@ function memoryFor(f, cfg, view) {
   if (ramTotalKnown === null)
     notes.push("the memory of this PC is unknown, so it is treated as an 8 GB PC");
   const ramFree = positive(f.ramFreeGb);
-  const t = Math.min(1, Math.max(0, (ramTotal - 8) / 8));
-  const reserve =
-    (num(rules.cpuReserveGb?.at8) ?? 4.5) * (1 - t) + (num(rules.cpuReserveGb?.at16) ?? 6) * t;
   const freeHeadroom = num(rules.cpuFreeHeadroomGb) ?? 1;
-  const cpuUsable = Math.min(ramTotal - reserve, (ramFree ?? ramTotal) - freeHeadroom);
+  const cpuUsable = ramTotal - reserveFor(ramTotal, rules);
 
   // A verified NVIDIA card: CUDA 12 driver, the compute capability and the driver Ollama needs, memory measured.
+  // Ollama's rule (https://docs.ollama.com/gpu, read 2026-11-28): compute capability 5.0+, driver 550+, and driver
+  // 570+ for compute capability 5.0 to 6.2.
   const card = view.nvidia;
+  const minCc = num(rules.ollamaMinComputeCap) ?? 5;
+  const legacyCc = num(rules.ollamaLegacyCcMax) ?? 6.2;
+  const minDriver =
+    num(card?.computeCap) !== null && card.computeCap <= legacyCc
+      ? (rules.ollamaMinDriverLegacyCc ?? "570")
+      : (rules.ollamaMinDriver ?? "550");
   let gpu = null;
   let gpuWhy = "";
-  if (!card)
+  const sameCard = (g) => !f.gpuName || !g.name || f.gpuName === g.name;
+  if (!card) {
     gpuWhy = view.integratedOnly
       ? "the only graphics part is integrated (shared memory)"
       : "no NVIDIA graphics card was found";
-  else if (f.cudaReady !== true) gpuWhy = "the NVIDIA driver does not support CUDA 12";
+    // A dedicated AMD or Intel card: Ollama's Vulkan backend. Speed is estimated, not measured.
+    const alt = view.vulkanChat;
+    const vulkanMin = num(rules.vulkanGpuMinTotalGb) ?? 6;
+    if (alt && f.vulkan !== false) {
+      if (alt.vramGb < vulkanMin)
+        gpuWhy = `${alt.vramGb} GB of video memory is below the ${vulkanMin} GB a Vulkan chat model needs`;
+      else {
+        const free = sameCard(alt) ? positive(f.vramFreeGb) : null;
+        const headroom = num(rules.vulkanHeadroomGb) ?? 1.5;
+        gpu = {
+          backend: "vulkan",
+          estimated: true,
+          totalGb: alt.vramGb,
+          freeGb: free,
+          usableGb: round1(alt.vramGb - headroom),
+          freeUsableGb: free === null ? null : round1(free - headroom),
+        };
+        gpuWhy = "";
+        notes.push("the graphics card runs the chat model through Vulkan: speed is estimated");
+      }
+    }
+  } else if (f.cudaReady !== true) gpuWhy = "the NVIDIA driver does not support CUDA 12";
   else if (!(positive(card.vramGb) > 0)) gpuWhy = "the card's video memory could not be measured";
-  else if (
-    num(card.computeCap) !== null &&
-    card.computeCap < (num(rules.ollamaMinComputeCap) ?? 7.5)
-  )
-    gpuWhy = `compute capability ${card.computeCap} is below ${num(rules.ollamaMinComputeCap) ?? 7.5}`;
-  else if (versionAtLeast(card.driver, rules.ollamaMinDriver ?? "551.61") === false)
-    gpuWhy = `driver ${card.driver} is older than ${rules.ollamaMinDriver ?? "551.61"}, which Ollama needs`;
+  else if (num(card.computeCap) !== null && card.computeCap < minCc)
+    gpuWhy = `compute capability ${card.computeCap} is below ${minCc}`;
+  else if (versionAtLeast(card.driver, minDriver) === false)
+    gpuWhy = `driver ${card.driver} is older than ${minDriver}, which Ollama needs`;
   else if (card.vramGb < (num(rules.gpuMinTotalGb) ?? 3.5))
     gpuWhy = `${card.vramGb} GB of video memory is too little for a chat model`;
   else {
     const total = card.vramGb;
-    const sameCard = !f.gpuName || !card.name || f.gpuName === card.name;
-    const free = sameCard ? positive(f.vramFreeGb) : null;
+    const free = sameCard(card) ? positive(f.vramFreeGb) : null;
+    const headroom = num(rules.gpuHeadroomGb) ?? 1;
     gpu = {
+      backend: "cuda",
+      estimated: false,
       totalGb: total,
       freeGb: free,
-      usableGb: round1(Math.min(total, free ?? total) - (num(rules.gpuHeadroomGb) ?? 1)),
+      usableGb: round1(total - headroom),
+      freeUsableGb: free === null ? null : round1(free - headroom),
     };
-    if (free === null)
-      notes.push("free video memory was not measured, so the card's full size is used");
   }
+  if (view.multiGpu && gpu)
+    notes.push(
+      "several graphics cards were found: only the largest one is used for the chat model",
+    );
   return {
     margin,
     notes,
     ramTotal,
-    cpu: { totalGb: ramTotal, freeGb: ramFree, usableGb: round1(cpuUsable) },
+    cpu: {
+      totalGb: ramTotal,
+      freeGb: ramFree,
+      usableGb: round1(cpuUsable),
+      freeUsableGb: ramFree === null ? null : round1(ramFree - freeHeadroom),
+    },
     gpu,
     gpuWhy,
   };
@@ -264,9 +377,68 @@ function judgeAlternatives(tier, mem, device, rules, diskAvail) {
 }
 
 /**
- * The chat model for this PC from the tier table: `{ tag, reason, alternatives, needs, ... }` (tag is null when no
- * tier fits). Pure. `options.tiers` overrides the table, `options.diskReserveGb` is disk other downloads of the same
- * setup already take (before the 1.3 factor).
+ * The context window (num_ctx) that fits: the largest ladder step within half of the memory left after the weights
+ * (one token of key-value cache costs the row's `kvKbPerToken`), the model's native context and the device cap
+ * (the CPU stays at 16k: prompt processing there is slow). A PC under 6 GB of RAM gets 2k and under 9 GB 4k, as
+ * kernel/router.py does. The ladder's first step is the floor.
+ */
+function numCtxFor(tier, mem, device, spareGb, rules) {
+  const n = isRecord(rules.numCtx) ? rules.numCtx : {};
+  const ladder = (Array.isArray(n.ladder) ? n.ladder : [2048, 4096, 8192, 16384, 32768, 65536])
+    .filter((v) => Number.isInteger(v) && v > 0)
+    .sort((a, b) => a - b);
+  const kv = positive(tier.kvKbPerToken) ?? positive(n.defaultKvKbPerToken) ?? 64;
+  const share = num(n.spareShare) ?? 0.5;
+  let limit = Math.floor((Math.max(0, spareGb) * share * 1024 * 1024) / kv);
+  limit = Math.min(
+    limit,
+    positive(tier.contextK) ? tier.contextK * 1024 : Infinity,
+    device === "gpu" ? (num(n.gpuCap) ?? Infinity) : (num(n.cpuCap) ?? 16384),
+  );
+  if (device === "cpu")
+    for (const [ceiling, cap] of Array.isArray(n.smallRamCaps) ? n.smallRamCaps : [])
+      if (mem.ramTotal < ceiling) {
+        limit = Math.min(limit, cap);
+        break;
+      }
+  let pick = ladder[0];
+  for (const rung of ladder) if (rung <= limit) pick = rung;
+  return pick;
+}
+
+/**
+ * The small fast twin model for the quick spoken lane: `{ voice: { tag, sizeGb, ctx, device, needGb } | null, why }`.
+ * Null when the row has none (the main model is already 2b or smaller), the disk cannot take both, or the memory
+ * cannot hold both: then the smaller model wins and answers alone.
+ */
+function voiceTwinFor(chosen, device, mem, usable, need, rules, diskAvail, diskFactor) {
+  const v = isRecord(chosen.voice) ? chosen.voice : null;
+  if (!v || !text(v.tag) || !(v.downloadGb > 0) || v.tag === chosen.tag)
+    return { voice: null, why: "the main model is already small and fast, so it needs no twin" };
+  if ((chosen.downloadGb + v.downloadGb) * diskFactor > diskAvail)
+    return { voice: null, why: "not enough free disk space for the fast voice twin" };
+  const twinNeed = round1(v.downloadGb * mem.margin);
+  const row = (where) => ({
+    tag: v.tag,
+    sizeGb: v.downloadGb,
+    ctx: num(rules.voiceCtx) ?? 4096,
+    device: where,
+    needGb: twinNeed,
+  });
+  if (need + twinNeed <= usable + 1e-9) return { voice: row(device), why: "" };
+  if (device === "gpu" && twinNeed <= mem.cpu.usableGb + 1e-9)
+    return { voice: row("cpu"), why: "" };
+  return {
+    voice: null,
+    why: `memory cannot hold ${chosen.tag} and ${v.tag} together, so the smaller model answers alone`,
+  };
+}
+
+/**
+ * The chat model for this PC from the tier table: `{ tag, reason, alternatives, needs, numCtx, voice, backend, ... }`
+ * (tag is null when no tier fits). Pure. The tier follows the TOTAL memory (free memory only adds `warn`).
+ * `options.tiers` overrides the table, `options.diskReserveGb` is disk other downloads of the same setup already
+ * take (before the 1.3 factor).
  */
 function chatModelFor(facts, options = {}) {
   const f = isRecord(facts) ? facts : {};
@@ -279,19 +451,25 @@ function chatModelFor(facts, options = {}) {
       rejectedAlternatives: [],
       needs: null,
       device: null,
+      numCtx: null,
+      voice: null,
     };
   const rules = cfg.rules || {};
   const view = gpuView(f);
   const mem = memoryFor(f, cfg, view);
+  const cap = cpuCapFor(f, rules);
   const diskFactor = num(rules.diskFactor) ?? 1.3;
   const diskFree = positive(f.diskFreeGb);
   const diskAvail =
     diskFree === null
       ? Infinity
       : diskFree - (num(rules.diskReserveGb) ?? 1) - Math.max(0, num(options.diskReserveGb) ?? 0);
-  const fits = (tier, usable) =>
-    tier.downloadGb * mem.margin <= usable + 1e-9 &&
-    tier.downloadGb * diskFactor <= diskAvail + 1e-9;
+  const marginOf = (tier) => num(tier.weightsMargin) ?? mem.margin;
+  const needOf = (tier) => tier.downloadGb * marginOf(tier);
+  const fits = (tier, usable, device) =>
+    needOf(tier) <= usable + 1e-9 &&
+    tier.downloadGb * diskFactor <= diskAvail + 1e-9 &&
+    (device !== "cpu" || cap.maxGb === null || tier.downloadGb <= cap.maxGb + 1e-9);
   const byDevice = (device) =>
     cfg.tiers
       .filter((t) => t.device === device)
@@ -302,24 +480,34 @@ function chatModelFor(facts, options = {}) {
   let gpuNote = "";
   if (mem.gpu) {
     chosen =
-      byDevice("gpu").find((t) => mem.gpu.totalGb >= t.minTotalGb && fits(t, mem.gpu.usableGb)) ||
-      null;
+      byDevice("gpu").find(
+        (t) => mem.gpu.totalGb >= t.minTotalGb && fits(t, mem.gpu.usableGb, "gpu"),
+      ) || null;
     device = chosen ? "gpu" : null;
-    // A card too small to carry a worthwhile model lets the CPU run a small one (only tiers marked for that).
+    // A card too small to carry a worthwhile model lets the CPU run a small one (only tiers marked for that, and
+    // only when the CPU model is the better one).
     const cpuTier =
       byDevice("cpu").find(
         (t) =>
-          t.gpuPcCpuFallback === true && mem.ramTotal >= t.minTotalGb && fits(t, mem.cpu.usableGb),
+          t.gpuPcCpuFallback === true &&
+          mem.ramTotal >= t.minTotalGb &&
+          fits(t, mem.cpu.usableGb, "cpu"),
       ) || null;
-    if (cpuTier && (!chosen || chosen.downloadGb < cpuTier.downloadGb)) {
+    const better = (a, b) => {
+      const qa = qualityOf(a.tag, cfg);
+      const qb = qualityOf(b.tag, cfg);
+      return qa !== null && qb !== null ? qa > qb : a.downloadGb > b.downloadGb;
+    };
+    if (cpuTier && (!chosen || better(cpuTier, chosen))) {
       gpuNote = `the card's usable video memory (${mem.gpu.usableGb} GB) is too small for a model worth running on it, so the CPU runs it`;
       chosen = cpuTier;
       device = "cpu";
     }
   } else {
     chosen =
-      byDevice("cpu").find((t) => mem.ramTotal >= t.minTotalGb && fits(t, mem.cpu.usableGb)) ||
-      null;
+      byDevice("cpu").find(
+        (t) => mem.ramTotal >= t.minTotalGb && fits(t, mem.cpu.usableGb, "cpu"),
+      ) || null;
     device = chosen ? "cpu" : null;
   }
 
@@ -336,25 +524,54 @@ function chatModelFor(facts, options = {}) {
       rejectedAlternatives: [],
       needs: null,
       device: null,
+      backend: null,
+      numCtx: null,
+      voice: null,
       memory: {
         mode: mem.gpu ? "gpu" : "cpu",
         usableGb: mem.gpu ? mem.gpu.usableGb : mem.cpu.usableGb,
       },
-      notes: [...mem.notes, ...(mem.gpu ? [] : [`no GPU is used for chat: ${mem.gpuWhy}`])],
+      notes: [
+        ...mem.notes,
+        ...(mem.gpu ? [] : [`no GPU is used for chat: ${mem.gpuWhy}`]),
+        ...cap.notes,
+      ],
     };
   }
 
   const usable = device === "gpu" ? mem.gpu.usableGb : mem.cpu.usableGb;
-  const need = round1(chosen.downloadGb * mem.margin);
+  const freeUsable = device === "gpu" ? mem.gpu.freeUsableGb : mem.cpu.freeUsableGb;
+  const need = round1(needOf(chosen));
   const spare = round1(usable - need);
+  const twin = voiceTwinFor(
+    chosen,
+    device,
+    mem,
+    usable,
+    needOf(chosen),
+    rules,
+    diskAvail,
+    diskFactor,
+  );
+  const twinHere = twin.voice && twin.voice.device === device ? twin.voice.needGb : 0;
+  const numCtx = numCtxFor(chosen, mem, device, usable - needOf(chosen) - twinHere, rules);
   const judged = judgeAlternatives(chosen, mem, device, rules, diskAvail);
+  const backend = device === "gpu" ? mem.gpu.backend : "cpu";
+  const estimated = device === "gpu" ? mem.gpu.estimated === true : chosen.speed === "estimated";
   const where =
     device === "gpu" ? `${memoryLine(usable, "video memory")}` : `${memoryLine(usable, "RAM")}`;
+  const kind = device === "gpu" ? "video memory" : "RAM";
+  const warn =
+    freeUsable !== null && freeUsable < need + twinHere
+      ? `only ${Math.max(0, freeUsable)} GB of ${kind} is free right now and ${chosen.tag} needs about ${need} GB: close other apps for the best speed (the planned model does not change)`
+      : "";
   return {
     tag: chosen.tag,
     tier: chosen.id,
     device,
-    reason: `${chosen.label}: ${chosen.tag} (${chosen.downloadGb} GB download, about ${need} GB in memory) fits in ${where}${gpuNote ? `; ${gpuNote}` : ""}${device === "cpu" && mem.gpuWhy && !gpuNote ? `; the GPU is not used for chat: ${mem.gpuWhy}` : ""}`,
+    backend,
+    estimated,
+    reason: `${chosen.label}: ${chosen.tag} (${chosen.downloadGb} GB download, about ${need} GB in memory) fits in ${where}${gpuNote ? `; ${gpuNote}` : ""}${device === "cpu" && mem.gpuWhy && !gpuNote ? `; the GPU is not used for chat: ${mem.gpuWhy}` : ""}${backend === "vulkan" ? "; through Vulkan, speed is estimated" : ""}`,
     ...judged,
     needs: {
       downloadGb: chosen.downloadGb,
@@ -364,13 +581,45 @@ function chatModelFor(facts, options = {}) {
       runner: "ollama",
     },
     contextK: chosen.contextK,
+    numCtx,
+    voice: twin.voice,
+    ...(twin.voice ? {} : { voiceWhy: twin.why }),
     capabilities: [...(chosen.capabilities || [])],
     licence: chosen.licence || null,
-    memory: { mode: device, usableGb: usable, needGb: need, spareGb: spare },
+    memory: {
+      mode: device,
+      usableGb: usable,
+      freeUsableGb: freeUsable,
+      needGb: need,
+      spareGb: spare,
+    },
     tight: spare < 1,
+    ...(warn ? { warn } : {}),
     unverified: chosen.unverified || "memory and speed are estimates",
-    notes: [...mem.notes, ...(gpuNote ? [gpuNote] : [])],
+    notes: [
+      ...mem.notes,
+      ...(gpuNote ? [gpuNote] : []),
+      ...(device === "cpu" ? cap.notes : []),
+      ...(warn ? [warn] : []),
+    ],
   };
+}
+
+/**
+ * The tags of the small fast voice twin models: `voice.tags` of config/chat-tiers.json plus any tag a tier row names
+ * as its `voice` (the same list the kernel and the model router read). Lower case, no repeats, never throws.
+ */
+function voiceModelTags(options = {}) {
+  const cfg = loadTiers(options);
+  const out = [];
+  const add = (tag) => {
+    const t = typeof tag === "string" ? tag.trim().toLowerCase() : "";
+    if (t && !out.includes(t)) out.push(t);
+  };
+  if (!cfg) return out;
+  for (const tag of Array.isArray(cfg.voice?.tags) ? cfg.voice.tags : []) add(tag);
+  for (const tier of cfg.tiers) add(tier?.voice?.tag);
+  return out;
 }
 
 /** The Ollama options FRIDAY applies when it starts or calls Ollama (recorded, never forced on the owner's own setup). */
@@ -389,6 +638,8 @@ function ollamaSettingsFor(pick, cfg) {
       ? { OLLAMA_MAX_LOADED_MODELS: String(s.env.OLLAMA_MAX_LOADED_MODELS_SMALL_GPU) }
       : {}),
   };
+  // The recorded window is the config default (8192); the window this PC can carry is `chat.numCtx`, the field
+  // the callers that start or call Ollama read (kernel/router.py keeps its own RAM caps until they do).
   return {
     forced: false,
     options: { num_ctx: s.options?.num_ctx ?? 8192 },
@@ -647,17 +898,22 @@ function planPackages(f, deps) {
     (cudaLibs.action === "present" || cudaLibs.action === "install" || cudaLibs.action === "defer");
   const directml = !gpuOrt && view.vulkan.length > 0;
   const variant = gpuOrt ? "gpu" : directml ? "directml" : "cpu";
+  // The GPU build is the one to install now when the CUDA libraries are on this PC or planned in this same setup.
+  const gpuNow =
+    variant === "gpu" && (cudaLibs.action === "present" || cudaLibs.action === "install");
+  const installNow = gpuNow ? "gpu" : "cpu";
   const ort = {
     variant,
-    installNow: "cpu",
+    installNow,
     action: "install",
-    bytes: ORT_BYTES.cpu,
-    reason:
-      variant === "cpu"
+    bytes: ORT_BYTES[installNow],
+    reason: gpuNow
+      ? `the CUDA libraries ${cudaLibs.action === "present" ? "are on this PC" : "are installed in this setup"}, so the GPU (CUDA) build of ONNX Runtime (${mb(ORT_BYTES.gpu)}) is installed`
+      : variant === "cpu"
         ? "no qualifying GPU: the CPU build of ONNX Runtime"
         : `the CPU build is installed first; the ${variant === "gpu" ? "GPU (CUDA)" : "DirectML"} build is offered (${mb(ORT_BYTES[variant])}) and swapped in from the Install Manager with a hash check and a rollback`,
   };
-  if (variant !== "cpu")
+  if (variant !== "cpu" && !gpuNow)
     offered.push({ id: `onnxruntime-${variant}`, bytes: ORT_BYTES[variant], reason: ort.reason });
   if (net.online === false) ort.action = deps.installed?.onnxruntime === true ? "present" : "defer";
   else if (deps.installed?.onnxruntime === true) ort.action = "present";
@@ -666,7 +922,7 @@ function planPackages(f, deps) {
 
 /* ------------------------------------------------------------------- voice */
 
-function voiceProbe(f, deps) {
+function voiceProbe(f, deps, packages) {
   if (isRecord(deps.voiceProbe)) return deps.voiceProbe;
   const view = gpuView(f);
   const card = view.nvidia;
@@ -684,16 +940,18 @@ function voiceProbe(f, deps) {
         ? { vramFreeGb: positive(f.vramFreeGb) }
         : {}),
       source: "facts",
+      // The CUDA libraries this same setup installs count as ready: the first setup on an NVIDIA PC picks the GPU ear.
       cudaRuntimeReady:
         deps.cudaRuntimeReady === true ||
         cuda.runtimeFilesFound === true ||
-        f.cudaRuntimeFilesFound === true,
+        f.cudaRuntimeFilesFound === true ||
+        packages?.cudaLibs?.action === "install",
       cudaDriverReady: f.cudaReady === true && Boolean(card),
     },
   };
 }
 
-function planVoice(f, deps, chat) {
+function planVoice(f, deps, chat, packages) {
   if (!text(deps.root))
     return {
       planned: false,
@@ -701,19 +959,30 @@ function planVoice(f, deps, chat) {
     };
   try {
     const voice = deps.voiceWeights || require("./voice-weights.cjs");
-    const llmGb = chat.device === "gpu" && chat.tag ? chat.needs.memoryGb : 0;
+    // Only a model resident on the NVIDIA card (CUDA) takes video memory from the speech ear; the twin counts when it
+    // sits on the same card.
+    const llmGb =
+      chat.device === "gpu" && chat.backend === "cuda" && chat.tag
+        ? chat.needs.memoryGb + (chat.voice?.device === "gpu" ? chat.voice.needGb : 0)
+        : 0;
     // A big optional speech download (the streaming ear) waits on a metered line, on battery or under heavy load.
     // Offline is not a reason here: the whole voice plan already waits for the network.
     const wait = networkOf(f).online === false ? "" : waitReason(f, BIG_DOWNLOAD_BYTES);
-    const plan = voice.voiceInstallPlan(deps.root, voiceProbe(f, deps), {
+    const plan = voice.voiceInstallPlan(deps.root, voiceProbe(f, deps, packages), {
       exists: deps.exists || (() => false),
       ...(wait ? { waitReason: wait } : {}),
       ...(deps.statfs ? { statfs: deps.statfs } : {}),
       ...(llmGb > 0 ? { llmResidentVramGb: llmGb } : {}),
     });
     const b = plan.budget;
-    // The streaming ear is one more row of the same plan when this PC carries it (voice-weights.cjs streamEarDecision).
-    const rows = [...plan.items, ...(plan.streamEar ? [plan.streamEar] : [])];
+    // The streaming ear is one more row of the same plan when this PC carries it (voice-weights.cjs streamEarDecision),
+    // then the optional language and sound models (`optionalItems`): setup fetches them as optional, so a failed fetch is
+    // a notice and never a stop. Their bytes are reported apart (`optionalBytes`) and stay out of `downloadBytes`.
+    const rows = [
+      ...plan.items,
+      ...(plan.streamEar ? [plan.streamEar] : []),
+      ...(plan.optionalItems || []),
+    ];
     return {
       planned: true,
       profile: b.profile,
@@ -729,6 +998,7 @@ function planVoice(f, deps, chat) {
       ],
       optional: [...plan.optional],
       downloadBytes: plan.downloadBytes + (plan.streamEarBytes || 0),
+      optionalBytes: plan.optionalBytes || 0,
       notes: [...b.notes],
       lines: [...plan.lines],
     };
@@ -748,10 +1018,22 @@ function pcOf(f, view) {
   const cpu = isRecord(f.cpu) ? f.cpu : {};
   const net = networkOf(f);
   const power = isRecord(f.power) ? f.power : {};
+  const media = text(f.modelDrive?.media);
   return {
     ramGb: positive(f.ramGb),
     ramFreeGb: positive(f.ramFreeGb),
     diskFreeGb: positive(f.diskFreeGb),
+    cpuClass: text(f.cpuClass),
+    arch: archOf(f) || null,
+    diskMedia: media === "ssd" || media === "hdd" || media === "scm" ? media : null,
+    // Every real graphics part, for the fingerprint: vendor, label, memory and whether it shares system memory.
+    gpus: view.real.map((g) => ({
+      vendor: text(g.vendor),
+      name: text(g.name),
+      vramGb: positive(g.vramGb),
+      unified: g.unifiedMemory === true,
+    })),
+    multiGpu: view.multiGpu,
     gpu: card
       ? {
           vendor: card.vendor || null,
@@ -777,6 +1059,41 @@ function pcOf(f, view) {
 }
 
 /**
+ * A stable hash of the hardware-bound facts of a plan (processor class and instruction sets, total RAM, graphics
+ * cards by vendor, label and memory, architecture, drive type) so a changed PC is detectable. Free memory, free disk,
+ * the line and the power state are not part of it: they change every minute on the same PC.
+ */
+function planFingerprint(plan) {
+  const pc = isRecord(plan) && isRecord(plan.pc) ? plan.pc : {};
+  const cards = (Array.isArray(pc.gpus) ? pc.gpus : [])
+    .filter(isRecord)
+    .map((g) =>
+      [
+        text(g.vendor) || "",
+        text(g.name) || "",
+        round1(positive(g.vramGb)) ?? 0,
+        g.unified === true ? 1 : 0,
+      ].join("|"),
+    )
+    .sort();
+  const basis = {
+    v: 1,
+    cpuClass: text(pc.cpuClass),
+    avx2: pc.avx2 === true,
+    avx512: pc.avx512 === true,
+    ramGb: round1(positive(pc.ramGb)),
+    arch: text(pc.arch),
+    disk: text(pc.diskMedia),
+    gpus: cards,
+  };
+  return require("node:crypto")
+    .createHash("sha256")
+    .update(JSON.stringify(basis))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/**
  * The plan of this PC. `deps`: `installedModels` (Ollama tags or `{ name, size }`), `installed` (`{ llama, onnxruntime }`
  * booleans), `root` + `exists` + `statfs` (the voice plan), `voiceProbe`, `cudaRuntimeReady`, `tiers`, `llamaPin`,
  * `voiceWeights`. Never throws.
@@ -794,9 +1111,9 @@ function buildSetupPlan(facts, deps = {}) {
   const fixedBytes =
     (llama.action === "install" ? llama.bytes : 0) +
     (packages.cudaLibs.action === "install" ? CUDA_LIBS_BYTES : 0) +
-    (packages.ort.action === "install" ? ORT_BYTES.cpu : 0);
+    (packages.ort.action === "install" ? packages.ort.bytes : 0);
   const chatFirst = planChat(f, deps, { diskReserveGb: (fixedBytes * 1.3) / GIB });
-  const voice = planVoice(f, deps, chatFirst);
+  const voice = planVoice(f, deps, chatFirst, packages);
   const voiceBytes = voice.planned ? voice.downloadBytes : 0;
   const chat = planChat(f, deps, { diskReserveGb: ((fixedBytes + voiceBytes) * 1.3) / GIB });
 
@@ -830,18 +1147,18 @@ function buildSetupPlan(facts, deps = {}) {
   const planned =
     (llama.action === "install" ? llama.bytes : 0) +
     (packages.cudaLibs.action === "install" ? CUDA_LIBS_BYTES : 0) +
-    (packages.ort.action === "install" ? ORT_BYTES.cpu : 0) +
+    (packages.ort.action === "install" ? packages.ort.bytes : 0) +
     pull +
     voiceBytes;
   const downloadBytes = offline ? 0 : planned;
   const deferredBytes =
     (llama.action === "defer" ? llama.bytes : 0) +
     (packages.cudaLibs.action === "defer" ? CUDA_LIBS_BYTES : 0) +
-    (packages.ort.action === "defer" ? ORT_BYTES.cpu : 0) +
+    (packages.ort.action === "defer" ? packages.ort.bytes : 0) +
     (chat.action === "defer" && chat.needs ? Math.round(chat.needs.downloadGb * GIB) : 0) +
     (offline ? voiceBytes : 0);
 
-  return {
+  const out = {
     schema: PLAN_SCHEMA,
     pc,
     llama,
@@ -854,6 +1171,8 @@ function buildSetupPlan(facts, deps = {}) {
     deferredBytes,
     notes: [...(chat.notes || [])],
   };
+  out.fingerprint = planFingerprint(out);
+  return out;
 }
 
 /* --------------------------------------------------------------- reporting */
@@ -899,6 +1218,11 @@ function describePlan(plan) {
         ? `chat model: ${c.action} ${c.action === "keep" || c.action === "offer-upgrade" ? c.use : c.tag} - ${c.reason}`
         : `chat model: none - ${c.reason}`,
     );
+  if (c?.tag && c.numCtx)
+    add(
+      `chat context: ${Math.round(c.numCtx / 1024)}k tokens${c.voice ? `; fast voice twin: ${c.voice.tag} (${c.voice.sizeGb} GB, on the ${c.voice.device === "gpu" ? "GPU" : "CPU"})` : ""}${c.estimated ? "; speed estimated" : ""}`,
+    );
+  if (c?.warn) add(`chat memory: ${c.warn}`);
   const pk = p.packages;
   if (pk) {
     add(`CUDA libraries: ${pk.cudaLibs.action} - ${pk.cudaLibs.reason}`);
@@ -913,6 +1237,10 @@ function describePlan(plan) {
   for (const s of p.skipped || []) add(`skipped ${s.id}: ${s.reason}`);
   for (const o of p.offered || [])
     add(`offered, not installed: ${o.id}${o.bytes ? ` (${mb(o.bytes)})` : ""}`);
+  if (v?.planned && v.optionalBytes)
+    add(
+      `optional voice models (setup goes on if one fails): ${mb(v.optionalBytes)}, not in the total below`,
+    );
   add(
     `download now: ${gb(p.downloadBytes || 0)}${p.deferredBytes ? `; waiting for a better moment: ${gb(p.deferredBytes)}` : ""}`,
   );
@@ -955,6 +1283,9 @@ function toJSON(plan) {
   return JSON.parse(
     JSON.stringify({
       schema: PLAN_SCHEMA,
+      fingerprint: p.fingerprint || null,
+      voiceTwin: p.chat?.voice || null,
+      numCtx: p.chat?.numCtx || null,
       required,
       skipped: p.skipped || [],
       offered: (p.offered || []).map((o) => o.id),
@@ -972,6 +1303,8 @@ module.exports = {
   describePlan,
   toJSON,
   qualityOf,
+  voiceModelTags,
+  planFingerprint,
   ollamaSettingsFor,
   loadTiers,
   gpuView,

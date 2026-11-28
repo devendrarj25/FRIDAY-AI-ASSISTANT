@@ -1224,6 +1224,27 @@ function cpuClassOf(cpu) {
   return cores <= 4 ? "low" : cores <= 8 ? "mid" : "high";
 }
 
+// Graphics parts that borrow system memory: their "dedicated memory" is a carve-out of RAM, not video memory. Read
+// from structure, never from a card's name: an integrated part always shares; an AMD or Intel part beside a larger
+// card (the integrated part next to a discrete one) shares; so does one whose figure is more than half the RAM. An
+// NVIDIA card never does. Not measured, or a vendor FRIDAY has no rule for, is null. A carve-out of 6 GB or more
+// that is under half the RAM cannot be told from a small card by facts alone; the plan marks such a card's speed
+// as estimated and keeps extra headroom.
+function markUnifiedMemory(rows, ramGb) {
+  const primary = rows
+    .filter((g) => g.integrated !== true && g.vendor !== "nvidia" && g.rankGb >= 0)
+    .reduce((best, g) => (!best || g.rankGb > best.rankGb ? g : best), null);
+  const nvidiaBeside = rows.some((g) => g.vendor === "nvidia" && g.integrated !== true);
+  for (const g of rows) {
+    if (g.integrated === true) g.unifiedMemory = true;
+    else if (g.vendor === "nvidia") g.unifiedMemory = false;
+    else if (g.vendor !== "amd" && g.vendor !== "intel") g.unifiedMemory = null;
+    else if (g.rankGb < 0) g.unifiedMemory = null;
+    else if (nvidiaBeside || (primary && g !== primary)) g.unifiedMemory = true;
+    else g.unifiedMemory = ramGb !== null && g.rankGb > ramGb / 2;
+  }
+}
+
 function hardwareFacts(hw, deps = {}) {
   const sources = [];
   try {
@@ -1259,6 +1280,7 @@ function hardwareFacts(hw, deps = {}) {
               : total !== null
                 ? false
                 : null,
+        unifiedMemory: null,
       });
       sources.push(
         vendor === "nvidia" && raw.vramKnown === true ? "nvidia-smi" : "Win32_VideoController",
@@ -1295,10 +1317,12 @@ function hardwareFacts(hw, deps = {}) {
         fromSmi: false,
         driverDate: null,
         integrated: null,
+        unifiedMemory: null,
       });
       usedInfo = true;
     }
     if (usedInfo) sources.push("electron-gpuInfo");
+    markUnifiedMemory(gpuRows, positive(src.memory?.totalGb));
 
     const caps = isRecord(deps?.capabilities)
       ? deps.capabilities
@@ -1361,6 +1385,8 @@ function hardwareFacts(hw, deps = {}) {
         driver: g.driver,
         driverDate: g.driverDate,
         integrated: g.integrated,
+        // True when the part shares system memory (integrated or APU): its vramGb is a carve-out of RAM.
+        unifiedMemory: g.unifiedMemory,
         computeCap: g.computeCap,
       })),
       cudaReady,
@@ -1413,6 +1439,7 @@ const levelOrNull = (v) => (LEVELS.has(v) ? v : null);
 
 function emptyCapabilityFacts() {
   return {
+    arch: null,
     os: {
       platform: null,
       ntVersion: null,
@@ -1619,6 +1646,7 @@ function capabilityFacts({ src, deps, caps, best, gpuCount, facts }) {
   return {
     ...empty,
     os: os_,
+    arch: os_.arch ?? textOrNull(src.arch),
     cpu,
     memory,
     drives,

@@ -89,6 +89,7 @@ describe("hardwareFacts shape and sources", () => {
   ];
   // Added by the capability probes (pc-w1): every one optional for a reader, always present with null when unmeasured.
   const CAPABILITY_KEYS = [
+    "arch",
     "cpu",
     "cuda",
     "cudaRuntimeFilesFound",
@@ -126,6 +127,7 @@ describe("hardwareFacts shape and sources", () => {
         "driverDate",
         "integrated",
         "name",
+        "unifiedMemory",
         "vendor",
         "vramCapped",
         "vramGb",

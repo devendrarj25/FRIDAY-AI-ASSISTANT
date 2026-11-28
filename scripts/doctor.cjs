@@ -6,9 +6,17 @@
  *
  * It is the backup for `npm run setup`: when setup stopped halfway (a download
  * dropped, an installer needed a restart, a tool was missing) Doctor picks up
- * where it stopped. Every step is safe to run again and reuses what is healthy;
- * a step that cannot finish fails the run with its reason, so nothing is left as
- * a warning that "can be done later".
+ * where it stopped and fetches what is missing again from every source. Every step
+ * is safe to run again and reuses what is healthy.
+ *
+ * Two tiers. A BLOCKER step (dependencies, the environment check, the EXE packs, the
+ * runtime folders, the main-process dependencies) is what the build cannot run
+ * without: when it cannot finish it fails the run with its reason. A NOTICE step
+ * (the models, the voice files, the voice stack, the registry, the pinned runners)
+ * that cannot finish prints a NOTICE row, is recorded in
+ * <FRIDAY_ROOT>/runtime/setup-notices.json and does not fail the run: the build
+ * still runs and FRIDAY > Install Manager / Models finishes the item.
+ * FRIDAY_SETUP_STRICT=1 makes every step a blocker again.
  *
  *   1. dependencies    npm ci when node_modules does not match package-lock.json
  *   2. environment     scripts/check-environment.cjs --fix: the toolchain, Electron,
@@ -32,7 +40,7 @@
  * now (scripts/doctor-probes.cjs: one HEAD request per distinct host, in parallel, cached for this run in the file
  * FRIDAY_REACH_CACHE; "not checked" when offline, never a failure).
  *
- * Exit 0 only when every step passed.
+ * Exit 0 when every blocker step passed (notices never change the exit code unless strict).
  */
 "use strict";
 // Colour that means something (ok green, FAIL red, a note yellow) on a real console; plain text everywhere else.
@@ -43,6 +51,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { spawnNpm } = require("./win-spawn.cjs");
+const setupNotices = require("./setup-notices.cjs");
+const probes = require("./doctor-probes.cjs");
 // Children inherit this process's PATH: pick up what a previous setup installed.
 require("./win-path.cjs").refreshWindowsPath();
 
@@ -78,9 +88,25 @@ function dependencies() {
   return ci(["--registry", "https://registry.npmjs.org/"]);
 }
 
-/** The speech, voice and chat weights: Doctor used to pass without ever looking for them. */
-function models() {
-  let python = require("./explicit-python.cjs").explicitPython(process.env.FRIDAY_PYTHON);
+/** True when a speech, voice or chat weight is still an open notice. */
+function modelNoticesOpen(read = setupNotices.readNotices) {
+  return read().some((entry) => entry.kind === "model" || entry.kind === "voice");
+}
+
+/**
+ * The speech, voice and chat weights: Doctor used to pass without ever looking for them. Before giving up it tries once
+ * more with the opt-in Hugging Face mirror when the Hugging Face host answers "down" now (a missing weight is a notice,
+ * so this is the last source tried, never a stop). `deps` is injectable for a test.
+ */
+function models(deps = {}) {
+  const {
+    run = spawnSync,
+    env = process.env,
+    reach = probes.reachSync,
+    readOpen = modelNoticesOpen,
+    log = console.log,
+  } = deps;
+  let python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
   if (!python) {
     try {
       python = require("./python-runtime.cjs").resolveVenvPython() || "";
@@ -88,11 +114,22 @@ function models() {
       python = "";
     }
   }
-  return spawnSync(process.execPath, [path.join(ROOT, "scripts", "prefetch-models.cjs")], {
-    cwd: ROOT,
-    stdio: "inherit",
-    env: { ...process.env, ...(python ? { FRIDAY_PYTHON: python } : {}) },
-  });
+  const fetchModels = (extra = {}) =>
+    run(process.execPath, [path.join(ROOT, "scripts", "prefetch-models.cjs")], {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: { ...env, ...(python ? { FRIDAY_PYTHON: python } : {}), ...extra },
+    });
+  const first = fetchModels();
+  const unfinished = !first || first.status !== 0 || readOpen();
+  if (!unfinished || String(env.FRIDAY_HF_MIRROR || "") === "1") return first;
+  if (!probes.huggingFaceDown(reach([probes.HUGGING_FACE], { env }))) return first;
+  log(
+    "[friday] huggingface.co does not answer now: trying the opt-in mirror once (FRIDAY_HF_MIRROR=1)",
+  );
+  const again = fetchModels({ FRIDAY_HF_MIRROR: "1" });
+  // The second pass counts when it finished the work; otherwise the first result (and its notices) stand.
+  return again && again.status === 0 ? again : first;
 }
 
 /** voice-stack.cjs with the FRIDAY folder, so the models on disk are checked as well as the code. */
@@ -116,9 +153,11 @@ function voiceStack() {
 }
 
 const STEPS = [
-  { name: "dependencies", run: dependencies },
+  { name: "dependencies", run: dependencies, tier: "blocker" },
   {
     name: "environment check and repair",
+    // Its own exit is blocker-only now: a missing tool or model is a NOTICE row inside it.
+    tier: "blocker",
     // Inside `npm run setup` the table was just printed: the confirming pass shows a count and any failure.
     run: () =>
       node("check-environment.cjs", [
@@ -126,20 +165,59 @@ const STEPS = [
         ...(process.env.FRIDAY_SETUP_RUN === "1" ? ["--summary"] : []),
       ])(),
   },
-  { name: "packs that ship inside the EXE", run: node("stage-toolchain.cjs") },
+  // A failed pack download is a notice here as in `npm run setup` (stage 6): the build fetches the packs again and
+  // stops there when that fails too, so Doctor never blocks on it.
+  { name: "packs that ship inside the EXE", run: node("stage-toolchain.cjs"), tier: "notice" },
   // `npm run setup` fetched, verified and spoke with these seconds ago (setup-python.cjs), and stops on a failure,
   // so its confirming Doctor pass does not repeat the downloads check, the Qwen test prompt or the speak test.
-  { name: "speech, voice and chat models", run: models, setupVerified: true },
-  { name: "voice files load and speak", run: node("voice-smoke.cjs"), setupVerified: true },
-  { name: "voice stack: runners, models, packages and connections", run: voiceStack },
-  { name: "runtime folders and database", run: node("init-runtime.cjs") },
-  { name: "main-process dependencies", run: node("verify-deps.cjs") },
-  { name: "environment registry", run: node("env-registry.cjs", ["repair"]) },
-  { name: "pinned local runners against the newest release", run: node("runners-status.cjs") },
+  { name: "speech, voice and chat models", run: models, setupVerified: true, tier: "notice" },
+  {
+    name: "voice files load and speak",
+    run: node("voice-smoke.cjs"),
+    setupVerified: true,
+    tier: "notice",
+  },
+  {
+    name: "voice stack: runners, models, packages and connections",
+    run: voiceStack,
+    tier: "notice",
+  },
+  { name: "runtime folders and database", run: node("init-runtime.cjs"), tier: "blocker" },
+  { name: "main-process dependencies", run: node("verify-deps.cjs"), tier: "blocker" },
+  { name: "environment registry", run: node("env-registry.cjs", ["repair"]), tier: "notice" },
+  {
+    name: "pinned local runners against the newest release",
+    run: node("runners-status.cjs"),
+    tier: "notice",
+  },
 ];
 
-/** Run every step in order (later steps still run after a failure, so one pass reports everything). */
-function runDoctor(steps = STEPS, log = console.log, env = process.env) {
+/** What a notice step records when it cannot finish: the kind of item it stands for. */
+const NOTICE_KINDS = {
+  "packs that ship inside the EXE": "pack",
+  "speech, voice and chat models": "model",
+  "voice files load and speak": "voice",
+  "voice stack: runners, models, packages and connections": "voice",
+  "environment registry": "runtime",
+};
+/** The bare id older runs recorded; a passing step clears it with the current one. */
+const legacyNoticeIdOf = (name) =>
+  `doctor-${String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+/** `<kind>:doctor-<step>`, one id scheme with the download steps (scripts/setup-notices.cjs). */
+const noticeIdOf = (name) => `${NOTICE_KINDS[name] || "other"}:${legacyNoticeIdOf(name)}`;
+
+/**
+ * Run every step in order (later steps still run after a failure, so one pass reports everything). A step is a
+ * `blocker` unless it says `tier: "notice"`; a failed notice step prints NOTICE, is recorded, and does not fail the run
+ * (FRIDAY_SETUP_STRICT=1 makes it fail again). `deps.readNotices` / `deps.recordNotice` / `deps.clearNotice` are the
+ * one record (scripts/setup-notices.cjs); a caller that passes none keeps the run free of any file.
+ */
+function runDoctor(steps = STEPS, log = console.log, env = process.env, deps = {}) {
+  const { readNotices, recordNotice, clearNotice } = deps;
+  const strict = setupNotices.isStrict(env);
   const rows = [];
   steps.forEach((step, index) => {
     log(`[friday] doctor ${index + 1}/${steps.length}: ${step.name}`);
@@ -159,18 +237,48 @@ function runDoctor(steps = STEPS, log = console.log, env = process.env) {
     } catch (err) {
       error = String((err && err.message) || err);
     }
-    rows.push({ name: step.name, ok: status === 0, status, error });
+    const ok = status === 0;
+    const notice = !ok && step.tier === "notice" && !strict;
+    rows.push({ name: step.name, ok, status, error, ...(notice ? { notice: true } : {}) });
+    if (step.tier === "notice") {
+      const id = noticeIdOf(step.name);
+      if (ok && clearNotice) {
+        clearNotice(id);
+        clearNotice(legacyNoticeIdOf(step.name));
+      }
+      if (notice && recordNotice)
+        recordNotice(
+          {
+            id,
+            kind: NOTICE_KINDS[step.name] || "other",
+            label: step.name,
+            reason: `step ended with exit ${status}${error ? `: ${error}` : ""}`,
+            repair: "npm run doctor",
+          },
+          { print: false },
+        );
+    }
   });
+  const failed = rows.filter((row) => !row.ok && !row.notice);
+  const noticed = rows.filter((row) => row.notice);
   log("");
   log("FRIDAY Doctor");
   log("-".repeat(78));
   for (const row of rows) {
+    const label = row.ok ? "PASS" : row.notice ? "NOTICE" : "FAIL";
     log(
-      `${row.ok ? "PASS" : "FAIL"}  ${row.name}${row.ok ? "" : ` (exit ${row.status}${row.error ? `: ${row.error}` : ""})`}`,
+      `${label.padEnd(4)}  ${row.name}${row.ok ? "" : ` (exit ${row.status}${row.error ? `: ${row.error}` : ""})`}`,
     );
   }
   log("-".repeat(78));
-  const failed = rows.filter((row) => !row.ok);
+  const open = readNotices
+    ? readNotices()
+    : noticed.map((row) => ({
+        id: noticeIdOf(row.name),
+        label: row.name,
+        reason: `step ended with exit ${row.status}`,
+      }));
+  for (const line of setupNotices.summaryLines(open)) log(line);
   if (failed.length) {
     log(
       `DOCTOR FAIL - ${failed.length} step(s) did not finish: ${failed.map((r) => r.name).join(", ")}`,
@@ -178,13 +286,17 @@ function runDoctor(steps = STEPS, log = console.log, env = process.env) {
     log(
       "Read the first error above, fix it (network, administrator prompt, restart), then run: npm run doctor",
     );
+  } else if (open.length) {
+    log(
+      `DOCTOR PASS - FRIDAY is ready to build and run. ${open.length} item(s) can be finished later in ${setupNotices.WHERE}.`,
+    );
   } else {
     log("DOCTOR PASS - FRIDAY is ready to test, build and run.");
   }
-  return { ok: failed.length === 0, rows };
+  return { ok: failed.length === 0, rows, notices: open };
 }
 
-module.exports = { STEPS, runDoctor };
+module.exports = { STEPS, runDoctor, models, modelNoticesOpen };
 
 if (require.main === module) {
   // exitCode, not process.exit(): ending the process while child pipes are closing can abort Node on Windows.
@@ -196,7 +308,7 @@ if (require.main === module) {
     : path.join(os.tmpdir(), `friday-reach-${process.pid}.json`);
   if (reachCache) process.env.FRIDAY_REACH_CACHE = reachCache;
   try {
-    process.exitCode = runDoctor().ok ? 0 : 1;
+    process.exitCode = runDoctor(STEPS, console.log, process.env, setupNotices).ok ? 0 : 1;
   } finally {
     if (reachCache) fs.rmSync(reachCache, { force: true });
   }

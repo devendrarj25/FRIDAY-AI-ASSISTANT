@@ -32,14 +32,17 @@
  *
  * An `elevated` tool shows a Windows administrator prompt and may ask for a
  * restart; a pending restart is reported (RESTART WINDOWS) and is not a failure.
- * A tool that cannot be installed IS a failure: the step exits 1 and names each
- * tool, so setup and the build stop instead of going on with a hole in the
- * toolkit. What cannot apply to this PC is skipped, not failed: CUDA without an
- * NVIDIA driver, Windows Sandbox on an edition that lacks it.
+ * A tool that cannot be installed is a NOTICE, never a stop: the step prints one
+ * line per tool, records it in <root>/runtime/setup-notices.json (scripts/setup-notices.cjs,
+ * finished later from the Install Manager) and exits 0, so setup and the build go on.
+ * FRIDAY_SETUP_STRICT=1 (or FRIDAY_PREFETCH_TOOLKIT_STRICT=1) restores exit 1 and the
+ * ACTION REQUIRED report. What cannot apply to this PC is skipped, not failed: CUDA
+ * without an NVIDIA driver, Windows Sandbox on an edition that lacks it. The optional
+ * CUDA Toolkit also follows this PC's setup plan: an NVIDIA card, a driver that reports
+ * CUDA 12, a compute capability the plan accepts and free disk space.
  * Opt out: FRIDAY_PREFETCH=0 or FRIDAY_PREFETCH_TOOLKIT=0 skips the step,
  * FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0 skips only the administrator ones (a quick
- * build, chosen on purpose), FRIDAY_PREFETCH_TOOLKIT_STRICT=0 reports failures
- * without failing; FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN (default 30, 45 for an
+ * build, chosen on purpose); FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN (default 30, 45 for an
  * administrator tool) ends an install that never answers; FRIDAY_OFFLINE=1 skips.
  * Hosted CI skips it unless FRIDAY_PREFETCH=1.
  */
@@ -48,6 +51,7 @@ const path = require("node:path");
 
 const config = require("../config/agent-toolkit.json");
 const { tidyLine } = require("./electron-module.cjs").load("installer-output.cjs");
+const setupNotices = require("./setup-notices.cjs");
 
 function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
@@ -225,9 +229,37 @@ function jobLimitMs(env = process.env, elevated = false) {
   return Math.round(base * (elevated ? 1.5 : 1) * 60 * 1000);
 }
 
-/** Does a tool that cannot be installed fail the step? On by default. */
+/** Does a tool that cannot be installed fail the step? Off by default: it is a notice (opt in with FRIDAY_SETUP_STRICT=1). */
 function strict(env = process.env) {
-  return enabled(env, "FRIDAY_PREFETCH_TOOLKIT_STRICT");
+  return setupNotices.isStrict(env);
+}
+
+/**
+ * Whether this PC's setup plan lets the optional CUDA Toolkit be installed: an NVIDIA card, a driver that reports
+ * CUDA 12, a compute capability the plan accepts (its CUDA libraries row is not skipped), a line that may carry it and
+ * room on the disk. The driver alone is not enough. `plan` is the JSON of `prefetch-models.cjs --plan --json` (or null
+ * when it could not be read, which keeps the toolkit waiting). Pure.
+ */
+function cudaToolkitGate(plan, entry = {}) {
+  const pc = plan && plan.pc;
+  if (!pc) return { ok: false, reason: "this PC's plan could not be read, so it waits" };
+  if (!pc.gpu) return { ok: false, reason: "this PC's plan found no NVIDIA graphics card" };
+  if (!pc.cudaDriver)
+    return { ok: false, reason: "the NVIDIA driver does not report CUDA 12 or newer" };
+  const libs = (plan.skipped || []).find((row) => row.id === "cuda-libs");
+  if (libs)
+    return { ok: false, reason: String(libs.reason || "the plan skips the CUDA libraries") };
+  const wait = (plan.required || []).find((row) => row.id === "cuda-libs");
+  if (wait && wait.action === "defer")
+    return { ok: false, reason: "waits for a better moment (offline, metered line or battery)" };
+  const free = Number(pc.diskFreeGb);
+  const need = ((Number(entry.approxBytes) || 0) * 1.3) / 1024 ** 3;
+  if (Number.isFinite(free) && free > 0 && need > free - 1)
+    return {
+      ok: false,
+      reason: `not enough free disk space (${need.toFixed(1)} GB needed, ${free} GB free)`,
+    };
+  return { ok: true, reason: "" };
 }
 
 /** Why the whole step is skipped, or "" when it runs. Pure. */
@@ -253,6 +285,7 @@ function toolkitPlan({
   update = true,
   elevated = true,
   optional = false,
+  gates = {},
   entries = config.prefetch,
 } = {}) {
   return entries.map((entry) => {
@@ -279,6 +312,10 @@ function toolkitPlan({
         action: "skip",
         note: `optional, not installed by default (${entry.optionalReason || "install it from the Install Manager when needed"})`,
       };
+    }
+    // A tool the plan of this PC gates (the CUDA Toolkit) waits, with the plan's reason, until the plan lets it in.
+    if (gates[entry.id]?.ok === false && !have?.installed) {
+      return { ...base, action: "skip", note: `this PC's plan: ${gates[entry.id].reason}` };
     }
     if (have?.unsupported && !have.installed) {
       return {
@@ -465,7 +502,9 @@ async function prefetchToolkit(root, deps = {}) {
     for (const row of scan.tools || []) detected[row.id] = row;
   } catch (err) {
     const reason = String((err && err.message) || err);
-    log(`[friday] FAIL     tool scan failed (${reason}); the toolkit cannot be verified`);
+    log(
+      `[friday] ${strict(env) ? "FAIL    " : "NOTE    "} tool scan failed (${reason}); the toolkit cannot be verified`,
+    );
     return [{ id: "tool scan", ok: false, error: reason }];
   }
   // A folder that is not there (a test's stand-in path) keeps the record in memory and writes nothing.
@@ -484,7 +523,21 @@ async function prefetchToolkit(root, deps = {}) {
   } catch {
     /* an unknown latest version only means "no update is claimed" */
   }
-  const plan = toolkitPlan({ detected, latest, update, elevated, optional }).map((row) => {
+  // The CUDA Toolkit is read against this PC's setup plan only when it would otherwise be installed now.
+  const gates = {};
+  for (const entry of config.prefetch) {
+    if (entry.requires !== "nvidia-gpu" || detected[entry.id]?.installed) continue;
+    if (!detected["NVIDIA Driver"]?.installed || (entry.optional && !optional)) continue;
+    let planJson = null;
+    try {
+      planJson =
+        deps.plan !== undefined ? deps.plan : require("./prefetch-models.cjs").readPlanSync(env);
+    } catch {
+      planJson = null;
+    }
+    gates[entry.id] = cudaToolkitGate(planJson, entry);
+  }
+  const plan = toolkitPlan({ detected, latest, update, elevated, optional, gates }).map((row) => {
     if (row.action !== "update") return row;
     const earlier = alreadyTried(history, row.id, row.to);
     return earlier ? { ...row, action: "tried", outcome: earlier.outcome } : row;
@@ -579,7 +632,7 @@ async function prefetchToolkit(root, deps = {}) {
     }
     if (!result?.ok && result?.error)
       log(
-        `[friday] ${row.older ? "NOTE    " : "FAIL    "} ${row.id}: ${String(result.error).slice(0, 200)}`,
+        `[friday] ${row.older ? "NOTE    " : strict(env) ? "FAIL    " : "NOTE    "} ${row.id}: ${String(result.error).slice(0, 200)}`,
       );
     if (row.action === "update") {
       // Look again, so a release that is installed but hidden behind an older copy is remembered as such.
@@ -654,7 +707,11 @@ async function prefetchToolkit(root, deps = {}) {
       );
       rows.push({ id: row.id, ok: true, downloaded: false, outdated: true });
     } else {
-      log(`[friday] FAIL     ${row.id} was not installed`);
+      log(
+        strict(env)
+          ? `[friday] FAIL     ${row.id} was not installed`
+          : `[friday] NOTE     ${row.id} was not installed; setup goes on`,
+      );
       rows.push({ id: row.id, ok: false, error: result?.error || "install failed" });
     }
   }
@@ -687,8 +744,42 @@ function failureReport(rows) {
   ];
 }
 
+/**
+ * Every tool that could not be installed is one NOTICE line and one entry of the notice record (a tool that verified
+ * clears its older entry). Never throws, never changes the rows. Returns the notices recorded.
+ */
+function recordToolNotices(rows, { root, log = console.log, print = true } = {}) {
+  const recorded = [];
+  try {
+    const open = new Set(setupNotices.readNotices(root).map((entry) => entry.id));
+    for (const row of rows || []) {
+      if (!row || !row.id) continue;
+      const id = `tool:${row.id}`;
+      if (row.ok) {
+        if (!row.skipped && open.has(id)) setupNotices.clearNotice(id, { root });
+        continue;
+      }
+      const entry = {
+        id,
+        kind: "tool",
+        label: String(row.id),
+        reason: String(row.error || "install failed").slice(0, 160),
+        installManagerId: String(row.id),
+        repair: "npm run setup:toolkit",
+      };
+      setupNotices.recordNotice(entry, { root, log, print });
+      recorded.push(entry);
+    }
+  } catch {
+    /* the record is best effort: a full disk never stops the step */
+  }
+  return recorded;
+}
+
 module.exports = {
   prefetchToolkit,
+  recordToolNotices,
+  cudaToolkitGate,
   eventPrinter,
   fileLedger,
   memoryLedger,
@@ -732,13 +823,27 @@ if (require.main === module) {
   prefetchToolkit(path.resolve(picked.root)).then(
     (rows) => {
       const lines = failureReport(rows);
-      for (const line of lines) console.error(line);
+      // One NOTICE line and one record entry per tool; strict mode adds the old ACTION REQUIRED report and exit 1.
+      recordToolNotices(rows, { root: picked.root });
+      if (strict()) for (const line of lines) console.error(line);
+      for (const line of setupNotices.summaryLines(setupNotices.readNotices(picked.root)))
+        console.log(line);
       leave(lines.length && strict() ? 1 : 0);
     },
     (err) => {
-      console.error(
-        `[friday] FAIL     toolkit step crashed: ${String((err && err.message) || err)}`,
-      );
+      const why = String((err && err.message) || err);
+      if (strict()) console.error(`[friday] FAIL     toolkit step crashed: ${why}`);
+      else
+        setupNotices.recordNotice(
+          {
+            id: "tool:step",
+            kind: "tool",
+            label: "agent toolkit",
+            reason: `the toolkit step crashed (${why.slice(0, 120)})`,
+            repair: "npm run setup:toolkit",
+          },
+          { root: picked.root },
+        );
       leave(strict() ? 1 : 0);
     },
   );

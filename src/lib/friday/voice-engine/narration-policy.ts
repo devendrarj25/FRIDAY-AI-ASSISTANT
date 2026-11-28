@@ -18,8 +18,15 @@
  * to the screen. A call hold speaks nothing and keeps a text digest for afterwards; quiet hours speak nothing
  * but notify for an approval; muted or replies off means the screen only. She never claims to be human.
  */
-import { stepSubject } from "../voice-session";
+import { stepSubject, voiceClaimsAuthority } from "../voice-session";
 import { completionLine } from "./background-request";
+import {
+  STATUS_LINE_MAX_WORDS,
+  STATUS_VERBS,
+  type StatusLineLang,
+  type StatusVerb,
+} from "./brain-bridge";
+import { isYesLike } from "./instant-ack";
 
 export type NarrateEvent =
   | { kind: "ack"; taskId: string; count?: number }
@@ -719,4 +726,168 @@ export function statusLine(key: StatusKey, lang: StatusLang = "en", wake = ""): 
   const row: StatusRow = STATUS_LINES[key];
   const pool: StatusLang = lang === "hi" || lang === "hinglish" ? lang : "en";
   return row[pool].replaceAll("{wake}", wakeLabel(wake));
+}
+
+/* ---------- the status line of a long task (the fast model's one sentence) ---------- */
+
+/**
+ * What FRIDAY says when the fast model is absent, slow, or its line does not pass `cleanTaskStatus`: two or three
+ * lines per task verb and language, in a woman's voice in Hindi and Hinglish, so the lines of one task differ. The
+ * first line of each verb is the primary one (`TASK_STATUS_LINES`). Plain words only: no emoji, no markup, no
+ * digits, never a yes, and nothing of the task beyond its verb.
+ */
+export const TASK_STATUS_VARIANTS: Record<StatusLineLang, Record<StatusVerb, readonly string[]>> = {
+  en: {
+    search: [
+      "Still searching, give me a moment.",
+      "Digging through it, one moment.",
+      "Still looking, nearly there.",
+    ],
+    read: [
+      "Still reading it through.",
+      "Going through it carefully.",
+      "Still reading, bear with me.",
+    ],
+    open: ["Opening it now, almost there.", "Just opening it, nearly done.", "Bringing it up now."],
+    write: ["Still writing it up.", "Putting it into words now.", "Still writing, nearly there."],
+    check: [
+      "Still checking, one moment.",
+      "Going over it again, one moment.",
+      "Still checking, nearly done.",
+    ],
+    install: [
+      "Still installing, almost done.",
+      "Installing it now, nearly ready.",
+      "Still setting it up.",
+    ],
+    download: [
+      "Still downloading, almost there.",
+      "The download is still running.",
+      "Still downloading, bear with me.",
+    ],
+    work: ["Still working on it.", "Still on it.", "Working through it now."],
+  },
+  hinglish: {
+    search: [
+      "Abhi dhoondh rahi hoon, thoda sa time lagega.",
+      "Dhoondh rahi hoon, sirf thodi der.",
+      "Talaash jaari hai, thodi der.",
+    ],
+    read: [
+      "Abhi padh rahi hoon, thodi der lagegi.",
+      "Poora padh rahi hoon, sirf thodi der.",
+      "Line by line padh rahi hoon.",
+    ],
+    open: [
+      "Abhi khol rahi hoon, taiyaar hi hai.",
+      "Khol rahi hoon, ek pal.",
+      "Ise khol rahi hoon.",
+    ],
+    write: [
+      "Likh rahi hoon, sirf thoda sa.",
+      "Abhi likh rahi hoon, lagbhag poora.",
+      "Shabdon mein dhaal rahi hoon.",
+    ],
+    check: [
+      "Abhi check kar rahi hoon, ek minute.",
+      "Dobara check kar rahi hoon.",
+      "Check kar rahi hoon, lagbhag taiyaar.",
+    ],
+    install: [
+      "Install kar rahi hoon, lagbhag taiyaar.",
+      "Abhi install kar rahi hoon, ek minute.",
+      "Setup chal raha hai, sirf thodi der.",
+    ],
+    download: [
+      "Abhi download kar rahi hoon, thoda aur.",
+      "Download chal raha hai, thoda aur.",
+      "Download jaari hai, lagbhag taiyaar.",
+    ],
+    work: [
+      "Isi par kaam kar rahi hoon.",
+      "Abhi isi mein lagi hoon.",
+      "Kaam jaari hai, sirf thodi der.",
+    ],
+  },
+  hi: {
+    search: ["अभी ढूँढ रही हूँ, थोड़ा समय लगेगा।", "ढूँढ रही हूँ, सिर्फ़ थोड़ी देर।", "खोज जारी है, थोड़ी देर।"],
+    read: ["अभी पढ़ रही हूँ, थोड़ी देर।", "पूरा पढ़ रही हूँ, सिर्फ़ थोड़ी देर।", "ध्यान से पढ़ रही हूँ।"],
+    open: ["अभी खोल रही हूँ, तैयार ही है।", "खोल रही हूँ, एक पल।", "इसे खोल रही हूँ।"],
+    write: ["अभी लिख रही हूँ, सिर्फ़ थोड़ा सा।", "लिख रही हूँ, लगभग पूरा।", "शब्दों में ढाल रही हूँ।"],
+    check: ["अभी चेक कर रही हूँ, एक मिनट।", "दोबारा चेक कर रही हूँ।", "चेक कर रही हूँ, लगभग तैयार।"],
+    install: [
+      "इंस्टॉल कर रही हूँ, लगभग तैयार।",
+      "अभी इंस्टॉल कर रही हूँ, एक मिनट।",
+      "सेटअप कर रही हूँ, सिर्फ़ थोड़ी देर।",
+    ],
+    download: [
+      "अभी डाउनलोड कर रही हूँ, थोड़ा और।",
+      "डाउनलोड जारी है, थोड़ा और।",
+      "डाउनलोड जारी है, लगभग तैयार।",
+    ],
+    work: ["अभी इस पर काम कर रही हूँ।", "अभी इसी में लगी हूँ।", "काम जारी है, सिर्फ़ थोड़ी देर।"],
+  },
+};
+
+/** The primary (first) status line of each verb and language. */
+export const TASK_STATUS_LINES: Record<
+  StatusLineLang,
+  Record<StatusVerb, string>
+> = Object.fromEntries(
+  (Object.keys(TASK_STATUS_VARIANTS) as StatusLineLang[]).map((lang) => [
+    lang,
+    Object.fromEntries(
+      STATUS_VERBS.map((verb) => [verb, TASK_STATUS_VARIANTS[lang][verb][0] ?? ""]),
+    ),
+  ]),
+) as Record<StatusLineLang, Record<StatusVerb, string>>;
+
+/**
+ * The fixed status line for a verb and language; `index` (the status lines already said in this task) walks the
+ * variants so a task never repeats a line until they run out. An unknown verb or language gets the plain English
+ * "working" line.
+ */
+export function taskStatusFallback(verb: StatusVerb, lang: StatusLineLang, index = 0): string {
+  const pool = TASK_STATUS_VARIANTS[lang] ?? TASK_STATUS_VARIANTS.en;
+  const key: StatusVerb = STATUS_VERBS.includes(verb) ? verb : "work";
+  const variants = pool[key];
+  const at = Number.isFinite(index) ? Math.max(0, Math.trunc(index)) : 0;
+  return variants[at % variants.length] ?? variants[0] ?? "";
+}
+
+const EMOJI_OR_JOINER = /[\p{Extended_Pictographic}\p{Emoji_Presentation}]|\u200d|\ufe0f/gu;
+const STATUS_LEAD_MARK = /^[\s>*#\-+•]+/u;
+const STATUS_EMPHASIS = /[*_~#]+/gu;
+const DEVANAGARI_LETTER = /[\u0900-\u097f]/u;
+const LATIN_LETTER = /[A-Za-z]/;
+const HUMAN_CLAIM = /\b(?:i am|i'm|main)\s+(?:a\s+)?(?:human|insaan|insan|real person)\b/iu;
+
+/**
+ * The fast model's own words, cleaned for the speaker, or null when they cannot be said. The first line only; emoji
+ * and markdown are taken out; then the line must be short, one script for its pool, free of digits, questions, links,
+ * paths, code, a yes or no, a claim of authority or of being human. Anything else is null and the caller says the
+ * fixed line instead. Nothing the model was never given can be checked here, so the template carries no data.
+ */
+export function cleanTaskStatus(raw: unknown, lang: StatusLineLang): string | null {
+  if (typeof raw !== "string") return null;
+  const first =
+    raw
+      .normalize("NFC")
+      .split(/\r?\n/u)
+      .find((line) => line.trim()) ?? "";
+  const line = first
+    .replace(STATUS_LEAD_MARK, "")
+    .replace(EMOJI_OR_JOINER, "")
+    .replace(STATUS_EMPHASIS, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!line) return null;
+  if (/[?\d`<>{}[\]|\\]|https?:|www\.|:\/\//iu.test(line)) return null;
+  if (line.split(" ").length > STATUS_LINE_MAX_WORDS) return null;
+  if (lang === "hi" ? LATIN_LETTER.test(line) : DEVANAGARI_LETTER.test(line)) return null;
+  if (lang === "hi" && !DEVANAGARI_LETTER.test(line)) return null;
+  if (isYesLike(line) || voiceClaimsAuthority(line) || HUMAN_CLAIM.test(line)) return null;
+  const spoken = sanitizeForSpeech(line);
+  if (spoken.removed || spoken.unsafe || spoken.secret || spoken.text !== line) return null;
+  return line;
 }

@@ -301,6 +301,7 @@ function checkAsarPaths({ root = ROOT } = {}) {
  */
 const PACKAGED_SCRIPT_ROOTS = [
   "scripts/env-registry.cjs",
+  "scripts/setup-notices.cjs",
   "scripts/stage-toolchain.cjs",
   "scripts/identity.cjs",
   "scripts/win-spawn.cjs",

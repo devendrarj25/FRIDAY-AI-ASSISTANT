@@ -394,8 +394,10 @@ describe("the CMD chain keeps its shape", () => {
     const source = read("scripts/prefetch-models.cjs");
     // The staging folder is still recorded as before (staged-assets.test.ts pins recordStaging); any other root is a build root.
     expect(source).toContain(
-      'if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);',
+      'if (picked.development) electronModule.load("staged-assets.cjs").recordStaging(picked.root);',
     );
+    // The installed app keeps electron/ inside the archive: no direct relative require (packaged-paths.test.ts).
+    expect(source).not.toMatch(/require\(\s*["']\.\.\/electron\//);
     expect(source).toContain('recordBuildRoot(picked.root, { kind: "checkout" })');
     expect(source).toContain("place-build.cjs");
     expect(source).not.toMatch(/build-friday-models/);
@@ -409,7 +411,8 @@ describe("the CMD chain keeps its shape", () => {
   it("place-build.cjs is ASCII text and reads the bundle record only through the one shared module", () => {
     const source = read("scripts/place-build.cjs");
     expect(/[^\u0000-\u007f]/.test(source)).toBe(false);
-    expect(source).toContain('require("../electron/build-bundle.cjs")');
+    expect(source).toContain('require("./electron-module.cjs").load("build-bundle.cjs")');
+    expect(source).not.toMatch(/require\(\s*["']\.\.\/electron\//);
     expect(source).not.toMatch(/JSON\.parse\([^)]*friday-bundle/);
   });
 });

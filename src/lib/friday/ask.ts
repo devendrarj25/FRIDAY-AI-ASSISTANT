@@ -24,6 +24,14 @@ export type AskOptions = {
    * no tool (the same flag a Brain draft sends). Only `true` counts.
    */
   ephemeral?: boolean;
+  /**
+   * A spoken ask: the routing surface and the voice lane of this one call. A quick line prefers the small fast model
+   * when this PC has one next to a main model; the real turn takes the main one. Both firewalls still run first.
+   */
+  routingSurface?: "voice" | "chat";
+  lane?: "quick" | "full";
+  /** Upper bound on the reply length in tokens (a status line or a short spoken answer). */
+  maxTokens?: number;
 };
 
 export function canAsk(): boolean {
@@ -90,6 +98,11 @@ export async function askFriday(prompt: string, options: AskOptions = {}): Promi
         ...(system ? { system } : {}),
         ...(modelIds?.length ? { modelIds } : {}),
         ...(options.ephemeral === true ? { draft: true } : {}),
+        ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
+        ...(options.lane ? { lane: options.lane } : {}),
+        ...(typeof options.maxTokens === "number" && options.maxTokens > 0
+          ? { maxTokens: options.maxTokens }
+          : {}),
       });
     } catch (error) {
       finish(() => reject(error instanceof Error ? error : new Error("Could not reach a model.")));

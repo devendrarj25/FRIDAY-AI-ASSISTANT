@@ -1352,6 +1352,27 @@ function catalogWithLocalSources(catalog, entries = discoverLocalBuilds()) {
 }
 
 /**
+ * What setup could not finish (<root>/runtime/setup-notices.json) rides the catalogue as `setupNotices`, each with the row
+ * that finishes it; an item that is installed now is cleared. The reader is scripts/setup-notices.cjs, loaded from
+ * resources/ like the other setup scripts; without it the list is empty.
+ */
+const setupNotices = loadNamed("setup-notices", () => {
+  try {
+    const file = require("./resource-paths.cjs").resolveResourceFile("scripts/setup-notices.cjs");
+    return file ? require(file) : null;
+  } catch (error) {
+    console.error(`[friday] setup notices unavailable: ${error?.message || error}`);
+    return null;
+  }
+});
+function catalogWithSetupNotices(catalog) {
+  return require("./installer-catalog.cjs").withSetupNotices(catalog, {
+    root: getWorkspaceRoot(),
+    notices: setupNotices,
+  });
+}
+
+/**
  * Move what setup and the build staged in `.friday-dev` into the chosen root, and copy verified items from a build
  * root on this PC into free places. Every item is logged by its result. Never throws.
  */
@@ -2777,6 +2798,10 @@ async function resolveChatModels(
     ...(extraOptions.surface === "voice" || extraOptions.surface === "chat"
       ? { surface: extraOptions.surface }
       : {}),
+    // The voice lane of this turn (a quick spoken line or the real answer): only the voice scorer reads it.
+    ...(extraOptions.lane === "quick" || extraOptions.lane === "full"
+      ? { lane: extraOptions.lane }
+      : {}),
   };
   if (routeOptions.surface === "voice") {
     const hedge = modelRouter.hedgeFree(models, routeOptions);
@@ -3662,6 +3687,10 @@ async function streamOnceRaw({
                 ...(request.routingSurface === "voice" || request.routingSurface === "chat"
                   ? { routingSurface: request.routingSurface }
                   : {}),
+                // Which voice lane this turn is on (a quick spoken line or the real answer); anything else is dropped.
+                ...(request.lane === "quick" || request.lane === "full"
+                  ? { lane: request.lane }
+                  : {}),
                 // How hard a steerable model should think. The kernel sends a thinking field only
                 // to a model whose record declares a control, and ignores anything else.
                 ...(["low", "medium", "high"].includes(request.reasoningEffort)
@@ -3853,6 +3882,7 @@ async function startChat(request) {
     ...(request.routingSurface === "voice" || request.routingSurface === "chat"
       ? { surface: request.routingSurface }
       : {}),
+    ...(request.lane === "quick" || request.lane === "full" ? { lane: request.lane } : {}),
   };
   let candidates = await resolveChatModels(wanted, task, requestedMode, routingOptions);
 
@@ -7534,6 +7564,8 @@ async function pinnedModelInPlace(modelId, folderId, dir, sources, deps = {}) {
 ipcMain.handle("models:download", async (_e, payload) => {
   const { modelId, sources = [], jobId } = payload || {};
   if (!modelId) return { ok: false, error: "modelId is required" };
+  // The id becomes a folder under the models root: only a plain id passes, never a path.
+  if (!modelDownload.isSafeModelId(modelId)) return { ok: false, error: "model id is not valid" };
   const id = jobId || `dl-${Date.now()}`;
   if (modelJobs.has(id)) return { ok: false, error: "job already running" };
   // The renderer may ask for fewer parallel downloads, never more than the governor's cap for this class.
@@ -7739,6 +7771,15 @@ let hardwareJob = null;
 // nothing for them; the next ask a few seconds later finds them cached, so a probe-less answer is not kept for 30 s.
 const HARDWARE_FRESH_MS = 30000;
 const HARDWARE_PENDING_RETRY_MS = 3000;
+// The chat plan (model, context window) the kernel reads from <FRIDAY_ROOT>/runtime/chat-ctx.json, rebuilt from the
+// current hardware facts. Best effort and never awaited by the caller: it must not delay the window or the kernel.
+function warmChatPlan(force = false) {
+  try {
+    void Promise.resolve(modelsApi.refreshChatPlan?.(force ? { force: true } : {})).catch(() => {});
+  } catch {
+    /* the kernel keeps its RAM ladder until the next warm */
+  }
+}
 function detectHardwareCached(force = false) {
   const freshMs = lastHardware?.capabilities ? HARDWARE_FRESH_MS : HARDWARE_PENDING_RETRY_MS;
   if (!force && lastHardware && Date.now() - hardwareAt < freshMs)
@@ -7748,6 +7789,8 @@ function detectHardwareCached(force = false) {
       lastHardware = hw;
       hardwareAt = Date.now();
       offerGpuToSpeech(hw);
+      // A forced probe means the hardware may have changed: the chat plan follows it.
+      if (force) warmChatPlan(true);
       return hw;
     })
     .finally(() => {
@@ -8425,7 +8468,9 @@ function getInstallerCatalog() {
 // heavy steps in the governor's download and install lanes.
 toolchain.setFactsProvider(() => routingHardwareFacts());
 toolchain.setJobRunner((kind, fn, signal) => cappedJob(kind, fn, signal));
-ipcMain.handle("installer:catalog", () => catalogWithLocalSources(getInstallerCatalog().catalog()));
+ipcMain.handle("installer:catalog", () =>
+  catalogWithSetupNotices(catalogWithLocalSources(getInstallerCatalog().catalog())),
+);
 ipcMain.handle("installer:refresh", () => getInstallerCatalog().requestRefresh("manual"));
 // "Use local builds": bring verified models from a build on this PC into the FRIDAY folder, into free places only.
 // Items come back one by one as { id, origin, result: adopted | in-place | skipped, reason }.
@@ -11681,6 +11726,8 @@ function startAfterKernel(root, bootStartedAt) {
     })
     .catch(() => boot("Detecting AI providers", "warn"));
 
+  // The first plan, written before the kernel serves chat when the probe is quick, else right after.
+  warmChatPlan();
   hardwareBoot = detectHardware(hardwareProbeOptions())
     .then((hw) => {
       lastHardware = hw;

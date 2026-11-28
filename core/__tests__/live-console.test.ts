@@ -25,6 +25,12 @@ const ui = require_("../../scripts/live-console.cjs") as {
   }) => string;
   spinnerFrames: (env: Record<string, string>) => string[];
   formatBytes: (n: number) => string;
+  rollingSpeed: (
+    samples: { at: number; bytes: number }[],
+    now: number,
+    windowMs?: number,
+  ) => number;
+  downloadDetail: (progress: { bytesDone: number; bytesTotal: number }, speed?: number) => string;
   LiveLine: new (o: Record<string, unknown>) => {
     active: boolean;
     start: (label: string) => void;
@@ -194,6 +200,56 @@ describe("running a command under the live line", () => {
     expect(text).toContain("bar 50%");
     // A failure always gets its summary, however short the step was.
     expect(text).toContain("× fake step  failed (exit 3)");
+  });
+});
+
+describe("size and speed beside a download bar", () => {
+  const MB = 1024 ** 2;
+
+  it("measures the speed over the newest samples only, and reads a stalled download as 0", () => {
+    const samples = [
+      { at: 0, bytes: 0 },
+      { at: 10_000, bytes: 100 * MB },
+      { at: 11_000, bytes: 104 * MB },
+      { at: 12_000, bytes: 108 * MB },
+    ];
+    // The 5 s window ignores the fast start: 4 MB per second now.
+    expect(ui.rollingSpeed(samples, 12_000) / MB).toBeCloseTo(4, 5);
+    expect(ui.rollingSpeed([{ at: 1000, bytes: 5 }], 1000)).toBe(0);
+    expect(
+      ui.rollingSpeed(
+        [
+          { at: 0, bytes: 7 },
+          { at: 4000, bytes: 7 },
+        ],
+        4000,
+      ),
+    ).toBe(0);
+    expect(ui.rollingSpeed([], 0)).toBe(0);
+  });
+
+  it("shows `done / total` and the speed once it is known", () => {
+    expect(ui.downloadDetail({ bytesDone: 37 * MB, bytesTotal: 95 * MB })).toBe("37 MB / 95 MB");
+    expect(ui.downloadDetail({ bytesDone: 37 * MB, bytesTotal: 95 * MB }, 4.1 * MB)).toBe(
+      "37 MB / 95 MB · 4.1 MB/s",
+    );
+    expect(ui.downloadDetail({ bytesDone: 0, bytesTotal: 0 })).toBe("");
+  });
+
+  it("puts the size beside the bar when a tidied command reports `X MB / Y MB`", async () => {
+    const stream = fakeStream();
+    const script =
+      "process.stdout.write('  10.0 MB / 40.0 MB\\r'); setTimeout(() => { process.stdout.write('  20.0 MB / 40.0 MB\\r'); setTimeout(() => process.exit(0), 400); }, 400);";
+    await ui.runLive({
+      label: "fake download",
+      cmd: process.execPath,
+      args: ["-e", script],
+      stream,
+      env: { ...process.env },
+      tidy: true,
+    });
+    const text = plain(stream.out.join(""));
+    expect(text).toContain("20 MB / 40 MB");
   });
 });
 

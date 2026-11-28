@@ -51,16 +51,19 @@ describe("an interpreter named in FRIDAY_PYTHON is used only while it exists", (
     }
   });
 
-  it("skips the English streaming speech with a note, instead of failing, when the Python is not there", async () => {
+  it("fetches the English streaming speech without any Python: the pinned files go through the downloader", async () => {
     const lines: string[] = [];
+    let jobs = 0;
     const row = await prefetch.fetchMoonshine("C:/friday", {
-      env: { FRIDAY_PYTHON: "D:\\FRIDAY\\.venv\\Scripts\\python.exe" },
       log: (line: string) => lines.push(line),
-      run: async () => {
-        throw new Error("must not be spawned");
+      download: async () => {
+        jobs += 1;
+        return { ok: false, error: "offline" };
       },
     });
-    expect(row).toMatchObject({ id: "moonshine-en", ok: true, skipped: true });
-    expect(lines.join("\n")).toContain("no Python runtime yet");
+    // Python is never asked for; the first file that cannot arrive ends the fetch as an optional note.
+    expect(jobs).toBe(1);
+    expect(row).toMatchObject({ id: "moonshine-en", ok: false, optional: true });
+    expect(lines.join("\n")).not.toContain("no Python runtime yet");
   });
 });

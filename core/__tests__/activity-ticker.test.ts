@@ -183,14 +183,24 @@ describe("where it is used", () => {
     expect(read("scripts/doctor.cjs")).toContain('withActivityCommand("npm ci"');
   });
 
-  it("wraps every pip install in setup:python, the Electron download and the moonshine download", () => {
+  it("wraps every pip install in setup:python and the Electron download, and gives the moonshine download a pinned downloader and a progress row", () => {
     const python = read("scripts/setup-python.cjs");
     expect(python).toContain(
       'const isPipInstall = (args) => args.includes("pip") && args.includes("install");',
     );
     expect(python).toMatch(/withActivityCommand\(\s*"pip"/);
     expect(read("scripts/ensure-electron.cjs")).toContain("withActivityCommand(");
-    expect(read("scripts/prefetch-models.cjs")).toContain('label: "moonshine-en"');
+    const models = read("scripts/prefetch-models.cjs");
+    const moonshine = models.slice(
+      models.indexOf("async function fetchMoonshine"),
+      models.indexOf("/** Run every job"),
+    );
+    expect(moonshine).toContain("voiceWeights.fileSetJobs(root, MOONSHINE_ID)");
+    expect(moonshine).toContain("voiceWeights.fileSetReady(root, MOONSHINE_ID)");
+    expect(moonshine).toContain("ui.update(MOONSHINE_ID");
+    expect(moonshine).not.toContain("() => {},");
+    expect(moonshine).toContain("NOTE     ${MOONSHINE_ID} did not download");
+    expect(models).toContain('"moonshine-en": 78_075_147');
   });
 
   it("gives every installer job a ticker and a winget percent, and stops the ticker with the job", () => {

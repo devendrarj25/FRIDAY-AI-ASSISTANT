@@ -47,7 +47,8 @@ export const ackStamps = { armed: "ackArmed", audible: "ackAudible" } as const s
 /* ---------- the catalogue ---------- */
 
 /**
- * Candidates per pool. Lines are gender-neutral on purpose. Every candidate goes through `isYesLike` when the module
+ * Candidates per pool. The first lines are gender-neutral; the later Hindi and Roman Hindi ones ("kar rahi hoon") speak
+ * as a woman, as FRIDAY does everywhere else. New lines are appended so the older clip ids never move. Every candidate goes through `isYesLike` when the module
  * loads: a candidate that is a yes-word, a no-word or a bound confirmation is dropped and listed in
  * `DROPPED_ACK_CANDIDATES` (so "Okay." and "Sure." never reach the owner's ears).
  */
@@ -63,8 +64,23 @@ const CANDIDATES: Record<AckLang, readonly string[]> = {
     "One sec.",
     "Give me a second.",
     "Right, checking.",
+    "Checking now.",
+    "Working on it.",
   ],
-  hi: ["ठीक है।", "हम्म।", "एक पल।", "एक मिनट।", "देखते हैं।", "अभी करते हैं।", "बस एक सेकंड।", "देख लेते हैं।"],
+  hi: [
+    "ठीक है।",
+    "हम्म।",
+    "एक पल।",
+    "एक मिनट।",
+    "देखते हैं।",
+    "अभी करते हैं।",
+    "बस एक सेकंड।",
+    "देख लेते हैं।",
+    "देख रही हूँ।",
+    "अभी करती हूँ।",
+    "चेक कर रही हूँ।",
+    "हो जाएगा।",
+  ],
   hinglish: [
     "Hmm.",
     "Ek minute.",
@@ -73,6 +89,10 @@ const CANDIDATES: Record<AckLang, readonly string[]> = {
     "Abhi karte hain.",
     "Bas ek pal.",
     "Abhi dekhte hain.",
+    "Dekh rahi hoon.",
+    "Abhi karti hoon.",
+    "Check kar rahi hoon.",
+    "Ho jayega.",
   ],
 };
 

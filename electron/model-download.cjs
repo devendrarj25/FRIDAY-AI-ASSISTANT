@@ -1199,6 +1199,76 @@ async function copyLocalFile(file, finalPath, ctx) {
 
 // ------------------------------------------------------------------- driver
 /**
+ * Every file of a pinned file set into `<root>/<id>/`, each one resumable and checked against its pinned SHA-256 and size
+ * (a file already there with the right hash is kept, a wrong one is fetched again, never kept). Progress is combined.
+ */
+async function downloadFileSet(set, { root, job, onEvent, signal, deps = {}, attempts = [] }) {
+  const fetchOne = deps.downloadUrl || downloadUrl;
+  const total = set.files.reduce((sum, file) => sum + file.bytes, 0);
+  const folder = path.join(root, set.id);
+  let done = 0;
+  try {
+    for (const file of set.files) {
+      const dest = path.join(folder, file.file);
+      if (fs.existsSync(dest) && hashFile(dest) === file.sha256.toLowerCase()) {
+        done += file.bytes;
+        continue;
+      }
+      onEvent?.({ status: `${set.label}: ${file.file}` });
+      remember(root, job, {
+        status: "downloading",
+        dest,
+        sourceUrl: file.url,
+        sha256: file.sha256,
+      });
+      await fetchOne(file.url, dest, {
+        onEvent: (event) =>
+          onEvent?.({
+            ...event,
+            ...(Number.isFinite(event?.progress)
+              ? {
+                  progress: Math.min(
+                    99,
+                    Math.round(((done + (event.progress / 100) * file.bytes) / total) * 100),
+                  ),
+                }
+              : {}),
+          }),
+        signal,
+        sha256: file.sha256,
+        needBytes: file.bytes,
+        label: set.label,
+        control: job.control,
+      });
+      done += file.bytes;
+    }
+    remember(root, job, {
+      status: "installed",
+      dest: folder,
+      sourceUrl: set.files[0]?.url,
+      bytes: total,
+    });
+    onEvent?.({ status: "installed", progress: 100 });
+    return { ok: true, via: "file-set", path: folder, bytes: total, source: set.label, attempts };
+  } catch (err) {
+    if (signal?.aborted && signal.reason === "pause")
+      return { ok: false, error: "paused", cause: "pause", attempts };
+    if (signal?.aborted || err?.name === "AbortError") {
+      const cancelled = voiceInstall.classifyDownloadError("cancelled");
+      return { ok: false, error: cancelled.line, cause: cancelled.cause, attempts };
+    }
+    const classified = voiceInstall.classifyDownloadError(String(err?.message || err));
+    attempts.push({ source: set.label, error: classified.line, cause: classified.cause });
+    return { ok: false, error: classified.line, cause: classified.cause, attempts };
+  }
+}
+
+/** A catalog id is one plain folder name: letters, digits, dot, underscore, dash; no separator, no `..`, 81 characters at most. */
+function isSafeModelId(id) {
+  return typeof id === "string" && /^[a-z0-9][a-z0-9._-]{0,80}$/i.test(id) && !id.includes("..");
+}
+
+/**
  * Try every source in order until one really succeeds.
  *
  * @param {object} job
@@ -1209,6 +1279,10 @@ async function copyLocalFile(file, finalPath, ctx) {
  */
 async function downloadModelInner(job, onEvent, signal, deps = {}) {
   const { modelId, dir } = job;
+  // The id becomes a folder name under the models root: a path is refused before anything is fetched or made.
+  if (!isSafeModelId(modelId)) {
+    return { ok: false, error: "model id is not valid", cause: "bad-id", attempts: [] };
+  }
   // A pinned repository the FRIDAY Models pack holds in full gets the FRIDAY release as the source before it; the
   // official source stays in the chain behind it, so a missing release or a wrong hash only costs the first try.
   // Every downloaded byte is persistent FRIDAY data, so it must land inside
@@ -1265,6 +1339,14 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
       error: "no FRIDAY models folder is available — select the FRIDAY folder first",
       attempts,
     };
+
+  // A pinned file set (voice-weights.cjs `fileSets`, English streaming speech) is several single files from the
+  // publisher's own host. A job for its id that carries no pinned file of its own (the Models page sends the catalog's
+  // link) installs the whole set from the pins; a job that carries a pinned file (setup, one file per job) is one file.
+  const fileSet = voiceWeights.fileSets().find((set) => set.id === modelId);
+  if (fileSet && !sources.some((source) => source?.sha256)) {
+    return downloadFileSet(fileSet, { root, job, onEvent, signal, deps, attempts });
+  }
 
   for (const source of sources) {
     const label = source.label || source.kind;
@@ -1609,6 +1691,40 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         }
       }
 
+      if (source.kind === "url-set") {
+        // Only the repository name is taken from the caller: the urls, hashes, sizes and file names are rebuilt from
+        // FRIDAY's own pin (voice-weights.cjs modelscopeSource), so a renderer cannot point the set at another host.
+        const mirror = (deps.mirrorSource || voiceWeights.modelscopeSource)(source.repo);
+        if (!mirror) throw new Error("not a known mirror set");
+        // A mirror copy of a pinned repository (voice-weights.cjs modelscopeSource): every file by its own url, each one
+        // checked against the pinned SHA-256 and size, then the whole folder is audited and the pin record written.
+        // Each file lands under its `relPath` (never the url's last segment, which a mirror may share between files).
+        // A file that fails the check is removed, never kept; one that already passed is not fetched again.
+        const folder = path.join(root, modelId);
+        remember(root, job, {
+          status: "downloading",
+          dest: folder,
+          sourceUrl: `https://${mirror.host}`,
+        });
+        const got = await voiceWeights.downloadMirrorSet(mirror, folder, {
+          ...(deps.pinForRepo ? { pinForRepo: deps.pinForRepo } : {}),
+          downloadUrl: (fileUrl, fileDest, options = {}) =>
+            (deps.downloadUrl || downloadUrl)(fileUrl, fileDest, {
+              ...options,
+              ...(job.control ? { control: job.control } : {}),
+            }),
+          ...(onEvent ? { onEvent } : {}),
+          ...(signal ? { signal } : {}),
+        });
+        if (!got.ok) throw new Error(got.error || "mirror download failed");
+        remember(root, job, {
+          status: "installed",
+          dest: folder,
+          sourceUrl: `https://${mirror.host}`,
+        });
+        return { ok: true, via: "url-set", path: folder, source: mirror.label || label, attempts };
+      }
+
       if (source.kind === "hf-repo") {
         // A repository FRIDAY pins (electron/voice-pins.cjs) is fetched at its pinned revision, only the
         // pinned files, each checked against the pinned SHA-256 and size. Any other repository is unchanged.
@@ -1937,6 +2053,7 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
 }
 
 module.exports = {
+  isSafeModelId,
   auditPinnedFolder,
   withHfAuth,
   HF_HOSTS,

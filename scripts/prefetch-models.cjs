@@ -9,11 +9,14 @@
  * official sources first, the same allowlist, resumable parts, and a SHA-256
  * check against the publisher's digest (pinned here, or read from the Hugging
  * Face listing). The running app later reuses, repairs and updates the same
- * folders from Models and Install Manager. A download that does not finish
- * fails the step (exit 1) and names each model, so setup and the build stop
- * instead of leaving FRIDAY without its voice or chat model. A step that does
- * not run (hosted CI, offline, FRIDAY_PREFETCH=0) is skipped, not failed;
- * FRIDAY_PREFETCH_STRICT=0 reports a failure without failing.
+ * folders from Models and Install Manager. A download that does not finish is a
+ * NOTICE, never a stop: the step names each model, records it in
+ * <root>/runtime/setup-notices.json (scripts/setup-notices.cjs, listed later in
+ * Install Manager / Models and Doctor) and exits 0, so setup and the build go on.
+ * A step that does not run (hosted CI, offline, FRIDAY_PREFETCH=0) is skipped, not
+ * failed. FRIDAY_SETUP_STRICT=1 (or FRIDAY_PREFETCH_STRICT=1) restores exit 1 for a
+ * machine that must be complete. When a pinned file cannot be reached on its host,
+ * it is tried once through the opt-in mirror (same SHA-256 and size, else refused).
  *
  * The offline neural voice (Supertonic 3, from its publisher's Hugging Face repo,
  * every file checked against the publisher's own digest) is fetched the same
@@ -62,21 +65,24 @@ if (require.main === module) require("./live-console.cjs").installColorConsole()
 const path = require("node:path");
 const os = require("node:os");
 
-const voiceWeights = require("../electron/voice-weights.cjs");
-const voicePins = require("../electron/voice-pins.cjs");
+const electronModule = require("./electron-module.cjs");
+const voiceWeights = electronModule.load("voice-weights.cjs");
+const voicePins = electronModule.load("voice-pins.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const { DownloadBoard } = require("./download-board.cjs");
-const localLibrary = require("../electron/local-library.cjs");
+const localLibrary = electronModule.load("local-library.cjs");
 const updatePolicy = require("./update-policy.cjs");
-const llamaRuntime = require("../electron/llama-runtime.cjs");
-const setupPlan = require("../electron/setup-plan.cjs");
+const llamaRuntime = electronModule.load("llama-runtime.cjs");
+const setupPlan = electronModule.load("setup-plan.cjs");
+const setupNotices = require("./setup-notices.cjs");
 
 /** About how large each piece is, for the plan and the overall bar before the real sizes are known. */
 const APPROX_BYTES = {
   "silero-vad": 2.3 * 1024 ** 2,
   "smart-turn": 8.7 * 1024 ** 2,
   "llamacpp-runtime": 18.6 * 1024 ** 2,
+  "moonshine-en": 78_075_147,
   "stt-tiny": 75 * 1024 ** 2,
   "stt-base": 141 * 1024 ** 2,
   "stt-small": 464 * 1024 ** 2,
@@ -163,7 +169,7 @@ function prefetchParallelism(env = process.env) {
   return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 2;
 }
 
-const { mapPool, registerGguf } = require("../electron/model-download.cjs");
+const { mapPool, registerGguf } = electronModule.load("model-download.cjs");
 
 /**
  * llama.cpp in setup. With this PC's plan (`llama` = plan.llama) the plan's word counts: the pinned CPU zip is
@@ -226,7 +232,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       id: plan.id,
       kind: "stt",
       ready: plan.dir,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+      job: { modelId: plan.size, sources: sttSources(plan), dir: path.dirname(plan.dir) },
     });
   }
   if (enabled(env, "FRIDAY_PREFETCH_STT_LITE")) {
@@ -235,7 +241,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       id: plan.id,
       kind: "stt",
       ready: plan.dir,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+      job: { modelId: plan.size, sources: sttSources(plan), dir: path.dirname(plan.dir) },
     });
   }
   if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
@@ -327,7 +333,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       kind: "stt",
       ready: plan.dir,
       ...extra,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+      job: { modelId: plan.size, sources: sttSources(plan), dir: path.dirname(plan.dir) },
     });
   };
   if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
@@ -373,9 +379,28 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   return jobs;
 }
 
-/** The rows of a voice plan setup fetches from: its items, then the streaming ear when the plan decided one. */
+/**
+ * The rows of a voice plan setup fetches from: its items, the streaming ear when the plan decided one, then the optional
+ * language and sound models of this PC (`optionalItems`; each is fetched as optional, see voiceModelJob).
+ */
 function planRows(plan) {
-  return [...(plan?.items || []), ...(plan?.streamEar ? [plan.streamEar] : [])];
+  return [
+    ...(plan?.items || []),
+    ...(plan?.streamEar ? [plan.streamEar] : []),
+    ...(plan?.optionalItems || []),
+  ];
+}
+
+/**
+ * The sources of one speech size: Hugging Face first, then the ModelScope copy of the same pinned files when one is known
+ * (a `url-set` source, checked against the same SHA-256 and size). Reach ordering happens when the job runs.
+ */
+function sttSources(plan) {
+  try {
+    return voiceWeights.sttSourcesWithMirror(plan.size);
+  } catch {
+    return plan.sources;
+  }
 }
 
 /** The setup job id of a catalog id: a speech size is `stt-<size>`, every other voice model keeps its own id. */
@@ -401,7 +426,7 @@ function voiceModelJob(root, catalogId) {
       id: plan.id,
       kind: "stt",
       ready: plan.dir,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+      job: { modelId: plan.size, sources: sttSources(plan), dir: path.dirname(plan.dir) },
     };
   }
   const row = voiceWeights.modelRegistry().find((item) => item.catalogId === catalogId);
@@ -504,7 +529,7 @@ function alreadyThere(row) {
     .map((source) => String(source.sha256 || "").toLowerCase())
     .filter(Boolean);
   try {
-    return wanted.includes(require("../electron/model-download.cjs").hashFile(row.ready));
+    return wanted.includes(electronModule.load("model-download.cjs").hashFile(row.ready));
   } catch {
     return false;
   }
@@ -844,6 +869,16 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
   }
   const models = chat ? chatTargets(chat, log, rows) : deps.models || OLLAMA_MODELS;
+  // The small fast Qwen that answers by voice (plan.chat.voice, an older plan has none) is pulled AFTER the main tag and
+  // is optional: a model Ollama already holds is not pulled again, and a failure is a notice, not a stop.
+  const voiceChat = ["pull", "keep", "offer-upgrade"].includes(chat?.action) ? chat.voice : null;
+  if (
+    voiceChat &&
+    typeof voiceChat.tag === "string" &&
+    voiceChat.tag &&
+    !models.some((model) => model.tag === voiceChat.tag)
+  )
+    models.push({ tag: voiceChat.tag, role: "fast voice chat model", voiceChat: true });
   const ramGb = deps.ramGb ?? deps.totalGb ?? os.totalmem() / 1024 ** 3;
   const skip = new Set(
     String(deps.skipOptional ?? process.env.FRIDAY_PREFETCH_CHAT_SMART ?? "").trim() === "0"
@@ -862,7 +897,12 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
     if (have.has(model.tag)) {
       log(`[friday] ok       ${model.tag} already in Ollama; verified, not pulled again`);
-      rows.push({ id: model.tag, ok: true, downloaded: false });
+      rows.push({
+        id: model.tag,
+        ok: true,
+        downloaded: false,
+        ...(model.voiceChat ? { voiceChat: true, noticeId: `model:chat-voice:${model.tag}` } : {}),
+      });
       continue;
     }
     // The same model as a GGUF already on this PC (an earlier run fetched it) is handed to Ollama
@@ -896,7 +936,13 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
     progress.end();
-    if (result.ok) rows.push({ id: model.tag, ok: true, downloaded: true });
+    if (result.ok)
+      rows.push({
+        id: model.tag,
+        ok: true,
+        downloaded: true,
+        ...(model.voiceChat ? { voiceChat: true, noticeId: `model:chat-voice:${model.tag}` } : {}),
+      });
     else {
       log(
         `[friday] INFO     ${model.tag} not pulled (${result.error}); FRIDAY pulls it on first use`,
@@ -905,7 +951,14 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
         id: model.tag,
         ok: false,
         error: result.error,
-        ...(model.optional ? { optional: true } : {}),
+        ...(model.optional || model.voiceChat ? { optional: true } : {}),
+        ...(model.voiceChat
+          ? {
+              voiceChat: true,
+              noticeId: `model:chat-voice:${model.tag}`,
+              installManagerId: `model:ollama:${model.tag}`,
+            }
+          : {}),
       });
     }
   }
@@ -1101,19 +1154,39 @@ async function useLatestInstaller(row, latest) {
 }
 
 /**
- * English streaming speech (Moonshine tiny, MIT). It is the fastest way to turn English into text while the
- * owner is still talking, but it was never fetched: the kernel looks for it in `<root>/models/moonshine-en`
- * and, finding nothing, quietly used the slower whisper path for every English turn. The publisher's own
- * Python package knows the official file list, sizes and checksums, so it does the download into that folder.
+ * English streaming speech (Moonshine tiny, MIT): the fastest way to turn English into text while the owner is still
+ * talking, in `<root>/models/moonshine-en` (the folder `kernel/stt.py` reads). The nine files are a pinned file set
+ * (voice-weights.cjs `fileSets`): each one has its url, SHA-256 and size and goes through the same resumable,
+ * hash-checked downloader as every other model, so no Python is needed. It is optional: a failed fetch is a note that
+ * names the fallback, never a stop.
  */
-const MOONSHINE_DIR = ["models", "moonshine-en"];
-const MOONSHINE_SCRIPT = [
-  "import sys",
-  "from pathlib import Path",
-  "from moonshine_voice import ModelArch, get_model_for_language",
-  "path, arch = get_model_for_language('en', ModelArch.TINY_STREAMING, cache_root=Path(sys.argv[1]))",
-  "print('MOONSHINE_OK', path)",
-].join("\n");
+const MOONSHINE_ID = "moonshine-en";
+const MOONSHINE_DIR = ["models", MOONSHINE_ID];
+
+/**
+ * The Doctor's reach map of this run (`{ "<host>": { state: "up" | "down" | "unchecked" } }`) from the file
+ * `FRIDAY_REACH_CACHE` names, or null when there is none. A host that is down is only tried last; nothing is removed.
+ */
+function readReach(env = process.env) {
+  const file = String(env.FRIDAY_REACH_CACHE || "");
+  if (!file) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The sources in the order to try them: a host the reach map says is down goes last (scripts/doctor-probes.cjs). */
+function orderByReach(sources, reach) {
+  if (!reach) return sources;
+  try {
+    return require("./doctor-probes.cjs").orderSources(sources, reach);
+  } catch {
+    return sources;
+  }
+}
 
 /** The same test the kernel uses (kernel/stt.py moonshine_model_dir): real model files, not a stub. */
 function moonshineReady(dir) {
@@ -1142,66 +1215,84 @@ function moonshineReady(dir) {
   return walk(dir, 0) > 0;
 }
 
-/** Fetch the English streaming weights with the venv Python. Returns one result row; never throws. */
-async function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}) {
-  const dir = path.join(root, ...MOONSHINE_DIR);
-  if (moonshineReady(dir)) {
-    log("[friday] ok       moonshine-en verified on disk; not downloaded again");
-    return { id: "moonshine-en", ok: true, downloaded: false };
+/**
+ * Fetch the English streaming weights file by file with the shared downloader (`download` stands in for it in a test).
+ * Every file already at its pinned size is kept; a missing or wrong one is fetched again and its SHA-256 is checked, so
+ * no unverified file stays. Returns one result row; never throws.
+ */
+async function fetchMoonshine(root, { log = console.log, download, reach, board } = {}) {
+  const set = voiceWeights.fileSets().find((row) => row.id === MOONSHINE_ID);
+  if (!root || !set) return { id: MOONSHINE_ID, ok: true, downloaded: false, skipped: true };
+  // The row on the shared board (prefetch passes it), or its own board for a standalone run; a test that injects
+  // `download` and no board stays quiet. `board === null` means no board at all.
+  const ownBoard = board === undefined && !download;
+  const ui =
+    board !== undefined
+      ? board
+      : ownBoard
+        ? new DownloadBoard({ ...(log !== console.log ? { log } : {}) })
+        : null;
+  if (ownBoard && ui) ui.start([{ id: MOONSHINE_ID, approxBytes: APPROX_BYTES[MOONSHINE_ID] }]);
+  const closeBoard = () => {
+    if (ownBoard && ui) ui.stop();
+  };
+  if (voiceWeights.fileSetReady(root, MOONSHINE_ID)) {
+    log("[friday] ok       moonshine-en present (size checked); not downloaded again");
+    // The shared board is attached after this call returns its promise; one tick later it can take the row.
+    await Promise.resolve();
+    if (ui) ui.finish(MOONSHINE_ID, { ok: true, note: "already on disk, not downloaded again" });
+    closeBoard();
+    return { id: MOONSHINE_ID, ok: true, downloaded: false };
   }
-  const python = require("./explicit-python.cjs").explicitPython(env.FRIDAY_PYTHON);
-  if (!python) {
-    log(
-      "[friday] INFO     moonshine-en skipped: no Python runtime yet (npm run setup:python fetches it)",
-    );
-    return { id: "moonshine-en", ok: true, downloaded: false, skipped: true };
-  }
+  const fetchModel = download || electronModule.load("model-download.cjs").downloadModel;
   log("[friday] fetching moonshine-en (English streaming speech)");
-  const runIt =
-    run ||
-    ((exe, args, options) =>
-      new Promise((resolve) => {
-        const child = require("node:child_process").spawn(exe, args, {
-          env: options.env,
-          windowsHide: true,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        let out = "";
-        child.stdout.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
-        child.stderr.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
-        const timer = setTimeout(() => child.kill(), options.timeout);
-        // The download prints nothing until it ends, so a proof-of-life line says it is still working.
-        const ticker = require("./electron-module.cjs")
-          .load("activity.cjs")
-          .startTicker({ label: "moonshine-en", watch: [dir], write: (line) => log(line) });
-        child.on("error", (error) => {
-          clearTimeout(timer);
-          ticker.stop();
-          resolve({ status: -1, stdout: out, stderr: "", error });
-        });
-        child.on("close", (status) => {
-          clearTimeout(timer);
-          ticker.stop();
-          resolve({ status, stdout: out, stderr: "" });
-        });
-      }));
-  const ran = await runIt(python, ["-c", MOONSHINE_SCRIPT, dir], {
-    encoding: "utf8",
-    timeout: 20 * 60 * 1000,
-    env: { ...env, PYTHONIOENCODING: "utf-8" },
-  });
-  const text = `${ran.stdout || ""}${ran.stderr || ""}`;
-  if (ran.status === 0 && moonshineReady(dir)) {
-    log("[friday] ok       moonshine-en (publisher download, English streaming speech)");
-    return { id: "moonshine-en", ok: true, downloaded: true };
+  let bytes = 0;
+  const fail = (why) => {
+    const reason = String(why || "no files arrived").slice(0, 220);
+    log(
+      `[friday] NOTE     ${MOONSHINE_ID} did not download (${reason}); optional, setup goes on and ${set.fallback} stays in use`,
+    );
+    if (ui)
+      ui.finish(MOONSHINE_ID, {
+        ok: false,
+        note: `optional, not installed: ${reason}`.slice(0, 80),
+      });
+    closeBoard();
+    return { id: MOONSHINE_ID, ok: false, error: reason, optional: true };
+  };
+  const jobs = voiceWeights.fileSetJobs(root, MOONSHINE_ID);
+  const totalBytes = jobs.reduce((sum, item) => sum + (Number(item.job.sources[0]?.bytes) || 0), 0);
+  for (const job of jobs) {
+    // The downloader hashes a file that is already there and keeps it only when it matches the pin.
+    let result;
+    try {
+      result = await fetchModel(
+        { ...job.job, sources: orderByReach(job.job.sources, reach) },
+        (event) => {
+          if (!ui) return;
+          // One row for the whole file set: bytes of the finished files plus the file in flight.
+          const inFlight = Number(event?.bytesDone) || 0;
+          const fileSize = Number(job.job.sources[0]?.bytes) || 0;
+          const done = bytes + (inFlight || ((Number(event?.progress) || 0) / 100) * fileSize);
+          ui.update(MOONSHINE_ID, {
+            ...event,
+            bytesDone: done,
+            bytesTotal: totalBytes,
+            progress: totalBytes > 0 ? Math.min(100, (done / totalBytes) * 100) : event?.progress,
+          });
+        },
+        undefined,
+      );
+    } catch (err) {
+      result = { ok: false, error: String((err && err.message) || err) };
+    }
+    if (!result || !result.ok) return fail(result && result.error);
+    bytes += Number(result.bytes) || 0;
   }
-  const why = (
-    ran.error
-      ? String(ran.error.message || ran.error)
-      : text.trim().split(/\r?\n/).slice(-2).join(" ")
-  ).slice(0, 220);
-  log(`[friday] FAIL     moonshine-en was not downloaded (${why || "no files arrived"})`);
-  return { id: "moonshine-en", ok: false, error: why || "no files arrived" };
+  if (ui) ui.finish(MOONSHINE_ID, { ok: true, bytes });
+  closeBoard();
+  log("[friday] ok       moonshine-en (pinned files, SHA-256 checked, English streaming speech)");
+  return { id: MOONSHINE_ID, ok: true, downloaded: true, bytes };
 }
 
 /** Run every job; returns one row per job. Never throws. */
@@ -1217,7 +1308,6 @@ async function prefetch(
     totalGb,
     freshnessFetch,
     policyRoot,
-    moonshine,
     board,
     llama,
     probe,
@@ -1225,6 +1315,7 @@ async function prefetch(
     thisPc,
     installedModels,
     quietPlan = false,
+    mirrorRetry,
   } = {},
 ) {
   const rows = [];
@@ -1278,7 +1369,9 @@ async function prefetch(
   }
   // Setup prints the block itself, ahead of its Python step (FRIDAY_PLAN_PRINTED=1), and a retry round does not repeat it.
   if (plan && !quietPlan && String(env.FRIDAY_PLAN_PRINTED ?? "") !== "1")
-    for (const line of setupPlan.describePlan(plan)) log(line);
+    for (const line of planLines(plan)) log(line);
+  // The PC this run planned for is kept, so Doctor can say that this PC changed since setup.
+  if (plan && !quietPlan) writePlanRecord(root, plan);
   if (
     plan?.llama?.install &&
     plan.llama.install.backend !== "cpu" &&
@@ -1327,11 +1420,11 @@ async function prefetch(
           root,
           newest,
           current: existing.version,
-          fetchModel: download || require("../electron/model-download.cjs").downloadModel,
+          fetchModel: download || electronModule.load("model-download.cjs").downloadModel,
           log,
           deps: {
             signed: async (file) =>
-              require("../electron/download-safety.cjs").authenticodeStatus(file),
+              electronModule.load("download-safety.cjs").authenticodeStatus(file),
             ...(existing.exe ? { ollamaExe: existing.exe } : {}),
             ...ollama,
           },
@@ -1352,7 +1445,9 @@ async function prefetch(
     }
   };
   const uiRef = { current: null };
-  const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
+  const fetchModel = download || electronModule.load("model-download.cjs").downloadModel;
+  // A host the Doctor found down in this run is tried last (never dropped); null when there is no reach cache.
+  const reach = readReach(env);
   // The English streaming speech is small and comes from its own host, so it downloads beside the big files.
   // With a plan, English streaming speech is one of its extras: kept unless the plan leaves it out (a disk too full).
   const moonshineExtra = Array.isArray(voicePlan?.extras)
@@ -1370,9 +1465,14 @@ async function prefetch(
   const moonshineRun =
     enabled(env, "FRIDAY_PREFETCH_MOONSHINE") && !moonshineSkip
       ? fetchMoonshine(root, {
-          env,
           log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
-          ...(moonshine ? { run: moonshine } : {}),
+          download: fetchModel,
+          reach,
+          // The shared board is made after this call starts; its rows are looked up when an event arrives.
+          board: {
+            update: (id, event) => uiRef.current?.update(id, event),
+            finish: (id, outcome) => uiRef.current?.finish(id, outcome),
+          },
         })
       : null;
   // The speech, voice and chat files are independent, so several download at once: one
@@ -1395,12 +1495,13 @@ async function prefetch(
   uiRef.current = ui;
   const say = ui ? (line) => ui.say(line) : log;
   if (ui) {
-    ui.start(
-      jobs.map((row) => ({
+    ui.start([
+      ...jobs.map((row) => ({
         id: row.id,
         approxBytes: APPROX_BYTES[row.id] || row.approxBytes || 0,
       })),
-    );
+      ...(moonshineRun ? [{ id: MOONSHINE_ID, approxBytes: APPROX_BYTES[MOONSHINE_ID] }] : []),
+    ]);
   }
   const outcomes = await mapPool(jobs, parallel, async (row) => {
     if (alreadyThere(row)) {
@@ -1413,7 +1514,7 @@ async function prefetch(
       );
       const stale =
         checkFreshness && !pinned
-          ? await require("../electron/model-freshness.cjs").staleFor(row, {
+          ? await electronModule.load("model-freshness.cjs").staleFor(row, {
               ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
             })
           : [];
@@ -1452,10 +1553,18 @@ async function prefetch(
       : printer(log, row.id, parallel > 1);
     const startedAt = Date.now();
     try {
-      result = await fetchModel(row.job, progress, undefined);
+      result = await fetchModel(
+        { ...row.job, sources: orderByReach(row.job.sources, reach) },
+        progress,
+        undefined,
+      );
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
+    // The host did not answer: one more try through the opt-in mirror, which the SHA-256 and size check still judges.
+    // A caller that injects its own downloader (the tests) stays offline unless it asks for this (mirrorRetry: true).
+    if (!download || mirrorRetry === true)
+      result = await retryViaMirror(row, result, { fetchModel, progress, env, say });
     progress.end();
     const seconds = Math.max(1, (Date.now() - startedAt) / 1000);
     if (result && result.ok) {
@@ -1498,9 +1607,17 @@ async function prefetch(
       return { id: row.id, ok: false, error: why, optional: true };
     }
     if (ui) ui.finish(row.id, { ok: false, note: String(why).slice(0, 80) });
-    say(`[friday] FAIL     ${row.id} was not downloaded (${why})`);
+    // A download that did not arrive is a note here and one NOTICE line in the closing record (finish it later in
+    // Install Manager / Models); strict mode keeps FAIL.
+    say(
+      strict(env)
+        ? `[friday] FAIL     ${row.id} was not downloaded (${why})`
+        : `[friday] NOTE     ${row.id} was not downloaded (${why}); setup goes on`,
+    );
     return { id: row.id, ok: false, error: why };
   });
+  // The moonshine row lives on the same board, so the board stops only after it has finished.
+  if (moonshineRun) await moonshineRun;
   if (ui) ui.stop();
   uiRef.current = null;
   rows.push(...outcomes);
@@ -1518,7 +1635,10 @@ async function prefetch(
         ...(env.FRIDAY_PYTHON ? { python: env.FRIDAY_PYTHON } : {}),
       });
       if (put.ok) log(`[friday] ok       llama.cpp ${llamaJob.tag} installed (${put.server})`);
-      else log(`[friday] FAIL     llama.cpp was not installed (${put.error})`);
+      else
+        log(
+          `[friday] ${strict(env) ? "FAIL    " : "NOTE    "} llama.cpp was not installed (${put.error})`,
+        );
       const at = rows.findIndex((row) => row.id === llamaJob.id);
       if (!put.ok && at >= 0) rows[at] = { id: llamaJob.id, ok: false, error: put.error };
     }
@@ -1532,7 +1652,7 @@ async function prefetch(
           log,
           deps: {
             signed: async (file) =>
-              require("../electron/download-safety.cjs").authenticodeStatus(file),
+              electronModule.load("download-safety.cjs").authenticodeStatus(file),
             ramGb,
             skipOptional: env.FRIDAY_PREFETCH_CHAT_SMART,
             // The chat model is the plan's tier for this PC; with no plan the configured light model is pulled as before.
@@ -1546,7 +1666,9 @@ async function prefetch(
         });
       } catch (err) {
         const why = String((err && err.message) || err);
-        log(`[friday] FAIL     ollama setup did not finish (${why})`);
+        log(
+          `[friday] ${strict(env) ? "FAIL    " : "NOTE    "} ollama setup did not finish (${why})`,
+        );
         ollamaRows = [{ id: "ollama", ok: false, error: why }];
       }
     }
@@ -1564,7 +1686,7 @@ async function prefetch(
     !planned || (planned.action === "pull" && Number(planned.memory?.usableGb) >= ggufNeedGb);
   const provides = (row) =>
     planned
-      ? row.ok && row.id !== "ollama" && row.id !== "ollama-answers"
+      ? row.ok && row.id !== "ollama" && row.id !== "ollama-answers" && !row.voiceChat
       : row.id === small && row.ok;
   let provided = failedTag ? ollamaRows.some(provides) : true;
   const extra = [];
@@ -1625,9 +1747,185 @@ async function prefetch(
   return rows;
 }
 
-/** Does a model that cannot be fetched fail the step? On by default. */
+/** Does a model that cannot be fetched fail the step? Off by default: it is a notice (opt in with FRIDAY_SETUP_STRICT=1). */
 function strict(env = process.env) {
-  return enabled(env, "FRIDAY_PREFETCH_STRICT");
+  return setupNotices.isStrict(env);
+}
+
+const RUNTIME_ROWS = new Set(["ollama", "ollama-setup", "ollama-answers", "llamacpp-runtime"]);
+
+/** The kind of a row for the notice record: a runtime, a voice file (speech, voice, helpers) or a chat model. */
+function noticeKind(row) {
+  if (RUNTIME_ROWS.has(row.id)) return "runtime";
+  try {
+    const voiceIds = new Set([
+      ...voiceWeights.pinnedJobs().map((job) => job.id),
+      ...voiceWeights.modelRegistry().map((item) => item.catalogId),
+      TTS_MODEL.id,
+      "moonshine-en",
+    ]);
+    if (voiceIds.has(row.id) || /^stt-/.test(row.id)) return "voice";
+  } catch {
+    /* an unreadable registry leaves the row a model */
+  }
+  return "model";
+}
+
+/**
+ * The Install Manager row that finishes a failed row: `voice:<catalogId>` for a speech or voice file, `model:ollama:<tag>`
+ * for a chat model, `engine:llama.cpp` for its runtime; "" when the Install Manager has no row for it (Ollama itself).
+ */
+function installManagerIdOf(row, kind) {
+  if (row.installManagerId) return row.installManagerId;
+  const size = /^stt-(.+)$/.exec(row.id)?.[1];
+  if (size && voiceWeights.STT_CATALOG[size]) return `voice:${voiceWeights.STT_CATALOG[size]}`;
+  if (kind === "voice") {
+    try {
+      const known = new Set(voiceWeights.modelRegistry().map((item) => item.catalogId));
+      return known.has(row.id) ? `voice:${row.id}` : "";
+    } catch {
+      return "";
+    }
+  }
+  if (kind === "model") return `model:ollama:${row.id}`;
+  return row.id === "llamacpp-runtime" ? "engine:llama.cpp" : "";
+}
+
+/** The notice of one failed row (see scripts/setup-notices.cjs); the Install Manager id finishes it from inside FRIDAY. */
+function noticeOf(row) {
+  const kind = row.noticeKind || noticeKind(row);
+  return {
+    id: row.noticeId || `${kind}:${row.id}`,
+    kind,
+    label: row.id,
+    reason: String(row.error || "did not finish").slice(0, 160),
+    installManagerId: installManagerIdOf(row, kind),
+    repair: "npm run setup:python",
+  };
+}
+
+/**
+ * Every failed row (an optional one too) becomes one NOTICE line and one entry of the notice record; every row that
+ * verified clears its older entry. Never throws, never changes the rows. Returns the notices recorded.
+ */
+function recordRowNotices(rows, { root, log = console.log, print = true } = {}) {
+  const recorded = [];
+  try {
+    const open = new Set(setupNotices.readNotices(root).map((entry) => entry.id));
+    for (const row of rows || []) {
+      if (!row || !row.id) continue;
+      const entry = noticeOf(row);
+      if (row.ok) {
+        if (!row.skipped && !row.deferred && open.has(entry.id))
+          setupNotices.clearNotice(entry.id, { root });
+        continue;
+      }
+      setupNotices.recordNotice(entry, { root, log, print });
+      recorded.push(entry);
+    }
+  } catch {
+    /* the record is best effort: a full disk never stops the step */
+  }
+  return recorded;
+}
+
+const MIRROR_HOST = "hf-mirror.com";
+
+/**
+ * A pinned file that could not be reached because its host did not answer is tried ONCE more through the opt-in mirror
+ * (the same urls at the same commit, `voiceWeights.withOptInMirrors`). The downloader still checks the SHA-256 and the
+ * size, so a wrong copy is refused and never kept; a source with no pinned digest is not mirrored. Returns the new
+ * result, or the first one when nothing applies or the mirror failed too.
+ */
+async function retryViaMirror(
+  row,
+  result,
+  { fetchModel, progress, env = process.env, say = console.log } = {},
+) {
+  if (!row || (result && result.ok) || typeof fetchModel !== "function") return result;
+  if (String(env.FRIDAY_HF_MIRROR || "") === "1" || !looksTransient(result && result.error))
+    return result;
+  const sources = Array.isArray(row.job?.sources) ? row.job.sources : [];
+  const mirrored = voiceWeights.withOptInMirrors(sources, { FRIDAY_HF_MIRROR: "1" });
+  const extra = mirrored.slice(sources.length);
+  if (
+    !extra.length ||
+    !extra.every((source) => /^[0-9a-f]{64}$/i.test(String(source.sha256 || "")))
+  )
+    return result;
+  let host = "huggingface.co";
+  try {
+    host = new URL(String(sources.find((source) => source.kind === "url")?.url)).hostname;
+  } catch {
+    /* the usual host is named */
+  }
+  // The allowance belongs to this one call (and what it awaits), never to the process environment: rows that run
+  // in parallel cannot leave the opt-in switch on, and a row that did not retry never sees it.
+  let next;
+  try {
+    next = await electronModule
+      .load("download-safety.cjs")
+      .withOptInMirror(() => fetchModel({ ...row.job, sources: extra }, progress, undefined));
+  } catch (err) {
+    next = { ok: false, error: String((err && err.message) || err) };
+  }
+  if (next && next.ok) {
+    say(`[friday] NOTICE: ${host} did not answer; used ${MIRROR_HOST}`);
+    return next;
+  }
+  return result;
+}
+
+/** The "voice (fast)" line of the "this PC" block: the small fast chat model paired with the main one, when the plan has it. */
+function fastVoiceLine(plan) {
+  const voice = plan?.chat?.voice;
+  return voice && typeof voice.tag === "string" && voice.tag
+    ? `[friday] INFO     voice (fast): ${voice.tag}`
+    : "";
+}
+
+/** The "this PC" block of a plan, with the fast voice chat model line when the plan carries one. */
+function planLines(plan) {
+  const lines = setupPlan.describePlan(plan);
+  const extra = fastVoiceLine(plan);
+  return extra && !lines.some((line) => line.includes("voice (fast)")) ? [...lines, extra] : lines;
+}
+
+/** The parts of the PC that make a different plan, rounded so free memory and the line never change it. */
+function pcFingerprint(pc) {
+  const crypto = require("node:crypto");
+  const gpu = pc?.gpu || null;
+  const stable = {
+    ram: Math.round(Number(pc?.ramGb) || 0),
+    gpu: gpu ? [gpu.name, Math.round(Number(gpu.vramGb) || 0), gpu.computeCap, gpu.driver] : null,
+    cuda: [Boolean(pc?.cudaDriver), pc?.cudaVersion || null, Boolean(pc?.cudaLibs)],
+    cpu: [Boolean(pc?.avx2), Boolean(pc?.avx512), Boolean(pc?.vulkan)],
+    integratedOnly: Boolean(pc?.integratedOnly),
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
+}
+
+/**
+ * <root>/runtime/setup-plan.json {schema, at, fingerprint, pc}: the PC this setup planned for, so Doctor can say that
+ * this PC changed since setup. Best effort; never throws. Returns the record, or null when nothing was written.
+ */
+function writePlanRecord(root, plan, { now = new Date().toISOString() } = {}) {
+  try {
+    if (!root || !plan || !plan.pc) return null;
+    const fingerprint =
+      typeof setupPlan.planFingerprint === "function"
+        ? String(setupPlan.planFingerprint(plan))
+        : pcFingerprint(plan.pc);
+    const record = { schema: 1, at: now, fingerprint, pc: plan.pc };
+    const file = path.join(root, "runtime", "setup-plan.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    fs.renameSync(tmp, file);
+    return record;
+  } catch {
+    return null;
+  }
 }
 
 /** One line per model that could not be fetched, and the way forward. Empty when all is well. */
@@ -1649,6 +1947,13 @@ module.exports = {
   STT_SIZES,
   strict,
   failureReport,
+  recordRowNotices,
+  noticeOf,
+  retryViaMirror,
+  planLines,
+  fastVoiceLine,
+  pcFingerprint,
+  writePlanRecord,
   CHAT_MODEL,
   OLLAMA_MODELS,
   prefetchPlan,
@@ -1667,6 +1972,8 @@ module.exports = {
   looksTransient,
   prefetchWithRetries,
   fetchMoonshine,
+  readReach,
+  orderByReach,
   moonshineReady,
   alreadyThere,
   bytesOnDisk,
@@ -1801,7 +2108,7 @@ function onnxruntimeInstalled(env = process.env, deps = {}) {
 /** The measured facts of this PC (electron/hardware.cjs), or `{}` when they cannot be read: the plan then says "unknown". */
 async function measureThisPc(root) {
   try {
-    const hardware = require("../electron/hardware.cjs");
+    const hardware = electronModule.load("hardware.cjs");
     const detected = await hardware.detectHardware({ root, capabilityGraceMs: 15000 });
     return hardware.hardwareFacts(detected, { freeRamGb: os.freemem() / 1024 ** 3 });
   } catch {
@@ -1917,7 +2224,7 @@ if (require.main === module && process.argv.includes("--plan")) {
         process.stdout.write(
           `${PLAN_JSON}${JSON.stringify({ ...setupPlan.toJSON(plan), pc: plan.pc })}\n`,
         );
-      else for (const line of setupPlan.describePlan(plan)) console.log(line);
+      else for (const line of planLines(plan)) console.log(line);
     },
     (err) => {
       console.error(
@@ -1957,9 +2264,9 @@ if (require.main === module && process.argv.includes("--plan")) {
   }
   // Every CMD run records the folder it built into: the development staging folder moves into the chosen root, any other
   // build root is copied from, so the installed app finds what this PC fetched. A hosted runner leaves no pointer.
-  if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
+  if (picked.development) electronModule.load("staged-assets.cjs").recordStaging(picked.root);
   else if (!(process.env.CI || process.env.GITHUB_ACTIONS))
-    require("../electron/staged-assets.cjs").recordBuildRoot(picked.root, { kind: "checkout" });
+    electronModule.load("staged-assets.cjs").recordBuildRoot(picked.root, { kind: "checkout" });
   // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
   // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".
   const finish = (code) => {
@@ -1970,7 +2277,10 @@ if (require.main === module && process.argv.includes("--plan")) {
   prefetchWithRetries(picked.root).then(
     (rows) => {
       const lines = failureReport(rows);
-      for (const line of lines) console.error(line);
+      // Every model that did not arrive is one NOTICE line and one entry of the notice record; strict mode adds the
+      // old ACTION REQUIRED report and the exit code 1.
+      recordRowNotices(rows, { root: picked.root });
+      if (strict()) for (const line of lines) console.error(line);
       // Opt-in (FRIDAY_BUILD_PACKS=1, default off): the FRIDAY weight packs, one model at a time. Never fails setup.
       try {
         const packs = require("./place-build.cjs");
@@ -1979,10 +2289,24 @@ if (require.main === module && process.argv.includes("--plan")) {
       } catch (err) {
         console.error(`[friday] note     packs not built: ${String((err && err.message) || err)}`);
       }
+      for (const line of setupNotices.summaryLines(setupNotices.readNotices(picked.root)))
+        console.log(line);
       finish(lines.length && strict() ? 1 : 0);
     },
     (err) => {
-      console.error(`[friday] FAIL     model step crashed: ${String((err && err.message) || err)}`);
+      const why = String((err && err.message) || err);
+      if (strict()) console.error(`[friday] FAIL     model step crashed: ${why}`);
+      else
+        setupNotices.recordNotice(
+          {
+            id: "model:step",
+            kind: "model",
+            label: "speech, voice and chat models",
+            reason: `the model step crashed (${why.slice(0, 120)})`,
+            repair: "npm run setup:python",
+          },
+          { root: picked.root },
+        );
       finish(strict() ? 1 : 0);
     },
   );

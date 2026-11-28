@@ -8,7 +8,9 @@ import {
 import { isJobActive } from "./installer-engine";
 import type { AutonomyDial } from "./installer-fit";
 import { useInstaller } from "./use-installer";
+import { isJobActive as isModelJobActive } from "./models-engine";
 import { useLivePoll } from "./use-live-poll";
+import { useModels } from "./use-models";
 
 /** While the main process says it is refreshing, ask again this often (the shared poller; nothing runs otherwise). */
 export const REFRESHING_POLL_MS = 3000;
@@ -156,6 +158,8 @@ export function useInstallerCatalog(): CatalogState & {
   );
   const installerState = useInstaller();
   const active = installerState.jobs.filter((job) => isJobActive(job.phase)).length;
+  // A model download that ends re-reads the list too, so a "Needs finishing" row goes away by itself.
+  const modelsActive = useModels().jobs.filter((job) => isModelJobActive(job.phase)).length;
 
   useEffect(() => {
     void installerCatalogStore.load();
@@ -163,10 +167,10 @@ export function useInstallerCatalog(): CatalogState & {
 
   const seen = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${installerState.lastScanAt ?? ""}|${active}`;
+    const key = `${installerState.lastScanAt ?? ""}|${active}|${modelsActive}`;
     if (seen.current !== null && seen.current !== key) installerCatalogStore.changed();
     seen.current = key;
-  }, [installerState.lastScanAt, active]);
+  }, [installerState.lastScanAt, active, modelsActive]);
 
   useLivePoll(
     "installer.catalog",

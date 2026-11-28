@@ -30,10 +30,14 @@ if (-not $env:npm_config_loglevel) { $env:npm_config_loglevel = 'error' }
 # Every method is verified against the real executable and its version, and
 # the actual failure reason of each method is printed.
 #
-# Nothing here is optional. Everything the setup installs is needed, so a tool
-# that cannot be installed by any official method stops the setup with the
-# reason, instead of leaving a hole that fails later. Run `npm run doctor` to
-# repair and check again.
+# Everything the setup installs is wanted, but only what the build cannot run
+# without stops the setup: Node.js, npm, Python, the dependency install and the
+# Electron binary. A tool that cannot be installed by any official method (Git,
+# PowerShell 7, FFmpeg, Tesseract, the Visual C++ runtime, the agent tools, the
+# packs for the EXE) is a yellow NOTICE with the way to finish it: setup carries
+# on, ends SETUP PASS, and lists every notice again in one block at the end.
+# FRIDAY_SETUP_STRICT=1 turns each notice back into a stop for a PC that must be
+# complete. Run `npm run doctor` to repair and check again.
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Versions = Get-Content (Join-Path $Root 'config\toolchain-versions.json') -Raw | ConvertFrom-Json
@@ -81,10 +85,25 @@ function Write-MethodFailure([string]$Label, [string]$Reason) {
 # in the middle of a long log.
 $script:FollowUps = New-Object System.Collections.Generic.List[string]
 function Add-FollowUp([string]$Text) { $script:FollowUps.Add($Text) | Out-Null }
+
+# A step that did not finish and does not block the build is a NOTICE: one yellow line now, the same text again in the
+# closing block (Add-FollowUp), and setup carries on. FRIDAY_SETUP_STRICT=1 (or the older FRIDAY_PREFETCH_STRICT=1 and
+# FRIDAY_PREFETCH_TOOLKIT_STRICT=1, the same three names scripts\setup-notices.cjs reads) is the opt-in that stops instead.
+$script:SetupStrict = ("$env:FRIDAY_SETUP_STRICT".Trim() -eq '1') -or ("$env:FRIDAY_PREFETCH_STRICT".Trim() -eq '1') -or ("$env:FRIDAY_PREFETCH_TOOLKIT_STRICT".Trim() -eq '1')
+function Write-Notice([string]$Text, [string]$Finish = '') {
+  $line = if ($Finish) { "$Text $Finish" } else { $Text }
+  Write-Host "[FRIDAY] NOTICE - $line" -ForegroundColor Yellow
+  Add-FollowUp $line
+}
+function Stop-OrNotice([string]$Text, [string]$Finish = '') {
+  if ($script:SetupStrict) { throw $(if ($Finish) { "$Text $Finish" } else { $Text }) }
+  Write-Notice $Text $Finish
+}
+
 function Write-FollowUps {
   if ($script:FollowUps.Count -eq 0) { return }
   Write-Host ''
-  Write-Host '[FRIDAY] Still to do by hand (setup passed; these only make a tool newer):' -ForegroundColor Yellow
+  Write-Host '[FRIDAY] Notices - setup passed; finish these when you can (FRIDAY > Install Manager / Models, or run npm run setup or npm run doctor again):' -ForegroundColor Yellow
   foreach ($line in $script:FollowUps) { Write-Host "[FRIDAY]   - $line" -ForegroundColor Yellow }
 }
 
@@ -172,40 +191,80 @@ function Write-DownloadDone([string]$Target, [datetime]$Started, [string]$Method
   Write-Step "downloaded $(Split-Path -Leaf $Target) - $size in ${seconds}s via $Method"
 }
 
-function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
-  $target = Join-Path (Get-DownloadFolder) $FileName
-  if (Test-Path $target) { Remove-Item $target -Force }
-  Write-Step "downloading $FileName from $Url"
-  $started = Get-Date
-  # TLS stays fully enabled; proxy settings are honoured from the system.
-  # Two official transports: curl.exe (Win10+, draws a live progress bar), then Windows WebRequest.
-  $errors = @()
+# The same coloured percent, size and speed row as the other downloads (scripts\fetch-file.cjs draws it with
+# scripts\download-board.cjs). It needs Node.js, so Node.js's own installer goes through the transports below, and a
+# PC behind a proxy gets exit code 3 there and falls back to them too. The row goes to stderr: nothing reaches the
+# output of the function that called it.
+function Invoke-NodeDownload([string]$Url, [string]$Target, [string]$Label) {
+  $script = Join-Path $PSScriptRoot 'fetch-file.cjs'
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+  if (-not $node -or -not (Test-Path -LiteralPath $script)) { return $false }
+  $before = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $node.Source $script --url $Url --out $Target --label $Label
+    return ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $Target) -and ((Get-Item -LiteralPath $Target).Length -gt 0))
+  } catch {
+    return $false
+  } finally {
+    $ErrorActionPreference = $before
+  }
+}
+
+# One source, up to three transports in order: Node.js with the live row, curl.exe (Win10+, draws a live progress
+# bar), then Windows WebRequest. Returns the name of the transport that worked, or $null; each failure is added to
+# $Errors. TLS stays fully enabled; proxy settings are honoured from the system.
+function Receive-FromSource([string]$Url, [string]$FileName, [string]$Target, $Errors) {
+  if (Invoke-NodeDownload $Url $Target $FileName) { return 'Node.js (fetch-file.cjs)' }
+  if (Test-Path $Target) { Remove-Item $Target -Force }
   $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
   if ($curl) {
     try {
       # -C - resumes the partial file after a dropped connection instead of starting over.
-      & curl.exe --fail --location --progress-bar --show-error --connect-timeout 30 --retry 5 --retry-delay 2 -C - --output $target $Url
-      if ($LASTEXITCODE -eq 0 -and (Test-Path $target) -and ((Get-Item $target).Length -gt 0)) {
-        Write-DownloadDone $target $started 'curl.exe'
-        return $target
-      }
+      & curl.exe --fail --location --proto '=https' --proto-redir '=https' --progress-bar --show-error --connect-timeout 30 --retry 5 --retry-delay 2 -C - --output $Target $Url
+      if ($LASTEXITCODE -eq 0 -and (Test-Path $Target) -and ((Get-Item $Target).Length -gt 0)) { return 'curl.exe' }
       throw "curl.exe exit $LASTEXITCODE"
     } catch {
-      $errors += "curl.exe: $($_.Exception.Message)"
-      if (Test-Path $target) { Remove-Item $target -Force }
+      $Errors.Add("curl.exe: $($_.Exception.Message)") | Out-Null
+      if (Test-Path $Target) { Remove-Item $Target -Force }
     }
   }
   try {
     Write-Step "downloading $FileName with Invoke-WebRequest (no progress bar, please wait)"
-    Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing -MaximumRedirection 10
-    if ((Test-Path $target) -and ((Get-Item $target).Length -gt 0)) {
-      Write-DownloadDone $target $started 'Invoke-WebRequest'
-      return $target
-    }
+    Invoke-WebRequest -Uri $Url -OutFile $Target -UseBasicParsing -MaximumRedirection 10
+    if ((Test-Path $Target) -and ((Get-Item $Target).Length -gt 0)) { return 'Invoke-WebRequest' }
     throw "downloaded file is empty: $Url"
   } catch {
-    $errors += "Invoke-WebRequest: $($_.Exception.Message)"
-    if (Test-Path $target) { Remove-Item $target -Force }
+    $Errors.Add("Invoke-WebRequest: $($_.Exception.Message)") | Out-Null
+    if (Test-Path $Target) { Remove-Item $Target -Force }
+  }
+  return $null
+}
+
+# The official URL first. Mirrors (config\toolchain-manifest.json, see Get-MirrorUrls) are only a second road to the
+# same bytes: they are tried when the official source fails, and the caller checks every file it gets the same way
+# (published SHA-256, pinned SHA-256 or the publisher's signature), so a mirror that serves something else is refused.
+function Invoke-OfficialDownload([string]$Url, [string]$FileName, [string[]]$Mirrors = @()) {
+  # The file name lands in the download folder: a name with a folder part, a drive or a ".." never leaves it.
+  if (-not $FileName -or $FileName -match '[\\/:]' -or $FileName -match '\.\.') { throw "refusing to download to the file name '$($FileName -replace '[^\x20-\x7e]', '?')'" }
+  $target = Join-Path (Get-DownloadFolder) $FileName
+  if (Test-Path $target) { Remove-Item $target -Force }
+  Write-Step "downloading $FileName from $Url"
+  $started = Get-Date
+  $errors = New-Object System.Collections.Generic.List[string]
+  $sources = @($Url) + @($Mirrors | Where-Object { $_ -and $_ -ne $Url })
+  for ($index = 0; $index -lt $sources.Count; $index++) {
+    if ($index -gt 0) {
+      $hostName = $sources[$index]
+      try { $hostName = ([uri]$sources[$index]).Host } catch { }
+      $why = if ($errors.Count -gt 0) { $errors[$errors.Count - 1] } else { 'no transport finished the file' }
+      Write-Step "second source: $hostName - downloading $FileName (the previous source failed: $why)"
+    }
+    $method = Receive-FromSource $sources[$index] $FileName $target $errors
+    if ($method) {
+      Write-DownloadDone $target $started $method
+      return $target
+    }
   }
   $joined = $errors -join '; '
   throw "official download failed for $Url - $joined"
@@ -301,8 +360,10 @@ function Install-Package([string]$File, [string[]]$SilentArgs, [string[]]$Publis
   }
   Wait-InstallerProcess $process "installing $(Split-Path -Leaf $File)"
   $installSeconds = [int][math]::Round(((Get-Date) - $installStarted).TotalSeconds)
-  Write-Step "installer finished with exit code $($process.ExitCode) after ${installSeconds}s (0 = done, 3010 = done, restart wanted)"
-  if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+  Write-Step "installer finished with exit code $($process.ExitCode) after ${installSeconds}s (0 = done, 3010 = done, restart wanted, 1638 = a newer copy is already installed)"
+  # 1638 (a newer copy is already installed) is the answer of an MSI package and of Microsoft's vc_redist bootstrapper only.
+  $newerCopyOk = ($extension -eq '.msi') -or ((Split-Path -Leaf $File) -like 'vc_redist*')
+  if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010 -and -not ($process.ExitCode -eq 1638 -and $newerCopyOk)) {
     throw "installer exited with code $($process.ExitCode)"
   }
 }
@@ -384,19 +445,58 @@ function Assert-NodeChecksum([string]$Version, [string]$File) {
   return $true
 }
 
+# The mirrors the manifest lists for one pack (npmmirror, Huawei Cloud), turned into the URL of another file of the same
+# release: the file name replaces the last segment and, when a release folder is given, the one before it. -AtBase
+# drops the release folder (a file that sits beside the release folders, such as the Node.js index.json). Only https.
+function Get-MirrorUrls([string]$PackId, [string]$FileName, [string]$ReleaseFolder = '', [switch]$AtBase) {
+  $manifestFile = Join-Path $Root 'config\toolchain-manifest.json'
+  if (-not (Test-Path -LiteralPath $manifestFile)) { return @() }
+  try {
+    $manifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json
+  } catch {
+    return @()
+  }
+  $pack = $manifest.packs | Where-Object { $_.id -eq $PackId } | Select-Object -First 1
+  if (-not $pack -or -not $pack.mirrors) { return @() }
+  $urls = New-Object System.Collections.Generic.List[string]
+  foreach ($mirror in $pack.mirrors) {
+    $text = "$mirror"
+    if ($text -notmatch '^https://') { continue }
+    $folder = $text.Substring(0, $text.LastIndexOf('/'))
+    if ($AtBase -or $ReleaseFolder) {
+      $folder = $folder.Substring(0, $folder.LastIndexOf('/'))
+      if ($ReleaseFolder -and -not $AtBase) { $folder = "$folder/$ReleaseFolder" }
+    }
+    $urls.Add("$folder/$FileName")
+  }
+  return $urls.ToArray()
+}
+
 function Install-NodeDirect {
   $index = $null
   try {
     $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing
   } catch {
-    $listing = Invoke-OfficialDownload 'https://nodejs.org/dist/index.json' 'node-dist-index.json'
-    $index = Get-Content -LiteralPath $listing -Raw | ConvertFrom-Json
+    # The version list is read from nodejs.org only: a mirror's list is never trusted to name the installer, so when
+    # nodejs.org cannot be read the pinned minimum is installed (it still has its mirrors, and the same file checks).
+    try {
+      $listing = Invoke-OfficialDownload 'https://nodejs.org/dist/index.json' 'node-dist-index.json'
+      $index = Get-Content -LiteralPath $listing -Raw | ConvertFrom-Json
+    } catch {
+      Write-Step "the Node.js version list could not be read ($($_.Exception.Message)) - installing the pinned minimum $($Versions.nodeMinimum) instead"
+      Install-NodeFloor
+      return
+    }
   }
   $release = $index | Where-Object { $_.lts } | Select-Object -First 1
   if (-not $release) { throw 'nodejs.org did not publish an LTS release entry' }
-  $version = $release.version
+  $version = "$($release.version)"
+  # The version becomes part of a URL and a file name: only vMAJOR.MINOR.PATCH, and never below the supported minimum.
+  if ($version -notmatch '^v\d+\.\d+\.\d+$' -or ([version]$version.Substring(1)) -lt ([version]$Versions.nodeMinimum)) {
+    throw "the Node.js version list named an unusable release '$($version -replace '[^\x20-\x7e]', '?')' (needs vMAJOR.MINOR.PATCH, at least $($Versions.nodeMinimum))"
+  }
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
-  $file = Invoke-OfficialDownload "https://nodejs.org/dist/$version/node-$version-$arch.msi" "node-$version-$arch.msi"
+  $file = Invoke-OfficialDownload "https://nodejs.org/dist/$version/node-$version-$arch.msi" "node-$version-$arch.msi" (Get-MirrorUrls 'node-win' "node-$version-$arch.msi" $version)
   $verified = Assert-NodeChecksum $version $file
   Install-Package $file @('/qn', '/norestart') @('OpenJS Foundation') $verified
 }
@@ -404,7 +504,7 @@ function Install-NodeDirect {
 function Install-NodeFloor {
   $version = $Versions.nodeMinimum
   $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
-  $file = Invoke-OfficialDownload "https://nodejs.org/dist/v$version/node-v$version-$arch.msi" "node-v$version-$arch.msi"
+  $file = Invoke-OfficialDownload "https://nodejs.org/dist/v$version/node-v$version-$arch.msi" "node-v$version-$arch.msi" (Get-MirrorUrls 'node-win' "node-v$version-$arch.msi" "v$version")
   $verified = Assert-NodeChecksum "v$version" $file
   Install-Package $file @('/qn', '/norestart') @('OpenJS Foundation') $verified
 }
@@ -424,14 +524,14 @@ function Install-PythonDirect {
   foreach ($candidate in $candidates) {
     $url = "https://www.python.org/ftp/python/$candidate/python-$candidate-amd64.exe"
     try {
-      $file = Invoke-OfficialDownload $url "python-$candidate-amd64.exe"
+      $file = Invoke-OfficialDownload $url "python-$candidate-amd64.exe" (Get-MirrorUrls 'python-embed' "python-$candidate-amd64.exe" $candidate)
     } catch { continue }
     Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0') @('Python Software Foundation')
     return
   }
   $floor = $Versions.pythonMinimum
   $url = "https://www.python.org/ftp/python/$floor/python-$floor-amd64.exe"
-  $file = Invoke-OfficialDownload $url "python-$floor-amd64.exe"
+  $file = Invoke-OfficialDownload $url "python-$floor-amd64.exe" (Get-MirrorUrls 'python-embed' "python-$floor-amd64.exe" $floor)
   Install-Package $file @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_test=0') @('Python Software Foundation')
 }
 
@@ -650,11 +750,47 @@ function Set-UpdateChecked {
 
 $script:UpdateWanted = Test-UpdateDue
 
+# Where each tool's own release list is: Git for Windows and PowerShell publish on GitHub (the lookup below retries and
+# honours GITHUB_TOKEN), Node.js on nodejs.org (Show-NodeAndNpmLatest). Nothing is downloaded here; this only reads.
+function Get-VendorLatest([string]$Label) {
+  try {
+    if ($Label -eq 'Git') {
+      $release = Get-GitHubLatestRelease 'git-for-windows/git'
+      $match = [regex]::Match("$($release.tag_name)", '\d+\.\d+\.\d+')
+      if ($match.Success) { return @{ Version = $match.Value; Page = 'https://git-scm.com/download/win' } }
+    } elseif ($Label -eq 'PowerShell') {
+      $release = Get-GitHubLatestRelease 'PowerShell/PowerShell'
+      $match = [regex]::Match("$($release.tag_name)", '\d+\.\d+\.\d+')
+      if ($match.Success) { return @{ Version = $match.Value; Page = 'https://github.com/PowerShell/PowerShell/releases' } }
+    }
+  } catch { }
+  return $null
+}
+
+function Write-VendorLatest([string]$Label, [string]$Command, [string[]]$VersionArguments) {
+  $installed = if ($Command) { Get-Version $Command $VersionArguments } else { $null }
+  $latest = Get-VendorLatest $Label
+  if (-not $installed -or -not $latest) {
+    Write-Step "$Label - winget is not available, so the check for a newer release is skipped; the installed version stays"
+    return
+  }
+  $newer = $false
+  try { $newer = ([version]$latest.Version) -gt ([version]$installed) } catch { }
+  if ($newer) {
+    Write-Step "$Label $installed is supported; the vendor's newest release is $($latest.Version), and winget is not available to install it"
+    Add-FollowUp "$Label $($latest.Version) is out (you have $installed). winget is not available here: download it from $($latest.Page)"
+    return
+  }
+  Write-Step "$Label $installed is the latest release (vendor release list)"
+}
+
 function Update-IfNewer([string]$Label, [string[]]$Ids, [string]$Command = '', [string[]]$VersionArguments = @()) {
   if (-not $script:UpdateWanted) { return }
   if (-not $Ids -or $Ids.Count -eq 0) { return }
   if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-    Write-Step "$Label - winget is not available, so the check for a newer release is skipped; the installed version stays"
+    # Without winget nothing is installed over a supported copy, but the vendor's own release list still says whether
+    # a newer one exists, and a notice names where to get it.
+    Write-VendorLatest $Label $Command $VersionArguments
     return
   }
   foreach ($id in $Ids) {
@@ -764,6 +900,15 @@ function Get-WaitIds {
 function Start-RunningToolUpgrades {
   if ($script:RunningUpgrades.Count -eq 0) { return }
   $started = $false
+  # Node.js is replaced through winget only; a PC without it gets the vendor's download page instead of a helper that
+  # would fail. npm needs no winget.
+  if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+    foreach ($item in @($script:RunningUpgrades | Where-Object { $_.Label -eq 'Node.js' })) {
+      Add-FollowUp "Node.js $($item.Latest) is out (you have $($item.Installed)). winget is not available here: download the LTS installer from https://nodejs.org/en/download"
+      $script:RunningUpgrades.Remove($item) | Out-Null
+    }
+    if ($script:RunningUpgrades.Count -eq 0) { return }
+  }
   if ($env:FRIDAY_SETUP_UPDATE_RUNNING_TOOLS -ne '0') {
     try {
       $ids = (Get-WaitIds) -join ','
@@ -837,6 +982,16 @@ function Show-NodeAndNpmLatest {
   } catch { }
 }
 
+# ---------------------------------------------------------------- Visual C++ runtime
+# The version of vcruntime140.dll (major.minor.build, for example 14.40.33810), or $null when it cannot be read.
+function Get-VcRuntimeVersion([string]$Dll) {
+  try {
+    $info = (Get-Item -LiteralPath $Dll -ErrorAction Stop).VersionInfo
+    if ($info.FileMajorPart -gt 0) { return ('{0}.{1}.{2}' -f $info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart) }
+  } catch { }
+  return $null
+}
+
 # ---------------------------------------------------------------- generic ensure
 function Ensure-Tool(
   [string]$Label,
@@ -844,7 +999,8 @@ function Ensure-Tool(
   [string[]]$VersionArguments,
   [string]$MinimumVersion,
   [System.Collections.IDictionary[]]$Methods,
-  [string[]]$UpdateIds = @()
+  [string[]]$UpdateIds = @(),
+  [bool]$Blocking = $true
 ) {
   $found = Get-Version $Command $VersionArguments
   if (Test-SupportedVersion $found $MinimumVersion) {
@@ -872,7 +1028,10 @@ function Ensure-Tool(
       Write-MethodFailure $method.Label $_.Exception.Message
     }
   }
-  throw "$Label could not be installed by any official method. Install it manually from the official source (see INSTALL.md) and run setup again."
+  # Node.js, npm and Python stop the setup (the build cannot run without them); the rest is a notice.
+  $message = "$Label could not be installed by any official method. Install it manually from the official source (see INSTALL.md) and run setup again."
+  if ($Blocking) { throw $message }
+  Stop-OrNotice $message
 }
 
 # A click inside a Windows console turns on text selection (QuickEdit) and freezes the program that is printing
@@ -944,21 +1103,26 @@ try {
     $series = $pythonNow.Split('.')
     $pythonIds = @("Python.Python.$($series[0]).$($series[1])")
   }
-  Ensure-Tool 'Python' 'py.exe' @('-3', '--version') $Versions.pythonMinimum @(
-    @{ Label = 'official winget package (Python.Python.3.13)'; Action = { Install-WingetPackage 'Python.Python.3.13' } },
-    @{ Label = 'official winget package (Python.Python.3.12)'; Action = { Install-WingetPackage 'Python.Python.3.12' } },
-    @{ Label = 'official python.org installer download'; Action = { Install-PythonDirect } }
-  ) $pythonIds
+  # The newest series whose kernel wheels are proven (pythonWheelProven) is asked first, then 3.13 and 3.12.
+  $pythonMethods = New-Object System.Collections.Generic.List[object]
+  foreach ($series in @("$($Versions.pythonWheelProven)", '3.13', '3.12') | Where-Object { $_ } | Select-Object -Unique) {
+    $wingetId = "Python.Python.$series"
+    $pythonMethods.Add(@{ Label = "official winget package ($wingetId)"; Action = [scriptblock]::Create("Install-WingetPackage '$wingetId'") })
+  }
+  $pythonMethods.Add(@{ Label = 'official python.org installer download'; Action = { Install-PythonDirect } })
+  Ensure-Tool 'Python' 'py.exe' @('-3', '--version') $Versions.pythonMinimum $pythonMethods.ToArray() $pythonIds
 
+  # The build does not run Git (only the optional runtime source builds clone with it), so a Git that cannot be
+  # installed is a notice, like PowerShell 7 below.
   Ensure-Tool 'Git' 'git.exe' @('--version') $Versions.gitMinimum @(
     @{ Label = 'official winget package (Git.Git)'; Action = { Install-WingetPackage 'Git.Git' } },
     @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') @('Johannes Schindelin') } }
-  ) @('Git.Git')
+  ) @('Git.Git') $false
 
   Ensure-Tool 'PowerShell' 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') $Versions.powershellMinimum @(
     @{ Label = 'official winget package (Microsoft.PowerShell)'; Action = { Install-WingetPackage 'Microsoft.PowerShell' } },
     @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') @('Microsoft Corporation') } }
-  ) @('Microsoft.PowerShell')
+  ) @('Microsoft.PowerShell') $false
 
   Ensure-Tool 'npm' 'npm.cmd' @('--version') $Versions.npmMinimum @(
     @{ Label = 'npm bundled with the installed Node.js'; Action = { Refresh-Path } },
@@ -1003,7 +1167,8 @@ try {
         Write-MethodFailure $method.Label $_.Exception.Message
       }
     }
-    throw "$Label could not be installed by any official method. Install it manually from the official source (see INSTALL.md) and run setup again."
+    # FFmpeg and Tesseract are not needed to build: a notice, and setup carries on (FRIDAY_SETUP_STRICT=1 stops).
+    Stop-OrNotice "$Label could not be installed by any official method. Install it manually from the official source (see INSTALL.md) and run setup again."
   }
 
   Ensure-RequiredCommand 'FFmpeg' 'ffmpeg.exe' @(
@@ -1019,17 +1184,35 @@ try {
   Install-TesseractHindi
 
   $vc = Join-Path $env:SystemRoot 'System32\vcruntime140.dll'
-  if (Test-Path -LiteralPath $vc) {
-    Write-Step "Visual C++ Redistributable present - reused, not modified"
+  # vcRedistMinimum (config\toolchain-versions.json) is a floor: a runtime that is there and new enough is reused, one that
+  # is older is upgraded (winget, then the Microsoft installer), and a missing one is installed.
+  $vcFloor = "$($Versions.vcRedistMinimum)"
+  $vcPresent = Test-Path -LiteralPath $vc
+  $vcNow = if ($vcPresent) { Get-VcRuntimeVersion $vc } else { $null }
+  $vcOld = [bool]($vcPresent -and $vcFloor -and $vcNow -and -not (Test-SupportedVersion $vcNow $vcFloor))
+  if ($vcPresent -and -not $vcOld) {
+    $vcText = if ($vcNow) { "$vcNow, minimum $vcFloor" } else { 'version not read' }
+    Write-Step "Visual C++ Redistributable present ($vcText) - reused, not modified"
   } else {
-    Write-Step 'Visual C++ Redistributable not detected - installing the latest from the official source'
     $vcInstalled = $false
-    try {
-      Install-WingetPackage 'Microsoft.VCRedist.2015+.x64'
-      $vcInstalled = $true
-      Write-Step 'Visual C++ Redistributable winget install finished'
-    } catch {
-      Write-MethodFailure 'official winget package (Microsoft.VCRedist.2015+.x64)' $_.Exception.Message
+    if ($vcOld) {
+      Write-Step "Visual C++ Redistributable $vcNow is below the supported minimum $vcFloor - upgrading it from the official source"
+      # winget upgrades a copy it installed; the daily question of Update-IfNewer does not apply to a runtime below its floor.
+      $askedBefore = $script:UpdateWanted
+      $script:UpdateWanted = ("$env:FRIDAY_OFFLINE".Trim() -ne '1')
+      try { Update-IfNewer 'Visual C++ Redistributable' @('Microsoft.VCRedist.2015+.x64') } finally { $script:UpdateWanted = $askedBefore }
+      Refresh-Path
+      $vcNow = Get-VcRuntimeVersion $vc
+      $vcInstalled = [bool]($vcNow -and (Test-SupportedVersion $vcNow $vcFloor))
+    } else {
+      Write-Step 'Visual C++ Redistributable not detected - installing the latest from the official source'
+      try {
+        Install-WingetPackage 'Microsoft.VCRedist.2015+.x64'
+        $vcInstalled = $true
+        Write-Step 'Visual C++ Redistributable winget install finished'
+      } catch {
+        Write-MethodFailure 'official winget package (Microsoft.VCRedist.2015+.x64)' $_.Exception.Message
+      }
     }
     if (-not $vcInstalled) {
       try {
@@ -1041,8 +1224,12 @@ try {
         Write-MethodFailure 'official Microsoft VC++ redistributable (aka.ms)' $_.Exception.Message
       }
     }
-    if (-not $vcInstalled -or -not (Test-Path -LiteralPath $vc)) {
-      throw 'The Visual C++ Redistributable could not be installed by any official method. Native Python wheels and model runtimes need it; install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run setup again.'
+    $vcNow = if (Test-Path -LiteralPath $vc) { Get-VcRuntimeVersion $vc } else { $null }
+    $vcStillOld = [bool]($vcFloor -and $vcNow -and -not (Test-SupportedVersion $vcNow $vcFloor))
+    if (-not $vcInstalled -or -not (Test-Path -LiteralPath $vc) -or $vcStillOld) {
+      # Native Python wheels and model runtimes need it, the build does not: a notice, and setup carries on.
+      if ($script:SetupStrict) { throw 'The Visual C++ Redistributable could not be installed by any official method. Native Python wheels and model runtimes need it; install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run setup again.' }
+      Write-Notice 'The Visual C++ Redistributable could not be installed or upgraded by any official method. Native Python wheels and model runtimes need it' 'install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run npm run setup again.'
     }
   }
 
@@ -1052,6 +1239,7 @@ try {
 
   if ($ToolchainOnly) {
     Write-Host '[FRIDAY] TOOLCHAIN PASS - Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime are ready.' -ForegroundColor Green
+    Write-FollowUps
     return
   }
 
@@ -1093,12 +1281,12 @@ try {
   Write-Stage 5 'Agent tools'
   Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, C++, Ruby, PHP, .NET, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
   & node.exe scripts\prefetch-toolkit.cjs
-  if ($LASTEXITCODE -ne 0) { throw 'The agent toolkit is not complete (see ACTION REQUIRED above). Fix it, then run npm run doctor.' }
+  if ($LASTEXITCODE -ne 0) { Stop-OrNotice 'The agent toolkit is not complete (see ACTION REQUIRED above).' 'Fix it from FRIDAY > Install Manager, or run npm run doctor.' }
 
   Write-Stage 6 'Packs for the EXE'
   Write-Step 'Fetching the packs that ship inside the EXE (kept in .cache, so the build downloads nothing)'
   & node.exe scripts\stage-toolchain.cjs
-  if ($LASTEXITCODE -ne 0) { throw 'The packs for the EXE could not be downloaded. Check the network, then run npm run doctor.' }
+  if ($LASTEXITCODE -ne 0) { Stop-OrNotice 'The packs for the EXE could not be downloaded.' 'The build fetches them again and stops if that fails too: check the network, then run npm run doctor.' }
 
   Write-Stage 7 'Runtime folders and database'
   & node.exe scripts\init-runtime.cjs

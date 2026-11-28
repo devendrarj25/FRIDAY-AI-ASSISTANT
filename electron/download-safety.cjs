@@ -6,6 +6,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const resourcePaths = require("./resource-paths.cjs");
+const { AsyncLocalStorage } = require("node:async_hooks");
 const { boundedInit } = require("./net-fetch.cjs");
 
 // Fail closed when the allowlist file is missing. Loopback stays so the
@@ -42,8 +43,17 @@ function hostnameOf(value) {
   }
 }
 
+// The opt-in mirror is allowed by the owner's FRIDAY_HF_MIRROR=1, or for one call and everything it awaits (setup's
+// single retry through the mirror), so no process-wide switch is flipped while other downloads run in parallel.
+const optInScope = new AsyncLocalStorage();
+
 function mirrorEnabled() {
-  return String(process.env.FRIDAY_HF_MIRROR || "") === "1";
+  return optInScope.getStore() === true || String(process.env.FRIDAY_HF_MIRROR || "") === "1";
+}
+
+/** Runs `run` with the opt-in mirror host allowed for that call only; returns whatever `run` returns. */
+function withOptInMirror(run) {
+  return optInScope.run(true, run);
 }
 
 function hostMatches(host, rule) {
@@ -371,6 +381,7 @@ function authenticodeStatus(file, { signer = "", exec } = {}) {
 
 module.exports = {
   VERIFIED_REDIRECTS,
+  withOptInMirror,
   authenticodeStatus,
   signerMatches,
   subjectCommonName,

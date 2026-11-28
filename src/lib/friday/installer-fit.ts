@@ -396,6 +396,50 @@ export function doctorView(row: InstallerDoctorRow): {
   };
 }
 
+export type SetupNoticeView = {
+  id: string;
+  label: string;
+  reason: string;
+  /** The terminal command that repairs it, when there is no button. */
+  command: string;
+  /** The catalogue row that finishes it: its own Install button is the way. */
+  row: InstallerCatalogRow | null;
+  /** The Doctor row's repair button, when the notice names a Doctor row. */
+  repair: ReturnType<typeof doctorView>["repair"];
+};
+
+/**
+ * "Needs finishing": the setup notices of the catalogue for one page. A notice whose catalogue row is in this page's
+ * kinds shows here with that row's own button; a Doctor-matched notice and one with no route show on the Install Manager
+ * (the page that owns Doctor and the repair commands). Order is the record's.
+ */
+export function setupNoticeViews(
+  catalog: InstallerCatalog,
+  scope: InstallerScope,
+): SetupNoticeView[] {
+  const kinds: readonly string[] = INSTALLER_SCOPES[scope];
+  const out: SetupNoticeView[] = [];
+  for (const notice of catalog.setupNotices ?? []) {
+    const row = notice.rowId
+      ? (catalog.rows.find((item) => item.id === notice.rowId) ?? null)
+      : null;
+    const doctor = notice.doctorId
+      ? (catalog.doctor.find((item) => item.id === notice.doctorId) ?? null)
+      : null;
+    const here = row ? kinds.includes(row.kind) : scope === "installManager";
+    if (!here) continue;
+    out.push({
+      id: notice.id,
+      label: notice.label,
+      reason: notice.reason,
+      command: notice.repair,
+      row,
+      repair: doctor ? doctorView(doctor).repair : null,
+    });
+  }
+  return out;
+}
+
 /** The CUDA runtime row's own hint: the card is there, the libraries are not. */
 export const CUDA_ROW_ID = "CUDA runtime libraries";
 export const CUDA_HINT = "GPU found; install the CUDA runtime libraries";

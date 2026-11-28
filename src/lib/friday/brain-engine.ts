@@ -2924,6 +2924,8 @@ class BrainStore {
               ...(ownerText ? { ownerText } : {}),
             }),
         ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
+        // The real spoken turn is on the full lane: the main model answers it, never the small fast one.
+        ...(surface === "voice" ? { lane: run.lane ?? ("full" as const) } : {}),
         ...(effort ? { reasoningEffort: effort } : {}),
         ...(surface === "voice" ? { maxTokens: VOICE_MAX_TOKENS } : {}),
         runId: run.id,
@@ -2996,6 +2998,11 @@ class BrainStore {
           system: quickSystem(meta.context, this.quickVoiceParts(meta, surface), text),
           timeoutMs: 45_000,
           ephemeral: true,
+          // A spoken side answer is a quick voice line: the small fast model takes it when this PC has one next to
+          // a main model. A typed one keeps the plain route.
+          ...(surface === "voice"
+            ? { routingSurface: "voice" as const, lane: "quick" as const }
+            : {}),
         })
       ).trim();
     } catch {

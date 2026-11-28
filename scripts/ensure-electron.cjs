@@ -551,6 +551,21 @@ function installerToolsReady(env = process.env, platform = process.platform) {
   }
 }
 
+/**
+ * The second source for the installer tools: the public npmmirror copy of the electron-builder-binaries releases.
+ * electron-builder checks every archive against the SHA-256 it pins, so a mirror can only be a different road to
+ * the same bytes. Used only after the GitHub tries failed, and never over a mirror the owner set.
+ */
+const BUILDER_BINARIES_MIRROR = "https://cdn.npmmirror.com/binaries/electron-builder-binaries/";
+const BUILDER_MIRROR_VARS = [
+  "NPM_CONFIG_ELECTRON_BUILDER_BINARIES_MIRROR",
+  "npm_config_electron_builder_binaries_mirror",
+  "npm_package_config_electron_builder_binaries_mirror",
+  "ELECTRON_BUILDER_BINARIES_MIRROR",
+];
+const builderMirrorOwned = (env = process.env) =>
+  BUILDER_MIRROR_VARS.some((name) => Boolean(String(env[name] || "").trim()));
+
 async function ensureInstallerTools({
   env = process.env,
   platform = process.platform,
@@ -574,35 +589,60 @@ async function ensureInstallerTools({
   env.ELECTRON_BUILDER_CACHE = builderCacheDir(env);
   fs.mkdirSync(env.ELECTRON_BUILDER_CACHE, { recursive: true });
   let lastError = null;
+  const fetchTools = async () => {
+    const toolset = loadToolset();
+    // electron-builder draws its download bars itself, wider than the window; they get the console's bar.
+    const restoreBars = recolorStream(process.stdout, env);
+    let make;
+    let plugins;
+    try {
+      make = await toolset.getMakeNsisPath(undefined);
+      plugins = await toolset.getNsisPluginsPath(undefined);
+    } finally {
+      restoreBars();
+    }
+    const nsis = path.dirname(make.path);
+    if (!fs.existsSync(make.path) || !fs.existsSync(plugins)) {
+      throw new Error(`the download left no makensis at ${make.path}`);
+    }
+    fs.writeFileSync(
+      installerToolsMarker(env),
+      JSON.stringify({ builder: builderVersion(), nsis, plugins, at: new Date().toISOString() }),
+    );
+    log(`ok       installer tools ready at ${nsis}`);
+  };
   for (let attempt = 0; attempt <= waits.length; attempt += 1) {
     try {
       log(
         `fetching installer tools (NSIS) for electron-builder${attempt ? `, try ${attempt + 1}` : ""} ...`,
       );
-      const toolset = loadToolset();
-      // electron-builder draws its download bars itself, wider than the window; they get the console's bar.
-      const restoreBars = recolorStream(process.stdout, env);
-      let make;
-      let plugins;
-      try {
-        make = await toolset.getMakeNsisPath(undefined);
-        plugins = await toolset.getNsisPluginsPath(undefined);
-      } finally {
-        restoreBars();
-      }
-      const nsis = path.dirname(make.path);
-      if (!fs.existsSync(make.path) || !fs.existsSync(plugins)) {
-        throw new Error(`the download left no makensis at ${make.path}`);
-      }
-      fs.writeFileSync(
-        installerToolsMarker(env),
-        JSON.stringify({ builder: builderVersion(), nsis, plugins, at: new Date().toISOString() }),
-      );
-      log(`ok       installer tools ready at ${nsis}`);
+      await fetchTools();
       return true;
     } catch (error) {
       lastError = error;
       if (attempt < waits.length) await sleep(waits[attempt]);
+    }
+  }
+  // GitHub failed every try: a second source, the npmmirror copy of the same releases (the pinned SHA-256 still
+  // decides). A mirror the owner set is theirs and is never replaced.
+  if (!builderMirrorOwned(env)) {
+    log("second source: cdn.npmmirror.com");
+    env.ELECTRON_BUILDER_BINARIES_MIRROR = BUILDER_BINARIES_MIRROR;
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          log(
+            `fetching installer tools (NSIS) from cdn.npmmirror.com${attempt ? `, try ${attempt + 1}` : ""} ...`,
+          );
+          await fetchTools();
+          return true;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 1) await sleep(waits[0] ?? 0);
+        }
+      }
+    } finally {
+      delete env.ELECTRON_BUILDER_BINARIES_MIRROR;
     }
   }
   console.error(
@@ -627,6 +667,7 @@ module.exports = {
   ensureElectron,
   ensureInstallerTools,
   installerToolsReady,
+  builderMirrorOwned,
   builderCacheDir,
   isPresent,
   isUsable,

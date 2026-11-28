@@ -1,16 +1,17 @@
 /**
  * FRIDAY — environment check for a fresh Windows PC.
  *
- * Detects every runtime FRIDAY needs to build and run, prints the exact official
- * installation command for anything missing, and exits non-zero when a REQUIRED
- * component is absent.
+ * Detects every runtime FRIDAY needs to build and run and prints the exact official
+ * installation command for anything missing.
  *
- * Required means "the setup downloads it": on a Windows PC where the tool step
- * runs (not hosted CI, not offline, not switched off), FFmpeg, Tesseract OCR,
- * the Visual C++ runtime, Ollama and every agent tool that applies to this PC
- * are required. What cannot apply to this PC (CUDA without an NVIDIA driver,
- * Windows Sandbox on an edition without it) is shown as not applicable, not as a
- * warning.
+ * Two tiers. A BLOCKER row (Node.js and npm, the Python environment and the kernel packages, Electron and its binary,
+ * the build tools, the installer tools) is what the build cannot run without: a missing one prints MISSING and the
+ * script exits 1. Every other row the setup downloads (FFmpeg, Tesseract, the Visual C++ runtime, Ollama, the agent
+ * tools, the speech, voice and chat models, the voice packages) is a NOTICE when it is missing: it prints NOTICE, is
+ * recorded in <FRIDAY_ROOT>/runtime/setup-notices.json (scripts/setup-notices.cjs) so FRIDAY > Install Manager / Models
+ * can finish it, and the exit stays 0. FRIDAY_SETUP_STRICT=1 turns every notice back into a failure.
+ * What cannot apply to this PC (CUDA without an NVIDIA driver, Windows Sandbox on an edition without it) is shown as
+ * not applicable, not as a warning.
  *
  *   node scripts/check-environment.cjs          report
  *   node scripts/check-environment.cjs --fix    repair what FRIDAY can install, check again
@@ -26,6 +27,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnCaptured, spawnNpm } = require("./win-spawn.cjs");
 const probes = require("./doctor-probes.cjs");
+const setupNotices = require("./setup-notices.cjs");
 // Tools that setup or Doctor just installed or upgraded are on the registry PATH, not on
 // the PATH this console started with: read it first so they are not reported missing.
 require("./win-path.cjs").refreshWindowsPath();
@@ -33,6 +35,8 @@ require("./win-path.cjs").refreshWindowsPath();
 const root = path.resolve(__dirname, "..");
 const win = process.platform === "win32";
 const strict = process.argv.includes("--strict");
+// FRIDAY_SETUP_STRICT=1 (or the older prefetch strict switches): a notice fails again, for a machine that must be complete.
+const noticesFail = setupNotices.isStrict();
 const versions = JSON.parse(
   fs.readFileSync(path.join(root, "config", "toolchain-versions.json"), "utf8"),
 );
@@ -195,6 +199,7 @@ let pythonExecutable = null;
   const v = process.versions.node;
   add({
     name: "Node.js",
+    blocker: true,
     required: true,
     ok: supported(v, versions.nodeMinimum),
     found: `v${v}`,
@@ -216,6 +221,7 @@ let pythonExecutable = null;
   const v = firstVersion(npmOut);
   add({
     name: "npm",
+    blocker: true,
     required: true,
     ok: supported(v, versions.npmMinimum),
     found: v ? `v${v}` : "not found",
@@ -291,6 +297,7 @@ if (win) {
     })();
   add({
     name: "Python .venv (FRIDAY runtime)",
+    blocker: true,
     required: true,
     group: "python-runtime",
     ok: !!venvFile,
@@ -306,6 +313,7 @@ if (win) {
 
   add({
     name: "Python",
+    blocker: true,
     required: true,
     group: "python-runtime",
     ok: !!okVersion,
@@ -321,6 +329,7 @@ if (win) {
     : null;
   add({
     name: "pip (in .venv)",
+    blocker: true,
     required: true,
     group: "python-runtime",
     ok: !!pipVersion,
@@ -426,6 +435,8 @@ if (win) {
     const ok = !!have && versionOk && importable;
     add({
       name: `Python package: ${pin.name}`,
+      // A kernel package the build needs stops it; a voice or capability package is a notice.
+      blocker: !voice && !capability,
       required: capability ? capabilitiesRequired && pin.name !== "chromadb" : !voice || win,
       skip: capability
         ? pin.name === "chromadb"
@@ -460,6 +471,7 @@ if (win) {
     : null;
   add({
     name: "Python core imports",
+    blocker: true,
     required: true,
     group: "python-packages",
     ok: !!coreImports,
@@ -486,6 +498,7 @@ if (win) {
     : null;
   add({
     name: "SQLite (python sqlite3 module)",
+    blocker: true,
     required: true,
     group: "python-runtime",
     ok:
@@ -622,6 +635,7 @@ if (win) {
   })();
   add({
     name: "Electron package + dependencies",
+    blocker: true,
     required: true,
     group: "electron-binary",
     ok: !!electronDeps && electronDeps.miss.length === 0,
@@ -640,6 +654,7 @@ if (win) {
   const missingTools = require("./build-pipeline.cjs").missingBuildTools(root);
   add({
     name: "Build tools (vite, electron-builder)",
+    blocker: true,
     required: true,
     group: "node-deps",
     ok: missingTools.length === 0,
@@ -675,6 +690,7 @@ if (win) {
   //    the executed binary itself reports a supported version.
   add({
     name: "Electron binary",
+    blocker: true,
     required: true,
     group: "electron-binary",
     ok:
@@ -696,6 +712,7 @@ if (win) {
 
   add({
     name: "Electron binary runnable",
+    blocker: true,
     required: win || !systemLibs,
     group: systemLibs ? undefined : "electron-binary",
     ok: !!runnable && supported(runnable, versions.electronMinimum),
@@ -719,6 +736,7 @@ if (win) {
     const tools = require(path.join(root, "scripts", "ensure-electron.cjs")).installerToolsReady();
     add({
       name: "Installer tools (NSIS)",
+      blocker: true,
       required: win,
       group: win ? "electron-binary" : undefined,
       ok: tools.ready,
@@ -846,6 +864,7 @@ let setupPlanData = null;
         }
         add({
           name: labels[job.id],
+          noticeId: job.id,
           required: planned && toolsRequired && !job.optional,
           group: "local-models",
           hosts: probes.jobHosts(job),
@@ -905,6 +924,7 @@ let setupPlanData = null;
         const here = prefetchModels.alreadyThere(job);
         add({
           name: labels[job.id],
+          noticeId: job.id,
           required: toolsRequired && !job.optional,
           group: "local-models",
           hosts: probes.jobHosts(job),
@@ -943,23 +963,80 @@ let setupPlanData = null;
       fix: "npm run doctor",
       url: "https://github.com/moonshine-ai/moonshine",
     });
-    // The installed ONNX Runtime build against the one this PC's plan recommends (information only).
-    const ort = probes.ortRow(
-      probes.probeOrt(pythonExecutable),
-      setupPlanData?.required.find((row) => row.id === "onnxruntime"),
-    );
+    // The installed ONNX Runtime build against the one this PC's plan installs: a different one is a warning.
+    const ortProbe = probes.probeOrt(pythonExecutable);
+    const ortPlanRow = setupPlanData?.required.find((row) => row.id === "onnxruntime");
+    const ort = probes.ortRow(ortProbe, ortPlanRow);
+    const ortOff = probes.ortMismatch(ortProbe, ortPlanRow);
     add({
       name: "ONNX Runtime build (cpu, gpu, directml)",
       required: false,
+      warn: true,
       group: "local-models",
       hosts: probes.PYPI_HOSTS,
-      ok: true,
-      found: ort.found,
+      ok: !ortOff,
+      found: ortOff ? `${ort.found} (${ortOff})` : ort.found,
       want: ort.want,
       note: [ort.want, ort.note].filter(Boolean).join("; "),
       fix: "npm run doctor",
       url: "https://onnxruntime.ai/",
     });
+    // The llama.cpp build the plan chose against the one installed ("planned X, installed Y").
+    const llamaPlanRow = setupPlanData?.required.find((row) => row.id === "llama.cpp");
+    const llamaRow = probes.llamaBackendRow(
+      llamaPlanRow,
+      (() => {
+        try {
+          return require("../electron/llama-runtime.cjs").readBackend(pickedRoot);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+    if (llamaRow)
+      add({
+        name: "llama.cpp backend (cuda, vulkan, cpu)",
+        required: false,
+        warn: true,
+        group: "local-models",
+        ok: llamaRow.ok,
+        found: llamaRow.found,
+        want: llamaRow.want,
+        fix: "npm run doctor",
+        url: "https://github.com/ggml-org/llama.cpp/releases",
+      });
+    // Whether this PC changed since setup planned for it (the record setup wrote; skipped when either side is missing).
+    const changed = (() => {
+      try {
+        // The same fingerprint the setup wrote the record with (setup-plan's when it has one, else prefetch-models').
+        const own = require("../electron/setup-plan.cjs").planFingerprint;
+        const fingerprint =
+          typeof own === "function"
+            ? own
+            : typeof prefetchModels.pcFingerprint === "function"
+              ? (plan) => prefetchModels.pcFingerprint(plan.pc)
+              : null;
+        if (!fingerprint || !setupPlanData) return null;
+        const record = JSON.parse(
+          fs.readFileSync(path.join(pickedRoot, "runtime", "setup-plan.json"), "utf8"),
+        );
+        return probes.setupChangedRow(record, fingerprint(setupPlanData));
+      } catch {
+        return null;
+      }
+    })();
+    if (changed)
+      add({
+        name: "This PC since setup",
+        required: false,
+        warn: true,
+        group: "local-models",
+        ok: changed.ok,
+        found: changed.found,
+        want: "the same hardware setup planned for, so the models and engine chosen still fit",
+        fix: "npm run setup (plans again for this PC)",
+        url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+      });
     if (win && installedOllama) {
       const listed = (capture(installedOllama.exe || "ollama", ["list"]) || "").toLowerCase();
       const holds = (tag) => listed.includes(String(tag).toLowerCase());
@@ -1022,6 +1099,7 @@ let setupPlanData = null;
   const ffmpeg = capture("ffmpeg", ["-version"]);
   add({
     name: "FFmpeg",
+    noticeId: "FFmpeg",
     required: toolsRequired,
     group: "toolchain",
     hosts: toolHostsOf("FFmpeg"),
@@ -1043,6 +1121,7 @@ let setupPlanData = null;
   );
   add({
     name: "Tesseract OCR",
+    noticeId: "Tesseract OCR",
     required: toolsRequired,
     group: "toolchain",
     hosts: toolHostsOf("Tesseract OCR"),
@@ -1107,6 +1186,32 @@ if (win) {
     fix: toolsRequired ? "npm run doctor" : "winget install -e --id Microsoft.VCRedist.2015+.x64",
     url: "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
   });
+  // The version of that runtime against the floor in config/toolchain-versions.json (no floor, no row).
+  const vcRow = vc
+    ? probes.vcRedistRow(
+        firstVersion(
+          capture("powershell", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-Item '${path.join(process.env.SystemRoot || "C:\\Windows", "System32", "vcruntime140.dll")}').VersionInfo.ProductVersion`,
+          ]),
+        ),
+        versions.vcRedistMinimum,
+      )
+    : null;
+  if (vcRow)
+    add({
+      name: "Visual C++ runtime version",
+      required: false,
+      warn: true,
+      group: "toolchain",
+      ok: vcRow.ok,
+      found: vcRow.found,
+      want: vcRow.want,
+      fix: "winget install -e --id Microsoft.VCRedist.2015+.x64",
+      url: "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
+    });
   const cuda = !!capture("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"]);
   // Hardware, not software: no NVIDIA GPU means the CUDA libraries do not apply, so this row describes the PC and never
   // warns. With this PC's plan it names the measured facts (card, video memory, compute capability, driver, CUDA version).
@@ -1201,6 +1306,7 @@ if (win) {
     const mustHave = entry.elevated ? elevatedRequired : toolsRequired;
     add({
       name: entry.id,
+      noticeId: entry.id,
       group: "agent-toolkit",
       hosts: toolHostsOf(entry.id),
       elevated: Boolean(entry.elevated),
@@ -1334,8 +1440,46 @@ const clip = (text, n) => {
   const value = shortPath(text).replace(BOILERPLATE, "");
   return value.length > n - 1 ? `${value.slice(0, n - 2)}…` : value;
 };
-const missing = checks.filter((c) => !c.ok && c.required);
-const warned = checks.filter((c) => !c.ok && !c.required);
+// Two tiers: a blocker is what the build cannot run without (exit 1); every other required row that is missing is a
+// NOTICE (printed, recorded for FRIDAY > Install Manager / Models, exit 0). A row that does not apply here is only warned.
+const { blockers: missing, notices: noticed, warned } = probes.classifyChecks(checks);
+// The one verdict (1 for a blocker; for a notice only with FRIDAY_SETUP_STRICT=1; for a warned row only with --strict).
+const verdict = probes.environmentExitCode(checks, { strict, noticesFail });
+/** The Install Manager row that finishes an item, when its id is certain. */
+const installManagerIdOf = (c) =>
+  c.group === "local-models" && String(c.name).startsWith("Chat model in Ollama: ")
+    ? `model:ollama:${String(c.name).slice("Chat model in Ollama: ".length)}`
+    : c.name.startsWith("CUDA 12 libraries")
+      ? "cuda-libs"
+      : "";
+/**
+ * Writes (or clears, once the item is there) the notice of every row that has a notice id; never throws. The id is
+ * `<kind>:<id>` (doctor-probes noticeIdOf), the one the download steps record, so this pass clears what they recorded;
+ * the bare id an older run recorded is cleared with it.
+ */
+function recordRowNotices() {
+  const modelNoticeId = (job) => require("./prefetch-models.cjs").noticeOf({ id: job }).id;
+  for (const c of checks) {
+    if (!c.noticeId && !(c.required && c.blocker !== true)) continue;
+    const id = probes.noticeIdOf(c, { modelNoticeId });
+    if (c.ok) {
+      for (const stale of [id, ...probes.legacyNoticeIds(c)]) setupNotices.clearNotice(stale);
+    } else if (c.required && c.blocker !== true)
+      setupNotices.recordNotice(
+        {
+          id,
+          kind: id.slice(0, id.indexOf(":")),
+          label: c.name,
+          reason: `${c.found}; wanted ${shortPath(c.want).replace(BOILERPLATE, "")}`.slice(0, 280),
+          installManagerId: installManagerIdOf(c),
+          repair: String(c.fix).startsWith("npm run")
+            ? String(c.fix).split(" (")[0]
+            : "npm run doctor",
+        },
+        { print: false },
+      );
+  }
+}
 // Every download source of every row, in order, and which host answers now: one parallel probe per distinct host
 // (offline: "not checked"). A row that is fine and shares its package or tool index with its group says it once, below.
 const SHARED_SOURCES = { "python-packages": "package index", "agent-toolkit": "tool index" };
@@ -1343,7 +1487,10 @@ const reachOf = (list) => probes.reachSync([...new Set(list.flatMap((c) => c.hos
 
 // --summary (the confirming pass inside `npm run setup`): a count, and the full table only when something is wrong.
 const summaryOnly =
-  process.argv.includes("--summary") && missing.length === 0 && warned.length === 0;
+  process.argv.includes("--summary") &&
+  missing.length === 0 &&
+  noticed.length === 0 &&
+  warned.length === 0;
 if (summaryOnly) {
   console.log(`[friday] environment check: all ${checks.length} components pass`);
 } else {
@@ -1361,7 +1508,15 @@ if (!summaryOnly) {
 const reach = summaryOnly ? {} : reachOf(checks);
 const sourcesOf = (c) => probes.sourcesLine(c.hosts, reach, { missing: !c.ok && c.required });
 for (const c of summaryOnly ? [] : checks) {
-  const state = c.ok ? "PASS" : c.required ? "MISSING" : "SKIPPED";
+  const state = c.ok
+    ? "PASS"
+    : c.required
+      ? c.blocker === true
+        ? "MISSING"
+        : "NOTICE"
+      : c.warn
+        ? "WARN"
+        : "SKIPPED";
   console.log(
     `${pad(state, STATUS_W)}${pad(clip(c.name, nameW), nameW)}${pad(clip(c.found, foundW), foundW)}${clip(c.want, wantW)}`,
   );
@@ -1370,7 +1525,12 @@ for (const c of summaryOnly ? [] : checks) {
     console.log(`          ${sourcesOf(c)}`);
   if (!c.ok) {
     if (shortPath(c.found).length > foundW - 1) console.log(`          found:  ${c.found}`);
-    if (!c.required) console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
+    if (!c.required && !c.warn)
+      console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
+    if (c.required && c.blocker !== true)
+      console.log(
+        `          notice:  not a stop; finish it later in ${setupNotices.WHERE}, or run the fix below`,
+      );
     console.log(`          wanted: ${c.want}`);
     console.log(`          fix:    ${c.fix}`);
     console.log(`          source: ${c.url}`);
@@ -1384,6 +1544,9 @@ if (!summaryOnly) {
       console.log(`${label}: ${probes.sourcesLine(row.hosts, reach).replace(/^sources: /, "")}`);
   }
 }
+
+// Record what is missing (and clear what is there now), so FRIDAY lists it under Install Manager / Models.
+recordRowNotices();
 
 if (missing.length) {
   // Never a generic failure: name every missing component and its exact fix.
@@ -1414,19 +1577,37 @@ if (missing.length) {
     if (repairableElectron.length)
       console.error("Electron binary only:     npm run setup:electron");
   }
-  process.exitCode = 1;
+  if (noticed.length)
+    console.error(
+      `${noticed.length} more item(s) are NOTICE rows (not a stop): ${noticed.map((c) => c.name).join(", ")}`,
+    );
+  process.exitCode = verdict;
+  return;
+}
+if (noticed.length && noticesFail) {
+  console.error(
+    `FAILED (strict) — ${noticed.length} item(s) not finished: ${noticed.map((c) => c.name).join(", ")}`,
+  );
+  for (const c of noticed) console.error(`      ${c.name}: ${c.fix}`);
+  process.exitCode = verdict;
   return;
 }
 if (warned.length && strict) {
   console.error(
     `FAILED (strict) — ${warned.length} component(s) not installed on this run: ${warned.map((c) => c.name).join(", ")}`,
   );
-  process.exitCode = 1;
+  process.exitCode = verdict;
   return;
 }
-if (!summaryOnly)
+if (!summaryOnly) {
+  if (noticed.length) {
+    console.log(
+      `NOTICE: ${noticed.length} item(s) could not be finished here. This does not stop the build; finish them in ${setupNotices.WHERE} or run npm run doctor: ${noticed.map((c) => c.name).join(", ")}`,
+    );
+  }
   console.log(
     warned.length
       ? `Ready to build (${warned.length} tool(s) skipped on this run, installed by npm run setup on your PC: ${warned.map((c) => c.name).join(", ")}).`
       : "Ready to build.",
   );
+}

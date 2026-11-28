@@ -5289,6 +5289,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "moonshine-en",
+      kind: "model",
+      name: "FRIDAY Ear Live English",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "moonshot-kimi-k2",
       kind: "model",
       name: "Kimi K2",
@@ -9789,8 +9795,8 @@ export const FLOW_REGISTRY = {
       total: 176,
     },
     capabilities: {
-      mapped: 1119,
-      total: 1119,
+      mapped: 1120,
+      total: 1120,
     },
     ipc: {
       mapped: 526,
