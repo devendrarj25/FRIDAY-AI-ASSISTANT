@@ -856,3 +856,74 @@ describe("placing a CMD build is a row of the READY table, not a phase", () => {
     expect(main.indexOf("placedRow(")).toBeLessThan(main.indexOf("readySummary(options"));
   });
 });
+
+describe("the manifest phase names who is building (--caller), so a local test run is not labelled by guesswork", () => {
+  const read = (file: string) => fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+  const naming = pipeline as unknown as {
+    manifestCaller: (options: { caller: string; channel: string }, env?: object) => string;
+    manifestArgs: (
+      options: { caller: string; channel: string; releaseType?: string },
+      input: { version: string; notes?: boolean; env?: object },
+    ) => string[];
+  };
+  const opts = (caller: string, channel: string) => ({ caller, channel });
+
+  it("a local run is `cmd` for every caller and both channels", () => {
+    for (const caller of ["cmd", "npm", "node", "release", "test", "pr-validation"]) {
+      for (const channel of ["production", "test"])
+        expect(naming.manifestCaller(opts(caller, channel), {}), `${caller}/${channel}`).toBe(
+          "cmd",
+        );
+    }
+    // A CI variable alone, without a hosted workflow, does not make a local run a release.
+    expect(naming.manifestCaller(opts("node", "test"), { CI: "1" })).toBe("cmd");
+  });
+
+  it("a hosted workflow is `release` or `test` by its channel", () => {
+    const env = { GITHUB_ACTIONS: "true" };
+    expect(naming.manifestCaller(opts("release", "production"), env)).toBe("release");
+    expect(naming.manifestCaller(opts("pr-validation", "production"), env)).toBe("release");
+    expect(naming.manifestCaller(opts("test", "test"), env)).toBe("test");
+    expect(naming.manifestCaller(opts("node", "test"), env)).toBe("test");
+  });
+
+  it("passes --caller, the version, the channel, the notes and the type to release-manifest", () => {
+    const local = naming.manifestArgs(opts("node", "test"), {
+      version: "1.2.3-test.1",
+      notes: true,
+      env: {},
+    });
+    expect(local).toEqual([
+      "--version",
+      "1.2.3-test.1",
+      "--channel",
+      "test",
+      "--caller",
+      "cmd",
+      "--notes",
+      "release-notes.md",
+    ]);
+    const hosted = naming.manifestArgs(
+      { ...opts("release", "production"), releaseType: "feature" },
+      { version: "1.2.5.8", env: { GITHUB_ACTIONS: "true" } },
+    );
+    expect(hosted).toEqual([
+      "--version",
+      "1.2.5.8",
+      "--channel",
+      "stable",
+      "--caller",
+      "release",
+      "--type",
+      "feature",
+    ]);
+  });
+
+  it("the manifest phase uses that argument builder", () => {
+    const source = read("scripts/build-pipeline.cjs");
+    const phase = source.slice(source.indexOf('if (phase === "manifest")'));
+    expect(phase.slice(0, phase.indexOf('if (phase === "verify-artifacts")'))).toContain(
+      "manifestArgs(",
+    );
+  });
+});

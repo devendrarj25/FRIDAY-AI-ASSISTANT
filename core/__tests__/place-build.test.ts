@@ -313,9 +313,10 @@ describe("the FRIDAY packs are opt-in", () => {
       spawn: (_cmd: string, args: string[]) => (spawned.push({ args }), { status: 0 }),
     });
     expect(result.status).toBe("built");
-    expect(spawned).toHaveLength(2);
+    // Two one-model runs, then the pack's final metadata run over both (see "the pack metadata describes every model").
+    expect(spawned).toHaveLength(3);
     const out = path.join(root, "installer", "packs", "friday-voice-weights-2026.11.1");
-    spawned.forEach((call, i) => {
+    spawned.slice(0, 2).forEach((call, i) => {
       expect(call.args[0]).toMatch(/build-friday-models\.cjs$/);
       expect(call.args).toEqual(
         expect.arrayContaining(["--pack", "voice-weights", "--out", out, "--only", ["a", "b"][i]]),
@@ -410,5 +411,192 @@ describe("the CMD chain keeps its shape", () => {
     expect(/[^\u0000-\u007f]/.test(source)).toBe(false);
     expect(source).toContain('require("../electron/build-bundle.cjs")');
     expect(source).not.toMatch(/JSON\.parse\([^)]*friday-bundle/);
+  });
+});
+
+describe("the installed app finds the placed build where local-sources looks (D5)", () => {
+  const sources = req("../../electron/local-sources.cjs");
+  const discover = (target: string, extra: Record<string, unknown> = {}) =>
+    sources.discoverLocalBundles(target, {
+      env: {},
+      readRegistry: () => null,
+      portableDir: null,
+      readBuildRoots: () => [],
+      useLocalBuilds: true,
+      fs: nodeFs,
+      ...extra,
+    });
+
+  it("leaves friday-bundle.json inside installer/installers/<version>/, found as origin `installers`", () => {
+    expect(run().status).toBe("placed");
+    expect(nodeFs.existsSync(path.join(placed(), "friday-bundle.json"))).toBe(true);
+    const found = discover(root, { appVersion: VERSION });
+    expect(found).toHaveLength(1);
+    expect(found[0].origin).toBe("installers");
+    expect(path.resolve(found[0].dir)).toBe(path.resolve(placed()));
+    expect(found[0].bundle.version).toBe(VERSION);
+  });
+
+  it("the placed copy is the same record as the release one, so the app and the build agree", () => {
+    run();
+    const here = bundleLib.read(path.join(placed(), "friday-bundle.json"));
+    const there = bundleLib.read(path.join(release, "friday-bundle.json"));
+    expect(bundleLib.hashOf(here)).toBe(bundleLib.hashOf(there));
+  });
+
+  it("local-build.json names the folder and the version discoverLocalBundles takes as appVersion", () => {
+    run();
+    const pointer = JSON.parse(
+      nodeFs.readFileSync(path.join(root, "installer", "manifests", "local-build.json"), "utf8"),
+    );
+    const found = discover(root, { appVersion: pointer.version });
+    expect(found[0].origin).toBe("installers");
+    expect(path.resolve(root, ...pointer.dir.split("/"))).toBe(path.resolve(found[0].dir));
+    expect(bundleLib.hashOf(found[0].bundle)).toBe(pointer.bundleSha256);
+  });
+
+  it("a checkout root also finds its own release/ folder (D5 step 3), after the placed copy", () => {
+    const checkout = path.join(tmp, "checkout");
+    nodeFs.writeFileSync(path.join(checkout, "package.json"), JSON.stringify({ name: "friday" }));
+    const result = place.placeBuild({
+      root: checkout,
+      releaseDir: path.join(checkout, "release"),
+      caller: "cmd",
+      env: {},
+    });
+    expect(result.status).toBe("placed");
+    const found = discover(checkout, { appVersion: VERSION });
+    expect(found.map((f: { origin: string }) => f.origin)).toEqual(["installers", "release"]);
+    expect(path.resolve(found[1].dir)).toBe(path.resolve(checkout, "release"));
+  });
+});
+
+describe("a CMD build whose root is the checkout leaves nothing untracked", () => {
+  const ignore = nodeFs
+    .readFileSync(path.join(repoRoot, ".gitignore"), "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+
+  it("ignores installer/installers, installer/manifests and installer/packs only", () => {
+    for (const folder of ["installers", "manifests", "packs"])
+      expect(ignore, folder).toContain(`/installer/${folder}/`);
+  });
+
+  it("keeps the installer sources tracked: no rule hides the folder or its source subfolders", () => {
+    expect(ignore).not.toContain("installer");
+    expect(ignore).not.toContain("/installer/");
+    expect(ignore).not.toContain("/installer/*");
+    for (const source of ["build", "first-run", "migration", "setup", "uninstall"])
+      expect(ignore.some((line) => line === `/installer/${source}/`)).toBe(false);
+  });
+});
+
+describe("the pack metadata describes every model, not only the last one built", () => {
+  const plan = [
+    {
+      pack: "voice-weights",
+      tag: "friday-voice-weights-2026.11.1",
+      models: ["a", "b", "c"],
+      partBytes: 10,
+      assets: {},
+    },
+  ];
+  const base = { projectRoot: path.join(tmp, "checkout"), env: { FRIDAY_BUILD_PACKS: "1" } };
+  const onlyOf = (args: string[]) => args[args.indexOf("--only") + 1]!;
+
+  it("runs the pack's final manifest build once, after every per-model run, with every model that is present", () => {
+    const spawned: string[][] = [];
+    const result = place.buildPacks({
+      root,
+      ...base,
+      projectRoot: path.join(tmp, "checkout"),
+      plan,
+      spawn: (_c: string, args: string[]) => (spawned.push(args), { status: 0 }),
+    });
+    expect(result.status).toBe("built");
+    expect(spawned.map(onlyOf)).toEqual(["a", "b", "c", "a,b,c"]);
+    const last = spawned[spawned.length - 1]!;
+    const out = path.join(root, "installer", "packs", plan[0]!.tag);
+    expect(last).toEqual(
+      expect.arrayContaining(["--pack", "voice-weights", "--out", out, "--only", "a,b,c"]),
+    );
+  });
+
+  it("lists only the models that exist when one failed, and says the pack is incomplete", () => {
+    const spawned: string[][] = [];
+    const result = place.buildPacks({
+      root,
+      ...base,
+      plan,
+      spawn: (_c: string, args: string[]) => (
+        spawned.push(args),
+        { status: onlyOf(args) === "b" ? 1 : 0 }
+      ),
+    });
+    expect(spawned.map(onlyOf)).toEqual(["a", "b", "c", "a,c"]);
+    expect(result.status).toBe("failed");
+  });
+
+  it("runs no final build when nothing was built in this run, or when no model exists", () => {
+    const spawned: string[][] = [];
+    const none = place.buildPacks({
+      root,
+      ...base,
+      plan,
+      spawn: (_c: string, args: string[]) => (spawned.push(args), { status: 1 }),
+    });
+    expect(spawned.map(onlyOf)).toEqual(["a", "b", "c"]);
+    expect(none.status).toBe("failed");
+  });
+
+  it("a failed final build is reported, never thrown", () => {
+    const result = place.buildPacks({
+      root,
+      ...base,
+      plan,
+      spawn: (_c: string, args: string[]) => ({ status: onlyOf(args).includes(",") ? 1 : 0 }),
+    });
+    expect(result.status).toBe("failed");
+    expect(result.notes.join(" ")).toMatch(/metadata|SHA256SUMS|manifest/i);
+  });
+
+  it("is a pure ordering: the real build is never run from a test", () => {
+    const tool = nodeFs.readFileSync(path.join(repoRoot, "scripts", "prefetch-models.cjs"), "utf8");
+    expect(tool).not.toMatch(/build-friday-models/);
+  });
+});
+
+describe("a requested but skipped pack build says so (packsNote)", () => {
+  it("is silent unless FRIDAY_BUILD_PACKS=1, and a SKIP line with the reason when it was skipped", () => {
+    const skipped = {
+      status: "skipped",
+      reason:
+        "the FRIDAY folder is inside the source checkout; the pack tool needs --out outside the repository",
+      notes: [],
+    };
+    expect(place.packsNote(skipped, {})).toEqual([]);
+    const lines = place.packsNote(skipped, { FRIDAY_BUILD_PACKS: "1" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\[friday\] SKIP {5}packs: .*inside the source checkout/);
+  });
+
+  it("names a failure and its notes, and says nothing for a clean build", () => {
+    const env = { FRIDAY_BUILD_PACKS: "1" };
+    const failed = place.packsNote(
+      { status: "failed", reason: "a pack model was not built", notes: ["x: b was not built"] },
+      env,
+    );
+    expect(failed.join("\n")).toMatch(/packs: a pack model was not built/);
+    expect(failed.join("\n")).toContain("x: b was not built");
+    expect(place.packsNote({ status: "built", notes: [] }, env)).toEqual([]);
+  });
+
+  it("prefetch-models prints those lines after the opt-in hook and still never fails setup for them", () => {
+    const source = nodeFs.readFileSync(
+      path.join(repoRoot, "scripts", "prefetch-models.cjs"),
+      "utf8",
+    );
+    expect(source).toMatch(/packsNote\(\s*packs\.buildPacks\(\{ root: picked\.root \}\)\s*\)/);
+    expect(source.indexOf("packsNote(")).toBeLessThan(source.indexOf("finish(lines.length"));
   });
 });

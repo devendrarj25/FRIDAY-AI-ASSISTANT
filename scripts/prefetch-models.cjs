@@ -1973,7 +1973,9 @@ if (require.main === module && process.argv.includes("--plan")) {
       for (const line of lines) console.error(line);
       // Opt-in (FRIDAY_BUILD_PACKS=1, default off): the FRIDAY weight packs, one model at a time. Never fails setup.
       try {
-        require("./place-build.cjs").buildPacks({ root: picked.root });
+        const packs = require("./place-build.cjs");
+        for (const line of packs.packsNote(packs.buildPacks({ root: picked.root })))
+          console.log(line);
       } catch (err) {
         console.error(`[friday] note     packs not built: ${String((err && err.message) || err)}`);
       }

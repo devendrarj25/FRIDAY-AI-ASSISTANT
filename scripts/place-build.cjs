@@ -22,8 +22,10 @@
  *
  * Opt-in `FRIDAY_BUILD_PACKS=1` (default OFF; it duplicates about 28 GB) builds the FRIDAY weight packs with
  * scripts/build-friday-models.cjs into `<root>\installer\packs\<tag>\`, one model at a time, so the disk never holds
- * two models' work files. A pack folder inside the source checkout is refused (that tool needs `--out` outside the
- * repository). Called from scripts/prefetch-models.cjs after the weights step.
+ * two models' work files, then once more over every model that is there so SHA256SUMS, NOTICE.md and the pack manifest
+ * list them all (the tool writes them for the models of its own run). A pack folder inside the source checkout is
+ * refused (that tool needs `--out` outside the repository) and said so (packsNote). Called from
+ * scripts/prefetch-models.cjs after the weights step.
  */
 const crypto = require("node:crypto");
 const nodeFs = require("node:fs");
@@ -312,28 +314,59 @@ function buildPacks({
     return { status: "failed", reason: `the pack plan is unreadable: ${error.message}`, notes };
   }
   const tool = path.join(__dirname, "build-friday-models.cjs");
+  const runTool = (row, out, only) => {
+    const run = spawn(process.execPath, [tool, "--pack", row.pack, "--out", out, "--only", only], {
+      stdio: "inherit",
+      windowsHide: true,
+    });
+    return Boolean(run) && !run.error && run.status === 0;
+  };
   for (const row of rows) {
     const out = path.join(base, row.tag);
+    const present = [];
+    let builtNow = false;
     for (const id of row.models) {
       if (modelPresent({ dir: out, plan: row, id, fs })) {
         notes.push(`${row.tag}: ${id} is already there`);
+        present.push(id);
         continue;
       }
       log(`[friday] packs    ${row.tag}: ${id}`);
-      const run = spawn(process.execPath, [tool, "--pack", row.pack, "--out", out, "--only", id], {
-        stdio: "inherit",
-        windowsHide: true,
-      });
-      if (!run || run.error || run.status !== 0) {
+      if (runTool(row, out, id)) {
+        present.push(id);
+        builtNow = true;
+      } else {
         failed = true;
         notes.push(`${row.tag}: ${id} was not built`);
         log(`[friday] packs    ${row.tag}: ${id} was not built; the next model still runs`);
       }
     }
+    // Every run of the tool rewrites SHA256SUMS, NOTICE.md and the pack manifest for the models it was given, so after
+    // the one-model runs they describe only the last model. One more run over every model that is there (its files
+    // are checked and kept, nothing is fetched again) makes the metadata list them all.
+    if (builtNow && !runTool(row, out, present.join(","))) {
+      failed = true;
+      notes.push(`${row.tag}: the pack metadata (SHA256SUMS, NOTICE.md, manifest) was not rebuilt`);
+      log(`[friday] packs    ${row.tag}: the pack metadata was not rebuilt`);
+    }
   }
   return failed
     ? { status: "failed", reason: "a pack model was not built", notes }
     : { status: "built", notes };
+}
+
+/**
+ * The console lines for a requested pack build that did not complete: a SKIP line with the reason (for example the FRIDAY
+ * folder inside the checkout) or a note for a failure. Silent unless FRIDAY_BUILD_PACKS=1 and for a clean build.
+ */
+function packsNote(result, env = process.env) {
+  if (!packsRequested(env) || !result) return [];
+  if (result.status === "skipped") return [`[friday] SKIP     packs: ${result.reason}`];
+  if (result.status !== "failed") return [];
+  return [
+    `[friday] note     packs: ${result.reason}`,
+    ...(result.notes || []).map((line) => `[friday] note     packs: ${line}`),
+  ];
 }
 
 module.exports = {
@@ -345,5 +378,6 @@ module.exports = {
   planPacks,
   modelPresent,
   buildPacks,
+  packsNote,
   POINTER_FILE,
 };

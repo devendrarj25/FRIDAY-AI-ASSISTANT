@@ -850,6 +850,31 @@ function applyChannel(root, options) {
   );
 }
 
+/**
+ * Who is building, as the update manifest and friday-bundle.json record it. A hosted workflow (GITHUB_ACTIONS) is
+ * `test` on the test channel and `release` otherwise; every local run (the CMD build, an npm script, a plain node call)
+ * is `cmd`, so a local `--channel test` run is not labelled as a hosted one.
+ */
+function manifestCaller(options, env = process.env) {
+  if (String(env.GITHUB_ACTIONS || "") !== "true") return "cmd";
+  return options.channel === "test" ? "test" : "release";
+}
+
+/** The arguments of scripts/release-manifest.cjs for this run. */
+function manifestArgs(options, { version, notes = false, env = process.env } = {}) {
+  const args = [
+    "--version",
+    version,
+    "--channel",
+    options.channel === "test" ? "test" : "stable",
+    "--caller",
+    manifestCaller(options, env),
+  ];
+  if (notes) args.push("--notes", "release-notes.md");
+  if (options.releaseType) args.push("--type", options.releaseType);
+  return args;
+}
+
 function signingRequested(options) {
   if (options.sign === "off" || options.sign === "false") return false;
   return Boolean(process.env.CSC_LINK || process.env.FRIDAY_PFX);
@@ -1004,15 +1029,10 @@ function runPhase(phase, options, root) {
     const engine = require("./release-engine.cjs");
     const identity = engine.readCanonicalIdentity({ root });
     const version = options.version || identity.releaseVersion;
-    const args = [
-      "--version",
+    const args = manifestArgs(options, {
       version,
-      "--channel",
-      options.channel === "test" ? "test" : "stable",
-    ];
-    if (fs.existsSync(path.join(root, "release-notes.md")))
-      args.push("--notes", "release-notes.md");
-    if (options.releaseType) args.push("--type", options.releaseType);
+      notes: fs.existsSync(path.join(root, "release-notes.md")),
+    });
     runNode("scripts/release-manifest.cjs", args, root);
     return options.channel === "test"
       ? "test checksums written; stable channel files are this run's test manifest only"
@@ -1379,6 +1399,8 @@ module.exports = {
   runtimeSmokePlan,
   applyChannel,
   signingRequested,
+  manifestCaller,
+  manifestArgs,
   signingStatusLines,
   runPackagedSelfCheck,
   runPipeline,
