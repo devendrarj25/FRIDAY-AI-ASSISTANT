@@ -257,6 +257,8 @@ export type InstallerCatalogRow = {
   updateStatus: InstallerUpdateStatus;
   /** Voice rows: which source served the installed files ("FRIDAY release" or "official source"); absent or null when unknown. */
   servedFrom?: string | null;
+  /** A matching copy found in a local build of FRIDAY (Install Manager shows it); absent when there is none. */
+  localSource?: { origin: string; dir: string };
   /** A row derived from a release asset that is not published yet: nothing to download until it is. */
   needsRelease?: boolean;
   /** Plain words for the row when needsRelease is true. */

@@ -140,7 +140,7 @@ function packTagFor(mirror, pack, variantId) {
  * holds the file under `models/friday-core` with the pinned size and SHA-256, or the parts of its release asset in a
  * local pack of the right tag. `local.parts` are the files to read, in order; there is no URL.
  */
-function localSourceFor(manifest, file, pack, variantId, deps) {
+function localCoreRoad(manifest, file, pack, variantId, deps) {
   if (!Array.isArray(deps.localBundles) || !deps.localBundles.length) return null;
   const asset = releaseAssetFor(file, pack);
   const mirror = (manifest.mirrors || []).find((m) => m.kind === "release");
@@ -168,7 +168,7 @@ function localSourceFor(manifest, file, pack, variantId, deps) {
  */
 function sourcesFor(manifest, file, pack, variantId = "", deps = {}) {
   const out = [];
-  const local = localSourceFor(manifest, file, pack, variantId, deps);
+  const local = localCoreRoad(manifest, file, pack, variantId, deps);
   if (local) out.push(local);
   for (const mirror of manifest.mirrors || []) {
     if (mirror.kind === "release") {

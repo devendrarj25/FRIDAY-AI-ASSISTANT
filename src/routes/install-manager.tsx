@@ -1421,7 +1421,6 @@ function JobRow({ job }: { job: Job }) {
   );
 }
 
-type LocalBuildRow = InstallerCatalogRow & { localSource?: { origin: string; dir: string } };
 const adoptWords: Record<InstallerAdoptItem["result"], string> = {
   adopted: "Copied into your FRIDAY folder",
   "in-place": "Already in your FRIDAY folder",
@@ -1438,7 +1437,9 @@ function LocalBuildsPanel() {
   const [failure, setFailure] = useState<string | null>(null);
 
   const adoptBridge = desktopApi()?.adoptLocalBuilds;
-  const found = ((catalog.catalog?.rows ?? []) as LocalBuildRow[]).filter((row) => row.localSource);
+  const found = ((catalog.catalog?.rows ?? []) as InstallerCatalogRow[]).filter(
+    (row) => row.localSource,
+  );
 
   const adopt = async () => {
     if (!adoptBridge || busy) return;
