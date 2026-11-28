@@ -852,7 +852,12 @@ describe("one running job per root, stale partials and half copies", () => {
     write(root, "runtime/installers/x.exe.adopting", "half");
     write(root, "models/mine/model.bin", "keep");
     write(root, "docs/notes.adopting", "not an adopted parent");
-    const report = await staged.adopt(root, { env });
+    // A partial is ours when a source still holds its item, and stale after ten minutes (an injected clock).
+    const dev = path.join(temp, "checkout", ".friday-dev");
+    write(dev, "models/old/f.bin", "1");
+    write(dev, "runtime/installers/x.exe", "1");
+    staged.recordStaging(dev, { env });
+    const report = await staged.adopt(root, { env, now: () => Date.now() + 11 * 60 * 1000 });
     expect(fs.existsSync(path.join(root, "models", "old.adopting"))).toBe(false);
     expect(fs.existsSync(path.join(root, "models", "old.0123abcd.adopting"))).toBe(false);
     expect(fs.existsSync(path.join(root, "runtime", "installers", "x.exe.adopting"))).toBe(false);
@@ -874,5 +879,99 @@ describe("one running job per root, stale partials and half copies", () => {
     expect(fs.readFileSync(path.join(root, "models", "m1", "a.bin"), "utf8")).toBe("aaaa");
     expect(fs.existsSync(path.join(root, "models", "m1", "b.bin"))).toBe(false);
     expect(fs.existsSync(path.join(dev, "models", "m1", "b.bin"))).toBe(true);
+  });
+});
+
+describe("sweep only our own stale partials, and never follow a link item", () => {
+  const dev = () => path.join(temp, "checkout", ".friday-dev");
+  const later = { now: () => Date.now() + 11 * 60 * 1000 };
+
+  it("leaves an owner folder named like a partial, and a partial no source item explains", async () => {
+    write(dev(), "models/m1/f.bin", "1");
+    staged.recordStaging(dev(), { env });
+    write(root, "models/userdata.adopting/keep.txt", "mine");
+    write(root, "models/userdata.0123abcd.adopting/keep.txt", "mine");
+    write(root, "models/m1.0123abcd.adopting/f.bin", "half");
+    const report = await staged.adopt(root, { env, ...later });
+    expect(report.swept).toEqual(["models/m1.0123abcd.adopting"]);
+    expect(
+      fs.readFileSync(path.join(root, "models", "userdata.adopting", "keep.txt"), "utf8"),
+    ).toBe("mine");
+    expect(fs.existsSync(path.join(root, "models", "userdata.0123abcd.adopting"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "models", "m1.0123abcd.adopting"))).toBe(false);
+  });
+
+  it("leaves a partial younger than ten minutes (another instance may still be writing it)", async () => {
+    write(dev(), "models/m1/f.bin", "1");
+    staged.recordStaging(dev(), { env });
+    write(root, "models/m1.0123abcd.adopting/f.bin", "live");
+    const fresh = await staged.adopt(root, { env, now: () => Date.now() + 9 * 60 * 1000 });
+    expect(fresh.swept).toEqual([]);
+    expect(fs.existsSync(path.join(root, "models", "m1.0123abcd.adopting", "f.bin"))).toBe(true);
+    staged.recordStaging(dev(), { env });
+    write(dev(), "models/m1/f.bin", "1");
+    const stale = await staged.adopt(root, { env, ...later });
+    expect(stale.swept).toEqual(["models/m1.0123abcd.adopting"]);
+  });
+
+  it("a build-root item that is a symlink or junction is skipped with the reason link, and nothing is published", async () => {
+    const outside = path.join(temp, "elsewhere");
+    write(outside, "m1/a.bin", "aaaa");
+    const checkout = path.join(temp, "checkout");
+    const made = seedBuildRoot(checkout, [{ id: "m1", files: { "a.bin": "aaaa" } }]);
+    fs.rmSync(path.join(checkout, "models", "m1"), { recursive: true });
+    fs.symlinkSync(
+      path.join(outside, "m1"),
+      path.join(checkout, "models", "m1"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    const report = await staged.adopt(root, { env, pins: made.pins, statfs: roomy });
+    expect(report.items).toEqual([expect.objectContaining({ id: "models/m1", result: "skipped" })]);
+    expect(report.items[0].reason).toBe("link");
+    expect(report.copied).toEqual([]);
+    expect(fs.existsSync(path.join(root, "models", "m1"))).toBe(false);
+  });
+
+  it("a staged (moved) item that is a link is refused too, and stays where it was", async () => {
+    const outside = path.join(temp, "elsewhere");
+    write(outside, "m2/a.bin", "aaaa");
+    fs.mkdirSync(path.join(dev(), "models"), { recursive: true });
+    fs.symlinkSync(
+      path.join(outside, "m2"),
+      path.join(dev(), "models", "m2"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    staged.recordStaging(dev(), { env });
+    const report = await staged.adopt(root, { env });
+    expect(report.items[0]).toMatchObject({ id: "models/m2", result: "skipped", reason: "link" });
+    expect(report.moved).toEqual([]);
+    expect(fs.existsSync(path.join(root, "models", "m2"))).toBe(false);
+    expect(fs.lstatSync(path.join(dev(), "models", "m2")).isSymbolicLink()).toBe(true);
+  });
+
+  it("a copy that turned into a link before it was published is refused and removed", async () => {
+    const outside = path.join(temp, "elsewhere");
+    write(outside, "m1/a.bin", "aaaa");
+    const checkout = path.join(temp, "checkout");
+    const made = seedBuildRoot(checkout, [{ id: "m1", files: { "a.bin": "aaaa" } }]);
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    const realCp = fs.promises.cp.bind(fs.promises);
+    const spy = vi.spyOn(fs.promises, "cp").mockImplementation(async (from, to, ...rest) => {
+      await realCp(from, to, ...rest);
+      await fs.promises.rm(to, { recursive: true });
+      await fs.promises.symlink(
+        path.join(outside, "m1"),
+        to as string,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    });
+    try {
+      const report = await staged.adopt(root, { env, pins: made.pins, statfs: roomy });
+      expect(report.items[0]).toMatchObject({ id: "models/m1", result: "skipped", reason: "link" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(fs.readdirSync(path.join(root, "models"))).toEqual([]);
   });
 });

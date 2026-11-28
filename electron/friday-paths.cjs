@@ -363,7 +363,9 @@ const CHECKOUT_DATA_NAMES = new Set([
 function isFridayCheckout(target) {
   if (!isCheckoutShaped(target)) return false;
   try {
-    return JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8")).name === "friday";
+    // An editor may save package.json with a UTF-8 byte-order mark; JSON.parse refuses it.
+    const text = fs.readFileSync(path.join(target, "package.json"), "utf8").replace(/^\uFEFF/, "");
+    return JSON.parse(text).name === "friday";
   } catch {
     return false;
   }

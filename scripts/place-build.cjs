@@ -36,6 +36,10 @@ const bundleLib = require("../electron/build-bundle.cjs");
 const POINTER_SCHEMA = 1;
 const POINTER_FILE = "local-build.json";
 const UPDATE_FILE = "friday-update.json";
+/** A rename that meets a locked file (a scanner, a running exe) is tried again, with a growing pause. */
+const RENAME_TRIES = 5;
+const RENAME_BACKOFF_MS = [100, 200, 400, 800];
+const BUSY_CODES = new Set(["EBUSY", "EPERM"]);
 
 const isCi = (env) => Boolean(env && (env.CI || env.GITHUB_ACTIONS));
 
@@ -72,6 +76,48 @@ const fileSize = (fs, file) => {
   }
 };
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** `fs.renameSync`, tried up to RENAME_TRIES times while the file is busy or locked (EBUSY, EPERM). */
+function renameWithRetry(fs, from, to, sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error) {
+      if (!BUSY_CODES.has(error && error.code) || attempt >= RENAME_TRIES) throw error;
+      sleep(RENAME_BACKOFF_MS[Math.min(attempt, RENAME_BACKOFF_MS.length) - 1]);
+    }
+  }
+}
+
+/** Keep the old file as `<file>.old` while `<file>` stays where it is (a hard link, else a copy). */
+function parkOld(fs, dest, old) {
+  removeQuietly(fs, old);
+  try {
+    fs.linkSync(dest, old);
+  } catch {
+    fs.copyFileSync(dest, old);
+  }
+}
+
+/** Put back what phase 2 changed, newest first. Returns the names that could not be restored. */
+function rollbackPlaced(fs, undo, sleep) {
+  const lost = [];
+  for (const step of [...undo].reverse()) {
+    if (!step.placed) continue;
+    try {
+      if (step.old) renameWithRetry(fs, step.old, step.dest, sleep);
+      else fs.rmSync(step.dest, { force: true });
+    } catch {
+      lost.push(path.basename(step.dest));
+    }
+  }
+  return lost;
+}
+
 function removeQuietly(fs, file) {
   try {
     fs.rmSync(file, { force: true });
@@ -99,6 +145,7 @@ function placeBuild({
   env = process.env,
   fs = nodeFs,
   log = () => {},
+  sleep = sleepSync,
 }) {
   const skip = skipReason({ caller, env });
   if (skip) return { status: "skipped", reason: skip };
@@ -169,15 +216,35 @@ function placeBuild({
         throw new Error(`${file.name}: the copy has the wrong sha256`);
       results.push({ name: file.name, result: existed ? "replaced" : "copied", dest, part });
     }
-    // Phase 2: rename the verified parts into place.
-    for (const row of results) {
-      if (!row.part) continue;
-      fs.renameSync(row.part, row.dest);
-      staged.splice(staged.indexOf(row.part), 1);
-      log(`[friday] placed   ${row.name}`);
+    // Phase 2: rename the verified parts into place. A replaced file is first kept as <file>.old, so a rename that
+    // still fails after its retries puts every earlier file back and the folder stays as it was.
+    const undo = [];
+    try {
+      for (const row of results) {
+        if (!row.part) continue;
+        const step = { dest: row.dest, old: null, placed: false };
+        if (row.result === "replaced") {
+          step.old = `${row.dest}.old`;
+          parkOld(fs, row.dest, step.old);
+        }
+        undo.push(step);
+        renameWithRetry(fs, row.part, row.dest, sleep);
+        step.placed = true;
+        staged.splice(staged.indexOf(row.part), 1);
+        log(`[friday] placed   ${row.name}`);
+      }
+      writePointer({ fs, root, bundle, dir });
+    } catch (error) {
+      const lost = rollbackPlaced(fs, undo, sleep);
+      if (lost.length) {
+        error.message = `${error.message} (could not restore ${lost.join(", ")}; the old copy is kept as .old)`;
+        for (const step of undo) if (lost.includes(path.basename(step.dest))) step.old = null;
+      }
+      for (const step of undo) if (step.old) removeQuietly(fs, step.old);
+      throw error;
     }
+    for (const step of undo) if (step.old) removeQuietly(fs, step.old);
     const unchanged = results.every((row) => row.result === "same");
-    writePointer({ fs, root, bundle, dir });
     return {
       status: "placed",
       dir,

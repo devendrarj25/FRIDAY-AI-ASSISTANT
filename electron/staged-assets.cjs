@@ -43,7 +43,9 @@
  *   * free space is checked first, so a model that cannot fit is never hashed on every launch;
  *   * the finished `.adopting` copy is hashed against the manifest BEFORE it is renamed into place, so a source
  *     that changed during the copy ends skipped. A file item is published with a hard link (it never replaces a
- *     file that appeared meanwhile). Partial names carry a random suffix and a stale one is swept at the start;
+ *     file that appeared meanwhile). Partial names carry a random suffix; a partial is swept at the start only when
+ *     it is ours (`<item>.<8 hex>.adopting`, `<item>` held by a source) and ten minutes old. An item that is a
+ *     symlink or junction is skipped with the reason `link`, and a copy that turned into a link is never published;
  *   * the pointer accepts local drive paths only (no UNC or device path, so no network share is ever touched),
  *     is written atomically, and keeps fields and rows it does not know;
  *   * one job runs per resolved root and jobs are serialised; `whenIdle` waits for all of them.
@@ -64,6 +66,8 @@ const FREE_SPACE_MARGIN = 2 * 1024 ** 3;
 const PARTIAL_SUFFIX = ".adopting";
 /** Our own partial names: `<name>.adopting` (older) and `<name>.<8 hex>.adopting`. */
 const OWN_PARTIAL = /(?:\.[0-9a-f]{8})?\.adopting$/;
+/** A partial younger than this may still be written by a running copy, so a sweep leaves it. */
+const PARTIAL_GRACE_MS = 10 * 60 * 1000;
 
 /** Parents whose children are downloads. Each child moves as one item. */
 const ADOPTED = [
@@ -276,6 +280,19 @@ class CopyChanged extends Error {
   }
 }
 
+/** An item (or its copy) is a symlink or junction: it is never copied, moved or published. */
+class LinkRefused extends Error {
+  constructor() {
+    super("link");
+    this.code = "LINK";
+  }
+}
+
+async function refuseLink(target) {
+  const stat = await fs.promises.lstat(target);
+  if (stat.isSymbolicLink()) throw new LinkRefused();
+}
+
 /**
  * Last look before anything lands. An empty folder is removed with a plain rmdir (it refuses a folder that
  * has content), so a destination that filled up meanwhile is never emptied; anything still there refuses.
@@ -358,6 +375,8 @@ async function copyThenRename(from, to, expected = null) {
   const partial = `${to}.${crypto.randomBytes(4).toString("hex")}${PARTIAL_SUFFIX}`;
   try {
     await fs.promises.cp(from, partial, { recursive: true, force: false, errorOnExist: true });
+    // walkPlain follows a link at the top, so look at the copy itself before it is read or published.
+    await refuseLink(partial);
     if (expected) {
       if (!(await treeMatches(partial, expected, true))) throw new CopyChanged();
     } else if ((await treeBytes(from)) !== (await treeBytes(partial))) {
@@ -373,6 +392,7 @@ async function copyThenRename(from, to, expected = null) {
 
 async function publish(partial, to) {
   const stat = await fs.promises.lstat(partial);
+  if (stat.isSymbolicLink()) throw new LinkRefused();
   if (stat.isDirectory()) {
     await fs.promises.rename(partial, to);
     return;
@@ -492,7 +512,10 @@ async function freeBytesAt(target, statfs) {
 
 const GIB_LABEL = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
-/** The items under `base` that adoption knows: [segments, name, full path] for each. */
+/**
+ * The items under `base` that adoption knows: `{segments, name, from, link}` for each. `link` is true when the
+ * item itself is a symlink or junction (found with lstat, never followed).
+ */
 async function listItems(base) {
   const found = [];
   for (const segments of ADOPTED) {
@@ -504,17 +527,39 @@ async function listItems(base) {
     }
     for (const name of names) {
       if (name.endsWith(PARTIAL_SUFFIX)) continue;
-      found.push({ segments, name, from: path.join(base, ...segments, name) });
+      const from = path.join(base, ...segments, name);
+      const link = await fs.promises.lstat(from).then(
+        (stat) => stat.isSymbolicLink(),
+        () => false,
+      );
+      found.push({ segments, name, from, link });
     }
   }
   return found;
 }
 
+/** Keys (`models/name`) of the items every source holds, for the sweep: a partial belongs to one of them. */
+async function sourceItemKeys(root, env) {
+  const bases = [...candidates(root, env)];
+  if (String(env.FRIDAY_LOCAL_BUNDLES ?? "1").trim() !== "0") {
+    for (const build of readBuildRoots(env)) if (isDirectory(build.root)) bases.push(build.root);
+  }
+  const keys = new Set();
+  for (const base of bases) {
+    for (const item of await listItems(base)) {
+      keys.add(foldCase([...item.segments, item.name].join("/")));
+    }
+  }
+  return keys;
+}
+
 /**
- * Our own half-finished copies (`*.adopting`) in the adopted parents of `root`, left by a crash. Only a name
- * that ends in our suffix is touched; the owner's folders and files are never listed for removal.
+ * Our own half-finished copies, left by a crash. A partial is swept only when its name is one of ours
+ * (`<item>.adopting` or `<item>.<8 hex>.adopting`), `<item>` is an item a source still holds (so a folder the owner
+ * happens to call `userdata.adopting` is never listed), and it has not been written for ten minutes (so the live
+ * copy of another running instance is left). The owner's other folders and files are never touched.
  */
-async function sweepPartials(root, report) {
+async function sweepPartials(root, report, { keys, now }) {
   for (const segments of ADOPTED) {
     const parent = path.join(root, ...segments);
     let names = [];
@@ -524,9 +569,13 @@ async function sweepPartials(root, report) {
       continue;
     }
     for (const name of names) {
-      if (!OWN_PARTIAL.test(name)) continue;
+      const own = OWN_PARTIAL.exec(name);
+      if (!own) continue;
+      if (!keys.has(foldCase([...segments, name.slice(0, own.index)].join("/")))) continue;
       const full = path.join(parent, name);
       try {
+        const stat = await fs.promises.lstat(full);
+        if (now() - stat.mtimeMs < PARTIAL_GRACE_MS) continue;
         await fs.promises.rm(full, { recursive: true, force: true });
         report.swept.push([...segments, name].join("/"));
       } catch {
@@ -569,11 +618,16 @@ async function looksUnfinished(from, to) {
 async function adoptFrom(base, root, report, mode, ctx) {
   const origin = path.resolve(base);
   const note = (id, result, reason) => report.items.push({ id, origin, result, reason });
-  for (const { segments, name, from } of await listItems(base)) {
+  for (const { segments, name, from, link } of await listItems(base)) {
     const to = path.join(root, ...segments, name);
     const label = [...segments, name].join("/");
     if (mode === "in-place") {
       note(label, "in-place", "build root is the install root");
+      continue;
+    }
+    if (link) {
+      // A link could point anywhere (another disk, the owner's folders): it is never copied or moved.
+      note(label, "skipped", "link");
       continue;
     }
     if (!(await isFree(to))) {
@@ -616,7 +670,7 @@ async function adoptFrom(base, root, report, mode, ctx) {
         note(label, "adopted", how);
       }
     } catch (error) {
-      if (error?.code === "DEST_APPEARED" || error?.code === "COPY_CHANGED") {
+      if (["DEST_APPEARED", "COPY_CHANGED", "LINK"].includes(error?.code)) {
         if (error.code === "DEST_APPEARED") report.kept.push(label);
         note(label, "skipped", error.message);
         continue;
@@ -646,6 +700,7 @@ async function runAdoption(root, options, env) {
     statfs: options.statfs ?? ((dir) => fs.promises.statfs(dir)),
     realpath: options.realpath ?? ((dir) => fs.realpathSync.native(dir)),
     platform: options.platform ?? process.platform,
+    now: options.now ?? Date.now,
   };
   const pins = options.pins ?? configPins();
   ctx.verify =
@@ -665,7 +720,7 @@ async function runAdoption(root, options, env) {
   if (String(env.FRIDAY_READINESS ?? "").trim() === "1") return report;
   try {
     const target = path.resolve(root);
-    await sweepPartials(target, report);
+    await sweepPartials(target, report, { keys: await sourceItemKeys(root, env), now: ctx.now });
     for (const staging of candidates(root, env)) {
       report.sources.push(staging);
       await adoptFrom(staging, target, report, "move", ctx);
@@ -690,7 +745,7 @@ async function runAdoption(root, options, env) {
  * the FRIDAY folder already had it, what failed, `swept` (stale partial copies removed) and `items`, one row per
  * item. Never throws. One job runs per resolved root, a second call for the same root gets the same promise, and
  * jobs for different roots run one after the other.
- * Options inject the machine: `realpath`, `statfs`, `platform`, `verify`, `pins`.
+ * Options inject the machine: `realpath`, `statfs`, `platform`, `verify`, `pins`, `now` (the clock of the sweep).
  */
 function adopt(root, options = {}) {
   const { env = process.env } = options;

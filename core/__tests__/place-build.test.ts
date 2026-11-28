@@ -600,3 +600,110 @@ describe("a requested but skipped pack build says so (packsNote)", () => {
     expect(source.indexOf("packsNote(")).toBeLessThan(source.indexOf("finish(lines.length"));
   });
 });
+
+describe("phase 2 is all or nothing, and a busy rename is retried", () => {
+  const OLD: Record<string, string> = Object.fromEntries(
+    Object.entries(FILES).map(([name, text]) => [name, `older ${text}`]),
+  );
+
+  /** The folder as a map of name to content (the placed folder and the pointer), for a before/after compare. */
+  const snapshot = () => {
+    const out: Record<string, string> = {};
+    for (const name of nodeFs.readdirSync(placed()).sort())
+      out[name] = nodeFs.readFileSync(path.join(placed(), name), "utf8");
+    out["local-build.json"] = nodeFs.readFileSync(
+      path.join(root, "installer", "manifests", "local-build.json"),
+      "utf8",
+    );
+    return out;
+  };
+
+  const placeOldThenPrepareNew = () => {
+    nodeFs.rmSync(release, { recursive: true });
+    makeRelease(release, OLD);
+    expect(run().status).toBe("placed");
+    const before = snapshot();
+    nodeFs.rmSync(release, { recursive: true });
+    makeRelease(release);
+    return before;
+  };
+
+  /** A fs whose `.part` renames fail with `code`: `failAt` is the 1-based rename that fails (every try of it). */
+  const flakyFs = (failAt: number, code: string, failTries = Infinity) => {
+    let seen = 0;
+    let tries = 0;
+    const wrapped = {
+      ...nodeFs,
+      renameSync(from: string, to: string) {
+        if (from.endsWith(".part") && !to.includes("local-build")) {
+          if (tries === 0) seen += 1;
+          if (seen === failAt && tries < failTries) {
+            tries += 1;
+            throw Object.assign(new Error(`${code} injected`), { code });
+          }
+          if (seen === failAt) tries = 0;
+        }
+        nodeFs.renameSync(from, to);
+      },
+    };
+    return wrapped;
+  };
+
+  it("a third rename that stays busy puts every earlier file back: the folder is as it was", () => {
+    const before = placeOldThenPrepareNew();
+    const sleeps: number[] = [];
+    const result = run({ fs: flakyFs(3, "EBUSY"), sleep: (ms: number) => sleeps.push(ms) });
+    expect(result.status).toBe("failed");
+    expect(String(result.reason)).toContain("injected");
+    expect(snapshot()).toEqual(before);
+    expect(
+      nodeFs.readdirSync(placed()).filter((n) => n.endsWith(".part") || n.endsWith(".old")),
+    ).toEqual([]);
+    expect(sleeps).toEqual([100, 200, 400, 800]);
+  });
+
+  it("a failed first placement removes the files it had put in, and writes no pointer", () => {
+    const sleeps: number[] = [];
+    const result = run({ fs: flakyFs(3, "EPERM"), sleep: (ms: number) => sleeps.push(ms) });
+    expect(result.status).toBe("failed");
+    expect(nodeFs.readdirSync(placed())).toEqual([]);
+    expect(nodeFs.existsSync(path.join(root, "installer", "manifests", "local-build.json"))).toBe(
+      false,
+    );
+  });
+
+  it("a rename that is busy twice and then free is placed, after pauses of 100 and 200 ms", () => {
+    const sleeps: number[] = [];
+    const result = run({ fs: flakyFs(2, "EBUSY", 2), sleep: (ms: number) => sleeps.push(ms) });
+    expect(result.status).toBe("placed");
+    expect(sleeps).toEqual([100, 200]);
+    expect(
+      nodeFs
+        .readFileSync(path.join(placed(), "latest.yml"))
+        .equals(nodeFs.readFileSync(path.join(release, "latest.yml"))),
+    ).toBe(true);
+  });
+
+  it("any other error is not retried, and still rolls back", () => {
+    const before = placeOldThenPrepareNew();
+    const sleeps: number[] = [];
+    const result = run({ fs: flakyFs(3, "ENOSPC"), sleep: (ms: number) => sleeps.push(ms) });
+    expect(result.status).toBe("failed");
+    expect(sleeps).toEqual([]);
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("a pointer that cannot be written also rolls the files back", () => {
+    const before = placeOldThenPrepareNew();
+    const wrapped = {
+      ...nodeFs,
+      writeFileSync(file: string, ...rest: unknown[]) {
+        if (String(file).includes("local-build")) throw new Error("disk full");
+        (nodeFs.writeFileSync as (...a: unknown[]) => void)(file, ...rest);
+      },
+    };
+    const result = run({ fs: wrapped, sleep: () => undefined });
+    expect(result.status).toBe("failed");
+    expect(snapshot()).toEqual(before);
+  });
+});

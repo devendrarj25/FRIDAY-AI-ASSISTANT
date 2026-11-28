@@ -447,4 +447,18 @@ describe("path service: one scan, alias order, links and checkout roots", () => 
     rmSync(folder, { recursive: true, force: true });
     rmSync(other, { recursive: true, force: true });
   });
+
+  it("a package.json saved with a UTF-8 BOM still marks a checkout: no source folder is created in it", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-checkout-bom-"));
+    writeFileSync(join(folder, "package.json"), `\uFEFF${JSON.stringify({ name: "friday" })}\n`);
+    mkdirSync(join(folder, "src"));
+    mkdirSync(join(folder, "kernel"));
+    const result = paths.ensureStructure(folder);
+    expect(existsSync(join(folder, "models"))).toBe(true);
+    for (const stay of ["assets", "installer", "skills", "agents", "plugins", "backend"]) {
+      expect(existsSync(join(folder, stay)), stay).toBe(false);
+    }
+    expect(result.skipped).toEqual(expect.arrayContaining(["assets", "installer", "skills"]));
+    rmSync(folder, { recursive: true, force: true });
+  });
 });
