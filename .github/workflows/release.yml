@@ -1128,7 +1128,8 @@ jobs:
       pull-requests: read
       actions: read
     runs-on: windows-latest
-    timeout-minutes: 90
+    # A first release after a weight-pack revision also builds and uploads the missing packs.
+    timeout-minutes: 360
 
     steps:
       - name: Refuse to release from anything but main
@@ -1557,6 +1558,237 @@ jobs:
             --setup "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
             --channel stable
 
+      - name: Publish missing weight packs
+        # The weight packs live in their own releases (friday-<pack>-<revision>), one per entry of
+        # config/friday-models.json, and are published ONCE per revision: a tag that already has a release is never
+        # built, uploaded to, edited or deleted. Only a missing one is built, ONE MODEL AT A TIME (the work folder is
+        # outside the checkout and is emptied after each model, so the runner disk only holds the biggest model),
+        # uploaded to a DRAFT, checked file by file against the built bytes, then published WITHOUT "Latest" (the
+        # app release stays the latest one). With every tag present this step builds nothing and says so.
+        timeout-minutes: 240
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}"
+          builder="${PACK_BUILD_SCRIPT:-scripts/build-friday-models.cjs}"
+          work="${RUNNER_TEMP:?RUNNER_TEMP required}/friday-packs"
+          max_asset=2147483648   # GitHub refuses one release asset of 2 GiB or more
+          part_bytes=1900000000  # a bigger file is cut into .partNNN files under that
+          margin=2147483648      # free space kept beyond what the model being built needs
+          ct2_ready=0
+          tag="" id="" dir=""
+
+          summary() { [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          # The packs and their models, read the way build-friday-models.cjs reads them.
+          plan=$(node -e '
+            const b = require("./scripts/build-friday-models.cjs");
+            const whole = b.readManifest();
+            const sources = { helperJobs: require("./electron/voice-weights.cjs").pinnedJobs(), core: b.readCore() };
+            for (const p of b.packsOf(whole)) {
+              const m = b.packManifest(whole, p.id, sources);
+              console.log(["pack", p.id, m.tag, m.title].join("\t"));
+              for (const model of b.modelsOf(m)) {
+                const bytes = model.assets.reduce((n, a) => n + a.bytes, 0);
+                const ct2 = model.assets.some((a) => a.from && a.from.recipe === "ct2-int8") ? 1 : 0;
+                console.log(["model", p.id, model.fridayId, bytes, ct2].join("\t"));
+              }
+            }
+          ')
+
+          release_state() {
+            local out
+            if out=$(gh release view "$1" --json tagName 2>&1 < /dev/null); then
+              echo exists
+            elif printf '%s' "$out" | grep -qi 'not found'; then
+              echo missing
+            else
+              echo "::error::could not tell whether the release $1 exists: $out" >&2
+              return 1
+            fi
+          }
+
+          missing=()
+          while IFS=$'\t' read -r kind pack ptag ptitle <&3; do
+            [ "$kind" = pack ] || continue
+            state=$(release_state "$ptag")
+            if [ "$state" = exists ]; then
+              echo "weight pack $pack: release $ptag exists - left exactly as it is"
+              continue
+            fi
+            if gh api "repos/$repo/git/ref/tags/$ptag" > /dev/null 2>&1 < /dev/null; then
+              echo "::error::the tag $ptag exists without a release. It is never moved or rewritten: publish or remove it by hand, then run FRIDAY Release again."
+              exit 1
+            fi
+            echo "weight pack $pack: release $ptag is missing - it will be built and published"
+            missing+=("$pack")
+          done 3<<< "$plan"
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "Publish missing weight packs: skipped - every weight pack release already exists, nothing was built or uploaded."
+            summary "- weight packs: skipped, every pack release already exists"
+            exit 0
+          fi
+
+          drafts() {
+            gh api "repos/$repo/releases?per_page=100" \
+              --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id" < /dev/null
+          }
+
+          # Any failure ends here: the draft is deleted, the work folder is removed, nothing is published.
+          drop() {
+            echo "::error::$1 - the draft for $tag is deleted and nothing was published."
+            [ -z "$id" ] || gh api -X DELETE "repos/$repo/releases/$id" > /dev/null 2>&1 < /dev/null || true
+            rm -rf "$work"
+            exit 1
+          }
+
+          # Every file must be on the draft with the SHA-256 of the file that was built.
+          verify_files() {
+            local listing f name want row digest asset_id
+            listing=$(gh api --paginate "repos/$repo/releases/$id/assets?per_page=100" \
+              --jq '.[] | [.name, (.digest // ""), (.id | tostring)] | @tsv' < /dev/null) \
+              || drop "the draft's assets could not be listed"
+            for f in "$@"; do
+              name=$(basename "$f")
+              want="sha256:$(sha256sum < "$f" | cut -d' ' -f1)"
+              row=$(printf '%s\n' "$listing" | awk -F'\t' -v n="$name" '$1 == n { print; exit }')
+              [ -n "$row" ] || drop "$name was not uploaded"
+              digest=$(printf '%s' "$row" | cut -f2)
+              if [ -z "$digest" ]; then
+                asset_id=$(printf '%s' "$row" | cut -f3)
+                digest="sha256:$(gh api -H 'Accept: application/octet-stream' "repos/$repo/releases/assets/$asset_id" < /dev/null | sha256sum | cut -d' ' -f1)"
+              fi
+              [ "$digest" = "$want" ] || drop "$name on the draft ($digest) is not the built file ($want)"
+            done
+          }
+
+          publish_pack() {
+            local pack="$1" title="$2" kind mpack model bytes ct2 out need avail f size specs final stale
+            local files=()
+            dir="$work/$pack"
+            rm -rf "$dir"
+            mkdir -p "$dir/meta"
+            id=""
+
+            # A draft that a cancelled run left for this tag is removed first, so the new draft is the only one.
+            for stale in $(drafts); do
+              echo "removing a draft left by an earlier run ($stale)"
+              gh api -X DELETE "repos/$repo/releases/$stale" > /dev/null < /dev/null
+            done
+            # A draft is not public and creates no tag; the tag appears when the verified draft is published.
+            id=$(gh api -X POST "repos/$repo/releases" -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" \
+              -f name="$title" -f body="$title" -F draft=true -F prerelease=false -f make_latest=false \
+              --jq '.id' < /dev/null)
+            [ -n "$id" ] || { echo "::error::the draft release for $tag was not created"; exit 1; }
+
+            while IFS=$'\t' read -r kind mpack model bytes ct2 <&4; do
+              [ "$kind" = model ] && [ "$mpack" = "$pack" ] || continue
+              out="$dir/$model"
+
+              # The weights are written, cut into parts and uploaded one model at a time: twice its size plus a margin.
+              need=$(( bytes * 2 + margin ))
+              avail=$(( $(df -Pk "$dir" | awk 'NR == 2 { print $4 }') * 1024 ))
+              [ "$avail" -ge "$need" ] \
+                || drop "not enough free disk to build $model: $avail bytes free, $need needed ($bytes bytes of weights, twice that while parts are cut, plus $margin)"
+
+              if [ "$ct2" = 1 ] && [ "$ct2_ready" = 0 ]; then
+                specs=$(node -e '
+                  const wheels = require("./config/wheelhouse.lock.json").wheels;
+                  const pin = (n) => {
+                    const row = wheels.find((w) => w.name === n);
+                    if (!row) throw new Error(n + " is not in config/wheelhouse.lock.json");
+                    return n + "==" + row.version;
+                  };
+                  console.log(pin("numpy"), pin("ctranslate2"));
+                ')
+                echo "installing the pinned converter packages: $specs"
+                python -m pip install --disable-pip-version-check --no-input $specs < /dev/null \
+                  || drop "the converter packages ($specs) could not be installed"
+                ct2_ready=1
+              fi
+
+              echo "building $model ($bytes bytes) of $pack"
+              node "$builder" --pack "$pack" --only "$model" --out "$out" --part-bytes "$part_bytes" < /dev/null \
+                || drop "building $model failed"
+
+              files=()
+              for f in "$out"/*; do
+                [ -f "$f" ] || continue
+                case "$(basename "$f")" in
+                  SHA256SUMS | NOTICE.md | upload-command.txt | "friday-$pack.json") continue ;;
+                esac
+                size=$(wc -c < "$f" | tr -d '[:space:]')
+                [ "$size" -le "$max_asset" ] \
+                  || drop "$(basename "$f") is $size bytes, over the $max_asset bytes GitHub accepts for one release asset"
+                files+=("$f")
+              done
+              [ "${#files[@]}" -gt 0 ] || drop "the build of $model wrote no weight files"
+              cp "$out/SHA256SUMS" "$dir/meta/$model.sums" || drop "the build of $model wrote no SHA256SUMS"
+              cp "$out/NOTICE.md" "$dir/meta/$model.notice" || drop "the build of $model wrote no NOTICE.md"
+              cp "$out/friday-$pack.json" "$dir/meta/$model.json" || drop "the build of $model wrote no friday-$pack.json"
+
+              gh release upload "$tag" "${files[@]}" > /dev/null < /dev/null || drop "uploading $model failed"
+              verify_files "${files[@]}"
+              rm -rf "$out"
+              echo "uploaded and verified $model (${#files[@]} files); its work folder is removed"
+            done 4<<< "$plan"
+
+            # One SHA256SUMS, one NOTICE.md and one manifest for the whole pack, from what each model's build wrote.
+            final="$dir/final"
+            mkdir -p "$final"
+            node -e '
+              const fs = require("fs");
+              const path = require("path");
+              const [meta, out, pack] = process.argv.slice(1);
+              const ids = fs.readdirSync(meta).filter((n) => n.endsWith(".sums")).map((n) => n.slice(0, -5)).sort();
+              if (!ids.length) throw new Error("no model was built");
+              const read = (id, ext) => fs.readFileSync(path.join(meta, id + ext), "utf8");
+              const sums = ids.flatMap((id) => read(id, ".sums").split("\n").filter(Boolean));
+              fs.writeFileSync(path.join(out, "SHA256SUMS"), [...new Set(sums)].join("\n") + "\n");
+              const heading = "## Licences of the included models";
+              let head = "";
+              const licences = [];
+              for (const id of ids) {
+                const text = read(id, ".notice");
+                const at = text.indexOf(heading);
+                if (at < 0) throw new Error(id + ": NOTICE.md has no licence section");
+                if (!head) head = text.slice(0, at + heading.length);
+                licences.push(...text.slice(at + heading.length).split("\n").filter((l) => l.trim()));
+              }
+              fs.writeFileSync(path.join(out, "NOTICE.md"), head + "\n\n" + licences.join("\n") + "\n");
+              const docs = ids.map((id) => JSON.parse(read(id, ".json")));
+              const merged = { ...docs[0], assets: docs.flatMap((d) => d.assets || []) };
+              const skipped = docs.flatMap((d) => d.skipped || []);
+              if (skipped.length) merged.skipped = skipped;
+              else delete merged.skipped;
+              fs.writeFileSync(path.join(out, "friday-" + pack + ".json"), JSON.stringify(merged, null, 2) + "\n");
+            ' "$dir/meta" "$final" "$pack" || drop "the pack's SHA256SUMS, NOTICE.md and manifest could not be merged"
+            gh release upload "$tag" "$final/SHA256SUMS" "$final/NOTICE.md" "$final/friday-$pack.json" > /dev/null < /dev/null \
+              || drop "uploading the pack's SHA256SUMS, NOTICE.md and manifest failed"
+            verify_files "$final/SHA256SUMS" "$final/NOTICE.md" "$final/friday-$pack.json"
+
+            # Published last, and never as the latest release: the app release stays the latest one.
+            gh api -X PATCH "repos/$repo/releases/$id" -F "body=@$final/NOTICE.md" -F draft=false -f make_latest=false > /dev/null < /dev/null \
+              || drop "the verified draft could not be published"
+            [ "$(release_state "$tag")" = exists ] || drop "the published release $tag cannot be read back"
+            echo "published weight pack $tag (every file verified before it became public)"
+            summary "- weight pack $tag: published"
+            id=""
+            rm -rf "$dir"
+          }
+
+          while IFS=$'\t' read -r kind pack ptag ptitle <&3; do
+            [ "$kind" = pack ] || continue
+            case " ${missing[*]} " in *" $pack "*) ;; *) continue ;; esac
+            tag="$ptag"
+            publish_pack "$pack" "$ptitle"
+          done 3<<< "$plan"
+          rm -rf "$work"
+
       - name: Create GitHub Release
         id: publish
         shell: bash
@@ -1575,6 +1807,7 @@ jobs:
             "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe.blockmap" \
             "release/latest.yml" \
             "release/friday-update.json" \
+            "release/friday-bundle.json" \
             "release/SHA256SUMS.txt" \
             "CHANGELOG.md"; do
             [ -f "$asset" ] && assets+=("$asset")
@@ -1590,6 +1823,11 @@ jobs:
           # installed FRIDAY, so it is not published at all.
           if [ ! -f "release/friday-update.json" ]; then
             echo "::error::update manifest missing — release stopped."
+            exit 1
+          fi
+          # The build record names the packs and models this build knows; verify and the installed app read it.
+          if [ ! -f "release/friday-bundle.json" ]; then
+            echo "::error::build record (friday-bundle.json) missing — release stopped."
             exit 1
           fi
 
@@ -1636,6 +1874,19 @@ jobs:
 
           echo "$names" | grep -q "friday-update.json" \
             || { echo "::error::update manifest was not uploaded — release incomplete."; exit 1; }
+          echo "$names" | grep -q "friday-bundle.json" \
+            || { echo "::error::build record (friday-bundle.json) was not uploaded — release incomplete."; exit 1; }
+          # Every weight pack the build record names must exist as its own release, and no asset may pass the
+          # 2 GiB GitHub accepts for one file.
+          node -e 'const b = require("./electron/build-bundle.cjs").read("release/friday-bundle.json"); if (!b) process.exit(1); for (const p of b.packs) if (p.location === "release") console.log(p.tag)' > pack-tags.txt \
+            || { echo "::error::release/friday-bundle.json is missing or invalid."; exit 1; }
+          while read -r ptag; do
+            [ -n "$ptag" ] || continue
+            gh release view "$ptag" --json tagName > /dev/null 2>&1 < /dev/null \
+              || { echo "::error::the build record names the weight pack release $ptag, which does not exist."; exit 1; }
+          done < pack-tags.txt
+          big=$(gh release view "$tag" --json assets --jq '.assets[] | select(.size > 2147483648) | .name')
+          [ -z "$big" ] || { echo "::error::an asset of $tag is over 2147483648 bytes: $big"; exit 1; }
           gh release view "$tag" --json isDraft --jq '.isDraft' | grep -q false \
             || { echo "::error::release is still a draft."; exit 1; }
           gh release view "$tag" --json isPrerelease --jq '.isPrerelease' | grep -q false \
@@ -1666,9 +1917,11 @@ jobs:
         shell: bash
         run: |
           # Official releases only: TEST pre-releases belong to the test
-          # channel and are never listed, counted or deleted here.
+          # channel, and the weight packs (friday-<pack>-<revision>) are their
+          # own releases: neither is ever listed, counted or deleted here.
+          # An official release tag starts with "v".
           gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \
-            --jq 'map(select(.isDraft|not) | select(.isPrerelease|not)) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old.txt
+            --jq 'map(select(.isDraft|not) | select(.isPrerelease|not) | select(.tagName|startswith("v"))) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old.txt
           while read -r tag; do
             [ -n "$tag" ] || continue
             [ "$tag" = "${{ steps.plan.outputs.tag }}" ] && continue

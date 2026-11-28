@@ -230,14 +230,26 @@ describe("builtins.json and the wheelhouse ride the one shared build", () => {
         "latest.yml",
       ])
         fs.writeFileSync(path.join(dir, name), name);
+      const res = path.join(dir, "win-unpacked", "resources");
+      fs.mkdirSync(res, { recursive: true });
+      fs.writeFileSync(path.join(res, "builtins.json"), '{"builtins":[]}');
       const manifest = (
         require_(path.join(ROOT, "scripts/release-manifest.cjs")) as {
           build: (input: Record<string, unknown>) => { assets: { name: string }[] };
         }
-      ).build({ version: "9.9.9.9", releaseDir: dir, outDir: dir, syncLatest: false });
+      ).build({
+        version: "9.9.9.9",
+        releaseDir: dir,
+        outDir: dir,
+        syncLatest: false,
+        resourcesDir: res,
+        caller: "release",
+        commit: null,
+        env: {},
+      });
       const written = [
         ...manifest.assets.map((asset) => asset.name),
-        ...["SHA256SUMS.txt", "friday-update.json"].filter((name) =>
+        ...["SHA256SUMS.txt", "friday-update.json", "friday-bundle.json"].filter((name) =>
           fs.existsSync(path.join(dir, name)),
         ),
       ].sort();
