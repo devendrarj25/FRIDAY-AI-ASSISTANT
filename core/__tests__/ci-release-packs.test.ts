@@ -108,7 +108,7 @@ const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const a = process.argv.slice(2);
 const arg = (n) => a[a.indexOf(n) + 1];
 const pack = arg("--pack"), model = arg("--only"), out = arg("--out");
-fs.appendFileSync("__LOG__", JSON.stringify({ pack, model, out, partBytes: arg("--part-bytes"),
+fs.appendFileSync(__LOG__, JSON.stringify({ pack, model, out, partBytes: arg("--part-bytes"),
   siblings: fs.existsSync(path.dirname(out)) ? fs.readdirSync(path.dirname(out)) : [] }) + "\\n");
 fs.mkdirSync(out, { recursive: true });
 const file = model + "--weights.bin";
@@ -120,6 +120,12 @@ fs.writeFileSync(path.join(out, "friday-" + pack + ".json"), JSON.stringify({ pa
 fs.writeFileSync(path.join(out, "upload-command.txt"), "not uploaded");
 `;
 
+/**
+ * A path as the step's bash and the stand-ins write it: forward slashes, so a Windows drive path
+ * (`C:\Users\x`) never reaches a shell string as backslash escapes. Native paths stay in every Node call.
+ */
+const forBash = (p: string) => p.replaceAll("\\", "/");
+
 function sandbox(published: string[], extra: { freeKb?: number; keep?: boolean } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pack-step-"));
   temp.push(dir);
@@ -127,7 +133,7 @@ function sandbox(published: string[], extra: { freeKb?: number; keep?: boolean }
   fs.mkdirSync(bin);
   fs.writeFileSync(
     path.join(bin, "gh"),
-    GH.replaceAll("__DIR__", dir).replace("KEEP_HOOK", extra.keep ? KEEP : ":"),
+    GH.replaceAll("__DIR__", forBash(dir)).replace("KEEP_HOOK", extra.keep ? KEEP : ":"),
     { mode: 0o755 },
   );
   fs.writeFileSync(
@@ -137,12 +143,12 @@ function sandbox(published: string[], extra: { freeKb?: number; keep?: boolean }
   );
   fs.writeFileSync(
     path.join(bin, "python"),
-    `#!/usr/bin/env bash\necho "$*" >> "${dir}/python-calls"\n`,
+    `#!/usr/bin/env bash\necho "$*" >> "${forBash(dir)}/python-calls"\n`,
     { mode: 0o755 },
   );
   fs.writeFileSync(
     path.join(dir, "builder.cjs"),
-    BUILDER.replaceAll("__LOG__", path.join(dir, "builds.jsonl")),
+    BUILDER.replaceAll("__LOG__", JSON.stringify(path.join(dir, "builds.jsonl"))),
   );
   fs.writeFileSync(path.join(dir, "published"), published.map((t) => `${t}\n`).join(""));
   fs.writeFileSync(path.join(dir, "step.sh"), stepScript());

@@ -211,7 +211,13 @@ describe("ensureStructure is idempotent and never destructive (D8)", () => {
     expect(result.created).not.toContain("models");
     expect(result.migrated).toEqual([]);
     paths.setRoot(folder);
-    expect(paths.dir("models")).toBe(join(folder, "Models"));
+    // A disk that tells the spellings apart must answer with the folder that exists; a disk that folds case
+    // (Windows) may answer with either spelling, because both open the same single folder.
+    const folds = existsSync(join(folder, "models"));
+    const answered = paths.dir("models");
+    expect(folds ? answered.toLowerCase() : answered).toBe(
+      folds ? join(folder, "Models").toLowerCase() : join(folder, "Models"),
+    );
     paths.setRoot(null);
     paths.ensureStructure(folder);
     expect(readdirSync(folder).filter((name) => name.toLowerCase() === "models")).toEqual([
