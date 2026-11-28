@@ -73,7 +73,7 @@ It removes:
 
 - merged work branches that are not protected
 - TEST prereleases except the newest one
-- official releases beyond the newest 3
+- official app releases beyond the newest 3 (weight pack releases are never counted or deleted)
 - workflow runs beyond the newest 15 per workflow
 
 It always keeps `main`, `master`, `develop`, `development`, `release`, `recovery/*`, any branch that is not merged, and any branch pinned by an open pull request.
