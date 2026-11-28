@@ -49,7 +49,7 @@ Counted from the files named in the last column. `docs:sync` rewrites the six di
 
 `npm run arrange:check` declares 141 layout folders. That number is the arrange contract, not `FOLDERS`.
 
-Python floors stay in `kernel/requirements.txt` (FastAPI, `faster-whisper`, `edge-tts`). The voice-stack rule in `kernel/requirements-capabilities.txt` refuses torch, vLLM, vosk, piper-tts, kokoro-onnx, sherpa-onnx, and the silero-vad pip package. The kernel boots with no voice model.
+Python floors stay in `kernel/requirements.txt` (FastAPI, `faster-whisper`, `edge-tts`). AGENTS.md no longer forbids torch, vLLM, vosk, piper-tts, kokoro-onnx, sherpa-onnx or the silero-vad pip package (the owner removed that sentence on 2026-11-28). The code still refuses them until an optional install path is built for each: `kernel/requirements-capabilities.txt` (comments), the `DENIED` set in `kernel/toolchain_gate.py`, `BANNED_PACKAGES` in `scripts/voice-stack.cjs` and the tests that pin them (`clean-install-contract`, `voice-stack`, the voice registry tests) are unchanged, so nothing new is installed by this edit. GPL parts (piper-tts, kokoro-onnx's phonemizer, sherpa-onnx's espeak-ng) keep the licence rule in AGENTS.md (optional, downloaded on demand, a separate process, never in the EXE). The kernel boots with no voice model.
 
 ## GitHub automation
 
